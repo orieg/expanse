@@ -36,6 +36,17 @@ fn keys(dist: &str, n: usize) -> Vec<u64> {
             }
         }
         "sparse" => out.extend((0..n as u64).map(|i| i << 40)),
+        // Runs of 4096 span two key bytes: exercises branch-targeted
+        // narrow pointers (divergence level 2), not just leaf-targeted.
+        "clustered-wide" => {
+            let mut base = 0;
+            for i in 0..n as u64 {
+                if i % 4096 == 0 {
+                    base = rng.next() & !0xFFF;
+                }
+                out.push(base + (i % 4096));
+            }
+        }
         _ => unreachable!(),
     }
     out
@@ -45,10 +56,10 @@ fn main() {
     println!("bytes/key by distribution and population (set flavor / map flavor)");
     println!("target from docs/ARCHITECTURE.md: < 9.5 B/key dense+clustered (set)\n");
     println!(
-        "{:<12} {:>10} {:>14} {:>14}",
+        "{:<15} {:>10} {:>14} {:>14}",
         "dist", "pop", "set B/key", "map B/key"
     );
-    for dist in ["sequential", "random", "clustered", "sparse"] {
+    for dist in ["sequential", "random", "clustered", "clustered-wide", "sparse"] {
         for pop in [1_000usize, 100_000, 1_000_000] {
             let ks = keys(dist, pop);
             let mut set = ExpanseSet::new();
@@ -59,7 +70,7 @@ fn main() {
             }
             let (sl, ml) = (set.len().max(1), map.len().max(1));
             println!(
-                "{:<12} {:>10} {:>14.2} {:>14.2}",
+                "{:<15} {:>10} {:>14.2} {:>14.2}",
                 dist,
                 pop,
                 set.mem_used() as f64 / sl as f64,

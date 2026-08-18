@@ -3,8 +3,8 @@
 //! Root organization mirrors `ExpanseSet`: populations up to
 //! [`crate::set::ROOT_LEAF_CAP`] live in a root leaf — here parallel
 //! sorted-key and value arrays in one allocation — before a level-8 trie
-//! exists. Same v1 simplification: the tree never shrinks back into a
-//! root leaf.
+//! exists. The tree condenses back into a root
+//! leaf when its population falls one below the promotion boundary.
 
 use crate::alloc::NodeAlloc;
 use crate::get;
@@ -293,6 +293,9 @@ impl ExpanseMap {
                     if *pop == 0 {
                         debug_assert!(top.is_null());
                         self.root = Root::Empty;
+                    } else if *pop < ROOT_LEAF_CAP as u64 {
+                        // Hysteresis twin of the root-leaf promotion.
+                        self.condense_to_root_leaf();
                     }
                 }
                 old
@@ -479,6 +482,42 @@ impl<'a> IntoIterator for &'a ExpanseMap {
 
     fn into_iter(self) -> MapIter<'a> {
         self.iter()
+    }
+}
+
+impl ExpanseMap {
+    /// Rebuilds the flat root leaf (parallel key/value arrays) from a
+    /// small tree — the shrink twin of the promotion.
+    fn condense_to_root_leaf(&mut self) {
+        let Root::Tree { top, pop } = &mut self.root else {
+            unreachable!("condense outside tree state")
+        };
+        let n = *pop as usize;
+        debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
+        let new = self.alloc.alloc_bytes(leaf_size(n));
+        let mut written = 0usize;
+        let mut from = 0u64;
+        loop {
+            // SAFETY: engine-maintained trie per this type's invariants.
+            let Some((k, v)) = (unsafe { crate::nav::next::<true>(top, from, 8) }) else {
+                break;
+            };
+            debug_assert!(written < n);
+            // SAFETY: in-bounds writes: keys then values.
+            unsafe {
+                new.as_ptr().cast::<u64>().add(written).write(k);
+                new.as_ptr().cast::<u64>().add(n + written).write(v);
+            }
+            written += 1;
+            let Some(next_from) = k.checked_add(1) else {
+                break;
+            };
+            from = next_from;
+        }
+        debug_assert_eq!(written, n);
+        // SAFETY: whole trie owned by this map; freed exactly once.
+        unsafe { mutate::free_subtree::<true>(&self.alloc, top) };
+        self.root = Root::Leaf { ptr: new, pop: n };
     }
 }
 
@@ -856,6 +895,90 @@ mod tests {
                 map.validate();
             }
         }
+        assert!(map.iter().eq(model.iter().map(|(k, v)| (*k, *v))));
+        map.clear();
+        assert_eq!(map.mem_used(), 0);
+    }
+
+    #[test]
+    fn branch_skip_clusters() {
+        // Map mirror of the set-flavor cluster test: divergence-level
+        // branch placement, navigation, slots, and drain through the
+        // downgrade ladder — all across a skipping branch.
+        let mut map = ExpanseMap::new();
+        let mut model = BTreeMap::new();
+        let bases = [0x1122_3344_5566_0000u64, 0x99AA_BBCC_DDEE_0000u64];
+        for &base in &bases {
+            for i in 0..512u64 {
+                assert_eq!(map.insert(base | i, !(base | i)), None);
+                model.insert(base | i, !(base | i));
+            }
+            map.validate();
+        }
+        // Values dominate map memory (8 bytes/key); the skip keeps the
+        // structural overhead to one branch + two bitmap leaves per
+        // cluster instead of a per-level chain.
+        let per_key = map.mem_used() as f64 / model.len() as f64;
+        assert!(
+            per_key <= 11.0,
+            "structural overhead should collapse, {per_key:.2} B/key"
+        );
+        assert!(map.iter().eq(model.iter().map(|(k, v)| (*k, *v))));
+        assert_eq!(
+            map.next_at_or_after(bases[0] | 0x200),
+            Some((bases[1], !bases[1]))
+        );
+        assert_eq!(
+            map.prev_before(bases[1]),
+            Some((bases[0] | 0x1FF, !(bases[0] | 0x1FF)))
+        );
+        assert_eq!(map.count_range(bases[0]..=bases[0] | 0x1FF), 512);
+        // Value slots resolve through the skipping branch.
+        let slot = map.get_value_slot(bases[0] | 0x180).unwrap();
+        // SAFETY: slot valid until next mutation.
+        unsafe { slot.as_ptr().write(42) };
+        assert_eq!(map.get(bases[0] | 0x180), Some(42));
+        model.insert(bases[0] | 0x180, 42);
+        // Diverge inside the skipped span, then drain one cluster.
+        let split = bases[0] ^ (0x31 << 24);
+        assert_eq!(map.insert(split, 7), None);
+        model.insert(split, 7);
+        map.validate();
+        for i in (0..512u64).rev() {
+            assert_eq!(map.remove(bases[0] | i), model.remove(&(bases[0] | i)));
+            if i % 64 == 0 {
+                map.validate();
+                assert!(map.iter().eq(model.iter().map(|(k, v)| (*k, *v))));
+            }
+        }
+        map.clear();
+        assert_eq!(map.mem_used(), 0);
+    }
+
+    #[test]
+    fn root_condenses_and_regrows() {
+        let mut map = ExpanseMap::new();
+        let mut model = BTreeMap::new();
+        for k in 0u64..120 {
+            map.insert(k << 24, !k);
+            model.insert(k << 24, !k);
+        }
+        for k in (20u64..120).rev() {
+            assert_eq!(map.remove(k << 24), model.remove(&(k << 24)), "rm {k}");
+            map.validate();
+            assert!(map.iter().eq(model.iter().map(|(k, v)| (*k, *v))), "at {k}");
+        }
+        // Values survive condensation; slots still work.
+        let slot = map.get_value_slot(5 << 24).unwrap();
+        // SAFETY: slot valid until next mutation.
+        unsafe { slot.as_ptr().write(777) };
+        assert_eq!(map.get(5 << 24), Some(777));
+        for k in 300u64..360 {
+            map.insert(k << 40, k);
+            model.insert(k << 40, k);
+        }
+        model.insert(5 << 24, 777);
+        map.validate();
         assert!(map.iter().eq(model.iter().map(|(k, v)| (*k, *v))));
         map.clear();
         assert_eq!(map.mem_used(), 0);

@@ -32,15 +32,24 @@ use crate::types::{EdgeTag, EdgeType, digit};
 /// Population of a child subtree, read from its edge (children sit at
 /// `level <= 7`, so the `pop0` field is always present; immediates carry
 /// their count in the tag).
-fn edge_pop(edge: &Edge, level: u8) -> u64 {
+/// # Safety
+///
+/// Branch-tagged edges are dereferenced to read their own level, so the
+/// usual live-tree contract applies.
+unsafe fn edge_pop(edge: &Edge, level: u8) -> u64 {
     match edge.tag().expect("valid edge tag") {
         EdgeTag::Structural(EdgeType::Null) => 0,
         EdgeTag::Immed(im) => u64::from(im.key_count()),
-        // Skipping leaves store pop0 at their own level, not the slot's.
+        // Skipping forms store pop0 at their own level, not the slot's.
         EdgeTag::Structural(t) if t.leaf_key_bytes().is_some() => {
             edge.pop0(t.leaf_key_bytes().expect("leaf tag")) + 1
         }
         EdgeTag::Structural(EdgeType::LeafB1) => edge.pop0(1) + 1,
+        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7 | EdgeType::BranchB)) => {
+            // SAFETY: live branch per this function's contract.
+            let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
+            edge.pop0(bl) + 1
+        }
         EdgeTag::Structural(_) => edge.pop0(level) + 1,
     }
 }
@@ -224,7 +233,26 @@ pub(crate) unsafe fn next<const MAP: bool>(
         }
 
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
-            let d = digit(suffix, level);
+            // SAFETY: live branch per contract.
+            let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
+            let (dv, shift) = if bl < level {
+                (
+                    crate::mutate::decode_value(edge, bl, level),
+                    8 * u32::from(bl),
+                )
+            } else {
+                (0, 0)
+            };
+            let suffix = if bl < level {
+                match (suffix >> shift).cmp(&dv) {
+                    core::cmp::Ordering::Less => 0,
+                    core::cmp::Ordering::Equal => key_low(suffix, bl),
+                    core::cmp::Ordering::Greater => return None,
+                }
+            } else {
+                suffix
+            };
+            let d = digit(suffix, bl);
             // SAFETY: live branch per contract.
             let (num, digits, edges_ptr) = unsafe {
                 if matches!(t, EdgeType::BranchL3) {
@@ -239,39 +267,50 @@ pub(crate) unsafe fn next<const MAP: bool>(
                 if bd < d {
                     continue;
                 }
-                let rem = if bd == d {
-                    key_low(suffix, level - 1)
-                } else {
-                    0
-                };
+                let rem = if bd == d { key_low(suffix, bl - 1) } else { 0 };
                 // SAFETY: slot < num live child edges.
                 let child = unsafe { &*edges_ptr.add(slot) };
                 // SAFETY: child subtree per contract.
-                if let Some((r, v)) = unsafe { next::<MAP>(child, rem, level - 1) } {
-                    return Some((compose(bd, r, level), v));
+                if let Some((r, v)) = unsafe { next::<MAP>(child, rem, bl - 1) } {
+                    return Some(((dv << shift) | compose(bd, r, bl), v));
                 }
             }
             None
         }
 
         EdgeTag::Structural(EdgeType::BranchB) => {
-            let d = digit(suffix, level);
+            // SAFETY: live branch per contract.
+            let bl = unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
+            let (dv, shift) = if bl < level {
+                (
+                    crate::mutate::decode_value(edge, bl, level),
+                    8 * u32::from(bl),
+                )
+            } else {
+                (0, 0)
+            };
+            let suffix = if bl < level {
+                match (suffix >> shift).cmp(&dv) {
+                    core::cmp::Ordering::Less => 0,
+                    core::cmp::Ordering::Equal => key_low(suffix, bl),
+                    core::cmp::Ordering::Greater => return None,
+                }
+            } else {
+                suffix
+            };
+            let d = digit(suffix, bl);
             // SAFETY: live BranchB per contract.
             let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
             let mut cur = b.bitmap.next_set(d);
             while let Some(bd) = cur {
-                let rem = if bd == d {
-                    key_low(suffix, level - 1)
-                } else {
-                    0
-                };
+                let rem = if bd == d { key_low(suffix, bl - 1) } else { 0 };
                 let sub = (bd >> 5) as usize;
                 let rank = b.bitmap.subexpanse_rank(bd) as usize;
                 // SAFETY: bit set → subarray holds rank + 1 edges.
                 let child = unsafe { &*b.subarrays[sub].add(rank) };
                 // SAFETY: child subtree per contract.
-                if let Some((r, v)) = unsafe { next::<MAP>(child, rem, level - 1) } {
-                    return Some((compose(bd, r, level), v));
+                if let Some((r, v)) = unsafe { next::<MAP>(child, rem, bl - 1) } {
+                    return Some(((dv << shift) | compose(bd, r, bl), v));
                 }
                 cur = if bd == 255 {
                     None
@@ -398,7 +437,26 @@ pub(crate) unsafe fn prev<const MAP: bool>(
         }
 
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
-            let d = digit(suffix, level);
+            // SAFETY: live branch per contract.
+            let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
+            let (dv, shift) = if bl < level {
+                (
+                    crate::mutate::decode_value(edge, bl, level),
+                    8 * u32::from(bl),
+                )
+            } else {
+                (0, 0)
+            };
+            let suffix = if bl < level {
+                match (suffix >> shift).cmp(&dv) {
+                    core::cmp::Ordering::Less => return None,
+                    core::cmp::Ordering::Equal => key_low(suffix, bl),
+                    core::cmp::Ordering::Greater => pow256(bl) - 1,
+                }
+            } else {
+                suffix
+            };
+            let d = digit(suffix, bl);
             // SAFETY: live branch per contract.
             let (num, digits, edges_ptr) = unsafe {
                 if matches!(t, EdgeType::BranchL3) {
@@ -414,38 +472,57 @@ pub(crate) unsafe fn prev<const MAP: bool>(
                     continue;
                 }
                 let rem = if bd == d {
-                    key_low(suffix, level - 1)
+                    key_low(suffix, bl - 1)
                 } else {
-                    pow256(level - 1) - 1
+                    pow256(bl - 1) - 1
                 };
                 // SAFETY: slot < num live child edges.
                 let child = unsafe { &*edges_ptr.add(slot) };
                 // SAFETY: child subtree per contract.
-                if let Some((r, v)) = unsafe { prev::<MAP>(child, rem, level - 1) } {
-                    return Some((compose(bd, r, level), v));
+                if let Some((r, v)) = unsafe { prev::<MAP>(child, rem, bl - 1) } {
+                    return Some(((dv << shift) | compose(bd, r, bl), v));
                 }
             }
             None
         }
 
         EdgeTag::Structural(EdgeType::BranchB) => {
-            let d = digit(suffix, level);
+            // SAFETY: live branch per contract.
+            let bl = unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
+            let (dv, shift) = if bl < level {
+                (
+                    crate::mutate::decode_value(edge, bl, level),
+                    8 * u32::from(bl),
+                )
+            } else {
+                (0, 0)
+            };
+            let suffix = if bl < level {
+                match (suffix >> shift).cmp(&dv) {
+                    core::cmp::Ordering::Less => return None,
+                    core::cmp::Ordering::Equal => key_low(suffix, bl),
+                    core::cmp::Ordering::Greater => pow256(bl) - 1,
+                }
+            } else {
+                suffix
+            };
+            let d = digit(suffix, bl);
             // SAFETY: live BranchB per contract.
             let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
             let mut cur = b.bitmap.prev_set(d);
             while let Some(bd) = cur {
                 let rem = if bd == d {
-                    key_low(suffix, level - 1)
+                    key_low(suffix, bl - 1)
                 } else {
-                    pow256(level - 1) - 1
+                    pow256(bl - 1) - 1
                 };
                 let sub = (bd >> 5) as usize;
                 let rank = b.bitmap.subexpanse_rank(bd) as usize;
                 // SAFETY: bit set → subarray holds rank + 1 edges.
                 let child = unsafe { &*b.subarrays[sub].add(rank) };
                 // SAFETY: child subtree per contract.
-                if let Some((r, v)) = unsafe { prev::<MAP>(child, rem, level - 1) } {
-                    return Some((compose(bd, r, level), v));
+                if let Some((r, v)) = unsafe { prev::<MAP>(child, rem, bl - 1) } {
+                    return Some(((dv << shift) | compose(bd, r, bl), v));
                 }
                 cur = if bd == 0 {
                     None
@@ -539,7 +616,27 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
         }
 
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
-            let d = digit(suffix, level);
+            // SAFETY: live branch per contract.
+            let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
+            let (dv, shift) = if bl < level {
+                (
+                    crate::mutate::decode_value(edge, bl, level),
+                    8 * u32::from(bl),
+                )
+            } else {
+                (0, 0)
+            };
+            let _ = shift;
+            let suffix = if bl < level {
+                match (suffix >> shift).cmp(&dv) {
+                    core::cmp::Ordering::Less => return 0,
+                    core::cmp::Ordering::Equal => key_low(suffix, bl),
+                    core::cmp::Ordering::Greater => return edge.pop0(bl) + 1,
+                }
+            } else {
+                suffix
+            };
+            let d = digit(suffix, bl);
             // SAFETY: live branch per contract.
             let (num, digits, edges_ptr) = unsafe {
                 if matches!(t, EdgeType::BranchL3) {
@@ -555,18 +652,38 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
                 // SAFETY: slot < num live child edges.
                 let child = unsafe { &*edges_ptr.add(slot) };
                 if bd < d {
-                    below += edge_pop(child, level - 1);
+                    // SAFETY: live child per contract.
+                    below += unsafe { edge_pop(child, bl - 1) };
                 } else if bd == d {
                     // SAFETY: child subtree per contract.
-                    below +=
-                        unsafe { count_below::<MAP>(child, key_low(suffix, level - 1), level - 1) };
+                    below += unsafe { count_below::<MAP>(child, key_low(suffix, bl - 1), bl - 1) };
                 }
             }
             below
         }
 
         EdgeTag::Structural(EdgeType::BranchB) => {
-            let d = digit(suffix, level);
+            // SAFETY: live branch per contract.
+            let bl = unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
+            let (dv, shift) = if bl < level {
+                (
+                    crate::mutate::decode_value(edge, bl, level),
+                    8 * u32::from(bl),
+                )
+            } else {
+                (0, 0)
+            };
+            let _ = shift;
+            let suffix = if bl < level {
+                match (suffix >> shift).cmp(&dv) {
+                    core::cmp::Ordering::Less => return 0,
+                    core::cmp::Ordering::Equal => key_low(suffix, bl),
+                    core::cmp::Ordering::Greater => return edge.pop0(bl) + 1,
+                }
+            } else {
+                suffix
+            };
+            let d = digit(suffix, bl);
             // SAFETY: live BranchB per contract.
             let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
             let mut below = 0;
@@ -580,11 +697,11 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
                 // SAFETY: bit set → subarray holds rank + 1 edges.
                 let child = unsafe { &*b.subarrays[sub].add(rank) };
                 if bd < d {
-                    below += edge_pop(child, level - 1);
+                    // SAFETY: live child per contract.
+                    below += unsafe { edge_pop(child, bl - 1) };
                 } else {
                     // SAFETY: child subtree per contract.
-                    below +=
-                        unsafe { count_below::<MAP>(child, key_low(suffix, level - 1), level - 1) };
+                    below += unsafe { count_below::<MAP>(child, key_low(suffix, bl - 1), bl - 1) };
                 }
                 cur = if bd == 255 {
                     None
@@ -606,7 +723,8 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
                     continue;
                 }
                 if bd < d {
-                    below += edge_pop(child, level - 1);
+                    // SAFETY: live child per contract.
+                    below += unsafe { edge_pop(child, level - 1) };
                 } else {
                     // SAFETY: child subtree per contract.
                     below +=
@@ -690,6 +808,16 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
 
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
             // SAFETY: live branch per contract.
+            let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
+            let (dv, shift) = if bl < level {
+                (
+                    crate::mutate::decode_value(edge, bl, level),
+                    8 * u32::from(bl),
+                )
+            } else {
+                (0, 0)
+            };
+            // SAFETY: live branch per contract.
             let (num, digits, edges_ptr) = unsafe {
                 if matches!(t, EdgeType::BranchL3) {
                     let b = &*edge.node_ptr().cast::<BranchL3>();
@@ -703,11 +831,12 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
             for (slot, &bd) in digits.iter().enumerate().take(num) {
                 // SAFETY: slot < num live child edges.
                 let child = unsafe { &*edges_ptr.add(slot) };
-                let pop = edge_pop(child, level - 1);
+                // SAFETY: live child per contract.
+                let pop = unsafe { edge_pop(child, bl - 1) };
                 if n < pop {
                     // SAFETY: child subtree per contract.
-                    let (r, v) = unsafe { by_count::<MAP>(child, n, level - 1) };
-                    return (compose(bd, r, level), v);
+                    let (r, v) = unsafe { by_count::<MAP>(child, n, bl - 1) };
+                    return ((dv << shift) | compose(bd, r, bl), v);
                 }
                 n -= pop;
             }
@@ -715,6 +844,16 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
         }
 
         EdgeTag::Structural(EdgeType::BranchB) => {
+            // SAFETY: live branch per contract.
+            let bl = unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
+            let (dv, shift) = if bl < level {
+                (
+                    crate::mutate::decode_value(edge, bl, level),
+                    8 * u32::from(bl),
+                )
+            } else {
+                (0, 0)
+            };
             // SAFETY: live BranchB per contract.
             let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
             let mut n = n;
@@ -724,11 +863,12 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
                 let rank = b.bitmap.subexpanse_rank(bd) as usize;
                 // SAFETY: bit set → subarray holds rank + 1 edges.
                 let child = unsafe { &*b.subarrays[sub].add(rank) };
-                let pop = edge_pop(child, level - 1);
+                // SAFETY: live child per contract.
+                let pop = unsafe { edge_pop(child, bl - 1) };
                 if n < pop {
                     // SAFETY: child subtree per contract.
-                    let (r, v) = unsafe { by_count::<MAP>(child, n, level - 1) };
-                    return (compose(bd, r, level), v);
+                    let (r, v) = unsafe { by_count::<MAP>(child, n, bl - 1) };
+                    return ((dv << shift) | compose(bd, r, bl), v);
                 }
                 n -= pop;
                 cur = if bd == 255 {
@@ -749,7 +889,8 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
                 if child.is_null() {
                     continue;
                 }
-                let pop = edge_pop(child, level - 1);
+                // SAFETY: live child per contract.
+                let pop = unsafe { edge_pop(child, level - 1) };
                 if n < pop {
                     // SAFETY: child subtree per contract.
                     let (r, v) = unsafe { by_count::<MAP>(child, n, level - 1) };

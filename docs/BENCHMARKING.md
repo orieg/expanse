@@ -48,12 +48,13 @@ Performance claims are this project's reason to exist, so they follow the strict
 
 | dist | pop 1k | pop 100k | pop 1M | |
 |---|---|---|---|---|
-| sequential (set) | 0.58 | 0.07 | **0.06** | full-expanse + bitmap-leaf compression |
-| clustered (set) | 0.38 | 0.37 | **0.35** | was 1.34 before narrow-pointer synthesis — a 3.8× improvement |
-| random (set) | 10.43 | 12.91 | 7.06 | not part of the dense/clustered target |
-| sparse `i << 40` (set) | 16.58 | 16.07 | **16.06** | the single-child branch-chain cost — the measured motivation for narrow-pointer synthesis (ARCHITECTURE.md §6 step 3) |
+| sequential (set) | 0.32 | 0.07 | **0.06** | full-expanse + bitmap-leaf compression |
+| clustered 256-run (set) | 0.38 | 0.37 | **0.36** | was 1.34 before leaf-targeted narrow pointers — a 3.7× improvement |
+| clustered 4096-run (set) | 0.32 | 0.12 | **0.12** | was 0.64 / 0.20 / 0.19 before **branch-targeted** narrow pointers (divergence-level branch placement + `split_skip`) |
+| random (set) | 12.27 | 13.69 | 7.65 | not part of the dense/clustered target |
+| sparse `i << 40` (set) | 16.58 | 16.07 | **16.06** | one 16-byte edge per isolated key — the structural floor, not a chain cost (immediates absorb the remainders) |
 
-Map-flavor figures run ~8 B/key above the set figures (the stored value word). The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names; the sparse row is the narrow-pointer work's before-number.
+Map-flavor figures run ~8 B/key above the set figures (the stored value word). The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names. Unit-level anchor for the branch-targeted work: two 512-key clusters cost 192 structural bytes vs 960 under per-level chains (`branch_skip_clusters` tests, both flavors).
 
 ### libexpanse vs stock libjudy, JudyL surface (measured: M1 MacBook Pro under load — a VM at ~226% CPU co-resident — commit with this section; interleaved A/B medians of 5 rounds, so the *ratios* are meaningful while absolute ns are contaminated; harness: `crates/expanse-capi/examples/bench_vs_libjudy.rs`)
 

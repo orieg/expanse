@@ -119,8 +119,8 @@ mod tests {
         let a = NodeAlloc::new();
         assert_eq!(a.bytes_in_use(), 0);
 
-        let n1 = a.alloc_node(BranchL3::new());
-        let n2 = a.alloc_node(BranchB::new());
+        let n1 = a.alloc_node(BranchL3::new(2));
+        let n2 = a.alloc_node(BranchB::new(2));
         let n3 = a.alloc_node(BranchU::new());
         let leaf = a.alloc_bytes(21);
         assert_eq!(a.bytes_in_use(), 64 + 128 + 4096 + 21);

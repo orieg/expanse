@@ -97,9 +97,14 @@ unsafe fn walk<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup {
                 EdgeType::Null => return Lookup::Absent,
 
                 EdgeType::BranchL3 | EdgeType::BranchL7 => {
-                    let d = digit(key, level);
                     // SAFETY: pointer-tagged edge → live node of the tagged
                     // type, per this function's contract.
+                    let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
+                    if bl < level && !decode_matches(edge, key, bl, level) {
+                        return Lookup::Absent;
+                    }
+                    let d = digit(key, bl);
+                    // SAFETY: as above.
                     let (slot, edges, cap) = unsafe {
                         if matches!(t, EdgeType::BranchL3) {
                             let b = &*edge.node_ptr().cast::<BranchL3>();
@@ -116,12 +121,18 @@ unsafe fn walk<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup {
                     // SAFETY: `find` returns a slot below the populated
                     // count, which never exceeds the array length.
                     edge = unsafe { &*edges.add(slot) };
-                    level -= 1;
+                    level = bl - 1;
                 }
 
                 EdgeType::BranchB => {
-                    let d = digit(key, level);
                     // SAFETY: pointer-tagged edge → live BranchB.
+                    let bl =
+                        unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
+                    if bl < level && !decode_matches(edge, key, bl, level) {
+                        return Lookup::Absent;
+                    }
+                    let d = digit(key, bl);
+                    // SAFETY: as above.
                     let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
                     if !b.bitmap.test(d) {
                         return Lookup::Absent;
@@ -132,7 +143,7 @@ unsafe fn walk<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup {
                     // non-null and holds at least `subexpanse_rank + 1` edges
                     // (bitmap/subarray consistency invariant).
                     edge = unsafe { &*sub.add(slot) };
-                    level -= 1;
+                    level = bl - 1;
                 }
 
                 EdgeType::BranchU => {
@@ -363,10 +374,14 @@ pub(crate) unsafe fn locate_slot(
             }
 
             EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
-                let d = digit(key, level);
                 // SAFETY: live branch per contract; the child edge pointer
                 // derives from the raw node pointer.
                 unsafe {
+                    let bl = crate::mutate::branch_form_level(&*edge, t, level);
+                    if bl < level && !decode_matches(&*edge, key, bl, level) {
+                        return None;
+                    }
+                    let d = digit(key, bl);
                     let (found, next_edge) = if matches!(t, EdgeType::BranchL3) {
                         let b = (*edge).node_ptr().cast::<BranchL3>();
                         ((*b).hdr.find(d), (*b).edges.as_mut_ptr())
@@ -376,23 +391,27 @@ pub(crate) unsafe fn locate_slot(
                     };
                     let slot = found?;
                     edge = next_edge.add(slot);
+                    level = bl - 1;
                 }
-                level -= 1;
             }
 
             EdgeTag::Structural(EdgeType::BranchB) => {
-                let d = digit(key, level);
                 // SAFETY: live BranchB per contract; child from the stored
                 // subarray pointer.
                 unsafe {
+                    let bl = crate::mutate::branch_form_level(&*edge, EdgeType::BranchB, level);
+                    if bl < level && !decode_matches(&*edge, key, bl, level) {
+                        return None;
+                    }
+                    let d = digit(key, bl);
                     let b = (*edge).node_ptr().cast::<BranchB>();
                     if !(*b).bitmap.test(d) {
                         return None;
                     }
                     let rank = (*b).bitmap.subexpanse_rank(d) as usize;
                     edge = (*b).subarrays[(d >> 5) as usize].add(rank);
+                    level = bl - 1;
                 }
-                level -= 1;
             }
 
             EdgeTag::Structural(EdgeType::BranchU) => {
@@ -562,7 +581,7 @@ mod tests {
         let base = leaves.as_mut_ptr();
 
         // BranchL7 with all 7 children.
-        let mut b7 = BranchL7::new();
+        let mut b7 = BranchL7::new(2);
         b7.hdr.num = 7;
         b7.hdr.digits[..7].copy_from_slice(&digits_hi);
         for i in 0..7 {
@@ -575,7 +594,7 @@ mod tests {
         probe_set(&root, 2, &model, 0xFFFF);
 
         // BranchL3 with the first 3 children only.
-        let mut b3 = BranchL3::new();
+        let mut b3 = BranchL3::new(2);
         b3.hdr.num = 3;
         b3.hdr.digits[..3].copy_from_slice(&digits_hi[..3]);
         let mut model3 = BTreeSet::new();
@@ -624,7 +643,7 @@ mod tests {
         // Wire leaf pointers now that `leaves` will no longer reallocate.
         let mut leaf_iter = leaves.iter_mut();
         let mut imm_iter = child_jps.iter();
-        let mut b = BranchB::new();
+        let mut b = BranchB::new(2);
         let mut per_sub: [Vec<Edge>; 8] = Default::default();
         for (i, &hi) in hi_digits.iter().enumerate() {
             b.bitmap.set(hi);
@@ -734,7 +753,7 @@ mod tests {
         e1.set_pop0(1, keys1.len() as u64 - 1);
         e1.set_decode_bytes(1, &[0x44]);
 
-        let mut b7 = BranchL7::new();
+        let mut b7 = BranchL7::new(3);
         b7.hdr.num = 2;
         b7.hdr.digits[..2].copy_from_slice(&[0x21, 0x9E]);
         b7.edges[0] = e2;
@@ -835,7 +854,7 @@ mod tests {
         model.insert(0xC0_50, 20);
         model.insert(0xC0_AA, 30);
 
-        let mut b3 = BranchL3::new();
+        let mut b3 = BranchL3::new(2);
         b3.hdr.num = 3;
         b3.hdr.digits[..3].copy_from_slice(&[0x10, 0x80, 0xC0]);
         b3.edges[0] = Edge::new_node((&raw mut leaf).cast(), EdgeType::LeafB1.as_u8());

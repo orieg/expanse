@@ -242,20 +242,24 @@ pub struct BranchHeader {
     pub version: u32,
     /// Number of populated child edges.
     pub num: u8,
-    _pad: [u8; 3],
+    /// The node's own level. Behind a narrow pointer this sits below the
+    /// slot level; the edge's decode bytes name the skipped digits.
+    pub level: u8,
+    _pad: [u8; 2],
     /// Sorted decode digits of the populated children; slot 7 is unused
     /// padding so the array is directly searchable as one 64-bit word.
     pub digits: [u8; 8],
 }
 
 impl BranchHeader {
-    /// An empty header (version 0, no children).
+    /// An empty header (version 0, no children) at `level`.
     #[must_use]
-    pub const fn new() -> Self {
+    pub const fn new(level: u8) -> Self {
         Self {
             version: 0,
             num: 0,
-            _pad: [0; 3],
+            level,
+            _pad: [0; 2],
             digits: [0; 8],
         }
     }
@@ -265,12 +269,6 @@ impl BranchHeader {
     #[must_use]
     pub const fn find(&self, digit: u8) -> Option<usize> {
         crate::bits::find_byte_8(&self.digits, self.num as usize, digit)
-    }
-}
-
-impl Default for BranchHeader {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -285,19 +283,13 @@ pub struct BranchL3 {
 }
 
 impl BranchL3 {
-    /// An empty branch.
+    /// An empty branch at `level`.
     #[must_use]
-    pub const fn new() -> Self {
+    pub const fn new(level: u8) -> Self {
         Self {
-            hdr: BranchHeader::new(),
+            hdr: BranchHeader::new(level),
             edges: [Edge::NULL; BRANCH_L3_CAP],
         }
-    }
-}
-
-impl Default for BranchL3 {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -312,19 +304,13 @@ pub struct BranchL7 {
 }
 
 impl BranchL7 {
-    /// An empty branch.
+    /// An empty branch at `level`.
     #[must_use]
-    pub const fn new() -> Self {
+    pub const fn new(level: u8) -> Self {
         Self {
-            hdr: BranchHeader::new(),
+            hdr: BranchHeader::new(level),
             edges: [Edge::NULL; BRANCH_L7_CAP],
         }
-    }
-}
-
-impl Default for BranchL7 {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -346,26 +332,23 @@ pub struct BranchB {
     pub pop_counts: [u16; 8],
     /// Phase 7 OCC version counter.
     pub version: u32,
-    _pad: [u8; 12],
+    /// The node's own level (see `BranchHeader::level`).
+    pub level: u8,
+    _pad: [u8; 11],
 }
 
 impl BranchB {
-    /// An empty branch.
+    /// An empty branch at `level`.
     #[must_use]
-    pub const fn new() -> Self {
+    pub const fn new(level: u8) -> Self {
         Self {
             bitmap: Bitmap256::new(),
             subarrays: [core::ptr::null_mut(); 8],
             pop_counts: [0; 8],
             version: 0,
-            _pad: [0; 12],
+            level,
+            _pad: [0; 11],
         }
-    }
-}
-
-impl Default for BranchB {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -512,7 +495,7 @@ mod tests {
 
     #[test]
     fn node_pointer_roundtrip() {
-        let mut backing = BranchL3::new();
+        let mut backing = BranchL3::new(2);
         let raw = (&raw mut backing).cast::<u8>();
         let jp = Edge::new_node(raw, EdgeType::BranchL3.as_u8());
         assert!(!jp.is_null());
@@ -559,7 +542,7 @@ mod tests {
 
     #[test]
     fn branch_header_find() {
-        let mut hdr = BranchHeader::new();
+        let mut hdr = BranchHeader::new(2);
         hdr.digits[..4].copy_from_slice(&[0x03, 0x41, 0x9C, 0xFF]);
         hdr.num = 4;
         assert_eq!(hdr.find(0x03), Some(0));
@@ -569,16 +552,16 @@ mod tests {
         hdr.num = 2;
         assert_eq!(hdr.find(0x9C), None, "count limits the searched digits");
         // Unused slots (zero-filled) must not produce phantom matches.
-        let empty = BranchHeader::new();
+        let empty = BranchHeader::new(2);
         assert_eq!(empty.find(0x00), None);
     }
 
     #[test]
     fn empty_nodes() {
-        assert!(BranchL3::new().edges.iter().all(Edge::is_null));
-        assert!(BranchL7::new().edges.iter().all(Edge::is_null));
+        assert!(BranchL3::new(2).edges.iter().all(Edge::is_null));
+        assert!(BranchL7::new(2).edges.iter().all(Edge::is_null));
         assert!(BranchU::new().edges.iter().all(Edge::is_null));
-        let bb = BranchB::new();
+        let bb = BranchB::new(2);
         assert!(bb.bitmap.is_empty());
         assert!(bb.subarrays.iter().all(|p| p.is_null()));
         assert!(LeafBitmap1::new().bitmap.is_empty());

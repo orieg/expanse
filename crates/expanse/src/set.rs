@@ -3,9 +3,9 @@
 //! Root organization follows the original's economy: populations up to
 //! [`ROOT_LEAF_CAP`] live in a **root leaf** — one sorted array of full
 //! 8-byte keys — and only past that does a real level-8 trie exist (whose
-//! total population this struct tracks, the original's JPM role). v1
-//! simplification: the tree never shrinks back into a root leaf; deleting
-//! the last key returns the set to `Empty`.
+//! total population this struct tracks, the original's JPM role). The
+//! tree condenses back into a root leaf when its population falls one
+//! below the promotion boundary (1-index hysteresis, as everywhere).
 
 use crate::alloc::NodeAlloc;
 use crate::get;
@@ -203,6 +203,12 @@ impl ExpanseSet {
                     if *pop == 0 {
                         debug_assert!(top.is_null());
                         self.root = Root::Empty;
+                    } else if *pop < ROOT_LEAF_CAP as u64 {
+                        // Hysteresis: condense back to a root leaf one
+                        // index below the promotion boundary (promote at
+                        // CAP + 1, condense at CAP - 1; CAP is stable in
+                        // both forms).
+                        self.condense_to_root_leaf();
                     }
                 }
                 removed
@@ -381,6 +387,39 @@ impl<'a> IntoIterator for &'a ExpanseSet {
 
     fn into_iter(self) -> SetIter<'a> {
         self.iter()
+    }
+}
+
+impl ExpanseSet {
+    /// Rebuilds the flat sorted root leaf from a small tree (the shrink
+    /// twin of the root-leaf → trie promotion).
+    fn condense_to_root_leaf(&mut self) {
+        let Root::Tree { top, pop } = &mut self.root else {
+            unreachable!("condense outside tree state")
+        };
+        let n = *pop as usize;
+        debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
+        let leaf = self.alloc.alloc_bytes(8 * n);
+        let mut written = 0usize;
+        let mut from = 0u64;
+        loop {
+            // SAFETY: engine-maintained trie per this type's invariants.
+            let Some((k, _)) = (unsafe { crate::nav::next::<false>(top, from, 8) }) else {
+                break;
+            };
+            debug_assert!(written < n);
+            // SAFETY: in-bounds write of the fresh n-key leaf.
+            unsafe { leaf.as_ptr().cast::<u64>().add(written).write(k) };
+            written += 1;
+            let Some(next_from) = k.checked_add(1) else {
+                break;
+            };
+            from = next_from;
+        }
+        debug_assert_eq!(written, n);
+        // SAFETY: whole trie owned by this set; freed exactly once.
+        unsafe { mutate::free_subtree::<false>(&self.alloc, top) };
+        self.root = Root::Leaf { keys: leaf, pop: n };
     }
 }
 
@@ -777,6 +816,87 @@ mod tests {
                 set.validate();
             }
         }
+        assert!(set.iter().eq(model.iter().copied()));
+        set.clear();
+        assert_eq!(set.mem_used(), 0);
+    }
+
+    #[test]
+    fn branch_skip_clusters() {
+        // Clusters spanning two key bytes (divergence level 2): the leaf
+        // cascade must place one skipping branch at level 2 instead of a
+        // single-child chain down from the slot level.
+        let mut set = ExpanseSet::new();
+        let mut model = BTreeSet::new();
+        let bases = [0x1122_3344_5566_0000u64, 0x99AA_BBCC_DDEE_0000u64];
+        for &base in &bases {
+            for i in 0..512u64 {
+                assert!(set.insert(base | i));
+                model.insert(base | i);
+            }
+            set.validate();
+        }
+        // Two 512-key clusters: per cluster one skip branch (level 2) and
+        // two full-expanse children, plus the shared top branch — far
+        // below the ~448 bytes/cluster a per-level chain used to take.
+        assert!(
+            set.mem_used() <= 320,
+            "clusters should collapse to skip branches, used {}",
+            set.mem_used()
+        );
+        assert!(set.iter().eq(model.iter().copied()));
+        // Ordered navigation across a skipping branch, from inside and
+        // outside the skipped prefix.
+        assert_eq!(
+            set.next_at_or_after(bases[0] | 0x17F),
+            Some(bases[0] | 0x17F)
+        );
+        assert_eq!(set.next_at_or_after(bases[0] | 0x200), Some(bases[1]));
+        assert_eq!(set.prev_before(bases[1]), Some(bases[0] | 0x1FF));
+        assert_eq!(set.count_range(bases[0]..=bases[0] | 0x1FF), 512);
+        assert_eq!(set.by_count(512), Some(bases[1]));
+        // Diverge inside the skipped span between the two byte levels.
+        let split = bases[0] ^ (0x31 << 24);
+        assert!(set.insert(split));
+        model.insert(split);
+        set.validate();
+        assert!(set.iter().eq(model.iter().copied()));
+        // Drain one cluster through every downgrade.
+        for i in (0..512u64).rev() {
+            assert!(set.remove(bases[0] | i));
+            model.remove(&(bases[0] | i));
+            if i % 64 == 0 {
+                set.validate();
+                assert!(set.iter().eq(model.iter().copied()));
+            }
+        }
+        set.clear();
+        assert_eq!(set.mem_used(), 0);
+    }
+
+    #[test]
+    fn root_condenses_and_regrows() {
+        let mut set = ExpanseSet::new();
+        let mut model = BTreeSet::new();
+        for k in 0u64..120 {
+            set.insert(k * 0x0101_0101);
+            model.insert(k * 0x0101_0101);
+        }
+        // Shrink through the condensation boundary and keep probing.
+        for k in (25u64..120).rev() {
+            assert!(set.remove(k * 0x0101_0101));
+            model.remove(&(k * 0x0101_0101));
+            set.validate();
+            assert_eq!(set.len(), model.len() as u64);
+            assert!(set.iter().eq(model.iter().copied()), "at {k}");
+        }
+        assert_eq!(set.count_range(0..=u64::MAX), 25);
+        // Regrow across the promotion boundary again.
+        for k in 200u64..250 {
+            assert!(set.insert(k << 32));
+            model.insert(k << 32);
+        }
+        set.validate();
         assert!(set.iter().eq(model.iter().copied()));
         set.clear();
         assert_eq!(set.mem_used(), 0);
