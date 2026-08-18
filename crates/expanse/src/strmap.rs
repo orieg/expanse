@@ -1,0 +1,576 @@
+//! `ExpanseStrMap`: a sorted map from C-style byte strings to `u64`
+//! values (compat: JudySL).
+//!
+//! Structure (clean-room, designed against the documented JudySL
+//! *semantics* only): a meta-trie of word-map nodes. Each node is an
+//! [`ExpanseMap`] keyed by the string's next **8-byte chunk, packed
+//! big-endian**, so the word maps' numeric order *is* byte-lexicographic
+//! order and all ordered navigation falls out of the word engine.
+//!
+//! Keys are NUL-free byte strings (the C surface hands over
+//! NUL-terminated strings, so this is the natural domain). A chunk that
+//! contains the string's terminating NUL — always the case for the last
+//! chunk, including the all-zero chunk of a string whose length is a
+//! multiple of 8 — is a **terminal** entry holding the user value; a
+//! chunk of 8 non-NUL bytes is a **continuation** entry holding a pointer
+//! to the child node. The two are distinguished by the chunk bytes alone
+//! (does it contain a zero byte?), so values need no tag bits.
+//!
+//! v1 note: no single-path compression across chunk levels yet; a long
+//! unique suffix costs one node per 8 bytes.
+
+use crate::map::ExpanseMap;
+use core::ptr::NonNull;
+
+const CHUNK: usize = 8;
+
+/// One trie level: word map over the next 8-byte chunk.
+struct StrNode {
+    map: ExpanseMap,
+}
+
+/// Packs `key[off..]`'s next chunk big-endian; `true` when the chunk
+/// contains the terminating NUL (i.e. fewer than 8 bytes remain).
+fn chunk_at(key: &[u8], off: usize) -> (u64, bool) {
+    let rest = &key[off.min(key.len())..];
+    let mut c = [0u8; CHUNK];
+    let n = rest.len().min(CHUNK);
+    c[..n].copy_from_slice(&rest[..n]);
+    (u64::from_be_bytes(c), rest.len() < CHUNK)
+}
+
+/// The byte content of a terminal chunk (bytes before the NUL).
+fn terminal_bytes(chunk: u64) -> impl Iterator<Item = u8> {
+    chunk.to_be_bytes().into_iter().take_while(|&b| b != 0)
+}
+
+/// True when the chunk contains a NUL byte (terminal entry).
+fn is_terminal(chunk: u64) -> bool {
+    chunk.to_be_bytes().contains(&0)
+}
+
+impl StrNode {
+    fn new() -> Self {
+        Self {
+            map: ExpanseMap::new(),
+        }
+    }
+
+    /// # Safety
+    ///
+    /// `v` must be a continuation value produced by `Box::into_raw` in
+    /// this module.
+    unsafe fn child_mut<'a>(v: u64) -> &'a mut StrNode {
+        // SAFETY: per contract, `v` is a live Box<StrNode> pointer.
+        unsafe { &mut *(v as *mut StrNode) }
+    }
+
+    /// Smallest entry in this subtree; appends its key bytes to `out`.
+    fn min_entry(&mut self, out: &mut Vec<u8>) -> NonNull<u64> {
+        let (chunk, _) = self.map.first().expect("non-empty node");
+        if is_terminal(chunk) {
+            out.extend(terminal_bytes(chunk));
+            self.map.get_value_slot(chunk).expect("present chunk")
+        } else {
+            out.extend_from_slice(&chunk.to_be_bytes());
+            let v = self.map.get(chunk).expect("present chunk");
+            // SAFETY: continuation values are child pointers.
+            unsafe { Self::child_mut(v) }.min_entry(out)
+        }
+    }
+
+    /// Largest entry in this subtree; appends its key bytes to `out`.
+    fn max_entry(&mut self, out: &mut Vec<u8>) -> NonNull<u64> {
+        let (chunk, _) = self.map.last().expect("non-empty node");
+        if is_terminal(chunk) {
+            out.extend(terminal_bytes(chunk));
+            self.map.get_value_slot(chunk).expect("present chunk")
+        } else {
+            out.extend_from_slice(&chunk.to_be_bytes());
+            let v = self.map.get(chunk).expect("present chunk");
+            // SAFETY: continuation values are child pointers.
+            unsafe { Self::child_mut(v) }.max_entry(out)
+        }
+    }
+
+    /// Smallest entry with key `>= key[off..]`; appends bytes to `out`.
+    fn next_at_or_after(
+        &mut self,
+        key: &[u8],
+        off: usize,
+        out: &mut Vec<u8>,
+    ) -> Option<NonNull<u64>> {
+        let (target, _) = chunk_at(key, off);
+        let mut cursor = self.map.next_at_or_after(target);
+        if let Some((chunk, v)) = cursor
+            && chunk == target
+            && !is_terminal(chunk)
+        {
+            // Exact continuation: try deeper with the rest of the key.
+            let mark = out.len();
+            out.extend_from_slice(&chunk.to_be_bytes());
+            // SAFETY: continuation values are child pointers.
+            let deeper = unsafe { Self::child_mut(v) }.next_at_or_after(key, off + CHUNK, out);
+            if let Some(slot) = deeper {
+                return Some(slot);
+            }
+            out.truncate(mark);
+            cursor = self.map.next_after(target);
+        }
+        let (chunk, v) = cursor?;
+        if chunk == target && is_terminal(chunk) {
+            // Terminal at-or-after: the stored string's tail may still be
+            // below the query's tail only if they differ within the chunk;
+            // equality of chunks means the stored string terminates here
+            // and equals the query prefix — which sorts >= the query only
+            // if the query also ends here. A longer query with the same
+            // terminal chunk is impossible (the query chunk would have had
+            // no NUL), so equality is always a valid answer.
+            out.extend(terminal_bytes(chunk));
+            return Some(self.map.get_value_slot(chunk).expect("present chunk"));
+        }
+        // Strictly-greater entry: take its subtree minimum.
+        if is_terminal(chunk) {
+            out.extend(terminal_bytes(chunk));
+            Some(self.map.get_value_slot(chunk).expect("present chunk"))
+        } else {
+            out.extend_from_slice(&chunk.to_be_bytes());
+            // SAFETY: continuation values are child pointers.
+            Some(unsafe { Self::child_mut(v) }.min_entry(out))
+        }
+    }
+
+    /// Largest entry with key `<= key[off..]` (or `<` when `exclusive`
+    /// and the key terminates in this chunk); appends bytes to `out`.
+    fn prev_at_or_before(
+        &mut self,
+        key: &[u8],
+        off: usize,
+        exclusive: bool,
+        out: &mut Vec<u8>,
+    ) -> Option<NonNull<u64>> {
+        let (target, target_terminal) = chunk_at(key, off);
+        // Exact continuation first: deeper entries share this chunk.
+        if !target_terminal
+            && let Some(v) = self.map.get(target)
+            && !is_terminal(target)
+        {
+            let mark = out.len();
+            out.extend_from_slice(&target.to_be_bytes());
+            // SAFETY: continuation values are child pointers.
+            let deeper =
+                unsafe { Self::child_mut(v) }.prev_at_or_before(key, off + CHUNK, exclusive, out);
+            if let Some(slot) = deeper {
+                return Some(slot);
+            }
+            out.truncate(mark);
+        }
+        // Then entries at or below the target chunk in this node.
+        let (chunk, v) = if target_terminal && !exclusive {
+            self.map.prev_at_or_before(target)?
+        } else {
+            // A continuation target's own subtree was handled above; a
+            // terminal exclusive target must not match itself.
+            self.map.prev_before(target)?
+        };
+        if is_terminal(chunk) {
+            out.extend(terminal_bytes(chunk));
+            Some(self.map.get_value_slot(chunk).expect("present chunk"))
+        } else {
+            out.extend_from_slice(&chunk.to_be_bytes());
+            // SAFETY: continuation values are child pointers.
+            Some(unsafe { Self::child_mut(v) }.max_entry(out))
+        }
+    }
+
+    /// Removes `key[off..]`; returns the removed value. Empty child nodes
+    /// are pruned on the way out.
+    fn remove(&mut self, key: &[u8], off: usize) -> Option<u64> {
+        let (chunk, terminal) = chunk_at(key, off);
+        if terminal {
+            return self.map.remove(chunk);
+        }
+        let v = self.map.get(chunk)?;
+        // SAFETY: continuation values are child pointers.
+        let child = unsafe { Self::child_mut(v) };
+        let removed = child.remove(key, off + CHUNK)?;
+        if child.map.is_empty() {
+            self.map.remove(chunk);
+            // SAFETY: last reference to the child; re-own and drop it.
+            drop(unsafe { Box::from_raw(v as *mut StrNode) });
+        }
+        Some(removed)
+    }
+
+    /// Heap bytes used by this subtree (read-only accounting walk).
+    fn subtree_bytes(&self) -> u64 {
+        let mut bytes = self.map.mem_used() as u64 + size_of::<Self>() as u64;
+        for (k, v) in self.map.iter() {
+            if !is_terminal(k) {
+                // SAFETY: continuation values are live child pointers.
+                bytes += unsafe { &*(v as *const StrNode) }.subtree_bytes();
+            }
+        }
+        bytes
+    }
+}
+
+impl Drop for StrNode {
+    fn drop(&mut self) {
+        // Re-own and drop each child exactly once; the recursion bottoms
+        // out at leaf nodes with no continuation entries.
+        let children: Vec<u64> = self
+            .map
+            .iter()
+            .filter(|(k, _)| !is_terminal(*k))
+            .map(|(_, v)| v)
+            .collect();
+        for v in children {
+            // SAFETY: sole owner of the child pointer at drop time.
+            drop(unsafe { Box::from_raw(v as *mut StrNode) });
+        }
+    }
+}
+
+/// A sorted map from NUL-free byte strings to `u64` values (compat:
+/// JudySL). Iteration order is byte-lexicographic.
+pub struct ExpanseStrMap {
+    root: Option<Box<StrNode>>,
+    pop: u64,
+}
+
+impl ExpanseStrMap {
+    /// Creates an empty map.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { root: None, pop: 0 }
+    }
+
+    /// Number of strings stored.
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        self.pop
+    }
+
+    /// True when no strings are stored.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.pop == 0
+    }
+
+    fn assert_key(key: &[u8]) {
+        debug_assert!(!key.contains(&0), "keys are NUL-free byte strings");
+    }
+
+    /// Inserts `key → val`; returns the replaced value if present.
+    pub fn insert(&mut self, key: &[u8], val: u64) -> Option<u64> {
+        Self::assert_key(key);
+        let mut node: &mut StrNode = self.root.get_or_insert_with(|| Box::new(StrNode::new()));
+        let mut off = 0;
+        loop {
+            let (chunk, terminal) = chunk_at(key, off);
+            if terminal {
+                let prev = node.map.insert(chunk, val);
+                if prev.is_none() {
+                    self.pop += 1;
+                }
+                return prev;
+            }
+            let v = match node.map.get(chunk) {
+                Some(v) => v,
+                None => {
+                    let child = Box::into_raw(Box::new(StrNode::new())) as u64;
+                    node.map.insert(chunk, child);
+                    child
+                }
+            };
+            // SAFETY: continuation values are child pointers.
+            node = unsafe { StrNode::child_mut(v) };
+            off += CHUNK;
+        }
+    }
+
+    /// Inserts `key` with value 0 if absent (existing value kept) and
+    /// returns a writable pointer to its value slot — the compat
+    /// `JudySLIns` contract. Valid until the next structural mutation.
+    pub fn ins_slot(&mut self, key: &[u8]) -> NonNull<u64> {
+        Self::assert_key(key);
+        let mut node: &mut StrNode = self.root.get_or_insert_with(|| Box::new(StrNode::new()));
+        let mut off = 0;
+        loop {
+            let (chunk, terminal) = chunk_at(key, off);
+            if terminal {
+                if !node.map.contains_key(chunk) {
+                    self.pop += 1;
+                }
+                return node.map.ins_slot(chunk);
+            }
+            let v = match node.map.get(chunk) {
+                Some(v) => v,
+                None => {
+                    let child = Box::into_raw(Box::new(StrNode::new())) as u64;
+                    node.map.insert(chunk, child);
+                    child
+                }
+            };
+            // SAFETY: continuation values are child pointers.
+            node = unsafe { StrNode::child_mut(v) };
+            off += CHUNK;
+        }
+    }
+
+    /// Returns the value stored for `key`.
+    #[must_use]
+    pub fn get(&self, key: &[u8]) -> Option<u64> {
+        Self::assert_key(key);
+        let mut node = self.root.as_deref()?;
+        let mut off = 0;
+        loop {
+            let (chunk, terminal) = chunk_at(key, off);
+            if terminal {
+                return node.map.get(chunk);
+            }
+            let v = node.map.get(chunk)?;
+            // SAFETY: continuation values are child pointers.
+            node = unsafe { &*(v as *const StrNode) };
+            off += CHUNK;
+        }
+    }
+
+    /// Returns a writable pointer to `key`'s value slot (compat:
+    /// `JudySLGet`), or `None` if absent.
+    #[must_use]
+    pub fn get_value_slot(&mut self, key: &[u8]) -> Option<NonNull<u64>> {
+        Self::assert_key(key);
+        let mut node = self.root.as_deref_mut()?;
+        let mut off = 0;
+        loop {
+            let (chunk, terminal) = chunk_at(key, off);
+            if terminal {
+                return node.map.get_value_slot(chunk);
+            }
+            let v = node.map.get(chunk)?;
+            // SAFETY: continuation values are child pointers.
+            node = unsafe { StrNode::child_mut(v) };
+            off += CHUNK;
+        }
+    }
+
+    /// Removes `key`; returns its value if it was present.
+    pub fn remove(&mut self, key: &[u8]) -> Option<u64> {
+        Self::assert_key(key);
+        let root = self.root.as_deref_mut()?;
+        let removed = root.remove(key, 0)?;
+        self.pop -= 1;
+        if root.map.is_empty() {
+            self.root = None;
+        }
+        Some(removed)
+    }
+
+    /// Smallest entry with key `>= key`: `(key bytes, value slot)`
+    /// (compat: `JudySLFirst`).
+    pub fn next_at_or_after(&mut self, key: &[u8]) -> Option<(Vec<u8>, NonNull<u64>)> {
+        Self::assert_key(key);
+        let root = self.root.as_deref_mut()?;
+        let mut out = Vec::with_capacity(key.len() + CHUNK);
+        let slot = root.next_at_or_after(key, 0, &mut out)?;
+        Some((out, slot))
+    }
+
+    /// Smallest entry with key `> key` (compat: `JudySLNext`). The
+    /// immediate successor of a NUL-free string is itself + `0x01`.
+    pub fn next_after(&mut self, key: &[u8]) -> Option<(Vec<u8>, NonNull<u64>)> {
+        let mut succ = Vec::with_capacity(key.len() + 1);
+        succ.extend_from_slice(key);
+        succ.push(1);
+        self.next_at_or_after(&succ)
+    }
+
+    /// Largest entry with key `<= key` (compat: `JudySLLast`).
+    pub fn prev_at_or_before(&mut self, key: &[u8]) -> Option<(Vec<u8>, NonNull<u64>)> {
+        Self::assert_key(key);
+        let root = self.root.as_deref_mut()?;
+        let mut out = Vec::with_capacity(key.len() + CHUNK);
+        let slot = root.prev_at_or_before(key, 0, false, &mut out)?;
+        Some((out, slot))
+    }
+
+    /// Largest entry with key `< key` (compat: `JudySLPrev`).
+    pub fn prev_before(&mut self, key: &[u8]) -> Option<(Vec<u8>, NonNull<u64>)> {
+        Self::assert_key(key);
+        let root = self.root.as_deref_mut()?;
+        let mut out = Vec::with_capacity(key.len() + CHUNK);
+        let slot = root.prev_at_or_before(key, 0, true, &mut out)?;
+        Some((out, slot))
+    }
+
+    /// Smallest entry.
+    pub fn first(&mut self) -> Option<(Vec<u8>, NonNull<u64>)> {
+        self.next_at_or_after(&[])
+    }
+
+    /// Largest entry.
+    pub fn last(&mut self) -> Option<(Vec<u8>, NonNull<u64>)> {
+        let root = self.root.as_deref_mut()?;
+        let mut out = Vec::new();
+        let slot = root.max_entry(&mut out);
+        Some((out, slot))
+    }
+
+    /// Removes every entry; returns the heap bytes released (the compat
+    /// `JudySLFreeArray` return value).
+    pub fn clear(&mut self) -> u64 {
+        let bytes = match self.root.take() {
+            // Count with a read-only walk, then let ownership drop it.
+            Some(root) => root.subtree_bytes(),
+            None => 0,
+        };
+        self.pop = 0;
+        bytes
+    }
+}
+
+impl Default for ExpanseStrMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for ExpanseStrMap {
+    fn drop(&mut self) {
+        self.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    struct XorShift(u64);
+    impl XorShift {
+        fn next(&mut self) -> u64 {
+            let mut x = self.0;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.0 = x;
+            x
+        }
+    }
+
+    fn keygen(rng: &mut XorShift) -> Vec<u8> {
+        const PREFIXES: [&[u8]; 4] = [b"", b"user:profile:", b"a/very/long/shared/path/", b"k"];
+        let p = PREFIXES[(rng.next() % 4) as usize];
+        let len = (rng.next() % 20) as usize;
+        let mut k = p.to_vec();
+        for _ in 0..len {
+            k.push((rng.next() % 255 + 1) as u8); // 1..=255: NUL-free
+        }
+        k
+    }
+
+    #[test]
+    fn model_differential() {
+        let ops = if cfg!(miri) { 300 } else { 4000 };
+        let mut rng = XorShift(0x571A_5EED_1234 | 1);
+        let mut map = ExpanseStrMap::new();
+        let mut model: BTreeMap<Vec<u8>, u64> = BTreeMap::new();
+        for _ in 0..ops {
+            let k = keygen(&mut rng);
+            match rng.next() % 4 {
+                0 | 1 => {
+                    let v = rng.next();
+                    assert_eq!(map.insert(&k, v), model.insert(k.clone(), v), "ins {k:?}");
+                }
+                2 => assert_eq!(map.remove(&k), model.remove(&k), "rm {k:?}"),
+                _ => assert_eq!(map.get(&k), model.get(&k).copied(), "get {k:?}"),
+            }
+            assert_eq!(map.len(), model.len() as u64);
+        }
+        // Ordered sweep both directions.
+        let mut cursor = map.first();
+        for (mk, mv) in &model {
+            let (k, slot) = cursor.expect("sweep entry");
+            assert_eq!(&k, mk, "sweep key");
+            // SAFETY: slot valid until next mutation; none happens here.
+            assert_eq!(unsafe { *slot.as_ptr() }, *mv, "sweep value");
+            cursor = map.next_after(&k);
+        }
+        assert!(cursor.is_none());
+        let mut cursor = map.last();
+        for (mk, mv) in model.iter().rev() {
+            let (k, slot) = cursor.expect("rev sweep entry");
+            assert_eq!(&k, mk, "rev sweep key");
+            // SAFETY: as above.
+            assert_eq!(unsafe { *slot.as_ptr() }, *mv, "rev sweep value");
+            cursor = map.prev_before(&k);
+        }
+        assert!(cursor.is_none());
+        // Point navigation probes.
+        for _ in 0..if cfg!(miri) { 30 } else { 400 } {
+            let k = keygen(&mut rng);
+            assert_eq!(
+                map.next_at_or_after(&k).map(|e| e.0),
+                model.range(k.clone()..).next().map(|(mk, _)| mk.clone()),
+                "next>= {k:?}"
+            );
+            assert_eq!(
+                map.prev_at_or_before(&k).map(|e| e.0),
+                model
+                    .range(..=k.clone())
+                    .next_back()
+                    .map(|(mk, _)| mk.clone()),
+                "prev<= {k:?}"
+            );
+        }
+        // Drain.
+        let keys: Vec<Vec<u8>> = model.keys().cloned().collect();
+        for k in keys {
+            assert_eq!(map.remove(&k), model.remove(&k));
+        }
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn edge_keys_and_slots() {
+        let mut map = ExpanseStrMap::new();
+        // Empty string, chunk-boundary lengths, shared prefixes.
+        for (i, k) in [
+            b"".as_slice(),
+            b"a",
+            b"abcdefgh",         // exactly one chunk
+            b"abcdefghi",        // crosses into a second chunk
+            b"abcdefghabcdefgh", // two full chunks
+            b"abcdefgg",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(map.insert(k, i as u64 + 10), None, "{k:?}");
+        }
+        assert_eq!(map.get(b""), Some(10));
+        assert_eq!(map.get(b"abcdefgh"), Some(12));
+        assert_eq!(map.get(b"abcdefg"), None);
+        // ins_slot keeps existing values and writes through.
+        let slot = map.ins_slot(b"abcdefgh");
+        // SAFETY: slot valid until next mutation.
+        unsafe {
+            assert_eq!(*slot.as_ptr(), 12);
+            slot.as_ptr().write(99);
+        }
+        assert_eq!(map.get(b"abcdefgh"), Some(99));
+        // Ordering across boundary shapes.
+        let (first, _) = map.first().unwrap();
+        assert_eq!(first, b"");
+        assert_eq!(map.next_after(b"").unwrap().0, b"a");
+        assert_eq!(map.next_after(b"abcdefgg").unwrap().0, b"abcdefgh");
+        assert_eq!(map.next_after(b"abcdefgh").unwrap().0, b"abcdefghabcdefgh");
+        assert_eq!(map.prev_before(b"abcdefgh").unwrap().0, b"abcdefgg");
+        assert_eq!(map.last().unwrap().0, b"abcdefghi");
+        let freed = map.clear();
+        assert!(freed > 0);
+        assert!(map.is_empty());
+    }
+}

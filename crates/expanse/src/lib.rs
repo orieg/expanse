@@ -43,4 +43,5 @@ mod mutate_map;
 mod nav;
 pub mod node;
 pub mod set;
+pub mod strmap;
 pub mod types;

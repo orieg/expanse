@@ -13,11 +13,8 @@
 //! last key returns the word to null, matching the classic representation
 //! of an empty array.
 //!
-//! v1 note (correctness over cycles, per `docs/BENCHMARKING.md`): the
-//! `JudyL` slot-returning entry points run the tree walk up to twice
-//! (mutate/locate + slot fetch); a fused single-walk variant is a Phase 8
-//! bench-driven follow-up. `JudySL`/`JudyHS` land with `ExpanseStrMap`/
-//! `ExpanseBytesMap`.
+//! `JudySL*` is backed by `ExpanseStrMap` (a meta-trie of word maps);
+//! `JudyHS*` lands with `ExpanseBytesMap`.
 
 // The entry points below are C ABI exports whose safety contract is the
 // documented Judy C API itself (docs/COMPAT.md); per-call obligations are
@@ -28,6 +25,7 @@ use core::ffi::{c_int, c_void};
 use core::ptr::{NonNull, null_mut};
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
+use expanse_trie::strmap::ExpanseStrMap;
 
 /// `Word_t`: pointer-width unsigned integer (see COMPAT.md doc-gap D1).
 pub type Word = usize;
@@ -641,6 +639,202 @@ pub unsafe extern "C" fn JudyLMemUsed(parray: *const c_void) -> Word {
     unsafe { map_handle(parray).map_or(0, |m| m.mem_used() + size_of::<ExpanseMap>()) as Word }
 }
 
+// ---------------------------------------------------------------------
+// JudySL (C-string → word map) — backed by ExpanseStrMap
+// ---------------------------------------------------------------------
+
+/// # Safety
+/// `p` must be a valid NUL-terminated C string.
+unsafe fn cstr_bytes<'a>(p: *const u8) -> &'a [u8] {
+    // SAFETY: caller passes a NUL-terminated string.
+    unsafe {
+        let mut n = 0usize;
+        while *p.add(n) != 0 {
+            n += 1;
+        }
+        core::slice::from_raw_parts(p, n)
+    }
+}
+
+/// Copies `bytes` + NUL into the caller's index buffer (the documented
+/// `JudySL` navigation contract: the buffer must be large enough for the
+/// longest stored string).
+///
+/// # Safety
+/// `dst` must be valid for `bytes.len() + 1` writes.
+unsafe fn write_cstr(dst: *mut u8, bytes: &[u8]) {
+    // SAFETY: per this function's contract.
+    unsafe {
+        core::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len());
+        *dst.add(bytes.len()) = 0;
+    }
+}
+
+unsafe fn strmap_handle_mut<'a>(pparray: *mut *mut c_void) -> &'a mut ExpanseStrMap {
+    // SAFETY: per set_handle_mut's contract, for string maps.
+    unsafe {
+        if (*pparray).is_null() {
+            *pparray = Box::into_raw(Box::new(ExpanseStrMap::new())).cast();
+        }
+        &mut *(*pparray).cast::<ExpanseStrMap>()
+    }
+}
+
+unsafe fn strmap_handle<'a>(parray: *const c_void) -> Option<&'a mut ExpanseStrMap> {
+    // SAFETY: null or a handle produced by these entry points; the C
+    // contract returns writable slots even from Pcvoid_t entry points.
+    unsafe { parray.cast_mut().cast::<ExpanseStrMap>().as_mut() }
+}
+
+/// Inserts `index` (value slot zero-initialized if new) and returns a
+/// writable pointer to its value slot; `PJERR` on error.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn JudySLIns(
+    pparray: *mut *mut c_void,
+    index: *const u8,
+    pj: *mut JError,
+) -> *mut c_void {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        if pparray.is_null() {
+            set_err(pj, JU_ERRNO_NULLPPARRAY);
+            return PJERR;
+        }
+        if index.is_null() {
+            set_err(pj, JU_ERRNO_NULLPINDEX);
+            return PJERR;
+        }
+        strmap_handle_mut(pparray)
+            .ins_slot(cstr_bytes(index))
+            .as_ptr()
+            .cast()
+    }
+}
+
+/// Deletes `index`; returns 1 if it was present. An emptied array word
+/// returns to null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn JudySLDel(
+    pparray: *mut *mut c_void,
+    index: *const u8,
+    pj: *mut JError,
+) -> c_int {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        if pparray.is_null() {
+            set_err(pj, JU_ERRNO_NULLPPARRAY);
+            return JERR_INT;
+        }
+        if index.is_null() {
+            set_err(pj, JU_ERRNO_NULLPINDEX);
+            return JERR_INT;
+        }
+        if (*pparray).is_null() {
+            return 0;
+        }
+        let map = &mut *(*pparray).cast::<ExpanseStrMap>();
+        let removed = map.remove(cstr_bytes(index)).is_some();
+        if removed && map.is_empty() {
+            drop(Box::from_raw((*pparray).cast::<ExpanseStrMap>()));
+            *pparray = null_mut();
+        }
+        c_int::from(removed)
+    }
+}
+
+/// Returns a writable pointer to `index`'s value slot, or null if absent.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn JudySLGet(
+    parray: *const c_void,
+    index: *const u8,
+    _pj: *mut JError,
+) -> *mut c_void {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        if index.is_null() {
+            return null_mut();
+        }
+        strmap_handle(parray).map_or(null_mut(), |m| {
+            slot_ptr(m.get_value_slot(cstr_bytes(index)))
+        })
+    }
+}
+
+macro_rules! judysl_nav {
+    ($name:ident, $method:ident, $doc:literal) => {
+        #[doc = $doc]
+        #[doc = ""]
+        #[doc = "Writes the found string (NUL-terminated) back into the"]
+        #[doc = "caller's `index` buffer, which must be large enough for"]
+        #[doc = "the longest stored string (the documented contract)."]
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $name(
+            parray: *const c_void,
+            index: *mut u8,
+            pj: *mut JError,
+        ) -> *mut c_void {
+            // SAFETY: forwarded C contract.
+            unsafe {
+                if index.is_null() {
+                    set_err(pj, JU_ERRNO_NULLPINDEX);
+                    return PJERR;
+                }
+                let Some(map) = strmap_handle(parray) else {
+                    return null_mut();
+                };
+                match map.$method(cstr_bytes(index)) {
+                    Some((key, slot)) => {
+                        write_cstr(index, &key);
+                        slot.as_ptr().cast()
+                    }
+                    None => null_mut(),
+                }
+            }
+        }
+    };
+}
+
+judysl_nav!(
+    JudySLFirst,
+    next_at_or_after,
+    "Smallest stored string >= *index; returns its value slot."
+);
+judysl_nav!(
+    JudySLNext,
+    next_after,
+    "Smallest stored string > *index; returns its value slot."
+);
+judysl_nav!(
+    JudySLLast,
+    prev_at_or_before,
+    "Largest stored string <= *index; returns its value slot."
+);
+judysl_nav!(
+    JudySLPrev,
+    prev_before,
+    "Largest stored string < *index; returns its value slot."
+);
+
+/// Frees the whole array; returns the bytes freed and nulls the word.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn JudySLFreeArray(pparray: *mut *mut c_void, pj: *mut JError) -> Word {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        if pparray.is_null() {
+            set_err(pj, JU_ERRNO_NULLPPARRAY);
+            return 0;
+        }
+        if (*pparray).is_null() {
+            return 0;
+        }
+        let mut boxed = Box::from_raw((*pparray).cast::<ExpanseStrMap>());
+        let bytes = boxed.clear() + size_of::<ExpanseStrMap>() as u64;
+        drop(boxed);
+        *pparray = null_mut();
+        bytes as Word
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -746,6 +940,72 @@ mod tests {
     }
 
     #[test]
+    fn judysl_smoke() {
+        // SAFETY: valid pointers; slots written before further mutation.
+        unsafe {
+            let mut a = arr();
+            let s1 = JudySLIns(&raw mut a, c"hello".as_ptr().cast(), null_mut()).cast::<Word>();
+            *s1 = 11;
+            *JudySLIns(&raw mut a, c"help".as_ptr().cast(), null_mut()).cast::<Word>() = 22;
+            *JudySLIns(
+                &raw mut a,
+                c"a-much-longer-key-crossing-chunks".as_ptr().cast(),
+                null_mut(),
+            )
+            .cast::<Word>() = 33;
+            *JudySLIns(&raw mut a, c"".as_ptr().cast(), null_mut()).cast::<Word>() = 44;
+
+            assert_eq!(
+                *JudySLGet(a, c"hello".as_ptr().cast(), null_mut()).cast::<Word>(),
+                11
+            );
+            assert!(JudySLGet(a, c"hell".as_ptr().cast(), null_mut()).is_null());
+            // Re-insert keeps the value.
+            assert_eq!(
+                *JudySLIns(&raw mut a, c"hello".as_ptr().cast(), null_mut()).cast::<Word>(),
+                11
+            );
+
+            // Ordered sweep with the documented buffer contract.
+            let mut buf = [0u8; 64];
+            let mut got: Vec<(Vec<u8>, Word)> = Vec::new();
+            buf[0] = 0;
+            let mut slot = JudySLFirst(a, buf.as_mut_ptr(), null_mut());
+            while !slot.is_null() {
+                let len = buf.iter().position(|&b| b == 0).unwrap();
+                got.push((buf[..len].to_vec(), *slot.cast::<Word>()));
+                slot = JudySLNext(a, buf.as_mut_ptr(), null_mut());
+            }
+            let expected: Vec<(Vec<u8>, Word)> = vec![
+                (b"".to_vec(), 44),
+                (b"a-much-longer-key-crossing-chunks".to_vec(), 33),
+                (b"hello".to_vec(), 11),
+                (b"help".to_vec(), 22),
+            ];
+            assert_eq!(got, expected, "byte-lexicographic sweep");
+
+            // Backward from the top.
+            buf[..2].copy_from_slice(b"z\0");
+            let slot = JudySLLast(a, buf.as_mut_ptr(), null_mut());
+            assert!(!slot.is_null());
+            let len = buf.iter().position(|&b| b == 0).unwrap();
+            assert_eq!(&buf[..len], b"help");
+
+            assert_eq!(
+                JudySLDel(&raw mut a, c"hello".as_ptr().cast(), null_mut()),
+                1
+            );
+            assert_eq!(
+                JudySLDel(&raw mut a, c"hello".as_ptr().cast(), null_mut()),
+                0
+            );
+            let freed = JudySLFreeArray(&raw mut a, null_mut());
+            assert!(freed > 0);
+            assert!(a.is_null());
+        }
+    }
+
+    #[test]
     fn null_argument_errors() {
         // SAFETY: exercising the documented error paths.
         unsafe {
@@ -843,6 +1103,86 @@ mod oracle {
             3 => 0x99_8877_6655_4400 + (rng.next() % 256),
             _ => rng.next(),
         }) as Word
+    }
+
+    type FSlIns = unsafe extern "C" fn(*mut *mut c_void, *const u8, *mut c_void) -> *mut c_void;
+    type FSlDel = unsafe extern "C" fn(*mut *mut c_void, *const u8, *mut c_void) -> c_int;
+    type FSlGet = unsafe extern "C" fn(*const c_void, *const u8, *mut c_void) -> *mut c_void;
+    type FSlNav = unsafe extern "C" fn(*const c_void, *mut u8, *mut c_void) -> *mut c_void;
+
+    fn strgen(rng: &mut XorShift) -> std::ffi::CString {
+        const PREFIXES: [&[u8]; 4] = [b"", b"user:profile:", b"shared/deep/path/", b"x"];
+        let p = PREFIXES[(rng.next() % 4) as usize];
+        let len = (rng.next() % 18) as usize;
+        let mut k = p.to_vec();
+        for _ in 0..len {
+            k.push((rng.next() % 255 + 1) as u8);
+        }
+        std::ffi::CString::new(k).expect("NUL-free")
+    }
+
+    #[test]
+    fn judysl_matches_stock_libjudy() {
+        let lib = Lib::open();
+        let o_ins: FSlIns = lib.sym(c"JudySLIns");
+        let o_del: FSlDel = lib.sym(c"JudySLDel");
+        let o_get: FSlGet = lib.sym(c"JudySLGet");
+        let o_first: FSlNav = lib.sym(c"JudySLFirst");
+        let o_next: FSlNav = lib.sym(c"JudySLNext");
+        let o_free: FFree = lib.sym(c"JudySLFreeArray");
+
+        for seed in [0x51u64, 0x52, 0x53] {
+            let mut rng = XorShift(seed | 1);
+            let mut ours: *mut c_void = null_mut();
+            let mut theirs: *mut c_void = null_mut();
+            // SAFETY: both stacks driven per the C contract with valid
+            // NUL-terminated keys and adequate navigation buffers.
+            unsafe {
+                for _ in 0..2500 {
+                    let k = strgen(&mut rng);
+                    let kp = k.as_ptr().cast::<u8>();
+                    match rng.next() % 5 {
+                        0..=1 => {
+                            let v = rng.next() as Word;
+                            let s1 = JudySLIns(&raw mut ours, kp, null_mut()).cast::<Word>();
+                            let s2 = o_ins(&raw mut theirs, kp, null_mut()).cast::<Word>();
+                            assert_eq!(*s1, *s2, "ins existing {k:?}");
+                            *s1 = v;
+                            *s2 = v;
+                        }
+                        2 => assert_eq!(
+                            JudySLDel(&raw mut ours, kp, null_mut()),
+                            o_del(&raw mut theirs, kp, null_mut()),
+                            "del {k:?}"
+                        ),
+                        _ => {
+                            let s1 = JudySLGet(ours, kp, null_mut()).cast::<Word>();
+                            let s2 = o_get(theirs, kp, null_mut()).cast::<Word>();
+                            assert_eq!(s1.is_null(), s2.is_null(), "get null-ness {k:?}");
+                            if !s1.is_null() {
+                                assert_eq!(*s1, *s2, "get value {k:?}");
+                            }
+                        }
+                    }
+                }
+                // Full lexicographic sweep must agree byte for byte.
+                let (mut b1, mut b2) = ([0u8; 64], [0u8; 64]);
+                let mut s1 = JudySLFirst(ours, b1.as_mut_ptr(), null_mut());
+                let mut s2 = o_first(theirs, b2.as_mut_ptr(), null_mut());
+                let mut n = 0u32;
+                while !s1.is_null() || !s2.is_null() {
+                    assert_eq!(s1.is_null(), s2.is_null(), "sweep null-ness at {n}");
+                    assert_eq!(b1, b2, "sweep key at {n}");
+                    assert_eq!(*s1.cast::<Word>(), *s2.cast::<Word>(), "sweep value at {n}");
+                    n += 1;
+                    s1 = JudySLNext(ours, b1.as_mut_ptr(), null_mut());
+                    s2 = o_next(theirs, b2.as_mut_ptr(), null_mut());
+                }
+                assert!(JudySLFreeArray(&raw mut ours, null_mut()) > 0);
+                assert!(o_free(&raw mut theirs, null_mut()) > 0);
+                assert!(ours.is_null() && theirs.is_null());
+            }
+        }
     }
 
     #[test]
