@@ -15,5 +15,12 @@ name = "expanse_trie"
 
 [dependencies]
 
+[dev-dependencies]
+criterion = "0.8"
+
+[[bench]]
+name = "compare"
+harness = false
+
 [lints]
 workspace = true

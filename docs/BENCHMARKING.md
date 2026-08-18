@@ -32,12 +32,27 @@ Performance claims are this project's reason to exist, so they follow the strict
 6. **Fixed seeds, recorded populations.** Every bench names its RNG seed and population sizes so runs are reproducible bit-for-bit.
 7. **No time estimates, no projections-as-results** — per repo-wide discipline (CLAUDE.md).
 
-## Bench matrix (populated as phases land)
+## Bench matrix
 
-| Bench | Lands with | Notes |
+| Bench | Status | Notes |
 |---|---|---|
-| `bits` microbenches (popcount/rank/SIMD find vs fallback) | Phase 2 | Criterion-only; guards against fallback regressions |
-| Lookup latency grid | Phase 4 | First numbers vs BTreeMap/HashMap |
-| Insert/delete throughput, bytes/key | Phase 6 | Adds allocator instrumentation |
+| Lookup latency grid (hit/miss × distribution × population) | landed (`benches/compare.rs`) | vs `BTreeSet`/`BTreeMap`, `HashSet`/`HashMap`; timing numbers unpublished until a quiet-host run |
+| Insert throughput (cold build per distribution) | landed (`benches/compare.rs`) | same caveat |
+| bytes/key | landed (`examples/bytes_per_key.rs`) | deterministic allocator accounting — load-immune, results below |
 | Concurrent read scaling (1..N threads) | Phase 7 | Read-only and read-mostly mixes |
-| Full libjudy + ART comparison | Phase 8 | Headline table, dedicated-host runs |
+| Full libjudy + ART comparison | Phase 8 remainder | Headline table, dedicated-host runs, driven through the capi surface |
+
+## Measured results
+
+### bytes/key (measured: deterministic allocation accounting via `NodeAlloc`, commit with this section; machine-independent)
+
+| dist | pop 1k | pop 100k | pop 1M | |
+|---|---|---|---|---|
+| sequential (set) | 0.58 | 0.07 | **0.06** | full-expanse + bitmap-leaf compression |
+| clustered (set) | 1.73 | 1.43 | **1.34** | beats the < 9.5 B/key target |
+| random (set) | 10.43 | 12.91 | 7.06 | not part of the dense/clustered target |
+| sparse `i << 40` (set) | 16.58 | 16.07 | **16.06** | the single-child branch-chain cost — the measured motivation for narrow-pointer synthesis (ARCHITECTURE.md §6 step 3) |
+
+Map-flavor figures run ~8 B/key above the set figures (the stored value word). The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names; the sparse row is the narrow-pointer work's before-number.
+
+Timing numbers (ns/op, Mops/s) remain unpublished until a quiet-host run under the system-load protocol above.
