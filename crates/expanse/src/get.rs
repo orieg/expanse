@@ -13,7 +13,7 @@
 //! sits *at* `level` and consumes `digit(key, level)`; leaf and immediate
 //! tags state their own remaining-byte count.
 //!
-//! Narrow pointers in this phase: a bitmap-leaf child may sit below its
+//! Narrow pointers: a leaf child (linear or bitmap) may sit below its
 //! parent with skipped digits, validated against the edge's decode bytes
 //! (`decode[i]` = the key digit at level `child_level + 1 + i`). Two
 //! deliberate v1 restrictions, revisited with the Phase 6 mutation engine:
@@ -26,9 +26,10 @@
 //!   region; an immediate's `key_bytes` *is* its level, as in the original
 //!   design), and a full-expanse edge covers its whole current expanse.
 //!
-//! Linear-leaf tags (`Leaf1..Leaf7`) are variable-length allocations that
-//! land with the Phase 5 allocator; reaching one here is `unimplemented!`.
+//! Linear leaves (`Leaf1..Leaf7`) are header-less packed allocations whose
+//! population comes from the parent edge's `pop0` — see `leaf`.
 
+use crate::leaf;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
 use crate::types::{EdgeTag, EdgeType, ImmedType, Key, digit};
 
@@ -175,7 +176,31 @@ unsafe fn walk<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup {
                 | EdgeType::Leaf5
                 | EdgeType::Leaf6
                 | EdgeType::Leaf7 => {
-                    unimplemented!("linear leaves land with the Phase 5 allocator")
+                    let lf = t.leaf_key_bytes().expect("linear-leaf tag");
+                    if !decode_matches(edge, key, lf, level) {
+                        return Lookup::Absent;
+                    }
+                    let pop = edge.pop0(lf) as usize + 1;
+                    let base = edge.node_ptr();
+                    if MAP {
+                        // SAFETY: map leaves are one live allocation of
+                        // `pop` values followed by the packed keys
+                        // (leaf::size_map), per the tree contract.
+                        let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
+                        // SAFETY: `keys` spans `pop * lf` readable bytes.
+                        let Some(slot) = (unsafe { leaf::search(keys, pop, lf, key) }) else {
+                            return Lookup::Absent;
+                        };
+                        // SAFETY: slot < pop values live at the base.
+                        return Lookup::Value(unsafe { *base.cast::<u64>().add(slot) });
+                    }
+                    // SAFETY: set leaves are `pop * lf` readable key bytes.
+                    let found = unsafe { leaf::search(base, pop, lf, key) };
+                    return if found.is_some() {
+                        Lookup::Present
+                    } else {
+                        Lookup::Absent
+                    };
                 }
 
                 EdgeType::FullExpanse => {
@@ -540,6 +565,95 @@ mod tests {
             assert!(!test_set(&root, 0x77_C5_42, 3));
             assert!(!test_set(&root, 0x77_00_42, 3));
         }
+    }
+
+    #[test]
+    fn linear_leaves_via_allocator() {
+        use crate::alloc::NodeAlloc;
+
+        let a = NodeAlloc::new();
+
+        // Set flavor, level-3 expanse: BranchL7 → Leaf2 under digit 0x21,
+        // and Leaf1 under digit 0x9E with a one-byte narrow skip (0x44).
+        let keys2: Vec<u64> = vec![0x0000, 0x00FF, 0x1234, 0xFFFE, 0xFFFF];
+        let leaf2_size = leaf::size_set(2, keys2.len());
+        let leaf2 = a.alloc_bytes(leaf2_size);
+        for (slot, k) in keys2.iter().enumerate() {
+            // SAFETY: in-bounds write into the fresh `leaf2_size` block.
+            unsafe {
+                leaf2
+                    .as_ptr()
+                    .add(slot * 2)
+                    .copy_from_nonoverlapping(k.to_le_bytes().as_ptr(), 2);
+            }
+        }
+        let mut e2 = Edge::new_node(leaf2.as_ptr(), EdgeType::Leaf2.as_u8());
+        e2.set_pop0(2, keys2.len() as u64 - 1);
+
+        let keys1: Vec<u64> = vec![0x00, 0x7B, 0xFF];
+        let leaf1_size = leaf::size_set(1, keys1.len());
+        let leaf1 = a.alloc_bytes(leaf1_size);
+        for (slot, k) in keys1.iter().enumerate() {
+            // SAFETY: in-bounds write into the fresh `leaf1_size` block.
+            unsafe { *leaf1.as_ptr().add(slot) = *k as u8 };
+        }
+        let mut e1 = Edge::new_node(leaf1.as_ptr(), EdgeType::Leaf1.as_u8());
+        e1.set_pop0(1, keys1.len() as u64 - 1);
+        e1.set_decode_bytes(1, &[0x44]);
+
+        let mut b7 = BranchL7::new();
+        b7.hdr.num = 2;
+        b7.hdr.digits[..2].copy_from_slice(&[0x21, 0x9E]);
+        b7.edges[0] = e2;
+        b7.edges[1] = e1;
+        let root = Edge::new_node((&raw mut b7).cast(), EdgeType::BranchL7.as_u8());
+
+        let mut set_model = BTreeSet::new();
+        for &k in &keys2 {
+            set_model.insert(0x21_0000 | k);
+        }
+        for &k in &keys1 {
+            set_model.insert(0x9E_4400 | k);
+        }
+        probe_set(&root, 3, &set_model, 0xFF_FFFF);
+        // Skip byte must be validated.
+        // SAFETY: well-formed allocator-built tree.
+        unsafe {
+            assert!(test_set(&root, 0x9E_447B, 3));
+            assert!(!test_set(&root, 0x9E_457B, 3));
+        }
+
+        // Map flavor: a standalone level-5 map leaf (values then keys).
+        let mkeys: Vec<u64> = vec![0x00_0000_0001, 0x12_3456_789A, 0xFF_FFFF_FFFF];
+        let msize = leaf::size_map(5, mkeys.len());
+        let mleaf = a.alloc_bytes(msize);
+        for (slot, k) in mkeys.iter().enumerate() {
+            // SAFETY: in-bounds writes: values first, packed keys after.
+            unsafe {
+                *mleaf.as_ptr().cast::<u64>().add(slot) = 1000 + slot as u64;
+                mleaf
+                    .as_ptr()
+                    .add(leaf::map_keys_offset(mkeys.len()) + slot * 5)
+                    .copy_from_nonoverlapping(k.to_le_bytes().as_ptr(), 5);
+            }
+        }
+        let mut me = Edge::new_node(mleaf.as_ptr(), EdgeType::Leaf5.as_u8());
+        me.set_pop0(5, mkeys.len() as u64 - 1);
+        let mut map_model = BTreeMap::new();
+        for (slot, &k) in mkeys.iter().enumerate() {
+            map_model.insert(k, 1000 + slot as u64);
+        }
+        probe_map(&me, 5, &map_model, 0xFF_FFFF_FFFF);
+
+        // Everything freed: the accounting and Miri's leak check agree.
+        // SAFETY: freeing exactly the three allocations made above.
+        unsafe {
+            a.free_bytes(leaf2, leaf2_size);
+            a.free_bytes(leaf1, leaf1_size);
+            a.free_bytes(mleaf, msize);
+        }
+        assert_eq!(a.bytes_in_use(), 0);
+        assert_eq!(a.live_allocs(), 0);
     }
 
     #[test]

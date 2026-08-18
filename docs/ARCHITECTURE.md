@@ -74,7 +74,7 @@ capacity 3 with the 16-byte header is exact — and buys the OCC version slot.
 ### 3.3 Leaves
 
 - **Immediate**: up to 15 key-remainder bytes inside the edge (e.g. 15×1-byte, 7×2-byte, 2×7-byte). Map-flavor immediates keep keys in the 7 aux bytes: a single key's value lives in word 0, several keys point to a value array.
-- **LinearLeaf1..7**: packed sorted key remainders; the map flavor adds a parallel value array. Sized so leaf search stays within 1–2 cache lines; searched with SIMD/binary search.
+- **LinearLeaf1..7**: header-less variable-length allocations — population lives in the parent edge's `pop0`, so a leaf is nothing but payload (as in the original). Set flavor: `[keys: L×pop]`; map flavor: `[values: u64×pop][keys: L×pop]` in one 64-aligned allocation (values first = free 8-alignment). Scan search baseline; the Phase 8 bench pass decides whether SIMD/binary search earns its complexity.
 - **LeafBitmap1** (level 1, 64 B): 32-byte bitmask + OCC version (set flavor). **LeafBitmapL** (128 B): bitmask + 8 value-subarray pointers addressed by popcount rank + OCC version (map flavor).
 
 ### 3.4 Tagged pointers (read-optimized paths)
@@ -83,7 +83,7 @@ x86-64/AArch64 user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3
 
 ## 4. Algorithms
 
-- **Lookup** (Phase 4, done — `get::test_set`/`get::get_map`): iterative tag-dispatched descent; branch step = SWAR digit find in the header word (linear), bitmap test + subexpanse popcount rank (bitmap), direct index (uncompressed); terminal step = bitmap-leaf test/rank or immediate key scan, with narrow-pointer decode validation. Zero allocation, zero locks. v1 restrictions (revisit in Phase 6): branch children never level-skip (needs per-level tags as in the original), immediates never skip (their key size *is* their level), full-expanse JPs cover their whole current expanse; linear-leaf search lands with Phase 5.
+- **Lookup** (Phases 4–5, done — `get::test_set`/`get::get_map`): iterative tag-dispatched descent; branch step = SWAR digit find in the header word (linear), bitmap test + subexpanse popcount rank (bitmap), direct index (uncompressed); terminal step = linear-leaf scan, bitmap-leaf test/rank, or immediate key scan, with narrow-pointer decode validation on leaf children. Zero allocation, zero locks. v1 restrictions (revisit in Phase 6): branch children never level-skip (needs per-level tags as in the original), immediates never skip (their key size *is* their level), full-expanse edges cover their whole current expanse.
 - **Insert** (Phase 6): descend to the failing point, then grow along the least-compressed-form ladder: Immediate → LinearLeaf → (level 1) BitmapLeaf / (higher) cascade into LinearBranch4 → L8 → Bitmap → Uncompressed. Narrow-pointer creation when a leaf splits on a long common prefix.
 - **Delete** (Phase 6): inverse ladder with **1-index hysteresis** — down-convert one step later than the up-convert threshold, preventing thrash on alternating insert/delete at a boundary.
 - **Count/rank** (compat: `Judy1Count`/`JudyLCount`/`ByCount`): O(depth) using edge `pop0` fields plus bitmap-branch cached segment counts.
@@ -91,7 +91,7 @@ x86-64/AArch64 user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3
 
 ## 5. Crate structure
 
-- `crates/expanse` (package `expanse-trie`): core. Planned modules: `types` (done), `bits` (done: SIMD/SWAR byte find, `Bitmap256` rank/select/navigation), `node` (done: JP + branch/bitmap-leaf layouts, compile-time layout asserts; variable-length linear-leaf layout lands with the Phase 5 allocator), `get` (done: set/map lookup walk), `get` (Phase 4), `alloc` (Phase 5), `ins`/`del` (Phase 6), `occ` (Phase 7), the public `ExpanseSet`/`ExpanseMap`/`ExpanseStrMap`/`ExpanseBytesMap` API.
+- `crates/expanse` (package `expanse-trie`): core. Planned modules: `types` (done), `bits` (done: SIMD/SWAR byte find, `Bitmap256` rank/select/navigation), `node` (done: JP + branch/bitmap-leaf layouts, compile-time layout asserts; variable-length linear-leaf layout lands with the Phase 5 allocator), `get` (done: set/map lookup walk incl. linear leaves), `alloc` (done: cache-line-aligned allocation + byte accounting behind one handle; slab caches only if Phase 8 benches justify), `leaf` (done: linear-leaf layout + search), `get` (Phase 4), `alloc` (Phase 5), `ins`/`del` (Phase 6), `occ` (Phase 7), the public `ExpanseSet`/`ExpanseMap`/`ExpanseStrMap`/`ExpanseBytesMap` API.
 - `crates/expanse-capi` (`libexpanse`): `extern "C"` surface per [COMPAT.md](COMPAT.md) — legacy `Judy.h` compat plus the modern `expanse.h` API. Thin translation layer only — no logic beyond ABI marshaling and `JError_t` mapping.
 
 ## 6. Phase roadmap
@@ -101,8 +101,8 @@ x86-64/AArch64 user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3
 | 1. Foundation types | Tags, constants, digit math (done) | Tests green |
 | 2. Bit/vector engine | popcount/ctz/SIMD byte-find + portable fallbacks (done) | Unit tests incl. edge lanes; parity between SIMD and fallback |
 | 3. Node layouts | 64 B/128 B structs, layout `const` asserts (done; linear-leaf layout deferred to Phase 5 alloc) | `size_of`/`align_of`/`offset_of` asserts green |
-| 4. Lookup engine | `get`/`test` over hand-built trees (done; linear-leaf arm with Phase 5) | Differential vs `BTreeMap` model on fixed corpora |
-| 5. Allocation | Aligned slab arenas | Miri-clean; leak checks |
+| 4. Lookup engine | `get`/`test` over hand-built trees (done) | Differential vs `BTreeMap` model on fixed corpora |
+| 5. Allocation | Cache-line-aligned alloc + accounting; linear-leaf layout + lookup integration (done; slab caches deferred to Phase 8 measurement) | Miri-clean; leak checks |
 | 6. Mutation engine | insert/delete cascades + hysteresis | Property tests + invariant validator (TESTING.md) green |
 | 7. OCC reads | Versioned nodes, epoch reclamation | Loom/stress suites green |
 | 8. Hardening | capi surface, differential oracle vs C libjudy, fuzzing, benches | COMPAT.md acceptance gates; php-judy suite green against libexpanse |

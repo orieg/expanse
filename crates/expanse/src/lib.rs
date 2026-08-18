@@ -33,7 +33,9 @@
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("expanse currently supports 64-bit targets only");
 
+pub mod alloc;
 pub mod bits;
 pub mod get;
+pub mod leaf;
 pub mod node;
 pub mod types;
