@@ -7,8 +7,9 @@
 //! with `size_of`/`align_of`/`offset_of` const assertions (the Phase 3
 //! gate).
 //!
-//! The 16-byte [`JudyPointer`] follows the published Judy IV word layout:
-//! word 0 is the child pointer (or immediate key payload), word 1 packs a
+//! The 16-byte [`Edge`] — the original literature's "Judy Pointer" (JP);
+//! the compat-layer name is reserved for `expanse-capi` — follows the
+//! published Judy IV word layout: word 0 is the child pointer (or immediate key payload), word 1 packs a
 //! 7-byte auxiliary field plus the 1-byte type tag. The auxiliary field is
 //! **level-split**: for a child at level `L`, its low `L` bytes hold
 //! `pop0` (subtree population minus one — a level-`L` subtree holds at most
@@ -16,10 +17,10 @@
 //! hold the narrow-pointer *decode* bytes. This is why no branch header
 //! needs a wide population field.
 //!
-//! Linear-branch geometry note: the naive "8-byte header + 4 JPs" 64-byte
+//! Linear-branch geometry note: the naive "8-byte header + 4 edges" 64-byte
 //! branch is arithmetically impossible (8 + 4×16 = 72 > 64). The exact
-//! one-line form is a 16-byte header + 3 JPs ([`BranchL3`]); the two-line
-//! form is the same header + 7 JPs ([`BranchL7`]). The 16-byte header also
+//! one-line form is a 16-byte header + 3 edges ([`BranchL3`]); the two-line
+//! form is the same header + 7 edges ([`BranchL7`]). The 16-byte header also
 //! reserves the version counter the Phase 7 OCC read protocol needs.
 //!
 //! Linear *leaves* are variable-length allocations (packed key remainders
@@ -27,9 +28,9 @@
 //! with the allocator in Phase 5.
 
 use crate::bits::Bitmap256;
-use crate::types::{BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP, CACHE_LINE, JpTag, JpType};
+use crate::types::{BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP, CACHE_LINE, EdgeTag, EdgeType};
 
-/// Word 0 of a JP: a child-node pointer, or 8 of the up-to-15 immediate
+/// Word 0 of an edge: a child-node pointer, or 8 of the up-to-15 immediate
 /// key-payload bytes.
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -38,30 +39,31 @@ union Word0 {
     imm: [u8; 8],
 }
 
-/// A Judy Pointer: the uniform 16-byte edge descriptor of the tree.
+/// The uniform 16-byte tagged edge descriptor of the trie (known as a
+/// "Judy Pointer" / JP in the original literature).
 ///
 /// ```text
 /// offset  0: word 0   8 B  child pointer, or immediate key bytes
 /// offset  8: aux      7 B  level-split: low L bytes pop0, high bytes decode
-/// offset 15: tag      1 B  type tag (see types::JpTag)
+/// offset 15: tag      1 B  type tag (see types::EdgeTag)
 /// ```
 #[derive(Clone, Copy)]
 #[repr(C)]
-pub struct JudyPointer {
+pub struct Edge {
     w0: Word0,
     aux: [u8; 7],
     tag: u8,
 }
 
-impl JudyPointer {
-    /// The null JP: empty subexpanse.
+impl Edge {
+    /// The null edge: empty subexpanse.
     pub const NULL: Self = Self {
         w0: Word0 { imm: [0; 8] },
         aux: [0; 7],
-        tag: JpType::Null as u8,
+        tag: EdgeType::Null as u8,
     };
 
-    /// Builds a JP referring to a child node.
+    /// Builds an edge referring to a child node.
     #[inline]
     #[must_use]
     pub const fn new_node(ptr: *mut u8, tag: u8) -> Self {
@@ -82,8 +84,8 @@ impl JudyPointer {
     /// The decoded tag, if the byte is a valid encoding.
     #[inline]
     #[must_use]
-    pub const fn tag(&self) -> Option<JpTag> {
-        JpTag::from_u8(self.tag)
+    pub const fn tag(&self) -> Option<EdgeTag> {
+        EdgeTag::from_u8(self.tag)
     }
 
     /// Overwrites the tag byte.
@@ -92,19 +94,19 @@ impl JudyPointer {
         self.tag = tag;
     }
 
-    /// True for the null JP.
+    /// True for the null edge.
     #[inline]
     #[must_use]
     pub const fn is_null(&self) -> bool {
-        self.tag == JpType::Null as u8
+        self.tag == EdgeType::Null as u8
     }
 
-    /// The child-node pointer of a pointer-carrying JP.
+    /// The child-node pointer of a pointer-carrying edge.
     ///
     /// Any 8 bytes are a valid `*mut u8` *value*, so this read is always
     /// defined; but the result carries provenance (and may be dereferenced)
-    /// only for JPs built with [`Self::new_node`] — which is the only way
-    /// pointer-tagged JPs are constructed.
+    /// only for edges built with [`Self::new_node`] — which is the only way
+    /// pointer-tagged edges are constructed.
     #[inline]
     #[must_use]
     pub fn node_ptr(&self) -> *mut u8 {
@@ -113,16 +115,16 @@ impl JudyPointer {
         unsafe { self.w0.ptr }
     }
 
-    /// The 8 word-0 payload bytes of an immediate JP.
+    /// The 8 word-0 payload bytes of an immediate edge.
     ///
-    /// Callers must only use this on immediate-tagged JPs (which are built
+    /// Callers must only use this on immediate-tagged edges (which are built
     /// via [`Self::set_imm_bytes`], so word 0 holds plain bytes, never a
     /// pointer whose bytes would carry provenance).
     #[inline]
     #[must_use]
     pub fn imm_bytes(&self) -> [u8; 8] {
-        debug_assert!(matches!(self.tag(), Some(JpTag::Immed(_))));
-        // SAFETY: reading the `imm` view of the union; immediate JPs store
+        debug_assert!(matches!(self.tag(), Some(EdgeTag::Immed(_))));
+        // SAFETY: reading the `imm` view of the union; immediate edges store
         // plain bytes in word 0.
         unsafe { self.w0.imm }
     }
@@ -134,7 +136,7 @@ impl JudyPointer {
     }
 
     /// The full 15-byte immediate payload (word 0 followed by the aux
-    /// bytes) of a set-flavor immediate JP, which packs its keys across
+    /// bytes) of a set-flavor immediate edge, which packs its keys across
     /// both regions. Same caller obligations as [`Self::imm_bytes`].
     #[inline]
     #[must_use]
@@ -146,7 +148,7 @@ impl JudyPointer {
         out
     }
 
-    /// The 7 aux bytes, where map-flavor immediate JPs pack their keys
+    /// The 7 aux bytes, where map-flavor immediate edges pack their keys
     /// (word 0 holds the value, or the value-array pointer, instead).
     #[inline]
     #[must_use]
@@ -154,7 +156,7 @@ impl JudyPointer {
         &self.aux
     }
 
-    /// Writes the aux bytes wholesale (immediate-JP key storage).
+    /// Writes the aux bytes wholesale (immediate-edge key storage).
     #[inline]
     pub const fn set_aux_bytes(&mut self, bytes: [u8; 7]) {
         self.aux = bytes;
@@ -191,7 +193,7 @@ impl JudyPointer {
 
     /// The narrow-pointer decode bytes for a child at `level`: the high
     /// `7 - level` aux bytes. `decode[0]` is the byte nearest the child's
-    /// level; unused when the JP skips no levels.
+    /// level; unused when the edge skips no levels.
     #[inline]
     #[must_use]
     pub fn decode_bytes(&self, level: u8) -> &[u8] {
@@ -208,15 +210,15 @@ impl JudyPointer {
     }
 }
 
-impl Default for JudyPointer {
+impl Default for Edge {
     fn default() -> Self {
         Self::NULL
     }
 }
 
-impl core::fmt::Debug for JudyPointer {
+impl core::fmt::Debug for Edge {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("JudyPointer")
+        f.debug_struct("Edge")
             .field("tag", &format_args!("{:#04x}", self.tag))
             .field("aux", &self.aux)
             .finish_non_exhaustive()
@@ -231,7 +233,7 @@ pub struct BranchHeader {
     /// Phase 7 OCC version counter (odd = mutation in progress). Plain for
     /// now; becomes atomic when the concurrent read protocol lands.
     pub version: u32,
-    /// Number of populated child JPs.
+    /// Number of populated child edges.
     pub num: u8,
     _pad: [u8; 3],
     /// Sorted decode digits of the populated children; slot 7 is unused
@@ -265,14 +267,14 @@ impl Default for BranchHeader {
     }
 }
 
-/// One-cache-line linear branch: header + up to 3 child JPs.
+/// One-cache-line linear branch: header + up to 3 child edges.
 #[derive(Debug)]
 #[repr(C, align(64))]
 pub struct BranchL3 {
     /// Header (version, count, digits).
     pub hdr: BranchHeader,
-    /// Child JPs, `hdr.num` of them populated, in digit order.
-    pub jps: [JudyPointer; BRANCH_L3_CAP],
+    /// Child edges, `hdr.num` of them populated, in digit order.
+    pub edges: [Edge; BRANCH_L3_CAP],
 }
 
 impl BranchL3 {
@@ -281,7 +283,7 @@ impl BranchL3 {
     pub const fn new() -> Self {
         Self {
             hdr: BranchHeader::new(),
-            jps: [JudyPointer::NULL; BRANCH_L3_CAP],
+            edges: [Edge::NULL; BRANCH_L3_CAP],
         }
     }
 }
@@ -292,14 +294,14 @@ impl Default for BranchL3 {
     }
 }
 
-/// Two-cache-line linear branch: header + up to 7 child JPs.
+/// Two-cache-line linear branch: header + up to 7 child edges.
 #[derive(Debug)]
 #[repr(C, align(64))]
 pub struct BranchL7 {
     /// Header (version, count, digits).
     pub hdr: BranchHeader,
-    /// Child JPs, `hdr.num` of them populated, in digit order.
-    pub jps: [JudyPointer; BRANCH_L7_CAP],
+    /// Child edges, `hdr.num` of them populated, in digit order.
+    pub edges: [Edge; BRANCH_L7_CAP],
 }
 
 impl BranchL7 {
@@ -308,7 +310,7 @@ impl BranchL7 {
     pub const fn new() -> Self {
         Self {
             hdr: BranchHeader::new(),
-            jps: [JudyPointer::NULL; BRANCH_L7_CAP],
+            edges: [Edge::NULL; BRANCH_L7_CAP],
         }
     }
 }
@@ -320,10 +322,10 @@ impl Default for BranchL7 {
 }
 
 /// Two-cache-line bitmap branch: 256-bit membership bitmap over eight
-/// packed child-JP subarrays (one per 32-digit subexpanse).
+/// packed child-edge subarrays (one per 32-digit subexpanse).
 ///
 /// Line 0 holds the bitmap and the first four subarray pointers — a lookup
-/// that hits subexpanses 0x00..0x7F touches one line before the child JP.
+/// that hits subexpanses 0x00..0x7F touches one line before the child edge.
 /// Line 1 holds the remaining pointers, cached per-subexpanse population
 /// counts (rank acceleration for `Count`/`ByCount`), and the OCC version.
 #[derive(Debug)]
@@ -331,8 +333,8 @@ impl Default for BranchL7 {
 pub struct BranchB {
     /// Membership bitmap over the 256 possible digits.
     pub bitmap: Bitmap256,
-    /// Packed JP subarrays, one per 32-digit subexpanse; null when empty.
-    pub subarrays: [*mut JudyPointer; 8],
+    /// Packed edge subarrays, one per 32-digit subexpanse; null when empty.
+    pub subarrays: [*mut Edge; 8],
     /// Cached population count of each subexpanse's subarray.
     pub pop_counts: [u16; 8],
     /// Phase 7 OCC version counter.
@@ -360,13 +362,13 @@ impl Default for BranchB {
     }
 }
 
-/// Uncompressed branch: a flat page of 256 child JPs, direct-indexed by
+/// Uncompressed branch: a flat page of 256 child edges, direct-indexed by
 /// digit. 4 KiB; used only above the bitmap-density threshold.
 #[derive(Debug)]
 #[repr(C, align(64))]
 pub struct BranchU {
-    /// One JP per possible digit (null tag = empty subexpanse).
-    pub jps: [JudyPointer; BRANCH_FANOUT],
+    /// One edge per possible digit (null tag = empty subexpanse).
+    pub edges: [Edge; BRANCH_FANOUT],
 }
 
 impl BranchU {
@@ -374,7 +376,7 @@ impl BranchU {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            jps: [JudyPointer::NULL; BRANCH_FANOUT],
+            edges: [Edge::NULL; BRANCH_FANOUT],
         }
     }
 }
@@ -385,7 +387,8 @@ impl Default for BranchU {
     }
 }
 
-/// One-cache-line bitmap leaf for key-presence (Judy1 / `ExpanseSet`):
+/// One-cache-line bitmap leaf for key-presence (`ExpanseSet`; compat:
+/// Judy1):
 /// membership of the final key byte is the bitmap itself.
 #[derive(Debug)]
 #[repr(C, align(64))]
@@ -415,7 +418,8 @@ impl Default for LeafBitmap1 {
     }
 }
 
-/// Two-cache-line bitmap leaf for maps (JudyL / `ExpanseMap`): the bitmap
+/// Two-cache-line bitmap leaf for maps (`ExpanseMap`; compat: JudyL):
+/// the bitmap
 /// plus eight value-subarray pointers, one per 32-digit subexpanse; a
 /// present key's value slot is found by popcount rank within its subarray.
 #[derive(Debug)]
@@ -453,21 +457,21 @@ impl Default for LeafBitmapL {
 const _: () = {
     use core::mem::{align_of, offset_of, size_of};
 
-    assert!(size_of::<JudyPointer>() == 16);
-    assert!(align_of::<JudyPointer>() == 8);
-    assert!(offset_of!(JudyPointer, aux) == 8);
-    assert!(offset_of!(JudyPointer, tag) == 15);
+    assert!(size_of::<Edge>() == 16);
+    assert!(align_of::<Edge>() == 8);
+    assert!(offset_of!(Edge, aux) == 8);
+    assert!(offset_of!(Edge, tag) == 15);
 
     assert!(size_of::<BranchHeader>() == 16);
     assert!(offset_of!(BranchHeader, digits) == 8);
 
     assert!(size_of::<BranchL3>() == CACHE_LINE);
     assert!(align_of::<BranchL3>() == CACHE_LINE);
-    assert!(offset_of!(BranchL3, jps) == 16);
+    assert!(offset_of!(BranchL3, edges) == 16);
 
     assert!(size_of::<BranchL7>() == 2 * CACHE_LINE);
     assert!(align_of::<BranchL7>() == CACHE_LINE);
-    assert!(offset_of!(BranchL7, jps) == 16);
+    assert!(offset_of!(BranchL7, edges) == 16);
 
     assert!(size_of::<Bitmap256>() == 32);
     assert!(size_of::<BranchB>() == 2 * CACHE_LINE);
@@ -493,25 +497,25 @@ mod tests {
 
     #[test]
     fn null_jp() {
-        let jp = JudyPointer::NULL;
+        let jp = Edge::NULL;
         assert!(jp.is_null());
-        assert_eq!(jp.tag(), Some(JpTag::Structural(JpType::Null)));
-        assert_eq!(JudyPointer::default().tag_byte(), jp.tag_byte());
+        assert_eq!(jp.tag(), Some(EdgeTag::Structural(EdgeType::Null)));
+        assert_eq!(Edge::default().tag_byte(), jp.tag_byte());
     }
 
     #[test]
     fn node_pointer_roundtrip() {
         let mut backing = BranchL3::new();
         let raw = (&raw mut backing).cast::<u8>();
-        let jp = JudyPointer::new_node(raw, JpType::BranchL3.as_u8());
+        let jp = Edge::new_node(raw, EdgeType::BranchL3.as_u8());
         assert!(!jp.is_null());
         assert_eq!(jp.node_ptr(), raw);
-        assert_eq!(jp.tag(), Some(JpTag::Structural(JpType::BranchL3)));
+        assert_eq!(jp.tag(), Some(EdgeTag::Structural(EdgeType::BranchL3)));
     }
 
     #[test]
     fn imm_bytes_roundtrip() {
-        let mut jp = JudyPointer::NULL;
+        let mut jp = Edge::NULL;
         jp.set_tag(ImmedType::new(2, 3).unwrap().as_u8());
         jp.set_imm_bytes([1, 2, 3, 4, 5, 6, 7, 8]);
         assert_eq!(jp.imm_bytes(), [1, 2, 3, 4, 5, 6, 7, 8]);
@@ -526,7 +530,7 @@ mod tests {
                 (1u64 << (level as u32 * 8)) - 1
             };
             for pop0 in [0u64, 1, max / 2, max] {
-                let mut jp = JudyPointer::NULL;
+                let mut jp = Edge::NULL;
                 jp.set_pop0(level, pop0);
                 assert_eq!(jp.pop0(level), pop0, "level={level} pop0={pop0}");
             }
@@ -536,7 +540,7 @@ mod tests {
     #[test]
     fn pop0_and_decode_do_not_overlap() {
         for level in 1..=6u8 {
-            let mut jp = JudyPointer::NULL;
+            let mut jp = Edge::NULL;
             let max_pop0 = (1u64 << (level as u32 * 8)) - 1;
             jp.set_pop0(level, max_pop0);
             let decode: Vec<u8> = (0..(7 - level)).map(|i| 0xA0 | i).collect();
@@ -564,9 +568,9 @@ mod tests {
 
     #[test]
     fn empty_nodes() {
-        assert!(BranchL3::new().jps.iter().all(JudyPointer::is_null));
-        assert!(BranchL7::new().jps.iter().all(JudyPointer::is_null));
-        assert!(BranchU::new().jps.iter().all(JudyPointer::is_null));
+        assert!(BranchL3::new().edges.iter().all(Edge::is_null));
+        assert!(BranchL7::new().edges.iter().all(Edge::is_null));
+        assert!(BranchU::new().edges.iter().all(Edge::is_null));
         let bb = BranchB::new();
         assert!(bb.bitmap.is_empty());
         assert!(bb.subarrays.iter().all(|p| p.is_null()));

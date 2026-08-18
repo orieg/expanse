@@ -1,18 +1,20 @@
 //! Phase 1 foundation: key/value word types, node geometry constants, the
-//! Judy Pointer (JP) type-tag encoding, and digit extraction.
+//! edge type-tag encoding, and digit extraction.
 //!
-//! A Judy tree decodes a 64-bit key one byte ("digit") at a time across up
+//! An expanse trie decodes a 64-bit key one byte ("digit") at a time across up
 //! to eight levels. Level 8 consumes the most significant byte; level 1 the
-//! least significant. Every edge in the tree is a 16-byte Judy Pointer whose
-//! last byte is a type tag describing what the pointer refers to (branch
-//! flavor, leaf flavor, or keys stored immediately inside the JP itself).
+//! least significant. Every edge in the trie is a 16-byte tagged descriptor
+//! (the original literature's "Judy Pointer" / JP; that name is reserved for
+//! the `expanse-capi` compat layer) whose last byte is a type tag describing
+//! what the edge refers to (branch
+//! flavor, leaf flavor, or keys stored immediately inside the edge itself).
 //! This module defines that tag encoding; the node layouts themselves land
 //! in a later phase.
 
 /// A key: one native machine word.
 pub type Key = u64;
 
-/// A value: one native machine word (JudyL maps `Key -> Value`).
+/// A value: one native machine word (the map flavor maps `Key -> Value`).
 pub type Value = u64;
 
 /// Cache line size all node geometries are designed around.
@@ -28,40 +30,40 @@ pub const MAX_LEVEL: u8 = 8;
 /// Fanout of one decode step: one byte selects among 256 subexpanses.
 pub const BRANCH_FANOUT: usize = 256;
 
-/// Capacity of the one-cache-line linear branch (16-byte header + 3 JPs).
+/// Capacity of the one-cache-line linear branch (16-byte header + 3 edges).
 ///
-/// Note: a 4-JP linear branch cannot fit one 64-byte line once any header
+/// Note: a 4-edge linear branch cannot fit one 64-byte line once any header
 /// exists (8 + 4 x 16 = 72 > 64); capacity 3 with a 16-byte header (which
 /// also hosts the Phase 7 OCC version counter) is exact.
 pub const BRANCH_L3_CAP: usize = 3;
 
-/// Capacity of the two-cache-line linear branch (16-byte header + 7 JPs).
+/// Capacity of the two-cache-line linear branch (16-byte header + 7 edges).
 pub const BRANCH_L7_CAP: usize = 7;
 
 /// Populated-subexpanse count at which a bitmap branch converts to an
 /// uncompressed (flat 256-slot) branch.
 pub const BITMAP_TO_UNCOMPRESSED_THRESHOLD: usize = 192;
 
-/// Bytes available inside a 16-byte JP for immediately stored keys
+/// Bytes available inside a 16-byte edge for immediately stored keys
 /// (payload word + decode/pop bytes, excluding the 1-byte type tag).
 pub const IMMED_PAYLOAD_BYTES: usize = 15;
 
-/// Structural JP type tags: branches and pointed-to leaves.
+/// Structural edge type tags: branches and pointed-to leaves.
 ///
-/// Immediate tags (keys packed inside the JP) use a separate nibble-packed
-/// encoding — see [`ImmedType`] and [`JpTag`], which unify both spaces.
+/// Immediate tags (keys packed inside the edge) use a separate nibble-packed
+/// encoding — see [`ImmedType`] and [`EdgeTag`], which unify both spaces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
-pub enum JpType {
-    /// Empty subexpanse: no keys present under this JP.
+pub enum EdgeType {
+    /// Empty subexpanse: no keys present under this edge.
     Null = 0x00,
-    /// Linear branch, one cache line, up to [`BRANCH_L3_CAP`] child JPs.
+    /// Linear branch, one cache line, up to [`BRANCH_L3_CAP`] child edges.
     BranchL3 = 0x01,
-    /// Linear branch, two cache lines, up to [`BRANCH_L7_CAP`] child JPs.
+    /// Linear branch, two cache lines, up to [`BRANCH_L7_CAP`] child edges.
     BranchL7 = 0x02,
-    /// Bitmap branch: 256-bit membership bitmap over packed child JP arrays.
+    /// Bitmap branch: 256-bit membership bitmap over packed child-edge arrays.
     BranchB = 0x03,
-    /// Uncompressed branch: flat array of 256 child JPs.
+    /// Uncompressed branch: flat array of 256 child edges.
     BranchU = 0x04,
     /// Linear leaf holding packed 1-byte key remainders.
     Leaf1 = 0x05,
@@ -79,11 +81,12 @@ pub enum JpType {
     Leaf7 = 0x0B,
     /// Bitmap leaf at level 1: 256-bit mask over the final key byte.
     LeafB1 = 0x0C,
-    /// Fully populated subexpanse (Judy1): all keys present, no node needed.
+    /// Fully populated subexpanse (set flavor): all keys present, no node
+    /// needed.
     FullExpanse = 0x7F,
 }
 
-impl JpType {
+impl EdgeType {
     /// Decodes a structural tag from its raw byte, if it is one.
     #[must_use]
     pub const fn from_u8(raw: u8) -> Option<Self> {
@@ -154,7 +157,7 @@ impl JpType {
     }
 }
 
-/// An immediate JP tag: keys stored directly inside the 16-byte JP.
+/// An immediate edge tag: keys stored directly inside the 16-byte edge.
 ///
 /// Packed encoding: `(key_bytes << 4) | (key_count - 1)`, giving the raw
 /// range `0x10..=0x71`. A combination is valid when `1 <= key_bytes <= 7`
@@ -167,7 +170,7 @@ pub struct ImmedType {
 }
 
 impl ImmedType {
-    /// Builds an immediate tag, if the combination fits in a JP.
+    /// Builds an immediate tag, if the combination fits in an edge.
     #[must_use]
     pub const fn new(key_bytes: u8, key_count: u8) -> Option<Self> {
         if key_bytes >= 1
@@ -196,13 +199,13 @@ impl ImmedType {
         (self.key_bytes << 4) | (self.key_count - 1)
     }
 
-    /// Undecoded bytes per key stored in this JP (1..=7).
+    /// Undecoded bytes per key stored in this edge (1..=7).
     #[must_use]
     pub const fn key_bytes(self) -> u8 {
         self.key_bytes
     }
 
-    /// Number of keys stored in this JP (1..=15).
+    /// Number of keys stored in this edge (1..=15).
     #[must_use]
     pub const fn key_count(self) -> u8 {
         self.key_count
@@ -215,20 +218,20 @@ impl ImmedType {
     }
 }
 
-/// The full JP tag space: structural tags plus immediate tags.
+/// The full edge tag space: structural tags plus immediate tags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum JpTag {
+pub enum EdgeTag {
     /// A branch, leaf, null, or full-expanse tag.
-    Structural(JpType),
-    /// Keys stored immediately inside the JP.
+    Structural(EdgeType),
+    /// Keys stored immediately inside the edge.
     Immed(ImmedType),
 }
 
-impl JpTag {
+impl EdgeTag {
     /// Decodes any valid tag byte.
     #[must_use]
     pub const fn from_u8(raw: u8) -> Option<Self> {
-        if let Some(t) = JpType::from_u8(raw) {
+        if let Some(t) = EdgeType::from_u8(raw) {
             Some(Self::Structural(t))
         } else if let Some(i) = ImmedType::from_u8(raw) {
             Some(Self::Immed(i))
@@ -260,7 +263,7 @@ pub const fn digit(key: Key, level: u8) -> u8 {
 // Layout invariants the rest of the implementation relies on.
 const _: () = assert!(size_of::<usize>() == 8, "64-bit targets only");
 const _: () = assert!(size_of::<Key>() == 8);
-const _: () = assert!(CACHE_LINE == 4 * 16, "4 JPs per cache line");
+const _: () = assert!(CACHE_LINE == 4 * 16, "4 edges per cache line");
 
 #[cfg(test)]
 mod tests {
@@ -269,23 +272,23 @@ mod tests {
     #[test]
     fn structural_tags_round_trip() {
         let all = [
-            JpType::Null,
-            JpType::BranchL3,
-            JpType::BranchL7,
-            JpType::BranchB,
-            JpType::BranchU,
-            JpType::Leaf1,
-            JpType::Leaf2,
-            JpType::Leaf3,
-            JpType::Leaf4,
-            JpType::Leaf5,
-            JpType::Leaf6,
-            JpType::Leaf7,
-            JpType::LeafB1,
-            JpType::FullExpanse,
+            EdgeType::Null,
+            EdgeType::BranchL3,
+            EdgeType::BranchL7,
+            EdgeType::BranchB,
+            EdgeType::BranchU,
+            EdgeType::Leaf1,
+            EdgeType::Leaf2,
+            EdgeType::Leaf3,
+            EdgeType::Leaf4,
+            EdgeType::Leaf5,
+            EdgeType::Leaf6,
+            EdgeType::Leaf7,
+            EdgeType::LeafB1,
+            EdgeType::FullExpanse,
         ];
         for t in all {
-            assert_eq!(JpType::from_u8(t.as_u8()), Some(t));
+            assert_eq!(EdgeType::from_u8(t.as_u8()), Some(t));
         }
     }
 
@@ -294,7 +297,7 @@ mod tests {
         // Every byte decodes as structural, immediate, or invalid — never both.
         let mut valid = 0;
         for raw in 0..=u8::MAX {
-            let s = JpType::from_u8(raw);
+            let s = EdgeType::from_u8(raw);
             let i = ImmedType::from_u8(raw);
             assert!(
                 s.is_none() || i.is_none(),
@@ -302,10 +305,10 @@ mod tests {
             );
             if s.is_some() || i.is_some() {
                 valid += 1;
-                let tag = JpTag::from_u8(raw).unwrap();
+                let tag = EdgeTag::from_u8(raw).unwrap();
                 assert_eq!(tag.as_u8(), raw);
             } else {
-                assert_eq!(JpTag::from_u8(raw), None);
+                assert_eq!(EdgeTag::from_u8(raw), None);
             }
         }
         // 14 structural tags + all (key_bytes, count) combos with
@@ -336,24 +339,24 @@ mod tests {
         for kb in 1..=7u8 {
             for count in 1..=ImmedType::max_count(kb) {
                 let raw = ImmedType::new(kb, count).unwrap().as_u8();
-                assert!(JpType::from_u8(raw).is_none(), "collision at {raw:#04x}");
+                assert!(EdgeType::from_u8(raw).is_none(), "collision at {raw:#04x}");
             }
         }
     }
 
     #[test]
     fn classification_helpers() {
-        assert!(JpType::BranchL3.is_branch());
-        assert!(JpType::BranchU.is_branch());
-        assert!(!JpType::Leaf1.is_branch());
-        assert!(JpType::Leaf7.is_leaf());
-        assert!(JpType::LeafB1.is_leaf());
-        assert!(!JpType::Null.is_leaf());
-        assert!(!JpType::FullExpanse.is_branch());
-        assert!(!JpType::FullExpanse.is_leaf());
-        assert_eq!(JpType::Leaf3.leaf_key_bytes(), Some(3));
-        assert_eq!(JpType::LeafB1.leaf_key_bytes(), None);
-        assert_eq!(JpType::BranchB.leaf_key_bytes(), None);
+        assert!(EdgeType::BranchL3.is_branch());
+        assert!(EdgeType::BranchU.is_branch());
+        assert!(!EdgeType::Leaf1.is_branch());
+        assert!(EdgeType::Leaf7.is_leaf());
+        assert!(EdgeType::LeafB1.is_leaf());
+        assert!(!EdgeType::Null.is_leaf());
+        assert!(!EdgeType::FullExpanse.is_branch());
+        assert!(!EdgeType::FullExpanse.is_leaf());
+        assert_eq!(EdgeType::Leaf3.leaf_key_bytes(), Some(3));
+        assert_eq!(EdgeType::LeafB1.leaf_key_bytes(), None);
+        assert_eq!(EdgeType::BranchB.leaf_key_bytes(), None);
     }
 
     #[test]

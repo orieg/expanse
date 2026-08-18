@@ -6,7 +6,7 @@ Expanse is a clean-room reimplementation of the Judy array family (Judy1 bit set
 
 ## 1. The structure in one page
 
-A Judy tree is a 256-ary digital trie: each level decodes one byte ("digit") of a 64-bit key, most-significant byte first (level 8 → level 1). Every edge is a **Judy Pointer (JP)** — a 16-byte descriptor whose type tag says what it points to. Adaptive compression keeps memory near-proportional to population:
+The trie is 256-ary: each level decodes one byte ("digit") of a 64-bit key, most-significant byte first (level 8 → level 1). Every edge is an **`Edge`** — a 16-byte tagged descriptor saying what it points to. (Terminology: the original literature calls this a "Judy Pointer"/JP; Judy names are reserved for the `expanse-capi` compat layer, and core code/docs use `Edge`.) Adaptive compression keeps memory near-proportional to population:
 
 ```
  Root ── (small pop) ──> root-level leaf
@@ -23,7 +23,7 @@ A Judy tree is a 256-ary digital trie: each level decodes one byte ("digit") of 
    BitmapLeaf     — level 1, high pop: 256-bit mask over the last byte
 ```
 
-Two further compressions: **narrow pointers** (a JP records skipped common bytes in its decode field, collapsing single-child chains) and **full-expanse** tags (Judy1: a completely populated subexpanse needs no node at all).
+Two further compressions: **narrow pointers** (a JP records skipped common bytes in its decode field, collapsing single-child chains) and **full-expanse** tags (set flavor: a completely populated subexpanse needs no node at all).
 
 ## 2. What changes vs. Judy IV (2002)
 
@@ -33,17 +33,17 @@ Two further compressions: **narrow pointers** (a JP records skipped common bytes
 | Bit scan/rank | SWAR + lookup tables | `u64::count_ones`/`trailing_zeros` (→ `popcnt`/`tzcnt`) | Single-cycle hardware ops |
 | Byte search | Unrolled scalar compares | SIMD splat-compare-movemask (SSE2/NEON via `core::arch`, portable fallback) | 16–64 bytes per compare, no branchy loop |
 | Allocator | Custom word-bucket chunk allocator | System/global allocator + slab arenas for 64 B/128 B/4 KiB classes | Modern allocators already segregate; arenas kill mutation-burst overhead |
-| JP density | 16 B per edge always | 16 B JPs + tagged-pointer packing where profitable | 48-bit VAs leave 16 tag bits + 3 alignment bits free |
+| Edge density | 16 B per edge always | 16 B edges + tagged-pointer packing where profitable | 48-bit VAs leave 16 tag bits + 3 alignment bits free |
 | Concurrency | None (external mutex) | Per-node version counters, optimistic lock-coupling readers | Lock-free reads, linear read scaling |
 
 ## 3. Core layouts
 
-### 3.1 Judy Pointer (16 B)
+### 3.1 Edge (16 B)
 
 ```
 offset 0: word 0     8 B   child node pointer, or immediate key payload
 offset 8: aux        7 B   level-split: low L bytes pop0, high bytes decode
-offset 15: tag       1 B   JP type tag
+offset 15: tag       1 B   edge type tag
 ```
 
 The 7-byte aux field is **level-split** (as in the published Judy IV
@@ -63,30 +63,30 @@ Tag encoding (implemented in `crates/expanse/src/types.rs`):
 Linear branches share a 16-byte header: OCC version counter (u32, plain
 until Phase 7), child count, and an 8-byte digit array searched as one
 64-bit word (`bits::find_byte_8`). Geometry note: the naive "8 B header +
-4 JPs" one-line branch is arithmetically impossible (8 + 4×16 = 72 > 64);
+4 edges" one-line branch is arithmetically impossible (8 + 4×16 = 72 > 64);
 capacity 3 with the 16-byte header is exact — and buys the OCC version slot.
 
-- **BranchL3** (64 B = 1 line): 16 B header + 3 JPs. Overflow → BranchL7.
-- **BranchL7** (128 B = 2 lines): 16 B header + 7 JPs. Overflow → BitmapBranch.
+- **BranchL3** (64 B = 1 line): 16 B header + 3 edges. Overflow → BranchL7.
+- **BranchL7** (128 B = 2 lines): 16 B header + 7 edges. Overflow → BranchB.
 - **BranchB** (128 B = 2 lines): line 0 = 256-bit bitmap (32 B) + first 4 of 8 subarray pointers; line 1 = remaining pointers + cached per-subexpanse pop counts (`[u16; 8]`, rank acceleration) + OCC version. Slot lookup = bitmap test + popcount rank. ≥192 populated subexpanses → BranchU.
-- **BranchU** (4 KiB): flat 256 JPs, direct index.
+- **BranchU** (4 KiB): flat 256 edges, direct index.
 
 ### 3.3 Leaves
 
-- **Immediate**: up to 15 key-remainder bytes inside the JP (e.g. 15×1-byte, 7×2-byte, 2×7-byte). JudyL immediates constrain count further (values need a home — exact layout fixed in Phase 3).
-- **LinearLeaf1..7**: packed sorted key remainders; JudyL adds a parallel value array. Sized so leaf search stays within 1–2 cache lines; searched with SIMD/binary search.
-- **LeafBitmap1** (level 1, 64 B): 32-byte bitmask + OCC version (Judy1). **LeafBitmapL** (128 B): bitmask + 8 value-subarray pointers addressed by popcount rank + OCC version (JudyL).
+- **Immediate**: up to 15 key-remainder bytes inside the edge (e.g. 15×1-byte, 7×2-byte, 2×7-byte). Map-flavor immediates keep keys in the 7 aux bytes: a single key's value lives in word 0, several keys point to a value array.
+- **LinearLeaf1..7**: packed sorted key remainders; the map flavor adds a parallel value array. Sized so leaf search stays within 1–2 cache lines; searched with SIMD/binary search.
+- **LeafBitmap1** (level 1, 64 B): 32-byte bitmask + OCC version (set flavor). **LeafBitmapL** (128 B): bitmask + 8 value-subarray pointers addressed by popcount rank + OCC version (map flavor).
 
 ### 3.4 Tagged pointers (read-optimized paths)
 
-x86-64/AArch64 user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3 bits. A compact 8-byte JP variant packs `[type:16][address:45][level:3]` for read-dominated structures and for caching branch metadata without extra line fills. Must stay behind an abstraction that also supports full 16-byte JPs (LAM/TBI and 57-bit VA systems change the free-bit budget — feature-detected, never assumed).
+x86-64/AArch64 user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3 bits. A compact 8-byte edge variant packs `[type:16][address:45][level:3]` for read-dominated structures and for caching branch metadata without extra line fills. Must stay behind an abstraction that also supports full 16-byte edges (LAM/TBI and 57-bit VA systems change the free-bit budget — feature-detected, never assumed).
 
 ## 4. Algorithms
 
 - **Lookup** (Phase 4, done — `get::test_set`/`get::get_map`): iterative tag-dispatched descent; branch step = SWAR digit find in the header word (linear), bitmap test + subexpanse popcount rank (bitmap), direct index (uncompressed); terminal step = bitmap-leaf test/rank or immediate key scan, with narrow-pointer decode validation. Zero allocation, zero locks. v1 restrictions (revisit in Phase 6): branch children never level-skip (needs per-level tags as in the original), immediates never skip (their key size *is* their level), full-expanse JPs cover their whole current expanse; linear-leaf search lands with Phase 5.
 - **Insert** (Phase 6): descend to the failing point, then grow along the least-compressed-form ladder: Immediate → LinearLeaf → (level 1) BitmapLeaf / (higher) cascade into LinearBranch4 → L8 → Bitmap → Uncompressed. Narrow-pointer creation when a leaf splits on a long common prefix.
 - **Delete** (Phase 6): inverse ladder with **1-index hysteresis** — down-convert one step later than the up-convert threshold, preventing thrash on alternating insert/delete at a boundary.
-- **Count/rank** (`Judy1Count`, `JudyLCount`, `ByCount`): O(depth) using JP `pop0` fields plus bitmap-branch cached segment counts.
+- **Count/rank** (compat: `Judy1Count`/`JudyLCount`/`ByCount`): O(depth) using edge `pop0` fields plus bitmap-branch cached segment counts.
 - **Concurrent reads** (Phase 7): each node header embeds a version counter; writers bump to odd (mutating) then even (stable) with release stores; readers sample with acquire loads before/after and retry on change. Structural node replacement uses epoch-deferred reclamation so readers never dereference freed nodes.
 
 ## 5. Crate structure
