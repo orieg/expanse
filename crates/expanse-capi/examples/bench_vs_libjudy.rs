@@ -12,24 +12,41 @@
 //! on macOS):
 //! `cargo run --release -p expanse-capi --example bench_vs_libjudy`
 
+#[cfg(not(unix))]
+fn main() {
+    eprintln!("bench_vs_libjudy needs a dlopen platform (Linux/macOS) with stock libjudy");
+}
+
+#[cfg(unix)]
 use core::ffi::{c_int, c_void};
+#[cfg(unix)]
 use core::ptr::null_mut;
+#[cfg(unix)]
 use std::time::Instant;
 
+#[cfg(unix)]
 use expanse as ours;
 
+#[cfg(unix)]
 type Word = usize;
+#[cfg(unix)]
 type PErr = *mut ours::JError;
+#[cfg(unix)]
 type FIns = unsafe extern "C" fn(*mut *mut c_void, Word, PErr) -> *mut c_void;
+#[cfg(unix)]
 type FGet = unsafe extern "C" fn(*const c_void, Word, PErr) -> *mut c_void;
+#[cfg(unix)]
 type FFree = unsafe extern "C" fn(*mut *mut c_void, PErr) -> Word;
+#[cfg(unix)]
 type FMem = unsafe extern "C" fn(*const c_void) -> Word;
 
+#[cfg(unix)]
 unsafe extern "C" {
     fn dlopen(filename: *const u8, flags: c_int) -> *mut c_void;
     fn dlsym(handle: *mut c_void, symbol: *const u8) -> *mut c_void;
 }
 
+#[cfg(unix)]
 struct Stock {
     ins: FIns,
     get: FGet,
@@ -37,6 +54,7 @@ struct Stock {
     mem: FMem,
 }
 
+#[cfg(unix)]
 impl Stock {
     fn load() -> Self {
         let names: [&core::ffi::CStr; 4] = [
@@ -72,7 +90,9 @@ impl Stock {
     }
 }
 
+#[cfg(unix)]
 struct XorShift(u64);
+#[cfg(unix)]
 impl XorShift {
     fn next(&mut self) -> u64 {
         let mut x = self.0;
@@ -84,6 +104,7 @@ impl XorShift {
     }
 }
 
+#[cfg(unix)]
 fn keys(dist: &str, n: usize) -> Vec<Word> {
     let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
     let mut out = Vec::with_capacity(n);
@@ -104,6 +125,7 @@ fn keys(dist: &str, n: usize) -> Vec<Word> {
     out
 }
 
+#[cfg(unix)]
 struct Arm {
     ins: FIns,
     get: FGet,
@@ -111,6 +133,7 @@ struct Arm {
     mem: FMem,
 }
 
+#[cfg(unix)]
 /// One measured pass: build, probe, memory, teardown.
 fn run_arm(arm: &Arm, ks: &[Word], probes: &[Word]) -> (f64, f64, f64) {
     let mut a: *mut c_void = null_mut();
@@ -140,11 +163,13 @@ fn run_arm(arm: &Arm, ks: &[Word], probes: &[Word]) -> (f64, f64, f64) {
     }
 }
 
+#[cfg(unix)]
 fn median(mut v: Vec<f64>) -> f64 {
     v.sort_by(f64::total_cmp);
     v[v.len() / 2]
 }
 
+#[cfg(unix)]
 fn main() {
     let stock = Stock::load();
     let ours_arm = Arm {
