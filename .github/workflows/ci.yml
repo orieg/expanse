@@ -129,7 +129,10 @@ jobs:
       - name: Build libexpanse and assemble the libjudy-compat prefix
         run: |
           cargo build --release -p expanse-capi
-          PREFIX="$PWD/judy-prefix"
+          # No lowercase "judy" in the prefix path: php-judy's bench
+          # harness preflight greps /proc/self/maps for judy .so paths
+          # (\S spans slashes) and must find exactly its own module.
+          PREFIX="$PWD/compat-prefix"
           mkdir -p "$PREFIX/include" "$PREFIX/lib"
           cp crates/expanse-capi/include/Judy.h "$PREFIX/include/"
           cp target/release/libexpanse.so "$PREFIX/lib/libJudy.so"
