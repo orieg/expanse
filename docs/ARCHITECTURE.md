@@ -80,7 +80,7 @@ x86-64/AArch64 user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3
 
 ## 5. Crate structure
 
-- `crates/judy` (package `judy-rs`): core. Planned modules: `types` (done), `bits` (Phase 2 scan/rank primitives), `node` (Phase 3 layouts), `get` (Phase 4), `alloc` (Phase 5), `ins`/`del` (Phase 6), `occ` (Phase 7), `judy1`/`judyl`/`judysl` public API.
+- `crates/judy` (package `judy-rs`): core. Planned modules: `types` (done), `bits` (done: SIMD/SWAR byte find, `Bitmap256` rank/select/navigation), `node` (Phase 3 layouts), `get` (Phase 4), `alloc` (Phase 5), `ins`/`del` (Phase 6), `occ` (Phase 7), `judy1`/`judyl`/`judysl` public API.
 - `crates/judy-capi`: `extern "C"` surface per [COMPAT.md](COMPAT.md), plus the shipped `include/Judy.h`. Thin translation layer only — no logic beyond ABI marshaling and `JError_t` mapping.
 
 ## 6. Phase roadmap
@@ -88,7 +88,7 @@ x86-64/AArch64 user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3
 | Phase | Deliverable | Gate to next |
 |---|---|---|
 | 1. Foundation types | Tags, constants, digit math (done) | Tests green |
-| 2. Bit/vector engine | popcount/ctz/SIMD byte-find + portable fallbacks | Unit tests incl. edge lanes; parity between SIMD and fallback |
+| 2. Bit/vector engine | popcount/ctz/SIMD byte-find + portable fallbacks (done) | Unit tests incl. edge lanes; parity between SIMD and fallback |
 | 3. Node layouts | 64 B/128 B structs, layout `const` asserts | `size_of`/`align_of` asserts green |
 | 4. Lookup engine | `get`/`test` over hand-built trees | Differential vs `BTreeMap` model on fixed corpora |
 | 5. Allocation | Aligned slab arenas | Miri-clean; leak checks |

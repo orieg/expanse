@@ -30,4 +30,5 @@
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("judy-rs currently supports 64-bit targets only");
 
+pub mod bits;
 pub mod types;

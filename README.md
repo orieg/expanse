@@ -30,7 +30,7 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Status
 
-**Phase 1 — core types.** Type-tag encoding, geometry constants, and digit extraction are implemented and tested. The capi crate is a compiling stub (packaging and CI artifacts exercised; no exported symbols yet).
+**Phase 2 — bit/vector engine.** Done: type-tag encoding, geometry constants, digit extraction (Phase 1); SIMD byte-vector search (SSE2/NEON with portable parity-tested fallbacks) and the 256-bit bitmap with popcount rank/select and ordered navigation (Phase 2). The capi crate is a compiling stub (packaging and CI artifacts exercised; no exported symbols yet).
 
 Roadmap (ordering, no schedule): 1 foundation types → 2 bit/vector engine → 3 cache-aligned node layouts → 4 lookup fast path → 5 allocation subsystem → 6 mutation engine + hysteresis → 7 OCC concurrent reads → 8 differential/fuzz/bench hardening. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); testing and benchmark methodology in [docs/TESTING.md](docs/TESTING.md) and [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
 
