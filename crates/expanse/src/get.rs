@@ -275,6 +275,139 @@ pub unsafe fn get_map(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     }
 }
 
+/// Locates the **writable value slot** of `key` in a map-flavor subtree —
+/// the pointer the compat layer's `JudyLIns`/`JudyLGet`/`JudyLFirst`
+/// family hands to C callers, valid until the next structural mutation
+/// (the classic JudyL slot contract).
+///
+/// The walk descends through raw pointers (node pointers and stored
+/// subarray pointers), never deriving the returned slot from a shared
+/// reference, so writes through it are sound.
+///
+/// # Safety
+///
+/// Same tree contract as [`get_map`]; `edge` must point at the live root
+/// edge of a map-flavor subtree owned by the caller.
+pub(crate) unsafe fn locate_slot(
+    edge: *mut Edge,
+    key: Key,
+    level: u8,
+) -> Option<core::ptr::NonNull<u64>> {
+    let (mut edge, mut level) = (edge, level);
+    loop {
+        debug_assert!((1..=8).contains(&level));
+        // SAFETY: live edge per contract (shared reborrow used for reads
+        // only; the returned slot pointer never derives from it).
+        let tag = unsafe { (*edge).tag() }.expect("valid edge tag");
+        match tag {
+            EdgeTag::Structural(EdgeType::Null) => return None,
+
+            EdgeTag::Immed(im) => {
+                debug_assert_eq!(im.key_bytes(), level);
+                // SAFETY: live map immediate per contract.
+                let keys = crate::mutate::immed_map_keys(unsafe { &*edge }, im);
+                let k = crate::mutate::key_low(key, im.key_bytes());
+                let slot = keys.binary_search(&k).ok()?;
+                return core::ptr::NonNull::new(if im.key_count() == 1 {
+                    // Word 0 (offset 0 of the edge) is the value itself.
+                    edge.cast::<u64>()
+                } else {
+                    // SAFETY: live value array of key_count values.
+                    unsafe { (*edge).node_ptr().cast::<u64>().add(slot) }
+                });
+            }
+
+            EdgeTag::Structural(
+                t @ (EdgeType::Leaf1
+                | EdgeType::Leaf2
+                | EdgeType::Leaf3
+                | EdgeType::Leaf4
+                | EdgeType::Leaf5
+                | EdgeType::Leaf6
+                | EdgeType::Leaf7),
+            ) => {
+                let kb = t.leaf_key_bytes().expect("leaf tag");
+                // SAFETY: reads of the live edge/leaf per contract.
+                unsafe {
+                    if !decode_matches(&*edge, key, kb, level) {
+                        return None;
+                    }
+                    let pop = (*edge).pop0(kb) as usize + 1;
+                    let base = (*edge).node_ptr();
+                    let keys = base.add(leaf::map_keys_offset(pop));
+                    let slot = leaf::search(keys, pop, kb, key)?;
+                    return core::ptr::NonNull::new(base.cast::<u64>().add(slot));
+                }
+            }
+
+            EdgeTag::Structural(EdgeType::LeafB1) => {
+                // SAFETY: reads of the live edge/leaf per contract; the
+                // slot pointer derives from the stored subarray pointer.
+                unsafe {
+                    if !decode_matches(&*edge, key, 1, level) {
+                        return None;
+                    }
+                    let d = digit(key, 1);
+                    let node = (*edge).node_ptr().cast::<LeafBitmapL>();
+                    if !(*node).bitmap.test(d) {
+                        return None;
+                    }
+                    let rank = (*node).bitmap.subexpanse_rank(d) as usize;
+                    let vals = (*node).values[(d >> 5) as usize];
+                    return core::ptr::NonNull::new(vals.add(rank));
+                }
+            }
+
+            EdgeTag::Structural(EdgeType::FullExpanse) => {
+                unreachable!("full-expanse edges are set-flavor only")
+            }
+
+            EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                let d = digit(key, level);
+                // SAFETY: live branch per contract; the child edge pointer
+                // derives from the raw node pointer.
+                unsafe {
+                    let (found, next_edge) = if matches!(t, EdgeType::BranchL3) {
+                        let b = (*edge).node_ptr().cast::<BranchL3>();
+                        ((*b).hdr.find(d), (*b).edges.as_mut_ptr())
+                    } else {
+                        let b = (*edge).node_ptr().cast::<BranchL7>();
+                        ((*b).hdr.find(d), (*b).edges.as_mut_ptr())
+                    };
+                    let slot = found?;
+                    edge = next_edge.add(slot);
+                }
+                level -= 1;
+            }
+
+            EdgeTag::Structural(EdgeType::BranchB) => {
+                let d = digit(key, level);
+                // SAFETY: live BranchB per contract; child from the stored
+                // subarray pointer.
+                unsafe {
+                    let b = (*edge).node_ptr().cast::<BranchB>();
+                    if !(*b).bitmap.test(d) {
+                        return None;
+                    }
+                    let rank = (*b).bitmap.subexpanse_rank(d) as usize;
+                    edge = (*b).subarrays[(d >> 5) as usize].add(rank);
+                }
+                level -= 1;
+            }
+
+            EdgeTag::Structural(EdgeType::BranchU) => {
+                let d = digit(key, level);
+                // SAFETY: live BranchU per contract.
+                unsafe {
+                    let b = (*edge).node_ptr().cast::<BranchU>();
+                    edge = (*b).edges.as_mut_ptr().add(d as usize);
+                }
+                level -= 1;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

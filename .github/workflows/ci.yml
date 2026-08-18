@@ -104,8 +104,27 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Miri
-        run: cargo miri test -p expanse-trie
+      - name: Miri (quick — model suites run in the nightly workflow)
+        run: cargo miri test -p expanse-trie -- --skip model_
+
+  differential-oracle:
+    # docs/COMPAT.md gate G1: identical observable behavior between
+    # libexpanse and stock libjudy under shared op sequences. The stock
+    # library is dlopen'd by the harness, so the two never collide at link
+    # time.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install stock libjudy
+        run: sudo apt-get update && sudo apt-get install -y libjudy-dev
+
+      - name: Differential oracle vs stock libjudy
+        run: cargo test -p expanse-capi --features oracle
 
   lint:
     runs-on: ubuntu-latest
@@ -125,8 +144,6 @@ jobs:
         run: cargo fmt --all --check
 
   # --- Jobs to add as their phases land (see docs/TESTING.md "CI mapping") ---
-  # differential-oracle: Linux + libjudy-dev; libexpanse vs stock libjudy over
-  #   shared op sequences (COMPAT.md gate G1). Lands with the Phase 8 surface.
   # fuzz: scheduled cargo-fuzz job over op-sequence targets.
   # php-judy-swap: build php-judy against libexpanse and run its suite
   #   (COMPAT.md gates G2/G3).

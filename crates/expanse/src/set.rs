@@ -683,6 +683,10 @@ mod tests {
             probes.insert(k.wrapping_add(1));
             probes.insert(k.wrapping_sub(1));
         }
+        if cfg!(miri) {
+            let sampled: Vec<u64> = probes.iter().copied().step_by(8).collect();
+            probes = sampled.into_iter().collect();
+        }
         for _ in 0..if cfg!(miri) { 40 } else { 400 } {
             probes.insert(rng.next());
         }

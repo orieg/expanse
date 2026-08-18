@@ -10,7 +10,7 @@ Expanse is an unsafe-heavy, invariant-dense data structure whose compat story re
 |---|---|---|---|
 | 1 | Unit tests | `cargo test`, per module | Local logic: tag encodings, digit math, SIMD lane edges, node transitions |
 | 2 | Model-based op-sequence tests | Deterministic seeded harness (xorshift): random op sequences run against `BTreeMap`/`BTreeSet` as the semantic model, per key-distribution class; `proptest` with shrinking joins in Phase 8 hardening | Semantic divergence of insert/delete/get/iterate/count under arbitrary interleavings |
-| 3 | Differential oracle | Same op sequences through `libexpanse` and **stock C libjudy** (FFI, Linux job with `libjudy-dev`) | Contract gaps the docs under-specify; the black-box proof behind COMPAT.md G1 |
+| 3 | Differential oracle | Same op sequences through `libexpanse` and **stock C libjudy** (dlopen'd by the harness so symbols never collide; CI job with `libjudy-dev`, active since the Phase 8 capi surface) | Contract gaps the docs under-specify; the black-box proof behind COMPAT.md G1 |
 | 4 | Fuzzing | `cargo-fuzz` targets consuming op-sequence bytecode (op, key) pairs | Crashes, UB triggers, pathological cascades no generator thinks of |
 | 5 | Miri | `cargo +nightly miri test` on the core crate | UB in unsafe code: aliasing, alignment, leaks, uninit reads |
 | 6 | Concurrency | `loom` for the OCC protocol’s small state machines; multi-thread stress tests for reader/writer races (Phase 7+) | Torn reads, missed version bumps, reclamation races |
@@ -47,11 +47,11 @@ A debug-only tree walker validates after mutations in tests:
 
 ## Differential oracle details (layer 3)
 
-- Runs on Linux CI with distro `libjudy-dev`; bindings via a small internal `judy-oracle-sys` FFI shim (or the existing `judy-sys` crate if it links cleanly).
+- Runs in CI with distro `libjudy-dev`; the stock library is loaded with `dlopen`/`dlsym` at test time, so libexpanse's exported `Judy*` symbols never collide with the reference's at link time (no `judy-sys` dependency needed).
 - Drives **both** stacks through the C surface, so it exercises `expanse-capi`'s marshaling too.
 - Sequence generator shared with layer 2; failures re-emitted as self-contained regression cases.
 - Clean-room note: linking and observing a stock binary is black-box testing; it is the *only* sanctioned way to resolve behavior the documentation leaves open (record resolved questions in COMPAT.md).
 
 ## CI mapping
 
-Now: layer 1 on all platforms — Linux glibc, Linux musl (static-linked test run, cross-built from the glibc runner), macOS, Windows MSVC. Layers 1, 2 (deterministic model harness, active since the Phase 6 mutation engine), and 5 (Miri, active since Phase 4 — it caught a Stacked Borrows violation on its first run) run in CI. As phases land: layer 3 with the Phase 8 capi surface, layer 4 and proptest-with-shrinking as Phase 8 hardening, layer 6 with Phase 7. Placeholders are noted in `.github/workflows/ci.yml`.
+Now: layer 1 on all platforms — Linux glibc, Linux musl (static-linked test run, cross-built from the glibc runner), macOS, Windows MSVC. Layers 1, 2 (deterministic model harness, active since the Phase 6 mutation engine), 3 (differential oracle, active since the Phase 8 capi surface), and 5 (Miri) run in CI. Miri is split: the per-push job skips the heavy `model_*` suites; the nightly workflow runs the full suite under Miri daily. Still ahead: layer 4 and proptest-with-shrinking as Phase 8 hardening, layer 6 with Phase 7. Placeholders are noted in `.github/workflows/ci.yml`.

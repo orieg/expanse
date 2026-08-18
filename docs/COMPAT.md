@@ -62,4 +62,12 @@ Modern features (lock-free concurrent reads, iterators, arena controls) are expo
 | G3 php-judy Windows | php-judy Windows CI builds against `expanse.dll` instead of compiling libjudy from source, suite passes |
 | G4 Preload smoke | An unmodified prebuilt libjudy consumer runs correctly under `LD_PRELOAD` of `libexpanse.so` with the libjudy-compat `libJudy.so.1` symlink/soname shim |
 
-Status: contract defined; surface not yet exported (core phases 4/6 pending). The stub crate exists so packaging and CI artifacts are exercised from day one.
+## Doc-gap resolutions
+
+| # | Question the docs leave open | Resolution |
+|---|---|---|
+| D1 | `Word_t` width on LLP64 (Windows): classic header used `unsigned long` | `Word_t` = `size_t` (pointer-width). ABI-identical to classic on LP64 Linux/macOS; 64-bit on Win64, which the consumers we target (php-judy MSVC) require |
+| D2 | `JU_ERRNO_*` numeric values (man pages name the codes, not numbers; the classic header is LGPL and unread) | libexpanse assigns its own stable numbering in `Judy.h`. Source-compatible (names match); numeric equality with classic builds is not guaranteed |
+| D3 | Behavior on allocation failure | Allocation failure aborts (Rust global-allocator convention) instead of returning `JERR`/`PJERR` with `JU_ERRNO_NOMEM`. Recorded as a deviation; revisit if a consumer needs graceful OOM |
+
+Status: **Judy1 and JudyL families exported** (all 15 entry points each, including the `*Empty` searches) with the shipped `Judy.h`; the gate G1 differential-oracle harness runs in CI against a dlopen'd stock libjudy (randomized op sequences + full-sweep and rank agreement, Judy1 and JudyL). `JudySL`/`JudyHS` are declared in the header and land with `ExpanseStrMap`/`ExpanseBytesMap`. Next gate: G2 (php-judy suite against libexpanse).

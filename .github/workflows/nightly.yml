@@ -1,0 +1,26 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  miri-full:
+    # The per-push Miri job skips the heavy model-based suites to stay
+    # fast; this run executes the whole suite under Miri daily.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Miri (full)
+        run: cargo miri test -p expanse-trie

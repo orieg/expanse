@@ -15,6 +15,11 @@ authors.workspace = true
 name = "expanse"
 crate-type = ["cdylib", "staticlib"]
 
+[features]
+# Enables the differential-oracle tests against a dlopen'd stock
+# libjudy (Linux; CI installs libjudy-dev). See docs/COMPAT.md gate G1.
+oracle = []
+
 [dependencies]
 expanse-trie = { path = "../expanse" }
 

@@ -104,6 +104,29 @@ impl ExpanseMap {
         }
     }
 
+    /// Returns a **writable pointer to `key`'s value slot**, or `None` if
+    /// the key is absent — the compat layer's `JudyLGet`/`JudyLIns` return
+    /// convention. The pointer stays valid until the next structural
+    /// mutation of the map (the classic JudyL contract); reading or
+    /// writing through it after an `insert`/`remove`/`clear` is undefined.
+    #[must_use]
+    pub fn get_value_slot(&mut self, key: Key) -> Option<core::ptr::NonNull<u64>> {
+        match &mut self.root {
+            Root::Empty => None,
+            Root::Leaf { ptr, pop } => {
+                let (keys, vals) = Self::leaf_parts(*ptr, *pop);
+                let at = keys.binary_search(&key).ok()?;
+                // SAFETY: `at < pop` values live behind the keys.
+                core::ptr::NonNull::new(unsafe { vals.add(at) })
+            }
+            Root::Tree { top, .. } => {
+                // SAFETY: trie maintained/owned by this map's engine; the
+                // raw walk derives the slot from node pointers only.
+                unsafe { crate::get::locate_slot(&raw mut *top, key, 8) }
+            }
+        }
+    }
+
     /// Membership test.
     #[must_use]
     pub fn contains_key(&self, key: Key) -> bool {
@@ -671,6 +694,10 @@ mod tests {
             probes.push(k.wrapping_add(1));
             probes.push(k.wrapping_sub(1));
         }
+        if cfg!(miri) {
+            let sampled: Vec<u64> = probes.iter().copied().step_by(8).collect();
+            probes = sampled.into_iter().collect();
+        }
         for _ in 0..if cfg!(miri) { 40 } else { 400 } {
             probes.push(rng.next());
         }
@@ -694,6 +721,58 @@ mod tests {
         }
         let probes: Vec<u64> = (0..64u64).map(|i| i * 0x0404_0404_0404).collect();
         nav_differential(&map, &model, &probes);
+    }
+
+    #[test]
+    fn value_slots_are_writable_and_stable_between_mutations() {
+        // Covers get::locate_slot under Miri: slots over every terminal
+        // form (immediates single/multi, linear leaves, bitmap leaves,
+        // root leaf), written through and read back via the public API.
+        let mut map = ExpanseMap::new();
+        // Root-leaf state.
+        map.insert(3, 30);
+        map.insert(9, 90);
+        let slot = map.get_value_slot(9).unwrap();
+        // SAFETY: slot valid until the next mutation; none intervenes.
+        unsafe { slot.as_ptr().write(91) };
+        assert_eq!(map.get(9), Some(91));
+        assert!(map.get_value_slot(4).is_none());
+
+        // Tree state across the ladder: dense byte run (bitmap leaf),
+        // clustered (leaves), sparse-high (immediates down deep chains).
+        // Miri interprets every walk; keep the corpus small there.
+        let (dense, clustered, sparse) = if cfg!(miri) {
+            (64, 64, 16)
+        } else {
+            (256, 640, 64)
+        };
+        let mut keys = Vec::new();
+        for k in 0u64..dense {
+            map.insert(k, k + 1);
+            keys.push(k);
+        }
+        for k in (0u64..clustered).map(|i| 0x30_0000 + i * 3) {
+            map.insert(k, k + 1);
+            keys.push(k);
+        }
+        for k in (1u64..sparse).map(|i| i << 52) {
+            map.insert(k, k + 1);
+            keys.push(k);
+        }
+        for &k in &keys {
+            let slot = map.get_value_slot(k).expect("present key has a slot");
+            // SAFETY: valid slot; read then write before any mutation.
+            unsafe {
+                assert_eq!(*slot.as_ptr(), k + 1, "slot reads the value {k:#x}");
+                slot.as_ptr().write(!k);
+            }
+        }
+        for &k in &keys {
+            assert_eq!(map.get(k), Some(!k), "written value visible {k:#x}");
+        }
+        map.validate();
+        map.clear();
+        assert_eq!(map.mem_used(), 0);
     }
 
     #[test]
