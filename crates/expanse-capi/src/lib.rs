@@ -835,10 +835,13 @@ mod oracle {
     }
 
     fn keygen(rng: &mut XorShift) -> Word {
-        (match rng.next() % 4 {
+        (match rng.next() % 5 {
             0 => rng.next() % 512,
             1 => 0xAB_CD00_0000 + (rng.next() % 300),
             2 => (rng.next() % 1024) << 48,
+            // 256-aligned run at a fixed deep base: exercises the
+            // narrow-pointer (skip-carrying leaf) paths against stock.
+            3 => 0x99_8877_6655_4400 + (rng.next() % 256),
             _ => rng.next(),
         }) as Word
     }

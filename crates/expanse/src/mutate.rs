@@ -155,6 +155,63 @@ fn build_leaf(a: &NodeAlloc, edge: &mut Edge, kb: u8, keys: &[u64]) {
     edge.set_pop0(kb, keys.len() as u64 - 1);
 }
 
+/// Highest level (1-based) at which two `level`-byte suffixes differ —
+/// the level where a key set diverges (its natural branch point).
+pub(crate) fn divergence_level(a: u64, b: u64, level: u8) -> u8 {
+    let x = key_low(a ^ b, level);
+    debug_assert!(x != 0);
+    (63 - x.leading_zeros() as u8) / 8 + 1
+}
+
+/// Reads a skipping edge's decode digits (levels `kb+1..=level`) as one
+/// integer, LSB = the digit at level `kb+1`.
+pub(crate) fn decode_value(edge: &Edge, kb: u8, level: u8) -> u64 {
+    let d = edge.decode_bytes(kb);
+    let mut v = 0u64;
+    let mut i = (level - kb) as usize;
+    while i > 0 {
+        i -= 1;
+        v = (v << 8) | u64::from(d[i]);
+    }
+    v
+}
+
+/// Writes the decode digits for a child at `kb` under a slot at `level`,
+/// taken from `key`'s digits at levels `kb+1..=level`.
+pub(crate) fn write_decode(edge: &mut Edge, kb: u8, level: u8, key: u64) {
+    let mut dec = [0u8; 7];
+    for (i, slot) in dec.iter_mut().enumerate().take((level - kb) as usize) {
+        *slot = digit(key, kb + 1 + i as u8);
+    }
+    edge.set_decode_bytes(kb, &dec[..(level - kb) as usize]);
+}
+
+/// Restores a narrow pointer's decode bytes after a form rebuild that
+/// reset the aux field (leaf reallocation, bitmap-leaf conversion).
+pub(crate) fn restore_decode(edge: &mut Edge, kb: u8, level: u8, saved_aux: &[u8; 7]) {
+    if kb < level {
+        edge.set_decode_bytes(kb, &saved_aux[kb as usize..level as usize]);
+    }
+}
+
+/// Materializes one chain level above a narrow pointer: wraps the child
+/// in a fresh one-slot `BranchL3` at `level`, consuming the child's top
+/// decode digit as the branch digit. Used when an insert diverges inside
+/// the skipped prefix (the recursion then retries at `level`) and when a
+/// skipping leaf overflows.
+pub(crate) fn wrap_skip_level(a: &NodeAlloc, edge: &mut Edge, level: u8, subtree_pop: u64) {
+    let t = edge.aux_bytes()[level as usize - 1];
+    let mut child = *edge;
+    child.clear_aux_byte(level as usize - 1);
+    let mut b = BranchL3::new();
+    b.hdr.num = 1;
+    b.hdr.digits[0] = t;
+    b.edges[0] = child;
+    let node = a.alloc_node(b);
+    *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
+    edge.set_pop0(level, subtree_pop - 1);
+}
+
 /// Bumps the subtree `pop0` of an edge at `level` by `delta` (level 8 has
 /// no pop0 field; the tree owner tracks the total).
 pub(crate) fn bump_pop0(edge: &mut Edge, level: u8, delta: i64) {
@@ -232,22 +289,40 @@ pub(crate) unsafe fn insert(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
             | EdgeType::Leaf7),
         ) => {
             let kb = t.leaf_key_bytes().expect("leaf tag");
-            debug_assert_eq!(kb, level);
+            debug_assert!(kb <= level);
             let pop = edge.pop0(kb) as usize + 1;
+            if kb < level && !crate::get::decode_matches(edge, key, kb, level) {
+                // The key diverges inside the skipped prefix: expose one
+                // decode digit as a branch level and retry (a chain forms
+                // only along the divergence path).
+                wrap_skip_level(a, edge, level, pop as u64);
+                // SAFETY: forwarded contract; edge is now a branch.
+                return unsafe { insert(a, edge, key, level) };
+            }
             let k = key_low(key, kb);
             // SAFETY: live leaf of `pop` keys per contract.
             let mut keys = unsafe { leaf_keys(edge, kb, pop) };
             let Err(pos) = keys.binary_search(&k) else {
                 return false;
             };
+            let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
+            if pop == cap && kb > 1 && kb < level {
+                // A skipping linear leaf can only cascade at its own
+                // level; materialize one chain level first and retry.
+                wrap_skip_level(a, edge, level, pop as u64);
+                // SAFETY: forwarded contract; edge is now a branch.
+                return unsafe { insert(a, edge, key, level) };
+            }
             let old_ptr = edge.node_ptr();
             let old_size = leaf::size_set(kb, pop);
+            let saved_aux = *edge.aux_bytes();
             keys.insert(pos, k);
-            let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
             if keys.len() <= cap {
                 build_leaf(a, edge, kb, &keys);
+                restore_decode(edge, kb, level, &saved_aux);
             } else if kb == 1 {
-                // Level-1 overflow: linear leaf → bitmap leaf.
+                // Level-1 overflow: linear leaf → bitmap leaf (any narrow
+                // pointer carries over).
                 let mut node = LeafBitmap1::new();
                 for &k in &keys {
                     node.bitmap.set(k as u8);
@@ -255,19 +330,36 @@ pub(crate) unsafe fn insert(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
                 let ptr = a.alloc_node(node);
                 *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
                 edge.set_pop0(1, keys.len() as u64 - 1);
+                restore_decode(edge, 1, level, &saved_aux);
             } else {
-                // Cascade: replace with an empty branch and re-insert.
-                let node = a.alloc_node(BranchL3::new());
-                *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
-                for &k in &keys {
-                    // SAFETY: freshly built branch subtree owned by `a`.
-                    let ins = unsafe { insert(a, edge, k, level) };
-                    debug_assert!(ins);
+                let d = divergence_level(keys[0], keys[keys.len() - 1], kb);
+                if d == 1 {
+                    // Narrow-pointer synthesis: every key shares its
+                    // digits at levels 2..=kb, so the whole set fits one
+                    // bitmap leaf whose decode bytes hold the shared
+                    // prefix — no single-child branch chain.
+                    let mut node = LeafBitmap1::new();
+                    for &k in &keys {
+                        node.bitmap.set(k as u8);
+                    }
+                    let ptr = a.alloc_node(node);
+                    *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
+                    edge.set_pop0(1, keys.len() as u64 - 1);
+                    write_decode(edge, 1, level, keys[0]);
+                } else {
+                    // Cascade: replace with an empty branch and re-insert.
+                    let node = a.alloc_node(BranchL3::new());
+                    *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
+                    for &k in &keys {
+                        // SAFETY: freshly built branch subtree owned by `a`.
+                        let ins = unsafe { insert(a, edge, k, level) };
+                        debug_assert!(ins);
+                    }
+                    // pop0 encodes pop-1 and cannot express the transient
+                    // empty branch, so the per-insert bumps land one high;
+                    // pin the true population once the cascade settles.
+                    edge.set_pop0(level, keys.len() as u64 - 1);
                 }
-                // pop0 encodes pop-1 and cannot express the transient
-                // empty branch, so the per-insert bumps land one high;
-                // pin the true population once the cascade settles.
-                edge.set_pop0(level, keys.len() as u64 - 1);
             }
             // SAFETY: the old leaf allocation is no longer referenced.
             unsafe {
@@ -280,14 +372,23 @@ pub(crate) unsafe fn insert(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
         }
 
         EdgeTag::Structural(EdgeType::LeafB1) => {
-            debug_assert_eq!(level, 1);
+            if level > 1 && !crate::get::decode_matches(edge, key, 1, level) {
+                // Diverges inside the skipped prefix: branch out one
+                // level and retry.
+                let pop = edge.pop0(1) + 1;
+                wrap_skip_level(a, edge, level, pop);
+                // SAFETY: forwarded contract; edge is now a branch.
+                return unsafe { insert(a, edge, key, level) };
+            }
             // SAFETY: live LeafBitmap1 per contract.
             let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmap1>() };
             if !node.bitmap.set(digit(key, 1)) {
                 return false;
             }
             let pop = edge.pop0(1) as usize + 2; // old pop + the new key
-            if pop == 256 {
+            if pop == 256 && level == 1 {
+                // Full-expanse edges cover their entire current expanse,
+                // so the conversion only applies to non-skipping leaves.
                 let ptr = core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmap1>());
                 // SAFETY: node no longer referenced after the tag swap.
                 unsafe { a.free_node(ptr.expect("leaf ptr")) };
@@ -567,7 +668,10 @@ pub(crate) unsafe fn remove(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
             | EdgeType::Leaf7),
         ) => {
             let kb = t.leaf_key_bytes().expect("leaf tag");
-            debug_assert_eq!(kb, level);
+            debug_assert!(kb <= level);
+            if kb < level && !crate::get::decode_matches(edge, key, kb, level) {
+                return false;
+            }
             let pop = edge.pop0(kb) as usize + 1;
             let k = key_low(key, kb);
             // SAFETY: live leaf of `pop` keys per contract.
@@ -578,12 +682,25 @@ pub(crate) unsafe fn remove(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
             keys.remove(pos);
             let old_ptr = edge.node_ptr();
             let old_size = leaf::size_set(kb, pop);
+            let saved_aux = *edge.aux_bytes();
             // Hysteresis: convert to an immediate one index below the
-            // immediate→leaf boundary, not at it.
-            if keys.len() < ImmedType::max_count(kb) as usize {
-                write_immed(edge, kb, &keys);
+            // immediate→leaf boundary. A skipping leaf converts to an
+            // immediate at the *slot* level, absorbing its decode bytes
+            // back into full key remainders.
+            if keys.len() < ImmedType::max_count(level) as usize {
+                let dv = if kb < level {
+                    decode_value(edge, kb, level)
+                } else {
+                    0
+                };
+                let full: Vec<u64> = keys
+                    .iter()
+                    .map(|&low| (dv << (8 * u32::from(kb))) | low)
+                    .collect();
+                write_immed(edge, level, &full);
             } else {
                 build_leaf(a, edge, kb, &keys);
+                restore_decode(edge, kb, level, &saved_aux);
             }
             // SAFETY: old leaf allocation no longer referenced.
             unsafe {
@@ -596,7 +713,9 @@ pub(crate) unsafe fn remove(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
         }
 
         EdgeTag::Structural(EdgeType::LeafB1) => {
-            debug_assert_eq!(level, 1);
+            if level > 1 && !crate::get::decode_matches(edge, key, 1, level) {
+                return false;
+            }
             // SAFETY: live LeafBitmap1 per contract.
             let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmap1>() };
             if !node.bitmap.clear(digit(key, 1)) {
@@ -615,16 +734,25 @@ pub(crate) unsafe fn remove(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
                         node.bitmap.next_set(dig + 1)
                     };
                 }
+                let saved_aux = *edge.aux_bytes();
+                let dv = if level > 1 {
+                    decode_value(edge, 1, level)
+                } else {
+                    0
+                };
                 // SAFETY: node no longer referenced after rebuild.
                 unsafe {
                     a.free_node(
                         core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmap1>()).unwrap(),
                     );
                 }
-                if keys.len() < ImmedType::max_count(1) as usize {
-                    write_immed(edge, 1, &keys);
+                if keys.len() < ImmedType::max_count(level) as usize {
+                    // Absorb any decode bytes into full slot-level keys.
+                    let full: Vec<u64> = keys.iter().map(|&low| (dv << 8) | low).collect();
+                    write_immed(edge, level, &full);
                 } else {
                     build_leaf(a, edge, 1, &keys);
+                    restore_decode(edge, 1, level, &saved_aux);
                 }
             } else {
                 edge.set_pop0(1, pop as u64 - 1);
@@ -1086,14 +1214,17 @@ pub(crate) unsafe fn validate_subtree<const MAP: bool>(edge: &Edge, level: u8) -
             | EdgeType::Leaf7),
         ) => {
             let kb = t.leaf_key_bytes().expect("leaf tag");
-            assert_eq!(kb, level, "leaf key size must equal level (no skips in v1)");
+            assert!(kb <= level, "leaf key size above its slot level");
             let pop = edge.pop0(kb) + 1;
             let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
             assert!(pop as usize <= cap, "linear leaf above capacity");
+            // Conversion to an immediate happens at the *slot* level (a
+            // skipping leaf absorbs its decode bytes back into full
+            // remainders), so the hysteresis floor is level-based.
             let floor = if MAP {
-                map_immed_max(kb)
+                map_immed_max(level)
             } else {
-                ImmedType::max_count(kb) as usize
+                ImmedType::max_count(level) as usize
             };
             assert!(
                 pop as usize >= floor,
@@ -1119,7 +1250,8 @@ pub(crate) unsafe fn validate_subtree<const MAP: bool>(edge: &Edge, level: u8) -
             pop
         }
         EdgeTag::Structural(EdgeType::LeafB1) => {
-            assert_eq!(level, 1, "bitmap leaf only at level 1");
+            // A bitmap leaf's own level is 1; a slot level above 1 means a
+            // narrow pointer whose decode bytes name the skipped digits.
             // SAFETY: live bitmap leaf of the flavor's node type per
             // contract; the map flavor adds value subarrays checked here.
             let count = if MAP {

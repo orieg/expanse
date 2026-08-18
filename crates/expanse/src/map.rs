@@ -776,6 +776,62 @@ mod tests {
     }
 
     #[test]
+    fn model_prefix_runs() {
+        model_run(0x6F, |rng| {
+            let base = rng.next() & !0xFF;
+            base | (rng.next() % 256)
+        });
+    }
+
+    #[test]
+    fn narrow_pointer_lifecycle_with_values() {
+        let mut map = ExpanseMap::new();
+        let mut model = BTreeMap::new();
+        let base = 0x1122_3344_5566_0000u64;
+        for i in 0..256u64 {
+            assert_eq!(map.insert(base | i, i * 3 + 1), None);
+            model.insert(base | i, i * 3 + 1);
+        }
+        map.validate();
+        assert!(
+            map.mem_used() <= 2600,
+            "cluster should collapse to one skip edge + values, used {}",
+            map.mem_used()
+        );
+        for i in 0..256u64 {
+            assert_eq!(map.get(base | i), Some(i * 3 + 1), "value {i}");
+        }
+        assert_eq!(map.get(base ^ (1 << 32)), None);
+        assert_eq!(map.count_range(base..=base | 0xFF), 256);
+        assert_eq!(map.by_count(7), Some((base | 7, 22)));
+
+        // Value slots must locate through the narrow pointer too.
+        let slot = map.get_value_slot(base | 9).unwrap();
+        // SAFETY: slot valid until the next mutation.
+        unsafe { slot.as_ptr().write(9999) };
+        model.insert(base | 9, 9999);
+        assert_eq!(map.get(base | 9), Some(9999));
+
+        // Divergence splits, then drain through the conversions.
+        for div in [1u64 << 16, 1 << 32, 1 << 48] {
+            let k = base ^ div;
+            assert_eq!(map.insert(k, !k), None, "diverging insert {k:#x}");
+            model.insert(k, !k);
+            map.validate();
+        }
+        assert!(map.iter().eq(model.iter().map(|(k, v)| (*k, *v))));
+        for i in (1..256u64).rev() {
+            assert_eq!(map.remove(base | i), model.remove(&(base | i)), "rm {i}");
+            if i % 32 == 0 {
+                map.validate();
+            }
+        }
+        assert!(map.iter().eq(model.iter().map(|(k, v)| (*k, *v))));
+        map.clear();
+        assert_eq!(map.mem_used(), 0);
+    }
+
+    #[test]
     #[should_panic(expected = "branch pop0 disagrees with subtree")]
     fn negative_control_validator_must_fire() {
         let mut map = ExpanseMap::new();

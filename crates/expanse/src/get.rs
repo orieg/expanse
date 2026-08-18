@@ -15,13 +15,13 @@
 //!
 //! Narrow pointers: a leaf child (linear or bitmap) may sit below its
 //! parent with skipped digits, validated against the edge's decode bytes
-//! (`decode[i]` = the key digit at level `child_level + 1 + i`). Two
-//! deliberate v1 restrictions, revisited with the Phase 6 mutation engine:
+//! (`decode[i]` = the key digit at level `child_level + 1 + i`); the
+//! mutation engines synthesize these for last-byte-divergent key sets.
+//! Two standing restrictions:
 //!
 //! - **branch children never skip levels** (a level-skipping branch child
 //!   needs the child's level encoded somewhere; the original resolves this
-//!   with per-level tag variants — deferred until mutation exists to
-//!   exercise it);
+//!   with per-level tag variants);
 //! - **immediate edges never skip** (their key bytes occupy the decode
 //!   region; an immediate's `key_bytes` *is* its level, as in the original
 //!   design), and a full-expanse edge covers its whole current expanse.
@@ -48,7 +48,7 @@ pub enum Lookup {
 /// for a child at `child_level` must equal the key digits at levels
 /// `child_level + 1 ..= level`.
 #[inline]
-fn decode_matches(edge: &Edge, key: Key, child_level: u8, level: u8) -> bool {
+pub(crate) fn decode_matches(edge: &Edge, key: Key, child_level: u8, level: u8) -> bool {
     debug_assert!(child_level <= level && level <= 7);
     let decode = edge.decode_bytes(child_level);
     let mut lv = child_level + 1;

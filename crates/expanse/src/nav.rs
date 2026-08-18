@@ -19,9 +19,10 @@
 //! value pointers from `First`/`Next`, so navigation must locate values,
 //! not just keys).
 //!
-//! v1 scope: like the mutation engines, navigation assumes trees without
-//! narrow pointers (every child exactly one level below its parent), which
-//! is the invariant mutation-built trees uphold.
+//! Narrow pointers: a leaf child (linear or bitmap) may sit below its
+//! slot level; its decode bytes define the sub-expanse holding its keys,
+//! so navigation compares the suffix's skipped digits against the decode
+//! value and composes results as `decode << 8·kb | low`.
 
 use crate::leaf;
 use crate::mutate::{key_low, pow256};
@@ -35,8 +36,25 @@ fn edge_pop(edge: &Edge, level: u8) -> u64 {
     match edge.tag().expect("valid edge tag") {
         EdgeTag::Structural(EdgeType::Null) => 0,
         EdgeTag::Immed(im) => u64::from(im.key_count()),
+        // Skipping leaves store pop0 at their own level, not the slot's.
+        EdgeTag::Structural(t) if t.leaf_key_bytes().is_some() => {
+            edge.pop0(t.leaf_key_bytes().expect("leaf tag")) + 1
+        }
+        EdgeTag::Structural(EdgeType::LeafB1) => edge.pop0(1) + 1,
         EdgeTag::Structural(_) => edge.pop0(level) + 1,
     }
+}
+
+/// A skipping leaf's expanse position: `(decode_value, shift)` such that
+/// its full keys are `decode_value << shift | low`. Non-skipping leaves
+/// return `(0, _)`, making the composition the identity.
+fn skip_parts(edge: &Edge, kb: u8, level: u8) -> (u64, u32) {
+    let dv = if kb < level {
+        crate::mutate::decode_value(edge, kb, level)
+    } else {
+        0
+    };
+    (dv, 8 * u32::from(kb))
 }
 
 /// Reads the sorted key list of an immediate edge for either flavor.
@@ -146,10 +164,16 @@ pub(crate) unsafe fn next<const MAP: bool>(
             | EdgeType::Leaf7),
         ) => {
             let kb = t.leaf_key_bytes().expect("leaf tag");
-            debug_assert_eq!(kb, level, "navigation assumes no narrow pointers");
+            debug_assert!(kb <= level);
             let pop = edge.pop0(kb) as usize + 1;
+            let (dv, shift) = skip_parts(edge, kb, level);
+            let low = match (suffix >> shift).cmp(&dv) {
+                core::cmp::Ordering::Less => 0,
+                core::cmp::Ordering::Equal => key_low(suffix, kb),
+                core::cmp::Ordering::Greater => return None,
+            };
             // SAFETY: live leaf of `pop` keys per contract.
-            let slot = unsafe { leaf_lower_bound::<MAP>(edge, kb, pop, suffix) };
+            let slot = unsafe { leaf_lower_bound::<MAP>(edge, kb, pop, low) };
             if slot == pop {
                 return None;
             }
@@ -161,11 +185,16 @@ pub(crate) unsafe fn next<const MAP: bool>(
             } else {
                 0
             };
-            Some((k, v))
+            Some(((dv << shift) | k, v))
         }
 
         EdgeTag::Structural(EdgeType::LeafB1) => {
-            debug_assert_eq!(level, 1);
+            let (dv, shift) = skip_parts(edge, 1, level);
+            let suffix = match (suffix >> shift).cmp(&dv) {
+                core::cmp::Ordering::Less => 0,
+                core::cmp::Ordering::Equal => key_low(suffix, 1),
+                core::cmp::Ordering::Greater => return None,
+            };
             if suffix > 255 {
                 return None;
             }
@@ -177,11 +206,14 @@ pub(crate) unsafe fn next<const MAP: bool>(
                 let rank = node.bitmap.subexpanse_rank(d) as usize;
                 // SAFETY: bit set → value subarray holds rank + 1 values.
                 let v = unsafe { *node.values[sub].add(rank) };
-                Some((u64::from(d), v))
+                Some(((dv << shift) | u64::from(d), v))
             } else {
                 // SAFETY: live LeafBitmap1 per contract.
                 let node = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
-                Some((u64::from(node.bitmap.next_set(suffix as u8)?), 0))
+                Some((
+                    (dv << shift) | u64::from(node.bitmap.next_set(suffix as u8)?),
+                    0,
+                ))
             }
         }
 
@@ -311,13 +343,19 @@ pub(crate) unsafe fn prev<const MAP: bool>(
             | EdgeType::Leaf7),
         ) => {
             let kb = t.leaf_key_bytes().expect("leaf tag");
-            debug_assert_eq!(kb, level, "navigation assumes no narrow pointers");
+            debug_assert!(kb <= level);
             let pop = edge.pop0(kb) as usize + 1;
-            let bound = if suffix == u64::MAX {
+            let (dv, shift) = skip_parts(edge, kb, level);
+            let low = match (suffix >> shift).cmp(&dv) {
+                core::cmp::Ordering::Less => return None,
+                core::cmp::Ordering::Equal => key_low(suffix, kb),
+                core::cmp::Ordering::Greater => key_low(u64::MAX, kb),
+            };
+            let bound = if low == key_low(u64::MAX, kb) {
                 pop
             } else {
                 // SAFETY: live leaf of `pop` keys per contract.
-                unsafe { leaf_lower_bound::<MAP>(edge, kb, pop, suffix + 1) }
+                unsafe { leaf_lower_bound::<MAP>(edge, kb, pop, low + 1) }
             };
             let slot = bound.checked_sub(1)?;
             // SAFETY: slot < pop.
@@ -328,12 +366,16 @@ pub(crate) unsafe fn prev<const MAP: bool>(
             } else {
                 0
             };
-            Some((k, v))
+            Some(((dv << shift) | k, v))
         }
 
         EdgeTag::Structural(EdgeType::LeafB1) => {
-            debug_assert_eq!(level, 1);
-            let from = suffix.min(255) as u8;
+            let (dv, shift) = skip_parts(edge, 1, level);
+            let from = match (suffix >> shift).cmp(&dv) {
+                core::cmp::Ordering::Less => return None,
+                core::cmp::Ordering::Equal => key_low(suffix, 1) as u8,
+                core::cmp::Ordering::Greater => 255,
+            };
             if MAP {
                 // SAFETY: live LeafBitmapL per contract.
                 let node = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
@@ -342,11 +384,11 @@ pub(crate) unsafe fn prev<const MAP: bool>(
                 let rank = node.bitmap.subexpanse_rank(d) as usize;
                 // SAFETY: bit set → value subarray holds rank + 1 values.
                 let v = unsafe { *node.values[sub].add(rank) };
-                Some((u64::from(d), v))
+                Some(((dv << shift) | u64::from(d), v))
             } else {
                 // SAFETY: live LeafBitmap1 per contract.
                 let node = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
-                Some((u64::from(node.bitmap.prev_set(from)?), 0))
+                Some(((dv << shift) | u64::from(node.bitmap.prev_set(from)?), 0))
             }
         }
 
@@ -464,21 +506,31 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
             | EdgeType::Leaf7),
         ) => {
             let kb = t.leaf_key_bytes().expect("leaf tag");
-            debug_assert_eq!(kb, level, "navigation assumes no narrow pointers");
+            debug_assert!(kb <= level);
             let pop = edge.pop0(kb) as usize + 1;
-            // SAFETY: live leaf of `pop` keys per contract.
-            unsafe { leaf_lower_bound::<MAP>(edge, kb, pop, suffix) as u64 }
+            let (dv, shift) = skip_parts(edge, kb, level);
+            match (suffix >> shift).cmp(&dv) {
+                core::cmp::Ordering::Less => 0,
+                core::cmp::Ordering::Equal => {
+                    // SAFETY: live leaf of `pop` keys per contract.
+                    unsafe { leaf_lower_bound::<MAP>(edge, kb, pop, key_low(suffix, kb)) as u64 }
+                }
+                core::cmp::Ordering::Greater => pop as u64,
+            }
         }
 
         EdgeTag::Structural(EdgeType::LeafB1) => {
-            debug_assert_eq!(level, 1);
-            if suffix > 255 {
-                return edge.pop0(1) + 1;
+            let (dv, shift) = skip_parts(edge, 1, level);
+            match (suffix >> shift).cmp(&dv) {
+                core::cmp::Ordering::Less => 0,
+                core::cmp::Ordering::Equal => {
+                    // Both flavors start with the bitmap at the node base.
+                    // SAFETY: live bitmap leaf per contract.
+                    let bitmap = unsafe { &(*edge.node_ptr().cast::<LeafBitmap1>()).bitmap };
+                    u64::from(bitmap.rank(key_low(suffix, 1) as u8))
+                }
+                core::cmp::Ordering::Greater => edge.pop0(1) + 1,
             }
-            // Both flavors start with the bitmap at the node base.
-            // SAFETY: live bitmap leaf per contract.
-            let bitmap = unsafe { &(*edge.node_ptr().cast::<LeafBitmap1>()).bitmap };
-            u64::from(bitmap.rank(suffix as u8))
         }
 
         EdgeTag::Structural(EdgeType::FullExpanse) => {
@@ -600,6 +652,7 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
             let kb = t.leaf_key_bytes().expect("leaf tag");
             let pop = edge.pop0(kb) as usize + 1;
             debug_assert!((n as usize) < pop);
+            let (dv, shift) = skip_parts(edge, kb, level);
             // SAFETY: n < pop keys per contract.
             let k = unsafe { leaf_suffix::<MAP>(edge, kb, pop, n as usize) };
             let v = if MAP {
@@ -608,11 +661,11 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
             } else {
                 0
             };
-            (k, v)
+            ((dv << shift) | k, v)
         }
 
         EdgeTag::Structural(EdgeType::LeafB1) => {
-            debug_assert_eq!(level, 1);
+            let (dv, shift) = skip_parts(edge, 1, level);
             // SAFETY: both flavors start with the bitmap at the node base.
             let bitmap = unsafe { &(*edge.node_ptr().cast::<LeafBitmap1>()).bitmap };
             let d = bitmap.select(n as u32).expect("select within population");
@@ -626,7 +679,7 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
             } else {
                 0
             };
-            (u64::from(d), v)
+            ((dv << shift) | u64::from(d), v)
         }
 
         EdgeTag::Structural(EdgeType::FullExpanse) => {

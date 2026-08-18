@@ -713,6 +713,76 @@ mod tests {
     }
 
     #[test]
+    fn model_prefix_runs() {
+        // Dense 256-aligned runs at random bases: the narrow-pointer
+        // synthesis path (skip-carrying bitmap leaves) under the full
+        // op mix.
+        model_run(0xF6, |rng| {
+            let base = (rng.next() & !0xFF) >> (rng.next() % 3 * 8) << (rng.next() % 3 * 8);
+            (base & !0xFF) | (rng.next() % 256)
+        });
+    }
+
+    #[test]
+    fn narrow_pointer_lifecycle() {
+        let mut set = ExpanseSet::new();
+        let mut model = BTreeSet::new();
+        let base = 0xAABB_CCDD_EEFF_0000u64;
+        // Fill one 256-run: cascades into a skip-carrying bitmap leaf
+        // instead of a 6-node single-child branch chain.
+        for i in 0..256u64 {
+            assert!(set.insert(base | i));
+            model.insert(base | i);
+        }
+        set.validate();
+        // The measured point of the feature: the whole cluster (plus the
+        // top-level path) must cost far less than the ~448 bytes a
+        // branch chain + bitmap leaf used to take.
+        assert!(
+            set.mem_used() <= 192,
+            "cluster should collapse to one skip edge, used {}",
+            set.mem_used()
+        );
+        for i in 0..256u64 {
+            assert!(set.contains(base | i));
+        }
+        assert!(!set.contains(base ^ (1 << 40)));
+        assert_eq!(set.count_range(base..=base | 0xFF), 256);
+        assert_eq!(set.by_count(10), Some(base | 10));
+        assert_eq!(set.next_at_or_after(base | 0x80), Some(base | 0x80));
+        assert_eq!(set.prev_before(base), None);
+
+        // Diverge inside the skipped prefix at several depths: each
+        // insert splits the narrow pointer along its divergence path.
+        for (i, div) in [1u64 << 16, 1 << 24, 1 << 40, 1 << 55]
+            .into_iter()
+            .enumerate()
+        {
+            let k = (base ^ div) | i as u64;
+            assert!(set.insert(k), "diverging insert {k:#x}");
+            model.insert(k);
+            set.validate();
+        }
+        for &k in &model {
+            assert!(set.contains(k), "{k:#x} after splits");
+        }
+        assert!(set.iter().eq(model.iter().copied()));
+
+        // Drain the cluster through every shrink conversion (bitmap →
+        // linear leaf with decode → immediate absorbing the decode).
+        for i in (2..256u64).rev() {
+            assert!(set.remove(base | i));
+            model.remove(&(base | i));
+            if i % 16 == 0 {
+                set.validate();
+            }
+        }
+        assert!(set.iter().eq(model.iter().copied()));
+        set.clear();
+        assert_eq!(set.mem_used(), 0);
+    }
+
+    #[test]
     #[should_panic(expected = "branch pop0 disagrees with subtree")]
     fn negative_control_validator_must_fire() {
         // docs/TESTING.md: an assertion that has never fired is not known

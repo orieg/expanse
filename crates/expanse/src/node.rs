@@ -162,6 +162,13 @@ impl Edge {
         self.aux = bytes;
     }
 
+    /// Clears one aux byte (used when a narrow pointer's top decode digit
+    /// is consumed by a wrapping branch).
+    #[inline]
+    pub(crate) const fn clear_aux_byte(&mut self, i: usize) {
+        self.aux[i] = 0;
+    }
+
     /// Subtree population minus one, for a child at `level` (1..=7): reads
     /// the low `level` bytes of the aux field (little-endian).
     #[inline]

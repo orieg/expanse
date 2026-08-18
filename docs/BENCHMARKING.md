@@ -49,7 +49,7 @@ Performance claims are this project's reason to exist, so they follow the strict
 | dist | pop 1k | pop 100k | pop 1M | |
 |---|---|---|---|---|
 | sequential (set) | 0.58 | 0.07 | **0.06** | full-expanse + bitmap-leaf compression |
-| clustered (set) | 1.73 | 1.43 | **1.34** | beats the < 9.5 B/key target |
+| clustered (set) | 0.38 | 0.37 | **0.35** | was 1.34 before narrow-pointer synthesis — a 3.8× improvement |
 | random (set) | 10.43 | 12.91 | 7.06 | not part of the dense/clustered target |
 | sparse `i << 40` (set) | 16.58 | 16.07 | **16.06** | the single-child branch-chain cost — the measured motivation for narrow-pointer synthesis (ARCHITECTURE.md §6 step 3) |
 
@@ -59,14 +59,16 @@ Map-flavor figures run ~8 B/key above the set figures (the stored value word). T
 
 | dist | pop | get ratio (ours/stock) | insert ratio | B/key ratio |
 |---|---|---|---|---|
-| sequential | 1M | 3.76× slower | 6.6× slower | 1.03 |
-| random | 1M | 1.50× slower | 2.2× slower | **0.85 (15% smaller)** |
-| clustered | 1M | 5.31× slower | 13.5× slower | 1.06 |
+| sequential | 1M | 4.15× slower | 5.9× slower | 1.03 |
+| random | 1M | 1.50× slower | 1.9× slower | **0.85 (15% smaller)** |
+| clustered | 1M | **1.12× (parity; 0.89× at 100k — faster)** | 3.7× slower | **0.92 (smaller)** |
+
+(clustered row updated after narrow-pointer synthesis landed: get was 5.31× slower and insert 13.5× before it — the single-child chain removal closed the lookup gap entirely)
 
 Honest reading (v1 correctness-first, zero optimization passes yet):
 
 - **Memory is already competitive** — smaller than stock on random keys.
-- **Lookup gap is worst on clustered** — the single-child branch-chain walk (extra line fills per descent); the narrow-pointer work (ARCHITECTURE §6 step 3) attacks exactly this, with these ratios as its before-numbers.
+- **Clustered lookup is solved**: narrow-pointer synthesis removed the chain walk (5.31× slower → parity). The remaining lookup gap is on sequential/random — next profile targets: per-level dispatch overhead and the root-leaf/tree split.
 - **Insert gap** has three known, documented v1 costs to burn down: full leaf rebuild per insert (no capacity classes), `Vec` materialization in the mutation path, and capi `JudyLIns` walking the tree three times (contains + insert + slot). Each is an isolated follow-up with this table as baseline.
 
 Timing numbers here are working baselines, not publishable claims; headline numbers still require a quiet-host run under the system-load protocol above.

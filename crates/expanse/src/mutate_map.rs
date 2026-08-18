@@ -18,9 +18,10 @@
 use crate::alloc::NodeAlloc;
 use crate::leaf;
 use crate::mutate::{
-    BRANCHB_UP, LEAF_CAP, LEAF1_CAP, bump_pop0, downgrade_b_to_l7, downgrade_l7_to_l3,
-    downgrade_u_to_b, immed_map_keys, key_low, linear_insert_slot, linear_remove_slot,
-    map_immed_max, read_packed, upgrade_b_to_u, upgrade_l3_to_l7, upgrade_l7_to_b, write_packed,
+    BRANCHB_UP, LEAF_CAP, LEAF1_CAP, bump_pop0, decode_value, divergence_level, downgrade_b_to_l7,
+    downgrade_l7_to_l3, downgrade_u_to_b, immed_map_keys, key_low, linear_insert_slot,
+    linear_remove_slot, map_immed_max, read_packed, restore_decode, upgrade_b_to_u,
+    upgrade_l3_to_l7, upgrade_l7_to_b, wrap_skip_level, write_decode, write_packed,
 };
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmapL};
 use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit};
@@ -100,6 +101,30 @@ unsafe fn read_map_leaf(edge: &Edge, kb: u8, pop: usize) -> Vec<(u64, u64)> {
             (k, v)
         })
         .collect()
+}
+
+/// Allocates a `LeafBitmapL` from sorted level-1 entries and points
+/// `edge` at it (decode bytes, if any, are the caller's to restore).
+fn build_bitmap_leaf_map(a: &NodeAlloc, edge: &mut Edge, entries: &[(u64, u64)]) {
+    let mut node = LeafBitmapL::new();
+    let mut per_sub: [Vec<u64>; 8] = Default::default();
+    for &(k, v) in entries {
+        node.bitmap.set(k as u8);
+        per_sub[(k >> 5) as usize].push(v);
+    }
+    for (sub, vals) in per_sub.iter().enumerate() {
+        if !vals.is_empty() {
+            let arr = a.alloc_bytes(vals.len() * 8).cast::<u64>();
+            for (i, &v) in vals.iter().enumerate() {
+                // SAFETY: fresh array of vals.len() slots.
+                unsafe { arr.as_ptr().add(i).write(v) };
+            }
+            node.values[sub] = arr.as_ptr();
+        }
+    }
+    let ptr = a.alloc_node(node);
+    *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
+    edge.set_pop0(1, entries.len() as u64 - 1);
 }
 
 /// Allocates a map leaf from sorted entries and points `edge` at it.
@@ -199,8 +224,15 @@ pub(crate) unsafe fn map_insert(
             | EdgeType::Leaf7),
         ) => {
             let kb = t.leaf_key_bytes().expect("leaf tag");
-            debug_assert_eq!(kb, level);
+            debug_assert!(kb <= level);
             let pop = edge.pop0(kb) as usize + 1;
+            if kb < level && !crate::get::decode_matches(edge, key, kb, level) {
+                // Diverges inside the skipped prefix: branch out one
+                // level and retry.
+                wrap_skip_level(a, edge, level, pop as u64);
+                // SAFETY: forwarded contract; edge is now a branch.
+                return unsafe { map_insert(a, edge, key, val, level) };
+            }
             let k = key_low(key, kb);
             // SAFETY: live map leaf per contract.
             let mut entries = unsafe { read_map_leaf(edge, kb, pop) };
@@ -212,33 +244,36 @@ pub(crate) unsafe fn map_insert(
                     Some(old)
                 }
                 Err(pos) => {
+                    let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
+                    if pop == cap && kb > 1 && kb < level {
+                        // A skipping linear leaf cascades at its own
+                        // level; materialize one chain level and retry.
+                        wrap_skip_level(a, edge, level, pop as u64);
+                        // SAFETY: forwarded contract; edge is a branch.
+                        return unsafe { map_insert(a, edge, key, val, level) };
+                    }
                     let old_ptr = edge.node_ptr();
                     let old_size = leaf::size_map(kb, pop);
+                    let saved_aux = *edge.aux_bytes();
                     entries.insert(pos, (k, val));
-                    let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
                     if entries.len() <= cap {
                         build_map_leaf(a, edge, kb, &entries);
+                        restore_decode(edge, kb, level, &saved_aux);
                     } else if kb == 1 {
-                        // Level-1 overflow: linear map leaf → bitmap leaf.
-                        let mut node = LeafBitmapL::new();
-                        let mut per_sub: [Vec<u64>; 8] = Default::default();
-                        for &(k, v) in &entries {
-                            node.bitmap.set(k as u8);
-                            per_sub[(k >> 5) as usize].push(v);
-                        }
-                        for (sub, vals) in per_sub.iter().enumerate() {
-                            if !vals.is_empty() {
-                                let arr = a.alloc_bytes(vals.len() * 8).cast::<u64>();
-                                for (i, &v) in vals.iter().enumerate() {
-                                    // SAFETY: fresh array of vals.len().
-                                    unsafe { arr.as_ptr().add(i).write(v) };
-                                }
-                                node.values[sub] = arr.as_ptr();
-                            }
-                        }
-                        let ptr = a.alloc_node(node);
-                        *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
-                        edge.set_pop0(1, entries.len() as u64 - 1);
+                        // Level-1 overflow: linear map leaf → bitmap leaf
+                        // (any narrow pointer carries over).
+                        build_bitmap_leaf_map(a, edge, &entries);
+                        restore_decode(edge, 1, level, &saved_aux);
+                    } else if divergence_level(entries[0].0, entries[entries.len() - 1].0, kb) == 1
+                    {
+                        // Narrow-pointer synthesis: all keys share their
+                        // digits at levels 2..=kb — one bitmap leaf with
+                        // the shared prefix as decode bytes, no chain.
+                        let low: Vec<(u64, u64)> =
+                            entries.iter().map(|&(k, v)| (key_low(k, 1), v)).collect();
+                        let prefix_key = entries[0].0;
+                        build_bitmap_leaf_map(a, edge, &low);
+                        write_decode(edge, 1, level, prefix_key);
                     } else {
                         // Cascade: empty branch, then re-insert everything.
                         let node = a.alloc_node(BranchL3::new());
@@ -262,7 +297,14 @@ pub(crate) unsafe fn map_insert(
         }
 
         EdgeTag::Structural(EdgeType::LeafB1) => {
-            debug_assert_eq!(level, 1);
+            if level > 1 && !crate::get::decode_matches(edge, key, 1, level) {
+                // Diverges inside the skipped prefix: branch out one
+                // level and retry.
+                let pop = edge.pop0(1) + 1;
+                wrap_skip_level(a, edge, level, pop);
+                // SAFETY: forwarded contract; edge is now a branch.
+                return unsafe { map_insert(a, edge, key, val, level) };
+            }
             let d = digit(key, 1);
             // SAFETY: live LeafBitmapL per contract.
             let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmapL>() };
@@ -482,7 +524,10 @@ pub(crate) unsafe fn map_remove(
             | EdgeType::Leaf7),
         ) => {
             let kb = t.leaf_key_bytes().expect("leaf tag");
-            debug_assert_eq!(kb, level);
+            debug_assert!(kb <= level);
+            if kb < level && !crate::get::decode_matches(edge, key, kb, level) {
+                return None;
+            }
             let pop = edge.pop0(kb) as usize + 1;
             let k = key_low(key, kb);
             // SAFETY: live map leaf per contract.
@@ -493,15 +538,27 @@ pub(crate) unsafe fn map_remove(
             let (_, old) = entries.remove(pos);
             let old_ptr = edge.node_ptr();
             let old_size = leaf::size_map(kb, pop);
-            // Hysteresis: back to an immediate one below the boundary.
-            // Wide keys (map_immed_max == 1) can drain a leaf to zero
-            // entries, which has no immediate form: back to null.
+            let saved_aux = *edge.aux_bytes();
+            // Hysteresis: back to an immediate one below the boundary —
+            // at the *slot* level for skipping leaves, absorbing decode
+            // bytes into full remainders. Wide keys (map_immed_max == 1)
+            // can drain a leaf to zero entries: back to null.
             if entries.is_empty() {
                 *edge = Edge::NULL;
-            } else if entries.len() < map_immed_max(kb) {
-                write_map_immed(a, edge, kb, &entries);
+            } else if entries.len() < map_immed_max(level) {
+                let dv = if kb < level {
+                    decode_value(edge, kb, level)
+                } else {
+                    0
+                };
+                let full: Vec<(u64, u64)> = entries
+                    .iter()
+                    .map(|&(low, v)| ((dv << (8 * u32::from(kb))) | low, v))
+                    .collect();
+                write_map_immed(a, edge, level, &full);
             } else {
                 build_map_leaf(a, edge, kb, &entries);
+                restore_decode(edge, kb, level, &saved_aux);
             }
             // SAFETY: old leaf allocation no longer referenced.
             unsafe {
@@ -511,7 +568,9 @@ pub(crate) unsafe fn map_remove(
         }
 
         EdgeTag::Structural(EdgeType::LeafB1) => {
-            debug_assert_eq!(level, 1);
+            if level > 1 && !crate::get::decode_matches(edge, key, 1, level) {
+                return None;
+            }
             let d = digit(key, 1);
             // SAFETY: live LeafBitmapL per contract.
             let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmapL>() };
@@ -545,6 +604,12 @@ pub(crate) unsafe fn map_remove(
             let pop = edge.pop0(1) as usize; // old pop - 1
             // Hysteresis: back to a linear map leaf one below the cap.
             if pop < LEAF1_CAP {
+                let saved_aux = *edge.aux_bytes();
+                let dv = if level > 1 {
+                    decode_value(edge, 1, level)
+                } else {
+                    0
+                };
                 // SAFETY: live node; entries re-read for the rebuild.
                 let entries: Vec<(u64, u64)> = unsafe {
                     let mut out = Vec::with_capacity(pop);
@@ -576,10 +641,15 @@ pub(crate) unsafe fn map_remove(
                         core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmapL>()).unwrap(),
                     );
                 }
-                if entries.len() < map_immed_max(1) {
-                    write_map_immed(a, edge, 1, &entries);
+                if entries.len() < map_immed_max(level) {
+                    let full: Vec<(u64, u64)> = entries
+                        .iter()
+                        .map(|&(low, v)| ((dv << 8) | low, v))
+                        .collect();
+                    write_map_immed(a, edge, level, &full);
                 } else {
                     build_map_leaf(a, edge, 1, &entries);
+                    restore_decode(edge, 1, level, &saved_aux);
                 }
             } else {
                 edge.set_pop0(1, pop as u64 - 1);
