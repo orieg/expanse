@@ -37,5 +37,7 @@ pub mod alloc;
 pub mod bits;
 pub mod get;
 pub mod leaf;
+pub mod mutate;
 pub mod node;
+pub mod set;
 pub mod types;

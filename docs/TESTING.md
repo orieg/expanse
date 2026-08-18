@@ -9,7 +9,7 @@ Expanse is an unsafe-heavy, invariant-dense data structure whose compat story re
 | # | Layer | Tool | Catches |
 |---|---|---|---|
 | 1 | Unit tests | `cargo test`, per module | Local logic: tag encodings, digit math, SIMD lane edges, node transitions |
-| 2 | Model-based property tests | `proptest`: random op sequences run against `BTreeMap`/`BTreeSet` as the semantic model | Semantic divergence of insert/delete/get/iterate/count under arbitrary interleavings |
+| 2 | Model-based op-sequence tests | Deterministic seeded harness (xorshift): random op sequences run against `BTreeMap`/`BTreeSet` as the semantic model, per key-distribution class; `proptest` with shrinking joins in Phase 8 hardening | Semantic divergence of insert/delete/get/iterate/count under arbitrary interleavings |
 | 3 | Differential oracle | Same op sequences through `libexpanse` and **stock C libjudy** (FFI, Linux job with `libjudy-dev`) | Contract gaps the docs under-specify; the black-box proof behind COMPAT.md G1 |
 | 4 | Fuzzing | `cargo-fuzz` targets consuming op-sequence bytecode (op, key) pairs | Crashes, UB triggers, pathological cascades no generator thinks of |
 | 5 | Miri | `cargo +nightly miri test` on the core crate | UB in unsafe code: aliasing, alignment, leaks, uninit reads |
@@ -43,7 +43,7 @@ A debug-only tree walker validates after mutations in tests:
 - bitmap-branch cached segment counts equal recomputed popcounts;
 - compression-ladder legality (no node below its down-convert floor or above its up-convert ceiling, modulo the 1-index hysteresis band).
 
-**Negative-control rule** (imported from php-judy's debug-mirror discipline): an assertion that has never fired is not known to work. CI must include a test that deliberately corrupts an invariant (via a test-only hook) and **requires** the validator to abort. A validator job that cannot fail is deleted or fixed, never trusted.
+**Negative-control rule** (imported from php-judy's debug-mirror discipline): an assertion that has never fired is not known to work. CI must include a test that deliberately corrupts an invariant and **requires** the validator to abort — implemented since Phase 6 as `set::tests::negative_control_validator_must_fire`, which corrupts a branch `pop0` and `#[should_panic]`s on the validator. A validator job that cannot fail is deleted or fixed, never trusted.
 
 ## Differential oracle details (layer 3)
 
@@ -54,4 +54,4 @@ A debug-only tree walker validates after mutations in tests:
 
 ## CI mapping
 
-Now: layer 1 on all platforms — Linux glibc, Linux musl (static-linked test run, cross-built from the glibc runner), macOS, Windows MSVC. Layer 5 (Miri) runs in CI on the core crate — active since Phase 4, when unsafe entered the core (and Miri caught a Stacked Borrows violation in test wiring on its first run). As phases land: proptest model tests join with the Phase 6 mutation engine (layer 2's op sequences need insert/delete to generate trees), layer 3 with the Phase 8 capi surface, layer 4 as a scheduled (cron) job, layer 6 with Phase 7. Placeholders are noted in `.github/workflows/ci.yml`.
+Now: layer 1 on all platforms — Linux glibc, Linux musl (static-linked test run, cross-built from the glibc runner), macOS, Windows MSVC. Layers 1, 2 (deterministic model harness, active since the Phase 6 mutation engine), and 5 (Miri, active since Phase 4 — it caught a Stacked Borrows violation on its first run) run in CI. As phases land: layer 3 with the Phase 8 capi surface, layer 4 and proptest-with-shrinking as Phase 8 hardening, layer 6 with Phase 7. Placeholders are noted in `.github/workflows/ci.yml`.
