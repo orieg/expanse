@@ -1,0 +1,6 @@
+# Build output
+/target
+
+# Original Judy reference PDFs — design context only, never committed
+# (clean-room implementation; see CLAUDE.md and docs/COMPAT.md)
+/references/

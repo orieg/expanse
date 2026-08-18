@@ -1,0 +1,19 @@
+[package]
+name = "judy-rs"
+version = "0.1.0"
+description = "Clean-room, pure-Rust implementation of Judy arrays modernized for current hardware"
+keywords = ["judy", "trie", "radix", "sparse", "data-structures"]
+categories = ["data-structures"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+name = "judy_rs"
+
+[dependencies]
+
+[lints]
+workspace = true

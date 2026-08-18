@@ -1,0 +1,20 @@
+[package]
+name = "judy-capi"
+version = "0.1.0"
+description = "Drop-in C ABI replacement for libjudy, backed by the judy-rs clean-room implementation"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+name = "judy_capi"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+judy-rs = { path = "../judy" }
+
+[lints]
+workspace = true
