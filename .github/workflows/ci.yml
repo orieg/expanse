@@ -148,7 +148,14 @@ jobs:
           cd php-judy
           export LD_LIBRARY_PATH="$JUDY_PREFIX/lib"
           NO_INTERACTION=1 make test | tee test-output.log
-          grep -E 'Tests failed *: *0 ' test-output.log
+          grep -E 'Tests failed *: *0 ' test-output.log || {
+            echo '::group::failing-test diffs'
+            for f in tests/*.diff tests/*.out; do
+              [ -f "$f" ] && { echo "--- $f"; cat "$f"; }
+            done
+            echo '::endgroup::'
+            exit 1
+          }
 
   loom:
     # docs/TESTING.md: the Phase 7 OCC/EBR protocol (occ module) is
@@ -198,6 +205,17 @@ jobs:
 
       - name: Differential oracle vs stock libjudy
         run: cargo test -p expanse-capi --features oracle
+
+      - name: Preload smoke (COMPAT.md gate G4)
+        # An unmodified consumer compiled against the STOCK header and
+        # library must behave identically under LD_PRELOAD of libexpanse.
+        run: |
+          cargo build --release -p expanse-capi
+          cc crates/expanse-capi/smoke/preload_smoke.c -lJudy -o smoke
+          ./smoke > stock.out
+          LD_PRELOAD="$PWD/target/release/libexpanse.so" ./smoke > preload.out
+          diff stock.out preload.out
+          grep -q '^ok$' stock.out
 
   lint:
     runs-on: ubuntu-latest
