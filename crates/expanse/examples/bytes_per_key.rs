@@ -59,7 +59,13 @@ fn main() {
         "{:<15} {:>10} {:>14} {:>14}",
         "dist", "pop", "set B/key", "map B/key"
     );
-    for dist in ["sequential", "random", "clustered", "clustered-wide", "sparse"] {
+    for dist in [
+        "sequential",
+        "random",
+        "clustered",
+        "clustered-wide",
+        "sparse",
+    ] {
         for pop in [1_000usize, 100_000, 1_000_000] {
             let ks = keys(dist, pop);
             let mut set = ExpanseSet::new();

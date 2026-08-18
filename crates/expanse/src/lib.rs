@@ -42,6 +42,8 @@ pub mod mutate;
 mod mutate_map;
 mod nav;
 pub mod node;
+pub mod occ;
 pub mod set;
 pub mod strmap;
+pub mod sync;
 pub mod types;

@@ -12,9 +12,11 @@ use crate::mutate;
 use crate::mutate_map;
 use crate::node::Edge;
 use crate::set::ROOT_LEAF_CAP;
+use crate::sync::RootSnapshot;
 use crate::types::Key;
 use core::ptr::NonNull;
 
+#[derive(Clone, Copy)]
 enum Root {
     Empty,
     /// One allocation: `pop` sorted keys, then `pop` values.
@@ -38,6 +40,10 @@ pub struct ExpanseMap {
     root: Root,
     alloc: NodeAlloc,
 }
+
+// SAFETY: as for `ExpanseSet` — exclusive ownership of all reachable
+// allocations; not `Sync`, shared access goes through `SyncExpanseMap`.
+unsafe impl Send for ExpanseMap {}
 
 const fn leaf_size(pop: usize) -> usize {
     16 * pop
@@ -147,6 +153,20 @@ impl ExpanseMap {
             self.insert(key, 0);
         }
         self.get_value_slot(key).expect("just-ensured key")
+    }
+
+    /// Phase 7 (occ): by-value root snapshot + allocation handle for
+    /// the validated concurrent read walk (see `ExpanseSet::occ_root`).
+    pub(crate) fn occ_root(&self) -> (RootSnapshot, &NodeAlloc) {
+        let snap = match self.root {
+            Root::Empty => RootSnapshot::Empty,
+            Root::Leaf { ptr, pop } => RootSnapshot::Leaf {
+                ptr: ptr.as_ptr(),
+                pop,
+            },
+            Root::Tree { top, pop } => RootSnapshot::Tree { top, pop },
+        };
+        (snap, &self.alloc)
     }
 
     /// Membership test.
@@ -496,12 +516,9 @@ impl ExpanseMap {
         debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
         let new = self.alloc.alloc_bytes(leaf_size(n));
         let mut written = 0usize;
-        let mut from = 0u64;
-        loop {
-            // SAFETY: engine-maintained trie per this type's invariants.
-            let Some((k, v)) = (unsafe { crate::nav::next::<true>(top, from, 8) }) else {
-                break;
-            };
+        let mut from = Some(0u64);
+        // SAFETY: engine-maintained trie per this type's invariants.
+        while let Some((k, v)) = from.and_then(|f| unsafe { crate::nav::next::<true>(top, f, 8) }) {
             debug_assert!(written < n);
             // SAFETY: in-bounds writes: keys then values.
             unsafe {
@@ -509,10 +526,7 @@ impl ExpanseMap {
                 new.as_ptr().cast::<u64>().add(n + written).write(v);
             }
             written += 1;
-            let Some(next_from) = k.checked_add(1) else {
-                break;
-            };
-            from = next_from;
+            from = k.checked_add(1);
         }
         debug_assert_eq!(written, n);
         // SAFETY: whole trie owned by this map; freed exactly once.

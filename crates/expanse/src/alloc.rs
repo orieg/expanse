@@ -13,20 +13,29 @@
 //! measure it. If mutation-burst profiles justify one, it slots in behind
 //! this same interface.
 //!
-//! Not yet thread-safe (`Cell` counters): the tree itself is single-writer
-//! until the Phase 7 OCC work, which will revisit the accounting atomics.
+//! The tree itself is single-writer; Phase 7's concurrent wrappers add
+//! shared readers, so the counters are (relaxed) atomics.
 
+use crate::occ::Collector;
 use crate::types::CACHE_LINE;
-use core::cell::Cell;
 use core::ptr::NonNull;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use std::alloc::{Layout, alloc_zeroed, dealloc, handle_alloc_error};
+use std::sync::{Arc, OnceLock};
 
 /// Allocation handle owned by a tree: hands out cache-line-aligned,
 /// zeroed memory and keeps byte-exact accounting.
+///
+/// Counters are relaxed atomics (Phase 7): accounting must stay exact
+/// when a concurrent wrapper shares the tree across threads, and the
+/// counters order nothing — the OCC read protocol carries the fences.
 #[derive(Debug, Default)]
 pub struct NodeAlloc {
-    bytes_in_use: Cell<usize>,
-    live_allocs: Cell<usize>,
+    bytes_in_use: AtomicUsize,
+    live_allocs: AtomicUsize,
+    /// Phase 7: when set, frees are retired to the collector instead of
+    /// released — concurrent readers may still hold the pointers.
+    deferred: OnceLock<Arc<Collector>>,
 }
 
 impl NodeAlloc {
@@ -39,13 +48,13 @@ impl NodeAlloc {
     /// Bytes currently allocated through this handle.
     #[must_use]
     pub fn bytes_in_use(&self) -> usize {
-        self.bytes_in_use.get()
+        self.bytes_in_use.load(Ordering::Relaxed)
     }
 
     /// Number of live allocations (diagnostics / leak assertions in tests).
     #[must_use]
     pub fn live_allocs(&self) -> usize {
-        self.live_allocs.get()
+        self.live_allocs.load(Ordering::Relaxed)
     }
 
     fn layout_for(bytes: usize) -> Layout {
@@ -64,8 +73,8 @@ impl NodeAlloc {
         let Some(ptr) = NonNull::new(raw) else {
             handle_alloc_error(layout)
         };
-        self.bytes_in_use.set(self.bytes_in_use.get() + bytes);
-        self.live_allocs.set(self.live_allocs.get() + 1);
+        self.bytes_in_use.fetch_add(bytes, Ordering::Relaxed);
+        self.live_allocs.fetch_add(1, Ordering::Relaxed);
         ptr
     }
 
@@ -76,12 +85,31 @@ impl NodeAlloc {
     /// `ptr` must come from `alloc_bytes(bytes)` on this handle, not yet
     /// freed, and nothing may use it afterwards.
     pub unsafe fn free_bytes(&self, ptr: NonNull<u8>, bytes: usize) {
-        let layout = Self::layout_for(bytes);
-        // SAFETY: per this function's contract, `ptr`/`layout` match the
-        // original allocation.
-        unsafe { dealloc(ptr.as_ptr(), layout) };
-        self.bytes_in_use.set(self.bytes_in_use.get() - bytes);
-        self.live_allocs.set(self.live_allocs.get() - 1);
+        if let Some(c) = self.deferred.get() {
+            // Deferred mode: the structure no longer references `ptr`,
+            // but pinned readers may — reclamation waits out the grace
+            // period. Accounting is logical (the bytes left the tree).
+            c.retire(ptr, bytes);
+        } else {
+            let layout = Self::layout_for(bytes);
+            // SAFETY: per this function's contract, `ptr`/`layout` match
+            // the original allocation.
+            unsafe { dealloc(ptr.as_ptr(), layout) };
+        }
+        self.bytes_in_use.fetch_sub(bytes, Ordering::Relaxed);
+        self.live_allocs.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    /// Switches this handle to deferred reclamation through `collector`,
+    /// permanently (Phase 7 concurrent wrappers call this once at
+    /// construction). Idempotent for the same collector; a second call
+    /// with a different collector is a bug and panics.
+    pub fn defer_to(&self, collector: Arc<Collector>) {
+        let stored = self.deferred.get_or_init(|| Arc::clone(&collector));
+        assert!(
+            Arc::ptr_eq(stored, &collector),
+            "NodeAlloc already deferred to a different collector"
+        );
     }
 
     /// Allocates a node and moves `init` into it.

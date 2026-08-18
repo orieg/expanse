@@ -107,6 +107,24 @@ jobs:
       - name: Miri (quick — model suites run in the nightly workflow)
         run: cargo miri test -p expanse-trie -- --skip model_
 
+  loom:
+    # docs/TESTING.md: the Phase 7 OCC/EBR protocol (occ module) is
+    # model-checked under loom — it found two real ordering bugs (missing
+    # seqlock fences; a store-buffer race between pin and epoch advance)
+    # on its first run, so this job is not optional either.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Loom model checks
+        run: cargo test -p expanse-trie --release loom_
+        env:
+          RUSTFLAGS: --cfg loom
+
   differential-oracle:
     # docs/COMPAT.md gate G1: identical observable behavior between
     # libexpanse and stock libjudy under shared op sequences. The stock

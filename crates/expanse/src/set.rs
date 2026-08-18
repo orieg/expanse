@@ -11,12 +11,14 @@ use crate::alloc::NodeAlloc;
 use crate::get;
 use crate::mutate;
 use crate::node::Edge;
+use crate::sync::RootSnapshot;
 use crate::types::Key;
 use core::ptr::NonNull;
 
 /// Maximum population held in the root leaf before a real trie is built.
 pub const ROOT_LEAF_CAP: usize = 31;
 
+#[derive(Clone, Copy)]
 enum Root {
     Empty,
     /// Sorted full-width keys, `pop` of them, in one allocation.
@@ -40,6 +42,12 @@ pub struct ExpanseSet {
     root: Root,
     alloc: NodeAlloc,
 }
+
+// SAFETY: the tree exclusively owns every allocation reachable from its
+// root (raw pointers are the only reason the impl is not automatic);
+// moving it to another thread moves that ownership wholesale. It is
+// deliberately NOT `Sync` — shared access goes through `SyncExpanseSet`.
+unsafe impl Send for ExpanseSet {}
 
 impl ExpanseSet {
     /// Creates an empty set.
@@ -159,6 +167,21 @@ impl ExpanseSet {
                 inserted
             }
         }
+    }
+
+    /// Phase 7 (occ): a by-value snapshot of the root state plus the
+    /// allocation handle, for the validated concurrent read walk. The
+    /// snapshot may be torn mid-mutation; `sync` validates before use.
+    pub(crate) fn occ_root(&self) -> (RootSnapshot, &NodeAlloc) {
+        let snap = match self.root {
+            Root::Empty => RootSnapshot::Empty,
+            Root::Leaf { keys, pop } => RootSnapshot::Leaf {
+                ptr: keys.as_ptr(),
+                pop,
+            },
+            Root::Tree { top, pop } => RootSnapshot::Tree { top, pop },
+        };
+        (snap, &self.alloc)
     }
 
     /// Removes `key`; returns `true` if it was present.
@@ -401,20 +424,15 @@ impl ExpanseSet {
         debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
         let leaf = self.alloc.alloc_bytes(8 * n);
         let mut written = 0usize;
-        let mut from = 0u64;
-        loop {
-            // SAFETY: engine-maintained trie per this type's invariants.
-            let Some((k, _)) = (unsafe { crate::nav::next::<false>(top, from, 8) }) else {
-                break;
-            };
+        let mut from = Some(0u64);
+        // SAFETY: engine-maintained trie per this type's invariants.
+        while let Some((k, _)) = from.and_then(|f| unsafe { crate::nav::next::<false>(top, f, 8) })
+        {
             debug_assert!(written < n);
             // SAFETY: in-bounds write of the fresh n-key leaf.
             unsafe { leaf.as_ptr().cast::<u64>().add(written).write(k) };
             written += 1;
-            let Some(next_from) = k.checked_add(1) else {
-                break;
-            };
-            from = next_from;
+            from = k.checked_add(1);
         }
         debug_assert_eq!(written, n);
         // SAFETY: whole trie owned by this set; freed exactly once.

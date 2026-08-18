@@ -18,6 +18,11 @@ name = "expanse_trie"
 [dev-dependencies]
 criterion = "0.8"
 
+# Loom model-checks the OCC/EBR protocol (occ module) under
+# `RUSTFLAGS="--cfg loom" cargo test -p expanse-trie --release loom_`.
+[target.'cfg(loom)'.dependencies]
+loom = "0.7"
+
 [[bench]]
 name = "compare"
 harness = false
