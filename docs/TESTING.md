@@ -54,4 +54,4 @@ A debug-only tree walker validates after mutations in tests:
 
 ## CI mapping
 
-Now: layer 1 on all platforms — Linux glibc, Linux musl (static-linked test run, cross-built from the glibc runner), macOS, Windows MSVC. As phases land: layer 2 with Phase 4, layer 3 with the Phase 8 capi surface, layer 4 as a scheduled (cron) job, layer 5 once unsafe enters the core, layer 6 with Phase 7. Placeholders are noted in `.github/workflows/ci.yml`.
+Now: layer 1 on all platforms — Linux glibc, Linux musl (static-linked test run, cross-built from the glibc runner), macOS, Windows MSVC. Layer 5 (Miri) runs in CI on the core crate — active since Phase 4, when unsafe entered the core (and Miri caught a Stacked Borrows violation in test wiring on its first run). As phases land: proptest model tests join with the Phase 6 mutation engine (layer 2's op sequences need insert/delete to generate trees), layer 3 with the Phase 8 capi surface, layer 4 as a scheduled (cron) job, layer 6 with Phase 7. Placeholders are noted in `.github/workflows/ci.yml`.

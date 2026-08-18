@@ -394,12 +394,20 @@ mod tests {
             }
         }
 
+        // One base raw pointer for every element: re-indexing `leaves[i]`
+        // per wire-up would mint a fresh `&mut` of the Vec each time and
+        // invalidate the previously derived raw pointers (Miri catches
+        // this as a Stacked Borrows violation).
+        let base = leaves.as_mut_ptr();
+
         // BranchL7 with all 7 children.
         let mut b7 = BranchL7::new();
         b7.hdr.num = 7;
         b7.hdr.digits[..7].copy_from_slice(&digits_hi);
-        for (i, leaf) in leaves.iter_mut().enumerate() {
-            b7.jps[i] = JudyPointer::new_node((&raw mut *leaf).cast(), JpType::LeafB1.as_u8());
+        for i in 0..7 {
+            // SAFETY: `base.add(i)` stays inside the 7-element allocation.
+            let leaf = unsafe { base.add(i) };
+            b7.jps[i] = JudyPointer::new_node(leaf.cast(), JpType::LeafB1.as_u8());
         }
         let root = JudyPointer::new_node((&raw mut b7).cast(), JpType::BranchL7.as_u8());
         assert_eq!(BRANCH_L7_CAP, 7);
@@ -411,7 +419,9 @@ mod tests {
         b3.hdr.digits[..3].copy_from_slice(&digits_hi[..3]);
         let mut model3 = BTreeSet::new();
         for (i, &hi) in digits_hi.iter().take(3).enumerate() {
-            b3.jps[i] = JudyPointer::new_node((&raw mut leaves[i]).cast(), JpType::LeafB1.as_u8());
+            // SAFETY: `base.add(i)` stays inside the 7-element allocation.
+            let leaf = unsafe { base.add(i) };
+            b3.jps[i] = JudyPointer::new_node(leaf.cast(), JpType::LeafB1.as_u8());
             for &lo in lows[i] {
                 model3.insert((u64::from(hi) << 8) | u64::from(lo));
             }

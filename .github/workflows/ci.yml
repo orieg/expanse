@@ -90,6 +90,23 @@ jobs:
           test -f "$dir/libexpanse.a"  || { echo "::error::missing $dir/libexpanse.a"; exit 1; }
           echo "capi artifacts present: $dir/libexpanse.so, $dir/libexpanse.a"
 
+  miri:
+    # docs/TESTING.md layer 5. Unsafe entered the core with the Phase 4
+    # lookup engine — and Miri caught a real Stacked Borrows violation in
+    # test wiring on its first run, so this job is not optional.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Miri
+        run: cargo miri test -p expanse-trie
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -110,7 +127,6 @@ jobs:
   # --- Jobs to add as their phases land (see docs/TESTING.md "CI mapping") ---
   # differential-oracle: Linux + libjudy-dev; libexpanse vs stock libjudy over
   #   shared op sequences (COMPAT.md gate G1). Lands with the Phase 8 surface.
-  # miri: nightly cargo miri test on crates/expanse once unsafe enters the core.
   # fuzz: scheduled cargo-fuzz job over op-sequence targets.
   # php-judy-swap: build php-judy against libexpanse and run its suite
   #   (COMPAT.md gates G2/G3).
