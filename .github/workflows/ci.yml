@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is a first-class target: the judy-capi DLL is the artifact
+        # php-judy's Windows build will link instead of compiling C libjudy
+        # from source (see docs/COMPAT.md gate G3).
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Assert capi drop-in artifacts exist (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dll = "target/debug/judy_capi.dll"
+          $lib = "target/debug/judy_capi.lib"
+          if (!(Test-Path $dll)) { Write-Error "missing $dll"; exit 1 }
+          if (!(Test-Path $lib)) { Write-Error "missing $lib"; exit 1 }
+          Write-Host "capi artifacts present: $dll, $lib"
+
+      - name: Assert capi drop-in artifacts exist (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          shopt -s nullglob
+          arts=(target/debug/libjudy_capi.{so,dylib} target/debug/libjudy_capi.a)
+          if [ ${#arts[@]} -lt 2 ]; then
+            echo "::error::expected cdylib + staticlib capi artifacts, found: ${arts[*]:-none}"
+            exit 1
+          fi
+          echo "capi artifacts present: ${arts[*]}"
+        shell: bash
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Format
+        run: cargo fmt --all --check
+
+  # --- Jobs to add as their phases land (see docs/TESTING.md "CI mapping") ---
+  # differential-oracle: Linux + libjudy-dev; judy-capi vs stock libjudy over
+  #   shared op sequences (COMPAT.md gate G1). Lands with the Phase 8 surface.
+  # alpine-musl: Docker-built musl job (allocator/stack/locale differences make
+  #   a clean glibc build no proof of a clean musl one — php-judy precedent).
+  # miri: nightly cargo miri test on crates/judy once unsafe enters the core.
+  # fuzz: scheduled cargo-fuzz job over op-sequence targets.
+  # php-judy-swap: build php-judy against judy-capi and run its suite
+  #   (COMPAT.md gates G2/G3).
