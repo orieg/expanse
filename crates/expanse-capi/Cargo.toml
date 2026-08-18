@@ -13,7 +13,7 @@ authors.workspace = true
 # The C artifact is libexpanse.so / expanse.dll / libexpanse.a; a
 # libjudy-compat package adds the libJudy soname symlink (COMPAT.md).
 name = "expanse"
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
 # Enables the differential-oracle tests against a dlopen'd stock

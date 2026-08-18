@@ -55,4 +55,18 @@ Performance claims are this project's reason to exist, so they follow the strict
 
 Map-flavor figures run ~8 B/key above the set figures (the stored value word). The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names; the sparse row is the narrow-pointer work's before-number.
 
-Timing numbers (ns/op, Mops/s) remain unpublished until a quiet-host run under the system-load protocol above.
+### libexpanse vs stock libjudy, JudyL surface (measured: M1 MacBook Pro under load — a VM at ~226% CPU co-resident — commit with this section; interleaved A/B medians of 5 rounds, so the *ratios* are meaningful while absolute ns are contaminated; harness: `crates/expanse-capi/examples/bench_vs_libjudy.rs`)
+
+| dist | pop | get ratio (ours/stock) | insert ratio | B/key ratio |
+|---|---|---|---|---|
+| sequential | 1M | 3.76× slower | 6.6× slower | 1.03 |
+| random | 1M | 1.50× slower | 2.2× slower | **0.85 (15% smaller)** |
+| clustered | 1M | 5.31× slower | 13.5× slower | 1.06 |
+
+Honest reading (v1 correctness-first, zero optimization passes yet):
+
+- **Memory is already competitive** — smaller than stock on random keys.
+- **Lookup gap is worst on clustered** — the single-child branch-chain walk (extra line fills per descent); the narrow-pointer work (ARCHITECTURE §6 step 3) attacks exactly this, with these ratios as its before-numbers.
+- **Insert gap** has three known, documented v1 costs to burn down: full leaf rebuild per insert (no capacity classes), `Vec` materialization in the mutation path, and capi `JudyLIns` walking the tree three times (contains + insert + slot). Each is an isolated follow-up with this table as baseline.
+
+Timing numbers here are working baselines, not publishable claims; headline numbers still require a quiet-host run under the system-load protocol above.
