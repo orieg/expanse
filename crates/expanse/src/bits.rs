@@ -245,6 +245,16 @@ impl Bitmap256 {
         (word & below & sub_mask).count_ones()
     }
 
+    /// Number of members inside one 32-digit subexpanse (`sub` in 0..8) —
+    /// the length of that subexpanse's packed child/value array.
+    #[inline]
+    #[must_use]
+    pub const fn subexpanse_count(&self, sub: usize) -> u32 {
+        let word = self.words[sub >> 1];
+        let shift = (sub & 1) * 32;
+        ((word >> shift) & 0xFFFF_FFFF).count_ones()
+    }
+
     /// The member with `n` members below it (0-based rank → bit), if any —
     /// the `ByCount` primitive. Inverse of [`Self::rank`] for present bits.
     #[must_use]

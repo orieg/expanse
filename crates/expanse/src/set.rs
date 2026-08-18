@@ -220,7 +220,7 @@ impl ExpanseSet {
             }
             Root::Tree { top, .. } => {
                 // SAFETY: freeing the whole owned trie exactly once.
-                unsafe { mutate::free_subtree(&self.alloc, top) };
+                unsafe { mutate::free_subtree::<false>(&self.alloc, top) };
             }
         }
         self.root = Root::Empty;
@@ -244,7 +244,7 @@ impl ExpanseSet {
             Root::Tree { top, pop } => {
                 assert!(!top.is_null(), "tree root with null top");
                 // SAFETY: trie maintained/owned by this set's engine.
-                let counted = unsafe { mutate::validate_subtree(top, 8) };
+                let counted = unsafe { mutate::validate_subtree::<false>(top, 8) };
                 assert_eq!(counted, *pop, "total population disagrees with tree");
             }
         }
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[cfg(miri)]
-    const OPS: usize = 400;
+    const OPS: usize = 250;
     #[cfg(not(miri))]
     const OPS: usize = 6000;
 

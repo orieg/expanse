@@ -27,7 +27,7 @@
 
 use crate::alloc::NodeAlloc;
 use crate::leaf;
-use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1};
+use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
 use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit};
 
 /// Linear-leaf population cap at level 1; overflow converts to a bitmap
@@ -44,7 +44,7 @@ pub(crate) const BRANCHB_UP: usize = crate::types::BITMAP_TO_UNCOMPRESSED_THRESH
 /// # Safety
 ///
 /// `keys` must be valid for reads of `(slot + 1) * kb` bytes.
-unsafe fn read_packed(keys: *const u8, slot: usize, kb: usize) -> u64 {
+pub(crate) unsafe fn read_packed(keys: *const u8, slot: usize, kb: usize) -> u64 {
     let mut buf = [0u8; 8];
     // SAFETY: in-bounds per this function's contract.
     unsafe { buf[..kb].copy_from_slice(core::slice::from_raw_parts(keys.add(slot * kb), kb)) };
@@ -56,7 +56,7 @@ unsafe fn read_packed(keys: *const u8, slot: usize, kb: usize) -> u64 {
 /// # Safety
 ///
 /// `keys` must be valid for writes of `(slot + 1) * kb` bytes.
-unsafe fn write_packed(keys: *mut u8, slot: usize, kb: usize, val: u64) {
+pub(crate) unsafe fn write_packed(keys: *mut u8, slot: usize, kb: usize, val: u64) {
     // SAFETY: in-bounds per this function's contract.
     unsafe {
         core::slice::from_raw_parts_mut(keys.add(slot * kb), kb)
@@ -65,7 +65,7 @@ unsafe fn write_packed(keys: *mut u8, slot: usize, kb: usize, val: u64) {
 }
 
 /// Masks a key down to its low `kb` bytes.
-const fn key_low(key: Key, kb: u8) -> u64 {
+pub(crate) const fn key_low(key: Key, kb: u8) -> u64 {
     if kb >= 8 {
         key
     } else {
@@ -103,6 +103,25 @@ fn write_immed(edge: &mut Edge, kb: u8, keys: &[u64]) {
     edge.set_tag(im.as_u8());
 }
 
+/// Map immediates keep their keys in the 7 aux bytes (word 0 holds the
+/// value or the value-array pointer), so capacity is `7 / key_bytes`.
+pub(crate) const fn map_immed_max(kb: u8) -> usize {
+    7 / kb as usize
+}
+
+/// Collects the sorted keys of a map-flavor immediate edge (aux bytes).
+pub(crate) fn immed_map_keys(edge: &Edge, im: ImmedType) -> Vec<u64> {
+    let aux = edge.aux_bytes();
+    let kb = im.key_bytes() as usize;
+    (0..im.key_count() as usize)
+        .map(|slot| {
+            let mut buf = [0u8; 8];
+            buf[..kb].copy_from_slice(&aux[slot * kb..(slot + 1) * kb]);
+            u64::from_le_bytes(buf)
+        })
+        .collect()
+}
+
 /// Collects the sorted keys of a linear leaf.
 ///
 /// # Safety
@@ -138,7 +157,7 @@ fn build_leaf(a: &NodeAlloc, edge: &mut Edge, kb: u8, keys: &[u64]) {
 
 /// Bumps the subtree `pop0` of an edge at `level` by `delta` (level 8 has
 /// no pop0 field; the tree owner tracks the total).
-fn bump_pop0(edge: &mut Edge, level: u8, delta: i64) {
+pub(crate) fn bump_pop0(edge: &mut Edge, level: u8, delta: i64) {
     if level <= 7 {
         let pop0 = edge.pop0(level) as i64;
         edge.set_pop0(level, (pop0 + delta) as u64);
@@ -147,7 +166,12 @@ fn bump_pop0(edge: &mut Edge, level: u8, delta: i64) {
 
 /// Inserts a new digit + null child into a linear branch header at its
 /// sorted position and returns the slot.
-fn linear_insert_slot(digits: &mut [u8; 8], edges: &mut [Edge], num: usize, d: u8) -> usize {
+pub(crate) fn linear_insert_slot(
+    digits: &mut [u8; 8],
+    edges: &mut [Edge],
+    num: usize,
+    d: u8,
+) -> usize {
     let pos = digits[..num].iter().position(|&x| x > d).unwrap_or(num);
     for i in (pos..num).rev() {
         digits[i + 1] = digits[i];
@@ -416,7 +440,7 @@ pub(crate) unsafe fn insert(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
 /// # Safety
 ///
 /// `edge` must reference a live, full `BranchL3` owned by `a`.
-unsafe fn upgrade_l3_to_l7(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn upgrade_l3_to_l7(a: &NodeAlloc, edge: &mut Edge) {
     // SAFETY: live BranchL3 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
     let mut node = BranchL7::new();
@@ -435,7 +459,7 @@ unsafe fn upgrade_l3_to_l7(a: &NodeAlloc, edge: &mut Edge) {
 /// # Safety
 ///
 /// `edge` must reference a live, full `BranchL7` owned by `a`.
-unsafe fn upgrade_l7_to_b(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn upgrade_l7_to_b(a: &NodeAlloc, edge: &mut Edge) {
     // SAFETY: live BranchL7 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
     let mut node = BranchB::new();
@@ -471,7 +495,7 @@ unsafe fn upgrade_l7_to_b(a: &NodeAlloc, edge: &mut Edge) {
 /// # Safety
 ///
 /// `edge` must reference a live `BranchB` owned by `a`.
-unsafe fn upgrade_b_to_u(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn upgrade_b_to_u(a: &NodeAlloc, edge: &mut Edge) {
     let new = a.alloc_node(BranchU::new());
     // SAFETY: live BranchB; subarray reads bounded by pop_counts.
     unsafe {
@@ -785,7 +809,12 @@ pub(crate) unsafe fn remove(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
     }
 }
 
-fn linear_remove_slot(digits: &mut [u8; 8], edges: &mut [Edge], num: usize, slot: usize) {
+pub(crate) fn linear_remove_slot(
+    digits: &mut [u8; 8],
+    edges: &mut [Edge],
+    num: usize,
+    slot: usize,
+) {
     for i in slot..num - 1 {
         digits[i] = digits[i + 1];
         edges[i] = edges[i + 1];
@@ -812,7 +841,7 @@ unsafe fn free_branch_node(a: &NodeAlloc, edge: &mut Edge, is_l3: bool) {
 /// # Safety
 ///
 /// `edge` must reference a live `BranchL7` with ≤ 3 children, owned by `a`.
-unsafe fn downgrade_l7_to_l3(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn downgrade_l7_to_l3(a: &NodeAlloc, edge: &mut Edge) {
     // SAFETY: live BranchL7 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
     let mut node = BranchL3::new();
@@ -829,7 +858,7 @@ unsafe fn downgrade_l7_to_l3(a: &NodeAlloc, edge: &mut Edge) {
 /// # Safety
 ///
 /// `edge` must reference a live `BranchB` with ≤ 7 digits, owned by `a`.
-unsafe fn downgrade_b_to_l7(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn downgrade_b_to_l7(a: &NodeAlloc, edge: &mut Edge) {
     let mut node = BranchL7::new();
     // SAFETY: live BranchB; reads bounded by bitmap/pop_counts invariant.
     unsafe {
@@ -869,7 +898,7 @@ unsafe fn downgrade_b_to_l7(a: &NodeAlloc, edge: &mut Edge) {
 ///
 /// `edge` must reference a live `BranchU` with ≤ `BRANCHB_UP - 1` non-null
 /// children, owned by `a`.
-unsafe fn downgrade_u_to_b(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn downgrade_u_to_b(a: &NodeAlloc, edge: &mut Edge) {
     let mut node = BranchB::new();
     // SAFETY: live BranchU per contract.
     unsafe {
@@ -910,7 +939,7 @@ fn full_bitmap_leaf() -> LeafBitmap1 {
     node
 }
 
-const fn pow256(level: u8) -> u64 {
+pub(crate) const fn pow256(level: u8) -> u64 {
     1u64 << (8 * level as u32)
 }
 
@@ -919,13 +948,24 @@ const fn pow256(level: u8) -> u64 {
 /// # Safety
 ///
 /// Same contract as [`insert`]; nothing may reference the subtree after.
-pub(crate) unsafe fn free_subtree(a: &NodeAlloc, edge: &mut Edge) {
+pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edge) {
     let Some(tag) = edge.tag() else { return };
     // SAFETY: live nodes per this function's contract, freed exactly once,
     // children freed before their parent node.
     unsafe {
         match tag {
-            EdgeTag::Structural(EdgeType::Null | EdgeType::FullExpanse) | EdgeTag::Immed(_) => {}
+            EdgeTag::Structural(EdgeType::Null | EdgeType::FullExpanse) => {
+                debug_assert!(!(MAP && matches!(tag, EdgeTag::Structural(EdgeType::FullExpanse))));
+            }
+            EdgeTag::Immed(im) => {
+                // Multi-key map immediates own a value array in word 0.
+                if MAP && im.key_count() > 1 {
+                    a.free_bytes(
+                        core::ptr::NonNull::new(edge.node_ptr()).unwrap(),
+                        im.key_count() as usize * 8,
+                    );
+                }
+            }
             EdgeTag::Structural(
                 t @ (EdgeType::Leaf1
                 | EdgeType::Leaf2
@@ -937,27 +977,45 @@ pub(crate) unsafe fn free_subtree(a: &NodeAlloc, edge: &mut Edge) {
             ) => {
                 let kb = t.leaf_key_bytes().expect("leaf tag");
                 let pop = edge.pop0(kb) as usize + 1;
-                a.free_bytes(
-                    core::ptr::NonNull::new(edge.node_ptr()).unwrap(),
-                    leaf::size_set(kb, pop),
-                );
+                let size = if MAP {
+                    leaf::size_map(kb, pop)
+                } else {
+                    leaf::size_set(kb, pop)
+                };
+                a.free_bytes(core::ptr::NonNull::new(edge.node_ptr()).unwrap(), size);
             }
             EdgeTag::Structural(EdgeType::LeafB1) => {
-                a.free_node(
-                    core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmap1>()).unwrap(),
-                );
+                if MAP {
+                    let node = &*edge.node_ptr().cast::<LeafBitmapL>();
+                    for sub in 0..8 {
+                        let n = node.bitmap.subexpanse_count(sub) as usize;
+                        if n > 0 {
+                            a.free_bytes(
+                                core::ptr::NonNull::new(node.values[sub].cast()).unwrap(),
+                                n * 8,
+                            );
+                        }
+                    }
+                    a.free_node(
+                        core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmapL>()).unwrap(),
+                    );
+                } else {
+                    a.free_node(
+                        core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmap1>()).unwrap(),
+                    );
+                }
             }
             EdgeTag::Structural(EdgeType::BranchL3) => {
                 let b = &mut *edge.node_ptr().cast::<BranchL3>();
                 for i in 0..b.hdr.num as usize {
-                    free_subtree(a, &mut b.edges[i]);
+                    free_subtree::<MAP>(a, &mut b.edges[i]);
                 }
                 a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL3>()).unwrap());
             }
             EdgeTag::Structural(EdgeType::BranchL7) => {
                 let b = &mut *edge.node_ptr().cast::<BranchL7>();
                 for i in 0..b.hdr.num as usize {
-                    free_subtree(a, &mut b.edges[i]);
+                    free_subtree::<MAP>(a, &mut b.edges[i]);
                 }
                 a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap());
             }
@@ -966,7 +1024,7 @@ pub(crate) unsafe fn free_subtree(a: &NodeAlloc, edge: &mut Edge) {
                 for sub in 0..8 {
                     let n = b.pop_counts[sub] as usize;
                     for i in 0..n {
-                        free_subtree(a, &mut *b.subarrays[sub].add(i));
+                        free_subtree::<MAP>(a, &mut *b.subarrays[sub].add(i));
                     }
                     if n > 0 {
                         a.free_bytes(
@@ -980,7 +1038,7 @@ pub(crate) unsafe fn free_subtree(a: &NodeAlloc, edge: &mut Edge) {
             EdgeTag::Structural(EdgeType::BranchU) => {
                 let b = &mut *edge.node_ptr().cast::<BranchU>();
                 for child in &mut b.edges {
-                    free_subtree(a, child);
+                    free_subtree::<MAP>(a, child);
                 }
                 a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap());
             }
@@ -996,14 +1054,22 @@ pub(crate) unsafe fn free_subtree(a: &NodeAlloc, edge: &mut Edge) {
 /// # Safety
 ///
 /// Same contract as [`insert`].
-pub(crate) unsafe fn validate_subtree(edge: &Edge, level: u8) -> u64 {
+pub(crate) unsafe fn validate_subtree<const MAP: bool>(edge: &Edge, level: u8) -> u64 {
     assert!((1..=8).contains(&level), "level out of range");
     let tag = edge.tag().expect("invalid edge tag byte");
     let pop = match tag {
         EdgeTag::Structural(EdgeType::Null) => 0,
         EdgeTag::Immed(im) => {
             assert_eq!(im.key_bytes(), level, "immediate key size must equal level");
-            let keys = immed_keys(edge, im);
+            let keys = if MAP {
+                assert!(
+                    im.key_count() as usize <= map_immed_max(im.key_bytes()),
+                    "map immediate above aux capacity"
+                );
+                immed_map_keys(edge, im)
+            } else {
+                immed_keys(edge, im)
+            };
             assert!(
                 keys.windows(2).all(|w| w[0] < w[1]),
                 "immediate keys unsorted"
@@ -1024,20 +1090,55 @@ pub(crate) unsafe fn validate_subtree(edge: &Edge, level: u8) -> u64 {
             let pop = edge.pop0(kb) + 1;
             let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
             assert!(pop as usize <= cap, "linear leaf above capacity");
+            let floor = if MAP {
+                map_immed_max(kb)
+            } else {
+                ImmedType::max_count(kb) as usize
+            };
             assert!(
-                pop as usize >= ImmedType::max_count(kb) as usize,
+                pop as usize >= floor,
                 "leaf below immediate hysteresis floor"
             );
-            // SAFETY: live leaf per contract.
-            let keys = unsafe { leaf_keys(edge, kb, pop as usize) };
+            let keys = if MAP {
+                let base = edge.node_ptr();
+                // SAFETY: map leaf = values then packed keys, per layout.
+                (0..pop as usize)
+                    .map(|slot| unsafe {
+                        read_packed(
+                            base.add(leaf::map_keys_offset(pop as usize)),
+                            slot,
+                            kb as usize,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                // SAFETY: live leaf per contract.
+                unsafe { leaf_keys(edge, kb, pop as usize) }
+            };
             assert!(keys.windows(2).all(|w| w[0] < w[1]), "leaf keys unsorted");
             pop
         }
         EdgeTag::Structural(EdgeType::LeafB1) => {
             assert_eq!(level, 1, "bitmap leaf only at level 1");
-            // SAFETY: live LeafBitmap1 per contract.
-            let node = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
-            let count = u64::from(node.bitmap.count());
+            // SAFETY: live bitmap leaf of the flavor's node type per
+            // contract; the map flavor adds value subarrays checked here.
+            let count = if MAP {
+                // SAFETY: live LeafBitmapL per contract.
+                let node = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
+                for sub in 0..8 {
+                    let n = node.bitmap.subexpanse_count(sub) as usize;
+                    assert_eq!(
+                        node.values[sub].is_null(),
+                        n == 0,
+                        "value subarray/bitmap disagreement"
+                    );
+                }
+                u64::from(node.bitmap.count())
+            } else {
+                // SAFETY: live LeafBitmap1 per contract.
+                let node = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
+                u64::from(node.bitmap.count())
+            };
             assert_eq!(
                 edge.pop0(1) + 1,
                 count,
@@ -1049,7 +1150,10 @@ pub(crate) unsafe fn validate_subtree(edge: &Edge, level: u8) -> u64 {
             );
             count
         }
-        EdgeTag::Structural(EdgeType::FullExpanse) => pow256(level),
+        EdgeTag::Structural(EdgeType::FullExpanse) => {
+            assert!(!MAP, "full-expanse edges are set-flavor only");
+            pow256(level)
+        }
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
             assert!(level >= 2, "linear branch below level 2");
             let is_l3 = matches!(t, EdgeType::BranchL3);
@@ -1073,7 +1177,7 @@ pub(crate) unsafe fn validate_subtree(edge: &Edge, level: u8) -> u64 {
             for child in edges.iter().take(num) {
                 assert!(!child.is_null(), "linear branch holds a null child");
                 // SAFETY: child subtree per contract.
-                pop += unsafe { validate_subtree(child, level - 1) };
+                pop += unsafe { validate_subtree::<MAP>(child, level - 1) };
             }
             pop
         }
@@ -1107,7 +1211,7 @@ pub(crate) unsafe fn validate_subtree(edge: &Edge, level: u8) -> u64 {
                     let child = unsafe { &*b.subarrays[sub].add(i) };
                     assert!(!child.is_null(), "bitmap branch holds a null child");
                     // SAFETY: child subtree per contract.
-                    pop += unsafe { validate_subtree(child, level - 1) };
+                    pop += unsafe { validate_subtree::<MAP>(child, level - 1) };
                 }
             }
             pop
@@ -1125,7 +1229,7 @@ pub(crate) unsafe fn validate_subtree(edge: &Edge, level: u8) -> u64 {
             for child in &b.edges {
                 if !child.is_null() {
                     // SAFETY: child subtree per contract.
-                    pop += unsafe { validate_subtree(child, level - 1) };
+                    pop += unsafe { validate_subtree::<MAP>(child, level - 1) };
                 }
             }
             pop
