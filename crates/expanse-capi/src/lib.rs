@@ -408,12 +408,11 @@ pub unsafe extern "C" fn JudyLIns(
             set_err(pj, JU_ERRNO_NULLPPARRAY);
             return PJERR;
         }
-        let map = map_handle_mut(pparray);
-        let key = index as u64;
-        if !map.contains_key(key) {
-            map.insert(key, 0);
-        }
-        slot_ptr(map.get_value_slot(key))
+        // Single fused walk: insert-if-absent and slot in one descent.
+        map_handle_mut(pparray)
+            .ins_slot(index as u64)
+            .as_ptr()
+            .cast()
     }
 }
 

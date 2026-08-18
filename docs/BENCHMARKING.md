@@ -59,11 +59,11 @@ Map-flavor figures run ~8 B/key above the set figures (the stored value word). T
 
 | dist | pop | get ratio (ours/stock) | insert ratio | B/key ratio |
 |---|---|---|---|---|
-| sequential | 1M | 4.15× slower | 5.9× slower | 1.03 |
-| random | 1M | 1.50× slower | 1.9× slower | **0.85 (15% smaller)** |
-| clustered | 1M | **1.12× (parity; 0.89× at 100k — faster)** | 3.7× slower | **0.92 (smaller)** |
+| sequential | 1M | 2.3–4× slower | 3.4× slower | 1.03 |
+| random | 1M | 1.55× slower | **1.35× slower** | **0.93 (smaller)** |
+| clustered | 1M | **~parity (0.94–1.2×)** | **1.7× slower** | **0.93 (smaller)** |
 
-(clustered row updated after narrow-pointer synthesis landed: get was 5.31× slower and insert 13.5× before it — the single-child chain removal closed the lookup gap entirely)
+History of the insert column (each row measured at its commit): 13.5× → 3.7× (narrow-pointer synthesis) → **1.7×** (insert-path optimization: capacity-classed allocations with in-place shifts across leaves, bitmap-branch subarrays and bitmap-leaf value arrays, plus the fused single-walk `JudyLIns`). Sequential insert went 5.9× → 3.4×, random 1.9× → 1.35×. Memory cost of the classes is bounded by keeping ≤2-entry allocations exact (random map bytes/key briefly regressed 21→27 with naive rounding; 22.9 after the refinement, vs stock's 24.8). Remaining insert gap is profile-driven follow-up (immediate rebuilds, per-level dispatch).
 
 Honest reading (v1 correctness-first, zero optimization passes yet):
 

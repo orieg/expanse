@@ -20,8 +20,8 @@ use crate::leaf;
 use crate::mutate::{
     BRANCHB_UP, LEAF_CAP, LEAF1_CAP, bump_pop0, decode_value, divergence_level, downgrade_b_to_l7,
     downgrade_l7_to_l3, downgrade_u_to_b, immed_map_keys, key_low, linear_insert_slot,
-    linear_remove_slot, map_immed_max, read_packed, restore_decode, upgrade_b_to_u,
-    upgrade_l3_to_l7, upgrade_l7_to_b, wrap_skip_level, write_decode, write_packed,
+    linear_remove_slot, map_immed_max, read_packed, restore_decode, sub_edges_size, sub_vals_size,
+    upgrade_b_to_u, upgrade_l3_to_l7, upgrade_l7_to_b, wrap_skip_level, write_decode, write_packed,
 };
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmapL};
 use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit};
@@ -114,7 +114,7 @@ fn build_bitmap_leaf_map(a: &NodeAlloc, edge: &mut Edge, entries: &[(u64, u64)])
     }
     for (sub, vals) in per_sub.iter().enumerate() {
         if !vals.is_empty() {
-            let arr = a.alloc_bytes(vals.len() * 8).cast::<u64>();
+            let arr = a.alloc_bytes(sub_vals_size(vals.len())).cast::<u64>();
             for (i, &v) in vals.iter().enumerate() {
                 // SAFETY: fresh array of vals.len() slots.
                 unsafe { arr.as_ptr().add(i).write(v) };
@@ -156,19 +156,22 @@ fn build_map_leaf(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)]
     edge.set_pop0(kb, pop as u64 - 1);
 }
 
-/// Inserts or replaces `key → val` in the subtree at `edge`; returns the
-/// replaced value, or `None` if the key is new.
+/// Inserts `key → val` in the subtree at `edge`. Returns the previously
+/// stored value (`None` if the key is new) and a **writable pointer to
+/// the key's value slot** (the compat `JudyLIns` contract — valid until
+/// the next structural mutation). With `KEEP = true` an existing value is
+/// left untouched instead of replaced.
 ///
 /// # Safety
 ///
 /// Same contract as `mutate::insert`, for map-flavor trees.
-pub(crate) unsafe fn map_insert(
+pub(crate) unsafe fn map_insert<const KEEP: bool>(
     a: &NodeAlloc,
     edge: &mut Edge,
     key: Key,
     val: u64,
     level: u8,
-) -> Option<u64> {
+) -> (Option<u64>, *mut u64) {
     debug_assert!((1..=8).contains(&level));
     let tag = edge.tag().expect("valid edge tag");
     match tag {
@@ -177,10 +180,11 @@ pub(crate) unsafe fn map_insert(
                 let node = a.alloc_node(BranchL3::new());
                 *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
                 // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert(a, edge, key, val, level) };
+                return unsafe { map_insert::<KEEP>(a, edge, key, val, level) };
             }
             write_map_immed(a, edge, level, &[(key_low(key, level), val)]);
-            None
+            // A single-entry immediate's value slot is the edge's word 0.
+            (None, (&raw mut *edge).cast::<u64>())
         }
 
         EdgeTag::Immed(im) => {
@@ -193,23 +197,38 @@ pub(crate) unsafe fn map_insert(
                 Ok(pos) => {
                     let old = entries[pos].1;
                     if im.key_count() == 1 {
-                        edge.set_imm_bytes(val.to_le_bytes());
+                        if !KEEP {
+                            edge.set_imm_bytes(val.to_le_bytes());
+                        }
+                        (Some(old), (&raw mut *edge).cast::<u64>())
                     } else {
                         // SAFETY: live value array per contract.
-                        unsafe { edge.node_ptr().cast::<u64>().add(pos).write(val) };
+                        let slot = unsafe { edge.node_ptr().cast::<u64>().add(pos) };
+                        if !KEEP {
+                            // SAFETY: same slot.
+                            unsafe { slot.write(val) };
+                        }
+                        (Some(old), slot)
                     }
-                    Some(old)
                 }
                 Err(pos) => {
                     entries.insert(pos, (k, val));
                     // SAFETY: storage re-read above; safe to release.
                     unsafe { free_map_immed_storage(a, edge, im) };
-                    if entries.len() <= map_immed_max(kb) {
+                    let slot = if entries.len() <= map_immed_max(kb) {
                         write_map_immed(a, edge, kb, &entries);
+                        if entries.len() == 1 {
+                            (&raw mut *edge).cast::<u64>()
+                        } else {
+                            // SAFETY: fresh value array of entries.len().
+                            unsafe { edge.node_ptr().cast::<u64>().add(pos) }
+                        }
                     } else {
                         build_map_leaf(a, edge, kb, &entries);
-                    }
-                    None
+                        // SAFETY: fresh map leaf; values at the base.
+                        unsafe { edge.node_ptr().cast::<u64>().add(pos) }
+                    };
+                    (None, slot)
                 }
             }
         }
@@ -231,27 +250,51 @@ pub(crate) unsafe fn map_insert(
                 // level and retry.
                 wrap_skip_level(a, edge, level, pop as u64);
                 // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert(a, edge, key, val, level) };
+                return unsafe { map_insert::<KEEP>(a, edge, key, val, level) };
             }
             let k = key_low(key, kb);
-            // SAFETY: live map leaf per contract.
-            let mut entries = unsafe { read_map_leaf(edge, kb, pop) };
-            match entries.binary_search_by_key(&k, |e| e.0) {
+            let base = edge.node_ptr();
+            // SAFETY: live map leaf per contract (keys behind the values).
+            let pos =
+                unsafe { leaf::lower_bound(base.add(leaf::map_keys_offset(pop)), pop, kb, k) };
+            // SAFETY: pos < pop is in bounds.
+            let hit = pos < pop
+                && unsafe {
+                    read_packed(base.add(leaf::map_keys_offset(pop)), pos, kb as usize) == k
+                };
+            match if hit { Ok(pos) } else { Err(pos) } {
                 Ok(pos) => {
-                    let old = entries[pos].1;
-                    // SAFETY: in-place value write within the live leaf.
-                    unsafe { edge.node_ptr().cast::<u64>().add(pos).write(val) };
-                    Some(old)
+                    // SAFETY: in-place value swap within the live leaf.
+                    unsafe {
+                        let slot = base.cast::<u64>().add(pos);
+                        let old = *slot;
+                        if !KEEP {
+                            slot.write(val);
+                        }
+                        (Some(old), slot)
+                    }
                 }
                 Err(pos) => {
                     let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
+                    if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
+                        // Fast path: spare class capacity — shift both
+                        // areas in place.
+                        // SAFETY: class capacity spare per the check.
+                        unsafe { leaf::map_insert_at(base, kb, pop, pos, k, val) };
+                        edge.set_pop0(kb, pop as u64);
+                        // SAFETY: freshly shifted value area.
+                        return (None, unsafe { base.cast::<u64>().add(pos) });
+                    }
                     if pop == cap && kb > 1 && kb < level {
                         // A skipping linear leaf cascades at its own
                         // level; materialize one chain level and retry.
                         wrap_skip_level(a, edge, level, pop as u64);
                         // SAFETY: forwarded contract; edge is a branch.
-                        return unsafe { map_insert(a, edge, key, val, level) };
+                        return unsafe { map_insert::<KEEP>(a, edge, key, val, level) };
                     }
+                    // Slow path: materialize entries for the conversion.
+                    // SAFETY: live map leaf per contract.
+                    let mut entries = unsafe { read_map_leaf(edge, kb, pop) };
                     let old_ptr = edge.node_ptr();
                     let old_size = leaf::size_map(kb, pop);
                     let saved_aux = *edge.aux_bytes();
@@ -280,8 +323,8 @@ pub(crate) unsafe fn map_insert(
                         *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
                         for &(k, v) in &entries {
                             // SAFETY: freshly built branch subtree.
-                            let prev = unsafe { map_insert(a, edge, k, v, level) };
-                            debug_assert!(prev.is_none());
+                            let prev = unsafe { map_insert::<KEEP>(a, edge, k, v, level) };
+                            debug_assert!(prev.0.is_none());
                         }
                         // pop0 cannot express the transient empty branch;
                         // pin the true population (see mutate::insert).
@@ -291,7 +334,13 @@ pub(crate) unsafe fn map_insert(
                     unsafe {
                         a.free_bytes(core::ptr::NonNull::new(old_ptr).expect("leaf"), old_size);
                     }
-                    None
+                    // Slow-path conversions relocate the value; one extra
+                    // locate walk here keeps every fast path single-walk.
+                    // SAFETY: freshly rebuilt subtree owned by `a`.
+                    let slot = unsafe { crate::get::locate_slot(&raw mut *edge, key, level) }
+                        .expect("just-inserted key")
+                        .as_ptr();
+                    (None, slot)
                 }
             }
         }
@@ -303,7 +352,7 @@ pub(crate) unsafe fn map_insert(
                 let pop = edge.pop0(1) + 1;
                 wrap_skip_level(a, edge, level, pop);
                 // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert(a, edge, key, val, level) };
+                return unsafe { map_insert::<KEEP>(a, edge, key, val, level) };
             }
             let d = digit(key, 1);
             // SAFETY: live LeafBitmapL per contract.
@@ -315,33 +364,46 @@ pub(crate) unsafe fn map_insert(
                 unsafe {
                     let slot = node.values[sub].add(rank);
                     let old = *slot;
-                    slot.write(val);
-                    return Some(old);
+                    if !KEEP {
+                        slot.write(val);
+                    }
+                    return (Some(old), slot);
                 }
             }
             let old_n = node.bitmap.subexpanse_count(sub) as usize;
-            let new = a.alloc_bytes((old_n + 1) * 8).cast::<u64>();
-            // SAFETY: copy old_n values around the inserted rank; the
-            // empty case touches no old pointer.
-            unsafe {
-                if old_n > 0 {
-                    let old = node.values[sub];
-                    new.as_ptr().copy_from_nonoverlapping(old, rank);
-                    new.as_ptr()
-                        .add(rank + 1)
-                        .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                    a.free_bytes(
-                        core::ptr::NonNull::new(old.cast()).expect("values"),
-                        old_n * 8,
-                    );
+            if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
+                // Fast path: spare class capacity — shift in place.
+                // SAFETY: the subarray holds cap_class(old_n) slots.
+                unsafe {
+                    let arr = node.values[sub];
+                    core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                    arr.add(rank).write(val);
                 }
-                new.as_ptr().add(rank).write(val);
+            } else {
+                let new = a.alloc_bytes(sub_vals_size(old_n + 1)).cast::<u64>();
+                // SAFETY: copy old_n values around the inserted rank; the
+                // empty case touches no old pointer.
+                unsafe {
+                    if old_n > 0 {
+                        let old = node.values[sub];
+                        new.as_ptr().copy_from_nonoverlapping(old, rank);
+                        new.as_ptr()
+                            .add(rank + 1)
+                            .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                        a.free_bytes(
+                            core::ptr::NonNull::new(old.cast()).expect("values"),
+                            sub_vals_size(old_n),
+                        );
+                    }
+                    new.as_ptr().add(rank).write(val);
+                }
+                node.values[sub] = new.as_ptr();
             }
-            node.values[sub] = new.as_ptr();
             node.bitmap.set(d);
             let pop0 = edge.pop0(1);
             edge.set_pop0(1, pop0 + 1);
-            None
+            // SAFETY: the value now lives at this subarray rank.
+            (None, unsafe { node.values[sub].add(rank) })
         }
 
         EdgeTag::Structural(EdgeType::FullExpanse) => {
@@ -364,19 +426,19 @@ pub(crate) unsafe fn map_insert(
             };
             if let Some(slot) = found {
                 // SAFETY: slot within populated count; child well-formed.
-                let prev = unsafe {
+                let res = unsafe {
                     if is_l3 {
                         let b = &mut *edge.node_ptr().cast::<BranchL3>();
-                        map_insert(a, &mut b.edges[slot], key, val, level - 1)
+                        map_insert::<KEEP>(a, &mut b.edges[slot], key, val, level - 1)
                     } else {
                         let b = &mut *edge.node_ptr().cast::<BranchL7>();
-                        map_insert(a, &mut b.edges[slot], key, val, level - 1)
+                        map_insert::<KEEP>(a, &mut b.edges[slot], key, val, level - 1)
                     }
                 };
-                if prev.is_none() {
+                if res.0.is_none() {
                     bump_pop0(edge, level, 1);
                 }
-                return prev;
+                return res;
             }
             let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
             if num == cap {
@@ -387,26 +449,26 @@ pub(crate) unsafe fn map_insert(
                     } else {
                         upgrade_l7_to_b(a, edge);
                     }
-                    return map_insert(a, edge, key, val, level);
+                    return map_insert::<KEEP>(a, edge, key, val, level);
                 }
             }
             // SAFETY: live branch; slot arithmetic bounded by capacity.
-            let prev = unsafe {
+            let res = unsafe {
                 if is_l3 {
                     let b = &mut *edge.node_ptr().cast::<BranchL3>();
                     let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                     b.hdr.num += 1;
-                    map_insert(a, &mut b.edges[slot], key, val, level - 1)
+                    map_insert::<KEEP>(a, &mut b.edges[slot], key, val, level - 1)
                 } else {
                     let b = &mut *edge.node_ptr().cast::<BranchL7>();
                     let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                     b.hdr.num += 1;
-                    map_insert(a, &mut b.edges[slot], key, val, level - 1)
+                    map_insert::<KEEP>(a, &mut b.edges[slot], key, val, level - 1)
                 }
             };
-            debug_assert!(prev.is_none());
+            debug_assert!(res.0.is_none());
             bump_pop0(edge, level, 1);
-            None
+            (None, res.1)
         }
 
         EdgeTag::Structural(EdgeType::BranchB) => {
@@ -418,49 +480,60 @@ pub(crate) unsafe fn map_insert(
                 let slot = b.bitmap.subexpanse_rank(d) as usize;
                 let sub = b.subarrays[(d >> 5) as usize];
                 // SAFETY: bitmap/subarray consistency invariant.
-                let prev = unsafe { map_insert(a, &mut *sub.add(slot), key, val, level - 1) };
-                if prev.is_none() {
+                let res =
+                    unsafe { map_insert::<KEEP>(a, &mut *sub.add(slot), key, val, level - 1) };
+                if res.0.is_none() {
                     bump_pop0(edge, level, 1);
                 }
-                return prev;
+                return res;
             }
             if b.bitmap.count() as usize + 1 > BRANCHB_UP {
                 // SAFETY: upgrade rebuilds the node; subtree stays owned.
                 unsafe {
                     upgrade_b_to_u(a, edge);
-                    return map_insert(a, edge, key, val, level);
+                    return map_insert::<KEEP>(a, edge, key, val, level);
                 }
             }
             let sub = (d >> 5) as usize;
             let old_n = b.pop_counts[sub] as usize;
             let rank = b.bitmap.subexpanse_rank(d) as usize;
-            let new = a
-                .alloc_bytes((old_n + 1) * size_of::<Edge>())
-                .cast::<Edge>();
-            // SAFETY: copy old_n live edges around the inserted slot; the
-            // empty case touches no old pointer.
-            unsafe {
-                if old_n > 0 {
-                    let old = b.subarrays[sub];
-                    new.as_ptr().copy_from_nonoverlapping(old, rank);
-                    new.as_ptr()
-                        .add(rank + 1)
-                        .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                    a.free_bytes(
-                        core::ptr::NonNull::new(old.cast()).expect("subarray"),
-                        old_n * size_of::<Edge>(),
-                    );
+            if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
+                // Fast path: spare class capacity — shift in place.
+                // SAFETY: the subarray holds cap_class(old_n) slots.
+                unsafe {
+                    let arr = b.subarrays[sub];
+                    core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                    arr.add(rank).write(Edge::NULL);
                 }
-                new.as_ptr().add(rank).write(Edge::NULL);
+            } else {
+                let new = a.alloc_bytes(sub_edges_size(old_n + 1)).cast::<Edge>();
+                // SAFETY: copy old_n live edges around the inserted slot;
+                // the empty case touches no old pointer.
+                unsafe {
+                    if old_n > 0 {
+                        let old = b.subarrays[sub];
+                        new.as_ptr().copy_from_nonoverlapping(old, rank);
+                        new.as_ptr()
+                            .add(rank + 1)
+                            .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                        a.free_bytes(
+                            core::ptr::NonNull::new(old.cast()).expect("subarray"),
+                            sub_edges_size(old_n),
+                        );
+                    }
+                    new.as_ptr().add(rank).write(Edge::NULL);
+                }
+                b.subarrays[sub] = new.as_ptr();
             }
-            b.subarrays[sub] = new.as_ptr();
             b.pop_counts[sub] = (old_n + 1) as u16;
             b.bitmap.set(d);
-            // SAFETY: fresh null child slot within the new subarray.
-            let prev = unsafe { map_insert(a, &mut *new.as_ptr().add(rank), key, val, level - 1) };
-            debug_assert!(prev.is_none());
+            // SAFETY: fresh null child slot within the subarray.
+            let res = unsafe {
+                map_insert::<KEEP>(a, &mut *b.subarrays[sub].add(rank), key, val, level - 1)
+            };
+            debug_assert!(res.0.is_none());
             bump_pop0(edge, level, 1);
-            None
+            (None, res.1)
         }
 
         EdgeTag::Structural(EdgeType::BranchU) => {
@@ -469,11 +542,12 @@ pub(crate) unsafe fn map_insert(
             // SAFETY: live BranchU per contract.
             let b = unsafe { &mut *edge.node_ptr().cast::<BranchU>() };
             // SAFETY: child subtree well-formed (or null) per contract.
-            let prev = unsafe { map_insert(a, &mut b.edges[d as usize], key, val, level - 1) };
-            if prev.is_none() {
+            let res =
+                unsafe { map_insert::<KEEP>(a, &mut b.edges[d as usize], key, val, level - 1) };
+            if res.0.is_none() {
                 bump_pop0(edge, level, 1);
             }
-            prev
+            res
         }
     }
 }
@@ -530,11 +604,32 @@ pub(crate) unsafe fn map_remove(
             }
             let pop = edge.pop0(kb) as usize + 1;
             let k = key_low(key, kb);
+            let base = edge.node_ptr();
+            // SAFETY: live map leaf per contract.
+            let pos =
+                unsafe { leaf::lower_bound(base.add(leaf::map_keys_offset(pop)), pop, kb, k) };
+            // SAFETY: pos < pop is in bounds.
+            // SAFETY: pos < pop is in bounds.
+            let miss = pos == pop
+                || unsafe {
+                    read_packed(base.add(leaf::map_keys_offset(pop)), pos, kb as usize) != k
+                };
+            if miss {
+                return None;
+            }
+            if pop > map_immed_max(level) && leaf::cap_class(pop - 1) == leaf::cap_class(pop) {
+                // Fast path: stays a leaf in the same class.
+                // SAFETY: pos < pop; same-class allocation.
+                unsafe {
+                    let old = *base.cast::<u64>().add(pos);
+                    leaf::map_remove_at(base, kb, pop, pos);
+                    edge.set_pop0(kb, pop as u64 - 2);
+                    return Some(old);
+                }
+            }
+            // Slow path (class boundary or conversion).
             // SAFETY: live map leaf per contract.
             let mut entries = unsafe { read_map_leaf(edge, kb, pop) };
-            let Ok(pos) = entries.binary_search_by_key(&k, |e| e.0) else {
-                return None;
-            };
             let (_, old) = entries.remove(pos);
             let old_ptr = edge.node_ptr();
             let old_size = leaf::size_map(kb, pop);
@@ -582,23 +677,30 @@ pub(crate) unsafe fn map_remove(
             let old_n = node.bitmap.subexpanse_count(sub) as usize;
             // SAFETY: value subarray holds old_n values.
             let old = unsafe { *node.values[sub].add(rank) };
-            // SAFETY: shrink-copy of the packed value subarray.
+            // SAFETY: shrink of the packed value subarray — in place
+            // when the class holds, reallocating across boundaries.
             unsafe {
                 let old_arr = node.values[sub];
                 if old_n == 1 {
                     node.values[sub] = core::ptr::null_mut();
+                    a.free_bytes(
+                        core::ptr::NonNull::new(old_arr.cast()).expect("values"),
+                        sub_vals_size(old_n),
+                    );
+                } else if leaf::cap_class(old_n - 1) == leaf::cap_class(old_n) {
+                    core::ptr::copy(old_arr.add(rank + 1), old_arr.add(rank), old_n - 1 - rank);
                 } else {
-                    let new = a.alloc_bytes((old_n - 1) * 8).cast::<u64>();
+                    let new = a.alloc_bytes(sub_vals_size(old_n - 1)).cast::<u64>();
                     new.as_ptr().copy_from_nonoverlapping(old_arr, rank);
                     new.as_ptr()
                         .add(rank)
                         .copy_from_nonoverlapping(old_arr.add(rank + 1), old_n - 1 - rank);
                     node.values[sub] = new.as_ptr();
+                    a.free_bytes(
+                        core::ptr::NonNull::new(old_arr.cast()).expect("values"),
+                        sub_vals_size(old_n),
+                    );
                 }
-                a.free_bytes(
-                    core::ptr::NonNull::new(old_arr.cast()).expect("values"),
-                    old_n * 8,
-                );
             }
             node.bitmap.clear(d);
             let pop = edge.pop0(1) as usize; // old pop - 1
@@ -633,7 +735,7 @@ pub(crate) unsafe fn map_remove(
                         if n > 0 {
                             a.free_bytes(
                                 core::ptr::NonNull::new(node.values[sub].cast()).expect("values"),
-                                n * 8,
+                                sub_vals_size(n),
                             );
                         }
                     }
@@ -740,25 +842,30 @@ pub(crate) unsafe fn map_remove(
             let child_null = unsafe { (*b.subarrays[sub].add(rank)).is_null() };
             if child_null {
                 let old_n = b.pop_counts[sub] as usize;
-                // SAFETY: shrink-copy of the packed subarray.
+                // SAFETY: shrink of the packed subarray — in place when
+                // the class holds, reallocating across class boundaries.
                 unsafe {
                     let old_arr = b.subarrays[sub];
                     if old_n == 1 {
                         b.subarrays[sub] = core::ptr::null_mut();
+                        a.free_bytes(
+                            core::ptr::NonNull::new(old_arr.cast()).unwrap(),
+                            sub_edges_size(old_n),
+                        );
+                    } else if leaf::cap_class(old_n - 1) == leaf::cap_class(old_n) {
+                        core::ptr::copy(old_arr.add(rank + 1), old_arr.add(rank), old_n - 1 - rank);
                     } else {
-                        let new = a
-                            .alloc_bytes((old_n - 1) * size_of::<Edge>())
-                            .cast::<Edge>();
+                        let new = a.alloc_bytes(sub_edges_size(old_n - 1)).cast::<Edge>();
                         new.as_ptr().copy_from_nonoverlapping(old_arr, rank);
                         new.as_ptr()
                             .add(rank)
                             .copy_from_nonoverlapping(old_arr.add(rank + 1), old_n - 1 - rank);
                         b.subarrays[sub] = new.as_ptr();
+                        a.free_bytes(
+                            core::ptr::NonNull::new(old_arr.cast()).unwrap(),
+                            sub_edges_size(old_n),
+                        );
                     }
-                    a.free_bytes(
-                        core::ptr::NonNull::new(old_arr.cast()).unwrap(),
-                        old_n * size_of::<Edge>(),
-                    );
                 }
                 b.pop_counts[sub] = (old_n - 1) as u16;
                 b.bitmap.clear(d);

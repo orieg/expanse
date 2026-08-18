@@ -19,25 +19,149 @@
 
 use crate::types::Key;
 
+/// Slot-capacity class: leaf and subarray allocations are sized in
+/// multiples of four slots, so runs of consecutive inserts and deletes
+/// shift in place instead of reallocating (they reallocate only when the
+/// population crosses a class boundary). Allocation sizes stay derivable
+/// from the current population alone — `free` needs no stored capacity.
+#[inline]
+#[must_use]
+pub const fn cap_class(pop: usize) -> usize {
+    // Tiny populations stay exact — wide-key map leaves of one or two
+    // entries are common under random keys, and rounding them to four
+    // slots measurably regressed bytes/key.
+    if pop <= 2 { pop } else { (pop + 3) & !3 }
+}
+
 /// Allocation size of a set-flavor leaf.
 #[inline]
 #[must_use]
 pub const fn size_set(key_bytes: u8, pop: usize) -> usize {
-    key_bytes as usize * pop
+    key_bytes as usize * cap_class(pop)
 }
 
-/// Allocation size of a map-flavor leaf (`pop` values then `pop` keys).
+/// Allocation size of a map-flavor leaf (`pop` values then `pop` keys,
+/// both areas class-sized).
 #[inline]
 #[must_use]
 pub const fn size_map(key_bytes: u8, pop: usize) -> usize {
-    8 * pop + key_bytes as usize * pop
+    8 * cap_class(pop) + key_bytes as usize * cap_class(pop)
 }
 
 /// Offset of the packed key area inside a map-flavor leaf.
 #[inline]
 #[must_use]
 pub const fn map_keys_offset(pop: usize) -> usize {
-    8 * pop
+    8 * cap_class(pop)
+}
+
+/// Binary search over packed little-endian keys: first slot whose key is
+/// `>= needle` (`needle` already masked to `key_bytes`).
+///
+/// # Safety
+///
+/// `keys` must be valid for reads of `key_bytes * pop` bytes.
+#[inline]
+#[must_use]
+pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, needle: u64) -> usize {
+    let (mut lo, mut hi) = (0usize, pop);
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        // SAFETY: mid < pop per the loop bounds and caller contract.
+        if unsafe { crate::mutate::read_packed(keys, mid, key_bytes as usize) } < needle {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
+}
+
+/// In-place insert into a set leaf with spare class capacity: shifts keys
+/// `[pos..pop)` right one slot and writes `key` at `pos`.
+///
+/// # Safety
+///
+/// The allocation must hold `cap_class(pop + 1)` slots (i.e.
+/// `cap_class(pop) == cap_class(pop + 1)`), and `pos <= pop`.
+pub(crate) unsafe fn set_insert_at(base: *mut u8, key_bytes: u8, pop: usize, pos: usize, key: u64) {
+    let kb = key_bytes as usize;
+    // SAFETY: in-bounds shift within the class-sized allocation.
+    unsafe {
+        core::ptr::copy(
+            base.add(pos * kb),
+            base.add((pos + 1) * kb),
+            (pop - pos) * kb,
+        );
+        crate::mutate::write_packed(base, pos, kb, key);
+    }
+}
+
+/// In-place removal from a set leaf: shifts keys `[pos + 1..pop)` left.
+///
+/// # Safety
+///
+/// `pos < pop`; the allocation holds `pop` keys.
+pub(crate) unsafe fn set_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos: usize) {
+    let kb = key_bytes as usize;
+    // SAFETY: in-bounds shift.
+    unsafe {
+        core::ptr::copy(
+            base.add((pos + 1) * kb),
+            base.add(pos * kb),
+            (pop - 1 - pos) * kb,
+        );
+    }
+}
+
+/// In-place insert into a map leaf with spare class capacity: shifts both
+/// the value and key areas (the key area's offset is class-stable here).
+///
+/// # Safety
+///
+/// `cap_class(pop) == cap_class(pop + 1)`, `pos <= pop`, live map leaf.
+pub(crate) unsafe fn map_insert_at(
+    base: *mut u8,
+    key_bytes: u8,
+    pop: usize,
+    pos: usize,
+    key: u64,
+    val: u64,
+) {
+    let kb = key_bytes as usize;
+    let keys = base.wrapping_add(map_keys_offset(pop));
+    // SAFETY: in-bounds shifts within the class-sized areas.
+    unsafe {
+        let vals = base.cast::<u64>();
+        core::ptr::copy(vals.add(pos), vals.add(pos + 1), pop - pos);
+        vals.add(pos).write(val);
+        core::ptr::copy(
+            keys.add(pos * kb),
+            keys.add((pos + 1) * kb),
+            (pop - pos) * kb,
+        );
+        crate::mutate::write_packed(keys, pos, kb, key);
+    }
+}
+
+/// In-place removal from a map leaf (class-stable, see [`map_insert_at`]).
+///
+/// # Safety
+///
+/// `cap_class(pop) == cap_class(pop - 1)`, `pos < pop`, live map leaf.
+pub(crate) unsafe fn map_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos: usize) {
+    let kb = key_bytes as usize;
+    let keys = base.wrapping_add(map_keys_offset(pop));
+    // SAFETY: in-bounds shifts.
+    unsafe {
+        let vals = base.cast::<u64>();
+        core::ptr::copy(vals.add(pos + 1), vals.add(pos), pop - 1 - pos);
+        core::ptr::copy(
+            keys.add((pos + 1) * kb),
+            keys.add(pos * kb),
+            (pop - 1 - pos) * kb,
+        );
+    }
 }
 
 /// Finds the slot of `key`'s low `key_bytes` bytes among `pop` packed keys.
@@ -64,11 +188,21 @@ mod tests {
 
     #[test]
     fn sizes_and_offsets() {
-        assert_eq!(size_set(1, 25), 25);
+        // Class-based sizing: allocations round the population up to a
+        // multiple of four slots.
+        assert_eq!(cap_class(1), 1);
+        assert_eq!(cap_class(2), 2);
+        assert_eq!(cap_class(3), 4);
+        assert_eq!(cap_class(4), 4);
+        assert_eq!(cap_class(5), 8);
+        assert_eq!(cap_class(25), 28);
+        assert_eq!(size_set(1, 25), 28);
         assert_eq!(size_set(7, 2), 14);
-        assert_eq!(size_map(1, 25), 8 * 25 + 25);
-        assert_eq!(size_map(7, 2), 16 + 14);
-        assert_eq!(map_keys_offset(3), 24);
+        assert_eq!(size_map(1, 25), 8 * 28 + 28);
+        assert_eq!(size_map(7, 2), 8 * 2 + 7 * 2);
+        assert_eq!(map_keys_offset(3), 32);
+        assert_eq!(map_keys_offset(4), 32);
+        assert_eq!(map_keys_offset(5), 64);
     }
 
     #[test]

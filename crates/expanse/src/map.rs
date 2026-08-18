@@ -127,6 +127,28 @@ impl ExpanseMap {
         }
     }
 
+    /// Inserts `key` with value 0 if absent — the existing value is kept
+    /// untouched — and returns a **writable pointer to its value slot**:
+    /// the compat `JudyLIns` contract, in one tree walk. The pointer stays
+    /// valid until the next structural mutation.
+    pub fn ins_slot(&mut self, key: Key) -> core::ptr::NonNull<u64> {
+        if let Root::Tree { top, pop } = &mut self.root {
+            // SAFETY: trie maintained/owned by this map's engine.
+            let (prev, slot) =
+                unsafe { mutate_map::map_insert::<true>(&self.alloc, top, key, 0, 8) };
+            if prev.is_none() {
+                *pop += 1;
+            }
+            return core::ptr::NonNull::new(slot).expect("insert produced a slot");
+        }
+        // Root-leaf / empty states: the flat-array paths are already a
+        // couple of memcpys; reuse them.
+        if !self.contains_key(key) {
+            self.insert(key, 0);
+        }
+        self.get_value_slot(key).expect("just-ensured key")
+    }
+
     /// Membership test.
     #[must_use]
     pub fn contains_key(&self, key: Key) -> bool {
@@ -190,14 +212,21 @@ impl ExpanseMap {
                             // SAFETY: trie built and owned by self.alloc;
                             // values read in-bounds.
                             let prev = unsafe {
-                                mutate_map::map_insert(&self.alloc, &mut top, k, *vals.add(at), 8)
+                                mutate_map::map_insert::<false>(
+                                    &self.alloc,
+                                    &mut top,
+                                    k,
+                                    *vals.add(at),
+                                    8,
+                                )
                             };
-                            debug_assert!(prev.is_none());
+                            debug_assert!(prev.0.is_none());
                         }
                         // SAFETY: same trie.
-                        let prev =
-                            unsafe { mutate_map::map_insert(&self.alloc, &mut top, key, val, 8) };
-                        debug_assert!(prev.is_none());
+                        let prev = unsafe {
+                            mutate_map::map_insert::<false>(&self.alloc, &mut top, key, val, 8)
+                        };
+                        debug_assert!(prev.0.is_none());
                         // SAFETY: old root leaf no longer referenced.
                         unsafe { self.alloc.free_bytes(ptr, leaf_size(pop)) };
                         self.root = Root::Tree {
@@ -210,7 +239,8 @@ impl ExpanseMap {
             }
             Root::Tree { top, pop } => {
                 // SAFETY: trie maintained/owned by this map's engine.
-                let prev = unsafe { mutate_map::map_insert(&self.alloc, top, key, val, 8) };
+                let prev =
+                    unsafe { mutate_map::map_insert::<false>(&self.alloc, top, key, val, 8) }.0;
                 if prev.is_none() {
                     *pop += 1;
                 }
