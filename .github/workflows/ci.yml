@@ -122,13 +122,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install stock libjudy
-        # apt mirrors flake on hosted runners; bounded retries beat a hang.
-        timeout-minutes: 6
+        # apt mirrors flake on hosted runners: try the preinstalled index
+        # first (no `update`), hard-timeout each attempt, retry bounded.
+        timeout-minutes: 8
         run: |
+          if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
           for i in 1 2 3; do
-            sudo apt-get update && sudo apt-get install -y libjudy-dev && exit 0
+            timeout 120 sudo apt-get update || true
+            if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
             echo "apt attempt $i failed; retrying"
-            sleep 10
+            sleep 15
           done
           exit 1
 
