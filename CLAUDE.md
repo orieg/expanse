@@ -4,7 +4,7 @@ Clean-room, pure-Rust Judy arrays modernized for current hardware, plus `libexpa
 
 ## Naming
 
-- Brand: **Expanse**. Rust crate: `expanse-trie` (bare `expanse` is squatted on crates.io by an abandoned Flexbox crate — decided 2026-08-18). C library: `libexpanse` (`libexpanse.so` / `expanse.dll` / `libexpanse.a`). Headers: `expanse.h` (modern `expanse_*` API) + `Judy.h` (legacy compat). Distro packaging plan (libexpanse-dev / libexpanse1 / libjudy-compat) lives in docs/COMPAT.md.
+- Brand: **Expanse**. Rationale + supporting quotes (Baskins 10-minute description; Silverstein Judy IV Shop Manual): README "Why Expanse?" section — that is the canonical home for naming justification. Rust crate: `expanse-trie` (bare `expanse` is squatted on crates.io by an abandoned Flexbox crate — decided 2026-08-18). C library: `libexpanse` (`libexpanse.so` / `expanse.dll` / `libexpanse.a`). Headers: `expanse.h` (modern `expanse_*` API) + `Judy.h` (legacy compat). Distro packaging plan (libexpanse-dev / libexpanse1 / libjudy-compat) lives in docs/COMPAT.md.
 - Legacy↔modern type map: Judy1→`ExpanseSet`, JudyL→`ExpanseMap`, JudySL→`ExpanseStrMap`, JudyHS→`ExpanseBytesMap`.
 - New C capabilities use the `expanse_` prefix; `Judy*` symbols never change semantics.
 

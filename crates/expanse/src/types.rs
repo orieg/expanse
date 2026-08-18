@@ -28,11 +28,15 @@ pub const MAX_LEVEL: u8 = 8;
 /// Fanout of one decode step: one byte selects among 256 subexpanses.
 pub const BRANCH_FANOUT: usize = 256;
 
-/// Capacity of the one-cache-line linear branch (4 child JPs + header).
-pub const BRANCH_L4_CAP: usize = 4;
+/// Capacity of the one-cache-line linear branch (16-byte header + 3 JPs).
+///
+/// Note: a 4-JP linear branch cannot fit one 64-byte line once any header
+/// exists (8 + 4 x 16 = 72 > 64); capacity 3 with a 16-byte header (which
+/// also hosts the Phase 7 OCC version counter) is exact.
+pub const BRANCH_L3_CAP: usize = 3;
 
-/// Capacity of the two-cache-line linear branch (7 child JPs + header).
-pub const BRANCH_L8_CAP: usize = 7;
+/// Capacity of the two-cache-line linear branch (16-byte header + 7 JPs).
+pub const BRANCH_L7_CAP: usize = 7;
 
 /// Populated-subexpanse count at which a bitmap branch converts to an
 /// uncompressed (flat 256-slot) branch.
@@ -51,10 +55,10 @@ pub const IMMED_PAYLOAD_BYTES: usize = 15;
 pub enum JpType {
     /// Empty subexpanse: no keys present under this JP.
     Null = 0x00,
-    /// Linear branch, one cache line, up to [`BRANCH_L4_CAP`] child JPs.
-    BranchL4 = 0x01,
-    /// Linear branch, two cache lines, up to [`BRANCH_L8_CAP`] child JPs.
-    BranchL8 = 0x02,
+    /// Linear branch, one cache line, up to [`BRANCH_L3_CAP`] child JPs.
+    BranchL3 = 0x01,
+    /// Linear branch, two cache lines, up to [`BRANCH_L7_CAP`] child JPs.
+    BranchL7 = 0x02,
     /// Bitmap branch: 256-bit membership bitmap over packed child JP arrays.
     BranchB = 0x03,
     /// Uncompressed branch: flat array of 256 child JPs.
@@ -85,8 +89,8 @@ impl JpType {
     pub const fn from_u8(raw: u8) -> Option<Self> {
         match raw {
             0x00 => Some(Self::Null),
-            0x01 => Some(Self::BranchL4),
-            0x02 => Some(Self::BranchL8),
+            0x01 => Some(Self::BranchL3),
+            0x02 => Some(Self::BranchL7),
             0x03 => Some(Self::BranchB),
             0x04 => Some(Self::BranchU),
             0x05 => Some(Self::Leaf1),
@@ -113,7 +117,7 @@ impl JpType {
     pub const fn is_branch(self) -> bool {
         matches!(
             self,
-            Self::BranchL4 | Self::BranchL8 | Self::BranchB | Self::BranchU
+            Self::BranchL3 | Self::BranchL7 | Self::BranchB | Self::BranchU
         )
     }
 
@@ -266,8 +270,8 @@ mod tests {
     fn structural_tags_round_trip() {
         let all = [
             JpType::Null,
-            JpType::BranchL4,
-            JpType::BranchL8,
+            JpType::BranchL3,
+            JpType::BranchL7,
             JpType::BranchB,
             JpType::BranchU,
             JpType::Leaf1,
@@ -339,7 +343,7 @@ mod tests {
 
     #[test]
     fn classification_helpers() {
-        assert!(JpType::BranchL4.is_branch());
+        assert!(JpType::BranchL3.is_branch());
         assert!(JpType::BranchU.is_branch());
         assert!(!JpType::Leaf1.is_branch());
         assert!(JpType::Leaf7.is_leaf());

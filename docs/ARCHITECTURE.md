@@ -41,12 +41,17 @@ Two further compressions: **narrow pointers** (a JP records skipped common bytes
 ### 3.1 Judy Pointer (16 B)
 
 ```
-offset 0: ptr        8 B   child node pointer, or immediate key payload
-offset 8: decode     5 B   narrow-pointer skipped bytes
-offset 13: pop0      2 B   subtree population - 1 (span-limited; wider pops
-                           live in the child header)
+offset 0: word 0     8 B   child node pointer, or immediate key payload
+offset 8: aux        7 B   level-split: low L bytes pop0, high bytes decode
 offset 15: tag       1 B   JP type tag
 ```
+
+The 7-byte aux field is **level-split** (as in the published Judy IV
+design): for a child at level `L`, its low `L` bytes hold `pop0` (a
+level-`L` subtree holds at most `256^L` keys, so `L` bytes always suffice)
+and the remaining high bytes hold the narrow-pointer decode bytes — the two
+never overlap, and no branch header needs a wide population field.
+Implemented in `crates/expanse/src/node.rs`.
 
 Tag encoding (implemented in `crates/expanse/src/types.rs`):
 
@@ -55,16 +60,22 @@ Tag encoding (implemented in `crates/expanse/src/types.rs`):
 
 ### 3.2 Branches
 
-- **LinearBranch4** (64 B = 1 line): header byte + up to 7 digit bytes, then 4 JPs. Overflow → LinearBranch8.
-- **LinearBranch8** (128 B = 2 lines): header + digits, 7 JPs. Overflow → BitmapBranch.
-- **BitmapBranch** (128 B = 2 lines): line 0 = 256-bit bitmap (32 B) + subarray pointers; line 1 = remaining pointers + cached per-segment pop counts (rank acceleration). Slot lookup = bitmap test + popcount rank. ≥192 populated subexpanses → UncompBranch.
-- **UncompBranch** (4 KiB): flat 256 JPs, direct index.
+Linear branches share a 16-byte header: OCC version counter (u32, plain
+until Phase 7), child count, and an 8-byte digit array searched as one
+64-bit word (`bits::find_byte_8`). Geometry note: the naive "8 B header +
+4 JPs" one-line branch is arithmetically impossible (8 + 4×16 = 72 > 64);
+capacity 3 with the 16-byte header is exact — and buys the OCC version slot.
+
+- **BranchL3** (64 B = 1 line): 16 B header + 3 JPs. Overflow → BranchL7.
+- **BranchL7** (128 B = 2 lines): 16 B header + 7 JPs. Overflow → BitmapBranch.
+- **BranchB** (128 B = 2 lines): line 0 = 256-bit bitmap (32 B) + first 4 of 8 subarray pointers; line 1 = remaining pointers + cached per-subexpanse pop counts (`[u16; 8]`, rank acceleration) + OCC version. Slot lookup = bitmap test + popcount rank. ≥192 populated subexpanses → BranchU.
+- **BranchU** (4 KiB): flat 256 JPs, direct index.
 
 ### 3.3 Leaves
 
 - **Immediate**: up to 15 key-remainder bytes inside the JP (e.g. 15×1-byte, 7×2-byte, 2×7-byte). JudyL immediates constrain count further (values need a home — exact layout fixed in Phase 3).
 - **LinearLeaf1..7**: packed sorted key remainders; JudyL adds a parallel value array. Sized so leaf search stays within 1–2 cache lines; searched with SIMD/binary search.
-- **BitmapLeaf** (level 1): 32-byte bitmask (Judy1); JudyL adds sub-allocated value chunks addressed by popcount rank.
+- **LeafBitmap1** (level 1, 64 B): 32-byte bitmask + OCC version (Judy1). **LeafBitmapL** (128 B): bitmask + 8 value-subarray pointers addressed by popcount rank + OCC version (JudyL).
 
 ### 3.4 Tagged pointers (read-optimized paths)
 
@@ -80,7 +91,7 @@ x86-64/AArch64 user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3
 
 ## 5. Crate structure
 
-- `crates/expanse` (package `expanse-trie`): core. Planned modules: `types` (done), `bits` (done: SIMD/SWAR byte find, `Bitmap256` rank/select/navigation), `node` (Phase 3 layouts), `get` (Phase 4), `alloc` (Phase 5), `ins`/`del` (Phase 6), `occ` (Phase 7), the public `ExpanseSet`/`ExpanseMap`/`ExpanseStrMap`/`ExpanseBytesMap` API.
+- `crates/expanse` (package `expanse-trie`): core. Planned modules: `types` (done), `bits` (done: SIMD/SWAR byte find, `Bitmap256` rank/select/navigation), `node` (done: JP + branch/bitmap-leaf layouts, compile-time layout asserts; variable-length linear-leaf layout lands with the Phase 5 allocator), `get` (Phase 4), `alloc` (Phase 5), `ins`/`del` (Phase 6), `occ` (Phase 7), the public `ExpanseSet`/`ExpanseMap`/`ExpanseStrMap`/`ExpanseBytesMap` API.
 - `crates/expanse-capi` (`libexpanse`): `extern "C"` surface per [COMPAT.md](COMPAT.md) — legacy `Judy.h` compat plus the modern `expanse.h` API. Thin translation layer only — no logic beyond ABI marshaling and `JError_t` mapping.
 
 ## 6. Phase roadmap
@@ -89,7 +100,7 @@ x86-64/AArch64 user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3
 |---|---|---|
 | 1. Foundation types | Tags, constants, digit math (done) | Tests green |
 | 2. Bit/vector engine | popcount/ctz/SIMD byte-find + portable fallbacks (done) | Unit tests incl. edge lanes; parity between SIMD and fallback |
-| 3. Node layouts | 64 B/128 B structs, layout `const` asserts | `size_of`/`align_of` asserts green |
+| 3. Node layouts | 64 B/128 B structs, layout `const` asserts (done; linear-leaf layout deferred to Phase 5 alloc) | `size_of`/`align_of`/`offset_of` asserts green |
 | 4. Lookup engine | `get`/`test` over hand-built trees | Differential vs `BTreeMap` model on fixed corpora |
 | 5. Allocation | Aligned slab arenas | Miri-clean; leak checks |
 | 6. Mutation engine | insert/delete cascades + hysteresis | Property tests + invariant validator (TESTING.md) green |

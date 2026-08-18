@@ -4,7 +4,17 @@ A **clean-room, pure-Rust implementation of Judy arrays**, modernized for curren
 
 Judy arrays (invented by Doug Baskins at Hewlett-Packard, ~2002) are sparse, dynamic associative structures built as 256-ary digital tries partitioned by **expanse** (decoding keys byte by byte over fixed digit ranges) rather than by population like comparison-based trees. Their speed comes from adaptive node compression — linear, bitmap, and uncompressed branches; linear and bitmap leaves; keys stored immediately inside pointers — tuned to keep every node traversal within a few cache-line fills.
 
-**Why "Expanse"?** It is Baskins's own defining term — the exact word he used to contrast Judy with B-trees and binary trees — naming the algorithmic idea itself rather than inheriting the legacy `Judy` namespace. Crate: `expanse-trie` (bare `expanse` is squatted on crates.io by an abandoned unrelated crate). C library: `libexpanse`, with a `libjudy-compat` shim for drop-in use.
+## Why "Expanse"?
+
+*Expanse* is the Judy design's own defining term — so central that the published descriptions stop to define it before anything else, and use it as the precise contrast with population-partitioned trees (B-trees, binary trees):
+
+> "Expanse, population, and density are not commonly used terms in tree search literature, so let's define them here: **Expanse** is a range of possible keys […]"
+> — Doug Baskins, *A 10-Minute Description of How Judy Arrays Work and Why They Are So Fast* (2002)
+
+> "A digital tree divides up the population (index set) uniformly **by expanse** (dividing and redividing the initial expanse evenly), while other methods, such as b-trees, divide up the population by the distribution of the population itself."
+> — Alan Silverstein, *Judy IV Shop Manual* (2002), "Digital Trees"
+
+Naming the project after the mechanism honors the algorithm itself without inheriting the legacy `Judy` package namespace (both quoted documents are published algorithm descriptions — consulting them is within this project's clean-room rules). Crate: `expanse-trie` (bare `expanse` is squatted on crates.io by an abandoned unrelated crate). C library: `libexpanse`, with a `libjudy-compat` shim for drop-in use.
 
 ## Clean-room statement
 
@@ -41,7 +51,7 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Status
 
-**Phase 2 — bit/vector engine.** Done: type-tag encoding, geometry constants, digit extraction (Phase 1); SIMD byte-vector search (SSE2/NEON with portable parity-tested fallbacks) and the 256-bit bitmap with popcount rank/select and ordered navigation (Phase 2). The capi crate is a compiling stub (packaging and CI artifacts exercised; no exported symbols yet).
+**Phase 3 — node layouts.** Done: type-tag encoding, geometry constants, digit extraction (Phase 1); SIMD byte-vector search (SSE2/NEON with portable parity-tested fallbacks) and the 256-bit bitmap with popcount rank/select and ordered navigation (Phase 2); cache-line-native node layouts — 16-byte Judy Pointer with level-split pop0/decode aux field, 64/128-byte linear and bitmap branches, bitmap leaves, all layout-proven by compile-time asserts (Phase 3; variable-length linear leaves land with the Phase 5 allocator). The capi crate is a compiling stub (packaging and CI artifacts exercised; no exported symbols yet).
 
 Roadmap (ordering, no schedule): 1 foundation types → 2 bit/vector engine → 3 cache-aligned node layouts → 4 lookup fast path → 5 allocation subsystem → 6 mutation engine + hysteresis → 7 OCC concurrent reads → 8 differential/fuzz/bench hardening. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); testing and benchmark methodology in [docs/TESTING.md](docs/TESTING.md) and [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
 
