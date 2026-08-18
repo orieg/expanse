@@ -1,12 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["crates/judy", "crates/judy-capi"]
+members = ["crates/expanse", "crates/expanse-capi"]
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/orieg/judy-rs"
+repository = "https://github.com/orieg/expanse"
 authors = ["Nicolas Brousse <nicolas@brousse.info>"]
 
 [workspace.lints.rust]

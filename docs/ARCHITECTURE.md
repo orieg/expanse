@@ -1,8 +1,8 @@
-# judy-rs Architecture
+# Expanse Architecture
 
 > Canonical design doc. Compat contract: [COMPAT.md](COMPAT.md) · Testing: [TESTING.md](TESTING.md) · Benchmarks: [BENCHMARKING.md](BENCHMARKING.md)
 
-Clean-room reimplementation of the Judy array family (Judy1 bit set, JudyL word→word map, JudySL string→word map), redesigned for 2026 hardware. Derived from published algorithm descriptions only; no libjudy source consulted (see COMPAT.md for the clean-room rules).
+Expanse is a clean-room reimplementation of the Judy array family (Judy1 bit set, JudyL word→word map, JudySL string→word map), redesigned for 2026 hardware and named for Judy's defining idea: partitioning keys by *expanse* rather than by population. Derived from published algorithm descriptions only; no libjudy source consulted (see COMPAT.md for the clean-room rules).
 
 ## 1. The structure in one page
 
@@ -27,7 +27,7 @@ Two further compressions: **narrow pointers** (a JP records skipped common bytes
 
 ## 2. What changes vs. Judy IV (2002)
 
-| Component | Judy IV | judy-rs | Why |
+| Component | Judy IV | Expanse | Why |
 |---|---|---|---|
 | Cache lines | 128-byte assumption | All nodes exactly 64 B or 128 B, 64-aligned | One node traversal = 1–2 line fills, never a straddle |
 | Bit scan/rank | SWAR + lookup tables | `u64::count_ones`/`trailing_zeros` (→ `popcnt`/`tzcnt`) | Single-cycle hardware ops |
@@ -48,7 +48,7 @@ offset 13: pop0      2 B   subtree population - 1 (span-limited; wider pops
 offset 15: tag       1 B   JP type tag
 ```
 
-Tag encoding (implemented in `crates/judy/src/types.rs`):
+Tag encoding (implemented in `crates/expanse/src/types.rs`):
 
 - Structural tags `0x00..=0x0C`, `0x7F`: null, 4 branch flavors, linear leaves for 1–7 remaining bytes, bitmap leaf, full expanse.
 - Immediate tags, nibble-packed `(key_bytes << 4) | (count - 1)`, valid when `key_bytes * count <= 15`. Disjoint from structural tags by construction.
@@ -80,8 +80,8 @@ x86-64/AArch64 user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3
 
 ## 5. Crate structure
 
-- `crates/judy` (package `judy-rs`): core. Planned modules: `types` (done), `bits` (done: SIMD/SWAR byte find, `Bitmap256` rank/select/navigation), `node` (Phase 3 layouts), `get` (Phase 4), `alloc` (Phase 5), `ins`/`del` (Phase 6), `occ` (Phase 7), `judy1`/`judyl`/`judysl` public API.
-- `crates/judy-capi`: `extern "C"` surface per [COMPAT.md](COMPAT.md), plus the shipped `include/Judy.h`. Thin translation layer only — no logic beyond ABI marshaling and `JError_t` mapping.
+- `crates/expanse` (package `expanse-trie`): core. Planned modules: `types` (done), `bits` (done: SIMD/SWAR byte find, `Bitmap256` rank/select/navigation), `node` (Phase 3 layouts), `get` (Phase 4), `alloc` (Phase 5), `ins`/`del` (Phase 6), `occ` (Phase 7), the public `ExpanseSet`/`ExpanseMap`/`ExpanseStrMap`/`ExpanseBytesMap` API.
+- `crates/expanse-capi` (`libexpanse`): `extern "C"` surface per [COMPAT.md](COMPAT.md) — legacy `Judy.h` compat plus the modern `expanse.h` API. Thin translation layer only — no logic beyond ABI marshaling and `JError_t` mapping.
 
 ## 6. Phase roadmap
 
@@ -94,6 +94,6 @@ x86-64/AArch64 user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3
 | 5. Allocation | Aligned slab arenas | Miri-clean; leak checks |
 | 6. Mutation engine | insert/delete cascades + hysteresis | Property tests + invariant validator (TESTING.md) green |
 | 7. OCC reads | Versioned nodes, epoch reclamation | Loom/stress suites green |
-| 8. Hardening | capi surface, differential oracle vs C libjudy, fuzzing, benches | COMPAT.md acceptance gates; php-judy suite green against judy-capi |
+| 8. Hardening | capi surface, differential oracle vs C libjudy, fuzzing, benches | COMPAT.md acceptance gates; php-judy suite green against libexpanse |
 
 Performance targets (measured per BENCHMARKING.md before any claim): point lookup < 15 ns on random 64-bit keys (target); < 9.5 bytes/key on dense/clustered distributions (target).

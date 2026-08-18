@@ -2,7 +2,17 @@
 
 > Canonical compatibility doc. Design: [ARCHITECTURE.md](ARCHITECTURE.md) · Testing: [TESTING.md](TESTING.md)
 
-`judy-capi` is a **drop-in binary replacement for libjudy**: existing consumers link-swap (or `LD_PRELOAD`) `judy_capi` in place of `libJudy` with **no source changes**. This document is the contract that defines "drop-in".
+`libexpanse` (built by `crates/expanse-capi`) is a **drop-in binary replacement for libjudy**: existing consumers link-swap (or `LD_PRELOAD`) `libexpanse` in place of `libJudy` with **no source changes**. This document is the contract that defines "drop-in".
+
+## Packaging layout
+
+| Artifact | Name |
+|---|---|
+| Rust crate (core) | `expanse-trie` |
+| C library | `libexpanse.so` / `expanse.dll` / `libexpanse.a` |
+| Modern header | `expanse.h` (`expanse_*` API: `expanse_set_t`, `expanse_map_t`, `expanse_strmap_t`, `expanse_bytesmap_t`) |
+| Compat header | `Judy.h` (source-compatible with classic libjudy) |
+| Distro packages (planned) | `libexpanse-dev`, `libexpanse1`, and `libjudy-compat` (symlinks `libJudy.so.1` → `libexpanse.so.1` and installs the `Judy.h` alias) |
 
 ## Clean-room rules (binding)
 
@@ -22,14 +32,14 @@ Exported with C symbol names and the platform C calling convention:
 | JudySL (string→word) | `JudySLIns`, `JudySLDel`, `JudySLGet`, `JudySLFirst`, `JudySLNext`, `JudySLLast`, `JudySLPrev`, `JudySLFreeArray` |
 | JudyHS (hash, bytes→word) | `JudyHSIns`, `JudyHSDel`, `JudyHSGet`, `JudyHSFreeArray` |
 
-Shipped header `crates/judy-capi/include/Judy.h` additionally provides, source-compatibly:
+Shipped header `crates/expanse-capi/include/Judy.h` additionally provides, source-compatibly:
 
 - Types/conventions: `Word_t`, `Pvoid_t`, `PPvoid_t`, `Pcvoid_t`, `JError_t`, `PJError_t`, `PJERR`, `JERR`, `JU_ERRNO_*`.
 - Convenience macros: `J1S`, `J1U`, `J1T`, `J1C`, `J1BC`, `J1F`, `J1N`, `J1L`, `J1P`, `J1FA`, `J1MU`; `JLI`, `JLD`, `JLG`, `JLC`, `JLBC`, `JLF`, `JLN`, `JLL`, `JLP`, `JLFA`, `JLMU`; `JSLI`, `JSLD`, `JSLG`, `JSLF`, `JSLN`, `JSLL`, `JSLP`, `JSLFA`; `JHSI`, `JHSD`, `JHSG`, `JHSFA`.
 
 ## Guarantees
 
-1. **Symbol and ABI match** — same names, same signatures, same calling convention. `LD_PRELOAD`/link-swap works on Linux/macOS; the Windows DLL exports the same symbols so consumers that today build C libjudy from source (php-judy's MSVC job) link against `judy_capi.dll`/`.lib` instead.
+1. **Symbol and ABI match** — same names, same signatures, same calling convention. `LD_PRELOAD`/link-swap works on Linux/macOS; the Windows DLL exports the same symbols so consumers that today build C libjudy from source (php-judy's MSVC job) link against `expanse.dll`/`.lib` instead.
 2. **Semantic match** per documented contract: pointer-to-value-slot return conventions (`JudyLIns` returns a writable `PPvoid_t`; inserted slots initialized to 0), sorted-order iteration (`First`/`Next`/`Last`/`Prev` and the `Empty` variants, inclusive-search semantics), `Count`/`ByCount` rank semantics over inclusive index ranges, null/empty-array edge behavior, `JError_t` error reporting incl. `PJERR`/`JERR` returns and `JU_ERRNO_*` codes.
 3. **Ordering guarantee**: iteration is strictly sorted unsigned-key order (JudySL: byte-lexicographic) — identical to libjudy, verified differentially.
 
@@ -41,15 +51,15 @@ Shipped header `crates/judy-capi/include/Judy.h` additionally provides, source-c
 
 ## New capabilities
 
-Modern features (lock-free concurrent reads, iterators, arena controls) are exposed **only** through the native Rust API and, if ever needed in C, through *new* `judyrs_`-prefixed symbols/headers. Existing `Judy*` symbols never change semantics. Swapping in judy-capi must be a pure substitution.
+Modern features (lock-free concurrent reads, iterators, arena controls) are exposed through the native Rust API and through the `expanse_*` C API in `expanse.h`. Existing `Judy*` symbols never change semantics. Swapping in libexpanse must be a pure substitution.
 
 ## Acceptance gates ("in-place replacement" is proven, not claimed)
 
 | Gate | Check |
 |---|---|
-| G1 Differential oracle | Randomized + adversarial op sequences produce identical observable results from judy-capi and stock libjudy (Linux CI job, `libjudy-dev`); see [TESTING.md](TESTING.md) |
-| G2 php-judy Linux | php-judy test suite passes built against judy-capi (swap in `--with-judy` prefix) |
-| G3 php-judy Windows | php-judy Windows CI builds against `judy_capi.dll` instead of compiling libjudy from source, suite passes |
-| G4 Preload smoke | An unmodified prebuilt libjudy consumer runs correctly under `LD_PRELOAD` of `libjudy_capi.so` with a `libJudy.so.1` compatibility symlink/soname shim |
+| G1 Differential oracle | Randomized + adversarial op sequences produce identical observable results from libexpanse and stock libjudy (Linux CI job, `libjudy-dev`); see [TESTING.md](TESTING.md) |
+| G2 php-judy Linux | php-judy test suite passes built against libexpanse (swap in `--with-judy` prefix via libjudy-compat) |
+| G3 php-judy Windows | php-judy Windows CI builds against `expanse.dll` instead of compiling libjudy from source, suite passes |
+| G4 Preload smoke | An unmodified prebuilt libjudy consumer runs correctly under `LD_PRELOAD` of `libexpanse.so` with the libjudy-compat `libJudy.so.1` symlink/soname shim |
 
 Status: contract defined; surface not yet exported (core phases 4/6 pending). The stub crate exists so packaging and CI artifacts are exercised from day one.

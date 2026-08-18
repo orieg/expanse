@@ -2,7 +2,7 @@
 
 > Canonical testing doc. Design: [ARCHITECTURE.md](ARCHITECTURE.md) · Compat gates: [COMPAT.md](COMPAT.md) · Benchmarks: [BENCHMARKING.md](BENCHMARKING.md)
 
-judy-rs is an unsafe-heavy, invariant-dense data structure whose compat story rests on behavioral equivalence with a 20-year-old C library. Testing is therefore layered: each layer catches a class of bug the others structurally cannot.
+Expanse is an unsafe-heavy, invariant-dense data structure whose compat story rests on behavioral equivalence with a 20-year-old C library. Testing is therefore layered: each layer catches a class of bug the others structurally cannot.
 
 ## Layers
 
@@ -10,7 +10,7 @@ judy-rs is an unsafe-heavy, invariant-dense data structure whose compat story re
 |---|---|---|---|
 | 1 | Unit tests | `cargo test`, per module | Local logic: tag encodings, digit math, SIMD lane edges, node transitions |
 | 2 | Model-based property tests | `proptest`: random op sequences run against `BTreeMap`/`BTreeSet` as the semantic model | Semantic divergence of insert/delete/get/iterate/count under arbitrary interleavings |
-| 3 | Differential oracle | Same op sequences through `judy-capi` and **stock C libjudy** (FFI, Linux job with `libjudy-dev`) | Contract gaps the docs under-specify; the black-box proof behind COMPAT.md G1 |
+| 3 | Differential oracle | Same op sequences through `libexpanse` and **stock C libjudy** (FFI, Linux job with `libjudy-dev`) | Contract gaps the docs under-specify; the black-box proof behind COMPAT.md G1 |
 | 4 | Fuzzing | `cargo-fuzz` targets consuming op-sequence bytecode (op, key) pairs | Crashes, UB triggers, pathological cascades no generator thinks of |
 | 5 | Miri | `cargo +nightly miri test` on the core crate | UB in unsafe code: aliasing, alignment, leaks, uninit reads |
 | 6 | Concurrency | `loom` for the OCC protocol’s small state machines; multi-thread stress tests for reader/writer races (Phase 7+) | Torn reads, missed version bumps, reclamation races |
@@ -48,7 +48,7 @@ A debug-only tree walker validates after mutations in tests:
 ## Differential oracle details (layer 3)
 
 - Runs on Linux CI with distro `libjudy-dev`; bindings via a small internal `judy-oracle-sys` FFI shim (or the existing `judy-sys` crate if it links cleanly).
-- Drives **both** stacks through the C surface, so it exercises `judy-capi`'s marshaling too.
+- Drives **both** stacks through the C surface, so it exercises `expanse-capi`'s marshaling too.
 - Sequence generator shared with layer 2; failures re-emitted as self-contained regression cases.
 - Clean-room note: linking and observing a stock binary is black-box testing; it is the *only* sanctioned way to resolve behavior the documentation leaves open (record resolved questions in COMPAT.md).
 

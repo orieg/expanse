@@ -1,6 +1,12 @@
-# judy-rs — Project Instructions
+# Expanse — Project Instructions
 
-Clean-room, pure-Rust Judy arrays modernized for current hardware, plus a drop-in C ABI replacement for libjudy. Cargo workspace: `crates/judy` (core, package `judy-rs`) and `crates/judy-capi` (C ABI cdylib/staticlib).
+Clean-room, pure-Rust Judy arrays modernized for current hardware, plus `libexpanse` — a drop-in C ABI replacement for libjudy. Named for Judy's defining idea: partitioning keys by *expanse*, not population. Cargo workspace: `crates/expanse` (core, package `expanse-trie`) and `crates/expanse-capi` (builds `libexpanse` cdylib/staticlib).
+
+## Naming
+
+- Brand: **Expanse**. Rust crate: `expanse-trie` (bare `expanse` is squatted on crates.io by an abandoned Flexbox crate — decided 2026-08-18). C library: `libexpanse` (`libexpanse.so` / `expanse.dll` / `libexpanse.a`). Headers: `expanse.h` (modern `expanse_*` API) + `Judy.h` (legacy compat). Distro packaging plan (libexpanse-dev / libexpanse1 / libjudy-compat) lives in docs/COMPAT.md.
+- Legacy↔modern type map: Judy1→`ExpanseSet`, JudyL→`ExpanseMap`, JudySL→`ExpanseStrMap`, JudyHS→`ExpanseBytesMap`.
+- New C capabilities use the `expanse_` prefix; `Judy*` symbols never change semantics.
 
 ## Clean-room rules (non-negotiable)
 
@@ -13,7 +19,7 @@ Clean-room, pure-Rust Judy arrays modernized for current hardware, plus a drop-i
 | Content | Home |
 |---|---|
 | Design / node layouts / roadmap / phase gates | `docs/ARCHITECTURE.md` |
-| C compat contract, surface, acceptance gates, doc-gap resolutions | `docs/COMPAT.md` |
+| C compat contract, surface, packaging, acceptance gates, doc-gap resolutions | `docs/COMPAT.md` |
 | Testing methodology, invariant validator, oracle rules | `docs/TESTING.md` |
 | Benchmark methodology, comparison targets, results policy | `docs/BENCHMARKING.md` |
 | Status + platform tiers | `README.md` (Status section) |
@@ -34,4 +40,4 @@ Clean-room, pure-Rust Judy arrays modernized for current hardware, plus a drop-i
 ## Git
 
 - `type(scope): description` commits (feat/fix/docs/refactor/chore/eval/poc), atomic.
-- Repo: `github.com/orieg/judy-rs` (private until first publishable milestone). Commit/push only when Nicolas asks.
+- Repo: `github.com/orieg/expanse` (private until first publishable milestone; renamed from judy-rs — old URL redirects). Commit/push only when Nicolas asks.

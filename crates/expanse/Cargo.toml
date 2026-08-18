@@ -1,7 +1,7 @@
 [package]
-name = "judy-rs"
+name = "expanse-trie"
 version = "0.1.0"
-description = "Clean-room, pure-Rust implementation of Judy arrays modernized for current hardware"
+description = "Expanse: clean-room, pure-Rust Judy arrays (expanse-partitioned digital tries) modernized for current hardware"
 keywords = ["judy", "trie", "radix", "sparse", "data-structures"]
 categories = ["data-structures"]
 edition.workspace = true
@@ -11,7 +11,7 @@ repository.workspace = true
 authors.workspace = true
 
 [lib]
-name = "judy_rs"
+name = "expanse_trie"
 
 [dependencies]
 

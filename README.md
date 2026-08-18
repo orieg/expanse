@@ -1,8 +1,10 @@
-# judy-rs
+# Expanse
 
-A **clean-room, pure-Rust implementation of Judy arrays**, modernized for current hardware, with a **drop-in C ABI replacement for libjudy**.
+A **clean-room, pure-Rust implementation of Judy arrays**, modernized for current hardware, with **`libexpanse` — a drop-in C ABI replacement for libjudy**.
 
-Judy arrays (invented by Doug Baskins at Hewlett-Packard, ~2002) are sparse, dynamic associative structures built as 256-ary digital tries partitioned by *expanse* (decoding keys byte by byte) rather than by population like comparison-based trees. Their speed comes from adaptive node compression — linear, bitmap, and uncompressed branches; linear and bitmap leaves; keys stored immediately inside pointers — tuned to keep every node traversal within a few cache-line fills.
+Judy arrays (invented by Doug Baskins at Hewlett-Packard, ~2002) are sparse, dynamic associative structures built as 256-ary digital tries partitioned by **expanse** (decoding keys byte by byte over fixed digit ranges) rather than by population like comparison-based trees. Their speed comes from adaptive node compression — linear, bitmap, and uncompressed branches; linear and bitmap leaves; keys stored immediately inside pointers — tuned to keep every node traversal within a few cache-line fills.
+
+**Why "Expanse"?** It is Baskins's own defining term — the exact word he used to contrast Judy with B-trees and binary trees — naming the algorithmic idea itself rather than inheriting the legacy `Judy` namespace. Crate: `expanse-trie` (bare `expanse` is squatted on crates.io by an abandoned unrelated crate). C library: `libexpanse`, with a `libjudy-compat` shim for drop-in use.
 
 ## Clean-room statement
 
@@ -12,16 +14,25 @@ The original Judy C library is LGPL. **No code from it has been consulted or por
 
 | Surface | Crate | Deliverable |
 |---|---|---|
-| Native Rust API | [`crates/judy`](crates/judy) (package `judy-rs`) | Rust library: `Judy1` (bit set), `JudyL` (word→word map), `JudySL` (string→word map), plus modern capabilities (iterators, lock-free concurrent reads) |
-| Classic C ABI | [`crates/judy-capi`](crates/judy-capi) | `cdylib`/`staticlib` exporting the `Judy.h` surface (`Judy1*`, `JudyL*`, `JudySL*`) so existing consumers — e.g. [php-judy](https://github.com/orieg/php-judy) — can swap `libJudy` for this library without source changes |
+| Native Rust API | [`crates/expanse`](crates/expanse) (package `expanse-trie`) | Rust library: `ExpanseSet` (bit set), `ExpanseMap` (word→word), `ExpanseStrMap` (string→word), `ExpanseBytesMap` (bytes→word), plus modern capabilities (iterators, lock-free concurrent reads) |
+| C ABI (`libexpanse`) | [`crates/expanse-capi`](crates/expanse-capi) | `cdylib`/`staticlib` exporting **both** the legacy `Judy.h` surface (`Judy1*`, `JudyL*`, `JudySL*` — so existing consumers, e.g. [php-judy](https://github.com/orieg/php-judy), swap `libJudy` for `libexpanse` without source changes) **and** the modern `expanse.h` API |
+
+Legacy ↔ modern naming:
+
+| Legacy C | Modern Rust | Modern C |
+|---|---|---|
+| `Judy1` | `ExpanseSet` | `expanse_set_t` |
+| `JudyL` | `ExpanseMap` | `expanse_map_t` |
+| `JudySL` | `ExpanseStrMap` | `expanse_strmap_t` |
+| `JudyHS` | `ExpanseBytesMap` | `expanse_bytesmap_t` |
 
 ## Modernization thesis
 
-| Component | Original Judy IV (2002) | judy-rs (2026) |
+| Component | Original Judy IV (2002) | Expanse (2026) |
 |---|---|---|
 | Cache-line geometry | Assumed 128-byte lines | Nodes sized to 64-byte lines (1 or 2 lines per node) |
 | Bit scan / rank | SWAR bit hacks, unrolled loops | Hardware `popcnt`/`tzcnt`/`lzcnt` |
-| Linear search | Scalar unrolled byte compares | SIMD byte scan (SSE/AVX2, NEON) |
+| Linear search | Scalar unrolled byte compares | SIMD byte scan (SSE2/AVX2, NEON) |
 | Allocation | Custom 2001 chunk/buddy allocator | Modern allocator + fixed-size slab arenas |
 | Pointer layout | Full 16-byte JP per edge | Tagged pointers exploiting 48-bit virtual addressing |
 | Concurrency | Single-threaded, external locks | Optimistic concurrency control for lock-free reads |
@@ -40,8 +51,8 @@ Roadmap (ordering, no schedule): 1 foundation types → 2 bit/vector engine → 
 |---|---|
 | Linux x86-64 (glibc) | CI-tested |
 | macOS AArch64 | CI-tested |
-| Windows x86-64 (MSVC) | CI-tested, first-class (capi DLL is a deliverable) |
-| Linux x86-64 (musl/Alpine) | CI-tested (tests static; capi `.so` built dynamic, the Alpine drop-in artifact) |
+| Windows x86-64 (MSVC) | CI-tested, first-class (`expanse.dll` is a deliverable) |
+| Linux x86-64 (musl/Alpine) | CI-tested (tests static; `libexpanse.so` built dynamic, the Alpine drop-in artifact) |
 
 64-bit targets only (enforced at compile time).
 

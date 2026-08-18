@@ -3,12 +3,12 @@
 version = 4
 
 [[package]]
-name = "judy-capi"
+name = "expanse-capi"
 version = "0.1.0"
 dependencies = [
- "judy-rs",
+ "expanse-trie",
 ]
 
 [[package]]
-name = "judy-rs"
+name = "expanse-trie"
 version = "0.1.0"

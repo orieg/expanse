@@ -1,0 +1,22 @@
+[package]
+name = "expanse-capi"
+version = "0.1.0"
+description = "libexpanse: C ABI for the Expanse trie engine, drop-in binary replacement for libjudy"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lib]
+# The C artifact is libexpanse.so / expanse.dll / libexpanse.a; a
+# libjudy-compat package adds the libJudy soname symlink (COMPAT.md).
+name = "expanse"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+expanse-trie = { path = "../expanse" }
+
+[lints]
+workspace = true

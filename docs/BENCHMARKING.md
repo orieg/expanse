@@ -6,7 +6,7 @@ Performance claims are this project's reason to exist, so they follow the strict
 
 ## Harness and metrics
 
-- Criterion benches live in `crates/judy/benches/`; C-comparison benches drive both sides through the C surface once `judy-capi` exports it.
+- Criterion benches live in `crates/expanse/benches/`; C-comparison benches drive both sides through the C surface once `expanse-capi` exports it.
 - Key distributions: the same matrix as [TESTING.md](TESTING.md) (sequential, random, clustered, sparse/pathological, boundary) — performance work that only measures random keys is rejected.
 
 | Metric | Definition |
