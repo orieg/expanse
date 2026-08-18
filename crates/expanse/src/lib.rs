@@ -35,6 +35,7 @@ compile_error!("expanse currently supports 64-bit targets only");
 
 pub mod alloc;
 pub mod bits;
+pub mod bytesmap;
 pub mod get;
 pub mod leaf;
 pub mod map;

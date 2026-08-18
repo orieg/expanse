@@ -23,6 +23,7 @@
 
 use core::ffi::{c_int, c_void};
 use core::ptr::{NonNull, null_mut};
+use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
 use expanse_trie::strmap::ExpanseStrMap;
@@ -835,12 +836,160 @@ pub unsafe extern "C" fn JudySLFreeArray(pparray: *mut *mut c_void, pj: *mut JEr
     }
 }
 
+// ---------------------------------------------------------------------
+// JudyHS (byte-string → word hash map) — backed by ExpanseBytesMap
+// ---------------------------------------------------------------------
+
+unsafe fn bytesmap_handle_mut<'a>(pparray: *mut *mut c_void) -> &'a mut ExpanseBytesMap {
+    // SAFETY: per set_handle_mut's contract, for byte-string maps.
+    unsafe {
+        if (*pparray).is_null() {
+            *pparray = Box::into_raw(Box::new(ExpanseBytesMap::new())).cast();
+        }
+        &mut *(*pparray).cast::<ExpanseBytesMap>()
+    }
+}
+
+/// Reads the (index, length) byte-string argument. A null index is only
+/// legal for a zero-length string.
+unsafe fn hs_key<'a>(index: *const c_void, length: Word) -> Option<&'a [u8]> {
+    if index.is_null() {
+        return (length == 0).then_some(&[]);
+    }
+    // SAFETY: caller passes `length` readable bytes per the C contract.
+    Some(unsafe { core::slice::from_raw_parts(index.cast::<u8>(), length) })
+}
+
+/// Inserts the byte string (value slot zero-initialized if new) and
+/// returns a writable pointer to its value slot; `PJERR` on error.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn JudyHSIns(
+    pparray: *mut *mut c_void,
+    index: *const c_void,
+    length: Word,
+    pj: *mut JError,
+) -> *mut c_void {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        if pparray.is_null() {
+            set_err(pj, JU_ERRNO_NULLPPARRAY);
+            return PJERR;
+        }
+        let Some(key) = hs_key(index, length) else {
+            set_err(pj, JU_ERRNO_NULLPINDEX);
+            return PJERR;
+        };
+        bytesmap_handle_mut(pparray).ins_slot(key).as_ptr().cast()
+    }
+}
+
+/// Returns the value slot of the byte string, or null if absent.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn JudyHSGet(
+    parray: *const c_void,
+    index: *const c_void,
+    length: Word,
+) -> *mut c_void {
+    // SAFETY: forwarded C contract (the C surface hands out writable
+    // slots even from Pcvoid_t entry points).
+    unsafe {
+        let Some(map) = parray.cast_mut().cast::<ExpanseBytesMap>().as_mut() else {
+            return null_mut();
+        };
+        let Some(key) = hs_key(index, length) else {
+            return null_mut();
+        };
+        map.get_value_slot(key)
+            .map_or(null_mut(), |p| p.as_ptr().cast())
+    }
+}
+
+/// Deletes the byte string; returns 1 if it was present. An emptied
+/// array word returns to null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn JudyHSDel(
+    pparray: *mut *mut c_void,
+    index: *const c_void,
+    length: Word,
+    pj: *mut JError,
+) -> c_int {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        if pparray.is_null() {
+            set_err(pj, JU_ERRNO_NULLPPARRAY);
+            return JERR_INT;
+        }
+        let Some(key) = hs_key(index, length) else {
+            set_err(pj, JU_ERRNO_NULLPINDEX);
+            return JERR_INT;
+        };
+        if (*pparray).is_null() {
+            return 0;
+        }
+        let map = &mut *(*pparray).cast::<ExpanseBytesMap>();
+        let removed = map.remove(key).is_some();
+        if removed && map.is_empty() {
+            drop(Box::from_raw((*pparray).cast::<ExpanseBytesMap>()));
+            *pparray = null_mut();
+        }
+        c_int::from(removed)
+    }
+}
+
+/// Frees the whole array; returns the bytes freed (implementation-
+/// defined here — see docs/COMPAT.md doc-gap D4) and nulls the word.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn JudyHSFreeArray(pparray: *mut *mut c_void, pj: *mut JError) -> Word {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        if pparray.is_null() {
+            set_err(pj, JU_ERRNO_NULLPPARRAY);
+            return 0;
+        }
+        if (*pparray).is_null() {
+            return 0;
+        }
+        let boxed = Box::from_raw((*pparray).cast::<ExpanseBytesMap>());
+        let bytes = boxed.mem_used() + size_of::<ExpanseBytesMap>();
+        drop(boxed);
+        *pparray = null_mut();
+        bytes as Word
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn arr() -> *mut c_void {
         null_mut()
+    }
+
+    #[test]
+    fn judyhs_smoke() {
+        // SAFETY: valid pointers throughout; handles managed per contract.
+        unsafe {
+            let mut a = arr();
+            let key = b"hello\0world";
+            let kp = key.as_ptr().cast::<c_void>();
+            let slot = JudyHSIns(&raw mut a, kp, key.len(), null_mut()).cast::<Word>();
+            assert_eq!(*slot, 0);
+            *slot = 777;
+            // Same bytes, different buffer: hash + byte-compare match.
+            let copy = key.to_vec();
+            let got = JudyHSGet(a, copy.as_ptr().cast(), copy.len()).cast::<Word>();
+            assert_eq!(*got, 777);
+            // A prefix is a different key.
+            assert!(JudyHSGet(a, kp, 5).is_null());
+            // Zero-length key is a valid key (null index allowed at 0).
+            let empty = JudyHSIns(&raw mut a, null_mut(), 0, null_mut()).cast::<Word>();
+            *empty = 1;
+            assert_eq!(*JudyHSGet(a, null_mut(), 0).cast::<Word>(), 1);
+            assert_eq!(JudyHSDel(&raw mut a, kp, key.len(), null_mut()), 1);
+            assert_eq!(JudyHSDel(&raw mut a, kp, key.len(), null_mut()), 0);
+            assert!(JudyHSFreeArray(&raw mut a, null_mut()) > 0);
+            assert!(a.is_null());
+        }
     }
 
     #[test]
@@ -1179,6 +1328,69 @@ mod oracle {
                     s2 = o_next(theirs, b2.as_mut_ptr(), null_mut());
                 }
                 assert!(JudySLFreeArray(&raw mut ours, null_mut()) > 0);
+                assert!(o_free(&raw mut theirs, null_mut()) > 0);
+                assert!(ours.is_null() && theirs.is_null());
+            }
+        }
+    }
+
+    type FHsIns =
+        unsafe extern "C" fn(*mut *mut c_void, *const c_void, Word, *mut c_void) -> *mut c_void;
+    type FHsDel = unsafe extern "C" fn(*mut *mut c_void, *const c_void, Word, *mut c_void) -> c_int;
+    type FHsGet = unsafe extern "C" fn(*const c_void, *const c_void, Word) -> *mut c_void;
+
+    fn bytesgen(rng: &mut XorShift) -> Vec<u8> {
+        // Arbitrary bytes (NULs included), lengths 0..=32 with repeats.
+        let len = (rng.next() % 33) as usize;
+        (0..len).map(|_| (rng.next() % 5) as u8 * 0x3F).collect()
+    }
+
+    #[test]
+    fn judyhs_matches_stock_libjudy() {
+        let lib = Lib::open();
+        let o_ins: FHsIns = lib.sym(c"JudyHSIns");
+        let o_del: FHsDel = lib.sym(c"JudyHSDel");
+        let o_get: FHsGet = lib.sym(c"JudyHSGet");
+        let o_free: FFree = lib.sym(c"JudyHSFreeArray");
+
+        for seed in [0x61u64, 0x62, 0x63] {
+            let mut rng = XorShift(seed | 1);
+            let mut ours: *mut c_void = null_mut();
+            let mut theirs: *mut c_void = null_mut();
+            // SAFETY: both stacks driven per the C contract with valid
+            // (pointer, length) byte strings.
+            unsafe {
+                for _ in 0..2500 {
+                    let k = bytesgen(&mut rng);
+                    let (kp, kl) = (k.as_ptr().cast::<c_void>(), k.len() as Word);
+                    match rng.next() % 5 {
+                        0..=1 => {
+                            let v = rng.next() as Word;
+                            let s1 = JudyHSIns(&raw mut ours, kp, kl, null_mut()).cast::<Word>();
+                            let s2 = o_ins(&raw mut theirs, kp, kl, null_mut()).cast::<Word>();
+                            assert_eq!(*s1, *s2, "ins existing {k:02x?}");
+                            *s1 = v;
+                            *s2 = v;
+                        }
+                        2 => assert_eq!(
+                            JudyHSDel(&raw mut ours, kp, kl, null_mut()),
+                            o_del(&raw mut theirs, kp, kl, null_mut()),
+                            "del {k:02x?}"
+                        ),
+                        _ => {
+                            let s1 = JudyHSGet(ours, kp, kl).cast::<Word>();
+                            let s2 = o_get(theirs, kp, kl).cast::<Word>();
+                            assert_eq!(s1.is_null(), s2.is_null(), "get null-ness {k:02x?}");
+                            if !s1.is_null() {
+                                assert_eq!(*s1, *s2, "get value {k:02x?}");
+                            }
+                        }
+                    }
+                }
+                // JudyHS has no navigation surface; the byte totals of
+                // FreeArray are implementation-defined (doc-gap D4) —
+                // only emptiness semantics must agree.
+                assert!(JudyHSFreeArray(&raw mut ours, null_mut()) > 0);
                 assert!(o_free(&raw mut theirs, null_mut()) > 0);
                 assert!(ours.is_null() && theirs.is_null());
             }

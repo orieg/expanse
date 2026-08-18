@@ -7,9 +7,9 @@
  * contract, including doc-gap resolutions (Word_t width, JU_ERRNO_*
  * numbering, OOM behavior), lives in docs/COMPAT.md.
  *
- * The Judy1 and JudyL families are exported by libexpanse today; the
- * JudySL and JudyHS families are declared for source compatibility and land with ExpanseStrMap /
- * ExpanseBytesMap (linking them before then fails, by design).
+ * All four families — Judy1, JudyL, JudySL, and JudyHS — are exported
+ * by libexpanse (backed by ExpanseSet, ExpanseMap, ExpanseStrMap, and
+ * ExpanseBytesMap respectively; docs/COMPAT.md status).
  */
 #ifndef EXPANSE_COMPAT_JUDY_H
 #define EXPANSE_COMPAT_JUDY_H
@@ -92,8 +92,7 @@ extern int      JudyLPrevEmpty(Pcvoid_t PArray, Word_t *PIndex, PJError_t PJErro
 extern Word_t   JudyLFreeArray(PPvoid_t PPArray, PJError_t PJError);
 extern Word_t   JudyLMemUsed(Pcvoid_t PArray);
 
-/* ---- JudySL / JudyHS: declared for source compat; exported with
- *      ExpanseStrMap / ExpanseBytesMap (docs/COMPAT.md status) ---- */
+/* ---- JudySL (ExpanseStrMap) / JudyHS (ExpanseBytesMap) ---- */
 extern PPvoid_t JudySLIns(PPvoid_t PPArray, const unsigned char *Index, PJError_t PJError);
 extern int      JudySLDel(PPvoid_t PPArray, const unsigned char *Index, PJError_t PJError);
 extern PPvoid_t JudySLGet(Pcvoid_t PArray, const unsigned char *Index, PJError_t PJError);
