@@ -133,6 +133,33 @@ impl JudyPointer {
         self.w0 = Word0 { imm: bytes };
     }
 
+    /// The full 15-byte immediate payload (word 0 followed by the aux
+    /// bytes) of a set-flavor immediate JP, which packs its keys across
+    /// both regions. Same caller obligations as [`Self::imm_bytes`].
+    #[inline]
+    #[must_use]
+    pub fn imm_payload(&self) -> [u8; 15] {
+        let mut out = [0u8; 15];
+        let w0 = self.imm_bytes();
+        out[..8].copy_from_slice(&w0);
+        out[8..].copy_from_slice(&self.aux);
+        out
+    }
+
+    /// The 7 aux bytes, where map-flavor immediate JPs pack their keys
+    /// (word 0 holds the value, or the value-array pointer, instead).
+    #[inline]
+    #[must_use]
+    pub const fn aux_bytes(&self) -> &[u8; 7] {
+        &self.aux
+    }
+
+    /// Writes the aux bytes wholesale (immediate-JP key storage).
+    #[inline]
+    pub const fn set_aux_bytes(&mut self, bytes: [u8; 7]) {
+        self.aux = bytes;
+    }
+
     /// Subtree population minus one, for a child at `level` (1..=7): reads
     /// the low `level` bytes of the aux field (little-endian).
     #[inline]

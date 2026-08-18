@@ -57,21 +57,24 @@ pub mod portable {
 #[inline]
 #[must_use]
 pub fn find_byte_16(hay: &[u8; 16], len: usize, needle: u8) -> Option<usize> {
-    #[cfg(target_arch = "x86_64")]
+    // Under Miri the portable path runs instead of the intrinsics (Miri's
+    // core::arch coverage is incomplete); the parity tests prove the two
+    // agree bit-for-bit, so this loses no checking power.
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
     {
         find_byte_16_sse2(hay, len, needle)
     }
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", not(miri)))]
     {
         find_byte_16_neon(hay, len, needle)
     }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
     {
         portable::find_byte_16(hay, len, needle)
     }
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", not(miri)))]
 #[inline]
 fn find_byte_16_sse2(hay: &[u8; 16], len: usize, needle: u8) -> Option<usize> {
     use core::arch::x86_64::{_mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8};
@@ -91,7 +94,7 @@ fn find_byte_16_sse2(hay: &[u8; 16], len: usize, needle: u8) -> Option<usize> {
     }
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_arch = "aarch64", not(miri)))]
 #[inline]
 fn find_byte_16_neon(hay: &[u8; 16], len: usize, needle: u8) -> Option<usize> {
     use core::arch::aarch64::{
@@ -226,6 +229,20 @@ impl Bitmap256 {
         }
         let below = (1u64 << (idx & 63)) - 1;
         r + (self.words[w] & below).count_ones()
+    }
+
+    /// Number of members below `idx` **within its own 32-digit subexpanse**
+    /// (`idx & !31 ..= idx - 1`) — the packed-subarray slot in bitmap
+    /// branches and bitmap map-leaves, whose child/value arrays are one per
+    /// 32-digit subexpanse.
+    #[inline]
+    #[must_use]
+    pub const fn subexpanse_rank(&self, idx: u8) -> u32 {
+        let word = self.words[(idx >> 6) as usize];
+        let bit = idx & 63;
+        let below = (1u64 << bit) - 1;
+        let sub_mask = 0xFFFF_FFFFu64 << (bit & 32);
+        (word & below & sub_mask).count_ones()
     }
 
     /// The member with `n` members below it (0-based rank → bit), if any —
@@ -451,6 +468,30 @@ mod tests {
                 assert_eq!(bm.prev_set(idx as u8), prev, "prev_set({idx})");
                 assert_eq!(bm.next_set(idx as u8), exp_next, "next_set({idx})");
             }
+        }
+    }
+
+    #[test]
+    fn bitmap_subexpanse_rank_matches_naive() {
+        let mut rng = XorShift(0x1234_5678_9ABC_DEF1);
+        for _ in 0..200 {
+            let mut bm = Bitmap256::new();
+            let mut naive = [false; 256];
+            for _ in 0..(rng.next() % 300) {
+                let idx = rng.next() as u8;
+                bm.set(idx);
+                naive[idx as usize] = true;
+            }
+            for idx in 0..256usize {
+                let base = idx & !31;
+                let expected = naive[base..idx].iter().filter(|&&b| b).count() as u32;
+                assert_eq!(bm.subexpanse_rank(idx as u8), expected, "idx={idx}");
+            }
+        }
+        // Boundary bits of each word/subexpanse.
+        let full = Bitmap256::full();
+        for idx in [0u8, 31, 32, 63, 64, 95, 96, 127, 128, 255] {
+            assert_eq!(full.subexpanse_rank(idx), u32::from(idx) % 32);
         }
     }
 
