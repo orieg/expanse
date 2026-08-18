@@ -41,7 +41,7 @@ Roadmap (ordering, no schedule): 1 foundation types → 2 bit/vector engine → 
 | Linux x86-64 (glibc) | CI-tested |
 | macOS AArch64 | CI-tested |
 | Windows x86-64 (MSVC) | CI-tested, first-class (capi DLL is a deliverable) |
-| Linux musl (Alpine) | Planned (differential/oracle phase) |
+| Linux x86-64 (musl/Alpine) | CI-tested (tests static; capi `.so` built dynamic, the Alpine drop-in artifact) |
 
 64-bit targets only (enforced at compile time).
 

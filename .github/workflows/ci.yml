@@ -54,6 +54,42 @@ jobs:
           echo "capi artifacts present: ${arts[*]}"
         shell: bash
 
+  test-musl:
+    # Most containerized deployments run Alpine. musl differs from glibc
+    # enough (allocator, default stack sizes) that a clean glibc build is no
+    # proof of a clean musl one — php-judy precedent. Cross-built from the
+    # glibc runner: GitHub's JS actions need glibc node, so a `container:
+    # alpine` job can't even check out.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install musl toolchain
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Test (musl, static)
+        run: cargo test --workspace --target x86_64-unknown-linux-musl
+
+      - name: Build capi (musl, dynamic — the Alpine drop-in artifact)
+        # musl defaults to +crt-static, under which no cdylib is produced;
+        # the libjudy swap on Alpine needs a real shared object.
+        env:
+          RUSTFLAGS: -C target-feature=-crt-static
+        run: cargo build -p judy-capi --target x86_64-unknown-linux-musl
+
+      - name: Assert capi drop-in artifacts exist (musl)
+        run: |
+          dir=target/x86_64-unknown-linux-musl/debug
+          test -f "$dir/libjudy_capi.so" || { echo "::error::missing $dir/libjudy_capi.so"; exit 1; }
+          test -f "$dir/libjudy_capi.a"  || { echo "::error::missing $dir/libjudy_capi.a"; exit 1; }
+          echo "capi artifacts present: $dir/libjudy_capi.so, $dir/libjudy_capi.a"
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -74,8 +110,6 @@ jobs:
   # --- Jobs to add as their phases land (see docs/TESTING.md "CI mapping") ---
   # differential-oracle: Linux + libjudy-dev; judy-capi vs stock libjudy over
   #   shared op sequences (COMPAT.md gate G1). Lands with the Phase 8 surface.
-  # alpine-musl: Docker-built musl job (allocator/stack/locale differences make
-  #   a clean glibc build no proof of a clean musl one — php-judy precedent).
   # miri: nightly cargo miri test on crates/judy once unsafe enters the core.
   # fuzz: scheduled cargo-fuzz job over op-sequence targets.
   # php-judy-swap: build php-judy against judy-capi and run its suite

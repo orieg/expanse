@@ -54,4 +54,4 @@ A debug-only tree walker validates after mutations in tests:
 
 ## CI mapping
 
-Now: layers 1 (all platforms). As phases land: layer 2 with Phase 4, layer 3 + Alpine/musl build with Phase 8 capi surface, layer 4 as a scheduled (cron) job, layer 5 once unsafe enters the core, layer 6 with Phase 7. Placeholders are noted in `.github/workflows/ci.yml`.
+Now: layer 1 on all platforms — Linux glibc, Linux musl (static-linked test run, cross-built from the glibc runner), macOS, Windows MSVC. As phases land: layer 2 with Phase 4, layer 3 with the Phase 8 capi surface, layer 4 as a scheduled (cron) job, layer 5 once unsafe enters the core, layer 6 with Phase 7. Placeholders are noted in `.github/workflows/ci.yml`.
