@@ -107,4 +107,14 @@ x86-64/AArch64 user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3
 | 7. OCC reads | Versioned nodes, epoch reclamation | Loom/stress suites green |
 | 8. Hardening | capi surface, differential oracle vs C libjudy, fuzzing, benches | COMPAT.md acceptance gates; php-judy suite green against libexpanse |
 
+### Sequencing after external architect review (2026-08-18)
+
+An external review confirmed Phases 1–6b and identified five gaps (narrow-pointer synthesis, asymmetric root-leaf lifecycle, missing ordered navigation/rank APIs, `NodeAlloc` `Cell` counters, capi stub). Agreed order, with rationale:
+
+1. **Ordered navigation + rank/count** (`first`/`next`/`prev`/`last`, iterators, `count(range)`, `by_count(n)`) — hard prerequisite: the capi surface cannot export `Judy1First/Next/Prev/Last/Count/ByCount` (and JudyL twins) without it. The `pop0` fields and `BranchB.pop_counts` it needs are already maintained and validator-checked.
+2. **Phase 8: capi exports + differential oracle + benches** — the COMPAT.md acceptance gates are the project's falsifiable criteria; the oracle also retro-tests everything above, and the bench harness produces the bytes/key evidence the next step needs.
+3. **Narrow-pointer synthesis in mutation** — an optimization, not a correctness gap (the read path already validates decode bytes; mutation just never creates them). Lands *after* benches per BENCHMARKING.md discipline so the win is measured, not asserted. Note: **leaf-targeted skips need no tag redesign** (leaf/immediate tags already encode their level) and cover most of the sparse-chain waste; only **branch-targeted** skips require the per-level tag variants.
+4. **Root-leaf shrink hysteresis** — trivially implementable once ordered iteration exists (collect ≤ 31 survivors), pointless before.
+5. **Phase 7 OCC** (atomic version counters, seqlock readers, EBR; includes the `NodeAlloc` `Cell`→atomic accounting move) — last, so the concurrency-hardening pass runs over the final single-threaded structure instead of twice.
+
 Performance targets (measured per BENCHMARKING.md before any claim): point lookup < 15 ns on random 64-bit keys (target); < 9.5 bytes/key on dense/clustered distributions (target).
