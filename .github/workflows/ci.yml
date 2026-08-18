@@ -107,6 +107,49 @@ jobs:
       - name: Miri (quick — model suites run in the nightly workflow)
         run: cargo miri test -p expanse-trie -- --skip model_
 
+  php-judy-compat:
+    # docs/COMPAT.md gate G2: the php-judy test suite passes built against
+    # libexpanse via a libjudy-compat prefix (include/Judy.h +
+    # lib/libJudy.so). First proven locally on macOS (221/221, PHP 8.5).
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install PHP toolchain
+        run: |
+          sudo apt-get install -y --no-install-recommends php-dev php-cli || {
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends php-dev php-cli
+          }
+
+      - name: Build libexpanse and assemble the libjudy-compat prefix
+        run: |
+          cargo build --release -p expanse-capi
+          PREFIX="$PWD/judy-prefix"
+          mkdir -p "$PREFIX/include" "$PREFIX/lib"
+          cp crates/expanse-capi/include/Judy.h "$PREFIX/include/"
+          cp target/release/libexpanse.so "$PREFIX/lib/libJudy.so"
+          echo "JUDY_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+
+      - name: Build php-judy against libexpanse
+        run: |
+          git clone --depth 1 https://github.com/orieg/php-judy.git
+          cd php-judy
+          phpize
+          ./configure --with-judy="$JUDY_PREFIX"
+          make -j"$(nproc)"
+
+      - name: Run the php-judy test suite
+        run: |
+          cd php-judy
+          export LD_LIBRARY_PATH="$JUDY_PREFIX/lib"
+          NO_INTERACTION=1 make test | tee test-output.log
+          grep -E 'Tests failed *: *0 ' test-output.log
+
   loom:
     # docs/TESTING.md: the Phase 7 OCC/EBR protocol (occ module) is
     # model-checked under loom — it found two real ordering bugs (missing

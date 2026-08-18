@@ -107,51 +107,56 @@ extern PPvoid_t JudyHSGet(Pcvoid_t PArray, void *Index, Word_t Length);
 extern Word_t   JudyHSFreeArray(PPvoid_t PPArray, PJError_t PJError);
 
 /* ---- Convenience macros (documented shorthand layer) ---- */
-#define J1S(Rc, PArray, Index)   ((Rc) = Judy1Set(&(PArray), Index, PJE0))
-#define J1U(Rc, PArray, Index)   ((Rc) = Judy1Unset(&(PArray), Index, PJE0))
-#define J1T(Rc, PArray, Index)   ((Rc) = Judy1Test((Pcvoid_t)(PArray), Index, PJE0))
-#define J1C(Rc, PArray, I1, I2)  ((Rc) = Judy1Count((Pcvoid_t)(PArray), I1, I2, PJE0))
-#define J1BC(Rc, PArray, Nth, Index) ((Rc) = Judy1ByCount((Pcvoid_t)(PArray), Nth, &(Index), PJE0))
-#define J1F(Rc, PArray, Index)   ((Rc) = Judy1First((Pcvoid_t)(PArray), &(Index), PJE0))
-#define J1N(Rc, PArray, Index)   ((Rc) = Judy1Next((Pcvoid_t)(PArray), &(Index), PJE0))
-#define J1L(Rc, PArray, Index)   ((Rc) = Judy1Last((Pcvoid_t)(PArray), &(Index), PJE0))
-#define J1P(Rc, PArray, Index)   ((Rc) = Judy1Prev((Pcvoid_t)(PArray), &(Index), PJE0))
-#define J1FE(Rc, PArray, Index)  ((Rc) = Judy1FirstEmpty((Pcvoid_t)(PArray), &(Index), PJE0))
-#define J1NE(Rc, PArray, Index)  ((Rc) = Judy1NextEmpty((Pcvoid_t)(PArray), &(Index), PJE0))
-#define J1LE(Rc, PArray, Index)  ((Rc) = Judy1LastEmpty((Pcvoid_t)(PArray), &(Index), PJE0))
-#define J1PE(Rc, PArray, Index)  ((Rc) = Judy1PrevEmpty((Pcvoid_t)(PArray), &(Index), PJE0))
-#define J1FA(Rc, PArray)         ((Rc) = Judy1FreeArray(&(PArray), PJE0))
-#define J1MU(Rc, PArray)         ((Rc) = Judy1MemUsed((Pcvoid_t)(PArray)))
+/* The convenience macros are statement blocks, tolerating both classic
+ * usage styles observed in consumers: `JLI(PV, A, I);` (man-page style)
+ * and `JLI(PV, A, I)` bare at statement position. Consequence (doc-gap
+ * D5): they are statements, not expressions, and an unbraced
+ * `if (c) JLI(...); else ...` needs braces around the macro. */
+#define J1S(Rc, PArray, Index)   { (Rc) = Judy1Set(&(PArray), Index, PJE0); }
+#define J1U(Rc, PArray, Index)   { (Rc) = Judy1Unset(&(PArray), Index, PJE0); }
+#define J1T(Rc, PArray, Index)   { (Rc) = Judy1Test((Pcvoid_t)(PArray), Index, PJE0); }
+#define J1C(Rc, PArray, I1, I2)  { (Rc) = Judy1Count((Pcvoid_t)(PArray), I1, I2, PJE0); }
+#define J1BC(Rc, PArray, Nth, Index) { (Rc) = Judy1ByCount((Pcvoid_t)(PArray), Nth, &(Index), PJE0); }
+#define J1F(Rc, PArray, Index)   { (Rc) = Judy1First((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define J1N(Rc, PArray, Index)   { (Rc) = Judy1Next((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define J1L(Rc, PArray, Index)   { (Rc) = Judy1Last((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define J1P(Rc, PArray, Index)   { (Rc) = Judy1Prev((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define J1FE(Rc, PArray, Index)  { (Rc) = Judy1FirstEmpty((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define J1NE(Rc, PArray, Index)  { (Rc) = Judy1NextEmpty((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define J1LE(Rc, PArray, Index)  { (Rc) = Judy1LastEmpty((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define J1PE(Rc, PArray, Index)  { (Rc) = Judy1PrevEmpty((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define J1FA(Rc, PArray)         { (Rc) = Judy1FreeArray(&(PArray), PJE0); }
+#define J1MU(Rc, PArray)         { (Rc) = Judy1MemUsed((Pcvoid_t)(PArray)); }
 
-#define JLI(PV, PArray, Index)   ((PV) = (PWord_t) JudyLIns(&(PArray), Index, PJE0))
-#define JLD(Rc, PArray, Index)   ((Rc) = JudyLDel(&(PArray), Index, PJE0))
-#define JLG(PV, PArray, Index)   ((PV) = (PWord_t) JudyLGet((Pcvoid_t)(PArray), Index, PJE0))
-#define JLC(Rc, PArray, I1, I2)  ((Rc) = JudyLCount((Pcvoid_t)(PArray), I1, I2, PJE0))
-#define JLBC(PV, PArray, Nth, Index) ((PV) = (PWord_t) JudyLByCount((Pcvoid_t)(PArray), Nth, &(Index), PJE0))
-#define JLF(PV, PArray, Index)   ((PV) = (PWord_t) JudyLFirst((Pcvoid_t)(PArray), &(Index), PJE0))
-#define JLN(PV, PArray, Index)   ((PV) = (PWord_t) JudyLNext((Pcvoid_t)(PArray), &(Index), PJE0))
-#define JLL(PV, PArray, Index)   ((PV) = (PWord_t) JudyLLast((Pcvoid_t)(PArray), &(Index), PJE0))
-#define JLP(PV, PArray, Index)   ((PV) = (PWord_t) JudyLPrev((Pcvoid_t)(PArray), &(Index), PJE0))
-#define JLFE(Rc, PArray, Index)  ((Rc) = JudyLFirstEmpty((Pcvoid_t)(PArray), &(Index), PJE0))
-#define JLNE(Rc, PArray, Index)  ((Rc) = JudyLNextEmpty((Pcvoid_t)(PArray), &(Index), PJE0))
-#define JLLE(Rc, PArray, Index)  ((Rc) = JudyLLastEmpty((Pcvoid_t)(PArray), &(Index), PJE0))
-#define JLPE(Rc, PArray, Index)  ((Rc) = JudyLPrevEmpty((Pcvoid_t)(PArray), &(Index), PJE0))
-#define JLFA(Rc, PArray)         ((Rc) = JudyLFreeArray(&(PArray), PJE0))
-#define JLMU(Rc, PArray)         ((Rc) = JudyLMemUsed((Pcvoid_t)(PArray)))
+#define JLI(PV, PArray, Index)   { (PV) = (PWord_t) JudyLIns(&(PArray), Index, PJE0); }
+#define JLD(Rc, PArray, Index)   { (Rc) = JudyLDel(&(PArray), Index, PJE0); }
+#define JLG(PV, PArray, Index)   { (PV) = (PWord_t) JudyLGet((Pcvoid_t)(PArray), Index, PJE0); }
+#define JLC(Rc, PArray, I1, I2)  { (Rc) = JudyLCount((Pcvoid_t)(PArray), I1, I2, PJE0); }
+#define JLBC(PV, PArray, Nth, Index) { (PV) = (PWord_t) JudyLByCount((Pcvoid_t)(PArray), Nth, &(Index), PJE0); }
+#define JLF(PV, PArray, Index)   { (PV) = (PWord_t) JudyLFirst((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define JLN(PV, PArray, Index)   { (PV) = (PWord_t) JudyLNext((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define JLL(PV, PArray, Index)   { (PV) = (PWord_t) JudyLLast((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define JLP(PV, PArray, Index)   { (PV) = (PWord_t) JudyLPrev((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define JLFE(Rc, PArray, Index)  { (Rc) = JudyLFirstEmpty((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define JLNE(Rc, PArray, Index)  { (Rc) = JudyLNextEmpty((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define JLLE(Rc, PArray, Index)  { (Rc) = JudyLLastEmpty((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define JLPE(Rc, PArray, Index)  { (Rc) = JudyLPrevEmpty((Pcvoid_t)(PArray), &(Index), PJE0); }
+#define JLFA(Rc, PArray)         { (Rc) = JudyLFreeArray(&(PArray), PJE0); }
+#define JLMU(Rc, PArray)         { (Rc) = JudyLMemUsed((Pcvoid_t)(PArray)); }
 
-#define JSLI(PV, PArray, Index)  ((PV) = (PWord_t) JudySLIns(&(PArray), Index, PJE0))
-#define JSLD(Rc, PArray, Index)  ((Rc) = JudySLDel(&(PArray), Index, PJE0))
-#define JSLG(PV, PArray, Index)  ((PV) = (PWord_t) JudySLGet((Pcvoid_t)(PArray), Index, PJE0))
-#define JSLF(PV, PArray, Index)  ((PV) = (PWord_t) JudySLFirst((Pcvoid_t)(PArray), Index, PJE0))
-#define JSLN(PV, PArray, Index)  ((PV) = (PWord_t) JudySLNext((Pcvoid_t)(PArray), Index, PJE0))
-#define JSLL(PV, PArray, Index)  ((PV) = (PWord_t) JudySLLast((Pcvoid_t)(PArray), Index, PJE0))
-#define JSLP(PV, PArray, Index)  ((PV) = (PWord_t) JudySLPrev((Pcvoid_t)(PArray), Index, PJE0))
-#define JSLFA(Rc, PArray)        ((Rc) = JudySLFreeArray(&(PArray), PJE0))
+#define JSLI(PV, PArray, Index)  { (PV) = (PWord_t) JudySLIns(&(PArray), Index, PJE0); }
+#define JSLD(Rc, PArray, Index)  { (Rc) = JudySLDel(&(PArray), Index, PJE0); }
+#define JSLG(PV, PArray, Index)  { (PV) = (PWord_t) JudySLGet((Pcvoid_t)(PArray), Index, PJE0); }
+#define JSLF(PV, PArray, Index)  { (PV) = (PWord_t) JudySLFirst((Pcvoid_t)(PArray), Index, PJE0); }
+#define JSLN(PV, PArray, Index)  { (PV) = (PWord_t) JudySLNext((Pcvoid_t)(PArray), Index, PJE0); }
+#define JSLL(PV, PArray, Index)  { (PV) = (PWord_t) JudySLLast((Pcvoid_t)(PArray), Index, PJE0); }
+#define JSLP(PV, PArray, Index)  { (PV) = (PWord_t) JudySLPrev((Pcvoid_t)(PArray), Index, PJE0); }
+#define JSLFA(Rc, PArray)        { (Rc) = JudySLFreeArray(&(PArray), PJE0); }
 
-#define JHSI(PV, PArray, Index, Len) ((PV) = (PWord_t) JudyHSIns(&(PArray), Index, Len, PJE0))
-#define JHSD(Rc, PArray, Index, Len) ((Rc) = JudyHSDel(&(PArray), Index, Len, PJE0))
-#define JHSG(PV, PArray, Index, Len) ((PV) = (PWord_t) JudyHSGet((Pcvoid_t)(PArray), Index, Len))
-#define JHSFA(Rc, PArray)            ((Rc) = JudyHSFreeArray(&(PArray), PJE0))
+#define JHSI(PV, PArray, Index, Len) { (PV) = (PWord_t) JudyHSIns(&(PArray), Index, Len, PJE0); }
+#define JHSD(Rc, PArray, Index, Len) { (Rc) = JudyHSDel(&(PArray), Index, Len, PJE0); }
+#define JHSG(PV, PArray, Index, Len) { (PV) = (PWord_t) JudyHSGet((Pcvoid_t)(PArray), Index, Len); }
+#define JHSFA(Rc, PArray)            { (Rc) = JudyHSFreeArray(&(PArray), PJE0); }
 
 #ifdef __cplusplus
 }
