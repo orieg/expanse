@@ -40,6 +40,7 @@ pub mod leaf;
 pub mod map;
 pub mod mutate;
 mod mutate_map;
+mod nav;
 pub mod node;
 pub mod set;
 pub mod types;

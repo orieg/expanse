@@ -251,6 +251,139 @@ impl ExpanseSet {
     }
 }
 
+impl ExpanseSet {
+    /// Smallest key in the set.
+    #[must_use]
+    pub fn first(&self) -> Option<u64> {
+        self.next_at_or_after(0)
+    }
+
+    /// Largest key in the set.
+    #[must_use]
+    pub fn last(&self) -> Option<u64> {
+        self.prev_at_or_before(u64::MAX)
+    }
+
+    /// Smallest key `>= key` (compat: `Judy1First`).
+    #[must_use]
+    pub fn next_at_or_after(&self, key: Key) -> Option<u64> {
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { .. } => {
+                let keys = self.root_leaf_keys();
+                keys.get(keys.partition_point(|&k| k < key)).copied()
+            }
+            Root::Tree { top, .. } => {
+                // SAFETY: trie maintained/owned by this set's engine.
+                unsafe { crate::nav::next::<false>(top, key, 8) }.map(|e| e.0)
+            }
+        }
+    }
+
+    /// Smallest key `> key` (compat: `Judy1Next`).
+    #[must_use]
+    pub fn next_after(&self, key: Key) -> Option<u64> {
+        self.next_at_or_after(key.checked_add(1)?)
+    }
+
+    /// Largest key `<= key` (compat: `Judy1Last`).
+    #[must_use]
+    pub fn prev_at_or_before(&self, key: Key) -> Option<u64> {
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { .. } => {
+                let keys = self.root_leaf_keys();
+                let i = keys.partition_point(|&k| k <= key).checked_sub(1)?;
+                Some(keys[i])
+            }
+            Root::Tree { top, .. } => {
+                // SAFETY: trie maintained/owned by this set's engine.
+                unsafe { crate::nav::prev::<false>(top, key, 8) }.map(|e| e.0)
+            }
+        }
+    }
+
+    /// Largest key `< key` (compat: `Judy1Prev`).
+    #[must_use]
+    pub fn prev_before(&self, key: Key) -> Option<u64> {
+        self.prev_at_or_before(key.checked_sub(1)?)
+    }
+
+    /// Number of keys strictly below `key` (rank).
+    #[must_use]
+    pub fn count_below(&self, key: Key) -> u64 {
+        match &self.root {
+            Root::Empty => 0,
+            Root::Leaf { .. } => self.root_leaf_keys().partition_point(|&k| k < key) as u64,
+            // SAFETY: trie maintained/owned by this set's engine.
+            Root::Tree { top, .. } => unsafe { crate::nav::count_below::<false>(top, key, 8) },
+        }
+    }
+
+    /// Number of keys in the inclusive range (compat: `Judy1Count`).
+    #[must_use]
+    pub fn count_range(&self, range: core::ops::RangeInclusive<u64>) -> u64 {
+        let (a, b) = (*range.start(), *range.end());
+        if a > b {
+            return 0;
+        }
+        self.count_below(b) + u64::from(self.contains(b)) - self.count_below(a)
+    }
+
+    /// The key with `n` keys below it — 0-based select (compat:
+    /// `Judy1ByCount`, which is 1-based).
+    #[must_use]
+    pub fn by_count(&self, n: u64) -> Option<u64> {
+        if n >= self.len() {
+            return None;
+        }
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { .. } => self.root_leaf_keys().get(n as usize).copied(),
+            // SAFETY: trie maintained/owned by this set's engine; n is
+            // below the population.
+            Root::Tree { top, .. } => Some(unsafe { crate::nav::by_count::<false>(top, n, 8) }.0),
+        }
+    }
+
+    /// Ascending iterator over the keys.
+    #[must_use]
+    pub fn iter(&self) -> SetIter<'_> {
+        SetIter {
+            set: self,
+            from: Some(0),
+        }
+    }
+}
+
+/// Ascending key iterator over an [`ExpanseSet`].
+pub struct SetIter<'a> {
+    set: &'a ExpanseSet,
+    from: Option<u64>,
+}
+
+impl Iterator for SetIter<'_> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<u64> {
+        let Some(found) = self.set.next_at_or_after(self.from?) else {
+            self.from = None;
+            return None;
+        };
+        self.from = found.checked_add(1);
+        Some(found)
+    }
+}
+
+impl<'a> IntoIterator for &'a ExpanseSet {
+    type Item = u64;
+    type IntoIter = SetIter<'a>;
+
+    fn into_iter(self) -> SetIter<'a> {
+        self.iter()
+    }
+}
+
 impl Default for ExpanseSet {
     fn default() -> Self {
         Self::new()
@@ -471,6 +604,108 @@ mod tests {
         }
         set.clear();
         assert_eq!(set.mem_used(), 0);
+    }
+
+    fn nav_differential(set: &ExpanseSet, model: &BTreeSet<u64>, probes: &BTreeSet<u64>) {
+        assert_eq!(set.first(), model.first().copied());
+        assert_eq!(set.last(), model.last().copied());
+        assert!(set.iter().eq(model.iter().copied()), "iterator order");
+        for &k in probes {
+            assert_eq!(
+                set.next_at_or_after(k),
+                model.range(k..).next().copied(),
+                "next>={k:#x}"
+            );
+            assert_eq!(
+                set.prev_at_or_before(k),
+                model.range(..=k).next_back().copied(),
+                "prev<={k:#x}"
+            );
+            if k < u64::MAX {
+                assert_eq!(set.next_after(k), model.range(k + 1..).next().copied());
+            }
+            if k > 0 {
+                assert_eq!(set.prev_before(k), model.range(..k).next_back().copied());
+            }
+            assert_eq!(
+                set.count_below(k),
+                model.range(..k).count() as u64,
+                "rank {k:#x}"
+            );
+        }
+        for n in 0..model.len().min(64) as u64 {
+            assert_eq!(set.by_count(n), model.iter().nth(n as usize).copied());
+        }
+        assert_eq!(set.by_count(model.len() as u64), None);
+        let mut ps = probes.iter();
+        while let (Some(&a), Some(&b)) = (ps.next(), ps.next()) {
+            let (a, b) = (a.min(b), a.max(b));
+            assert_eq!(
+                set.count_range(a..=b),
+                model.range(a..=b).count() as u64,
+                "count {a:#x}..={b:#x}"
+            );
+        }
+    }
+
+    #[test]
+    fn navigation_matches_model() {
+        let n_rand = if cfg!(miri) { 100 } else { 1500 };
+        let mut rng = XorShift(0xFACE_0FF5_1234_5678);
+        let mut set = ExpanseSet::new();
+        let mut model = BTreeSet::new();
+        // Mixed distributions: dense byte run (bitmap leaf → full expanse),
+        // sequential, random, clustered, sparse-high, boundary.
+        for k in 0u64..=255 {
+            set.insert(k);
+            model.insert(k);
+        }
+        for k in 0u64..40 {
+            set.insert(0x4000 + k);
+            model.insert(0x4000 + k);
+        }
+        for _ in 0..n_rand {
+            let k = match rng.next() % 3 {
+                0 => rng.next(),
+                1 => 0xAA_BB00_0000 + (rng.next() % 300),
+                _ => (rng.next() % 2048) << 48,
+            };
+            set.insert(k);
+            model.insert(k);
+        }
+        for k in [0u64, 1, u64::MAX, u64::MAX - 1] {
+            set.insert(k);
+            model.insert(k);
+        }
+        set.validate();
+        let mut probes: BTreeSet<u64> = model.iter().copied().collect();
+        for &k in model.iter().take(200) {
+            probes.insert(k.wrapping_add(1));
+            probes.insert(k.wrapping_sub(1));
+        }
+        for _ in 0..if cfg!(miri) { 40 } else { 400 } {
+            probes.insert(rng.next());
+        }
+        nav_differential(&set, &model, &probes);
+        set.clear();
+    }
+
+    #[test]
+    fn navigation_root_leaf_and_empty() {
+        let set = ExpanseSet::new();
+        assert_eq!(set.first(), None);
+        assert_eq!(set.by_count(0), None);
+        assert_eq!(set.count_range(0..=u64::MAX), 0);
+        assert!(set.iter().next().is_none());
+
+        let mut set = ExpanseSet::new();
+        let mut model = BTreeSet::new();
+        for k in [5u64, 100, 7, 0, u64::MAX, 1 << 40] {
+            set.insert(k);
+            model.insert(k);
+        }
+        let probes: BTreeSet<u64> = (0..64u64).map(|i| i * 0x0404_0404_0404).collect();
+        nav_differential(&set, &model, &probes);
     }
 
     #[test]

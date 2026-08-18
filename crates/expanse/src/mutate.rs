@@ -74,7 +74,7 @@ pub(crate) const fn key_low(key: Key, kb: u8) -> u64 {
 }
 
 /// Collects the sorted keys of a set-flavor immediate edge.
-fn immed_keys(edge: &Edge, im: ImmedType) -> Vec<u64> {
+pub(crate) fn immed_keys(edge: &Edge, im: ImmedType) -> Vec<u64> {
     let payload = edge.imm_payload();
     let kb = im.key_bytes() as usize;
     (0..im.key_count() as usize)

@@ -287,6 +287,148 @@ impl ExpanseMap {
     }
 }
 
+impl ExpanseMap {
+    fn leaf_entry(&self, at: usize) -> (u64, u64) {
+        let Root::Leaf { ptr, pop } = &self.root else {
+            unreachable!("leaf_entry outside root-leaf state")
+        };
+        let (keys, vals) = Self::leaf_parts(*ptr, *pop);
+        // SAFETY: at < pop values live behind the keys.
+        (keys[at], unsafe { *vals.add(at) })
+    }
+
+    /// Smallest entry in the map.
+    #[must_use]
+    pub fn first(&self) -> Option<(u64, u64)> {
+        self.next_at_or_after(0)
+    }
+
+    /// Largest entry in the map.
+    #[must_use]
+    pub fn last(&self) -> Option<(u64, u64)> {
+        self.prev_at_or_before(u64::MAX)
+    }
+
+    /// Smallest entry with key `>= key` (compat: `JudyLFirst`).
+    #[must_use]
+    pub fn next_at_or_after(&self, key: Key) -> Option<(u64, u64)> {
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { ptr, pop } => {
+                let (keys, _) = Self::leaf_parts(*ptr, *pop);
+                let at = keys.partition_point(|&k| k < key);
+                (at < *pop).then(|| self.leaf_entry(at))
+            }
+            // SAFETY: trie maintained/owned by this map's engine.
+            Root::Tree { top, .. } => unsafe { crate::nav::next::<true>(top, key, 8) },
+        }
+    }
+
+    /// Smallest entry with key `> key` (compat: `JudyLNext`).
+    #[must_use]
+    pub fn next_after(&self, key: Key) -> Option<(u64, u64)> {
+        self.next_at_or_after(key.checked_add(1)?)
+    }
+
+    /// Largest entry with key `<= key` (compat: `JudyLLast`).
+    #[must_use]
+    pub fn prev_at_or_before(&self, key: Key) -> Option<(u64, u64)> {
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { ptr, pop } => {
+                let (keys, _) = Self::leaf_parts(*ptr, *pop);
+                let at = keys.partition_point(|&k| k <= key).checked_sub(1)?;
+                Some(self.leaf_entry(at))
+            }
+            // SAFETY: trie maintained/owned by this map's engine.
+            Root::Tree { top, .. } => unsafe { crate::nav::prev::<true>(top, key, 8) },
+        }
+    }
+
+    /// Largest entry with key `< key` (compat: `JudyLPrev`).
+    #[must_use]
+    pub fn prev_before(&self, key: Key) -> Option<(u64, u64)> {
+        self.prev_at_or_before(key.checked_sub(1)?)
+    }
+
+    /// Number of keys strictly below `key` (rank).
+    #[must_use]
+    pub fn count_below(&self, key: Key) -> u64 {
+        match &self.root {
+            Root::Empty => 0,
+            Root::Leaf { ptr, pop } => {
+                let (keys, _) = Self::leaf_parts(*ptr, *pop);
+                keys.partition_point(|&k| k < key) as u64
+            }
+            // SAFETY: trie maintained/owned by this map's engine.
+            Root::Tree { top, .. } => unsafe { crate::nav::count_below::<true>(top, key, 8) },
+        }
+    }
+
+    /// Number of keys in the inclusive range (compat: `JudyLCount`).
+    #[must_use]
+    pub fn count_range(&self, range: core::ops::RangeInclusive<u64>) -> u64 {
+        let (a, b) = (*range.start(), *range.end());
+        if a > b {
+            return 0;
+        }
+        self.count_below(b) + u64::from(self.contains_key(b)) - self.count_below(a)
+    }
+
+    /// The entry with `n` keys below it — 0-based select (compat:
+    /// `JudyLByCount`, which is 1-based).
+    #[must_use]
+    pub fn by_count(&self, n: u64) -> Option<(u64, u64)> {
+        if n >= self.len() {
+            return None;
+        }
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { .. } => Some(self.leaf_entry(n as usize)),
+            // SAFETY: trie maintained/owned by this map's engine; n is
+            // below the population.
+            Root::Tree { top, .. } => Some(unsafe { crate::nav::by_count::<true>(top, n, 8) }),
+        }
+    }
+
+    /// Ascending iterator over `(key, value)` entries.
+    #[must_use]
+    pub fn iter(&self) -> MapIter<'_> {
+        MapIter {
+            map: self,
+            from: Some(0),
+        }
+    }
+}
+
+/// Ascending entry iterator over an [`ExpanseMap`].
+pub struct MapIter<'a> {
+    map: &'a ExpanseMap,
+    from: Option<u64>,
+}
+
+impl Iterator for MapIter<'_> {
+    type Item = (u64, u64);
+
+    fn next(&mut self) -> Option<(u64, u64)> {
+        let Some((k, v)) = self.map.next_at_or_after(self.from?) else {
+            self.from = None;
+            return None;
+        };
+        self.from = k.checked_add(1);
+        Some((k, v))
+    }
+}
+
+impl<'a> IntoIterator for &'a ExpanseMap {
+    type Item = (u64, u64);
+    type IntoIter = MapIter<'a>;
+
+    fn into_iter(self) -> MapIter<'a> {
+        self.iter()
+    }
+}
+
 impl Default for ExpanseMap {
     fn default() -> Self {
         Self::new()
@@ -458,6 +600,100 @@ mod tests {
         assert_eq!(map.len(), 8 * 16);
         map.clear();
         assert_eq!(map.mem_used(), 0);
+    }
+
+    fn nav_differential(map: &ExpanseMap, model: &BTreeMap<u64, u64>, probes: &[u64]) {
+        let pair = |o: Option<(&u64, &u64)>| o.map(|(k, v)| (*k, *v));
+        assert_eq!(map.first(), pair(model.first_key_value()));
+        assert_eq!(map.last(), pair(model.last_key_value()));
+        assert!(
+            map.iter().eq(model.iter().map(|(k, v)| (*k, *v))),
+            "iterator order/values"
+        );
+        for &k in probes {
+            assert_eq!(
+                map.next_at_or_after(k),
+                pair(model.range(k..).next()),
+                "next>={k:#x}"
+            );
+            assert_eq!(
+                map.prev_at_or_before(k),
+                pair(model.range(..=k).next_back()),
+                "prev<={k:#x}"
+            );
+            if k < u64::MAX {
+                assert_eq!(map.next_after(k), pair(model.range(k + 1..).next()));
+            }
+            if k > 0 {
+                assert_eq!(map.prev_before(k), pair(model.range(..k).next_back()));
+            }
+            assert_eq!(map.count_below(k), model.range(..k).count() as u64);
+        }
+        for n in 0..model.len().min(64) as u64 {
+            assert_eq!(map.by_count(n), pair(model.iter().nth(n as usize)));
+        }
+        assert_eq!(map.by_count(model.len() as u64), None);
+        for pr in probes.chunks(2) {
+            if let [a, b] = pr {
+                let (a, b) = (*a.min(b), *a.max(b));
+                assert_eq!(map.count_range(a..=b), model.range(a..=b).count() as u64);
+            }
+        }
+    }
+
+    #[test]
+    fn navigation_matches_model() {
+        let n_rand = if cfg!(miri) { 100 } else { 1500 };
+        let mut rng = XorShift(0x5EED_BA5E_D00D_F00D);
+        let mut map = ExpanseMap::new();
+        let mut model = BTreeMap::new();
+        for k in 0u64..=255 {
+            map.insert(k, !k);
+            model.insert(k, !k);
+        }
+        for _ in 0..n_rand {
+            let k = match rng.next() % 3 {
+                0 => rng.next(),
+                1 => 0x77_0000_0000 + (rng.next() % 300),
+                _ => (rng.next() % 2048) << 48,
+            };
+            let v = rng.next();
+            map.insert(k, v);
+            model.insert(k, v);
+        }
+        for k in [0u64, u64::MAX] {
+            map.insert(k, k ^ 0x5A5A);
+            model.insert(k, k ^ 0x5A5A);
+        }
+        map.validate();
+        let mut probes: Vec<u64> = model.keys().copied().collect();
+        for &k in model.keys().take(200) {
+            probes.push(k.wrapping_add(1));
+            probes.push(k.wrapping_sub(1));
+        }
+        for _ in 0..if cfg!(miri) { 40 } else { 400 } {
+            probes.push(rng.next());
+        }
+        nav_differential(&map, &model, &probes);
+        map.clear();
+    }
+
+    #[test]
+    fn navigation_root_leaf_and_empty() {
+        let map = ExpanseMap::new();
+        assert_eq!(map.first(), None);
+        assert_eq!(map.by_count(0), None);
+        assert_eq!(map.count_range(0..=u64::MAX), 0);
+        assert!(map.iter().next().is_none());
+
+        let mut map = ExpanseMap::new();
+        let mut model = BTreeMap::new();
+        for (i, k) in [5u64, 100, 7, 0, u64::MAX, 1 << 40].into_iter().enumerate() {
+            map.insert(k, i as u64 * 11);
+            model.insert(k, i as u64 * 11);
+        }
+        let probes: Vec<u64> = (0..64u64).map(|i| i * 0x0404_0404_0404).collect();
+        nav_differential(&map, &model, &probes);
     }
 
     #[test]
