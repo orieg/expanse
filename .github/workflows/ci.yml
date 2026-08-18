@@ -113,6 +113,7 @@ jobs:
     # library is dlopen'd by the harness, so the two never collide at link
     # time.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -121,7 +122,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install stock libjudy
-        run: sudo apt-get update && sudo apt-get install -y libjudy-dev
+        # apt mirrors flake on hosted runners; bounded retries beat a hang.
+        timeout-minutes: 6
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update && sudo apt-get install -y libjudy-dev && exit 0
+            echo "apt attempt $i failed; retrying"
+            sleep 10
+          done
+          exit 1
 
       - name: Differential oracle vs stock libjudy
         run: cargo test -p expanse-capi --features oracle
