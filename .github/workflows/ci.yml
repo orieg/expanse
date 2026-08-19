@@ -313,9 +313,20 @@ jobs:
 
       - name: Install valgrind and stock libjudy
         # libjudy-dev is the other arm of the headline comparison.
+        # Bounded retries, same pattern as test-musl: the untimed fallback
+        # `apt-get update` here once hung 43 minutes on a flaky mirror and
+        # burned the whole job timeout — a required check failing on apt,
+        # not on code.
+        timeout-minutes: 10
         run: |
           if timeout 120 sudo apt-get install -y valgrind libjudy-dev; then exit 0; fi
-          sudo apt-get update && sudo apt-get install -y valgrind libjudy-dev
+          for i in 1 2 3; do
+            timeout 120 sudo apt-get update || true
+            if timeout 120 sudo apt-get install -y valgrind libjudy-dev; then exit 0; fi
+            echo "apt attempt $i failed; retrying"
+            sleep 15
+          done
+          exit 1
 
       - name: Install iai-callgrind-runner
         # The runner binary must match the library version exactly, so
