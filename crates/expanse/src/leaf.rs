@@ -168,6 +168,79 @@ pub(crate) unsafe fn map_insert_at(
     }
 }
 
+/// Copies a map leaf into `new` (sized for `pop + 1` in its class) with
+/// `key`/`val` inserted at `pos` — the **class-crossing** analogue of
+/// [`map_insert_at`]. Four bulk copies and one packed write.
+///
+/// This replaces the materialize-into-`Vec` slow path for grows that stay
+/// a linear leaf: the churn benchmark showed steady-state insert/remove
+/// cycling across the exact 1↔2 capacity classes, paying a heap `Vec`,
+/// a per-entry unpack and a per-entry repack on every crossing.
+///
+/// # Safety
+///
+/// `old` must be a live map leaf of `pop` entries with `key_bytes`-byte
+/// keys; `new` must be a fresh allocation of `size_map(key_bytes, pop+1)`
+/// bytes; `pos <= pop`.
+pub(crate) unsafe fn map_realloc_insert(
+    old: *const u8,
+    new: *mut u8,
+    key_bytes: u8,
+    pop: usize,
+    pos: usize,
+    key: u64,
+    val: u64,
+) {
+    let kb = key_bytes as usize;
+    // SAFETY: bounds per contract; the two allocations are disjoint.
+    unsafe {
+        let ov = old.cast::<u64>();
+        let nv = new.cast::<u64>();
+        core::ptr::copy_nonoverlapping(ov, nv, pos);
+        nv.add(pos).write(val);
+        core::ptr::copy_nonoverlapping(ov.add(pos), nv.add(pos + 1), pop - pos);
+        let ok = old.add(map_keys_offset(pop));
+        let nk = new.add(map_keys_offset(pop + 1));
+        core::ptr::copy_nonoverlapping(ok, nk, pos * kb);
+        crate::mutate::write_packed(nk, pos, kb, key);
+        core::ptr::copy_nonoverlapping(ok.add(pos * kb), nk.add((pos + 1) * kb), (pop - pos) * kb);
+    }
+}
+
+/// Copies a map leaf into `new` (sized for `pop - 1` in its class) with
+/// the entry at `pos` removed — the class-crossing analogue of
+/// [`map_remove_at`]; see [`map_realloc_insert`].
+///
+/// # Safety
+///
+/// `old` must be a live map leaf of `pop >= 2` entries with
+/// `key_bytes`-byte keys; `new` must be a fresh allocation of
+/// `size_map(key_bytes, pop-1)` bytes; `pos < pop`.
+pub(crate) unsafe fn map_realloc_remove(
+    old: *const u8,
+    new: *mut u8,
+    key_bytes: u8,
+    pop: usize,
+    pos: usize,
+) {
+    let kb = key_bytes as usize;
+    // SAFETY: bounds per contract; the two allocations are disjoint.
+    unsafe {
+        let ov = old.cast::<u64>();
+        let nv = new.cast::<u64>();
+        core::ptr::copy_nonoverlapping(ov, nv, pos);
+        core::ptr::copy_nonoverlapping(ov.add(pos + 1), nv.add(pos), pop - 1 - pos);
+        let ok = old.add(map_keys_offset(pop));
+        let nk = new.add(map_keys_offset(pop - 1));
+        core::ptr::copy_nonoverlapping(ok, nk, pos * kb);
+        core::ptr::copy_nonoverlapping(
+            ok.add((pos + 1) * kb),
+            nk.add(pos * kb),
+            (pop - 1 - pos) * kb,
+        );
+    }
+}
+
 /// In-place removal from a map leaf (class-stable, see [`map_insert_at`]).
 ///
 /// # Safety

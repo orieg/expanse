@@ -334,6 +334,37 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                         // SAFETY: freshly shifted value area.
                         return (None, unsafe { base.cast::<u64>().add(pos) });
                     }
+                    if pop < cap {
+                        // Class-crossing grow that stays this leaf: a
+                        // direct copy with a gap. The materialize path
+                        // below costs a heap `Vec`, a per-entry unpack
+                        // and a per-entry repack; steady-state churn
+                        // crosses the small classes on every cycle, and
+                        // this was 48% of that arm. Aux (decode + pop0)
+                        // is preserved wholesale — no conversion, no
+                        // widening, the form and kb are unchanged.
+                        let new = a.alloc_bytes(leaf::size_map(kb, pop + 1));
+                        // SAFETY: live source leaf of `pop` entries;
+                        // fresh destination sized for `pop + 1`;
+                        // `pos <= pop` from lower_bound.
+                        unsafe {
+                            leaf::map_realloc_insert(base, new.as_ptr(), kb, pop, pos, k, val);
+                        }
+                        let saved_aux = *edge.aux_bytes();
+                        *edge = Edge::new_node(new.as_ptr(), t.as_u8());
+                        edge.set_aux_bytes(saved_aux);
+                        edge.set_pop0(kb, pop as u64);
+                        // SAFETY: the old leaf is unlinked above; freed
+                        // (or retired) with its allocation size.
+                        unsafe {
+                            a.free_bytes(
+                                core::ptr::NonNull::new(base).expect("leaf ptr"),
+                                leaf::size_map(kb, pop),
+                            );
+                        }
+                        // SAFETY: slot `pos` of the fresh value area.
+                        return (None, unsafe { new.as_ptr().cast::<u64>().add(pos) });
+                    }
                     // Slow path: materialize entries for the conversion.
                     // A skipping leaf's keys are widened to full
                     // `level`-byte suffixes with its decode prefix, so the
@@ -741,6 +772,32 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     edge.set_pop0(kb, pop as u64 - 2);
                     return Some(old);
                 }
+            }
+            if pop >= 2 && pop - 1 >= map_immed_max(level) {
+                // Class-crossing shrink that stays this leaf (the
+                // hysteresis band keeps it one below `map_immed_max`):
+                // direct copy with the slot elided — same rationale as
+                // the grow twin in `map_insert`.
+                // SAFETY: `pos < pop` (hit checked above); the old value
+                // is read before the leaf is unlinked.
+                let old = unsafe { *base.cast::<u64>().add(pos) };
+                let new = a.alloc_bytes(leaf::size_map(kb, pop - 1));
+                // SAFETY: live source leaf of `pop >= 2` entries; fresh
+                // destination sized for `pop - 1`.
+                unsafe { leaf::map_realloc_remove(base, new.as_ptr(), kb, pop, pos) };
+                let saved_aux = *edge.aux_bytes();
+                *edge = Edge::new_node(new.as_ptr(), t.as_u8());
+                edge.set_aux_bytes(saved_aux);
+                edge.set_pop0(kb, pop as u64 - 2);
+                // SAFETY: the old leaf is unlinked above; freed (or
+                // retired) with its allocation size.
+                unsafe {
+                    a.free_bytes(
+                        core::ptr::NonNull::new(base).expect("leaf ptr"),
+                        leaf::size_map(kb, pop),
+                    );
+                }
+                return Some(old);
             }
             // Slow path (class boundary or conversion).
             // SAFETY: live map leaf per contract.
