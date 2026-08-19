@@ -353,10 +353,15 @@ impl BranchB {
 }
 
 /// Uncompressed branch: a flat page of 256 child edges, direct-indexed by
-/// digit. 4 KiB; used only above the bitmap-density threshold.
+/// digit. One header line + 4 KiB of edges; used only above the
+/// bitmap-density threshold. The header exists for the Phase 7 per-node
+/// OCC version (a `BranchU` never skips, so it carries no level).
 #[derive(Debug)]
 #[repr(C, align(64))]
 pub struct BranchU {
+    /// Phase 7 OCC version counter (odd = mutation in progress).
+    pub version: u32,
+    _pad: [u8; 60],
     /// One edge per possible digit (null tag = empty subexpanse).
     pub edges: [Edge; BRANCH_FANOUT],
 }
@@ -366,6 +371,8 @@ impl BranchU {
     #[must_use]
     pub const fn new() -> Self {
         Self {
+            version: 0,
+            _pad: [0; 60],
             edges: [Edge::NULL; BRANCH_FANOUT],
         }
     }
@@ -472,7 +479,7 @@ const _: () = {
     assert!(offset_of!(BranchB, pop_counts) == 96);
     assert!(offset_of!(BranchB, version) == 112);
 
-    assert!(size_of::<BranchU>() == 4096);
+    assert!(size_of::<BranchU>() == 4096 + CACHE_LINE);
     assert!(align_of::<BranchU>() == CACHE_LINE);
 
     assert!(size_of::<LeafBitmap1>() == CACHE_LINE);

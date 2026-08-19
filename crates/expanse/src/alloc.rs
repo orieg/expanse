@@ -100,6 +100,14 @@ impl NodeAlloc {
         self.live_allocs.fetch_sub(1, Ordering::Relaxed);
     }
 
+    /// True once this tree is shared through a Phase 7 concurrent
+    /// wrapper: the mutation engine then maintains per-node OCC versions
+    /// (single-threaded trees skip those fences entirely).
+    #[inline]
+    pub(crate) fn occ_enabled(&self) -> bool {
+        self.deferred.get().is_some()
+    }
+
     /// Switches this handle to deferred reclamation through `collector`,
     /// permanently (Phase 7 concurrent wrappers call this once at
     /// construction). Idempotent for the same collector; a second call
@@ -151,7 +159,7 @@ mod tests {
         let n2 = a.alloc_node(BranchB::new(2));
         let n3 = a.alloc_node(BranchU::new());
         let leaf = a.alloc_bytes(21);
-        assert_eq!(a.bytes_in_use(), 64 + 128 + 4096 + 21);
+        assert_eq!(a.bytes_in_use(), 64 + 128 + 4160 + 21);
         assert_eq!(a.live_allocs(), 4);
 
         // Alignment: every allocation is cache-line aligned.

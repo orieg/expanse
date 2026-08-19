@@ -3,14 +3,14 @@
 //! reader never dereferences a freed node.
 //!
 //! The concurrent wrappers (`SyncExpanseSet`/`SyncExpanseMap` in `sync`)
-//! use one **tree-level** version: writers bracket every mutation with
-//! [`SeqVersion::begin`]/[`SeqVersion::end`]; readers [`SeqVersion::sample`]
-//! before walking, re-[`SeqVersion::validate`] before every node
-//! dereference and once more before returning, and retry on any change.
-//! The per-node version slots reserved in the branch and bitmap-leaf
-//! headers (`docs/ARCHITECTURE.md` §3) are the contention refinement of
-//! this same protocol — they narrow the retry window, they do not change
-//! it — and stay plain `u32` until benchmarks demand them.
+//! combine a **tree-level** [`SeqVersion`] (bracketing each write op;
+//! readers validate their root snapshot against it) with **per-node**
+//! versions in the branch headers: the mutation engine brackets each
+//! node's in-place mutation region — child-slot rewrites and the
+//! recursion beneath them — via [`version_begin_if`] (active only for
+//! concurrently shared trees), and readers validate hand-over-hand with
+//! [`node_sample`]/[`node_validate`]. Measured motivation and effect in
+//! `docs/BENCHMARKING.md` (concurrent read scaling).
 //!
 //! Under `--cfg loom` the atomics and sync types swap to loom's, and the
 //! `loom_` tests model-check writer/reader/reclamation interleavings.
@@ -92,6 +92,87 @@ impl SeqVersion {
         fence(Ordering::Acquire);
         self.0.load(Ordering::Relaxed) == snapshot
     }
+}
+
+/// Per-node seqlock over the plain `u32` version fields embedded in the
+/// node headers (`BranchHeader.version`, `BranchB.version`,
+/// `BranchU.version`). The single writer wraps each node's in-place
+/// mutation region — child-slot rewrites and the recursion beneath them
+/// included — in [`version_begin`]/[`version_end`]; readers
+/// [`node_sample`]/[`node_validate`] hand-over-hand along their walk.
+/// Same Boehm fence construction as [`SeqVersion`], `u32`-wide (a
+/// 2^31-write wrap mid-walk is not a practical hazard).
+///
+/// Writer stores are volatile through the ordinary `&mut` — never split,
+/// merged, or elided, with no raw-pointer aliasing against the engine's
+/// live borrows — while readers load the same field atomically; that
+/// mixed access is part of the documented seqlock caveat (`sync` docs).
+///
+/// Writer: opens a node's mutation bracket — only when the tree is
+/// concurrently shared (`NodeAlloc::occ_enabled`); single-threaded trees
+/// skip the volatile stores and fences entirely.
+#[inline]
+pub(crate) fn version_begin_if(a: &crate::alloc::NodeAlloc, v: &mut u32) {
+    if a.occ_enabled() {
+        version_begin(v);
+    }
+}
+
+/// Writer: closes a node's mutation bracket (see [`version_begin_if`]).
+#[inline]
+pub(crate) fn version_end_if(a: &crate::alloc::NodeAlloc, v: &mut u32) {
+    if a.occ_enabled() {
+        version_end(v);
+    }
+}
+
+/// Writer: marks a node mutation in progress (even → odd, then a release
+/// fence so the odd version is visible before any covered write).
+#[inline]
+pub(crate) fn version_begin(v: &mut u32) {
+    let cur = *v;
+    debug_assert!(cur % 2 == 0, "nested node write bracket");
+    // SAFETY: plain field write through the exclusive borrow; volatile
+    // only pins the store's shape for concurrent atomic readers.
+    unsafe { core::ptr::write_volatile(v, cur + 1) };
+    core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+}
+
+/// Writer: marks the node mutation complete (odd → even; the release
+/// fence orders every covered write before the even version).
+#[inline]
+pub(crate) fn version_end(v: &mut u32) {
+    let cur = *v;
+    debug_assert!(cur % 2 == 1, "version_end without begin");
+    core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+    // SAFETY: as in version_begin.
+    unsafe { core::ptr::write_volatile(v, cur + 1) };
+}
+
+/// Reader: samples a node version; `None` while a mutation is in
+/// progress (odd).
+///
+/// # Safety
+///
+/// `ptr` must point at a live node's version field (EBR-pinned).
+pub(crate) unsafe fn node_sample(ptr: *const u32) -> Option<u32> {
+    // SAFETY: valid, aligned version field per contract.
+    let a = unsafe { core::sync::atomic::AtomicU32::from_ptr(ptr.cast_mut()) };
+    let v = a.load(core::sync::atomic::Ordering::Acquire);
+    (v % 2 == 0).then_some(v)
+}
+
+/// Reader: true when the node version still equals `snap` (the acquire
+/// fence orders the caller's preceding loads before the re-read).
+///
+/// # Safety
+///
+/// Same contract as [`node_sample`].
+pub(crate) unsafe fn node_validate(ptr: *const u32, snap: u32) -> bool {
+    core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
+    // SAFETY: valid, aligned version field per contract.
+    let a = unsafe { core::sync::atomic::AtomicU32::from_ptr(ptr.cast_mut()) };
+    a.load(core::sync::atomic::Ordering::Relaxed) == snap
 }
 
 /// Number of epoch garbage bins. A retired node becomes freeable once

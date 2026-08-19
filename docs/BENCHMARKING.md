@@ -58,14 +58,14 @@ Map-flavor figures run ~8 B/key above the set figures (the stored value word). T
 
 ### Concurrent read scaling, `SyncExpanseMap` (measured: M1 MacBook Pro 8-core, load ≈ 3.7 with two ~25% background processes — magnitudes far beyond that noise; commit with this section; 1M random keys, 500 ms windows)
 
-| readers | reads/s idle | scale | reads/s under writer churn |
-|---|---|---|---|
-| 1 | 10.1 M | 1.0× | **3.4 K** |
-| 2 | 15.4 M | 1.5× | 3.4 M |
-| 4 | 32.8 M | 3.2× | 10.0 M |
-| 8 | 39.8 M | 3.9× | 21.3 M |
+| readers | reads/s idle | scale | churn (tree-level, before) | churn (per-node, after) |
+|---|---|---|---|---|
+| 1 | 10.1 M | 1.0× | **3.4 K** | **2.4 M** |
+| 2 | 15.4 M | 1.5× | 3.4 M | 6.2 M |
+| 4 | 32.8 M | 3.2× | 10.0 M | 10.0 M |
+| 8 | 39.8 M | 3.9× | 21.3 M | 12.5 M† |
 
-Reading: idle scaling is healthy; a full-speed writer (~2.5 M op/s) collapses optimistic reads — the tree-level seqlock version changes faster than a walk completes, so nearly every validation fails and readers fall back to the writer mutex (the single-reader 3.4 K/s row is pure mutex fallback). This is the **measured motivation for the per-node version refinement** (ARCHITECTURE.md §6 step 5): per-node validation only retries walks whose *touched nodes* changed. Caveat: a saturating writer is the worst case; read-mostly workloads sit near the idle column.
+Before: with one tree-level seqlock, a full-speed writer (~2.5 M op/s) collapsed optimistic reads — the version changed faster than a walk completed, so nearly every validation failed into the mutex fallback (the 3.4 K/s cell). After the **per-node refinement** (writers bracket each node's in-place mutations with that node's version; readers validate hand-over-hand): single-reader churn throughput rose **~700×** to 2.4 M/s and writer throughput rose to ~3.3 M op/s (fewer mutex handoffs). The remaining churn-vs-idle gap is the walk-start gate (the tree version still brackets whole ops for the root snapshot); † higher reader counts under a saturating writer shift toward retry pressure along the written path — the next refinement target if a real workload needs it. Single-threaded trees skip the version brackets entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
 
 ### libexpanse vs stock libjudy, JudyL surface (measured: M1 MacBook Pro under load — a VM at ~226% CPU co-resident — commit with this section; interleaved A/B medians of 5 rounds, so the *ratios* are meaningful while absolute ns are contaminated; harness: `crates/expanse-capi/examples/bench_vs_libjudy.rs`)
 
@@ -75,7 +75,7 @@ Reading: idle scaling is healthy; a full-speed writer (~2.5 M op/s) collapses op
 | random | 1M | 1.55× slower | **1.35× slower** | **0.93 (smaller)** |
 | clustered | 1M | **~parity (0.94–1.2×)** | **1.7× slower** | **0.93 (smaller)** |
 
-History of the insert column (each row measured at its commit): 13.5× → 3.7× (narrow-pointer synthesis) → **1.7×** (insert-path optimization: capacity-classed allocations with in-place shifts across leaves, bitmap-branch subarrays and bitmap-leaf value arrays, plus the fused single-walk `JudyLIns`). Sequential insert went 5.9× → 3.4×, random 1.9× → 1.35×. Memory cost of the classes is bounded by keeping ≤2-entry allocations exact (random map bytes/key briefly regressed 21→27 with naive rounding; 22.9 after the refinement, vs stock's 24.8). Remaining insert gap is profile-driven follow-up (immediate rebuilds, per-level dispatch).
+History of the insert column (each row measured at its commit): 13.5× → 3.7× (narrow-pointer synthesis) → **1.7×** (insert-path optimization: capacity-classed allocations with in-place shifts across leaves, bitmap-branch subarrays and bitmap-leaf value arrays, plus the fused single-walk `JudyLIns`). Sequential insert went 5.9× → 3.4×, random 1.9× → 1.35×. **Reproducibility correction (2026-08-18):** re-measuring three historical commits back-to-back on a quieter host put the random-insert ratio in a **1.8–2.3 band at every one of them** — including the commit the 1.35 was recorded at. The 1.35 reading was distorted by the co-resident VM load of its session (interleaving cancels drift, not cache-pressure asymmetry); treat the band, not the point, as the working baseline until a quiet-host run. Clustered insert (~1.7–1.8×) and all bytes/key columns reproduce exactly. Memory cost of the classes is bounded by keeping ≤2-entry allocations exact (random map bytes/key briefly regressed 21→27 with naive rounding; 22.9 after the refinement, vs stock's 24.8). Remaining insert gap is profile-driven follow-up (immediate rebuilds, per-level dispatch).
 
 Honest reading (v1 correctness-first, zero optimization passes yet):
 

@@ -3,17 +3,21 @@
 //! [`SyncExpanseSet`] / [`SyncExpanseMap`] wrap the single-threaded trees
 //! with the `occ` protocol:
 //!
-//! - **Writers** serialize on a mutex and bracket every mutation with the
-//!   tree-level [`SeqVersion`] (even → odd → even, release stores). All
-//!   node frees route through the epoch [`Collector`] (the tree's
-//!   `NodeAlloc` is switched to deferred reclamation at construction), so
-//!   a reader never dereferences freed memory.
-//! - **Readers** pin the current epoch, sample the version, and run a
-//!   **validated walk**: the version is re-checked after every load whose
-//!   result the walk is about to dereference, and once more before
-//!   returning. Any change restarts the walk; after a bounded number of
-//!   restarts the reader falls back to the writer mutex (guaranteed
-//!   progress under a write storm).
+//! - **Writers** serialize on a mutex; the tree-level [`SeqVersion`]
+//!   brackets each operation (covering the root state), and the engine
+//!   brackets every branch node's in-place mutation region with that
+//!   node's own version (`occ::version_begin_if` — active only for
+//!   concurrently shared trees). All node frees route through the epoch
+//!   [`Collector`] (the tree's `NodeAlloc` is switched to deferred
+//!   reclamation at construction), so a reader never dereferences freed
+//!   memory.
+//! - **Readers** pin the current epoch, validate the root snapshot
+//!   against the tree version, then walk **hand-over-hand**: each branch
+//!   node is sampled even before its fields are read and re-validated
+//!   before anything loaded from it is dereferenced; terminal payloads
+//!   are validated against their parent's version. Any failure restarts
+//!   the walk; after a bounded number of restarts the reader falls back
+//!   to the writer mutex (guaranteed progress under a write storm).
 //!
 //! ## Memory-model caveat (deliberate, documented)
 //!
@@ -68,35 +72,62 @@ struct Retry;
 /// Bounded optimistic restarts before falling back to the writer lock.
 const MAX_RETRIES: usize = 64;
 
-macro_rules! chk {
-    ($ver:expr, $snap:expr) => {
-        if !$ver.validate($snap) {
-            return Err(Retry);
+/// The reader's cover for the bytes it just loaded: the tree-level
+/// version for the root state, then — hand-over-hand — the version of
+/// the node each subsequent edge was loaded from (Phase 7 per-node OCC:
+/// the writer brackets every node's in-place mutations, child slots and
+/// the recursion beneath them included, with that node's version).
+enum Cover<'a> {
+    Tree(&'a SeqVersion, u64),
+    Node(*const u32, u32),
+}
+
+impl Cover<'_> {
+    #[inline]
+    fn ok(&self) -> bool {
+        match self {
+            Cover::Tree(v, s) => v.validate(*s),
+            // SAFETY: the node whose version this is stays EBR-live for
+            // the duration of the reader's pin.
+            Cover::Node(p, s) => unsafe { crate::occ::node_validate(*p, *s) },
         }
-    };
+    }
 }
 
 /// One validated step-by-step lookup over a (possibly mutating) tree.
+///
+/// Hand-over-hand: the root snapshot is validated against the tree
+/// version; each branch node is then read under its own version (sampled
+/// even before the reads, re-validated after), which also covers the
+/// terminal payloads of its children. Any failure restarts the walk.
 ///
 /// # Safety
 ///
 /// `snap` must be an even version sampled from `ver` after the tree's
 /// `NodeAlloc` switched to deferred reclamation, and the caller must hold
 /// an epoch pin for the whole call: every pointer loaded under a
-/// still-valid version then references EBR-live memory.
+/// still-valid cover then references EBR-live memory.
 unsafe fn walk_validated<const MAP: bool>(
     root: RootSnapshot,
     key: Key,
     ver: &SeqVersion,
     snap: u64,
 ) -> Result<Option<u64>, Retry> {
+    let mut cover = Cover::Tree(ver, snap);
+    macro_rules! chk {
+        () => {
+            if !cover.ok() {
+                return Err(Retry);
+            }
+        };
+    }
     // The root snapshot itself was copied before the first validation.
-    chk!(ver, snap);
+    chk!();
     let (mut edge, mut level): (Edge, u8) = match root {
         RootSnapshot::Empty => return Ok(None),
         RootSnapshot::Leaf { ptr, pop } => {
             // Root leaf: `pop` sorted u64 keys at the base (map: values
-            // follow the keys).
+            // follow the keys). Covered by the tree version throughout.
             let keys = ptr.cast::<u64>();
             let (mut lo, mut hi) = (0usize, pop);
             while lo < hi {
@@ -104,7 +135,7 @@ unsafe fn walk_validated<const MAP: bool>(
                 // SAFETY: `mid < pop` and the allocation is EBR-live;
                 // the loaded value is validated before use.
                 let k = unsafe { keys.add(mid).read() };
-                chk!(ver, snap);
+                chk!();
                 if k < key {
                     lo = mid + 1;
                 } else {
@@ -116,7 +147,7 @@ unsafe fn walk_validated<const MAP: bool>(
             }
             // SAFETY: in-bounds read of the EBR-live root leaf.
             let found = unsafe { keys.add(lo).read() } == key;
-            chk!(ver, snap);
+            chk!();
             if !found {
                 return Ok(None);
             }
@@ -125,7 +156,7 @@ unsafe fn walk_validated<const MAP: bool>(
             }
             // SAFETY: map root leaves store `pop` values behind the keys.
             let v = unsafe { keys.add(pop + lo).read() };
-            chk!(ver, snap);
+            chk!();
             return Ok(Some(v));
         }
         RootSnapshot::Tree { top, .. } => (top, 8),
@@ -140,7 +171,7 @@ unsafe fn walk_validated<const MAP: bool>(
         match tag {
             EdgeTag::Structural(t) => match t {
                 EdgeType::Null => {
-                    chk!(ver, snap);
+                    chk!();
                     return Ok(None);
                 }
 
@@ -149,6 +180,17 @@ unsafe fn walk_validated<const MAP: bool>(
                     // node pointer is EBR-live.
                     let node = edge.node_ptr();
                     let is_l3 = matches!(t, EdgeType::BranchL3);
+                    let vp: *const u32 = if is_l3 {
+                        // SAFETY: EBR-live node; field projection only.
+                        unsafe { &raw const (*node.cast::<BranchL3>()).hdr.version }
+                    } else {
+                        // SAFETY: as above.
+                        unsafe { &raw const (*node.cast::<BranchL7>()).hdr.version }
+                    };
+                    // SAFETY: live version field (EBR).
+                    let Some(nsnap) = (unsafe { crate::occ::node_sample(vp) }) else {
+                        return Err(Retry);
+                    };
                     // SAFETY: EBR-live branch node; loads validated below.
                     let (bl, num, digits, edges_base) = unsafe {
                         if is_l3 {
@@ -169,33 +211,47 @@ unsafe fn walk_validated<const MAP: bool>(
                             )
                         }
                     };
-                    chk!(ver, snap);
                     if !(2..=level).contains(&bl) || num > if is_l3 { 3 } else { 7 } {
                         return Err(Retry);
                     }
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                        // SAFETY: live version field (EBR).
+                        if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                            return Err(Retry);
+                        }
                         return Ok(None);
                     }
                     let d = digit(key, bl);
                     let Some(slot) = digits[..num].iter().position(|&x| x == d) else {
-                        chk!(ver, snap);
+                        // SAFETY: live version field (EBR).
+                        if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                            return Err(Retry);
+                        }
                         return Ok(None);
                     };
                     // SAFETY: `slot < num <= capacity`; in-bounds read of
-                    // the EBR-live node. Validated on the next iteration
-                    // before the copy is dereferenced.
+                    // the EBR-live node, validated just below.
                     edge = unsafe { edges_base.add(slot).read() };
-                    chk!(ver, snap);
+                    // SAFETY: live version field (EBR).
+                    if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                        return Err(Retry);
+                    }
+                    cover = Cover::Node(vp, nsnap);
                     level = bl - 1;
                 }
 
                 EdgeType::BranchB => {
                     let node = edge.node_ptr().cast::<BranchB>();
+                    // SAFETY: EBR-live node; field projection only.
+                    let vp: *const u32 = unsafe { &raw const (*node).version };
+                    // SAFETY: live version field (EBR).
+                    let Some(nsnap) = (unsafe { crate::occ::node_sample(vp) }) else {
+                        return Err(Retry);
+                    };
                     // SAFETY: EBR-live BranchB; loads validated below.
                     let (bl, bit, rank, sub) = unsafe {
                         let bl = (*node).level;
                         if !(2..=level).contains(&bl) {
-                            chk!(ver, snap);
                             return Err(Retry);
                         }
                         let d = digit(key, bl);
@@ -206,42 +262,64 @@ unsafe fn walk_validated<const MAP: bool>(
                             (*node).subarrays[(d >> 5) as usize],
                         )
                     };
-                    chk!(ver, snap);
                     if bl < level && !crate::get::decode_matches(&edge, key, bl, level) {
+                        // SAFETY: live version field (EBR).
+                        if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                            return Err(Retry);
+                        }
                         return Ok(None);
                     }
                     if !bit {
+                        // SAFETY: live version field (EBR).
+                        if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                            return Err(Retry);
+                        }
                         return Ok(None);
                     }
                     if sub.is_null() {
                         return Err(Retry);
                     }
-                    // SAFETY: bit set + validated → subarray holds at
-                    // least `rank + 1` EBR-live edges.
+                    // SAFETY: bit set + validated below → subarray holds
+                    // at least `rank + 1` EBR-live edges.
                     edge = unsafe { sub.add(rank).read() };
-                    chk!(ver, snap);
+                    // SAFETY: live version field (EBR).
+                    if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                        return Err(Retry);
+                    }
+                    cover = Cover::Node(vp, nsnap);
                     level = bl - 1;
                 }
 
                 EdgeType::BranchU => {
-                    let d = digit(key, level);
                     let node = edge.node_ptr().cast::<BranchU>();
+                    // SAFETY: EBR-live node; field projection only.
+                    let vp: *const u32 = unsafe { &raw const (*node).version };
+                    // SAFETY: live version field (EBR).
+                    let Some(nsnap) = (unsafe { crate::occ::node_sample(vp) }) else {
+                        return Err(Retry);
+                    };
+                    let d = digit(key, level);
                     // SAFETY: EBR-live BranchU; direct 256-slot index.
                     edge = unsafe { (*node).edges.as_ptr().add(d as usize).read() };
-                    chk!(ver, snap);
+                    // SAFETY: live version field (EBR).
+                    if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                        return Err(Retry);
+                    }
+                    cover = Cover::Node(vp, nsnap);
                     level -= 1;
                 }
 
                 EdgeType::LeafB1 => {
                     if level > 1 && !crate::get::decode_matches(&edge, key, 1, level) {
-                        chk!(ver, snap);
+                        chk!();
                         return Ok(None);
                     }
                     let d = digit(key, 1);
                     if MAP {
                         let node = edge.node_ptr().cast::<LeafBitmapL>();
                         // SAFETY: EBR-live LeafBitmapL; loads validated
-                        // before the value subarray is dereferenced.
+                        // (against the parent's cover) before the value
+                        // subarray is dereferenced.
                         let (bit, rank, vals) = unsafe {
                             (
                                 (*node).bitmap.test(d),
@@ -249,7 +327,7 @@ unsafe fn walk_validated<const MAP: bool>(
                                 (*node).values[(d >> 5) as usize],
                             )
                         };
-                        chk!(ver, snap);
+                        chk!();
                         if !bit {
                             return Ok(None);
                         }
@@ -258,13 +336,13 @@ unsafe fn walk_validated<const MAP: bool>(
                         }
                         // SAFETY: bit set + validated → `rank + 1` values.
                         let v = unsafe { vals.add(rank).read() };
-                        chk!(ver, snap);
+                        chk!();
                         return Ok(Some(v));
                     }
                     let node = edge.node_ptr().cast::<LeafBitmap1>();
                     // SAFETY: EBR-live LeafBitmap1.
                     let bit = unsafe { (*node).bitmap.test(d) };
-                    chk!(ver, snap);
+                    chk!();
                     return Ok(bit.then_some(0));
                 }
 
@@ -280,7 +358,7 @@ unsafe fn walk_validated<const MAP: bool>(
                         return Err(Retry);
                     }
                     if !crate::get::decode_matches(&edge, key, kb, level) {
-                        chk!(ver, snap);
+                        chk!();
                         return Ok(None);
                     }
                     let pop = edge.pop0(kb) as usize + 1;
@@ -293,7 +371,7 @@ unsafe fn walk_validated<const MAP: bool>(
                     // SAFETY: EBR-live leaf of (validated) `pop` keys;
                     // the slot is validated before the value read.
                     let found = unsafe { leaf::search(keys, pop, kb, key) };
-                    chk!(ver, snap);
+                    chk!();
                     let Some(slot) = found else {
                         return Ok(None);
                     };
@@ -302,7 +380,7 @@ unsafe fn walk_validated<const MAP: bool>(
                     }
                     // SAFETY: `slot < pop` values at the leaf base.
                     let v = unsafe { base.cast::<u64>().add(slot).read() };
-                    chk!(ver, snap);
+                    chk!();
                     return Ok(Some(v));
                 }
 
@@ -310,7 +388,7 @@ unsafe fn walk_validated<const MAP: bool>(
                     if MAP {
                         return Err(Retry);
                     }
-                    chk!(ver, snap);
+                    chk!();
                     return Ok(Some(0));
                 }
             },
@@ -336,7 +414,7 @@ unsafe fn walk_validated<const MAP: bool>(
                         break;
                     }
                 }
-                chk!(ver, snap);
+                chk!();
                 let Some(slot) = slot else {
                     return Ok(None);
                 };
@@ -349,7 +427,7 @@ unsafe fn walk_validated<const MAP: bool>(
                 // SAFETY: multi-key map immediates store an EBR-live
                 // array of `n` values in word 0 (validated tag + count).
                 let v = unsafe { edge.node_ptr().cast::<u64>().add(slot).read() };
-                chk!(ver, snap);
+                chk!();
                 return Ok(Some(v));
             }
         }

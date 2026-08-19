@@ -447,13 +447,20 @@ pub(crate) unsafe fn map_insert<const KEEP: bool>(
             };
             if let Some(slot) = found {
                 // SAFETY: slot within populated count; child well-formed.
+                // The node's version brackets the descent (Phase 7 OCC).
                 let res = unsafe {
                     if is_l3 {
                         let b = &mut *edge.node_ptr().cast::<BranchL3>();
-                        map_insert::<KEEP>(a, &mut b.edges[slot], key, val, bl - 1)
+                        crate::occ::version_begin_if(a, &mut b.hdr.version);
+                        let r = map_insert::<KEEP>(a, &mut b.edges[slot], key, val, bl - 1);
+                        crate::occ::version_end_if(a, &mut b.hdr.version);
+                        r
                     } else {
                         let b = &mut *edge.node_ptr().cast::<BranchL7>();
-                        map_insert::<KEEP>(a, &mut b.edges[slot], key, val, bl - 1)
+                        crate::occ::version_begin_if(a, &mut b.hdr.version);
+                        let r = map_insert::<KEEP>(a, &mut b.edges[slot], key, val, bl - 1);
+                        crate::occ::version_end_if(a, &mut b.hdr.version);
+                        r
                     }
                 };
                 if res.0.is_none() {
@@ -477,14 +484,20 @@ pub(crate) unsafe fn map_insert<const KEEP: bool>(
             let res = unsafe {
                 if is_l3 {
                     let b = &mut *edge.node_ptr().cast::<BranchL3>();
+                    crate::occ::version_begin_if(a, &mut b.hdr.version);
                     let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                     b.hdr.num += 1;
-                    map_insert::<KEEP>(a, &mut b.edges[slot], key, val, bl - 1)
+                    let r = map_insert::<KEEP>(a, &mut b.edges[slot], key, val, bl - 1);
+                    crate::occ::version_end_if(a, &mut b.hdr.version);
+                    r
                 } else {
                     let b = &mut *edge.node_ptr().cast::<BranchL7>();
+                    crate::occ::version_begin_if(a, &mut b.hdr.version);
                     let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                     b.hdr.num += 1;
-                    map_insert::<KEEP>(a, &mut b.edges[slot], key, val, bl - 1)
+                    let r = map_insert::<KEEP>(a, &mut b.edges[slot], key, val, bl - 1);
+                    crate::occ::version_end_if(a, &mut b.hdr.version);
+                    r
                 }
             };
             debug_assert!(res.0.is_none());
@@ -509,8 +522,12 @@ pub(crate) unsafe fn map_insert<const KEEP: bool>(
             if b.bitmap.test(d) {
                 let slot = b.bitmap.subexpanse_rank(d) as usize;
                 let sub = b.subarrays[(d >> 5) as usize];
+                // SAFETY: bitmap/subarray consistency invariant. The
+                // node's version brackets the descent (Phase 7 OCC).
+                crate::occ::version_begin_if(a, &mut b.version);
                 // SAFETY: bitmap/subarray consistency invariant.
                 let res = unsafe { map_insert::<KEEP>(a, &mut *sub.add(slot), key, val, bl - 1) };
+                crate::occ::version_end_if(a, &mut b.version);
                 if res.0.is_none() {
                     bump_pop0(edge, bl, 1);
                 }
@@ -533,6 +550,7 @@ pub(crate) unsafe fn map_insert<const KEEP: bool>(
             let sub = (d >> 5) as usize;
             let old_n = b.pop_counts[sub] as usize;
             let rank = b.bitmap.subexpanse_rank(d) as usize;
+            crate::occ::version_begin_if(a, &mut b.version);
             if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
                 // Fast path: spare class capacity — shift in place.
                 // SAFETY: the subarray holds cap_class(old_n) slots.
@@ -567,6 +585,7 @@ pub(crate) unsafe fn map_insert<const KEEP: bool>(
             let res = unsafe {
                 map_insert::<KEEP>(a, &mut *b.subarrays[sub].add(rank), key, val, bl - 1)
             };
+            crate::occ::version_end_if(a, &mut b.version);
             debug_assert!(res.0.is_none());
             bump_pop0(edge, bl, 1);
             (None, res.1)
@@ -578,8 +597,11 @@ pub(crate) unsafe fn map_insert<const KEEP: bool>(
             // SAFETY: live BranchU per contract.
             let b = unsafe { &mut *edge.node_ptr().cast::<BranchU>() };
             // SAFETY: child subtree well-formed (or null) per contract.
+            crate::occ::version_begin_if(a, &mut b.version);
+            // SAFETY: child subtree well-formed (or null) per contract.
             let res =
                 unsafe { map_insert::<KEEP>(a, &mut b.edges[d as usize], key, val, level - 1) };
+            crate::occ::version_end_if(a, &mut b.version);
             if res.0.is_none() {
                 bump_pop0(edge, level, 1);
             }
@@ -812,6 +834,7 @@ pub(crate) unsafe fn map_remove(
                 if is_l3 {
                     let b = &mut *edge.node_ptr().cast::<BranchL3>();
                     let slot = b.hdr.find(d)?;
+                    crate::occ::version_begin_if(a, &mut b.hdr.version);
                     let r = map_remove(a, &mut b.edges[slot], key, bl - 1);
                     if r.is_some() && b.edges[slot].is_null() {
                         linear_remove_slot(
@@ -822,10 +845,12 @@ pub(crate) unsafe fn map_remove(
                         );
                         b.hdr.num -= 1;
                     }
+                    crate::occ::version_end_if(a, &mut b.hdr.version);
                     r
                 } else {
                     let b = &mut *edge.node_ptr().cast::<BranchL7>();
                     let slot = b.hdr.find(d)?;
+                    crate::occ::version_begin_if(a, &mut b.hdr.version);
                     let r = map_remove(a, &mut b.edges[slot], key, bl - 1);
                     if r.is_some() && b.edges[slot].is_null() {
                         linear_remove_slot(
@@ -836,6 +861,7 @@ pub(crate) unsafe fn map_remove(
                         );
                         b.hdr.num -= 1;
                     }
+                    crate::occ::version_end_if(a, &mut b.hdr.version);
                     r
                 }
             };
@@ -882,8 +908,18 @@ pub(crate) unsafe fn map_remove(
             }
             let sub = (d >> 5) as usize;
             let rank = b.bitmap.subexpanse_rank(d) as usize;
+            // SAFETY: bitmap/subarray consistency invariant. Bracketed
+            // through the subarray shrink below (Phase 7 OCC).
+            crate::occ::version_begin_if(a, &mut b.version);
             // SAFETY: bitmap/subarray consistency invariant.
-            let old = unsafe { map_remove(a, &mut *b.subarrays[sub].add(rank), key, bl - 1)? };
+            let old = match unsafe { map_remove(a, &mut *b.subarrays[sub].add(rank), key, bl - 1) }
+            {
+                Some(v) => v,
+                None => {
+                    crate::occ::version_end_if(a, &mut b.version);
+                    return None;
+                }
+            };
             // SAFETY: child slot checked/live per invariant.
             let child_null = unsafe { (*b.subarrays[sub].add(rank)).is_null() };
             if child_null {
@@ -916,6 +952,7 @@ pub(crate) unsafe fn map_remove(
                 b.pop_counts[sub] = (old_n - 1) as u16;
                 b.bitmap.clear(d);
             }
+            crate::occ::version_end_if(a, &mut b.version);
             let digits = b.bitmap.count() as usize;
             if digits == 0 {
                 // SAFETY: empty node no longer referenced.
@@ -940,7 +977,16 @@ pub(crate) unsafe fn map_remove(
             // SAFETY: live BranchU per contract.
             let b = unsafe { &mut *edge.node_ptr().cast::<BranchU>() };
             // SAFETY: child subtree well-formed (or null) per contract.
-            let old = unsafe { map_remove(a, &mut b.edges[d as usize], key, level - 1)? };
+            crate::occ::version_begin_if(a, &mut b.version);
+            // SAFETY: child subtree well-formed (or null) per contract.
+            let old = match unsafe { map_remove(a, &mut b.edges[d as usize], key, level - 1) } {
+                Some(v) => v,
+                None => {
+                    crate::occ::version_end_if(a, &mut b.version);
+                    return None;
+                }
+            };
+            crate::occ::version_end_if(a, &mut b.version);
             let digits = b.edges.iter().filter(|e| !e.is_null()).count();
             if digits == 0 {
                 // SAFETY: empty node no longer referenced.
