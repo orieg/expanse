@@ -45,9 +45,38 @@ pub(crate) const BRANCHB_UP: usize = crate::types::BITMAP_TO_UNCOMPRESSED_THRESH
 ///
 /// `keys` must be valid for reads of `(slot + 1) * kb` bytes.
 pub(crate) unsafe fn read_packed(keys: *const u8, slot: usize, kb: usize) -> u64 {
+    // Width-monomorphized like `leaf::search_fixed`: at a runtime width
+    // the copy does not inline, and this sits in the innermost insert
+    // loop via `leaf::lower_bound` (issue #1 item 3).
+    // SAFETY: forwarded contract; each arm's KB equals `kb`.
+    unsafe {
+        match kb {
+            1 => read_packed_fixed::<1>(keys, slot),
+            2 => read_packed_fixed::<2>(keys, slot),
+            3 => read_packed_fixed::<3>(keys, slot),
+            4 => read_packed_fixed::<4>(keys, slot),
+            5 => read_packed_fixed::<5>(keys, slot),
+            6 => read_packed_fixed::<6>(keys, slot),
+            7 => read_packed_fixed::<7>(keys, slot),
+            _ => {
+                debug_assert!(false, "packed key width out of range: {kb}");
+                0
+            }
+        }
+    }
+}
+
+/// Reads the `slot`-th packed key at a compile-time width.
+///
+/// # Safety
+///
+/// `keys` must be valid for reads of `(slot + 1) * KB` bytes.
+#[inline]
+pub(crate) unsafe fn read_packed_fixed<const KB: usize>(keys: *const u8, slot: usize) -> u64 {
     let mut buf = [0u8; 8];
-    // SAFETY: in-bounds per this function's contract.
-    unsafe { buf[..kb].copy_from_slice(core::slice::from_raw_parts(keys.add(slot * kb), kb)) };
+    // SAFETY: in-bounds per this function's contract; `KB <= 7 < 8`, so
+    // the destination has room and the copy width is a constant.
+    unsafe { core::ptr::copy_nonoverlapping(keys.add(slot * KB), buf.as_mut_ptr(), KB) };
     u64::from_le_bytes(buf)
 }
 
@@ -57,10 +86,20 @@ pub(crate) unsafe fn read_packed(keys: *const u8, slot: usize, kb: usize) -> u64
 ///
 /// `keys` must be valid for writes of `(slot + 1) * kb` bytes.
 pub(crate) unsafe fn write_packed(keys: *mut u8, slot: usize, kb: usize, val: u64) {
-    // SAFETY: in-bounds per this function's contract.
+    let le = val.to_le_bytes();
+    // SAFETY: forwarded contract; the copy width is a constant in each
+    // arm, so it inlines rather than calling out (issue #1 item 3).
     unsafe {
-        core::slice::from_raw_parts_mut(keys.add(slot * kb), kb)
-            .copy_from_slice(&val.to_le_bytes()[..kb]);
+        match kb {
+            1 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot), 1),
+            2 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 2), 2),
+            3 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 3), 3),
+            4 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 4), 4),
+            5 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 5), 5),
+            6 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 6), 6),
+            7 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 7), 7),
+            _ => debug_assert!(false, "packed key width out of range: {kb}"),
+        }
     }
 }
 

@@ -64,11 +64,35 @@ pub const fn map_keys_offset(pop: usize) -> usize {
 #[inline]
 #[must_use]
 pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, needle: u64) -> usize {
+    debug_assert!((1..=7).contains(&key_bytes));
+    // SAFETY: forwarded contract; each arm's KB equals `key_bytes`.
+    unsafe {
+        match key_bytes {
+            1 => lower_bound_fixed::<1>(keys, pop, needle),
+            2 => lower_bound_fixed::<2>(keys, pop, needle),
+            3 => lower_bound_fixed::<3>(keys, pop, needle),
+            4 => lower_bound_fixed::<4>(keys, pop, needle),
+            5 => lower_bound_fixed::<5>(keys, pop, needle),
+            6 => lower_bound_fixed::<6>(keys, pop, needle),
+            _ => lower_bound_fixed::<7>(keys, pop, needle),
+        }
+    }
+}
+
+/// Binary search at a compile-time key width: the whole probe — load,
+/// widen, compare — becomes inline code instead of a call per step.
+/// This is the innermost loop of every leaf insert (issue #1 item 3).
+///
+/// # Safety
+///
+/// `keys` must be valid for reads of `KB * pop` bytes.
+#[inline]
+unsafe fn lower_bound_fixed<const KB: usize>(keys: *const u8, pop: usize, needle: u64) -> usize {
     let (mut lo, mut hi) = (0usize, pop);
     while lo < hi {
         let mid = (lo + hi) / 2;
         // SAFETY: mid < pop per the loop bounds and caller contract.
-        if unsafe { crate::mutate::read_packed(keys, mid, key_bytes as usize) } < needle {
+        if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {
             lo = mid + 1;
         } else {
             hi = mid;
