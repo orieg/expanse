@@ -7,6 +7,16 @@
 //! with `size_of`/`align_of`/`offset_of` const assertions (the Phase 3
 //! gate).
 //!
+//! "Node type" is meant strictly here, and the distinction became a
+//! soundness boundary in `alloc.rs`: the six `#[repr(C, align(64))]`
+//! structs below are allocated at [`CACHE_LINE`] because their pointers
+//! are cast from raw allocations. **Linear leaves are not among them** —
+//! they are packed byte storage addressed by computed offset, with no
+//! struct declaration and no alignment requirement beyond `u64`, and are
+//! allocated at the weaker `RAW_ALIGN`. Adding an `align(64)` declaration
+//! to a type means checking it is allocated via `alloc_node`, not
+//! `alloc_bytes`.
+//!
 //! The 16-byte [`Edge`] — the original literature's "Judy Pointer" (JP);
 //! the compat-layer name is reserved for `expanse-capi` — follows the
 //! published Judy IV word layout: word 0 is the child pointer (or immediate key payload), word 1 packs a

@@ -29,7 +29,6 @@ use loom::sync::atomic::{AtomicU64, AtomicUsize, Ordering, fence};
 // signature, and the model only needs to explore the atomics/locks.
 use std::sync::Arc;
 
-use crate::types::CACHE_LINE;
 use core::ptr::NonNull;
 use std::alloc::{Layout, dealloc};
 
@@ -201,6 +200,10 @@ const INACTIVE: usize = usize::MAX;
 struct Garbage {
     ptr: NonNull<u8>,
     bytes: usize,
+    /// Alignment the allocation was made with. Travels with the pointer
+    /// because the collector frees it later and elsewhere; a `dealloc`
+    /// layout mismatch is UB, not a leak.
+    align: usize,
 }
 
 // SAFETY: a retired allocation is exclusively owned by the collector —
@@ -253,12 +256,12 @@ impl Collector {
     }
 
     /// Queues an allocation for deferred freeing (writer side).
-    pub fn retire(&self, ptr: NonNull<u8>, bytes: usize) {
+    pub fn retire(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
         let e = self.epoch.load(Ordering::Relaxed);
         self.bins[e % BINS]
             .lock()
             .expect("garbage bin poisoned")
-            .push(Garbage { ptr, bytes });
+            .push(Garbage { ptr, bytes, align });
     }
 
     /// Attempts one epoch advance: succeeds when every pinned reader has
@@ -293,7 +296,7 @@ impl Collector {
                 .expect("garbage bin poisoned"),
         );
         for g in stale {
-            free_raw(g.ptr, g.bytes);
+            free_raw(g.ptr, g.bytes, g.align);
         }
     }
 
@@ -304,7 +307,7 @@ impl Collector {
         for bin in &self.bins {
             let stale = core::mem::take(&mut *bin.lock().expect("garbage bin poisoned"));
             for g in stale {
-                free_raw(g.ptr, g.bytes);
+                free_raw(g.ptr, g.bytes, g.align);
             }
         }
     }
@@ -317,8 +320,8 @@ impl Drop for Collector {
     }
 }
 
-fn free_raw(ptr: NonNull<u8>, bytes: usize) {
-    let layout = Layout::from_size_align(bytes, CACHE_LINE).expect("valid retired layout");
+fn free_raw(ptr: NonNull<u8>, bytes: usize, align: usize) {
+    let layout = Layout::from_size_align(bytes, align).expect("valid retired layout");
     // SAFETY: retired allocations come from `NodeAlloc` (same
     // size/alignment contract) and are freed exactly once, after their
     // grace period.
@@ -385,8 +388,12 @@ mod tests {
     use super::*;
     use std::alloc::alloc_zeroed;
 
+    /// Retired blocks must be freed at the alignment they were made
+    /// with, so the test allocates and retires at one constant.
+    const TEST_ALIGN: usize = 16;
+
     fn alloc_test_block(bytes: usize) -> NonNull<u8> {
-        let layout = Layout::from_size_align(bytes, CACHE_LINE).unwrap();
+        let layout = Layout::from_size_align(bytes, TEST_ALIGN).unwrap();
         // SAFETY: nonzero-size layout.
         NonNull::new(unsafe { alloc_zeroed(layout) }).unwrap()
     }
@@ -409,7 +416,7 @@ mod tests {
         let c = Arc::new(Collector::new());
         let reader = c.register();
         let pin = reader.pin();
-        c.retire(alloc_test_block(64), 64);
+        c.retire(alloc_test_block(64), 64, TEST_ALIGN);
         // A reader pinned at the current epoch permits one advance (it
         // only stalls once it lags), but its pin still precedes the
         // retirement's grace period: the block retired at its epoch

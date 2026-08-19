@@ -24,6 +24,21 @@ pub type Value = u64;
 /// exactly one (64 B) or two (128 B) lines.
 pub const CACHE_LINE: usize = 64;
 
+/// Alignment for **raw byte** allocations — packed linear leaves, edge
+/// subarrays, value subarrays. These are addressed by computed offset and
+/// are never cast to a `#[repr(C, align(64))]` node type, so they need
+/// only `u64` alignment.
+///
+/// 16 rather than 8 because that is glibc's `MALLOC_ALIGNMENT` on 64-bit:
+/// at or below it `alloc_zeroed` reaches `calloc`, which can hand back
+/// pre-zeroed pages; above it the allocator takes `aligned_alloc` plus an
+/// explicit memset. Per-function profiling measured `_int_malloc` at 11.2%
+/// and `_mid_memalign` at 4.7% of `map_insert/random` when every
+/// allocation asked for 64.
+///
+/// The six aligned node types keep [`CACHE_LINE`] via `alloc_node`.
+pub const RAW_ALIGN: usize = 16;
+
 /// Bytes in a full key, and the maximum decode depth of the tree.
 pub const MAX_LEVEL: u8 = 8;
 
