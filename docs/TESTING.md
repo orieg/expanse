@@ -59,9 +59,26 @@ Now: layer 1 on all platforms — Linux glibc, Linux musl (static-linked test ru
 ## Fuzzing and property testing (layers 4 and 2)
 
 - **Property tests** (`crates/expanse/tests/proptest_model.rs`): generated op sequences against `BTreeSet`/`BTreeMap`, with **shrinking** — a failure reduces to a minimal counterexample instead of a 6000-op transcript. Beyond op agreement they assert the structural validator, ordered iteration, rank/select round-trips (`by_count(count_below(k)) == k` across the whole population), and drain-to-zero-bytes. Counterexamples persist in `tests/*.proptest-regressions`; **commit that file when one appears** — it is a regression test the harness replays first. Not run under Miri (proptest resolves that path via `getcwd`, which Miri's isolation forbids; the in-crate `model_*` suites carry Miri's coverage).
-- **Fuzz targets** (`fuzz/fuzz_targets/`, cargo-fuzz + libFuzzer): `set_ops`, `map_ops`, `bytesmap_ops`. Same model-agreement contract, but the coverage-guided engine discovers op shapes nobody thought to generate. Keys come from a small template set (dense / two clusters / sparse / raw) so the budget goes to sequences rather than to rediscovering that clustered keys matter; the byte-string target gets embedded NULs, shared prefixes and hash collisions for free. Every run ends with rank/select agreement, a full drain, and a `mem_used() == 0` leak check.
+- **Fuzz targets** (`fuzz/fuzz_targets/`, cargo-fuzz + libFuzzer): `set_ops`, `map_ops`, `bytesmap_ops`, `strmap_ops`. Same model-agreement contract, but the coverage-guided engine discovers op shapes nobody thought to generate. Keys come from a small template set (dense / two clusters / sparse / raw) so the budget goes to sequences rather than to rediscovering that clustered keys matter; the byte-string target gets embedded NULs, shared prefixes and hash collisions for free. Every run ends with rank/select agreement, a full drain, and a `mem_used() == 0` leak check.
 - **In CI**: `fuzz-smoke` runs 60s per target per push (build check + shallow sweep); the nightly workflow runs 20 minutes per target with the corpus cached between nights, and uploads crash artifacts on failure. First local session: ~1.9M executions across the three targets, no crashes.
 - **A crash becomes a named test.** Reproduce with `cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<input>`, then write the minimal case into the normal suite — corpora and artifacts are gitignored, so a finding that lives only in `fuzz/artifacts/` is a finding that will be lost.
+
+### Depth is a coverage dimension, not just a size
+
+`ExpanseStrMap` is a meta-trie over 8-byte chunks, so **key length is
+tree depth**. Every layer of testing originally reached only shallow
+chains — the differential oracle's key generator topped out near 35
+bytes, about five levels — which left the deep-chain paths (chunk
+descent, emptied-node pruning, teardown) effectively uncovered in the
+regime where they differ from the shallow case. That is precisely where
+a recursive destructor overflows the stack, and it aborts *while
+freeing*, which no caller can guard against.
+
+Closed on three fronts: the oracle now generates keys up to 4 KiB (~512
+levels, bounded because stock's own recursion depth is not inspectable
+under clean-room rules); `strmap_ops` fuzzes depth explicitly with a
+`Deep` key template; and unit tests run 64 KiB keys on a deliberately
+small 256 KiB stack, so the guard does not depend on the default 8 MiB.
 
 ## Concurrency testing details (layer 6)
 

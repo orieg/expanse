@@ -97,7 +97,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [set_ops, map_ops, bytesmap_ops]
+        target: [set_ops, map_ops, bytesmap_ops, strmap_ops]
     steps:
       - uses: actions/checkout@v7
 
