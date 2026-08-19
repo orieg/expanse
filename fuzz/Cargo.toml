@@ -37,3 +37,10 @@ path = "fuzz_targets/bytesmap_ops.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "strmap_ops"
+path = "fuzz_targets/strmap_ops.rs"
+test = false
+doc = false
+bench = false

@@ -1261,14 +1261,32 @@ mod oracle {
     type FSlGet = unsafe extern "C" fn(*const c_void, *const u8, *mut c_void) -> *mut c_void;
     type FSlNav = unsafe extern "C" fn(*const c_void, *mut u8, *mut c_void) -> *mut c_void;
 
+    /// Longest key the oracle generates, and therefore the sweep-buffer
+    /// size. `ExpanseStrMap` is a meta-trie over 8-byte chunks, so key
+    /// length *is* tree depth: 4 KiB is ~512 levels, which is deep
+    /// enough to exercise the chunk-chain paths that short keys never
+    /// reach, while staying well inside any reasonable stack for the
+    /// stock library too (we cannot inspect its recursion depth —
+    /// clean-room — so the extreme 64 KiB cases live in our own unit
+    /// tests, not in a differential comparison).
+    const ORACLE_MAX_KEY: usize = 4096;
+
     fn strgen(rng: &mut XorShift) -> std::ffi::CString {
         const PREFIXES: [&[u8]; 4] = [b"", b"user:profile:", b"shared/deep/path/", b"x"];
         let p = PREFIXES[(rng.next() % 4) as usize];
-        let len = (rng.next() % 18) as usize;
+        // Mostly short keys (the common shape), with a deliberate tail of
+        // long ones: without a chunk-chain of real depth this comparison
+        // cannot see the class of bug that lives there.
+        let len = match rng.next() % 16 {
+            0 => (rng.next() as usize % (ORACLE_MAX_KEY - 64)) + 64, // deep
+            1 => (rng.next() as usize % 200) + 56,                   // medium
+            _ => (rng.next() % 18) as usize,                         // short
+        };
         let mut k = p.to_vec();
         for _ in 0..len {
             k.push((rng.next() % 255 + 1) as u8);
         }
+        k.truncate(ORACLE_MAX_KEY - 1); // leave room for the NUL
         std::ffi::CString::new(k).expect("NUL-free")
     }
 
@@ -1317,7 +1335,7 @@ mod oracle {
                     }
                 }
                 // Full lexicographic sweep must agree byte for byte.
-                let (mut b1, mut b2) = ([0u8; 64], [0u8; 64]);
+                let (mut b1, mut b2) = ([0u8; ORACLE_MAX_KEY], [0u8; ORACLE_MAX_KEY]);
                 let mut s1 = JudySLFirst(ours, b1.as_mut_ptr(), null_mut());
                 let mut s2 = o_first(theirs, b2.as_mut_ptr(), null_mut());
                 let mut n = 0u32;
