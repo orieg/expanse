@@ -273,6 +273,15 @@ jobs:
       - name: Differential oracle vs stock libjudy
         run: cargo test -p expanse-capi --features oracle
 
+      - name: Modern API smoke (expanse.h)
+        # The modern expanse_* surface must compile and run from real C:
+        # rank/select, concurrent readers, byte keys with embedded NULs.
+        run: |
+          cargo build --release -p expanse-capi
+          cc crates/expanse-capi/smoke/modern_api_smoke.c \
+            -Icrates/expanse-capi/include -Ltarget/release -lexpanse -o modern_smoke
+          LD_LIBRARY_PATH="$PWD/target/release" ./modern_smoke
+
       - name: Preload smoke (COMPAT.md gate G4)
         # An unmodified consumer compiled against the STOCK header and
         # library must behave identically under LD_PRELOAD of libexpanse.

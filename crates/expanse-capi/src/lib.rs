@@ -23,6 +23,8 @@
 
 use core::ffi::{c_int, c_void};
 use core::ptr::{NonNull, null_mut};
+pub mod modern;
+
 use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
