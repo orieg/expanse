@@ -164,6 +164,30 @@ pub(crate) unsafe fn map_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos
     }
 }
 
+/// Scans `pop` packed keys of a **compile-time** width for `key`'s low
+/// `KB` bytes.
+///
+/// Width-monomorphized on purpose: with a runtime width the slice
+/// comparison lowers to a `memcmp` call — which on macOS goes through a
+/// dynamic-linker stub, and showed up as ~6% of samples in the lookup
+/// profile (`examples/lookup_profile.rs`). At a constant width the
+/// candidate is a fixed-size array, so the comparison inlines to a
+/// couple of loads and a compare with no call at all.
+///
+/// # Safety
+///
+/// `keys` must be valid for reads of `KB * pop` bytes.
+#[inline]
+unsafe fn search_fixed<const KB: usize>(keys: *const u8, pop: usize, key: Key) -> Option<usize> {
+    let le = key.to_le_bytes();
+    let mut needle = [0u8; KB];
+    needle.copy_from_slice(&le[..KB]);
+    // SAFETY: `[u8; KB]` has alignment 1 and the caller guarantees
+    // `KB * pop` readable bytes, i.e. exactly `pop` such arrays.
+    let packed = unsafe { core::slice::from_raw_parts(keys.cast::<[u8; KB]>(), pop) };
+    packed.iter().position(|candidate| *candidate == needle)
+}
+
 /// Finds the slot of `key`'s low `key_bytes` bytes among `pop` packed keys.
 ///
 /// # Safety
@@ -172,14 +196,20 @@ pub(crate) unsafe fn map_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos
 #[inline]
 #[must_use]
 pub unsafe fn search(keys: *const u8, pop: usize, key_bytes: u8, key: Key) -> Option<usize> {
-    let kb = key_bytes as usize;
-    debug_assert!((1..=7).contains(&kb));
-    let needle = &key.to_le_bytes()[..kb];
-    // SAFETY: caller guarantees `key_bytes * pop` readable bytes.
-    let packed = unsafe { core::slice::from_raw_parts(keys, kb * pop) };
-    packed
-        .chunks_exact(kb)
-        .position(|candidate| candidate == needle)
+    debug_assert!((1..=7).contains(&key_bytes));
+    // SAFETY: forwarded caller contract; each arm's `KB` equals
+    // `key_bytes`, so the byte counts match.
+    unsafe {
+        match key_bytes {
+            1 => search_fixed::<1>(keys, pop, key),
+            2 => search_fixed::<2>(keys, pop, key),
+            3 => search_fixed::<3>(keys, pop, key),
+            4 => search_fixed::<4>(keys, pop, key),
+            5 => search_fixed::<5>(keys, pop, key),
+            6 => search_fixed::<6>(keys, pop, key),
+            _ => search_fixed::<7>(keys, pop, key),
+        }
+    }
 }
 
 #[cfg(test)]

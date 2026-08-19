@@ -224,6 +224,24 @@ jobs:
           test-workers: "1"
           test-runner-args: "--set-timeout 30"
 
+  memory-budget:
+    # docs/BENCHMARKING.md: bytes/key comes from deterministic allocator
+    # accounting, so unlike the timing tables it is load-immune and can
+    # gate a build. This catches a compression path silently ceasing to
+    # fire — the failure mode that produced the 21 -> 27 B/key random-map
+    # regression during the insert-path work.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: bytes/key within budget
+        run: cargo run --release -p expanse-trie --example bytes_per_key
+
   fuzz-smoke:
     # docs/TESTING.md layer 4. A short per-push run is a build check plus
     # a shallow sweep; the nightly workflow runs the long sessions where

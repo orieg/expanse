@@ -25,6 +25,59 @@ jobs:
       - name: Miri (full)
         run: cargo miri test -p expanse-trie
 
+  bench-report:
+    # Timing numbers from a shared CI runner are NOT publishable (see
+    # docs/BENCHMARKING.md rule 3) — they are a regression alarm. The
+    # harness interleaves arms on the same runner, so drift hits both
+    # sides and cancels in the ratio. Results are uploaded as an
+    # artifact; nothing here gates the build, because a noisy runner
+    # would produce false alarms.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install stock libjudy
+        timeout-minutes: 8
+        run: |
+          if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
+          for i in 1 2 3; do
+            timeout 120 sudo apt-get update || true
+            if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
+            sleep 15
+          done
+          exit 1
+
+      - name: Record machine state
+        run: |
+          {
+            echo "## Runner state"
+            uptime
+            nproc
+            echo
+          } | tee bench-report.txt
+
+      - name: libexpanse vs stock libjudy (paired ratios)
+        run: |
+          cargo run --release -p expanse-capi --example bench_vs_libjudy \
+            | tee -a bench-report.txt
+
+      - name: bytes/key (deterministic)
+        run: cargo run --release -p expanse-trie --example bytes_per_key | tee -a bench-report.txt
+
+      - name: Concurrent read scaling
+        run: cargo run --release -p expanse-trie --example concurrent_scaling | tee -a bench-report.txt
+
+      - name: Upload report
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-report
+          path: bench-report.txt
+
   fuzz-long:
     # docs/TESTING.md layer 4: the sessions where coverage-guided
     # exploration actually reaches new ladder transitions. The per-push

@@ -38,7 +38,8 @@ Performance claims are this project's reason to exist, so they follow the strict
 |---|---|---|
 | Lookup latency grid (hit/miss × distribution × population) | landed (`benches/compare.rs`) | vs `BTreeSet`/`BTreeMap`, `HashSet`/`HashMap`; timing numbers unpublished until a quiet-host run |
 | Insert throughput (cold build per distribution) | landed (`benches/compare.rs`) | same caveat |
-| bytes/key | landed (`examples/bytes_per_key.rs`) | deterministic allocator accounting — load-immune, results below |
+| bytes/key | landed (`examples/bytes_per_key.rs`) | deterministic allocator accounting — load-immune, results below; **gates CI** via the `memory-budget` job |
+| Lookup attribution | landed (`examples/lookup_profile.rs`) | sampling profile of a `get`-only loop — *where* time goes, not how long; sample distribution inside one process is far less load-sensitive than a cross-binary ratio |
 | Concurrent read scaling (1..N threads) | landed (`examples/concurrent_scaling.rs`) | Read-only and write-churn mixes; the per-node-OCC go/no-go instrument — first numbers below |
 | Full libjudy + ART comparison | Phase 8 remainder | Headline table, dedicated-host runs, driven through the capi surface |
 
@@ -55,6 +56,14 @@ Performance claims are this project's reason to exist, so they follow the strict
 | sparse `i << 40` (set) | 16.58 | 16.07 | **16.06** | one 16-byte edge per isolated key — the structural floor, not a chain cost (immediates absorb the remainders) |
 
 Map-flavor figures run ~8 B/key above the set figures (the stored value word). The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names. Unit-level anchor for the branch-targeted work: two 512-key clusters cost 192 structural bytes vs 960 under per-level chains (`branch_skip_clusters` tests, both flavors).
+
+### Attribution findings (measured: M1 MacBook Pro under load — attribution only, no timing claim; commit with this section)
+
+Profiling a 1M-key random `get` loop (`examples/lookup_profile.rs`, macOS `sample`) attributed **~6% of lookup samples to `memcmp` reached through a dynamic-linker stub**: the linear-leaf key comparison used a runtime-width slice compare, which lowers to a libc call rather than inline code. Monomorphizing the scan over the key width (`leaf::search_fixed::<KB>`) removed the call — the re-profiled binary contains **zero** `memcmp` references on that path. This is a *structural* claim (the call no longer exists), independent of machine load; the resulting ns/op change is unclaimed until a quiet-host run.
+
+Also visible: `EdgeTag::from_u8` not fully inlined (~1.7% of samples), which is the measured part of the "tag-dispatch overhead" hypothesis — small next to the leaf comparison, and worth revisiting only with the vs-stock harness on a quiet host.
+
+Method note: attribution is done inside a single process, so co-resident load shifts *how many* samples land, not *where* they land. A/B wall-clock ratios do not share that property and stay deferred (rule 2).
 
 ### Concurrent read scaling, `SyncExpanseMap` (measured: M1 MacBook Pro 8-core, load ≈ 3.7 with two ~25% background processes — magnitudes far beyond that noise; commit with this section; 1M random keys, 500 ms windows)
 

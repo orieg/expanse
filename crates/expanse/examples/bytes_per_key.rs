@@ -85,4 +85,46 @@ fn main() {
         }
     }
     println!("\n(map B/key includes the 8-byte value per key)");
+
+    // Regression gate (CI `memory-budget` job). These are deterministic
+    // allocator-accounting numbers — exact regardless of machine load —
+    // so unlike the timing tables they can gate a build. Ceilings sit a
+    // little above the measured values in docs/BENCHMARKING.md: they
+    // catch structural regressions (a compression path stopping firing),
+    // not the last few percent. Raise one deliberately, with the
+    // BENCHMARKING.md row updated in the same commit.
+    let budget: &[(&str, usize, f64, f64)] = &[
+        // dist, pop, set ceiling, map ceiling
+        ("sequential", 1_000_000, 0.10, 9.00),
+        ("clustered", 1_000_000, 0.50, 9.00),
+        ("clustered-wide", 1_000_000, 0.30, 9.00),
+        ("random", 1_000_000, 9.00, 18.00),
+        ("sparse", 1_000_000, 17.00, 17.00),
+    ];
+    let mut over = Vec::new();
+    for &(dist, pop, set_max, map_max) in budget {
+        let ks = keys(dist, pop);
+        let mut set = ExpanseSet::new();
+        let mut map = ExpanseMap::new();
+        for &k in &ks {
+            set.insert(k);
+            map.insert(k, !k);
+        }
+        let sb = set.mem_used() as f64 / set.len().max(1) as f64;
+        let mb = map.mem_used() as f64 / map.len().max(1) as f64;
+        if sb > set_max {
+            over.push(format!("{dist} set {sb:.2} > {set_max:.2} B/key"));
+        }
+        if mb > map_max {
+            over.push(format!("{dist} map {mb:.2} > {map_max:.2} B/key"));
+        }
+    }
+    if over.is_empty() {
+        println!("memory budget: all distributions within ceilings");
+    } else {
+        for line in &over {
+            println!("MEMORY BUDGET EXCEEDED: {line}");
+        }
+        std::process::exit(1);
+    }
 }
