@@ -773,7 +773,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     return Some(old);
                 }
             }
-            if pop >= 2 && pop - 1 >= map_immed_max(level) {
+            if pop >= 2 && pop > map_immed_max(level) {
                 // Class-crossing shrink that stays this leaf (the
                 // hysteresis band keeps it one below `map_immed_max`):
                 // direct copy with the slot elided — same rationale as
