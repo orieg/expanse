@@ -88,7 +88,7 @@ pub enum EdgeType {
 
 impl EdgeType {
     /// Decodes a structural tag from its raw byte, if it is one.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn from_u8(raw: u8) -> Option<Self> {
         match raw {
@@ -194,7 +194,7 @@ impl ImmedType {
     }
 
     /// Decodes an immediate tag from its raw byte, if it is one.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn from_u8(raw: u8) -> Option<Self> {
         Self::new(raw >> 4, (raw & 0x0F) + 1)
@@ -240,7 +240,7 @@ pub enum EdgeTag {
 
 impl EdgeTag {
     /// Decodes any valid tag byte.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn from_u8(raw: u8) -> Option<Self> {
         if let Some(t) = EdgeType::from_u8(raw) {
