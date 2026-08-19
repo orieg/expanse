@@ -96,17 +96,32 @@ impl XorShift {
 /// Population per arm. Callgrind runs ~50x slower than native, so this
 /// trades absolute scale for a job that finishes; it is still deep
 /// enough to build a multi-level trie on every distribution.
+///
+/// **Scale caveat, and why `POP_BIG` exists.** At 30k keys the whole
+/// structure is a few hundred KB and lives in cache: RAM hits measured
+/// 0.04% of memory accesses for *both* libraries. So at this size
+/// "estimated cycles track instruction counts" is nearly tautological
+/// and says nothing about memory layout — the question the chunked
+/// allocator of the original is supposed to answer. The large-population
+/// benchmarks below exceed last-level cache so that miss behaviour, not
+/// just instruction count, is exercised.
 const POP: usize = 30_000;
 
+/// Population for the cache-pressure arm: large enough that the tree
+/// exceeds last-level cache on a typical runner, so LL/RAM hit counts
+/// become load-bearing rather than rounding.
+const POP_BIG: usize = 1_500_000;
+
 fn keys(dist: &str) -> Vec<Word> {
+    let n = if dist.ends_with("_big") { POP_BIG } else { POP };
     let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
-    let mut out = Vec::with_capacity(POP);
-    match dist {
-        "sequential" => out.extend((0..POP as u64).map(|k| k as Word)),
-        "random" => out.extend((0..POP).map(|_| rng.next() as Word)),
+    let mut out = Vec::with_capacity(n);
+    match dist.trim_end_matches("_big") {
+        "sequential" => out.extend((0..n as u64).map(|k| k as Word)),
+        "random" => out.extend((0..n).map(|_| rng.next() as Word)),
         "clustered" => {
             let mut base = 0u64;
-            for i in 0..POP as u64 {
+            for i in 0..n as u64 {
                 if i % 256 == 0 {
                     base = rng.next() & !0xFF;
                 }
@@ -175,6 +190,8 @@ fn judyl_insert_stock(dist: &str) -> Word {
 #[bench::sequential("sequential")]
 #[bench::random("random")]
 #[bench::clustered("clustered")]
+// Cache-pressure arm: exceeds LLC, so LL/RAM hits matter (see POP_BIG).
+#[bench::random_big("random_big")]
 fn judyl_get_expanse(dist: &str) -> Word {
     let ks = keys(dist);
     let probes = shuffled(ks.clone());
@@ -201,6 +218,8 @@ fn judyl_get_expanse(dist: &str) -> Word {
 #[bench::sequential("sequential")]
 #[bench::random("random")]
 #[bench::clustered("clustered")]
+// Cache-pressure arm: exceeds LLC, so LL/RAM hits matter (see POP_BIG).
+#[bench::random_big("random_big")]
 fn judyl_get_stock(dist: &str) -> Word {
     let ks = keys(dist);
     let probes = shuffled(ks.clone());
