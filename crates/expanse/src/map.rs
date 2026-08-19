@@ -45,8 +45,21 @@ pub struct ExpanseMap {
 // allocations; not `Sync`, shared access goes through `SyncExpanseMap`.
 unsafe impl Send for ExpanseMap {}
 
-const fn leaf_size(pop: usize) -> usize {
-    16 * pop
+/// Allocation size of a root leaf holding `pop` entries: a class-sized
+/// key area followed by a class-sized value area. Class-sizing (as the
+/// trie's linear leaves already do) means consecutive inserts and
+/// deletes shift in place instead of reallocating on every operation —
+/// without it, every map a C caller keeps under 32 entries paid a
+/// malloc, a full copy and a free per insert (issue #1).
+fn leaf_size(pop: usize) -> usize {
+    16 * crate::leaf::cap_class(pop)
+}
+
+/// Offset of the value area inside a root leaf of `pop` entries. Keyed
+/// to the capacity class, not the population, so it does not move when
+/// the population changes within a class.
+fn leaf_values_offset(pop: usize) -> usize {
+    8 * crate::leaf::cap_class(pop)
 }
 
 impl ExpanseMap {
@@ -91,13 +104,14 @@ impl ExpanseMap {
     }
 
     fn leaf_parts(ptr: NonNull<u8>, pop: usize) -> (&'static [u64], *mut u64) {
-        // SAFETY: the root leaf holds `pop` keys then `pop` values, both
-        // 8-aligned (allocations are cache-line aligned). The lifetime is
-        // scoped by callers to the borrow of self.
+        // SAFETY: the root leaf holds `pop` keys in a class-sized area,
+        // then `pop` values in a second class-sized area, both 8-aligned
+        // (allocations are cache-line aligned). The lifetime is scoped by
+        // callers to the borrow of self.
         unsafe {
             (
                 core::slice::from_raw_parts(ptr.as_ptr().cast::<u64>(), pop),
-                ptr.as_ptr().cast::<u64>().add(pop),
+                ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>(),
             )
         }
     }
@@ -212,6 +226,23 @@ impl ExpanseMap {
                         }
                     }
                     Err(at) if pop < ROOT_LEAF_CAP => {
+                        if leaf_size(pop + 1) == leaf_size(pop) {
+                            // Spare class capacity: shift both areas in
+                            // place, no allocation and no copy of the
+                            // whole leaf.
+                            // SAFETY: same class, so the areas keep their
+                            // offsets and the extra slot is in bounds.
+                            unsafe {
+                                let base = ptr.as_ptr().cast::<u64>();
+                                core::ptr::copy(base.add(at), base.add(at + 1), pop - at);
+                                base.add(at).write(key);
+                                let v = ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>();
+                                core::ptr::copy(v.add(at), v.add(at + 1), pop - at);
+                                v.add(at).write(val);
+                            }
+                            self.root = Root::Leaf { ptr, pop: pop + 1 };
+                            return None;
+                        }
                         let new = self.alloc.alloc_bytes(leaf_size(pop + 1));
                         // SAFETY: copy keys and values around the insertion
                         // point into the fresh (pop + 1)-entry leaf.
@@ -221,7 +252,7 @@ impl ExpanseMap {
                             nk.add(at).write(key);
                             nk.add(at + 1)
                                 .copy_from_nonoverlapping(keys.as_ptr().add(at), pop - at);
-                            let nv = nk.add(pop + 1);
+                            let nv = new.as_ptr().add(leaf_values_offset(pop + 1)).cast::<u64>();
                             nv.copy_from_nonoverlapping(vals, at);
                             nv.add(at).write(val);
                             nv.add(at + 1)
@@ -301,7 +332,7 @@ impl ExpanseMap {
                         nk.copy_from_nonoverlapping(keys.as_ptr(), at);
                         nk.add(at)
                             .copy_from_nonoverlapping(keys.as_ptr().add(at + 1), pop - 1 - at);
-                        let nv = nk.add(pop - 1);
+                        let nv = new.as_ptr().add(leaf_values_offset(pop - 1)).cast::<u64>();
                         nv.copy_from_nonoverlapping(vals, at);
                         nv.add(at)
                             .copy_from_nonoverlapping(vals.add(at + 1), pop - 1 - at);
@@ -532,7 +563,11 @@ impl ExpanseMap {
             // SAFETY: in-bounds writes: keys then values.
             unsafe {
                 new.as_ptr().cast::<u64>().add(written).write(k);
-                new.as_ptr().cast::<u64>().add(n + written).write(v);
+                new.as_ptr()
+                    .add(leaf_values_offset(n))
+                    .cast::<u64>()
+                    .add(written)
+                    .write(v);
             }
             written += 1;
             from = k.checked_add(1);

@@ -149,6 +149,35 @@ fn set_immediate_updates_do_not_allocate() {
     assert_eq!(n, 0, "set immediate churn used {n} scratch allocations");
 }
 
+/// Small arrays — the ones a C caller keeps under the root-leaf cap —
+/// must not allocate on every insert. Before capacity classes reached the
+/// root leaf, each insert here cost a malloc, a full copy and a free.
+#[test]
+fn small_arrays_do_not_allocate_per_insert() {
+    let mut map = ExpanseMap::new();
+    let n = allocations_during(|| {
+        for k in 0..30u64 {
+            map.insert(k * 7, k);
+        }
+    });
+    // Class-sized growth: 1, 2, 4, 8, 12, 16, 20, 24, 28, 32 slots — an
+    // allocation only when the class changes, not once per insert.
+    assert!(n <= 12, "30 inserts into a small map allocated {n} times");
+    assert_eq!(map.len(), 30);
+    for k in 0..30u64 {
+        assert_eq!(map.get(k * 7), Some(k));
+    }
+
+    let mut set = ExpanseSet::new();
+    let n = allocations_during(|| {
+        for k in 0..30u64 {
+            set.insert(k * 7);
+        }
+    });
+    assert!(n <= 12, "30 inserts into a small set allocated {n} times");
+    assert_eq!(set.len(), 30);
+}
+
 /// Lookups must never allocate, on any distribution or form.
 #[test]
 fn lookups_do_not_allocate() {

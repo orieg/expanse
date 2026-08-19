@@ -173,29 +173,51 @@ impl Edge {
     /// the low `level` bytes of the aux field (little-endian).
     #[inline]
     #[must_use]
-    pub const fn pop0(&self, level: u8) -> u64 {
-        debug_assert!(level >= 1 && level <= 7);
-        let mut v = 0u64;
-        let mut i = level as usize;
-        while i > 0 {
-            i -= 1;
-            v = (v << 8) | self.aux[i] as u64;
-        }
-        v
+    pub fn pop0(&self, level: u8) -> u64 {
+        debug_assert!((1..=7).contains(&level));
+        // One masked load. The byte-at-a-time loop this replaces compiled
+        // to ~22 instructions and 6 data-dependent branches — a serial
+        // dependent-load chain — over a field that is already a
+        // contiguous little-endian integer. Insert paid it twice per
+        // level, on the way down and on the way back up (issue #1).
+        self.aux_word() & (u64::MAX >> (64 - 8 * u32::from(level)))
+    }
+
+    /// The `aux` bytes and the tag byte read as one little-endian word:
+    /// `aux[0]` is the low byte, `tag` the high byte.
+    ///
+    /// `Edge` is `repr(C)` and 8-byte aligned (word 0 is a union over a
+    /// pointer), with `aux` at offset 8 and `tag` at 15 — both
+    /// const-asserted at the bottom of this file — so the pair is exactly
+    /// the second 64-bit word of the struct.
+    #[inline]
+    fn aux_word(&self) -> u64 {
+        // SAFETY: the read takes its provenance from the whole `Edge`
+        // (not from the `aux` field alone), stays inside the 16-byte
+        // object, and is 8-byte aligned by the struct's own alignment.
+        unsafe { (&raw const *self).cast::<u64>().add(1).read() }
+    }
+
+    /// Writes the `aux`/tag word read by [`Self::aux_word`].
+    #[inline]
+    fn set_aux_word(&mut self, w: u64) {
+        // SAFETY: as in `aux_word`; same object, same offset, same
+        // alignment, and `Edge` has no padding to invalidate.
+        unsafe { (&raw mut *self).cast::<u64>().add(1).write(w) };
     }
 
     /// Stores `pop0` for a child at `level` (1..=7) into the low `level`
     /// aux bytes. `pop0` must fit in `level` bytes (a level-`level` subtree
     /// holds at most `256^level` keys).
     #[inline]
-    pub const fn set_pop0(&mut self, level: u8, pop0: u64) {
-        debug_assert!(level >= 1 && level <= 7);
+    pub fn set_pop0(&mut self, level: u8, pop0: u64) {
+        debug_assert!((1..=7).contains(&level));
         debug_assert!(level == 7 || pop0 < 1u64 << (level as u32 * 8));
-        let mut i = 0;
-        while i < level as usize {
-            self.aux[i] = (pop0 >> (i * 8)) as u8;
-            i += 1;
-        }
+        // Masked read-modify-write of the same word `pop0` reads, so the
+        // decode bytes above `level` and the tag byte are preserved.
+        let mask = u64::MAX >> (64 - 8 * u32::from(level));
+        let w = self.aux_word();
+        self.set_aux_word((w & !mask) | (pop0 & mask));
     }
 
     /// The narrow-pointer decode bytes for a child at `level`: the high
@@ -458,6 +480,10 @@ const _: () = {
     assert!(align_of::<Edge>() == 8);
     assert!(offset_of!(Edge, aux) == 8);
     assert!(offset_of!(Edge, tag) == 15);
+    // `Edge::aux_word` reads `aux` + `tag` as one little-endian word, so
+    // `aux[0]` must be the low byte. The crate is 64-bit-only already;
+    // this widens that gate to endianness.
+    assert!(cfg!(target_endian = "little"));
 
     assert!(size_of::<BranchHeader>() == 16);
     assert!(offset_of!(BranchHeader, digits) == 8);

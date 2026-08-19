@@ -18,6 +18,13 @@ use core::ptr::NonNull;
 /// Maximum population held in the root leaf before a real trie is built.
 pub const ROOT_LEAF_CAP: usize = 31;
 
+/// Allocation size of a root leaf holding `pop` keys. Class-sized (like
+/// the trie's linear leaves) so consecutive inserts and deletes shift in
+/// place instead of reallocating on every operation.
+fn root_leaf_size(pop: usize) -> usize {
+    8 * crate::leaf::cap_class(pop)
+}
+
 #[derive(Clone, Copy)]
 enum Root {
     Empty,
@@ -117,7 +124,7 @@ impl ExpanseSet {
     pub fn insert(&mut self, key: Key) -> bool {
         match &mut self.root {
             Root::Empty => {
-                let keys = self.alloc.alloc_bytes(8);
+                let keys = self.alloc.alloc_bytes(root_leaf_size(1));
                 // SAFETY: fresh 8-byte allocation, cache-line aligned.
                 unsafe { keys.as_ptr().cast::<u64>().write(key) };
                 self.root = Root::Leaf { keys, pop: 1 };
@@ -132,7 +139,23 @@ impl ExpanseSet {
                     return false;
                 };
                 if pop < ROOT_LEAF_CAP {
-                    let new = self.alloc.alloc_bytes(8 * (pop + 1));
+                    if root_leaf_size(pop + 1) == root_leaf_size(pop) {
+                        // Spare class capacity: shift in place, no
+                        // allocation. Without this every insert into a
+                        // small array — i.e. every array a C caller keeps
+                        // under 32 entries — paid a malloc, a full copy
+                        // and a free (issue #1).
+                        // SAFETY: the allocation holds the same class of
+                        // slots for `pop + 1` as for `pop`.
+                        unsafe {
+                            let base = keys.as_ptr().cast::<u64>();
+                            core::ptr::copy(base.add(at), base.add(at + 1), pop - at);
+                            base.add(at).write(key);
+                        }
+                        self.root = Root::Leaf { keys, pop: pop + 1 };
+                        return true;
+                    }
+                    let new = self.alloc.alloc_bytes(root_leaf_size(pop + 1));
                     // SAFETY: copy `pop` keys around the insertion point
                     // into the fresh (pop + 1)-slot allocation.
                     unsafe {
@@ -141,7 +164,7 @@ impl ExpanseSet {
                         dst.add(at).write(key);
                         dst.add(at + 1)
                             .copy_from_nonoverlapping(slice.as_ptr().add(at), pop - at);
-                        self.alloc.free_bytes(keys, 8 * pop);
+                        self.alloc.free_bytes(keys, root_leaf_size(pop));
                     }
                     self.root = Root::Leaf {
                         keys: new,
@@ -159,7 +182,7 @@ impl ExpanseSet {
                     let ins = unsafe { mutate::insert_dyn(&self.alloc, &mut top, key, 8) };
                     debug_assert!(ins);
                     // SAFETY: old root leaf no longer referenced.
-                    unsafe { self.alloc.free_bytes(keys, 8 * pop) };
+                    unsafe { self.alloc.free_bytes(keys, root_leaf_size(pop)) };
                     self.root = Root::Tree {
                         top,
                         pop: pop as u64 + 1,
@@ -207,10 +230,10 @@ impl ExpanseSet {
                 };
                 if pop == 1 {
                     // SAFETY: last key removed; free the leaf.
-                    unsafe { self.alloc.free_bytes(keys, 8) };
+                    unsafe { self.alloc.free_bytes(keys, root_leaf_size(1)) };
                     self.root = Root::Empty;
                 } else {
-                    let new = self.alloc.alloc_bytes(8 * (pop - 1));
+                    let new = self.alloc.alloc_bytes(root_leaf_size(pop - 1));
                     // SAFETY: copy the surviving keys into the smaller
                     // allocation.
                     unsafe {
@@ -218,7 +241,7 @@ impl ExpanseSet {
                         dst.copy_from_nonoverlapping(slice.as_ptr(), at);
                         dst.add(at)
                             .copy_from_nonoverlapping(slice.as_ptr().add(at + 1), pop - 1 - at);
-                        self.alloc.free_bytes(keys, 8 * pop);
+                        self.alloc.free_bytes(keys, root_leaf_size(pop));
                     }
                     self.root = Root::Leaf {
                         keys: new,
@@ -254,7 +277,7 @@ impl ExpanseSet {
             Root::Empty => {}
             Root::Leaf { keys, pop } => {
                 // SAFETY: freeing the root leaf exactly once.
-                unsafe { self.alloc.free_bytes(*keys, 8 * *pop) };
+                unsafe { self.alloc.free_bytes(*keys, root_leaf_size(*pop)) };
             }
             Root::Tree { top, .. } => {
                 // SAFETY: freeing the whole owned trie exactly once.
@@ -431,7 +454,7 @@ impl ExpanseSet {
         };
         let n = *pop as usize;
         debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
-        let leaf = self.alloc.alloc_bytes(8 * n);
+        let leaf = self.alloc.alloc_bytes(root_leaf_size(n));
         let mut written = 0usize;
         let mut from = Some(0u64);
         // SAFETY: engine-maintained trie per this type's invariants.
