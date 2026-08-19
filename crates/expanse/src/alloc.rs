@@ -40,6 +40,11 @@ pub struct NodeAlloc {
     /// tree's mutation stack (see [`Self::assert_bracketed`]).
     #[cfg(debug_assertions)]
     bracket_depth: AtomicUsize,
+    /// Cumulative allocation count (never decremented). Lets a test
+    /// separate the engine's own node/leaf allocations from incidental
+    /// scratch allocations elsewhere in a code path — see
+    /// `tests/no_heap_churn.rs`.
+    total_allocs: AtomicUsize,
 }
 
 impl NodeAlloc {
@@ -61,6 +66,15 @@ impl NodeAlloc {
         self.live_allocs.load(Ordering::Relaxed)
     }
 
+    /// Cumulative allocations made through this handle since it was
+    /// created (never decremented). Used to separate the engine's own
+    /// node and leaf allocations from incidental scratch allocations in
+    /// the same code path.
+    #[must_use]
+    pub fn total_allocs(&self) -> usize {
+        self.total_allocs.load(Ordering::Relaxed)
+    }
+
     fn layout_for(bytes: usize) -> Layout {
         debug_assert!(bytes > 0);
         // SAFETY-adjacent invariant: CACHE_LINE is a nonzero power of two,
@@ -79,6 +93,7 @@ impl NodeAlloc {
         };
         self.bytes_in_use.fetch_add(bytes, Ordering::Relaxed);
         self.live_allocs.fetch_add(1, Ordering::Relaxed);
+        self.total_allocs.fetch_add(1, Ordering::Relaxed);
         ptr
     }
 
@@ -207,9 +222,9 @@ mod tests {
         // Shared tree with a bracket open: also fine.
         a.defer_to(std::sync::Arc::new(crate::occ::Collector::new()));
         let mut version = 0u32;
-        crate::occ::version_begin_if(&a, &mut version);
+        crate::occ::version_begin_if::<true>(&a, &mut version);
         a.assert_bracketed();
-        crate::occ::version_end_if(&a, &mut version);
+        crate::occ::version_end_if::<true>(&a, &mut version);
     }
 
     #[test]

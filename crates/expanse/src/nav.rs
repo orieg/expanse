@@ -66,8 +66,12 @@ fn skip_parts(edge: &Edge, kb: u8, level: u8) -> (u64, u32) {
     (dv, 8 * u32::from(kb))
 }
 
-/// Reads the sorted key list of an immediate edge for either flavor.
-fn immed_suffixes<const MAP: bool>(edge: &Edge, im: crate::types::ImmedType) -> Vec<u64> {
+/// Reads the sorted key list of an immediate edge for either flavor
+/// (stack-resident: immediates never exceed 15 keys).
+fn immed_suffixes<const MAP: bool>(
+    edge: &Edge,
+    im: crate::types::ImmedType,
+) -> crate::mutate::ImmedBuf<u64> {
     if MAP {
         crate::mutate::immed_map_keys(edge, im)
     } else {

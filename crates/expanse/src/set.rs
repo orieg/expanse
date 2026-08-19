@@ -81,6 +81,15 @@ impl ExpanseSet {
         self.alloc.bytes_in_use()
     }
 
+    /// Cumulative node/leaf allocations made by this container since it
+    /// was created (diagnostics; see `tests/no_heap_churn.rs`, which
+    /// subtracts these from the process-wide count to isolate
+    /// incidental scratch allocation).
+    #[must_use]
+    pub fn total_node_allocs(&self) -> usize {
+        self.alloc.total_allocs()
+    }
+
     fn root_leaf_keys(&self) -> &[u64] {
         match &self.root {
             Root::Leaf { keys, pop } => {
@@ -143,11 +152,11 @@ impl ExpanseSet {
                     let mut top = Edge::NULL;
                     for &k in slice {
                         // SAFETY: trie built and owned by self.alloc.
-                        let ins = unsafe { mutate::insert(&self.alloc, &mut top, k, 8) };
+                        let ins = unsafe { mutate::insert_dyn(&self.alloc, &mut top, k, 8) };
                         debug_assert!(ins);
                     }
                     // SAFETY: same trie.
-                    let ins = unsafe { mutate::insert(&self.alloc, &mut top, key, 8) };
+                    let ins = unsafe { mutate::insert_dyn(&self.alloc, &mut top, key, 8) };
                     debug_assert!(ins);
                     // SAFETY: old root leaf no longer referenced.
                     unsafe { self.alloc.free_bytes(keys, 8 * pop) };
@@ -160,7 +169,7 @@ impl ExpanseSet {
             }
             Root::Tree { top, pop } => {
                 // SAFETY: trie maintained/owned by this set's engine.
-                let inserted = unsafe { mutate::insert(&self.alloc, top, key, 8) };
+                let inserted = unsafe { mutate::insert_dyn(&self.alloc, top, key, 8) };
                 if inserted {
                     *pop += 1;
                 }
@@ -220,7 +229,7 @@ impl ExpanseSet {
             }
             Root::Tree { top, pop } => {
                 // SAFETY: trie maintained/owned by this set's engine.
-                let removed = unsafe { mutate::remove(&self.alloc, top, key, 8) };
+                let removed = unsafe { mutate::remove_dyn(&self.alloc, top, key, 8) };
                 if removed {
                     *pop -= 1;
                     if *pop == 0 {
