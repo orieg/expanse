@@ -78,6 +78,33 @@ Interpretation rules, so the comment is not over-read:
 
 Map-flavor figures run ~8 B/key above the set figures (the stored value word). The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names. Unit-level anchor for the branch-targeted work: two 512-key clusters cost 192 structural bytes vs 960 under per-level chains (`branch_skip_clusters` tests, both flavors).
 
+### Instruction counts: issue #1 items 1-3 (measured: callgrind via the `instruction-counts` CI job; deterministic, so these are exact — commit with this section)
+
+Controlled A/B against a branch with all three items reverted, same harness and job. Instructions retired, 50k keys per benchmark; negative is less work.
+
+| benchmark | instructions | est. cycles |
+|---|---:|---:|
+| `set_insert/random` | **−16.95%** | −17.62% |
+| `map_iterate/random` | −14.47% | −15.42% |
+| `set_contains/random` | −14.11% | −14.95% |
+| `map_ins_slot/random` | −12.28% | −12.62% |
+| `map_insert/random` | −12.06% | −12.49% |
+| `set_insert/sequential` | −10.73% | −11.42% |
+| `map_get/random` | −10.43% | −10.98% |
+| `map_insert/small` | −8.90% | −9.95% |
+| `map_insert/sequential` | −8.07% | −8.18% |
+| `map_remove/random` | −7.44% | −8.36% |
+| `set_insert/clustered` | −6.88% | −7.83% |
+| `map_get/sequential` | −6.02% | −6.28% |
+| `map_insert/clustered` | −2.98% | −3.95% |
+| `map_get/clustered` | −2.26% | −3.08% |
+
+All 14 benchmarks improved; nothing regressed. The three changes were: the per-level OCC check hoisted into a const generic (removing ~10 atomic loads per mutation), immediate-edge key handling moved from `Vec` to a stack buffer (removing a malloc/free per insert into an immediate), and width-monomorphized packed key access (`read_packed`/`write_packed`/`lower_bound`).
+
+Two things this table is **not**. It is not a wall-clock claim — instructions are cost, and how much of it a machine hides is a separate question needing a quiet host. And it is not comparable to the vs-stock ratios: those are wall-clock on different hardware. What it *is*: reproducible evidence that the engine does measurably less work, at a resolution (0.1%) neither available environment can reach with a timer.
+
+Contrast with the `memcmp` episode below, where wall-clock at n=1 suggested a 7-11% lookup win that a second run erased. Same class of change, same magnitude — but here the measurement can actually resolve it.
+
 ### Attribution findings (measured: M1 MacBook Pro under load — attribution only, no timing claim; commit with this section)
 
 Profiling a 1M-key random `get` loop (`examples/lookup_profile.rs`, macOS `sample`) attributed **~6% of lookup samples to `memcmp` reached through a dynamic-linker stub**: the linear-leaf key comparison used a runtime-width slice compare, which lowers to a libc call rather than inline code. Monomorphizing the scan over the key width (`leaf::search_fixed::<KB>`) removed the call — the re-profiled binary contains **zero** `memcmp` references on that path. This is a *structural* claim (the call no longer exists), independent of machine load; the resulting ns/op change is unclaimed until a quiet-host run.
