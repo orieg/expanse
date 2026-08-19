@@ -193,12 +193,20 @@ pub(crate) mod popcnt_rt {
         match STATE.load(Ordering::Relaxed) {
             2 => true,
             1 => false,
-            _ => {
-                let yes = std::arch::is_x86_feature_detected!("popcnt");
-                STATE.store(if yes { 2 } else { 1 }, Ordering::Relaxed);
-                yes
-            }
+            _ => detect(),
         }
+    }
+
+    /// First-call CPUID probe, outlined so the dispatchers' fast path is
+    /// exactly one load and one predicted branch — the
+    /// `is_x86_feature_detected!` expansion would otherwise be inlined
+    /// into every lookup entry (review finding, PR #19).
+    #[cold]
+    #[inline(never)]
+    fn detect() -> bool {
+        let yes = std::arch::is_x86_feature_detected!("popcnt");
+        STATE.store(if yes { 2 } else { 1 }, Ordering::Relaxed);
+        yes
     }
 }
 

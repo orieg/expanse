@@ -367,6 +367,22 @@ jobs:
           echo "EXPANSE_CDYLIB=$PWD/$SO" >> "$GITHUB_ENV"
           echo "using $PWD/$SO"
 
+      - name: Codegen guard — popcnt present in the shipped clone
+        # The failure mode this guards is silent: if the inline(always)
+        # body ever stops folding into the #[target_feature] clones, the
+        # clones compile SWAR and everything stays correct but slow, and
+        # no test can see it. The baseline build contains no popcnt
+        # instruction anywhere EXCEPT inside the clones, so its presence
+        # in the .so is a direct proof the fast path exists (review
+        # finding, PR #19).
+        run: |
+          if objdump -d "$EXPANSE_CDYLIB" | grep -qw popcnt; then
+            echo "popcnt instruction present in libexpanse.so"
+          else
+            echo "::error::no popcnt instruction in libexpanse.so — the target_feature clones degraded to SWAR"
+            exit 1
+          fi
+
       # The headline comparison: identical C ABI calls through libexpanse
       # and through stock libjudy, counted deterministically. Wall-clock
       # cannot answer this per-PR; instructions can.
