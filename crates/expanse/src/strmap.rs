@@ -65,83 +65,124 @@ impl StrNode {
         unsafe { &mut *(v as *mut StrNode) }
     }
 
-    /// Smallest entry in this subtree; appends its key bytes to `out`.
-    fn min_entry(&mut self, out: &mut Vec<u8>) -> NonNull<u64> {
-        let (chunk, _) = self.map.first().expect("non-empty node");
-        if is_terminal(chunk) {
-            out.extend(terminal_bytes(chunk));
-            self.map.get_value_slot(chunk).expect("present chunk")
-        } else {
-            out.extend_from_slice(&chunk.to_be_bytes());
-            let v = self.map.get(chunk).expect("present chunk");
-            // SAFETY: continuation values are child pointers.
-            unsafe { Self::child_mut(v) }.min_entry(out)
-        }
-    }
-
     /// Largest entry in this subtree; appends its key bytes to `out`.
     fn max_entry(&mut self, out: &mut Vec<u8>) -> NonNull<u64> {
-        let (chunk, _) = self.map.last().expect("non-empty node");
-        if is_terminal(chunk) {
-            out.extend(terminal_bytes(chunk));
-            self.map.get_value_slot(chunk).expect("present chunk")
-        } else {
+        self.extreme_entry(out, false)
+    }
+
+    /// The subtree's first (`min`) or last (`!min`) entry.
+    ///
+    /// Iterative, like every other walk in this module: one frame per 8
+    /// key bytes turns a long key into a stack overflow, and this runs
+    /// down the deepest chain in the tree by construction. The two
+    /// directions differ only in which end of each node they take, so
+    /// they share a walk.
+    fn extreme_entry(&mut self, out: &mut Vec<u8>, min: bool) -> NonNull<u64> {
+        let mut node: *mut StrNode = &raw mut *self;
+        loop {
+            // SAFETY: `self` on the first turn, then continuation values,
+            // which are live child nodes; the descent never revisits one,
+            // so the borrow is unique.
+            let n = unsafe { &mut *node };
+            let (chunk, v) = if min {
+                n.map.first().expect("non-empty node")
+            } else {
+                n.map.last().expect("non-empty node")
+            };
+            if is_terminal(chunk) {
+                out.extend(terminal_bytes(chunk));
+                return n.map.get_value_slot(chunk).expect("present chunk");
+            }
             out.extend_from_slice(&chunk.to_be_bytes());
-            let v = self.map.get(chunk).expect("present chunk");
-            // SAFETY: continuation values are child pointers.
-            unsafe { Self::child_mut(v) }.max_entry(out)
+            node = v as *mut StrNode;
         }
     }
 
-    /// Smallest entry with key `>= key[off..]`; appends bytes to `out`.
-    fn next_at_or_after(
+    /// Emits the entry `cursor` names: a terminal chunk *is* the answer,
+    /// a continuation chunk contributes its subtree extreme. `None`
+    /// cursor means this node had nothing in the requested direction,
+    /// which is what makes the caller backtrack.
+    fn take_from(
         &mut self,
-        key: &[u8],
-        off: usize,
+        cursor: Option<(u64, u64)>,
         out: &mut Vec<u8>,
+        min: bool,
     ) -> Option<NonNull<u64>> {
-        let (target, _) = chunk_at(key, off);
-        let mut cursor = self.map.next_at_or_after(target);
-        if let Some((chunk, v)) = cursor
-            && chunk == target
-            && !is_terminal(chunk)
-        {
-            // Exact continuation: try deeper with the rest of the key.
-            let mark = out.len();
-            out.extend_from_slice(&chunk.to_be_bytes());
-            // SAFETY: continuation values are child pointers.
-            let deeper = unsafe { Self::child_mut(v) }.next_at_or_after(key, off + CHUNK, out);
-            if let Some(slot) = deeper {
-                return Some(slot);
-            }
-            out.truncate(mark);
-            cursor = self.map.next_after(target);
-        }
         let (chunk, v) = cursor?;
-        if chunk == target && is_terminal(chunk) {
-            // Terminal at-or-after: the stored string's tail may still be
-            // below the query's tail only if they differ within the chunk;
-            // equality of chunks means the stored string terminates here
-            // and equals the query prefix — which sorts >= the query only
-            // if the query also ends here. A longer query with the same
-            // terminal chunk is impossible (the query chunk would have had
-            // no NUL), so equality is always a valid answer.
-            out.extend(terminal_bytes(chunk));
-            return Some(self.map.get_value_slot(chunk).expect("present chunk"));
-        }
-        // Strictly-greater entry: take its subtree minimum.
         if is_terminal(chunk) {
             out.extend(terminal_bytes(chunk));
             Some(self.map.get_value_slot(chunk).expect("present chunk"))
         } else {
             out.extend_from_slice(&chunk.to_be_bytes());
             // SAFETY: continuation values are child pointers.
-            Some(unsafe { Self::child_mut(v) }.min_entry(out))
+            Some(unsafe { Self::child_mut(v) }.extreme_entry(out, min))
+        }
+    }
+
+    /// Smallest entry with key `>= key[off..]`; appends bytes to `out`.
+    ///
+    /// Iterative with an explicit backtrack stack. The recursion this
+    /// replaces was not a plain descent: when the deeper call finds
+    /// nothing at-or-after, the level *resumes* at its next sibling, so
+    /// the stack has to carry both the node to resume at and the `out`
+    /// length to truncate back to.
+    fn next_at_or_after(
+        &mut self,
+        key: &[u8],
+        off: usize,
+        out: &mut Vec<u8>,
+    ) -> Option<NonNull<u64>> {
+        // (node to resume at, its target chunk, `out` length on entry)
+        let mut stack: Vec<(*mut StrNode, u64, usize)> = Vec::new();
+        let mut node: *mut StrNode = &raw mut *self;
+        let mut off = off;
+
+        loop {
+            // SAFETY: `self`, then continuation values — all live nodes,
+            // uniquely borrowed because the descent never revisits one.
+            let n = unsafe { &mut *node };
+            let (target, _) = chunk_at(key, off);
+            let cursor = n.map.next_at_or_after(target);
+            if let Some((chunk, v)) = cursor
+                && chunk == target
+                && !is_terminal(chunk)
+            {
+                // Exact continuation: the answer, if there is one, is
+                // deeper. Record where to resume if it is not.
+                stack.push((node, target, out.len()));
+                out.extend_from_slice(&chunk.to_be_bytes());
+                node = v as *mut StrNode;
+                off += CHUNK;
+                continue;
+            }
+            // No exact continuation. `cursor` is either the query's own
+            // terminal chunk — a valid answer, since a longer query could
+            // not have produced a chunk containing a NUL — or the first
+            // entry strictly greater. Both are taken the same way.
+            if let Some(slot) = n.take_from(cursor, out, true) {
+                return Some(slot);
+            }
+            // Nothing at or after here: unwind to the nearest ancestor
+            // with an unexplored sibling.
+            loop {
+                let (parent, parent_target, mark) = stack.pop()?;
+                out.truncate(mark);
+                // SAFETY: recorded during the descent; still live, and
+                // the child borrow taken from it has ended.
+                let p = unsafe { &mut *parent };
+                let sibling = p.map.next_after(parent_target);
+                if let Some(slot) = p.take_from(sibling, out, true) {
+                    return Some(slot);
+                }
+            }
         }
     }
 
     /// Largest entry with key `<= key[off..]` (or `<` when `exclusive`
     /// and the key terminates in this chunk); appends bytes to `out`.
+    ///
+    /// The mirror of `next_at_or_after`, with the same explicit
+    /// backtracking and the same reason for it.
     fn prev_at_or_before(
         &mut self,
         key: &[u8],
@@ -149,37 +190,48 @@ impl StrNode {
         exclusive: bool,
         out: &mut Vec<u8>,
     ) -> Option<NonNull<u64>> {
-        let (target, target_terminal) = chunk_at(key, off);
-        // Exact continuation first: deeper entries share this chunk.
-        if !target_terminal
-            && let Some(v) = self.map.get(target)
-            && !is_terminal(target)
-        {
-            let mark = out.len();
-            out.extend_from_slice(&target.to_be_bytes());
-            // SAFETY: continuation values are child pointers.
-            let deeper =
-                unsafe { Self::child_mut(v) }.prev_at_or_before(key, off + CHUNK, exclusive, out);
-            if let Some(slot) = deeper {
+        let mut stack: Vec<(*mut StrNode, u64, usize)> = Vec::new();
+        let mut node: *mut StrNode = &raw mut *self;
+        let mut off = off;
+
+        loop {
+            // SAFETY: as in `next_at_or_after`.
+            let n = unsafe { &mut *node };
+            let (target, target_terminal) = chunk_at(key, off);
+            // Exact continuation first: deeper entries share this chunk
+            // and all sort above anything below it in this node.
+            if !target_terminal
+                && let Some(v) = n.map.get(target)
+            {
+                stack.push((node, target, out.len()));
+                out.extend_from_slice(&target.to_be_bytes());
+                node = v as *mut StrNode;
+                off += CHUNK;
+                continue;
+            }
+            // Then entries at or below the target chunk in this node. A
+            // terminal exclusive target must not match itself.
+            let cursor = if target_terminal && !exclusive {
+                n.map.prev_at_or_before(target)
+            } else {
+                n.map.prev_before(target)
+            };
+            if let Some(slot) = n.take_from(cursor, out, false) {
                 return Some(slot);
             }
-            out.truncate(mark);
-        }
-        // Then entries at or below the target chunk in this node.
-        let (chunk, v) = if target_terminal && !exclusive {
-            self.map.prev_at_or_before(target)?
-        } else {
-            // A continuation target's own subtree was handled above; a
-            // terminal exclusive target must not match itself.
-            self.map.prev_before(target)?
-        };
-        if is_terminal(chunk) {
-            out.extend(terminal_bytes(chunk));
-            Some(self.map.get_value_slot(chunk).expect("present chunk"))
-        } else {
-            out.extend_from_slice(&chunk.to_be_bytes());
-            // SAFETY: continuation values are child pointers.
-            Some(unsafe { Self::child_mut(v) }.max_entry(out))
+            loop {
+                let (parent, parent_target, mark) = stack.pop()?;
+                out.truncate(mark);
+                // SAFETY: as in `next_at_or_after`.
+                let p = unsafe { &mut *parent };
+                // The descent branch is only taken for a non-terminal
+                // target, whose own subtree was just exhausted — so the
+                // resume point is strictly below it, never at it.
+                let sibling = p.map.prev_before(parent_target);
+                if let Some(slot) = p.take_from(sibling, out, false) {
+                    return Some(slot);
+                }
+            }
         }
     }
 
@@ -549,6 +601,50 @@ mod tests {
             })
             .expect("spawn");
         handle.join().expect("deep-key remove overflowed the stack");
+    }
+
+    /// Ordered navigation over the same depth, including the backtracking
+    /// paths — a query whose descent runs the full chain and then finds
+    /// nothing at-or-after, so it has to unwind every level it pushed.
+    /// The recursive version overflowed here even though `Drop` and
+    /// `remove` had already been made iterative.
+    #[test]
+    fn very_long_keys_navigate_without_overflowing_the_stack() {
+        let handle = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(|| {
+                let mut m = ExpanseStrMap::new();
+                let deep = vec![b'm'; 64 * 1024];
+                // A sibling diverging only in the very last chunk, so the
+                // whole chain is shared and backtracking is forced to the
+                // bottom before it can resolve.
+                let mut sibling = deep.clone();
+                *sibling.last_mut().expect("non-empty") = b'n';
+                m.insert(&deep, 1);
+                m.insert(&sibling, 2);
+
+                assert_eq!(m.first().map(|(k, _)| k), Some(deep.clone()));
+                assert_eq!(m.last().map(|(k, _)| k), Some(sibling.clone()));
+                assert_eq!(m.get(&deep), Some(1));
+                assert_eq!(m.get(&sibling), Some(2));
+                assert_eq!(m.next_at_or_after(&deep).map(|(k, _)| k), Some(deep.clone()));
+                assert_eq!(m.next_after(&deep).map(|(k, _)| k), Some(sibling.clone()));
+                assert_eq!(m.prev_before(&sibling).map(|(k, _)| k), Some(deep.clone()));
+
+                // Past the end: descends the full chain, finds nothing at
+                // or after, and unwinds every recorded level.
+                let mut past = deep.clone();
+                *past.last_mut().expect("non-empty") = b'z';
+                assert_eq!(m.next_at_or_after(&past), None);
+                // Mirror: before the beginning.
+                let mut before = deep.clone();
+                *before.last_mut().expect("non-empty") = b'a';
+                assert_eq!(m.prev_before(&before), None);
+            })
+            .expect("spawn");
+        handle
+            .join()
+            .expect("deep-key navigation overflowed the stack");
     }
 
     use super::*;
