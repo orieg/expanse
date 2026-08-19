@@ -4,6 +4,13 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Which jobs to run"
+        required: false
+        default: all
+        type: choice
+        options: [all, bench]
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,6 +19,7 @@ jobs:
   miri-full:
     # The per-push Miri job skips the heavy model-based suites to stay
     # fast; this run executes the whole suite under Miri daily.
+    if: inputs.only != 'bench'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -83,6 +91,7 @@ jobs:
     # exploration actually reaches new ladder transitions. The per-push
     # job is a 60s smoke; this one runs each target for 20 minutes and
     # keeps the corpus between nights via the cache.
+    if: inputs.only != 'bench'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
