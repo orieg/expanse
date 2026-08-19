@@ -124,6 +124,45 @@ fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: Key) ->
 /// consistent with their bitmaps and counts (the tree invariants that the
 /// mutation engine maintains and `docs/TESTING.md`'s validator checks).
 unsafe fn walk<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup {
+    #[cfg(target_arch = "x86_64")]
+    if crate::bits::popcnt_rt::available() {
+        // SAFETY: `popcnt` presence verified; contract forwarded.
+        return unsafe { walk_popcnt::<MAP>(edge, key, level) };
+    }
+    // SAFETY: contract forwarded.
+    unsafe { walk_impl::<MAP>(edge, key, level) }
+}
+
+/// The whole descent, compiled with `popcnt` (x86-64 only).
+///
+/// **Dispatch granularity is the entire walk, and that placement is
+/// measured, not aesthetic.** A `#[target_feature]` function cannot be
+/// inlined into a caller that lacks the feature, so per-operation clones
+/// of the bitmap ranks turned each previously-fused rank into a real
+/// call — and regressed every arm (map_get/clustered +9.4%). Cloning the
+/// walk keeps every rank fused *inside* a popcnt-enabled context and
+/// pays one predicted branch per lookup. The bitmap bodies are
+/// `#[inline(always)]` so they demonstrably fold into this clone and
+/// adopt the feature.
+///
+/// # Safety
+///
+/// Same contract as [`walk_impl`]; the CPU must support `popcnt`.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "popcnt")]
+unsafe fn walk_popcnt<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup {
+    // SAFETY: contract forwarded; `walk_impl` is `inline(always)`, so
+    // its body — bitmap ranks included — compiles with the feature.
+    unsafe { walk_impl::<MAP>(edge, key, level) }
+}
+
+/// The portable descent body — see [`walk`] for the dispatch story.
+///
+/// # Safety
+///
+/// Same contract as [`walk`].
+#[inline(always)]
+unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup {
     let (mut edge, mut level) = (edge, level);
     loop {
         debug_assert!((1..=8).contains(&level));
@@ -339,6 +378,44 @@ pub unsafe fn get_map(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 /// Same tree contract as [`get_map`]; `edge` must point at the live root
 /// edge of a map-flavor subtree owned by the caller.
 pub(crate) unsafe fn locate_slot(
+    edge: *mut Edge,
+    key: Key,
+    level: u8,
+) -> Option<core::ptr::NonNull<u64>> {
+    #[cfg(target_arch = "x86_64")]
+    if crate::bits::popcnt_rt::available() {
+        // SAFETY: `popcnt` presence verified; contract forwarded.
+        return unsafe { locate_slot_popcnt(edge, key, level) };
+    }
+    // SAFETY: contract forwarded.
+    unsafe { locate_slot_impl(edge, key, level) }
+}
+
+/// `locate_slot` compiled with `popcnt` — same dispatch story as
+/// [`walk_popcnt`], for the C-ABI walk.
+///
+/// # Safety
+///
+/// Same contract as [`locate_slot`]; the CPU must support `popcnt`.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "popcnt")]
+unsafe fn locate_slot_popcnt(
+    edge: *mut Edge,
+    key: Key,
+    level: u8,
+) -> Option<core::ptr::NonNull<u64>> {
+    // SAFETY: contract forwarded; the `inline(always)` body adopts the
+    // feature.
+    unsafe { locate_slot_impl(edge, key, level) }
+}
+
+/// The portable body — see [`locate_slot`].
+///
+/// # Safety
+///
+/// Same contract as [`locate_slot`].
+#[inline(always)]
+unsafe fn locate_slot_impl(
     edge: *mut Edge,
     key: Key,
     level: u8,

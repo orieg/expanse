@@ -183,13 +183,13 @@ pub struct Bitmap256 {
 /// Non-x86-64 targets (aarch64 `cnt` is baseline) compile the portable
 /// bodies directly with no dispatch.
 #[cfg(target_arch = "x86_64")]
-mod popcnt_rt {
+pub(crate) mod popcnt_rt {
     use core::sync::atomic::{AtomicU8, Ordering};
 
     static STATE: AtomicU8 = AtomicU8::new(0);
 
     #[inline]
-    pub(super) fn available() -> bool {
+    pub(crate) fn available() -> bool {
         match STATE.load(Ordering::Relaxed) {
             2 => true,
             1 => false,
@@ -245,34 +245,21 @@ impl Bitmap256 {
     }
 
     /// Number of members present.
-    #[inline]
-    #[must_use]
-    pub fn count(&self) -> u32 {
-        #[cfg(target_arch = "x86_64")]
-        if popcnt_rt::available() {
-            // SAFETY: `popcnt` presence verified by `available()`.
-            return unsafe { self.count_popcnt() };
-        }
-        self.count_body()
-    }
-
+    ///
+    /// `inline(always)`: this must fold into its caller so that a
+    /// `#[target_feature(enable = "popcnt")]` caller compiles the
+    /// `count_ones` calls with the feature — dispatch lives at walk
+    /// granularity (see `get::walk`), NOT here. A per-operation clone
+    /// was measured and REGRESSED every arm: `target_feature` functions
+    /// cannot inline into feature-less callers, so each rank became a
+    /// real call in what had been a fused descent.
     #[inline(always)]
-    const fn count_body(&self) -> u32 {
+    #[must_use]
+    pub const fn count(&self) -> u32 {
         self.words[0].count_ones()
             + self.words[1].count_ones()
             + self.words[2].count_ones()
             + self.words[3].count_ones()
-    }
-
-    /// # Safety
-    ///
-    /// The CPU must support `popcnt`.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "popcnt")]
-    fn count_popcnt(&self) -> u32 {
-        // `count_body` is `#[inline(always)]`, so it is compiled INTO
-        // this clone and its `count_ones` calls adopt the feature.
-        self.count_body()
     }
 
     /// True if no members are present.
@@ -284,19 +271,9 @@ impl Bitmap256 {
 
     /// Number of members strictly below `idx` — the packed-array slot of
     /// `idx` in a bitmap branch/leaf.
-    #[inline]
-    #[must_use]
-    pub fn rank(&self, idx: u8) -> u32 {
-        #[cfg(target_arch = "x86_64")]
-        if popcnt_rt::available() {
-            // SAFETY: `popcnt` presence verified by `available()`.
-            return unsafe { self.rank_popcnt(idx) };
-        }
-        self.rank_body(idx)
-    }
-
     #[inline(always)]
-    const fn rank_body(&self, idx: u8) -> u32 {
+    #[must_use]
+    pub const fn rank(&self, idx: u8) -> u32 {
         let w = (idx >> 6) as usize;
         let mut r = 0;
         let mut i = 0;
@@ -308,32 +285,13 @@ impl Bitmap256 {
         r + (self.words[w] & below).count_ones()
     }
 
-    /// # Safety
-    ///
-    /// The CPU must support `popcnt`.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "popcnt")]
-    fn rank_popcnt(&self, idx: u8) -> u32 {
-        self.rank_body(idx)
-    }
-
     /// Number of members below `idx` **within its own 32-digit subexpanse**
     /// (`idx & !31 ..= idx - 1`) — the packed-subarray slot in bitmap
     /// branches and bitmap map-leaves, whose child/value arrays are one per
     /// 32-digit subexpanse.
-    #[inline]
-    #[must_use]
-    pub fn subexpanse_rank(&self, idx: u8) -> u32 {
-        #[cfg(target_arch = "x86_64")]
-        if popcnt_rt::available() {
-            // SAFETY: `popcnt` presence verified by `available()`.
-            return unsafe { self.subexpanse_rank_popcnt(idx) };
-        }
-        self.subexpanse_rank_body(idx)
-    }
-
     #[inline(always)]
-    const fn subexpanse_rank_body(&self, idx: u8) -> u32 {
+    #[must_use]
+    pub const fn subexpanse_rank(&self, idx: u8) -> u32 {
         let word = self.words[(idx >> 6) as usize];
         let bit = idx & 63;
         let below = (1u64 << bit) - 1;
@@ -341,42 +299,14 @@ impl Bitmap256 {
         (word & below & sub_mask).count_ones()
     }
 
-    /// # Safety
-    ///
-    /// The CPU must support `popcnt`.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "popcnt")]
-    fn subexpanse_rank_popcnt(&self, idx: u8) -> u32 {
-        self.subexpanse_rank_body(idx)
-    }
-
     /// Number of members inside one 32-digit subexpanse (`sub` in 0..8) —
     /// the length of that subexpanse's packed child/value array.
-    #[inline]
-    #[must_use]
-    pub fn subexpanse_count(&self, sub: usize) -> u32 {
-        #[cfg(target_arch = "x86_64")]
-        if popcnt_rt::available() {
-            // SAFETY: `popcnt` presence verified by `available()`.
-            return unsafe { self.subexpanse_count_popcnt(sub) };
-        }
-        self.subexpanse_count_body(sub)
-    }
-
     #[inline(always)]
-    const fn subexpanse_count_body(&self, sub: usize) -> u32 {
+    #[must_use]
+    pub const fn subexpanse_count(&self, sub: usize) -> u32 {
         let word = self.words[sub >> 1];
         let shift = (sub & 1) * 32;
         ((word >> shift) & 0xFFFF_FFFF).count_ones()
-    }
-
-    /// # Safety
-    ///
-    /// The CPU must support `popcnt`.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "popcnt")]
-    fn subexpanse_count_popcnt(&self, sub: usize) -> u32 {
-        self.subexpanse_count_body(sub)
     }
 
     /// The member with `n` members below it (0-based rank → bit), if any —
@@ -473,17 +403,19 @@ mod tests {
             bitmaps.push(b);
         }
         for b in &bitmaps {
-            assert_eq!(b.count(), b.count_body());
+            let naive_count: u32 = (0u32..256).filter(|&i| b.test(i as u8)).count() as u32;
+            assert_eq!(b.count(), naive_count);
             for idx in 0..=255u8 {
-                assert_eq!(b.rank(idx), b.rank_body(idx), "rank({idx})");
-                assert_eq!(
-                    b.subexpanse_rank(idx),
-                    b.subexpanse_rank_body(idx),
-                    "subexpanse_rank({idx})"
-                );
+                let naive_rank = (0..idx).filter(|&i| b.test(i)).count() as u32;
+                assert_eq!(b.rank(idx), naive_rank, "rank({idx})");
+                let base = idx & !31;
+                let naive_sub = (base..idx).filter(|&i| b.test(i)).count() as u32;
+                assert_eq!(b.subexpanse_rank(idx), naive_sub, "subexpanse_rank({idx})");
             }
             for sub in 0..8usize {
-                assert_eq!(b.subexpanse_count(sub), b.subexpanse_count_body(sub));
+                let lo = (sub * 32) as u16;
+                let naive = (lo..lo + 32).filter(|&i| b.test(i as u8)).count() as u32;
+                assert_eq!(b.subexpanse_count(sub), naive);
             }
         }
     }
