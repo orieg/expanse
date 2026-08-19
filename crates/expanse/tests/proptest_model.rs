@@ -9,10 +9,17 @@
 //! and are replayed first on later runs; commit that file when one
 //! appears, exactly as a hand-written regression test would be.
 //!
+//! Not run under Miri: proptest resolves its regression-file path via
+//! `getcwd`, which Miri's isolation forbids, and a full proptest sweep
+//! under Miri costs ~15 minutes for coverage the in-crate `model_*`
+//! suites already provide there.
+//!
 //! Keys are drawn from the `docs/TESTING.md` distribution classes rather
 //! than uniformly at random: uniform 64-bit keys almost never collide in
 //! their high bytes, so they exercise neither the cascade ladder nor the
 //! narrow-pointer paths where the interesting bugs live.
+
+#![cfg(not(miri))]
 
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
@@ -135,10 +142,8 @@ fn run_map(ops: &[Op]) {
 }
 
 proptest! {
-    // Miri runs these far slower than native; keep the case count low
-    // there (the fixed-seed model tests carry Miri's coverage anyway).
     #![proptest_config(ProptestConfig {
-        cases: if cfg!(miri) { 2 } else { 96 },
+        cases: 96,
         max_shrink_iters: 4096,
         ..ProptestConfig::default()
     })]
