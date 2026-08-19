@@ -20,6 +20,10 @@ criterion = "0.8"
 # Property tests with shrinking: a failure reduces to a minimal op
 # sequence (docs/TESTING.md layer 2).
 proptest = "1"
+# Deterministic instruction/cache-miss counts (docs/BENCHMARKING.md):
+# wall-clock cannot resolve the few-percent changes the perf work makes
+# (issue #1). Needs valgrind, so these run on Linux/CI only.
+iai-callgrind = "0.16"
 
 # Loom model-checks the OCC/EBR protocol (occ module) under
 # `RUSTFLAGS="--cfg loom" cargo test -p expanse-trie --release loom_`.
@@ -28,6 +32,10 @@ loom = "0.7"
 
 [[bench]]
 name = "compare"
+harness = false
+
+[[bench]]
+name = "instructions"
 harness = false
 
 [lints]

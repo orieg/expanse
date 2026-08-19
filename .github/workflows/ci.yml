@@ -224,6 +224,44 @@ jobs:
           test-workers: "1"
           test-runner-args: "--set-timeout 30"
 
+  instruction-counts:
+    # docs/BENCHMARKING.md + issue #1: deterministic cost measurement.
+    # Callgrind counts are exact and reproducible, so unlike wall-clock
+    # they resolve the few-percent changes the perf work makes — and a
+    # noisy runner cannot corrupt them. Reported, not gated: a threshold
+    # would need a stored baseline per benchmark, which lands with the
+    # first optimization that moves these numbers.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install valgrind
+        run: |
+          if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
+          sudo apt-get update && sudo apt-get install -y valgrind
+
+      - name: Install iai-callgrind-runner
+        # The runner binary version must match the crate version.
+        run: |
+          VERSION=$(cargo metadata --format-version 1 --no-deps --locked \
+            | python3 -c "import json,sys; print(next(d['req'] for p in json.load(sys.stdin)['packages'] for d in p['dependencies'] if d['name']=='iai-callgrind').lstrip('^'))")
+          cargo install iai-callgrind-runner --version "$VERSION" --locked
+
+      - name: Instruction and cache-miss counts
+        run: cargo bench --bench instructions -p expanse-trie | tee instruction-counts.txt
+
+      - name: Upload counts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: instruction-counts
+          path: instruction-counts.txt
+
   memory-budget:
     # docs/BENCHMARKING.md: bytes/key comes from deterministic allocator
     # accounting, so unlike the timing tables it is load-immune and can
