@@ -185,49 +185,108 @@ impl StrNode {
 
     /// Removes `key[off..]`; returns the removed value. Empty child nodes
     /// are pruned on the way out.
+    /// Iterative: descend recording the path, then prune emptied nodes on
+    /// the way back out. Recursing costs a frame per 8 key bytes, which a
+    /// long key turns into a stack overflow.
     fn remove(&mut self, key: &[u8], off: usize) -> Option<u64> {
-        let (chunk, terminal) = chunk_at(key, off);
-        if terminal {
-            return self.map.remove(chunk);
-        }
-        let v = self.map.get(chunk)?;
-        // SAFETY: continuation values are child pointers.
-        let child = unsafe { Self::child_mut(v) };
-        let removed = child.remove(key, off + CHUNK)?;
-        if child.map.is_empty() {
-            self.map.remove(chunk);
-            // SAFETY: last reference to the child; re-own and drop it.
-            drop(unsafe { Box::from_raw(v as *mut StrNode) });
+        let mut path: Vec<(*mut StrNode, u64)> = Vec::new();
+        let mut node: *mut StrNode = &raw mut *self;
+        let mut off = off;
+        let removed = loop {
+            let (chunk, terminal) = chunk_at(key, off);
+            // SAFETY: `self` on the first turn, then continuation values
+            // recorded on the path — all live, and uniquely borrowed
+            // because the descent never revisits a node.
+            let n = unsafe { &mut *node };
+            if terminal {
+                break n.map.remove(chunk)?;
+            }
+            let v = n.map.get(chunk)?;
+            path.push((node, chunk));
+            node = v as *mut StrNode;
+            off += CHUNK;
+        };
+
+        // Unwind: an emptied child is unlinked and freed, which may empty
+        // its parent in turn. The first non-empty ancestor stops it —
+        // nothing above that can have been emptied by this removal.
+        while let Some((parent_ptr, chunk)) = path.pop() {
+            // SAFETY: recorded during the descent; still live.
+            let parent = unsafe { &mut *parent_ptr };
+            let child_v = parent.map.get(chunk).expect("path entry still linked");
+            // SAFETY: continuation value, a live child node.
+            let empty = unsafe { &*(child_v as *const StrNode) }.map.is_empty();
+            if !empty {
+                break;
+            }
+            parent.map.remove(chunk);
+            // SAFETY: unlinked above, so this is the last reference.
+            drop(unsafe { Box::from_raw(child_v as *mut StrNode) });
         }
         Some(removed)
     }
 
     /// Heap bytes used by this subtree (read-only accounting walk).
+    ///
+    /// Iterative for the same reason as `Drop`: `clear()` calls this, so
+    /// recursing would overflow the stack on exactly the deep chains the
+    /// iterative destructor exists to survive.
     fn subtree_bytes(&self) -> u64 {
-        let mut bytes = self.map.mem_used() as u64 + size_of::<Self>() as u64;
-        for (k, v) in self.map.iter() {
-            if !is_terminal(k) {
-                // SAFETY: continuation values are live child pointers.
-                bytes += unsafe { &*(v as *const StrNode) }.subtree_bytes();
+        let mut bytes = 0u64;
+        let mut stack: Vec<*const StrNode> = vec![core::ptr::from_ref(self)];
+        while let Some(p) = stack.pop() {
+            // SAFETY: `self` plus continuation values, all live nodes.
+            let node = unsafe { &*p };
+            bytes += node.map.mem_used() as u64 + size_of::<Self>() as u64;
+            for (k, v) in node.map.iter() {
+                if !is_terminal(k) {
+                    stack.push(v as *const StrNode);
+                }
             }
         }
         bytes
     }
 }
 
+impl StrNode {
+    /// Moves this node's continuation children onto `stack`, leaving the
+    /// node childless. Terminal entries (values) are left alone.
+    ///
+    /// Clearing as we go is what makes the iterative teardown correct: a
+    /// node whose children have been taken has nothing left for its own
+    /// `Drop` to descend into.
+    fn take_children(&mut self, stack: &mut Vec<*mut StrNode>) {
+        let mut chunks = Vec::new();
+        for (k, v) in self.map.iter() {
+            if !is_terminal(k) {
+                chunks.push(k);
+                stack.push(v as *mut StrNode);
+            }
+        }
+        for k in chunks {
+            self.map.remove(k);
+        }
+    }
+}
+
 impl Drop for StrNode {
     fn drop(&mut self) {
-        // Re-own and drop each child exactly once; the recursion bottoms
-        // out at leaf nodes with no continuation entries.
-        let children: Vec<u64> = self
-            .map
-            .iter()
-            .filter(|(k, _)| !is_terminal(*k))
-            .map(|(_, v)| v)
-            .collect();
-        for v in children {
-            // SAFETY: sole owner of the child pointer at drop time.
-            drop(unsafe { Box::from_raw(v as *mut StrNode) });
+        // Iterative, with an explicit worklist. Recursing here costs one
+        // stack frame per 8 bytes of key depth, so a long key (this map
+        // imposes no length limit, matching the original) can overflow
+        // the stack **while freeing** — and a stack overflow aborts the
+        // process with no recovery path. Cleanup is the worst possible
+        // place to have that failure mode.
+        let mut stack: Vec<*mut StrNode> = Vec::new();
+        self.take_children(&mut stack);
+        while let Some(p) = stack.pop() {
+            // SAFETY: sole owner at drop time; each pointer reaches the
+            // stack exactly once, because taking a node's children also
+            // unlinks them from its map.
+            let mut node = unsafe { Box::from_raw(p) };
+            node.take_children(&mut stack);
+            // No continuation entries left, so this recurses no further.
+            drop(node);
         }
     }
 }
@@ -445,6 +504,53 @@ impl Drop for ExpanseStrMap {
 
 #[cfg(test)]
 mod tests {
+    /// Keys long enough that one node per 8 bytes would overflow the
+    /// stack on teardown. Before the destructor was made iterative this
+    /// aborted the process **while freeing** — the failure mode with no
+    /// recovery path, in the one place a caller cannot guard against it.
+    /// Run on a deliberately small stack so the guard is honest on every
+    /// platform rather than relying on the default 8 MiB.
+    #[test]
+    fn very_long_keys_do_not_overflow_the_stack_on_drop() {
+        let handle = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(|| {
+                let mut m = ExpanseStrMap::new();
+                let key = vec![b'k'; 64 * 1024];
+                assert_eq!(m.insert(&key, 1), None);
+                assert_eq!(m.get(&key), Some(1));
+                // A second key sharing most of the chain, so teardown has
+                // branching to walk rather than one straight line.
+                let mut other = key.clone();
+                *other.last_mut().expect("non-empty") = b'z';
+                assert_eq!(m.insert(&other, 2), None);
+                assert_eq!(m.len(), 2);
+                drop(m);
+            })
+            .expect("spawn");
+        handle
+            .join()
+            .expect("deep-key teardown overflowed the stack");
+    }
+
+    /// Same depth through `remove` and the emptied-node pruning path.
+    #[test]
+    fn very_long_keys_remove_and_empty() {
+        let handle = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(|| {
+                let mut m = ExpanseStrMap::new();
+                let key = vec![b'q'; 32 * 1024];
+                m.insert(&key, 7);
+                assert_eq!(m.remove(&key), Some(7));
+                assert!(m.is_empty());
+                assert_eq!(m.get(&key), None);
+                assert_eq!(m.clear(), 0, "removing the last key freed everything");
+            })
+            .expect("spawn");
+        handle.join().expect("deep-key remove overflowed the stack");
+    }
+
     use super::*;
     use std::collections::BTreeMap;
 
