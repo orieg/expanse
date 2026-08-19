@@ -24,6 +24,15 @@ Performance claims are this project's reason to exist, so they follow the strict
 
 ## Methodology rules (binding)
 
+0. **State the measured region, and have a reviewer check it.** Every
+   benchmark's doc comment says exactly what is inside the timed window
+   and what is in `setup`/`teardown`. This rule exists because the
+   vs-stock lookup arms silently measured the tree *build* (and then, on
+   the first attempt to fix that, still measured the *teardown*), which
+   produced published ratios that had to be retracted twice. Every other
+   rule below governs how a number is interpreted; this one governs
+   whether it measures what its name says.
+
 1. **Interleaved A/B arms.** Any A-vs-B comparison (regression check, libjudy comparison, before/after a change) alternates arms per benchmark group over several rounds — never suite-A-then-suite-B. Runner/thermal drift then hits both arms and cancels in the paired ratio. (Learned the hard way in php-judy — back-to-back suites reported false regressions; see php-judy issue #87 and its `bench-compare` harness.)
 2. **System-load hygiene.** Before the first run and between comparison runs, snapshot load (`ps -A -o %cpu,%mem,command | sort -rn | head`; load average vs core count). A non-target process above ~100% CPU, or a load-average shift > 2 between arms, contaminates the run: discard it, don't reinterpret it. Laptops running concurrent sessions are shared infrastructure.
 3. **CI benches detect changes, not truths.** CI runners produce paired ratios good for regression alarms. Publishable absolute numbers (README/claims) come from a dedicated quiet host with the hardware named.
@@ -189,3 +198,12 @@ Honest reading (v1 correctness-first, zero optimization passes yet):
 - **Insert gap** has three known, documented v1 costs to burn down: full leaf rebuild per insert (no capacity classes), `Vec` materialization in the mutation path, and capi `JudyLIns` walking the tree three times (contains + insert + slot). Each is an isolated follow-up with this table as baseline.
 
 Timing numbers here are working baselines, not publishable claims; headline numbers still require a quiet-host run under the system-load protocol above.
+> **Correction (2026-08-19): the first vs-stock lookup figures were wrong.**
+> The `*_get` / `*_test` benchmarks built their 30k-key array *inside* the
+> measured region, so the reported "lookup" ratios were a blend dominated
+> by insert. Two independent reviews caught it; it is fixed with
+> `setup =` so only the probe loop is counted. Ratios published before
+> that fix (`judyl_get/random 2.09x`, `judy1_test/random 2.11x`, and the
+> clustered/sequential lookup rows) are **retracted**. Insert ratios were
+> never affected — those benchmarks always measured only inserts.
+

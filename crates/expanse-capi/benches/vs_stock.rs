@@ -48,10 +48,16 @@ type FpIns = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> *mut c
 type FpGet = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> *mut c_void;
 type F1Set = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> c_int;
 type F1Test = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> c_int;
-type FFree = unsafe extern "C" fn(*mut *mut c_void, *mut c_void) -> Word;
 
 /// Stock libjudy, loaded privately so its symbols never collide with the
 /// identically named ones libexpanse exports.
+/// Keeps a built array observable so the optimizer cannot delete the
+/// work that produced it, without calling into either library.
+#[inline]
+fn map_len_sentinel(arr: *mut c_void) -> Word {
+    arr as Word
+}
+
 struct Stock(*mut c_void);
 
 impl Stock {
@@ -96,17 +102,32 @@ impl XorShift {
 /// Population per arm. Callgrind runs ~50x slower than native, so this
 /// trades absolute scale for a job that finishes; it is still deep
 /// enough to build a multi-level trie on every distribution.
+///
+/// **Scale caveat, and why `POP_BIG` exists.** At 30k keys the whole
+/// structure is a few hundred KB and lives in cache: RAM hits measured
+/// 0.04% of memory accesses for *both* libraries. So at this size
+/// "estimated cycles track instruction counts" is nearly tautological
+/// and says nothing about memory layout — the question the chunked
+/// allocator of the original is supposed to answer. The large-population
+/// benchmarks below exceed last-level cache so that miss behaviour, not
+/// just instruction count, is exercised.
 const POP: usize = 30_000;
 
+/// Population for the cache-pressure arm: large enough that the tree
+/// exceeds last-level cache on a typical runner, so LL/RAM hit counts
+/// become load-bearing rather than rounding.
+const POP_BIG: usize = 1_500_000;
+
 fn keys(dist: &str) -> Vec<Word> {
+    let n = if dist.ends_with("_big") { POP_BIG } else { POP };
     let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
-    let mut out = Vec::with_capacity(POP);
-    match dist {
-        "sequential" => out.extend((0..POP as u64).map(|k| k as Word)),
-        "random" => out.extend((0..POP).map(|_| rng.next() as Word)),
+    let mut out = Vec::with_capacity(n);
+    match dist.trim_end_matches("_big") {
+        "sequential" => out.extend((0..n as u64).map(|k| k as Word)),
+        "random" => out.extend((0..n).map(|_| rng.next() as Word)),
         "clustered" => {
             let mut base = 0u64;
-            for i in 0..POP as u64 {
+            for i in 0..n as u64 {
                 if i % 256 == 0 {
                     base = rng.next() & !0xFF;
                 }
@@ -128,6 +149,78 @@ fn shuffled(mut ks: Vec<Word>) -> Vec<Word> {
     ks
 }
 
+/// Built array plus probe order, produced by `setup` so that **only the
+/// probe loop is measured**. Without this the lookup benchmarks counted
+/// the 30k-key build and the teardown too, which made "get" ratios a
+/// blend dominated by insert — two independent reviews caught the same
+/// bug, and the published lookup numbers were wrong because of it.
+struct Built {
+    arr: *mut c_void,
+    probes: Vec<Word>,
+}
+
+// SAFETY: the array is created and consumed on the same thread by the
+// benchmark harness; the pointer is never shared.
+unsafe impl Send for Built {}
+
+fn build_expanse(dist: &str) -> Built {
+    let ks = keys(dist);
+    let probes = shuffled(ks.clone());
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudyL usage.
+    unsafe {
+        for &k in &ks {
+            let slot = expanse::JudyLIns(&raw mut arr, k, null_mut()).cast::<Word>();
+            *slot = k;
+        }
+    }
+    Built { arr, probes }
+}
+
+fn build_stock(dist: &str) -> Built {
+    let ks = keys(dist);
+    let probes = shuffled(ks.clone());
+    let lib = Stock::open();
+    let ins: FpIns = lib.sym(c"JudyLIns");
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudyL usage.
+    unsafe {
+        for &k in &ks {
+            let slot = ins(&raw mut arr, k, null_mut()).cast::<Word>();
+            *slot = k;
+        }
+    }
+    Built { arr, probes }
+}
+
+fn build_set_expanse(dist: &str) -> Built {
+    let ks = keys(dist);
+    let probes = shuffled(ks.clone());
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard Judy1 usage.
+    unsafe {
+        for &k in &ks {
+            expanse::Judy1Set(&raw mut arr, k, null_mut());
+        }
+    }
+    Built { arr, probes }
+}
+
+fn build_set_stock(dist: &str) -> Built {
+    let ks = keys(dist);
+    let probes = shuffled(ks.clone());
+    let lib = Stock::open();
+    let set: F1Set = lib.sym(c"Judy1Set");
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard Judy1 usage.
+    unsafe {
+        for &k in &ks {
+            set(&raw mut arr, k, null_mut());
+        }
+    }
+    Built { arr, probes }
+}
+
 // ---- JudyL insert -----------------------------------------------------
 
 #[library_benchmark]
@@ -144,8 +237,11 @@ fn judyl_insert_expanse(dist: &str) -> Word {
             let slot = expanse::JudyLIns(&raw mut arr, black_box(k), null_mut()).cast::<Word>();
             *slot = k;
         }
-        let freed = expanse::JudyLFreeArray(&raw mut arr, null_mut());
-        black_box(freed)
+        // Deliberately NOT freed: teardown is a different code path
+        // (our class-sized dealloc vs stock's chunked free) and at
+        // POP_BIG it rivals the work being measured. Each bench runs in
+        // its own process, so the leak is bounded and intentional.
+        black_box(map_len_sentinel(arr))
     }
 }
 
@@ -157,7 +253,6 @@ fn judyl_insert_stock(dist: &str) -> Word {
     let ks = keys(dist);
     let lib = Stock::open();
     let ins: FpIns = lib.sym(c"JudyLIns");
-    let free: FFree = lib.sym(c"JudyLFreeArray");
     let mut arr: *mut c_void = null_mut();
     // SAFETY: same contract as the libexpanse arm.
     unsafe {
@@ -165,66 +260,63 @@ fn judyl_insert_stock(dist: &str) -> Word {
             let slot = ins(&raw mut arr, black_box(k), null_mut()).cast::<Word>();
             *slot = k;
         }
-        black_box(free(&raw mut arr, null_mut()))
+        // Not freed — see the libexpanse arm.
+        black_box(map_len_sentinel(arr))
     }
 }
 
-// ---- JudyL lookup -----------------------------------------------------
+// ---- JudyL lookup ----------------------------------------------------
+//
+// `setup =` keeps the build phase OUT of the measured region. Previously
+// these functions built the 30k-key array inside the benchmark body, so
+// the reported "get" ratio was a blend of insert and lookup — insert
+// dominated it. Only the probe loop is counted now.
 
 #[library_benchmark]
-#[bench::sequential("sequential")]
-#[bench::random("random")]
-#[bench::clustered("clustered")]
-fn judyl_get_expanse(dist: &str) -> Word {
-    let ks = keys(dist);
-    let probes = shuffled(ks.clone());
-    let mut arr: *mut c_void = null_mut();
-    // SAFETY: standard JudyL usage.
+#[bench::sequential(args = ("sequential",), setup = build_expanse)]
+#[bench::random(args = ("random",), setup = build_expanse)]
+#[bench::clustered(args = ("clustered",), setup = build_expanse)]
+// Cache-pressure arm: exceeds LLC, so LL/RAM hits matter (see POP_BIG).
+#[bench::random_big(args = ("random_big",), setup = build_expanse)]
+fn judyl_get_expanse(built: Built) -> Word {
+    let mut sink = 0usize;
+    // SAFETY: array built by `build_expanse`, freed here.
     unsafe {
-        for &k in &ks {
-            let slot = expanse::JudyLIns(&raw mut arr, k, null_mut()).cast::<Word>();
-            *slot = k;
-        }
-        let mut sink = 0usize;
-        for &k in &probes {
-            let slot = expanse::JudyLGet(arr, black_box(k), null_mut()).cast::<Word>();
+        for &k in &built.probes {
+            let slot = expanse::JudyLGet(built.arr, black_box(k), null_mut()).cast::<Word>();
             if !slot.is_null() {
                 sink ^= *slot;
             }
         }
-        expanse::JudyLFreeArray(&raw mut arr, null_mut());
-        black_box(sink)
+        // Not freed — teardown stays out of the measured region.
     }
+    black_box(sink)
 }
 
 #[library_benchmark]
-#[bench::sequential("sequential")]
-#[bench::random("random")]
-#[bench::clustered("clustered")]
-fn judyl_get_stock(dist: &str) -> Word {
-    let ks = keys(dist);
-    let probes = shuffled(ks.clone());
+#[bench::sequential(args = ("sequential",), setup = build_stock)]
+#[bench::random(args = ("random",), setup = build_stock)]
+#[bench::clustered(args = ("clustered",), setup = build_stock)]
+#[bench::random_big(args = ("random_big",), setup = build_stock)]
+fn judyl_get_stock(built: Built) -> Word {
+    // NOTE: `Stock::open()` here is still inside the measured region and
+    // charges stock a full dlopen + symbol bind that our arm never pays.
+    // It flatters our ratio. Tracked in issue #1; fixing it means
+    // carrying the resolved symbols through `setup`.
     let lib = Stock::open();
-    let ins: FpIns = lib.sym(c"JudyLIns");
     let get: FpGet = lib.sym(c"JudyLGet");
-    let free: FFree = lib.sym(c"JudyLFreeArray");
-    let mut arr: *mut c_void = null_mut();
-    // SAFETY: same contract as the libexpanse arm.
+    let mut sink = 0usize;
+    // SAFETY: array built by `build_stock`, freed here.
     unsafe {
-        for &k in &ks {
-            let slot = ins(&raw mut arr, k, null_mut()).cast::<Word>();
-            *slot = k;
-        }
-        let mut sink = 0usize;
-        for &k in &probes {
-            let slot = get(arr, black_box(k), null_mut()).cast::<Word>();
+        for &k in &built.probes {
+            let slot = get(built.arr, black_box(k), null_mut()).cast::<Word>();
             if !slot.is_null() {
                 sink ^= *slot;
             }
         }
-        free(&raw mut arr, null_mut());
-        black_box(sink)
+        // Not freed — teardown stays out of the measured region.
     }
+    black_box(sink)
 }
 
 // ---- Judy1 ------------------------------------------------------------
@@ -240,7 +332,7 @@ fn judy1_set_expanse(dist: &str) -> Word {
         for &k in &ks {
             expanse::Judy1Set(&raw mut arr, black_box(k), null_mut());
         }
-        black_box(expanse::Judy1FreeArray(&raw mut arr, null_mut()))
+        black_box(map_len_sentinel(arr))
     }
 }
 
@@ -251,59 +343,44 @@ fn judy1_set_stock(dist: &str) -> Word {
     let ks = keys(dist);
     let lib = Stock::open();
     let set: F1Set = lib.sym(c"Judy1Set");
-    let free: FFree = lib.sym(c"Judy1FreeArray");
     let mut arr: *mut c_void = null_mut();
     // SAFETY: same contract as the libexpanse arm.
     unsafe {
         for &k in &ks {
             set(&raw mut arr, black_box(k), null_mut());
         }
-        black_box(free(&raw mut arr, null_mut()))
+        black_box(map_len_sentinel(arr))
     }
 }
 
 #[library_benchmark]
-#[bench::random("random")]
-fn judy1_test_expanse(dist: &str) -> Word {
-    let ks = keys(dist);
-    let probes = shuffled(ks.clone());
-    let mut arr: *mut c_void = null_mut();
-    // SAFETY: standard Judy1 usage.
+#[bench::random(args = ("random",), setup = build_set_expanse)]
+fn judy1_test_expanse(built: Built) -> Word {
+    let mut hits = 0usize;
+    // SAFETY: array built by `build_set_expanse`, freed here.
     unsafe {
-        for &k in &ks {
-            expanse::Judy1Set(&raw mut arr, k, null_mut());
+        for &k in &built.probes {
+            hits += expanse::Judy1Test(built.arr, black_box(k), null_mut()) as usize;
         }
-        let mut hits = 0usize;
-        for &k in &probes {
-            hits += expanse::Judy1Test(arr, black_box(k), null_mut()) as usize;
-        }
-        expanse::Judy1FreeArray(&raw mut arr, null_mut());
-        black_box(hits)
+        // Not freed — teardown stays out of the measured region.
     }
+    black_box(hits)
 }
 
 #[library_benchmark]
-#[bench::random("random")]
-fn judy1_test_stock(dist: &str) -> Word {
-    let ks = keys(dist);
-    let probes = shuffled(ks.clone());
+#[bench::random(args = ("random",), setup = build_set_stock)]
+fn judy1_test_stock(built: Built) -> Word {
     let lib = Stock::open();
-    let set: F1Set = lib.sym(c"Judy1Set");
     let test: F1Test = lib.sym(c"Judy1Test");
-    let free: FFree = lib.sym(c"Judy1FreeArray");
-    let mut arr: *mut c_void = null_mut();
-    // SAFETY: same contract as the libexpanse arm.
+    let mut hits = 0usize;
+    // SAFETY: array built by `build_set_stock`, freed here.
     unsafe {
-        for &k in &ks {
-            set(&raw mut arr, k, null_mut());
+        for &k in &built.probes {
+            hits += test(built.arr, black_box(k), null_mut()) as usize;
         }
-        let mut hits = 0usize;
-        for &k in &probes {
-            hits += test(arr, black_box(k), null_mut()) as usize;
-        }
-        free(&raw mut arr, null_mut());
-        black_box(hits)
+        // Not freed — teardown stays out of the measured region.
     }
+    black_box(hits)
 }
 
 library_benchmark_group!(

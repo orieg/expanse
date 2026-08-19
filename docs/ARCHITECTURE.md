@@ -30,9 +30,9 @@ Two further compressions: **narrow pointers** (a JP records skipped common bytes
 | Component | Judy IV | Expanse | Why |
 |---|---|---|---|
 | Cache lines | 128-byte assumption | All nodes exactly 64 B or 128 B, 64-aligned | One node traversal = 1–2 line fills, never a straddle |
-| Bit scan/rank | SWAR + lookup tables | `u64::count_ones`/`trailing_zeros` (→ `popcnt`/`tzcnt`) | Single-cycle hardware ops |
+| Bit scan/rank | SWAR + lookup tables | `u64::count_ones`/`trailing_zeros` | Single-cycle on AArch64 (`cnt`/`rbit`). **On x86-64 `popcnt` is NOT in the base target**: without `-C target-cpu=x86-64-v2` (or `+popcnt`) these lower to a ~12-15 instruction SWAR sequence. No target-cpu is set today, so every benchmark and shipped artifact takes the software path — an open item, not a delivered advantage |
 | Byte search | Unrolled scalar compares | SIMD splat-compare-movemask (SSE2/NEON via `core::arch`, portable fallback) | 16–64 bytes per compare, no branchy loop |
-| Allocator | Custom word-bucket chunk allocator | System/global allocator + slab arenas for 64 B/128 B/4 KiB classes | Modern allocators already segregate; arenas kill mutation-burst overhead |
+| Allocator | Custom word-bucket chunk allocator | System/global allocator, cache-line aligned, byte-exact accounting. **No slab arenas** — the row previously claimed them; `alloc.rs` has never had any | Modern allocators already segregate size classes. Whether arenas earn their keep is **open and gated on measurement** (issue #1 item 4): the original's chunk allocator groups related nodes, we scatter them, and no benchmark has yet run at a population where that difference is visible |
 | Edge density | 16 B per edge always | 16 B edges + tagged-pointer packing where profitable | 48-bit VAs leave 16 tag bits + 3 alignment bits free |
 | Concurrency | None (external mutex) | Per-node version counters, optimistic lock-coupling readers | Lock-free reads, linear read scaling |
 
