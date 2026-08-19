@@ -200,9 +200,7 @@ impl StrNode {
             let (target, target_terminal) = chunk_at(key, off);
             // Exact continuation first: deeper entries share this chunk
             // and all sort above anything below it in this node.
-            if !target_terminal
-                && let Some(v) = n.map.get(target)
-            {
+            if !target_terminal && let Some(v) = n.map.get(target) {
                 stack.push((node, target, out.len()));
                 out.extend_from_slice(&target.to_be_bytes());
                 node = v as *mut StrNode;
@@ -627,7 +625,10 @@ mod tests {
                 assert_eq!(m.last().map(|(k, _)| k), Some(sibling.clone()));
                 assert_eq!(m.get(&deep), Some(1));
                 assert_eq!(m.get(&sibling), Some(2));
-                assert_eq!(m.next_at_or_after(&deep).map(|(k, _)| k), Some(deep.clone()));
+                assert_eq!(
+                    m.next_at_or_after(&deep).map(|(k, _)| k),
+                    Some(deep.clone())
+                );
                 assert_eq!(m.next_after(&deep).map(|(k, _)| k), Some(sibling.clone()));
                 assert_eq!(m.prev_before(&sibling).map(|(k, _)| k), Some(deep.clone()));
 
