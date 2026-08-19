@@ -66,6 +66,7 @@ type FpIns = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> *mut c
 type FpGet = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> *mut c_void;
 type F1Set = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> c_int;
 type F1Test = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> c_int;
+type FpDel = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> c_int;
 
 /// Keeps a built array observable so the optimizer cannot delete the
 /// work that produced it, without calling into either library.
@@ -144,6 +145,7 @@ impl Lib {
             get: self.sym(c"JudyLGet"),
             set1: self.sym(c"Judy1Set"),
             test1: self.sym(c"Judy1Test"),
+            del: self.sym(c"JudyLDel"),
         }
     }
 }
@@ -155,6 +157,7 @@ struct Api {
     get: FpGet,
     set1: F1Set,
     test1: F1Test,
+    del: FpDel,
 }
 
 struct XorShift(u64);
@@ -475,6 +478,79 @@ fn judyl_get_stock(built: Built) -> Word {
     black_box(sink)
 }
 
+// ---- JudyL steady-state churn ------------------------------------------
+//
+// Measured region: ONLY the mixed op loop — upsert an existing key,
+// insert a fresh neighbour, delete it again — over a prebuilt array
+// (`setup = build_*`). The insert arms above insert each key once,
+// fresh, so no arm exercised upsert-of-present or delete at steady
+// state; structural growth was measured, steady-state operation never.
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = build_expanse)]
+fn judyl_churn_expanse(built: Built) -> Word {
+    let mut arr = built.arr;
+    let mut sink = 0usize;
+    // SAFETY: standard JudyL usage on the prebuilt array; slots are
+    // written immediately and fresh keys are removed before reuse.
+    unsafe {
+        for &k in &built.probes {
+            let slot = expanse::JudyLIns(&raw mut arr, black_box(k), null_mut()).cast::<Word>();
+            sink ^= *slot;
+            *slot = !k;
+            let fresh =
+                expanse::JudyLIns(&raw mut arr, black_box(k ^ 1), null_mut()).cast::<Word>();
+            *fresh = k;
+            sink ^= expanse::JudyLDel(&raw mut arr, black_box(k ^ 1), null_mut()) as Word;
+        }
+        black_box(map_len_sentinel(arr));
+    }
+    black_box(sink)
+}
+
+// Our own `libexpanse.so` — the arm to compare against `judyl_churn_stock`.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = build_expanse_dl)]
+fn judyl_churn_expanse_dl(built: Built) -> Word {
+    let api = built.api.expect("dl arm needs a resolved api");
+    let mut arr = built.arr;
+    let mut sink = 0usize;
+    // SAFETY: same contract as the rlib arm.
+    unsafe {
+        for &k in &built.probes {
+            let slot = (api.ins)(&raw mut arr, black_box(k), null_mut()).cast::<Word>();
+            sink ^= *slot;
+            *slot = !k;
+            let fresh = (api.ins)(&raw mut arr, black_box(k ^ 1), null_mut()).cast::<Word>();
+            *fresh = k;
+            sink ^= (api.del)(&raw mut arr, black_box(k ^ 1), null_mut()) as Word;
+        }
+        black_box(map_len_sentinel(arr));
+    }
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = build_stock)]
+fn judyl_churn_stock(built: Built) -> Word {
+    let api = built.api.expect("stock arm needs a resolved api");
+    let mut arr = built.arr;
+    let mut sink = 0usize;
+    // SAFETY: same contract as the libexpanse arms.
+    unsafe {
+        for &k in &built.probes {
+            let slot = (api.ins)(&raw mut arr, black_box(k), null_mut()).cast::<Word>();
+            sink ^= *slot;
+            *slot = !k;
+            let fresh = (api.ins)(&raw mut arr, black_box(k ^ 1), null_mut()).cast::<Word>();
+            *fresh = k;
+            sink ^= (api.del)(&raw mut arr, black_box(k ^ 1), null_mut()) as Word;
+        }
+        black_box(map_len_sentinel(arr));
+    }
+    black_box(sink)
+}
+
 // ---- Judy1 ------------------------------------------------------------
 
 #[library_benchmark]
@@ -575,6 +651,9 @@ library_benchmark_group!(
         judyl_get_expanse,
         judyl_get_expanse_dl,
         judyl_get_stock,
+        judyl_churn_expanse,
+        judyl_churn_expanse_dl,
+        judyl_churn_stock,
         judy1_set_expanse,
         judy1_set_expanse_dl,
         judy1_set_stock,
