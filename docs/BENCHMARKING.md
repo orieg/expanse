@@ -33,14 +33,32 @@ Performance claims are this project's reason to exist, so they follow the strict
    rule below governs how a number is interpreted; this one governs
    whether it measures what its name says.
 
-   Three separate violations of this rule have now been found and fixed
-   in the same file, each by a different reviewer: the build inside the
-   lookup arms, the teardown inside every arm, and **key generation
-   inside the insert arms** — 30k (or 1.5M) xorshift steps plus a `Vec`
-   growth, charged to both libraries. That last one is the instructive
-   case, because it is *symmetric*: identical work added to both sides
-   still corrupts the comparison, by pulling every ratio toward 1.00.
-   Symmetric contamination is not harmless contamination.
+   **Four** separate violations have now been found and fixed, across
+   both harness files: the build inside the vs-stock lookup arms; the
+   teardown inside every vs-stock arm; **key generation inside the insert
+   arms**; and finally the same teardown bug again in
+   `benches/instructions.rs`, the file that produces the vs-base column on
+   every PR, where the arms take the container by value so `Drop` ran
+   inside the timed window.
+
+   Two lessons, both paid for:
+
+   - **Symmetric contamination is not harmless contamination.** Key
+     generation was charged to both libraries equally, which is exactly
+     why it survived review — and it still corrupts the comparison, by
+     pulling every ratio toward 1.00.
+   - **Every one of the four was found by an instrument, never by a
+     reviewer** — despite this rule explicitly asking a reviewer to check
+     the measured region. The rule is necessary and has not once been
+     sufficient. Treat "a reviewer checked it" as the weakest evidence
+     available and get per-function output instead; `free_subtree`
+     appearing inside a benchmark named `map_get` is unmissable, while the
+     same fact stated in prose was missed four times.
+
+   The same discipline applies to a number's **provenance**: B0 below was
+   labelled with a commit it was not measured at, because the branch had
+   been cut from other in-flight work. A mislabelled commit misleads
+   exactly as much as a mismeasured region.
 
 0b. **Both arms must be the same shape.** A comparison is only valid
    between binaries built and reached the same way. Ours was an LTO'd
@@ -197,12 +215,19 @@ Method note: attribution is done inside a single process, so co-resident load sh
 
 Before: with one tree-level seqlock, a full-speed writer (~2.5 M op/s) collapsed optimistic reads — the version changed faster than a walk completed, so nearly every validation failed into the mutex fallback (the 3.4 K/s cell). After the **per-node refinement** (writers bracket each node's in-place mutations with that node's version; readers validate hand-over-hand): single-reader churn throughput rose **~700×** to 2.4 M/s and writer throughput rose to ~3.3 M op/s (fewer mutex handoffs). The remaining churn-vs-idle gap is the walk-start gate (the tree version still brackets whole ops for the root snapshot); † higher reader counts under a saturating writer shift toward retry pressure along the written path — the next refinement target if a real workload needs it. Single-threaded trees skip the version brackets entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
 
-### Checkpoint B0 — instruction-count baseline vs stock libjudy on the corrected harness (measured: GitHub `ubuntu-latest` runner, callgrind via the `instruction-counts` job, commit `af21e02`; deterministic)
+### Checkpoint B0 — first vs-stock baseline on the corrected harness (measured: GitHub `ubuntu-latest` runner, callgrind via the `instruction-counts` job, **the issue #1 items-1-3 branch, not `af21e02`**; deterministic)
 
 The first vs-stock instruction baseline taken after the harness stopped
 measuring its own setup. Both the tree build **and** the teardown were inside
 the timed region of every arm before `af21e02`; the lookup arms were therefore
 reporting insert work. **The earlier 2.09× / 2.11× lookup ratios are retracted.**
+
+⚠️ **Provenance correction.** This table was originally labelled `af21e02`. It
+was not measured there — the numbers come from the branch carrying issue #1
+items 1-3, so they are `main` *plus* that engine work. B2 below has the true
+`main` baseline alongside it. Kept here as the rlib-only measurement it is, and
+as a record that a mislabelled commit is exactly as misleading as a
+mismeasured region.
 
 Ratio = ours ÷ stock, instructions retired through the identical C ABI on
 identical key streams. 30k keys except `random_big`, which is 1.5M.
@@ -250,54 +275,54 @@ conditional on the diff touching Rust sources.
 
 ### Checkpoint B2 — the same-shape comparison, and the shared-library correction factor (measured: GitHub `ubuntu-latest` runner, callgrind via `instruction-counts`, commit with this section; deterministic)
 
-B0 above measured our rlib against stock's shared object. This measures our
-own `libexpanse.so`, `dlopen`'d and called through resolved symbols exactly as
-stock is — the shape a drop-in consumer actually gets. **These are the numbers
-to quote.**
+B0 above measured our rlib against stock's shared object, on a branch that
+also carried issue #1 items 1-3. This measures our own `libexpanse.so`,
+`dlopen`'d and called through resolved symbols exactly as stock is — the shape
+a drop-in consumer actually gets — at **two code states**, so the drop-in cost
+and the engine work are separable. **Quote the `.so` columns.**
 
-⚠️ **Provisional.** This table was measured on a branch that also carried the
-issue #1 items 1-3 (monomorphized `immed_find`, word-wise `pop0`,
-capacity-classed root leaves) — the branch was cut from that work rather than
-from `main`, which is an attribution error of exactly the kind rule 0 exists to
-prevent. The **correction factor** below is a ratio between two builds of the
-same code and is unaffected. The absolute ratios move once those items land
-separately; re-measure and replace this table then.
-
-| operation | `.so` ratio | rlib ratio | est. cycles (`.so`) |
+| operation | `.so` on `main` | `.so` with items 1-3 | rlib on `main` |
 |---|---:|---:|---:|
-| `judy1_set/clustered` | **1.25×** | 1.16× | 1.25× |
-| `judyl_get/random_big` (1.5M) | **1.15×** | 1.09× | 1.09× |
-| `judyl_get/random` | 1.58× | 1.49× | 1.53× |
-| `judyl_get/clustered` | 1.71× | 1.59× | 1.64× |
-| `judyl_insert/sequential` | 1.71× | 1.78× | 1.70× |
-| `judyl_insert/clustered` | 1.78× | 1.68× | 1.77× |
-| `judy1_test/random` | 1.88× | 1.80× | 1.79× |
-| `judy1_set/random` | 1.93× | 2.02× | 1.95× |
-| `judyl_get/sequential` | 1.94× | 1.83× | 1.79× |
-| `judyl_insert/random` | 2.16× | 2.21× | 2.18× |
+| `judy1_set/clustered` | 1.35× | **1.25×** | 1.26× |
+| `judyl_get/random_big` (1.5M) | 1.29× | **1.15×** | 1.23× |
+| `judyl_get/random` | 1.66× | 1.58× | 1.57× |
+| `judyl_get/clustered` | 1.71× | 1.71× | 1.59× |
+| `judyl_insert/clustered` | 1.89× | 1.78× | 1.78× |
+| `judyl_get/sequential` | 1.94× | 1.94× | 1.83× |
+| `judy1_test/random` | 1.95× | 1.88× | 1.87× |
+| `judyl_insert/sequential` | 1.97× | 1.71× | 2.03× |
+| `judy1_set/random` | 2.18× | 1.93× | 2.26× |
+| `judyl_insert/random` | 2.40× | 2.16× | 2.44× |
 
-**Correction factor: 1.06× median, range 0.95–1.08×.**
+**Correction factor: 1.05× median, range 0.96–1.07× on `main`** (1.06×,
+0.95–1.08× with items 1-3). It barely moves between two different code states,
+which is what a ratio between two builds of the *same* code should do — the
+one number here that is robust rather than provisional.
 
-**The prediction was wrong in an instructive way.** The expectation on record
-was that being a shared object would cost us uniformly, so every ratio would
-widen. It does not. The cost is real but **confined to the lookup arms**
-(1.06–1.08×), where a PLT-mediated entry is a meaningful fraction of a short
-operation; on the insert arms the `.so` is *cheaper* than the LTO'd rlib
-(0.95–0.98×). Both builds get `lto = "thin"` and `codegen-units = 1`; what the
+**The prediction behind it was wrong in an instructive way.** The expectation
+on record was that being a shared object would cost us uniformly, so every
+ratio would widen. It does not. The cost is real but **confined to the lookup
+arms** (1.05–1.07×), where a PLT-mediated entry is a meaningful fraction of a
+short operation; on the insert arms the `.so` is *cheaper* than the LTO'd rlib
+(0.96–0.98×). Both builds get `lto = "thin"` and `codegen-units = 1`; what the
 rlib arm additionally gets is cross-crate inlining with the harness, and on a
 long insert that apparently costs more instructions than it saves. So
 "cross-object inlining is an advantage stock cannot have" was the right shape
-of argument and the wrong magnitude — it is worth ~6–8% on lookups and nothing
-on inserts.
+of argument and the wrong magnitude — worth ~5–7% on lookups, nothing on
+inserts.
 
-Net effect on the project's claims: the drop-in lookup gap is **larger** than
-B0 said (1.58× vs 1.49× on random; 1.94× vs 1.83× on sequential), the insert
-gap is marginally **smaller**, and the best arms remain `judy1_set/clustered`
-at 1.25× and the 1.5M lookup at 1.15×.
+**Two lookup arms are byte-identical across the two code states** —
+`judyl_get/clustered` at 7,227,854 and `judyl_get/sequential` at 9,840,110,
+unchanged to the instruction while every other arm moved. That is an
+independent confirmation of the terminal-form census below, which predicted
+that items 1-3 cannot reach those arms: they build only bitmap leaves, so
+neither the immediate scan nor the linear-leaf population read is on their
+path. A prediction made from structure, confirmed by an instrument that did
+not know about it.
 
-Both arms now bind their symbols in `setup`, so neither measures its own
-dynamic linking, and key generation has moved out of the insert arms' measured
-region — see rule 0 for why that mattered even though it was symmetric.
+Both arms bind their symbols in `setup`, so neither measures its own dynamic
+linking, and key generation has moved out of the insert arms' measured region —
+see rule 0 for why that mattered even though it was symmetric.
 
 ### First per-function attribution (measured: GitHub `ubuntu-latest` runner, `callgrind_annotate` over the `instruction-counts` job, commit with this section; deterministic)
 
