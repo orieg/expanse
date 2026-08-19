@@ -24,6 +24,15 @@ Performance claims are this project's reason to exist, so they follow the strict
 
 ## Methodology rules (binding)
 
+0. **State the measured region, and have a reviewer check it.** Every
+   benchmark's doc comment says exactly what is inside the timed window
+   and what is in `setup`/`teardown`. This rule exists because the
+   vs-stock lookup arms silently measured the tree *build* (and then, on
+   the first attempt to fix that, still measured the *teardown*), which
+   produced published ratios that had to be retracted twice. Every other
+   rule below governs how a number is interpreted; this one governs
+   whether it measures what its name says.
+
 1. **Interleaved A/B arms.** Any A-vs-B comparison (regression check, libjudy comparison, before/after a change) alternates arms per benchmark group over several rounds — never suite-A-then-suite-B. Runner/thermal drift then hits both arms and cancels in the paired ratio. (Learned the hard way in php-judy — back-to-back suites reported false regressions; see php-judy issue #87 and its `bench-compare` harness.)
 2. **System-load hygiene.** Before the first run and between comparison runs, snapshot load (`ps -A -o %cpu,%mem,command | sort -rn | head`; load average vs core count). A non-target process above ~100% CPU, or a load-average shift > 2 between arms, contaminates the run: discard it, don't reinterpret it. Laptops running concurrent sessions are shared infrastructure.
 3. **CI benches detect changes, not truths.** CI runners produce paired ratios good for regression alarms. Publishable absolute numbers (README/claims) come from a dedicated quiet host with the hardware named.

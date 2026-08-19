@@ -48,10 +48,16 @@ type FpIns = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> *mut c
 type FpGet = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> *mut c_void;
 type F1Set = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> c_int;
 type F1Test = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> c_int;
-type FFree = unsafe extern "C" fn(*mut *mut c_void, *mut c_void) -> Word;
 
 /// Stock libjudy, loaded privately so its symbols never collide with the
 /// identically named ones libexpanse exports.
+/// Keeps a built array observable so the optimizer cannot delete the
+/// work that produced it, without calling into either library.
+#[inline]
+fn map_len_sentinel(arr: *mut c_void) -> Word {
+    arr as Word
+}
+
 struct Stock(*mut c_void);
 
 impl Stock {
@@ -231,8 +237,11 @@ fn judyl_insert_expanse(dist: &str) -> Word {
             let slot = expanse::JudyLIns(&raw mut arr, black_box(k), null_mut()).cast::<Word>();
             *slot = k;
         }
-        let freed = expanse::JudyLFreeArray(&raw mut arr, null_mut());
-        black_box(freed)
+        // Deliberately NOT freed: teardown is a different code path
+        // (our class-sized dealloc vs stock's chunked free) and at
+        // POP_BIG it rivals the work being measured. Each bench runs in
+        // its own process, so the leak is bounded and intentional.
+        black_box(map_len_sentinel(arr))
     }
 }
 
@@ -244,7 +253,6 @@ fn judyl_insert_stock(dist: &str) -> Word {
     let ks = keys(dist);
     let lib = Stock::open();
     let ins: FpIns = lib.sym(c"JudyLIns");
-    let free: FFree = lib.sym(c"JudyLFreeArray");
     let mut arr: *mut c_void = null_mut();
     // SAFETY: same contract as the libexpanse arm.
     unsafe {
@@ -252,7 +260,8 @@ fn judyl_insert_stock(dist: &str) -> Word {
             let slot = ins(&raw mut arr, black_box(k), null_mut()).cast::<Word>();
             *slot = k;
         }
-        black_box(free(&raw mut arr, null_mut()))
+        // Not freed — see the libexpanse arm.
+        black_box(map_len_sentinel(arr))
     }
 }
 
@@ -269,7 +278,7 @@ fn judyl_insert_stock(dist: &str) -> Word {
 #[bench::clustered(args = ("clustered",), setup = build_expanse)]
 // Cache-pressure arm: exceeds LLC, so LL/RAM hits matter (see POP_BIG).
 #[bench::random_big(args = ("random_big",), setup = build_expanse)]
-fn judyl_get_expanse(mut built: Built) -> Word {
+fn judyl_get_expanse(built: Built) -> Word {
     let mut sink = 0usize;
     // SAFETY: array built by `build_expanse`, freed here.
     unsafe {
@@ -279,7 +288,7 @@ fn judyl_get_expanse(mut built: Built) -> Word {
                 sink ^= *slot;
             }
         }
-        expanse::JudyLFreeArray(&raw mut built.arr, null_mut());
+        // Not freed — teardown stays out of the measured region.
     }
     black_box(sink)
 }
@@ -289,14 +298,13 @@ fn judyl_get_expanse(mut built: Built) -> Word {
 #[bench::random(args = ("random",), setup = build_stock)]
 #[bench::clustered(args = ("clustered",), setup = build_stock)]
 #[bench::random_big(args = ("random_big",), setup = build_stock)]
-fn judyl_get_stock(mut built: Built) -> Word {
+fn judyl_get_stock(built: Built) -> Word {
     // NOTE: `Stock::open()` here is still inside the measured region and
     // charges stock a full dlopen + symbol bind that our arm never pays.
     // It flatters our ratio. Tracked in issue #1; fixing it means
     // carrying the resolved symbols through `setup`.
     let lib = Stock::open();
     let get: FpGet = lib.sym(c"JudyLGet");
-    let free: FFree = lib.sym(c"JudyLFreeArray");
     let mut sink = 0usize;
     // SAFETY: array built by `build_stock`, freed here.
     unsafe {
@@ -306,7 +314,7 @@ fn judyl_get_stock(mut built: Built) -> Word {
                 sink ^= *slot;
             }
         }
-        free(&raw mut built.arr, null_mut());
+        // Not freed — teardown stays out of the measured region.
     }
     black_box(sink)
 }
@@ -324,7 +332,7 @@ fn judy1_set_expanse(dist: &str) -> Word {
         for &k in &ks {
             expanse::Judy1Set(&raw mut arr, black_box(k), null_mut());
         }
-        black_box(expanse::Judy1FreeArray(&raw mut arr, null_mut()))
+        black_box(map_len_sentinel(arr))
     }
 }
 
@@ -335,44 +343,42 @@ fn judy1_set_stock(dist: &str) -> Word {
     let ks = keys(dist);
     let lib = Stock::open();
     let set: F1Set = lib.sym(c"Judy1Set");
-    let free: FFree = lib.sym(c"Judy1FreeArray");
     let mut arr: *mut c_void = null_mut();
     // SAFETY: same contract as the libexpanse arm.
     unsafe {
         for &k in &ks {
             set(&raw mut arr, black_box(k), null_mut());
         }
-        black_box(free(&raw mut arr, null_mut()))
+        black_box(map_len_sentinel(arr))
     }
 }
 
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = build_set_expanse)]
-fn judy1_test_expanse(mut built: Built) -> Word {
+fn judy1_test_expanse(built: Built) -> Word {
     let mut hits = 0usize;
     // SAFETY: array built by `build_set_expanse`, freed here.
     unsafe {
         for &k in &built.probes {
             hits += expanse::Judy1Test(built.arr, black_box(k), null_mut()) as usize;
         }
-        expanse::Judy1FreeArray(&raw mut built.arr, null_mut());
+        // Not freed — teardown stays out of the measured region.
     }
     black_box(hits)
 }
 
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = build_set_stock)]
-fn judy1_test_stock(mut built: Built) -> Word {
+fn judy1_test_stock(built: Built) -> Word {
     let lib = Stock::open();
     let test: F1Test = lib.sym(c"Judy1Test");
-    let free: FFree = lib.sym(c"Judy1FreeArray");
     let mut hits = 0usize;
     // SAFETY: array built by `build_set_stock`, freed here.
     unsafe {
         for &k in &built.probes {
             hits += test(built.arr, black_box(k), null_mut()) as usize;
         }
-        free(&raw mut built.arr, null_mut());
+        // Not freed — teardown stays out of the measured region.
     }
     black_box(hits)
 }

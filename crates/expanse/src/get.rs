@@ -17,14 +17,21 @@
 //! parent with skipped digits, validated against the edge's decode bytes
 //! (`decode[i]` = the key digit at level `child_level + 1 + i`); the
 //! mutation engines synthesize these for last-byte-divergent key sets.
-//! Two standing restrictions:
+//! Branch children **do** skip levels: a branch stores its own level in
+//! its header (`BranchHeader.level` / `BranchB.level`), which
+//! `mutate::branch_form_level` reads on every branch step. The original
+//! resolves the same problem with per-level tag variants instead, which
+//! keeps the level in a byte the walk has already loaded — see
+//! `docs/ARCHITECTURE.md` §6 for why that trade is still open here.
 //!
-//! - **branch children never skip levels** (a level-skipping branch child
-//!   needs the child's level encoded somewhere; the original resolves this
-//!   with per-level tag variants);
+//! Two standing restrictions remain:
+//!
 //! - **immediate edges never skip** (their key bytes occupy the decode
 //!   region; an immediate's `key_bytes` *is* its level, as in the original
-//!   design), and a full-expanse edge covers its whole current expanse.
+//!   design), and a full-expanse edge covers its whole current expanse;
+//! - **`BranchU` never skips** — it has no header to carry a level, so a
+//!   skipping `BranchB` is wrapped one level above its form before it can
+//!   be upgraded.
 //!
 //! Linear leaves (`Leaf1..Leaf7`) are header-less packed allocations whose
 //! population comes from the parent edge's `pop0` — see `leaf`.
