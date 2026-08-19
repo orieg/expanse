@@ -6,6 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+# One in-flight run per PR: a new commit supersedes the previous run, so
+# only the tip of the branch is fully verified. That is what branch
+# protection gates on anyway, and it stops a rapid series of review
+# fixups from queueing several ~25-minute matrices at once.
+#
+# Pushes to `main` are NEVER cancelled: those runs are the record that
+# the protected branch was verified at that commit, and a cancelled
+# required check is not a green one.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 

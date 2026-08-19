@@ -12,6 +12,15 @@ on:
         type: choice
         options: [all, bench]
 
+# Never run two nightlies at once — a manual `only: bench` dispatch
+# landing on top of the cron would produce two bench-report artifacts for
+# the same commit and contend for the same runners. Queue instead of
+# cancelling: a long fuzz session that is nearly done is worth more than
+# the run that would replace it.
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
 
