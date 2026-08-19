@@ -71,7 +71,7 @@ pub(crate) fn decode_matches(edge: &Edge, key: Key, child_level: u8, level: u8) 
 /// Matches `key` against the packed keys of an immediate edge and returns the
 /// slot of the match, if any. `payload` holds `im.key_count()` keys of
 /// `im.key_bytes()` bytes each, sorted, each key little-endian.
-#[inline(always)]
+#[inline]
 fn immed_find(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
     // Width-monomorphized like `leaf::search_fixed`. At a runtime width
     // the slice comparison lowers to a `memcmp` **call** — through a PLT
@@ -93,19 +93,26 @@ fn immed_find(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
 ///
 /// The single-key case — the common terminal for sparse and random keys —
 /// collapses to a masked integer compare with no loop at all.
-#[inline(always)]
+#[inline]
 fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
     let n = im.key_count() as usize;
     debug_assert!(payload.len() >= n * KB);
     let le = key.to_le_bytes();
     let mut needle = [0u8; KB];
     needle.copy_from_slice(&le[..KB]);
-    // `chunks_exact` over a constant width: each comparison is a
-    // fixed-size array compare that inlines, not a call.
-    payload
-        .chunks_exact(KB)
-        .take(n)
-        .position(|candidate| candidate == needle)
+    // Same idiom as `leaf::search_fixed`, and for the same reason. The
+    // `chunks_exact(KB).take(n)` version this replaces yielded `&[u8]`,
+    // so `candidate == needle` was a **slice**-to-array comparison — a
+    // length check plus slice-equality machinery, under two iterator
+    // adapters. Casting to `[u8; KB]` first makes it an array-to-array
+    // compare of statically known width, which lowers to a word compare
+    // with no length test.
+    //
+    // SAFETY: `[u8; KB]` has alignment 1, and the edge's tag guarantees
+    // `n * KB` payload bytes (debug-asserted above) — exactly `n` such
+    // arrays.
+    let packed = unsafe { core::slice::from_raw_parts(payload.as_ptr().cast::<[u8; KB]>(), n) };
+    packed.iter().position(|candidate| *candidate == needle)
 }
 
 /// The shared descent; `MAP` selects map flavor (values) over set flavor.
