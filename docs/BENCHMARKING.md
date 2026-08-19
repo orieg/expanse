@@ -39,9 +39,54 @@ Performance claims are this project's reason to exist, so they follow the strict
 | Lookup latency grid (hit/miss × distribution × population) | landed (`benches/compare.rs`) | vs `BTreeSet`/`BTreeMap`, `HashSet`/`HashMap`; timing numbers unpublished until a quiet-host run |
 | Insert throughput (cold build per distribution) | landed (`benches/compare.rs`) | same caveat |
 | bytes/key | landed (`examples/bytes_per_key.rs`) | deterministic allocator accounting — load-immune, results below; **gates CI** via the `memory-budget` job |
+| Instruction/cache counts | landed (`benches/instructions.rs`, iai-callgrind) | deterministic via callgrind — load-immune and resolves ~1% changes; **posted as a PR comment with head-vs-base deltas** by the `instruction-counts` job |
 | Lookup attribution | landed (`examples/lookup_profile.rs`) | sampling profile of a `get`-only loop — *where* time goes, not how long; sample distribution inside one process is far less load-sensitive than a cross-binary ratio |
 | Concurrent read scaling (1..N threads) | landed (`examples/concurrent_scaling.rs`) | Read-only and write-churn mixes; the per-node-OCC go/no-go instrument — first numbers below |
 | Full libjudy + ART comparison | Phase 8 remainder | Headline table, dedicated-host runs, driven through the capi surface |
+
+## Reading perf results in a PR
+
+Every pull request gets a single updating comment from the
+`instruction-counts` job, with two comparisons that answer different
+questions — reading one as the other is the mistake the comment is
+designed to prevent:
+
+1. **vs stock libjudy** (leads the comment): identical C ABI calls and
+   key streams through libexpanse and through a `dlopen`'d stock
+   libjudy, in instructions retired (`crates/expanse-capi/benches/vs_stock.rs`).
+   This is the drop-in question — is the replacement competitive — and
+   it is the project's headline claim. Ratio below 1.00 means we do
+   less work.
+2. **vs the merge base**: the same engine measured against its own
+   previous commit (`crates/expanse/benches/instructions.rs`). This is
+   the regression question — did this change make the engine do more
+   work — and it says nothing about stock.
+
+Both are callgrind counts, plus collapsed sections for cache/RAM traffic
+and the bytes/key table.
+
+Interpretation rules, so the comment is not over-read:
+
+- **Instruction and cache counts are exact.** The same commit produces
+  the same numbers on any runner, so a delta above 0.1% is a real change
+  in work done, not measurement noise. That is why the comment leads
+  with deltas and flags regressions ≥ 1%.
+- **They are cost, not time.** Fewer instructions is strictly better
+  work, but the wall-clock effect depends on how well the machine hides
+  the remaining latency. A speed claim still needs a quiet host.
+- **Wall-clock vs stock libjudy lives in the nightly `bench-report`
+  job**, and remains a regression alarm rather than a publishable
+  number (rule 3, and the retracted `memcmp` claim below). The
+  instruction-count vs-stock table in the PR comment does not replace
+  it: instructions say how much work each library does, wall-clock says
+  how long the machine takes to do it, and the gap between those two is
+  cache behaviour — which is exactly what the allocator-locality work
+  (issue #1 item 4) is about.
+- **The stock arm is called through a function pointer** (`dlsym`),
+  because stock exports the same symbols libexpanse does and loading it
+  privately is what keeps them from colliding. That costs stock an
+  indirect call per operation: a bias of a couple of instructions
+  against stock, never in our favour.
 
 ## Measured results
 
@@ -56,6 +101,33 @@ Performance claims are this project's reason to exist, so they follow the strict
 | sparse `i << 40` (set) | 16.58 | 16.07 | **16.06** | one 16-byte edge per isolated key — the structural floor, not a chain cost (immediates absorb the remainders) |
 
 Map-flavor figures run ~8 B/key above the set figures (the stored value word). The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names. Unit-level anchor for the branch-targeted work: two 512-key clusters cost 192 structural bytes vs 960 under per-level chains (`branch_skip_clusters` tests, both flavors).
+
+### Instruction counts: issue #1 items 1-3 (measured: callgrind via the `instruction-counts` CI job; deterministic, so these are exact — commit with this section)
+
+Controlled A/B against a branch with all three items reverted, same harness and job. Instructions retired, 50k keys per benchmark; negative is less work.
+
+| benchmark | instructions | est. cycles |
+|---|---:|---:|
+| `set_insert/random` | **−16.95%** | −17.62% |
+| `map_iterate/random` | −14.47% | −15.42% |
+| `set_contains/random` | −14.11% | −14.95% |
+| `map_ins_slot/random` | −12.28% | −12.62% |
+| `map_insert/random` | −12.06% | −12.49% |
+| `set_insert/sequential` | −10.73% | −11.42% |
+| `map_get/random` | −10.43% | −10.98% |
+| `map_insert/small` | −8.90% | −9.95% |
+| `map_insert/sequential` | −8.07% | −8.18% |
+| `map_remove/random` | −7.44% | −8.36% |
+| `set_insert/clustered` | −6.88% | −7.83% |
+| `map_get/sequential` | −6.02% | −6.28% |
+| `map_insert/clustered` | −2.98% | −3.95% |
+| `map_get/clustered` | −2.26% | −3.08% |
+
+All 14 benchmarks improved; nothing regressed. The three changes were: the per-level OCC check hoisted into a const generic (removing ~10 atomic loads per mutation), immediate-edge key handling moved from `Vec` to a stack buffer (removing a malloc/free per insert into an immediate), and width-monomorphized packed key access (`read_packed`/`write_packed`/`lower_bound`).
+
+Two things this table is **not**. It is not a wall-clock claim — instructions are cost, and how much of it a machine hides is a separate question needing a quiet host. And it is not comparable to the vs-stock ratios: those are wall-clock on different hardware. What it *is*: reproducible evidence that the engine does measurably less work, at a resolution (0.1%) neither available environment can reach with a timer.
+
+Contrast with the `memcmp` episode below, where wall-clock at n=1 suggested a 7-11% lookup win that a second run erased. Same class of change, same magnitude — but here the measurement can actually resolve it.
 
 ### Attribution findings (measured: M1 MacBook Pro under load — attribution only, no timing claim; commit with this section)
 

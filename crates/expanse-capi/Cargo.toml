@@ -25,3 +25,11 @@ expanse-trie = { path = "../expanse" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# Deterministic vs-stock comparison (benches/vs_stock.rs).
+iai-callgrind = "0.16"
+
+[[bench]]
+name = "vs_stock"
+harness = false
