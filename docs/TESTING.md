@@ -54,7 +54,7 @@ A debug-only tree walker validates after mutations in tests:
 
 ## CI mapping
 
-Now: layer 1 on all platforms — Linux glibc, Linux musl (static-linked test run, cross-built from the glibc runner), macOS, Windows MSVC. Layers 1, 2 (deterministic model harness, active since the Phase 6 mutation engine), 3 (differential oracle, active since the Phase 8 capi surface), 5 (Miri), and 6 (loom + thread stress, active since Phase 7) run in CI. Miri is split: the per-push job skips the heavy `model_*` suites; the nightly workflow runs the full suite under Miri daily. Layer 4 (fuzzing) and proptest-with-shrinking landed with the Phase 8 hardening pass — see below. Placeholders are noted in `.github/workflows/ci.yml`.
+Now: layer 1 on all platforms — Linux glibc, Linux musl (static-linked test run, cross-built from the glibc runner), macOS, Windows MSVC. Layers 1, 2 (deterministic model harness, active since the Phase 6 mutation engine), 3 (differential oracle, active since the Phase 8 capi surface), 5 (Miri), and 6 (loom + thread stress, active since Phase 7) run in CI. Miri is split three ways: the per-push job skips the heavy `model_*` suites **and short-circuits entirely when a PR touches no Rust sources** (it costs ~22 min against <=3 for every other job, and a docs or CI change cannot affect `unsafe`); the nightly workflow runs the full suite daily. The per-push job stays a *required* check and always reports — the path test runs inside the job, because a required check skipped at the workflow level never reports and leaves the PR pending forever. Layer 4 (fuzzing) and proptest-with-shrinking landed with the Phase 8 hardening pass — see below. Placeholders are noted in `.github/workflows/ci.yml`.
 
 ## Fuzzing and property testing (layers 4 and 2)
 

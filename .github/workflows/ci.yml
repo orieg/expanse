@@ -121,20 +121,51 @@ jobs:
 
   miri:
     # docs/TESTING.md layer 5. Unsafe entered the core with the Phase 4
-    # lookup engine — and Miri caught a real Stacked Borrows violation in
-    # test wiring on its first run, so this job is not optional.
+    # lookup engine — Miri caught a real Stacked Borrows violation on its
+    # first run — so this job is not optional. But it costs ~22 minutes
+    # against <=3 for every other job, and a docs, CI or benchmark change
+    # cannot affect `unsafe` at all.
+    #
+    # So it is REQUIRED but conditional, and the condition is evaluated
+    # INSIDE the job: a required check that is skipped at the workflow
+    # level never reports, and the PR waits on it forever. Here the job
+    # always runs and exits success early when the diff cannot matter.
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # need the base commit to diff against
+
+      - name: Does this change touch code Miri can check?
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+            git fetch --depth 1 origin "${{ github.base_ref }}"
+            changed=$(git diff --name-only "$base"...HEAD)
+          else
+            # Push to main: always run, cheaper than reasoning about it.
+            changed="crates/force/src/run.rs"
+          fi
+          echo "$changed"
+          if echo "$changed" | grep -qE '^(crates/.*/src/|crates/.*/tests/|Cargo\.lock|Cargo\.toml)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Rust sources changed — skipping Miri (still reporting success)."
+          fi
 
       - uses: dtolnay/rust-toolchain@nightly
+        if: steps.scope.outputs.run == 'true'
         with:
           components: miri
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.scope.outputs.run == 'true'
 
       - name: Miri (quick — model suites run in the nightly workflow)
+        if: steps.scope.outputs.run == 'true'
         run: cargo miri test -p expanse-trie -- --skip model_
 
   php-judy-compat:

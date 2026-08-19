@@ -58,7 +58,14 @@ fn leaf_size(pop: usize) -> usize {
 /// Offset of the value area inside a root leaf of `pop` entries. Keyed
 /// to the capacity class, not the population, so it does not move when
 /// the population changes within a class.
-fn leaf_values_offset(pop: usize) -> usize {
+///
+/// **This is the single definition of the root-leaf layout.** It is
+/// `pub(crate)` because the concurrent read path in `sync` must use the
+/// same rule: when this was duplicated there, the two copies drifted the
+/// moment capacity classes arrived and readers returned a neighbouring
+/// key's value (caught by `sync::tests::concurrent_readers_under_churn`
+/// on aarch64). Anything that needs the value area asks here.
+pub(crate) fn leaf_values_offset(pop: usize) -> usize {
     8 * crate::leaf::cap_class(pop)
 }
 
