@@ -372,10 +372,8 @@ unsafe fn test_set_swar(edge: &Edge, key: Key, level: u8) -> bool {
 unsafe fn test_set_popcnt(edge: &Edge, key: Key, level: u8) -> bool {
     // SAFETY: contract forwarded; the `inline(always)` body adopts the
     // feature, bitmap ranks included.
-    matches!(
-        unsafe { walk_impl::<false>(edge, key, level) },
-        Lookup::Present
-    )
+    let r = unsafe { walk_impl::<false>(edge, key, level) };
+    matches!(r, Lookup::Present)
 }
 
 /// Retrieves the value of `key` from a map-flavor subtree (`ExpanseMap`;
