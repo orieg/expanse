@@ -246,10 +246,13 @@ jobs:
           sudo apt-get update && sudo apt-get install -y valgrind
 
       - name: Install iai-callgrind-runner
-        # The runner binary version must match the crate version.
+        # The runner binary must match the library version exactly, so
+        # take the resolved version from the lockfile — the dependency
+        # requirement ("^0.16") is not a version `cargo install` accepts.
         run: |
-          VERSION=$(cargo metadata --format-version 1 --no-deps --locked \
-            | python3 -c "import json,sys; print(next(d['req'] for p in json.load(sys.stdin)['packages'] for d in p['dependencies'] if d['name']=='iai-callgrind').lstrip('^'))")
+          VERSION=$(cargo metadata --format-version 1 --locked \
+            | python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='iai-callgrind'))")
+          echo "iai-callgrind resolved to $VERSION"
           cargo install iai-callgrind-runner --version "$VERSION" --locked
 
       - name: Instruction and cache-miss counts
