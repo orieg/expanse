@@ -221,17 +221,22 @@ def render(
 def render_vs_stock(counts: dict[str, dict[str, int]]) -> list[str]:
     """The headline comparison: our C ABI against stock libjudy's, in
     instructions retired, paired by benchmark name."""
+    # Longest suffix first: "_expanse_dl" also ends with "_dl" but must
+    # never be read as the rlib arm.
+    sides = (("_expanse_dl", "dl"), ("_expanse", "ours"), ("_stock", "stock"))
     pairs: dict[str, dict[str, dict[str, int]]] = {}
     for name, metrics in counts.items():
         bench, _, arg = name.partition("/")
-        for suffix, side in (("_expanse", "ours"), ("_stock", "stock")):
+        for suffix, side in sides:
             if bench.endswith(suffix):
                 key = f"{bench[: -len(suffix)]}/{arg}"
                 pairs.setdefault(key, {})[side] = metrics
-    pairs = {k: v for k, v in pairs.items() if "ours" in v and "stock" in v}
+                break
+    pairs = {k: v for k, v in pairs.items() if "stock" in v and ("dl" in v or "ours" in v)}
     if not pairs:
         return []
 
+    have_dl = any("dl" in v for v in pairs.values())
     lines = [
         "### vs stock libjudy",
         "",
@@ -240,32 +245,96 @@ def render_vs_stock(counts: dict[str, dict[str, int]]) -> list[str]:
         "Deterministic, so this is reviewable per PR — unlike the wall-clock "
         "ratios, which no available machine can resolve below ~15-20%.",
         "",
-        "Ratio = ours ÷ stock. **Below 1.00 means libexpanse does less work.**",
-        "",
-        "| | Operation | libexpanse | stock libjudy | ratio | est. cycles ratio |",
-        "|---|---|---:|---:|---:|---:|",
     ]
+    if have_dl:
+        lines += [
+            "**Read the `.so` column.** `libexpanse.so` and stock are both reached "
+            "by `dlopen` + resolved symbols, so they are the same shape; the `rlib` "
+            "column is our code linked directly into the harness with LTO, which is "
+            "faster than anything a drop-in consumer of libexpanse can get. The "
+            "difference between the two columns is the cost of being a shared "
+            "library, and it applies to every ratio this project published before "
+            "the `.so` arm existed.",
+            "",
+            "Ratio = ours ÷ stock. **Below 1.00 means libexpanse does less work.**",
+            "",
+            "| | Operation | libexpanse `.so` | stock libjudy | **ratio (.so)** "
+            "| ratio (rlib) | est. cycles (.so) |",
+            "|---|---|---:|---:|---:|---:|---:|",
+        ]
+    else:
+        lines += [
+            "Ratio = ours ÷ stock. **Below 1.00 means libexpanse does less work.**",
+            "",
+            "| | Operation | libexpanse | stock libjudy | ratio | est. cycles ratio |",
+            "|---|---|---:|---:|---:|---:|",
+        ]
     for name in sorted(pairs):
-        ours, stock = pairs[name]["ours"], pairs[name]["stock"]
-        o_ins, s_ins = ours.get("Instructions", 0), stock.get("Instructions", 0)
-        o_cyc, s_cyc = ours.get("Estimated Cycles", 0), stock.get("Estimated Cycles", 0)
+        sides_here = pairs[name]
+        stock = sides_here["stock"]
+        s_ins = stock.get("Instructions", 0)
+        s_cyc = stock.get("Estimated Cycles", 0)
         if not s_ins:
             continue
+        # The `.so` arm is the headline when present; fall back to the
+        # rlib arm so a run without the cdylib still reports something.
+        primary = sides_here.get("dl") or sides_here["ours"]
+        o_ins = primary.get("Instructions", 0)
+        o_cyc = primary.get("Estimated Cycles", 0)
         ratio = o_ins / s_ins
         cyc_ratio = (o_cyc / s_cyc) if s_cyc else 0.0
         mark = "🟢" if ratio < 1.0 else ("🟡" if ratio <= 1.25 else "🔴")
-        lines.append(
-            f"| {mark} | `{name}` | {o_ins:,} | {s_ins:,} | **{ratio:.2f}x** "
-            f"| {cyc_ratio:.2f}x |"
-        )
+        if have_dl:
+            rlib = sides_here.get("ours")
+            r_ins = rlib.get("Instructions", 0) if rlib else 0
+            rlib_cell = f"{r_ins / s_ins:.2f}x" if r_ins else "—"
+            lines.append(
+                f"| {mark} | `{name}` | {o_ins:,} | {s_ins:,} | **{ratio:.2f}x** "
+                f"| {rlib_cell} | {cyc_ratio:.2f}x |"
+            )
+        else:
+            lines.append(
+                f"| {mark} | `{name}` | {o_ins:,} | {s_ins:,} | **{ratio:.2f}x** "
+                f"| {cyc_ratio:.2f}x |"
+            )
+    # The standing correction factor: what our code costs as a shared
+    # library rather than an LTO'd rlib. Every pre-`.so` ratio understated
+    # the gap by roughly this much.
+    if have_dl:
+        deltas = [
+            v["dl"]["Instructions"] / v["ours"]["Instructions"]
+            for v in pairs.values()
+            if "dl" in v and "ours" in v and v["ours"].get("Instructions")
+        ]
+        if deltas:
+            lo, hi = min(deltas), max(deltas)
+            mid = sorted(deltas)[len(deltas) // 2]
+            lines += [
+                "",
+                f"**Shared-library correction factor: {mid:.2f}x median "
+                f"(range {lo:.2f}-{hi:.2f}x).** That is what the same code costs "
+                "as `libexpanse.so` versus linked directly into the harness — the "
+                "amount by which every vs-stock ratio published before this arm "
+                "existed understated the real drop-in gap.",
+            ]
     lines += [
         "",
-        "<sub>🟢 less work than stock · 🟡 within 1.25x · 🔴 more. Stock is reached "
-        "through <code>dlopen</code>/<code>dlsym</code> (it exports the same symbols we "
-        "do), so its arm pays an indirect call per operation — a bias against stock of a "
-        "couple of instructions, never in our favour. Instructions are cost, not time: "
-        "cache behaviour decides how much becomes wall-clock, which the nightly "
-        "<code>bench-report</code> job measures.</sub>",
+        "<sub>🟢 less work than stock · 🟡 within 1.25x · 🔴 more. "
+        + (
+            "Both libraries are loaded with <code>dlopen</code> and called through "
+            "symbols resolved in <code>setup</code>, so neither arm measures its own "
+            "dynamic linking and neither gets inlining the other cannot have. "
+            if have_dl
+            else "<strong>These ratios are optimistic — read them as a floor on the "
+            "gap.</strong> Our arm is an LTO'd rlib reached by direct calls while "
+            "stock is a PIC shared object, so it pays PLT indirection and lost "
+            "cross-object inlining that we do not. The honest drop-in number needs "
+            "our own <code>libexpanse.so</code> measured the same way (issue #1). "
+        )
+        + "Instructions are cost, not time: cache behaviour decides how much becomes "
+        "wall-clock, which the nightly <code>bench-report</code> job measures. The gap "
+        "also narrows sharply with population — compare the 30k arms against "
+        "<code>random_big</code> at 1.5M.</sub>",
         "",
     ]
     return lines

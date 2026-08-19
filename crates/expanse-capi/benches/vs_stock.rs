@@ -15,17 +15,32 @@
 //! it privately is what keeps the two from colliding at link time (the
 //! differential oracle uses the same trick).
 //!
-//! Reading the numbers:
+//! **Three arms, and the middle one is the honest comparison.** Every
+//! benchmark below exists in up to three shapes:
 //!
-//! - Instructions are **cost, not time**. Stock libjudy is a mature C
-//!   implementation; where we retire more instructions we are doing more
-//!   work, but cache behaviour and branch prediction decide how much of
-//!   that becomes wall-clock. The `Estimated Cycles` column and the
-//!   L1/LL/RAM counts are the closer proxy.
-//! - The stock arm calls through a function pointer while ours is a
-//!   direct call, which biases *against* stock by a couple of
-//!   instructions per operation — negligible against the thousands each
-//!   operation costs, and it never flatters us.
+//! - `*_expanse` — our rlib, linked straight into the harness with LTO
+//!   and called directly. This is the fastest shape our code has and the
+//!   one no `libexpanse` user gets.
+//! - `*_expanse_dl` — our own `libexpanse.so`, `dlopen`'d and called
+//!   through resolved symbols, i.e. **exactly how stock is reached and
+//!   exactly how a drop-in consumer reaches us**. Compare *this* against
+//!   stock.
+//! - `*_stock` — stock libjudy, `dlopen`'d.
+//!
+//! The rlib arm was the only shape measured until issue #1, and the
+//! resulting ratios were optimistic twice over: our arm got cross-object
+//! inlining and direct calls that stock's PIC shared object cannot have,
+//! and stock's `dlopen` sat inside the measured region while ours paid
+//! nothing. Both biases pointed the same way. Symbol resolution now
+//! happens in `setup` for every arm, so no benchmark measures its own
+//! dynamic linking; the `expanse_dl` − `expanse` difference is the
+//! standing correction factor for every ratio this project has published.
+//!
+//! Instructions are **cost, not time**. Stock libjudy is a mature C
+//! implementation; where we retire more instructions we are doing more
+//! work, but cache behaviour and branch prediction decide how much of
+//! that becomes wall-clock. The `Estimated Cycles` column and the
+//! L1/LL/RAM counts are the closer proxy.
 //!
 //! Linux/CI only (valgrind, plus `libjudy-dev` for the stock library).
 
@@ -43,14 +58,15 @@ unsafe extern "C" {
     fn dlsym(handle: *mut c_void, symbol: *const u8) -> *mut c_void;
 }
 const RTLD_NOW: c_int = 2;
+/// Keep the loaded library's symbols out of the global namespace: both
+/// libraries export the same names, and so does the harness itself.
+const RTLD_LOCAL: c_int = 0;
 
 type FpIns = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> *mut c_void;
 type FpGet = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> *mut c_void;
 type F1Set = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> c_int;
 type F1Test = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> c_int;
 
-/// Stock libjudy, loaded privately so its symbols never collide with the
-/// identically named ones libexpanse exports.
 /// Keeps a built array observable so the optimizer cannot delete the
 /// work that produced it, without calling into either library.
 #[inline]
@@ -58,23 +74,55 @@ fn map_len_sentinel(arr: *mut c_void) -> Word {
     arr as Word
 }
 
-struct Stock(*mut c_void);
+/// A privately loaded Judy-ABI shared object — stock libjudy or our own
+/// `libexpanse.so`. Both export the same symbol names, which is the whole
+/// point of the compat layer and the reason `RTLD_LOCAL` is not optional.
+struct Lib(*mut c_void);
 
-impl Stock {
-    fn open() -> Self {
-        for name in [
-            c"libJudy.so.1",
-            c"libJudy.so",
-            c"/opt/homebrew/opt/judy/lib/libJudy.dylib",
-            c"libJudy.dylib",
-        ] {
+/// Where stock libjudy might live, in preference order.
+const STOCK_NAMES: &[&core::ffi::CStr] = &[
+    c"libJudy.so.1",
+    c"libJudy.so",
+    c"/opt/homebrew/opt/judy/lib/libJudy.dylib",
+    c"libJudy.dylib",
+];
+
+/// Where our own cdylib lands. `EXPANSE_CDYLIB` is what CI sets, since
+/// only the build knows the profile directory; the rest are for a local
+/// `cargo bench` from the workspace root.
+const OURS_NAMES: &[&core::ffi::CStr] = &[
+    c"target/release/libexpanse.so",
+    c"target/debug/libexpanse.so",
+    c"libexpanse.so",
+];
+
+impl Lib {
+    fn open_any(candidates: &[&core::ffi::CStr], what: &str) -> Self {
+        for name in candidates {
             // SAFETY: valid NUL-terminated library name.
-            let h = unsafe { dlopen(name.to_bytes_with_nul().as_ptr(), RTLD_NOW) };
+            let h = unsafe { dlopen(name.to_bytes_with_nul().as_ptr(), RTLD_NOW | RTLD_LOCAL) };
             if !h.is_null() {
                 return Self(h);
             }
         }
-        panic!("stock libjudy not found — install libjudy-dev");
+        panic!("{what} not found (tried {candidates:?})");
+    }
+
+    fn stock() -> Self {
+        Self::open_any(STOCK_NAMES, "stock libjudy — install libjudy-dev")
+    }
+
+    /// Our own cdylib, loaded the same way stock is. Prefers the path CI
+    /// exports so the arm cannot silently measure a stale build.
+    fn ours() -> Self {
+        if let Ok(p) = std::env::var("EXPANSE_CDYLIB") {
+            let c = std::ffi::CString::new(p.clone()).expect("EXPANSE_CDYLIB has an interior NUL");
+            // SAFETY: valid NUL-terminated library name.
+            let h = unsafe { dlopen(c.to_bytes_with_nul().as_ptr(), RTLD_NOW | RTLD_LOCAL) };
+            assert!(!h.is_null(), "EXPANSE_CDYLIB set to {p} but dlopen failed");
+            return Self(h);
+        }
+        Self::open_any(OURS_NAMES, "libexpanse.so — set EXPANSE_CDYLIB")
     }
 
     fn sym<T: Copy>(&self, name: &core::ffi::CStr) -> T {
@@ -85,6 +133,28 @@ impl Stock {
         // SAFETY: fn-pointer transmute of a resolved symbol.
         unsafe { core::mem::transmute_copy(&p) }
     }
+
+    /// Binds every entry point once, so a benchmark body never pays for
+    /// symbol resolution. This is the fix for the bias that made stock
+    /// carry a full `dlopen` inside its measured region while our rlib
+    /// arm carried none.
+    fn api(&self) -> Api {
+        Api {
+            ins: self.sym(c"JudyLIns"),
+            get: self.sym(c"JudyLGet"),
+            set1: self.sym(c"Judy1Set"),
+            test1: self.sym(c"Judy1Test"),
+        }
+    }
+}
+
+/// Entry points resolved ahead of the measured region.
+#[derive(Clone, Copy)]
+struct Api {
+    ins: FpIns,
+    get: FpGet,
+    set1: F1Set,
+    test1: F1Test,
 }
 
 struct XorShift(u64);
@@ -157,83 +227,130 @@ fn shuffled(mut ks: Vec<Word>) -> Vec<Word> {
 struct Built {
     arr: *mut c_void,
     probes: Vec<Word>,
+    /// `None` for the directly linked rlib arm; `Some` for the two
+    /// `dlopen`'d arms, resolved here so the probe loop never pays for it.
+    api: Option<Api>,
 }
 
 // SAFETY: the array is created and consumed on the same thread by the
 // benchmark harness; the pointer is never shared.
 unsafe impl Send for Built {}
 
+/// Keys for an insert benchmark, generated in `setup`.
+///
+/// Key *generation* used to sit inside the measured region of every
+/// insert arm — 30k (or 1.5M) xorshift steps and a `Vec` growth charged
+/// to both libraries alike. Symmetric, but not harmless: it is identical
+/// work added to both sides, so it pulls every insert ratio toward 1.00
+/// and made us look closer to stock than we are.
+struct Feed {
+    ks: Vec<Word>,
+    api: Option<Api>,
+}
+
+// SAFETY: fn pointers into a library that is never `dlclose`d; used only
+// on the harness thread that built the struct.
+unsafe impl Send for Feed {}
+
+/// The handle is deliberately never `dlclose`d — the resolved pointers
+/// outlive it and each benchmark is its own process.
+fn stock_api() -> Option<Api> {
+    Some(Lib::stock().api())
+}
+
+fn ours_api() -> Option<Api> {
+    Some(Lib::ours().api())
+}
+
+fn feed(dist: &str, api: Option<Api>) -> Feed {
+    Feed {
+        ks: keys(dist),
+        api,
+    }
+}
+
+fn feed_expanse(dist: &str) -> Feed {
+    feed(dist, None)
+}
+fn feed_expanse_dl(dist: &str) -> Feed {
+    feed(dist, ours_api())
+}
+fn feed_stock(dist: &str) -> Feed {
+    feed(dist, stock_api())
+}
+
+/// Builds a JudyL array through `api` (or directly, when `None`).
+fn build_map(dist: &str, api: Option<Api>) -> Built {
+    let ks = keys(dist);
+    let probes = shuffled(ks.clone());
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudyL usage; the returned slot is valid until the
+    // next mutation and is written immediately.
+    unsafe {
+        for &k in &ks {
+            let slot = match api {
+                Some(a) => (a.ins)(&raw mut arr, k, null_mut()),
+                None => expanse::JudyLIns(&raw mut arr, k, null_mut()),
+            }
+            .cast::<Word>();
+            *slot = k;
+        }
+    }
+    Built { arr, probes, api }
+}
+
+/// Builds a Judy1 array through `api` (or directly, when `None`).
+fn build_set(dist: &str, api: Option<Api>) -> Built {
+    let ks = keys(dist);
+    let probes = shuffled(ks.clone());
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard Judy1 usage.
+    unsafe {
+        for &k in &ks {
+            match api {
+                Some(a) => {
+                    (a.set1)(&raw mut arr, k, null_mut());
+                }
+                None => {
+                    expanse::Judy1Set(&raw mut arr, k, null_mut());
+                }
+            }
+        }
+    }
+    Built { arr, probes, api }
+}
+
 fn build_expanse(dist: &str) -> Built {
-    let ks = keys(dist);
-    let probes = shuffled(ks.clone());
-    let mut arr: *mut c_void = null_mut();
-    // SAFETY: standard JudyL usage.
-    unsafe {
-        for &k in &ks {
-            let slot = expanse::JudyLIns(&raw mut arr, k, null_mut()).cast::<Word>();
-            *slot = k;
-        }
-    }
-    Built { arr, probes }
+    build_map(dist, None)
 }
-
+fn build_expanse_dl(dist: &str) -> Built {
+    build_map(dist, ours_api())
+}
 fn build_stock(dist: &str) -> Built {
-    let ks = keys(dist);
-    let probes = shuffled(ks.clone());
-    let lib = Stock::open();
-    let ins: FpIns = lib.sym(c"JudyLIns");
-    let mut arr: *mut c_void = null_mut();
-    // SAFETY: standard JudyL usage.
-    unsafe {
-        for &k in &ks {
-            let slot = ins(&raw mut arr, k, null_mut()).cast::<Word>();
-            *slot = k;
-        }
-    }
-    Built { arr, probes }
+    build_map(dist, stock_api())
 }
-
 fn build_set_expanse(dist: &str) -> Built {
-    let ks = keys(dist);
-    let probes = shuffled(ks.clone());
-    let mut arr: *mut c_void = null_mut();
-    // SAFETY: standard Judy1 usage.
-    unsafe {
-        for &k in &ks {
-            expanse::Judy1Set(&raw mut arr, k, null_mut());
-        }
-    }
-    Built { arr, probes }
+    build_set(dist, None)
 }
-
+fn build_set_expanse_dl(dist: &str) -> Built {
+    build_set(dist, ours_api())
+}
 fn build_set_stock(dist: &str) -> Built {
-    let ks = keys(dist);
-    let probes = shuffled(ks.clone());
-    let lib = Stock::open();
-    let set: F1Set = lib.sym(c"Judy1Set");
-    let mut arr: *mut c_void = null_mut();
-    // SAFETY: standard Judy1 usage.
-    unsafe {
-        for &k in &ks {
-            set(&raw mut arr, k, null_mut());
-        }
-    }
-    Built { arr, probes }
+    build_set(dist, stock_api())
 }
 
 // ---- JudyL insert -----------------------------------------------------
 
 #[library_benchmark]
-#[bench::sequential("sequential")]
-#[bench::random("random")]
-#[bench::clustered("clustered")]
-fn judyl_insert_expanse(dist: &str) -> Word {
-    let ks = keys(dist);
+#[bench::sequential(args = ("sequential",), setup = feed_expanse)]
+#[bench::random(args = ("random",), setup = feed_expanse)]
+#[bench::clustered(args = ("clustered",), setup = feed_expanse)]
+fn judyl_insert_expanse(f: Feed) -> Word {
     let mut arr: *mut c_void = null_mut();
     // SAFETY: standard JudyL usage; the slot is valid until the next
     // mutation and is written immediately.
     unsafe {
-        for &k in &ks {
+        for &k in &f.ks {
             let slot = expanse::JudyLIns(&raw mut arr, black_box(k), null_mut()).cast::<Word>();
             *slot = k;
         }
@@ -245,18 +362,36 @@ fn judyl_insert_expanse(dist: &str) -> Word {
     }
 }
 
+// Our own `libexpanse.so`, reached exactly as stock is. THIS is the arm
+// to compare against `judyl_insert_stock` — the rlib arm above gets LTO
+// and direct calls that no drop-in consumer of libexpanse has.
 #[library_benchmark]
-#[bench::sequential("sequential")]
-#[bench::random("random")]
-#[bench::clustered("clustered")]
-fn judyl_insert_stock(dist: &str) -> Word {
-    let ks = keys(dist);
-    let lib = Stock::open();
-    let ins: FpIns = lib.sym(c"JudyLIns");
+#[bench::sequential(args = ("sequential",), setup = feed_expanse_dl)]
+#[bench::random(args = ("random",), setup = feed_expanse_dl)]
+#[bench::clustered(args = ("clustered",), setup = feed_expanse_dl)]
+fn judyl_insert_expanse_dl(f: Feed) -> Word {
+    let ins = f.api.expect("dl arm needs a resolved api").ins;
     let mut arr: *mut c_void = null_mut();
-    // SAFETY: same contract as the libexpanse arm.
+    // SAFETY: same contract as the rlib arm.
     unsafe {
-        for &k in &ks {
+        for &k in &f.ks {
+            let slot = ins(&raw mut arr, black_box(k), null_mut()).cast::<Word>();
+            *slot = k;
+        }
+        black_box(map_len_sentinel(arr))
+    }
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = feed_stock)]
+#[bench::random(args = ("random",), setup = feed_stock)]
+#[bench::clustered(args = ("clustered",), setup = feed_stock)]
+fn judyl_insert_stock(f: Feed) -> Word {
+    let ins = f.api.expect("stock arm needs a resolved api").ins;
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: same contract as the libexpanse arms.
+    unsafe {
+        for &k in &f.ks {
             let slot = ins(&raw mut arr, black_box(k), null_mut()).cast::<Word>();
             *slot = k;
         }
@@ -293,20 +428,41 @@ fn judyl_get_expanse(built: Built) -> Word {
     black_box(sink)
 }
 
+// Our own `libexpanse.so`, reached exactly as stock is — the arm to
+// compare against `judyl_get_stock`.
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = build_expanse_dl)]
+#[bench::random(args = ("random",), setup = build_expanse_dl)]
+#[bench::clustered(args = ("clustered",), setup = build_expanse_dl)]
+#[bench::random_big(args = ("random_big",), setup = build_expanse_dl)]
+fn judyl_get_expanse_dl(built: Built) -> Word {
+    let get = built.api.expect("dl arm needs a resolved api").get;
+    let mut sink = 0usize;
+    // SAFETY: array built by `build_expanse_dl` through the same library.
+    unsafe {
+        for &k in &built.probes {
+            let slot = get(built.arr, black_box(k), null_mut()).cast::<Word>();
+            if !slot.is_null() {
+                sink ^= *slot;
+            }
+        }
+    }
+    black_box(sink)
+}
+
 #[library_benchmark]
 #[bench::sequential(args = ("sequential",), setup = build_stock)]
 #[bench::random(args = ("random",), setup = build_stock)]
 #[bench::clustered(args = ("clustered",), setup = build_stock)]
 #[bench::random_big(args = ("random_big",), setup = build_stock)]
 fn judyl_get_stock(built: Built) -> Word {
-    // NOTE: `Stock::open()` here is still inside the measured region and
-    // charges stock a full dlopen + symbol bind that our arm never pays.
-    // It flatters our ratio. Tracked in issue #1; fixing it means
-    // carrying the resolved symbols through `setup`.
-    let lib = Stock::open();
-    let get: FpGet = lib.sym(c"JudyLGet");
+    // Symbols are bound in `setup` now. They used to be resolved here,
+    // charging stock a full `dlopen` inside its measured region that
+    // neither libexpanse arm paid — a bias that flattered every
+    // published lookup ratio (issue #1).
+    let get = built.api.expect("stock arm needs a resolved api").get;
     let mut sink = 0usize;
-    // SAFETY: array built by `build_stock`, freed here.
+    // SAFETY: array built by `build_stock` through the same library.
     unsafe {
         for &k in &built.probes {
             let slot = get(built.arr, black_box(k), null_mut()).cast::<Word>();
@@ -322,31 +478,44 @@ fn judyl_get_stock(built: Built) -> Word {
 // ---- Judy1 ------------------------------------------------------------
 
 #[library_benchmark]
-#[bench::random("random")]
-#[bench::clustered("clustered")]
-fn judy1_set_expanse(dist: &str) -> Word {
-    let ks = keys(dist);
+#[bench::random(args = ("random",), setup = feed_expanse)]
+#[bench::clustered(args = ("clustered",), setup = feed_expanse)]
+fn judy1_set_expanse(f: Feed) -> Word {
     let mut arr: *mut c_void = null_mut();
     // SAFETY: standard Judy1 usage.
     unsafe {
-        for &k in &ks {
+        for &k in &f.ks {
             expanse::Judy1Set(&raw mut arr, black_box(k), null_mut());
         }
         black_box(map_len_sentinel(arr))
     }
 }
 
+// Our own `libexpanse.so` — the arm to compare against `judy1_set_stock`.
 #[library_benchmark]
-#[bench::random("random")]
-#[bench::clustered("clustered")]
-fn judy1_set_stock(dist: &str) -> Word {
-    let ks = keys(dist);
-    let lib = Stock::open();
-    let set: F1Set = lib.sym(c"Judy1Set");
+#[bench::random(args = ("random",), setup = feed_expanse_dl)]
+#[bench::clustered(args = ("clustered",), setup = feed_expanse_dl)]
+fn judy1_set_expanse_dl(f: Feed) -> Word {
+    let set = f.api.expect("dl arm needs a resolved api").set1;
     let mut arr: *mut c_void = null_mut();
-    // SAFETY: same contract as the libexpanse arm.
+    // SAFETY: same contract as the rlib arm.
     unsafe {
-        for &k in &ks {
+        for &k in &f.ks {
+            set(&raw mut arr, black_box(k), null_mut());
+        }
+        black_box(map_len_sentinel(arr))
+    }
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = feed_stock)]
+#[bench::clustered(args = ("clustered",), setup = feed_stock)]
+fn judy1_set_stock(f: Feed) -> Word {
+    let set = f.api.expect("stock arm needs a resolved api").set1;
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: same contract as the libexpanse arms.
+    unsafe {
+        for &k in &f.ks {
             set(&raw mut arr, black_box(k), null_mut());
         }
         black_box(map_len_sentinel(arr))
@@ -357,7 +526,7 @@ fn judy1_set_stock(dist: &str) -> Word {
 #[bench::random(args = ("random",), setup = build_set_expanse)]
 fn judy1_test_expanse(built: Built) -> Word {
     let mut hits = 0usize;
-    // SAFETY: array built by `build_set_expanse`, freed here.
+    // SAFETY: array built by `build_set_expanse`.
     unsafe {
         for &k in &built.probes {
             hits += expanse::Judy1Test(built.arr, black_box(k), null_mut()) as usize;
@@ -367,13 +536,27 @@ fn judy1_test_expanse(built: Built) -> Word {
     black_box(hits)
 }
 
+// Our own `libexpanse.so` — the arm to compare against `judy1_test_stock`.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = build_set_expanse_dl)]
+fn judy1_test_expanse_dl(built: Built) -> Word {
+    let test = built.api.expect("dl arm needs a resolved api").test1;
+    let mut hits = 0usize;
+    // SAFETY: array built by `build_set_expanse_dl` through the same library.
+    unsafe {
+        for &k in &built.probes {
+            hits += test(built.arr, black_box(k), null_mut()) as usize;
+        }
+    }
+    black_box(hits)
+}
+
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = build_set_stock)]
 fn judy1_test_stock(built: Built) -> Word {
-    let lib = Stock::open();
-    let test: F1Test = lib.sym(c"Judy1Test");
+    let test = built.api.expect("stock arm needs a resolved api").test1;
     let mut hits = 0usize;
-    // SAFETY: array built by `build_set_stock`, freed here.
+    // SAFETY: array built by `build_set_stock` through the same library.
     unsafe {
         for &k in &built.probes {
             hits += test(built.arr, black_box(k), null_mut()) as usize;
@@ -387,12 +570,16 @@ library_benchmark_group!(
     name = vs_stock;
     benchmarks =
         judyl_insert_expanse,
+        judyl_insert_expanse_dl,
         judyl_insert_stock,
         judyl_get_expanse,
+        judyl_get_expanse_dl,
         judyl_get_stock,
         judy1_set_expanse,
+        judy1_set_expanse_dl,
         judy1_set_stock,
         judy1_test_expanse,
+        judy1_test_expanse_dl,
         judy1_test_stock
 );
 

@@ -297,11 +297,47 @@ jobs:
       - name: bytes/key table
         run: cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
 
+      # The `_expanse_dl` arms dlopen our own cdylib so they are the same
+      # shape as the stock arm. Build it explicitly and pass its path:
+      # letting the bench guess would let it silently measure a stale
+      # `libexpanse.so` from an earlier build, which is the kind of error
+      # that produces a confident wrong number.
+      - name: Build libexpanse.so for the same-shape arm
+        run: |
+          cargo build --release -p expanse-capi
+          SO=$(find target/release -maxdepth 1 -name 'libexpanse.so' -print -quit)
+          test -n "$SO" || { echo "libexpanse.so not produced"; exit 1; }
+          echo "EXPANSE_CDYLIB=$PWD/$SO" >> "$GITHUB_ENV"
+          echo "using $PWD/$SO"
+
       # The headline comparison: identical C ABI calls through libexpanse
       # and through stock libjudy, counted deterministically. Wall-clock
       # cannot answer this per-PR; instructions can.
       - name: libexpanse vs stock libjudy (instructions)
         run: cargo bench --bench vs_stock -p expanse-capi | tee vs-stock.txt
+
+      # Per-function costs, so a delta can be attributed to a function
+      # instead of only observed. PR #6 landed a real, deterministic
+      # +1.50% on one arm that nobody could attribute, because the job
+      # kept only per-benchmark totals — this is the fix for that.
+      - name: Per-function attribution (callgrind_annotate)
+        if: always()
+        run: |
+          {
+            for f in $(find target/iai -name 'callgrind.*.out' | sort); do
+              echo "===== $f"
+              callgrind_annotate --threshold=90 "$f" 2>/dev/null | head -40
+            done
+          } > callgrind-annotated.txt || true
+          wc -l callgrind-annotated.txt
+
+      - name: Upload per-function attribution
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: callgrind-annotated
+          path: callgrind-annotated.txt
+          if-no-files-found: warn
 
       # Same benchmarks on the merge base, so the PR comment can report a
       # delta rather than a bare number. Deterministic counts make one run
