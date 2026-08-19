@@ -354,10 +354,17 @@ pub(crate) unsafe fn locate_slot(
 
             EdgeTag::Immed(im) => {
                 debug_assert_eq!(im.key_bytes(), level);
-                // SAFETY: live map immediate per contract.
-                let keys = crate::mutate::immed_map_keys(unsafe { &*edge }, im);
-                let k = crate::mutate::key_low(key, im.key_bytes());
-                let slot = keys.binary_search(&k).ok()?;
+                // Same in-place scan as `descend`'s map branch. This used
+                // to materialize every stored key into a stack buffer
+                // (`immed_map_keys`: up to 15 byte-copies + widenings) and
+                // then binary-search the buffer — strictly more work than
+                // scanning the packed bytes where they lie, on the
+                // terminal form ~2/3 of random-key lookups reach. The two
+                // descents had drifted; `descend` got the fast idiom and
+                // the C-ABI path kept the slow one.
+                // SAFETY: live map immediate per contract; keys live in
+                // the aux bytes.
+                let slot = immed_find(im, unsafe { (*edge).aux_bytes() }, key)?;
                 return core::ptr::NonNull::new(if im.key_count() == 1 {
                     // Word 0 (offset 0 of the edge) is the value itself.
                     edge.cast::<u64>()
