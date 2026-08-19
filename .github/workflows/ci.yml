@@ -11,11 +11,16 @@ on:
 # protection gates on anyway, and it stops a rapid series of review
 # fixups from queueing several ~25-minute matrices at once.
 #
-# Pushes to `main` are NEVER cancelled: those runs are the record that
-# the protected branch was verified at that commit, and a cancelled
-# required check is not a green one.
+# Pushes to `main` get a group PER COMMIT (`github.sha`), not one shared
+# `refs/heads/main` group. `cancel-in-progress: false` is NOT enough to
+# keep them: GitHub holds only one *pending* run per group and cancels
+# any previously pending one, whatever that flag says. Three merges
+# landing in quick succession did exactly that — the run for the middle
+# commit was cancelled with zero jobs executed, so a commit reached the
+# protected branch with no verification record at all. Per-commit groups
+# make main runs queue behind each other instead of evicting each other.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
