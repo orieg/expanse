@@ -248,6 +248,76 @@ moving the big arms to nightly does not exist — they stay in the required
 check. `miri` is the only expensive job at ~25 minutes, and it is now
 conditional on the diff touching Rust sources.
 
+### Checkpoint B2 — the same-shape comparison, and the shared-library correction factor (measured: GitHub `ubuntu-latest` runner, callgrind via `instruction-counts`, commit with this section; deterministic)
+
+B0 above measured our rlib against stock's shared object. This measures our
+own `libexpanse.so`, `dlopen`'d and called through resolved symbols exactly as
+stock is — the shape a drop-in consumer actually gets. **These are the numbers
+to quote.**
+
+| operation | `.so` ratio | rlib ratio | est. cycles (`.so`) |
+|---|---:|---:|---:|
+| `judy1_set/clustered` | **1.25×** | 1.16× | 1.25× |
+| `judyl_get/random_big` (1.5M) | **1.15×** | 1.09× | 1.09× |
+| `judyl_get/random` | 1.58× | 1.49× | 1.53× |
+| `judyl_get/clustered` | 1.71× | 1.59× | 1.64× |
+| `judyl_insert/sequential` | 1.71× | 1.78× | 1.70× |
+| `judyl_insert/clustered` | 1.78× | 1.68× | 1.77× |
+| `judy1_test/random` | 1.88× | 1.80× | 1.79× |
+| `judy1_set/random` | 1.93× | 2.02× | 1.95× |
+| `judyl_get/sequential` | 1.94× | 1.83× | 1.79× |
+| `judyl_insert/random` | 2.16× | 2.21× | 2.18× |
+
+**Correction factor: 1.06× median, range 0.95–1.08×.**
+
+**The prediction was wrong in an instructive way.** The expectation on record
+was that being a shared object would cost us uniformly, so every ratio would
+widen. It does not. The cost is real but **confined to the lookup arms**
+(1.06–1.08×), where a PLT-mediated entry is a meaningful fraction of a short
+operation; on the insert arms the `.so` is *cheaper* than the LTO'd rlib
+(0.95–0.98×). Both builds get `lto = "thin"` and `codegen-units = 1`; what the
+rlib arm additionally gets is cross-crate inlining with the harness, and on a
+long insert that apparently costs more instructions than it saves. So
+"cross-object inlining is an advantage stock cannot have" was the right shape
+of argument and the wrong magnitude — it is worth ~6–8% on lookups and nothing
+on inserts.
+
+Net effect on the project's claims: the drop-in lookup gap is **larger** than
+B0 said (1.58× vs 1.49× on random; 1.94× vs 1.83× on sequential), the insert
+gap is marginally **smaller**, and the best arms remain `judy1_set/clustered`
+at 1.25× and the 1.5M lookup at 1.15×.
+
+Both arms now bind their symbols in `setup`, so neither measures its own
+dynamic linking, and key generation has moved out of the insert arms' measured
+region — see rule 0 for why that mattered even though it was symmetric.
+
+### What the bench matrix structurally covers (measured: terminal-form census over the tree each benchmark builds, 50k keys, map flavor; commit with this section; machine-independent)
+
+A benchmark named after a distribution does not tell you which *forms* it
+exercises, and the answer turned out to be narrower than assumed:
+
+| distribution | terminal forms |
+|---|---|
+| `sequential` | 196 × `LeafB1` at level 1 — no linear leaves, no immediates |
+| `clustered` | 196 × `LeafB1` at levels 6-7, behind narrow pointers |
+| `random` | 23,290 immediates (6-byte) + 11,675 × `Leaf6` at level 6 |
+
+Two consequences, both load-bearing:
+
+- **No benchmark exercises a linear leaf on a dense distribution.** Linear-leaf
+  search is reachable only through `random`, and only at width 6. Any claim
+  about leaf-width monomorphization or leaf search is currently measured on one
+  arm at one width — the `dense_leaf` arm is a known coverage hole, not a
+  precaution.
+- **Immediates are ~2/3 of random-key terminals** (23,290 of 34,965),
+  confirming the assumption behind prioritizing `immed_find`.
+
+This census is also what attributed a +1.50% regression that per-benchmark
+totals could not: the two arms that regressed reach *none* of the code paths
+the change touched, which rules out the obvious explanations rather than
+ranking them. Worth re-running whenever a distribution or population changes —
+promoting it out of a throwaway probe is tracked in issue #1.
+
 ### libexpanse vs stock libjudy, JudyL surface (measured: GitHub `ubuntu-latest` runner, 2 cores, load 0.42 at start — the standing reference environment; commit with this section; interleaved A/B medians of 5 rounds; harness: `crates/expanse-capi/examples/bench_vs_libjudy.rs`, nightly `bench-report` job)
 
 | dist | pop | get ratio (ours/stock) | insert ratio | B/key ratio |
