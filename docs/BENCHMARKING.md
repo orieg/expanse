@@ -255,6 +255,14 @@ own `libexpanse.so`, `dlopen`'d and called through resolved symbols exactly as
 stock is — the shape a drop-in consumer actually gets. **These are the numbers
 to quote.**
 
+⚠️ **Provisional.** This table was measured on a branch that also carried the
+issue #1 items 1-3 (monomorphized `immed_find`, word-wise `pop0`,
+capacity-classed root leaves) — the branch was cut from that work rather than
+from `main`, which is an attribution error of exactly the kind rule 0 exists to
+prevent. The **correction factor** below is a ratio between two builds of the
+same code and is unaffected. The absolute ratios move once those items land
+separately; re-measure and replace this table then.
+
 | operation | `.so` ratio | rlib ratio | est. cycles (`.so`) |
 |---|---:|---:|---:|
 | `judy1_set/clustered` | **1.25×** | 1.16× | 1.25× |
