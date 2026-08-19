@@ -126,8 +126,11 @@ unsafe fn walk_validated<const MAP: bool>(
     let (mut edge, mut level): (Edge, u8) = match root {
         RootSnapshot::Empty => return Ok(None),
         RootSnapshot::Leaf { ptr, pop } => {
-            // Root leaf: `pop` sorted u64 keys at the base (map: values
-            // follow the keys). Covered by the tree version throughout.
+            // Root leaf: `pop` sorted u64 keys at the base, then (map
+            // flavor) the value area at `map::leaf_values_offset(pop)`.
+            // That offset is class-based, NOT `pop` — always ask
+            // `map::leaf_values_offset` rather than recomputing it here.
+            // Covered by the tree version throughout.
             let keys = ptr.cast::<u64>();
             let (mut lo, mut hi) = (0usize, pop);
             while lo < hi {
@@ -154,8 +157,14 @@ unsafe fn walk_validated<const MAP: bool>(
             if !MAP {
                 return Ok(Some(0));
             }
-            // SAFETY: map root leaves store `pop` values behind the keys.
-            let v = unsafe { keys.add(pop + lo).read() };
+            // SAFETY: the value area begins at the shared class-based
+            // offset; `lo < pop` so the slot is in bounds.
+            let v = unsafe {
+                ptr.add(crate::map::leaf_values_offset(pop))
+                    .cast::<u64>()
+                    .add(lo)
+                    .read()
+            };
             chk!();
             return Ok(Some(v));
         }
@@ -722,6 +731,40 @@ mod tests {
             x ^= x << 17;
             self.0 = x;
             x
+        }
+    }
+
+    /// Deterministic guard for the root-leaf layout the concurrent read
+    /// path shares with `map`.
+    ///
+    /// This existed as a *concurrency* failure first: when capacity
+    /// classes arrived, `map` moved the value area to a class-based
+    /// offset and `sync` kept computing it from the population, so a
+    /// reader returned a neighbouring key's value. It reproduced only on
+    /// aarch64, under churn, as a "torn value" — an expensive way to
+    /// learn about an off-by-one. Every population below the promotion
+    /// cap is checked here on one thread, so the same drift fails fast
+    /// and unambiguously next time.
+    #[test]
+    fn sync_reader_matches_root_leaf_layout_at_every_population() {
+        for pop in 1..crate::set::ROOT_LEAF_CAP {
+            let m = SyncExpanseMap::new();
+            for i in 0..pop as u64 {
+                // Keys spread out so ordering is unambiguous.
+                m.insert(i * 0x1001, !(i * 0x1001));
+            }
+            assert_eq!(m.len(), pop as u64, "population {pop}");
+            let rd = m.reader();
+            for i in 0..pop as u64 {
+                let k = i * 0x1001;
+                assert_eq!(
+                    rd.get(k),
+                    Some(!k),
+                    "population {pop}: value for key {k:#x} came from the wrong slot"
+                );
+            }
+            // A key that is absent must stay absent at every population.
+            assert_eq!(rd.get(0x7FFF_FFFF), None, "population {pop}");
         }
     }
 

@@ -73,14 +73,39 @@ pub(crate) fn decode_matches(edge: &Edge, key: Key, child_level: u8, level: u8) 
 /// `im.key_bytes()` bytes each, sorted, each key little-endian.
 #[inline]
 fn immed_find(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
-    let kb = im.key_bytes() as usize;
-    let needle = &key.to_le_bytes()[..kb];
-    for slot in 0..im.key_count() as usize {
-        if &payload[slot * kb..(slot + 1) * kb] == needle {
-            return Some(slot);
-        }
+    // Width-monomorphized like `leaf::search_fixed`. At a runtime width
+    // the slice comparison lowers to a `memcmp` **call** — through a PLT
+    // stub, once per stored key — and this is the terminal form roughly
+    // two thirds of random-key lookups land on, i.e. the hottest
+    // comparison in the library (issue #1).
+    match im.key_bytes() {
+        1 => immed_find_fixed::<1>(im, payload, key),
+        2 => immed_find_fixed::<2>(im, payload, key),
+        3 => immed_find_fixed::<3>(im, payload, key),
+        4 => immed_find_fixed::<4>(im, payload, key),
+        5 => immed_find_fixed::<5>(im, payload, key),
+        6 => immed_find_fixed::<6>(im, payload, key),
+        _ => immed_find_fixed::<7>(im, payload, key),
     }
-    None
+}
+
+/// Scans an immediate's packed keys at a compile-time width.
+///
+/// The single-key case — the common terminal for sparse and random keys —
+/// collapses to a masked integer compare with no loop at all.
+#[inline]
+fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
+    let n = im.key_count() as usize;
+    debug_assert!(payload.len() >= n * KB);
+    let le = key.to_le_bytes();
+    let mut needle = [0u8; KB];
+    needle.copy_from_slice(&le[..KB]);
+    // `chunks_exact` over a constant width: each comparison is a
+    // fixed-size array compare that inlines, not a call.
+    payload
+        .chunks_exact(KB)
+        .take(n)
+        .position(|candidate| candidate == needle)
 }
 
 /// The shared descent; `MAP` selects map flavor (values) over set flavor.
