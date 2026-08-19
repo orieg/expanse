@@ -42,3 +42,4 @@ Clean-room, pure-Rust Judy arrays modernized for current hardware, plus `libexpa
 
 - `type(scope): description` commits (feat/fix/docs/refactor/chore/eval/poc), atomic.
 - Repo: `github.com/orieg/expanse` (private until first publishable milestone; renamed from judy-rs — old URL redirects). Commit/push only when Nicolas asks.
+- **`main` is protected (ruleset `main-protection`)**: changes land via PR with all CI checks green (the required list mirrors `.github/workflows/ci.yml` job names — renaming a job means updating the ruleset). Workflow: branch → push → `gh pr create` → watch checks → `gh pr merge`. No force-pushes to `main`. The `php-judy-compat` check clones php-judy at a pinned SHA (see ci.yml); bump it deliberately.

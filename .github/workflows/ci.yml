@@ -139,9 +139,14 @@ jobs:
           echo "JUDY_PREFIX=$PREFIX" >> "$GITHUB_ENV"
 
       - name: Build php-judy against libexpanse
+        # Pinned to a known-good php-judy commit so this required check
+        # stays deterministic — a php-judy HEAD change cannot break
+        # expanse CI. Bump the SHA deliberately when picking up new
+        # php-judy tests.
         run: |
-          git clone --depth 1 https://github.com/orieg/php-judy.git
+          git clone --filter=blob:none https://github.com/orieg/php-judy.git
           cd php-judy
+          git checkout -q fb490245854fad4bfc0c9e0e987e846d2a0ae3bb
           phpize
           ./configure --with-judy="$JUDY_PREFIX"
           make -j"$(nproc)"
