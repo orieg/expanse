@@ -143,6 +143,78 @@ fn shuffled(mut ks: Vec<Word>) -> Vec<Word> {
     ks
 }
 
+/// Built array plus probe order, produced by `setup` so that **only the
+/// probe loop is measured**. Without this the lookup benchmarks counted
+/// the 30k-key build and the teardown too, which made "get" ratios a
+/// blend dominated by insert — two independent reviews caught the same
+/// bug, and the published lookup numbers were wrong because of it.
+struct Built {
+    arr: *mut c_void,
+    probes: Vec<Word>,
+}
+
+// SAFETY: the array is created and consumed on the same thread by the
+// benchmark harness; the pointer is never shared.
+unsafe impl Send for Built {}
+
+fn build_expanse(dist: &str) -> Built {
+    let ks = keys(dist);
+    let probes = shuffled(ks.clone());
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudyL usage.
+    unsafe {
+        for &k in &ks {
+            let slot = expanse::JudyLIns(&raw mut arr, k, null_mut()).cast::<Word>();
+            *slot = k;
+        }
+    }
+    Built { arr, probes }
+}
+
+fn build_stock(dist: &str) -> Built {
+    let ks = keys(dist);
+    let probes = shuffled(ks.clone());
+    let lib = Stock::open();
+    let ins: FpIns = lib.sym(c"JudyLIns");
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard JudyL usage.
+    unsafe {
+        for &k in &ks {
+            let slot = ins(&raw mut arr, k, null_mut()).cast::<Word>();
+            *slot = k;
+        }
+    }
+    Built { arr, probes }
+}
+
+fn build_set_expanse(dist: &str) -> Built {
+    let ks = keys(dist);
+    let probes = shuffled(ks.clone());
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard Judy1 usage.
+    unsafe {
+        for &k in &ks {
+            expanse::Judy1Set(&raw mut arr, k, null_mut());
+        }
+    }
+    Built { arr, probes }
+}
+
+fn build_set_stock(dist: &str) -> Built {
+    let ks = keys(dist);
+    let probes = shuffled(ks.clone());
+    let lib = Stock::open();
+    let set: F1Set = lib.sym(c"Judy1Set");
+    let mut arr: *mut c_void = null_mut();
+    // SAFETY: standard Judy1 usage.
+    unsafe {
+        for &k in &ks {
+            set(&raw mut arr, k, null_mut());
+        }
+    }
+    Built { arr, probes }
+}
+
 // ---- JudyL insert -----------------------------------------------------
 
 #[library_benchmark]
@@ -184,66 +256,55 @@ fn judyl_insert_stock(dist: &str) -> Word {
     }
 }
 
-// ---- JudyL lookup -----------------------------------------------------
+// ---- JudyL lookup ----------------------------------------------------
+//
+// `setup =` keeps the build phase OUT of the measured region. Previously
+// these functions built the 30k-key array inside the benchmark body, so
+// the reported "get" ratio was a blend of insert and lookup — insert
+// dominated it. Only the probe loop is counted now.
 
 #[library_benchmark]
-#[bench::sequential("sequential")]
-#[bench::random("random")]
-#[bench::clustered("clustered")]
+#[bench::sequential(args = ("sequential",), setup = build_expanse)]
+#[bench::random(args = ("random",), setup = build_expanse)]
+#[bench::clustered(args = ("clustered",), setup = build_expanse)]
 // Cache-pressure arm: exceeds LLC, so LL/RAM hits matter (see POP_BIG).
-#[bench::random_big("random_big")]
-fn judyl_get_expanse(dist: &str) -> Word {
-    let ks = keys(dist);
-    let probes = shuffled(ks.clone());
-    let mut arr: *mut c_void = null_mut();
-    // SAFETY: standard JudyL usage.
+#[bench::random_big(args = ("random_big",), setup = build_expanse)]
+fn judyl_get_expanse(mut built: Built) -> Word {
+    let mut sink = 0usize;
+    // SAFETY: array built by `build_expanse`, freed here.
     unsafe {
-        for &k in &ks {
-            let slot = expanse::JudyLIns(&raw mut arr, k, null_mut()).cast::<Word>();
-            *slot = k;
-        }
-        let mut sink = 0usize;
-        for &k in &probes {
-            let slot = expanse::JudyLGet(arr, black_box(k), null_mut()).cast::<Word>();
+        for &k in &built.probes {
+            let slot = expanse::JudyLGet(built.arr, black_box(k), null_mut()).cast::<Word>();
             if !slot.is_null() {
                 sink ^= *slot;
             }
         }
-        expanse::JudyLFreeArray(&raw mut arr, null_mut());
-        black_box(sink)
+        expanse::JudyLFreeArray(&raw mut built.arr, null_mut());
     }
+    black_box(sink)
 }
 
 #[library_benchmark]
-#[bench::sequential("sequential")]
-#[bench::random("random")]
-#[bench::clustered("clustered")]
-// Cache-pressure arm: exceeds LLC, so LL/RAM hits matter (see POP_BIG).
-#[bench::random_big("random_big")]
-fn judyl_get_stock(dist: &str) -> Word {
-    let ks = keys(dist);
-    let probes = shuffled(ks.clone());
+#[bench::sequential(args = ("sequential",), setup = build_stock)]
+#[bench::random(args = ("random",), setup = build_stock)]
+#[bench::clustered(args = ("clustered",), setup = build_stock)]
+#[bench::random_big(args = ("random_big",), setup = build_stock)]
+fn judyl_get_stock(mut built: Built) -> Word {
     let lib = Stock::open();
-    let ins: FpIns = lib.sym(c"JudyLIns");
     let get: FpGet = lib.sym(c"JudyLGet");
     let free: FFree = lib.sym(c"JudyLFreeArray");
-    let mut arr: *mut c_void = null_mut();
-    // SAFETY: same contract as the libexpanse arm.
+    let mut sink = 0usize;
+    // SAFETY: array built by `build_stock`, freed here.
     unsafe {
-        for &k in &ks {
-            let slot = ins(&raw mut arr, k, null_mut()).cast::<Word>();
-            *slot = k;
-        }
-        let mut sink = 0usize;
-        for &k in &probes {
-            let slot = get(arr, black_box(k), null_mut()).cast::<Word>();
+        for &k in &built.probes {
+            let slot = get(built.arr, black_box(k), null_mut()).cast::<Word>();
             if !slot.is_null() {
                 sink ^= *slot;
             }
         }
-        free(&raw mut arr, null_mut());
-        black_box(sink)
+        free(&raw mut built.arr, null_mut());
     }
+    black_box(sink)
 }
 
 // ---- Judy1 ------------------------------------------------------------
@@ -282,47 +343,34 @@ fn judy1_set_stock(dist: &str) -> Word {
 }
 
 #[library_benchmark]
-#[bench::random("random")]
-fn judy1_test_expanse(dist: &str) -> Word {
-    let ks = keys(dist);
-    let probes = shuffled(ks.clone());
-    let mut arr: *mut c_void = null_mut();
-    // SAFETY: standard Judy1 usage.
+#[bench::random(args = ("random",), setup = build_set_expanse)]
+fn judy1_test_expanse(mut built: Built) -> Word {
+    let mut hits = 0usize;
+    // SAFETY: array built by `build_set_expanse`, freed here.
     unsafe {
-        for &k in &ks {
-            expanse::Judy1Set(&raw mut arr, k, null_mut());
+        for &k in &built.probes {
+            hits += expanse::Judy1Test(built.arr, black_box(k), null_mut()) as usize;
         }
-        let mut hits = 0usize;
-        for &k in &probes {
-            hits += expanse::Judy1Test(arr, black_box(k), null_mut()) as usize;
-        }
-        expanse::Judy1FreeArray(&raw mut arr, null_mut());
-        black_box(hits)
+        expanse::Judy1FreeArray(&raw mut built.arr, null_mut());
     }
+    black_box(hits)
 }
 
 #[library_benchmark]
-#[bench::random("random")]
-fn judy1_test_stock(dist: &str) -> Word {
-    let ks = keys(dist);
-    let probes = shuffled(ks.clone());
+#[bench::random(args = ("random",), setup = build_set_stock)]
+fn judy1_test_stock(mut built: Built) -> Word {
     let lib = Stock::open();
-    let set: F1Set = lib.sym(c"Judy1Set");
     let test: F1Test = lib.sym(c"Judy1Test");
     let free: FFree = lib.sym(c"Judy1FreeArray");
-    let mut arr: *mut c_void = null_mut();
-    // SAFETY: same contract as the libexpanse arm.
+    let mut hits = 0usize;
+    // SAFETY: array built by `build_set_stock`, freed here.
     unsafe {
-        for &k in &ks {
-            set(&raw mut arr, k, null_mut());
+        for &k in &built.probes {
+            hits += test(built.arr, black_box(k), null_mut()) as usize;
         }
-        let mut hits = 0usize;
-        for &k in &probes {
-            hits += test(arr, black_box(k), null_mut()) as usize;
-        }
-        free(&raw mut arr, null_mut());
-        black_box(hits)
+        free(&raw mut built.arr, null_mut());
     }
+    black_box(hits)
 }
 
 library_benchmark_group!(

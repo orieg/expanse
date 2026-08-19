@@ -189,3 +189,12 @@ Honest reading (v1 correctness-first, zero optimization passes yet):
 - **Insert gap** has three known, documented v1 costs to burn down: full leaf rebuild per insert (no capacity classes), `Vec` materialization in the mutation path, and capi `JudyLIns` walking the tree three times (contains + insert + slot). Each is an isolated follow-up with this table as baseline.
 
 Timing numbers here are working baselines, not publishable claims; headline numbers still require a quiet-host run under the system-load protocol above.
+> **Correction (2026-08-19): the first vs-stock lookup figures were wrong.**
+> The `*_get` / `*_test` benchmarks built their 30k-key array *inside* the
+> measured region, so the reported "lookup" ratios were a blend dominated
+> by insert. Two independent reviews caught it; it is fixed with
+> `setup =` so only the probe loop is counted. Ratios published before
+> that fix (`judyl_get/random 2.09x`, `judy1_test/random 2.11x`, and the
+> clustered/sequential lookup rows) are **retracted**. Insert ratios were
+> never affected — those benchmarks always measured only inserts.
+

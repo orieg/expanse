@@ -145,12 +145,15 @@ fn map_ins_slot(dist: &str) -> u64 {
 
 // ---- Lookup ----------------------------------------------------------
 
+// `setup =` keeps the build out of the measured region — without it these
+// counted the build too, and the "lookup" number was mostly insert.
+
 #[library_benchmark]
-#[bench::sequential("sequential")]
-#[bench::random("random")]
-#[bench::clustered("clustered")]
-fn map_get(dist: &str) -> u64 {
-    let (map, probes) = built_map(dist);
+#[bench::sequential(args = ("sequential",), setup = built_map)]
+#[bench::random(args = ("random",), setup = built_map)]
+#[bench::clustered(args = ("clustered",), setup = built_map)]
+fn map_get(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
     let mut sink = 0u64;
     for &k in &probes {
         sink ^= map.get(black_box(k)).unwrap_or(0);
@@ -159,9 +162,9 @@ fn map_get(dist: &str) -> u64 {
 }
 
 #[library_benchmark]
-#[bench::random("random")]
-fn set_contains(dist: &str) -> u64 {
-    let (set, probes) = built_set(dist);
+#[bench::random(args = ("random",), setup = built_set)]
+fn set_contains(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (set, probes) = built;
     let mut hits = 0u64;
     for &k in &probes {
         hits += u64::from(set.contains(black_box(k)));
@@ -172,9 +175,9 @@ fn set_contains(dist: &str) -> u64 {
 // ---- Remove and ordered navigation -----------------------------------
 
 #[library_benchmark]
-#[bench::random("random")]
-fn map_remove(dist: &str) -> u64 {
-    let (mut map, probes) = built_map(dist);
+#[bench::random(args = ("random",), setup = built_map)]
+fn map_remove(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (mut map, probes) = built;
     let mut removed = 0u64;
     for &k in &probes {
         removed += u64::from(map.remove(black_box(k)).is_some());
@@ -183,9 +186,9 @@ fn map_remove(dist: &str) -> u64 {
 }
 
 #[library_benchmark]
-#[bench::random("random")]
-fn map_iterate(dist: &str) -> u64 {
-    let (map, _) = built_map(dist);
+#[bench::random(args = ("random",), setup = built_map)]
+fn map_iterate(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (map, _) = built;
     let mut sink = 0u64;
     for (k, v) in map.iter() {
         sink ^= k ^ v;
