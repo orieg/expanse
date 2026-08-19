@@ -192,8 +192,11 @@ jobs:
           Copy-Item target/release/expanse.dll.lib "$prefix\lib\libJudy.lib"
           Copy-Item target/release/expanse.dll.lib "$prefix\libJudy.lib"
           Copy-Item target/release/expanse.dll "$prefix\"
-          Copy-Item target/release/expanse.dll "$prefix\lib\"
-          Add-Content $env:GITHUB_PATH "$prefix"
+          # PHP on Windows restricts the DLL search path
+          # (SetDefaultDllDirectories) — PATH is NOT searched for an
+          # extension's dependencies, but System32 always is. The runner
+          # is disposable; this is the simplest reliable resolution.
+          Copy-Item target/release/expanse.dll "C:\Windows\System32\"
           Add-Content $env:GITHUB_ENV "JUDY_PREFIX=$prefix"
 
       - name: Disable Windows Error Reporting
