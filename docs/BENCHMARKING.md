@@ -291,6 +291,46 @@ Both arms now bind their symbols in `setup`, so neither measures its own
 dynamic linking, and key generation has moved out of the insert arms' measured
 region — see rule 0 for why that mattered even though it was symmetric.
 
+### First per-function attribution (measured: GitHub `ubuntu-latest` runner, `callgrind_annotate` over the `instruction-counts` job, commit with this section; deterministic)
+
+Until now the job kept per-benchmark totals only, so a delta could be observed
+but not attributed. The first run with per-function output found three things
+in one pass, two of which are the largest actionable items on record.
+
+**1. `EdgeTag::from_u8` is not inlined, and it is 8-19% of every lookup.**
+
+| arm | `from_u8` | share |
+|---|---:|---:|
+| `set_contains/random` | 2,948,168 | **19.4%** |
+| `map_get/random` | 2,413,688 | 14.2% |
+| `map_get/sequential` | 1,602,072 | 9.6% |
+| `map_get/clustered` | 1,008,776 | 8.1% |
+
+It appears as its own symbol — a real call — at ~8 instructions each, once per
+level descended. The call count cross-checks exactly against the terminal-form
+census below: sequential lookups touch 4 edges (`BranchL3`@8, `BranchL3`@7,
+`BranchU`@2, `LeafB1`@1) and the profile shows 200,259 calls over 50,000
+probes, i.e. 4.005 per lookup. Earlier macOS sampling put this at ~1.7% and it
+was treated as a minor item; that was a sampling profile of a different
+distribution. Inlining it is now a measured opportunity, not a hypothesis.
+
+**2. ~16% of `map_insert/random` is inside the allocator** — `_int_malloc`
+7,685,357 (11.2%) plus `_mid_memalign` 3,226,000 (4.7%). The `memalign` path
+is what 64-byte alignment costs: it takes glibc off its fast `malloc` route.
+This is the measured case for alignment classes.
+
+**3. Rule 0, violated a fourth time — in the other harness file.**
+`free_subtree` appeared *inside the lookup benchmarks*: 1,654,204 (9.7%) of
+`map_get/random`, 1,264,288 (8.3%) of `set_contains/random`. The arms take the
+container by value, so `Drop` ran inside the measured region. `vs_stock.rs` had
+been fixed; `instructions.rs` — the file that produces the vs-base column on
+every PR — had not. Fixed by leaking, matching `vs_stock.rs`, along with
+`keys()` moving into `setup` for the insert arms.
+
+The pattern is worth naming: **every one of the four violations was found by an
+instrument, never by reading the harness.** Rule 0 asks a reviewer to check the
+measured region, and four times a reviewer did not catch it.
+
 ### What the bench matrix structurally covers (measured: terminal-form census over the tree each benchmark builds, 50k keys, map flavor; commit with this section; machine-independent)
 
 A benchmark named after a distribution does not tell you which *forms* it
