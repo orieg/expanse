@@ -278,26 +278,37 @@ conditional on the diff touching Rust sources.
 B0 above measured our rlib against stock's shared object, on a branch that
 also carried issue #1 items 1-3. This measures our own `libexpanse.so`,
 `dlopen`'d and called through resolved symbols exactly as stock is — the shape
-a drop-in consumer actually gets — at **two code states**, so the drop-in cost
-and the engine work are separable. **Quote the `.so` columns.**
+a drop-in consumer actually gets. **These are the numbers to quote.**
 
-| operation | `.so` on `main` | `.so` with items 1-3 | rlib on `main` |
+Taken on `main` at `6587e9f`, via a pull request that changes only CI
+configuration, so the measured code is `main`'s exactly. The earlier two-state
+table is collapsed: its "with items 1-3" column reproduced here to the
+instruction, which is the confirmation that those numbers were `main`'s code
+all along even though the branch they came from was mislabelled.
+
+| operation | `.so` ratio | rlib ratio | est. cycles (`.so`) |
 |---|---:|---:|---:|
-| `judy1_set/clustered` | 1.35× | **1.25×** | 1.26× |
-| `judyl_get/random_big` (1.5M) | 1.29× | **1.15×** | 1.23× |
-| `judyl_get/random` | 1.66× | 1.58× | 1.57× |
-| `judyl_get/clustered` | 1.71× | 1.71× | 1.59× |
-| `judyl_insert/clustered` | 1.89× | 1.78× | 1.78× |
-| `judyl_get/sequential` | 1.94× | 1.94× | 1.83× |
-| `judy1_test/random` | 1.95× | 1.88× | 1.87× |
-| `judyl_insert/sequential` | 1.97× | 1.71× | 2.03× |
-| `judy1_set/random` | 2.18× | 1.93× | 2.26× |
-| `judyl_insert/random` | 2.40× | 2.16× | 2.44× |
+| `judyl_get/random_big` (1.5M) | **1.15×** | 1.09× | **1.09×** |
+| `judy1_set/clustered` | **1.25×** | 1.16× | 1.25× |
+| `judyl_get/random` | 1.58× | 1.49× | 1.53× |
+| `judyl_insert/sequential` | 1.71× | 1.78× | 1.70× |
+| `judyl_get/clustered` | 1.71× | 1.59× | 1.64× |
+| `judyl_insert/clustered` | 1.78× | 1.68× | 1.77× |
+| `judy1_test/random` | 1.88× | 1.80× | 1.79× |
+| `judy1_set/random` | 1.93× | 2.02× | 1.95× |
+| `judyl_get/sequential` | 1.94× | 1.83× | 1.79× |
+| `judyl_insert/random` | 2.16× | 2.21× | 2.18× |
 
-**Correction factor: 1.05× median, range 0.96–1.07× on `main`** (1.06×,
-0.95–1.08× with items 1-3). It barely moves between two different code states,
-which is what a ratio between two builds of the *same* code should do — the
-one number here that is robust rather than provisional.
+**Correction factor: 1.06× median, range 0.95–1.08×** (1.05×, 0.96–1.07×
+measured on the same harness without items 1-3 — it barely moves between two
+code states, which is what a ratio between two builds of the *same* code should
+do, and makes it the most robust number in this section).
+
+**Best and worst, both worth naming.** The 1.5M lookup at **1.15×** (1.09× in
+estimated cycles) and clustered `Judy1` inserts at **1.25×** are the strongest
+arms; random `JudyL` insert at **2.16×** is the weakest, and per-function
+profiling puts ~16% of it inside the allocator. The 1.5M arm remains the only
+one whose cycles ratio falls *below* its instruction ratio.
 
 **The prediction behind it was wrong in an instructive way.** The expectation
 on record was that being a shared object would cost us uniformly, so every
@@ -308,17 +319,19 @@ short operation; on the insert arms the `.so` is *cheaper* than the LTO'd rlib
 rlib arm additionally gets is cross-crate inlining with the harness, and on a
 long insert that apparently costs more instructions than it saves. So
 "cross-object inlining is an advantage stock cannot have" was the right shape
-of argument and the wrong magnitude — worth ~5–7% on lookups, nothing on
+of argument and the wrong magnitude — worth ~6–8% on lookups, nothing on
 inserts.
 
-**Two lookup arms are byte-identical across the two code states** —
+**One result from before the collapse is worth keeping.** Measured with and
+without items 1-3, two lookup arms came out byte-identical —
 `judyl_get/clustered` at 7,227,854 and `judyl_get/sequential` at 9,840,110,
-unchanged to the instruction while every other arm moved. That is an
-independent confirmation of the terminal-form census below, which predicted
-that items 1-3 cannot reach those arms: they build only bitmap leaves, so
+unchanged to the instruction while every other arm moved. The terminal-form
+census below predicted exactly that: those arms build only bitmap leaves, so
 neither the immediate scan nor the linear-leaf population read is on their
-path. A prediction made from structure, confirmed by an instrument that did
-not know about it.
+path. A prediction made from structure, confirmed by an instrument that had no
+knowledge of it — and the strongest evidence that the +1.50% those items landed
+on `map_get/sequential` is a codegen side-effect rather than a change in work
+done, since that arm provably executes none of the changed code.
 
 Both arms bind their symbols in `setup`, so neither measures its own dynamic
 linking, and key generation has moved out of the insert arms' measured region —
