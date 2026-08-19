@@ -324,6 +324,54 @@ Both arms bind their symbols in `setup`, so neither measures its own dynamic
 linking, and key generation has moved out of the insert arms' measured region —
 see rule 0 for why that mattered even though it was symmetric.
 
+### Tag decode inlined — the first arm below 1.00 (measured: GitHub `ubuntu-latest` runner, callgrind via `instruction-counts`, commit with this section; deterministic)
+
+The first optimization measured against B2, and the largest single change in
+the project so far. Three `#[inline(always)]` attributes on `EdgeType::from_u8`,
+`ImmedType::from_u8` and `EdgeTag::from_u8`.
+
+**`judyl_get/random_big` (1.5M keys) is now 0.95×** — libexpanse retires ~5%
+**fewer** instructions than stock libjudy through the identical C ABI, in the
+`.so` shape a drop-in consumer gets. Estimated cycles 0.94×. That is the first
+arm to go below 1.00.
+
+| operation | before | after |
+|---|---:|---:|
+| `judyl_get/random_big` (1.5M) | 1.15× | **0.95×** |
+| `judy1_set/clustered` | 1.25× | **1.14×** |
+| `judyl_get/random` | 1.58× | **1.23×** |
+| `judyl_get/clustered` | 1.71× | 1.43× |
+| `judy1_test/random` | 1.88× | 1.55× |
+| `judyl_get/sequential` | 1.94× | 1.65× |
+| `judyl_insert/sequential` | 1.71× | 1.61× |
+| `judyl_insert/random` | 2.16× | 2.08× |
+
+All 14 self-comparison benchmarks improved: lookups −13.8% to −21.2%, inserts
+−4.0% to −10.9%, iteration −13.7%, remove −1.8%.
+
+**Instructions are cost, not time.** A ratio below 1.00 says we do less work,
+not that we are faster; wall-clock confirmation needs a quiet host and belongs
+to checkpoint B5. It is also one arm at one population — the 30k arms remain
+1.14–2.08×.
+
+**Two wrong conclusions this correct one had to be dug out from.** An earlier
+macOS sampling profile put `EdgeTag::from_u8` at ~1.7% of samples and it was
+filed as minor; an adversarial review round concluded the claim was
+unfalsifiable without branch simulation. Then a first attempt with plain
+`#[inline]` changed **nothing** — all 14 benchmarks byte-identical, the symbol
+still present at 17.05% of `set_contains/random`. **Within a single crate built
+with `codegen-units = 1`, `#[inline]` is close to advisory**: LLVM already has
+full visibility into the body, so the hint carries no information it lacks and
+does not override its cost model. `#[inline]` earns its keep across crate
+boundaries. Only `#[inline(always)]` moved it.
+
+The saving slightly exceeds the symbol's own cost — `set_contains/random` fell
+2,155,565 against a `from_u8` self-cost of 2,022,260, and `ExpanseSet::contains`
+*shrank* rather than absorbing the work. So the caller's match fused with the
+decode once LLVM could see through the call, which is most of what raw-tag
+dispatch was meant to achieve; that follow-up is likely moot and should be
+re-justified against fresh profiles before anyone spends a PR on it.
+
 ### First per-function attribution (measured: GitHub `ubuntu-latest` runner, `callgrind_annotate` over the `instruction-counts` job, commit with this section; deterministic)
 
 Until now the job kept per-benchmark totals only, so a delta could be observed
@@ -331,6 +379,10 @@ but not attributed. The first run with per-function output found three things
 in one pass, two of which are the largest actionable items on record.
 
 **1. `EdgeTag::from_u8` is not inlined, and it is 8-19% of every lookup.**
+*(Resolved — see the tag-decode section above. Shares below predate the
+harness teardown fix, so part of each is `free_subtree` decoding tags inside
+what was then the measured region; on the corrected harness it was 17.05% of
+`set_contains/random`.)*
 
 | arm | `from_u8` | share |
 |---|---:|---:|
