@@ -188,6 +188,33 @@ fn set_contains(built: (ExpanseSet, Vec<u64>)) -> u64 {
     black_box(hits)
 }
 
+// ---- Steady-state churn ------------------------------------------------
+
+// Measured region: ONLY the mixed op loop — upsert an existing key,
+// insert a fresh neighbour, remove it again. Build is in `setup`; the
+// structure is leaked (rule 0). This is the arm the matrix lacked twice
+// over: capacity-classed growth was tuned with no benchmark crossing
+// class boundaries in steady state, and the locate_slot fix could not
+// show its upsert effect because every insert arm inserts each key once,
+// fresh. Fresh neighbours (`k ^ 1`) collide with existing random keys
+// with probability ~n²/2⁶⁴ — negligible, and deterministic either way.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_map)]
+fn map_churn(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut sink = 0u64;
+    for &k in &probes {
+        // Upsert of a present key: the steady-state store pattern.
+        sink ^= map.insert(black_box(k), black_box(!k)).unwrap_or(0);
+        // Insert + remove of a fresh neighbour: crosses whatever
+        // capacity-class boundary the local terminal sits at, both ways.
+        map.insert(black_box(k ^ 1), k);
+        sink ^= u64::from(map.remove(black_box(k ^ 1)).is_some());
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 // ---- Remove and ordered navigation -----------------------------------
 
 #[library_benchmark]
@@ -222,6 +249,7 @@ library_benchmark_group!(
         map_ins_slot,
         map_get,
         set_contains,
+        map_churn,
         map_remove,
         map_iterate
 );
