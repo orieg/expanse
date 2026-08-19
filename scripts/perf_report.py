@@ -86,40 +86,76 @@ def render(
         return "## Performance\n\nNo benchmark output was produced.\n"
 
     if base:
-        lines += [
-            f"Instruction counts vs `{base_ref}`. These come from callgrind and are "
-            "**deterministic** — the same commit yields the same number on any runner, "
-            f"so a delta above {NOISE_PCT}% is real (see `docs/BENCHMARKING.md`). "
-            "Fewer instructions is better.",
-            "",
-            "| | Benchmark | Instructions | vs base | Est. cycles | vs base |",
-            "|---|---|---:|---:|---:|---:|",
-        ]
-        worst = 0.0
+        rows = []
+        improved = regressed = unchanged = 0
+        worst, best = 0.0, 0.0
         for name, metrics in head.items():
             b = base.get(name)
             ins, cyc = metrics.get("Instructions", 0), metrics.get("Estimated Cycles", 0)
             if not b:
-                lines.append(f"| 🆕 | `{name}` | {ins:,} | new | {cyc:,} | new |")
+                rows.append(f"| 🆕 | `{name}` | {ins:,} | new | {cyc:,} | new |")
                 continue
             d_ins = pct(ins, b.get("Instructions", 0))
             d_cyc = pct(cyc, b.get("Estimated Cycles", 0))
-            worst = max(worst, d_ins)
-            lines.append(
+            if abs(d_ins) < NOISE_PCT:
+                unchanged += 1
+            elif d_ins < 0:
+                improved += 1
+            else:
+                regressed += 1
+            worst, best = max(worst, d_ins), min(best, d_ins)
+            rows.append(
                 f"| {verdict(d_ins)} | `{name}` | {ins:,} | {fmt_delta(d_ins)} "
                 f"| {cyc:,} | {fmt_delta(d_cyc)} |"
             )
-        lines.append("")
-        if worst >= 1.0:
-            lines.append(
-                f"> ⚠️ Largest instruction-count regression: **{worst:+.2f}%**. "
-                "Deterministic, so this is a real increase in work done — not runner noise."
+
+        # Headline first: a wall of dashes should read as "nothing changed",
+        # not as "something failed to measure".
+        if regressed:
+            headline = (
+                f"🔴 **{regressed} benchmark(s) do more work** than `{base_ref}` "
+                f"(worst {worst:+.2f}%)"
             )
-            lines.append("")
+            if improved:
+                headline += f"; {improved} do less (best {best:+.2f}%)"
+        elif improved:
+            headline = (
+                f"🟢 **{improved} benchmark(s) do less work** than `{base_ref}` "
+                f"(best {best:+.2f}%), none more"
+            )
+        else:
+            headline = (
+                f"⚪ **No change in work done** vs `{base_ref}` — expected when a PR "
+                "does not touch engine code paths."
+            )
+        lines += [
+            headline,
+            "",
+            f"**What this compares:** this branch against **`{base_ref}`, i.e. expanse's "
+            "own previous code** — *not* against stock libjudy. Comparisons against "
+            "stock are wall-clock and live in the nightly `bench-report` job.",
+            "",
+            "**Why it is trustworthy:** the counts come from callgrind, so they are "
+            "**deterministic** — the same commit yields the same number on any runner, "
+            f"and any delta above {NOISE_PCT}% is a real change in work done rather than "
+            "measurement noise. Fewer instructions is better.",
+            "",
+            f"| | Benchmark | Instructions | vs `{base_ref}` | Est. cycles "
+            f"| vs `{base_ref}` |",
+            "|---|---|---:|---:|---:|---:|",
+        ] + rows + [""]
+        if worst >= 1.0:
+            lines += [
+                f"> ⚠️ Largest instruction-count regression: **{worst:+.2f}%**. "
+                "Deterministic, so this is a real increase in work done — not runner "
+                "noise. Worth explaining in the PR description if intentional.",
+                "",
+            ]
     else:
         lines += [
-            "Instruction counts (callgrind, deterministic). No base comparison "
-            "available for this run.",
+            "Instruction counts for this branch (callgrind, deterministic). No "
+            "comparison available — this run has no merge base to measure against. "
+            "These are expanse's own counts, not a comparison with stock libjudy.",
             "",
             "| Benchmark | Instructions | Est. cycles |",
             "|---|---:|---:|",
@@ -164,9 +200,12 @@ def render(
         ]
 
     lines.append(
-        "<sub>Wall-clock comparisons against stock libjudy run in the nightly "
-        "`bench-report` job; they are a regression alarm, not publishable numbers "
-        "(`docs/BENCHMARKING.md`).</sub>"
+        "<sub>🟢 less work · 🔴 more work · = within noise · 🆕 new benchmark. "
+        "Instructions measure <em>cost</em>, not time: less work is strictly better, "
+        "but the wall-clock effect depends on how much latency the machine hides. "
+        "Wall-clock comparisons against stock libjudy run in the nightly "
+        "<code>bench-report</code> job and are a regression alarm, not publishable "
+        "numbers (<code>docs/BENCHMARKING.md</code>).</sub>"
     )
     return "\n".join(lines) + "\n"
 
