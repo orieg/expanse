@@ -279,9 +279,25 @@ unsafe fn walk_validated<const MAP: bool>(
                     if sub.is_null() {
                         return Err(Retry);
                     }
-                    // SAFETY: bit set + validated below → subarray holds
-                    // at least `rank + 1` EBR-live edges.
+                    // Validate BEFORE indexing the subarray, not after:
+                    // `rank` comes from the bitmap and `sub`/its length
+                    // from the pointer array, which a concurrent writer
+                    // updates separately. An unvalidated pair can pick a
+                    // rank from the new bitmap against the old, shorter
+                    // allocation — an out-of-bounds read that a later
+                    // check cannot undo. (EBR keeps a retired subarray
+                    // mapped, so a *stale* pointer is safe to read; a
+                    // stale pointer with a fresh rank is not.)
+                    // SAFETY: live version field (EBR).
+                    if !unsafe { crate::occ::node_validate(vp, nsnap) } {
+                        return Err(Retry);
+                    }
+                    // SAFETY: bitmap/subarray pair validated consistent
+                    // just above → the subarray holds at least `rank + 1`
+                    // EBR-live edges.
                     edge = unsafe { sub.add(rank).read() };
+                    // The edge copy itself must also be covered: re-check
+                    // before the next iteration dereferences it.
                     // SAFETY: live version field (EBR).
                     if !unsafe { crate::occ::node_validate(vp, nsnap) } {
                         return Err(Retry);

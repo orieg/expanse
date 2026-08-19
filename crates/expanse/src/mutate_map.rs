@@ -254,6 +254,9 @@ pub(crate) unsafe fn map_insert<const KEEP: bool>(
                 return unsafe { map_insert::<KEEP>(a, edge, key, val, level) };
             }
             let k = key_low(key, kb);
+            // Phase 7 coverage invariant (see alloc::assert_bracketed):
+            // linear leaves carry no version; the parent's bracket does.
+            a.assert_bracketed();
             let base = edge.node_ptr();
             // SAFETY: live map leaf per contract (keys behind the values).
             let pos =
@@ -368,6 +371,10 @@ pub(crate) unsafe fn map_insert<const KEEP: bool>(
                 return unsafe { map_insert::<KEEP>(a, edge, key, val, level) };
             }
             let d = digit(key, 1);
+            // Phase 7: a leaf carries no version of its own — readers
+            // validate its payload against the parent branch's version,
+            // whose bracket must still be open here.
+            a.assert_bracketed();
             // SAFETY: live LeafBitmapL per contract.
             let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmapL>() };
             let sub = (d >> 5) as usize;
@@ -662,6 +669,9 @@ pub(crate) unsafe fn map_remove(
             }
             let pop = edge.pop0(kb) as usize + 1;
             let k = key_low(key, kb);
+            // Phase 7 coverage invariant (see alloc::assert_bracketed):
+            // linear leaves carry no version; the parent's bracket does.
+            a.assert_bracketed();
             let base = edge.node_ptr();
             // SAFETY: live map leaf per contract.
             let pos =
@@ -725,6 +735,10 @@ pub(crate) unsafe fn map_remove(
                 return None;
             }
             let d = digit(key, 1);
+            // Phase 7: a leaf carries no version of its own — readers
+            // validate its payload against the parent branch's version,
+            // whose bracket must still be open here.
+            a.assert_bracketed();
             // SAFETY: live LeafBitmapL per contract.
             let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmapL>() };
             if !node.bitmap.test(d) {

@@ -1,0 +1,39 @@
+# Deliberately NOT a workspace member: cargo-fuzz builds these targets
+# with its own nightly flags (sanitizers, coverage instrumentation), and
+# folding them into the main workspace would apply those to every crate.
+[workspace]
+
+[package]
+name = "expanse-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+expanse-trie = { path = "../crates/expanse" }
+
+[[bin]]
+name = "set_ops"
+path = "fuzz_targets/set_ops.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "map_ops"
+path = "fuzz_targets/map_ops.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bytesmap_ops"
+path = "fuzz_targets/bytesmap_ops.rs"
+test = false
+doc = false
+bench = false

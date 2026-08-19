@@ -17,6 +17,9 @@ name = "expanse_trie"
 
 [dev-dependencies]
 criterion = "0.8"
+# Property tests with shrinking: a failure reduces to a minimal op
+# sequence (docs/TESTING.md layer 2).
+proptest = "1"
 
 # Loom model-checks the OCC/EBR protocol (occ module) under
 # `RUSTFLAGS="--cfg loom" cargo test -p expanse-trie --release loom_`.

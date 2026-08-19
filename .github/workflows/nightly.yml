@@ -24,3 +24,42 @@ jobs:
 
       - name: Miri (full)
         run: cargo miri test -p expanse-trie
+
+  fuzz-long:
+    # docs/TESTING.md layer 4: the sessions where coverage-guided
+    # exploration actually reaches new ladder transitions. The per-push
+    # job is a 60s smoke; this one runs each target for 20 minutes and
+    # keeps the corpus between nights via the cache.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [set_ops, map_ops, bytesmap_ops]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Restore fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Fuzz ${{ matrix.target }} (20 min)
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=1200 -print_final_stats=1
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

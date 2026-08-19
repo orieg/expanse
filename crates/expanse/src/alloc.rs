@@ -36,6 +36,10 @@ pub struct NodeAlloc {
     /// Phase 7: when set, frees are retired to the collector instead of
     /// released — concurrent readers may still hold the pointers.
     deferred: OnceLock<Arc<Collector>>,
+    /// Debug-only: how many node version brackets are open on this
+    /// tree's mutation stack (see [`Self::assert_bracketed`]).
+    #[cfg(debug_assertions)]
+    bracket_depth: AtomicUsize,
 }
 
 impl NodeAlloc {
@@ -108,6 +112,39 @@ impl NodeAlloc {
         self.deferred.get().is_some()
     }
 
+    /// Debug-only bracket bookkeeping (see [`Self::assert_bracketed`]).
+    #[cfg(debug_assertions)]
+    pub(crate) fn bracket_enter(&self) {
+        self.bracket_depth.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Debug-only bracket bookkeeping (see [`Self::assert_bracketed`]).
+    #[cfg(debug_assertions)]
+    pub(crate) fn bracket_leave(&self) {
+        self.bracket_depth.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    /// Asserts the Phase 7 coverage invariant at a mutation site: **every
+    /// mutation of a node's interior happens with an enclosing node's
+    /// version bracket open**, so a concurrent reader validating against
+    /// that node's version cannot miss it.
+    ///
+    /// Terminal nodes (leaves, bitmap leaves) carry no version of their
+    /// own; readers validate their payloads against the parent branch's
+    /// version, which is exactly why the parent's bracket must still be
+    /// open while a leaf is being rewritten. Checked only in debug
+    /// builds, and only for concurrently shared trees — a single-threaded
+    /// tree has no readers to protect.
+    #[inline]
+    pub(crate) fn assert_bracketed(&self) {
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            !self.occ_enabled() || self.bracket_depth.load(Ordering::Relaxed) > 0,
+            "node interior mutated outside any version bracket: a concurrent \
+             reader could observe it mid-write"
+        );
+    }
+
     /// Switches this handle to deferred reclamation through `collector`,
     /// permanently (Phase 7 concurrent wrappers call this once at
     /// construction). Idempotent for the same collector; a second call
@@ -149,6 +186,31 @@ impl NodeAlloc {
 mod tests {
     use super::*;
     use crate::node::{BranchB, BranchL3, BranchU};
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "outside any version bracket")]
+    fn negative_control_bracket_assert_must_fire() {
+        // docs/TESTING.md: an assertion that has never fired is not known
+        // to work. A concurrently-shared tree with no bracket open must
+        // trip the Phase 7 coverage check.
+        let a = NodeAlloc::new();
+        a.defer_to(std::sync::Arc::new(crate::occ::Collector::new()));
+        a.assert_bracketed();
+    }
+
+    #[test]
+    fn bracket_assert_is_quiet_when_covered() {
+        // Single-threaded trees have no readers: never trips.
+        let a = NodeAlloc::new();
+        a.assert_bracketed();
+        // Shared tree with a bracket open: also fine.
+        a.defer_to(std::sync::Arc::new(crate::occ::Collector::new()));
+        let mut version = 0u32;
+        crate::occ::version_begin_if(&a, &mut version);
+        a.assert_bracketed();
+        crate::occ::version_end_if(&a, &mut version);
+    }
 
     #[test]
     fn accounting_round_trip() {

@@ -357,6 +357,9 @@ pub(crate) unsafe fn insert(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
                 return unsafe { insert(a, edge, key, level) };
             }
             let k = key_low(key, kb);
+            // Phase 7 coverage invariant (see alloc::assert_bracketed):
+            // linear leaves carry no version; the parent's bracket does.
+            a.assert_bracketed();
             let base = edge.node_ptr();
             // SAFETY: live leaf of `pop` keys per contract.
             let pos = unsafe { leaf::lower_bound(base, pop, kb, k) };
@@ -459,6 +462,9 @@ pub(crate) unsafe fn insert(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
                 // SAFETY: forwarded contract; edge is now a branch.
                 return unsafe { insert(a, edge, key, level) };
             }
+            // Phase 7: see mutate_map — the parent branch's bracket
+            // covers this leaf's payload for concurrent readers.
+            a.assert_bracketed();
             // SAFETY: live LeafBitmap1 per contract.
             let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmap1>() };
             if !node.bitmap.set(digit(key, 1)) {
@@ -815,6 +821,9 @@ pub(crate) unsafe fn remove(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
             }
             let pop = edge.pop0(kb) as usize + 1;
             let k = key_low(key, kb);
+            // Phase 7 coverage invariant (see alloc::assert_bracketed):
+            // linear leaves carry no version; the parent's bracket does.
+            a.assert_bracketed();
             let base = edge.node_ptr();
             // SAFETY: live leaf of `pop` keys per contract.
             let pos = unsafe { leaf::lower_bound(base, pop, kb, k) };
@@ -872,6 +881,9 @@ pub(crate) unsafe fn remove(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8)
             if level > 1 && !crate::get::decode_matches(edge, key, 1, level) {
                 return false;
             }
+            // Phase 7: see mutate_map — the parent branch's bracket
+            // covers this leaf's payload for concurrent readers.
+            a.assert_bracketed();
             // SAFETY: live LeafBitmap1 per contract.
             let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmap1>() };
             if !node.bitmap.clear(digit(key, 1)) {

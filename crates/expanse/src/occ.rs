@@ -116,6 +116,8 @@ pub(crate) fn version_begin_if(a: &crate::alloc::NodeAlloc, v: &mut u32) {
     if a.occ_enabled() {
         version_begin(v);
     }
+    #[cfg(debug_assertions)]
+    a.bracket_enter();
 }
 
 /// Writer: closes a node's mutation bracket (see [`version_begin_if`]).
@@ -124,6 +126,8 @@ pub(crate) fn version_end_if(a: &crate::alloc::NodeAlloc, v: &mut u32) {
     if a.occ_enabled() {
         version_end(v);
     }
+    #[cfg(debug_assertions)]
+    a.bracket_leave();
 }
 
 /// Writer: marks a node mutation in progress (even → odd, then a release

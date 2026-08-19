@@ -54,7 +54,14 @@ A debug-only tree walker validates after mutations in tests:
 
 ## CI mapping
 
-Now: layer 1 on all platforms — Linux glibc, Linux musl (static-linked test run, cross-built from the glibc runner), macOS, Windows MSVC. Layers 1, 2 (deterministic model harness, active since the Phase 6 mutation engine), 3 (differential oracle, active since the Phase 8 capi surface), 5 (Miri), and 6 (loom + thread stress, active since Phase 7) run in CI. Miri is split: the per-push job skips the heavy `model_*` suites; the nightly workflow runs the full suite under Miri daily. Still ahead: layer 4 and proptest-with-shrinking as Phase 8 hardening. Placeholders are noted in `.github/workflows/ci.yml`.
+Now: layer 1 on all platforms — Linux glibc, Linux musl (static-linked test run, cross-built from the glibc runner), macOS, Windows MSVC. Layers 1, 2 (deterministic model harness, active since the Phase 6 mutation engine), 3 (differential oracle, active since the Phase 8 capi surface), 5 (Miri), and 6 (loom + thread stress, active since Phase 7) run in CI. Miri is split: the per-push job skips the heavy `model_*` suites; the nightly workflow runs the full suite under Miri daily. Layer 4 (fuzzing) and proptest-with-shrinking landed with the Phase 8 hardening pass — see below. Placeholders are noted in `.github/workflows/ci.yml`.
+
+## Fuzzing and property testing (layers 4 and 2)
+
+- **Property tests** (`crates/expanse/tests/proptest_model.rs`): generated op sequences against `BTreeSet`/`BTreeMap`, with **shrinking** — a failure reduces to a minimal counterexample instead of a 6000-op transcript. Beyond op agreement they assert the structural validator, ordered iteration, rank/select round-trips (`by_count(count_below(k)) == k` across the whole population), and drain-to-zero-bytes. Counterexamples persist in `tests/*.proptest-regressions`; **commit that file when one appears** — it is a regression test the harness replays first.
+- **Fuzz targets** (`fuzz/fuzz_targets/`, cargo-fuzz + libFuzzer): `set_ops`, `map_ops`, `bytesmap_ops`. Same model-agreement contract, but the coverage-guided engine discovers op shapes nobody thought to generate. Keys come from a small template set (dense / two clusters / sparse / raw) so the budget goes to sequences rather than to rediscovering that clustered keys matter; the byte-string target gets embedded NULs, shared prefixes and hash collisions for free. Every run ends with rank/select agreement, a full drain, and a `mem_used() == 0` leak check.
+- **In CI**: `fuzz-smoke` runs 60s per target per push (build check + shallow sweep); the nightly workflow runs 20 minutes per target with the corpus cached between nights, and uploads crash artifacts on failure. First local session: ~1.9M executions across the three targets, no crashes.
+- **A crash becomes a named test.** Reproduce with `cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<input>`, then write the minimal case into the normal suite — corpora and artifacts are gitignored, so a finding that lives only in `fuzz/artifacts/` is a finding that will be lost.
 
 ## Concurrency testing details (layer 6)
 

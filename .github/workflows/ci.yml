@@ -224,6 +224,38 @@ jobs:
           test-workers: "1"
           test-runner-args: "--set-timeout 30"
 
+  fuzz-smoke:
+    # docs/TESTING.md layer 4. A short per-push run is a build check plus
+    # a shallow sweep; the nightly workflow runs the long sessions where
+    # coverage-guided exploration actually pays off.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Fuzz smoke (60s per target)
+        run: |
+          for t in set_ops map_ops bytesmap_ops; do
+            echo "::group::$t"
+            cargo fuzz run "$t" -- -max_total_time=60 -print_final_stats=1
+            echo "::endgroup::"
+          done
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
+
   loom:
     # docs/TESTING.md: the Phase 7 OCC/EBR protocol (occ module) is
     # model-checked under loom — it found two real ordering bugs (missing
