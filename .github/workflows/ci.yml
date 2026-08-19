@@ -165,6 +165,62 @@ jobs:
             exit 1
           }
 
+  php-judy-windows:
+    # docs/COMPAT.md gate G3: php-judy builds on Windows against
+    # expanse.dll (via config.w32 --with-judy=DIR system-lib mode:
+    # Judy.h + libJudy.lib import library) instead of compiling the
+    # bundled C libjudy, and its suite passes. Same pinned php-judy
+    # commit as the Linux job.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build expanse.dll and assemble the --with-judy prefix
+        shell: pwsh
+        run: |
+          cargo build --release -p expanse-capi
+          $prefix = "$PWD\compat-prefix"
+          New-Item -ItemType Directory -Force -Path "$prefix\include", "$prefix\lib" | Out-Null
+          Copy-Item crates/expanse-capi/include/Judy.h "$prefix\include\"
+          # The import library is what the linker consumes; the DLL it
+          # names (expanse.dll) is resolved from PATH at run time.
+          Copy-Item target/release/expanse.dll.lib "$prefix\lib\libJudy.lib"
+          Copy-Item target/release/expanse.dll.lib "$prefix\libJudy.lib"
+          Copy-Item target/release/expanse.dll "$prefix\"
+          Copy-Item target/release/expanse.dll "$prefix\lib\"
+          Add-Content $env:GITHUB_PATH "$prefix"
+          Add-Content $env:GITHUB_ENV "JUDY_PREFIX=$prefix"
+
+      - name: Disable Windows Error Reporting
+        shell: pwsh
+        run: |
+          # Prevent WER from intercepting crashed test processes and
+          # stalling run-tests.php (php-judy CI precedent).
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting" /v Disabled /t REG_DWORD /d 1 /f
+
+      - name: Exclude workspace from Windows Defender
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath "${{ github.workspace }}"
+          Add-MpPreference -ExclusionPath "${{ runner.temp }}"
+
+      - name: Build php-judy against expanse.dll and run its suite
+        uses: php/php-windows-builder/extension@v1
+        with:
+          extension-url: https://github.com/orieg/php-judy
+          extension-ref: fb490245854fad4bfc0c9e0e987e846d2a0ae3bb
+          php-version: "8.4"
+          arch: x64
+          ts: nts
+          args: --with-judy=${{ env.JUDY_PREFIX }}
+          test-workers: "1"
+          test-runner-args: "--set-timeout 30"
+
   loom:
     # docs/TESTING.md: the Phase 7 OCC/EBR protocol (occ module) is
     # model-checked under loom — it found two real ordering bugs (missing
