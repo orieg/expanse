@@ -39,9 +39,30 @@ Performance claims are this project's reason to exist, so they follow the strict
 | Lookup latency grid (hit/miss × distribution × population) | landed (`benches/compare.rs`) | vs `BTreeSet`/`BTreeMap`, `HashSet`/`HashMap`; timing numbers unpublished until a quiet-host run |
 | Insert throughput (cold build per distribution) | landed (`benches/compare.rs`) | same caveat |
 | bytes/key | landed (`examples/bytes_per_key.rs`) | deterministic allocator accounting — load-immune, results below; **gates CI** via the `memory-budget` job |
+| Instruction/cache counts | landed (`benches/instructions.rs`, iai-callgrind) | deterministic via callgrind — load-immune and resolves ~1% changes; **posted as a PR comment with head-vs-base deltas** by the `instruction-counts` job |
 | Lookup attribution | landed (`examples/lookup_profile.rs`) | sampling profile of a `get`-only loop — *where* time goes, not how long; sample distribution inside one process is far less load-sensitive than a cross-binary ratio |
 | Concurrent read scaling (1..N threads) | landed (`examples/concurrent_scaling.rs`) | Read-only and write-churn mixes; the per-node-OCC go/no-go instrument — first numbers below |
 | Full libjudy + ART comparison | Phase 8 remainder | Headline table, dedicated-host runs, driven through the capi surface |
+
+## Reading perf results in a PR
+
+Every pull request gets a single updating comment from the
+`instruction-counts` job: a table of instruction counts and estimated
+cycles for each benchmark **with the delta against the merge base**,
+plus collapsed sections for cache/RAM traffic and the bytes/key table.
+
+Interpretation rules, so the comment is not over-read:
+
+- **Instruction and cache counts are exact.** The same commit produces
+  the same numbers on any runner, so a delta above 0.1% is a real change
+  in work done, not measurement noise. That is why the comment leads
+  with deltas and flags regressions ≥ 1%.
+- **They are cost, not time.** Fewer instructions is strictly better
+  work, but the wall-clock effect depends on how well the machine hides
+  the remaining latency. A speed claim still needs a quiet host.
+- **Wall-clock vs stock libjudy lives in the nightly `bench-report`
+  job**, and remains a regression alarm rather than a publishable
+  number (rule 3, and the retracted `memcmp` claim below).
 
 ## Measured results
 
