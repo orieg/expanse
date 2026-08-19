@@ -290,6 +290,10 @@ fn judyl_get_expanse(mut built: Built) -> Word {
 #[bench::clustered(args = ("clustered",), setup = build_stock)]
 #[bench::random_big(args = ("random_big",), setup = build_stock)]
 fn judyl_get_stock(mut built: Built) -> Word {
+    // NOTE: `Stock::open()` here is still inside the measured region and
+    // charges stock a full dlopen + symbol bind that our arm never pays.
+    // It flatters our ratio. Tracked in issue #1; fixing it means
+    // carrying the resolved symbols through `setup`.
     let lib = Stock::open();
     let get: FpGet = lib.sym(c"JudyLGet");
     let free: FFree = lib.sym(c"JudyLFreeArray");

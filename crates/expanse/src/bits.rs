@@ -14,6 +14,12 @@
 //!   and select (rank → bit, the `ByCount` primitive), plus ordered
 //!   neighbor scans for `First`/`Next`/`Last`/`Prev`.
 //!
+//! **x86-64 caveat**: `popcnt` is not in the base x86-64 target
+//! (`fxsr,sse,sse2`), so without `-C target-cpu=x86-64-v2` or
+//! `-C target-feature=+popcnt` the calls below lower to a SWAR sequence,
+//! not one instruction. AArch64 has `cnt`/`rbit` in its baseline. No
+//! target-cpu is set in this workspace today.
+//!
 //! Scalar popcount/tzcnt/lzcnt need no wrappers: `u64::count_ones`,
 //! `trailing_zeros`, and `leading_zeros` already lower to the hardware
 //! instructions on every target this crate supports.
