@@ -63,6 +63,18 @@ Profiling a 1M-key random `get` loop (`examples/lookup_profile.rs`, macOS `sampl
 
 Also visible: `EdgeTag::from_u8` not fully inlined (~1.7% of samples), which is the measured part of the "tag-dispatch overhead" hypothesis — small next to the leaf comparison, and worth revisiting only with the vs-stock harness on a quiet host.
 
+**Did removing the `memcmp` call speed lookups up? Not measurably — verdict: NO DETECTABLE EFFECT.** A controlled A/B was run through the `bench-report` job: identical code and job on both arms, with only `leaf::search` reverted to the runtime-width compare on a throwaway branch. The first pair looked like a 7–11% get-ratio win in all three distributions; a second pair of runs refuted it.
+
+| get ratio @1M | with monomorphized search | with `memcmp` |
+|---|---|---|
+| sequential | 1.60, 1.75 | 1.77, 1.62 |
+| random | 1.47, 1.47 | 1.66, **1.34** |
+| clustered | 1.55, 1.73 | 1.65, 1.65 |
+
+The arms overlap; the pre-change branch produced both the worst and the best random-key ratio observed. Within-arm spread (up to 0.32 on a ~1.5 ratio) is as large as the between-arm difference, so any real effect is buried. The change is kept — it strictly removes work (a PLT-indirected libc call from the innermost loop) and cannot be slower — but **no speedup is claimed**.
+
+**Methodological consequence — the CI runner's noise floor.** Across four runs the same ratio varied by up to ±10%, and absolute ns by ±40%, on freshly booted runners at load < 1.7. That puts the minimum detectable effect for this setup somewhere around **15–20% at n=2** — fine for catching a structural regression, useless for validating incremental optimization. Incremental perf work therefore needs a dedicated quiet host with many rounds and reported confidence intervals; adding runs to CI buys little because the variance is between runner instances, not within a run. Until such a host exists, prefer changes justified *structurally* (work removed, allocations avoided, cache lines not touched) over changes justified by a measured delta this environment cannot resolve.
+
 Method note: attribution is done inside a single process, so co-resident load shifts *how many* samples land, not *where* they land. A/B wall-clock ratios do not share that property and stay deferred (rule 2).
 
 ### Concurrent read scaling, `SyncExpanseMap` (measured: M1 MacBook Pro 8-core, load ≈ 3.7 with two ~25% background processes — magnitudes far beyond that noise; commit with this section; 1M random keys, 500 ms windows)
