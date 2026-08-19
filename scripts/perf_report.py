@@ -79,11 +79,19 @@ def render(
     base: dict[str, dict[str, int]] | None,
     bytes_table: str | None,
     base_ref: str,
+    vs_stock: dict[str, dict[str, int]] | None = None,
 ) -> str:
     lines: list[str] = ["## Performance", ""]
 
+    # The vs-stock table leads: "is this a viable replacement for
+    # libjudy" is the project's central question, and a self-comparison
+    # cannot answer it.
+    if vs_stock:
+        lines += render_vs_stock(vs_stock)
+        lines += ["### vs this branch's merge base", ""]
+
     if not head:
-        return "## Performance\n\nNo benchmark output was produced.\n"
+        return "\n".join(lines) + "\nNo self-comparison benchmark output was produced.\n"
 
     if base:
         rows = []
@@ -210,6 +218,59 @@ def render(
     return "\n".join(lines) + "\n"
 
 
+def render_vs_stock(counts: dict[str, dict[str, int]]) -> list[str]:
+    """The headline comparison: our C ABI against stock libjudy's, in
+    instructions retired, paired by benchmark name."""
+    pairs: dict[str, dict[str, dict[str, int]]] = {}
+    for name, metrics in counts.items():
+        bench, _, arg = name.partition("/")
+        for suffix, side in (("_expanse", "ours"), ("_stock", "stock")):
+            if bench.endswith(suffix):
+                key = f"{bench[: -len(suffix)]}/{arg}"
+                pairs.setdefault(key, {})[side] = metrics
+    pairs = {k: v for k, v in pairs.items() if "ours" in v and "stock" in v}
+    if not pairs:
+        return []
+
+    lines = [
+        "### vs stock libjudy",
+        "",
+        "The comparison that decides whether libexpanse is a viable drop-in: "
+        "**identical C ABI calls, identical key streams**, instructions retired. "
+        "Deterministic, so this is reviewable per PR — unlike the wall-clock "
+        "ratios, which no available machine can resolve below ~15-20%.",
+        "",
+        "Ratio = ours ÷ stock. **Below 1.00 means libexpanse does less work.**",
+        "",
+        "| | Operation | libexpanse | stock libjudy | ratio | est. cycles ratio |",
+        "|---|---|---:|---:|---:|---:|",
+    ]
+    for name in sorted(pairs):
+        ours, stock = pairs[name]["ours"], pairs[name]["stock"]
+        o_ins, s_ins = ours.get("Instructions", 0), stock.get("Instructions", 0)
+        o_cyc, s_cyc = ours.get("Estimated Cycles", 0), stock.get("Estimated Cycles", 0)
+        if not s_ins:
+            continue
+        ratio = o_ins / s_ins
+        cyc_ratio = (o_cyc / s_cyc) if s_cyc else 0.0
+        mark = "🟢" if ratio < 1.0 else ("🟡" if ratio <= 1.25 else "🔴")
+        lines.append(
+            f"| {mark} | `{name}` | {o_ins:,} | {s_ins:,} | **{ratio:.2f}x** "
+            f"| {cyc_ratio:.2f}x |"
+        )
+    lines += [
+        "",
+        "<sub>🟢 less work than stock · 🟡 within 1.25x · 🔴 more. Stock is reached "
+        "through <code>dlopen</code>/<code>dlsym</code> (it exports the same symbols we "
+        "do), so its arm pays an indirect call per operation — a bias against stock of a "
+        "couple of instructions, never in our favour. Instructions are cost, not time: "
+        "cache behaviour decides how much becomes wall-clock, which the nightly "
+        "<code>bench-report</code> job measures.</sub>",
+        "",
+    ]
+    return lines
+
+
 def read(path: str | None) -> str | None:
     if not path:
         return None
@@ -227,6 +288,7 @@ def main() -> int:
     ap.add_argument("--base", help="bench output for the merge base")
     ap.add_argument("--bytes", help="bytes_per_key output")
     ap.add_argument("--base-ref", default="main")
+    ap.add_argument("--vs-stock", help="vs_stock bench output")
     args = ap.parse_args()
 
     head_text = read(args.head)
@@ -234,12 +296,14 @@ def main() -> int:
         print("## Performance\n\nBenchmarks did not run.\n")
         return 0
     base_text = read(args.base)
+    stock_text = read(args.vs_stock)
     print(
         render(
             parse(head_text),
             parse(base_text) if base_text else None,
             read(args.bytes),
             args.base_ref,
+            parse(stock_text) if stock_text else None,
         ),
         end="",
     )

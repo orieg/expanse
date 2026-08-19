@@ -47,9 +47,23 @@ Performance claims are this project's reason to exist, so they follow the strict
 ## Reading perf results in a PR
 
 Every pull request gets a single updating comment from the
-`instruction-counts` job: a table of instruction counts and estimated
-cycles for each benchmark **with the delta against the merge base**,
-plus collapsed sections for cache/RAM traffic and the bytes/key table.
+`instruction-counts` job, with two comparisons that answer different
+questions — reading one as the other is the mistake the comment is
+designed to prevent:
+
+1. **vs stock libjudy** (leads the comment): identical C ABI calls and
+   key streams through libexpanse and through a `dlopen`'d stock
+   libjudy, in instructions retired (`crates/expanse-capi/benches/vs_stock.rs`).
+   This is the drop-in question — is the replacement competitive — and
+   it is the project's headline claim. Ratio below 1.00 means we do
+   less work.
+2. **vs the merge base**: the same engine measured against its own
+   previous commit (`crates/expanse/benches/instructions.rs`). This is
+   the regression question — did this change make the engine do more
+   work — and it says nothing about stock.
+
+Both are callgrind counts, plus collapsed sections for cache/RAM traffic
+and the bytes/key table.
 
 Interpretation rules, so the comment is not over-read:
 
@@ -62,7 +76,17 @@ Interpretation rules, so the comment is not over-read:
   the remaining latency. A speed claim still needs a quiet host.
 - **Wall-clock vs stock libjudy lives in the nightly `bench-report`
   job**, and remains a regression alarm rather than a publishable
-  number (rule 3, and the retracted `memcmp` claim below).
+  number (rule 3, and the retracted `memcmp` claim below). The
+  instruction-count vs-stock table in the PR comment does not replace
+  it: instructions say how much work each library does, wall-clock says
+  how long the machine takes to do it, and the gap between those two is
+  cache behaviour — which is exactly what the allocator-locality work
+  (issue #1 item 4) is about.
+- **The stock arm is called through a function pointer** (`dlsym`),
+  because stock exports the same symbols libexpanse does and loading it
+  privately is what keeps them from colliding. That costs stock an
+  indirect call per operation: a bias of a couple of instructions
+  against stock, never in our favour.
 
 ## Measured results
 

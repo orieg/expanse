@@ -256,6 +256,7 @@ name = "expanse-capi"
 version = "0.1.0"
 dependencies = [
  "expanse-trie",
+ "iai-callgrind",
 ]
 
 [[package]]

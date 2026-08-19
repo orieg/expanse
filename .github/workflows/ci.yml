@@ -245,10 +245,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install valgrind
+      - name: Install valgrind and stock libjudy
+        # libjudy-dev is the other arm of the headline comparison.
         run: |
-          if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
-          sudo apt-get update && sudo apt-get install -y valgrind
+          if timeout 120 sudo apt-get install -y valgrind libjudy-dev; then exit 0; fi
+          sudo apt-get update && sudo apt-get install -y valgrind libjudy-dev
 
       - name: Install iai-callgrind-runner
         # The runner binary must match the library version exactly, so
@@ -265,6 +266,12 @@ jobs:
 
       - name: bytes/key table
         run: cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
+
+      # The headline comparison: identical C ABI calls through libexpanse
+      # and through stock libjudy, counted deterministically. Wall-clock
+      # cannot answer this per-PR; instructions can.
+      - name: libexpanse vs stock libjudy (instructions)
+        run: cargo bench --bench vs_stock -p expanse-capi | tee vs-stock.txt
 
       # Same benchmarks on the merge base, so the PR comment can report a
       # delta rather than a bare number. Deterministic counts make one run
@@ -284,6 +291,7 @@ jobs:
             --head instruction-counts.txt \
             --base base-counts.txt \
             --bytes bytes-per-key.txt \
+            --vs-stock vs-stock.txt \
             --base-ref "${{ github.base_ref }}" > perf-report.md
           cat perf-report.md
 
@@ -326,6 +334,7 @@ jobs:
           path: |
             instruction-counts.txt
             base-counts.txt
+            vs-stock.txt
             perf-report.md
           if-no-files-found: ignore
 
