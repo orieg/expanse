@@ -88,6 +88,7 @@ pub enum EdgeType {
 
 impl EdgeType {
     /// Decodes a structural tag from its raw byte, if it is one.
+    #[inline]
     #[must_use]
     pub const fn from_u8(raw: u8) -> Option<Self> {
         match raw {
@@ -110,12 +111,14 @@ impl EdgeType {
     }
 
     /// The raw tag byte.
+    #[inline]
     #[must_use]
     pub const fn as_u8(self) -> u8 {
         self as u8
     }
 
     /// True for the four branch flavors.
+    #[inline]
     #[must_use]
     pub const fn is_branch(self) -> bool {
         matches!(
@@ -125,6 +128,7 @@ impl EdgeType {
     }
 
     /// True for the linear and bitmap leaf flavors.
+    #[inline]
     #[must_use]
     pub const fn is_leaf(self) -> bool {
         matches!(
@@ -142,6 +146,7 @@ impl EdgeType {
 
     /// Undecoded key bytes remaining in each key of a linear leaf
     /// (`None` for non-linear-leaf tags).
+    #[inline]
     #[must_use]
     pub const fn leaf_key_bytes(self) -> Option<u8> {
         match self {
@@ -171,6 +176,7 @@ pub struct ImmedType {
 
 impl ImmedType {
     /// Builds an immediate tag, if the combination fits in an edge.
+    #[inline]
     #[must_use]
     pub const fn new(key_bytes: u8, key_count: u8) -> Option<Self> {
         if key_bytes >= 1
@@ -188,30 +194,35 @@ impl ImmedType {
     }
 
     /// Decodes an immediate tag from its raw byte, if it is one.
+    #[inline]
     #[must_use]
     pub const fn from_u8(raw: u8) -> Option<Self> {
         Self::new(raw >> 4, (raw & 0x0F) + 1)
     }
 
     /// The raw tag byte.
+    #[inline]
     #[must_use]
     pub const fn as_u8(self) -> u8 {
         (self.key_bytes << 4) | (self.key_count - 1)
     }
 
     /// Undecoded bytes per key stored in this edge (1..=7).
+    #[inline]
     #[must_use]
     pub const fn key_bytes(self) -> u8 {
         self.key_bytes
     }
 
     /// Number of keys stored in this edge (1..=15).
+    #[inline]
     #[must_use]
     pub const fn key_count(self) -> u8 {
         self.key_count
     }
 
     /// Largest key count that fits for a given key size.
+    #[inline]
     #[must_use]
     pub const fn max_count(key_bytes: u8) -> u8 {
         (IMMED_PAYLOAD_BYTES / key_bytes as usize) as u8
@@ -229,6 +240,7 @@ pub enum EdgeTag {
 
 impl EdgeTag {
     /// Decodes any valid tag byte.
+    #[inline]
     #[must_use]
     pub const fn from_u8(raw: u8) -> Option<Self> {
         if let Some(t) = EdgeType::from_u8(raw) {
@@ -241,6 +253,7 @@ impl EdgeTag {
     }
 
     /// The raw tag byte.
+    #[inline]
     #[must_use]
     pub const fn as_u8(self) -> u8 {
         match self {
@@ -254,6 +267,7 @@ impl EdgeTag {
 ///
 /// Level 8 is the most significant byte, level 1 the least significant:
 /// a root-to-leaf descent consumes digits at levels 8, 7, ... down to 1.
+#[inline]
 #[must_use]
 pub const fn digit(key: Key, level: u8) -> u8 {
     debug_assert!(level >= 1 && level <= MAX_LEVEL);
