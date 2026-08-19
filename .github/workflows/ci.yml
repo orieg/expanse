@@ -31,6 +31,7 @@ jobs:
         # from source (see docs/COMPAT.md gate G3).
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -73,6 +74,10 @@ jobs:
     # glibc runner: GitHub's JS actions need glibc node, so a `container:
     # alpine` job can't even check out.
     runs-on: ubuntu-latest
+    # Without this the GitHub default is 6 hours. An apt hang here — which
+    # has happened, holding a required check for ~2h and blocking a merge —
+    # should fail fast and be retried, not idle all afternoon.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -83,7 +88,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install musl toolchain
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+        # apt mirrors flake on hosted runners: try the preinstalled index
+        # first (no `update`), hard-timeout each attempt, retry bounded.
+        # Same pattern as the differential-oracle job.
+        timeout-minutes: 8
+        run: |
+          if timeout 120 sudo apt-get install -y musl-tools; then exit 0; fi
+          for i in 1 2 3; do
+            timeout 120 sudo apt-get update || true
+            if timeout 120 sudo apt-get install -y musl-tools; then exit 0; fi
+            echo "apt attempt $i failed; retrying"
+            sleep 15
+          done
+          exit 1
 
       - name: Test (musl, static)
         run: cargo test --workspace --target x86_64-unknown-linux-musl
@@ -107,6 +124,7 @@ jobs:
     # lookup engine — and Miri caught a real Stacked Borrows violation in
     # test wiring on its first run, so this job is not optional.
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
@@ -406,6 +424,7 @@ jobs:
     # seqlock fences; a store-buffer race between pin and epoch advance)
     # on its first run, so this job is not optional either.
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -471,6 +490,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
