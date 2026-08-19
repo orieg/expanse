@@ -71,7 +71,7 @@ pub(crate) fn decode_matches(edge: &Edge, key: Key, child_level: u8, level: u8) 
 /// Matches `key` against the packed keys of an immediate edge and returns the
 /// slot of the match, if any. `payload` holds `im.key_count()` keys of
 /// `im.key_bytes()` bytes each, sorted, each key little-endian.
-#[inline]
+#[inline(always)]
 fn immed_find(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
     // Width-monomorphized like `leaf::search_fixed`. At a runtime width
     // the slice comparison lowers to a `memcmp` **call** — through a PLT
@@ -93,7 +93,7 @@ fn immed_find(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
 ///
 /// The single-key case — the common terminal for sparse and random keys —
 /// collapses to a masked integer compare with no loop at all.
-#[inline]
+#[inline(always)]
 fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
     let n = im.key_count() as usize;
     debug_assert!(payload.len() >= n * KB);
