@@ -338,6 +338,16 @@ jobs:
           echo "iai-callgrind resolved to $VERSION"
           cargo install iai-callgrind-runner --version "$VERSION" --locked
 
+      - name: popcnt detection probe (native and under valgrind)
+        # Pre-registered caveat from issue #1: valgrind can mask CPUID
+        # bits, in which case the callgrind numbers measure the SWAR
+        # fallback and the popcnt dispatch reads as "no effect". This
+        # prints the truth next to the numbers it qualifies.
+        run: |
+          cargo build --release -p expanse-trie --example popcnt_probe
+          echo "native:   $(./target/release/examples/popcnt_probe)"
+          echo "valgrind: $(valgrind --tool=callgrind --callgrind-out-file=/dev/null ./target/release/examples/popcnt_probe 2>/dev/null)"
+
       - name: Instruction and cache-miss counts (this branch)
         run: cargo bench --bench instructions -p expanse-trie | tee instruction-counts.txt
 
