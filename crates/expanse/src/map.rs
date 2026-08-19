@@ -81,15 +81,6 @@ impl ExpanseMap {
         self.alloc.bytes_in_use()
     }
 
-    /// Cumulative node/leaf allocations made by this container since it
-    /// was created (diagnostics; see `tests/no_heap_churn.rs`, which
-    /// subtracts these from the process-wide count to isolate
-    /// incidental scratch allocation).
-    #[must_use]
-    pub fn total_node_allocs(&self) -> usize {
-        self.alloc.total_allocs()
-    }
-
     fn leaf_parts(ptr: NonNull<u8>, pop: usize) -> (&'static [u64], *mut u64) {
         // SAFETY: the root leaf holds `pop` keys then `pop` values, both
         // 8-aligned (allocations are cache-line aligned). The lifetime is
@@ -150,7 +141,7 @@ impl ExpanseMap {
         if let Root::Tree { top, pop } = &mut self.root {
             // SAFETY: trie maintained/owned by this map's engine.
             let (prev, slot) =
-                unsafe { mutate_map::map_insert_dyn::<true>(&self.alloc, top, key, 0, 8) };
+                unsafe { mutate_map::map_insert::<true>(&self.alloc, top, key, 0, 8) };
             if prev.is_none() {
                 *pop += 1;
             }
@@ -241,7 +232,7 @@ impl ExpanseMap {
                             // SAFETY: trie built and owned by self.alloc;
                             // values read in-bounds.
                             let prev = unsafe {
-                                mutate_map::map_insert_dyn::<false>(
+                                mutate_map::map_insert::<false>(
                                     &self.alloc,
                                     &mut top,
                                     k,
@@ -253,7 +244,7 @@ impl ExpanseMap {
                         }
                         // SAFETY: same trie.
                         let prev = unsafe {
-                            mutate_map::map_insert_dyn::<false>(&self.alloc, &mut top, key, val, 8)
+                            mutate_map::map_insert::<false>(&self.alloc, &mut top, key, val, 8)
                         };
                         debug_assert!(prev.0.is_none());
                         // SAFETY: old root leaf no longer referenced.
@@ -269,7 +260,7 @@ impl ExpanseMap {
             Root::Tree { top, pop } => {
                 // SAFETY: trie maintained/owned by this map's engine.
                 let prev =
-                    unsafe { mutate_map::map_insert_dyn::<false>(&self.alloc, top, key, val, 8) }.0;
+                    unsafe { mutate_map::map_insert::<false>(&self.alloc, top, key, val, 8) }.0;
                 if prev.is_none() {
                     *pop += 1;
                 }
@@ -316,7 +307,7 @@ impl ExpanseMap {
             }
             Root::Tree { top, pop } => {
                 // SAFETY: trie maintained/owned by this map's engine.
-                let old = unsafe { mutate_map::map_remove_dyn(&self.alloc, top, key, 8) };
+                let old = unsafe { mutate_map::map_remove(&self.alloc, top, key, 8) };
                 if old.is_some() {
                     *pop -= 1;
                     if *pop == 0 {

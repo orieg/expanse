@@ -45,38 +45,9 @@ pub(crate) const BRANCHB_UP: usize = crate::types::BITMAP_TO_UNCOMPRESSED_THRESH
 ///
 /// `keys` must be valid for reads of `(slot + 1) * kb` bytes.
 pub(crate) unsafe fn read_packed(keys: *const u8, slot: usize, kb: usize) -> u64 {
-    // Width-monomorphized like `leaf::search_fixed`: at a runtime width
-    // the copy does not inline, and this sits in the innermost insert
-    // loop via `leaf::lower_bound` (issue #1 item 3).
-    // SAFETY: forwarded contract; each arm's KB equals `kb`.
-    unsafe {
-        match kb {
-            1 => read_packed_fixed::<1>(keys, slot),
-            2 => read_packed_fixed::<2>(keys, slot),
-            3 => read_packed_fixed::<3>(keys, slot),
-            4 => read_packed_fixed::<4>(keys, slot),
-            5 => read_packed_fixed::<5>(keys, slot),
-            6 => read_packed_fixed::<6>(keys, slot),
-            7 => read_packed_fixed::<7>(keys, slot),
-            _ => {
-                debug_assert!(false, "packed key width out of range: {kb}");
-                0
-            }
-        }
-    }
-}
-
-/// Reads the `slot`-th packed key at a compile-time width.
-///
-/// # Safety
-///
-/// `keys` must be valid for reads of `(slot + 1) * KB` bytes.
-#[inline]
-pub(crate) unsafe fn read_packed_fixed<const KB: usize>(keys: *const u8, slot: usize) -> u64 {
     let mut buf = [0u8; 8];
-    // SAFETY: in-bounds per this function's contract; `KB <= 7 < 8`, so
-    // the destination has room and the copy width is a constant.
-    unsafe { core::ptr::copy_nonoverlapping(keys.add(slot * KB), buf.as_mut_ptr(), KB) };
+    // SAFETY: in-bounds per this function's contract.
+    unsafe { buf[..kb].copy_from_slice(core::slice::from_raw_parts(keys.add(slot * kb), kb)) };
     u64::from_le_bytes(buf)
 }
 
@@ -86,20 +57,10 @@ pub(crate) unsafe fn read_packed_fixed<const KB: usize>(keys: *const u8, slot: u
 ///
 /// `keys` must be valid for writes of `(slot + 1) * kb` bytes.
 pub(crate) unsafe fn write_packed(keys: *mut u8, slot: usize, kb: usize, val: u64) {
-    let le = val.to_le_bytes();
-    // SAFETY: forwarded contract; the copy width is a constant in each
-    // arm, so it inlines rather than calling out (issue #1 item 3).
+    // SAFETY: in-bounds per this function's contract.
     unsafe {
-        match kb {
-            1 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot), 1),
-            2 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 2), 2),
-            3 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 3), 3),
-            4 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 4), 4),
-            5 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 5), 5),
-            6 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 6), 6),
-            7 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 7), 7),
-            _ => debug_assert!(false, "packed key width out of range: {kb}"),
-        }
+        core::slice::from_raw_parts_mut(keys.add(slot * kb), kb)
+            .copy_from_slice(&val.to_le_bytes()[..kb]);
     }
 }
 
@@ -112,80 +73,17 @@ pub(crate) const fn key_low(key: Key, kb: u8) -> u64 {
     }
 }
 
-/// A stack-resident buffer for one immediate edge's payload.
-///
-/// Immediates hold at most [`IMMED_PAYLOAD_BYTES`] single-byte keys (15),
-/// plus room for one more while an insert decides whether the form still
-/// fits — so 16 slots cover every case and nothing needs the heap. This
-/// used to be a `Vec`, i.e. a malloc/free on **every** insert into an
-/// immediate: the most common terminal form for sparse and random keys,
-/// and the widest part of the insert gap vs stock (issue #1 item 2).
-#[derive(Debug)]
-pub(crate) struct ImmedBuf<T: Copy + Default> {
-    buf: [T; IMMED_BUF_CAP],
-    len: usize,
-}
-
-/// Slot capacity of [`ImmedBuf`]: the 15-key immediate maximum plus one
-/// transient slot for a key being inserted.
-const IMMED_BUF_CAP: usize = crate::types::IMMED_PAYLOAD_BYTES + 1;
-
-impl<T: Copy + Default> ImmedBuf<T> {
-    pub(crate) fn new() -> Self {
-        Self {
-            buf: [T::default(); IMMED_BUF_CAP],
-            len: 0,
-        }
-    }
-
-    pub(crate) fn push(&mut self, v: T) {
-        debug_assert!(self.len < IMMED_BUF_CAP, "immediate buffer overflow");
-        self.buf[self.len] = v;
-        self.len += 1;
-    }
-
-    pub(crate) fn insert(&mut self, at: usize, v: T) {
-        debug_assert!(at <= self.len && self.len < IMMED_BUF_CAP);
-        self.buf.copy_within(at..self.len, at + 1);
-        self.buf[at] = v;
-        self.len += 1;
-    }
-
-    pub(crate) fn remove(&mut self, at: usize) -> T {
-        debug_assert!(at < self.len);
-        let v = self.buf[at];
-        self.buf.copy_within(at + 1..self.len, at);
-        self.len -= 1;
-        v
-    }
-
-    pub(crate) fn as_slice(&self) -> &[T] {
-        &self.buf[..self.len]
-    }
-}
-
-/// Read access to the populated prefix: indexing, `binary_search`,
-/// `windows`, iteration and the rest of the slice API come from here,
-/// and `&ImmedBuf<T>` coerces to `&[T]` at call sites that want one.
-impl<T: Copy + Default> core::ops::Deref for ImmedBuf<T> {
-    type Target = [T];
-
-    fn deref(&self) -> &[T] {
-        &self.buf[..self.len]
-    }
-}
-
 /// Collects the sorted keys of a set-flavor immediate edge.
-pub(crate) fn immed_keys(edge: &Edge, im: ImmedType) -> ImmedBuf<u64> {
+pub(crate) fn immed_keys(edge: &Edge, im: ImmedType) -> Vec<u64> {
     let payload = edge.imm_payload();
     let kb = im.key_bytes() as usize;
-    let mut out = ImmedBuf::new();
-    for slot in 0..im.key_count() as usize {
-        let mut buf = [0u8; 8];
-        buf[..kb].copy_from_slice(&payload[slot * kb..(slot + 1) * kb]);
-        out.push(u64::from_le_bytes(buf));
-    }
-    out
+    (0..im.key_count() as usize)
+        .map(|slot| {
+            let mut buf = [0u8; 8];
+            buf[..kb].copy_from_slice(&payload[slot * kb..(slot + 1) * kb]);
+            u64::from_le_bytes(buf)
+        })
+        .collect()
 }
 
 /// Rebuilds a set-flavor immediate edge from sorted keys.
@@ -212,16 +110,16 @@ pub(crate) const fn map_immed_max(kb: u8) -> usize {
 }
 
 /// Collects the sorted keys of a map-flavor immediate edge (aux bytes).
-pub(crate) fn immed_map_keys(edge: &Edge, im: ImmedType) -> ImmedBuf<u64> {
+pub(crate) fn immed_map_keys(edge: &Edge, im: ImmedType) -> Vec<u64> {
     let aux = edge.aux_bytes();
     let kb = im.key_bytes() as usize;
-    let mut out = ImmedBuf::new();
-    for slot in 0..im.key_count() as usize {
-        let mut buf = [0u8; 8];
-        buf[..kb].copy_from_slice(&aux[slot * kb..(slot + 1) * kb]);
-        out.push(u64::from_le_bytes(buf));
-    }
-    out
+    (0..im.key_count() as usize)
+        .map(|slot| {
+            let mut buf = [0u8; 8];
+            buf[..kb].copy_from_slice(&aux[slot * kb..(slot + 1) * kb]);
+            u64::from_le_bytes(buf)
+        })
+        .collect()
 }
 
 /// Collects the sorted keys of a linear leaf.
@@ -398,41 +296,6 @@ pub(crate) fn linear_insert_slot(
     pos
 }
 
-/// Runtime entry point: resolves the OCC flag **once per operation** and
-/// dispatches into the monomorphized engine. Public callers use this;
-/// the engine itself recurses with `OCC` already fixed, so the fences
-/// and their checks vanish entirely on single-threaded trees.
-///
-/// # Safety
-///
-/// Same contract as [`insert`].
-pub(crate) unsafe fn insert_dyn(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8) -> bool {
-    // SAFETY: forwarded caller contract.
-    unsafe {
-        if a.occ_enabled() {
-            insert::<true>(a, edge, key, level)
-        } else {
-            insert::<false>(a, edge, key, level)
-        }
-    }
-}
-
-/// Runtime entry point for removal; see [`insert_dyn`].
-///
-/// # Safety
-///
-/// Same contract as [`remove`].
-pub(crate) unsafe fn remove_dyn(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8) -> bool {
-    // SAFETY: forwarded caller contract.
-    unsafe {
-        if a.occ_enabled() {
-            remove::<true>(a, edge, key, level)
-        } else {
-            remove::<false>(a, edge, key, level)
-        }
-    }
-}
-
 /// Inserts `key` into the subtree at `edge` (covering `level` undecoded
 /// bytes); returns `true` if the key was newly inserted.
 ///
@@ -440,12 +303,7 @@ pub(crate) unsafe fn remove_dyn(a: &NodeAlloc, edge: &mut Edge, key: Key, level:
 ///
 /// The subtree must be well-formed (mutation-engine invariants: no narrow
 /// pointers, children one level below parents) and owned by `a`.
-pub(crate) unsafe fn insert<const OCC: bool>(
-    a: &NodeAlloc,
-    edge: &mut Edge,
-    key: Key,
-    level: u8,
-) -> bool {
+pub(crate) unsafe fn insert(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8) -> bool {
     debug_assert!((1..=8).contains(&level));
     let tag = edge.tag().expect("valid edge tag");
     match tag {
@@ -455,7 +313,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 let node = a.alloc_node(BranchL3::new(level));
                 *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
                 // SAFETY: forwarded caller contract; edge is now a branch.
-                return unsafe { insert::<OCC>(a, edge, key, level) };
+                return unsafe { insert(a, edge, key, level) };
             }
             write_immed(edge, level, &[key_low(key, level)]);
             true
@@ -496,7 +354,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 // only along the divergence path).
                 split_skip(a, edge, key, level, pop as u64);
                 // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { insert::<OCC>(a, edge, key, level) };
+                return unsafe { insert(a, edge, key, level) };
             }
             let k = key_low(key, kb);
             // Phase 7 coverage invariant (see alloc::assert_bracketed):
@@ -576,7 +434,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     }
                     for &k in &keys {
                         // SAFETY: freshly built branch subtree owned by `a`.
-                        let ins = unsafe { insert::<OCC>(a, edge, k, level) };
+                        let ins = unsafe { insert(a, edge, k, level) };
                         debug_assert!(ins);
                     }
                     // pop0 encodes pop-1 and cannot express the transient
@@ -602,7 +460,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 let pop = edge.pop0(1) + 1;
                 split_skip(a, edge, key, level, pop);
                 // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { insert::<OCC>(a, edge, key, level) };
+                return unsafe { insert(a, edge, key, level) };
             }
             // Phase 7: see mutate_map — the parent branch's bracket
             // covers this leaf's payload for concurrent readers.
@@ -640,7 +498,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 let pop = edge.pop0(bl) + 1;
                 split_skip(a, edge, key, level, pop);
                 // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { insert::<OCC>(a, edge, key, level) };
+                return unsafe { insert(a, edge, key, level) };
             }
             let d = digit(key, bl);
             let is_l3 = matches!(t, EdgeType::BranchL3);
@@ -662,15 +520,15 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 let inserted = unsafe {
                     if is_l3 {
                         let b = &mut *edge.node_ptr().cast::<BranchL3>();
-                        crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                        let r = insert::<OCC>(a, &mut b.edges[slot], key, bl - 1);
-                        crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
+                        crate::occ::version_begin_if(a, &mut b.hdr.version);
+                        let r = insert(a, &mut b.edges[slot], key, bl - 1);
+                        crate::occ::version_end_if(a, &mut b.hdr.version);
                         r
                     } else {
                         let b = &mut *edge.node_ptr().cast::<BranchL7>();
-                        crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                        let r = insert::<OCC>(a, &mut b.edges[slot], key, bl - 1);
-                        crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
+                        crate::occ::version_begin_if(a, &mut b.hdr.version);
+                        let r = insert(a, &mut b.edges[slot], key, bl - 1);
+                        crate::occ::version_end_if(a, &mut b.hdr.version);
                         r
                     }
                 };
@@ -688,26 +546,26 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     } else {
                         upgrade_l7_to_b(a, edge);
                     }
-                    return insert::<OCC>(a, edge, key, level);
+                    return insert(a, edge, key, level);
                 }
             }
             // SAFETY: live branch; slot arithmetic bounded by capacity.
             let inserted = unsafe {
                 if is_l3 {
                     let b = &mut *edge.node_ptr().cast::<BranchL3>();
-                    crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
+                    crate::occ::version_begin_if(a, &mut b.hdr.version);
                     let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                     b.hdr.num += 1;
-                    let r = insert::<OCC>(a, &mut b.edges[slot], key, bl - 1);
-                    crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
+                    let r = insert(a, &mut b.edges[slot], key, bl - 1);
+                    crate::occ::version_end_if(a, &mut b.hdr.version);
                     r
                 } else {
                     let b = &mut *edge.node_ptr().cast::<BranchL7>();
-                    crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
+                    crate::occ::version_begin_if(a, &mut b.hdr.version);
                     let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                     b.hdr.num += 1;
-                    let r = insert::<OCC>(a, &mut b.edges[slot], key, bl - 1);
-                    crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
+                    let r = insert(a, &mut b.edges[slot], key, bl - 1);
+                    crate::occ::version_end_if(a, &mut b.hdr.version);
                     r
                 }
             };
@@ -724,7 +582,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 let pop = edge.pop0(bl) + 1;
                 split_skip(a, edge, key, level, pop);
                 // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { insert::<OCC>(a, edge, key, level) };
+                return unsafe { insert(a, edge, key, level) };
             }
             let slot_level = level;
             let d = digit(key, bl);
@@ -735,10 +593,10 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 let sub = b.subarrays[(d >> 5) as usize];
                 // SAFETY: bitmap/subarray consistency invariant. The
                 // node's version brackets the descent (see the L3 arm).
-                crate::occ::version_begin_if::<OCC>(a, &mut b.version);
+                crate::occ::version_begin_if(a, &mut b.version);
                 // SAFETY: bitmap/subarray consistency invariant.
-                let inserted = unsafe { insert::<OCC>(a, &mut *sub.add(slot), key, bl - 1) };
-                crate::occ::version_end_if::<OCC>(a, &mut b.version);
+                let inserted = unsafe { insert(a, &mut *sub.add(slot), key, bl - 1) };
+                crate::occ::version_end_if(a, &mut b.version);
                 if inserted {
                     bump_pop0(edge, bl, 1);
                 }
@@ -751,13 +609,13 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     let pop = edge.pop0(bl) + 1;
                     wrap_skip_level(a, edge, bl + 1, slot_level, pop);
                     // SAFETY: forwarded contract; edge is now a branch.
-                    return unsafe { insert::<OCC>(a, edge, key, slot_level) };
+                    return unsafe { insert(a, edge, key, slot_level) };
                 }
                 // SAFETY: upgrade rebuilds the node; subtree stays owned
                 // (the guard above ensures it sits at its slot level).
                 unsafe {
                     upgrade_b_to_u(a, edge);
-                    return insert::<OCC>(a, edge, key, slot_level);
+                    return insert(a, edge, key, slot_level);
                 }
             }
             // Grow this subexpanse's packed array by one slot at the rank
@@ -766,7 +624,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
             let sub = (d >> 5) as usize;
             let old_n = b.pop_counts[sub] as usize;
             let rank = b.bitmap.subexpanse_rank(d) as usize;
-            crate::occ::version_begin_if::<OCC>(a, &mut b.version);
+            crate::occ::version_begin_if(a, &mut b.version);
             if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
                 // Fast path: spare class capacity — shift in place.
                 // SAFETY: the subarray holds cap_class(old_n) slots.
@@ -799,9 +657,8 @@ pub(crate) unsafe fn insert<const OCC: bool>(
             b.pop_counts[sub] = (old_n + 1) as u16;
             b.bitmap.set(d);
             // SAFETY: fresh null child slot within the subarray.
-            let inserted =
-                unsafe { insert::<OCC>(a, &mut *b.subarrays[sub].add(rank), key, bl - 1) };
-            crate::occ::version_end_if::<OCC>(a, &mut b.version);
+            let inserted = unsafe { insert(a, &mut *b.subarrays[sub].add(rank), key, bl - 1) };
+            crate::occ::version_end_if(a, &mut b.version);
             debug_assert!(inserted);
             bump_pop0(edge, bl, 1);
             true
@@ -813,10 +670,10 @@ pub(crate) unsafe fn insert<const OCC: bool>(
             // SAFETY: live BranchU per contract (never skipping).
             let b = unsafe { &mut *edge.node_ptr().cast::<BranchU>() };
             // SAFETY: child subtree well-formed (or null) per contract.
-            crate::occ::version_begin_if::<OCC>(a, &mut b.version);
+            crate::occ::version_begin_if(a, &mut b.version);
             // SAFETY: child subtree well-formed (or null) per contract.
-            let inserted = unsafe { insert::<OCC>(a, &mut b.edges[d as usize], key, level - 1) };
-            crate::occ::version_end_if::<OCC>(a, &mut b.version);
+            let inserted = unsafe { insert(a, &mut b.edges[d as usize], key, level - 1) };
+            crate::occ::version_end_if(a, &mut b.version);
             if inserted {
                 bump_pop0(edge, level, 1);
             }
@@ -925,12 +782,7 @@ pub(crate) unsafe fn upgrade_b_to_u(a: &NodeAlloc, edge: &mut Edge) {
 /// # Safety
 ///
 /// Same contract as [`insert`].
-pub(crate) unsafe fn remove<const OCC: bool>(
-    a: &NodeAlloc,
-    edge: &mut Edge,
-    key: Key,
-    level: u8,
-) -> bool {
+pub(crate) unsafe fn remove(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8) -> bool {
     debug_assert!((1..=8).contains(&level));
     let tag = edge.tag().expect("valid edge tag");
     match tag {
@@ -1093,7 +945,7 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                 edge.set_pop0(level, pow256(level) - 1);
             }
             // SAFETY: freshly materialized well-formed subtree.
-            unsafe { remove::<OCC>(a, edge, key, level) }
+            unsafe { remove(a, edge, key, level) }
         }
 
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
@@ -1111,8 +963,8 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                     let Some(slot) = b.hdr.find(d) else {
                         return false;
                     };
-                    crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                    let r = remove::<OCC>(a, &mut b.edges[slot], key, bl - 1);
+                    crate::occ::version_begin_if(a, &mut b.hdr.version);
+                    let r = remove(a, &mut b.edges[slot], key, bl - 1);
                     if r && b.edges[slot].is_null() {
                         linear_remove_slot(
                             &mut b.hdr.digits,
@@ -1122,15 +974,15 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                         );
                         b.hdr.num -= 1;
                     }
-                    crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
+                    crate::occ::version_end_if(a, &mut b.hdr.version);
                     r
                 } else {
                     let b = &mut *edge.node_ptr().cast::<BranchL7>();
                     let Some(slot) = b.hdr.find(d) else {
                         return false;
                     };
-                    crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                    let r = remove::<OCC>(a, &mut b.edges[slot], key, bl - 1);
+                    crate::occ::version_begin_if(a, &mut b.hdr.version);
+                    let r = remove(a, &mut b.edges[slot], key, bl - 1);
                     if r && b.edges[slot].is_null() {
                         linear_remove_slot(
                             &mut b.hdr.digits,
@@ -1140,7 +992,7 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                         );
                         b.hdr.num -= 1;
                     }
-                    crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
+                    crate::occ::version_end_if(a, &mut b.hdr.version);
                     r
                 }
             };
@@ -1186,12 +1038,11 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             let rank = b.bitmap.subexpanse_rank(d) as usize;
             // SAFETY: bitmap/subarray consistency invariant. Bracketed
             // through the subarray shrink below (a reader may be inside).
-            crate::occ::version_begin_if::<OCC>(a, &mut b.version);
+            crate::occ::version_begin_if(a, &mut b.version);
             // SAFETY: bitmap/subarray consistency invariant.
-            let removed =
-                unsafe { remove::<OCC>(a, &mut *b.subarrays[sub].add(rank), key, bl - 1) };
+            let removed = unsafe { remove(a, &mut *b.subarrays[sub].add(rank), key, bl - 1) };
             if !removed {
-                crate::occ::version_end_if::<OCC>(a, &mut b.version);
+                crate::occ::version_end_if(a, &mut b.version);
                 return false;
             }
             // SAFETY: child slot checked/live per invariant.
@@ -1226,7 +1077,7 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                 b.pop_counts[sub] = (old_n - 1) as u16;
                 b.bitmap.clear(d);
             }
-            crate::occ::version_end_if::<OCC>(a, &mut b.version);
+            crate::occ::version_end_if(a, &mut b.version);
             let digits = b.bitmap.count() as usize;
             if digits == 0 {
                 // SAFETY: empty node no longer referenced.
@@ -1252,10 +1103,10 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             // SAFETY: live BranchU per contract.
             let b = unsafe { &mut *edge.node_ptr().cast::<BranchU>() };
             // SAFETY: child subtree well-formed (or null) per contract.
-            crate::occ::version_begin_if::<OCC>(a, &mut b.version);
+            crate::occ::version_begin_if(a, &mut b.version);
             // SAFETY: child subtree well-formed (or null) per contract.
-            let removed = unsafe { remove::<OCC>(a, &mut b.edges[d as usize], key, level - 1) };
-            crate::occ::version_end_if::<OCC>(a, &mut b.version);
+            let removed = unsafe { remove(a, &mut b.edges[d as usize], key, level - 1) };
+            crate::occ::version_end_if(a, &mut b.version);
             if !removed {
                 return false;
             }

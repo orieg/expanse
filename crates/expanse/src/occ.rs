@@ -108,33 +108,26 @@ impl SeqVersion {
 /// live borrows — while readers load the same field atomically; that
 /// mixed access is part of the documented seqlock caveat (`sync` docs).
 ///
-/// Writer: opens a node's mutation bracket when `OCC` — i.e. when the
-/// tree is shared through a Phase 7 wrapper. The flag is a **const
-/// generic threaded down from the operation's entry point**, not a
-/// per-node check: `NodeAlloc::occ_enabled()` is an atomic load through
-/// a `OnceLock`, and calling it twice per branch level cost ~10 atomic
-/// loads per insert on a deep tree (issue #1 item 1). Single-threaded
-/// trees now compile the brackets out entirely.
+/// Writer: opens a node's mutation bracket — only when the tree is
+/// concurrently shared (`NodeAlloc::occ_enabled`); single-threaded trees
+/// skip the volatile stores and fences entirely.
 #[inline]
-pub(crate) fn version_begin_if<const OCC: bool>(a: &crate::alloc::NodeAlloc, v: &mut u32) {
-    if OCC {
-        debug_assert!(a.occ_enabled(), "OCC=true on a non-shared tree");
+pub(crate) fn version_begin_if(a: &crate::alloc::NodeAlloc, v: &mut u32) {
+    if a.occ_enabled() {
         version_begin(v);
     }
     #[cfg(debug_assertions)]
     a.bracket_enter();
-    let _ = a;
 }
 
 /// Writer: closes a node's mutation bracket (see [`version_begin_if`]).
 #[inline]
-pub(crate) fn version_end_if<const OCC: bool>(a: &crate::alloc::NodeAlloc, v: &mut u32) {
-    if OCC {
+pub(crate) fn version_end_if(a: &crate::alloc::NodeAlloc, v: &mut u32) {
+    if a.occ_enabled() {
         version_end(v);
     }
     #[cfg(debug_assertions)]
     a.bracket_leave();
-    let _ = a;
 }
 
 /// Writer: marks a node mutation in progress (even → odd, then a release
