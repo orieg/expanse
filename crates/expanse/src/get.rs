@@ -100,12 +100,19 @@ fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: Key) ->
     let le = key.to_le_bytes();
     let mut needle = [0u8; KB];
     needle.copy_from_slice(&le[..KB]);
-    // `chunks_exact` over a constant width: each comparison is a
-    // fixed-size array compare that inlines, not a call.
-    payload
-        .chunks_exact(KB)
-        .take(n)
-        .position(|candidate| candidate == needle)
+    // Same idiom as `leaf::search_fixed`, and for the same reason. The
+    // `chunks_exact(KB).take(n)` version this replaces yielded `&[u8]`,
+    // so `candidate == needle` was a **slice**-to-array comparison — a
+    // length check plus slice-equality machinery, under two iterator
+    // adapters. Casting to `[u8; KB]` first makes it an array-to-array
+    // compare of statically known width, which lowers to a word compare
+    // with no length test.
+    //
+    // SAFETY: `[u8; KB]` has alignment 1, and the edge's tag guarantees
+    // `n * KB` payload bytes (debug-asserted above) — exactly `n` such
+    // arrays.
+    let packed = unsafe { core::slice::from_raw_parts(payload.as_ptr().cast::<[u8; KB]>(), n) };
+    packed.iter().position(|candidate| *candidate == needle)
 }
 
 /// The shared descent; `MAP` selects map flavor (values) over set flavor.
