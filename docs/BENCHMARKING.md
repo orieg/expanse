@@ -33,6 +33,44 @@ Performance claims are this project's reason to exist, so they follow the strict
    rule below governs how a number is interpreted; this one governs
    whether it measures what its name says.
 
+   **Four** separate violations have now been found and fixed, across
+   both harness files: the build inside the vs-stock lookup arms; the
+   teardown inside every vs-stock arm; **key generation inside the insert
+   arms**; and finally the same teardown bug again in
+   `benches/instructions.rs`, the file that produces the vs-base column on
+   every PR, where the arms take the container by value so `Drop` ran
+   inside the timed window.
+
+   Two lessons, both paid for:
+
+   - **Symmetric contamination is not harmless contamination.** Key
+     generation was charged to both libraries equally, which is exactly
+     why it survived review — and it still corrupts the comparison, by
+     pulling every ratio toward 1.00.
+   - **Every one of the four was found by an instrument, never by a
+     reviewer** — despite this rule explicitly asking a reviewer to check
+     the measured region. The rule is necessary and has not once been
+     sufficient. Treat "a reviewer checked it" as the weakest evidence
+     available and get per-function output instead; `free_subtree`
+     appearing inside a benchmark named `map_get` is unmissable, while the
+     same fact stated in prose was missed four times.
+
+   The same discipline applies to a number's **provenance**: B0 below was
+   labelled with a commit it was not measured at, because the branch had
+   been cut from other in-flight work. A mislabelled commit misleads
+   exactly as much as a mismeasured region.
+
+0b. **Both arms must be the same shape.** A comparison is only valid
+   between binaries built and reached the same way. Ours was an LTO'd
+   rlib called directly while stock was a PIC shared object reached
+   through `dlopen`, which handed us cross-object inlining and direct
+   calls that stock structurally cannot have — a bias in our favour that
+   sat unexamined behind a code comment claiming the opposite. Every
+   vs-stock arm now has an `*_expanse_dl` twin that loads our own
+   `libexpanse.so` exactly as stock is loaded; the PR comment reports the
+   `.so` ratio as the headline and the rlib−`.so` difference as an
+   explicit correction factor.
+
 1. **Interleaved A/B arms.** Any A-vs-B comparison (regression check, libjudy comparison, before/after a change) alternates arms per benchmark group over several rounds — never suite-A-then-suite-B. Runner/thermal drift then hits both arms and cancels in the paired ratio. (Learned the hard way in php-judy — back-to-back suites reported false regressions; see php-judy issue #87 and its `bench-compare` harness.)
 2. **System-load hygiene.** Before the first run and between comparison runs, snapshot load (`ps -A -o %cpu,%mem,command | sort -rn | head`; load average vs core count). A non-target process above ~100% CPU, or a load-average shift > 2 between arms, contaminates the run: discard it, don't reinterpret it. Laptops running concurrent sessions are shared infrastructure.
 3. **CI benches detect changes, not truths.** CI runners produce paired ratios good for regression alarms. Publishable absolute numbers (README/claims) come from a dedicated quiet host with the hardware named.
@@ -91,11 +129,19 @@ Interpretation rules, so the comment is not over-read:
   how long the machine takes to do it, and the gap between those two is
   cache behaviour — which is exactly what the allocator-locality work
   (issue #1 item 4) is about.
-- **The stock arm is called through a function pointer** (`dlsym`),
-  because stock exports the same symbols libexpanse does and loading it
-  privately is what keeps them from colliding. That costs stock an
-  indirect call per operation: a bias of a couple of instructions
-  against stock, never in our favour.
+- **The two vs-stock arms are not built alike, and the asymmetry
+  favours us.** Stock is reached through `dlsym` — it exports the same
+  symbols libexpanse does, and loading it privately is what keeps them
+  from colliding — so it pays an indirect call per operation. Larger
+  than that: stock is a PIC shared object with no cross-object inlining,
+  while our arm is an LTO'd rlib linked straight into the harness, and
+  stock's `dlopen` still sits inside the measured region. Every one of
+  those points the same way. **Treat every vs-stock ratio as a floor on
+  the gap, not an estimate of it**, until the same-shape comparison
+  (our own `libexpanse.so`, `dlopen`'d identically) lands — checkpoint
+  B2. An earlier version of this bullet claimed the indirection biased
+  *against* stock; that was wrong, and it was printed on every PR
+  comment.
 
 ## Measured results
 
@@ -168,6 +214,182 @@ Method note: attribution is done inside a single process, so co-resident load sh
 | 8 | 39.8 M | 3.9× | 21.3 M | 12.5 M† |
 
 Before: with one tree-level seqlock, a full-speed writer (~2.5 M op/s) collapsed optimistic reads — the version changed faster than a walk completed, so nearly every validation failed into the mutex fallback (the 3.4 K/s cell). After the **per-node refinement** (writers bracket each node's in-place mutations with that node's version; readers validate hand-over-hand): single-reader churn throughput rose **~700×** to 2.4 M/s and writer throughput rose to ~3.3 M op/s (fewer mutex handoffs). The remaining churn-vs-idle gap is the walk-start gate (the tree version still brackets whole ops for the root snapshot); † higher reader counts under a saturating writer shift toward retry pressure along the written path — the next refinement target if a real workload needs it. Single-threaded trees skip the version brackets entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
+
+### Checkpoint B0 — first vs-stock baseline on the corrected harness (measured: GitHub `ubuntu-latest` runner, callgrind via the `instruction-counts` job, **the issue #1 items-1-3 branch, not `af21e02`**; deterministic)
+
+The first vs-stock instruction baseline taken after the harness stopped
+measuring its own setup. Both the tree build **and** the teardown were inside
+the timed region of every arm before `af21e02`; the lookup arms were therefore
+reporting insert work. **The earlier 2.09× / 2.11× lookup ratios are retracted.**
+
+⚠️ **Provenance correction.** This table was originally labelled `af21e02`. It
+was not measured there — the numbers come from the branch carrying issue #1
+items 1-3, so they are `main` *plus* that engine work. B2 below has the true
+`main` baseline alongside it. Kept here as the rlib-only measurement it is, and
+as a record that a mislabelled commit is exactly as misleading as a
+mismeasured region.
+
+Ratio = ours ÷ stock, instructions retired through the identical C ABI on
+identical key streams. 30k keys except `random_big`, which is 1.5M.
+
+| operation | ours | stock | ratio | est. cycles ratio |
+|---|---:|---:|---:|---:|
+| `judy1_set/clustered` | 12,561,871 | 10,910,533 | **1.15×** | 1.20× |
+| `judy1_set/random` | 32,633,176 | 16,350,887 | 2.00× | 2.02× |
+| `judy1_test/random` | 7,160,539 | 3,970,257 | 1.80× | 1.69× |
+| `judyl_get/clustered` | 6,730,957 | 4,238,479 | 1.59× | 1.52× |
+| `judyl_get/random` | 7,576,697 | 5,095,457 | 1.49× | 1.45× |
+| `judyl_get/random_big` (1.5M) | 441,381,294 | 403,155,522 | **1.09×** | **1.04×** |
+| `judyl_get/sequential` | 9,300,109 | 5,072,393 | 1.83× | 1.68× |
+| `judyl_insert/clustered` | 20,710,296 | 12,532,068 | 1.65× | 1.69× |
+| `judyl_insert/random` | 40,152,643 | 18,377,126 | 2.18× | 2.20× |
+| `judyl_insert/sequential` | 23,217,209 | 13,089,262 | 1.77× | 1.77× |
+
+**The gap is population-dependent, and that is the most useful thing in this
+table.** The same random-key lookup is 1.49× at 30k keys and 1.09× at 1.5M —
+and its estimated-cycles ratio (1.04×) is *below* its instruction ratio, the
+only arm where that happens, which is what a denser structure taking
+proportionally fewer misses looks like. Every prior "the gap is instructions,
+not memory" statement was made from small-population arms only.
+
+Read it as a hypothesis, not a result. It is one arm at one population; the
+estimated-cycles figure is callgrind's `Ir + 10·L1m + 100·LLm` model, which
+assumes zero mispredicts and zero dependent-load latency; and confirming that
+the narrowing is real needs wall-clock at 1.5M with bootstrap CIs (checkpoint
+B5). What it does establish is that the small-population arms are not
+representative of the whole curve, so no single ratio should be quoted as
+"the gap" without its population.
+
+**Every ratio above is optimistic**, and the correction has not been applied
+yet. Our arm is an LTO'd rlib reached by direct calls; stock is a PIC shared
+object reached through `dlopen`/`dlsym`, and its `dlopen` is still inside the
+measured region. Both biases favour us. The honest drop-in number needs our
+own `libexpanse.so` measured the same way stock is (checkpoint B2), and until
+that lands these are a floor on the gap, not an estimate of it.
+
+Operational note: `instruction-counts` runs in **~2 minutes against its
+45-minute timeout**, including the 1.5M arms. The timeout risk that argued for
+moving the big arms to nightly does not exist — they stay in the required
+check. `miri` is the only expensive job at ~25 minutes, and it is now
+conditional on the diff touching Rust sources.
+
+### Checkpoint B2 — the same-shape comparison, and the shared-library correction factor (measured: GitHub `ubuntu-latest` runner, callgrind via `instruction-counts`, commit with this section; deterministic)
+
+B0 above measured our rlib against stock's shared object, on a branch that
+also carried issue #1 items 1-3. This measures our own `libexpanse.so`,
+`dlopen`'d and called through resolved symbols exactly as stock is — the shape
+a drop-in consumer actually gets — at **two code states**, so the drop-in cost
+and the engine work are separable. **Quote the `.so` columns.**
+
+| operation | `.so` on `main` | `.so` with items 1-3 | rlib on `main` |
+|---|---:|---:|---:|
+| `judy1_set/clustered` | 1.35× | **1.25×** | 1.26× |
+| `judyl_get/random_big` (1.5M) | 1.29× | **1.15×** | 1.23× |
+| `judyl_get/random` | 1.66× | 1.58× | 1.57× |
+| `judyl_get/clustered` | 1.71× | 1.71× | 1.59× |
+| `judyl_insert/clustered` | 1.89× | 1.78× | 1.78× |
+| `judyl_get/sequential` | 1.94× | 1.94× | 1.83× |
+| `judy1_test/random` | 1.95× | 1.88× | 1.87× |
+| `judyl_insert/sequential` | 1.97× | 1.71× | 2.03× |
+| `judy1_set/random` | 2.18× | 1.93× | 2.26× |
+| `judyl_insert/random` | 2.40× | 2.16× | 2.44× |
+
+**Correction factor: 1.05× median, range 0.96–1.07× on `main`** (1.06×,
+0.95–1.08× with items 1-3). It barely moves between two different code states,
+which is what a ratio between two builds of the *same* code should do — the
+one number here that is robust rather than provisional.
+
+**The prediction behind it was wrong in an instructive way.** The expectation
+on record was that being a shared object would cost us uniformly, so every
+ratio would widen. It does not. The cost is real but **confined to the lookup
+arms** (1.05–1.07×), where a PLT-mediated entry is a meaningful fraction of a
+short operation; on the insert arms the `.so` is *cheaper* than the LTO'd rlib
+(0.96–0.98×). Both builds get `lto = "thin"` and `codegen-units = 1`; what the
+rlib arm additionally gets is cross-crate inlining with the harness, and on a
+long insert that apparently costs more instructions than it saves. So
+"cross-object inlining is an advantage stock cannot have" was the right shape
+of argument and the wrong magnitude — worth ~5–7% on lookups, nothing on
+inserts.
+
+**Two lookup arms are byte-identical across the two code states** —
+`judyl_get/clustered` at 7,227,854 and `judyl_get/sequential` at 9,840,110,
+unchanged to the instruction while every other arm moved. That is an
+independent confirmation of the terminal-form census below, which predicted
+that items 1-3 cannot reach those arms: they build only bitmap leaves, so
+neither the immediate scan nor the linear-leaf population read is on their
+path. A prediction made from structure, confirmed by an instrument that did
+not know about it.
+
+Both arms bind their symbols in `setup`, so neither measures its own dynamic
+linking, and key generation has moved out of the insert arms' measured region —
+see rule 0 for why that mattered even though it was symmetric.
+
+### First per-function attribution (measured: GitHub `ubuntu-latest` runner, `callgrind_annotate` over the `instruction-counts` job, commit with this section; deterministic)
+
+Until now the job kept per-benchmark totals only, so a delta could be observed
+but not attributed. The first run with per-function output found three things
+in one pass, two of which are the largest actionable items on record.
+
+**1. `EdgeTag::from_u8` is not inlined, and it is 8-19% of every lookup.**
+
+| arm | `from_u8` | share |
+|---|---:|---:|
+| `set_contains/random` | 2,948,168 | **19.4%** |
+| `map_get/random` | 2,413,688 | 14.2% |
+| `map_get/sequential` | 1,602,072 | 9.6% |
+| `map_get/clustered` | 1,008,776 | 8.1% |
+
+It appears as its own symbol — a real call — at ~8 instructions each, once per
+level descended. The call count cross-checks exactly against the terminal-form
+census below: sequential lookups touch 4 edges (`BranchL3`@8, `BranchL3`@7,
+`BranchU`@2, `LeafB1`@1) and the profile shows 200,259 calls over 50,000
+probes, i.e. 4.005 per lookup. Earlier macOS sampling put this at ~1.7% and it
+was treated as a minor item; that was a sampling profile of a different
+distribution. Inlining it is now a measured opportunity, not a hypothesis.
+
+**2. ~16% of `map_insert/random` is inside the allocator** — `_int_malloc`
+7,685,357 (11.2%) plus `_mid_memalign` 3,226,000 (4.7%). The `memalign` path
+is what 64-byte alignment costs: it takes glibc off its fast `malloc` route.
+This is the measured case for alignment classes.
+
+**3. Rule 0, violated a fourth time — in the other harness file.**
+`free_subtree` appeared *inside the lookup benchmarks*: 1,654,204 (9.7%) of
+`map_get/random`, 1,264,288 (8.3%) of `set_contains/random`. The arms take the
+container by value, so `Drop` ran inside the measured region. `vs_stock.rs` had
+been fixed; `instructions.rs` — the file that produces the vs-base column on
+every PR — had not. Fixed by leaking, matching `vs_stock.rs`, along with
+`keys()` moving into `setup` for the insert arms.
+
+The pattern is worth naming: **every one of the four violations was found by an
+instrument, never by reading the harness.** Rule 0 asks a reviewer to check the
+measured region, and four times a reviewer did not catch it.
+
+### What the bench matrix structurally covers (measured: terminal-form census over the tree each benchmark builds, 50k keys, map flavor; commit with this section; machine-independent)
+
+A benchmark named after a distribution does not tell you which *forms* it
+exercises, and the answer turned out to be narrower than assumed:
+
+| distribution | terminal forms |
+|---|---|
+| `sequential` | 196 × `LeafB1` at level 1 — no linear leaves, no immediates |
+| `clustered` | 196 × `LeafB1` at levels 6-7, behind narrow pointers |
+| `random` | 23,290 immediates (6-byte) + 11,675 × `Leaf6` at level 6 |
+
+Two consequences, both load-bearing:
+
+- **No benchmark exercises a linear leaf on a dense distribution.** Linear-leaf
+  search is reachable only through `random`, and only at width 6. Any claim
+  about leaf-width monomorphization or leaf search is currently measured on one
+  arm at one width — the `dense_leaf` arm is a known coverage hole, not a
+  precaution.
+- **Immediates are ~2/3 of random-key terminals** (23,290 of 34,965),
+  confirming the assumption behind prioritizing `immed_find`.
+
+This census is also what attributed a +1.50% regression that per-benchmark
+totals could not: the two arms that regressed reach *none* of the code paths
+the change touched, which rules out the obvious explanations rather than
+ranking them. Worth re-running whenever a distribution or population changes —
+promoting it out of a throwaway probe is tracked in issue #1.
 
 ### libexpanse vs stock libjudy, JudyL surface (measured: GitHub `ubuntu-latest` runner, 2 cores, load 0.42 at start — the standing reference environment; commit with this section; interleaved A/B medians of 5 rounds; harness: `crates/expanse-capi/examples/bench_vs_libjudy.rs`, nightly `bench-report` job)
 

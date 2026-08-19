@@ -101,46 +101,56 @@ fn built_set(dist: &str) -> (ExpanseSet, Vec<u64>) {
 }
 
 // ---- Insert: the larger gap vs stock (issue #1) ----------------------
+//
+// `keys()` runs in `setup`, not in the body: 50k xorshift steps plus a
+// `Vec` growth were being counted as insert work. And the built structure
+// is leaked rather than dropped, because a full teardown at the end of
+// the body is a different code path measured under the insert label —
+// per-function profiles showed `free_subtree` inside the lookup arms,
+// which is how this was found. Each benchmark is its own process.
 
 #[library_benchmark]
-#[bench::sequential("sequential")]
-#[bench::random("random")]
-#[bench::clustered("clustered")]
-#[bench::small("small")]
-fn map_insert(dist: &str) -> u64 {
-    let ks = keys(dist);
+#[bench::sequential(args = ("sequential",), setup = keys)]
+#[bench::random(args = ("random",), setup = keys)]
+#[bench::clustered(args = ("clustered",), setup = keys)]
+#[bench::small(args = ("small",), setup = keys)]
+fn map_insert(ks: Vec<u64>) -> u64 {
     let mut map = ExpanseMap::new();
     for &k in &ks {
         map.insert(black_box(k), black_box(!k));
     }
-    black_box(map.len())
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
 }
 
 #[library_benchmark]
-#[bench::sequential("sequential")]
-#[bench::random("random")]
-#[bench::clustered("clustered")]
-fn set_insert(dist: &str) -> u64 {
-    let ks = keys(dist);
+#[bench::sequential(args = ("sequential",), setup = keys)]
+#[bench::random(args = ("random",), setup = keys)]
+#[bench::clustered(args = ("clustered",), setup = keys)]
+fn set_insert(ks: Vec<u64>) -> u64 {
     let mut set = ExpanseSet::new();
     for &k in &ks {
         set.insert(black_box(k));
     }
-    black_box(set.len())
+    let n = set.len();
+    core::mem::forget(set);
+    black_box(n)
 }
 
 // The fused single-walk `JudyLIns` path the compat layer uses.
 #[library_benchmark]
-#[bench::random("random")]
-fn map_ins_slot(dist: &str) -> u64 {
-    let ks = keys(dist);
+#[bench::random(args = ("random",), setup = keys)]
+fn map_ins_slot(ks: Vec<u64>) -> u64 {
     let mut map = ExpanseMap::new();
     for &k in &ks {
         let slot = map.ins_slot(black_box(k));
         // SAFETY: valid until the next mutation; written immediately.
         unsafe { slot.as_ptr().write(!k) };
     }
-    black_box(map.len())
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
 }
 
 // ---- Lookup ----------------------------------------------------------
@@ -158,6 +168,10 @@ fn map_get(built: (ExpanseMap, Vec<u64>)) -> u64 {
     for &k in &probes {
         sink ^= map.get(black_box(k)).unwrap_or(0);
     }
+    // Leaked: taking the map by value dropped it here, so every "lookup"
+    // count included a full `free_subtree` walk. On the random arm that
+    // was ~10% of the reported number.
+    core::mem::forget(map);
     black_box(sink)
 }
 
@@ -169,6 +183,8 @@ fn set_contains(built: (ExpanseSet, Vec<u64>)) -> u64 {
     for &k in &probes {
         hits += u64::from(set.contains(black_box(k)));
     }
+    // Leaked — see `map_get`. Teardown was ~8% of this arm.
+    core::mem::forget(set);
     black_box(hits)
 }
 
@@ -193,6 +209,8 @@ fn map_iterate(built: (ExpanseMap, Vec<u64>)) -> u64 {
     for (k, v) in map.iter() {
         sink ^= k ^ v;
     }
+    // Leaked — see `map_get`.
+    core::mem::forget(map);
     black_box(sink)
 }
 
