@@ -88,17 +88,55 @@ pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, nee
 /// `keys` must be valid for reads of `KB * pop` bytes.
 #[inline]
 unsafe fn lower_bound_fixed<const KB: usize>(keys: *const u8, pop: usize, needle: u64) -> usize {
-    let (mut lo, mut hi) = (0usize, pop);
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        // SAFETY: mid < pop per the loop bounds and caller contract.
-        if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {
-            lo = mid + 1;
-        } else {
-            hi = mid;
+    match pop {
+        0 => 0,
+        1 => {
+            // SAFETY: pop == 1 guarantees slot 0 is in-bounds.
+            if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } < needle {
+                1
+            } else {
+                0
+            }
+        }
+        2 => {
+            // SAFETY: pop == 2 guarantees slot 0 is in-bounds.
+            let k0 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) };
+            if needle <= k0 {
+                return 0;
+            }
+            // SAFETY: pop == 2 guarantees slot 1 is in-bounds.
+            let k1 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) };
+            if needle <= k1 { 1 } else { 2 }
+        }
+        3 => {
+            // SAFETY: pop == 3 guarantees slot 0 is in-bounds.
+            let k0 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) };
+            if needle <= k0 {
+                return 0;
+            }
+            // SAFETY: pop == 3 guarantees slot 1 is in-bounds.
+            let k1 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) };
+            if needle <= k1 {
+                return 1;
+            }
+            // SAFETY: pop == 3 guarantees slot 2 is in-bounds.
+            let k2 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 2) };
+            if needle <= k2 { 2 } else { 3 }
+        }
+        _ => {
+            let (mut lo, mut hi) = (0usize, pop);
+            while lo < hi {
+                let mid = (lo + hi) / 2;
+                // SAFETY: mid < pop per the loop bounds and caller contract.
+                if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {
+                    lo = mid + 1;
+                } else {
+                    hi = mid;
+                }
+            }
+            lo
         }
     }
-    lo
 }
 
 /// In-place insert into a set leaf with spare class capacity: shifts keys
@@ -336,13 +374,60 @@ pub(crate) unsafe fn map_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos
 #[inline]
 unsafe fn search_fixed<const KB: usize>(keys: *const u8, pop: usize, key: Key) -> Option<usize> {
     let needle = crate::mutate::key_low(key, KB as u8);
-    // SAFETY: forwarded caller contract.
-    let pos = unsafe { lower_bound_fixed::<KB>(keys, pop, needle) };
-    // SAFETY: pos < pop is within the allocated `pop` keys.
-    if pos < pop && unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pos) } == needle {
-        Some(pos)
-    } else {
-        None
+    match pop {
+        0 => None,
+        1 => {
+            // SAFETY: pop == 1 guarantees slot 0 is in-bounds.
+            if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } == needle {
+                Some(0)
+            } else {
+                None
+            }
+        }
+        2 => {
+            // SAFETY: pop == 2 guarantees slot 0 is in-bounds.
+            let k0 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) };
+            if k0 == needle {
+                return Some(0);
+            }
+            if k0 > needle {
+                return None;
+            }
+            // SAFETY: pop == 2 guarantees slot 1 is in-bounds.
+            let k1 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) };
+            if k1 == needle { Some(1) } else { None }
+        }
+        3 => {
+            // SAFETY: pop == 3 guarantees slot 0 is in-bounds.
+            let k0 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) };
+            if k0 == needle {
+                return Some(0);
+            }
+            if k0 > needle {
+                return None;
+            }
+            // SAFETY: pop == 3 guarantees slot 1 is in-bounds.
+            let k1 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) };
+            if k1 == needle {
+                return Some(1);
+            }
+            if k1 > needle {
+                return None;
+            }
+            // SAFETY: pop == 3 guarantees slot 2 is in-bounds.
+            let k2 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 2) };
+            if k2 == needle { Some(2) } else { None }
+        }
+        _ => {
+            // SAFETY: forwarded caller contract.
+            let pos = unsafe { lower_bound_fixed::<KB>(keys, pop, needle) };
+            // SAFETY: pos < pop is within the allocated `pop` keys.
+            if pos < pop && unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pos) } == needle {
+                Some(pos)
+            } else {
+                None
+            }
+        }
     }
 }
 
