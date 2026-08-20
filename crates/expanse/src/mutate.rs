@@ -44,6 +44,7 @@ pub(crate) const BRANCHB_UP: usize = crate::types::BITMAP_TO_UNCOMPRESSED_THRESH
 /// # Safety
 ///
 /// `keys` must be valid for reads of `(slot + 1) * kb` bytes.
+#[inline(always)]
 pub(crate) unsafe fn read_packed(keys: *const u8, slot: usize, kb: usize) -> u64 {
     // Width-monomorphized like `leaf::search_fixed`: at a runtime width
     // the copy does not inline, and this sits in the innermost insert
