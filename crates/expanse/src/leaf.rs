@@ -88,55 +88,17 @@ pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, nee
 /// `keys` must be valid for reads of `KB * pop` bytes.
 #[inline]
 unsafe fn lower_bound_fixed<const KB: usize>(keys: *const u8, pop: usize, needle: u64) -> usize {
-    match pop {
-        0 => 0,
-        1 => {
-            // SAFETY: pop == 1 guarantees slot 0 is in-bounds.
-            if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } < needle {
-                1
-            } else {
-                0
-            }
-        }
-        2 => {
-            // SAFETY: pop == 2 guarantees slot 0 is in-bounds.
-            let k0 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) };
-            if needle <= k0 {
-                return 0;
-            }
-            // SAFETY: pop == 2 guarantees slot 1 is in-bounds.
-            let k1 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) };
-            if needle <= k1 { 1 } else { 2 }
-        }
-        3 => {
-            // SAFETY: pop == 3 guarantees slot 0 is in-bounds.
-            let k0 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) };
-            if needle <= k0 {
-                return 0;
-            }
-            // SAFETY: pop == 3 guarantees slot 1 is in-bounds.
-            let k1 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) };
-            if needle <= k1 {
-                return 1;
-            }
-            // SAFETY: pop == 3 guarantees slot 2 is in-bounds.
-            let k2 = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 2) };
-            if needle <= k2 { 2 } else { 3 }
-        }
-        _ => {
-            let (mut lo, mut hi) = (0usize, pop);
-            while lo < hi {
-                let mid = (lo + hi) / 2;
-                // SAFETY: mid < pop per the loop bounds and caller contract.
-                if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {
-                    lo = mid + 1;
-                } else {
-                    hi = mid;
-                }
-            }
-            lo
+    let (mut lo, mut hi) = (0usize, pop);
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        // SAFETY: mid < pop per the loop bounds and caller contract.
+        if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {
+            lo = mid + 1;
+        } else {
+            hi = mid;
         }
     }
+    lo
 }
 
 /// In-place insert into a set leaf with spare class capacity: shifts keys
