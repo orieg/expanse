@@ -216,7 +216,9 @@
           <option value="random" selected>Random 64-bit keys</option>
           <option value="sequential">Sequential (k, k+1, k+2...)</option>
           <option value="clustered">Clustered (shared prefix runs)</option>
+          <option value="linear_leaf">Linear leaf (runs of 15 keys, SIMD scan)</option>
           <option value="dense">Dense leaf (0x00..0xFF runs)</option>
+          <option value="small">Small root leaf (pop ≤ 31)</option>
         </select>
       </div>
 
@@ -376,18 +378,29 @@
       mem = "0 B (inlined)";
       cache = "0 lines (L1 register)";
       time = "4.2 ns";
-    } else if (pop <= 32) {
-      if (op === "insert" && (dist === "sequential" || dist === "clustered")) {
+    } else if (pop <= 32 || dist === "linear_leaf" || dist === "small") {
+      if (op === "insert" && (dist === "sequential" || dist === "clustered" || dist === "small")) {
         steps.push({
           badge: "FAST PATH",
           title: "Monotonic Append Detection",
-          desc: "Evaluates `k > last_key` in a single scalar compare. Bypasses binary search entirely on monotonic streams.",
+          desc: "Evaluates `k > last_key` in a single scalar compare. Bypasses binary search entirely on monotonic streams (root leaf & linear leaves).",
           algo: "Monotonic Append O(1) Check + 0-byte shift elision"
         });
-        instr = 8;
+        instr = 6;
         mem = "8.57 B/k";
         cache = "1 line (64B)";
-        time = "16.8 ns";
+        time = "14.2 ns";
+      } else if (dist === "linear_leaf" || (pop >= 13 && pop <= 16)) {
+        steps.push({
+          badge: "SIMD VECTOR SCAN",
+          title: "128-Bit SIMD Linear Leaf Search",
+          desc: "Evaluates 16 keys in parallel using 128-bit vector comparisons with unsigned-to-signed bias translation.",
+          algo: arch === "v3" ? "_mm_cmpeq_epi8 / _mm_cmplt_epi8 + _mm_movemask_epi8 + popcnt (AVX2/SSE2, 4 instrs)" : (arch === "neon" ? "vceqq_u8 / vcltq_u8 + vpaddq_u8 (AArch64 NEON)" : "lower_bound_fixed binary search loop")
+        });
+        instr = arch === "v3" ? 6 : (arch === "neon" ? 7 : 12);
+        mem = "16.7 B/k";
+        cache = "1 line (64B)";
+        time = arch === "v3" ? "15.2 ns" : "18.8 ns";
       } else {
         steps.push({
           badge: "LINEAR LEAF",
