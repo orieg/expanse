@@ -795,13 +795,15 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                         if is_l3 {
                             let b = &mut *edge.node_ptr().cast::<BranchL3>();
                             crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                            let r = insert_with_path::<OCC>(a, &mut b.edges[slot], key, bl - 1, path);
+                            let r =
+                                insert_with_path::<OCC>(a, &mut b.edges[slot], key, bl - 1, path);
                             crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                             r
                         } else {
                             let b = &mut *edge.node_ptr().cast::<BranchL7>();
                             crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                            let r = insert_with_path::<OCC>(a, &mut b.edges[slot], key, bl - 1, path);
+                            let r =
+                                insert_with_path::<OCC>(a, &mut b.edges[slot], key, bl - 1, path);
                             crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                             r
                         }
@@ -870,7 +872,9 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                     // node's version brackets the descent (see the L3 arm).
                     crate::occ::version_begin_if::<OCC>(a, &mut b.version);
                     // SAFETY: bitmap/subarray consistency invariant.
-                    let inserted = unsafe { insert_with_path::<OCC>(a, &mut *sub.add(slot), key, bl - 1, path) };
+                    let inserted = unsafe {
+                        insert_with_path::<OCC>(a, &mut *sub.add(slot), key, bl - 1, path)
+                    };
                     crate::occ::version_end_if::<OCC>(a, &mut b.version);
                     if inserted {
                         bump_pop0(edge, bl, 1);
@@ -935,8 +939,9 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 b.pop_counts[sub] = (old_n + 1) as u16;
                 b.bitmap.set(d);
                 // SAFETY: fresh null child slot within the subarray.
-                let inserted =
-                    unsafe { insert_with_path::<OCC>(a, &mut *b.subarrays[sub].add(rank), key, bl - 1, path) };
+                let inserted = unsafe {
+                    insert_with_path::<OCC>(a, &mut *b.subarrays[sub].add(rank), key, bl - 1, path)
+                };
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 debug_assert!(inserted);
                 bump_pop0(edge, bl, 1);
@@ -951,8 +956,9 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 // SAFETY: child subtree well-formed (or null) per contract.
                 crate::occ::version_begin_if::<OCC>(a, &mut b.version);
                 // SAFETY: child subtree well-formed (or null) per contract.
-                let inserted =
-                    unsafe { insert_with_path::<OCC>(a, &mut b.edges[d as usize], key, level - 1, path) };
+                let inserted = unsafe {
+                    insert_with_path::<OCC>(a, &mut b.edges[d as usize], key, level - 1, path)
+                };
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 if inserted {
                     bump_pop0(edge, level, 1);

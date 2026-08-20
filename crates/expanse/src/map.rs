@@ -219,11 +219,7 @@ impl ExpanseMap {
                 for i in 0..self.path.depth {
                     // SAFETY: path contains valid live edge pointers during active bypass.
                     unsafe {
-                        crate::mutate::bump_pop0(
-                            &mut *self.path.edges[i],
-                            self.path.levels[i],
-                            1,
-                        );
+                        crate::mutate::bump_pop0(&mut *self.path.edges[i], self.path.levels[i], 1);
                     }
                 }
                 *pop += 1;
@@ -398,7 +394,9 @@ impl ExpanseMap {
                         }
                     }
                     let old_n = node.bitmap.subexpanse_count(sub) as usize;
-                    if old_n > 0 && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n) {
+                    if old_n > 0
+                        && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
+                    {
                         // Fast path: spare class capacity — shift in place.
                         // SAFETY: the subarray holds cap_class(old_n) slots.
                         unsafe {
