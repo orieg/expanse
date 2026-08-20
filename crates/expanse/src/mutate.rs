@@ -521,11 +521,6 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
     mut level: u8,
     path: &mut InsertPath,
 ) -> bool {
-    if path.depth < 8 {
-        path.edges[path.depth] = edge as *mut Edge;
-        path.levels[path.depth] = level;
-        path.depth += 1;
-    }
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag().expect("valid edge tag");
@@ -755,6 +750,9 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                     if level == 1 {
                         path.prefix = key >> 8;
                         path.leaf = edge.node_ptr().cast::<LeafBitmap1>();
+                        path.edges[0] = edge as *mut Edge;
+                        path.levels[0] = 1;
+                        path.depth = 1;
                     }
                 }
                 return true;
@@ -810,6 +808,11 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                     };
                     if inserted {
                         bump_pop0(edge, bl, 1);
+                        if !path.leaf.is_null() && path.depth < 8 {
+                            path.edges[path.depth] = edge as *mut Edge;
+                            path.levels[path.depth] = level;
+                            path.depth += 1;
+                        }
                     }
                     return inserted;
                 }
@@ -848,6 +851,11 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 };
                 debug_assert!(inserted);
                 bump_pop0(edge, bl, 1);
+                if !path.leaf.is_null() && path.depth < 8 {
+                    path.edges[path.depth] = edge as *mut Edge;
+                    path.levels[path.depth] = level;
+                    path.depth += 1;
+                }
                 return true;
             }
 
@@ -878,6 +886,11 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                     crate::occ::version_end_if::<OCC>(a, &mut b.version);
                     if inserted {
                         bump_pop0(edge, bl, 1);
+                        if !path.leaf.is_null() && path.depth < 8 {
+                            path.edges[path.depth] = edge as *mut Edge;
+                            path.levels[path.depth] = level;
+                            path.depth += 1;
+                        }
                     }
                     return inserted;
                 }
@@ -945,6 +958,11 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 debug_assert!(inserted);
                 bump_pop0(edge, bl, 1);
+                if !path.leaf.is_null() && path.depth < 8 {
+                    path.edges[path.depth] = edge as *mut Edge;
+                    path.levels[path.depth] = level;
+                    path.depth += 1;
+                }
                 return true;
             }
 
@@ -962,6 +980,11 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 if inserted {
                     bump_pop0(edge, level, 1);
+                    if !path.leaf.is_null() && path.depth < 8 {
+                        path.edges[path.depth] = edge as *mut Edge;
+                        path.levels[path.depth] = level;
+                        path.depth += 1;
+                    }
                 }
                 return inserted;
             }
