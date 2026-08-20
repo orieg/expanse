@@ -14,33 +14,42 @@
 | Compat header | `Judy.h` (source-compatible with classic libjudy) |
 | Distro packages (planned) | `libexpanse-dev`, `libexpanse1`, and `libjudy-compat` (symlinks `libJudy.so.1` → `libexpanse.so.1` and installs the `Judy.h` alias) |
 
-### hwcaps sub-package
+### hwcaps sub-packages (x86-64-v2 and x86-64-v3)
 
-The shipped `.so` targets baseline x86-64, with `popcnt` reached through
-runtime dispatch at the lookup entries (one predicted branch per call;
-see `get.rs`). For glibc distros, a companion build compiled with
-`-C target-cpu=x86-64-v2` installed under `.../glibc-hwcaps/x86-64-v2/`
-lets the dynamic loader pick the fused, dispatch-free binary
-automatically on capable CPUs (glibc ≥ 2.33) — the same idiom glibc
-itself uses. The `cfg(not(target_feature = "popcnt"))` guards compile
-the dispatch and both clones out of that build entirely. musl (Alpine)
-has no hwcaps and no IFUNC: it keeps the runtime-dispatch binary, which
-is why the dispatch exists at all.
+The shipped baseline `.so` targets baseline `x86-64-v1`, with `popcnt` and SIMD reached through
+runtime CPUID dispatch at the lookup entries (one predicted branch per call;
+see `get.rs`).
+
+For glibc Linux distros (glibc ≥ 2.33 / Ubuntu 22.04+, RHEL 9+, Fedora), companion builds compiled with
+`-C target-cpu=x86-64-v2` and `-C target-cpu=x86-64-v3` installed under `.../glibc-hwcaps/`
+let the Linux dynamic loader pick the fused, dispatch-free binary
+automatically on capable CPUs:
+- **`x86-64-v2`** (installed under `.../glibc-hwcaps/x86-64-v2/`): native POPCNT, SSE4.2, SSSE3.
+- **`x86-64-v3`** (installed under `.../glibc-hwcaps/x86-64-v3/`): native 256-bit AVX2, BMI1, BMI2, POPCNT, FMA, LZCNT.
+
+musl (Alpine) has no hwcaps and no IFUNC: it keeps the runtime-dispatch binary, which
+is why the baseline dispatch exists at all.
 
 #### Packaging / Build Recipe
-To build and package both baseline and optimized dynamic libraries:
+To build and package baseline, v2, and v3 dynamic libraries:
 
-1. **Build the baseline binary**:
+1. **Build the baseline binary (`x86-64-v1`)**:
    ```bash
    cargo build --release --package expanse-capi
    ```
-   Install this to the standard system library path (e.g., `/usr/lib/x86_64-linux-gnu/libexpanse.so.1.0.0` with the corresponding symlink `libexpanse.so.1` -> `libexpanse.so.1.0.0`).
+   Install this to the standard system library path (e.g., `/usr/lib/x86_64-linux-gnu/libexpanse.so.1.0.0` with symlink `libexpanse.so.1` -> `libexpanse.so.1.0.0`).
 
-2. **Build the x86-64-v2 hwcaps optimized binary**:
+2. **Build the `x86-64-v2` hwcaps binary**:
    ```bash
    RUSTFLAGS="-C target-cpu=x86-64-v2" cargo build --release --package expanse-capi
    ```
-   Install this to the `glibc-hwcaps` directory (e.g., `/usr/lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v2/libexpanse.so.1.0.0` with the corresponding symlink `libexpanse.so.1` -> `libexpanse.so.1.0.0`).
+   Install to `/usr/lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v2/libexpanse.so.1.0.0` with symlink `libexpanse.so.1`.
+
+3. **Build the `x86-64-v3` modern AVX2/BMI2 binary**:
+   ```bash
+   RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --package expanse-capi
+   ```
+   Install to `/usr/lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v3/libexpanse.so.1.0.0` with symlink `libexpanse.so.1`.
 
 ## Clean-room rules (binding)
 

@@ -74,12 +74,43 @@ def fmt_delta(delta: float) -> str:
     return f"{delta:+.2f}%"
 
 
+def render_v3(
+    v3: dict[str, dict[str, int]],
+    head: dict[str, dict[str, int]],
+) -> list[str]:
+    lines: list[str] = [
+        "### Modern Architecture (`x86-64-v3`: AVX2 / BMI2 / POPCNT) vs Baseline (`x86-64-v1`)",
+        "",
+        "**What this compares:** this branch compiled with `-C target-cpu=x86-64-v3` against the baseline binary. "
+        "Demonstrates the hardware acceleration enabled when running on modern CPUs or via `glibc-hwcaps`.",
+        "",
+        "| | Benchmark | Baseline (v1) | x86-64-v3 | Delta (v3 vs v1) | Est. Cycles Delta |",
+        "|---|---|---:|---:|---:|---:|",
+    ]
+    for name, v3_metrics in v3.items():
+        h = head.get(name)
+        if not h:
+            continue
+        v1_ins = h.get("Instructions", 0)
+        v3_ins = v3_metrics.get("Instructions", 0)
+        v1_cyc = h.get("Estimated Cycles", 0)
+        v3_cyc = v3_metrics.get("Estimated Cycles", 0)
+        d_ins = pct(v3_ins, v1_ins)
+        d_cyc = pct(v3_cyc, v1_cyc)
+        lines.append(
+            f"| {verdict(d_ins)} | `{name}` | {v1_ins:,} | {v3_ins:,} | {fmt_delta(d_ins)} | {fmt_delta(d_cyc)} |"
+        )
+    lines.append("")
+    return lines
+
+
 def render(
     head: dict[str, dict[str, int]],
     base: dict[str, dict[str, int]] | None,
     bytes_table: str | None,
     base_ref: str,
     vs_stock: dict[str, dict[str, int]] | None = None,
+    v3: dict[str, dict[str, int]] | None = None,
 ) -> str:
     lines: list[str] = ["## Performance", ""]
 
@@ -174,6 +205,9 @@ def render(
                 f"| {metrics.get('Estimated Cycles', 0):,} |"
             )
         lines.append("")
+
+    if v3 and head:
+        lines += render_v3(v3, head)
 
     # Full metric detail, collapsed: cache behaviour matters for the
     # allocator-locality work but would swamp the summary table.
@@ -358,6 +392,7 @@ def main() -> int:
     ap.add_argument("--bytes", help="bytes_per_key output")
     ap.add_argument("--base-ref", default="main")
     ap.add_argument("--vs-stock", help="vs_stock bench output")
+    ap.add_argument("--v3", help="bench output for x86-64-v3")
     args = ap.parse_args()
 
     head_text = read(args.head)
@@ -366,6 +401,7 @@ def main() -> int:
         return 0
     base_text = read(args.base)
     stock_text = read(args.vs_stock)
+    v3_text = read(args.v3)
     print(
         render(
             parse(head_text),
@@ -373,6 +409,7 @@ def main() -> int:
             read(args.bytes),
             args.base_ref,
             parse(stock_text) if stock_text else None,
+            parse(v3_text) if v3_text else None,
         ),
         end="",
     )
