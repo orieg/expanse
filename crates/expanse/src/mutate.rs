@@ -448,11 +448,6 @@ pub(crate) fn linear_insert_slot(
     num: usize,
     d: u8,
 ) -> usize {
-    if num > 0 && d > digits[num - 1] {
-        digits[num] = d;
-        edges[num] = Edge::NULL;
-        return num;
-    }
     let pos = digits[..num].iter().position(|&x| x > d).unwrap_or(num);
     for i in (pos..num).rev() {
         digits[i + 1] = digits[i];
