@@ -335,13 +335,45 @@ pub(crate) unsafe fn map_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos
 /// `keys` must be valid for reads of `KB * pop` bytes.
 #[inline]
 unsafe fn search_fixed<const KB: usize>(keys: *const u8, pop: usize, key: Key) -> Option<usize> {
-    let le = key.to_le_bytes();
-    let mut needle = [0u8; KB];
-    needle.copy_from_slice(&le[..KB]);
-    // SAFETY: `[u8; KB]` has alignment 1 and the caller guarantees
-    // `KB * pop` readable bytes, i.e. exactly `pop` such arrays.
-    let packed = unsafe { core::slice::from_raw_parts(keys.cast::<[u8; KB]>(), pop) };
-    packed.iter().position(|candidate| *candidate == needle)
+    match KB {
+        1 => {
+            let needle = key as u8;
+            // SAFETY: caller guarantees `pop` bytes.
+            let slice = unsafe { core::slice::from_raw_parts(keys, pop) };
+            slice.iter().position(|&candidate| candidate == needle)
+        }
+        2 => {
+            let needle = (key & 0xFFFF) as u16;
+            for i in 0..pop {
+                // SAFETY: caller guarantees `2 * pop` bytes.
+                let val = unsafe { (keys.add(i * 2) as *const u16).read_unaligned() };
+                if val == needle {
+                    return Some(i);
+                }
+            }
+            None
+        }
+        4 => {
+            let needle = key as u32;
+            for i in 0..pop {
+                // SAFETY: caller guarantees `4 * pop` bytes.
+                let val = unsafe { (keys.add(i * 4) as *const u32).read_unaligned() };
+                if val == needle {
+                    return Some(i);
+                }
+            }
+            None
+        }
+        _ => {
+            let le = key.to_le_bytes();
+            let mut needle = [0u8; KB];
+            needle.copy_from_slice(&le[..KB]);
+            // SAFETY: `[u8; KB]` has alignment 1 and the caller guarantees
+            // `KB * pop` readable bytes, i.e. exactly `pop` such arrays.
+            let packed = unsafe { core::slice::from_raw_parts(keys.cast::<[u8; KB]>(), pop) };
+            packed.iter().position(|candidate| *candidate == needle)
+        }
+    }
 }
 
 /// Finds the slot of `key`'s low `key_bytes` bytes among `pop` packed keys.
