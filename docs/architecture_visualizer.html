@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Expanse Architecture & Algorithm Flow Visualizer</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-green: #4ade80;
+      --accent-purple: #c084fc;
+      --accent-orange: #fb923c;
+      --node-active: #0284c7;
+      --node-bg: #1e293b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px;
+    }
+    header {
+      max-width: 1300px;
+      margin: 0 auto 24px auto;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 16px;
+    }
+    h1 { font-size: 26px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+    .subtitle { color: var(--text-muted); font-size: 15px; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 24px;
+      max-width: 1300px;
+      margin: 0 auto;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    select, input[type="range"] {
+      width: 100%;
+      padding: 8px 12px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+    }
+    select:focus { border-color: var(--accent); }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .metric-box {
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+    }
+    .metric-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .metric-val { font-size: 20px; font-weight: 700; color: var(--accent-green); margin-top: 4px; }
+    .metric-val.purple { color: var(--accent-purple); }
+    .metric-val.orange { color: var(--accent-orange); }
+    .metric-val.blue { color: var(--accent); }
+
+    .flow-container {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .pipeline-step {
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+    .pipeline-step.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+    }
+    .step-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .step-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: #334155;
+      color: #94a3b8;
+    }
+    .step-badge.highlight {
+      background: #0284c7;
+      color: #fff;
+    }
+    .step-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .step-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .algo-tag {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 4px 10px;
+      background: #1e1b4b;
+      border: 1px solid #4338ca;
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: monospace;
+      color: #a5b4fc;
+    }
+
+    .flow-arrow {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 18px;
+      margin: -6px 0;
+    }
+
+    .census-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-top: 12px;
+    }
+    .census-table th, .census-table td {
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .census-table th {
+      background: #0f172a;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .census-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Expanse Engine · Interactive Architecture & Algorithm Visualizer</h1>
+  <div class="subtitle">Trace key lookup, insertion, memory layouts, and SIMD hardware dispatch step-by-step</div>
+</header>
+
+<div class="layout">
+  <!-- Controls & Metrics -->
+  <aside>
+    <div class="card">
+      <div class="card-title">⚙️ Workload & Parameters</div>
+
+      <div class="form-group">
+        <label for="op-select">Operation</label>
+        <select id="op-select">
+          <option value="get" selected>Lookup (get / locate_slot)</option>
+          <option value="insert">Insert (mutate / ladder climb)</option>
+          <option value="remove">Remove (shrink hysteresis)</option>
+          <option value="nav">Navigation (next / prev / rank)</option>
+          <option value="sync_read">Concurrent OCC Read (SyncExpanseMap)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="dist-select">Key Distribution</label>
+        <select id="dist-select">
+          <option value="random" selected>Random 64-bit keys</option>
+          <option value="sequential">Sequential (k, k+1, k+2...)</option>
+          <option value="clustered">Clustered (shared prefix runs)</option>
+          <option value="dense">Dense leaf (0x00..0xFF runs)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="pop-slider">Subtree Population: <span id="pop-val" style="color:#38bdf8; font-weight:700;">18</span> keys</label>
+        <input type="range" id="pop-slider" min="1" max="500" value="18">
+      </div>
+
+      <div class="form-group">
+        <label for="arch-select">Microarchitecture</label>
+        <select id="arch-select">
+          <option value="v3" selected>x86-64-v3 (AVX2, BMI2, POPCNT)</option>
+          <option value="v1">x86-64-v1 (Baseline / SWAR)</option>
+          <option value="neon">AArch64 (NEON Vector)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📊 Estimated Execution Metrics</div>
+      <div class="metrics-grid">
+        <div class="metric-box">
+          <div class="metric-label">Instructions</div>
+          <div class="metric-val blue" id="metric-instr">~12 instrs</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Memory / Key</div>
+          <div class="metric-val purple" id="metric-mem">8.6 B/k</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Cache Lines</div>
+          <div class="metric-val orange" id="metric-cache">1 line (64B)</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Wall-Clock Est.</div>
+          <div class="metric-val" id="metric-time">~18 ns</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Dynamic Algorithm Flow -->
+  <main>
+    <div class="card">
+      <div class="card-title">🧭 Step-by-Step Traversal & Algorithm Pipeline</div>
+      
+      <div class="flow-container" id="flow-pipeline">
+        <!-- Injected via JavaScript -->
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📚 Node Form Compression Ladder Census</div>
+      <table class="census-table">
+        <thead>
+          <tr>
+            <th>Node Type</th>
+            <th>Capacity</th>
+            <th>Search Algorithm</th>
+            <th>SIMD / Hardware Acceleration</th>
+            <th>Memory Overhead</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Immediate</strong></td>
+            <td>1 key (set) / 1–7 (map)</td>
+            <td>Inlined inside 16-byte pointer</td>
+            <td>Zero allocation, zero cache misses</td>
+            <td>0 B (pointer-embedded)</td>
+          </tr>
+          <tr>
+            <td><strong>Linear Leaf</strong></td>
+            <td>2..25 keys (level 1) / 2..32</td>
+            <td>$O(\log N)$ binary probe + scalar $\le 2$</td>
+            <td>SSE2 128-bit vector / NEON movemask</td>
+            <td>Exact class bytes / pop</td>
+          </tr>
+          <tr>
+            <td><strong>Bitmap Leaf</strong></td>
+            <td>26..256 keys</td>
+            <td>256-bit Bitmap Rank & Select</td>
+            <td>Hardware `POPCNT` / SWAR 64-bit</td>
+            <td>0.07–0.36 B/key (dense)</td>
+          </tr>
+          <tr>
+            <td><strong>BranchL3 / L7</strong></td>
+            <td>1..3 or 1..7 subexpanses</td>
+            <td>SWAR 8-byte / SIMD 16-byte scan</td>
+            <td>`find_byte_8` / `find_byte_16_sse2`</td>
+            <td>Compact header (32B / 64B)</td>
+          </tr>
+          <tr>
+            <td><strong>BranchB</strong></td>
+            <td>8..180 subexpanses</td>
+            <td>256-bit bitmap decode array</td>
+            <td>Subexpanse rank indexing</td>
+            <td>64B header + packed edges</td>
+          </tr>
+          <tr>
+            <td><strong>BranchU</strong></td>
+            <td>181..256 subexpanses</td>
+            <td>Direct array indexing ($O(1)$)</td>
+            <td>Direct pointer offset load</td>
+            <td>2048 B flat table</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<script>
+  const opSelect = document.getElementById('op-select');
+  const distSelect = document.getElementById('dist-select');
+  const popSlider = document.getElementById('pop-slider');
+  const popVal = document.getElementById('pop-val');
+  const archSelect = document.getElementById('arch-select');
+
+  const metricInstr = document.getElementById('metric-instr');
+  const metricMem = document.getElementById('metric-mem');
+  const metricCache = document.getElementById('metric-cache');
+  const metricTime = document.getElementById('metric-time');
+  const flowPipeline = document.getElementById('flow-pipeline');
+
+  function update() {
+    const op = opSelect.value;
+    const dist = distSelect.value;
+    const pop = parseInt(popSlider.value, 10);
+    const arch = archSelect.value;
+
+    popVal.textContent = pop;
+
+    let steps = [];
+    let instr = 0;
+    let mem = "8.6 B/k";
+    let cache = "1 line (64B)";
+    let time = "18 ns";
+
+    // Step 1: Root Dispatch
+    steps.push({
+      badge: "ROOT",
+      title: "Root Edge Pointer Decode",
+      desc: "Extracts tag (low 3 bits) from 16-byte Edge structure. Validates OCC sequence counter.",
+      algo: op === "sync_read" ? "Atomic SeqLock Version Guard (acquire fence)" : "Tagged Pointer Tag Extraction (& 0x07)"
+    });
+
+    // Step 2: Branch or Direct Leaf
+    if (pop === 1) {
+      steps.push({
+        badge: "IMMEDIATE",
+        title: "Immediate In-Pointer Storage",
+        desc: "Key and payload stored directly in the 16-byte Edge structure. Zero heap allocation.",
+        algo: "Zero-Deref Scalar Compare (u64 equality)"
+      });
+      instr = 4;
+      mem = "0 B (inlined)";
+      cache = "0 lines (L1 register)";
+      time = "4.2 ns";
+    } else if (pop <= 32) {
+      if (op === "insert" && (dist === "sequential" || dist === "clustered")) {
+        steps.push({
+          badge: "FAST PATH",
+          title: "Monotonic Append Detection",
+          desc: "Evaluates `k > last_key` in a single scalar compare. Bypasses binary search entirely on monotonic streams.",
+          algo: "Monotonic Append O(1) Check + 0-byte shift elision"
+        });
+        instr = 8;
+        mem = "8.57 B/k";
+        cache = "1 line (64B)";
+        time = "16.8 ns";
+      } else {
+        steps.push({
+          badge: "LINEAR LEAF",
+          title: "Linear Leaf Lookup & Search",
+          desc: pop <= 2 ? "Branchless scalar pop <= 2 unrolled arithmetic." : "O(log N) binary search probe + SIMD vector scan.",
+          algo: pop <= 2 ? "Branchless: pos = (k0 < needle) + (k1 < needle)" : (arch === "v3" ? "_mm_cmplt_epi8 + popcnt (AVX2/SSE2)" : "lower_bound_fixed binary search loop")
+        });
+        instr = pop <= 2 ? 6 : 14;
+        mem = "16.7 B/k";
+        cache = "1 line (64B)";
+        time = "18.8 ns";
+      }
+    } else if (pop <= 256) {
+      steps.push({
+        badge: "BITMAP LEAF",
+        title: "Bitmap256 Subexpanse Lookup",
+        desc: "256-bit membership bitset across 4x u64 words. Subexpanse rank indexing for value array.",
+        algo: arch === "v3" ? "Hardware POPCNT + _pext_u64 (x86-64-v3)" : "Bitmap256::subexpanse_rank (SWAR 12-instr)"
+      });
+      instr = arch === "v3" ? 8 : 18;
+      mem = "0.36 B/k (set) / 8.6 B/k (map)";
+      cache = "1 line (64B)";
+      time = "16.3 ns";
+    } else {
+      steps.push({
+        badge: "BRANCH TREE",
+        title: "Branch Level Traversal (BranchL3 → BranchL7 → BranchB)",
+        desc: "Multi-level 256-ary trie traversal decoding key byte by byte.",
+        algo: "find_byte_16_sse2 / Bitmap256::rank"
+      });
+      steps.push({
+        badge: "TERMINAL LEAF",
+        title: "Terminal Bitmap / Linear Expanse",
+        desc: "Final digit resolution in terminal leaf expanse.",
+        algo: "Bitmap256 subexpanse rank + value slot dereference"
+      });
+      instr = 26;
+      mem = "8.61 B/k";
+      cache = "2 lines (128B)";
+      time = "36.5 ns";
+    }
+
+    // Step 3: Result & Validation
+    if (op === "sync_read") {
+      steps.push({
+        badge: "VALIDATE",
+        title: "OCC Version Validation",
+        desc: "Verifies root sequence counter has not changed during traversal. Retries if torn read detected.",
+        algo: "Atomic SeqLock Version Validation (release fence)"
+      });
+    }
+
+    metricInstr.textContent = `~${instr} instrs`;
+    metricMem.textContent = mem;
+    metricCache.textContent = cache;
+    metricTime.textContent = time;
+
+    flowPipeline.innerHTML = steps.map((s, idx) => `
+      <div class="pipeline-step active">
+        <div class="step-header">
+          <span class="step-title">${s.title}</span>
+          <span class="step-badge highlight">${s.badge}</span>
+        </div>
+        <div class="step-desc">${s.desc}</div>
+        <div class="algo-tag">⚡ ${s.algo}</div>
+      </div>
+      ${idx < steps.length - 1 ? '<div class="flow-arrow">↓</div>' : ''}
+    `).join('');
+  }
+
+  opSelect.addEventListener('change', update);
+  distSelect.addEventListener('change', update);
+  popSlider.addEventListener('input', update);
+  archSelect.addEventListener('change', update);
+
+  update();
+</script>
+
+</body>
+</html>
