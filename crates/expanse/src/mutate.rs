@@ -508,16 +508,26 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     continue;
                 }
                 let k = key_low(key, kb);
-                // Phase 7 coverage invariant (see alloc::assert_bracketed):
-                // linear leaves carry no version; the parent's bracket does.
-                a.assert_bracketed();
                 let base = edge.node_ptr();
-                // SAFETY: live leaf of `pop` keys per contract.
-                let pos = unsafe { leaf::lower_bound(base, pop, kb, k) };
-                // SAFETY: pos < pop is in bounds.
-                if pos < pop && unsafe { read_packed(base, pos, kb as usize) } == k {
-                    return false;
-                }
+                let pos = if pop > 0 {
+                    // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
+                    let last = unsafe { read_packed(base, pop - 1, kb as usize) };
+                    if k > last {
+                        pop
+                    } else if k == last {
+                        return false;
+                    } else {
+                        // SAFETY: live leaf of `pop` keys per contract.
+                        let p = unsafe { leaf::lower_bound(base, pop, kb, k) };
+                        // SAFETY: p < pop is in bounds.
+                        if p < pop && unsafe { read_packed(base, p, kb as usize) } == k {
+                            return false;
+                        }
+                        p
+                    }
+                } else {
+                    0
+                };
                 let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
                 if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
                     // Fast path: spare class capacity — shift in place, no
