@@ -1652,8 +1652,11 @@
 
     hSvg.innerHTML = `
       <defs>
+        <marker id="arrow-dim" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+        </marker>
         <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6"/>
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#38bdf8"/>
         </marker>
         <marker id="arrow-green" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
           <path d="M 0 0 L 10 5 L 0 10 z" fill="#10b981"/>
@@ -1667,7 +1670,7 @@
       </defs>
     `;
 
-    const connect = (fromId, toId, color = "#3b82f6", marker = "arrow", dash = "") => {
+    const connect = (fromId, toId, color = "#334155", marker = "arrow-dim", dash = "", strokeWidth = 1.5) => {
       const fromEl = document.getElementById(fromId);
       const toEl = document.getElementById(toId);
       if (!fromEl || !toEl) return;
@@ -1685,30 +1688,56 @@
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`);
       path.setAttribute('stroke', color);
-      path.setAttribute('stroke-width', '2');
+      path.setAttribute('stroke-width', String(strokeWidth));
       if (dash) path.setAttribute('stroke-dasharray', dash);
       path.setAttribute('fill', 'none');
       path.setAttribute('marker-end', `url(#${marker})`);
       hSvg.appendChild(path);
     };
 
-    connect('node-jap', 'node-root-leaf');
-    connect('node-jap', 'node-jpm');
-    connect('node-jpm', 'node-top-branch');
-    connect('node-top-branch', 'node-branch-l');
-    connect('node-top-branch', 'node-branch-b');
-    connect('node-top-branch', 'node-branch-u');
-    connect('node-branch-l', 'node-leaf-immed');
-    connect('node-branch-l', 'node-leaf-linear');
-    connect('node-branch-b', 'node-leaf-bitmap');
-    connect('node-branch-u', 'node-leaf-full');
+    // 1. Background structural hierarchy lines (dim)
+    connect('node-jap', 'node-root-leaf', '#334155', 'arrow-dim', '', 1.5);
+    connect('node-jap', 'node-jpm', '#334155', 'arrow-dim', '', 1.5);
+    connect('node-jpm', 'node-top-branch', '#334155', 'arrow-dim', '', 1.5);
+    connect('node-top-branch', 'node-branch-l', '#334155', 'arrow-dim', '', 1.5);
+    connect('node-top-branch', 'node-branch-b', '#334155', 'arrow-dim', '', 1.5);
+    connect('node-top-branch', 'node-branch-u', '#334155', 'arrow-dim', '', 1.5);
+    connect('node-branch-l', 'node-leaf-immed', '#334155', 'arrow-dim', '', 1.5);
+    connect('node-branch-l', 'node-leaf-linear', '#334155', 'arrow-dim', '', 1.5);
+    connect('node-branch-b', 'node-leaf-bitmap', '#334155', 'arrow-dim', '', 1.5);
+    connect('node-branch-b', 'node-leaf-full', '#334155', 'arrow-dim', '', 1.5);
+    connect('node-branch-u', 'node-leaf-bitmap', '#334155', 'arrow-dim', '', 1.5);
+    connect('node-branch-u', 'node-leaf-full', '#334155', 'arrow-dim', '', 1.5);
 
-    // Sequential Run Bypass direct connection
-    if (isSequentialBypass) {
-      connect('node-jpm', 'node-leaf-bitmap', '#10b981', 'arrow-green', '6,4');
+    // 2. Active traversal path (illuminated)
+    if (pop <= 31) {
+      connect('node-jap', 'node-root-leaf', '#10b981', 'arrow-green', '', 2.5);
+    } else if (isSequentialBypass) {
+      connect('node-jap', 'node-jpm', '#10b981', 'arrow-green', '', 2.5);
+      connect('node-jpm', 'node-leaf-bitmap', '#10b981', 'arrow-green', '6,4', 2.5);
+    } else {
+      connect('node-jap', 'node-jpm', '#38bdf8', 'arrow', '', 2.5);
+      connect('node-jpm', 'node-top-branch', '#38bdf8', 'arrow', '', 2.5);
+
+      if (pop === 1 || pop === 7) {
+        connect('node-top-branch', 'node-branch-l', '#10b981', 'arrow-green', '', 2.5);
+        connect('node-branch-l', 'node-leaf-immed', '#10b981', 'arrow-green', '', 2.5);
+      } else if (dist === "linear_leaf" || (pop >= 13 && pop <= 25)) {
+        connect('node-top-branch', 'node-branch-l', '#a855f7', 'arrow-purple', '', 2.5);
+        connect('node-branch-l', 'node-leaf-linear', '#a855f7', 'arrow-purple', '', 2.5);
+      } else if (pop === 256) {
+        connect('node-top-branch', 'node-branch-u', '#38bdf8', 'arrow', '', 2.5);
+        connect('node-branch-u', 'node-leaf-full', '#10b981', 'arrow-green', '', 2.5);
+      } else if (pop >= 192 && pop < 1000) {
+        connect('node-top-branch', 'node-branch-u', '#38bdf8', 'arrow', '', 2.5);
+        connect('node-branch-u', 'node-leaf-bitmap', '#10b981', 'arrow-green', '', 2.5);
+      } else {
+        connect('node-top-branch', 'node-branch-b', '#38bdf8', 'arrow', '', 2.5);
+        connect('node-branch-b', 'node-leaf-bitmap', '#10b981', 'arrow-green', '', 2.5);
+      }
     }
 
-    // Recursive Multi-Level Subarray Child Edge Cascade
+    // 3. Recursive Multi-Level Subarray Child Edge Cascade
     if (pop >= 1000) {
       const bNode = document.getElementById('node-branch-b');
       if (bNode) {
@@ -1718,7 +1747,7 @@
         const loopPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         loopPath.setAttribute('d', `M ${bx} ${by} C ${bx + 50} ${by - 40}, ${bx + 50} ${by + 40}, ${bx} ${by + 10}`);
         loopPath.setAttribute('stroke', '#a855f7');
-        loopPath.setAttribute('stroke-width', '2');
+        loopPath.setAttribute('stroke-width', '2.5');
         loopPath.setAttribute('stroke-dasharray', '4,3');
         loopPath.setAttribute('fill', 'none');
         loopPath.setAttribute('marker-end', 'url(#arrow-purple)');
@@ -1741,8 +1770,8 @@
     { pop: 32, label: "32 keys", desc: "JPM Tree Root Promotion (Root Leaf -> JPM + Level 8 Branch)", tag: "TREE_PROMO" },
     { pop: 64, label: "64 keys", desc: "Bitmap Leaf (256-bit bitmask + POPCNT) under BranchL3 (fanout 1..3)", tag: "BRANCH_L3" },
     { pop: 128, label: "128 keys", desc: "Bitmap Leaf Subexpanse under BranchL7 (fanout 4..7)", tag: "BRANCH_L7" },
-    { pop: 192, label: "192 keys", desc: "BranchB -> BranchU Promotion Threshold (BITMAP_TO_UNCOMPRESSED)", tag: "BRANCH_U" },
-    { pop: 256, label: "256 keys", desc: "Full Expanse (Saturated 256 keys / 0 B child pointer for Set)", tag: "FULL_EXPANSE" },
+    { pop: 192, label: "192 keys", desc: "BranchB -> BranchU Promotion Threshold (fanout > 180 slots to child leaves)", tag: "BRANCH_U" },
+    { pop: 256, label: "256 keys", desc: "Full Expanse Saturation (256 keys saturated / 0 B child pointer for Set)", tag: "FULL_EXPANSE" },
     { pop: 1000, label: "1,000 keys", desc: "2-Level Digital Trie (Root JPM -> Level 8 -> Level 7 -> Leaves)", tag: "TRIE_2LVL" },
     { pop: 10000, label: "10,000 keys", desc: "3-Level Digital Trie (Dynamic BranchL3/BranchB routing)", tag: "TRIE_3LVL" },
     { pop: 100000, label: "100,000 keys", desc: "4–5 Level Digital Trie (0.36 B/k clustered set, 8.56 B/k map)", tag: "TRIE_5LVL" },
@@ -1891,20 +1920,29 @@
       compDesc.textContent = "128-bit SIMD Leaf Scan: Evaluates entire 16-element leaf in 4 instructions with zero branches.";
       compWinBadge.textContent = "3.6x Advantage";
     } else if (pop <= 256) {
+      if (pop >= 192 && pop < 256) {
+        steps.push({
+          badge: "BRANCH U",
+          badgeClass: "highlight",
+          title: "BranchU Uncompressed Dispatch (Fanout > 180)",
+          desc: "Fanout exceeds 180 child pointers. Direct O(1) array index (2048 B table) to child Bitmap Leaf.",
+          algo: "Direct Slot Indexing (`branch.edges[digit8]`)"
+        });
+      }
       steps.push({
-        badge: "BITMAP LEAF",
-        badgeClass: "orange",
-        title: "Bitmap256 Subexpanse Lookup",
-        desc: "256-bit membership bitset across 4x u64 words. Subexpanse rank indexing for value array.",
-        algo: arch === "v3" ? "Hardware POPCNT + _pext_u64 (x86-64-v3)" : "Bitmap256::subexpanse_rank (SWAR 12-instr)"
+        badge: pop === 256 ? "FULL EXPANSE" : "BITMAP LEAF",
+        badgeClass: pop === 256 ? "green" : "orange",
+        title: pop === 256 ? "Full Expanse Saturation (256 Keys)" : "Bitmap256 Subexpanse Lookup",
+        desc: pop === 256 ? "All 256 keys in the 8-bit digit subrange are present (0 B child pointer in Set)." : "256-bit membership bitset across 4x u64 words. Subexpanse rank indexing for value array.",
+        algo: pop === 256 ? "O(1) Implicit Presence Check (`JP_FULL` null tag)" : (arch === "v3" ? "Hardware POPCNT + _pext_u64 (x86-64-v3)" : "Bitmap256::subexpanse_rank (SWAR 12-instr)")
       });
-      instr = arch === "v3" ? 8 : 18;
+      instr = pop === 256 ? 4 : (arch === "v3" ? 8 : 18);
       baselineInstr = 28;
       mem = flavor === "map" ? "8.6 B/k" : "0.36 B/k";
       cache = "1 line (64B)";
       hwAcc = "-12.11% (v3)";
-      compDesc.textContent = "Bitmap256 Leaf: Hardware POPCNT rank acceleration achieves sub-nanosecond bitmask indexing.";
-      compWinBadge.textContent = "3.5x Advantage";
+      compDesc.textContent = pop >= 192 ? "BranchU / Dense Expanse: O(1) table indexing eliminates bitmap search overhead." : "Bitmap256 Leaf: Hardware POPCNT rank acceleration achieves sub-nanosecond bitmask indexing.";
+      compWinBadge.textContent = pop === 256 ? "7.0x Advantage" : "3.5x Advantage";
     } else {
       const depth = pop >= 1000000 ? 8 : (pop >= 100000 ? 5 : (pop >= 10000 ? 3 : 2));
       steps.push({
