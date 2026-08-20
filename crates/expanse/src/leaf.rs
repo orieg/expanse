@@ -262,11 +262,7 @@ pub(crate) unsafe fn map_realloc_insert(
         let nk = new.add(map_keys_offset(pop + 1));
         core::ptr::copy_nonoverlapping(ok, nk, pos * kb);
         crate::mutate::write_packed(nk, pos, kb, key);
-        core::ptr::copy_nonoverlapping(
-            ok.add(pos * kb),
-            nk.add((pos + 1) * kb),
-            (pop - pos) * kb,
-        );
+        core::ptr::copy_nonoverlapping(ok.add(pos * kb), nk.add((pos + 1) * kb), (pop - pos) * kb);
     }
 }
 
