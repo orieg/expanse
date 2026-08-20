@@ -404,6 +404,36 @@ pub(crate) fn linear_insert_slot(
     pos
 }
 
+/// Tracks the descent path of edges from the root to the active `LeafB1`
+/// for fast multi-level sequential bypass.
+#[derive(Clone, Copy)]
+pub(crate) struct InsertPath {
+    pub prefix: u64,
+    pub edges: [*mut Edge; 8],
+    pub levels: [u8; 8],
+    pub depth: usize,
+    pub leaf: *mut LeafBitmap1,
+}
+
+impl InsertPath {
+    pub const fn empty() -> Self {
+        Self {
+            prefix: u64::MAX,
+            edges: [core::ptr::null_mut(); 8],
+            levels: [0; 8],
+            depth: 0,
+            leaf: core::ptr::null_mut(),
+        }
+    }
+
+    #[inline(always)]
+    pub fn clear(&mut self) {
+        self.prefix = u64::MAX;
+        self.depth = 0;
+        self.leaf = core::ptr::null_mut();
+    }
+}
+
 /// Runtime entry point: resolves the OCC flag **once per operation** and
 /// dispatches into the monomorphized engine. Public callers use this;
 /// the engine itself recurses with `OCC` already fixed, so the fences
@@ -419,6 +449,28 @@ pub(crate) unsafe fn insert_dyn(a: &NodeAlloc, edge: &mut Edge, key: Key, level:
             insert::<true>(a, edge, key, level)
         } else {
             insert::<false>(a, edge, key, level)
+        }
+    }
+}
+
+/// Runtime entry point with path tracking for multi-level sequential insert bypass.
+///
+/// # Safety
+///
+/// Same contract as [`insert`].
+pub(crate) unsafe fn insert_path_dyn(
+    a: &NodeAlloc,
+    edge: &mut Edge,
+    key: Key,
+    level: u8,
+    path: &mut InsertPath,
+) -> bool {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        if a.occ_enabled() {
+            insert_with_path::<true>(a, edge, key, level, path)
+        } else {
+            insert_with_path::<false>(a, edge, key, level, path)
         }
     }
 }
@@ -450,8 +502,30 @@ pub(crate) unsafe fn insert<const OCC: bool>(
     a: &NodeAlloc,
     edge: &mut Edge,
     key: Key,
-    mut level: u8,
+    level: u8,
 ) -> bool {
+    // SAFETY: forwarded contract.
+    unsafe { insert_with_path::<OCC>(a, edge, key, level, &mut InsertPath::empty()) }
+}
+
+/// Inserts `key` into the subtree at `edge` while recording the descent path
+/// for fast sequential bypass.
+///
+/// # Safety
+///
+/// Same contract as [`insert`].
+pub(crate) unsafe fn insert_with_path<const OCC: bool>(
+    a: &NodeAlloc,
+    edge: &mut Edge,
+    key: Key,
+    mut level: u8,
+    path: &mut InsertPath,
+) -> bool {
+    if path.depth < 8 {
+        path.edges[path.depth] = edge as *mut Edge;
+        path.levels[path.depth] = level;
+        path.depth += 1;
+    }
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag().expect("valid edge tag");
@@ -465,14 +539,17 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                         (*node.as_ptr()).hdr.level = level;
                     }
                     *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
+                    path.clear();
                     continue;
                 }
+                path.clear();
                 write_immed(edge, level, &[key_low(key, level)]);
                 return true;
             }
 
             EdgeTag::Immed(im) => {
                 debug_assert_eq!(im.key_bytes(), level);
+                path.clear();
                 let kb = im.key_bytes();
                 let k = key_low(key, kb);
                 let mut keys = immed_keys(edge, im);
@@ -497,6 +574,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 | EdgeType::Leaf6
                 | EdgeType::Leaf7),
             ) => {
+                path.clear();
                 let kb = t.leaf_key_bytes().expect("leaf tag");
                 debug_assert!(kb <= level);
                 let pop = edge.pop0(kb) as usize + 1;
@@ -625,7 +703,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                         }
                         for &k in &keys {
                             // SAFETY: freshly built branch subtree owned by `a`.
-                            let ins = unsafe { insert::<OCC>(a, edge, k, level) };
+                            let ins = unsafe { insert_with_path::<OCC>(a, edge, k, level, path) };
                             debug_assert!(ins);
                         }
                         // pop0 encodes pop-1 and cannot express the transient
@@ -649,6 +727,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     // Diverges inside the skipped prefix: branch out one
                     // level and retry.
                     let pop = edge.pop0(1) + 1;
+                    path.clear();
                     split_skip(a, edge, key, level, pop);
                     continue;
                 }
@@ -670,8 +749,13 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     *edge = Edge::NULL;
                     edge.set_tag(EdgeType::FullExpanse.as_u8());
                     edge.set_pop0(1, 255);
+                    path.clear();
                 } else {
                     edge.set_pop0(1, pop as u64 - 1);
+                    if level == 1 {
+                        path.prefix = key >> 8;
+                        path.leaf = edge.node_ptr().cast::<LeafBitmap1>();
+                    }
                 }
                 return true;
             }
@@ -686,6 +770,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     // Diverges inside the skipped prefix: branch out one
                     // level and retry.
                     let pop = edge.pop0(bl) + 1;
+                    path.clear();
                     split_skip(a, edge, key, level, pop);
                     continue;
                 }
@@ -710,13 +795,13 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                         if is_l3 {
                             let b = &mut *edge.node_ptr().cast::<BranchL3>();
                             crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                            let r = insert::<OCC>(a, &mut b.edges[slot], key, bl - 1);
+                            let r = insert_with_path::<OCC>(a, &mut b.edges[slot], key, bl - 1, path);
                             crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                             r
                         } else {
                             let b = &mut *edge.node_ptr().cast::<BranchL7>();
                             crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                            let r = insert::<OCC>(a, &mut b.edges[slot], key, bl - 1);
+                            let r = insert_with_path::<OCC>(a, &mut b.edges[slot], key, bl - 1, path);
                             crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                             r
                         }
@@ -728,6 +813,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 }
                 let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
                 if num == cap {
+                    path.clear();
                     // SAFETY: upgrade rebuilds the node; subtree stays owned.
                     unsafe {
                         if is_l3 {
@@ -745,7 +831,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                         crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
                         let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                         b.hdr.num += 1;
-                        let r = insert::<OCC>(a, &mut b.edges[slot], key, bl - 1);
+                        let r = insert_with_path::<OCC>(a, &mut b.edges[slot], key, bl - 1, path);
                         crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                         r
                     } else {
@@ -753,7 +839,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                         crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
                         let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                         b.hdr.num += 1;
-                        let r = insert::<OCC>(a, &mut b.edges[slot], key, bl - 1);
+                        let r = insert_with_path::<OCC>(a, &mut b.edges[slot], key, bl - 1, path);
                         crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                         r
                     }
@@ -769,6 +855,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 let bl = unsafe { branch_form_level(edge, EdgeType::BranchB, level) };
                 if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
                     let pop = edge.pop0(bl) + 1;
+                    path.clear();
                     split_skip(a, edge, key, level, pop);
                     continue;
                 }
@@ -783,7 +870,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     // node's version brackets the descent (see the L3 arm).
                     crate::occ::version_begin_if::<OCC>(a, &mut b.version);
                     // SAFETY: bitmap/subarray consistency invariant.
-                    let inserted = unsafe { insert::<OCC>(a, &mut *sub.add(slot), key, bl - 1) };
+                    let inserted = unsafe { insert_with_path::<OCC>(a, &mut *sub.add(slot), key, bl - 1, path) };
                     crate::occ::version_end_if::<OCC>(a, &mut b.version);
                     if inserted {
                         bump_pop0(edge, bl, 1);
@@ -795,10 +882,12 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                         // BranchU has no header level, so it cannot skip:
                         // materialize the level just above the form and retry.
                         let pop = edge.pop0(bl) + 1;
+                        path.clear();
                         wrap_skip_level(a, edge, bl + 1, slot_level, pop);
                         level = slot_level;
                         continue;
                     }
+                    path.clear();
                     // SAFETY: upgrade rebuilds the node; subtree stays owned
                     // (the guard above ensures it sits at its slot level).
                     unsafe {
@@ -847,7 +936,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 b.bitmap.set(d);
                 // SAFETY: fresh null child slot within the subarray.
                 let inserted =
-                    unsafe { insert::<OCC>(a, &mut *b.subarrays[sub].add(rank), key, bl - 1) };
+                    unsafe { insert_with_path::<OCC>(a, &mut *b.subarrays[sub].add(rank), key, bl - 1, path) };
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 debug_assert!(inserted);
                 bump_pop0(edge, bl, 1);
@@ -863,7 +952,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 crate::occ::version_begin_if::<OCC>(a, &mut b.version);
                 // SAFETY: child subtree well-formed (or null) per contract.
                 let inserted =
-                    unsafe { insert::<OCC>(a, &mut b.edges[d as usize], key, level - 1) };
+                    unsafe { insert_with_path::<OCC>(a, &mut b.edges[d as usize], key, level - 1, path) };
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 if inserted {
                     bump_pop0(edge, level, 1);

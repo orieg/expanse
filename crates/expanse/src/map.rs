@@ -40,6 +40,7 @@ enum Root {
 pub struct ExpanseMap {
     root: Root,
     alloc: NodeAlloc,
+    path: crate::mutate_map::InsertPathMap,
 }
 
 // SAFETY: as for `ExpanseSet` — exclusive ownership of all reachable
@@ -77,6 +78,7 @@ impl ExpanseMap {
         Self {
             root: Root::Empty,
             alloc: NodeAlloc::new(),
+            path: crate::mutate_map::InsertPathMap::empty(),
         }
     }
 
@@ -170,9 +172,70 @@ impl ExpanseMap {
     /// valid until the next structural mutation.
     pub fn ins_slot(&mut self, key: Key) -> core::ptr::NonNull<u64> {
         if let Root::Tree { top, pop } = &mut self.root {
+            let prefix = key >> 8;
+            if self.path.prefix == prefix && !self.path.leaf.is_null() {
+                let d = (key & 0xFF) as u8;
+                // SAFETY: path holds valid live LeafBitmapL pointer.
+                let node = unsafe { &mut *self.path.leaf };
+                let sub = (d >> 5) as usize;
+                let rank = node.bitmap.subexpanse_rank(d) as usize;
+                if node.bitmap.test(d) {
+                    // SAFETY: value subarray holds subexpanse_count values.
+                    let slot = unsafe { node.values[sub].add(rank) };
+                    return core::ptr::NonNull::new(slot).expect("slot");
+                }
+                let old_n = node.bitmap.subexpanse_count(sub) as usize;
+                if old_n > 0 && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n) {
+                    // Fast path: spare class capacity — shift in place.
+                    // SAFETY: the subarray holds cap_class(old_n) slots.
+                    unsafe {
+                        let arr = node.values[sub];
+                        core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                        arr.add(rank).write(0);
+                    }
+                } else {
+                    let new = self
+                        .alloc
+                        .alloc_bytes(crate::mutate::sub_vals_size(old_n + 1))
+                        .cast::<u64>();
+                    // SAFETY: copy old_n values around the inserted rank.
+                    unsafe {
+                        if old_n > 0 {
+                            let old = node.values[sub];
+                            new.as_ptr().copy_from_nonoverlapping(old, rank);
+                            new.as_ptr()
+                                .add(rank + 1)
+                                .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                            self.alloc.free_bytes(
+                                core::ptr::NonNull::new(old.cast()).expect("values"),
+                                crate::mutate::sub_vals_size(old_n),
+                            );
+                        }
+                        new.as_ptr().add(rank).write(0);
+                    }
+                    node.values[sub] = new.as_ptr();
+                }
+                node.bitmap.set(d);
+                for i in 0..self.path.depth {
+                    // SAFETY: path contains valid live edge pointers during active bypass.
+                    unsafe {
+                        crate::mutate::bump_pop0(
+                            &mut *self.path.edges[i],
+                            self.path.levels[i],
+                            1,
+                        );
+                    }
+                }
+                *pop += 1;
+                // SAFETY: freshly inserted slot.
+                let slot = unsafe { node.values[sub].add(rank) };
+                return core::ptr::NonNull::new(slot).expect("slot");
+            }
+            self.path.clear();
             // SAFETY: trie maintained/owned by this map's engine.
-            let (prev, slot) =
-                unsafe { mutate_map::map_insert_dyn::<true>(&self.alloc, top, key, 0, 8) };
+            let (prev, slot) = unsafe {
+                mutate_map::map_insert_path_dyn::<true>(&self.alloc, top, key, 0, 8, &mut self.path)
+            };
             if prev.is_none() {
                 *pop += 1;
             }
@@ -318,9 +381,80 @@ impl ExpanseMap {
                 }
             }
             Root::Tree { top, pop } => {
+                let prefix = key >> 8;
+                if self.path.prefix == prefix && !self.path.leaf.is_null() {
+                    let d = (key & 0xFF) as u8;
+                    // SAFETY: path holds valid live LeafBitmapL pointer.
+                    let node = unsafe { &mut *self.path.leaf };
+                    let sub = (d >> 5) as usize;
+                    let rank = node.bitmap.subexpanse_rank(d) as usize;
+                    if node.bitmap.test(d) {
+                        // SAFETY: value subarray holds subexpanse_count values; in-place swap.
+                        unsafe {
+                            let slot = node.values[sub].add(rank);
+                            let old = *slot;
+                            slot.write(val);
+                            return Some(old);
+                        }
+                    }
+                    let old_n = node.bitmap.subexpanse_count(sub) as usize;
+                    if old_n > 0 && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n) {
+                        // Fast path: spare class capacity — shift in place.
+                        // SAFETY: the subarray holds cap_class(old_n) slots.
+                        unsafe {
+                            let arr = node.values[sub];
+                            core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                            arr.add(rank).write(val);
+                        }
+                    } else {
+                        let new = self
+                            .alloc
+                            .alloc_bytes(crate::mutate::sub_vals_size(old_n + 1))
+                            .cast::<u64>();
+                        // SAFETY: copy old_n values around the inserted rank.
+                        unsafe {
+                            if old_n > 0 {
+                                let old = node.values[sub];
+                                new.as_ptr().copy_from_nonoverlapping(old, rank);
+                                new.as_ptr()
+                                    .add(rank + 1)
+                                    .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                                self.alloc.free_bytes(
+                                    core::ptr::NonNull::new(old.cast()).expect("values"),
+                                    crate::mutate::sub_vals_size(old_n),
+                                );
+                            }
+                            new.as_ptr().add(rank).write(val);
+                        }
+                        node.values[sub] = new.as_ptr();
+                    }
+                    node.bitmap.set(d);
+                    for i in 0..self.path.depth {
+                        // SAFETY: path contains valid live edge pointers during active bypass.
+                        unsafe {
+                            crate::mutate::bump_pop0(
+                                &mut *self.path.edges[i],
+                                self.path.levels[i],
+                                1,
+                            );
+                        }
+                    }
+                    *pop += 1;
+                    return None;
+                }
+                self.path.clear();
                 // SAFETY: trie maintained/owned by this map's engine.
-                let prev =
-                    unsafe { mutate_map::map_insert_dyn::<false>(&self.alloc, top, key, val, 8) }.0;
+                let prev = unsafe {
+                    mutate_map::map_insert_path_dyn::<false>(
+                        &self.alloc,
+                        top,
+                        key,
+                        val,
+                        8,
+                        &mut self.path,
+                    )
+                }
+                .0;
                 if prev.is_none() {
                     *pop += 1;
                 }
@@ -331,6 +465,7 @@ impl ExpanseMap {
 
     /// Removes `key`; returns its value if it was present.
     pub fn remove(&mut self, key: Key) -> Option<u64> {
+        self.path.clear();
         match &mut self.root {
             Root::Empty => None,
             Root::Leaf { ptr, pop } => {
@@ -385,6 +520,7 @@ impl ExpanseMap {
 
     /// Removes every entry.
     pub fn clear(&mut self) {
+        self.path.clear();
         match &mut self.root {
             Root::Empty => {}
             Root::Leaf { ptr, pop } => {
@@ -631,6 +767,7 @@ impl ExpanseMap {
             from = k.checked_add(1);
         }
         debug_assert_eq!(written, n);
+        self.path.clear();
         // SAFETY: whole trie owned by this map; freed exactly once.
         unsafe { mutate::free_subtree::<true>(&self.alloc, top) };
         self.root = Root::Leaf { ptr: new, pop: n };
