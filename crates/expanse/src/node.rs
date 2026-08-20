@@ -299,7 +299,7 @@ impl BranchHeader {
     /// Slot of `digit` among the populated children, if present.
     #[inline]
     #[must_use]
-    pub const fn find(&self, digit: u8) -> Option<usize> {
+    pub fn find(&self, digit: u8) -> Option<usize> {
         crate::bits::find_byte_8(&self.digits, self.num as usize, digit)
     }
 }

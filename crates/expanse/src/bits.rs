@@ -132,26 +132,76 @@ fn find_byte_16_neon(hay: &[u8; 16], len: usize, needle: u8) -> Option<usize> {
 
 /// Finds the first index `i < len` with `hay[i] == needle` in an 8-byte
 /// buffer (compact branch headers; `len` is clamped to 8).
-///
-/// Uses a branch-free SWAR zero-byte scan on one 64-bit word — as fast as
-/// SIMD at this width and portable everywhere, so it needs no parity twin.
 #[inline]
 #[must_use]
-pub const fn find_byte_8(hay: &[u8; 8], len: usize, needle: u8) -> Option<usize> {
-    const LO: u64 = 0x0101_0101_0101_0101;
-    const HI: u64 = 0x8080_8080_8080_8080;
-    let len = if len < 8 { len } else { 8 };
-    let x = u64::from_le_bytes(*hay) ^ (LO.wrapping_mul(needle as u64));
-    // Standard zero-byte detector: the high bit of each byte lane is set
-    // iff that lane of `x` is zero (i.e. matched the needle).
-    let mut zeros = x.wrapping_sub(LO) & !x & HI;
-    if len < 8 {
-        zeros &= (1u64 << (len * 8)) - 1;
+pub fn find_byte_8(hay: &[u8; 8], len: usize, needle: u8) -> Option<usize> {
+    let len = len.min(8);
+    if len <= 3 {
+        if len >= 1 && hay[0] == needle {
+            return Some(0);
+        }
+        if len >= 2 && hay[1] == needle {
+            return Some(1);
+        }
+        if len >= 3 && hay[2] == needle {
+            return Some(2);
+        }
+        return None;
     }
-    if zeros == 0 {
-        None
-    } else {
-        Some((zeros.trailing_zeros() / 8) as usize)
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    {
+        use core::arch::x86_64::{
+            _mm_cmpeq_epi8, _mm_loadl_epi64, _mm_movemask_epi8, _mm_set1_epi8,
+        };
+        // SAFETY: SSE2 is baseline on x86-64; reads 8 bytes from hay.
+        let eq = unsafe {
+            let t = _mm_set1_epi8(needle as i8);
+            let h = _mm_loadl_epi64(hay.as_ptr().cast());
+            _mm_movemask_epi8(_mm_cmpeq_epi8(t, h)) as u32
+        };
+        let mask = eq & ((1u32 << len) - 1);
+        if mask == 0 {
+            None
+        } else {
+            Some(mask.trailing_zeros() as usize)
+        }
+    }
+    #[cfg(all(target_arch = "aarch64", not(miri)))]
+    {
+        use core::arch::aarch64::{
+            vceq_u8, vdup_n_u8, vget_lane_u64, vld1_u8, vreinterpret_u64_u8,
+        };
+        // SAFETY: NEON is baseline on AArch64; reads 8 bytes from hay.
+        let eq = unsafe {
+            let t = vdup_n_u8(needle);
+            let h = vld1_u8(hay.as_ptr());
+            vget_lane_u64::<0>(vreinterpret_u64_u8(vceq_u8(t, h)))
+        };
+        let mask = if len == 8 {
+            eq
+        } else {
+            eq & ((1u64 << (len * 8)) - 1)
+        };
+        if mask == 0 {
+            None
+        } else {
+            Some((mask.trailing_zeros() / 8) as usize)
+        }
+    }
+    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    {
+        const LO: u64 = 0x0101_0101_0101_0101;
+        const HI: u64 = 0x8080_8080_8080_8080;
+        let x = u64::from_le_bytes(*hay) ^ (LO.wrapping_mul(needle as u64));
+        let mut zeros = x.wrapping_sub(LO) & !x & HI;
+        if len < 8 {
+            zeros &= (1u64 << (len * 8)) - 1;
+        }
+        if zeros == 0 {
+            None
+        } else {
+            Some((zeros.trailing_zeros() / 8) as usize)
+        }
     }
 }
 
