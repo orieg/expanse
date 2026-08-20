@@ -88,17 +88,32 @@ pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, nee
 /// `keys` must be valid for reads of `KB * pop` bytes.
 #[inline]
 unsafe fn lower_bound_fixed<const KB: usize>(keys: *const u8, pop: usize, needle: u64) -> usize {
-    let (mut lo, mut hi) = (0usize, pop);
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        // SAFETY: mid < pop per the loop bounds and caller contract.
-        if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {
-            lo = mid + 1;
+    if pop <= 2 {
+        if pop == 0 {
+            0
+        } else if pop == 1 {
+            // SAFETY: pop == 1 guarantees slot 0 is in-bounds.
+            (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } < needle) as usize
         } else {
-            hi = mid;
+            // SAFETY: pop == 2 guarantees slots 0 and 1 are in-bounds.
+            let c0 = (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } < needle) as usize;
+            // SAFETY: pop == 2 guarantees slots 0 and 1 are in-bounds.
+            let c1 = (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) } < needle) as usize;
+            c0 + c1
         }
+    } else {
+        let (mut lo, mut hi) = (0usize, pop);
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            // SAFETY: mid < pop per the loop bounds and caller contract.
+            if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
     }
-    lo
 }
 
 /// In-place insert into a set leaf with spare class capacity: shifts keys
