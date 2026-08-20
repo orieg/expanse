@@ -155,6 +155,158 @@ pub const fn find_byte_8(hay: &[u8; 8], len: usize, needle: u8) -> Option<usize>
     }
 }
 
+/// Finds the first index `i < len` where `hay[i] == needle` in a 16-byte buffer.
+///
+/// # Safety
+///
+/// `hay` must point to at least 16 readable bytes.
+#[inline]
+pub(crate) unsafe fn search_16_u8(hay: *const u8, len: usize, needle: u8) -> Option<usize> {
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    {
+        use core::arch::x86_64::{
+            _mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8,
+        };
+        // SAFETY: caller guarantees 16 readable bytes.
+        unsafe {
+            let t = _mm_set1_epi8(needle as i8);
+            let h = _mm_loadu_si128(hay.cast());
+            let mask = _mm_movemask_epi8(_mm_cmpeq_epi8(t, h)) as u32 & ((1u32 << len.min(16)) - 1);
+            if mask == 0 {
+                None
+            } else {
+                Some(mask.trailing_zeros() as usize)
+            }
+        }
+    }
+    #[cfg(all(target_arch = "aarch64", not(miri)))]
+    {
+        // SAFETY: caller guarantees 16 readable bytes.
+        unsafe { find_byte_16_neon(&*(hay as *const [u8; 16]), len, needle) }
+    }
+    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    {
+        for i in 0..len.min(16) {
+            // SAFETY: i < 16 is within the 16 readable bytes.
+            if unsafe { *hay.add(i) } == needle {
+                return Some(i);
+            }
+        }
+        None
+    }
+}
+
+/// Finds the lower bound index `i <= len` where `hay[i] >= needle` in a 16-byte sorted buffer.
+///
+/// # Safety
+///
+/// `hay` must point to at least 16 readable bytes with sorted contents.
+#[inline]
+pub(crate) unsafe fn lower_bound_16_u8(hay: *const u8, len: usize, needle: u8) -> usize {
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    {
+        use core::arch::x86_64::{
+            _mm_cmplt_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8, _mm_xor_si128,
+        };
+        // SAFETY: caller guarantees 16 readable bytes.
+        unsafe {
+            let bias = _mm_set1_epi8(0x80u8 as i8);
+            let v = _mm_loadu_si128(hay.cast());
+            let v_signed = _mm_xor_si128(v, bias);
+            let n_signed = _mm_set1_epi8((needle ^ 0x80) as i8);
+            let lt = _mm_cmplt_epi8(v_signed, n_signed);
+            let mask = _mm_movemask_epi8(lt) as u32 & ((1u32 << len.min(16)) - 1);
+            mask.count_ones() as usize
+        }
+    }
+    #[cfg(any(miri, not(target_arch = "x86_64")))]
+    {
+        for i in 0..len.min(16) {
+            // SAFETY: i < 16 is within the 16 readable bytes.
+            if unsafe { *hay.add(i) } >= needle {
+                return i;
+            }
+        }
+        len.min(16)
+    }
+}
+
+/// Finds the first index `i < len` where `hay[i] == needle` in an 8-element `u16` buffer.
+///
+/// # Safety
+///
+/// `hay` must point to at least 16 readable bytes (8 x u16).
+#[inline]
+pub(crate) unsafe fn search_8_u16(hay: *const u8, len: usize, needle: u16) -> Option<usize> {
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    {
+        use core::arch::x86_64::{
+            _mm_cmpeq_epi16, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi16,
+        };
+        // SAFETY: caller guarantees 16 readable bytes.
+        unsafe {
+            let t = _mm_set1_epi16(needle as i16);
+            let h = _mm_loadu_si128(hay.cast());
+            let mask =
+                _mm_movemask_epi8(_mm_cmpeq_epi16(t, h)) as u32 & ((1u32 << (len.min(8) * 2)) - 1);
+            if mask == 0 {
+                None
+            } else {
+                Some((mask.trailing_zeros() / 2) as usize)
+            }
+        }
+    }
+    #[cfg(any(miri, not(target_arch = "x86_64")))]
+    {
+        for i in 0..len.min(8) {
+            // SAFETY: i < 8 is within the 16 readable bytes.
+            let val = unsafe { (hay.add(i * 2) as *const u16).read_unaligned() };
+            if val == needle {
+                return Some(i);
+            }
+        }
+        None
+    }
+}
+
+/// Finds the first index `i < len` where `hay[i] == needle` in a 4-element `u32` buffer.
+///
+/// # Safety
+///
+/// `hay` must point to at least 16 readable bytes (4 x u32).
+#[inline]
+pub(crate) unsafe fn search_4_u32(hay: *const u8, len: usize, needle: u32) -> Option<usize> {
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    {
+        use core::arch::x86_64::{
+            _mm_cmpeq_epi32, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi32,
+        };
+        // SAFETY: caller guarantees 16 readable bytes.
+        unsafe {
+            let t = _mm_set1_epi32(needle as i32);
+            let h = _mm_loadu_si128(hay.cast());
+            let mask =
+                _mm_movemask_epi8(_mm_cmpeq_epi32(t, h)) as u32 & ((1u32 << (len.min(4) * 4)) - 1);
+            if mask == 0 {
+                None
+            } else {
+                Some((mask.trailing_zeros() / 4) as usize)
+            }
+        }
+    }
+    #[cfg(any(miri, not(target_arch = "x86_64")))]
+    {
+        for i in 0..len.min(4) {
+            // SAFETY: i < 4 is within the 16 readable bytes.
+            let val = unsafe { (hay.add(i * 4) as *const u32).read_unaligned() };
+            if val == needle {
+                return Some(i);
+            }
+        }
+        None
+    }
+}
+
 /// A 256-bit membership set over one decode byte (0x00..=0xFF): the core of
 /// bitmap branches and bitmap leaves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -628,5 +780,69 @@ mod tests {
         assert_eq!(bm.prev_set(255), Some(255));
         assert_eq!(bm.prev_set(254), Some(0));
         assert_eq!(bm.prev_set(0), Some(0));
+    }
+
+    #[test]
+    fn simd_leaf_search_and_lower_bound_parity() {
+        let mut rng = XorShift(0xCAFE_BABE_1234_5678);
+        for _ in 0..10_000 {
+            let mut buf = [0u8; 16];
+            for b in &mut buf {
+                *b = rng.next() as u8;
+            }
+            let needle_u8 = rng.next() as u8;
+            let len = (rng.next() % 17) as usize;
+
+            // search_16_u8
+            // SAFETY: buf is 16 bytes.
+            let actual_search = unsafe { search_16_u8(buf.as_ptr(), len, needle_u8) };
+            let expected_search = buf[..len.min(16)].iter().position(|&b| b == needle_u8);
+            assert_eq!(actual_search, expected_search, "search_16_u8 parity");
+
+            // sorted lower_bound_16_u8
+            buf.sort_unstable();
+            // SAFETY: buf is 16 bytes.
+            let actual_lb = unsafe { lower_bound_16_u8(buf.as_ptr(), len, needle_u8) };
+            let expected_lb = buf[..len.min(16)]
+                .iter()
+                .position(|&b| b >= needle_u8)
+                .unwrap_or(len.min(16));
+            assert_eq!(actual_lb, expected_lb, "lower_bound_16_u8 parity");
+
+            // search_8_u16
+            let needle_u16 = rng.next() as u16;
+            let len_u16 = (rng.next() % 9) as usize;
+            // SAFETY: buf is 16 bytes (8 x u16).
+            let actual_u16 = unsafe { search_8_u16(buf.as_ptr(), len_u16, needle_u16) };
+            let mut expected_u16 = None;
+            for i in 0..len_u16.min(8) {
+                let val = u16::from_ne_bytes([buf[i * 2], buf[i * 2 + 1]]);
+                if val == needle_u16 {
+                    expected_u16 = Some(i);
+                    break;
+                }
+            }
+            assert_eq!(actual_u16, expected_u16, "search_8_u16 parity");
+
+            // search_4_u32
+            let needle_u32 = rng.next() as u32;
+            let len_u32 = (rng.next() % 5) as usize;
+            // SAFETY: buf is 16 bytes (4 x u32).
+            let actual_u32 = unsafe { search_4_u32(buf.as_ptr(), len_u32, needle_u32) };
+            let mut expected_u32 = None;
+            for i in 0..len_u32.min(4) {
+                let val = u32::from_ne_bytes([
+                    buf[i * 4],
+                    buf[i * 4 + 1],
+                    buf[i * 4 + 2],
+                    buf[i * 4 + 3],
+                ]);
+                if val == needle_u32 {
+                    expected_u32 = Some(i);
+                    break;
+                }
+            }
+            assert_eq!(actual_u32, expected_u32, "search_4_u32 parity");
+        }
     }
 }
