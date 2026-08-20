@@ -168,6 +168,65 @@ pub(crate) unsafe fn map_insert_at(
     }
 }
 
+/// Copies a set leaf into `new` (sized for `pop + 1` in its class) with
+/// `key` inserted at `pos` — the class-crossing analogue of
+/// [`set_insert_at`], and the set twin of [`map_realloc_insert`]: two
+/// bulk copies and one packed write instead of materializing every key
+/// into a heap `Vec` and repacking.
+///
+/// # Safety
+///
+/// `old` must be a live set leaf of `pop` keys of `key_bytes` bytes;
+/// `new` must be a fresh allocation of `size_set(key_bytes, pop+1)`
+/// bytes; `pos <= pop`.
+pub(crate) unsafe fn set_realloc_insert(
+    old: *const u8,
+    new: *mut u8,
+    key_bytes: u8,
+    pop: usize,
+    pos: usize,
+    key: u64,
+) {
+    let kb = key_bytes as usize;
+    // SAFETY: bounds per contract; the two allocations are disjoint.
+    unsafe {
+        core::ptr::copy_nonoverlapping(old, new, pos * kb);
+        crate::mutate::write_packed(new, pos, kb, key);
+        core::ptr::copy_nonoverlapping(
+            old.add(pos * kb),
+            new.add((pos + 1) * kb),
+            (pop - pos) * kb,
+        );
+    }
+}
+
+/// Copies a set leaf into `new` (sized for `pop - 1` in its class) with
+/// the key at `pos` removed — see [`set_realloc_insert`].
+///
+/// # Safety
+///
+/// `old` must be a live set leaf of `pop >= 2` keys of `key_bytes`
+/// bytes; `new` must be a fresh allocation of `size_set(key_bytes,
+/// pop-1)` bytes; `pos < pop`.
+pub(crate) unsafe fn set_realloc_remove(
+    old: *const u8,
+    new: *mut u8,
+    key_bytes: u8,
+    pop: usize,
+    pos: usize,
+) {
+    let kb = key_bytes as usize;
+    // SAFETY: bounds per contract; the two allocations are disjoint.
+    unsafe {
+        core::ptr::copy_nonoverlapping(old, new, pos * kb);
+        core::ptr::copy_nonoverlapping(
+            old.add((pos + 1) * kb),
+            new.add(pos * kb),
+            (pop - 1 - pos) * kb,
+        );
+    }
+}
+
 /// Copies a map leaf into `new` (sized for `pop + 1` in its class) with
 /// `key`/`val` inserted at `pos` — the **class-crossing** analogue of
 /// [`map_insert_at`]. Four bulk copies and one packed write.
