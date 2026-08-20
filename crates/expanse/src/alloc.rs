@@ -102,9 +102,7 @@ impl NodeAlloc {
         // SAFETY-adjacent invariant: `align` is a nonzero power of two
         // (both call paths pass a constant or `align_of`), and node/leaf
         // sizes never approach the rounding overflow bound.
-        Layout::from_size_align(bytes, align)
-            .expect("valid node layout")
-            .pad_to_align()
+        Layout::from_size_align(bytes, align).expect("valid node layout")
     }
 
     /// Allocates `bytes` of zeroed memory at `align`.
@@ -121,8 +119,9 @@ impl NodeAlloc {
         let Some(ptr) = NonNull::new(raw) else {
             handle_alloc_error(layout)
         };
+        let accounted_size = layout.pad_to_align().size();
         self.bytes_in_use
-            .fetch_add(layout.size(), Ordering::Relaxed);
+            .fetch_add(accounted_size, Ordering::Relaxed);
         self.live_allocs.fetch_add(1, Ordering::Relaxed);
         self.total_allocs.fetch_add(1, Ordering::Relaxed);
         ptr
@@ -136,19 +135,20 @@ impl NodeAlloc {
     /// **the same `align`**, not yet freed, and nothing may use it after.
     unsafe fn free_raw(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
         let layout = Self::layout_for(bytes, align);
+        let accounted_size = layout.pad_to_align().size();
         if let Some(c) = self.deferred.get() {
             // Deferred mode: the structure no longer references `ptr`,
             // but pinned readers may — reclamation waits out the grace
             // period. The alignment travels with the pointer, because the
             // collector frees it later and elsewhere.
-            c.retire(ptr, layout.size(), align);
+            c.retire(ptr, bytes, align);
         } else {
             // SAFETY: per this function's contract, `ptr`/`layout` match
             // the original allocation.
             unsafe { dealloc(ptr.as_ptr(), layout) };
         }
         self.bytes_in_use
-            .fetch_sub(layout.size(), Ordering::Relaxed);
+            .fetch_sub(accounted_size, Ordering::Relaxed);
         self.live_allocs.fetch_sub(1, Ordering::Relaxed);
     }
 
