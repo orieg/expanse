@@ -223,86 +223,98 @@ impl ExpanseMap {
             Root::Leaf { ptr, pop } => {
                 let (ptr, pop) = (*ptr, *pop);
                 let (keys, vals) = Self::leaf_parts(ptr, pop);
-                match keys.binary_search(&key) {
-                    Ok(at) => {
-                        // SAFETY: in-place value swap.
-                        unsafe {
-                            let slot = vals.add(at);
-                            let old = *slot;
-                            slot.write(val);
-                            Some(old)
+                let (hit, at) = if pop > 0 {
+                    let last = keys[pop - 1];
+                    if key > last {
+                        (false, pop)
+                    } else if key == last {
+                        (true, pop - 1)
+                    } else {
+                        match keys.binary_search(&key) {
+                            Ok(pos) => (true, pos),
+                            Err(pos) => (false, pos),
                         }
                     }
-                    Err(at) if pop < ROOT_LEAF_CAP => {
-                        if leaf_size(pop + 1) == leaf_size(pop) {
-                            // Spare class capacity: shift both areas in
-                            // place, no allocation and no copy of the
-                            // whole leaf.
-                            // SAFETY: same class, so the areas keep their
-                            // offsets and the extra slot is in bounds.
-                            unsafe {
-                                let base = ptr.as_ptr().cast::<u64>();
-                                core::ptr::copy(base.add(at), base.add(at + 1), pop - at);
-                                base.add(at).write(key);
-                                let v = ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>();
-                                core::ptr::copy(v.add(at), v.add(at + 1), pop - at);
-                                v.add(at).write(val);
-                            }
-                            self.root = Root::Leaf { ptr, pop: pop + 1 };
-                            return None;
-                        }
-                        let new = self.alloc.alloc_bytes(leaf_size(pop + 1));
-                        // SAFETY: copy keys and values around the insertion
-                        // point into the fresh (pop + 1)-entry leaf.
-                        unsafe {
-                            let nk = new.as_ptr().cast::<u64>();
-                            nk.copy_from_nonoverlapping(keys.as_ptr(), at);
-                            nk.add(at).write(key);
-                            nk.add(at + 1)
-                                .copy_from_nonoverlapping(keys.as_ptr().add(at), pop - at);
-                            let nv = new.as_ptr().add(leaf_values_offset(pop + 1)).cast::<u64>();
-                            nv.copy_from_nonoverlapping(vals, at);
-                            nv.add(at).write(val);
-                            nv.add(at + 1)
-                                .copy_from_nonoverlapping(vals.add(at), pop - at);
-                            self.alloc.free_bytes(ptr, leaf_size(pop));
-                        }
-                        self.root = Root::Leaf {
-                            ptr: new,
-                            pop: pop + 1,
-                        };
-                        None
+                } else {
+                    (false, 0)
+                };
+                if hit {
+                    // SAFETY: in-place value swap.
+                    unsafe {
+                        let slot = vals.add(at);
+                        let old = *slot;
+                        slot.write(val);
+                        return Some(old);
                     }
-                    Err(_) => {
-                        // Root leaf overflow: build the level-8 trie.
-                        let mut top = Edge::NULL;
-                        for (at, &k) in keys.iter().enumerate() {
-                            // SAFETY: trie built and owned by self.alloc;
-                            // values read in-bounds.
-                            let prev = unsafe {
-                                mutate_map::map_insert_dyn::<false>(
-                                    &self.alloc,
-                                    &mut top,
-                                    k,
-                                    *vals.add(at),
-                                    8,
-                                )
-                            };
-                            debug_assert!(prev.0.is_none());
+                }
+                if pop < ROOT_LEAF_CAP {
+                    if leaf_size(pop + 1) == leaf_size(pop) {
+                        // Spare class capacity: shift both areas in
+                        // place, no allocation and no copy of the
+                        // whole leaf.
+                        // SAFETY: same class, so the areas keep their
+                        // offsets and the extra slot is in bounds.
+                        unsafe {
+                            let base = ptr.as_ptr().cast::<u64>();
+                            core::ptr::copy(base.add(at), base.add(at + 1), pop - at);
+                            base.add(at).write(key);
+                            let v = ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>();
+                            core::ptr::copy(v.add(at), v.add(at + 1), pop - at);
+                            v.add(at).write(val);
                         }
-                        // SAFETY: same trie.
+                        self.root = Root::Leaf { ptr, pop: pop + 1 };
+                        return None;
+                    }
+                    let new = self.alloc.alloc_bytes(leaf_size(pop + 1));
+                    // SAFETY: copy keys and values around the insertion
+                    // point into the fresh (pop + 1)-entry leaf.
+                    unsafe {
+                        let nk = new.as_ptr().cast::<u64>();
+                        nk.copy_from_nonoverlapping(keys.as_ptr(), at);
+                        nk.add(at).write(key);
+                        nk.add(at + 1)
+                            .copy_from_nonoverlapping(keys.as_ptr().add(at), pop - at);
+                        let nv = new.as_ptr().add(leaf_values_offset(pop + 1)).cast::<u64>();
+                        nv.copy_from_nonoverlapping(vals, at);
+                        nv.add(at).write(val);
+                        nv.add(at + 1)
+                            .copy_from_nonoverlapping(vals.add(at), pop - at);
+                        self.alloc.free_bytes(ptr, leaf_size(pop));
+                    }
+                    self.root = Root::Leaf {
+                        ptr: new,
+                        pop: pop + 1,
+                    };
+                    None
+                } else {
+                    // Root leaf overflow: build the level-8 trie.
+                    let mut top = Edge::NULL;
+                    for (at, &k) in keys.iter().enumerate() {
+                        // SAFETY: trie built and owned by self.alloc;
+                        // values read in-bounds.
                         let prev = unsafe {
-                            mutate_map::map_insert_dyn::<false>(&self.alloc, &mut top, key, val, 8)
+                            mutate_map::map_insert_dyn::<false>(
+                                &self.alloc,
+                                &mut top,
+                                k,
+                                *vals.add(at),
+                                8,
+                            )
                         };
                         debug_assert!(prev.0.is_none());
-                        // SAFETY: old root leaf no longer referenced.
-                        unsafe { self.alloc.free_bytes(ptr, leaf_size(pop)) };
-                        self.root = Root::Tree {
-                            top,
-                            pop: pop as u64 + 1,
-                        };
-                        None
                     }
+                    // SAFETY: same trie.
+                    let prev = unsafe {
+                        mutate_map::map_insert_dyn::<false>(&self.alloc, &mut top, key, val, 8)
+                    };
+                    debug_assert!(prev.0.is_none());
+                    // SAFETY: old root leaf no longer referenced.
+                    unsafe { self.alloc.free_bytes(ptr, leaf_size(pop)) };
+                    self.root = Root::Tree {
+                        top,
+                        pop: pop as u64 + 1,
+                    };
+                    None
                 }
             }
             Root::Tree { top, pop } => {

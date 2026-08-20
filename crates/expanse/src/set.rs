@@ -136,8 +136,21 @@ impl ExpanseSet {
                 // SAFETY: root leaf holds `pop` keys.
                 let slice =
                     unsafe { core::slice::from_raw_parts(keys.as_ptr().cast::<u64>(), pop) };
-                let Err(at) = slice.binary_search(&key) else {
-                    return false;
+                let at = if pop > 0 {
+                    // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
+                    let last = unsafe { *keys.as_ptr().cast::<u64>().add(pop - 1) };
+                    if key > last {
+                        pop
+                    } else if key == last {
+                        return false;
+                    } else {
+                        let Err(at) = slice.binary_search(&key) else {
+                            return false;
+                        };
+                        at
+                    }
+                } else {
+                    0
                 };
                 if pop < ROOT_LEAF_CAP {
                     if root_leaf_size(pop + 1) == root_leaf_size(pop) {
