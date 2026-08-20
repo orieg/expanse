@@ -155,6 +155,23 @@ fn test_benchmark_coverage_sync() {
             "docs/architecture_visualizer.html must include benchmark entries for {bench}"
         );
     }
+
+    // Verify Drop-In C-Compat ABI Benchmark coverage
+    let expected_c_benches = ["JudyLGet", "Judy1Set", "JudyLIns", "Judy1Test", "JudyLDel"];
+    for c_bench in expected_c_benches {
+        assert!(
+            json_content.contains(c_bench),
+            "docs/visualizer_data.json must include C ABI benchmark entries for {c_bench}"
+        );
+        assert!(
+            html_content.contains(c_bench),
+            "docs/architecture_visualizer.html must include C ABI benchmark entries for {c_bench}"
+        );
+    }
+    assert!(
+        html_content.contains("STOCK_VS_EXPANSE_DATA"),
+        "docs/architecture_visualizer.html must define STOCK_VS_EXPANSE_DATA"
+    );
 }
 
 #[test]
