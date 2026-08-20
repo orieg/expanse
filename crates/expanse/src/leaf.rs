@@ -88,7 +88,10 @@ pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, nee
 /// `keys` must be valid for reads of `KB * pop` bytes.
 #[inline]
 unsafe fn lower_bound_fixed<const KB: usize>(keys: *const u8, pop: usize, needle: u64) -> usize {
-    if pop <= 2 {
+    if KB == 1 && (13..=16).contains(&pop) {
+        // SAFETY: cap_class(pop >= 13) is 16, so keys holds at least 16 bytes.
+        unsafe { crate::bits::lower_bound_16_u8(keys, pop, needle as u8) }
+    } else if pop <= 2 {
         if pop == 0 {
             0
         } else if pop == 1 {
@@ -350,7 +353,16 @@ pub(crate) unsafe fn map_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos
 /// `keys` must be valid for reads of `KB * pop` bytes.
 #[inline]
 unsafe fn search_fixed<const KB: usize>(keys: *const u8, pop: usize, key: Key) -> Option<usize> {
-    if pop <= 4 {
+    if KB == 1 && (13..=16).contains(&pop) {
+        // SAFETY: cap_class(pop >= 13) is 16, so keys holds at least 16 bytes.
+        unsafe { crate::bits::search_16_u8(keys, pop, key as u8) }
+    } else if KB == 2 && pop == 8 {
+        // SAFETY: cap_class(8) * 2 is 16, so keys holds at least 16 bytes.
+        unsafe { crate::bits::search_8_u16(keys, pop, key as u16) }
+    } else if KB == 4 && pop == 4 {
+        // SAFETY: cap_class(4) * 4 is 16, so keys holds at least 16 bytes.
+        unsafe { crate::bits::search_4_u32(keys, pop, key as u32) }
+    } else if pop <= 4 {
         let le = key.to_le_bytes();
         let mut needle = [0u8; KB];
         needle.copy_from_slice(&le[..KB]);
