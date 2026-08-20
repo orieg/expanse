@@ -97,6 +97,7 @@ impl NodeAlloc {
         self.total_allocs.load(Ordering::Relaxed)
     }
 
+    #[inline(always)]
     fn layout_for(bytes: usize, align: usize) -> Layout {
         debug_assert!(bytes > 0);
         // SAFETY-adjacent invariant: `align` is a nonzero power of two
@@ -112,6 +113,7 @@ impl NodeAlloc {
     /// leak. The two public pairs below are what keeps that structural
     /// rather than remembered: `alloc_bytes`/`free_bytes` are always
     /// [`RAW_ALIGN`], `alloc_node`/`free_node` are always `align_of::<T>()`.
+    #[inline(always)]
     fn alloc_raw(&self, bytes: usize, align: usize) -> NonNull<u8> {
         let layout = Self::layout_for(bytes, align);
         // SAFETY: `layout` has nonzero size (asserted in `layout_for`).
@@ -119,7 +121,9 @@ impl NodeAlloc {
         let Some(ptr) = NonNull::new(raw) else {
             handle_alloc_error(layout)
         };
-        self.bytes_in_use.fetch_add(bytes, Ordering::Relaxed);
+        let accounted_size = (bytes + (align - 1)) & !(align - 1);
+        self.bytes_in_use
+            .fetch_add(accounted_size, Ordering::Relaxed);
         self.live_allocs.fetch_add(1, Ordering::Relaxed);
         self.total_allocs.fetch_add(1, Ordering::Relaxed);
         ptr
@@ -131,7 +135,10 @@ impl NodeAlloc {
     ///
     /// `ptr` must come from `alloc_raw(bytes, align)` on this handle with
     /// **the same `align`**, not yet freed, and nothing may use it after.
+    #[inline(always)]
     unsafe fn free_raw(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
+        let layout = Self::layout_for(bytes, align);
+        let accounted_size = (bytes + (align - 1)) & !(align - 1);
         if let Some(c) = self.deferred.get() {
             // Deferred mode: the structure no longer references `ptr`,
             // but pinned readers may — reclamation waits out the grace
@@ -139,12 +146,12 @@ impl NodeAlloc {
             // collector frees it later and elsewhere.
             c.retire(ptr, bytes, align);
         } else {
-            let layout = Self::layout_for(bytes, align);
             // SAFETY: per this function's contract, `ptr`/`layout` match
             // the original allocation.
             unsafe { dealloc(ptr.as_ptr(), layout) };
         }
-        self.bytes_in_use.fetch_sub(bytes, Ordering::Relaxed);
+        self.bytes_in_use
+            .fetch_sub(accounted_size, Ordering::Relaxed);
         self.live_allocs.fetch_sub(1, Ordering::Relaxed);
     }
 
@@ -152,6 +159,7 @@ impl NodeAlloc {
     /// packed leaves and subarrays, at [`RAW_ALIGN`]. Never use this for a
     /// type that declares a stronger alignment; that is `alloc_node`.
     #[must_use]
+    #[inline(always)]
     pub fn alloc_bytes(&self, bytes: usize) -> NonNull<u8> {
         self.alloc_raw(bytes, RAW_ALIGN)
     }
@@ -162,6 +170,7 @@ impl NodeAlloc {
     ///
     /// `ptr` must come from `alloc_bytes(bytes)` on this handle, not yet
     /// freed, and nothing may use it afterwards.
+    #[inline(always)]
     pub unsafe fn free_bytes(&self, ptr: NonNull<u8>, bytes: usize) {
         // SAFETY: `alloc_bytes` is the only producer of these pointers and
         // always uses RAW_ALIGN, so the layout matches.
@@ -223,6 +232,7 @@ impl NodeAlloc {
 
     /// Allocates a node and moves `init` into it.
     #[must_use]
+    #[inline(always)]
     pub fn alloc_node<T>(&self, init: T) -> NonNull<T> {
         debug_assert!(align_of::<T>() <= CACHE_LINE);
         // `align_of::<T>()`, NOT `alloc_bytes`: the six `repr(C, align(64))`
@@ -240,7 +250,7 @@ impl NodeAlloc {
     ///
     /// This is useful for construct-in-place node initialization, which avoids
     /// stack-allocation and copy overhead.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub fn alloc_node_zeroed<T>(&self) -> NonNull<T> {
         debug_assert!(align_of::<T>() <= CACHE_LINE);
@@ -253,6 +263,7 @@ impl NodeAlloc {
     ///
     /// `ptr` must come from `alloc_node::<T>` on this handle, not yet
     /// freed, and nothing may use it afterwards.
+    #[inline(always)]
     pub unsafe fn free_node<T>(&self, ptr: NonNull<T>) {
         // SAFETY: `ptr` holds a live T per this function's contract.
         unsafe { ptr.drop_in_place() };
@@ -345,7 +356,7 @@ mod tests {
         let n3 = a.alloc_node(BranchU::new());
         let n4 = a.alloc_node_zeroed::<BranchL3>();
         let leaf = a.alloc_bytes(21);
-        assert_eq!(a.bytes_in_use(), 64 + 128 + 4160 + 64 + 21);
+        assert_eq!(a.bytes_in_use(), 64 + 128 + 4160 + 64 + 32);
         assert_eq!(a.live_allocs(), 5);
 
         // Alignment is now per kind, and the distinction is load-bearing:
