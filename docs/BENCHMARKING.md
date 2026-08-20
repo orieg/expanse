@@ -161,11 +161,11 @@ Interpretation rules, so the comment is not over-read:
 
 | dist | pop 1k | pop 100k | pop 1M | |
 |---|---|---|---|---|
-| sequential (set) | 0.32 | 0.07 | **0.06** | full-expanse + bitmap-leaf compression |
+| sequential (set) | 0.32 | 0.07 | **0.07** | full-expanse + bitmap-leaf compression |
 | clustered 256-run (set) | 0.38 | 0.37 | **0.36** | was 1.34 before leaf-targeted narrow pointers — a 3.7× improvement |
 | clustered 4096-run (set) | 0.32 | 0.12 | **0.12** | was 0.64 / 0.20 / 0.19 before **branch-targeted** narrow pointers (divergence-level branch placement + `split_skip`) |
-| random (set) | 12.27 | 13.69 | 7.65 | not part of the dense/clustered target |
-| sparse `i << 40` (set) | 16.58 | 16.07 | **16.06** | one 16-byte edge per isolated key — the structural floor, not a chain cost (immediates absorb the remainders) |
+| random (set) | 12.34 | 13.83 | 7.66 | not part of the dense/clustered target |
+| sparse `i << 40` (set) | 16.83 | 16.32 | **16.31** | one 16-byte edge per isolated key — the structural floor, not a chain cost (immediates absorb the remainders) |
 
 Map-flavor figures run ~8 B/key above the set figures (the stored value word). The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names. Unit-level anchor for the branch-targeted work: two 512-key clusters cost 192 structural bytes vs 960 under per-level chains (`branch_skip_clusters` tests, both flavors).
 
