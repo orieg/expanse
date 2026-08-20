@@ -71,6 +71,18 @@ Performance claims are this project's reason to exist, so they follow the strict
    `.so` ratio as the headline and the rlib−`.so` difference as an
    explicit correction factor.
 
+0c. **The estimated-cycles column is a regression alarm, never an
+   adjudicator across inlining changes.** Callgrind's model
+   (`cycles = L1hits + 5·LLhits + 35·RAMhits`) charges every instruction
+   fetch one cycle with zero overlap, so it over-punishes outlining (fetch
+   *volume* rises even when misses are flat) and cannot see latency wins
+   at all (replacing a 12-instruction serially dependent SWAR chain with
+   one 3-cycle `popcnt` barely moves it). PR #19 measured this concretely:
+   +9% "cycles" on arms whose misses were flat, from outlining alone. Use
+   est-cycles to compare same-shape code; the moment a change moves code
+   across an inlining boundary, decide on instruction counts plus real
+   hardware counters, not on this model.
+
 1. **Interleaved A/B arms.** Any A-vs-B comparison (regression check, libjudy comparison, before/after a change) alternates arms per benchmark group over several rounds — never suite-A-then-suite-B. Runner/thermal drift then hits both arms and cancels in the paired ratio. (Learned the hard way in php-judy — back-to-back suites reported false regressions; see php-judy issue #87 and its `bench-compare` harness.)
 2. **System-load hygiene.** Before the first run and between comparison runs, snapshot load (`ps -A -o %cpu,%mem,command | sort -rn | head`; load average vs core count). A non-target process above ~100% CPU, or a load-average shift > 2 between arms, contaminates the run: discard it, don't reinterpret it. Laptops running concurrent sessions are shared infrastructure.
 3. **CI benches detect changes, not truths.** CI runners produce paired ratios good for regression alarms. Publishable absolute numbers (README/claims) come from a dedicated quiet host with the hardware named.

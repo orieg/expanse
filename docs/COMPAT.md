@@ -14,6 +14,19 @@
 | Compat header | `Judy.h` (source-compatible with classic libjudy) |
 | Distro packages (planned) | `libexpanse-dev`, `libexpanse1`, and `libjudy-compat` (symlinks `libJudy.so.1` → `libexpanse.so.1` and installs the `Judy.h` alias) |
 
+### hwcaps sub-package (planned)
+
+The shipped `.so` targets baseline x86-64, with `popcnt` reached through
+runtime dispatch at the lookup entries (one predicted branch per call;
+see `get.rs`). For glibc distros, a companion build compiled with
+`-C target-cpu=x86-64-v2` installed under `.../glibc-hwcaps/x86-64-v2/`
+lets the dynamic loader pick the fused, dispatch-free binary
+automatically on capable CPUs (glibc ≥ 2.33) — the same idiom glibc
+itself uses. The `cfg(not(target_feature = "popcnt"))` guards compile
+the dispatch and both clones out of that build entirely. musl (Alpine)
+has no hwcaps and no IFUNC: it keeps the runtime-dispatch binary, which
+is why the dispatch exists at all.
+
 ## Clean-room rules (binding)
 
 1. The original libjudy is LGPL. **Never read, consult, or port its source.**

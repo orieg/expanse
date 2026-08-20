@@ -162,6 +162,54 @@ pub struct Bitmap256 {
     words: [u64; 4],
 }
 
+/// Runtime `popcnt` dispatch (x86-64 only).
+///
+/// The x86-64 baseline target does not include `popcnt`, so
+/// `u64::count_ones` lowers to a ~12-instruction SWAR sequence — paid
+/// four times per `Bitmap256::count`, once per word in `rank`, once per
+/// `subexpanse_rank`. Dense distributions terminate in bitmap leaves
+/// exclusively (see docs/BENCHMARKING.md's terminal-form census), so
+/// every dense lookup pays this on its hot path.
+///
+/// Detection is cached in a relaxed atomic: 0 = unknown, 1 = absent,
+/// 2 = present. The per-call cost after the first is one load and one
+/// perfectly predicted branch. Detection granularity is the whole
+/// bitmap *operation* (`#[target_feature]` clones whose bodies adopt the
+/// feature via `#[inline(always)]` — plain `#[inline]` is advisory
+/// within one crate and does not guarantee the adoption), per issue #1's
+/// review: a function pointer per `count_ones` would cost more than the
+/// SWAR it replaces.
+///
+/// Non-x86-64 targets (aarch64 `cnt` is baseline) compile the portable
+/// bodies directly with no dispatch.
+#[cfg(target_arch = "x86_64")]
+pub(crate) mod popcnt_rt {
+    use core::sync::atomic::{AtomicU8, Ordering};
+
+    static STATE: AtomicU8 = AtomicU8::new(0);
+
+    #[inline]
+    pub(crate) fn available() -> bool {
+        match STATE.load(Ordering::Relaxed) {
+            2 => true,
+            1 => false,
+            _ => detect(),
+        }
+    }
+
+    /// First-call CPUID probe, outlined so the dispatchers' fast path is
+    /// exactly one load and one predicted branch — the
+    /// `is_x86_feature_detected!` expansion would otherwise be inlined
+    /// into every lookup entry (review finding, PR #19).
+    #[cold]
+    #[inline(never)]
+    fn detect() -> bool {
+        let yes = std::arch::is_x86_feature_detected!("popcnt");
+        STATE.store(if yes { 2 } else { 1 }, Ordering::Relaxed);
+        yes
+    }
+}
+
 impl Bitmap256 {
     /// The empty set.
     #[must_use]
@@ -205,7 +253,15 @@ impl Bitmap256 {
     }
 
     /// Number of members present.
-    #[inline]
+    ///
+    /// `inline(always)`: this must fold into its caller so that a
+    /// `#[target_feature(enable = "popcnt")]` caller compiles the
+    /// `count_ones` calls with the feature — dispatch lives at walk
+    /// granularity (see `get::walk`), NOT here. A per-operation clone
+    /// was measured and REGRESSED every arm: `target_feature` functions
+    /// cannot inline into feature-less callers, so each rank became a
+    /// real call in what had been a fused descent.
+    #[inline(always)]
     #[must_use]
     pub const fn count(&self) -> u32 {
         self.words[0].count_ones()
@@ -223,7 +279,7 @@ impl Bitmap256 {
 
     /// Number of members strictly below `idx` — the packed-array slot of
     /// `idx` in a bitmap branch/leaf.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn rank(&self, idx: u8) -> u32 {
         let w = (idx >> 6) as usize;
@@ -241,7 +297,7 @@ impl Bitmap256 {
     /// (`idx & !31 ..= idx - 1`) — the packed-subarray slot in bitmap
     /// branches and bitmap map-leaves, whose child/value arrays are one per
     /// 32-digit subexpanse.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn subexpanse_rank(&self, idx: u8) -> u32 {
         let word = self.words[(idx >> 6) as usize];
@@ -253,7 +309,7 @@ impl Bitmap256 {
 
     /// Number of members inside one 32-digit subexpanse (`sub` in 0..8) —
     /// the length of that subexpanse's packed child/value array.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn subexpanse_count(&self, sub: usize) -> u32 {
         let word = self.words[sub >> 1];
@@ -323,6 +379,54 @@ impl Bitmap256 {
 
 #[cfg(test)]
 mod tests {
+
+    /// SIMD/intrinsic parity rule (docs/TESTING.md): the `popcnt`
+    /// dispatch path must agree with the portable body on every
+    /// operation, for a spread of bitmap densities and every index.
+    /// On a CPU with `popcnt` this exercises the `#[target_feature]`
+    /// clones against the SWAR bodies; without one, both sides are the
+    /// portable body and the test degenerates to a tautology — which is
+    /// the correct behaviour, not a gap (there is no second path to
+    /// diverge).
+    #[test]
+    fn popcnt_dispatch_parity() {
+        let mut rng = 0x00C0_FFEEu64;
+        let mut bitmaps: Vec<Bitmap256> = Vec::new();
+        bitmaps.push(Bitmap256::new());
+        let mut full = Bitmap256::new();
+        let mut i = 0u32;
+        while i < 256 {
+            full.set(i as u8);
+            i += 1;
+        }
+        bitmaps.push(full);
+        for density in [4u32, 32, 128, 250] {
+            let mut b = Bitmap256::new();
+            for _ in 0..density {
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                b.set((rng & 0xFF) as u8);
+            }
+            bitmaps.push(b);
+        }
+        for b in &bitmaps {
+            let naive_count: u32 = (0u32..256).filter(|&i| b.test(i as u8)).count() as u32;
+            assert_eq!(b.count(), naive_count);
+            for idx in 0..=255u8 {
+                let naive_rank = (0..idx).filter(|&i| b.test(i)).count() as u32;
+                assert_eq!(b.rank(idx), naive_rank, "rank({idx})");
+                let base = idx & !31;
+                let naive_sub = (base..idx).filter(|&i| b.test(i)).count() as u32;
+                assert_eq!(b.subexpanse_rank(idx), naive_sub, "subexpanse_rank({idx})");
+            }
+            for sub in 0..8usize {
+                let lo = (sub * 32) as u16;
+                let naive = (lo..lo + 32).filter(|&i| b.test(i as u8)).count() as u32;
+                assert_eq!(b.subexpanse_count(sub), naive);
+            }
+        }
+    }
     use super::*;
 
     /// Deterministic xorshift so parity sweeps are reproducible without an
