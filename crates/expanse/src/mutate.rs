@@ -1603,4 +1603,3 @@ pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edg
     }
     *edge = Edge::NULL;
 }
-
