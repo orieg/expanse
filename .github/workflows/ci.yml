@@ -535,19 +535,24 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          printf "%s
-" "$PR_BODY" > pr-body.txt
-          python3 scripts/perf_report.py             --head instruction-counts.txt             --base base-counts.txt             --bytes bytes-per-key.txt             --vs-stock vs-stock.txt             --v3 v3-counts.txt             --base-ref "${{ github.base_ref }}"             --pr-body-file pr-body.txt             --fail-on-regression > perf-report.md
+          printf "%s\n" "$PR_BODY" > pr-body.txt
+          python3 scripts/perf_report.py \
+            --head instruction-counts.txt \
+            --base base-counts.txt \
+            --bytes bytes-per-key.txt \
+            --vs-stock vs-stock.txt \
+            --v3 v3-counts.txt \
+            --base-ref "${{ github.base_ref }}" \
+            --pr-body-file pr-body.txt \
+            --fail-on-regression > perf-report.md
           cat perf-report.md
 
       - name: Skip profiling for docs-only PR
         if: steps.filter.outputs.code_changed == 'false' && github.event_name == 'pull_request'
         run: |
-          cat << 'EOF' > perf-report.md
-### Deterministic Instruction-Count Benchmarks
-
-> ℹ️ **Docs-only change**: Callgrind benchmark profiling skipped.
-EOF
+          echo "### Deterministic Instruction-Count Benchmarks" > perf-report.md
+          echo "" >> perf-report.md
+          echo "> ℹ️ **Docs-only change**: Callgrind benchmark profiling skipped." >> perf-report.md
 
       - name: Comment on the PR
         if: always() && github.event_name == 'pull_request' && hashFiles('perf-report.md') != ''
