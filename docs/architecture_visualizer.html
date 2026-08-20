@@ -400,7 +400,107 @@
       margin: -6px 0;
     }
 
-    /* Modal / Drawer for Node Details */
+    /* 64-Bit Digit Strip & Subarray Architecture */
+    .digit-strip {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 6px;
+      margin: 10px 0;
+    }
+    @media (max-width: 900px) {
+      .digit-strip { grid-template-columns: repeat(4, 1fr); }
+    }
+    .digit-col {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 4px;
+      text-align: center;
+      font-size: 11px;
+      transition: all 0.2s ease;
+    }
+    .digit-col.active {
+      border-color: var(--accent);
+      background: rgba(56, 189, 248, 0.12);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+    }
+    .digit-col.active .digit-num { color: #fff; }
+    .digit-col.bypass {
+      border-color: var(--accent-green);
+      background: rgba(16, 185, 129, 0.12);
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+    }
+    .digit-col.bypass .digit-num { color: #fff; }
+    .digit-num {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-weight: 700;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+    .digit-range {
+      font-size: 9px;
+      color: var(--text-muted);
+      margin: 2px 0 4px 0;
+      font-family: monospace;
+    }
+    .digit-role {
+      font-size: 9px;
+      padding: 2px 4px;
+      border-radius: 3px;
+      background: #1e293b;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .digit-col.active .digit-role {
+      background: #0284c7;
+      color: #fff;
+    }
+    .digit-col.bypass .digit-role {
+      background: #059669;
+      color: #fff;
+    }
+    .subarray-grid {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 5px;
+      margin: 8px 0;
+    }
+    @media (max-width: 900px) {
+      .subarray-grid { grid-template-columns: repeat(4, 1fr); }
+    }
+    .subarray-box {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 5px;
+      padding: 6px 2px;
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .subarray-box strong { color: var(--accent); }
+    .depth-compare-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 8px;
+    }
+    @media (max-width: 900px) {
+      .depth-compare-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    .depth-card {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      transition: all 0.2s ease;
+    }
+    .depth-card.highlight {
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+      background: rgba(56, 189, 248, 0.08);
+    }
     .modal-overlay {
       display: none;
       position: fixed;
@@ -645,6 +745,12 @@
               <marker id="arrow-green" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="#10b981"/>
               </marker>
+              <marker id="arrow-purple" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#a855f7"/>
+              </marker>
+              <marker id="arrow-orange" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#f97316"/>
+              </marker>
             </defs>
           </svg>
 
@@ -667,7 +773,7 @@
 
           <!-- Top Level-8 Branch -->
           <div class="dag-node" id="node-top-branch" style="top: 185px; left: 62%;" onclick="inspectNode('top_branch')">
-            <div class="dag-node-title"><span>Top-Level Branch</span> <span class="step-badge">Level 8</span></div>
+            <div class="dag-node-title"><span>Top-Level Branch</span> <span class="step-badge" id="badge-top-branch">Level 8</span></div>
             <div class="dag-node-desc">256-ary digital trie router dispatching digit 8.</div>
           </div>
 
@@ -678,7 +784,7 @@
           </div>
 
           <div class="dag-node" id="node-branch-b" style="top: 270px; left: 56%;" onclick="inspectNode('branch_b')">
-            <div class="dag-node-title"><span>Bitmap Branch B</span> <span class="step-badge">Fanout 8..180</span></div>
+            <div class="dag-node-title"><span>Bitmap Branch B</span> <span class="step-badge" id="badge-branch-b">Fanout 8..180</span></div>
             <div class="dag-node-desc">256-bit bitmap + 8 subarray pointers (POPCNT).</div>
           </div>
 
@@ -715,6 +821,78 @@
         </div>
         <div class="flow-container" id="flow-pipeline">
           <!-- Dynamically Injected -->
+        </div>
+
+        <!-- Digital Trie Level Hierarchy & Subarray Mapping Architecture -->
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-title">
+            <span>🌲 Digital Trie Level Hierarchy & 8-Way Subarray Architecture</span>
+            <span class="step-badge highlight" id="trie-depth-badge">Active Depth: 1 Level</span>
+          </div>
+          <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
+            A 64-bit key is partitioned into 8 8-bit digits (<code class="code-tag">d8..d1</code>). Each level in the digital trie routes one digit via an adaptive node form.
+          </div>
+
+          <!-- 64-Bit Key 8-Digit Breakdown -->
+          <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">
+            64-Bit Key Digit Breakdown & Active Traversal Path:
+          </div>
+          <div class="digit-strip" id="digit-strip">
+            <!-- Dynamically rendered 8 digits -->
+          </div>
+
+          <!-- Subarray 8-Way Partitioning Architecture -->
+          <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px; margin-top:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-size:12px; font-weight:600; color:#fff;">Bitmap Subexpanse Architecture (256 bits → 8 Subarrays × 32 bits)</span>
+              <span class="step-badge purple">POPCNT Rank Acceleration</span>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
+              Each 256-ary branch/leaf splits 256 keys into 8 32-bit subexpanses. Hardware POPCNT computes the array slot index: <code class="code-tag">slot = _mm_popcnt_u64(sub_bitmap & mask)</code>.
+            </div>
+            <div class="subarray-grid">
+              <div class="subarray-box"><strong>Sub 0</strong><br>Bits 0..31</div>
+              <div class="subarray-box"><strong>Sub 1</strong><br>Bits 32..63</div>
+              <div class="subarray-box"><strong>Sub 2</strong><br>Bits 64..95</div>
+              <div class="subarray-box"><strong>Sub 3</strong><br>Bits 96..127</div>
+              <div class="subarray-box"><strong>Sub 4</strong><br>Bits 128..159</div>
+              <div class="subarray-box"><strong>Sub 5</strong><br>Bits 160..191</div>
+              <div class="subarray-box"><strong>Sub 6</strong><br>Bits 192..223</div>
+              <div class="subarray-box"><strong>Sub 7</strong><br>Bits 224..255</div>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:8px; line-height:1.5;" id="subarray-explanation">
+              <!-- Dynamic explanation of what happens after bitmap leaf vs branch -->
+            </div>
+          </div>
+
+          <!-- Population Regime & Depth Comparison Matrix -->
+          <div style="margin-top:16px;">
+            <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">
+              Multi-Level Trie Scaling: 1K vs 10K vs 100K vs 1M Keys
+            </div>
+            <div class="depth-compare-grid">
+              <div class="depth-card" id="depth-card-1k">
+                <div style="font-size:12px; font-weight:700; color:var(--accent);">1,000 Keys</div>
+                <div style="font-size:10px; color:#10b981; font-weight:600; margin:2px 0;">2 Levels (d8 → d7 → Leaf)</div>
+                <div style="font-size:11px; color:var(--text-muted);">Root JPM dispatches Digit 8 to Level 7 Branch. Subarray edges directly point to terminal Bitmap/Linear Leaves.</div>
+              </div>
+              <div class="depth-card" id="depth-card-10k">
+                <div style="font-size:12px; font-weight:700; color:var(--accent);">10,000 Keys</div>
+                <div style="font-size:10px; color:#3b82f6; font-weight:600; margin:2px 0;">3 Levels (d8 → d7 → d6 → Leaf)</div>
+                <div style="font-size:11px; color:var(--text-muted);">Level 7 branch subarray pointers descend into Level 6 branches before terminating at leaves.</div>
+              </div>
+              <div class="depth-card" id="depth-card-100k">
+                <div style="font-size:12px; font-weight:700; color:var(--accent);">100,000 Keys</div>
+                <div style="font-size:10px; color:#a855f7; font-weight:600; margin:2px 0;">5 Levels (d8 → d7 → d6 → d5 → d4)</div>
+                <div style="font-size:11px; color:var(--text-muted);">Cascading intermediate branches. Memory stays compact at 0.36 B/k (set) and 8.56 B/k (map).</div>
+              </div>
+              <div class="depth-card" id="depth-card-1m">
+                <div style="font-size:12px; font-weight:700; color:var(--accent);">1,000,000 Keys</div>
+                <div style="font-size:10px; color:#f97316; font-weight:600; margin:2px 0;">8 Levels (Full 64-bit Depth)</div>
+                <div style="font-size:11px; color:var(--text-muted);">Full 8-level trie depth. Sequential Run Bypass skips all 8 levels directly to LeafB1 on monotonic streams.</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </main>
@@ -1466,6 +1644,12 @@
     const canvasRect = hCanvas.getBoundingClientRect();
     if (canvasRect.width === 0) return;
 
+    const milestoneIdx = Math.min(Math.max(parseInt(popSlider.value, 10), 0), POP_MILESTONES.length - 1);
+    const pop = POP_MILESTONES[milestoneIdx].pop;
+    const dist = distSelect.value;
+    const op = opSelect.value;
+    const isSequentialBypass = op === "insert" && dist === "sequential" && pop > 31;
+
     hSvg.innerHTML = `
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -1474,10 +1658,16 @@
         <marker id="arrow-green" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
           <path d="M 0 0 L 10 5 L 0 10 z" fill="#10b981"/>
         </marker>
+        <marker id="arrow-purple" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#a855f7"/>
+        </marker>
+        <marker id="arrow-orange" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#f97316"/>
+        </marker>
       </defs>
     `;
 
-    const connect = (fromId, toId, color = "#3b82f6", marker = "arrow") => {
+    const connect = (fromId, toId, color = "#3b82f6", marker = "arrow", dash = "") => {
       const fromEl = document.getElementById(fromId);
       const toEl = document.getElementById(toId);
       if (!fromEl || !toEl) return;
@@ -1496,6 +1686,7 @@
       path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`);
       path.setAttribute('stroke', color);
       path.setAttribute('stroke-width', '2');
+      if (dash) path.setAttribute('stroke-dasharray', dash);
       path.setAttribute('fill', 'none');
       path.setAttribute('marker-end', `url(#${marker})`);
       hSvg.appendChild(path);
@@ -1511,6 +1702,29 @@
     connect('node-branch-l', 'node-leaf-linear');
     connect('node-branch-b', 'node-leaf-bitmap');
     connect('node-branch-u', 'node-leaf-full');
+
+    // Sequential Run Bypass direct connection
+    if (isSequentialBypass) {
+      connect('node-jpm', 'node-leaf-bitmap', '#10b981', 'arrow-green', '6,4');
+    }
+
+    // Recursive Multi-Level Subarray Child Edge Cascade
+    if (pop >= 1000) {
+      const bNode = document.getElementById('node-branch-b');
+      if (bNode) {
+        const r = bNode.getBoundingClientRect();
+        const bx = r.left - canvasRect.left + r.width;
+        const by = r.top - canvasRect.top + r.height / 2;
+        const loopPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        loopPath.setAttribute('d', `M ${bx} ${by} C ${bx + 50} ${by - 40}, ${bx + 50} ${by + 40}, ${bx} ${by + 10}`);
+        loopPath.setAttribute('stroke', '#a855f7');
+        loopPath.setAttribute('stroke-width', '2');
+        loopPath.setAttribute('stroke-dasharray', '4,3');
+        loopPath.setAttribute('fill', 'none');
+        loopPath.setAttribute('marker-end', 'url(#arrow-purple)');
+        hSvg.appendChild(loopPath);
+      }
+    }
   }
 
   // ===================================================================
@@ -1597,7 +1811,9 @@
     });
 
     // Check Multi-Level Sequential Run Bypass
-    if (op === "insert" && dist === "sequential" && pop > 31) {
+    const isSequentialBypass = op === "insert" && dist === "sequential" && pop > 31;
+
+    if (isSequentialBypass) {
       steps.push({
         badge: "MULTI-LEVEL BYPASS",
         badgeClass: "green",
@@ -1751,6 +1967,19 @@
     const japNode = document.getElementById('node-jap');
     if (japNode) japNode.classList.add('active');
 
+    // Update dynamic badges on branch nodes
+    const topBadge = document.getElementById('badge-top-branch');
+    const branchBBadge = document.getElementById('badge-branch-b');
+    if (topBadge) topBadge.textContent = "Level 8";
+
+    if (branchBBadge) {
+      if (pop >= 1000000) branchBBadge.textContent = "Levels 7..2";
+      else if (pop >= 100000) branchBBadge.textContent = "Levels 7..4";
+      else if (pop >= 10000) branchBBadge.textContent = "Levels 7..6";
+      else if (pop >= 1000) branchBBadge.textContent = "Level 7";
+      else branchBBadge.textContent = "Fanout 8..180";
+    }
+
     if (pop === 1 || pop === 7) {
       const immed = document.getElementById('node-leaf-immed');
       if (immed) immed.classList.add('active-green');
@@ -1763,7 +1992,7 @@
       if (jpm) jpm.classList.add('active');
       if (tb) tb.classList.add('active');
 
-      if (dist === "sequential" && pop > 31) {
+      if (isSequentialBypass) {
         const bl = document.getElementById('node-leaf-bitmap');
         if (bl) bl.classList.add('active-green');
       } else if (dist === "linear_leaf" || (pop >= 13 && pop <= 25)) {
@@ -1776,7 +2005,7 @@
         const fe = document.getElementById('node-leaf-full');
         if (bu) bu.classList.add('active');
         if (fe) fe.classList.add('active-green');
-      } else if (pop >= 192) {
+      } else if (pop >= 192 && pop < 1000) {
         const bu = document.getElementById('node-branch-u');
         const bl = document.getElementById('node-leaf-bitmap');
         if (bu) bu.classList.add('active');
@@ -1788,6 +2017,99 @@
         if (bl) bl.classList.add('active-green');
       }
     }
+
+    // Dynamic 64-bit Digit Strip & Subarray Architecture update
+    let activeDepth = 0;
+    if (pop <= 31) activeDepth = 0;
+    else if (pop <= 256) activeDepth = 1;
+    else if (pop <= 1000) activeDepth = 2;
+    else if (pop <= 10000) activeDepth = 3;
+    else if (pop <= 100000) activeDepth = 5;
+    else activeDepth = 8;
+
+    const trieDepthBadge = document.getElementById('trie-depth-badge');
+    if (trieDepthBadge) {
+      if (pop <= 31) {
+        trieDepthBadge.textContent = "Pop ≤ 31: Flat 0-Level Leaf";
+        trieDepthBadge.className = "step-badge green";
+      } else if (isSequentialBypass) {
+        trieDepthBadge.textContent = `Active Depth: 1-Hop Bypass (skips ${activeDepth} levels)`;
+        trieDepthBadge.className = "step-badge green";
+      } else {
+        trieDepthBadge.textContent = `Active Depth: ${activeDepth} Levels (d8..d${9 - activeDepth})`;
+        trieDepthBadge.className = "step-badge highlight";
+      }
+    }
+
+    const digitStrip = document.getElementById('digit-strip');
+    if (digitStrip) {
+      const digits = [
+        { d: 8, bits: "63..56", role: "Top JPM Router" },
+        { d: 7, bits: "55..48", role: "Level 7 Branch" },
+        { d: 6, bits: "47..40", role: "Level 6 Branch" },
+        { d: 5, bits: "39..32", role: "Level 5 Branch" },
+        { d: 4, bits: "31..24", role: "Level 4 Branch" },
+        { d: 3, bits: "23..16", role: "Level 3 Branch" },
+        { d: 2, bits: "15..8", role: "Level 2 Branch" },
+        { d: 1, bits: "7..0", role: "Level 1 Leaf" },
+      ];
+
+      digitStrip.innerHTML = digits.map((item, idx) => {
+        let isActive = false;
+        let isBypassCol = false;
+        if (pop <= 31) {
+          isActive = true; // All bytes in flat root leaf
+        } else if (isSequentialBypass) {
+          if (idx < 7) isBypassCol = true;
+          else isActive = true;
+        } else {
+          if (idx < activeDepth - 1) isActive = true; // branch levels
+          else if (idx === 7) isActive = true; // terminal leaf
+          else if (activeDepth >= 8) isActive = true;
+        }
+
+        let roleText = item.role;
+        if (isBypassCol) roleText = "⚡ Bypassed";
+        else if (pop <= 31) roleText = "Root Leaf";
+
+        return `
+          <div class="digit-col ${isBypassCol ? 'bypass' : (isActive ? 'active' : '')}">
+            <div class="digit-num">d${item.d}</div>
+            <div class="digit-range">[${item.bits}]</div>
+            <div class="digit-role">${roleText}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    const subarrayExp = document.getElementById('subarray-explanation');
+    if (subarrayExp) {
+      if (pop <= 31) {
+        subarrayExp.innerHTML = `<strong>Root Leaf Mode:</strong> Keys are stored in a contiguous sorted 64-bit array (up to 31 keys). No bitmaps or subarrays are allocated.`;
+      } else if (flavor === "set") {
+        subarrayExp.innerHTML = `<strong>Set Flavor (Judy1):</strong> <strong>0 B heap overhead</strong> after BitmapLeaf! The 256-bit bitmap directly stores membership. In interior branches (<code class="code-tag">BranchB</code>), each of the 8 subexpanses points to a dynamically sized array of <strong>child Edges</strong> that descend into deeper branch levels (${activeDepth > 2 ? `Levels 7..${9 - activeDepth}` : 'Level 7'}) or terminal leaves.`;
+      } else {
+        subarrayExp.innerHTML = `<strong>Map Flavor (JudyL):</strong> In <code class="code-tag">BitmapLeaf</code>, each populated subexpanse points to a class-allocated array of <strong>64-bit values</strong> (<code class="code-tag">u64</code>). In <code class="code-tag">BranchB</code>, each populated subexpanse points to an array of <strong>child Edges</strong> (${activeDepth > 2 ? `descending Levels 7..${9 - activeDepth}` : 'descending Level 7'}). POPCNT calculates the exact value/edge index in 1 CPU instruction.`;
+      }
+    }
+
+    // Update Depth Comparison Cards
+    document.querySelectorAll('.depth-card').forEach(c => c.classList.remove('highlight'));
+    if (pop === 1000) {
+      const c = document.getElementById('depth-card-1k');
+      if (c) c.classList.add('highlight');
+    } else if (pop === 10000) {
+      const c = document.getElementById('depth-card-10k');
+      if (c) c.classList.add('highlight');
+    } else if (pop === 100000) {
+      const c = document.getElementById('depth-card-100k');
+      if (c) c.classList.add('highlight');
+    } else if (pop === 1000000) {
+      const c = document.getElementById('depth-card-1m');
+      if (c) c.classList.add('highlight');
+    }
+
+    drawHierarchyConnections();
   }
 
   opSelect.addEventListener('change', update);
