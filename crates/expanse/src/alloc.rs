@@ -236,6 +236,17 @@ impl NodeAlloc {
         ptr
     }
 
+    /// Allocates a node of type T with all bytes zero-initialized.
+    ///
+    /// This is useful for construct-in-place node initialization, which avoids
+    /// stack-allocation and copy overhead.
+    #[inline]
+    #[must_use]
+    pub fn alloc_node_zeroed<T>(&self) -> NonNull<T> {
+        debug_assert!(align_of::<T>() <= CACHE_LINE);
+        self.alloc_raw(size_of::<T>(), align_of::<T>()).cast::<T>()
+    }
+
     /// Frees a node allocated by [`Self::alloc_node`], dropping its value.
     ///
     /// # Safety
@@ -332,9 +343,10 @@ mod tests {
         let n1 = a.alloc_node(BranchL3::new(2));
         let n2 = a.alloc_node(BranchB::new(2));
         let n3 = a.alloc_node(BranchU::new());
+        let n4 = a.alloc_node_zeroed::<BranchL3>();
         let leaf = a.alloc_bytes(21);
-        assert_eq!(a.bytes_in_use(), 64 + 128 + 4160 + 21);
-        assert_eq!(a.live_allocs(), 4);
+        assert_eq!(a.bytes_in_use(), 64 + 128 + 4160 + 64 + 21);
+        assert_eq!(a.live_allocs(), 5);
 
         // Alignment is now per kind, and the distinction is load-bearing:
         // the `repr(C, align(64))` node types are cast from these pointers,
@@ -343,6 +355,11 @@ mod tests {
         assert_eq!(n1.as_ptr() as usize % CACHE_LINE, 0, "BranchL3 alignment");
         assert_eq!(n2.as_ptr() as usize % CACHE_LINE, 0, "BranchB alignment");
         assert_eq!(n3.as_ptr() as usize % CACHE_LINE, 0, "BranchU alignment");
+        assert_eq!(
+            n4.as_ptr() as usize % CACHE_LINE,
+            0,
+            "alloc_node_zeroed BranchL3 alignment"
+        );
         assert_eq!(leaf.as_ptr() as usize % RAW_ALIGN, 0, "raw leaf alignment");
         // Guard the reason the node assertions above are not vacuous: if a
         // node type ever loses its `align(64)` declaration, `alloc_node`
@@ -358,11 +375,22 @@ mod tests {
             assert_eq!(unsafe { *leaf.as_ptr().add(i) }, 0);
         }
 
+        // Verify that alloc_node_zeroed is actually zeroed
+        // SAFETY: n4 is a live BranchL3 pointer allocated above.
+        unsafe {
+            assert_eq!((*n4.as_ptr()).hdr.version, 0);
+            assert_eq!((*n4.as_ptr()).hdr.level, 0);
+            for edge in &(*n4.as_ptr()).edges {
+                assert!(edge.is_null());
+            }
+        }
+
         // SAFETY: freeing exactly what was allocated above, once.
         unsafe {
             a.free_node(n1);
             a.free_node(n2);
             a.free_node(n3);
+            a.free_node(n4);
             a.free_bytes(leaf, 21);
         }
         assert_eq!(a.bytes_in_use(), 0);

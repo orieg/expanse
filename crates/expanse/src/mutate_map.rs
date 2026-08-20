@@ -117,41 +117,43 @@ unsafe fn read_map_leaf(edge: &Edge, kb: u8, pop: usize) -> Vec<(u64, u64)> {
 /// Allocates a `LeafBitmapL` from sorted level-1 entries and points
 /// `edge` at it (decode bytes, if any, are the caller's to restore).
 fn build_bitmap_leaf_map(a: &NodeAlloc, edge: &mut Edge, entries: &[(u64, u64)]) {
-    let mut node = LeafBitmapL::new();
-    for &(k, _) in entries {
-        node.bitmap.set(k as u8);
-    }
-    // `entries` is sorted by key, so each 32-digit subexpanse is one
-    // contiguous run: detect the run and write it straight into its
-    // subarray. The previous version bucketed values through a
-    // `[Vec<u64>; 8]` — eight heap allocations of scratch (plus growth
-    // reallocations) per linear-leaf → bitmap-leaf conversion, to
-    // regroup values that the sort order had already grouped.
-    //
-    // Scope note, measured: a wider rework replacing the materializer
-    // `Vec`s (`read_map_leaf`, `leaf_keys`) with stack buffers was tried
-    // twice and REGRESSED both times (+2.7% map_insert/small with
-    // default-init backing; worse with MaybeUninit). Those conversions
-    // run once per form change, not per op, and malloc's fast path is
-    // cheaper than a 264-528-byte memset or the uninit bookkeeping.
-    // This function is different: eight allocations per conversion for
-    // a regrouping the input ordering already provides.
-    let mut i = 0;
-    while i < entries.len() {
-        let sub = (entries[i].0 >> 5) as usize;
-        let mut j = i + 1;
-        while j < entries.len() && (entries[j].0 >> 5) as usize == sub {
-            j += 1;
+    let ptr = a.alloc_node_zeroed::<LeafBitmapL>();
+    // SAFETY: ptr is freshly allocated zeroed LeafBitmapL memory.
+    unsafe {
+        for &(k, _) in entries {
+            (*ptr.as_ptr()).bitmap.set(k as u8);
         }
-        let arr = a.alloc_bytes(sub_vals_size(j - i)).cast::<u64>();
-        for (slot, &(_, v)) in entries[i..j].iter().enumerate() {
-            // SAFETY: fresh array of `j - i` slots.
-            unsafe { arr.as_ptr().add(slot).write(v) };
+        // `entries` is sorted by key, so each 32-digit subexpanse is one
+        // contiguous run: detect the run and write it straight into its
+        // subarray. The previous version bucketed values through a
+        // `[Vec<u64>; 8]` — eight heap allocations of scratch (plus growth
+        // reallocations) per linear-leaf → bitmap-leaf conversion, to
+        // regroup values that the sort order had already grouped.
+        //
+        // Scope note, measured: a wider rework replacing the materializer
+        // `Vec`s (`read_map_leaf`, `leaf_keys`) with stack buffers was tried
+        // twice and REGRESSED both times (+2.7% map_insert/small with
+        // default-init backing; worse with MaybeUninit). Those conversions
+        // run once per form change, not per op, and malloc's fast path is
+        // cheaper than a 264-528-byte memset or the uninit bookkeeping.
+        // This function is different: eight allocations per conversion for
+        // a regrouping the input ordering already provides.
+        let mut i = 0;
+        while i < entries.len() {
+            let sub = (entries[i].0 >> 5) as usize;
+            let mut j = i + 1;
+            while j < entries.len() && (entries[j].0 >> 5) as usize == sub {
+                j += 1;
+            }
+            let arr = a.alloc_bytes(sub_vals_size(j - i)).cast::<u64>();
+            for (slot, &(_, v)) in entries[i..j].iter().enumerate() {
+                // SAFETY: fresh array of `j - i` slots.
+                arr.as_ptr().add(slot).write(v);
+            }
+            (*ptr.as_ptr()).values[sub] = arr.as_ptr();
+            i = j;
         }
-        node.values[sub] = arr.as_ptr();
-        i = j;
     }
-    let ptr = a.alloc_node(node);
     *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
     edge.set_pop0(1, entries.len() as u64 - 1);
 }
@@ -243,481 +245,496 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
     edge: &mut Edge,
     key: Key,
     val: u64,
-    level: u8,
+    mut level: u8,
 ) -> (Option<u64>, *mut u64) {
-    debug_assert!((1..=8).contains(&level));
-    let tag = edge.tag().expect("valid edge tag");
-    match tag {
-        EdgeTag::Structural(EdgeType::Null) => {
-            if level == 8 {
-                let node = a.alloc_node(BranchL3::new(level));
-                *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
-                // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level) };
+    loop {
+        debug_assert!((1..=8).contains(&level));
+        let tag = edge.tag().expect("valid edge tag");
+        match tag {
+            EdgeTag::Structural(EdgeType::Null) => {
+                if level == 8 {
+                    let node = a.alloc_node_zeroed::<BranchL3>();
+                    // SAFETY: node is freshly allocated zeroed BranchL3 memory.
+                    unsafe {
+                        (*node.as_ptr()).hdr.level = level;
+                    }
+                    *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
+                    // SAFETY: forwarded contract; edge is now a branch.
+                    continue;
+                }
+                write_map_immed(a, edge, level, &[(key_low(key, level), val)]);
+                // A single-entry immediate's value slot is the edge's word 0.
+                return (None, (&raw mut *edge).cast::<u64>());
             }
-            write_map_immed(a, edge, level, &[(key_low(key, level), val)]);
-            // A single-entry immediate's value slot is the edge's word 0.
-            (None, (&raw mut *edge).cast::<u64>())
-        }
 
-        EdgeTag::Immed(im) => {
-            debug_assert_eq!(im.key_bytes(), level);
-            let kb = im.key_bytes();
-            let k = key_low(key, kb);
-            // SAFETY: live map immediate per contract.
-            let mut entries = unsafe { read_map_immed(edge, im) };
-            match entries.binary_search_by_key(&k, |e| e.0) {
-                Ok(pos) => {
-                    let old = entries[pos].1;
-                    if im.key_count() == 1 {
-                        if !KEEP {
-                            edge.set_imm_bytes(val.to_le_bytes());
+            EdgeTag::Immed(im) => {
+                debug_assert_eq!(im.key_bytes(), level);
+                let kb = im.key_bytes();
+                let k = key_low(key, kb);
+                // SAFETY: live map immediate per contract.
+                let mut entries = unsafe { read_map_immed(edge, im) };
+                match entries.binary_search_by_key(&k, |e| e.0) {
+                    Ok(pos) => {
+                        let old = entries[pos].1;
+                        if im.key_count() == 1 {
+                            if !KEEP {
+                                edge.set_imm_bytes(val.to_le_bytes());
+                            }
+                            return (Some(old), (&raw mut *edge).cast::<u64>());
+                        } else {
+                            // SAFETY: live value array per contract.
+                            let slot = unsafe { edge.node_ptr().cast::<u64>().add(pos) };
+                            if !KEEP {
+                                // SAFETY: same slot.
+                                unsafe { slot.write(val) };
+                            }
+                            return (Some(old), slot);
                         }
-                        (Some(old), (&raw mut *edge).cast::<u64>())
-                    } else {
-                        // SAFETY: live value array per contract.
-                        let slot = unsafe { edge.node_ptr().cast::<u64>().add(pos) };
-                        if !KEEP {
-                            // SAFETY: same slot.
-                            unsafe { slot.write(val) };
-                        }
-                        (Some(old), slot)
+                    }
+                    Err(pos) => {
+                        entries.insert(pos, (k, val));
+                        // SAFETY: storage re-read above; safe to release.
+                        unsafe { free_map_immed_storage(a, edge, im) };
+                        let slot = if entries.len() <= map_immed_max(kb) {
+                            write_map_immed(a, edge, kb, &entries);
+                            if entries.len() == 1 {
+                                (&raw mut *edge).cast::<u64>()
+                            } else {
+                                // SAFETY: fresh value array of entries.len().
+                                unsafe { edge.node_ptr().cast::<u64>().add(pos) }
+                            }
+                        } else {
+                            build_map_leaf(a, edge, kb, &entries);
+                            // SAFETY: fresh map leaf; values at the base.
+                            unsafe { edge.node_ptr().cast::<u64>().add(pos) }
+                        };
+                        return (None, slot);
                     }
                 }
-                Err(pos) => {
-                    entries.insert(pos, (k, val));
-                    // SAFETY: storage re-read above; safe to release.
-                    unsafe { free_map_immed_storage(a, edge, im) };
-                    let slot = if entries.len() <= map_immed_max(kb) {
-                        write_map_immed(a, edge, kb, &entries);
-                        if entries.len() == 1 {
-                            (&raw mut *edge).cast::<u64>()
-                        } else {
-                            // SAFETY: fresh value array of entries.len().
-                            unsafe { edge.node_ptr().cast::<u64>().add(pos) }
-                        }
-                    } else {
-                        build_map_leaf(a, edge, kb, &entries);
-                        // SAFETY: fresh map leaf; values at the base.
-                        unsafe { edge.node_ptr().cast::<u64>().add(pos) }
+            }
+
+            EdgeTag::Structural(
+                t @ (EdgeType::Leaf1
+                | EdgeType::Leaf2
+                | EdgeType::Leaf3
+                | EdgeType::Leaf4
+                | EdgeType::Leaf5
+                | EdgeType::Leaf6
+                | EdgeType::Leaf7),
+            ) => {
+                let kb = t.leaf_key_bytes().expect("leaf tag");
+                debug_assert!(kb <= level);
+                let pop = edge.pop0(kb) as usize + 1;
+                if kb < level && !crate::get::decode_matches(edge, key, kb, level) {
+                    // Diverges inside the skipped prefix: branch out one
+                    // level and retry.
+                    split_skip(a, edge, key, level, pop as u64);
+                    continue;
+                }
+                let k = key_low(key, kb);
+                // Phase 7 coverage invariant (see alloc::assert_bracketed):
+                // linear leaves carry no version; the parent's bracket does.
+                a.assert_bracketed();
+                let base = edge.node_ptr();
+                // SAFETY: live map leaf per contract (keys behind the values).
+                let pos =
+                    unsafe { leaf::lower_bound(base.add(leaf::map_keys_offset(pop)), pop, kb, k) };
+                // SAFETY: pos < pop is in bounds.
+                let hit = pos < pop
+                    && unsafe {
+                        read_packed(base.add(leaf::map_keys_offset(pop)), pos, kb as usize) == k
                     };
-                    (None, slot)
+                match if hit { Ok(pos) } else { Err(pos) } {
+                    Ok(pos) => {
+                        // SAFETY: in-place value swap within the live leaf.
+                        unsafe {
+                            let slot = base.cast::<u64>().add(pos);
+                            let old = *slot;
+                            if !KEEP {
+                                slot.write(val);
+                            }
+                            return (Some(old), slot);
+                        }
+                    }
+                    Err(pos) => {
+                        let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
+                        if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
+                            // Fast path: spare class capacity — shift both
+                            // areas in place.
+                            // SAFETY: class capacity spare per the check.
+                            unsafe { leaf::map_insert_at(base, kb, pop, pos, k, val) };
+                            edge.set_pop0(kb, pop as u64);
+                            // SAFETY: freshly shifted value area.
+                            return (None, unsafe { base.cast::<u64>().add(pos) });
+                        }
+                        if pop < cap {
+                            // Class-crossing grow that stays this leaf: a
+                            // direct copy with a gap. The materialize path
+                            // below costs a heap `Vec`, a per-entry unpack
+                            // and a per-entry repack; steady-state churn
+                            // crosses the small classes on every cycle, and
+                            // this was 48% of that arm. Aux (decode + pop0)
+                            // is preserved wholesale — no conversion, no
+                            // widening, the form and kb are unchanged.
+                            let new = a.alloc_bytes(leaf::size_map(kb, pop + 1));
+                            // SAFETY: live source leaf of `pop` entries;
+                            // fresh destination sized for `pop + 1`;
+                            // `pos <= pop` from lower_bound.
+                            unsafe {
+                                leaf::map_realloc_insert(base, new.as_ptr(), kb, pop, pos, k, val);
+                            }
+                            let saved_aux = *edge.aux_bytes();
+                            *edge = Edge::new_node(new.as_ptr(), t.as_u8());
+                            edge.set_aux_bytes(saved_aux);
+                            edge.set_pop0(kb, pop as u64);
+                            // SAFETY: the old leaf is unlinked above; freed
+                            // (or retired) with its allocation size.
+                            unsafe {
+                                a.free_bytes(
+                                    core::ptr::NonNull::new(base).expect("leaf ptr"),
+                                    leaf::size_map(kb, pop),
+                                );
+                            }
+                            // SAFETY: slot `pos` of the fresh value area.
+                            return (None, unsafe { new.as_ptr().cast::<u64>().add(pos) });
+                        }
+                        // Slow path: materialize entries for the conversion.
+                        // A skipping leaf's keys are widened to full
+                        // `level`-byte suffixes with its decode prefix, so the
+                        // conversions below can place the replacement form at
+                        // the true divergence level.
+                        // SAFETY: live map leaf per contract.
+                        let mut entries = unsafe { read_map_leaf(edge, kb, pop) };
+                        let old_ptr = edge.node_ptr();
+                        let old_size = leaf::size_map(kb, pop);
+                        let saved_aux = *edge.aux_bytes();
+                        entries.insert(pos, (k, val));
+                        if kb < level {
+                            let prefix = decode_value(edge, kb, level) << (8 * u32::from(kb));
+                            for e in &mut entries {
+                                e.0 |= prefix;
+                            }
+                        }
+                        if entries.len() <= cap {
+                            build_map_leaf(a, edge, kb, &entries);
+                            restore_decode(edge, kb, level, &saved_aux);
+                        } else if kb == 1 {
+                            // Level-1 overflow: linear map leaf → bitmap leaf
+                            // (any narrow pointer carries over).
+                            build_bitmap_leaf_map(a, edge, &entries);
+                            restore_decode(edge, 1, level, &saved_aux);
+                        } else if divergence_level(
+                            entries[0].0,
+                            entries[entries.len() - 1].0,
+                            level,
+                        ) == 1
+                        {
+                            // Narrow-pointer synthesis: all keys share their
+                            // digits at levels 2..=kb — one bitmap leaf with
+                            // the shared prefix as decode bytes, no chain.
+                            let low: Vec<(u64, u64)> =
+                                entries.iter().map(|&(k, v)| (key_low(k, 1), v)).collect();
+                            let prefix_key = entries[0].0;
+                            build_bitmap_leaf_map(a, edge, &low);
+                            write_decode(edge, 1, level, prefix_key);
+                        } else {
+                            // Cascade: an empty branch at the divergence level
+                            // (a narrow pointer when that sits below the slot;
+                            // level-8 slots always branch in place — the root
+                            // edge has no room for decode bytes), re-insert.
+                            let d =
+                                divergence_level(entries[0].0, entries[entries.len() - 1].0, level);
+                            let bl = if level <= 7 { d } else { level };
+                            let node = a.alloc_node_zeroed::<BranchL3>();
+                            // SAFETY: node is freshly allocated zeroed BranchL3 memory.
+                            unsafe {
+                                (*node.as_ptr()).hdr.level = bl;
+                            }
+                            *edge =
+                                Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
+                            if bl < level {
+                                write_decode(edge, bl, level, entries[0].0);
+                            }
+                            for &(k, v) in &entries {
+                                // SAFETY: freshly built branch subtree.
+                                let prev = unsafe { map_insert::<KEEP, OCC>(a, edge, k, v, level) };
+                                debug_assert!(prev.0.is_none());
+                            }
+                            // pop0 cannot express the transient empty branch;
+                            // pin the true population (see mutate::insert).
+                            edge.set_pop0(bl, entries.len() as u64 - 1);
+                        }
+                        // SAFETY: old leaf allocation no longer referenced.
+                        unsafe {
+                            a.free_bytes(core::ptr::NonNull::new(old_ptr).expect("leaf"), old_size);
+                        }
+                        // Slow-path conversions relocate the value; one extra
+                        // locate walk here keeps every fast path single-walk.
+                        // SAFETY: freshly rebuilt subtree owned by `a`.
+                        let slot = unsafe { crate::get::locate_slot(&raw mut *edge, key, level) }
+                            .expect("just-inserted key")
+                            .as_ptr();
+                        return (None, slot);
+                    }
                 }
             }
-        }
 
-        EdgeTag::Structural(
-            t @ (EdgeType::Leaf1
-            | EdgeType::Leaf2
-            | EdgeType::Leaf3
-            | EdgeType::Leaf4
-            | EdgeType::Leaf5
-            | EdgeType::Leaf6
-            | EdgeType::Leaf7),
-        ) => {
-            let kb = t.leaf_key_bytes().expect("leaf tag");
-            debug_assert!(kb <= level);
-            let pop = edge.pop0(kb) as usize + 1;
-            if kb < level && !crate::get::decode_matches(edge, key, kb, level) {
-                // Diverges inside the skipped prefix: branch out one
-                // level and retry.
-                split_skip(a, edge, key, level, pop as u64);
-                // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level) };
-            }
-            let k = key_low(key, kb);
-            // Phase 7 coverage invariant (see alloc::assert_bracketed):
-            // linear leaves carry no version; the parent's bracket does.
-            a.assert_bracketed();
-            let base = edge.node_ptr();
-            // SAFETY: live map leaf per contract (keys behind the values).
-            let pos =
-                unsafe { leaf::lower_bound(base.add(leaf::map_keys_offset(pop)), pop, kb, k) };
-            // SAFETY: pos < pop is in bounds.
-            let hit = pos < pop
-                && unsafe {
-                    read_packed(base.add(leaf::map_keys_offset(pop)), pos, kb as usize) == k
-                };
-            match if hit { Ok(pos) } else { Err(pos) } {
-                Ok(pos) => {
-                    // SAFETY: in-place value swap within the live leaf.
+            EdgeTag::Structural(EdgeType::LeafB1) => {
+                if level > 1 && !crate::get::decode_matches(edge, key, 1, level) {
+                    // Diverges inside the skipped prefix: branch out one
+                    // level and retry.
+                    let pop = edge.pop0(1) + 1;
+                    split_skip(a, edge, key, level, pop);
+                    continue;
+                }
+                let d = digit(key, 1);
+                // Phase 7: a leaf carries no version of its own — readers
+                // validate its payload against the parent branch's version,
+                // whose bracket must still be open here.
+                a.assert_bracketed();
+                // SAFETY: live LeafBitmapL per contract.
+                let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmapL>() };
+                let sub = (d >> 5) as usize;
+                let rank = node.bitmap.subexpanse_rank(d) as usize;
+                if node.bitmap.test(d) {
+                    // SAFETY: value subarray holds subexpanse_count values.
                     unsafe {
-                        let slot = base.cast::<u64>().add(pos);
+                        let slot = node.values[sub].add(rank);
                         let old = *slot;
                         if !KEEP {
                             slot.write(val);
                         }
-                        (Some(old), slot)
+                        return (Some(old), slot);
                     }
                 }
-                Err(pos) => {
-                    let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
-                    if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
-                        // Fast path: spare class capacity — shift both
-                        // areas in place.
-                        // SAFETY: class capacity spare per the check.
-                        unsafe { leaf::map_insert_at(base, kb, pop, pos, k, val) };
-                        edge.set_pop0(kb, pop as u64);
-                        // SAFETY: freshly shifted value area.
-                        return (None, unsafe { base.cast::<u64>().add(pos) });
+                let old_n = node.bitmap.subexpanse_count(sub) as usize;
+                if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
+                    // Fast path: spare class capacity — shift in place.
+                    // SAFETY: the subarray holds cap_class(old_n) slots.
+                    unsafe {
+                        let arr = node.values[sub];
+                        core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                        arr.add(rank).write(val);
                     }
-                    if pop < cap {
-                        // Class-crossing grow that stays this leaf: a
-                        // direct copy with a gap. The materialize path
-                        // below costs a heap `Vec`, a per-entry unpack
-                        // and a per-entry repack; steady-state churn
-                        // crosses the small classes on every cycle, and
-                        // this was 48% of that arm. Aux (decode + pop0)
-                        // is preserved wholesale — no conversion, no
-                        // widening, the form and kb are unchanged.
-                        let new = a.alloc_bytes(leaf::size_map(kb, pop + 1));
-                        // SAFETY: live source leaf of `pop` entries;
-                        // fresh destination sized for `pop + 1`;
-                        // `pos <= pop` from lower_bound.
-                        unsafe {
-                            leaf::map_realloc_insert(base, new.as_ptr(), kb, pop, pos, k, val);
-                        }
-                        let saved_aux = *edge.aux_bytes();
-                        *edge = Edge::new_node(new.as_ptr(), t.as_u8());
-                        edge.set_aux_bytes(saved_aux);
-                        edge.set_pop0(kb, pop as u64);
-                        // SAFETY: the old leaf is unlinked above; freed
-                        // (or retired) with its allocation size.
-                        unsafe {
+                } else {
+                    let new = a.alloc_bytes(sub_vals_size(old_n + 1)).cast::<u64>();
+                    // SAFETY: copy old_n values around the inserted rank; the
+                    // empty case touches no old pointer.
+                    unsafe {
+                        if old_n > 0 {
+                            let old = node.values[sub];
+                            new.as_ptr().copy_from_nonoverlapping(old, rank);
+                            new.as_ptr()
+                                .add(rank + 1)
+                                .copy_from_nonoverlapping(old.add(rank), old_n - rank);
                             a.free_bytes(
-                                core::ptr::NonNull::new(base).expect("leaf ptr"),
-                                leaf::size_map(kb, pop),
+                                core::ptr::NonNull::new(old.cast()).expect("values"),
+                                sub_vals_size(old_n),
                             );
                         }
-                        // SAFETY: slot `pos` of the fresh value area.
-                        return (None, unsafe { new.as_ptr().cast::<u64>().add(pos) });
+                        new.as_ptr().add(rank).write(val);
                     }
-                    // Slow path: materialize entries for the conversion.
-                    // A skipping leaf's keys are widened to full
-                    // `level`-byte suffixes with its decode prefix, so the
-                    // conversions below can place the replacement form at
-                    // the true divergence level.
-                    // SAFETY: live map leaf per contract.
-                    let mut entries = unsafe { read_map_leaf(edge, kb, pop) };
-                    let old_ptr = edge.node_ptr();
-                    let old_size = leaf::size_map(kb, pop);
-                    let saved_aux = *edge.aux_bytes();
-                    entries.insert(pos, (k, val));
-                    if kb < level {
-                        let prefix = decode_value(edge, kb, level) << (8 * u32::from(kb));
-                        for e in &mut entries {
-                            e.0 |= prefix;
-                        }
-                    }
-                    if entries.len() <= cap {
-                        build_map_leaf(a, edge, kb, &entries);
-                        restore_decode(edge, kb, level, &saved_aux);
-                    } else if kb == 1 {
-                        // Level-1 overflow: linear map leaf → bitmap leaf
-                        // (any narrow pointer carries over).
-                        build_bitmap_leaf_map(a, edge, &entries);
-                        restore_decode(edge, 1, level, &saved_aux);
-                    } else if divergence_level(entries[0].0, entries[entries.len() - 1].0, level)
-                        == 1
-                    {
-                        // Narrow-pointer synthesis: all keys share their
-                        // digits at levels 2..=kb — one bitmap leaf with
-                        // the shared prefix as decode bytes, no chain.
-                        let low: Vec<(u64, u64)> =
-                            entries.iter().map(|&(k, v)| (key_low(k, 1), v)).collect();
-                        let prefix_key = entries[0].0;
-                        build_bitmap_leaf_map(a, edge, &low);
-                        write_decode(edge, 1, level, prefix_key);
+                    node.values[sub] = new.as_ptr();
+                }
+                node.bitmap.set(d);
+                let pop0 = edge.pop0(1);
+                edge.set_pop0(1, pop0 + 1);
+                // SAFETY: the value now lives at this subarray rank.
+                return (None, unsafe { node.values[sub].add(rank) });
+            }
+
+            EdgeTag::Structural(EdgeType::FullExpanse) => {
+                unreachable!("full-expanse edges are set-flavor only")
+            }
+
+            EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                debug_assert!(level >= 2);
+                // SAFETY: live branch per contract.
+                let bl = unsafe { branch_form_level(edge, t, level) };
+                if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
+                    let pop = edge.pop0(bl) + 1;
+                    split_skip(a, edge, key, level, pop);
+                    continue;
+                }
+                let d = digit(key, bl);
+                let is_l3 = matches!(t, EdgeType::BranchL3);
+                // SAFETY: live branch per contract.
+                let (found, num) = unsafe {
+                    if is_l3 {
+                        let b = &*edge.node_ptr().cast::<BranchL3>();
+                        (b.hdr.find(d), b.hdr.num as usize)
                     } else {
-                        // Cascade: an empty branch at the divergence level
-                        // (a narrow pointer when that sits below the slot;
-                        // level-8 slots always branch in place — the root
-                        // edge has no room for decode bytes), re-insert.
-                        let d = divergence_level(entries[0].0, entries[entries.len() - 1].0, level);
-                        let bl = if level <= 7 { d } else { level };
-                        let node = a.alloc_node(BranchL3::new(bl));
-                        *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
-                        if bl < level {
-                            write_decode(edge, bl, level, entries[0].0);
-                        }
-                        for &(k, v) in &entries {
-                            // SAFETY: freshly built branch subtree.
-                            let prev = unsafe { map_insert::<KEEP, OCC>(a, edge, k, v, level) };
-                            debug_assert!(prev.0.is_none());
-                        }
-                        // pop0 cannot express the transient empty branch;
-                        // pin the true population (see mutate::insert).
-                        edge.set_pop0(bl, entries.len() as u64 - 1);
+                        let b = &*edge.node_ptr().cast::<BranchL7>();
+                        (b.hdr.find(d), b.hdr.num as usize)
                     }
-                    // SAFETY: old leaf allocation no longer referenced.
+                };
+                if let Some(slot) = found {
+                    // SAFETY: slot within populated count; child well-formed.
+                    // The node's version brackets the descent (Phase 7 OCC).
+                    let res = unsafe {
+                        if is_l3 {
+                            let b = &mut *edge.node_ptr().cast::<BranchL3>();
+                            crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
+                            let r =
+                                map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1);
+                            crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
+                            r
+                        } else {
+                            let b = &mut *edge.node_ptr().cast::<BranchL7>();
+                            crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
+                            let r =
+                                map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1);
+                            crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
+                            r
+                        }
+                    };
+                    if res.0.is_none() {
+                        bump_pop0(edge, bl, 1);
+                    }
+                    return res;
+                }
+                let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
+                if num == cap {
+                    // SAFETY: upgrade rebuilds the node; subtree stays owned.
                     unsafe {
-                        a.free_bytes(core::ptr::NonNull::new(old_ptr).expect("leaf"), old_size);
+                        if is_l3 {
+                            upgrade_l3_to_l7(a, edge);
+                        } else {
+                            upgrade_l7_to_b(a, edge);
+                        }
                     }
-                    // Slow-path conversions relocate the value; one extra
-                    // locate walk here keeps every fast path single-walk.
-                    // SAFETY: freshly rebuilt subtree owned by `a`.
-                    let slot = unsafe { crate::get::locate_slot(&raw mut *edge, key, level) }
-                        .expect("just-inserted key")
-                        .as_ptr();
-                    (None, slot)
+                    continue;
                 }
-            }
-        }
-
-        EdgeTag::Structural(EdgeType::LeafB1) => {
-            if level > 1 && !crate::get::decode_matches(edge, key, 1, level) {
-                // Diverges inside the skipped prefix: branch out one
-                // level and retry.
-                let pop = edge.pop0(1) + 1;
-                split_skip(a, edge, key, level, pop);
-                // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level) };
-            }
-            let d = digit(key, 1);
-            // Phase 7: a leaf carries no version of its own — readers
-            // validate its payload against the parent branch's version,
-            // whose bracket must still be open here.
-            a.assert_bracketed();
-            // SAFETY: live LeafBitmapL per contract.
-            let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmapL>() };
-            let sub = (d >> 5) as usize;
-            let rank = node.bitmap.subexpanse_rank(d) as usize;
-            if node.bitmap.test(d) {
-                // SAFETY: value subarray holds subexpanse_count values.
-                unsafe {
-                    let slot = node.values[sub].add(rank);
-                    let old = *slot;
-                    if !KEEP {
-                        slot.write(val);
-                    }
-                    return (Some(old), slot);
-                }
-            }
-            let old_n = node.bitmap.subexpanse_count(sub) as usize;
-            if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
-                // Fast path: spare class capacity — shift in place.
-                // SAFETY: the subarray holds cap_class(old_n) slots.
-                unsafe {
-                    let arr = node.values[sub];
-                    core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
-                    arr.add(rank).write(val);
-                }
-            } else {
-                let new = a.alloc_bytes(sub_vals_size(old_n + 1)).cast::<u64>();
-                // SAFETY: copy old_n values around the inserted rank; the
-                // empty case touches no old pointer.
-                unsafe {
-                    if old_n > 0 {
-                        let old = node.values[sub];
-                        new.as_ptr().copy_from_nonoverlapping(old, rank);
-                        new.as_ptr()
-                            .add(rank + 1)
-                            .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                        a.free_bytes(
-                            core::ptr::NonNull::new(old.cast()).expect("values"),
-                            sub_vals_size(old_n),
-                        );
-                    }
-                    new.as_ptr().add(rank).write(val);
-                }
-                node.values[sub] = new.as_ptr();
-            }
-            node.bitmap.set(d);
-            let pop0 = edge.pop0(1);
-            edge.set_pop0(1, pop0 + 1);
-            // SAFETY: the value now lives at this subarray rank.
-            (None, unsafe { node.values[sub].add(rank) })
-        }
-
-        EdgeTag::Structural(EdgeType::FullExpanse) => {
-            unreachable!("full-expanse edges are set-flavor only")
-        }
-
-        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
-            debug_assert!(level >= 2);
-            // SAFETY: live branch per contract.
-            let bl = unsafe { branch_form_level(edge, t, level) };
-            if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
-                let pop = edge.pop0(bl) + 1;
-                split_skip(a, edge, key, level, pop);
-                // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level) };
-            }
-            let d = digit(key, bl);
-            let is_l3 = matches!(t, EdgeType::BranchL3);
-            // SAFETY: live branch per contract.
-            let (found, num) = unsafe {
-                if is_l3 {
-                    let b = &*edge.node_ptr().cast::<BranchL3>();
-                    (b.hdr.find(d), b.hdr.num as usize)
-                } else {
-                    let b = &*edge.node_ptr().cast::<BranchL7>();
-                    (b.hdr.find(d), b.hdr.num as usize)
-                }
-            };
-            if let Some(slot) = found {
-                // SAFETY: slot within populated count; child well-formed.
-                // The node's version brackets the descent (Phase 7 OCC).
+                // SAFETY: live branch; slot arithmetic bounded by capacity.
                 let res = unsafe {
                     if is_l3 {
                         let b = &mut *edge.node_ptr().cast::<BranchL3>();
                         crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
+                        let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
+                        b.hdr.num += 1;
                         let r = map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1);
                         crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                         r
                     } else {
                         let b = &mut *edge.node_ptr().cast::<BranchL7>();
                         crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
+                        let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
+                        b.hdr.num += 1;
                         let r = map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1);
                         crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                         r
                     }
                 };
-                if res.0.is_none() {
-                    bump_pop0(edge, bl, 1);
-                }
-                return res;
+                debug_assert!(res.0.is_none());
+                bump_pop0(edge, bl, 1);
+                return (None, res.1);
             }
-            let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
-            if num == cap {
-                // SAFETY: upgrade rebuilds the node; subtree stays owned.
-                unsafe {
-                    if is_l3 {
-                        upgrade_l3_to_l7(a, edge);
-                    } else {
-                        upgrade_l7_to_b(a, edge);
-                    }
-                    return map_insert::<KEEP, OCC>(a, edge, key, val, level);
-                }
-            }
-            // SAFETY: live branch; slot arithmetic bounded by capacity.
-            let res = unsafe {
-                if is_l3 {
-                    let b = &mut *edge.node_ptr().cast::<BranchL3>();
-                    crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                    let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
-                    b.hdr.num += 1;
-                    let r = map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1);
-                    crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
-                    r
-                } else {
-                    let b = &mut *edge.node_ptr().cast::<BranchL7>();
-                    crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                    let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
-                    b.hdr.num += 1;
-                    let r = map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1);
-                    crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
-                    r
-                }
-            };
-            debug_assert!(res.0.is_none());
-            bump_pop0(edge, bl, 1);
-            (None, res.1)
-        }
 
-        EdgeTag::Structural(EdgeType::BranchB) => {
-            debug_assert!(level >= 2);
-            // SAFETY: live branch per contract.
-            let bl = unsafe { branch_form_level(edge, EdgeType::BranchB, level) };
-            if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
-                let pop = edge.pop0(bl) + 1;
-                split_skip(a, edge, key, level, pop);
-                // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level) };
-            }
-            let slot_level = level;
-            let d = digit(key, bl);
-            // SAFETY: live BranchB per contract.
-            let b = unsafe { &mut *edge.node_ptr().cast::<BranchB>() };
-            if b.bitmap.test(d) {
-                let slot = b.bitmap.subexpanse_rank(d) as usize;
-                let sub = b.subarrays[(d >> 5) as usize];
-                // SAFETY: bitmap/subarray consistency invariant. The
-                // node's version brackets the descent (Phase 7 OCC).
+            EdgeTag::Structural(EdgeType::BranchB) => {
+                debug_assert!(level >= 2);
+                // SAFETY: live branch per contract.
+                let bl = unsafe { branch_form_level(edge, EdgeType::BranchB, level) };
+                if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
+                    let pop = edge.pop0(bl) + 1;
+                    split_skip(a, edge, key, level, pop);
+                    continue;
+                }
+                let slot_level = level;
+                let d = digit(key, bl);
+                // SAFETY: live BranchB per contract.
+                let b = unsafe { &mut *edge.node_ptr().cast::<BranchB>() };
+                if b.bitmap.test(d) {
+                    let slot = b.bitmap.subexpanse_rank(d) as usize;
+                    let sub = b.subarrays[(d >> 5) as usize];
+                    // SAFETY: bitmap/subarray consistency invariant. The
+                    // node's version brackets the descent (Phase 7 OCC).
+                    crate::occ::version_begin_if::<OCC>(a, &mut b.version);
+                    // SAFETY: bitmap/subarray consistency invariant.
+                    let res = unsafe {
+                        map_insert::<KEEP, OCC>(a, &mut *sub.add(slot), key, val, bl - 1)
+                    };
+                    crate::occ::version_end_if::<OCC>(a, &mut b.version);
+                    if res.0.is_none() {
+                        bump_pop0(edge, bl, 1);
+                    }
+                    return res;
+                }
+                if b.bitmap.count() as usize + 1 > BRANCHB_UP {
+                    if bl < slot_level {
+                        // BranchU cannot skip: materialize one chain level.
+                        let pop = edge.pop0(bl) + 1;
+                        wrap_skip_level(a, edge, bl + 1, slot_level, pop);
+                        level = slot_level;
+                        continue;
+                    }
+                    // SAFETY: upgrade rebuilds the node; subtree stays owned.
+                    unsafe {
+                        upgrade_b_to_u(a, edge);
+                    }
+                    level = slot_level;
+                    continue;
+                }
+                let sub = (d >> 5) as usize;
+                let old_n = b.pop_counts[sub] as usize;
+                let rank = b.bitmap.subexpanse_rank(d) as usize;
                 crate::occ::version_begin_if::<OCC>(a, &mut b.version);
-                // SAFETY: bitmap/subarray consistency invariant.
-                let res =
-                    unsafe { map_insert::<KEEP, OCC>(a, &mut *sub.add(slot), key, val, bl - 1) };
+                if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
+                    // Fast path: spare class capacity — shift in place.
+                    // SAFETY: the subarray holds cap_class(old_n) slots.
+                    unsafe {
+                        let arr = b.subarrays[sub];
+                        core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                        arr.add(rank).write(Edge::NULL);
+                    }
+                } else {
+                    let new = a.alloc_bytes(sub_edges_size(old_n + 1)).cast::<Edge>();
+                    // SAFETY: copy old_n live edges around the inserted slot;
+                    // the empty case touches no old pointer.
+                    unsafe {
+                        if old_n > 0 {
+                            let old = b.subarrays[sub];
+                            new.as_ptr().copy_from_nonoverlapping(old, rank);
+                            new.as_ptr()
+                                .add(rank + 1)
+                                .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                            a.free_bytes(
+                                core::ptr::NonNull::new(old.cast()).expect("subarray"),
+                                sub_edges_size(old_n),
+                            );
+                        }
+                        new.as_ptr().add(rank).write(Edge::NULL);
+                    }
+                    b.subarrays[sub] = new.as_ptr();
+                }
+                b.pop_counts[sub] = (old_n + 1) as u16;
+                b.bitmap.set(d);
+                // SAFETY: fresh null child slot within the subarray.
+                let res = unsafe {
+                    map_insert::<KEEP, OCC>(a, &mut *b.subarrays[sub].add(rank), key, val, bl - 1)
+                };
+                crate::occ::version_end_if::<OCC>(a, &mut b.version);
+                debug_assert!(res.0.is_none());
+                bump_pop0(edge, bl, 1);
+                return (None, res.1);
+            }
+
+            EdgeTag::Structural(EdgeType::BranchU) => {
+                debug_assert!(level >= 2);
+                let d = digit(key, level);
+                // SAFETY: live BranchU per contract.
+                let b = unsafe { &mut *edge.node_ptr().cast::<BranchU>() };
+                // SAFETY: child subtree well-formed (or null) per contract.
+                crate::occ::version_begin_if::<OCC>(a, &mut b.version);
+                // SAFETY: child subtree well-formed (or null) per contract.
+                let res = unsafe {
+                    map_insert::<KEEP, OCC>(a, &mut b.edges[d as usize], key, val, level - 1)
+                };
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 if res.0.is_none() {
-                    bump_pop0(edge, bl, 1);
+                    bump_pop0(edge, level, 1);
                 }
                 return res;
             }
-            if b.bitmap.count() as usize + 1 > BRANCHB_UP {
-                if bl < slot_level {
-                    // BranchU cannot skip: materialize one chain level.
-                    let pop = edge.pop0(bl) + 1;
-                    wrap_skip_level(a, edge, bl + 1, slot_level, pop);
-                    // SAFETY: forwarded contract; edge is now a branch.
-                    return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, slot_level) };
-                }
-                // SAFETY: upgrade rebuilds the node; subtree stays owned.
-                unsafe {
-                    upgrade_b_to_u(a, edge);
-                    return map_insert::<KEEP, OCC>(a, edge, key, val, slot_level);
-                }
-            }
-            let sub = (d >> 5) as usize;
-            let old_n = b.pop_counts[sub] as usize;
-            let rank = b.bitmap.subexpanse_rank(d) as usize;
-            crate::occ::version_begin_if::<OCC>(a, &mut b.version);
-            if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
-                // Fast path: spare class capacity — shift in place.
-                // SAFETY: the subarray holds cap_class(old_n) slots.
-                unsafe {
-                    let arr = b.subarrays[sub];
-                    core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
-                    arr.add(rank).write(Edge::NULL);
-                }
-            } else {
-                let new = a.alloc_bytes(sub_edges_size(old_n + 1)).cast::<Edge>();
-                // SAFETY: copy old_n live edges around the inserted slot;
-                // the empty case touches no old pointer.
-                unsafe {
-                    if old_n > 0 {
-                        let old = b.subarrays[sub];
-                        new.as_ptr().copy_from_nonoverlapping(old, rank);
-                        new.as_ptr()
-                            .add(rank + 1)
-                            .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                        a.free_bytes(
-                            core::ptr::NonNull::new(old.cast()).expect("subarray"),
-                            sub_edges_size(old_n),
-                        );
-                    }
-                    new.as_ptr().add(rank).write(Edge::NULL);
-                }
-                b.subarrays[sub] = new.as_ptr();
-            }
-            b.pop_counts[sub] = (old_n + 1) as u16;
-            b.bitmap.set(d);
-            // SAFETY: fresh null child slot within the subarray.
-            let res = unsafe {
-                map_insert::<KEEP, OCC>(a, &mut *b.subarrays[sub].add(rank), key, val, bl - 1)
-            };
-            crate::occ::version_end_if::<OCC>(a, &mut b.version);
-            debug_assert!(res.0.is_none());
-            bump_pop0(edge, bl, 1);
-            (None, res.1)
-        }
-
-        EdgeTag::Structural(EdgeType::BranchU) => {
-            debug_assert!(level >= 2);
-            let d = digit(key, level);
-            // SAFETY: live BranchU per contract.
-            let b = unsafe { &mut *edge.node_ptr().cast::<BranchU>() };
-            // SAFETY: child subtree well-formed (or null) per contract.
-            crate::occ::version_begin_if::<OCC>(a, &mut b.version);
-            // SAFETY: child subtree well-formed (or null) per contract.
-            let res = unsafe {
-                map_insert::<KEEP, OCC>(a, &mut b.edges[d as usize], key, val, level - 1)
-            };
-            crate::occ::version_end_if::<OCC>(a, &mut b.version);
-            if res.0.is_none() {
-                bump_pop0(edge, level, 1);
-            }
-            res
         }
     }
 }
