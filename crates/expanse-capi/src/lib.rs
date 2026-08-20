@@ -959,6 +959,106 @@ pub unsafe extern "C" fn JudyHSFreeArray(pparray: *mut *mut c_void, pj: *mut JEr
     }
 }
 
+/// C-compatible counts of nodes by their specific form.
+#[repr(C)]
+pub struct CNodeCounts {
+    /// NULL edges (empty slots).
+    pub null: u64,
+    /// Immed edges (key bytes stored inside the edge pointer).
+    pub immed: u64,
+    /// Packed linear leaf nodes.
+    pub leaf_linear: u64,
+    /// Bitmap leaf nodes.
+    pub leaf_bitmap: u64,
+    /// Linear branch nodes (up to 3 children).
+    pub branch_l3: u64,
+    /// Linear branch nodes (up to 7 children).
+    pub branch_l7: u64,
+    /// Bitmap branch nodes.
+    pub branch_b: u64,
+    /// Uncompressed branch nodes.
+    pub branch_u: u64,
+    /// Full expanse edges (set-flavor only).
+    pub full_expanse: u64,
+}
+
+/// C-compatible diagnostic statistics for an Expanse trie.
+#[repr(C)]
+pub struct CExpanseStats {
+    /// Counts of nodes by their specific form.
+    pub node_counts: CNodeCounts,
+    /// Histogram of node depths (0 to 8).
+    pub depth_histogram: [u64; 9],
+    /// Histogram of leaf populations (0 to 256).
+    pub leaf_pop_histogram: [u64; 257],
+}
+
+/// Defensively validates a Judy1 or JudyL array structure.
+///
+/// `parray` is the pointer to the array (which is `*const c_void`).
+/// `is_map` should be non-zero for JudyL arrays, and zero for Judy1 arrays.
+///
+/// Returns 1 if the array is valid (or empty/null), 0 if any structural corruption is detected.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_validate(parray: *const c_void, is_map: c_int) -> c_int {
+    if parray.is_null() {
+        return 1;
+    }
+    if is_map != 0 {
+        // SAFETY: pointer is a valid ExpanseMap.
+        let map = unsafe { &*parray.cast::<ExpanseMap>() };
+        c_int::from(map.validate_defensive().is_ok())
+    } else {
+        // SAFETY: pointer is a valid ExpanseSet.
+        let set = unsafe { &*parray.cast::<ExpanseSet>() };
+        c_int::from(set.validate_defensive().is_ok())
+    }
+}
+
+/// Gathers structural statistics of the trie.
+///
+/// Returns 1 on success (with stats written to `out`), 0 on null pointer arguments.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_stats(
+    parray: *const c_void,
+    is_map: c_int,
+    out: *mut CExpanseStats,
+) -> c_int {
+    if parray.is_null() || out.is_null() {
+        return 0;
+    }
+    let stats = if is_map != 0 {
+        // SAFETY: pointer is a valid ExpanseMap.
+        let map = unsafe { &*parray.cast::<ExpanseMap>() };
+        map.stats()
+    } else {
+        // SAFETY: pointer is a valid ExpanseSet.
+        let set = unsafe { &*parray.cast::<ExpanseSet>() };
+        set.stats()
+    };
+
+    // SAFETY: out checked non-null.
+    unsafe {
+        (*out).node_counts.null = stats.node_counts.null as u64;
+        (*out).node_counts.immed = stats.node_counts.immed as u64;
+        (*out).node_counts.leaf_linear = stats.node_counts.leaf_linear as u64;
+        (*out).node_counts.leaf_bitmap = stats.node_counts.leaf_bitmap as u64;
+        (*out).node_counts.branch_l3 = stats.node_counts.branch_l3 as u64;
+        (*out).node_counts.branch_l7 = stats.node_counts.branch_l7 as u64;
+        (*out).node_counts.branch_b = stats.node_counts.branch_b as u64;
+        (*out).node_counts.branch_u = stats.node_counts.branch_u as u64;
+        (*out).node_counts.full_expanse = stats.node_counts.full_expanse as u64;
+
+        for i in 0..9 {
+            (*out).depth_histogram[i] = stats.depth_histogram[i] as u64;
+        }
+        for i in 0..257 {
+            (*out).leaf_pop_histogram[i] = stats.leaf_pop_histogram[i] as u64;
+        }
+    }
+    1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

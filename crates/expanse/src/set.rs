@@ -13,6 +13,7 @@ use crate::mutate;
 use crate::node::Edge;
 use crate::sync::RootSnapshot;
 use crate::types::Key;
+use crate::validate::ExpanseStats;
 use core::ptr::NonNull;
 
 /// Maximum population held in the root leaf before a real trie is built.
@@ -292,23 +293,61 @@ impl ExpanseSet {
     /// (`docs/TESTING.md`, "Structural invariant validator"). Debug/test
     /// aid; cost is a full tree walk.
     pub fn validate(&self) {
+        if let Err(err) = self.validate_defensive() {
+            panic!("{err}");
+        }
+    }
+
+    /// Defensive trie structure validator that does not panic.
+    ///
+    /// Returns `Ok(())` if the trie invariants are fully met, or `Err(reason)`
+    /// indicating what structural corruption was detected.
+    pub fn validate_defensive(&self) -> Result<(), String> {
+        match &self.root {
+            Root::Empty => Ok(()),
+            Root::Leaf { pop, .. } => {
+                if *pop < 1 || *pop > ROOT_LEAF_CAP {
+                    return Err(format!("root leaf pop {pop} out of range"));
+                }
+                let keys = self.root_leaf_keys();
+                if !keys.windows(2).all(|w| w[0] < w[1]) {
+                    return Err("root leaf keys unsorted".into());
+                }
+                Ok(())
+            }
+            Root::Tree { top, pop } => {
+                if top.is_null() {
+                    return Err("tree root with null top".into());
+                }
+                let mut stats = ExpanseStats::default();
+                let counted =
+                    crate::validate::expanse_validate_and_stats::<false>(top, 8, &mut stats, 0)?;
+                if counted != *pop {
+                    return Err(format!(
+                        "total population {pop} disagrees with tree {counted}"
+                    ));
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Gathers structural statistics of the trie.
+    #[must_use]
+    pub fn stats(&self) -> ExpanseStats {
+        let mut stats = ExpanseStats::default();
         match &self.root {
             Root::Empty => {}
             Root::Leaf { pop, .. } => {
-                assert!(
-                    *pop >= 1 && *pop <= ROOT_LEAF_CAP,
-                    "root leaf pop out of range"
-                );
-                let keys = self.root_leaf_keys();
-                assert!(keys.windows(2).all(|w| w[0] < w[1]), "root leaf unsorted");
+                stats.depth_histogram[0] = 1;
+                stats.leaf_pop_histogram[*pop as usize] = 1;
+                stats.node_counts.leaf_linear = 1;
             }
-            Root::Tree { top, pop } => {
-                assert!(!top.is_null(), "tree root with null top");
-                // SAFETY: trie maintained/owned by this set's engine.
-                let counted = unsafe { mutate::validate_subtree::<false>(top, 8) };
-                assert_eq!(counted, *pop, "total population disagrees with tree");
+            Root::Tree { top, .. } => {
+                let _ = crate::validate::expanse_validate_and_stats::<false>(top, 8, &mut stats, 0);
             }
         }
+        stats
     }
 }
 
@@ -974,5 +1013,35 @@ mod tests {
             child.set_pop0(7, pop0 + 1);
         }
         set.validate();
+    }
+
+    #[test]
+    fn dense_leaf_structure_assertion() {
+        struct XorShift(u64);
+        impl XorShift {
+            fn next(&mut self) -> u64 {
+                let mut x = self.0;
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                self.0 = x;
+                x
+            }
+        }
+        let mut set = ExpanseSet::new();
+        let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
+        let num_runs = 50;
+        for _ in 0..num_runs {
+            let prefix = rng.next() & !0xFF;
+            for j in 0..32 {
+                set.insert(prefix | j);
+            }
+        }
+        set.validate();
+        let stats = set.stats();
+        // Assert that we have linear leaves of population 32, and NO bitmap leaves!
+        assert!(stats.leaf_pop_histogram[32] >= num_runs);
+        assert_eq!(stats.node_counts.leaf_bitmap, 0);
+        assert!(stats.node_counts.leaf_linear >= num_runs);
     }
 }

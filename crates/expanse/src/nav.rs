@@ -239,7 +239,7 @@ pub(crate) unsafe fn next<const MAP: bool>(
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
-            let (dv, shift) = if bl < level {
+            let (dv, shift): (u64, u32) = if bl < level {
                 (
                     crate::mutate::decode_value(edge, bl, level),
                     8 * u32::from(bl),
@@ -285,7 +285,7 @@ pub(crate) unsafe fn next<const MAP: bool>(
         EdgeTag::Structural(EdgeType::BranchB) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
-            let (dv, shift) = if bl < level {
+            let (dv, shift): (u64, u32) = if bl < level {
                 (
                     crate::mutate::decode_value(edge, bl, level),
                     8 * u32::from(bl),
@@ -443,7 +443,7 @@ pub(crate) unsafe fn prev<const MAP: bool>(
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
-            let (dv, shift) = if bl < level {
+            let (dv, shift): (u64, u32) = if bl < level {
                 (
                     crate::mutate::decode_value(edge, bl, level),
                     8 * u32::from(bl),
@@ -493,7 +493,7 @@ pub(crate) unsafe fn prev<const MAP: bool>(
         EdgeTag::Structural(EdgeType::BranchB) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
-            let (dv, shift) = if bl < level {
+            let (dv, shift): (u64, u32) = if bl < level {
                 (
                     crate::mutate::decode_value(edge, bl, level),
                     8 * u32::from(bl),
@@ -622,7 +622,7 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
-            let (dv, shift) = if bl < level {
+            let (dv, shift): (u64, u32) = if bl < level {
                 (
                     crate::mutate::decode_value(edge, bl, level),
                     8 * u32::from(bl),
@@ -669,7 +669,7 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
         EdgeTag::Structural(EdgeType::BranchB) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
-            let (dv, shift) = if bl < level {
+            let (dv, shift): (u64, u32) = if bl < level {
                 (
                     crate::mutate::decode_value(edge, bl, level),
                     8 * u32::from(bl),
@@ -813,7 +813,7 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
-            let (dv, shift) = if bl < level {
+            let (dv, shift): (u64, u32) = if bl < level {
                 (
                     crate::mutate::decode_value(edge, bl, level),
                     8 * u32::from(bl),
@@ -850,7 +850,7 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
         EdgeTag::Structural(EdgeType::BranchB) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
-            let (dv, shift) = if bl < level {
+            let (dv, shift): (u64, u32) = if bl < level {
                 (
                     crate::mutate::decode_value(edge, bl, level),
                     8 * u32::from(bl),

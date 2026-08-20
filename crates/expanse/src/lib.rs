@@ -48,3 +48,4 @@ pub mod set;
 pub mod strmap;
 pub mod sync;
 pub mod types;
+pub mod validate;
