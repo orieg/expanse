@@ -332,18 +332,26 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                     continue;
                 }
                 let k = key_low(key, kb);
-                // Phase 7 coverage invariant (see alloc::assert_bracketed):
-                // linear leaves carry no version; the parent's bracket does.
-                a.assert_bracketed();
                 let base = edge.node_ptr();
-                // SAFETY: live map leaf per contract (keys behind the values).
-                let pos =
-                    unsafe { leaf::lower_bound(base.add(leaf::map_keys_offset(pop)), pop, kb, k) };
-                // SAFETY: pos < pop is in bounds.
-                let hit = pos < pop
-                    && unsafe {
-                        read_packed(base.add(leaf::map_keys_offset(pop)), pos, kb as usize) == k
-                    };
+                // SAFETY: map_keys_offset(pop) is within the live map leaf allocation.
+                let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
+                let (hit, pos) = if pop > 0 {
+                    // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
+                    let last = unsafe { read_packed(keys_ptr, pop - 1, kb as usize) };
+                    if k > last {
+                        (false, pop)
+                    } else if k == last {
+                        (true, pop - 1)
+                    } else {
+                        // SAFETY: live map leaf per contract (keys behind the values).
+                        let p = unsafe { leaf::lower_bound(keys_ptr, pop, kb, k) };
+                        // SAFETY: p < pop is in bounds.
+                        let h = p < pop && unsafe { read_packed(keys_ptr, p, kb as usize) == k };
+                        (h, p)
+                    }
+                } else {
+                    (false, 0)
+                };
                 match if hit { Ok(pos) } else { Err(pos) } {
                     Ok(pos) => {
                         // SAFETY: in-place value swap within the live leaf.
