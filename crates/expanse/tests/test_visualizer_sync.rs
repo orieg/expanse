@@ -157,7 +157,13 @@ fn test_benchmark_coverage_sync() {
     }
 
     // Verify Drop-In C-Compat ABI Benchmark coverage
-    let expected_c_benches = ["JudyLGet", "Judy1Set", "JudyLIns", "Judy1Test", "JudyLDel"];
+    let expected_c_benches = [
+        "judyl_get",
+        "judy1_set",
+        "judyl_insert",
+        "judy1_test",
+        "judyl_churn",
+    ];
     for c_bench in expected_c_benches {
         assert!(
             json_content.contains(c_bench),

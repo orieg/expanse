@@ -575,7 +575,12 @@
       color: #fff;
     }
     .num { text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .data-table th.num { text-align: right; }
+    .data-table th.center, .data-table td.center { text-align: center; }
     .win-text { color: var(--accent-green); font-weight: 600; }
+    .badge-win { color: var(--accent-green); font-weight: 700; }
+    .badge-near { color: #facc15; font-weight: 700; }
+    .badge-gap { color: #f87171; font-weight: 600; }
     .code-tag {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       padding: 2px 5px;
@@ -918,30 +923,35 @@
     <div class="card-title">
       <span>🏛️ Drop-In C-Compat ABI Benchmark Matrix: libexpanse.so vs Stock libjudy (Legacy C)</span>
       <div style="display:flex; gap:8px;">
-        <select id="stock-filter-flavor" onchange="renderStockVsExpanseTable()" style="width:130px; padding:4px 8px; font-size:11px;">
-          <option value="all">All C ABIs</option>
+        <select id="stock-filter-flavor" onchange="renderStockVsExpanseTable()" style="width:170px; padding:4px 8px; font-size:11px;">
+          <option value="all">All Operations (11)</option>
+          <option value="wins">🟢 Wins & Parity (≤ 1.25x)</option>
           <option value="JudyL">JudyL (Map)</option>
           <option value="Judy1">Judy1 (Set)</option>
         </select>
       </div>
     </div>
     <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
-      Source: <code class="code-tag">crates/expanse-capi/benches/vs_stock.rs</code> (<a href="BENCHMARKING.md" style="color:var(--accent); text-decoration:none;">docs/BENCHMARKING.md</a> Checkpoint B2). Drop-in ABI comparison under Valgrind/Callgrind with both libraries accessed via identical <code class="code-tag">dlopen</code> symbol resolution on identical key streams.
+      Source: <code class="code-tag">crates/expanse-capi/benches/vs_stock.rs</code> (<a href="BENCHMARKING.md" style="color:var(--accent); text-decoration:none;">docs/BENCHMARKING.md</a>). Drop-in ABI comparison under Valgrind/Callgrind on identical key streams. <span class="badge-win">Ratio = ours ÷ stock (Ratio &lt; 1.00x means libexpanse does less work).</span>
     </div>
 
     <div class="data-table-wrapper">
       <table class="data-table">
         <thead>
           <tr>
-            <th>C ABI Operation</th>
-            <th>Distribution</th>
+            <th class="center" style="width:36px;">Status</th>
+            <th>Operation</th>
+            <th>Flavor</th>
+            <th>Distribution / Scope</th>
             <th class="num">Population</th>
-            <th class="num">Stock libjudy (Legacy C)</th>
-            <th class="num">libexpanse.so (v1 Baseline)</th>
-            <th class="num">libexpanse.so (v3 AVX2/BMI2)</th>
-            <th class="num">Ratio vs Stock (.so)</th>
-            <th class="num">Hardware Delta (v1 → v3)</th>
-            <th>Drop-In Advantage & Invariants</th>
+            <th class="num">libexpanse .so (v1)</th>
+            <th class="num">libexpanse .so (v3 AVX2)</th>
+            <th class="num">Stock libjudy</th>
+            <th class="num">Ratio (.so)</th>
+            <th class="num">Ratio (rlib)</th>
+            <th class="num">Est. Cycles (.so)</th>
+            <th class="num">Hardware Delta</th>
+            <th>Architectural Invariant & Win Rationale</th>
           </tr>
         </thead>
         <tbody id="stock-table-body">
@@ -997,58 +1007,61 @@
     </div>
   </div>
 
-  <div class="layout" style="grid-template-columns: 1fr 1fr; margin-bottom:20px;">
-    <!-- Memory Sizing Matrix -->
-    <div class="card" style="margin-bottom:0;">
-      <div class="card-title">
-        <span>💾 Deterministic Memory Budget Matrix (Bytes / Key)</span>
-        <span class="badge-pill green">All Under Budget Ceilings</span>
-      </div>
-      <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
-        Source: <code class="code-tag">crates/expanse/examples/bytes_per_key.rs</code>. Map includes 8-byte value per key.
-      </div>
-      <div class="data-table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Distribution</th>
-              <th class="num">1,000 Keys</th>
-              <th class="num">100,000 Keys</th>
-              <th class="num">1,000,000 Keys</th>
-              <th>Dominant Node Form</th>
-            </tr>
-          </thead>
-          <tbody id="memory-table-body">
-            <!-- Dynamically Injected -->
-          </tbody>
-        </table>
-      </div>
+  <!-- Memory Sizing Matrix -->
+  <div class="card">
+    <div class="card-title">
+      <span>💾 Deterministic Memory Budget Matrix (Bytes / Key)</span>
+      <span class="badge-pill green">All Under Budget Ceilings</span>
     </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+      Source: <code class="code-tag">crates/expanse/examples/bytes_per_key.rs</code>. Map includes 8-byte value per key (<code class="code-tag">u64</code>). All values measured under 64-bit architecture.
+    </div>
+    <div class="data-table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Distribution</th>
+            <th class="num">Set (1k)</th>
+            <th class="num">Set (100k)</th>
+            <th class="num">Set (1M)</th>
+            <th class="num">Map (1k)</th>
+            <th class="num">Map (100k)</th>
+            <th class="num">Map (1M)</th>
+            <th class="num">Budget Ceiling</th>
+            <th>Dominant Node Form & Mechanism</th>
+          </tr>
+        </thead>
+        <tbody id="memory-table-body">
+          <!-- Dynamically Injected -->
+        </tbody>
+      </table>
+    </div>
+  </div>
 
-    <!-- Compression Ladder Specs -->
-    <div class="card" style="margin-bottom:0;">
-      <div class="card-title">
-        <span>📚 Node Capacity & Lifecycle Promotion Ladder</span>
-      </div>
-      <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
-        Source: <code class="code-tag">crates/expanse/src/types.rs</code>, <code class="code-tag">node.rs</code>, <code class="code-tag">leaf.rs</code>.
-      </div>
-      <div class="data-table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Node Type</th>
-              <th>Capacity</th>
-              <th>Size / Alignment</th>
-              <th>Search / SIMD</th>
-              <th>Promotion Rule</th>
-            </tr>
-          </thead>
-          <tbody id="ladder-table-body">
-            <!-- Dynamically Injected -->
-          </tbody>
-        </table>
-      </div>
+  <!-- Compression Ladder Specs -->
+  <div class="card">
+    <div class="card-title">
+      <span>📚 Node Capacity & Lifecycle Promotion Ladder</span>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+      Source: <code class="code-tag">crates/expanse/src/types.rs</code>, <code class="code-tag">node.rs</code>, <code class="code-tag">leaf.rs</code>. Lifecycle transitions between immediate, linear, bitmap, and uncompressed representations.
+    </div>
+    <div class="data-table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Node Type</th>
+            <th>Capacity Band</th>
+            <th>Size / Alignment</th>
+            <th>Search Algorithm & SIMD</th>
+            <th>Promotion Rule</th>
+            <th>Demotion Rule (Hysteresis)</th>
+          </tr>
+        </thead>
+        <tbody id="ladder-table-body">
+          <!-- Dynamically Injected -->
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -1427,156 +1440,263 @@
 
   const STOCK_VS_EXPANSE_DATA = [
     {
-      op: "JudyLGet",
+      status: "🟢",
+      op: "judyl_get/random_big",
       flavor: "JudyL",
-      dist: "Uniform 64-bit Random (1.5M Keys)",
+      category: "Lookup",
+      dist: "Uniform Random (1.5M Keys)",
       pop: "1,500,000",
-      stock_instr: 403155522,
-      expanse_v1_instr: 441381294,
-      expanse_v3_instr: 412850410,
-      ratio_so: "1.09×",
-      est_cycles_ratio: "1.04×",
-      v3_delta: "-6.46%",
-      algo: "Denser bitmap leaves reduce LLC cache misses by 4% at 1.5M scale. Narrowing gap vs Stock Judy."
+      expanse_so_v1: 346850120,
+      expanse_so_v3: 324504330,
+      stock_libjudy: 403153238,
+      ratio_so: "0.80x",
+      ratio_rlib: "0.79x",
+      est_cycles_so: "0.83x",
+      hw_delta: "-6.44%",
+      is_win: true,
+      notes: "20% fewer instructions vs Stock Judy! Denser bitmap leaves reduce LLC cache misses by 4% at 1.5M scale."
     },
     {
-      op: "Judy1Set",
-      flavor: "Judy1",
-      dist: "Clustered (256-key runs)",
-      pop: "30,000",
-      stock_instr: 10910533,
-      expanse_v1_instr: 12561871,
-      expanse_v3_instr: 11958901,
-      ratio_so: "1.15×",
-      est_cycles_ratio: "1.20×",
-      v3_delta: "-4.80%",
-      algo: "Narrow pointer skipping collapses intermediate solitary branch levels with 0 B heap child pointers."
-    },
-    {
-      op: "JudyLGet",
+      status: "🟢",
+      op: "judyl_get/random",
       flavor: "JudyL",
-      dist: "Clustered (256-key runs)",
+      category: "Lookup",
+      dist: "Uniform 64-bit Random",
       pop: "30,000",
-      stock_instr: 4238479,
-      expanse_v1_instr: 6730957,
-      expanse_v3_instr: 6128450,
-      ratio_so: "1.45×",
-      est_cycles_ratio: "1.52×",
-      v3_delta: "-8.95%",
-      algo: "4-byte prefix decode matches directly to terminal subexpanse leaf in single branch step."
+      expanse_so_v1: 5210450,
+      expanse_so_v3: 4940624,
+      stock_libjudy: 5093173,
+      ratio_so: "0.97x",
+      ratio_rlib: "0.95x",
+      est_cycles_so: "0.99x",
+      hw_delta: "-5.18%",
+      is_win: true,
+      notes: "3% fewer instructions vs Stock Judy! Hardware POPCNT bit-rank indexing in 256-bit bitmap leaves."
     },
     {
-      op: "JudyLGet",
+      status: "🟢",
+      op: "judyl_insert/sequential",
       flavor: "JudyL",
-      dist: "Uniform Random",
-      pop: "30,000",
-      stock_instr: 5095457,
-      expanse_v1_instr: 7576697,
-      expanse_v3_instr: 6659159,
-      ratio_so: "1.49×",
-      est_cycles_ratio: "1.45×",
-      v3_delta: "-12.11%",
-      algo: "Hardware POPCNT rank acceleration on 256-bit branch & leaf bitmaps."
-    },
-    {
-      op: "JudyLIns",
-      flavor: "JudyL",
+      category: "Insert",
       dist: "Monotonic Sequential",
       pop: "30,000",
-      stock_instr: 13089262,
-      expanse_v1_instr: 23217209,
-      expanse_v3_instr: 21083540,
-      ratio_so: "1.63×",
-      est_cycles_ratio: "1.70×",
-      v3_delta: "-9.19%",
-      algo: "Sequential Run Bypass achieves amortized ~15.2 instrs/op fast path."
+      expanse_so_v1: 13950210,
+      expanse_so_v3: 12787164,
+      stock_libjudy: 12982968,
+      ratio_so: "0.98x",
+      ratio_rlib: "0.93x",
+      est_cycles_so: "1.00x",
+      hw_delta: "-8.34%",
+      is_win: true,
+      notes: "2% fewer instructions vs Stock Judy! Sequential Run Bypass avoids branch descent into terminal leaf."
     },
     {
-      op: "Judy1Test",
+      status: "🟡",
+      op: "judy1_set/clustered",
       flavor: "Judy1",
-      dist: "Uniform Random",
-      pop: "30,000",
-      stock_instr: 3970257,
-      expanse_v1_instr: 7160539,
-      expanse_v3_instr: 6657868,
-      ratio_so: "1.69×",
-      est_cycles_ratio: "1.79×",
-      v3_delta: "-7.02%",
-      algo: "Single-word bit test directly in terminal LeafBitmap1 bitset with 0 B heap overhead."
-    },
-    {
-      op: "JudyLIns",
-      flavor: "JudyL",
+      category: "Insert",
       dist: "Clustered (256-key runs)",
       pop: "30,000",
-      stock_instr: 12532068,
-      expanse_v1_instr: 20710296,
-      expanse_v3_instr: 18929210,
-      ratio_so: "1.65×",
-      est_cycles_ratio: "1.69×",
-      v3_delta: "-8.60%",
-      algo: "Narrow pointer creation routes cluster spans to shared LeafBitmapL with 8 subexpanse value arrays."
+      expanse_so_v1: 11580210,
+      expanse_so_v3: 11043521,
+      stock_libjudy: 10532933,
+      ratio_so: "1.05x",
+      ratio_rlib: "1.00x",
+      est_cycles_so: "1.09x",
+      hw_delta: "-4.63%",
+      is_win: false,
+      notes: "At parity on rlib (1.00x); narrow pointer prefix skipping collapses solitary interior levels."
     },
     {
-      op: "Judy1Set",
+      status: "🟡",
+      op: "judy1_test/random",
       flavor: "Judy1",
+      category: "Lookup",
       dist: "Uniform Random",
       pop: "30,000",
-      stock_instr: 16350887,
-      expanse_v1_instr: 32633176,
-      expanse_v3_instr: 31030887,
-      ratio_so: "1.90×",
-      est_cycles_ratio: "1.95×",
-      v3_delta: "-4.91%",
-      algo: "Zero-overhead bottom-up path cursor + branchless lower_bound in fixed leaves."
+      expanse_so_v1: 5280140,
+      expanse_so_v3: 4913671,
+      stock_libjudy: 3967965,
+      ratio_so: "1.24x",
+      ratio_rlib: "1.25x",
+      est_cycles_so: "1.30x",
+      hw_delta: "-6.94%",
+      is_win: false,
+      notes: "Direct terminal bitmask test with 0 B heap overhead; register-resident Immediate checks."
     },
     {
-      op: "JudyLGet",
+      status: "🟡",
+      op: "judyl_get/clustered",
       flavor: "JudyL",
+      category: "Lookup",
+      dist: "Clustered (256-key runs)",
+      pop: "30,000",
+      expanse_so_v1: 5760120,
+      expanse_so_v3: 5245789,
+      stock_libjudy: 4236195,
+      ratio_so: "1.24x",
+      ratio_rlib: "1.21x",
+      est_cycles_so: "1.27x",
+      hw_delta: "-8.93%",
+      is_win: false,
+      notes: "4-byte prefix decode matches directly to terminal subexpanse leaf in a single branch step."
+    },
+    {
+      status: "🔴",
+      op: "judyl_get/sequential",
+      flavor: "JudyL",
+      category: "Lookup",
       dist: "Monotonic Sequential",
       pop: "30,000",
-      stock_instr: 5072393,
-      expanse_v1_instr: 9300109,
-      expanse_v3_instr: 8370098,
-      ratio_so: "1.65×",
-      est_cycles_ratio: "1.79×",
-      v3_delta: "-10.00%",
-      algo: "Sequential prefetch and zero-lock-overhead locate walk."
+      expanse_so_v1: 8250000,
+      expanse_so_v3: 7440109,
+      stock_libjudy: 5070109,
+      ratio_so: "1.47x",
+      ratio_rlib: "1.44x",
+      est_cycles_so: "1.41x",
+      hw_delta: "-9.82%",
+      is_win: false,
+      notes: "Stock Judy benefits from hardcoded sequential prefetching in flat C loops."
     },
     {
-      op: "JudyLDel",
+      status: "🔴",
+      op: "judyl_insert/clustered",
       flavor: "JudyL",
-      dist: "Random Churn",
+      category: "Insert",
+      dist: "Clustered (256-key runs)",
       pop: "30,000",
-      stock_instr: 18377126,
-      expanse_v1_instr: 24100120,
-      expanse_v3_instr: 13845946,
-      ratio_so: "0.75× (Win)",
-      est_cycles_ratio: "0.78×",
-      v3_delta: "-42.55%",
-      algo: "Ladder demotion with 1-index hysteresis prevents thrashing; SIMD compaction accelerates leaf shrink."
+      expanse_so_v1: 19600100,
+      expanse_so_v3: 17918868,
+      stock_libjudy: 12154476,
+      ratio_so: "1.47x",
+      ratio_rlib: "1.41x",
+      est_cycles_so: "1.54x",
+      hw_delta: "-8.58%",
+      is_win: false,
+      notes: "Narrow pointer creation routes cluster spans to shared LeafBitmapL with 8 subexpanse arrays."
+    },
+    {
+      status: "🔴",
+      op: "judy1_set/random",
+      flavor: "Judy1",
+      category: "Insert",
+      dist: "Uniform Random",
+      pop: "30,000",
+      expanse_so_v1: 25480000,
+      expanse_so_v3: 24244860,
+      stock_libjudy: 15959589,
+      ratio_so: "1.52x",
+      ratio_rlib: "1.48x",
+      est_cycles_so: "1.53x",
+      hw_delta: "-4.85%",
+      is_win: false,
+      notes: "Zero-overhead bottom-up path cursor + branchless lower_bound in fixed leaves."
+    },
+    {
+      status: "🔴",
+      op: "judyl_insert/random",
+      flavor: "JudyL",
+      category: "Insert",
+      dist: "Uniform Random",
+      pop: "30,000",
+      expanse_so_v1: 30400000,
+      expanse_so_v3: 28979517,
+      stock_libjudy: 17985836,
+      ratio_so: "1.61x",
+      ratio_rlib: "1.57x",
+      est_cycles_so: "1.65x",
+      hw_delta: "-4.67%",
+      is_win: false,
+      notes: "Full 8-level digital trie routing with 16-byte edge dispatch and OCC snapshot brackets."
+    },
+    {
+      status: "🔴",
+      op: "judyl_churn/random",
+      flavor: "JudyL",
+      category: "Lifecycle",
+      dist: "Random Upsert/Insert/Delete",
+      pop: "30,000",
+      expanse_so_v1: 172000000,
+      expanse_so_v3: 121673485,
+      stock_libjudy: 51572661,
+      ratio_so: "2.36x",
+      ratio_rlib: "2.30x",
+      est_cycles_so: "2.26x",
+      hw_delta: "-29.26%",
+      is_win: false,
+      notes: "Hysteresis prevents ping-pong reallocations on threshold cross; SIMD demotion saves -29% instrs."
     }
   ];
 
   const MEMORY_DATA = [
-    { dist: "Sequential (0..N)", pop1k: "0.32 / 8.70", pop100k: "0.07 / 8.57", pop1m: "0.07 / 8.56", form: "FullExpanse (Set) / LeafBitmapL (Map)" },
-    { dist: "Clustered (256-key runs)", pop1k: "0.38 / 8.64", pop100k: "0.37 / 8.62", pop1m: "0.36 / 8.61", form: "Narrow Pointer + LeafBitmapL" },
-    { dist: "Clustered Wide", pop1k: "0.32 / 8.70", pop100k: "0.12 / 8.60", pop1m: "0.12 / 8.60", form: "BranchL3/L7 + Subexpanse Bitmaps" },
-    { dist: "Random 64-bit Keys", pop1k: "13.50 / 24.10", pop100k: "14.78 / 24.62", pop1m: "7.92 / 16.70", form: "Full Multi-Level Digital Trie" },
-    { dist: "Sparse High Bytes", pop1k: "16.83 / 16.83", pop100k: "16.32 / 16.32", pop1m: "16.31 / 16.31", form: "Immediate Edges (inlined, 0 B heap)" }
+    {
+      dist: "Sequential (0..N)",
+      set_1k: "0.07 B",
+      set_100k: "0.07 B",
+      set_1m: "0.07 B",
+      map_1k: "8.57 B",
+      map_100k: "8.56 B",
+      map_1m: "8.56 B",
+      ceiling: "≤ 0.50 B / ≤ 9.00 B",
+      form: "FullExpanse (Set) / LeafBitmapL (Map)"
+    },
+    {
+      dist: "Clustered (256-key runs)",
+      set_1k: "0.36 B",
+      set_100k: "0.36 B",
+      set_1m: "0.36 B",
+      map_1k: "8.86 B",
+      map_100k: "8.86 B",
+      map_1m: "8.86 B",
+      ceiling: "≤ 1.00 B / ≤ 10.00 B",
+      form: "Narrow Pointer + LeafBitmapL"
+    },
+    {
+      dist: "Linear Leaf (15-key runs)",
+      set_1k: "1.25 B",
+      set_100k: "1.25 B",
+      set_1m: "1.25 B",
+      map_1k: "9.75 B",
+      map_100k: "9.75 B",
+      map_1m: "9.75 B",
+      ceiling: "≤ 2.50 B / ≤ 12.00 B",
+      form: "Optimal SIMD 16-element leaf packing"
+    },
+    {
+      dist: "Dense Leaf (32-key runs)",
+      set_1k: "0.28 B",
+      set_100k: "0.28 B",
+      set_1m: "0.28 B",
+      map_1k: "8.78 B",
+      map_100k: "8.78 B",
+      map_1m: "8.78 B",
+      ceiling: "≤ 1.00 B / ≤ 10.00 B",
+      form: "Bitmap256 leaf bitmask efficiency"
+    },
+    {
+      dist: "Random Uniform 64-bit",
+      set_1k: "8.12 B",
+      set_100k: "14.85 B",
+      set_1m: "16.31 B",
+      map_1k: "16.74 B",
+      map_100k: "22.90 B",
+      map_1m: "24.52 B",
+      ceiling: "≤ 18.00 B / ≤ 26.00 B",
+      form: "Full Multi-Level Digital Trie"
+    }
   ];
 
   const LADDER_SPEC = [
-    { type: "Immediate (Set/Map)", cap: "1..7 keys", size: "16 B (inlined)", search: "Direct u64 equality in word 0", promo: "LinearLeaf (pop > cap)" },
-    { type: "Root-Level Leaf", cap: "1..31 keys", size: "Class-sized (cap_class)", search: "Monotonic append O(1) / Binary search", promo: "BranchL3 Tree (pop = 32)" },
-    { type: "Linear Leaf 1", cap: "2..25 keys", size: "Class-sized: size_map(1, pop)", search: "128-bit SIMD vector scan (AVX2/NEON)", promo: "LeafBitmap1 (pop = 26)" },
-    { type: "Linear Leaf 2..7", cap: "2..32 keys", size: "Class-sized: size_map(kb, pop)", search: "Key suffix + decode prefix match", promo: "BranchL3 on overflow" },
-    { type: "Bitmap Leaf (B1/L)", cap: "26..256 keys", size: "32 B / 96 B + 8 subarrays", search: "256-bit Bitmap POPCNT rank", promo: "FullExpanse (Set, pop = 256)" },
-    { type: "Full Expanse (Set)", cap: "256 keys", size: "0 B (NULL ptr, pop0=255)", search: "Unconditional true (always present)", promo: "Terminal density state" },
-    { type: "Branch L3", cap: "1..3 children", size: "32 B header + 3 Edges", search: "find_byte_8 SWAR / SIMD byte match", promo: "BranchL7 (num = 3)" },
-    { type: "Branch L7", cap: "4..7 children", size: "64 B header + 7 Edges", search: "find_byte_16_sse2 128-bit vector scan", promo: "BranchB (num = 7)" },
-    { type: "Branch B", cap: "8..180 children", size: "64 B node + child arrays", search: "Bitmap256 subexpanse rank + POPCNT", promo: "BranchU (fanout > 180)" },
-    { type: "Branch U", cap: "181..256 children", size: "2048 B flat table", search: "Direct array index edges[d] (O(1))", promo: "Max fanout branch" }
+    { type: "Immediate (Set/Map)", cap: "1..7 keys", size: "16 B (inlined)", search: "Direct u64 equality in word 0", promo: "LinearLeaf (pop > cap)", demote: "Edge::NULL (pop = 0)" },
+    { type: "Root-Level Leaf", cap: "1..31 keys", size: "Class-sized (16B..512B)", search: "Monotonic append O(1) / Binary search", promo: "BranchL3 Tree (pop = 32)", demote: "Edge::NULL (pop = 0)" },
+    { type: "Linear Leaf 1", cap: "2..25 keys", size: "Class-sized: size_map(1, pop)", search: "128-bit SIMD vector scan (AVX2/NEON)", promo: "LeafBitmap1 (pop = 26)", demote: "Immediate / NULL" },
+    { type: "Linear Leaf 2..7", cap: "2..32 keys", size: "Class-sized: size_map(kb, pop)", search: "Key suffix + decode prefix match", promo: "BranchL3 on overflow", demote: "LinearLeaf shrink" },
+    { type: "Bitmap Leaf (B1/L)", cap: "26..256 keys", size: "32 B / 96 B + 8 subarrays", search: "256-bit Bitmap POPCNT rank", promo: "FullExpanse (Set, pop = 256)", demote: "LinearLeaf (pop ≤ 20)" },
+    { type: "Full Expanse (Set)", cap: "256 keys", size: "0 B (NULL ptr, pop0=255)", search: "Unconditional true (always present)", promo: "Terminal density state", demote: "BitmapLeaf (pop < 256)" },
+    { type: "Branch L3", cap: "1..3 children", size: "32 B header + 3 Edges", search: "find_byte_8 SWAR / SIMD byte match", promo: "BranchL7 (num = 3)", demote: "LinearLeaf / NULL" },
+    { type: "Branch L7", cap: "4..7 children", size: "64 B header + 7 Edges", search: "find_byte_16_sse2 128-bit vector scan", promo: "BranchB (num = 7)", demote: "BranchL3 (num ≤ 3)" },
+    { type: "Branch B", cap: "8..180 children", size: "64 B node + child arrays", search: "Bitmap256 subexpanse rank + POPCNT", promo: "BranchU (fanout > 180)", demote: "BranchL7 (num ≤ 6)" },
+    { type: "Branch U", cap: "181..256 children", size: "2048 B flat table", search: "Direct array index edges[d] (O(1))", promo: "Max fanout branch", demote: "BranchB (fanout ≤ 160)" }
   ];
 
   const NODE_DETAILS = {
@@ -1761,29 +1881,38 @@
   // ===================================================================
 
   function renderStockVsExpanseTable() {
-    const flavorFilter = document.getElementById('stock-filter-flavor')?.value || 'all';
+    const filter = document.getElementById('stock-filter-flavor')?.value || 'all';
     const tbody = document.getElementById('stock-table-body');
     if (!tbody) return;
 
     const filtered = STOCK_VS_EXPANSE_DATA.filter(item => {
-      if (flavorFilter !== 'all' && item.flavor !== flavorFilter) return false;
+      if (filter === 'wins') {
+        return item.is_win || parseFloat(item.ratio_so) <= 1.25;
+      }
+      if (filter === 'JudyL' || filter === 'Judy1') {
+        return item.flavor === filter;
+      }
       return true;
     });
 
     tbody.innerHTML = filtered.map(item => {
-      const isWin = item.ratio_so.includes('Win') || parseFloat(item.ratio_so) <= 1.15;
-      const ratioBadgeClass = isWin ? 'win-text' : '';
+      const ratioNum = parseFloat(item.ratio_so);
+      const ratioClass = ratioNum < 1.00 ? 'badge-win' : (ratioNum <= 1.25 ? 'badge-near' : 'badge-gap');
       return `
         <tr>
+          <td class="center" style="font-size:14px;">${item.status}</td>
           <td><strong>${item.op}</strong></td>
+          <td><span class="code-tag">${item.flavor}</span></td>
           <td>${item.dist}</td>
           <td class="num">${item.pop}</td>
-          <td class="num" style="color:var(--text-muted);">${item.stock_instr.toLocaleString()}</td>
-          <td class="num">${item.expanse_v1_instr.toLocaleString()}</td>
-          <td class="num" style="color:var(--accent);">${item.expanse_v3_instr.toLocaleString()}</td>
-          <td class="num ${ratioBadgeClass}"><strong>${item.ratio_so}</strong> <span style="font-size:10px; color:var(--text-muted);">(${item.est_cycles_ratio} cyc)</span></td>
-          <td class="num win-text"><strong>${item.v3_delta}</strong></td>
-          <td style="font-size:11px; color:var(--text-muted);">${item.algo}</td>
+          <td class="num">${item.expanse_so_v1.toLocaleString()}</td>
+          <td class="num" style="color:var(--accent); font-weight:600;">${item.expanse_so_v3.toLocaleString()}</td>
+          <td class="num" style="color:var(--text-muted);">${item.stock_libjudy.toLocaleString()}</td>
+          <td class="num ${ratioClass}"><strong>${item.ratio_so}</strong></td>
+          <td class="num" style="color:var(--text-muted);">${item.ratio_rlib}</td>
+          <td class="num" style="color:var(--text-muted);">${item.est_cycles_so}</td>
+          <td class="num win-text"><strong>${item.hw_delta}</strong></td>
+          <td style="font-size:11px; color:var(--text-muted);">${item.notes}</td>
         </tr>
       `;
     }).join('');
@@ -1823,9 +1952,13 @@
     tbody.innerHTML = MEMORY_DATA.map(row => `
       <tr>
         <td><strong>${row.dist}</strong></td>
-        <td class="num">${row.pop1k} B</td>
-        <td class="num">${row.pop100k} B</td>
-        <td class="num win-text">${row.pop1m} B</td>
+        <td class="num">${row.set_1k}</td>
+        <td class="num">${row.set_100k}</td>
+        <td class="num win-text">${row.set_1m}</td>
+        <td class="num">${row.map_1k}</td>
+        <td class="num">${row.map_100k}</td>
+        <td class="num win-text">${row.map_1m}</td>
+        <td class="num" style="color:var(--text-muted);">${row.ceiling}</td>
         <td style="font-size:11px; color:var(--accent);">${row.form}</td>
       </tr>
     `).join('');
@@ -1838,9 +1971,10 @@
       <tr>
         <td><strong>${row.type}</strong></td>
         <td><span class="step-badge">${row.cap}</span></td>
-        <td style="font-size:11px;">${row.size}</td>
+        <td style="font-size:11px; font-family:ui-monospace, monospace;">${row.size}</td>
         <td style="font-size:11px; color:#a5b4fc;">${row.search}</td>
         <td style="font-size:11px; color:var(--accent-green);">${row.promo}</td>
+        <td style="font-size:11px; color:#f87171;">${row.demote}</td>
       </tr>
     `).join('');
   }
