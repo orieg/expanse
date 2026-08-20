@@ -114,6 +114,7 @@ pub(crate) unsafe fn binary_search(
     key_bytes: u8,
     needle: u64,
 ) -> Result<usize, usize> {
+    // SAFETY: forwarded caller contract.
     let pos = unsafe { lower_bound(keys, pop, key_bytes, needle) };
     // SAFETY: forwarded caller contract.
     if pos < pop && unsafe { crate::mutate::read_packed(keys, pos, key_bytes as usize) } == needle {
