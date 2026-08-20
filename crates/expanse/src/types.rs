@@ -282,7 +282,7 @@ impl EdgeTag {
 ///
 /// Level 8 is the most significant byte, level 1 the least significant:
 /// a root-to-leaf descent consumes digits at levels 8, 7, ... down to 1.
-#[inline]
+#[inline(always)]
 #[must_use]
 pub const fn digit(key: Key, level: u8) -> u8 {
     debug_assert!(level >= 1 && level <= MAX_LEVEL);
