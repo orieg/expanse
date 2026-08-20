@@ -14,6 +14,7 @@ use crate::node::Edge;
 use crate::set::ROOT_LEAF_CAP;
 use crate::sync::RootSnapshot;
 use crate::types::Key;
+use crate::validate::ExpanseStats;
 use core::ptr::NonNull;
 
 #[derive(Clone, Copy)]
@@ -390,23 +391,61 @@ impl ExpanseMap {
     /// Walks the whole structure, panicking on any violated invariant
     /// (`docs/TESTING.md`, "Structural invariant validator").
     pub fn validate(&self) {
+        if let Err(err) = self.validate_defensive() {
+            panic!("{err}");
+        }
+    }
+
+    /// Defensive trie structure validator that does not panic.
+    ///
+    /// Returns `Ok(())` if the trie invariants are fully met, or `Err(reason)`
+    /// indicating what structural corruption was detected.
+    pub fn validate_defensive(&self) -> Result<(), String> {
         match &self.root {
-            Root::Empty => {}
+            Root::Empty => Ok(()),
             Root::Leaf { ptr, pop } => {
-                assert!(
-                    *pop >= 1 && *pop <= ROOT_LEAF_CAP,
-                    "root leaf pop out of range"
-                );
+                if *pop < 1 || *pop > ROOT_LEAF_CAP {
+                    return Err(format!("root leaf pop {pop} out of range"));
+                }
                 let (keys, _) = Self::leaf_parts(*ptr, *pop);
-                assert!(keys.windows(2).all(|w| w[0] < w[1]), "root leaf unsorted");
+                if !keys.windows(2).all(|w| w[0] < w[1]) {
+                    return Err("root leaf keys unsorted".into());
+                }
+                Ok(())
             }
             Root::Tree { top, pop } => {
-                assert!(!top.is_null(), "tree root with null top");
-                // SAFETY: trie maintained/owned by this map's engine.
-                let counted = unsafe { mutate::validate_subtree::<true>(top, 8) };
-                assert_eq!(counted, *pop, "total population disagrees with tree");
+                if top.is_null() {
+                    return Err("tree root with null top".into());
+                }
+                let mut stats = ExpanseStats::default();
+                let counted =
+                    crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0)?;
+                if counted != *pop {
+                    return Err(format!(
+                        "total population {pop} disagrees with tree {counted}"
+                    ));
+                }
+                Ok(())
             }
         }
+    }
+
+    /// Gathers structural statistics of the trie.
+    #[must_use]
+    pub fn stats(&self) -> ExpanseStats {
+        let mut stats = ExpanseStats::default();
+        match &self.root {
+            Root::Empty => {}
+            Root::Leaf { pop, .. } => {
+                stats.depth_histogram[0] = 1;
+                stats.leaf_pop_histogram[*pop] = 1;
+                stats.node_counts.leaf_linear = 1;
+            }
+            Root::Tree { top, .. } => {
+                let _ = crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0);
+            }
+        }
+        stats
     }
 }
 
