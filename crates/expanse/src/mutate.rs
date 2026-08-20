@@ -444,14 +444,17 @@ impl InsertPath {
 
     #[inline(always)]
     pub fn clear(&mut self) {
-        // SAFETY: flushing pending population before clearing path references.
-        unsafe {
-            self.flush();
+        if self.pending_pop > 0 {
+            // SAFETY: flushing pending population before clearing path references.
+            unsafe {
+                self.flush();
+            }
         }
-        self.prefix = u64::MAX;
-        self.depth = 0;
-        self.leaf = core::ptr::null_mut();
-        self.pending_pop = 0;
+        if self.prefix != u64::MAX {
+            self.prefix = u64::MAX;
+            self.depth = 0;
+            self.leaf = core::ptr::null_mut();
+        }
     }
 }
 
