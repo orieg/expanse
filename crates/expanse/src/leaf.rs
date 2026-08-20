@@ -55,6 +55,61 @@ pub const fn map_keys_offset(pop: usize) -> usize {
     8 * cap_class(pop)
 }
 
+/// Binary search over packed little-endian keys: returns `Ok(pos)` if the
+/// key was found, or `Err(pos)` with the insertion index if not found.
+///
+/// # Safety
+///
+/// `keys` must be valid for reads of `key_bytes * pop` bytes.
+#[inline]
+pub(crate) unsafe fn binary_search(
+    keys: *const u8,
+    pop: usize,
+    key_bytes: u8,
+    needle: u64,
+) -> Result<usize, usize> {
+    debug_assert!((1..=7).contains(&key_bytes));
+    // SAFETY: forwarded contract; each arm's KB equals `key_bytes`.
+    unsafe {
+        match key_bytes {
+            1 => binary_search_fixed::<1>(keys, pop, needle),
+            2 => binary_search_fixed::<2>(keys, pop, needle),
+            3 => binary_search_fixed::<3>(keys, pop, needle),
+            4 => binary_search_fixed::<4>(keys, pop, needle),
+            5 => binary_search_fixed::<5>(keys, pop, needle),
+            6 => binary_search_fixed::<6>(keys, pop, needle),
+            _ => binary_search_fixed::<7>(keys, pop, needle),
+        }
+    }
+}
+
+/// Binary search at a compile-time key width.
+///
+/// # Safety
+///
+/// `keys` must be valid for reads of `KB * pop` bytes.
+#[inline(always)]
+unsafe fn binary_search_fixed<const KB: usize>(
+    keys: *const u8,
+    pop: usize,
+    needle: u64,
+) -> Result<usize, usize> {
+    let (mut lo, mut hi) = (0usize, pop);
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        // SAFETY: mid < pop per the loop bounds and caller contract.
+        let val = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) };
+        if val < needle {
+            lo = mid + 1;
+        } else if val == needle {
+            return Ok(mid);
+        } else {
+            hi = mid;
+        }
+    }
+    Err(lo)
+}
+
 /// Binary search over packed little-endian keys: first slot whose key is
 /// `>= needle` (`needle` already masked to `key_bytes`).
 ///
@@ -64,41 +119,10 @@ pub const fn map_keys_offset(pop: usize) -> usize {
 #[inline]
 #[must_use]
 pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, needle: u64) -> usize {
-    debug_assert!((1..=7).contains(&key_bytes));
-    // SAFETY: forwarded contract; each arm's KB equals `key_bytes`.
-    unsafe {
-        match key_bytes {
-            1 => lower_bound_fixed::<1>(keys, pop, needle),
-            2 => lower_bound_fixed::<2>(keys, pop, needle),
-            3 => lower_bound_fixed::<3>(keys, pop, needle),
-            4 => lower_bound_fixed::<4>(keys, pop, needle),
-            5 => lower_bound_fixed::<5>(keys, pop, needle),
-            6 => lower_bound_fixed::<6>(keys, pop, needle),
-            _ => lower_bound_fixed::<7>(keys, pop, needle),
-        }
+    // SAFETY: forwarded caller contract.
+    match unsafe { binary_search(keys, pop, key_bytes, needle) } {
+        Ok(pos) | Err(pos) => pos,
     }
-}
-
-/// Binary search at a compile-time key width: the whole probe — load,
-/// widen, compare — becomes inline code instead of a call per step.
-/// This is the innermost loop of every leaf insert (issue #1 item 3).
-///
-/// # Safety
-///
-/// `keys` must be valid for reads of `KB * pop` bytes.
-#[inline]
-unsafe fn lower_bound_fixed<const KB: usize>(keys: *const u8, pop: usize, needle: u64) -> usize {
-    let (mut lo, mut hi) = (0usize, pop);
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        // SAFETY: mid < pop per the loop bounds and caller contract.
-        if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    lo
 }
 
 /// In-place insert into a set leaf with spare class capacity: shifts keys
@@ -112,11 +136,13 @@ pub(crate) unsafe fn set_insert_at(base: *mut u8, key_bytes: u8, pop: usize, pos
     let kb = key_bytes as usize;
     // SAFETY: in-bounds shift within the class-sized allocation.
     unsafe {
-        core::ptr::copy(
-            base.add(pos * kb),
-            base.add((pos + 1) * kb),
-            (pop - pos) * kb,
-        );
+        if pos < pop {
+            core::ptr::copy(
+                base.add(pos * kb),
+                base.add((pos + 1) * kb),
+                (pop - pos) * kb,
+            );
+        }
         crate::mutate::write_packed(base, pos, kb, key);
     }
 }
@@ -130,11 +156,13 @@ pub(crate) unsafe fn set_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos
     let kb = key_bytes as usize;
     // SAFETY: in-bounds shift.
     unsafe {
-        core::ptr::copy(
-            base.add((pos + 1) * kb),
-            base.add(pos * kb),
-            (pop - 1 - pos) * kb,
-        );
+        if pos + 1 < pop {
+            core::ptr::copy(
+                base.add((pos + 1) * kb),
+                base.add(pos * kb),
+                (pop - pos - 1) * kb,
+            );
+        }
     }
 }
 
@@ -157,13 +185,17 @@ pub(crate) unsafe fn map_insert_at(
     // SAFETY: in-bounds shifts within the class-sized areas.
     unsafe {
         let vals = base.cast::<u64>();
-        core::ptr::copy(vals.add(pos), vals.add(pos + 1), pop - pos);
+        if pos < pop {
+            core::ptr::copy(vals.add(pos), vals.add(pos + 1), pop - pos);
+        }
         vals.add(pos).write(val);
-        core::ptr::copy(
-            keys.add(pos * kb),
-            keys.add((pos + 1) * kb),
-            (pop - pos) * kb,
-        );
+        if pos < pop {
+            core::ptr::copy(
+                keys.add(pos * kb),
+                keys.add((pos + 1) * kb),
+                (pop - pos) * kb,
+            );
+        }
         crate::mutate::write_packed(keys, pos, kb, key);
     }
 }
@@ -190,13 +222,17 @@ pub(crate) unsafe fn set_realloc_insert(
     let kb = key_bytes as usize;
     // SAFETY: bounds per contract; the two allocations are disjoint.
     unsafe {
-        core::ptr::copy_nonoverlapping(old, new, pos * kb);
+        if pos > 0 {
+            core::ptr::copy_nonoverlapping(old, new, pos * kb);
+        }
         crate::mutate::write_packed(new, pos, kb, key);
-        core::ptr::copy_nonoverlapping(
-            old.add(pos * kb),
-            new.add((pos + 1) * kb),
-            (pop - pos) * kb,
-        );
+        if pos < pop {
+            core::ptr::copy_nonoverlapping(
+                old.add(pos * kb),
+                new.add((pos + 1) * kb),
+                (pop - pos) * kb,
+            );
+        }
     }
 }
 
@@ -218,12 +254,16 @@ pub(crate) unsafe fn set_realloc_remove(
     let kb = key_bytes as usize;
     // SAFETY: bounds per contract; the two allocations are disjoint.
     unsafe {
-        core::ptr::copy_nonoverlapping(old, new, pos * kb);
-        core::ptr::copy_nonoverlapping(
-            old.add((pos + 1) * kb),
-            new.add(pos * kb),
-            (pop - 1 - pos) * kb,
-        );
+        if pos > 0 {
+            core::ptr::copy_nonoverlapping(old, new, pos * kb);
+        }
+        if pos + 1 < pop {
+            core::ptr::copy_nonoverlapping(
+                old.add((pos + 1) * kb),
+                new.add(pos * kb),
+                (pop - 1 - pos) * kb,
+            );
+        }
     }
 }
 
@@ -255,14 +295,22 @@ pub(crate) unsafe fn map_realloc_insert(
     unsafe {
         let ov = old.cast::<u64>();
         let nv = new.cast::<u64>();
-        core::ptr::copy_nonoverlapping(ov, nv, pos);
+        if pos > 0 {
+            core::ptr::copy_nonoverlapping(ov, nv, pos);
+        }
         nv.add(pos).write(val);
-        core::ptr::copy_nonoverlapping(ov.add(pos), nv.add(pos + 1), pop - pos);
+        if pos < pop {
+            core::ptr::copy_nonoverlapping(ov.add(pos), nv.add(pos + 1), pop - pos);
+        }
         let ok = old.add(map_keys_offset(pop));
         let nk = new.add(map_keys_offset(pop + 1));
-        core::ptr::copy_nonoverlapping(ok, nk, pos * kb);
+        if pos > 0 {
+            core::ptr::copy_nonoverlapping(ok, nk, pos * kb);
+        }
         crate::mutate::write_packed(nk, pos, kb, key);
-        core::ptr::copy_nonoverlapping(ok.add(pos * kb), nk.add((pos + 1) * kb), (pop - pos) * kb);
+        if pos < pop {
+            core::ptr::copy_nonoverlapping(ok.add(pos * kb), nk.add((pos + 1) * kb), (pop - pos) * kb);
+        }
     }
 }
 

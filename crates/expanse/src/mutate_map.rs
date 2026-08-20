@@ -337,14 +337,9 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                 a.assert_bracketed();
                 let base = edge.node_ptr();
                 // SAFETY: live map leaf per contract (keys behind the values).
-                let pos =
-                    unsafe { leaf::lower_bound(base.add(leaf::map_keys_offset(pop)), pop, kb, k) };
-                // SAFETY: pos < pop is in bounds.
-                let hit = pos < pop
-                    && unsafe {
-                        read_packed(base.add(leaf::map_keys_offset(pop)), pos, kb as usize) == k
-                    };
-                match if hit { Ok(pos) } else { Err(pos) } {
+                let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
+                // SAFETY: live map leaf of `pop` keys.
+                match unsafe { leaf::binary_search(keys_ptr, pop, kb, k) } {
                     Ok(pos) => {
                         // SAFETY: in-place value swap within the live leaf.
                         unsafe {
@@ -796,17 +791,12 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             a.assert_bracketed();
             let base = edge.node_ptr();
             // SAFETY: live map leaf per contract.
-            let pos =
-                unsafe { leaf::lower_bound(base.add(leaf::map_keys_offset(pop)), pop, kb, k) };
-            // SAFETY: pos < pop is in bounds.
-            // SAFETY: pos < pop is in bounds.
-            let miss = pos == pop
-                || unsafe {
-                    read_packed(base.add(leaf::map_keys_offset(pop)), pos, kb as usize) != k
-                };
-            if miss {
-                return None;
-            }
+            let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
+            // SAFETY: live map leaf of `pop` keys.
+            let pos = match unsafe { leaf::binary_search(keys_ptr, pop, kb, k) } {
+                Ok(p) => p,
+                Err(_) => return None,
+            };
             if pop > map_immed_max(level) && leaf::cap_class(pop - 1) == leaf::cap_class(pop) {
                 // Fast path: stays a leaf in the same class.
                 // SAFETY: pos < pop; same-class allocation.
