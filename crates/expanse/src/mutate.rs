@@ -231,10 +231,13 @@ pub(crate) fn immed_map_keys(edge: &Edge, im: ImmedType) -> ImmedBuf<u64> {
 /// The edge must reference a live linear leaf of `pop` keys.
 unsafe fn leaf_keys(edge: &Edge, kb: u8, pop: usize) -> Vec<u64> {
     let base = edge.node_ptr();
+    // Headroom for the callers' mid-buffer insert, filled via `extend`
+    // so TrustedLen elides the per-element capacity checks — see
+    // `read_map_leaf`.
+    let mut out = Vec::with_capacity(pop + 1);
     // SAFETY: leaf holds pop packed keys per contract.
-    (0..pop)
-        .map(|s| unsafe { read_packed(base, s, kb as usize) })
-        .collect()
+    out.extend((0..pop).map(|slot| unsafe { read_packed(base, slot, kb as usize) }));
+    out
 }
 
 /// Allocates a linear leaf from sorted keys and points `edge` at it.

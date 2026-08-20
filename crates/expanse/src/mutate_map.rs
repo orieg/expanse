@@ -95,34 +95,61 @@ fn write_map_immed(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)
 /// The edge must reference a live map leaf of `pop` entries.
 unsafe fn read_map_leaf(edge: &Edge, kb: u8, pop: usize) -> Vec<(u64, u64)> {
     let base = edge.node_ptr();
-    // SAFETY: map leaf = pop values then pop packed keys, per layout.
-    (0..pop)
-        .map(|slot| unsafe {
+    // One slot of headroom: every insert-path caller does a mid-buffer
+    // `insert` right after materializing, which used to force a growth
+    // reallocation (a second malloc + copy + free) on every conversion.
+    let mut out = Vec::with_capacity(pop + 1);
+    // `extend` from a range keeps TrustedLen, so the fill elides the
+    // per-element capacity check a manual push loop pays (measured:
+    // +0.15% on map_remove/random, whose callers never use the
+    // headroom slot).
+    out.extend((0..pop).map(|slot| {
+        // SAFETY: map leaf = pop values then pop packed keys, per layout.
+        unsafe {
             let k = read_packed(base.add(leaf::map_keys_offset(pop)), slot, kb as usize);
             let v = *base.cast::<u64>().add(slot);
             (k, v)
-        })
-        .collect()
+        }
+    }));
+    out
 }
 
 /// Allocates a `LeafBitmapL` from sorted level-1 entries and points
 /// `edge` at it (decode bytes, if any, are the caller's to restore).
 fn build_bitmap_leaf_map(a: &NodeAlloc, edge: &mut Edge, entries: &[(u64, u64)]) {
     let mut node = LeafBitmapL::new();
-    let mut per_sub: [Vec<u64>; 8] = Default::default();
-    for &(k, v) in entries {
+    for &(k, _) in entries {
         node.bitmap.set(k as u8);
-        per_sub[(k >> 5) as usize].push(v);
     }
-    for (sub, vals) in per_sub.iter().enumerate() {
-        if !vals.is_empty() {
-            let arr = a.alloc_bytes(sub_vals_size(vals.len())).cast::<u64>();
-            for (i, &v) in vals.iter().enumerate() {
-                // SAFETY: fresh array of vals.len() slots.
-                unsafe { arr.as_ptr().add(i).write(v) };
-            }
-            node.values[sub] = arr.as_ptr();
+    // `entries` is sorted by key, so each 32-digit subexpanse is one
+    // contiguous run: detect the run and write it straight into its
+    // subarray. The previous version bucketed values through a
+    // `[Vec<u64>; 8]` — eight heap allocations of scratch (plus growth
+    // reallocations) per linear-leaf → bitmap-leaf conversion, to
+    // regroup values that the sort order had already grouped.
+    //
+    // Scope note, measured: a wider rework replacing the materializer
+    // `Vec`s (`read_map_leaf`, `leaf_keys`) with stack buffers was tried
+    // twice and REGRESSED both times (+2.7% map_insert/small with
+    // default-init backing; worse with MaybeUninit). Those conversions
+    // run once per form change, not per op, and malloc's fast path is
+    // cheaper than a 264-528-byte memset or the uninit bookkeeping.
+    // This function is different: eight allocations per conversion for
+    // a regrouping the input ordering already provides.
+    let mut i = 0;
+    while i < entries.len() {
+        let sub = (entries[i].0 >> 5) as usize;
+        let mut j = i + 1;
+        while j < entries.len() && (entries[j].0 >> 5) as usize == sub {
+            j += 1;
         }
+        let arr = a.alloc_bytes(sub_vals_size(j - i)).cast::<u64>();
+        for (slot, &(_, v)) in entries[i..j].iter().enumerate() {
+            // SAFETY: fresh array of `j - i` slots.
+            unsafe { arr.as_ptr().add(slot).write(v) };
+        }
+        node.values[sub] = arr.as_ptr();
+        i = j;
     }
     let ptr = a.alloc_node(node);
     *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());

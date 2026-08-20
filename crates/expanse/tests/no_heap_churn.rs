@@ -178,6 +178,34 @@ fn small_arrays_do_not_allocate_per_insert() {
     assert_eq!(set.len(), 30);
 }
 
+/// The linear-leaf → bitmap-leaf conversion (level-1 overflow, the
+/// dense insert path) is bounded scratch: the value regrouping used to
+/// bucket through a `[Vec<u64>; 8]` — eight scratch allocations per
+/// conversion — for values the sort order had already grouped. What
+/// remains is the single materialization buffer per conversion
+/// (`read_map_leaf`, sized with headroom so it no longer pays a growth
+/// reallocation; replacing it with a stack buffer was measured TWICE
+/// and regressed both times — see build_bitmap_leaf_map's scope note).
+#[test]
+fn bitmap_leaf_conversion_scratch_is_bounded() {
+    let mut map = ExpanseMap::new();
+    // One 256-key expanse, filled past LEAF1_CAP (25) so the linear
+    // level-1 leaf converts to a bitmap leaf, then grown further so the
+    // bitmap leaf's value subarrays keep extending.
+    let base = 0x0102_0304_0500u64;
+    let n = scratch_allocations_during!(map, {
+        for i in 0..200u64 {
+            map.insert(base + i, i);
+        }
+    });
+    // 2 = one root-conversion buffer + one leaf materialization at the
+    // bitmap conversion. Was 11+ before: 8 subexpanse buckets + growth.
+    assert!(n <= 2, "dense build used {n} scratch allocations (bound 2)");
+    for i in 0..200u64 {
+        assert_eq!(map.get(base + i), Some(i));
+    }
+}
+
 /// Lookups must never allocate, on any distribution or form.
 #[test]
 fn lookups_do_not_allocate() {
