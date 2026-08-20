@@ -14,7 +14,7 @@
 | Compat header | `Judy.h` (source-compatible with classic libjudy) |
 | Distro packages (planned) | `libexpanse-dev`, `libexpanse1`, and `libjudy-compat` (symlinks `libJudy.so.1` → `libexpanse.so.1` and installs the `Judy.h` alias) |
 
-### hwcaps sub-package (planned)
+### hwcaps sub-package
 
 The shipped `.so` targets baseline x86-64, with `popcnt` reached through
 runtime dispatch at the lookup entries (one predicted branch per call;
@@ -26,6 +26,21 @@ itself uses. The `cfg(not(target_feature = "popcnt"))` guards compile
 the dispatch and both clones out of that build entirely. musl (Alpine)
 has no hwcaps and no IFUNC: it keeps the runtime-dispatch binary, which
 is why the dispatch exists at all.
+
+#### Packaging / Build Recipe
+To build and package both baseline and optimized dynamic libraries:
+
+1. **Build the baseline binary**:
+   ```bash
+   cargo build --release --package expanse-capi
+   ```
+   Install this to the standard system library path (e.g., `/usr/lib/x86_64-linux-gnu/libexpanse.so.1.0.0` with the corresponding symlink `libexpanse.so.1` -> `libexpanse.so.1.0.0`).
+
+2. **Build the x86-64-v2 hwcaps optimized binary**:
+   ```bash
+   RUSTFLAGS="-C target-cpu=x86-64-v2" cargo build --release --package expanse-capi
+   ```
+   Install this to the `glibc-hwcaps` directory (e.g., `/usr/lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v2/libexpanse.so.1.0.0` with the corresponding symlink `libexpanse.so.1` -> `libexpanse.so.1.0.0`).
 
 ## Clean-room rules (binding)
 
