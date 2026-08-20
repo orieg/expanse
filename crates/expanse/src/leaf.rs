@@ -57,6 +57,52 @@ pub const fn map_keys_offset(pop: usize) -> usize {
 
 /// Binary search over packed little-endian keys: returns `Ok(pos)` if the
 /// key was found, or `Err(pos)` with the insertion index if not found.
+/// Binary search over packed little-endian keys: first slot whose key is
+/// `>= needle` (`needle` already masked to `key_bytes`).
+///
+/// # Safety
+///
+/// `keys` must be valid for reads of `key_bytes * pop` bytes.
+#[inline]
+#[must_use]
+pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, needle: u64) -> usize {
+    debug_assert!((1..=7).contains(&key_bytes));
+    // SAFETY: forwarded contract; each arm's KB equals `key_bytes`.
+    unsafe {
+        match key_bytes {
+            1 => lower_bound_fixed::<1>(keys, pop, needle),
+            2 => lower_bound_fixed::<2>(keys, pop, needle),
+            3 => lower_bound_fixed::<3>(keys, pop, needle),
+            4 => lower_bound_fixed::<4>(keys, pop, needle),
+            5 => lower_bound_fixed::<5>(keys, pop, needle),
+            6 => lower_bound_fixed::<6>(keys, pop, needle),
+            _ => lower_bound_fixed::<7>(keys, pop, needle),
+        }
+    }
+}
+
+/// Binary search at a compile-time key width: single branch per step.
+///
+/// # Safety
+///
+/// `keys` must be valid for reads of `KB * pop` bytes.
+#[inline(always)]
+unsafe fn lower_bound_fixed<const KB: usize>(keys: *const u8, pop: usize, needle: u64) -> usize {
+    let (mut lo, mut hi) = (0usize, pop);
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        // SAFETY: mid < pop per the loop bounds and caller contract.
+        if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) } < needle {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
+}
+
+/// Binary search over packed little-endian keys: returns `Ok(pos)` if the
+/// key was found, or `Err(pos)` with the insertion index if not found.
 ///
 /// # Safety
 ///
@@ -68,60 +114,12 @@ pub(crate) unsafe fn binary_search(
     key_bytes: u8,
     needle: u64,
 ) -> Result<usize, usize> {
-    debug_assert!((1..=7).contains(&key_bytes));
-    // SAFETY: forwarded contract; each arm's KB equals `key_bytes`.
-    unsafe {
-        match key_bytes {
-            1 => binary_search_fixed::<1>(keys, pop, needle),
-            2 => binary_search_fixed::<2>(keys, pop, needle),
-            3 => binary_search_fixed::<3>(keys, pop, needle),
-            4 => binary_search_fixed::<4>(keys, pop, needle),
-            5 => binary_search_fixed::<5>(keys, pop, needle),
-            6 => binary_search_fixed::<6>(keys, pop, needle),
-            _ => binary_search_fixed::<7>(keys, pop, needle),
-        }
-    }
-}
-
-/// Binary search at a compile-time key width.
-///
-/// # Safety
-///
-/// `keys` must be valid for reads of `KB * pop` bytes.
-#[inline(always)]
-unsafe fn binary_search_fixed<const KB: usize>(
-    keys: *const u8,
-    pop: usize,
-    needle: u64,
-) -> Result<usize, usize> {
-    let (mut lo, mut hi) = (0usize, pop);
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        // SAFETY: mid < pop per the loop bounds and caller contract.
-        let val = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, mid) };
-        if val < needle {
-            lo = mid + 1;
-        } else if val == needle {
-            return Ok(mid);
-        } else {
-            hi = mid;
-        }
-    }
-    Err(lo)
-}
-
-/// Binary search over packed little-endian keys: first slot whose key is
-/// `>= needle` (`needle` already masked to `key_bytes`).
-///
-/// # Safety
-///
-/// `keys` must be valid for reads of `key_bytes * pop` bytes.
-#[inline]
-#[must_use]
-pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, needle: u64) -> usize {
+    let pos = unsafe { lower_bound(keys, pop, key_bytes, needle) };
     // SAFETY: forwarded caller contract.
-    match unsafe { binary_search(keys, pop, key_bytes, needle) } {
-        Ok(pos) | Err(pos) => pos,
+    if pos < pop && unsafe { crate::mutate::read_packed(keys, pos, key_bytes as usize) } == needle {
+        Ok(pos)
+    } else {
+        Err(pos)
     }
 }
 

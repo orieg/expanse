@@ -126,15 +126,17 @@ unsafe fn leaf_value(edge: &Edge, slot: usize) -> u64 {
 ///
 /// Same contract as [`leaf_suffix`].
 unsafe fn leaf_lower_bound<const MAP: bool>(edge: &Edge, kb: u8, pop: usize, suffix: u64) -> usize {
-    let base = edge.node_ptr();
-    let keys = if MAP {
-        // SAFETY: map leaf = values then packed keys.
-        unsafe { base.add(leaf::map_keys_offset(pop)) }
-    } else {
-        base
-    };
-    // SAFETY: live leaf of `pop` keys.
-    unsafe { leaf::lower_bound(keys, pop, kb, suffix) }
+    let (mut lo, mut hi) = (0usize, pop);
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        // SAFETY: mid < pop.
+        if unsafe { leaf_suffix::<MAP>(edge, kb, pop, mid) } < suffix {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
 }
 
 /// Smallest key `>= suffix` in the subtree, with its value (0 for sets).
