@@ -231,10 +231,13 @@ pub(crate) fn immed_map_keys(edge: &Edge, im: ImmedType) -> ImmedBuf<u64> {
 /// The edge must reference a live linear leaf of `pop` keys.
 unsafe fn leaf_keys(edge: &Edge, kb: u8, pop: usize) -> Vec<u64> {
     let base = edge.node_ptr();
-    // SAFETY: leaf holds pop packed keys per contract.
-    (0..pop)
-        .map(|s| unsafe { read_packed(base, s, kb as usize) })
-        .collect()
+    // Headroom for the callers' mid-buffer insert — see `read_map_leaf`.
+    let mut out = Vec::with_capacity(pop + 1);
+    for slot in 0..pop {
+        // SAFETY: leaf holds pop packed keys per contract.
+        out.push(unsafe { read_packed(base, slot, kb as usize) });
+    }
+    out
 }
 
 /// Allocates a linear leaf from sorted keys and points `edge` at it.
