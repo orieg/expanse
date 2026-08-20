@@ -73,27 +73,11 @@ pub(crate) unsafe fn read_packed(keys: *const u8, slot: usize, kb: usize) -> u64
 /// `keys` must be valid for reads of `(slot + 1) * KB` bytes.
 #[inline]
 pub(crate) unsafe fn read_packed_fixed<const KB: usize>(keys: *const u8, slot: usize) -> u64 {
-    match KB {
-        1 => {
-            // SAFETY: in-bounds per contract; reading 1 byte.
-            unsafe { u64::from(*keys.add(slot)) }
-        }
-        2 => {
-            // SAFETY: in-bounds per contract; reading 2 bytes unaligned.
-            unsafe { u64::from(keys.add(slot * 2).cast::<u16>().read_unaligned()) }
-        }
-        4 => {
-            // SAFETY: in-bounds per contract; reading 4 bytes unaligned.
-            unsafe { u64::from(keys.add(slot * 4).cast::<u32>().read_unaligned()) }
-        }
-        _ => {
-            let mut buf = [0u8; 8];
-            // SAFETY: in-bounds per this function's contract; `KB <= 7 < 8`, so
-            // the destination has room and the copy width is a constant.
-            unsafe { core::ptr::copy_nonoverlapping(keys.add(slot * KB), buf.as_mut_ptr(), KB) };
-            u64::from_le_bytes(buf)
-        }
-    }
+    let mut buf = [0u8; 8];
+    // SAFETY: in-bounds per this function's contract; `KB <= 7 < 8`, so
+    // the destination has room and the copy width is a constant.
+    unsafe { core::ptr::copy_nonoverlapping(keys.add(slot * KB), buf.as_mut_ptr(), KB) };
+    u64::from_le_bytes(buf)
 }
 
 /// Writes `val`'s low `kb` bytes as the `slot`-th packed key.
@@ -101,25 +85,20 @@ pub(crate) unsafe fn read_packed_fixed<const KB: usize>(keys: *const u8, slot: u
 /// # Safety
 ///
 /// `keys` must be valid for writes of `(slot + 1) * kb` bytes.
-#[inline]
 pub(crate) unsafe fn write_packed(keys: *mut u8, slot: usize, kb: usize, val: u64) {
-    match kb {
-        1 => {
-            // SAFETY: forwarded contract; writing 1 byte.
-            unsafe { keys.add(slot).write(val as u8) }
-        }
-        2 => {
-            // SAFETY: forwarded contract; writing 2 bytes unaligned.
-            unsafe { keys.add(slot * 2).cast::<u16>().write_unaligned(val as u16) }
-        }
-        4 => {
-            // SAFETY: forwarded contract; writing 4 bytes unaligned.
-            unsafe { keys.add(slot * 4).cast::<u32>().write_unaligned(val as u32) }
-        }
-        _ => {
-            let le = val.to_le_bytes();
-            // SAFETY: forwarded contract; the copy width is a constant in each arm.
-            unsafe { core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * kb), kb) }
+    let le = val.to_le_bytes();
+    // SAFETY: forwarded contract; the copy width is a constant in each
+    // arm, so it inlines rather than calling out (issue #1 item 3).
+    unsafe {
+        match kb {
+            1 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot), 1),
+            2 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 2), 2),
+            3 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 3), 3),
+            4 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 4), 4),
+            5 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 5), 5),
+            6 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 6), 6),
+            7 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 7), 7),
+            _ => debug_assert!(false, "packed key width out of range: {kb}"),
         }
     }
 }
