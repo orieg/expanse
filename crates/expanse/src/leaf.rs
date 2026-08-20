@@ -91,18 +91,36 @@ unsafe fn lower_bound_fixed<const KB: usize>(keys: *const u8, pop: usize, needle
     if KB == 1 && (13..=16).contains(&pop) {
         // SAFETY: cap_class(pop >= 13) is 16, so keys holds at least 16 bytes.
         unsafe { crate::bits::lower_bound_16_u8(keys, pop, needle as u8) }
-    } else if pop <= 2 {
+    } else if pop <= 4 {
         if pop == 0 {
             0
         } else if pop == 1 {
             // SAFETY: pop == 1 guarantees slot 0 is in-bounds.
             (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } < needle) as usize
-        } else {
+        } else if pop == 2 {
             // SAFETY: pop == 2 guarantees slots 0 and 1 are in-bounds.
             let c0 = (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } < needle) as usize;
             // SAFETY: pop == 2 guarantees slots 0 and 1 are in-bounds.
             let c1 = (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) } < needle) as usize;
             c0 + c1
+        } else if pop == 3 {
+            // SAFETY: pop == 3 guarantees slots 0..3 are in-bounds.
+            let c0 = (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } < needle) as usize;
+            // SAFETY: pop == 3 guarantees slots 0..3 are in-bounds.
+            let c1 = (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) } < needle) as usize;
+            // SAFETY: pop == 3 guarantees slots 0..3 are in-bounds.
+            let c2 = (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 2) } < needle) as usize;
+            c0 + c1 + c2
+        } else {
+            // SAFETY: pop == 4 guarantees slots 0..4 are in-bounds.
+            let c0 = (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } < needle) as usize;
+            // SAFETY: pop == 4 guarantees slots 0..4 are in-bounds.
+            let c1 = (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) } < needle) as usize;
+            // SAFETY: pop == 4 guarantees slots 0..4 are in-bounds.
+            let c2 = (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 2) } < needle) as usize;
+            // SAFETY: pop == 4 guarantees slots 0..4 are in-bounds.
+            let c3 = (unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 3) } < needle) as usize;
+            c0 + c1 + c2 + c3
         }
     } else {
         let (mut lo, mut hi) = (0usize, pop);
@@ -363,13 +381,24 @@ unsafe fn search_fixed<const KB: usize>(keys: *const u8, pop: usize, key: Key) -
         // SAFETY: cap_class(4) * 4 is 16, so keys holds at least 16 bytes.
         unsafe { crate::bits::search_4_u32(keys, pop, key as u32) }
     } else if pop <= 4 {
-        let le = key.to_le_bytes();
-        let mut needle = [0u8; KB];
-        needle.copy_from_slice(&le[..KB]);
-        // SAFETY: `[u8; KB]` has alignment 1 and the caller guarantees
-        // `KB * pop` readable bytes, i.e. exactly `pop` such arrays.
-        let packed = unsafe { core::slice::from_raw_parts(keys.cast::<[u8; KB]>(), pop) };
-        packed.iter().position(|candidate| *candidate == needle)
+        let needle = crate::mutate::key_low(key, KB as u8);
+        // SAFETY: pop >= 1 guarantees slot 0 is readable.
+        if pop >= 1 && unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } == needle {
+            return Some(0);
+        }
+        // SAFETY: pop >= 2 guarantees slot 1 is readable.
+        if pop >= 2 && unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) } == needle {
+            return Some(1);
+        }
+        // SAFETY: pop >= 3 guarantees slot 2 is readable.
+        if pop >= 3 && unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 2) } == needle {
+            return Some(2);
+        }
+        // SAFETY: pop >= 4 guarantees slot 3 is readable.
+        if pop >= 4 && unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 3) } == needle {
+            return Some(3);
+        }
+        None
     } else {
         let needle = crate::mutate::key_low(key, KB as u8);
         // SAFETY: forwarded caller contract.
