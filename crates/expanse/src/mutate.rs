@@ -521,10 +521,32 @@ pub(crate) unsafe fn insert<const OCC: bool>(
             let old_ptr = base;
             let old_size = leaf::size_set(kb, pop);
             let saved_aux = *edge.aux_bytes();
-            // Slow path (class boundary or form conversion). A skipping
-            // leaf's keys are widened to full `level`-byte suffixes with
-            // its decode prefix, so the conversions below can place the
-            // replacement form at the true divergence level.
+            if pop < cap {
+                // Class-crossing grow that stays this leaf: direct copy
+                // with a gap — the set twin of the map-flavor fix, which
+                // measured -13.27% on churn and up to -25% on inserts.
+                // Form and kb are unchanged, so aux (decode + pop0) is
+                // preserved wholesale and no key widening is needed.
+                let new = a.alloc_bytes(leaf::size_set(kb, pop + 1));
+                // SAFETY: live source leaf of `pop` keys; fresh
+                // destination sized for `pop + 1`; `pos <= pop`.
+                unsafe { leaf::set_realloc_insert(base, new.as_ptr(), kb, pop, pos, k) };
+                *edge = Edge::new_node(new.as_ptr(), edge.tag_byte());
+                edge.set_aux_bytes(saved_aux);
+                edge.set_pop0(kb, pop as u64);
+                // SAFETY: unlinked above; freed with its allocation size.
+                unsafe {
+                    a.free_bytes(
+                        core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
+                        old_size,
+                    );
+                }
+                return true;
+            }
+            // Slow path (form conversion). A skipping leaf's keys are
+            // widened to full `level`-byte suffixes with its decode
+            // prefix, so the conversions below can place the replacement
+            // form at the true divergence level.
             // SAFETY: live leaf of `pop` keys per contract.
             let mut keys = unsafe { leaf_keys(edge, kb, pop) };
             keys.insert(pos, k);
@@ -989,7 +1011,29 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                 edge.set_pop0(kb, pop as u64 - 2);
                 return true;
             }
-            // Slow path (class boundary or conversion to immediate).
+            if pop >= 2 && pop > ImmedType::max_count(level) as usize {
+                // Class-crossing shrink that stays this leaf (the
+                // hysteresis band keeps it one below the immediate
+                // boundary): direct copy with the slot elided — the set
+                // twin of the map-flavor fix.
+                let new = a.alloc_bytes(leaf::size_set(kb, pop - 1));
+                // SAFETY: live source leaf of `pop >= 2` keys; fresh
+                // destination sized for `pop - 1`; `pos < pop`.
+                unsafe { leaf::set_realloc_remove(base, new.as_ptr(), kb, pop, pos) };
+                let saved_aux = *edge.aux_bytes();
+                *edge = Edge::new_node(new.as_ptr(), edge.tag_byte());
+                edge.set_aux_bytes(saved_aux);
+                edge.set_pop0(kb, pop as u64 - 2);
+                // SAFETY: unlinked above; freed with its allocation size.
+                unsafe {
+                    a.free_bytes(
+                        core::ptr::NonNull::new(base).expect("leaf ptr"),
+                        leaf::size_set(kb, pop),
+                    );
+                }
+                return true;
+            }
+            // Slow path (conversion to immediate).
             // SAFETY: live leaf of `pop` keys per contract.
             let mut keys = unsafe { leaf_keys(edge, kb, pop) };
             keys.remove(pos);
