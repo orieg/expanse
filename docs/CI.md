@@ -89,6 +89,12 @@ To keep PR turnaround under 5 minutes while retaining rigorous safety:
 * **Per-PR Miri**: Runs `cargo +nightly miri test --lib -- --skip model_`. Skips heavy op-sequence tests (which are covered by proptest and fuzzing) and short-circuits on non-Rust diffs.
 * **Nightly Miri**: Runs the entire, un-skipped Miri suite across all crate targets.
 
+### Docs-Only PR Fast Path
+When a pull request modifies **only** documentation or markdown files (`*.md`, `docs/**`, `LICENSE*`, `CNAME`, `.github/*.md`):
+* Heavy jobs (`test`, `test-musl`, `loom`, `fuzz-smoke`, `memory-budget`, `differential-oracle`, `php-judy-compat`, `php-judy-windows`, `instruction-counts`) detect the docs-only diff and exit `0` early.
+* `lint` continues to run `cargo fmt` and markdown checks.
+* All 13 required status checks satisfy GitHub branch protection and report `pass` in **~5 seconds** instead of ~5 minutes.
+
 ---
 
 ## 5. Things to Watch For & Common Pitfalls
