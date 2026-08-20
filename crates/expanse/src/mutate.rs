@@ -449,10 +449,11 @@ pub(crate) unsafe fn insert<const OCC: bool>(
     a: &NodeAlloc,
     edge: &mut Edge,
     key: Key,
-    level: u8,
+    mut level: u8,
 ) -> bool {
-    debug_assert!((1..=8).contains(&level));
-    let tag = edge.tag().expect("valid edge tag");
+    loop {
+        debug_assert!((1..=8).contains(&level));
+        let tag = edge.tag().expect("valid edge tag");
     match tag {
         EdgeTag::Structural(EdgeType::Null) => {
             if level == 8 {
@@ -460,11 +461,10 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 let node = a.alloc_node_zeroed::<BranchL3>();
                 unsafe { (*node.as_ptr()).hdr.level = level; }
                 *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
-                // SAFETY: forwarded caller contract; edge is now a branch.
-                return unsafe { insert::<OCC>(a, edge, key, level) };
+                continue;
             }
             write_immed(edge, level, &[key_low(key, level)]);
-            true
+            return true;
         }
 
         EdgeTag::Immed(im) => {
@@ -481,7 +481,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
             } else {
                 build_leaf(a, edge, kb, &keys);
             }
-            true
+            return true;
         }
 
         EdgeTag::Structural(
@@ -501,8 +501,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 // decode digit as a branch level and retry (a chain forms
                 // only along the divergence path).
                 split_skip(a, edge, key, level, pop as u64);
-                // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { insert::<OCC>(a, edge, key, level) };
+                continue;
             }
             let k = key_low(key, kb);
             // Phase 7 coverage invariant (see alloc::assert_bracketed):
@@ -623,7 +622,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     old_size,
                 );
             }
-            true
+            return true;
         }
 
         EdgeTag::Structural(EdgeType::LeafB1) => {
@@ -632,8 +631,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 // level and retry.
                 let pop = edge.pop0(1) + 1;
                 split_skip(a, edge, key, level, pop);
-                // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { insert::<OCC>(a, edge, key, level) };
+                continue;
             }
             // Phase 7: see mutate_map — the parent branch's bracket
             // covers this leaf's payload for concurrent readers.
@@ -656,10 +654,10 @@ pub(crate) unsafe fn insert<const OCC: bool>(
             } else {
                 edge.set_pop0(1, pop as u64 - 1);
             }
-            true
+            return true;
         }
 
-        EdgeTag::Structural(EdgeType::FullExpanse) => false,
+        EdgeTag::Structural(EdgeType::FullExpanse) => return false,
 
         EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
             debug_assert!(level >= 2);
@@ -670,8 +668,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 // level and retry.
                 let pop = edge.pop0(bl) + 1;
                 split_skip(a, edge, key, level, pop);
-                // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { insert::<OCC>(a, edge, key, level) };
+                continue;
             }
             let d = digit(key, bl);
             let is_l3 = matches!(t, EdgeType::BranchL3);
@@ -719,8 +716,8 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     } else {
                         upgrade_l7_to_b(a, edge);
                     }
-                    return insert::<OCC>(a, edge, key, level);
                 }
+                continue;
             }
             // SAFETY: live branch; slot arithmetic bounded by capacity.
             let inserted = unsafe {
@@ -744,7 +741,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
             };
             debug_assert!(inserted);
             bump_pop0(edge, bl, 1);
-            true
+            return true;
         }
 
         EdgeTag::Structural(EdgeType::BranchB) => {
@@ -754,8 +751,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
             if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
                 let pop = edge.pop0(bl) + 1;
                 split_skip(a, edge, key, level, pop);
-                // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { insert::<OCC>(a, edge, key, level) };
+                continue;
             }
             let slot_level = level;
             let d = digit(key, bl);
@@ -781,15 +777,16 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     // materialize the level just above the form and retry.
                     let pop = edge.pop0(bl) + 1;
                     wrap_skip_level(a, edge, bl + 1, slot_level, pop);
-                    // SAFETY: forwarded contract; edge is now a branch.
-                    return unsafe { insert::<OCC>(a, edge, key, slot_level) };
+                    level = slot_level;
+                    continue;
                 }
                 // SAFETY: upgrade rebuilds the node; subtree stays owned
                 // (the guard above ensures it sits at its slot level).
                 unsafe {
                     upgrade_b_to_u(a, edge);
-                    return insert::<OCC>(a, edge, key, slot_level);
                 }
+                level = slot_level;
+                continue;
             }
             // Grow this subexpanse's packed array by one slot at the rank
             // (bracketed: the shift/realloc, bitmap set, and descent all
@@ -835,7 +832,7 @@ pub(crate) unsafe fn insert<const OCC: bool>(
             crate::occ::version_end_if::<OCC>(a, &mut b.version);
             debug_assert!(inserted);
             bump_pop0(edge, bl, 1);
-            true
+            return true;
         }
 
         EdgeTag::Structural(EdgeType::BranchU) => {
@@ -851,9 +848,10 @@ pub(crate) unsafe fn insert<const OCC: bool>(
             if inserted {
                 bump_pop0(edge, level, 1);
             }
-            inserted
+            return inserted;
         }
     }
+}
 }
 
 /// L3 → L7: copy the three children into a bigger node.
