@@ -190,7 +190,13 @@ pub unsafe extern "C" fn Judy1Unset(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Judy1Test(parray: *const c_void, index: Word, _pj: *mut JError) -> c_int {
     // SAFETY: forwarded C contract.
-    unsafe { c_int::from(set_handle(parray).is_some_and(|s| s.contains(index as u64))) }
+    unsafe {
+        if parray.is_null() {
+            return 0;
+        }
+        let set = &*parray.cast::<ExpanseSet>();
+        c_int::from(set.contains(index as u64))
+    }
 }
 
 /// Number of set indexes in `index1..=index2`.
@@ -452,7 +458,16 @@ pub unsafe extern "C" fn JudyLGet(
     _pj: *mut JError,
 ) -> *mut c_void {
     // SAFETY: forwarded C contract.
-    unsafe { map_handle(parray).map_or(null_mut(), |m| slot_ptr(m.get_value_slot(index as u64))) }
+    unsafe {
+        if parray.is_null() {
+            return null_mut();
+        }
+        let map = &mut *parray.cast_mut().cast::<ExpanseMap>();
+        match map.get_value_slot(index as u64) {
+            Some(p) => p.as_ptr().cast(),
+            None => null_mut(),
+        }
+    }
 }
 
 /// Number of keys in `index1..=index2`.
