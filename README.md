@@ -101,7 +101,7 @@ Memory: clustered and dense sets run **0.07–0.36 bytes/key** (deterministic al
 - **AVX2 / SSE2 SIMD vector scans for linear leaves**: evaluating 16 keys in parallel in 4 CPU instructions.
 - **Branch locality & 64-byte alignment**: minimizing cache misses during wide branch traversals.
 
-Roadmap ordering (no schedule): 1 foundation types → 2 bit/vector engine → 3 cache-aligned node layouts → 4 lookup fast path → 5 allocation subsystem → 6 mutation engine + hysteresis → 7 OCC concurrent reads → 8 differential/fuzz/bench hardening. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); testing and benchmark methodology in [docs/TESTING.md](docs/TESTING.md) and [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
+Roadmap ordering (no schedule): 1 foundation types → 2 bit/vector engine → 3 cache-aligned node layouts → 4 lookup fast path → 5 allocation subsystem → 6 mutation engine + hysteresis → 7 OCC concurrent reads → 8 differential/fuzz/bench hardening. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); testing, benchmark methodology, and CI pipeline architecture in [docs/TESTING.md](docs/TESTING.md), [docs/BENCHMARKING.md](docs/BENCHMARKING.md), and [docs/CI.md](docs/CI.md).
 
 ## Platform support
 
