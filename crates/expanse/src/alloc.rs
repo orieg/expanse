@@ -102,7 +102,9 @@ impl NodeAlloc {
         // SAFETY-adjacent invariant: `align` is a nonzero power of two
         // (both call paths pass a constant or `align_of`), and node/leaf
         // sizes never approach the rounding overflow bound.
-        Layout::from_size_align(bytes, align).expect("valid node layout").pad_to_align()
+        Layout::from_size_align(bytes, align)
+            .expect("valid node layout")
+            .pad_to_align()
     }
 
     /// Allocates `bytes` of zeroed memory at `align`.
@@ -119,7 +121,8 @@ impl NodeAlloc {
         let Some(ptr) = NonNull::new(raw) else {
             handle_alloc_error(layout)
         };
-        self.bytes_in_use.fetch_add(layout.size(), Ordering::Relaxed);
+        self.bytes_in_use
+            .fetch_add(layout.size(), Ordering::Relaxed);
         self.live_allocs.fetch_add(1, Ordering::Relaxed);
         self.total_allocs.fetch_add(1, Ordering::Relaxed);
         ptr
@@ -144,7 +147,8 @@ impl NodeAlloc {
             // the original allocation.
             unsafe { dealloc(ptr.as_ptr(), layout) };
         }
-        self.bytes_in_use.fetch_sub(layout.size(), Ordering::Relaxed);
+        self.bytes_in_use
+            .fetch_sub(layout.size(), Ordering::Relaxed);
         self.live_allocs.fetch_sub(1, Ordering::Relaxed);
     }
 
