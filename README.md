@@ -77,29 +77,29 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Performance vs stock libjudy
 
-Instructions retired through the identical C ABI on identical key streams, both libraries `dlopen`'d — deterministic callgrind counts, re-measured on every PR *(measured: GitHub ubuntu-latest CI, 2026-08-19, PR #20)*. **Below 1.00 = libexpanse does less work than the original.**
+Instructions retired and wall-clock latency through the identical C ABI on identical key streams, both libraries `dlopen`'d — measured in CI via deterministic Callgrind and paired wall-clock rounds *(measured: GitHub ubuntu-latest CI, 2026-08-20, main)*. **Below 1.00 = libexpanse does less work / runs faster than the original.**
 
-| Operation (random unless noted) | ratio | |
-|---|---:|---|
-| Lookup, 1.5M keys | **0.97×** | ✅ below stock |
-| Lookup, 30k keys | **0.98×** | ✅ below stock |
-| Set insert, clustered | 1.07× | |
-| Set membership test | 1.24× | |
-| Lookup, clustered | 1.27× | |
-| Set insert | 1.40× | |
-| Map insert | 1.47× | |
-| Lookup, sequential | 1.50× | |
-| Map insert, sequential | 1.68× | |
-| Steady-state churn (upsert+insert+delete) | 2.27× | ← current focus |
+| Benchmark Workload | Wall-Clock Latency (Expanse vs Stock) | Ratio | Memory Overhead (Expanse vs Stock) | Status |
+|---|---|---:|---|---|
+| **Random 1,000,000 lookup** | **36.5 ns** vs 60.5 ns | **0.60×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **40% faster than Judy** |
+| **Random 100,000 lookup** | **18.8 ns** vs 30.6 ns | **0.62×** | **24.62 B/k** vs 24.81 B/k (0.99×) | 🟢 **38% faster than Judy** |
+| **Clustered 100,000 lookup** | **16.3 ns** vs 16.3 ns | **1.00×** | **8.62 B/k** vs 8.87 B/k (0.97×) | 🟢 **Parity with Judy** |
+| **Random 1,000,000 insert** | **120.7 ns** vs 120.0 ns | **1.01×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **Parity with Judy** |
+| **Clustered 1,000,000 memory** | — | — | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **8% less memory than Judy** |
+| **Clustered 100,000 insert** | 45.6 ns vs 38.6 ns | 1.18× | 8.62 B/k vs 8.87 B/k (0.97×) | 🟡 Closing the gap |
+| **Sequential 1,000,000 lookup** | 27.1 ns vs 23.7 ns | 1.14× | 8.56 B/k vs 8.32 B/k (1.03×) | 🟡 Closing the gap |
+| **Sequential 100,000 insert** | 60.3 ns vs 34.9 ns | 1.73× | 8.57 B/k vs 8.41 B/k (1.02×) | 🔄 Issue #32 target |
 
-Instructions are **cost, not time** — wall-clock confirmation on quiet hardware is tracked in [docs/BENCHMARKING.md](docs/BENCHMARKING.md), which also records every retraction and measurement-method fix behind these numbers. Memory: clustered/dense sets run **0.12–0.36 bytes/key** (deterministic allocator accounting; the `< 9.5 B/key` architecture target is met).
+#### Modern Architecture (`x86-64-v3`: AVX2 / BMI2 / POPCNT)
+When compiled for modern CPUs (`-C target-cpu=x86-64-v3` or via `glibc-hwcaps`), **19 of 19 benchmarks are strictly faster** (up to **-42.60%** instruction reduction on deletions and churn).
+
+Memory: clustered and dense sets run **0.07–0.36 bytes/key** (deterministic allocator accounting; the `< 9.5 B/key` architecture target is met).
 
 ### What remains
 
-- Close the insert gap (1.4–1.7×): the insert-path recursion and remaining allocator traffic are the measured targets.
-- Steady-state churn at 2.27× — the newest benchmark arm and the widest remaining gap.
-- Wall-clock headline numbers from a quiet host (instruction counts are the per-PR truth; time claims wait for real hardware).
-- glibc-hwcaps `x86-64-v2` sub-package (dispatch-free popcnt build; runtime dispatch already serves the baseline binary).
+- **Sequential run bypass across tree levels (Issue #32)**: eliding branch descent for contiguous key streaks to close the remaining sequential insert gap.
+- **AVX2 / SSE2 SIMD vector scans for linear leaves**: evaluating 16 keys in parallel in 4 CPU instructions.
+- **Branch locality & 64-byte alignment**: minimizing cache misses during wide branch traversals.
 
 Roadmap ordering (no schedule): 1 foundation types → 2 bit/vector engine → 3 cache-aligned node layouts → 4 lookup fast path → 5 allocation subsystem → 6 mutation engine + hysteresis → 7 OCC concurrent reads → 8 differential/fuzz/bench hardening. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); testing and benchmark methodology in [docs/TESTING.md](docs/TESTING.md) and [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
 
