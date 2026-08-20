@@ -71,7 +71,7 @@ pub(crate) unsafe fn read_packed(keys: *const u8, slot: usize, kb: usize) -> u64
 /// # Safety
 ///
 /// `keys` must be valid for reads of `(slot + 1) * KB` bytes.
-#[inline(always)]
+#[inline]
 pub(crate) unsafe fn read_packed_fixed<const KB: usize>(keys: *const u8, slot: usize) -> u64 {
     let mut buf = [0u8; 8];
     // SAFETY: in-bounds per this function's contract; `KB <= 7 < 8`, so
@@ -85,7 +85,6 @@ pub(crate) unsafe fn read_packed_fixed<const KB: usize>(keys: *const u8, slot: u
 /// # Safety
 ///
 /// `keys` must be valid for writes of `(slot + 1) * kb` bytes.
-#[inline(always)]
 pub(crate) unsafe fn write_packed(keys: *mut u8, slot: usize, kb: usize, val: u64) {
     let le = val.to_le_bytes();
     // SAFETY: forwarded contract; the copy width is a constant in each
@@ -180,29 +179,11 @@ impl<T: Copy + Default> core::ops::Deref for ImmedBuf<T> {
 pub(crate) fn immed_keys(edge: &Edge, im: ImmedType) -> ImmedBuf<u64> {
     let payload = edge.imm_payload();
     let kb = im.key_bytes() as usize;
-    let count = im.key_count() as usize;
     let mut out = ImmedBuf::new();
-    match kb {
-        1 => {
-            for &byte in payload.iter().take(count) {
-                out.push(u64::from(byte));
-            }
-        }
-        2 => {
-            for slot in 0..count {
-                out.push(u64::from(u16::from_le_bytes([
-                    payload[slot * 2],
-                    payload[slot * 2 + 1],
-                ])));
-            }
-        }
-        _ => {
-            for slot in 0..count {
-                let mut buf = [0u8; 8];
-                buf[..kb].copy_from_slice(&payload[slot * kb..(slot + 1) * kb]);
-                out.push(u64::from_le_bytes(buf));
-            }
-        }
+    for slot in 0..im.key_count() as usize {
+        let mut buf = [0u8; 8];
+        buf[..kb].copy_from_slice(&payload[slot * kb..(slot + 1) * kb]);
+        out.push(u64::from_le_bytes(buf));
     }
     out
 }
@@ -211,25 +192,9 @@ pub(crate) fn immed_keys(edge: &Edge, im: ImmedType) -> ImmedBuf<u64> {
 fn write_immed(edge: &mut Edge, kb: u8, keys: &[u64]) {
     let im = ImmedType::new(kb, keys.len() as u8).expect("immediate capacity");
     let mut payload = [0u8; 15];
-    let kb_sz = kb as usize;
-    match kb {
-        1 => {
-            for (slot, &k) in keys.iter().enumerate() {
-                payload[slot] = k as u8;
-            }
-        }
-        2 => {
-            for (slot, &k) in keys.iter().enumerate() {
-                let b = (k as u16).to_le_bytes();
-                payload[slot * 2..slot * 2 + 2].copy_from_slice(&b);
-            }
-        }
-        _ => {
-            for (slot, &k) in keys.iter().enumerate() {
-                payload[slot * kb_sz..(slot + 1) * kb_sz]
-                    .copy_from_slice(&k.to_le_bytes()[..kb_sz]);
-            }
-        }
+    for (slot, &k) in keys.iter().enumerate() {
+        payload[slot * kb as usize..(slot + 1) * kb as usize]
+            .copy_from_slice(&k.to_le_bytes()[..kb as usize]);
     }
     let mut w0 = [0u8; 8];
     w0.copy_from_slice(&payload[..8]);
@@ -250,29 +215,11 @@ pub(crate) const fn map_immed_max(kb: u8) -> usize {
 pub(crate) fn immed_map_keys(edge: &Edge, im: ImmedType) -> ImmedBuf<u64> {
     let aux = edge.aux_bytes();
     let kb = im.key_bytes() as usize;
-    let count = im.key_count() as usize;
     let mut out = ImmedBuf::new();
-    match kb {
-        1 => {
-            for &byte in aux.iter().take(count) {
-                out.push(u64::from(byte));
-            }
-        }
-        2 => {
-            for slot in 0..count {
-                out.push(u64::from(u16::from_le_bytes([
-                    aux[slot * 2],
-                    aux[slot * 2 + 1],
-                ])));
-            }
-        }
-        _ => {
-            for slot in 0..count {
-                let mut buf = [0u8; 8];
-                buf[..kb].copy_from_slice(&aux[slot * kb..(slot + 1) * kb]);
-                out.push(u64::from_le_bytes(buf));
-            }
-        }
+    for slot in 0..im.key_count() as usize {
+        let mut buf = [0u8; 8];
+        buf[..kb].copy_from_slice(&aux[slot * kb..(slot + 1) * kb]);
+        out.push(u64::from_le_bytes(buf));
     }
     out
 }
@@ -441,7 +388,6 @@ pub(crate) fn bump_pop0(edge: &mut Edge, level: u8, delta: i64) {
 
 /// Inserts a new digit + null child into a linear branch header at its
 /// sorted position and returns the slot.
-#[inline]
 pub(crate) fn linear_insert_slot(
     digits: &mut [u8; 8],
     edges: &mut [Edge],

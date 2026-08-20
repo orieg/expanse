@@ -55,8 +55,6 @@ pub const fn map_keys_offset(pop: usize) -> usize {
     8 * cap_class(pop)
 }
 
-/// Binary search over packed little-endian keys: returns `Ok(pos)` if the
-/// key was found, or `Err(pos)` with the insertion index if not found.
 /// Binary search over packed little-endian keys: first slot whose key is
 /// `>= needle` (`needle` already masked to `key_bytes`).
 ///
@@ -81,12 +79,14 @@ pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, nee
     }
 }
 
-/// Binary search at a compile-time key width: single branch per step.
+/// Binary search at a compile-time key width: the whole probe — load,
+/// widen, compare — becomes inline code instead of a call per step.
+/// This is the innermost loop of every leaf insert (issue #1 item 3).
 ///
 /// # Safety
 ///
 /// `keys` must be valid for reads of `KB * pop` bytes.
-#[inline(always)]
+#[inline]
 unsafe fn lower_bound_fixed<const KB: usize>(keys: *const u8, pop: usize, needle: u64) -> usize {
     let (mut lo, mut hi) = (0usize, pop);
     while lo < hi {

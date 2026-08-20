@@ -337,12 +337,13 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                 a.assert_bracketed();
                 let base = edge.node_ptr();
                 // SAFETY: live map leaf per contract (keys behind the values).
-                let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
-                // SAFETY: keys_ptr points to a live map leaf of `pop` keys.
-                let pos = unsafe { leaf::lower_bound(keys_ptr, pop, kb, k) };
+                let pos =
+                    unsafe { leaf::lower_bound(base.add(leaf::map_keys_offset(pop)), pop, kb, k) };
                 // SAFETY: pos < pop is in bounds.
                 let hit = pos < pop
-                    && unsafe { crate::mutate::read_packed(keys_ptr, pos, kb as usize) == k };
+                    && unsafe {
+                        read_packed(base.add(leaf::map_keys_offset(pop)), pos, kb as usize) == k
+                    };
                 match if hit { Ok(pos) } else { Err(pos) } {
                     Ok(pos) => {
                         // SAFETY: in-place value swap within the live leaf.
@@ -795,12 +796,14 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             a.assert_bracketed();
             let base = edge.node_ptr();
             // SAFETY: live map leaf per contract.
-            let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
-            // SAFETY: keys_ptr points to a live map leaf of `pop` keys.
-            let pos = unsafe { leaf::lower_bound(keys_ptr, pop, kb, k) };
+            let pos =
+                unsafe { leaf::lower_bound(base.add(leaf::map_keys_offset(pop)), pop, kb, k) };
+            // SAFETY: pos < pop is in bounds.
             // SAFETY: pos < pop is in bounds.
             let miss = pos == pop
-                || unsafe { crate::mutate::read_packed(keys_ptr, pos, kb as usize) != k };
+                || unsafe {
+                    read_packed(base.add(leaf::map_keys_offset(pop)), pos, kb as usize) != k
+                };
             if miss {
                 return None;
             }
