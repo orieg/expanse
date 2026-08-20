@@ -348,11 +348,13 @@ pub(crate) fn wrap_skip_level(
     for i in (at as usize - 1)..(slot_level as usize).min(7) {
         child.clear_aux_byte(i);
     }
-    let mut b = BranchL3::new(at);
-    b.hdr.num = 1;
-    b.hdr.digits[0] = t;
-    b.edges[0] = child;
-    let node = a.alloc_node(b);
+    let node = a.alloc_node_zeroed::<BranchL3>();
+    unsafe {
+        (*node.as_ptr()).hdr.level = at;
+        (*node.as_ptr()).hdr.num = 1;
+        (*node.as_ptr()).hdr.digits[0] = t;
+        (*node.as_ptr()).edges[0] = child;
+    }
     *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
     if at < slot_level {
         edge.set_decode_bytes(at, &aux[at as usize..slot_level as usize]);
@@ -455,7 +457,8 @@ pub(crate) unsafe fn insert<const OCC: bool>(
         EdgeTag::Structural(EdgeType::Null) => {
             if level == 8 {
                 // No 8-byte leaves/immediates: the top starts as a branch.
-                let node = a.alloc_node(BranchL3::new(level));
+                let node = a.alloc_node_zeroed::<BranchL3>();
+                unsafe { (*node.as_ptr()).hdr.level = level; }
                 *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
                 // SAFETY: forwarded caller contract; edge is now a branch.
                 return unsafe { insert::<OCC>(a, edge, key, level) };
@@ -565,11 +568,12 @@ pub(crate) unsafe fn insert<const OCC: bool>(
             } else if kb == 1 {
                 // Level-1 overflow: linear leaf → bitmap leaf (any narrow
                 // pointer carries over).
-                let mut node = LeafBitmap1::new();
-                for &k in &keys {
-                    node.bitmap.set(k as u8);
+                let ptr = a.alloc_node_zeroed::<LeafBitmap1>();
+                unsafe {
+                    for &k in &keys {
+                        (*ptr.as_ptr()).bitmap.set(k as u8);
+                    }
                 }
-                let ptr = a.alloc_node(node);
                 *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
                 edge.set_pop0(1, keys.len() as u64 - 1);
                 restore_decode(edge, 1, level, &saved_aux);
@@ -580,11 +584,12 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     // digits at levels 2..=kb, so the whole set fits one
                     // bitmap leaf whose decode bytes hold the shared
                     // prefix — no single-child branch chain.
-                    let mut node = LeafBitmap1::new();
-                    for &k in &keys {
-                        node.bitmap.set(k as u8);
+                    let ptr = a.alloc_node_zeroed::<LeafBitmap1>();
+                    unsafe {
+                        for &k in &keys {
+                            (*ptr.as_ptr()).bitmap.set(k as u8);
+                        }
                     }
-                    let ptr = a.alloc_node(node);
                     *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
                     edge.set_pop0(1, keys.len() as u64 - 1);
                     write_decode(edge, 1, level, keys[0]);
@@ -594,7 +599,8 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                     // root edge has no room for decode bytes, so level-8
                     // slots always branch in place), then re-insert.
                     let bl = if level <= 7 { d } else { level };
-                    let node = a.alloc_node(BranchL3::new(bl));
+                    let node = a.alloc_node_zeroed::<BranchL3>();
+                    unsafe { (*node.as_ptr()).hdr.level = bl; }
                     *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
                     if bl < level {
                         write_decode(edge, bl, level, keys[0]);
@@ -858,10 +864,15 @@ pub(crate) unsafe fn insert<const OCC: bool>(
 pub(crate) unsafe fn upgrade_l3_to_l7(a: &NodeAlloc, edge: &mut Edge) {
     // SAFETY: live BranchL3 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
-    let mut node = BranchL7::new(old.hdr.level);
-    node.hdr = old.hdr;
-    node.edges[..BRANCH_L3_CAP].copy_from_slice(&old.edges);
-    let new = a.alloc_node(node);
+    let new = a.alloc_node_zeroed::<BranchL7>();
+    unsafe {
+        core::ptr::addr_of_mut!((*new.as_ptr()).hdr).write(old.hdr);
+        core::ptr::copy_nonoverlapping(
+            old.edges.as_ptr(),
+            (*new.as_ptr()).edges.as_mut_ptr(),
+            BRANCH_L3_CAP,
+        );
+    }
     let aux = *edge.aux_bytes();
     // SAFETY: old node no longer referenced.
     unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL3>()).unwrap()) };
@@ -877,27 +888,29 @@ pub(crate) unsafe fn upgrade_l3_to_l7(a: &NodeAlloc, edge: &mut Edge) {
 pub(crate) unsafe fn upgrade_l7_to_b(a: &NodeAlloc, edge: &mut Edge) {
     // SAFETY: live BranchL7 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
-    let mut node = BranchB::new(old.hdr.level);
-    // Count digits per subexpanse first, then pack per-subexpanse arrays.
-    for i in 0..old.hdr.num as usize {
-        node.pop_counts[(old.hdr.digits[i] >> 5) as usize] += 1;
-    }
-    for sub in 0..8 {
-        let n = node.pop_counts[sub] as usize;
-        if n > 0 {
-            node.subarrays[sub] = a.alloc_bytes(sub_edges_size(n)).cast::<Edge>().as_ptr();
+    let new = a.alloc_node_zeroed::<BranchB>();
+    unsafe {
+        (*new.as_ptr()).level = old.hdr.level;
+        // Count digits per subexpanse first, then pack per-subexpanse arrays.
+        for i in 0..old.hdr.num as usize {
+            (*new.as_ptr()).pop_counts[(old.hdr.digits[i] >> 5) as usize] += 1;
+        }
+        for sub in 0..8 {
+            let n = (*new.as_ptr()).pop_counts[sub] as usize;
+            if n > 0 {
+                (*new.as_ptr()).subarrays[sub] = a.alloc_bytes(sub_edges_size(n)).cast::<Edge>().as_ptr();
+            }
+        }
+        let mut filled = [0usize; 8];
+        for i in 0..old.hdr.num as usize {
+            let d = old.hdr.digits[i];
+            let sub = (d >> 5) as usize;
+            (*new.as_ptr()).bitmap.set(d);
+            // SAFETY: filled[sub] < pop_counts[sub] slots just allocated.
+            (*new.as_ptr()).subarrays[sub].add(filled[sub]).write(old.edges[i]);
+            filled[sub] += 1;
         }
     }
-    let mut filled = [0usize; 8];
-    for i in 0..old.hdr.num as usize {
-        let d = old.hdr.digits[i];
-        let sub = (d >> 5) as usize;
-        node.bitmap.set(d);
-        // SAFETY: filled[sub] < pop_counts[sub] slots just allocated.
-        unsafe { node.subarrays[sub].add(filled[sub]).write(old.edges[i]) };
-        filled[sub] += 1;
-    }
-    let new = a.alloc_node(node);
     let aux = *edge.aux_bytes();
     // SAFETY: old node no longer referenced.
     unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap()) };
@@ -912,7 +925,7 @@ pub(crate) unsafe fn upgrade_l7_to_b(a: &NodeAlloc, edge: &mut Edge) {
 /// `edge` must reference a live **non-skipping** `BranchB` owned by `a`
 /// (`BranchU` has no header level; callers wrap a skipping node first).
 pub(crate) unsafe fn upgrade_b_to_u(a: &NodeAlloc, edge: &mut Edge) {
-    let new = a.alloc_node(BranchU::new());
+    let new = a.alloc_node_zeroed::<BranchU>();
     // SAFETY: live BranchB; subarray reads bounded by pop_counts.
     unsafe {
         let old = &*edge.node_ptr().cast::<BranchB>();
@@ -1126,16 +1139,22 @@ pub(crate) unsafe fn remove<const OCC: bool>(
         EdgeTag::Structural(EdgeType::FullExpanse) => {
             // Materialize one decompression step, then retry the removal.
             if level == 1 {
-                let node = a.alloc_node(full_bitmap_leaf());
+                let node = a.alloc_node_zeroed::<LeafBitmap1>();
+                unsafe {
+                    for d in 0..=255u8 {
+                        (*node.as_ptr()).bitmap.set(d);
+                    }
+                }
                 *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::LeafB1.as_u8());
                 edge.set_pop0(1, 255);
             } else {
-                let mut node = BranchU::new();
-                for child in &mut node.edges {
-                    child.set_tag(EdgeType::FullExpanse.as_u8());
-                    child.set_pop0(level - 1, pow256(level - 1) - 1);
+                let ptr = a.alloc_node_zeroed::<BranchU>();
+                unsafe {
+                    for child in &mut (*ptr.as_ptr()).edges {
+                        child.set_tag(EdgeType::FullExpanse.as_u8());
+                        child.set_pop0(level - 1, pow256(level - 1) - 1);
+                    }
                 }
-                let ptr = a.alloc_node(node);
                 *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::BranchU.as_u8());
                 edge.set_pop0(level, pow256(level) - 1);
             }
@@ -1363,10 +1382,15 @@ unsafe fn free_branch_node(a: &NodeAlloc, edge: &mut Edge, is_l3: bool) {
 pub(crate) unsafe fn downgrade_l7_to_l3(a: &NodeAlloc, edge: &mut Edge) {
     // SAFETY: live BranchL7 per contract.
     let old = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
-    let mut node = BranchL3::new(old.hdr.level);
-    node.hdr = old.hdr;
-    node.edges.copy_from_slice(&old.edges[..BRANCH_L3_CAP]);
-    let new = a.alloc_node(node);
+    let new = a.alloc_node_zeroed::<BranchL3>();
+    unsafe {
+        core::ptr::addr_of_mut!((*new.as_ptr()).hdr).write(old.hdr);
+        core::ptr::copy_nonoverlapping(
+            old.edges.as_ptr(),
+            (*new.as_ptr()).edges.as_mut_ptr(),
+            BRANCH_L3_CAP,
+        );
+    }
     let aux = *edge.aux_bytes();
     // SAFETY: old node no longer referenced.
     unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap()) };
@@ -1380,17 +1404,19 @@ pub(crate) unsafe fn downgrade_l7_to_l3(a: &NodeAlloc, edge: &mut Edge) {
 pub(crate) unsafe fn downgrade_b_to_l7(a: &NodeAlloc, edge: &mut Edge) {
     // SAFETY: live BranchB per contract (level read below).
     let b_level = unsafe { (*edge.node_ptr().cast::<BranchB>()).level };
-    let mut node = BranchL7::new(b_level);
+    let new = a.alloc_node_zeroed::<BranchL7>();
     // SAFETY: live BranchB; reads bounded by bitmap/pop_counts invariant.
     unsafe {
         let old = &*edge.node_ptr().cast::<BranchB>();
+        (*new.as_ptr()).hdr.level = b_level;
         let mut d = old.bitmap.next_set(0);
         while let Some(dig) = d {
             let sub = (dig >> 5) as usize;
             let rank = old.bitmap.subexpanse_rank(dig) as usize;
-            node.hdr.digits[node.hdr.num as usize] = dig;
-            node.edges[node.hdr.num as usize] = *old.subarrays[sub].add(rank);
-            node.hdr.num += 1;
+            let num = (*new.as_ptr()).hdr.num as usize;
+            (*new.as_ptr()).hdr.digits[num] = dig;
+            (*new.as_ptr()).edges[num] = *old.subarrays[sub].add(rank);
+            (*new.as_ptr()).hdr.num += 1;
             d = if dig == 255 {
                 None
             } else {
@@ -1407,7 +1433,6 @@ pub(crate) unsafe fn downgrade_b_to_l7(a: &NodeAlloc, edge: &mut Edge) {
             }
         }
     }
-    let new = a.alloc_node(node);
     let aux = *edge.aux_bytes();
     // SAFETY: old node no longer referenced.
     unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap()) };
@@ -1420,44 +1445,36 @@ pub(crate) unsafe fn downgrade_b_to_l7(a: &NodeAlloc, edge: &mut Edge) {
 /// `edge` must reference a live `BranchU` with ≤ `BRANCHB_UP - 1` non-null
 /// children, owned by `a`.
 pub(crate) unsafe fn downgrade_u_to_b(a: &NodeAlloc, edge: &mut Edge, level: u8) {
-    let mut node = BranchB::new(level);
+    let new = a.alloc_node_zeroed::<BranchB>();
     // SAFETY: live BranchU per contract.
     unsafe {
         let old = &*edge.node_ptr().cast::<BranchU>();
+        (*new.as_ptr()).level = level;
         for (d, child) in old.edges.iter().enumerate() {
             if !child.is_null() {
-                node.pop_counts[d >> 5] += 1;
-                node.bitmap.set(d as u8);
+                (*new.as_ptr()).pop_counts[d >> 5] += 1;
+                (*new.as_ptr()).bitmap.set(d as u8);
             }
         }
         for sub in 0..8 {
-            let n = node.pop_counts[sub] as usize;
+            let n = (*new.as_ptr()).pop_counts[sub] as usize;
             if n > 0 {
-                node.subarrays[sub] = a.alloc_bytes(sub_edges_size(n)).cast::<Edge>().as_ptr();
+                (*new.as_ptr()).subarrays[sub] = a.alloc_bytes(sub_edges_size(n)).cast::<Edge>().as_ptr();
             }
         }
         let mut filled = [0usize; 8];
         for (d, child) in old.edges.iter().enumerate() {
             if !child.is_null() {
-                node.subarrays[d >> 5].add(filled[d >> 5]).write(*child);
+                (*new.as_ptr()).subarrays[d >> 5].add(filled[d >> 5]).write(*child);
                 filled[d >> 5] += 1;
             }
         }
     }
-    let new = a.alloc_node(node);
     let aux = *edge.aux_bytes();
     // SAFETY: old node no longer referenced.
     unsafe { a.free_node(core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap()) };
     *edge = Edge::new_node(new.as_ptr().cast(), EdgeType::BranchB.as_u8());
     edge.set_aux_bytes(aux);
-}
-
-fn full_bitmap_leaf() -> LeafBitmap1 {
-    let mut node = LeafBitmap1::new();
-    for d in 0..=255u8 {
-        node.bitmap.set(d);
-    }
-    node
 }
 
 pub(crate) const fn pow256(level: u8) -> u64 {

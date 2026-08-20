@@ -117,41 +117,42 @@ unsafe fn read_map_leaf(edge: &Edge, kb: u8, pop: usize) -> Vec<(u64, u64)> {
 /// Allocates a `LeafBitmapL` from sorted level-1 entries and points
 /// `edge` at it (decode bytes, if any, are the caller's to restore).
 fn build_bitmap_leaf_map(a: &NodeAlloc, edge: &mut Edge, entries: &[(u64, u64)]) {
-    let mut node = LeafBitmapL::new();
-    for &(k, _) in entries {
-        node.bitmap.set(k as u8);
-    }
-    // `entries` is sorted by key, so each 32-digit subexpanse is one
-    // contiguous run: detect the run and write it straight into its
-    // subarray. The previous version bucketed values through a
-    // `[Vec<u64>; 8]` — eight heap allocations of scratch (plus growth
-    // reallocations) per linear-leaf → bitmap-leaf conversion, to
-    // regroup values that the sort order had already grouped.
-    //
-    // Scope note, measured: a wider rework replacing the materializer
-    // `Vec`s (`read_map_leaf`, `leaf_keys`) with stack buffers was tried
-    // twice and REGRESSED both times (+2.7% map_insert/small with
-    // default-init backing; worse with MaybeUninit). Those conversions
-    // run once per form change, not per op, and malloc's fast path is
-    // cheaper than a 264-528-byte memset or the uninit bookkeeping.
-    // This function is different: eight allocations per conversion for
-    // a regrouping the input ordering already provides.
-    let mut i = 0;
-    while i < entries.len() {
-        let sub = (entries[i].0 >> 5) as usize;
-        let mut j = i + 1;
-        while j < entries.len() && (entries[j].0 >> 5) as usize == sub {
-            j += 1;
+    let ptr = a.alloc_node_zeroed::<LeafBitmapL>();
+    unsafe {
+        for &(k, _) in entries {
+            (*ptr.as_ptr()).bitmap.set(k as u8);
         }
-        let arr = a.alloc_bytes(sub_vals_size(j - i)).cast::<u64>();
-        for (slot, &(_, v)) in entries[i..j].iter().enumerate() {
-            // SAFETY: fresh array of `j - i` slots.
-            unsafe { arr.as_ptr().add(slot).write(v) };
+        // `entries` is sorted by key, so each 32-digit subexpanse is one
+        // contiguous run: detect the run and write it straight into its
+        // subarray. The previous version bucketed values through a
+        // `[Vec<u64>; 8]` — eight heap allocations of scratch (plus growth
+        // reallocations) per linear-leaf → bitmap-leaf conversion, to
+        // regroup values that the sort order had already grouped.
+        //
+        // Scope note, measured: a wider rework replacing the materializer
+        // `Vec`s (`read_map_leaf`, `leaf_keys`) with stack buffers was tried
+        // twice and REGRESSED both times (+2.7% map_insert/small with
+        // default-init backing; worse with MaybeUninit). Those conversions
+        // run once per form change, not per op, and malloc's fast path is
+        // cheaper than a 264-528-byte memset or the uninit bookkeeping.
+        // This function is different: eight allocations per conversion for
+        // a regrouping the input ordering already provides.
+        let mut i = 0;
+        while i < entries.len() {
+            let sub = (entries[i].0 >> 5) as usize;
+            let mut j = i + 1;
+            while j < entries.len() && (entries[j].0 >> 5) as usize == sub {
+                j += 1;
+            }
+            let arr = a.alloc_bytes(sub_vals_size(j - i)).cast::<u64>();
+            for (slot, &(_, v)) in entries[i..j].iter().enumerate() {
+                // SAFETY: fresh array of `j - i` slots.
+                arr.as_ptr().add(slot).write(v);
+            }
+            (*ptr.as_ptr()).values[sub] = arr.as_ptr();
+            i = j;
         }
-        node.values[sub] = arr.as_ptr();
-        i = j;
     }
-    let ptr = a.alloc_node(node);
     *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
     edge.set_pop0(1, entries.len() as u64 - 1);
 }
@@ -250,7 +251,8 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
     match tag {
         EdgeTag::Structural(EdgeType::Null) => {
             if level == 8 {
-                let node = a.alloc_node(BranchL3::new(level));
+                let node = a.alloc_node_zeroed::<BranchL3>();
+                unsafe { (*node.as_ptr()).hdr.level = level; }
                 *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
                 // SAFETY: forwarded contract; edge is now a branch.
                 return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level) };
@@ -435,7 +437,8 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                         // edge has no room for decode bytes), re-insert.
                         let d = divergence_level(entries[0].0, entries[entries.len() - 1].0, level);
                         let bl = if level <= 7 { d } else { level };
-                        let node = a.alloc_node(BranchL3::new(bl));
+                        let node = a.alloc_node_zeroed::<BranchL3>();
+                        unsafe { (*node.as_ptr()).hdr.level = bl; }
                         *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
                         if bl < level {
                             write_decode(edge, bl, level, entries[0].0);
