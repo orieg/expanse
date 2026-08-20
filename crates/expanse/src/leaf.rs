@@ -68,7 +68,7 @@ pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, nee
     // SAFETY: forwarded contract; each arm's KB equals `key_bytes`.
     unsafe {
         match key_bytes {
-            1 => lower_bound_fixed::<1>(keys, pop, needle),
+            1 => crate::bits::lower_bound_1(keys, pop, needle as u8),
             2 => lower_bound_fixed::<2>(keys, pop, needle),
             3 => lower_bound_fixed::<3>(keys, pop, needle),
             4 => lower_bound_fixed::<4>(keys, pop, needle),
@@ -335,6 +335,10 @@ pub(crate) unsafe fn map_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos
 /// `keys` must be valid for reads of `KB * pop` bytes.
 #[inline]
 unsafe fn search_fixed<const KB: usize>(keys: *const u8, pop: usize, key: Key) -> Option<usize> {
+    if KB == 1 {
+        // SAFETY: caller guarantees keys valid for pop bytes
+        return unsafe { crate::bits::find_byte_32(keys, pop, key as u8) };
+    }
     let le = key.to_le_bytes();
     let mut needle = [0u8; KB];
     needle.copy_from_slice(&le[..KB]);

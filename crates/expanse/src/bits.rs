@@ -56,6 +56,35 @@ pub mod portable {
         }
         None
     }
+
+    /// Finds the first index `i < len` with `keys[i] >= needle` in a sorted byte slice.
+    #[must_use]
+    pub const fn lower_bound_1(keys: &[u8], needle: u8) -> usize {
+        let mut lo = 0;
+        let mut hi = keys.len();
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if keys[mid] < needle {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
+    }
+
+    /// Finds `needle` in a byte slice of up to 32 bytes.
+    #[must_use]
+    pub const fn find_byte_32(hay: &[u8], needle: u8) -> Option<usize> {
+        let mut i = 0;
+        while i < hay.len() {
+            if hay[i] == needle {
+                return Some(i);
+            }
+            i += 1;
+        }
+        None
+    }
 }
 
 /// Finds the first index `i < len` with `hay[i] == needle` in a 16-byte
@@ -153,6 +182,147 @@ pub const fn find_byte_8(hay: &[u8; 8], len: usize, needle: u8) -> Option<usize>
     } else {
         Some((zeros.trailing_zeros() / 8) as usize)
     }
+}
+
+/// Finds the first index `i < len` with `keys[i] == needle` in a slice of up to 32 bytes
+/// (linear leaves of 1-byte keys, where `LEAF1_CAP = 23`).
+///
+/// # Safety
+///
+/// `keys` must point to at least `len` initialized, readable bytes.
+#[inline]
+#[must_use]
+pub unsafe fn find_byte_32(keys: *const u8, len: usize, needle: u8) -> Option<usize> {
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    {
+        // SAFETY: forwarded contract
+        unsafe { find_byte_32_sse2(keys, len, needle) }
+    }
+    #[cfg(all(target_arch = "aarch64", not(miri)))]
+    {
+        // SAFETY: forwarded contract
+        unsafe { find_byte_32_neon(keys, len, needle) }
+    }
+    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    {
+        // SAFETY: caller guarantees keys valid for len bytes
+        let slice = unsafe { core::slice::from_raw_parts(keys, len) };
+        portable::find_byte_32(slice, needle)
+    }
+}
+
+#[cfg(all(target_arch = "x86_64", not(miri)))]
+#[inline]
+unsafe fn find_byte_32_sse2(keys: *const u8, len: usize, needle: u8) -> Option<usize> {
+    use core::arch::x86_64::{_mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8};
+    let t = _mm_set1_epi8(needle as i8);
+    if len <= 16 {
+        let mut buf = [0u8; 16];
+        // SAFETY: caller guarantees keys valid for len bytes
+        unsafe { core::ptr::copy_nonoverlapping(keys, buf.as_mut_ptr(), len) };
+        let h = _mm_loadu_si128(buf.as_ptr().cast());
+        let mask = (_mm_movemask_epi8(_mm_cmpeq_epi8(t, h)) as u32) & ((1u32 << len) - 1);
+        if mask == 0 {
+            None
+        } else {
+            Some(mask.trailing_zeros() as usize)
+        }
+    } else {
+        let len = len.min(32);
+        let mut buf = [0u8; 32];
+        // SAFETY: caller guarantees keys valid for len bytes
+        unsafe { core::ptr::copy_nonoverlapping(keys, buf.as_mut_ptr(), len) };
+        let h0 = _mm_loadu_si128(buf.as_ptr().cast());
+        let mask0 = _mm_movemask_epi8(_mm_cmpeq_epi8(t, h0)) as u32;
+        if mask0 != 0 {
+            return Some(mask0.trailing_zeros() as usize);
+        }
+        let h1 = _mm_loadu_si128(buf.as_ptr().add(16).cast());
+        let mask1 = (_mm_movemask_epi8(_mm_cmpeq_epi8(t, h1)) as u32) & ((1u32 << (len - 16)) - 1);
+        if mask1 != 0 {
+            Some(16 + mask1.trailing_zeros() as usize)
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+#[inline]
+unsafe fn find_byte_32_neon(keys: *const u8, len: usize, needle: u8) -> Option<usize> {
+    // SAFETY: caller guarantees keys valid for len bytes
+    let slice = unsafe { core::slice::from_raw_parts(keys, len) };
+    portable::find_byte_32(slice, needle)
+}
+
+/// Finds the lower-bound index `i <= len` with `keys[i] >= needle` in a sorted 1-byte array of up to 32 bytes.
+///
+/// # Safety
+///
+/// `keys` must point to at least `len` initialized, readable, ascending-sorted bytes.
+#[inline]
+#[must_use]
+pub unsafe fn lower_bound_1(keys: *const u8, len: usize, needle: u8) -> usize {
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    {
+        // SAFETY: forwarded contract
+        unsafe { lower_bound_1_sse2(keys, len, needle) }
+    }
+    #[cfg(all(target_arch = "aarch64", not(miri)))]
+    {
+        // SAFETY: forwarded contract
+        unsafe { lower_bound_1_neon(keys, len, needle) }
+    }
+    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    {
+        // SAFETY: caller guarantees keys valid for len bytes
+        let slice = unsafe { core::slice::from_raw_parts(keys, len) };
+        portable::lower_bound_1(slice, needle)
+    }
+}
+
+#[cfg(all(target_arch = "x86_64", not(miri)))]
+#[inline]
+unsafe fn lower_bound_1_sse2(keys: *const u8, len: usize, needle: u8) -> usize {
+    use core::arch::x86_64::{
+        _mm_cmplt_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8, _mm_xor_si128,
+    };
+    let sign_flip = _mm_set1_epi8(0x80u8 as i8);
+    let target = _mm_set1_epi8((needle ^ 0x80) as i8);
+    if len <= 16 {
+        let mut buf = [0u8; 16];
+        // SAFETY: caller guarantees keys valid for len bytes
+        unsafe { core::ptr::copy_nonoverlapping(keys, buf.as_mut_ptr(), len) };
+        let k = _mm_loadu_si128(buf.as_ptr().cast());
+        let k_u = _mm_xor_si128(k, sign_flip);
+        let lt = _mm_cmplt_epi8(k_u, target);
+        let mask = (_mm_movemask_epi8(lt) as u32) & ((1u32 << len) - 1);
+        mask.count_ones() as usize
+    } else {
+        let len = len.min(32);
+        let mut buf = [0u8; 32];
+        // SAFETY: caller guarantees keys valid for len bytes
+        unsafe { core::ptr::copy_nonoverlapping(keys, buf.as_mut_ptr(), len) };
+        let k0 = _mm_loadu_si128(buf.as_ptr().cast());
+        let k0_u = _mm_xor_si128(k0, sign_flip);
+        let lt0 = _mm_cmplt_epi8(k0_u, target);
+        let mask0 = _mm_movemask_epi8(lt0) as u32;
+
+        let k1 = _mm_loadu_si128(buf.as_ptr().add(16).cast());
+        let k1_u = _mm_xor_si128(k1, sign_flip);
+        let lt1 = _mm_cmplt_epi8(k1_u, target);
+        let mask1 = (_mm_movemask_epi8(lt1) as u32) & ((1u32 << (len - 16)) - 1);
+
+        (mask0.count_ones() + mask1.count_ones()) as usize
+    }
+}
+
+#[cfg(all(target_arch = "aarch64", not(miri)))]
+#[inline]
+unsafe fn lower_bound_1_neon(keys: *const u8, len: usize, needle: u8) -> usize {
+    // SAFETY: caller guarantees keys valid for len bytes
+    let slice = unsafe { core::slice::from_raw_parts(keys, len) };
+    portable::lower_bound_1(slice, needle)
 }
 
 /// A 256-bit membership set over one decode byte (0x00..=0xFF): the core of
@@ -489,6 +659,44 @@ mod tests {
                         "pos={pos} len={len} needle={needle:#04x}"
                     );
                 }
+            }
+        }
+
+        // Parity tests for find_byte_32
+        for pos in 0..24usize {
+            for len in 0..=24usize {
+                for needle in [0x00u8, 0x01, 0x7F, 0x80, 0xFE, 0xFF] {
+                    let mut hay = [needle.wrapping_add(1); 24];
+                    hay[pos] = needle;
+                    let p = portable::find_byte_32(&hay[..len], needle);
+                    // SAFETY: hay is 24 bytes and len <= 24
+                    let actual = unsafe { find_byte_32(hay.as_ptr(), len, needle) };
+                    assert_eq!(
+                        actual, p,
+                        "find_byte_32 pos={pos} len={len} needle={needle:#04x}"
+                    );
+                }
+            }
+        }
+
+        // Parity tests for lower_bound_1
+        let mut rng = XorShift(0x9876_5432_10FE_DCBA);
+        for _ in 0..500 {
+            let len = (rng.next() as usize % 24) + 1;
+            let mut keys = [0u8; 24];
+            for k in keys.iter_mut().take(len) {
+                *k = rng.next() as u8;
+            }
+            keys[..len].sort_unstable();
+            for _ in 0..10 {
+                let needle = rng.next() as u8;
+                let expected = portable::lower_bound_1(&keys[..len], needle);
+                // SAFETY: keys holds 24 bytes and len <= 24, sorted ascending
+                let actual = unsafe { lower_bound_1(keys.as_ptr(), len, needle) };
+                assert_eq!(
+                    actual, expected,
+                    "lower_bound_1 len={len} needle={needle:#04x}"
+                );
             }
         }
         let mut rng = XorShift(0x9E37_79B9_7F4A_7C15);
