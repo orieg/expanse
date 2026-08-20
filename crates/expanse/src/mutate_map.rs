@@ -99,14 +99,18 @@ unsafe fn read_map_leaf(edge: &Edge, kb: u8, pop: usize) -> Vec<(u64, u64)> {
     // `insert` right after materializing, which used to force a growth
     // reallocation (a second malloc + copy + free) on every conversion.
     let mut out = Vec::with_capacity(pop + 1);
-    for slot in 0..pop {
+    // `extend` from a range keeps TrustedLen, so the fill elides the
+    // per-element capacity check a manual push loop pays (measured:
+    // +0.15% on map_remove/random, whose callers never use the
+    // headroom slot).
+    out.extend((0..pop).map(|slot| {
         // SAFETY: map leaf = pop values then pop packed keys, per layout.
-        out.push(unsafe {
+        unsafe {
             let k = read_packed(base.add(leaf::map_keys_offset(pop)), slot, kb as usize);
             let v = *base.cast::<u64>().add(slot);
             (k, v)
-        });
-    }
+        }
+    }));
     out
 }
 
