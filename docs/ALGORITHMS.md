@@ -78,7 +78,8 @@ Expanse uses an adaptive least-compressed-form ladder with **1-index hysteresis*
 ### 3.2 Key Mutation (`insert` / `mutate_map`)
 1. **Root Leaf Monotonic Fast-Path** ($\text{pop} \le 31$): If inserting into `ExpanseSet` or `ExpanseMap` root leaf and $key > \text{last\_key}$, bypass binary search and set $\text{pos} = \text{pop}$ in a single $O(1)$ scalar compare.
 2. **Linear Leaf Monotonic Append Fast-Path**: If inserting into a linear leaf and $k > \text{last\_key}$, bypass binary search and set $\text{pos} = \text{pop}$.
-3. **Class-Crossing Check**:
+3. **Multi-Level Sequential Run Bypass** ($\text{pop} > 31$): If inserting contiguous keys sharing the upper 56 bits ($key \gg 8 == \text{path.prefix}$), bypass all 8 branch levels and digit decodes. Directly execute 1 bit test/set in the active terminal `LeafBitmap1`/`LeafBitmapL` and increment ancestor edge $pop0$ counts in ~15 instructions with zero branch mispredicts.
+4. **Class-Crossing Check**:
    - If $\text{cap\_class}(\text{pop} + 1) == \text{cap\_class}(\text{pop})$, shift keys in place (`core::ptr::copy`).
    - If class is exceeded, allocate next class from slab allocator and realloc-insert.
    - If population exceeds leaf capacity ($\text{pop} > 25$ or $\text{pop} > 32$), upgrade to `LeafBitmap1` or cascade into a `BranchL3`.

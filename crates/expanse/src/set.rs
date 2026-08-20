@@ -49,6 +49,7 @@ enum Root {
 pub struct ExpanseSet {
     root: Root,
     alloc: NodeAlloc,
+    path: crate::mutate::InsertPath,
 }
 
 // SAFETY: the tree exclusively owns every allocation reachable from its
@@ -64,6 +65,7 @@ impl ExpanseSet {
         Self {
             root: Root::Empty,
             alloc: NodeAlloc::new(),
+            path: crate::mutate::InsertPath::empty(),
         }
     }
 
@@ -205,8 +207,48 @@ impl ExpanseSet {
                 true
             }
             Root::Tree { top, pop } => {
+                let prefix = key >> 8;
+                if self.path.prefix == prefix && !self.path.leaf.is_null() {
+                    let d = (key & 0xFF) as u8;
+                    // SAFETY: path holds valid live LeafBitmap1 pointer.
+                    let leaf = unsafe { &mut *self.path.leaf };
+                    if leaf.bitmap.set(d) {
+                        for i in 0..self.path.depth {
+                            // SAFETY: path contains valid live edge pointers during active bypass.
+                            unsafe {
+                                crate::mutate::bump_pop0(
+                                    &mut *self.path.edges[i],
+                                    self.path.levels[i],
+                                    1,
+                                );
+                            }
+                        }
+                        // SAFETY: path.depth >= 1 and edges[path.depth - 1] is the live leaf edge.
+                        let terminal_pop =
+                            unsafe { (*self.path.edges[self.path.depth - 1]).pop0(1) } + 1;
+                        if terminal_pop == 256 {
+                            let ptr = core::ptr::NonNull::new(leaf);
+                            // SAFETY: leaf converted to full expanse, old node freed.
+                            unsafe { self.alloc.free_node(ptr.expect("leaf ptr")) };
+                            // SAFETY: terminal edge is valid and rewritten to FullExpanse.
+                            unsafe {
+                                let terminal_edge = &mut *self.path.edges[self.path.depth - 1];
+                                *terminal_edge = Edge::NULL;
+                                terminal_edge.set_tag(crate::types::EdgeType::FullExpanse.as_u8());
+                                terminal_edge.set_pop0(1, 255);
+                            }
+                            self.path.clear();
+                        }
+                        *pop += 1;
+                        return true;
+                    } else {
+                        return false;
+                    }
+                }
+                self.path.clear();
                 // SAFETY: trie maintained/owned by this set's engine.
-                let inserted = unsafe { mutate::insert_dyn(&self.alloc, top, key, 8) };
+                let inserted =
+                    unsafe { mutate::insert_path_dyn(&self.alloc, top, key, 8, &mut self.path) };
                 if inserted {
                     *pop += 1;
                 }
@@ -232,6 +274,7 @@ impl ExpanseSet {
 
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&mut self, key: Key) -> bool {
+        self.path.clear();
         match &mut self.root {
             Root::Empty => false,
             Root::Leaf { keys, pop } => {
@@ -287,6 +330,7 @@ impl ExpanseSet {
 
     /// Removes every key.
     pub fn clear(&mut self) {
+        self.path.clear();
         match &mut self.root {
             Root::Empty => {}
             Root::Leaf { keys, pop } => {
@@ -501,6 +545,7 @@ impl ExpanseSet {
     /// Rebuilds the flat sorted root leaf from a small tree (the shrink
     /// twin of the root-leaf → trie promotion).
     fn condense_to_root_leaf(&mut self) {
+        self.path.clear();
         let Root::Tree { top, pop } = &mut self.root else {
             unreachable!("condense outside tree state")
         };
