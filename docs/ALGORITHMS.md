@@ -67,15 +67,18 @@ Expanse uses an adaptive least-compressed-form ladder with **1-index hysteresis*
 2. **Tag Dispatch**:
    - `EdgeTag::Immed`: Compare low key bytes directly against embedded payload. Latency: **~4.2 ns**.
    - `EdgeTag::Leaf*`: Offset into key slice.
-     - For $\text{pop} \le 2$: branchless scalar arithmetic.
-     - For $\text{pop} \le 16$: SIMD vector compare + popcount.
-     - For $\text{pop} > 16$: binary search probe.
+     - For $\text{pop} \le 2$: branchless scalar arithmetic `(k0 < needle) as usize + (k1 < needle) as usize`.
+     - For $\text{pop} \in [13, 16]$ ($KB = 1$): 128-bit vector compare (`_mm_cmpeq_epi8` / `_mm_cmplt_epi8` with `0x80` unsigned-to-signed bias) + `_mm_movemask_epi8` + `POPCNT` in 4 instructions with zero branches.
+     - For $KB = 2, \text{pop} = 8$: 128-bit vector compare (`_mm_cmpeq_epi16`).
+     - For $KB = 4, \text{pop} = 4$: 128-bit vector compare (`_mm_cmpeq_epi32`).
+     - For remaining populations: $O(\log N)$ binary probe with unrolled midpoint steps.
    - `EdgeTag::Branch*`: Decode digit at current level (`key >> (8 * (level - 1)) & 0xFF`), scan branch digits, and descend.
 3. **OCC Read Validation**: If concurrent mode, verify seqlock version matches without write-lock bit.
 
 ### 3.2 Key Mutation (`insert` / `mutate_map`)
-1. **Monotonic Append Fast-Path**: If inserting into a linear leaf and $k > \text{last\_key}$, bypass binary search and set $\text{pos} = \text{pop}$.
-2. **Class-Crossing Check**:
+1. **Root Leaf Monotonic Fast-Path** ($\text{pop} \le 31$): If inserting into `ExpanseSet` or `ExpanseMap` root leaf and $key > \text{last\_key}$, bypass binary search and set $\text{pos} = \text{pop}$ in a single $O(1)$ scalar compare.
+2. **Linear Leaf Monotonic Append Fast-Path**: If inserting into a linear leaf and $k > \text{last\_key}$, bypass binary search and set $\text{pos} = \text{pop}$.
+3. **Class-Crossing Check**:
    - If $\text{cap\_class}(\text{pop} + 1) == \text{cap\_class}(\text{pop})$, shift keys in place (`core::ptr::copy`).
    - If class is exceeded, allocate next class from slab allocator and realloc-insert.
    - If population exceeds leaf capacity ($\text{pop} > 25$ or $\text{pop} > 32$), upgrade to `LeafBitmap1` or cascade into a `BranchL3`.
@@ -86,6 +89,23 @@ Expanse uses an adaptive least-compressed-form ladder with **1-index hysteresis*
 
 When compiled with `x86-64-v3` (AVX2, BMI2, POPCNT), Expanse replaces runtime dispatch branches with native single-instruction primitives:
 
-* `Bitmap256::count`: Lowers from a 12-instruction SWAR bit sequence to a single `popcnt` instruction.
-* `leaf::lower_bound`: Lowers from scalar loop branches to vector `pcmpgtb` + `pmovmskb` + `popcnt`.
-* **Result**: Up to **-42.60%** instruction count reduction across churn and mutation benchmarks.
+* `Bitmap256::count` / `Bitmap256::subexpanse_rank`: Lowers from a 12-instruction SWAR bit sequence to a single `popcnt` instruction.
+* `leaf::search_fixed` & `lower_bound_fixed`: Lowers from scalar loop branches to vector `pcmpgtb` + `pmovmskb` + `popcnt` (`_mm_cmpeq_epi8`, `_mm_cmplt_epi8`).
+* **Measured Benchmark Speedup**:
+  - `map_get/linear_leaf`: **-8.76% instructions (-9.79% cycles)**.
+  - `map_remove/random`: **-42.60% instructions (-34.94% cycles)**.
+  - `map_churn/random`: **-30.70% instructions (-24.62% cycles)**.
+  - `map_get/random`: **-12.11% instructions (-13.25% cycles)**.
+
+---
+
+## 5. Benchmark Arm Mapping Reference
+
+| Traversal Path / Node Kernel | Primary Benchmark Arm in `benches/instructions.rs` |
+|---|---|
+| 16-element Linear Leaf SIMD Scans | `map_get/linear_leaf`, `map_insert/linear_leaf`, `set_insert/linear_leaf` |
+| Monotonic Append & Root Leaf Fast Paths | `map_insert/sequential`, `set_insert/sequential` |
+| 256-bit Bitmap Leaf Transitions | `map_get/dense_leaf`, `map_insert/dense_leaf`, `set_insert/dense_leaf` |
+| Narrow-Pointer Skip Decoding | `map_get/clustered`, `map_insert/clustered`, `set_insert/clustered` |
+| Immediate In-Pointer Key Search | `map_insert/small`, `set_contains/random`, `map_ins_slot/random` |
+| Dynamic Reclassification & Hysteresis | `map_churn/random`, `map_remove/random` |

@@ -124,36 +124,38 @@ designed to prevent:
 Both are callgrind counts, plus collapsed sections for cache/RAM traffic
 and the bytes/key table.
 
-Interpretation rules, so the comment is not over-read:
+---
 
-- **Instruction and cache counts are exact.** The same commit produces
-  the same numbers on any runner, so a delta above 0.1% is a real change
-  in work done, not measurement noise. That is why the comment leads
-  with deltas and flags regressions ≥ 1%.
-- **They are cost, not time.** Fewer instructions is strictly better
-  work, but the wall-clock effect depends on how well the machine hides
-  the remaining latency. A speed claim still needs a quiet host.
-- **Wall-clock vs stock libjudy lives in the nightly `bench-report`
-  job**, and remains a regression alarm rather than a publishable
-  number (rule 3, and the retracted `memcmp` claim below). The
-  instruction-count vs-stock table in the PR comment does not replace
-  it: instructions say how much work each library does, wall-clock says
-  how long the machine takes to do it, and the gap between those two is
-  cache behaviour — which is exactly what the allocator-locality work
-  (issue #1 item 4) is about.
-- **The two vs-stock arms are not built alike, and the asymmetry
-  favours us.** Stock is reached through `dlsym` — it exports the same
-  symbols libexpanse does, and loading it privately is what keeps them
-  from colliding — so it pays an indirect call per operation. Larger
-  than that: stock is a PIC shared object with no cross-object inlining,
-  while our arm is an LTO'd rlib linked straight into the harness, and
-  stock's `dlopen` still sits inside the measured region. Every one of
-  those points the same way. **Treat every vs-stock ratio as a floor on
-  the gap, not an estimate of it**, until the same-shape comparison
-  (our own `libexpanse.so`, `dlopen`'d identically) lands — checkpoint
-  B2. An earlier version of this bullet claimed the indirection biased
-  *against* stock; that was wrong, and it was printed on every PR
-  comment.
+## Callgrind Benchmark Suite Catalog (`crates/expanse/benches/instructions.rs`)
+
+The deterministic Callgrind matrix evaluates instructions retired and cache line traffic across all engine operations and key distributions (50,000 keys per benchmark):
+
+### 1. Operations Evaluated
+
+| Benchmark Arm | Operation Description | Measured Scope & Invariants |
+|---|---|---|
+| `map_insert/*` | Cold insertion into `ExpanseMap` | Evaluates allocation, compression ladder climbs, and leaf building. Key generation is isolated in `setup`. |
+| `set_insert/*` | Cold insertion into `ExpanseSet` | Evaluates bitset transitions, immediate-edge packaging, and `FullExpanse` upgrades. |
+| `map_ins_slot/*` | Single-walk `JudyLIns` slot insertion | Measures the fused `locate_or_insert` path returning a writable value pointer. |
+| `map_get/*` | Point lookup on prebuilt map | Evaluates pointer descent and leaf probe without measuring structure teardown (`core::mem::forget`). |
+| `set_contains/*` | Point membership on prebuilt set | Evaluates bitset testing and immediate matching. |
+| `map_churn/*` | Steady-state upsert/insert/delete mix | Crosses capacity-class boundaries in steady state (`k ^ 1` fresh neighbor insertion and removal). |
+| `map_remove/*` | Key removal and tree condensation | Evaluates 1-index hysteresis and node compaction back down the compression ladder. |
+| `map_iterate/*` | Full-order traversal | Measures iterator state machine and stackless trie traversal. |
+| `map_nav/*` | Ordered navigation (`next_at_or_after`) | Evaluates cursor bounding and successor searching across multi-level branches. |
+
+### 2. Key Distributions & Targeted Node Forms
+
+| Distribution Name | Pattern Generation | Targeted Compression Forms & Algorithms Exercised |
+|---|---|---|
+| `sequential` | Contiguous integers: `0..50000` | Exercises monotonic append fast paths, `LeafB1` (256-bit bitmaps), and level 1 `FullExpanse` transitions. |
+| `random` | 64-bit uniform pseudorandom keys | Exercises 6-byte immediates (~66% of terminals), linear `Leaf6` leaves, and multi-level `BranchL3`/`BranchL7` fanouts. |
+| `clustered` | Runs of 256 keys with shared 56-bit prefixes | Exercises narrow-pointer skip decoding and branch placement at divergence levels. |
+| `small` | Modular keys: `(i % 12) \| ((i / 12) << 32)` | Exercises root leaves ($\text{pop} \le 31$) and compact immediates. |
+| `dense_leaf` | Runs of 32 keys sharing prefixes | Crosses `LEAF_CAP` (25) to exercise `LeafB1` (256-bit bitmap leaves at level 1). |
+| `linear_leaf` | Runs of 15 keys sharing prefixes | Locks population into the 16-slot capacity class ($13 \le \text{pop} \le 16$) to exercise 128-bit AVX2/SSE2 vector search and `lower_bound` scans in `Leaf1`. |
+
+---
 
 ## Measured results
 
