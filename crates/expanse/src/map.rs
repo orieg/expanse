@@ -357,9 +357,16 @@ impl ExpanseMap {
                         };
                         debug_assert!(prev.0.is_none());
                     }
-                    // SAFETY: same trie.
+                    // SAFETY: same trie; populate path for subsequent sequential/clustered inserts.
                     let prev = unsafe {
-                        mutate_map::map_insert_dyn::<false>(&self.alloc, &mut top, key, val, 8)
+                        mutate_map::map_insert_path_dyn::<false>(
+                            &self.alloc,
+                            &mut top,
+                            key,
+                            val,
+                            8,
+                            &mut self.path,
+                        )
                     };
                     debug_assert!(prev.0.is_none());
                     // SAFETY: old root leaf no longer referenced.

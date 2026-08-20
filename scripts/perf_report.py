@@ -385,6 +385,60 @@ def read(path: str | None) -> str | None:
         return None
 
 
+def check_regressions(
+    head: dict[str, dict[str, int]],
+    base: dict[str, dict[str, int]] | None,
+    max_regression_pct: float = 1.5,
+    max_regressed_count: int = 1,
+    noise_floor: float = 0.5,
+    allowed: bool = False,
+    allow_reason: str | None = None,
+) -> tuple[bool, list[str]]:
+    """Evaluates if head introduces unacceptable instruction regressions vs base.
+
+    Returns (has_unacceptable_regression, list_of_error_messages).
+    """
+    if not base or not head:
+        return False, []
+
+    regressions: list[tuple[str, float, int, int]] = []
+    for name, metrics in head.items():
+        b = base.get(name)
+        if not b:
+            continue
+        ins = metrics.get("Instructions", 0)
+        b_ins = b.get("Instructions", 0)
+        d_ins = pct(ins, b_ins)
+        if d_ins > noise_floor:
+            regressions.append((name, d_ins, ins, b_ins))
+
+    if not regressions:
+        return False, []
+
+    worst = max(r[1] for r in regressions)
+    is_violating = worst > max_regression_pct or len(regressions) > max_regressed_count
+
+    if not is_violating:
+        return False, []
+
+    messages = []
+    if allowed:
+        messages.append(f"ℹ️ Performance regression override acknowledged: {allow_reason or 'Approved'}")
+        for name, d_ins, ins, b_ins in sorted(regressions, key=lambda x: -x[1]):
+            messages.append(f"  - {name}: {fmt_delta(d_ins)} ({ins:,} vs {b_ins:,})")
+        return False, messages
+
+    messages.append(
+        f"::error::Performance regression detected: {len(regressions)} benchmark(s) regressed > {noise_floor}% "
+        f"(worst: {worst:+.2f}%, threshold: {max_regression_pct}%). "
+        "To approve an intentional regression, add 'allow-regression: <reason>' to the PR body."
+    )
+    for name, d_ins, ins, b_ins in sorted(regressions, key=lambda x: -x[1]):
+        messages.append(f"  - {name}: {fmt_delta(d_ins)} ({ins:,} vs {b_ins:,})")
+
+    return True, messages
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--head", required=True, help="bench output for this branch")
@@ -393,6 +447,11 @@ def main() -> int:
     ap.add_argument("--base-ref", default="main")
     ap.add_argument("--vs-stock", help="vs_stock bench output")
     ap.add_argument("--v3", help="bench output for x86-64-v3")
+    ap.add_argument("--fail-on-regression", action="store_true", help="fail if regressions exceed threshold")
+    ap.add_argument("--max-regression-pct", type=float, default=1.5, help="maximum single-benchmark regression pct allowed")
+    ap.add_argument("--allow-regression", action="store_true", help="override/approve intentional regressions")
+    ap.add_argument("--allow-regression-reason", help="reason for approving regression")
+    ap.add_argument("--pr-body-file", help="path to PR body markdown to check for override markers")
     args = ap.parse_args()
 
     head_text = read(args.head)
@@ -402,17 +461,50 @@ def main() -> int:
     base_text = read(args.base)
     stock_text = read(args.vs_stock)
     v3_text = read(args.v3)
-    print(
-        render(
-            parse(head_text),
-            parse(base_text) if base_text else None,
-            read(args.bytes),
-            args.base_ref,
-            parse(stock_text) if stock_text else None,
-            parse(v3_text) if v3_text else None,
-        ),
-        end="",
+
+    head_parsed = parse(head_text)
+    base_parsed = parse(base_text) if base_text else None
+
+    # Check for PR body override markers
+    allowed = args.allow_regression
+    allow_reason = args.allow_regression_reason
+    if args.pr_body_file:
+        pr_body = read(args.pr_body_file) or ""
+        match = re.search(r"(?:<!--\s*)?allow-regression:\s*([^\n\->]+)", pr_body, re.IGNORECASE)
+        if match:
+            allowed = True
+            allow_reason = match.group(1).strip()
+        elif "allow-regression" in pr_body.lower() or "perf-override: approved" in pr_body.lower():
+            allowed = True
+            allow_reason = allow_reason or "PR body requested regression override"
+
+    has_violation, reg_messages = check_regressions(
+        head_parsed,
+        base_parsed,
+        max_regression_pct=args.max_regression_pct,
+        allowed=allowed,
+        allow_reason=allow_reason,
     )
+
+    rendered = render(
+        head_parsed,
+        base_parsed,
+        read(args.bytes),
+        args.base_ref,
+        parse(stock_text) if stock_text else None,
+        parse(v3_text) if v3_text else None,
+    )
+
+    if reg_messages:
+        rendered += "\n\n### 🛡️ Regression Guard\n\n" + "\n".join(reg_messages) + "\n"
+
+    print(rendered, end="")
+
+    if args.fail_on_regression and has_violation:
+        for msg in reg_messages:
+            print(msg, file=sys.stderr)
+        return 1
+
     return 0
 
 

@@ -144,15 +144,18 @@ unsafe fn lower_bound_fixed<const KB: usize>(keys: *const u8, pop: usize, needle
 ///
 /// The allocation must hold `cap_class(pop + 1)` slots (i.e.
 /// `cap_class(pop) == cap_class(pop + 1)`), and `pos <= pop`.
+#[inline(always)]
 pub(crate) unsafe fn set_insert_at(base: *mut u8, key_bytes: u8, pop: usize, pos: usize, key: u64) {
     let kb = key_bytes as usize;
     // SAFETY: in-bounds shift within the class-sized allocation.
     unsafe {
-        core::ptr::copy(
-            base.add(pos * kb),
-            base.add((pos + 1) * kb),
-            (pop - pos) * kb,
-        );
+        if pos < pop {
+            core::ptr::copy(
+                base.add(pos * kb),
+                base.add((pos + 1) * kb),
+                (pop - pos) * kb,
+            );
+        }
         crate::mutate::write_packed(base, pos, kb, key);
     }
 }
@@ -162,15 +165,18 @@ pub(crate) unsafe fn set_insert_at(base: *mut u8, key_bytes: u8, pop: usize, pos
 /// # Safety
 ///
 /// `pos < pop`; the allocation holds `pop` keys.
+#[inline(always)]
 pub(crate) unsafe fn set_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos: usize) {
     let kb = key_bytes as usize;
     // SAFETY: in-bounds shift.
     unsafe {
-        core::ptr::copy(
-            base.add((pos + 1) * kb),
-            base.add(pos * kb),
-            (pop - 1 - pos) * kb,
-        );
+        if pos + 1 < pop {
+            core::ptr::copy(
+                base.add((pos + 1) * kb),
+                base.add(pos * kb),
+                (pop - 1 - pos) * kb,
+            );
+        }
     }
 }
 
@@ -180,6 +186,7 @@ pub(crate) unsafe fn set_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos
 /// # Safety
 ///
 /// `cap_class(pop) == cap_class(pop + 1)`, `pos <= pop`, live map leaf.
+#[inline(always)]
 pub(crate) unsafe fn map_insert_at(
     base: *mut u8,
     key_bytes: u8,
@@ -193,13 +200,15 @@ pub(crate) unsafe fn map_insert_at(
     // SAFETY: in-bounds shifts within the class-sized areas.
     unsafe {
         let vals = base.cast::<u64>();
-        core::ptr::copy(vals.add(pos), vals.add(pos + 1), pop - pos);
+        if pos < pop {
+            core::ptr::copy(vals.add(pos), vals.add(pos + 1), pop - pos);
+            core::ptr::copy(
+                keys.add(pos * kb),
+                keys.add((pos + 1) * kb),
+                (pop - pos) * kb,
+            );
+        }
         vals.add(pos).write(val);
-        core::ptr::copy(
-            keys.add(pos * kb),
-            keys.add((pos + 1) * kb),
-            (pop - pos) * kb,
-        );
         crate::mutate::write_packed(keys, pos, kb, key);
     }
 }
@@ -215,6 +224,7 @@ pub(crate) unsafe fn map_insert_at(
 /// `old` must be a live set leaf of `pop` keys of `key_bytes` bytes;
 /// `new` must be a fresh allocation of `size_set(key_bytes, pop+1)`
 /// bytes; `pos <= pop`.
+#[inline(always)]
 pub(crate) unsafe fn set_realloc_insert(
     old: *const u8,
     new: *mut u8,
@@ -226,13 +236,17 @@ pub(crate) unsafe fn set_realloc_insert(
     let kb = key_bytes as usize;
     // SAFETY: bounds per contract; the two allocations are disjoint.
     unsafe {
-        core::ptr::copy_nonoverlapping(old, new, pos * kb);
+        if pos > 0 {
+            core::ptr::copy_nonoverlapping(old, new, pos * kb);
+        }
         crate::mutate::write_packed(new, pos, kb, key);
-        core::ptr::copy_nonoverlapping(
-            old.add(pos * kb),
-            new.add((pos + 1) * kb),
-            (pop - pos) * kb,
-        );
+        if pos < pop {
+            core::ptr::copy_nonoverlapping(
+                old.add(pos * kb),
+                new.add((pos + 1) * kb),
+                (pop - pos) * kb,
+            );
+        }
     }
 }
 
@@ -244,6 +258,7 @@ pub(crate) unsafe fn set_realloc_insert(
 /// `old` must be a live set leaf of `pop >= 2` keys of `key_bytes`
 /// bytes; `new` must be a fresh allocation of `size_set(key_bytes,
 /// pop-1)` bytes; `pos < pop`.
+#[inline(always)]
 pub(crate) unsafe fn set_realloc_remove(
     old: *const u8,
     new: *mut u8,
@@ -254,12 +269,16 @@ pub(crate) unsafe fn set_realloc_remove(
     let kb = key_bytes as usize;
     // SAFETY: bounds per contract; the two allocations are disjoint.
     unsafe {
-        core::ptr::copy_nonoverlapping(old, new, pos * kb);
-        core::ptr::copy_nonoverlapping(
-            old.add((pos + 1) * kb),
-            new.add(pos * kb),
-            (pop - 1 - pos) * kb,
-        );
+        if pos > 0 {
+            core::ptr::copy_nonoverlapping(old, new, pos * kb);
+        }
+        if pos + 1 < pop {
+            core::ptr::copy_nonoverlapping(
+                old.add((pos + 1) * kb),
+                new.add(pos * kb),
+                (pop - 1 - pos) * kb,
+            );
+        }
     }
 }
 
@@ -277,6 +296,7 @@ pub(crate) unsafe fn set_realloc_remove(
 /// `old` must be a live map leaf of `pop` entries with `key_bytes`-byte
 /// keys; `new` must be a fresh allocation of `size_map(key_bytes, pop+1)`
 /// bytes; `pos <= pop`.
+#[inline(always)]
 pub(crate) unsafe fn map_realloc_insert(
     old: *const u8,
     new: *mut u8,
@@ -291,14 +311,26 @@ pub(crate) unsafe fn map_realloc_insert(
     unsafe {
         let ov = old.cast::<u64>();
         let nv = new.cast::<u64>();
-        core::ptr::copy_nonoverlapping(ov, nv, pos);
+        if pos > 0 {
+            core::ptr::copy_nonoverlapping(ov, nv, pos);
+        }
         nv.add(pos).write(val);
-        core::ptr::copy_nonoverlapping(ov.add(pos), nv.add(pos + 1), pop - pos);
+        if pos < pop {
+            core::ptr::copy_nonoverlapping(ov.add(pos), nv.add(pos + 1), pop - pos);
+        }
         let ok = old.add(map_keys_offset(pop));
         let nk = new.add(map_keys_offset(pop + 1));
-        core::ptr::copy_nonoverlapping(ok, nk, pos * kb);
+        if pos > 0 {
+            core::ptr::copy_nonoverlapping(ok, nk, pos * kb);
+        }
         crate::mutate::write_packed(nk, pos, kb, key);
-        core::ptr::copy_nonoverlapping(ok.add(pos * kb), nk.add((pos + 1) * kb), (pop - pos) * kb);
+        if pos < pop {
+            core::ptr::copy_nonoverlapping(
+                ok.add(pos * kb),
+                nk.add((pos + 1) * kb),
+                (pop - pos) * kb,
+            );
+        }
     }
 }
 

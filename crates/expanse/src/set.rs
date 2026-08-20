@@ -194,8 +194,10 @@ impl ExpanseSet {
                         let ins = unsafe { mutate::insert_dyn(&self.alloc, &mut top, k, 8) };
                         debug_assert!(ins);
                     }
-                    // SAFETY: same trie.
-                    let ins = unsafe { mutate::insert_dyn(&self.alloc, &mut top, key, 8) };
+                    // SAFETY: same trie; populate path for subsequent sequential/clustered inserts.
+                    let ins = unsafe {
+                        mutate::insert_path_dyn(&self.alloc, &mut top, key, 8, &mut self.path)
+                    };
                     debug_assert!(ins);
                     // SAFETY: old root leaf no longer referenced.
                     unsafe { self.alloc.free_bytes(keys, root_leaf_size(pop)) };

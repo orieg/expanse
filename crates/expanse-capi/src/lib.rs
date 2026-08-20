@@ -127,16 +127,22 @@ fn last_absent(
 /// # Safety
 /// `pparray` must be a valid pointer to the caller's array word; the word
 /// must be null or a handle previously produced by these entry points.
+#[inline(always)]
 unsafe fn set_handle_mut<'a>(pparray: *mut *mut c_void) -> &'a mut ExpanseSet {
     // SAFETY: per this function's contract; creates the tree on demand.
     unsafe {
-        if (*pparray).is_null() {
-            *pparray = Box::into_raw(Box::new(ExpanseSet::new())).cast();
+        let arr = *pparray;
+        if !arr.is_null() {
+            &mut *arr.cast::<ExpanseSet>()
+        } else {
+            let boxed = Box::into_raw(Box::new(ExpanseSet::new())).cast();
+            *pparray = boxed;
+            &mut *boxed.cast::<ExpanseSet>()
         }
-        &mut *(*pparray).cast::<ExpanseSet>()
     }
 }
 
+#[inline(always)]
 unsafe fn set_handle<'a>(parray: *const c_void) -> Option<&'a ExpanseSet> {
     // SAFETY: null or a handle produced by these entry points.
     unsafe { parray.cast::<ExpanseSet>().as_ref() }
@@ -379,18 +385,24 @@ pub unsafe extern "C" fn Judy1MemUsed(parray: *const c_void) -> Word {
 // JudyL (word → word map) — backed by ExpanseMap
 // ---------------------------------------------------------------------
 
+#[inline(always)]
 unsafe fn map_handle_mut<'a>(pparray: *mut *mut c_void) -> &'a mut ExpanseMap {
     // SAFETY: per set_handle_mut's contract, for maps.
     unsafe {
-        if (*pparray).is_null() {
-            *pparray = Box::into_raw(Box::new(ExpanseMap::new())).cast();
+        let arr = *pparray;
+        if !arr.is_null() {
+            &mut *arr.cast::<ExpanseMap>()
+        } else {
+            let boxed = Box::into_raw(Box::new(ExpanseMap::new())).cast();
+            *pparray = boxed;
+            &mut *boxed.cast::<ExpanseMap>()
         }
-        &mut *(*pparray).cast::<ExpanseMap>()
     }
 }
 
 /// JudyL handles are always treated as mutable internally: the C contract
 /// returns writable value slots even from `Pcvoid_t` entry points.
+#[inline(always)]
 unsafe fn map_handle<'a>(parray: *const c_void) -> Option<&'a mut ExpanseMap> {
     // SAFETY: null or a handle produced by these entry points.
     unsafe { parray.cast_mut().cast::<ExpanseMap>().as_mut() }
