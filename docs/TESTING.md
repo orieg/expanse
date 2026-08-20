@@ -14,6 +14,7 @@ Expanse is an unsafe-heavy, invariant-dense data structure whose compat story re
 | 4 | Fuzzing | `cargo-fuzz` targets consuming op-sequence bytecode (op, key) pairs | Crashes, UB triggers, pathological cascades no generator thinks of |
 | 5 | Miri | `cargo +nightly miri test` on the core crate | UB in unsafe code: aliasing, alignment, leaks, uninit reads |
 | 6 | Concurrency | `loom` for the OCC protocol’s small state machines; multi-thread stress tests for reader/writer races (Phase 7+) | Torn reads, missed version bumps, reclamation races |
+| 7 | Documentation & Visualizer Sync | `cargo test --test test_visualizer_sync` against `docs/` | Divergence between compiled Rust geometry/ladder constants and architecture visualizer representations |
 
 Rules of engagement:
 
@@ -85,3 +86,8 @@ small 256 KiB stack, so the guard does not depend on the default 8 MiB.
 - **Loom model checks** (`RUSTFLAGS="--cfg loom" cargo test -p expanse-trie --release loom_`; CI `loom` job): exhaustively explore the `occ` module's small state machines — the seqlock version protocol (a validated read is never torn — the same construction the per-node versions use) and the EBR pin/advance pairing (the epoch never advances twice past a live pin, so nothing retired under a pin is freed). Not advisory: loom's first run found two real ordering bugs — the seqlock needed Boehm's fence construction (release fence after the odd store, acquire fence before the validating re-read; MSPC 2012), and pin/advance is a store-buffer (Dekker) pair needing SeqCst fences between each side's store and load.
 - **Thread stress tests** (`sync` module, `cfg(not(miri))`): reader threads hammer lookups for a wall-clock window while a writer churns inserts/removes over cascade-heavy key distributions; every hit must return the exact value the key was mapped to (torn reads surface as garbage values), and the final state is checked against a model plus the invariant validator.
 - **Scope caveat, documented in `sync`**: between a version sample and a failed validation, readers perform plain loads that race with writer stores — the classic seqlock trade (values are discarded unless validation proves no overlap). This is why the `sync` read path itself is not Miri/loom-checkable end-to-end: Miri would flag the benign-by-protocol races. Miri still covers `occ`/`alloc` and the whole single-threaded engine; loom covers the protocol; the stress tests cover the composition.
+
+## Visualizer and documentation zero-drift verification (layer 7)
+
+- **Sync test suite** (`crates/expanse/tests/test_visualizer_sync.rs`): Enforces that compiler constants (`ROOT_LEAF_CAP`, `BRANCH_L3_CAP`, `BRANCH_L7_CAP`, `BITMAP_TO_UNCOMPRESSED_THRESHOLD`, `MAX_LEVEL`, `BRANCH_FANOUT`, `CACHE_LINE`, `RAW_ALIGN`) and Callgrind benchmark suite definitions in `benches/instructions.rs` cannot diverge from [`docs/visualizer_data.json`](visualizer_data.json) or [`docs/architecture_visualizer.html`](architecture_visualizer.html).
+- **Enforcement**: Runs as part of `cargo test --workspace` on Linux, macOS, and Windows CI. Any undocumented ladder threshold change or renamed benchmark function fails the build immediately.

@@ -870,9 +870,44 @@
 </div>
 
 <script>
-  // ===================================================================
-  // 1. DATASETS DIRECTLY EXTRACTED FROM SOURCE CODE & BENCHMARKS
-  // ===================================================================
+  /**
+   * ===================================================================
+   * EXPANSE ARCHITECTURE VISUALIZER & BENCHMARK INTELLIGENCE ENGINE
+   * ===================================================================
+   * 
+   * Architecture Overview for Developers & Autonomous Agents:
+   * 
+   * 1. SINGLE SOURCE OF TRUTH:
+   *    - Rust source code (`crates/expanse/src/types.rs`, `set.rs`, `leaf.rs`,
+   *      `node.rs`, `benches/instructions.rs`, `examples/bytes_per_key.rs`)
+   *      is the single source of truth for all trie geometry constants,
+   *      bitmasks, capacities, and Callgrind benchmark numbers.
+   *    - Automated CI verification: `crates/expanse/tests/test_visualizer_sync.rs`
+   *      enforces bit-exact agreement between Rust compiler constants and this file.
+   * 
+   * 2. DUAL-MODE DATA LOADER:
+   *    - Standalone `file:///` mode: uses the embedded `LADDER_SPEC` and `BENCHMARK_DATA`
+   *      structures below to allow 100% offline inspection without CORS issues.
+   *    - Web Server `http://` / `https://` mode: `checkLiveDataSource()` asynchronously
+   *      fetches `docs/visualizer_data.json` so updates to the JSON artifact are reflected
+   *      in real-time.
+   * 
+   * 3. COORDINATE SYSTEM & DAG LAYOUT:
+   *    - The Structural Hierarchy DAG uses absolute-positioned `.dag-node` elements
+   *      inside `#hierarchy-canvas`.
+   *    - Connecting curves are dynamically computed cubic bezier paths (`d="M x1 y1 C ... x2 y2"`)
+   *      rendered onto `#hierarchy-svg` by `renderDagConnections()`.
+   *    - Re-layout automatically listens for window `resize` and DOM updates.
+   * 
+   * 4. 15-MILESTONE POPULATION CONTINUUM:
+   *    - `POP_MILESTONES` defines 15 distinct structural regimes from 1 to 1,000,000 keys.
+   *    - As `popIndex` changes via the slider or quick-jump chips, `updateSimulation()`
+   *      highlights active DAG nodes, generates the dynamic step-by-step execution trace,
+   *      and computes real-time memory/instruction metrics.
+   * 
+   * ===================================================================
+   * 1. DATASETS DIRECTLY EXTRACTED FROM SOURCE CODE & BENCHMARKS
+   * ===================================================================
 
   const BENCHMARK_DATA = [
     {

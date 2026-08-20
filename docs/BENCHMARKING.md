@@ -508,3 +508,16 @@ Timing numbers here are working baselines, not publishable claims; headline numb
 > clustered/sequential lookup rows) are **retracted**. Insert ratios were
 > never affected — those benchmarks always measured only inserts.
 
+---
+
+## Visualizer Benchmark Dataset & CI Synchronization
+
+All 22 deterministic Callgrind instruction benchmarks (`benches/instructions.rs`), memory budget distributions (`examples/bytes_per_key.rs`), and ladder compression thresholds are published in machine-readable format to [`docs/visualizer_data.json`](visualizer_data.json) and rendered in [`docs/architecture_visualizer.html`](architecture_visualizer.html).
+
+### Data Synchronization Protocol
+1. **Source of Truth**: The Rust benchmark suite in `crates/expanse/benches/instructions.rs` is canonical.
+2. **Deterministic Linux CI**: The `instruction-counts` CI job executes Valgrind/Callgrind on clean `ubuntu-latest` instances with zero wall-clock noise.
+3. **Machine-Readable Export**: Benchmark instruction counts, memory overheads, and `x86-64-v3` deltas are mirrored in `docs/visualizer_data.json`.
+4. **CI Drift Gate**: `cargo test --test test_visualizer_sync` validates on every pull request that all 22 benchmark routines exist and match between code, JSON, and the HTML visualizer.
+
+

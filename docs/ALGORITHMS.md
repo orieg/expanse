@@ -110,3 +110,38 @@ When compiled with `x86-64-v3` (AVX2, BMI2, POPCNT), Expanse replaces runtime di
 | Narrow-Pointer Skip Decoding | `map_get/clustered`, `map_insert/clustered`, `set_insert/clustered` |
 | Immediate In-Pointer Key Search | `map_insert/small`, `set_contains/random`, `map_ins_slot/random` |
 | Dynamic Reclassification & Hysteresis | `map_churn/random`, `map_remove/random` |
+
+---
+
+## 6. Interactive Architecture Visualizer & Developer Protocol
+
+The interactive tool in [`docs/architecture_visualizer.html`](architecture_visualizer.html) provides an interactive graph representation of the entire trie lifecycle and execution flow.
+
+### 6.1 Visualizer Architecture & Views
+1. **⚡ Architecture & Dynamic Execution DAG** (`#dag`):
+   - **Interactive Parameter Switcher**: Allows live manipulation of operation (`Lookup`, `Insert`, `Sync Read`, `Churn`, `Nav`), trie flavor (`ExpanseSet` vs `ExpanseMap`), key distribution (Sequential, Random, Clustered, Linear leaf, Dense leaf, Small), population scale (1 to 1,000,000 keys across 15 milestones), and ISA target (`x86-64-v3` AVX2/BMI2 vs `x86-64-v1` SWAR vs `AArch64 NEON`).
+   - **Structural Component DAG**: SVG-rendered hierarchy showing pointer tags (`JAP`), root transition (`JPM`), 256-ary routing branches (`Level 8`, `BranchL3`, `BranchL7`, `BranchB`, `BranchU`), and terminal leaves (`Immediate`, `LinearLeaf`, `LeafBitmap`, `FullExpanse`). Clicking any node triggers the **Node Inspector Modal** detailing struct layout, memory alignment, and transition triggers.
+   - **Active Execution Pipeline & Algorithm Trace**: Dynamically steps through the exact algorithmic flow (e.g. *SeqLock acquire fence* $\rightarrow$ *Sequential Run Bypass* $\rightarrow$ *SIMD vector scan* $\rightarrow$ *POPCNT rank* $\rightarrow$ *Release fence*).
+   - **Hardware Impact HUD**: Real-time instruction cost, memory overhead, cache line touches (64 B / 128 B), and hardware acceleration speedup percentages.
+2. **📊 Benchmark Intelligence & Memory Census** (`#bench`):
+   - **Deterministic Callgrind Explorer**: Full filterable dataset of all 22 benchmark arms (50,000 operations per test, retired instructions, L1 cache hit counts, RAM traffic, and `x86-64-v3` deltas).
+   - **Deterministic Memory Budget Matrix**: Byte-per-key density across 1K, 100K, and 1M key bands.
+   - **Node Capacity & Lifecycle Specs**: Precise fanout and promotion ceilings.
+
+### 6.2 Zero-Drift Synchronization Protocol
+To prevent divergence between Rust code and the visualizer:
+* **Single Source of Truth**: The Rust codebase (`crates/expanse/src/types.rs`, `set.rs`, `leaf.rs`, `node.rs`, `benches/instructions.rs`, `examples/bytes_per_key.rs`) is the single source of truth for all constants, bitmasks, capacities, and benchmark numbers.
+* **Machine-Readable Dataset**: All ladder constants and benchmark results are recorded in [`docs/visualizer_data.json`](visualizer_data.json).
+* **Dual-Mode Loading**:
+  - When served over `http://` / `https://`, `docs/architecture_visualizer.html` dynamically fetches `visualizer_data.json` at runtime.
+  - When opened offline via `file://`, it uses the embedded CI-verified fallback dataset.
+* **Automated CI Enforcement**:
+  - The integration test [`crates/expanse/tests/test_visualizer_sync.rs`](../crates/expanse/tests/test_visualizer_sync.rs) runs on every push/PR across Linux, macOS, and Windows.
+  - It asserts that `ROOT_LEAF_CAP`, `BRANCH_L3_CAP`, `BRANCH_L7_CAP`, `BITMAP_TO_UNCOMPRESSED_THRESHOLD`, `MAX_LEVEL`, and all 22 Callgrind benchmark function names in `instructions.rs` match bit-for-bit between the Rust compiler, `docs/visualizer_data.json`, and `docs/architecture_visualizer.html`.
+
+### 6.3 Instructions for Modifying or Extending the Visualizer
+If you add a new node type, adjust promotion thresholds, or add benchmark arms:
+1. **Update Rust Code**: Define the constant or benchmark in `crates/expanse/src/` or `crates/expanse/benches/instructions.rs`.
+2. **Update JSON Dataset**: Add or update the values in [`docs/visualizer_data.json`](visualizer_data.json).
+3. **Update Visualizer HTML**: Update the constants in `docs/architecture_visualizer.html` (in `LADDER_SPEC`, `BENCHMARK_DATA`, or `POP_MILESTONES`).
+4. **Run Sync Test**: Verify that `cargo test --test test_visualizer_sync` passes before committing.

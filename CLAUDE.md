@@ -20,6 +20,7 @@ Clean-room, pure-Rust Judy arrays modernized for current hardware, plus `libexpa
 | Content | Home |
 |---|---|
 | Design / node layouts / roadmap / phase gates | `docs/ARCHITECTURE.md` |
+| Algorithms, traversal kernels & visualizer reference | `docs/ALGORITHMS.md` · `docs/architecture_visualizer.html` |
 | C compat contract, surface, packaging, acceptance gates, doc-gap resolutions | `docs/COMPAT.md` |
 | Testing methodology, invariant validator, oracle rules | `docs/TESTING.md` |
 | Benchmark methodology, comparison targets, results policy | `docs/BENCHMARKING.md` |
