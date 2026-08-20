@@ -898,8 +898,7 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 let d = digit(key, bl);
                 // SAFETY: live BranchB per contract.
                 let b = unsafe { &mut *edge.node_ptr().cast::<BranchB>() };
-                if b.bitmap.test(d) {
-                    let slot = b.bitmap.subexpanse_rank(d) as usize;
+                if let Some(slot) = b.bitmap.test_and_subexpanse_rank(d) {
                     let sub = b.subarrays[(d >> 5) as usize];
                     // SAFETY: bitmap/subarray consistency invariant. The
                     // node's version brackets the descent (see the L3 arm).
@@ -1413,11 +1412,10 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             let d = digit(key, bl);
             // SAFETY: live BranchB per contract.
             let b = unsafe { &mut *edge.node_ptr().cast::<BranchB>() };
-            if !b.bitmap.test(d) {
+            let Some(rank) = b.bitmap.test_and_subexpanse_rank(d) else {
                 return false;
-            }
+            };
             let sub = (d >> 5) as usize;
-            let rank = b.bitmap.subexpanse_rank(d) as usize;
             // SAFETY: bitmap/subarray consistency invariant. Bracketed
             // through the subarray shrink below (a reader may be inside).
             crate::occ::version_begin_if::<OCC>(a, &mut b.version);

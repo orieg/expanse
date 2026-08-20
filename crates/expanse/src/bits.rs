@@ -502,11 +502,25 @@ impl Bitmap256 {
     #[inline(always)]
     #[must_use]
     pub const fn subexpanse_rank(&self, idx: u8) -> u32 {
-        let word = self.words[(idx >> 6) as usize];
-        let bit = idx & 63;
-        let below = (1u64 << bit) - 1;
-        let sub_mask = 0xFFFF_FFFFu64 << (bit & 32);
-        (word & below & sub_mask).count_ones()
+        let sub_word = (self.words[(idx >> 6) as usize] >> ((idx & 32) as usize)) as u32;
+        let bit = idx & 31;
+        let below = (1u32 << bit) - 1;
+        (sub_word & below).count_ones()
+    }
+
+    /// Tests if `idx` is present, and if so returns its subexpanse rank.
+    /// Fuses bit testing and rank calculation with a single word load and shift.
+    #[inline(always)]
+    #[must_use]
+    pub const fn test_and_subexpanse_rank(&self, idx: u8) -> Option<usize> {
+        let sub_word = (self.words[(idx >> 6) as usize] >> ((idx & 32) as usize)) as u32;
+        let bit = idx & 31;
+        if (sub_word & (1u32 << bit)) == 0 {
+            None
+        } else {
+            let below = (1u32 << bit) - 1;
+            Some((sub_word & below).count_ones() as usize)
+        }
     }
 
     /// Number of members inside one 32-digit subexpanse (`sub` in 0..8) —
@@ -515,8 +529,8 @@ impl Bitmap256 {
     #[must_use]
     pub const fn subexpanse_count(&self, sub: usize) -> u32 {
         let word = self.words[sub >> 1];
-        let shift = (sub & 1) * 32;
-        ((word >> shift) & 0xFFFF_FFFF).count_ones()
+        let shift = (sub & 1) << 5;
+        ((word >> shift) as u32).count_ones()
     }
 
     /// The member with `n` members below it (0-based rank → bit), if any —
@@ -808,12 +822,25 @@ mod tests {
                 let base = idx & !31;
                 let expected = naive[base..idx].iter().filter(|&&b| b).count() as u32;
                 assert_eq!(bm.subexpanse_rank(idx as u8), expected, "idx={idx}");
+                if naive[idx] {
+                    assert_eq!(
+                        bm.test_and_subexpanse_rank(idx as u8),
+                        Some(expected as usize),
+                        "idx={idx}"
+                    );
+                } else {
+                    assert_eq!(bm.test_and_subexpanse_rank(idx as u8), None, "idx={idx}");
+                }
             }
         }
         // Boundary bits of each word/subexpanse.
         let full = Bitmap256::full();
         for idx in [0u8, 31, 32, 63, 64, 95, 96, 127, 128, 255] {
             assert_eq!(full.subexpanse_rank(idx), u32::from(idx) % 32);
+            assert_eq!(
+                full.test_and_subexpanse_rank(idx),
+                Some((u32::from(idx) % 32) as usize)
+            );
         }
     }
 

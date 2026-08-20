@@ -606,8 +606,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 // SAFETY: live LeafBitmapL per contract.
                 let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmapL>() };
                 let sub = (d >> 5) as usize;
-                let rank = node.bitmap.subexpanse_rank(d) as usize;
-                if node.bitmap.test(d) {
+                if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
                     // SAFETY: value subarray holds subexpanse_count values.
                     unsafe {
                         let slot = node.values[sub].add(rank);
@@ -618,6 +617,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                         return (Some(old), slot);
                     }
                 }
+                let rank = node.bitmap.subexpanse_rank(d) as usize;
                 let old_n = node.bitmap.subexpanse_count(sub) as usize;
                 if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
                     // Fast path: spare class capacity — shift in place.
@@ -801,8 +801,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 let d = digit(key, bl);
                 // SAFETY: live BranchB per contract.
                 let b = unsafe { &mut *edge.node_ptr().cast::<BranchB>() };
-                if b.bitmap.test(d) {
-                    let slot = b.bitmap.subexpanse_rank(d) as usize;
+                if let Some(slot) = b.bitmap.test_and_subexpanse_rank(d) {
                     let sub = b.subarrays[(d >> 5) as usize];
                     // SAFETY: bitmap/subarray consistency invariant. The
                     // node's version brackets the descent (Phase 7 OCC).
@@ -1085,11 +1084,8 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             a.assert_bracketed();
             // SAFETY: live LeafBitmapL per contract.
             let node = unsafe { &mut *edge.node_ptr().cast::<LeafBitmapL>() };
-            if !node.bitmap.test(d) {
-                return None;
-            }
             let sub = (d >> 5) as usize;
-            let rank = node.bitmap.subexpanse_rank(d) as usize;
+            let rank = node.bitmap.test_and_subexpanse_rank(d)?;
             let old_n = node.bitmap.subexpanse_count(sub) as usize;
             // SAFETY: value subarray holds old_n values.
             let old = unsafe { *node.values[sub].add(rank) };
@@ -1261,11 +1257,8 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             let d = digit(key, bl);
             // SAFETY: live BranchB per contract.
             let b = unsafe { &mut *edge.node_ptr().cast::<BranchB>() };
-            if !b.bitmap.test(d) {
-                return None;
-            }
+            let rank = b.bitmap.test_and_subexpanse_rank(d)?;
             let sub = (d >> 5) as usize;
-            let rank = b.bitmap.subexpanse_rank(d) as usize;
             // SAFETY: bitmap/subarray consistency invariant. Bracketed
             // through the subarray shrink below (Phase 7 OCC).
             crate::occ::version_begin_if::<OCC>(a, &mut b.version);

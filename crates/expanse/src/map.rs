@@ -178,12 +178,12 @@ impl ExpanseMap {
                 // SAFETY: path holds valid live LeafBitmapL pointer.
                 let node = unsafe { &mut *self.path.leaf };
                 let sub = (d >> 5) as usize;
-                let rank = node.bitmap.subexpanse_rank(d) as usize;
-                if node.bitmap.test(d) {
+                if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
                     // SAFETY: value subarray holds subexpanse_count values.
                     let slot = unsafe { node.values[sub].add(rank) };
                     return core::ptr::NonNull::new(slot).expect("slot");
                 }
+                let rank = node.bitmap.subexpanse_rank(d) as usize;
                 let old_n = node.bitmap.subexpanse_count(sub) as usize;
                 if old_n > 0 && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n) {
                     // Fast path: spare class capacity — shift in place.
@@ -378,8 +378,7 @@ impl ExpanseMap {
                     // SAFETY: path holds valid live LeafBitmapL pointer.
                     let node = unsafe { &mut *self.path.leaf };
                     let sub = (d >> 5) as usize;
-                    let rank = node.bitmap.subexpanse_rank(d) as usize;
-                    if node.bitmap.test(d) {
+                    if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
                         // SAFETY: value subarray holds subexpanse_count values; in-place swap.
                         unsafe {
                             let slot = node.values[sub].add(rank);
@@ -388,6 +387,7 @@ impl ExpanseMap {
                             return Some(old);
                         }
                     }
+                    let rank = node.bitmap.subexpanse_rank(d) as usize;
                     let old_n = node.bitmap.subexpanse_count(sub) as usize;
                     if old_n > 0
                         && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)

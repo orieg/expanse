@@ -192,10 +192,9 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
                     let d = digit(key, bl);
                     // SAFETY: as above.
                     let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
-                    if !b.bitmap.test(d) {
+                    let Some(slot) = b.bitmap.test_and_subexpanse_rank(d) else {
                         return Lookup::Absent;
-                    }
-                    let slot = b.bitmap.subexpanse_rank(d) as usize;
+                    };
                     let sub = b.subarrays[(d >> 5) as usize];
                     // SAFETY: the bit is set, so the subexpanse subarray is
                     // non-null and holds at least `subexpanse_rank + 1` edges
@@ -220,10 +219,9 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
                     if MAP {
                         // SAFETY: pointer-tagged edge → live LeafBitmapL.
                         let l = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
-                        if !l.bitmap.test(d) {
+                        let Some(slot) = l.bitmap.test_and_subexpanse_rank(d) else {
                             return Lookup::Absent;
-                        }
-                        let slot = l.bitmap.subexpanse_rank(d) as usize;
+                        };
                         let vals = l.values[(d >> 5) as usize];
                         // SAFETY: the bit is set, so the value subarray is
                         // non-null and holds at least `slot + 1` values.
@@ -579,10 +577,7 @@ unsafe fn locate_slot_impl(
                     }
                     let d = digit(key, 1);
                     let node = (*edge).node_ptr().cast::<LeafBitmapL>();
-                    if !(*node).bitmap.test(d) {
-                        return None;
-                    }
-                    let rank = (*node).bitmap.subexpanse_rank(d) as usize;
+                    let rank = (*node).bitmap.test_and_subexpanse_rank(d)?;
                     let vals = (*node).values[(d >> 5) as usize];
                     return core::ptr::NonNull::new(vals.add(rank));
                 }
@@ -624,10 +619,7 @@ unsafe fn locate_slot_impl(
                     }
                     let d = digit(key, bl);
                     let b = (*edge).node_ptr().cast::<BranchB>();
-                    if !(*b).bitmap.test(d) {
-                        return None;
-                    }
-                    let rank = (*b).bitmap.subexpanse_rank(d) as usize;
+                    let rank = (*b).bitmap.test_and_subexpanse_rank(d)?;
                     edge = (*b).subarrays[(d >> 5) as usize].add(rank);
                     level = bl - 1;
                 }
