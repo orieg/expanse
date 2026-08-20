@@ -66,10 +66,19 @@ fn keys(dist: &str) -> Vec<u64> {
         // the terminal forms most inserts actually touch.
         "small" => out.extend((0..POP as u64).map(|i| (i % 12) | ((i / 12) << 32))),
         "dense_leaf" => {
-            // Generates runs of exactly 32 keys sharing prefixes, creating linear leaves at LEAF_CAP.
+            // Generates runs of exactly 32 keys sharing prefixes, creating bitmap leaves (pop > 25).
             for _ in 0..(POP / 32) {
                 let prefix = rng.next() & !0xFF;
                 for j in 0..32 {
+                    out.push(prefix | (j as u64));
+                }
+            }
+        }
+        "linear_leaf" => {
+            // Generates runs of exactly 15 keys sharing prefixes, creating linear leaves in the 16-element SIMD vector scan band.
+            for _ in 0..(POP / 15) {
+                let prefix = rng.next() & !0xFF;
+                for j in 0..15 {
                     out.push(prefix | (j as u64));
                 }
             }
@@ -124,6 +133,7 @@ fn built_set(dist: &str) -> (ExpanseSet, Vec<u64>) {
 #[bench::clustered(args = ("clustered",), setup = keys)]
 #[bench::small(args = ("small",), setup = keys)]
 #[bench::dense_leaf(args = ("dense_leaf",), setup = keys)]
+#[bench::linear_leaf(args = ("linear_leaf",), setup = keys)]
 fn map_insert(ks: Vec<u64>) -> u64 {
     let mut map = ExpanseMap::new();
     for &k in &ks {
@@ -139,6 +149,7 @@ fn map_insert(ks: Vec<u64>) -> u64 {
 #[bench::random(args = ("random",), setup = keys)]
 #[bench::clustered(args = ("clustered",), setup = keys)]
 #[bench::dense_leaf(args = ("dense_leaf",), setup = keys)]
+#[bench::linear_leaf(args = ("linear_leaf",), setup = keys)]
 fn set_insert(ks: Vec<u64>) -> u64 {
     let mut set = ExpanseSet::new();
     for &k in &ks {
@@ -174,6 +185,7 @@ fn map_ins_slot(ks: Vec<u64>) -> u64 {
 #[bench::random(args = ("random",), setup = built_map)]
 #[bench::clustered(args = ("clustered",), setup = built_map)]
 #[bench::dense_leaf(args = ("dense_leaf",), setup = built_map)]
+#[bench::linear_leaf(args = ("linear_leaf",), setup = built_map)]
 fn map_get(built: (ExpanseMap, Vec<u64>)) -> u64 {
     let (map, probes) = built;
     let mut sink = 0u64;
