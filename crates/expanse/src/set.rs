@@ -471,6 +471,11 @@ impl ExpanseSet {
     /// Number of keys strictly below `key` (rank).
     #[must_use]
     pub fn count_below(&self, key: Key) -> u64 {
+        // SAFETY: flushing pending population before rank traversal.
+        unsafe {
+            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
+            mut_self.path.flush();
+        }
         match &self.root {
             Root::Empty => 0,
             Root::Leaf { .. } => self.root_leaf_keys().partition_point(|&k| k < key) as u64,
@@ -495,6 +500,11 @@ impl ExpanseSet {
     pub fn by_count(&self, n: u64) -> Option<u64> {
         if n >= self.len() {
             return None;
+        }
+        // SAFETY: flushing pending population before select traversal.
+        unsafe {
+            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
+            mut_self.path.flush();
         }
         match &self.root {
             Root::Empty => None,
