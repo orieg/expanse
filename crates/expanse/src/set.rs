@@ -223,16 +223,15 @@ impl ExpanseSet {
                                 );
                             }
                         }
-                        // SAFETY: path.depth >= 1 and edges[path.depth - 1] is the live leaf edge.
-                        let terminal_pop =
-                            unsafe { (*self.path.edges[self.path.depth - 1]).pop0(1) } + 1;
+                        // SAFETY: path.depth >= 1 and edges[0] is the live leaf edge.
+                        let terminal_pop = unsafe { (*self.path.edges[0]).pop0(1) } + 1;
                         if terminal_pop == 256 {
                             let ptr = core::ptr::NonNull::new(leaf);
                             // SAFETY: leaf converted to full expanse, old node freed.
                             unsafe { self.alloc.free_node(ptr.expect("leaf ptr")) };
                             // SAFETY: terminal edge is valid and rewritten to FullExpanse.
                             unsafe {
-                                let terminal_edge = &mut *self.path.edges[self.path.depth - 1];
+                                let terminal_edge = &mut *self.path.edges[0];
                                 *terminal_edge = Edge::NULL;
                                 terminal_edge.set_tag(crate::types::EdgeType::FullExpanse.as_u8());
                                 terminal_edge.set_pop0(1, 255);
