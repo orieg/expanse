@@ -101,29 +101,6 @@ unsafe fn lower_bound_fixed<const KB: usize>(keys: *const u8, pop: usize, needle
     lo
 }
 
-/// Binary search over packed little-endian keys: returns `Ok(pos)` if the
-/// key was found, or `Err(pos)` with the insertion index if not found.
-///
-/// # Safety
-///
-/// `keys` must be valid for reads of `key_bytes * pop` bytes.
-#[inline]
-pub(crate) unsafe fn binary_search(
-    keys: *const u8,
-    pop: usize,
-    key_bytes: u8,
-    needle: u64,
-) -> Result<usize, usize> {
-    // SAFETY: forwarded caller contract.
-    let pos = unsafe { lower_bound(keys, pop, key_bytes, needle) };
-    // SAFETY: forwarded caller contract.
-    if pos < pop && unsafe { crate::mutate::read_packed(keys, pos, key_bytes as usize) } == needle {
-        Ok(pos)
-    } else {
-        Err(pos)
-    }
-}
-
 /// In-place insert into a set leaf with spare class capacity: shifts keys
 /// `[pos..pop)` right one slot and writes `key` at `pos`.
 ///

@@ -338,8 +338,12 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                 let base = edge.node_ptr();
                 // SAFETY: live map leaf per contract (keys behind the values).
                 let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
-                // SAFETY: live map leaf of `pop` keys.
-                match unsafe { leaf::binary_search(keys_ptr, pop, kb, k) } {
+                // SAFETY: keys_ptr points to a live map leaf of `pop` keys.
+                let pos = unsafe { leaf::lower_bound(keys_ptr, pop, kb, k) };
+                // SAFETY: pos < pop is in bounds.
+                let hit = pos < pop
+                    && unsafe { crate::mutate::read_packed(keys_ptr, pos, kb as usize) == k };
+                match if hit { Ok(pos) } else { Err(pos) } {
                     Ok(pos) => {
                         // SAFETY: in-place value swap within the live leaf.
                         unsafe {
@@ -792,11 +796,14 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             let base = edge.node_ptr();
             // SAFETY: live map leaf per contract.
             let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
-            // SAFETY: live map leaf of `pop` keys.
-            let pos = match unsafe { leaf::binary_search(keys_ptr, pop, kb, k) } {
-                Ok(p) => p,
-                Err(_) => return None,
-            };
+            // SAFETY: keys_ptr points to a live map leaf of `pop` keys.
+            let pos = unsafe { leaf::lower_bound(keys_ptr, pop, kb, k) };
+            // SAFETY: pos < pop is in bounds.
+            let miss = pos == pop
+                || unsafe { crate::mutate::read_packed(keys_ptr, pos, kb as usize) != k };
+            if miss {
+                return None;
+            }
             if pop > map_immed_max(level) && leaf::cap_class(pop - 1) == leaf::cap_class(pop) {
                 // Fast path: stays a leaf in the same class.
                 // SAFETY: pos < pop; same-class allocation.

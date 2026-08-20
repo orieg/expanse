@@ -340,8 +340,12 @@ jobs:
           echo "native:   $(./target/release/examples/popcnt_probe)"
           echo "valgrind: $(valgrind --tool=callgrind --callgrind-out-file=/dev/null ./target/release/examples/popcnt_probe 2>/dev/null)"
 
-      - name: Instruction and cache-miss counts (this branch)
+      - name: Instruction and cache-miss counts (this branch, baseline)
         run: cargo bench --bench instructions -p expanse-trie | tee instruction-counts.txt
+
+      - name: Instruction and cache-miss counts (this branch, x86-64-v3 modern)
+        run: |
+          RUSTFLAGS="-C target-cpu=x86-64-v3" cargo bench --bench instructions -p expanse-trie | tee v3-counts.txt
 
       - name: bytes/key table
         run: cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
@@ -423,6 +427,7 @@ jobs:
             --base base-counts.txt \
             --bytes bytes-per-key.txt \
             --vs-stock vs-stock.txt \
+            --v3 v3-counts.txt \
             --base-ref "${{ github.base_ref }}" > perf-report.md
           cat perf-report.md
 

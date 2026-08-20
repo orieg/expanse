@@ -572,10 +572,11 @@ pub(crate) unsafe fn insert<const OCC: bool>(
                 a.assert_bracketed();
                 let base = edge.node_ptr();
                 // SAFETY: live leaf of `pop` keys per contract.
-                let pos = match unsafe { leaf::binary_search(base, pop, kb, k) } {
-                    Ok(_) => return false,
-                    Err(p) => p,
-                };
+                let pos = unsafe { leaf::lower_bound(base, pop, kb, k) };
+                // SAFETY: pos < pop is in bounds.
+                if pos < pop && unsafe { read_packed(base, pos, kb as usize) } == k {
+                    return false;
+                }
                 let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
                 if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
                     // Fast path: spare class capacity — shift in place, no
@@ -1083,10 +1084,11 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             a.assert_bracketed();
             let base = edge.node_ptr();
             // SAFETY: live leaf of `pop` keys per contract.
-            let pos = match unsafe { leaf::binary_search(base, pop, kb, k) } {
-                Ok(p) => p,
-                Err(_) => return false,
-            };
+            let pos = unsafe { leaf::lower_bound(base, pop, kb, k) };
+            // SAFETY: pos < pop is in bounds.
+            if pos == pop || unsafe { read_packed(base, pos, kb as usize) } != k {
+                return false;
+            }
             if pop > ImmedType::max_count(level) as usize
                 && leaf::cap_class(pop - 1) == leaf::cap_class(pop)
             {
