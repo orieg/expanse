@@ -355,7 +355,11 @@ mod tests {
         assert_eq!(n1.as_ptr() as usize % CACHE_LINE, 0, "BranchL3 alignment");
         assert_eq!(n2.as_ptr() as usize % CACHE_LINE, 0, "BranchB alignment");
         assert_eq!(n3.as_ptr() as usize % CACHE_LINE, 0, "BranchU alignment");
-        assert_eq!(n4.as_ptr() as usize % CACHE_LINE, 0, "alloc_node_zeroed BranchL3 alignment");
+        assert_eq!(
+            n4.as_ptr() as usize % CACHE_LINE,
+            0,
+            "alloc_node_zeroed BranchL3 alignment"
+        );
         assert_eq!(leaf.as_ptr() as usize % RAW_ALIGN, 0, "raw leaf alignment");
         // Guard the reason the node assertions above are not vacuous: if a
         // node type ever loses its `align(64)` declaration, `alloc_node`
@@ -372,6 +376,7 @@ mod tests {
         }
 
         // Verify that alloc_node_zeroed is actually zeroed
+        // SAFETY: n4 is a live BranchL3 pointer allocated above.
         unsafe {
             assert_eq!((*n4.as_ptr()).hdr.version, 0);
             assert_eq!((*n4.as_ptr()).hdr.level, 0);
