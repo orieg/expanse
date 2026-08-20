@@ -340,7 +340,7 @@ impl ExpanseSet {
             Root::Empty => {}
             Root::Leaf { pop, .. } => {
                 stats.depth_histogram[0] = 1;
-                stats.leaf_pop_histogram[*pop as usize] = 1;
+                stats.leaf_pop_histogram[*pop] = 1;
                 stats.node_counts.leaf_linear = 1;
             }
             Root::Tree { top, .. } => {

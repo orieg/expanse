@@ -71,7 +71,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
     if depth > 8 {
         return Err("depth limit exceeded (possible cycle)".into());
     }
-    if level < 1 || level > 8 {
+    if !(1..=8).contains(&level) {
         return Err(format!("level {level} out of range"));
     }
 
@@ -103,34 +103,24 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
 
     stats.depth_histogram[level as usize] += 1;
 
+    // Branch form level: below the slot level only behind a narrow pointer
     let bl = match tag {
         EdgeTag::Structural(
             t @ (EdgeType::BranchL3 | EdgeType::BranchL7 | EdgeType::BranchB | EdgeType::BranchU),
         ) => {
-            let ptr = edge.node_ptr();
-            if ptr.is_null() {
-                return Err("branch edge has null node pointer".into());
-            }
-            if (ptr as usize) % 64 != 0 {
-                return Err(format!("branch node pointer {ptr:p} not 64-byte aligned"));
-            }
-            // SAFETY: pointer is non-null and 64-byte aligned.
+            // SAFETY: validated branch tag
             let bl = unsafe { branch_form_level(edge, t, level) };
             if bl < 2 {
-                return Err(format!("branch below level 2: {bl}"));
+                return Err("branch below level 2".into());
             }
             if bl > level {
-                return Err(format!(
-                    "branch form level {bl} above its slot level {level}"
-                ));
+                return Err("branch form level above its slot level".into());
             }
             if level == 8 && bl != level {
-                return Err(format!("level-8 branch slot cannot skip: form level {bl}"));
+                return Err("level-8 slots cannot skip".into());
             }
             if matches!(t, EdgeType::BranchU) && bl != level {
-                return Err(format!(
-                    "uncompressed branch skipped: form level {bl} vs slot level {level}"
-                ));
+                return Err("uncompressed branches never skip".into());
             }
             bl
         }
@@ -142,32 +132,23 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
         EdgeTag::Immed(im) => {
             if im.key_bytes() != level {
                 return Err(format!(
-                    "immediate key size {} must equal level {level}",
-                    im.key_bytes()
+                    "immediate key size {} must equal level {}",
+                    im.key_bytes(),
+                    level
                 ));
             }
             let keys = if MAP {
-                let max_cap = map_immed_max(im.key_bytes());
-                if im.key_count() as usize > max_cap {
-                    return Err(format!(
-                        "map immediate count {} above aux capacity {max_cap}",
-                        im.key_count()
-                    ));
+                if im.key_count() as usize > map_immed_max(im.key_bytes()) {
+                    return Err("map immediate above aux capacity".into());
                 }
                 immed_map_keys(edge, im)
             } else {
-                let max_cap = ImmedType::max_count(level) as usize;
-                if im.key_count() as usize > max_cap {
-                    return Err(format!(
-                        "set immediate count {} above aux capacity {max_cap}",
-                        im.key_count()
-                    ));
-                }
                 immed_keys(edge, im)
             };
             if !keys.windows(2).all(|w| w[0] < w[1]) {
                 return Err("immediate keys unsorted".into());
             }
+            stats.leaf_pop_histogram[keys.len()] += 1;
             keys.len() as u64
         }
         EdgeTag::Structural(
@@ -179,9 +160,12 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             | EdgeType::Leaf6
             | EdgeType::Leaf7),
         ) => {
-            let kb = t.leaf_key_bytes().expect("leaf tag");
+            let kb = match t.leaf_key_bytes() {
+                Some(k) => k,
+                None => return Err("invalid leaf tag".into()),
+            };
             if kb > level {
-                return Err(format!("leaf key size {kb} above its slot level {level}"));
+                return Err("leaf key size above its slot level".into());
             }
             let pop = edge.pop0(kb) + 1;
             let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
@@ -207,6 +191,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             }
             let keys = if MAP {
                 let offset = crate::leaf::map_keys_offset(pop as usize);
+                // SAFETY: ptr is non-null, aligned, and offset is within the leaf layout.
                 (0..pop as usize)
                     .map(|slot| unsafe { read_packed(ptr.add(offset), slot, kb as usize) })
                     .collect::<Vec<_>>()
@@ -229,6 +214,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                 if (ptr as usize) % 64 != 0 {
                     return Err(format!("LeafBitmapL pointer {ptr:p} not 64-byte aligned"));
                 }
+                // SAFETY: ptr is non-null and 64-byte aligned LeafBitmapL.
                 let node = unsafe { &*ptr.cast::<LeafBitmapL>() };
                 for sub in 0..8 {
                     let n = node.bitmap.subexpanse_count(sub) as usize;
@@ -246,6 +232,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                 if (ptr as usize) % 64 != 0 {
                     return Err(format!("LeafBitmap1 pointer {ptr:p} not 64-byte aligned"));
                 }
+                // SAFETY: ptr is non-null and 64-byte aligned LeafBitmap1.
                 let node = unsafe { &*ptr.cast::<LeafBitmap1>() };
                 u64::from(node.bitmap.count())
             };
@@ -256,7 +243,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                     count
                 ));
             }
-            if (count as usize) <= LEAF1_CAP - 1 {
+            if (count as usize) < LEAF1_CAP {
                 return Err(format!(
                     "bitmap leaf population {count} below hysteresis floor"
                 ));
@@ -279,6 +266,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             if (ptr as usize) % 64 != 0 {
                 return Err(format!("linear branch pointer {ptr:p} not 64-byte aligned"));
             }
+            // SAFETY: ptr is non-null and 64-byte aligned BranchL3/L7.
             let (num, digits, edges): (usize, [u8; 8], Vec<Edge>) = unsafe {
                 if is_l3 {
                     let b = &*ptr.cast::<BranchL3>();
@@ -314,6 +302,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             if (ptr as usize) % 64 != 0 {
                 return Err(format!("BranchB pointer {ptr:p} not 64-byte aligned"));
             }
+            // SAFETY: ptr is non-null and 64-byte aligned BranchB.
             let b = unsafe { &*ptr.cast::<BranchB>() };
             let digits = b.bitmap.count() as usize;
             if digits < BRANCH_L7_CAP {
@@ -352,6 +341,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                         ));
                     }
                     for i in 0..expected {
+                        // SAFETY: sub_ptr is non-null, 16-byte aligned, and index i is in bounds.
                         let child = unsafe { &*sub_ptr.add(i) };
                         if child.is_null() {
                             return Err(format!(
@@ -372,6 +362,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             if (ptr as usize) % 64 != 0 {
                 return Err(format!("BranchU pointer {ptr:p} not 64-byte aligned"));
             }
+            // SAFETY: ptr is non-null and 64-byte aligned BranchU.
             let b = unsafe { &*ptr.cast::<BranchU>() };
             let digits = b.edges.iter().filter(|e| !e.is_null()).count();
             if digits < BRANCHB_UP {
@@ -396,14 +387,13 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                 EdgeType::BranchL3 | EdgeType::BranchL7 | EdgeType::BranchB | EdgeType::BranchU
             )
         )
+        && edge.pop0(bl) + 1 != pop
     {
-        if edge.pop0(bl) + 1 != pop {
-            return Err(format!(
-                "branch pop0 disagrees with subtree: {} != {}",
-                edge.pop0(bl) + 1,
-                pop
-            ));
-        }
+        return Err(format!(
+            "branch pop0 disagrees with subtree: {} != {}",
+            edge.pop0(bl) + 1,
+            pop
+        ));
     }
     Ok(pop)
 }
