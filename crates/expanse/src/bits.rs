@@ -215,13 +215,17 @@ pub unsafe fn find_byte_32(keys: *const u8, len: usize, needle: u8) -> Option<us
 #[inline]
 unsafe fn find_byte_32_sse2(keys: *const u8, len: usize, needle: u8) -> Option<usize> {
     use core::arch::x86_64::{_mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8};
-    let t = _mm_set1_epi8(needle as i8);
+    // SAFETY: SSE2 is part of the x86-64 baseline.
+    let t = unsafe { _mm_set1_epi8(needle as i8) };
     if len <= 16 {
         let mut buf = [0u8; 16];
         // SAFETY: caller guarantees keys valid for len bytes
         unsafe { core::ptr::copy_nonoverlapping(keys, buf.as_mut_ptr(), len) };
-        let h = _mm_loadu_si128(buf.as_ptr().cast());
-        let mask = (_mm_movemask_epi8(_mm_cmpeq_epi8(t, h)) as u32) & ((1u32 << len) - 1);
+        // SAFETY: SSE2 unaligned load reads exactly 16 bytes from buf
+        let mask = unsafe {
+            let h = _mm_loadu_si128(buf.as_ptr().cast());
+            (_mm_movemask_epi8(_mm_cmpeq_epi8(t, h)) as u32) & ((1u32 << len) - 1)
+        };
         if mask == 0 {
             None
         } else {
@@ -232,14 +236,17 @@ unsafe fn find_byte_32_sse2(keys: *const u8, len: usize, needle: u8) -> Option<u
         let mut buf = [0u8; 32];
         // SAFETY: caller guarantees keys valid for len bytes
         unsafe { core::ptr::copy_nonoverlapping(keys, buf.as_mut_ptr(), len) };
-        let h0 = _mm_loadu_si128(buf.as_ptr().cast());
-        let mask0 = _mm_movemask_epi8(_mm_cmpeq_epi8(t, h0)) as u32;
+        // SAFETY: SSE2 unaligned loads read 16 bytes from buf offsets
+        let (mask0, mask1) = unsafe {
+            let h0 = _mm_loadu_si128(buf.as_ptr().cast());
+            let m0 = _mm_movemask_epi8(_mm_cmpeq_epi8(t, h0)) as u32;
+            let h1 = _mm_loadu_si128(buf.as_ptr().add(16).cast());
+            let m1 = (_mm_movemask_epi8(_mm_cmpeq_epi8(t, h1)) as u32) & ((1u32 << (len - 16)) - 1);
+            (m0, m1)
+        };
         if mask0 != 0 {
-            return Some(mask0.trailing_zeros() as usize);
-        }
-        let h1 = _mm_loadu_si128(buf.as_ptr().add(16).cast());
-        let mask1 = (_mm_movemask_epi8(_mm_cmpeq_epi8(t, h1)) as u32) & ((1u32 << (len - 16)) - 1);
-        if mask1 != 0 {
+            Some(mask0.trailing_zeros() as usize)
+        } else if mask1 != 0 {
             Some(16 + mask1.trailing_zeros() as usize)
         } else {
             None
@@ -287,31 +294,43 @@ unsafe fn lower_bound_1_sse2(keys: *const u8, len: usize, needle: u8) -> usize {
     use core::arch::x86_64::{
         _mm_cmplt_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8, _mm_xor_si128,
     };
-    let sign_flip = _mm_set1_epi8(0x80u8 as i8);
-    let target = _mm_set1_epi8((needle ^ 0x80) as i8);
+    // SAFETY: SSE2 is part of the x86-64 baseline.
+    let (sign_flip, target) = unsafe {
+        (
+            _mm_set1_epi8(0x80u8 as i8),
+            _mm_set1_epi8((needle ^ 0x80) as i8),
+        )
+    };
     if len <= 16 {
         let mut buf = [0u8; 16];
         // SAFETY: caller guarantees keys valid for len bytes
         unsafe { core::ptr::copy_nonoverlapping(keys, buf.as_mut_ptr(), len) };
-        let k = _mm_loadu_si128(buf.as_ptr().cast());
-        let k_u = _mm_xor_si128(k, sign_flip);
-        let lt = _mm_cmplt_epi8(k_u, target);
-        let mask = (_mm_movemask_epi8(lt) as u32) & ((1u32 << len) - 1);
+        // SAFETY: SSE2 unaligned load reads 16 bytes from buf
+        let mask = unsafe {
+            let k = _mm_loadu_si128(buf.as_ptr().cast());
+            let k_u = _mm_xor_si128(k, sign_flip);
+            let lt = _mm_cmplt_epi8(k_u, target);
+            (_mm_movemask_epi8(lt) as u32) & ((1u32 << len) - 1)
+        };
         mask.count_ones() as usize
     } else {
         let len = len.min(32);
         let mut buf = [0u8; 32];
         // SAFETY: caller guarantees keys valid for len bytes
         unsafe { core::ptr::copy_nonoverlapping(keys, buf.as_mut_ptr(), len) };
-        let k0 = _mm_loadu_si128(buf.as_ptr().cast());
-        let k0_u = _mm_xor_si128(k0, sign_flip);
-        let lt0 = _mm_cmplt_epi8(k0_u, target);
-        let mask0 = _mm_movemask_epi8(lt0) as u32;
+        // SAFETY: SSE2 unaligned loads read 16 bytes from buf offsets
+        let (mask0, mask1) = unsafe {
+            let k0 = _mm_loadu_si128(buf.as_ptr().cast());
+            let k0_u = _mm_xor_si128(k0, sign_flip);
+            let lt0 = _mm_cmplt_epi8(k0_u, target);
+            let m0 = _mm_movemask_epi8(lt0) as u32;
 
-        let k1 = _mm_loadu_si128(buf.as_ptr().add(16).cast());
-        let k1_u = _mm_xor_si128(k1, sign_flip);
-        let lt1 = _mm_cmplt_epi8(k1_u, target);
-        let mask1 = (_mm_movemask_epi8(lt1) as u32) & ((1u32 << (len - 16)) - 1);
+            let k1 = _mm_loadu_si128(buf.as_ptr().add(16).cast());
+            let k1_u = _mm_xor_si128(k1, sign_flip);
+            let lt1 = _mm_cmplt_epi8(k1_u, target);
+            let m1 = (_mm_movemask_epi8(lt1) as u32) & ((1u32 << (len - 16)) - 1);
+            (m0, m1)
+        };
 
         (mask0.count_ones() + mask1.count_ones()) as usize
     }
