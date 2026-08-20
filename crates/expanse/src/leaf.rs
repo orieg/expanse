@@ -335,13 +335,25 @@ pub(crate) unsafe fn map_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos
 /// `keys` must be valid for reads of `KB * pop` bytes.
 #[inline]
 unsafe fn search_fixed<const KB: usize>(keys: *const u8, pop: usize, key: Key) -> Option<usize> {
-    let le = key.to_le_bytes();
-    let mut needle = [0u8; KB];
-    needle.copy_from_slice(&le[..KB]);
-    // SAFETY: `[u8; KB]` has alignment 1 and the caller guarantees
-    // `KB * pop` readable bytes, i.e. exactly `pop` such arrays.
-    let packed = unsafe { core::slice::from_raw_parts(keys.cast::<[u8; KB]>(), pop) };
-    packed.iter().position(|candidate| *candidate == needle)
+    if pop <= 4 {
+        let le = key.to_le_bytes();
+        let mut needle = [0u8; KB];
+        needle.copy_from_slice(&le[..KB]);
+        // SAFETY: `[u8; KB]` has alignment 1 and the caller guarantees
+        // `KB * pop` readable bytes, i.e. exactly `pop` such arrays.
+        let packed = unsafe { core::slice::from_raw_parts(keys.cast::<[u8; KB]>(), pop) };
+        packed.iter().position(|candidate| *candidate == needle)
+    } else {
+        let needle = crate::mutate::key_low(key, KB as u8);
+        // SAFETY: forwarded caller contract.
+        let pos = unsafe { lower_bound_fixed::<KB>(keys, pop, needle) };
+        // SAFETY: pos < pop is within the allocated `pop` keys.
+        if pos < pop && unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pos) } == needle {
+            Some(pos)
+        } else {
+            None
+        }
+    }
 }
 
 /// Finds the slot of `key`'s low `key_bytes` bytes among `pop` packed keys.
@@ -394,8 +406,7 @@ mod tests {
     #[test]
     fn search_all_key_sizes() {
         for kb in 1u8..=7 {
-            // Keys chosen to differ in first, middle, and last bytes.
-            let keys: Vec<u64> = vec![
+            let mut keys: Vec<u64> = vec![
                 0,
                 1,
                 0xA5,
@@ -403,6 +414,8 @@ mod tests {
                 (1u64 << (8 * kb)) - 2,
                 (1u64 << (8 * kb)) - 1,
             ];
+            keys.sort_unstable();
+            keys.dedup();
             let mut packed = Vec::new();
             for k in &keys {
                 packed.extend_from_slice(&k.to_le_bytes()[..kb as usize]);
