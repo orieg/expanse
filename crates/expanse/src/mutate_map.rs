@@ -197,13 +197,14 @@ pub(crate) unsafe fn map_insert_dyn<const KEEP: bool>(
     key: Key,
     val: u64,
     level: u8,
-) -> (Option<u64>, *mut u64) {
+    old: &mut Option<u64>,
+) -> *mut u64 {
     // SAFETY: forwarded caller contract.
     unsafe {
         if a.occ_enabled() {
-            map_insert::<KEEP, true>(a, edge, key, val, level)
+            map_insert::<KEEP, true>(a, edge, key, val, level, old)
         } else {
-            map_insert::<KEEP, false>(a, edge, key, val, level)
+            map_insert::<KEEP, false>(a, edge, key, val, level, old)
         }
     }
 }
@@ -244,7 +245,8 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
     key: Key,
     val: u64,
     level: u8,
-) -> (Option<u64>, *mut u64) {
+    old: &mut Option<u64>,
+) -> *mut u64 {
     debug_assert!((1..=8).contains(&level));
     let tag = edge.tag().expect("valid edge tag");
     match tag {
@@ -253,11 +255,12 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                 let node = a.alloc_node(BranchL3::new(level));
                 *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
                 // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level) };
+                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level, old) };
             }
             write_map_immed(a, edge, level, &[(key_low(key, level), val)]);
+            *old = None;
             // A single-entry immediate's value slot is the edge's word 0.
-            (None, (&raw mut *edge).cast::<u64>())
+            (&raw mut *edge).cast::<u64>()
         }
 
         EdgeTag::Immed(im) => {
@@ -268,12 +271,12 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
             let mut entries = unsafe { read_map_immed(edge, im) };
             match entries.binary_search_by_key(&k, |e| e.0) {
                 Ok(pos) => {
-                    let old = entries[pos].1;
+                    *old = Some(entries[pos].1);
                     if im.key_count() == 1 {
                         if !KEEP {
                             edge.set_imm_bytes(val.to_le_bytes());
                         }
-                        (Some(old), (&raw mut *edge).cast::<u64>())
+                        (&raw mut *edge).cast::<u64>()
                     } else {
                         // SAFETY: live value array per contract.
                         let slot = unsafe { edge.node_ptr().cast::<u64>().add(pos) };
@@ -281,7 +284,7 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                             // SAFETY: same slot.
                             unsafe { slot.write(val) };
                         }
-                        (Some(old), slot)
+                        slot
                     }
                 }
                 Err(pos) => {
@@ -301,7 +304,8 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                         // SAFETY: fresh map leaf; values at the base.
                         unsafe { edge.node_ptr().cast::<u64>().add(pos) }
                     };
-                    (None, slot)
+                    *old = None;
+                    slot
                 }
             }
         }
@@ -323,7 +327,7 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                 // level and retry.
                 split_skip(a, edge, key, level, pop as u64);
                 // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level) };
+                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level, old) };
             }
             let k = key_low(key, kb);
             // Phase 7 coverage invariant (see alloc::assert_bracketed):
@@ -343,11 +347,11 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                     // SAFETY: in-place value swap within the live leaf.
                     unsafe {
                         let slot = base.cast::<u64>().add(pos);
-                        let old = *slot;
+                        *old = Some(*slot);
                         if !KEEP {
                             slot.write(val);
                         }
-                        (Some(old), slot)
+                        slot
                     }
                 }
                 Err(pos) => {
@@ -359,7 +363,9 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                         unsafe { leaf::map_insert_at(base, kb, pop, pos, k, val) };
                         edge.set_pop0(kb, pop as u64);
                         // SAFETY: freshly shifted value area.
-                        return (None, unsafe { base.cast::<u64>().add(pos) });
+                        *old = None;
+                        // SAFETY: freshly shifted value area.
+                        return unsafe { base.cast::<u64>().add(pos) };
                     }
                     if pop < cap {
                         // Class-crossing grow that stays this leaf: a
@@ -390,7 +396,9 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                             );
                         }
                         // SAFETY: slot `pos` of the fresh value area.
-                        return (None, unsafe { new.as_ptr().cast::<u64>().add(pos) });
+                        *old = None;
+                        // SAFETY: slot `pos` of the fresh value area.
+                        return unsafe { new.as_ptr().cast::<u64>().add(pos) };
                     }
                     // Slow path: materialize entries for the conversion.
                     // A skipping leaf's keys are widened to full
@@ -440,10 +448,16 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                         if bl < level {
                             write_decode(edge, bl, level, entries[0].0);
                         }
+                        let mut scratch = None;
                         for &(k, v) in &entries {
-                            // SAFETY: freshly built branch subtree.
-                            let prev = unsafe { map_insert::<KEEP, OCC>(a, edge, k, v, level) };
-                            debug_assert!(prev.0.is_none());
+                            // SAFETY: freshly built branch subtree. The
+                            // reinserted keys are fresh by construction,
+                            // so the caller's `old` must not be
+                            // clobbered here — a scratch catches them.
+                            let _ = unsafe {
+                                map_insert::<KEEP, OCC>(a, edge, k, v, level, &mut scratch)
+                            };
+                            debug_assert!(scratch.is_none());
                         }
                         // pop0 cannot express the transient empty branch;
                         // pin the true population (see mutate::insert).
@@ -459,7 +473,8 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                     let slot = unsafe { crate::get::locate_slot(&raw mut *edge, key, level) }
                         .expect("just-inserted key")
                         .as_ptr();
-                    (None, slot)
+                    *old = None;
+                    slot
                 }
             }
         }
@@ -471,7 +486,7 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                 let pop = edge.pop0(1) + 1;
                 split_skip(a, edge, key, level, pop);
                 // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level) };
+                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level, old) };
             }
             let d = digit(key, 1);
             // Phase 7: a leaf carries no version of its own — readers
@@ -486,11 +501,11 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                 // SAFETY: value subarray holds subexpanse_count values.
                 unsafe {
                     let slot = node.values[sub].add(rank);
-                    let old = *slot;
+                    *old = Some(*slot);
                     if !KEEP {
                         slot.write(val);
                     }
-                    return (Some(old), slot);
+                    return slot;
                 }
             }
             let old_n = node.bitmap.subexpanse_count(sub) as usize;
@@ -525,8 +540,9 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
             node.bitmap.set(d);
             let pop0 = edge.pop0(1);
             edge.set_pop0(1, pop0 + 1);
+            *old = None;
             // SAFETY: the value now lives at this subarray rank.
-            (None, unsafe { node.values[sub].add(rank) })
+            unsafe { node.values[sub].add(rank) }
         }
 
         EdgeTag::Structural(EdgeType::FullExpanse) => {
@@ -541,7 +557,7 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                 let pop = edge.pop0(bl) + 1;
                 split_skip(a, edge, key, level, pop);
                 // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level) };
+                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level, old) };
             }
             let d = digit(key, bl);
             let is_l3 = matches!(t, EdgeType::BranchL3);
@@ -562,18 +578,20 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                     if is_l3 {
                         let b = &mut *edge.node_ptr().cast::<BranchL3>();
                         crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                        let r = map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1);
+                        let r =
+                            map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1, old);
                         crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                         r
                     } else {
                         let b = &mut *edge.node_ptr().cast::<BranchL7>();
                         crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                        let r = map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1);
+                        let r =
+                            map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1, old);
                         crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                         r
                     }
                 };
-                if res.0.is_none() {
+                if old.is_none() {
                     bump_pop0(edge, bl, 1);
                 }
                 return res;
@@ -587,7 +605,7 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                     } else {
                         upgrade_l7_to_b(a, edge);
                     }
-                    return map_insert::<KEEP, OCC>(a, edge, key, val, level);
+                    return map_insert::<KEEP, OCC>(a, edge, key, val, level, old);
                 }
             }
             // SAFETY: live branch; slot arithmetic bounded by capacity.
@@ -597,7 +615,7 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                     crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
                     let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                     b.hdr.num += 1;
-                    let r = map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1);
+                    let r = map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1, old);
                     crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                     r
                 } else {
@@ -605,14 +623,14 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                     crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
                     let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                     b.hdr.num += 1;
-                    let r = map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1);
+                    let r = map_insert::<KEEP, OCC>(a, &mut b.edges[slot], key, val, bl - 1, old);
                     crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                     r
                 }
             };
-            debug_assert!(res.0.is_none());
+            debug_assert!(old.is_none());
             bump_pop0(edge, bl, 1);
-            (None, res.1)
+            res
         }
 
         EdgeTag::Structural(EdgeType::BranchB) => {
@@ -623,7 +641,7 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                 let pop = edge.pop0(bl) + 1;
                 split_skip(a, edge, key, level, pop);
                 // SAFETY: forwarded contract; edge is now a branch.
-                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level) };
+                return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, level, old) };
             }
             let slot_level = level;
             let d = digit(key, bl);
@@ -636,10 +654,11 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                 // node's version brackets the descent (Phase 7 OCC).
                 crate::occ::version_begin_if::<OCC>(a, &mut b.version);
                 // SAFETY: bitmap/subarray consistency invariant.
-                let res =
-                    unsafe { map_insert::<KEEP, OCC>(a, &mut *sub.add(slot), key, val, bl - 1) };
+                let res = unsafe {
+                    map_insert::<KEEP, OCC>(a, &mut *sub.add(slot), key, val, bl - 1, old)
+                };
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
-                if res.0.is_none() {
+                if old.is_none() {
                     bump_pop0(edge, bl, 1);
                 }
                 return res;
@@ -650,12 +669,12 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
                     let pop = edge.pop0(bl) + 1;
                     wrap_skip_level(a, edge, bl + 1, slot_level, pop);
                     // SAFETY: forwarded contract; edge is now a branch.
-                    return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, slot_level) };
+                    return unsafe { map_insert::<KEEP, OCC>(a, edge, key, val, slot_level, old) };
                 }
                 // SAFETY: upgrade rebuilds the node; subtree stays owned.
                 unsafe {
                     upgrade_b_to_u(a, edge);
-                    return map_insert::<KEEP, OCC>(a, edge, key, val, slot_level);
+                    return map_insert::<KEEP, OCC>(a, edge, key, val, slot_level, old);
                 }
             }
             let sub = (d >> 5) as usize;
@@ -694,12 +713,12 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
             b.bitmap.set(d);
             // SAFETY: fresh null child slot within the subarray.
             let res = unsafe {
-                map_insert::<KEEP, OCC>(a, &mut *b.subarrays[sub].add(rank), key, val, bl - 1)
+                map_insert::<KEEP, OCC>(a, &mut *b.subarrays[sub].add(rank), key, val, bl - 1, old)
             };
             crate::occ::version_end_if::<OCC>(a, &mut b.version);
-            debug_assert!(res.0.is_none());
+            debug_assert!(old.is_none());
             bump_pop0(edge, bl, 1);
-            (None, res.1)
+            res
         }
 
         EdgeTag::Structural(EdgeType::BranchU) => {
@@ -711,10 +730,10 @@ pub(crate) unsafe fn map_insert<const KEEP: bool, const OCC: bool>(
             crate::occ::version_begin_if::<OCC>(a, &mut b.version);
             // SAFETY: child subtree well-formed (or null) per contract.
             let res = unsafe {
-                map_insert::<KEEP, OCC>(a, &mut b.edges[d as usize], key, val, level - 1)
+                map_insert::<KEEP, OCC>(a, &mut b.edges[d as usize], key, val, level - 1, old)
             };
             crate::occ::version_end_if::<OCC>(a, &mut b.version);
-            if res.0.is_none() {
+            if old.is_none() {
                 bump_pop0(edge, level, 1);
             }
             res

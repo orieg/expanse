@@ -170,8 +170,11 @@ impl ExpanseMap {
     pub fn ins_slot(&mut self, key: Key) -> core::ptr::NonNull<u64> {
         if let Root::Tree { top, pop } = &mut self.root {
             // SAFETY: trie maintained/owned by this map's engine.
-            let (prev, slot) =
-                unsafe { mutate_map::map_insert_dyn::<true>(&self.alloc, top, key, 0, 8) };
+            let mut prev = None;
+            // SAFETY: trie maintained/owned by this map's engine.
+            let slot = unsafe {
+                mutate_map::map_insert_dyn::<true>(&self.alloc, top, key, 0, 8, &mut prev)
+            };
             if prev.is_none() {
                 *pop += 1;
             }
@@ -278,22 +281,35 @@ impl ExpanseMap {
                         for (at, &k) in keys.iter().enumerate() {
                             // SAFETY: trie built and owned by self.alloc;
                             // values read in-bounds.
-                            let prev = unsafe {
+                            let mut prev = None;
+                            // SAFETY: trie built and owned by self.alloc;
+                            // values read in-bounds.
+                            let _ = unsafe {
                                 mutate_map::map_insert_dyn::<false>(
                                     &self.alloc,
                                     &mut top,
                                     k,
                                     *vals.add(at),
                                     8,
+                                    &mut prev,
                                 )
                             };
-                            debug_assert!(prev.0.is_none());
+                            debug_assert!(prev.is_none());
                         }
                         // SAFETY: same trie.
-                        let prev = unsafe {
-                            mutate_map::map_insert_dyn::<false>(&self.alloc, &mut top, key, val, 8)
+                        let mut prev = None;
+                        // SAFETY: same trie.
+                        let _ = unsafe {
+                            mutate_map::map_insert_dyn::<false>(
+                                &self.alloc,
+                                &mut top,
+                                key,
+                                val,
+                                8,
+                                &mut prev,
+                            )
                         };
-                        debug_assert!(prev.0.is_none());
+                        debug_assert!(prev.is_none());
                         // SAFETY: old root leaf no longer referenced.
                         unsafe { self.alloc.free_bytes(ptr, leaf_size(pop)) };
                         self.root = Root::Tree {
@@ -306,8 +322,11 @@ impl ExpanseMap {
             }
             Root::Tree { top, pop } => {
                 // SAFETY: trie maintained/owned by this map's engine.
-                let prev =
-                    unsafe { mutate_map::map_insert_dyn::<false>(&self.alloc, top, key, val, 8) }.0;
+                let mut prev = None;
+                // SAFETY: trie maintained/owned by this map's engine.
+                let _ = unsafe {
+                    mutate_map::map_insert_dyn::<false>(&self.alloc, top, key, val, 8, &mut prev)
+                };
                 if prev.is_none() {
                     *pop += 1;
                 }
