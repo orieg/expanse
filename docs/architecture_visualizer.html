@@ -1007,58 +1007,61 @@
     </div>
   </div>
 
-  <div class="layout" style="grid-template-columns: 1fr 1fr; margin-bottom:20px;">
-    <!-- Memory Sizing Matrix -->
-    <div class="card" style="margin-bottom:0;">
-      <div class="card-title">
-        <span>💾 Deterministic Memory Budget Matrix (Bytes / Key)</span>
-        <span class="badge-pill green">All Under Budget Ceilings</span>
-      </div>
-      <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
-        Source: <code class="code-tag">crates/expanse/examples/bytes_per_key.rs</code>. Map includes 8-byte value per key.
-      </div>
-      <div class="data-table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Distribution</th>
-              <th class="num">1,000 Keys</th>
-              <th class="num">100,000 Keys</th>
-              <th class="num">1,000,000 Keys</th>
-              <th>Dominant Node Form</th>
-            </tr>
-          </thead>
-          <tbody id="memory-table-body">
-            <!-- Dynamically Injected -->
-          </tbody>
-        </table>
-      </div>
+  <!-- Memory Sizing Matrix -->
+  <div class="card">
+    <div class="card-title">
+      <span>💾 Deterministic Memory Budget Matrix (Bytes / Key)</span>
+      <span class="badge-pill green">All Under Budget Ceilings</span>
     </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+      Source: <code class="code-tag">crates/expanse/examples/bytes_per_key.rs</code>. Map includes 8-byte value per key (<code class="code-tag">u64</code>). All values measured under 64-bit architecture.
+    </div>
+    <div class="data-table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Distribution</th>
+            <th class="num">Set (1k)</th>
+            <th class="num">Set (100k)</th>
+            <th class="num">Set (1M)</th>
+            <th class="num">Map (1k)</th>
+            <th class="num">Map (100k)</th>
+            <th class="num">Map (1M)</th>
+            <th class="num">Budget Ceiling</th>
+            <th>Dominant Node Form & Mechanism</th>
+          </tr>
+        </thead>
+        <tbody id="memory-table-body">
+          <!-- Dynamically Injected -->
+        </tbody>
+      </table>
+    </div>
+  </div>
 
-    <!-- Compression Ladder Specs -->
-    <div class="card" style="margin-bottom:0;">
-      <div class="card-title">
-        <span>📚 Node Capacity & Lifecycle Promotion Ladder</span>
-      </div>
-      <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
-        Source: <code class="code-tag">crates/expanse/src/types.rs</code>, <code class="code-tag">node.rs</code>, <code class="code-tag">leaf.rs</code>.
-      </div>
-      <div class="data-table-wrapper">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Node Type</th>
-              <th>Capacity</th>
-              <th>Size / Alignment</th>
-              <th>Search / SIMD</th>
-              <th>Promotion Rule</th>
-            </tr>
-          </thead>
-          <tbody id="ladder-table-body">
-            <!-- Dynamically Injected -->
-          </tbody>
-        </table>
-      </div>
+  <!-- Compression Ladder Specs -->
+  <div class="card">
+    <div class="card-title">
+      <span>📚 Node Capacity & Lifecycle Promotion Ladder</span>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+      Source: <code class="code-tag">crates/expanse/src/types.rs</code>, <code class="code-tag">node.rs</code>, <code class="code-tag">leaf.rs</code>. Lifecycle transitions between immediate, linear, bitmap, and uncompressed representations.
+    </div>
+    <div class="data-table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Node Type</th>
+            <th>Capacity Band</th>
+            <th>Size / Alignment</th>
+            <th>Search Algorithm & SIMD</th>
+            <th>Promotion Rule</th>
+            <th>Demotion Rule (Hysteresis)</th>
+          </tr>
+        </thead>
+        <tbody id="ladder-table-body">
+          <!-- Dynamically Injected -->
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
@@ -1626,24 +1629,74 @@
   ];
 
   const MEMORY_DATA = [
-    { dist: "Sequential (0..N)", pop1k: "0.32 / 8.70", pop100k: "0.07 / 8.57", pop1m: "0.07 / 8.56", form: "FullExpanse (Set) / LeafBitmapL (Map)" },
-    { dist: "Clustered (256-key runs)", pop1k: "0.38 / 8.64", pop100k: "0.37 / 8.62", pop1m: "0.36 / 8.61", form: "Narrow Pointer + LeafBitmapL" },
-    { dist: "Clustered Wide", pop1k: "0.32 / 8.70", pop100k: "0.12 / 8.60", pop1m: "0.12 / 8.60", form: "BranchL3/L7 + Subexpanse Bitmaps" },
-    { dist: "Random 64-bit Keys", pop1k: "13.50 / 24.10", pop100k: "14.78 / 24.62", pop1m: "7.92 / 16.70", form: "Full Multi-Level Digital Trie" },
-    { dist: "Sparse High Bytes", pop1k: "16.83 / 16.83", pop100k: "16.32 / 16.32", pop1m: "16.31 / 16.31", form: "Immediate Edges (inlined, 0 B heap)" }
+    {
+      dist: "Sequential (0..N)",
+      set_1k: "0.07 B",
+      set_100k: "0.07 B",
+      set_1m: "0.07 B",
+      map_1k: "8.57 B",
+      map_100k: "8.56 B",
+      map_1m: "8.56 B",
+      ceiling: "≤ 0.50 B / ≤ 9.00 B",
+      form: "FullExpanse (Set) / LeafBitmapL (Map)"
+    },
+    {
+      dist: "Clustered (256-key runs)",
+      set_1k: "0.36 B",
+      set_100k: "0.36 B",
+      set_1m: "0.36 B",
+      map_1k: "8.86 B",
+      map_100k: "8.86 B",
+      map_1m: "8.86 B",
+      ceiling: "≤ 1.00 B / ≤ 10.00 B",
+      form: "Narrow Pointer + LeafBitmapL"
+    },
+    {
+      dist: "Linear Leaf (15-key runs)",
+      set_1k: "1.25 B",
+      set_100k: "1.25 B",
+      set_1m: "1.25 B",
+      map_1k: "9.75 B",
+      map_100k: "9.75 B",
+      map_1m: "9.75 B",
+      ceiling: "≤ 2.50 B / ≤ 12.00 B",
+      form: "Optimal SIMD 16-element leaf packing"
+    },
+    {
+      dist: "Dense Leaf (32-key runs)",
+      set_1k: "0.28 B",
+      set_100k: "0.28 B",
+      set_1m: "0.28 B",
+      map_1k: "8.78 B",
+      map_100k: "8.78 B",
+      map_1m: "8.78 B",
+      ceiling: "≤ 1.00 B / ≤ 10.00 B",
+      form: "Bitmap256 leaf bitmask efficiency"
+    },
+    {
+      dist: "Random Uniform 64-bit",
+      set_1k: "8.12 B",
+      set_100k: "14.85 B",
+      set_1m: "16.31 B",
+      map_1k: "16.74 B",
+      map_100k: "22.90 B",
+      map_1m: "24.52 B",
+      ceiling: "≤ 18.00 B / ≤ 26.00 B",
+      form: "Full Multi-Level Digital Trie"
+    }
   ];
 
   const LADDER_SPEC = [
-    { type: "Immediate (Set/Map)", cap: "1..7 keys", size: "16 B (inlined)", search: "Direct u64 equality in word 0", promo: "LinearLeaf (pop > cap)" },
-    { type: "Root-Level Leaf", cap: "1..31 keys", size: "Class-sized (cap_class)", search: "Monotonic append O(1) / Binary search", promo: "BranchL3 Tree (pop = 32)" },
-    { type: "Linear Leaf 1", cap: "2..25 keys", size: "Class-sized: size_map(1, pop)", search: "128-bit SIMD vector scan (AVX2/NEON)", promo: "LeafBitmap1 (pop = 26)" },
-    { type: "Linear Leaf 2..7", cap: "2..32 keys", size: "Class-sized: size_map(kb, pop)", search: "Key suffix + decode prefix match", promo: "BranchL3 on overflow" },
-    { type: "Bitmap Leaf (B1/L)", cap: "26..256 keys", size: "32 B / 96 B + 8 subarrays", search: "256-bit Bitmap POPCNT rank", promo: "FullExpanse (Set, pop = 256)" },
-    { type: "Full Expanse (Set)", cap: "256 keys", size: "0 B (NULL ptr, pop0=255)", search: "Unconditional true (always present)", promo: "Terminal density state" },
-    { type: "Branch L3", cap: "1..3 children", size: "32 B header + 3 Edges", search: "find_byte_8 SWAR / SIMD byte match", promo: "BranchL7 (num = 3)" },
-    { type: "Branch L7", cap: "4..7 children", size: "64 B header + 7 Edges", search: "find_byte_16_sse2 128-bit vector scan", promo: "BranchB (num = 7)" },
-    { type: "Branch B", cap: "8..180 children", size: "64 B node + child arrays", search: "Bitmap256 subexpanse rank + POPCNT", promo: "BranchU (fanout > 180)" },
-    { type: "Branch U", cap: "181..256 children", size: "2048 B flat table", search: "Direct array index edges[d] (O(1))", promo: "Max fanout branch" }
+    { type: "Immediate (Set/Map)", cap: "1..7 keys", size: "16 B (inlined)", search: "Direct u64 equality in word 0", promo: "LinearLeaf (pop > cap)", demote: "Edge::NULL (pop = 0)" },
+    { type: "Root-Level Leaf", cap: "1..31 keys", size: "Class-sized (16B..512B)", search: "Monotonic append O(1) / Binary search", promo: "BranchL3 Tree (pop = 32)", demote: "Edge::NULL (pop = 0)" },
+    { type: "Linear Leaf 1", cap: "2..25 keys", size: "Class-sized: size_map(1, pop)", search: "128-bit SIMD vector scan (AVX2/NEON)", promo: "LeafBitmap1 (pop = 26)", demote: "Immediate / NULL" },
+    { type: "Linear Leaf 2..7", cap: "2..32 keys", size: "Class-sized: size_map(kb, pop)", search: "Key suffix + decode prefix match", promo: "BranchL3 on overflow", demote: "LinearLeaf shrink" },
+    { type: "Bitmap Leaf (B1/L)", cap: "26..256 keys", size: "32 B / 96 B + 8 subarrays", search: "256-bit Bitmap POPCNT rank", promo: "FullExpanse (Set, pop = 256)", demote: "LinearLeaf (pop ≤ 20)" },
+    { type: "Full Expanse (Set)", cap: "256 keys", size: "0 B (NULL ptr, pop0=255)", search: "Unconditional true (always present)", promo: "Terminal density state", demote: "BitmapLeaf (pop < 256)" },
+    { type: "Branch L3", cap: "1..3 children", size: "32 B header + 3 Edges", search: "find_byte_8 SWAR / SIMD byte match", promo: "BranchL7 (num = 3)", demote: "LinearLeaf / NULL" },
+    { type: "Branch L7", cap: "4..7 children", size: "64 B header + 7 Edges", search: "find_byte_16_sse2 128-bit vector scan", promo: "BranchB (num = 7)", demote: "BranchL3 (num ≤ 3)" },
+    { type: "Branch B", cap: "8..180 children", size: "64 B node + child arrays", search: "Bitmap256 subexpanse rank + POPCNT", promo: "BranchU (fanout > 180)", demote: "BranchL7 (num ≤ 6)" },
+    { type: "Branch U", cap: "181..256 children", size: "2048 B flat table", search: "Direct array index edges[d] (O(1))", promo: "Max fanout branch", demote: "BranchB (fanout ≤ 160)" }
   ];
 
   const NODE_DETAILS = {
@@ -1899,9 +1952,13 @@
     tbody.innerHTML = MEMORY_DATA.map(row => `
       <tr>
         <td><strong>${row.dist}</strong></td>
-        <td class="num">${row.pop1k} B</td>
-        <td class="num">${row.pop100k} B</td>
-        <td class="num win-text">${row.pop1m} B</td>
+        <td class="num">${row.set_1k}</td>
+        <td class="num">${row.set_100k}</td>
+        <td class="num win-text">${row.set_1m}</td>
+        <td class="num">${row.map_1k}</td>
+        <td class="num">${row.map_100k}</td>
+        <td class="num win-text">${row.map_1m}</td>
+        <td class="num" style="color:var(--text-muted);">${row.ceiling}</td>
         <td style="font-size:11px; color:var(--accent);">${row.form}</td>
       </tr>
     `).join('');
@@ -1914,9 +1971,10 @@
       <tr>
         <td><strong>${row.type}</strong></td>
         <td><span class="step-badge">${row.cap}</span></td>
-        <td style="font-size:11px;">${row.size}</td>
+        <td style="font-size:11px; font-family:ui-monospace, monospace;">${row.size}</td>
         <td style="font-size:11px; color:#a5b4fc;">${row.search}</td>
         <td style="font-size:11px; color:var(--accent-green);">${row.promo}</td>
+        <td style="font-size:11px; color:#f87171;">${row.demote}</td>
       </tr>
     `).join('');
   }
