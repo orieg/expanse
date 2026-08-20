@@ -213,30 +213,23 @@ impl ExpanseSet {
                     // SAFETY: path holds valid live LeafBitmap1 pointer.
                     let leaf = unsafe { &mut *self.path.leaf };
                     if leaf.bitmap.set(d) {
-                        for i in 0..self.path.depth {
-                            // SAFETY: path contains valid live edge pointers during active bypass.
-                            unsafe {
-                                crate::mutate::bump_pop0(
-                                    &mut *self.path.edges[i],
-                                    self.path.levels[i],
-                                    1,
-                                );
-                            }
-                        }
+                        self.path.pending_pop += 1;
                         // SAFETY: path.depth >= 1 and edges[0] is the live leaf edge.
-                        let terminal_pop = unsafe { (*self.path.edges[0]).pop0(1) } + 1;
+                        let terminal_pop = unsafe { (*self.path.edges[0]).pop0(1) } as usize
+                            + 1
+                            + self.path.pending_pop;
                         if terminal_pop == 256 {
-                            let ptr = core::ptr::NonNull::new(leaf);
-                            // SAFETY: leaf converted to full expanse, old node freed.
-                            unsafe { self.alloc.free_node(ptr.expect("leaf ptr")) };
                             // SAFETY: terminal edge is valid and rewritten to FullExpanse.
                             unsafe {
+                                self.path.flush();
+                                let ptr = core::ptr::NonNull::new(leaf);
+                                self.alloc.free_node(ptr.expect("leaf ptr"));
                                 let terminal_edge = &mut *self.path.edges[0];
                                 *terminal_edge = Edge::NULL;
                                 terminal_edge.set_tag(crate::types::EdgeType::FullExpanse.as_u8());
                                 terminal_edge.set_pop0(1, 255);
+                                self.path.clear();
                             }
-                            self.path.clear();
                         }
                         *pop += 1;
                         return true;
@@ -375,6 +368,11 @@ impl ExpanseSet {
                 if top.is_null() {
                     return Err("tree root with null top".into());
                 }
+                // SAFETY: flushing pending population before validating invariant counts.
+                unsafe {
+                    let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
+                    mut_self.path.flush();
+                }
                 let mut stats = ExpanseStats::default();
                 let counted =
                     crate::validate::expanse_validate_and_stats::<false>(top, 8, &mut stats, 0)?;
@@ -400,6 +398,11 @@ impl ExpanseSet {
                 stats.node_counts.leaf_linear = 1;
             }
             Root::Tree { top, .. } => {
+                // SAFETY: flushing pending population before gathering stats.
+                unsafe {
+                    let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
+                    mut_self.path.flush();
+                }
                 let _ = crate::validate::expanse_validate_and_stats::<false>(top, 8, &mut stats, 0);
             }
         }
@@ -468,6 +471,11 @@ impl ExpanseSet {
     /// Number of keys strictly below `key` (rank).
     #[must_use]
     pub fn count_below(&self, key: Key) -> u64 {
+        // SAFETY: flushing pending population before rank traversal.
+        unsafe {
+            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
+            mut_self.path.flush();
+        }
         match &self.root {
             Root::Empty => 0,
             Root::Leaf { .. } => self.root_leaf_keys().partition_point(|&k| k < key) as u64,
@@ -492,6 +500,11 @@ impl ExpanseSet {
     pub fn by_count(&self, n: u64) -> Option<u64> {
         if n >= self.len() {
             return None;
+        }
+        // SAFETY: flushing pending population before select traversal.
+        unsafe {
+            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
+            mut_self.path.flush();
         }
         match &self.root {
             Root::Empty => None,
@@ -1100,5 +1113,28 @@ mod tests {
         assert!(stats.leaf_pop_histogram[32] >= num_runs);
         assert_eq!(stats.node_counts.leaf_bitmap, 0);
         assert!(stats.node_counts.leaf_linear >= num_runs);
+    }
+
+    #[test]
+    fn test_deferred_ancestor_pop_clustered_and_boundary_flush() {
+        let mut set = ExpanseSet::new();
+        // Insert multiple 200-key clusters into distinct 256-key expanses
+        for cluster in 0..10u64 {
+            let prefix = (cluster + 1) << 16;
+            for i in 0..200u64 {
+                assert!(set.insert(prefix | i));
+            }
+        }
+        assert_eq!(set.len(), 2000);
+        // Verify membership during and after deferred flushing
+        for cluster in 0..10u64 {
+            let prefix = (cluster + 1) << 16;
+            for i in 0..200u64 {
+                assert!(set.contains(prefix | i));
+            }
+        }
+        // Validation performs full recursive pop0 check at all tree levels
+        set.validate();
+        assert_eq!(set.len(), 2000);
     }
 }

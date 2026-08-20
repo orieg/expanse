@@ -216,12 +216,7 @@ impl ExpanseMap {
                     node.values[sub] = new.as_ptr();
                 }
                 node.bitmap.set(d);
-                for i in 0..self.path.depth {
-                    // SAFETY: path contains valid live edge pointers during active bypass.
-                    unsafe {
-                        crate::mutate::bump_pop0(&mut *self.path.edges[i], self.path.levels[i], 1);
-                    }
-                }
+                self.path.pending_pop += 1;
                 *pop += 1;
                 // SAFETY: freshly inserted slot.
                 let slot = unsafe { node.values[sub].add(rank) };
@@ -427,16 +422,7 @@ impl ExpanseMap {
                         node.values[sub] = new.as_ptr();
                     }
                     node.bitmap.set(d);
-                    for i in 0..self.path.depth {
-                        // SAFETY: path contains valid live edge pointers during active bypass.
-                        unsafe {
-                            crate::mutate::bump_pop0(
-                                &mut *self.path.edges[i],
-                                self.path.levels[i],
-                                1,
-                            );
-                        }
-                    }
+                    self.path.pending_pop += 1;
                     *pop += 1;
                     return None;
                 }
@@ -563,6 +549,11 @@ impl ExpanseMap {
                 if top.is_null() {
                     return Err("tree root with null top".into());
                 }
+                // SAFETY: flushing pending population before validating invariant counts.
+                unsafe {
+                    let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
+                    mut_self.path.flush();
+                }
                 let mut stats = ExpanseStats::default();
                 let counted =
                     crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0)?;
@@ -588,6 +579,11 @@ impl ExpanseMap {
                 stats.node_counts.leaf_linear = 1;
             }
             Root::Tree { top, .. } => {
+                // SAFETY: flushing pending population before gathering stats.
+                unsafe {
+                    let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
+                    mut_self.path.flush();
+                }
                 let _ = crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0);
             }
         }
@@ -662,6 +658,11 @@ impl ExpanseMap {
     /// Number of keys strictly below `key` (rank).
     #[must_use]
     pub fn count_below(&self, key: Key) -> u64 {
+        // SAFETY: flushing pending population before rank traversal.
+        unsafe {
+            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
+            mut_self.path.flush();
+        }
         match &self.root {
             Root::Empty => 0,
             Root::Leaf { ptr, pop } => {
@@ -689,6 +690,11 @@ impl ExpanseMap {
     pub fn by_count(&self, n: u64) -> Option<(u64, u64)> {
         if n >= self.len() {
             return None;
+        }
+        // SAFETY: flushing pending population before select traversal.
+        unsafe {
+            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
+            mut_self.path.flush();
         }
         match &self.root {
             Root::Empty => None,
@@ -1254,5 +1260,25 @@ mod tests {
             child.set_pop0(7, pop0 + 1);
         }
         map.validate();
+    }
+
+    #[test]
+    fn test_deferred_ancestor_pop_clustered_and_boundary_flush() {
+        let mut map = ExpanseMap::new();
+        for cluster in 0..10u64 {
+            let prefix = (cluster + 1) << 16;
+            for i in 0..200u64 {
+                assert_eq!(map.insert(prefix | i, i * 10), None);
+            }
+        }
+        assert_eq!(map.len(), 2000);
+        for cluster in 0..10u64 {
+            let prefix = (cluster + 1) << 16;
+            for i in 0..200u64 {
+                assert_eq!(map.get(prefix | i), Some(i * 10));
+            }
+        }
+        map.validate();
+        assert_eq!(map.len(), 2000);
     }
 }

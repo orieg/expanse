@@ -196,6 +196,7 @@ pub(crate) struct InsertPathMap {
     pub levels: [u8; 8],
     pub depth: usize,
     pub leaf: *mut LeafBitmapL,
+    pub pending_pop: usize,
 }
 
 impl InsertPathMap {
@@ -206,14 +207,37 @@ impl InsertPathMap {
             levels: [0; 8],
             depth: 0,
             leaf: core::ptr::null_mut(),
+            pending_pop: 0,
+        }
+    }
+
+    #[inline(always)]
+    pub unsafe fn flush(&mut self) {
+        if self.pending_pop > 0 {
+            let delta = self.pending_pop as i64;
+            self.pending_pop = 0;
+            for i in 0..self.depth {
+                // SAFETY: path contains valid live edge pointers during active bypass.
+                unsafe {
+                    crate::mutate::bump_pop0(&mut *self.edges[i], self.levels[i], delta);
+                }
+            }
         }
     }
 
     #[inline(always)]
     pub fn clear(&mut self) {
-        self.prefix = u64::MAX;
-        self.depth = 0;
-        self.leaf = core::ptr::null_mut();
+        if self.pending_pop > 0 {
+            // SAFETY: flushing pending population before clearing path references.
+            unsafe {
+                self.flush();
+            }
+        }
+        if self.prefix != u64::MAX {
+            self.prefix = u64::MAX;
+            self.depth = 0;
+            self.leaf = core::ptr::null_mut();
+        }
     }
 }
 
@@ -632,6 +656,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                     path.edges[0] = edge as *mut Edge;
                     path.levels[0] = 1;
                     path.depth = 1;
+                    path.pending_pop = 0;
                 }
                 // SAFETY: the value now lives at this subarray rank.
                 return (None, unsafe { node.values[sub].add(rank) });
