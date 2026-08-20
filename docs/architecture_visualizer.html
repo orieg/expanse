@@ -673,7 +673,7 @@
             <button type="button" class="chip-btn" data-idx="11" onclick="setPopIndex(11)">1K (2-Lvl)</button>
             <button type="button" class="chip-btn" data-idx="13" onclick="setPopIndex(13)">100K (5-Lvl)</button>
             <button type="button" class="chip-btn" data-idx="14" onclick="setPopIndex(14)">1M (8-Lvl)</button>
-            <button type="button" class="chip-btn" data-idx="15" onclick="setPopIndex(15)">10M (Enterprise)</button>
+            <button type="button" class="chip-btn" data-idx="15" onclick="setPopIndex(15)">10M (8-Lvl Dense)</button>
           </div>
         </div>
 
@@ -898,7 +898,7 @@
               </div>
               <div class="depth-card" id="depth-card-10m">
                 <div style="font-size:12px; font-weight:700; color:var(--accent);">10,000,000 Keys</div>
-                <div style="font-size:10px; color:#ec4899; font-weight:600; margin:2px 0;">8 Levels (Enterprise Saturated)</div>
+                <div style="font-size:10px; color:#ec4899; font-weight:600; margin:2px 0;">8 Levels (Dense Fanout / L3–DRAM Boundary)</div>
                 <div style="font-size:11px; color:var(--text-muted);">Dense multi-million scale trie spanning 64-bit address space. L3 cache / DRAM boundary.</div>
               </div>
             </div>
@@ -1786,7 +1786,7 @@
     { pop: 10000, label: "10,000 keys", desc: "3-Level Digital Trie (Dynamic BranchL3/BranchB routing)", tag: "TRIE_3LVL" },
     { pop: 100000, label: "100,000 keys", desc: "4–5 Level Digital Trie (0.36 B/k clustered set, 8.56 B/k map)", tag: "TRIE_5LVL" },
     { pop: 1000000, label: "1,000,000 keys", desc: "6–8 Level Digital Trie (Sequential Bypass skips 8 branch levels)", tag: "TRIE_8LVL" },
-    { pop: 10000000, label: "10,000,000 keys", desc: "Enterprise 10M Scale (8-Level Digital Trie, L3 Cache / DRAM boundary)", tag: "TRIE_10M" }
+    { pop: 10000000, label: "10,000,000 keys", desc: "10M Keys Dense Scale (8-level digital trie, dense branch fanout, L3 cache / DRAM boundary)", tag: "TRIE_10M" }
   ];
 
   const opSelect = document.getElementById('op-select');
