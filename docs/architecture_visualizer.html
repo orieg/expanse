@@ -482,12 +482,15 @@
     .subarray-box strong { color: var(--accent); }
     .depth-compare-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 8px;
       margin-top: 8px;
     }
-    @media (max-width: 900px) {
-      .depth-compare-grid { grid-template-columns: repeat(2, 1fr); }
+    @media (max-width: 1024px) {
+      .depth-compare-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .depth-compare-grid { grid-template-columns: repeat(1, 1fr); }
     }
     .depth-card {
       background: var(--card-inner);
@@ -637,6 +640,7 @@
           <select id="flavor-select">
             <option value="map" selected>ExpanseMap (Key → Value / JudyL)</option>
             <option value="set">ExpanseSet (Bitset / Judy1)</option>
+            <option value="bytesmap">ExpanseBytesMap (Byte slices / JudyHS/SL)</option>
           </select>
         </div>
 
@@ -658,7 +662,7 @@
             <span id="pop-val" style="color:#38bdf8; font-weight:700; font-family:ui-monospace, monospace; font-size:13px;">18 keys</span>
           </div>
           <div style="font-size:10px; color:var(--text-muted); margin-bottom:4px; margin-top:2px;" id="pop-regime-desc">Linear Leaf SIMD Band (128-bit AVX2/NEON probe)</div>
-          <input type="range" id="pop-slider" min="0" max="14" step="1" value="3">
+          <input type="range" id="pop-slider" min="0" max="15" step="1" value="3">
           <div class="milestone-chips" id="milestone-chips-container">
             <button type="button" class="chip-btn" data-idx="0" onclick="setPopIndex(0)">1 (Immed)</button>
             <button type="button" class="chip-btn active" data-idx="3" onclick="setPopIndex(3)">18 (SIMD)</button>
@@ -669,6 +673,7 @@
             <button type="button" class="chip-btn" data-idx="11" onclick="setPopIndex(11)">1K (2-Lvl)</button>
             <button type="button" class="chip-btn" data-idx="13" onclick="setPopIndex(13)">100K (5-Lvl)</button>
             <button type="button" class="chip-btn" data-idx="14" onclick="setPopIndex(14)">1M (8-Lvl)</button>
+            <button type="button" class="chip-btn" data-idx="15" onclick="setPopIndex(15)">10M (Enterprise)</button>
           </div>
         </div>
 
@@ -868,7 +873,7 @@
           <!-- Population Regime & Depth Comparison Matrix -->
           <div style="margin-top:16px;">
             <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">
-              Multi-Level Trie Scaling: 1K vs 10K vs 100K vs 1M Keys
+              Multi-Level Trie Scaling: 1K vs 10K vs 100K vs 1M vs 10M Keys
             </div>
             <div class="depth-compare-grid">
               <div class="depth-card" id="depth-card-1k">
@@ -890,6 +895,11 @@
                 <div style="font-size:12px; font-weight:700; color:var(--accent);">1,000,000 Keys</div>
                 <div style="font-size:10px; color:#f97316; font-weight:600; margin:2px 0;">8 Levels (Full 64-bit Depth)</div>
                 <div style="font-size:11px; color:var(--text-muted);">Full 8-level trie depth. Sequential Run Bypass skips all 8 levels directly to LeafB1 on monotonic streams.</div>
+              </div>
+              <div class="depth-card" id="depth-card-10m">
+                <div style="font-size:12px; font-weight:700; color:var(--accent);">10,000,000 Keys</div>
+                <div style="font-size:10px; color:#ec4899; font-weight:600; margin:2px 0;">8 Levels (Enterprise Saturated)</div>
+                <div style="font-size:11px; color:var(--text-muted);">Dense multi-million scale trie spanning 64-bit address space. L3 cache / DRAM boundary.</div>
               </div>
             </div>
           </div>
@@ -1775,7 +1785,8 @@
     { pop: 1000, label: "1,000 keys", desc: "2-Level Digital Trie (Root JPM -> Level 8 -> Level 7 -> Leaves)", tag: "TRIE_2LVL" },
     { pop: 10000, label: "10,000 keys", desc: "3-Level Digital Trie (Dynamic BranchL3/BranchB routing)", tag: "TRIE_3LVL" },
     { pop: 100000, label: "100,000 keys", desc: "4–5 Level Digital Trie (0.36 B/k clustered set, 8.56 B/k map)", tag: "TRIE_5LVL" },
-    { pop: 1000000, label: "1,000,000 keys", desc: "6–8 Level Digital Trie (Sequential Bypass skips 8 branch levels)", tag: "TRIE_8LVL" }
+    { pop: 1000000, label: "1,000,000 keys", desc: "6–8 Level Digital Trie (Sequential Bypass skips 8 branch levels)", tag: "TRIE_8LVL" },
+    { pop: 10000000, label: "10,000,000 keys", desc: "Enterprise 10M Scale (8-Level Digital Trie, L3 Cache / DRAM boundary)", tag: "TRIE_10M" }
   ];
 
   const opSelect = document.getElementById('op-select');
@@ -1830,33 +1841,93 @@
     let cache = "1 line (64B)";
     let hwAcc = "-4.8% v3";
 
-    // Step 1: Root Dispatch
-    steps.push({
-      badge: "ROOT",
-      badgeClass: "highlight",
-      title: "Root Edge Pointer Tag Extraction",
-      desc: "Extracts 3-bit structural tag from 16-byte Edge. Checks OCC sequence counter version bracket.",
-      algo: op === "sync_read" ? "Atomic SeqLock Version Guard (acquire fence)" : "Tagged Pointer Tag Extraction (`edge.tag() & 0x07`)"
-    });
+    // 1. Calculate active trie depth
+    let activeDepth = 0;
+    if (pop <= 31 || dist === "small") activeDepth = 0;
+    else if (dist === "clustered") activeDepth = pop <= 256 ? 1 : (pop <= 10000 ? 2 : (pop <= 100000 ? 3 : 5));
+    else if (pop <= 256) activeDepth = 1;
+    else if (pop <= 1000) activeDepth = 2;
+    else if (pop <= 10000) activeDepth = 3;
+    else if (pop <= 100000) activeDepth = 5;
+    else activeDepth = 8;
 
-    // Check Multi-Level Sequential Run Bypass
-    const isSequentialBypass = op === "insert" && dist === "sequential" && pop > 31;
+    // 2. Multi-level sequential run bypass check
+    const isSequentialBypass = (op === "insert" || op === "ins_slot") && dist === "sequential" && pop > 31;
 
+    // 3. Memory overhead per key estimation
+    if (flavor === "set") {
+      if (pop === 1 || pop === 7) mem = "0 B (inlined)";
+      else if (pop <= 31) mem = "0.50 B/k";
+      else if (dist === "sequential") mem = "0.07 B/k";
+      else if (dist === "clustered") mem = "0.36 B/k";
+      else if (pop === 256) mem = "0.00 B (JP_FULL)";
+      else mem = "1.24 B/k";
+    } else if (flavor === "map") {
+      if (pop === 1 || pop === 7) mem = "0 B (inlined)";
+      else if (pop <= 31) mem = "8.57 B/k";
+      else if (dist === "sequential") mem = "8.56 B/k";
+      else if (dist === "clustered") mem = "8.86 B/k";
+      else if (pop === 256) mem = "8.00 B/k";
+      else mem = pop >= 10000000 ? "24.80 B/k" : "24.52 B/k";
+    } else {
+      mem = pop <= 31 ? "18.2 B/k" : (pop >= 1000000 ? "32.4 B/k" : "26.1 B/k");
+    }
+
+    // 4. Cache lines touched
+    if (pop === 1 || pop === 7) cache = "0 lines (L1 register)";
+    else if (pop <= 31 || isSequentialBypass || dist === "sequential") cache = "1 line (64B)";
+    else if (pop <= 256) cache = "1 line (64B)";
+    else if (pop <= 10000) cache = "2 lines (128B)";
+    else if (pop <= 100000) cache = "3 lines (192B)";
+    else if (pop <= 1000000) cache = "4 lines (256B)";
+    else cache = "6-8 lines (L3 / DRAM)";
+
+    // 5. Hardware acceleration delta
+    if (arch === "v3") hwAcc = "-12.11% (AVX2/BMI2)";
+    else if (arch === "neon") hwAcc = "-6.45% (AArch64 NEON)";
+    else hwAcc = "Baseline (x86-64-v1)";
+
+    // 6. Build execution pipeline trace steps
+    // Step A: Root Tag extraction or OCC acquire
+    if (op === "sync_read") {
+      steps.push({
+        badge: "OCC ACQUIRE",
+        badgeClass: "highlight",
+        title: "Atomic SeqLock Version Guard",
+        desc: "Reads root OCC sequence counter with acquire fence (`seq.load(Acquire)`). Spins if active writer (`version & 1 == 1`).",
+        algo: "Atomic SeqLock Acquire Fence (version load)"
+      });
+    } else if (op === "ins_slot") {
+      steps.push({
+        badge: "SLOT LOCATE",
+        badgeClass: "highlight",
+        title: "Key Slot Address Resolution",
+        desc: "Decodes 3-bit tagged pointer and traverses trie to find mutable `*mut u64` address without value duplication.",
+        algo: "Tagged Pointer Tag Extraction (`edge.tag() & 0x07`)"
+      });
+    } else {
+      steps.push({
+        badge: "ROOT",
+        badgeClass: "highlight",
+        title: "Root Edge Pointer Tag Extraction",
+        desc: "Extracts 3-bit structural tag from 16-byte Edge. Validates OCC sequence counter version bracket.",
+        algo: "Tagged Pointer Tag Extraction (`edge.tag() & 0x07`)"
+      });
+    }
+
+    // Step B: Traversal / Bypass / Leaf Lookup
     if (isSequentialBypass) {
       steps.push({
         badge: "MULTI-LEVEL BYPASS",
         badgeClass: "green",
         title: "Sequential Run Bypass (InsertPath Cursor)",
-        desc: `High 56-bit prefix match (\`key >> 8 == path.prefix\`). Bypasses all 8 levels of digital trie branch descent and decoding at ${milestone.label}!`,
-        algo: "Direct 1-Bit Test/Set + Unrolled Ancestor Edge pop0 In-Place Increment (~15 instrs / op)"
+        desc: `High 56-bit prefix match (\`key >> 8 == path.prefix\`). Bypasses all ${activeDepth} levels of digital trie branch descent directly to active LeafB1!`,
+        algo: "Direct 1-Bit Test/Set + Unrolled Ancestor Edge pop0 Increment (~15 instrs)"
       });
       instr = 15;
       baselineInstr = pop >= 100000 ? 112 : 98;
-      mem = flavor === "map" ? "8.56 B/k" : "0.07 B/k";
-      cache = "1 line (64B)";
-      hwAcc = "-2.93% (v3)";
-      compDesc.textContent = `Expanse Sequential Bypass: 15 instrs vs Stock Judy ${baselineInstr} instrs (bypassing up to 8 branch levels).`;
-      compWinBadge.textContent = "6.5x Instruction Win";
+      compDesc.textContent = `Expanse Sequential Bypass: 15 instrs vs Stock Judy ${baselineInstr} instrs (bypassing all ${activeDepth} branch levels).`;
+      compWinBadge.textContent = "6.5x Advantage";
     } else if (pop === 1 || pop === 7) {
       steps.push({
         badge: "IMMEDIATE",
@@ -1865,13 +1936,10 @@
         desc: "Key and payload stored directly in the 16-byte Edge structure. Zero heap allocation.",
         algo: "Zero-Deref Scalar Compare (u64 equality in word 0)"
       });
-      instr = 4;
-      baselineInstr = 12;
-      mem = "0 B (inlined)";
-      cache = "0 lines (L1 register)";
-      hwAcc = "Register-resident";
+      instr = op === "insert" ? 8 : 4;
+      baselineInstr = 14;
       compDesc.textContent = "Immediate edge: Register-resident payload beats stock Judy indirect pointer traversal.";
-      compWinBadge.textContent = "3.0x Advantage";
+      compWinBadge.textContent = "3.5x Advantage";
     } else if (pop <= 31 || dist === "small") {
       if (op === "insert" && (dist === "sequential" || dist === "clustered" || dist === "small")) {
         steps.push({
@@ -1883,11 +1951,32 @@
         });
         instr = 6;
         baselineInstr = 24;
-        mem = flavor === "map" ? "8.57 B/k" : "0.5 B/k";
-        cache = "1 line (64B)";
-        hwAcc = "-4.2% (v3)";
         compDesc.textContent = "Root Leaf Monotonic Append: Single scalar probe eliminates binary search and class realloc.";
         compWinBadge.textContent = "4.0x Advantage";
+      } else if (op === "remove") {
+        steps.push({
+          badge: "ROOT LEAF DELETE",
+          badgeClass: "orange",
+          title: "Root Leaf Key Deletion & Condense",
+          desc: "Locates key via binary search and condenses root leaf array in-place. Zero heap deallocation.",
+          algo: "In-Place Array Shift (`ptr::copy`)"
+        });
+        instr = 12;
+        baselineInstr = 28;
+        compDesc.textContent = "Root Leaf Removal: Fast in-place contiguous shift with zero heap fragmentation.";
+        compWinBadge.textContent = "2.3x Advantage";
+      } else if (op === "nav") {
+        steps.push({
+          badge: "ROOT LEAF NAV",
+          badgeClass: "purple",
+          title: "Flat Key Index Navigation",
+          desc: "Computes rank / next key directly from sorted root array using scalar index arithmetic.",
+          algo: "O(1) Direct Array Indexing"
+        });
+        instr = 8;
+        baselineInstr = 20;
+        compDesc.textContent = "Root Leaf Navigation: Direct index arithmetic eliminates branch and bitmap decoding.";
+        compWinBadge.textContent = "2.5x Advantage";
       } else {
         steps.push({
           badge: "ROOT LEAF",
@@ -1898,9 +1987,6 @@
         });
         instr = pop <= 2 ? 6 : 14;
         baselineInstr = 26;
-        mem = flavor === "map" ? "16.7 B/k" : "8.0 B/k";
-        cache = "1 line (64B)";
-        hwAcc = "-5.1% (v3)";
         compDesc.textContent = "Root Leaf: Flat array eliminates interior branch pointer dereferences.";
         compWinBadge.textContent = "1.8x Advantage";
       }
@@ -1914,9 +2000,6 @@
       });
       instr = arch === "v3" ? 6 : (arch === "neon" ? 7 : 14);
       baselineInstr = 22;
-      mem = "16.7 B/k";
-      cache = "1 line (64B)";
-      hwAcc = arch === "v3" ? "-8.76% (v3)" : "-5.0% (NEON)";
       compDesc.textContent = "128-bit SIMD Leaf Scan: Evaluates entire 16-element leaf in 4 instructions with zero branches.";
       compWinBadge.textContent = "3.6x Advantage";
     } else if (pop <= 256) {
@@ -1933,23 +2016,19 @@
         badge: pop === 256 ? "FULL EXPANSE" : "BITMAP LEAF",
         badgeClass: pop === 256 ? "green" : "orange",
         title: pop === 256 ? "Full Expanse Saturation (256 Keys)" : "Bitmap256 Subexpanse Lookup",
-        desc: pop === 256 ? "All 256 keys in the 8-bit digit subrange are present (0 B child pointer in Set)." : "256-bit membership bitset across 4x u64 words. Subexpanse rank indexing for value array.",
-        algo: pop === 256 ? "O(1) Implicit Presence Check (`JP_FULL` null tag)" : (arch === "v3" ? "Hardware POPCNT + _pext_u64 (x86-64-v3)" : "Bitmap256::subexpanse_rank (SWAR 12-instr)")
+        desc: pop === 256 ? (flavor === "set" ? "All 256 keys in the 8-bit subrange are present (0 B child pointer JP_FULL in Set)." : "All 256 keys present with flat 2048 B value array in Map.") : "256-bit membership bitset across 4x u64 words. Subexpanse rank indexing for value array.",
+        algo: pop === 256 ? "O(1) Implicit Presence Check" : (arch === "v3" ? "Hardware POPCNT + _pext_u64 (x86-64-v3)" : "Bitmap256::subexpanse_rank (SWAR 12-instr)")
       });
       instr = pop === 256 ? 4 : (arch === "v3" ? 8 : 18);
       baselineInstr = 28;
-      mem = flavor === "map" ? "8.6 B/k" : "0.36 B/k";
-      cache = "1 line (64B)";
-      hwAcc = "-12.11% (v3)";
       compDesc.textContent = pop >= 192 ? "BranchU / Dense Expanse: O(1) table indexing eliminates bitmap search overhead." : "Bitmap256 Leaf: Hardware POPCNT rank acceleration achieves sub-nanosecond bitmask indexing.";
       compWinBadge.textContent = pop === 256 ? "7.0x Advantage" : "3.5x Advantage";
     } else {
-      const depth = pop >= 1000000 ? 8 : (pop >= 100000 ? 5 : (pop >= 10000 ? 3 : 2));
       steps.push({
-        badge: `TRIE DEPTH ${depth}`,
+        badge: `TRIE DEPTH ${activeDepth}`,
         badgeClass: "highlight",
-        title: `Multi-Level Digital Trie Traversal (${depth} Levels)`,
-        desc: `Descending ${depth} levels of branch nodes (JPM -> Level 8 -> BranchL/BranchB -> Terminal Expanse).`,
+        title: `Multi-Level Digital Trie Traversal (${activeDepth} Levels)`,
+        desc: `Descending ${activeDepth} levels of branch nodes (JPM -> Level 8 -> Levels ${9 - activeDepth}..2 -> Terminal Expanse).`,
         algo: dist === "clustered" ? "Narrow Pointer Prefix Skip + Shared Subexpanse (0.36 B/k)" : "find_byte_16_sse2 / Bitmap256::rank"
       });
       steps.push({
@@ -1959,23 +2038,63 @@
         desc: "Final digit resolution in terminal leaf expanse.",
         algo: "Bitmap256 subexpanse rank + value slot dereference"
       });
-      instr = depth * 4 + 10;
-      baselineInstr = depth * 12 + 14;
-      mem = dist === "clustered" ? (flavor === "map" ? "8.86 B/k" : "0.36 B/k") : (flavor === "map" ? "24.52 B/k" : "16.31 B/k");
-      cache = `${Math.min(depth, 4)} lines (${Math.min(depth, 4) * 64}B)`;
-      hwAcc = "-9.82% (v3)";
-      compDesc.textContent = `Multi-level Branch Traversal (${depth} levels): SWAR/SIMD branch scanning minimizes memory stalls.`;
+      instr = activeDepth * 4 + 10;
+      baselineInstr = activeDepth * 12 + 14;
+      compDesc.textContent = `Multi-level Branch Traversal (${activeDepth} levels): SWAR/SIMD branch scanning minimizes memory stalls.`;
       compWinBadge.textContent = "1.8x Advantage";
     }
 
-    if (op === "sync_read") {
+    // Step C: Operation Finish (Mutation / Slot deref / Nav / OCC release)
+    if (op === "insert" && !isSequentialBypass) {
       steps.push({
-        badge: "VALIDATE",
+        badge: "LADDER MUTATE",
+        badgeClass: "green",
+        title: "Leaf Ladder Climb & Ancestor Increment",
+        desc: "Inserts key into leaf, dynamically promotes node form if capacity threshold is exceeded, and bumps POP0 ancestor counts.",
+        algo: "In-Place Class Realloc + bump_pop0 Ancestor Loop + OCC version bump"
+      });
+      instr += 14;
+      baselineInstr += 24;
+    } else if (op === "remove") {
+      steps.push({
+        badge: "EPOCH DEFER",
+        badgeClass: "orange",
+        title: "Hysteresis Demotion & Epoch Deferral",
+        desc: "Shrinks leaf capacity, checks demotion thresholds (e.g. Bitmap -> Linear -> Immed), and defers node freeing via Epoch Allocator.",
+        algo: "occ::epochs::defer_free() (zero reader stall)"
+      });
+      instr += 12;
+      baselineInstr += 22;
+    } else if (op === "ins_slot") {
+      steps.push({
+        badge: "ZERO-COPY WRITE",
+        badgeClass: "green",
+        title: "Direct Mutable Slot Write",
+        desc: "Caller writes value directly into returned `*mut u64` address with 1 CPU instruction, eliminating map value lookup overhead.",
+        algo: "Direct Pointer Write (`*slot = value`)"
+      });
+      instr += 2;
+      baselineInstr += 8;
+    } else if (op === "nav") {
+      steps.push({
+        badge: "BIT NAVIGATION",
+        badgeClass: "purple",
+        title: "Bitwise Cursor Advancement",
+        desc: "Extracts next active key using hardware bit scanning (`_tzcnt_u64`) and advances cursor to next non-empty subexpanse.",
+        algo: "Hardware Bit Scan (`_tzcnt_u64(sub_bitmap & mask)`)"
+      });
+      instr += 4;
+      baselineInstr += 10;
+    } else if (op === "sync_read") {
+      steps.push({
+        badge: "OCC VALIDATE",
         badgeClass: "highlight",
         title: "OCC Version Validation",
-        desc: "Verifies root sequence counter has not changed during traversal. Retries if torn read detected.",
-        algo: "Atomic SeqLock Version Validation (release fence)"
+        desc: "Verifies root sequence counter has not changed during lock-free traversal (`seq.load(Release) == version_start`). Retries if torn.",
+        algo: "Atomic SeqLock Release Fence Validation"
       });
+      instr += 4;
+      baselineInstr += 12;
     }
 
     const winPct = Math.round(((baselineInstr - instr) / baselineInstr) * 100);
@@ -2057,14 +2176,6 @@
     }
 
     // Dynamic 64-bit Digit Strip & Subarray Architecture update
-    let activeDepth = 0;
-    if (pop <= 31) activeDepth = 0;
-    else if (pop <= 256) activeDepth = 1;
-    else if (pop <= 1000) activeDepth = 2;
-    else if (pop <= 10000) activeDepth = 3;
-    else if (pop <= 100000) activeDepth = 5;
-    else activeDepth = 8;
-
     const trieDepthBadge = document.getElementById('trie-depth-badge');
     if (trieDepthBadge) {
       if (pop <= 31) {
@@ -2126,8 +2237,10 @@
         subarrayExp.innerHTML = `<strong>Root Leaf Mode:</strong> Keys are stored in a contiguous sorted 64-bit array (up to 31 keys). No bitmaps or subarrays are allocated.`;
       } else if (flavor === "set") {
         subarrayExp.innerHTML = `<strong>Set Flavor (Judy1):</strong> <strong>0 B heap overhead</strong> after BitmapLeaf! The 256-bit bitmap directly stores membership. In interior branches (<code class="code-tag">BranchB</code>), each of the 8 subexpanses points to a dynamically sized array of <strong>child Edges</strong> that descend into deeper branch levels (${activeDepth > 2 ? `Levels 7..${9 - activeDepth}` : 'Level 7'}) or terminal leaves.`;
-      } else {
+      } else if (flavor === "map") {
         subarrayExp.innerHTML = `<strong>Map Flavor (JudyL):</strong> In <code class="code-tag">BitmapLeaf</code>, each populated subexpanse points to a class-allocated array of <strong>64-bit values</strong> (<code class="code-tag">u64</code>). In <code class="code-tag">BranchB</code>, each populated subexpanse points to an array of <strong>child Edges</strong> (${activeDepth > 2 ? `descending Levels 7..${9 - activeDepth}` : 'descending Level 7'}). POPCNT calculates the exact value/edge index in 1 CPU instruction.`;
+      } else {
+        subarrayExp.innerHTML = `<strong>BytesMap Flavor (JudyHS/SL):</strong> Arbitrary-length byte slices are dispatched digit-by-digit across digital trie levels with hash collision chains for identical prefixes. Dynamic string slot allocation with 0-copy slice indexing.`;
       }
     }
 
@@ -2144,6 +2257,9 @@
       if (c) c.classList.add('highlight');
     } else if (pop === 1000000) {
       const c = document.getElementById('depth-card-1m');
+      if (c) c.classList.add('highlight');
+    } else if (pop === 10000000) {
+      const c = document.getElementById('depth-card-10m');
       if (c) c.classList.add('highlight');
     }
 
