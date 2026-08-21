@@ -227,8 +227,7 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 let pop = edge.pop0(lf) as usize + 1;
                 let base = edge.node_ptr();
                 // SAFETY: set leaves are `pop * lf` readable key bytes.
-                let found = unsafe { leaf::search(base, pop, lf, key) };
-                return found.is_some();
+                return (unsafe { leaf::search(base, pop, lf, key) }).is_some();
             }
 
             0x7F => {
@@ -464,6 +463,44 @@ unsafe fn test_set_popcnt(edge: &Edge, key: Key, level: u8) -> bool {
     // SAFETY: contract forwarded; the `inline(always)` body adopts the
     // feature, bitmap ranks included.
     unsafe { walk_set_impl(edge, key, level) }
+}
+
+/// Tests membership and returns `c_int` (1 or 0) for direct compat tail-calls.
+///
+/// # Safety
+///
+/// Same contract as [`test_set`].
+#[inline(always)]
+#[must_use]
+pub unsafe fn test_set_c_int(edge: &Edge, key: Key, level: u8) -> core::ffi::c_int {
+    #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+    // SAFETY: contracts forwarded; `available()` gates the popcnt clone.
+    unsafe {
+        if crate::bits::popcnt_rt::available() {
+            test_set_popcnt_c_int(edge, key, level)
+        } else {
+            test_set_swar_c_int(edge, key, level)
+        }
+    }
+    #[cfg(not(all(target_arch = "x86_64", not(target_feature = "popcnt"))))]
+    {
+        // SAFETY: forwarded caller contract.
+        unsafe { walk_set_impl(edge, key, level) as core::ffi::c_int }
+    }
+}
+
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+#[inline(never)]
+unsafe fn test_set_swar_c_int(edge: &Edge, key: Key, level: u8) -> core::ffi::c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { walk_set_impl(edge, key, level) as core::ffi::c_int }
+}
+
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+#[target_feature(enable = "popcnt")]
+unsafe fn test_set_popcnt_c_int(edge: &Edge, key: Key, level: u8) -> core::ffi::c_int {
+    // SAFETY: contract forwarded.
+    unsafe { walk_set_impl(edge, key, level) as core::ffi::c_int }
 }
 
 /// Retrieves the value of `key` from a map-flavor subtree (`ExpanseMap`;

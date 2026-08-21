@@ -115,7 +115,7 @@ pub(crate) unsafe fn locate(
 ///
 /// `keys` must be valid for reads of `KB * pop` bytes.
 #[inline(always)]
-unsafe fn locate_fixed<const KB: usize>(
+pub(crate) unsafe fn locate_fixed<const KB: usize>(
     keys: *const u8,
     pop: usize,
     needle: u64,
@@ -270,6 +270,27 @@ pub(crate) unsafe fn set_insert_at(base: *mut u8, key_bytes: u8, pop: usize, pos
     }
 }
 
+/// The allocation must hold `cap_class(pop + 1)` slots and `pos <= pop`.
+#[inline(always)]
+pub(crate) unsafe fn set_insert_at_fixed<const KB: usize>(
+    base: *mut u8,
+    pop: usize,
+    pos: usize,
+    key: u64,
+) {
+    // SAFETY: in-bounds shift within the class-sized allocation.
+    unsafe {
+        if pos < pop {
+            core::ptr::copy(
+                base.add(pos * KB),
+                base.add((pos + 1) * KB),
+                (pop - pos) * KB,
+            );
+        }
+        crate::mutate::write_packed_fixed::<KB>(base, pos, key);
+    }
+}
+
 /// In-place removal from a set leaf: shifts keys `[pos + 1..pop)` left.
 ///
 /// # Safety
@@ -355,6 +376,36 @@ pub(crate) unsafe fn set_realloc_insert(
                 old.add(pos * kb),
                 new.add((pos + 1) * kb),
                 (pop - pos) * kb,
+            );
+        }
+    }
+}
+
+/// Copies a set leaf with compile-time known key width into `new`.
+///
+/// # Safety
+///
+/// `old` must be a live set leaf of `pop` keys of `KB` bytes;
+/// `new` must be a fresh allocation of `size_set(KB, pop+1)` bytes; `pos <= pop`.
+#[inline(always)]
+pub(crate) unsafe fn set_realloc_insert_fixed<const KB: usize>(
+    old: *const u8,
+    new: *mut u8,
+    pop: usize,
+    pos: usize,
+    key: u64,
+) {
+    // SAFETY: bounds per contract; the two allocations are disjoint.
+    unsafe {
+        if pos > 0 {
+            core::ptr::copy_nonoverlapping(old, new, pos * KB);
+        }
+        crate::mutate::write_packed_fixed::<KB>(new, pos, key);
+        if pos < pop {
+            core::ptr::copy_nonoverlapping(
+                old.add(pos * KB),
+                new.add((pos + 1) * KB),
+                (pop - pos) * KB,
             );
         }
     }

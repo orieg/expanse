@@ -132,6 +132,26 @@ impl ExpanseSet {
         }
     }
 
+    /// Membership test returning `c_int` (1 or 0).
+    #[inline(always)]
+    #[must_use]
+    pub fn contains_c_int(&self, key: Key) -> core::ffi::c_int {
+        match &self.root {
+            Root::Empty => 0,
+            Root::Leaf { .. } => {
+                self.root_leaf_keys().binary_search(&key).is_ok() as core::ffi::c_int
+            }
+            // SAFETY: the trie is maintained by the mutation engine and satisfies the lookup contract.
+            Root::Tree { top, .. } => unsafe { get::test_set_c_int(top, key, 8) },
+        }
+    }
+
+    /// Inserts `key`; returns 1 if newly inserted, 0 if already present.
+    #[inline(always)]
+    pub fn insert_c_int(&mut self, key: Key) -> core::ffi::c_int {
+        self.insert(key) as core::ffi::c_int
+    }
+
     /// Inserts `key`; returns `true` if it was newly inserted.
     #[inline(always)]
     pub fn insert(&mut self, key: Key) -> bool {
