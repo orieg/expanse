@@ -161,7 +161,8 @@ impl ExpanseMap {
                         // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
                         let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
                         // SAFETY: keys_ptr holds `cur_pop` 1-byte keys.
-                        if let Ok(pos) = unsafe { crate::leaf::locate(keys_ptr, cur_pop, 1, d as u64) } {
+                        let loc = unsafe { crate::leaf::locate(keys_ptr, cur_pop, 1, d as u64) };
+                        if let Ok(pos) = loc {
                             // SAFETY: pos < cur_pop is in-bounds of the live value area.
                             return Some(unsafe { *base.cast::<u64>().add(pos) });
                         }
@@ -210,7 +211,8 @@ impl ExpanseMap {
                         // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
                         let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
                         // SAFETY: keys_ptr holds `cur_pop` 1-byte keys.
-                        if let Ok(pos) = unsafe { crate::leaf::locate(keys_ptr, cur_pop, 1, d as u64) } {
+                        let loc = unsafe { crate::leaf::locate(keys_ptr, cur_pop, 1, d as u64) };
+                        if let Ok(pos) = loc {
                             // SAFETY: pos < cur_pop is in-bounds of the live value area.
                             return core::ptr::NonNull::new(unsafe { base.cast::<u64>().add(pos) });
                         }
@@ -243,7 +245,9 @@ impl ExpanseMap {
                     }
                     let rank = node.bitmap.subexpanse_rank(d) as usize;
                     let old_n = node.bitmap.subexpanse_count(sub) as usize;
-                    if old_n > 0 && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n) {
+                    if old_n > 0
+                        && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
+                    {
                         // Fast path: spare class capacity — shift in place.
                         // SAFETY: the subarray holds cap_class(old_n) slots.
                         unsafe {
@@ -289,7 +293,8 @@ impl ExpanseMap {
                     let last = unsafe { *keys_ptr.add(cur_pop - 1) };
                     if d > last {
                         if cur_pop < crate::mutate::LEAF1_CAP
-                            && crate::leaf::cap_class(cur_pop + 1) == crate::leaf::cap_class(cur_pop)
+                            && crate::leaf::cap_class(cur_pop + 1)
+                                == crate::leaf::cap_class(cur_pop)
                         {
                             // SAFETY: spare class capacity in the live Leaf1 allocation.
                             unsafe {
@@ -532,7 +537,8 @@ impl ExpanseMap {
                         let last = unsafe { *keys_ptr.add(cur_pop - 1) };
                         if d > last {
                             if cur_pop < crate::mutate::LEAF1_CAP
-                                && crate::leaf::cap_class(cur_pop + 1) == crate::leaf::cap_class(cur_pop)
+                                && crate::leaf::cap_class(cur_pop + 1)
+                                    == crate::leaf::cap_class(cur_pop)
                             {
                                 // SAFETY: spare class capacity in the live Leaf1 allocation.
                                 unsafe {

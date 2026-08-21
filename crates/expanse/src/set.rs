@@ -132,7 +132,9 @@ impl ExpanseSet {
                         let cur_pop = self.path.terminal_pop as usize;
                         let base = self.path.leaf1;
                         // SAFETY: base points to a live Leaf1 allocation holding `cur_pop` keys.
-                        return unsafe { crate::leaf::search(base, cur_pop, 1, d as u64).is_some() };
+                        return unsafe {
+                            crate::leaf::search(base, cur_pop, 1, d as u64).is_some()
+                        };
                     }
                 }
                 // SAFETY: the trie is maintained by the mutation engine and satisfies the lookup contract.
@@ -244,7 +246,8 @@ impl ExpanseSet {
                                     self.alloc.free_node(ptr.expect("leaf ptr"));
                                     let terminal_edge = &mut *self.path.edges[0];
                                     *terminal_edge = Edge::NULL;
-                                    terminal_edge.set_tag(crate::types::EdgeType::FullExpanse.as_u8());
+                                    terminal_edge
+                                        .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
                                     terminal_edge.set_pop0(1, 255);
                                     self.path.clear();
                                 }
@@ -261,7 +264,8 @@ impl ExpanseSet {
                         let last = unsafe { *self.path.leaf1.add(cur_pop - 1) };
                         if d > last {
                             if cur_pop < crate::mutate::LEAF1_CAP
-                                && crate::leaf::cap_class(cur_pop + 1) == crate::leaf::cap_class(cur_pop)
+                                && crate::leaf::cap_class(cur_pop + 1)
+                                    == crate::leaf::cap_class(cur_pop)
                             {
                                 // SAFETY: spare class capacity in the live Leaf1 allocation.
                                 unsafe {
