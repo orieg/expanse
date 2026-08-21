@@ -634,7 +634,9 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                     let last = unsafe {
                         match kb {
                             1 => *base.add(pop - 1) as u64,
-                            2 => u64::from((base.add((pop - 1) * 2) as *const u16).read_unaligned()),
+                            2 => {
+                                u64::from((base.add((pop - 1) * 2) as *const u16).read_unaligned())
+                            }
                             _ => read_packed(base, pop - 1, kb as usize),
                         }
                     };
