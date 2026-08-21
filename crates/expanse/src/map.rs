@@ -159,6 +159,20 @@ impl ExpanseMap {
                 core::ptr::NonNull::new(unsafe { vals.add(at) })
             }
             Root::Tree { top, .. } => {
+                let prefix = key >> 8;
+                if self.path.prefix == prefix && !self.path.leaf.is_null() {
+                    let d = (key & 0xFF) as u8;
+                    // SAFETY: path holds valid live LeafBitmapL pointer.
+                    let node = unsafe { &*self.path.leaf };
+                    if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
+                        let sub = (d >> 5) as usize;
+                        let vals = node.values[sub];
+                        if !vals.is_null() {
+                            // SAFETY: the bit is set, so the subarray holds at least `rank + 1` values.
+                            return core::ptr::NonNull::new(unsafe { vals.add(rank) });
+                        }
+                    }
+                }
                 // SAFETY: trie maintained/owned by this map's engine; the
                 // raw walk derives the slot from node pointers only.
                 unsafe { crate::get::locate_slot(&raw mut *top, key, 8) }

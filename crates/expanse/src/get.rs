@@ -212,7 +212,7 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
                 }
 
                 EdgeType::LeafB1 => {
-                    if !decode_matches(edge, key, 1, level) {
+                    if level > 1 && !decode_matches(edge, key, 1, level) {
                         return Lookup::Absent;
                     }
                     let d = digit(key, 1);
@@ -244,7 +244,7 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
                 | EdgeType::Leaf6
                 | EdgeType::Leaf7 => {
                     let lf = t.leaf_key_bytes().expect("linear-leaf tag");
-                    if !decode_matches(edge, key, lf, level) {
+                    if level > lf && !decode_matches(edge, key, lf, level) {
                         return Lookup::Absent;
                     }
                     let pop = edge.pop0(lf) as usize + 1;
@@ -557,7 +557,7 @@ unsafe fn locate_slot_impl(
                 let kb = t.leaf_key_bytes().expect("leaf tag");
                 // SAFETY: reads of the live edge/leaf per contract.
                 unsafe {
-                    if !decode_matches(&*edge, key, kb, level) {
+                    if level > kb && !decode_matches(&*edge, key, kb, level) {
                         return None;
                     }
                     let pop = (*edge).pop0(kb) as usize + 1;
@@ -572,7 +572,7 @@ unsafe fn locate_slot_impl(
                 // SAFETY: reads of the live edge/leaf per contract; the
                 // slot pointer derives from the stored subarray pointer.
                 unsafe {
-                    if !decode_matches(&*edge, key, 1, level) {
+                    if level > 1 && !decode_matches(&*edge, key, 1, level) {
                         return None;
                     }
                     let d = digit(key, 1);
