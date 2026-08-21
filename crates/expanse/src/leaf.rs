@@ -98,19 +98,9 @@ unsafe fn locate_fixed<const KB: usize>(
     if pop == 0 {
         return Err(0);
     }
-    // Fast path: appending to the end (the sequential / append insert pattern).
-    // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
-    let last = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - 1) };
-    if needle > last {
-        return Err(pop);
-    }
-    if needle == last {
-        return Ok(pop - 1);
-    }
-
     // SAFETY: keys holds at least `pop * KB` bytes.
     let pos = unsafe { lower_bound_fixed::<KB>(keys, pop, needle) };
-    // SAFETY: pos < pop because needle < last.
+    // SAFETY: pos < pop is in bounds.
     if pos < pop && unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pos) } == needle {
         Ok(pos)
     } else {
