@@ -49,65 +49,9 @@ pub(crate) struct FreeBlock {
     pub(crate) next: *mut FreeBlock,
 }
 
-const NUM_CLASSES: usize = 62;
+pub(crate) const NUM_CLASSES: usize = 62;
 
-#[derive(Debug)]
-pub(crate) struct FreelistPool {
-    lists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
-}
-
-impl Default for FreelistPool {
-    fn default() -> Self {
-        Self {
-            lists: [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_CLASSES],
-        }
-    }
-}
-
-impl Drop for FreelistPool {
-    fn drop(&mut self) {
-        for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
-            let mut cur = *self.lists[class].get_mut();
-            let layout = NodeAlloc::layout_for(bytes, align);
-            while !cur.is_null() {
-                // SAFETY: cur was allocated with `layout`.
-                let next = unsafe { (*cur).next };
-                // SAFETY: deallocating unreferenced freelist block with its original layout.
-                unsafe { dealloc(cur.cast::<u8>(), layout) };
-                cur = next;
-            }
-        }
-    }
-}
-
-impl FreelistPool {
-    /// Pushes a freed block into the size-class freelist if its size/alignment matches a class.
-    /// Returns `true` if recycled, `false` if not (meaning caller should `dealloc`).
-    ///
-    /// # Safety
-    ///
-    /// `ptr` must be a valid, unaliased allocation of `bytes` at `align` allocated by `alloc_raw`.
-    #[inline(always)]
-    pub(crate) unsafe fn recycle(&self, ptr: NonNull<u8>, bytes: usize, align: usize) -> bool {
-        if let Some(class) = class_for(bytes, align) {
-            let block = ptr.as_ptr().cast::<FreeBlock>();
-            loop {
-                let head = self.lists[class].load(Ordering::Relaxed);
-                // SAFETY: block points to a valid allocation of at least size_of::<FreeBlock>().
-                unsafe { (*block).next = head };
-                if self.lists[class]
-                    .compare_exchange_weak(head, block, Ordering::Release, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-}
-
-const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
+pub(crate) const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
     (32, CACHE_LINE),
     (64, CACHE_LINE),
     (96, CACHE_LINE),
@@ -173,7 +117,7 @@ const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
 ];
 
 #[inline(always)]
-fn class_for(bytes: usize, align: usize) -> Option<usize> {
+pub(crate) fn class_for(bytes: usize, align: usize) -> Option<usize> {
     if align == CACHE_LINE {
         match bytes {
             32 => Some(0),
@@ -272,7 +216,7 @@ pub struct NodeAlloc {
     /// scratch allocations elsewhere in a code path — see
     /// `tests/no_heap_churn.rs`.
     total_allocs: AtomicUsize,
-    freelists: Arc<FreelistPool>,
+    freelists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
 }
 
 impl Default for NodeAlloc {
@@ -284,7 +228,23 @@ impl Default for NodeAlloc {
             #[cfg(debug_assertions)]
             bracket_depth: AtomicUsize::new(0),
             total_allocs: AtomicUsize::new(0),
-            freelists: Arc::new(FreelistPool::default()),
+            freelists: [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_CLASSES],
+        }
+    }
+}
+
+impl Drop for NodeAlloc {
+    fn drop(&mut self) {
+        for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
+            let mut cur = *self.freelists[class].get_mut();
+            let layout = Self::layout_for(bytes, align);
+            while !cur.is_null() {
+                // SAFETY: cur was allocated with `layout`.
+                let next = unsafe { (*cur).next };
+                // SAFETY: deallocating unreferenced freelist block with its original layout.
+                unsafe { dealloc(cur.cast::<u8>(), layout) };
+                cur = next;
+            }
         }
     }
 }
@@ -341,22 +301,38 @@ impl NodeAlloc {
         self.live_allocs.fetch_add(1, Ordering::Relaxed);
 
         if let Some(class) = class_for(bytes, align) {
-            loop {
-                let head = self.freelists.lists[class].load(Ordering::Acquire);
-                if head.is_null() {
-                    break;
+            let from_collector = if let Some(c) = self.deferred.get() {
+                c.pop_freelist(class)
+            } else {
+                core::ptr::null_mut()
+            };
+
+            let raw = if !from_collector.is_null() {
+                from_collector
+            } else {
+                let mut found = core::ptr::null_mut();
+                loop {
+                    let head = self.freelists[class].load(Ordering::Acquire);
+                    if head.is_null() {
+                        break;
+                    }
+                    // SAFETY: head points to a valid FreeBlock previously freed to this class.
+                    let next = unsafe { (*head).next };
+                    if self.freelists[class]
+                        .compare_exchange_weak(head, next, Ordering::AcqRel, Ordering::Acquire)
+                        .is_ok()
+                    {
+                        found = head.cast::<u8>();
+                        break;
+                    }
                 }
-                // SAFETY: head points to a valid FreeBlock previously freed to this class.
-                let next = unsafe { (*head).next };
-                if self.freelists.lists[class]
-                    .compare_exchange_weak(head, next, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok()
-                {
-                    let raw = head.cast::<u8>();
-                    // SAFETY: zero out the reused memory before returning.
-                    unsafe { core::ptr::write_bytes(raw, 0, bytes) };
-                    return NonNull::new(raw).expect("non-null free block");
-                }
+                found
+            };
+
+            if !raw.is_null() {
+                // SAFETY: zero out the reused memory before returning.
+                unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                return NonNull::new(raw).expect("non-null free block");
             }
         }
 
@@ -392,9 +368,19 @@ impl NodeAlloc {
             return;
         }
 
-        // SAFETY: ptr is a live allocation per this function's contract.
-        if unsafe { self.freelists.recycle(ptr, bytes, align) } {
-            return;
+        if let Some(class) = class_for(bytes, align) {
+            let block = ptr.as_ptr().cast::<FreeBlock>();
+            loop {
+                let head = self.freelists[class].load(Ordering::Relaxed);
+                // SAFETY: block points to a valid allocation of at least size_of::<FreeBlock>().
+                unsafe { (*block).next = head };
+                if self.freelists[class]
+                    .compare_exchange_weak(head, block, Ordering::Release, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    return;
+                }
+            }
         }
 
         let layout = Self::layout_for(bytes, align);
@@ -471,7 +457,6 @@ impl NodeAlloc {
     /// construction). Idempotent for the same collector; a second call
     /// with a different collector is a bug and panics.
     pub fn defer_to(&self, collector: Arc<Collector>) {
-        collector.set_freelist_pool(Arc::clone(&self.freelists));
         let stored = self.deferred.get_or_init(|| Arc::clone(&collector));
         assert!(
             Arc::ptr_eq(stored, &collector),

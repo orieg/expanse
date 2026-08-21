@@ -16,14 +16,14 @@
 //! `loom_` tests model-check writer/reader/reclamation interleavings.
 
 #[cfg(not(loom))]
-use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering, fence};
+use core::sync::atomic::{AtomicPtr, AtomicU64, AtomicUsize, Ordering, fence};
 #[cfg(not(loom))]
 use std::sync::Mutex;
 
 #[cfg(loom)]
 use loom::sync::Mutex;
 #[cfg(loom)]
-use loom::sync::atomic::{AtomicU64, AtomicUsize, Ordering, fence};
+use loom::sync::atomic::{AtomicPtr, AtomicU64, AtomicUsize, Ordering, fence};
 
 // `Arc` stays std's in both builds: loom's would infect every consumer's
 // signature, and the model only needs to explore the atomics/locks.
@@ -210,6 +210,8 @@ struct Garbage {
 // no live reference remains once its grace period elapses.
 unsafe impl Send for Garbage {}
 
+use crate::alloc::{CLASS_SPECS, FreeBlock, NUM_CLASSES, class_for};
+
 /// Epoch-based reclamation for one tree: readers pin the current epoch
 /// around each walk; retired allocations wait two epoch advances before
 /// they are freed, so a pinned reader can never observe freed memory.
@@ -218,7 +220,7 @@ pub struct Collector {
     epoch: AtomicUsize,
     readers: Mutex<Vec<Arc<Slot>>>,
     bins: [Mutex<Vec<Garbage>>; BINS],
-    freelists: std::sync::OnceLock<Arc<crate::alloc::FreelistPool>>,
+    freelists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
 }
 
 impl Default for Collector {
@@ -239,13 +241,27 @@ impl Collector {
                 Mutex::new(Vec::new()),
                 Mutex::new(Vec::new()),
             ],
-            freelists: std::sync::OnceLock::new(),
+            freelists: [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_CLASSES],
         }
     }
 
-    /// Links a size-class freelist pool to recycle reclaimed blocks.
-    pub(crate) fn set_freelist_pool(&self, pool: Arc<crate::alloc::FreelistPool>) {
-        let _ = self.freelists.set(pool);
+    /// Pops a reclaimed block from this collector's size-class freelist.
+    #[inline(always)]
+    pub(crate) fn pop_freelist(&self, class: usize) -> *mut u8 {
+        loop {
+            let head = self.freelists[class].load(Ordering::Acquire);
+            if head.is_null() {
+                return core::ptr::null_mut();
+            }
+            // SAFETY: head is a valid FreeBlock in this size class.
+            let next = unsafe { (*head).next };
+            if self.freelists[class]
+                .compare_exchange_weak(head, next, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return head.cast::<u8>();
+            }
+        }
     }
 
     /// Registers a reader; the returned handle pins/unpins cheaply.
@@ -302,15 +318,23 @@ impl Collector {
                 .lock()
                 .expect("garbage bin poisoned"),
         );
-        let pool = self.freelists.get();
         for g in stale {
-            if let Some(p) = pool {
-                // SAFETY: reclaimed after grace period; recycling into size-class pool.
-                if unsafe { p.recycle(g.ptr, g.bytes, g.align) } {
-                    continue;
+            if let Some(class) = class_for(g.bytes, g.align) {
+                let block = g.ptr.as_ptr().cast::<FreeBlock>();
+                loop {
+                    let head = self.freelists[class].load(Ordering::Relaxed);
+                    // SAFETY: block points to a valid allocation of at least size_of::<FreeBlock>().
+                    unsafe { (*block).next = head };
+                    if self.freelists[class]
+                        .compare_exchange_weak(head, block, Ordering::Release, Ordering::Relaxed)
+                        .is_ok()
+                    {
+                        break;
+                    }
                 }
+            } else {
+                free_raw(g.ptr, g.bytes, g.align);
             }
-            free_raw(g.ptr, g.bytes, g.align);
         }
     }
 
@@ -331,6 +355,17 @@ impl Drop for Collector {
     fn drop(&mut self) {
         // Last owner: no readers remain by definition.
         self.drain();
+        for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
+            let mut cur = *self.freelists[class].get_mut();
+            let layout = Layout::from_size_align(bytes, align).expect("valid node layout");
+            while !cur.is_null() {
+                // SAFETY: cur was allocated with `layout`.
+                let next = unsafe { (*cur).next };
+                // SAFETY: deallocating unreferenced freelist block with its original layout.
+                unsafe { dealloc(cur.cast::<u8>(), layout) };
+                cur = next;
+            }
+        }
     }
 }
 
