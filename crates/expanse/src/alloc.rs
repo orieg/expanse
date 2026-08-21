@@ -301,33 +301,28 @@ impl NodeAlloc {
         self.live_allocs.fetch_add(1, Ordering::Relaxed);
 
         if let Some(class) = class_for(bytes, align) {
-            let from_collector = if let Some(c) = self.deferred.get() {
-                c.pop_freelist(class)
-            } else {
-                core::ptr::null_mut()
-            };
-
-            let raw = if !from_collector.is_null() {
-                from_collector
-            } else {
-                let mut found = core::ptr::null_mut();
-                loop {
-                    let head = self.freelists[class].load(Ordering::Acquire);
-                    if head.is_null() {
-                        break;
-                    }
-                    // SAFETY: head points to a valid FreeBlock previously freed to this class.
-                    let next = unsafe { (*head).next };
-                    if self.freelists[class]
-                        .compare_exchange_weak(head, next, Ordering::AcqRel, Ordering::Acquire)
-                        .is_ok()
-                    {
-                        found = head.cast::<u8>();
-                        break;
-                    }
+            let mut raw = core::ptr::null_mut();
+            loop {
+                let head = self.freelists[class].load(Ordering::Acquire);
+                if head.is_null() {
+                    break;
                 }
-                found
-            };
+                // SAFETY: head points to a valid FreeBlock previously freed to this class.
+                let next = unsafe { (*head).next };
+                if self.freelists[class]
+                    .compare_exchange_weak(head, next, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    raw = head.cast::<u8>();
+                    break;
+                }
+            }
+
+            if raw.is_null()
+                && let Some(c) = self.deferred.get()
+            {
+                raw = c.pop_freelist(class);
+            }
 
             if !raw.is_null() {
                 // SAFETY: zero out the reused memory before returning.
