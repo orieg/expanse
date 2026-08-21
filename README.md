@@ -87,13 +87,14 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 | **Random 1,000,000 lookup** | **26.8 ns** vs 48.6 ns | **0.55× / 0.53×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **45% faster than Judy** |
 | **Random 3,000,000 lookup** | **318.5M** vs 389.7M inst | **0.82× / 0.81×** | **16.80 B/k** vs 17.80 B/k (0.94×) | 🟢 **18% faster than Judy** |
 | **Random 30,000 lookup** | **4.53M** vs 5.09M inst | **0.89× / 0.88×** | **24.63 B/k** vs 24.81 B/k (0.99×) | 🟢 **11% faster than Judy** |
+| **Random 30,000 set test** | **4.13M** vs 3.83M inst | **1.08× / 1.07×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Near Parity (within 8%)** |
 | **Random 30,000 churn (del+ins)** | **43.3M** vs 50.8M inst | **0.85× / 0.84×** | **Dynamic exact accounting** | 🟢 **15% faster than Judy** |
-| **Clustered 100,000 set insert** | **8.31M** vs 10.38M inst | **0.80× / 0.80×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **20% faster than Judy** |
+| **Clustered 100,000 set insert** | **7.62M** vs 10.38M inst | **0.73× / 0.73×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **27% faster than Judy** |
 | **Clustered 1,000,000 insert** | **31.6 ns** vs 34.1 ns | **0.92× / 0.89×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **8% less memory, faster insert** |
 | **Clustered 1,000,000 lookup** | **11.8 ns** vs 12.1 ns | **0.98× / 0.95×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **Faster than Judy** |
 | **Clustered 30,000 lookup** | **3.71M** vs 3.97M inst | **0.94× / 0.92×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **6% faster than Judy** |
 | **Clustered 100,000 map insert** | **11.64M** vs 12.01M inst | **0.97× / 0.96×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **Faster than Judy** |
-| **Random 100,000 set insert** | **16.72M** vs 15.69M inst | **1.06× / 1.05×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Near Parity (within 6%)** |
+| **Random 100,000 set insert** | **16.09M** vs 15.69M inst | **1.025× / 1.02×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Near Parity (within 2.5%)** |
 | **Random 100,000 map insert** | **19.48M** vs 17.76M inst | **1.09× / 1.08×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **Near Parity (within 9%)** |
 
 #### Modern CPU Compilation (`x86-64-v3`: AVX2 / BMI2 / POPCNT)
@@ -102,6 +103,7 @@ The table above reflects the standard generic build. When compiled specifically 
 Memory: clustered and dense sets run **0.07–0.36 bytes/key** (deterministic allocator accounting; the `< 9.5 B/key` architecture target is met).
 
 ### Recent Optimizations Landed
+- **Boolean Lookup Specialization & Raw Tag Dispatch (Sprint 11, PR #104)**: eliminated intermediate lookup enum wrapping in `walk_set_impl` to directly return `bool`, refactored `insert_with_path_flat` and `map_insert_with_path_flat` to match directly on raw `u8` tag jump tables, inlined ancestor pop updates (`bump_pop0`), and specialized single-key immediate bitwise comparisons. Closed the `judy1_set/random` gap to within 2.5% (1.025×), drove `judy1_set/clustered` to 0.73× (27% faster than Judy), and `judy1_test/random` to within 8% of Judy.
 - **SWAR Key Comparison & Raw Tag Jump-Table Dispatch (Sprint 10, PR #102)**: vectorized `decode_matches` into a 2-instruction bitwise mask/xor check, replaced enum wrapping with raw `u8` jump-table tag dispatch on lookup/mutation traversals, added single-key direct immediate constructors, and eliminated stack buffer allocations on immediate overflow to linear leaves. Closed the sequential lookup (0.86×) and clustered lookup (0.94×) gaps decisively.
 - **Iterative Flat Descent & Zero-Recursion Mutation (Sprint 9, PR #101)**: replaced recursive descent frames on single-threaded `insert` and `map_insert` with bounded 8-level iterative loops and in-tree path recording, saving ~3.5M stack operations per 100k random insertions and driving `judyl_churn` (0.85×) and `judy1_set/clustered` (0.80×) to decisively beat stock libjudy.
 - **Branch Empty & Downgrade Scan Elimination (PR #99)**: guarded `BranchU` and `BranchB` emptiness and downgrade loops behind `child_null`, reducing `map_remove` instructions by -75.18% (4.03x faster).
