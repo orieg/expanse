@@ -455,15 +455,9 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 }
                 let kb = level;
                 let k = key_low(key, kb);
-                let im = ImmedType::new(kb, 1).expect("immediate 1 key");
-                let mut aux = [0u8; 7];
-                // SAFETY: aux has 7 bytes; write 1 packed key of kb bytes; ancestors array is valid.
+                // SAFETY: write 1-key immediate; ancestors array is valid.
                 unsafe {
-                    write_packed(aux.as_mut_ptr(), 0, kb as usize, k);
-                    *edge = Edge::NULL;
-                    (*edge).set_imm_bytes(val.to_le_bytes());
-                    (*edge).set_aux_bytes(aux);
-                    (*edge).set_tag(im.as_u8());
+                    *edge = Edge::new_immed_single_map(kb, k, val);
                     for &(anc, al) in ancestors.iter().take(anc_depth) {
                         bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);
@@ -610,35 +604,46 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         return (None, new_vals.as_ptr().add(pos));
                     }
                 }
-                let mut entries = StackEntries32::new();
+                let ptr = a.alloc_bytes(leaf::size_map(kb, n + 1));
+                let vals = ptr.as_ptr().cast::<u64>();
+                // SAFETY: freshly allocated leaf buffer holds keys at map_keys_offset.
+                let keys = unsafe { ptr.as_ptr().add(leaf::map_keys_offset(n + 1)) };
                 let kb_usize = kb as usize;
-                for i in 0..pos {
-                    // SAFETY: i < pos <= n <= 7; aux holds n packed keys.
-                    let ki = unsafe { read_packed((*edge).aux_bytes().as_ptr(), i, kb_usize) };
-                    // SAFETY: i < pos <= n; old_vals holds n values.
-                    let vi = unsafe { *old_vals.add(i) };
-                    entries.push((ki, vi));
-                }
-                entries.push((k, val));
-                for i in pos..n {
-                    // SAFETY: i < n <= 7; aux holds n packed keys.
-                    let ki = unsafe { read_packed((*edge).aux_bytes().as_ptr(), i, kb_usize) };
-                    // SAFETY: i < n; old_vals holds n values.
-                    let vi = unsafe { *old_vals.add(i) };
-                    entries.push((ki, vi));
-                }
-                // SAFETY: free old value array, build map leaf; ancestors valid.
+                // SAFETY: ptr is freshly allocated with size for n + 1 entries; free old value array; ancestors valid.
                 unsafe {
+                    if pos > 0 {
+                        core::ptr::copy_nonoverlapping(old_vals, vals, pos);
+                        core::ptr::copy_nonoverlapping(
+                            (*edge).aux_bytes().as_ptr(),
+                            keys,
+                            pos * kb_usize,
+                        );
+                    }
+                    vals.add(pos).write(val);
+                    write_packed(keys, pos, kb_usize, k);
+                    if pos < n {
+                        core::ptr::copy_nonoverlapping(
+                            old_vals.add(pos),
+                            vals.add(pos + 1),
+                            n - pos,
+                        );
+                        core::ptr::copy_nonoverlapping(
+                            (*edge).aux_bytes().as_ptr().add(pos * kb_usize),
+                            keys.add((pos + 1) * kb_usize),
+                            (n - pos) * kb_usize,
+                        );
+                    }
                     a.free_bytes(
                         core::ptr::NonNull::new((*edge).node_ptr()).expect("value array"),
                         map_immed_val_size(n),
                     );
-                    build_map_leaf(a, &mut *edge, kb, entries.as_slice());
+                    *edge = Edge::new_node(ptr.as_ptr(), EdgeType::Leaf1 as u8 + (kb - 1));
+                    (*edge).set_pop0(kb, n as u64);
                     for &(anc, al) in ancestors.iter().take(anc_depth) {
                         bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);
                     }
-                    return (None, (*edge).node_ptr().cast::<u64>().add(pos));
+                    return (None, vals.add(pos));
                 }
             }
 
