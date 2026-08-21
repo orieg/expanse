@@ -840,6 +840,22 @@ impl<'a> IntoIterator for &'a ExpanseMap {
     }
 }
 
+impl FromIterator<(Key, u64)> for ExpanseMap {
+    fn from_iter<I: IntoIterator<Item = (Key, u64)>>(iter: I) -> Self {
+        let mut map = Self::new();
+        map.extend(iter);
+        map
+    }
+}
+
+impl Extend<(Key, u64)> for ExpanseMap {
+    fn extend<I: IntoIterator<Item = (Key, u64)>>(&mut self, iter: I) {
+        for (k, v) in iter {
+            self.insert(k, v);
+        }
+    }
+}
+
 impl ExpanseMap {
     /// Rebuilds the flat root leaf (parallel key/value arrays) from a
     /// small tree — the shrink twin of the promotion.
@@ -1398,5 +1414,24 @@ mod tests {
         map.validate();
         assert!(map.is_empty());
         assert_eq!(map.mem_used(), 0);
+    }
+
+    #[test]
+    fn test_from_iterator_and_extend() {
+        let entries: Vec<(u64, u64)> = (0..500u64).map(|i| (i * 7, i * 13)).collect();
+        let map: ExpanseMap = entries.iter().copied().collect();
+        assert_eq!(map.len(), 500);
+        map.validate();
+        for &(k, v) in &entries {
+            assert_eq!(map.get(k), Some(v));
+        }
+
+        let mut extended = ExpanseMap::new();
+        extended.extend(entries.iter().copied());
+        assert_eq!(extended.len(), 500);
+        extended.validate();
+        for &(k, v) in &entries {
+            assert_eq!(extended.get(k), Some(v));
+        }
     }
 }
