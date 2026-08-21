@@ -115,7 +115,7 @@ pub(crate) unsafe fn locate(
 ///
 /// `keys` must be valid for reads of `KB * pop` bytes.
 #[inline(always)]
-unsafe fn locate_fixed<const KB: usize>(
+pub(crate) unsafe fn locate_fixed<const KB: usize>(
     keys: *const u8,
     pop: usize,
     needle: u64,
@@ -270,6 +270,27 @@ pub(crate) unsafe fn set_insert_at(base: *mut u8, key_bytes: u8, pop: usize, pos
     }
 }
 
+/// The allocation must hold `cap_class(pop + 1)` slots and `pos <= pop`.
+#[inline(always)]
+pub(crate) unsafe fn set_insert_at_fixed<const KB: usize>(
+    base: *mut u8,
+    pop: usize,
+    pos: usize,
+    key: u64,
+) {
+    // SAFETY: in-bounds shift within the class-sized allocation.
+    unsafe {
+        if pos < pop {
+            core::ptr::copy(
+                base.add(pos * KB),
+                base.add((pos + 1) * KB),
+                (pop - pos) * KB,
+            );
+        }
+        crate::mutate::write_packed_fixed::<KB>(base, pos, key);
+    }
+}
+
 /// In-place removal from a set leaf: shifts keys `[pos + 1..pop)` left.
 ///
 /// # Safety
@@ -323,6 +344,36 @@ pub(crate) unsafe fn map_insert_at(
     }
 }
 
+/// In-place insert into a map leaf with compile-time known key width.
+///
+/// # Safety
+///
+/// `cap_class(pop) == cap_class(pop + 1)`, `pos <= pop`, live map leaf.
+#[inline(always)]
+pub(crate) unsafe fn map_insert_at_fixed<const KB: usize>(
+    base: *mut u8,
+    pop: usize,
+    pos: usize,
+    key: u64,
+    val: u64,
+) {
+    let keys = base.wrapping_add(map_keys_offset(pop));
+    // SAFETY: in-bounds shifts within the class-sized areas.
+    unsafe {
+        let vals = base.cast::<u64>();
+        if pos < pop {
+            core::ptr::copy(vals.add(pos), vals.add(pos + 1), pop - pos);
+            core::ptr::copy(
+                keys.add(pos * KB),
+                keys.add((pos + 1) * KB),
+                (pop - pos) * KB,
+            );
+        }
+        vals.add(pos).write(val);
+        crate::mutate::write_packed_fixed::<KB>(keys, pos, key);
+    }
+}
+
 /// Copies a set leaf into `new` (sized for `pop + 1` in its class) with
 /// `key` inserted at `pos` — the class-crossing analogue of
 /// [`set_insert_at`], and the set twin of [`map_realloc_insert`]: two
@@ -355,6 +406,36 @@ pub(crate) unsafe fn set_realloc_insert(
                 old.add(pos * kb),
                 new.add((pos + 1) * kb),
                 (pop - pos) * kb,
+            );
+        }
+    }
+}
+
+/// Copies a set leaf with compile-time known key width into `new`.
+///
+/// # Safety
+///
+/// `old` must be a live set leaf of `pop` keys of `KB` bytes;
+/// `new` must be a fresh allocation of `size_set(KB, pop+1)` bytes; `pos <= pop`.
+#[inline(always)]
+pub(crate) unsafe fn set_realloc_insert_fixed<const KB: usize>(
+    old: *const u8,
+    new: *mut u8,
+    pop: usize,
+    pos: usize,
+    key: u64,
+) {
+    // SAFETY: bounds per contract; the two allocations are disjoint.
+    unsafe {
+        if pos > 0 {
+            core::ptr::copy_nonoverlapping(old, new, pos * KB);
+        }
+        crate::mutate::write_packed_fixed::<KB>(new, pos, key);
+        if pos < pop {
+            core::ptr::copy_nonoverlapping(
+                old.add(pos * KB),
+                new.add((pos + 1) * KB),
+                (pop - pos) * KB,
             );
         }
     }
@@ -439,6 +520,48 @@ pub(crate) unsafe fn map_realloc_insert(
                 ok.add(pos * kb),
                 nk.add((pos + 1) * kb),
                 (pop - pos) * kb,
+            );
+        }
+    }
+}
+
+/// Copies a map leaf with compile-time known key width into `new`.
+///
+/// # Safety
+///
+/// `old` must be a live map leaf of `pop` entries with `KB`-byte keys;
+/// `new` must be a fresh allocation of `size_map(KB, pop+1)` bytes; `pos <= pop`.
+#[inline(always)]
+pub(crate) unsafe fn map_realloc_insert_fixed<const KB: usize>(
+    old: *const u8,
+    new: *mut u8,
+    pop: usize,
+    pos: usize,
+    key: u64,
+    val: u64,
+) {
+    // SAFETY: bounds per contract; the two allocations are disjoint.
+    unsafe {
+        let ov = old.cast::<u64>();
+        let nv = new.cast::<u64>();
+        if pos > 0 {
+            core::ptr::copy_nonoverlapping(ov, nv, pos);
+        }
+        nv.add(pos).write(val);
+        if pos < pop {
+            core::ptr::copy_nonoverlapping(ov.add(pos), nv.add(pos + 1), pop - pos);
+        }
+        let ok = old.add(map_keys_offset(pop));
+        let nk = new.add(map_keys_offset(pop + 1));
+        if pos > 0 {
+            core::ptr::copy_nonoverlapping(ok, nk, pos * KB);
+        }
+        crate::mutate::write_packed_fixed::<KB>(nk, pos, key);
+        if pos < pop {
+            core::ptr::copy_nonoverlapping(
+                ok.add(pos * KB),
+                nk.add((pos + 1) * KB),
+                (pop - pos) * KB,
             );
         }
     }

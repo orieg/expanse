@@ -161,7 +161,7 @@ pub unsafe extern "C" fn Judy1Set(
             set_err(pj, JU_ERRNO_NULLPPARRAY);
             return JERR_INT;
         }
-        c_int::from(set_handle_mut(pparray).insert(index as u64))
+        set_handle_mut(pparray).insert_c_int(index as u64)
     }
 }
 
@@ -201,7 +201,7 @@ pub unsafe extern "C" fn Judy1Test(parray: *const c_void, index: Word, _pj: *mut
             return 0;
         }
         let set = &*parray.cast::<ExpanseSet>();
-        c_int::from(set.contains(index as u64))
+        set.contains_c_int(index as u64)
     }
 }
 
