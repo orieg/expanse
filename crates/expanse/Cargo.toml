@@ -33,10 +33,12 @@ loom = "0.7"
 [[bench]]
 name = "compare"
 harness = false
+test = false
 
 [[bench]]
 name = "instructions"
 harness = false
+test = false
 
 [lints]
 workspace = true

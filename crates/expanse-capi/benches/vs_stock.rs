@@ -47,7 +47,9 @@
 #![allow(missing_docs)]
 
 use core::ffi::{c_int, c_void};
-use iai_callgrind::{library_benchmark, library_benchmark_group, main};
+#[cfg(target_os = "linux")]
+use iai_callgrind::main;
+use iai_callgrind::{library_benchmark, library_benchmark_group};
 use std::hint::black_box;
 use std::ptr::null_mut;
 
@@ -662,4 +664,10 @@ library_benchmark_group!(
         judy1_test_stock
 );
 
+#[cfg(target_os = "linux")]
 main!(library_benchmark_groups = vs_stock);
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    println!("iai-callgrind vs_stock benchmarks run on Linux only.");
+}

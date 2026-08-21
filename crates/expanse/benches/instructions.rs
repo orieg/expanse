@@ -27,7 +27,9 @@
 
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
-use iai_callgrind::{library_benchmark, library_benchmark_group, main};
+#[cfg(target_os = "linux")]
+use iai_callgrind::main;
+use iai_callgrind::{library_benchmark, library_benchmark_group};
 use std::hint::black_box;
 
 struct XorShift(u64);
@@ -294,4 +296,10 @@ library_benchmark_group!(
         map_nav
 );
 
+#[cfg(target_os = "linux")]
 main!(library_benchmark_groups = cost);
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    println!("iai-callgrind instruction benchmarks run on Linux only.");
+}
