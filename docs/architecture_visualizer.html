@@ -10,8 +10,10 @@
       --card-bg: #131d31;
       --card-inner: #0d1527;
       --border: #22324f;
-      --border-bright: #3b82f6;
+      --border-bright: #38bdf8;
+      --border-subtle: rgba(255, 255, 255, 0.08);
       --text: #f8fafc;
+      --text-bright: #ffffff;
       --text-muted: #94a3b8;
       --accent: #38bdf8;
       --accent-blue: #3b82f6;
@@ -22,10 +24,57 @@
       --accent-amber: #f59e0b;
       --node-active: #0284c7;
       --node-bg: #1e293b;
+      --node-border: #334155;
+      --svg-dim: #334155;
       --glow-blue: 0 0 18px rgba(56, 189, 248, 0.4);
       --glow-green: 0 0 18px rgba(16, 185, 129, 0.4);
       --glow-purple: 0 0 18px rgba(168, 85, 247, 0.4);
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
+      --canvas-dot: rgba(255, 255, 255, 0.06);
+      --table-hover: rgba(255, 255, 255, 0.03);
+      --table-header-bg: #0d1527;
+      --comp-banner-bg: #1e1b4b;
+      --comp-banner-border: #4338ca;
+      --comp-banner-text: #c7d2fe;
     }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --card-inner: #f1f5f9;
+      --border: #e2e8f0;
+      --border-bright: #0284c7;
+      --border-subtle: rgba(0, 0, 0, 0.06);
+      --text: #0f172a;
+      --text-bright: #0f172a;
+      --text-muted: #64748b;
+      --accent: #0284c7;
+      --accent-blue: #2563eb;
+      --accent-green: #059669;
+      --accent-purple: #7c3aed;
+      --accent-orange: #d97706;
+      --accent-rose: #e11d48;
+      --accent-amber: #d97706;
+      --node-active: #0284c7;
+      --node-bg: #ffffff;
+      --node-border: #cbd5e1;
+      --svg-dim: #cbd5e1;
+      --glow-blue: 0 0 14px rgba(2, 132, 199, 0.25);
+      --glow-green: 0 0 14px rgba(5, 150, 105, 0.25);
+      --glow-purple: 0 0 14px rgba(124, 58, 237, 0.25);
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+      --canvas-dot: rgba(0, 0, 0, 0.06);
+      --table-hover: rgba(0, 0, 0, 0.03);
+      --table-header-bg: #f8fafc;
+      --comp-banner-bg: #e0e7ff;
+      --comp-banner-border: #818cf8;
+      --comp-banner-text: #312e81;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -33,6 +82,8 @@
       color: var(--text);
       line-height: 1.5;
       padding: 20px;
+      transition: background-color 0.2s ease, color 0.2s ease;
+      min-height: 100vh;
     }
     header {
       max-width: 1480px;
@@ -41,11 +92,19 @@
       padding-bottom: 14px;
       display: flex;
       justify-content: space-between;
-      align-items: flex-end;
+      align-items: center;
       flex-wrap: wrap;
       gap: 12px;
     }
-    h1 { font-size: 22px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 10px; }
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-bright);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
     .badge-pill {
       font-size: 11px;
       font-weight: 700;
@@ -56,6 +115,9 @@
       color: var(--accent);
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
     }
     .badge-pill.green {
       background: rgba(16, 185, 129, 0.15);
@@ -92,13 +154,48 @@
       gap: 8px;
       transition: all 0.15s ease;
     }
-    .view-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
+    .view-btn:hover { color: var(--text-bright); background: rgba(255, 255, 255, 0.05); }
+    [data-theme="light"] .view-btn:hover { background: rgba(0, 0, 0, 0.04); }
     .view-btn.active {
-      color: #fff;
+      color: #ffffff;
       background: #1e3a8a;
       border: 1px solid #3b82f6;
       box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
     }
+    [data-theme="light"] .view-btn.active {
+      color: #ffffff;
+      background: #2563eb;
+      border-color: #2563eb;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+    }
+
+    /* Theme Toggle Button */
+    .theme-toggle-btn {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .theme-toggle-btn:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+      transform: scale(1.05);
+    }
+    .theme-toggle-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+    .icon-sun { display: none; }
+    .icon-moon { display: block; }
+    [data-theme="light"] .icon-sun { display: block; color: #d97706; }
+    [data-theme="light"] .icon-moon { display: none; }
 
     .layout {
       display: grid;
@@ -118,6 +215,8 @@
       border-radius: 12px;
       padding: 18px;
       margin-bottom: 18px;
+      box-shadow: var(--shadow-sm);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
     .card-title {
       font-size: 14px;
@@ -150,16 +249,19 @@
       color: var(--text);
       font-size: 13px;
       outline: none;
-      transition: border 0.15s;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    select:focus, input[type="text"]:focus { border-color: var(--accent); }
+    select:focus, input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
 
     input[type="range"] {
       -webkit-appearance: none;
       appearance: none;
       width: 100%;
       height: 6px;
-      background: #334155;
+      background: var(--border);
       border-radius: 4px;
       outline: none;
       border: none;
@@ -199,7 +301,7 @@
       margin-top: 6px;
     }
     .chip-btn {
-      background: rgba(255, 255, 255, 0.05);
+      background: var(--card-inner);
       border: 1px solid var(--border);
       color: var(--text-muted);
       border-radius: 4px;
@@ -212,13 +314,17 @@
     .chip-btn:hover {
       background: rgba(56, 189, 248, 0.15);
       border-color: var(--accent);
-      color: #fff;
+      color: var(--text-bright);
     }
     .chip-btn.active {
       background: var(--accent);
       color: #0f172a;
       border-color: var(--accent);
       font-weight: 700;
+    }
+    [data-theme="light"] .chip-btn.active {
+      color: #ffffff;
+      background: var(--accent);
     }
 
     .toggle-row {
@@ -242,7 +348,7 @@
     .switch input { opacity: 0; width: 0; height: 0; }
     .slider {
       position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
-      background-color: #334155;
+      background-color: var(--border);
       transition: .2s;
       border-radius: 22px;
     }
@@ -267,6 +373,7 @@
       border-radius: 8px;
       padding: 10px;
       text-align: center;
+      transition: background-color 0.2s ease, border-color 0.2s ease;
     }
     .metric-label { font-size: 10px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
     .metric-val { font-size: 17px; font-weight: 700; color: var(--accent-green); margin-top: 2px; }
@@ -278,8 +385,8 @@
 
     /* Comparison Box */
     .comparison-banner {
-      background: #1e1b4b;
-      border: 1px solid #4338ca;
+      background: var(--comp-banner-bg);
+      border: 1px solid var(--comp-banner-border);
       border-radius: 8px;
       padding: 12px 16px;
       margin-bottom: 16px;
@@ -289,14 +396,16 @@
       flex-wrap: wrap;
       gap: 10px;
     }
-    .comp-title { font-size: 13px; font-weight: 700; color: #c7d2fe; }
-    .comp-stat { font-size: 12px; color: #e0e7ff; margin-top: 2px; }
+    .comp-title { font-size: 13px; font-weight: 700; color: var(--comp-banner-text); }
+    .comp-stat { font-size: 12px; color: var(--text); margin-top: 2px; }
 
     /* Interactive DAG Canvas */
     .dag-canvas {
       width: 100%;
       height: 450px;
       background: var(--card-inner);
+      background-image: radial-gradient(var(--canvas-dot) 1px, transparent 1px);
+      background-size: 16px 16px;
       border: 1px solid var(--border);
       border-radius: 8px;
       position: relative;
@@ -304,8 +413,8 @@
       overflow: hidden;
     }
     .dag-node {
-      background: #1e293b;
-      border: 1px solid var(--border);
+      background: var(--node-bg);
+      border: 1px solid var(--node-border);
       border-radius: 8px;
       padding: 7px 11px;
       position: absolute;
@@ -313,6 +422,7 @@
       cursor: pointer;
       width: 175px;
       user-select: none;
+      box-shadow: var(--shadow-sm);
     }
     .dag-node:hover {
       border-color: var(--accent);
@@ -323,19 +433,19 @@
     .dag-node.active {
       border-color: var(--accent);
       box-shadow: var(--glow-blue);
-      background: #0f2847;
+      background: rgba(56, 189, 248, 0.15);
     }
     .dag-node.active-green {
       border-color: var(--accent-green);
       box-shadow: var(--glow-green);
-      background: #062b20;
+      background: rgba(16, 185, 129, 0.15);
     }
     .dag-node.active-purple {
       border-color: var(--accent-purple);
       box-shadow: var(--glow-purple);
-      background: #231238;
+      background: rgba(168, 85, 247, 0.15);
     }
-    .dag-node-title { font-size: 11px; font-weight: 700; color: #fff; margin-bottom: 2px; display: flex; justify-content: space-between; align-items: center; }
+    .dag-node-title { font-size: 11px; font-weight: 700; color: var(--text-bright); margin-bottom: 2px; display: flex; justify-content: space-between; align-items: center; }
     .dag-node-desc { font-size: 10px; color: var(--text-muted); line-height: 1.2; }
 
     /* Pipeline & DAG Nodes */
@@ -359,7 +469,7 @@
     .pipeline-step.bypass {
       border-color: var(--accent-green);
       box-shadow: var(--glow-green);
-      background: linear-gradient(180deg, #0d221e 0%, #0d1527 100%);
+      background: linear-gradient(180deg, rgba(16, 185, 129, 0.12) 0%, var(--card-inner) 100%);
     }
     .step-header {
       display: flex;
@@ -372,26 +482,27 @@
       font-weight: 700;
       padding: 2px 7px;
       border-radius: 4px;
-      background: #334155;
-      color: #94a3b8;
+      background: var(--node-bg);
+      color: var(--text-muted);
       text-transform: uppercase;
+      border: 1px solid var(--border);
     }
-    .step-badge.highlight { background: #0284c7; color: #fff; }
-    .step-badge.green { background: #059669; color: #fff; }
-    .step-badge.purple { background: #7c3aed; color: #fff; }
-    .step-badge.orange { background: #ea580c; color: #fff; }
+    .step-badge.highlight { background: #0284c7; color: #fff; border-color: #0284c7; }
+    .step-badge.green { background: #059669; color: #fff; border-color: #059669; }
+    .step-badge.purple { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+    .step-badge.orange { background: #ea580c; color: #fff; border-color: #ea580c; }
 
-    .step-title { font-size: 13px; font-weight: 600; color: #fff; }
+    .step-title { font-size: 13px; font-weight: 600; color: var(--text-bright); }
     .step-desc { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
     .algo-tag {
       display: inline-block;
       padding: 3px 7px;
-      background: #1e1b4b;
-      border: 1px solid #4338ca;
+      background: var(--comp-banner-bg);
+      border: 1px solid var(--comp-banner-border);
       border-radius: 5px;
       font-size: 11px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      color: #a5b4fc;
+      color: var(--comp-banner-text);
     }
     .flow-arrow {
       text-align: center;
@@ -424,13 +535,13 @@
       background: rgba(56, 189, 248, 0.12);
       box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
     }
-    .digit-col.active .digit-num { color: #fff; }
+    .digit-col.active .digit-num { color: var(--text-bright); }
     .digit-col.bypass {
       border-color: var(--accent-green);
       background: rgba(16, 185, 129, 0.12);
       box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
     }
-    .digit-col.bypass .digit-num { color: #fff; }
+    .digit-col.bypass .digit-num { color: var(--text-bright); }
     .digit-num {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-weight: 700;
@@ -447,8 +558,9 @@
       font-size: 9px;
       padding: 2px 4px;
       border-radius: 3px;
-      background: #1e293b;
+      background: var(--node-bg);
       color: var(--text-muted);
+      border: 1px solid var(--border);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -456,10 +568,12 @@
     .digit-col.active .digit-role {
       background: #0284c7;
       color: #fff;
+      border-color: #0284c7;
     }
     .digit-col.bypass .digit-role {
       background: #059669;
       color: #fff;
+      border-color: #059669;
     }
     .subarray-grid {
       display: grid;
@@ -471,8 +585,8 @@
       .subarray-grid { grid-template-columns: repeat(4, 1fr); }
     }
     .subarray-box {
-      background: #1e293b;
-      border: 1px solid #334155;
+      background: var(--node-bg);
+      border: 1px solid var(--border);
       border-radius: 5px;
       padding: 6px 2px;
       text-align: center;
@@ -508,7 +622,8 @@
       display: none;
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0, 0, 0, 0.75);
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
       z-index: 100;
       align-items: center;
       justify-content: center;
@@ -522,14 +637,14 @@
       width: 100%;
       max-width: 650px;
       padding: 24px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+      box-shadow: var(--shadow-lg);
       position: relative;
     }
     .modal-close {
       position: absolute;
       top: 16px;
       right: 16px;
-      background: #1e293b;
+      background: var(--card-inner);
       border: 1px solid var(--border);
       color: var(--text-muted);
       font-size: 16px;
@@ -540,8 +655,9 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: all 0.15s ease;
     }
-    .modal-close:hover { color: #fff; border-color: var(--accent); }
+    .modal-close:hover { color: var(--text-bright); border-color: var(--accent); }
 
     /* Tables */
     .data-table-wrapper {
@@ -549,6 +665,7 @@
       border: 1px solid var(--border);
       border-radius: 8px;
       margin-top: 10px;
+      background: var(--card-bg);
     }
     .data-table {
       width: 100%;
@@ -562,19 +679,23 @@
       white-space: nowrap;
     }
     .data-table th {
-      background: var(--card-inner);
+      background: var(--table-header-bg);
       color: var(--text-muted);
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       font-size: 11px;
     }
-    .data-table tr:hover td { background: rgba(255, 255, 255, 0.02); }
+    .data-table tr:hover td { background: var(--table-hover); }
     .data-table tr.highlight-row td {
       background: rgba(56, 189, 248, 0.08);
-      color: #fff;
+      color: var(--text-bright);
     }
-    .num { text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .num {
+      text-align: right;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-variant-numeric: tabular-nums;
+    }
     .data-table th.num { text-align: right; }
     .data-table th.center, .data-table td.center { text-align: center; }
     .win-text { color: var(--accent-green); font-weight: 600; }
@@ -584,7 +705,8 @@
     .code-tag {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       padding: 2px 5px;
-      background: rgba(255, 255, 255, 0.06);
+      background: var(--card-inner);
+      border: 1px solid var(--border);
       border-radius: 4px;
       font-size: 11px;
     }
@@ -599,19 +721,40 @@
 <header>
   <div>
     <h1>
-      Expanse Engine · Architecture & Benchmark Intelligence
+      <span>Expanse Engine · Architecture & Benchmark Intelligence</span>
       <span class="badge-pill green">Callgrind & Code Verified</span>
+      <span class="badge-pill purple">Rust 2024 / AVX2</span>
     </h1>
-    <div class="subtitle">Real-time mapping of trie architecture, SIMD execution flow, and exact deterministic Callgrind instruction measurements</div>
+    <div class="subtitle">Real-time mapping of digital trie architecture, SIMD vector execution flow, and deterministic Callgrind instruction measurements</div>
   </div>
 
-  <!-- Primary 2-Mode View Switcher -->
-  <div class="view-switcher">
-    <button class="view-btn active" id="btn-view-dag" onclick="switchView('dag')">
-      <span>⚡ Architecture & Dynamic Execution DAG</span>
-    </button>
-    <button class="view-btn" id="btn-view-bench" onclick="switchView('bench')">
-      <span>📊 Benchmark Intelligence & Memory Census</span>
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <!-- Primary 2-Mode View Switcher -->
+    <div class="view-switcher">
+      <button class="view-btn active" id="btn-view-dag" onclick="switchView('dag')">
+        <span>⚡ Architecture & Dynamic DAG</span>
+      </button>
+      <button class="view-btn" id="btn-view-bench" onclick="switchView('bench')">
+        <span>📊 Benchmark Matrix & Census</span>
+      </button>
+    </div>
+
+    <!-- Theme Toggle Button -->
+    <button class="theme-toggle-btn" id="theme-toggle-btn" onclick="toggleTheme()" title="Toggle Light/Dark Theme" aria-label="Toggle Light/Dark Theme">
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"></circle>
+        <line x1="12" y1="1" x2="12" y2="3"></line>
+        <line x1="12" y1="21" x2="12" y2="23"></line>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+        <line x1="1" y1="12" x2="3" y2="12"></line>
+        <line x1="21" y1="12" x2="23" y2="12"></line>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+      </svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+      </svg>
     </button>
   </div>
 </header>
@@ -742,7 +885,7 @@
 
         <!-- Structural Hierarchy & Routing DAG -->
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <div style="font-size:13px; font-weight:600; color:#fff;">🌲 Structural Hierarchy & Component Routing DAG</div>
+          <div style="font-size:13px; font-weight:600; color:var(--text-bright);">🌲 Structural Hierarchy & Component Routing DAG</div>
           <div style="font-size:11px; color:var(--text-muted);">Click any node for struct layout & code specs</div>
         </div>
 
@@ -826,7 +969,7 @@
         </div>
 
         <!-- Live Step-by-Step Execution Pipeline -->
-        <div style="font-size:13px; font-weight:600; color:#fff; margin-bottom:8px;">
+        <div style="font-size:13px; font-weight:600; color:var(--text-bright); margin-bottom:8px;">
           ⚡ Active Execution Pipeline & Algorithm Trace
         </div>
         <div class="flow-container" id="flow-pipeline">
@@ -854,7 +997,7 @@
           <!-- Subarray 8-Way Partitioning Architecture -->
           <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px; margin-top:14px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-              <span style="font-size:12px; font-weight:600; color:#fff;">Bitmap Subexpanse Architecture (256 bits → 8 Subarrays × 32 bits)</span>
+              <span style="font-size:12px; font-weight:600; color:var(--text-bright);">Bitmap Subexpanse Architecture (256 bits → 8 Subarrays × 32 bits)</span>
               <span class="step-badge purple">POPCNT Rank Acceleration</span>
             </div>
             <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
@@ -1066,6 +1209,39 @@
   </div>
 </div>
 
+<!-- Permanent Architecture & Invariant Deep Dive Footer -->
+<div class="card" style="max-width: 1480px; margin: 20px auto 0 auto;">
+  <div class="card-title">
+    <span>⚙️ Under The Hood: Why 256-ary Digital Radix Tries Outperform Search Trees</span>
+    <span style="font-size:11px; color:var(--text-muted); font-family:ui-monospace, monospace;">AVX2 Bitmaps • POPCNT • In-Pointer Immediate Leaves</span>
+  </div>
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:14px; margin-top:8px;">
+    <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:14px;">
+      <div style="font-size:12px; font-weight:700; color:var(--accent); margin-bottom:4px;">1. Zero Heap Overhead for Small Populations (0 B)</div>
+      <div style="font-size:11px; color:var(--text-muted); line-height:1.4;">
+        For 1–7 keys in Map (or 1–15 keys in Set), Expanse encodes key bytes and values directly inside the <strong>16-byte Edge pointer</strong> (tagged pointer). Zero allocations, zero heap indirection, and 100% cache-resident.
+      </div>
+    </div>
+    <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:14px;">
+      <div style="font-size:12px; font-weight:700; color:var(--accent-green); margin-bottom:4px;">2. Single-Cycle Bitmask Rank (POPCNT / BMI2)</div>
+      <div style="font-size:11px; color:var(--text-muted); line-height:1.4;">
+        Bitmap leaves compress 256 key positions into eight 32-bit subexpanses. Value slot offsets are computed in <strong>1 single CPU instruction</strong> (<code class="code-tag">POPCNT</code>) by counting set bits below the query digit, eliminating binary search tree pointer chasing.
+      </div>
+    </div>
+    <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:14px;">
+      <div style="font-size:12px; font-weight:700; color:var(--accent-purple); margin-bottom:4px;">3. SIMD 128-bit Vectorized Linear Scan</div>
+      <div style="font-size:11px; color:var(--text-muted); line-height:1.4;">
+        In <code class="code-tag">LEAF_LINEAR</code> (8–25 keys), keys are scanned using 128-bit vector instructions (<code class="code-tag">_mm_cmplt_epi8</code> / <code class="code-tag">vdupq_n_u8</code>) in 2 instructions without branches, outperforming binary search at small scales.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer style="max-width: 1480px; margin: 16px auto 30px auto; text-align: center; font-size: 11px; color: var(--text-muted);">
+  <span>Powered by <strong>Expanse 64-bit Engine</strong> · <a href="https://github.com/orieg/expanse" target="_blank" style="color:var(--accent); text-decoration:none;">GitHub Repository</a> · Deterministic Valgrind/Callgrind Measurements</span>
+</footer>
+
 <!-- =================================================================== -->
 <!-- NODE INSPECTOR MODAL                                                -->
 <!-- =================================================================== -->
@@ -1073,7 +1249,7 @@
   <div class="modal-card">
     <button class="modal-close" onclick="closeModal()">✕</button>
     <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
-      <h2 style="font-size:18px; color:#fff;" id="modal-title">Node Title</h2>
+      <h2 style="font-size:18px; color:var(--text-bright);" id="modal-title">Node Title</h2>
       <span class="badge-pill" id="modal-tag">Tag</span>
     </div>
     <div style="font-size:12px; color:var(--text-muted); margin-bottom:14px;" id="modal-subtitle">Struct subtitle</div>
@@ -1980,8 +2156,36 @@
   }
 
   // ===================================================================
-  // 4. DAG CONNECTOR DRAWING
+  // 4. THEME MANAGEMENT & DAG CONNECTOR DRAWING
   // ===================================================================
+
+  function isLightThemeActive() {
+    return document.documentElement.getAttribute('data-theme') === 'light';
+  }
+
+  function initTheme() {
+    const savedTheme = localStorage.getItem('expanse-theme');
+    if (savedTheme === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+    } else if (!savedTheme && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  }
+
+  function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'light' ? 'dark' : 'light';
+    if (next === 'dark') {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('expanse-theme', 'dark');
+    } else {
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('expanse-theme', 'light');
+    }
+    drawHierarchyConnections();
+  }
+
+  initTheme();
 
   function drawHierarchyConnections() {
     const hCanvas = document.getElementById('hierarchy-canvas');
@@ -1989,6 +2193,13 @@
     if (!hCanvas || !hSvg) return;
     const canvasRect = hCanvas.getBoundingClientRect();
     if (canvasRect.width === 0) return;
+
+    const isLight = isLightThemeActive();
+    const dimColor = isLight ? "#cbd5e1" : "#334155";
+    const accentBlue = isLight ? "#0284c7" : "#38bdf8";
+    const accentGreen = isLight ? "#059669" : "#10b981";
+    const accentPurple = isLight ? "#7c3aed" : "#a855f7";
+    const accentOrange = isLight ? "#d97706" : "#f97316";
 
     const milestoneIdx = Math.min(Math.max(parseInt(popSlider.value, 10), 0), POP_MILESTONES.length - 1);
     const pop = POP_MILESTONES[milestoneIdx].pop;
@@ -1999,24 +2210,24 @@
     hSvg.innerHTML = `
       <defs>
         <marker id="arrow-dim" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="${dimColor}"/>
         </marker>
         <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#38bdf8"/>
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="${accentBlue}"/>
         </marker>
         <marker id="arrow-green" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#10b981"/>
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="${accentGreen}"/>
         </marker>
         <marker id="arrow-purple" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#a855f7"/>
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="${accentPurple}"/>
         </marker>
         <marker id="arrow-orange" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#f97316"/>
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="${accentOrange}"/>
         </marker>
       </defs>
     `;
 
-    const connect = (fromId, toId, color = "#334155", marker = "arrow-dim", dash = "", strokeWidth = 1.5) => {
+    const connect = (fromId, toId, color = dimColor, marker = "arrow-dim", dash = "", strokeWidth = 1.5) => {
       const fromEl = document.getElementById(fromId);
       const toEl = document.getElementById(toId);
       if (!fromEl || !toEl) return;
@@ -2042,44 +2253,44 @@
     };
 
     // 1. Background structural hierarchy lines (dim)
-    connect('node-jap', 'node-root-leaf', '#334155', 'arrow-dim', '', 1.5);
-    connect('node-jap', 'node-jpm', '#334155', 'arrow-dim', '', 1.5);
-    connect('node-jpm', 'node-top-branch', '#334155', 'arrow-dim', '', 1.5);
-    connect('node-top-branch', 'node-branch-l', '#334155', 'arrow-dim', '', 1.5);
-    connect('node-top-branch', 'node-branch-b', '#334155', 'arrow-dim', '', 1.5);
-    connect('node-top-branch', 'node-branch-u', '#334155', 'arrow-dim', '', 1.5);
-    connect('node-branch-l', 'node-leaf-immed', '#334155', 'arrow-dim', '', 1.5);
-    connect('node-branch-l', 'node-leaf-linear', '#334155', 'arrow-dim', '', 1.5);
-    connect('node-branch-b', 'node-leaf-bitmap', '#334155', 'arrow-dim', '', 1.5);
-    connect('node-branch-b', 'node-leaf-full', '#334155', 'arrow-dim', '', 1.5);
-    connect('node-branch-u', 'node-leaf-bitmap', '#334155', 'arrow-dim', '', 1.5);
-    connect('node-branch-u', 'node-leaf-full', '#334155', 'arrow-dim', '', 1.5);
+    connect('node-jap', 'node-root-leaf', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-jap', 'node-jpm', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-jpm', 'node-top-branch', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-top-branch', 'node-branch-l', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-top-branch', 'node-branch-b', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-top-branch', 'node-branch-u', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-branch-l', 'node-leaf-immed', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-branch-l', 'node-leaf-linear', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-branch-b', 'node-leaf-bitmap', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-branch-b', 'node-leaf-full', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-branch-u', 'node-leaf-bitmap', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-branch-u', 'node-leaf-full', dimColor, 'arrow-dim', '', 1.5);
 
     // 2. Active traversal path (illuminated)
     if (pop <= 31) {
-      connect('node-jap', 'node-root-leaf', '#10b981', 'arrow-green', '', 2.5);
+      connect('node-jap', 'node-root-leaf', accentGreen, 'arrow-green', '', 2.5);
     } else if (isSequentialBypass) {
-      connect('node-jap', 'node-jpm', '#10b981', 'arrow-green', '', 2.5);
-      connect('node-jpm', 'node-leaf-bitmap', '#10b981', 'arrow-green', '6,4', 2.5);
+      connect('node-jap', 'node-jpm', accentGreen, 'arrow-green', '', 2.5);
+      connect('node-jpm', 'node-leaf-bitmap', accentGreen, 'arrow-green', '6,4', 2.5);
     } else {
-      connect('node-jap', 'node-jpm', '#38bdf8', 'arrow', '', 2.5);
-      connect('node-jpm', 'node-top-branch', '#38bdf8', 'arrow', '', 2.5);
+      connect('node-jap', 'node-jpm', accentBlue, 'arrow', '', 2.5);
+      connect('node-jpm', 'node-top-branch', accentBlue, 'arrow', '', 2.5);
 
       if (pop === 1 || pop === 7) {
-        connect('node-top-branch', 'node-branch-l', '#10b981', 'arrow-green', '', 2.5);
-        connect('node-branch-l', 'node-leaf-immed', '#10b981', 'arrow-green', '', 2.5);
+        connect('node-top-branch', 'node-branch-l', accentGreen, 'arrow-green', '', 2.5);
+        connect('node-branch-l', 'node-leaf-immed', accentGreen, 'arrow-green', '', 2.5);
       } else if (dist === "linear_leaf" || (pop >= 13 && pop <= 25)) {
-        connect('node-top-branch', 'node-branch-l', '#a855f7', 'arrow-purple', '', 2.5);
-        connect('node-branch-l', 'node-leaf-linear', '#a855f7', 'arrow-purple', '', 2.5);
+        connect('node-top-branch', 'node-branch-l', accentPurple, 'arrow-purple', '', 2.5);
+        connect('node-branch-l', 'node-leaf-linear', accentPurple, 'arrow-purple', '', 2.5);
       } else if (pop === 256) {
-        connect('node-top-branch', 'node-branch-u', '#38bdf8', 'arrow', '', 2.5);
-        connect('node-branch-u', 'node-leaf-full', '#10b981', 'arrow-green', '', 2.5);
+        connect('node-top-branch', 'node-branch-u', accentBlue, 'arrow', '', 2.5);
+        connect('node-branch-u', 'node-leaf-full', accentGreen, 'arrow-green', '', 2.5);
       } else if (pop >= 192 && pop < 1000) {
-        connect('node-top-branch', 'node-branch-u', '#38bdf8', 'arrow', '', 2.5);
-        connect('node-branch-u', 'node-leaf-bitmap', '#10b981', 'arrow-green', '', 2.5);
+        connect('node-top-branch', 'node-branch-u', accentBlue, 'arrow', '', 2.5);
+        connect('node-branch-u', 'node-leaf-bitmap', accentGreen, 'arrow-green', '', 2.5);
       } else {
-        connect('node-top-branch', 'node-branch-b', '#38bdf8', 'arrow', '', 2.5);
-        connect('node-branch-b', 'node-leaf-bitmap', '#10b981', 'arrow-green', '', 2.5);
+        connect('node-top-branch', 'node-branch-b', accentBlue, 'arrow', '', 2.5);
+        connect('node-branch-b', 'node-leaf-bitmap', accentGreen, 'arrow-green', '', 2.5);
       }
     }
 
@@ -2092,7 +2303,7 @@
         const by = r.top - canvasRect.top + r.height / 2;
         const loopPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         loopPath.setAttribute('d', `M ${bx} ${by} C ${bx + 50} ${by - 40}, ${bx + 50} ${by + 40}, ${bx} ${by + 10}`);
-        loopPath.setAttribute('stroke', '#a855f7');
+        loopPath.setAttribute('stroke', accentPurple);
         loopPath.setAttribute('stroke-width', '2.5');
         loopPath.setAttribute('stroke-dasharray', '4,3');
         loopPath.setAttribute('fill', 'none');
