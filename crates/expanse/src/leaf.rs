@@ -512,7 +512,11 @@ pub(crate) unsafe fn map_remove_at(base: *mut u8, key_bytes: u8, pop: usize, pos
 ///
 /// `keys` must be valid for reads of `KB * pop` bytes.
 #[inline]
-unsafe fn search_fixed<const KB: usize>(keys: *const u8, pop: usize, key: Key) -> Option<usize> {
+pub(crate) unsafe fn search_fixed<const KB: usize>(
+    keys: *const u8,
+    pop: usize,
+    key: Key,
+) -> Option<usize> {
     if KB == 1 && (13..=16).contains(&pop) {
         // SAFETY: cap_class(pop >= 13) is 16, so keys holds at least 16 bytes.
         unsafe { crate::bits::search_16_u8(keys, pop, key as u8) }
