@@ -601,6 +601,22 @@ impl<'a> IntoIterator for &'a ExpanseSet {
     }
 }
 
+impl FromIterator<Key> for ExpanseSet {
+    fn from_iter<I: IntoIterator<Item = Key>>(iter: I) -> Self {
+        let mut set = Self::new();
+        set.extend(iter);
+        set
+    }
+}
+
+impl Extend<Key> for ExpanseSet {
+    fn extend<I: IntoIterator<Item = Key>>(&mut self, iter: I) {
+        for k in iter {
+            self.insert(k);
+        }
+    }
+}
+
 impl ExpanseSet {
     /// Rebuilds the flat sorted root leaf from a small tree (the shrink
     /// twin of the root-leaf → trie promotion).
@@ -1206,5 +1222,24 @@ mod tests {
         set.validate();
         assert!(set.is_empty());
         assert_eq!(set.mem_used(), 0);
+    }
+
+    #[test]
+    fn test_from_iterator_and_extend() {
+        let keys: Vec<u64> = (0..500u64).map(|i| i * 17).collect();
+        let set: ExpanseSet = keys.iter().copied().collect();
+        assert_eq!(set.len(), 500);
+        set.validate();
+        for &k in &keys {
+            assert!(set.contains(k));
+        }
+
+        let mut extended = ExpanseSet::new();
+        extended.extend(keys.iter().copied());
+        assert_eq!(extended.len(), 500);
+        extended.validate();
+        for &k in &keys {
+            assert!(extended.contains(k));
+        }
     }
 }

@@ -81,8 +81,37 @@ pub(crate) unsafe fn read_packed_fixed<const KB: usize>(keys: *const u8, slot: u
         1 => unsafe { *keys.add(slot) as u64 },
         // SAFETY: caller guarantees (slot + 1) * 2 readable bytes; unaligned read.
         2 => unsafe { u64::from((keys.add(slot * 2) as *const u16).read_unaligned()) },
+        // SAFETY: caller guarantees (slot + 1) * 3 readable bytes; unaligned read.
+        3 => unsafe {
+            let p = keys.add(slot * 3);
+            let low16 = u64::from((p as *const u16).read_unaligned());
+            let high8 = u64::from(*p.add(2));
+            low16 | (high8 << 16)
+        },
         // SAFETY: caller guarantees (slot + 1) * 4 readable bytes; unaligned read.
         4 => unsafe { u64::from((keys.add(slot * 4) as *const u32).read_unaligned()) },
+        // SAFETY: caller guarantees (slot + 1) * 5 readable bytes; unaligned read.
+        5 => unsafe {
+            let p = keys.add(slot * 5);
+            let low32 = u64::from((p as *const u32).read_unaligned());
+            let high8 = u64::from(*p.add(4));
+            low32 | (high8 << 32)
+        },
+        // SAFETY: caller guarantees (slot + 1) * 6 readable bytes; unaligned read.
+        6 => unsafe {
+            let p = keys.add(slot * 6);
+            let low32 = u64::from((p as *const u32).read_unaligned());
+            let high16 = u64::from((p.add(4) as *const u16).read_unaligned());
+            low32 | (high16 << 32)
+        },
+        // SAFETY: caller guarantees (slot + 1) * 7 readable bytes; unaligned read.
+        7 => unsafe {
+            let p = keys.add(slot * 7);
+            let low32 = u64::from((p as *const u32).read_unaligned());
+            let mid16 = u64::from((p.add(4) as *const u16).read_unaligned());
+            let high8 = u64::from(*p.add(6));
+            low32 | (mid16 << 32) | (high8 << 48)
+        },
         _ => {
             let mut buf = [0u8; 8];
             // SAFETY: in-bounds per this function's contract; `KB <= 7 < 8`, so
@@ -105,20 +134,38 @@ pub(crate) unsafe fn write_packed(keys: *mut u8, slot: usize, kb: usize, val: u6
         1 => unsafe { *keys.add(slot) = val as u8 },
         // SAFETY: caller guarantees (slot + 1) * 2 writable bytes; unaligned write.
         2 => unsafe { (keys.add(slot * 2) as *mut u16).write_unaligned(val as u16) },
+        // SAFETY: caller guarantees (slot + 1) * 3 writable bytes; unaligned write.
+        3 => unsafe {
+            let p = keys.add(slot * 3);
+            (p as *mut u16).write_unaligned(val as u16);
+            *p.add(2) = (val >> 16) as u8;
+        },
         // SAFETY: caller guarantees (slot + 1) * 4 writable bytes; unaligned write.
         4 => unsafe { (keys.add(slot * 4) as *mut u32).write_unaligned(val as u32) },
+        // SAFETY: caller guarantees (slot + 1) * 5 writable bytes; unaligned write.
+        5 => unsafe {
+            let p = keys.add(slot * 5);
+            (p as *mut u32).write_unaligned(val as u32);
+            *p.add(4) = (val >> 32) as u8;
+        },
+        // SAFETY: caller guarantees (slot + 1) * 6 writable bytes; unaligned write.
+        6 => unsafe {
+            let p = keys.add(slot * 6);
+            (p as *mut u32).write_unaligned(val as u32);
+            (p.add(4) as *mut u16).write_unaligned((val >> 32) as u16);
+        },
+        // SAFETY: caller guarantees (slot + 1) * 7 writable bytes; unaligned write.
+        7 => unsafe {
+            let p = keys.add(slot * 7);
+            (p as *mut u32).write_unaligned(val as u32);
+            (p.add(4) as *mut u16).write_unaligned((val >> 32) as u16);
+            *p.add(6) = (val >> 48) as u8;
+        },
         _ => {
             let le = val.to_le_bytes();
-            // SAFETY: forwarded contract; the copy width is a constant in each
-            // arm, so it inlines rather than calling out (issue #1 item 3).
+            // SAFETY: forwarded contract.
             unsafe {
-                match kb {
-                    3 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 3), 3),
-                    5 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 5), 5),
-                    6 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 6), 6),
-                    7 => core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * 7), 7),
-                    _ => debug_assert!(false, "packed key width out of range: {kb}"),
-                }
+                core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * kb), kb);
             }
         }
     }
@@ -712,12 +759,10 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                         return false;
                     } else {
                         // SAFETY: live leaf of `pop` keys per contract.
-                        let p = unsafe { leaf::lower_bound(base, pop, kb, k) };
-                        // SAFETY: p < pop is in bounds.
-                        if p < pop && unsafe { read_packed(base, p, kb as usize) } == k {
-                            return false;
+                        match unsafe { leaf::locate(base, pop, kb, k) } {
+                            Ok(_) => return false,
+                            Err(p) => p,
                         }
-                        p
                     }
                 } else {
                     0
@@ -1308,11 +1353,10 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             a.assert_bracketed();
             let base = edge.node_ptr();
             // SAFETY: live leaf of `pop` keys per contract.
-            let pos = unsafe { leaf::lower_bound(base, pop, kb, k) };
-            // SAFETY: pos < pop is in bounds.
-            if pos == pop || unsafe { read_packed(base, pos, kb as usize) } != k {
-                return false;
-            }
+            let pos = match unsafe { leaf::locate(base, pop, kb, k) } {
+                Ok(pos) => pos,
+                Err(_) => return false,
+            };
             if pop > ImmedType::max_count(level) as usize
                 && leaf::cap_class(pop - 1) == leaf::cap_class(pop)
             {
