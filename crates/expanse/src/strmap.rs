@@ -2,27 +2,63 @@
 //! values (compat: JudySL).
 //!
 //! Structure (clean-room, designed against the documented JudySL
-//! *semantics* only): a meta-trie of word-map nodes. Each node is an
-//! [`ExpanseMap`] keyed by the string's next **8-byte chunk, packed
-//! big-endian**, so the word maps' numeric order *is* byte-lexicographic
-//! order and all ordered navigation falls out of the word engine.
+//! *semantics* only): a meta-trie of word-map nodes with cross-chunk
+//! path compression ([Issue #84 Item 1](https://github.com/orieg/expanse/issues/84)).
+//! Each branch node is an [`ExpanseMap`] keyed by the string's next
+//! **8-byte chunk, packed big-endian**, so the word maps' numeric order
+//! *is* byte-lexicographic order and all ordered navigation falls out of
+//! the word engine.
 //!
 //! Keys are NUL-free byte strings (the C surface hands over
 //! NUL-terminated strings, so this is the natural domain). A chunk that
 //! contains the string's terminating NUL — always the case for the last
 //! chunk, including the all-zero chunk of a string whose length is a
-//! multiple of 8 — is a **terminal** entry holding the user value; a
-//! chunk of 8 non-NUL bytes is a **continuation** entry holding a pointer
-//! to the child node. The two are distinguished by the chunk bytes alone
-//! (does it contain a zero byte?), so values need no tag bits.
+//! multiple of 8 — is a **terminal** entry holding the user value.
 //!
-//! v1 note: no single-path compression across chunk levels yet; a long
-//! unique suffix costs one node per 8 bytes.
+//! For non-terminal chunks (8 non-NUL bytes), continuation entries use
+//! pointer tagging:
+//! - Tag `0`: Pointer to child [`StrNode`] branch.
+//! - Tag `1`: Pointer to [`StrSuffix`] leaf, which stores the remaining
+//!   NUL-free key bytes and the user value in a single allocation.
 
 use crate::map::ExpanseMap;
 use core::ptr::NonNull;
 
 const CHUNK: usize = 8;
+const TAG_SUFFIX: u64 = 1;
+
+/// Leaf suffix: stores the unbranched remainder of a string key and its value.
+struct StrSuffix {
+    suffix: Box<[u8]>,
+    value: u64,
+}
+
+#[inline(always)]
+fn is_suffix_ptr(v: u64) -> bool {
+    (v & TAG_SUFFIX) != 0
+}
+
+#[inline(always)]
+fn unpack_suffix(v: u64) -> *mut StrSuffix {
+    (v & !TAG_SUFFIX) as *mut StrSuffix
+}
+
+#[inline(always)]
+fn pack_suffix(p: *mut StrSuffix) -> u64 {
+    (p as u64) | TAG_SUFFIX
+}
+
+#[inline(always)]
+fn unpack_child(v: u64) -> *mut StrNode {
+    debug_assert_eq!(v & TAG_SUFFIX, 0);
+    v as *mut StrNode
+}
+
+#[inline(always)]
+fn pack_child(p: *mut StrNode) -> u64 {
+    debug_assert_eq!((p as u64) & TAG_SUFFIX, 0);
+    p as u64
+}
 
 /// One trie level: word map over the next 8-byte chunk.
 struct StrNode {
@@ -58,11 +94,10 @@ impl StrNode {
 
     /// # Safety
     ///
-    /// `v` must be a continuation value produced by `Box::into_raw` in
-    /// this module.
+    /// `v` must be a continuation child pointer produced by `Box::into_raw`.
     unsafe fn child_mut<'a>(v: u64) -> &'a mut StrNode {
         // SAFETY: per contract, `v` is a live Box<StrNode> pointer.
-        unsafe { &mut *(v as *mut StrNode) }
+        unsafe { &mut *unpack_child(v) }
     }
 
     /// Largest entry in this subtree; appends its key bytes to `out`.
@@ -94,7 +129,13 @@ impl StrNode {
                 return n.map.get_value_slot(chunk).expect("present chunk");
             }
             out.extend_from_slice(&chunk.to_be_bytes());
-            node = v as *mut StrNode;
+            if is_suffix_ptr(v) {
+                // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
+                let suffix = unsafe { &mut *unpack_suffix(v) };
+                out.extend_from_slice(&suffix.suffix);
+                return NonNull::new(&raw mut suffix.value).expect("non-null value slot");
+            }
+            node = unpack_child(v);
         }
     }
 
@@ -112,6 +153,12 @@ impl StrNode {
         if is_terminal(chunk) {
             out.extend(terminal_bytes(chunk));
             Some(self.map.get_value_slot(chunk).expect("present chunk"))
+        } else if is_suffix_ptr(v) {
+            // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
+            let suffix = unsafe { &mut *unpack_suffix(v) };
+            out.extend_from_slice(&chunk.to_be_bytes());
+            out.extend_from_slice(&suffix.suffix);
+            Some(NonNull::new(&raw mut suffix.value).expect("non-null value slot"))
         } else {
             out.extend_from_slice(&chunk.to_be_bytes());
             // SAFETY: continuation values are child pointers.
@@ -147,21 +194,35 @@ impl StrNode {
                 && chunk == target
                 && !is_terminal(chunk)
             {
-                // Exact continuation: the answer, if there is one, is
-                // deeper. Record where to resume if it is not.
-                stack.push((node, target, out.len()));
-                out.extend_from_slice(&chunk.to_be_bytes());
-                node = v as *mut StrNode;
-                off += CHUNK;
-                continue;
-            }
-            // No exact continuation. `cursor` is either the query's own
-            // terminal chunk — a valid answer, since a longer query could
-            // not have produced a chunk containing a NUL — or the first
-            // entry strictly greater. Both are taken the same way.
-            if let Some(slot) = n.take_from(cursor, out, true) {
+                if is_suffix_ptr(v) {
+                    // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
+                    let suffix = unsafe { &mut *unpack_suffix(v) };
+                    let rem = &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
+                    if rem <= &suffix.suffix[..] {
+                        out.extend_from_slice(&chunk.to_be_bytes());
+                        out.extend_from_slice(&suffix.suffix);
+                        return Some(
+                            NonNull::new(&raw mut suffix.value).expect("non-null value slot"),
+                        );
+                    }
+                    // Suffix is strictly less than target key remainder; resume at next sibling.
+                    let sibling = n.map.next_after(target);
+                    if let Some(slot) = n.take_from(sibling, out, true) {
+                        return Some(slot);
+                    }
+                } else {
+                    // Exact continuation: the answer, if there is one, is
+                    // deeper. Record where to resume if it is not.
+                    stack.push((node, target, out.len()));
+                    out.extend_from_slice(&chunk.to_be_bytes());
+                    node = unpack_child(v);
+                    off += CHUNK;
+                    continue;
+                }
+            } else if let Some(slot) = n.take_from(cursor, out, true) {
                 return Some(slot);
             }
+
             // Nothing at or after here: unwind to the nearest ancestor
             // with an unexplored sibling.
             loop {
@@ -201,22 +262,47 @@ impl StrNode {
             // Exact continuation first: deeper entries share this chunk
             // and all sort above anything below it in this node.
             if !target_terminal && let Some(v) = n.map.get(target) {
-                stack.push((node, target, out.len()));
-                out.extend_from_slice(&target.to_be_bytes());
-                node = v as *mut StrNode;
-                off += CHUNK;
-                continue;
-            }
-            // Then entries at or below the target chunk in this node. A
-            // terminal exclusive target must not match itself.
-            let cursor = if target_terminal && !exclusive {
-                n.map.prev_at_or_before(target)
+                if is_suffix_ptr(v) {
+                    // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
+                    let suffix = unsafe { &mut *unpack_suffix(v) };
+                    let rem = &key[off.min(key.len()) + CHUNK.min(key.len().saturating_sub(off))..];
+                    let cmp = rem.cmp(&suffix.suffix[..]);
+                    let match_ok = if exclusive {
+                        cmp == core::cmp::Ordering::Greater
+                    } else {
+                        cmp != core::cmp::Ordering::Less
+                    };
+                    if match_ok {
+                        out.extend_from_slice(&target.to_be_bytes());
+                        out.extend_from_slice(&suffix.suffix);
+                        return Some(
+                            NonNull::new(&raw mut suffix.value).expect("non-null value slot"),
+                        );
+                    }
+                    let sibling = n.map.prev_before(target);
+                    if let Some(slot) = n.take_from(sibling, out, false) {
+                        return Some(slot);
+                    }
+                } else {
+                    stack.push((node, target, out.len()));
+                    out.extend_from_slice(&target.to_be_bytes());
+                    node = unpack_child(v);
+                    off += CHUNK;
+                    continue;
+                }
             } else {
-                n.map.prev_before(target)
-            };
-            if let Some(slot) = n.take_from(cursor, out, false) {
-                return Some(slot);
+                // Then entries at or below the target chunk in this node. A
+                // terminal exclusive target must not match itself.
+                let cursor = if target_terminal && !exclusive {
+                    n.map.prev_at_or_before(target)
+                } else {
+                    n.map.prev_before(target)
+                };
+                if let Some(slot) = n.take_from(cursor, out, false) {
+                    return Some(slot);
+                }
             }
+
             loop {
                 let (parent, parent_target, mark) = stack.pop()?;
                 out.truncate(mark);
@@ -252,8 +338,21 @@ impl StrNode {
                 break n.map.remove(chunk)?;
             }
             let v = n.map.get(chunk)?;
+            if is_suffix_ptr(v) {
+                // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
+                let suffix = unsafe { &*unpack_suffix(v) };
+                let rem = &key[off + CHUNK..];
+                if rem == &suffix.suffix[..] {
+                    n.map.remove(chunk);
+                    let removed_val = suffix.value;
+                    // SAFETY: unlinked above, so this is the last reference.
+                    drop(unsafe { Box::from_raw(unpack_suffix(v)) });
+                    break removed_val;
+                }
+                return None;
+            }
             path.push((node, chunk));
-            node = v as *mut StrNode;
+            node = unpack_child(v);
             off += CHUNK;
         };
 
@@ -264,14 +363,16 @@ impl StrNode {
             // SAFETY: recorded during the descent; still live.
             let parent = unsafe { &mut *parent_ptr };
             let child_v = parent.map.get(chunk).expect("path entry still linked");
-            // SAFETY: continuation value, a live child node.
-            let empty = unsafe { &*(child_v as *const StrNode) }.map.is_empty();
-            if !empty {
-                break;
+            if !is_suffix_ptr(child_v) {
+                // SAFETY: continuation value, a live child node.
+                let empty = unsafe { &*(unpack_child(child_v)) }.map.is_empty();
+                if !empty {
+                    break;
+                }
+                parent.map.remove(chunk);
+                // SAFETY: unlinked above, so this is the last reference.
+                drop(unsafe { Box::from_raw(unpack_child(child_v)) });
             }
-            parent.map.remove(chunk);
-            // SAFETY: unlinked above, so this is the last reference.
-            drop(unsafe { Box::from_raw(child_v as *mut StrNode) });
         }
         Some(removed)
     }
@@ -290,7 +391,13 @@ impl StrNode {
             bytes += node.map.mem_used() as u64 + size_of::<Self>() as u64;
             for (k, v) in node.map.iter() {
                 if !is_terminal(k) {
-                    stack.push(v as *const StrNode);
+                    if is_suffix_ptr(v) {
+                        // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
+                        let suffix = unsafe { &*unpack_suffix(v) };
+                        bytes += size_of::<StrSuffix>() as u64 + suffix.suffix.len() as u64;
+                    } else {
+                        stack.push(unpack_child(v));
+                    }
                 }
             }
         }
@@ -309,12 +416,17 @@ impl StrNode {
         let mut chunks = Vec::new();
         for (k, v) in self.map.iter() {
             if !is_terminal(k) {
-                chunks.push(k);
-                stack.push(v as *mut StrNode);
+                chunks.push((k, v));
             }
         }
-        for k in chunks {
+        for (k, v) in chunks {
             self.map.remove(k);
+            if is_suffix_ptr(v) {
+                // SAFETY: unlinked from map, unique ownership reclaimed.
+                drop(unsafe { Box::from_raw(unpack_suffix(v)) });
+            } else {
+                stack.push(unpack_child(v));
+            }
         }
     }
 }
@@ -393,17 +505,55 @@ impl ExpanseStrMap {
                 }
                 return prev;
             }
-            let v = match node.map.get(chunk) {
-                Some(v) => v,
+            match node.map.get(chunk) {
                 None => {
-                    let child = Box::into_raw(Box::new(StrNode::new())) as u64;
-                    node.map.insert(chunk, child);
-                    child
+                    let rem = &key[off + CHUNK..];
+                    let suffix = Box::into_raw(Box::new(StrSuffix {
+                        suffix: rem.into(),
+                        value: val,
+                    }));
+                    node.map.insert(chunk, pack_suffix(suffix));
+                    self.pop += 1;
+                    return None;
                 }
-            };
-            // SAFETY: continuation values are child pointers.
-            node = unsafe { StrNode::child_mut(v) };
-            off += CHUNK;
+                Some(v) if is_suffix_ptr(v) => {
+                    // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
+                    let existing = unsafe { Box::from_raw(unpack_suffix(v)) };
+                    let rem = &key[off + CHUNK..];
+                    if rem == &existing.suffix[..] {
+                        let old_val = existing.value;
+                        let new_suffix = Box::into_raw(Box::new(StrSuffix {
+                            suffix: existing.suffix,
+                            value: val,
+                        }));
+                        node.map.insert(chunk, pack_suffix(new_suffix));
+                        return Some(old_val);
+                    }
+                    // Divergence: create a new child StrNode and insert existing suffix into it
+                    let mut child = Box::new(StrNode::new());
+                    let (c1, t1) = chunk_at(&existing.suffix, 0);
+                    if t1 {
+                        child.map.insert(c1, existing.value);
+                    } else {
+                        let rem1 = &existing.suffix[CHUNK..];
+                        let s1 = Box::into_raw(Box::new(StrSuffix {
+                            suffix: rem1.into(),
+                            value: existing.value,
+                        }));
+                        child.map.insert(c1, pack_suffix(s1));
+                    }
+                    let child_raw = Box::into_raw(child);
+                    node.map.insert(chunk, pack_child(child_raw));
+                    // SAFETY: freshly allocated Box<StrNode> above.
+                    node = unsafe { &mut *child_raw };
+                    off += CHUNK;
+                }
+                Some(v) => {
+                    // SAFETY: v is an untagged child pointer to a live StrNode.
+                    node = unsafe { &mut *unpack_child(v) };
+                    off += CHUNK;
+                }
+            }
         }
     }
 
@@ -422,17 +572,52 @@ impl ExpanseStrMap {
                 }
                 return node.map.ins_slot(chunk);
             }
-            let v = match node.map.get(chunk) {
-                Some(v) => v,
+            match node.map.get(chunk) {
                 None => {
-                    let child = Box::into_raw(Box::new(StrNode::new())) as u64;
-                    node.map.insert(chunk, child);
-                    child
+                    let rem = &key[off + CHUNK..];
+                    let suffix = Box::into_raw(Box::new(StrSuffix {
+                        suffix: rem.into(),
+                        value: 0,
+                    }));
+                    node.map.insert(chunk, pack_suffix(suffix));
+                    self.pop += 1;
+                    // SAFETY: suffix is a live, uniquely owned pointer allocated above.
+                    return unsafe { NonNull::new_unchecked(&raw mut (*suffix).value) };
                 }
-            };
-            // SAFETY: continuation values are child pointers.
-            node = unsafe { StrNode::child_mut(v) };
-            off += CHUNK;
+                Some(v) if is_suffix_ptr(v) => {
+                    // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
+                    let existing = unsafe { &mut *unpack_suffix(v) };
+                    let rem = &key[off + CHUNK..];
+                    if rem == &existing.suffix[..] {
+                        return NonNull::new(&raw mut existing.value).expect("non-null value slot");
+                    }
+                    // Divergence: convert existing suffix to child StrNode
+                    // SAFETY: taking ownership of existing suffix for split.
+                    let existing_box = unsafe { Box::from_raw(unpack_suffix(v)) };
+                    let mut child = Box::new(StrNode::new());
+                    let (c1, t1) = chunk_at(&existing_box.suffix, 0);
+                    if t1 {
+                        child.map.insert(c1, existing_box.value);
+                    } else {
+                        let rem1 = &existing_box.suffix[CHUNK..];
+                        let s1 = Box::into_raw(Box::new(StrSuffix {
+                            suffix: rem1.into(),
+                            value: existing_box.value,
+                        }));
+                        child.map.insert(c1, pack_suffix(s1));
+                    }
+                    let child_raw = Box::into_raw(child);
+                    node.map.insert(chunk, pack_child(child_raw));
+                    // SAFETY: freshly allocated Box<StrNode> above.
+                    node = unsafe { &mut *child_raw };
+                    off += CHUNK;
+                }
+                Some(v) => {
+                    // SAFETY: v is an untagged child pointer to a live StrNode.
+                    node = unsafe { &mut *unpack_child(v) };
+                    off += CHUNK;
+                }
+            }
         }
     }
 
@@ -448,8 +633,17 @@ impl ExpanseStrMap {
                 return node.map.get(chunk);
             }
             let v = node.map.get(chunk)?;
-            // SAFETY: continuation values are child pointers.
-            node = unsafe { &*(v as *const StrNode) };
+            if is_suffix_ptr(v) {
+                // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
+                let suffix = unsafe { &*unpack_suffix(v) };
+                let rem = &key[off + CHUNK..];
+                if rem == &suffix.suffix[..] {
+                    return Some(suffix.value);
+                }
+                return None;
+            }
+            // SAFETY: untagged child pointer to a live StrNode.
+            node = unsafe { &*unpack_child(v) };
             off += CHUNK;
         }
     }
@@ -467,6 +661,15 @@ impl ExpanseStrMap {
                 return node.map.get_value_slot(chunk);
             }
             let v = node.map.get(chunk)?;
+            if is_suffix_ptr(v) {
+                // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
+                let suffix = unsafe { &mut *unpack_suffix(v) };
+                let rem = &key[off + CHUNK..];
+                if rem == &suffix.suffix[..] {
+                    return Some(NonNull::new(&raw mut suffix.value).expect("non-null value slot"));
+                }
+                return None;
+            }
             // SAFETY: continuation values are child pointers.
             node = unsafe { StrNode::child_mut(v) };
             off += CHUNK;
@@ -783,5 +986,55 @@ mod tests {
         let freed = map.clear();
         assert!(freed > 0);
         assert!(map.is_empty());
+    }
+
+    #[test]
+    fn test_cross_chunk_path_compression_split_and_memory() {
+        let mut map = ExpanseStrMap::new();
+        // Insert a 64-byte key. With path compression, this creates 1 StrNode + 1 StrSuffix.
+        let key1 = b"org.apache.hadoop.fs.azurebfs.services.AbfsClientTestFixture";
+        map.insert(key1, 100);
+        assert_eq!(map.get(key1), Some(100));
+        assert_eq!(map.len(), 1);
+
+        // Insert a second key sharing a long prefix (35 bytes).
+        let key2 = b"org.apache.hadoop.fs.azurebfs.services.AbfsRestOperation";
+        map.insert(key2, 200);
+        assert_eq!(map.get(key1), Some(100));
+        assert_eq!(map.get(key2), Some(200));
+        assert_eq!(map.len(), 2);
+
+        // Insert a third key diverging early (at byte 4).
+        let key3 = b"org.eclipse.jetty.server.Server";
+        map.insert(key3, 300);
+        assert_eq!(map.get(key1), Some(100));
+        assert_eq!(map.get(key2), Some(200));
+        assert_eq!(map.get(key3), Some(300));
+        assert_eq!(map.len(), 3);
+
+        // Verify sorted navigation across compressed paths:
+        let (k1, s1) = map.first().unwrap();
+        assert_eq!(k1, key1);
+        // SAFETY: slot is valid until next mutation.
+        unsafe { assert_eq!(*s1.as_ptr(), 100) };
+
+        let (k2, s2) = map.next_after(key1).unwrap();
+        assert_eq!(k2, key2);
+        // SAFETY: slot is valid until next mutation.
+        unsafe { assert_eq!(*s2.as_ptr(), 200) };
+
+        let (k3, s3) = map.next_after(key2).unwrap();
+        assert_eq!(k3, key3);
+        // SAFETY: slot is valid until next mutation.
+        unsafe { assert_eq!(*s3.as_ptr(), 300) };
+
+        assert_eq!(map.next_after(key3), None);
+
+        // Remove the split key:
+        assert_eq!(map.remove(key2), Some(200));
+        assert_eq!(map.get(key2), None);
+        assert_eq!(map.get(key1), Some(100));
+        assert_eq!(map.get(key3), Some(300));
+        assert_eq!(map.len(), 2);
     }
 }
