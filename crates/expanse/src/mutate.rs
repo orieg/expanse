@@ -122,14 +122,14 @@ pub(crate) unsafe fn read_packed_fixed<const KB: usize>(keys: *const u8, slot: u
     }
 }
 
-/// Writes `val`'s low `kb` bytes as the `slot`-th packed key.
+/// Writes `val`'s low `KB` bytes as the `slot`-th packed key at a compile-time width.
 ///
 /// # Safety
 ///
-/// `keys` must be valid for writes of `(slot + 1) * kb` bytes.
+/// `keys` must be valid for writes of `(slot + 1) * KB` bytes.
 #[inline(always)]
-pub(crate) unsafe fn write_packed(keys: *mut u8, slot: usize, kb: usize, val: u64) {
-    match kb {
+pub(crate) unsafe fn write_packed_fixed<const KB: usize>(keys: *mut u8, slot: usize, val: u64) {
+    match KB {
         // SAFETY: caller guarantees (slot + 1) * 1 writable bytes.
         1 => unsafe { *keys.add(slot) = val as u8 },
         // SAFETY: caller guarantees (slot + 1) * 2 writable bytes; unaligned write.
@@ -165,8 +165,30 @@ pub(crate) unsafe fn write_packed(keys: *mut u8, slot: usize, kb: usize, val: u6
             let le = val.to_le_bytes();
             // SAFETY: forwarded contract.
             unsafe {
-                core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * kb), kb);
+                core::ptr::copy_nonoverlapping(le.as_ptr(), keys.add(slot * KB), KB);
             }
+        }
+    }
+}
+
+/// Writes `val`'s low `kb` bytes as the `slot`-th packed key.
+///
+/// # Safety
+///
+/// `keys` must be valid for writes of `(slot + 1) * kb` bytes.
+#[inline(always)]
+pub(crate) unsafe fn write_packed(keys: *mut u8, slot: usize, kb: usize, val: u64) {
+    // SAFETY: forwarded contract; each arm's KB equals `kb`.
+    unsafe {
+        match kb {
+            1 => write_packed_fixed::<1>(keys, slot, val),
+            2 => write_packed_fixed::<2>(keys, slot, val),
+            3 => write_packed_fixed::<3>(keys, slot, val),
+            4 => write_packed_fixed::<4>(keys, slot, val),
+            5 => write_packed_fixed::<5>(keys, slot, val),
+            6 => write_packed_fixed::<6>(keys, slot, val),
+            7 => write_packed_fixed::<7>(keys, slot, val),
+            _ => write_packed_fixed::<8>(keys, slot, val),
         }
     }
 }
@@ -341,9 +363,50 @@ pub(crate) unsafe fn leaf_keys(edge: &Edge, kb: u8, pop: usize) -> Vec<u64> {
 /// Allocates a linear leaf from sorted keys and points `edge` at it.
 fn build_leaf(a: &NodeAlloc, edge: &mut Edge, kb: u8, keys: &[u64]) {
     let ptr = a.alloc_bytes(leaf::size_set(kb, keys.len()));
-    for (slot, &k) in keys.iter().enumerate() {
-        // SAFETY: in-bounds writes of the fresh allocation.
-        unsafe { write_packed(ptr.as_ptr(), slot, kb as usize, k) };
+    let base = ptr.as_ptr();
+    match kb {
+        1 => {
+            for (slot, &k) in keys.iter().enumerate() {
+                // SAFETY: fresh allocation holds `keys.len()` slots.
+                unsafe { write_packed_fixed::<1>(base, slot, k) };
+            }
+        }
+        2 => {
+            for (slot, &k) in keys.iter().enumerate() {
+                // SAFETY: fresh allocation holds `keys.len()` slots.
+                unsafe { write_packed_fixed::<2>(base, slot, k) };
+            }
+        }
+        3 => {
+            for (slot, &k) in keys.iter().enumerate() {
+                // SAFETY: fresh allocation holds `keys.len()` slots.
+                unsafe { write_packed_fixed::<3>(base, slot, k) };
+            }
+        }
+        4 => {
+            for (slot, &k) in keys.iter().enumerate() {
+                // SAFETY: fresh allocation holds `keys.len()` slots.
+                unsafe { write_packed_fixed::<4>(base, slot, k) };
+            }
+        }
+        5 => {
+            for (slot, &k) in keys.iter().enumerate() {
+                // SAFETY: fresh allocation holds `keys.len()` slots.
+                unsafe { write_packed_fixed::<5>(base, slot, k) };
+            }
+        }
+        6 => {
+            for (slot, &k) in keys.iter().enumerate() {
+                // SAFETY: fresh allocation holds `keys.len()` slots.
+                unsafe { write_packed_fixed::<6>(base, slot, k) };
+            }
+        }
+        _ => {
+            for (slot, &k) in keys.iter().enumerate() {
+                // SAFETY: fresh allocation holds `keys.len()` slots.
+                unsafe { write_packed_fixed::<7>(base, slot, k) };
+            }
+        }
     }
     let tag = match kb {
         1 => EdgeType::Leaf1,
