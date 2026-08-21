@@ -426,46 +426,49 @@ unsafe fn search_fixed<const KB: usize>(keys: *const u8, pop: usize, key: Key) -
         unsafe { crate::bits::search_4_u32(keys, pop, key as u32) }
     } else if pop <= 4 {
         let needle = crate::mutate::key_low(key, KB as u8);
-        match pop {
-            0 => None,
-            1 => {
-                if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } == needle {
-                    Some(0)
-                } else {
-                    None
+        // SAFETY: `pop` guarantees the exact readable slot indices 0..pop are in-bounds.
+        unsafe {
+            match pop {
+                0 => None,
+                1 => {
+                    if crate::mutate::read_packed_fixed::<KB>(keys, 0) == needle {
+                        Some(0)
+                    } else {
+                        None
+                    }
                 }
-            }
-            2 => {
-                if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } == needle {
-                    Some(0)
-                } else if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) } == needle {
-                    Some(1)
-                } else {
-                    None
+                2 => {
+                    if crate::mutate::read_packed_fixed::<KB>(keys, 0) == needle {
+                        Some(0)
+                    } else if crate::mutate::read_packed_fixed::<KB>(keys, 1) == needle {
+                        Some(1)
+                    } else {
+                        None
+                    }
                 }
-            }
-            3 => {
-                if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } == needle {
-                    Some(0)
-                } else if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) } == needle {
-                    Some(1)
-                } else if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 2) } == needle {
-                    Some(2)
-                } else {
-                    None
+                3 => {
+                    if crate::mutate::read_packed_fixed::<KB>(keys, 0) == needle {
+                        Some(0)
+                    } else if crate::mutate::read_packed_fixed::<KB>(keys, 1) == needle {
+                        Some(1)
+                    } else if crate::mutate::read_packed_fixed::<KB>(keys, 2) == needle {
+                        Some(2)
+                    } else {
+                        None
+                    }
                 }
-            }
-            _ => {
-                if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } == needle {
-                    Some(0)
-                } else if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 1) } == needle {
-                    Some(1)
-                } else if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 2) } == needle {
-                    Some(2)
-                } else if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 3) } == needle {
-                    Some(3)
-                } else {
-                    None
+                _ => {
+                    if crate::mutate::read_packed_fixed::<KB>(keys, 0) == needle {
+                        Some(0)
+                    } else if crate::mutate::read_packed_fixed::<KB>(keys, 1) == needle {
+                        Some(1)
+                    } else if crate::mutate::read_packed_fixed::<KB>(keys, 2) == needle {
+                        Some(2)
+                    } else if crate::mutate::read_packed_fixed::<KB>(keys, 3) == needle {
+                        Some(3)
+                    } else {
+                        None
+                    }
                 }
             }
         }
