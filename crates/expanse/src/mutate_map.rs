@@ -436,17 +436,8 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 // SAFETY: map_keys_offset(pop) is within the live map leaf allocation.
                 let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
                 let (hit, pos) = if pop > 0 {
-                    // Fast path for sequential/append inserts: avoids width match
-                    // SAFETY: pop > 0 guarantees slot pop - 1 is within the leaf allocation.
-                    let last = unsafe {
-                        match kb {
-                            1 => *keys_ptr.add(pop - 1) as u64,
-                            2 => u64::from(
-                                (keys_ptr.add((pop - 1) * 2) as *const u16).read_unaligned(),
-                            ),
-                            _ => read_packed(keys_ptr, pop - 1, kb as usize),
-                        }
-                    };
+                    // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
+                    let last = unsafe { read_packed(keys_ptr, pop - 1, kb as usize) };
                     if k > last {
                         (false, pop)
                     } else if k == last {

@@ -629,17 +629,8 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 let k = key_low(key, kb);
                 let base = edge.node_ptr();
                 let pos = if pop > 0 {
-                    // Fast path for sequential/append inserts: avoids width match
-                    // SAFETY: pop > 0 guarantees slot pop - 1 is within the leaf allocation.
-                    let last = unsafe {
-                        match kb {
-                            1 => *base.add(pop - 1) as u64,
-                            2 => {
-                                u64::from((base.add((pop - 1) * 2) as *const u16).read_unaligned())
-                            }
-                            _ => read_packed(base, pop - 1, kb as usize),
-                        }
-                    };
+                    // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
+                    let last = unsafe { read_packed(base, pop - 1, kb as usize) };
                     if k > last {
                         pop
                     } else if k == last {
