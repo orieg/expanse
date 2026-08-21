@@ -301,22 +301,15 @@ impl NodeAlloc {
         self.live_allocs.fetch_add(1, Ordering::Relaxed);
 
         if let Some(class) = class_for(bytes, align) {
-            let mut raw = core::ptr::null_mut();
-            loop {
-                let head = self.freelists[class].load(Ordering::Acquire);
-                if head.is_null() {
-                    break;
-                }
+            let head = self.freelists[class].load(Ordering::Relaxed);
+            let mut raw = if !head.is_null() {
                 // SAFETY: head points to a valid FreeBlock previously freed to this class.
                 let next = unsafe { (*head).next };
-                if self.freelists[class]
-                    .compare_exchange_weak(head, next, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok()
-                {
-                    raw = head.cast::<u8>();
-                    break;
-                }
-            }
+                self.freelists[class].store(next, Ordering::Relaxed);
+                head.cast::<u8>()
+            } else {
+                core::ptr::null_mut()
+            };
 
             if raw.is_null()
                 && let Some(c) = self.deferred.get()
@@ -365,17 +358,11 @@ impl NodeAlloc {
 
         if let Some(class) = class_for(bytes, align) {
             let block = ptr.as_ptr().cast::<FreeBlock>();
-            loop {
-                let head = self.freelists[class].load(Ordering::Relaxed);
-                // SAFETY: block points to a valid allocation of at least size_of::<FreeBlock>().
-                unsafe { (*block).next = head };
-                if self.freelists[class]
-                    .compare_exchange_weak(head, block, Ordering::Release, Ordering::Relaxed)
-                    .is_ok()
-                {
-                    return;
-                }
-            }
+            let head = self.freelists[class].load(Ordering::Relaxed);
+            // SAFETY: block points to a valid allocation of at least size_of::<FreeBlock>().
+            unsafe { (*block).next = head };
+            self.freelists[class].store(block, Ordering::Relaxed);
+            return;
         }
 
         let layout = Self::layout_for(bytes, align);
