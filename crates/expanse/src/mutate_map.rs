@@ -90,7 +90,7 @@ fn write_map_immed(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)
 
 /// Fixed-capacity stack buffer for collecting small map leaf entries without heap allocation.
 pub(crate) struct StackEntries32 {
-    pub(crate) buf: [(u64, u64); 32],
+    pub(crate) buf: [core::mem::MaybeUninit<(u64, u64)>; 32],
     pub(crate) len: usize,
 }
 
@@ -98,7 +98,7 @@ impl StackEntries32 {
     #[inline(always)]
     pub(crate) const fn new() -> Self {
         Self {
-            buf: [(0, 0); 32],
+            buf: [core::mem::MaybeUninit::uninit(); 32],
             len: 0,
         }
     }
@@ -106,13 +106,14 @@ impl StackEntries32 {
     #[inline(always)]
     pub(crate) fn push(&mut self, entry: (u64, u64)) {
         debug_assert!(self.len < 32);
-        self.buf[self.len] = entry;
+        self.buf[self.len].write(entry);
         self.len += 1;
     }
 
     #[inline(always)]
     pub(crate) fn as_slice(&self) -> &[(u64, u64)] {
-        &self.buf[..self.len]
+        // SAFETY: `len` elements have been written via `push`.
+        unsafe { core::slice::from_raw_parts(self.buf.as_ptr().cast::<(u64, u64)>(), self.len) }
     }
 }
 

@@ -248,7 +248,7 @@ pub(crate) fn immed_map_keys(edge: &Edge, im: ImmedType) -> ImmedBuf<u64> {
 
 /// Fixed-capacity stack buffer for collecting small leaf keys without heap allocation.
 pub(crate) struct StackKeys32 {
-    pub(crate) buf: [u64; 32],
+    pub(crate) buf: [core::mem::MaybeUninit<u64>; 32],
     pub(crate) len: usize,
 }
 
@@ -256,7 +256,7 @@ impl StackKeys32 {
     #[inline(always)]
     pub(crate) const fn new() -> Self {
         Self {
-            buf: [0u64; 32],
+            buf: [core::mem::MaybeUninit::uninit(); 32],
             len: 0,
         }
     }
@@ -264,13 +264,14 @@ impl StackKeys32 {
     #[inline(always)]
     pub(crate) fn push(&mut self, k: u64) {
         debug_assert!(self.len < 32);
-        self.buf[self.len] = k;
+        self.buf[self.len].write(k);
         self.len += 1;
     }
 
     #[inline(always)]
     pub(crate) fn as_slice(&self) -> &[u64] {
-        &self.buf[..self.len]
+        // SAFETY: `len` elements have been written via `push`.
+        unsafe { core::slice::from_raw_parts(self.buf.as_ptr().cast::<u64>(), self.len) }
     }
 }
 
