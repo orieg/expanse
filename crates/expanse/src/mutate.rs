@@ -628,10 +628,29 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 }
                 let k = key_low(key, kb);
                 let base = edge.node_ptr();
-                // SAFETY: live leaf of `pop` keys per contract.
-                let pos = match unsafe { leaf::locate(base, pop, kb, k) } {
-                    Ok(_) => return false, // already present
-                    Err(p) => p,
+                let pos = if pop > 0 {
+                    // Fast path for sequential/append inserts: avoids width match
+                    // SAFETY: pop > 0 guarantees slot pop - 1 is within the leaf allocation.
+                    let last = unsafe {
+                        match kb {
+                            1 => *base.add(pop - 1) as u64,
+                            2 => u64::from((base.add((pop - 1) * 2) as *const u16).read_unaligned()),
+                            _ => read_packed(base, pop - 1, kb as usize),
+                        }
+                    };
+                    if k > last {
+                        pop
+                    } else if k == last {
+                        return false;
+                    } else {
+                        // SAFETY: live leaf of `pop` keys per contract.
+                        match unsafe { leaf::locate(base, pop, kb, k) } {
+                            Ok(_) => return false,
+                            Err(p) => p,
+                        }
+                    }
+                } else {
+                    0
                 };
                 let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
                 if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
