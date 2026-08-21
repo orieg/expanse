@@ -127,6 +127,7 @@ impl ExpanseMap {
     }
 
     /// Returns the value stored for `key`.
+    #[inline]
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         match &self.root {
@@ -148,6 +149,7 @@ impl ExpanseMap {
     /// convention. The pointer stays valid until the next structural
     /// mutation of the map (the classic JudyL contract); reading or
     /// writing through it after an `insert`/`remove`/`clear` is undefined.
+    #[inline]
     #[must_use]
     pub fn get_value_slot(&mut self, key: Key) -> Option<core::ptr::NonNull<u64>> {
         match &mut self.root {

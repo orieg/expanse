@@ -112,6 +112,7 @@ impl ExpanseSet {
     }
 
     /// Membership test.
+    #[inline]
     #[must_use]
     pub fn contains(&self, key: Key) -> bool {
         match &self.root {
