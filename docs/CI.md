@@ -89,10 +89,13 @@ To keep PR turnaround under 5 minutes while retaining rigorous safety:
 * **Per-PR Miri**: Runs `cargo +nightly miri test --lib -- --skip model_`. Skips heavy op-sequence tests (which are covered by proptest and fuzzing) and short-circuits on non-Rust diffs.
 * **Nightly Miri**: Runs the entire, un-skipped Miri suite across all crate targets.
 
-### Docs-Only PR Fast Path
-When a pull request modifies **only** documentation or markdown files (`*.md`, `docs/**`, `LICENSE*`, `CNAME`, `.github/*.md`):
-* Heavy jobs (`test`, `test-musl`, `loom`, `fuzz-smoke`, `memory-budget`, `differential-oracle`, `php-judy-compat`, `php-judy-windows`, `instruction-counts`) detect the docs-only diff and exit `0` early.
-* `lint` continues to run `cargo fmt` and markdown checks.
+### Scope-Based PR Fast Paths
+To keep turnaround times under 30 seconds for non-code and localized PRs while preserving 100% required check coverage for branch protection:
+* **Docs & Tooling PRs**: When a PR modifies only documentation, metadata, or tooling (`docs/**`, `*.md`, `LICENSE*`, `scripts/**`):
+  - Heavy Rust testing jobs (`test`, `test-musl`, `loom`, `fuzz-smoke`, `memory-budget`, `differential-oracle`, `php-judy-compat`, `php-judy-windows`, `miri`) detect no Rust crate diff (`crates/`, `fuzz/`, `Cargo.*`) and exit `0` immediately.
+  - `fuzz-smoke` skips libFuzzer execution unless `crates/` or `fuzz/` targets changed.
+  - `instruction-counts` only executes Callgrind profiling if `crates/` or `scripts/perf_report.py` changed.
+* **Format & Hygiene**: `lint` runs on all PRs to verify markdown hygiene and clean formatting.
 * All 13 required status checks satisfy GitHub branch protection and report `pass` in **~5 seconds** instead of ~5 minutes.
 
 ---
