@@ -483,6 +483,18 @@ impl ExpanseMap {
                     // SAFETY: last entry removed; free the leaf.
                     unsafe { self.alloc.free_bytes(ptr, leaf_size(1)) };
                     self.root = Root::Empty;
+                } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
+                    // Fast path: capacity class unchanged — shift surviving entries in-place.
+                    // SAFETY: in-place shift inside class-sized buffer.
+                    unsafe {
+                        let nk = ptr.as_ptr().cast::<u64>();
+                        core::ptr::copy(nk.add(at + 1), nk.add(at), pop - 1 - at);
+                        core::ptr::copy(vals.add(at + 1), vals.add(at), pop - 1 - at);
+                    }
+                    self.root = Root::Leaf {
+                        ptr,
+                        pop: pop - 1,
+                    };
                 } else {
                     let new = self.alloc.alloc_bytes(leaf_size(pop - 1));
                     // SAFETY: copy the surviving keys/values into the
