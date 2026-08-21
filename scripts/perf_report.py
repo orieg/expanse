@@ -423,18 +423,19 @@ def check_regressions(
 
     messages = []
     if allowed:
-        messages.append(f"ℹ️ Performance regression override acknowledged: {allow_reason or 'Approved'}")
+        messages.append(f"> [!NOTE]\n> **Performance regression override acknowledged**: {allow_reason or 'Approved'}\n>")
         for name, d_ins, ins, b_ins in sorted(regressions, key=lambda x: -x[1]):
-            messages.append(f"  - {name}: {fmt_delta(d_ins)} ({ins:,} vs {b_ins:,})")
+            messages.append(f"> - `{name}`: {fmt_delta(d_ins)} ({ins:,} vs {b_ins:,})")
         return False, messages
 
     messages.append(
-        f"::error::Performance regression detected: {len(regressions)} benchmark(s) regressed > {noise_floor}% "
-        f"(worst: {worst:+.2f}%, threshold: {max_regression_pct}%). "
-        "To approve an intentional regression, add 'allow-regression: <reason>' to the PR body."
+        f"> [!CAUTION]\n"
+        f"> **Performance regression detected**: {len(regressions)} benchmark(s) regressed > {noise_floor}% "
+        f"(worst: {worst:+.2f}%, threshold: {max_regression_pct}%).\n"
+        f"> To approve an intentional regression, add `allow-regression: <reason>` to the PR body.\n>"
     )
     for name, d_ins, ins, b_ins in sorted(regressions, key=lambda x: -x[1]):
-        messages.append(f"  - {name}: {fmt_delta(d_ins)} ({ins:,} vs {b_ins:,})")
+        messages.append(f"> - `{name}`: {fmt_delta(d_ins)} ({ins:,} vs {b_ins:,})")
 
     return True, messages
 
@@ -502,7 +503,11 @@ def main() -> int:
 
     if args.fail_on_regression and has_violation:
         for msg in reg_messages:
-            print(msg, file=sys.stderr)
+            # Strip markdown blockquote prefix for stderr log annotations
+            clean_msg = re.sub(r"^>\s*\[!(?:CAUTION|WARNING|NOTE)\]\n?>\s*", "", msg)
+            clean_msg = re.sub(r"^>\s*[-*]?\s*", "  - ", clean_msg, flags=re.MULTILINE)
+            clean_msg = clean_msg.replace("**", "").replace("`", "").strip()
+            print(f"::error::{clean_msg}", file=sys.stderr)
         return 1
 
     return 0
