@@ -144,6 +144,41 @@ uint64_t expanse_bytesmap_len(const expanse_bytesmap_t *map);
 size_t   expanse_bytesmap_mem_used(const expanse_bytesmap_t *map);
 void     expanse_bytesmap_clear(expanse_bytesmap_t *map);
 
+/* ---- expanse_strmap_t: ordered C-string -> uint64_t map (cf. JudySL) - */
+
+typedef struct expanse_strmap expanse_strmap_t;
+
+expanse_strmap_t *expanse_strmap_new(void);
+void              expanse_strmap_free(expanse_strmap_t *map);
+
+bool     expanse_strmap_insert(expanse_strmap_t *map, const char *key, uint64_t value,
+                               uint64_t *old_out);
+bool     expanse_strmap_get(const expanse_strmap_t *map, const char *key, uint64_t *value_out);
+bool     expanse_strmap_remove(expanse_strmap_t *map, const char *key, uint64_t *old_out);
+uint64_t *expanse_strmap_slot(expanse_strmap_t *map, const char *key);
+uint64_t *expanse_strmap_ins_slot(expanse_strmap_t *map, const char *key);
+uint64_t expanse_strmap_len(const expanse_strmap_t *map);
+size_t   expanse_strmap_mem_used(const expanse_strmap_t *map);
+void     expanse_strmap_clear(expanse_strmap_t *map);
+
+/*
+ * Ordered string navigation. The found key (NUL-terminated) is written to
+ * `key_out` (up to `buf_len` bytes including NUL). Returns false if no key
+ * is found or if `buf_len` is insufficient.
+ */
+bool expanse_strmap_first(expanse_strmap_t *map, char *key_out, size_t buf_len,
+                          uint64_t *value_out);
+bool expanse_strmap_last(expanse_strmap_t *map, char *key_out, size_t buf_len,
+                         uint64_t *value_out);
+bool expanse_strmap_next_at_or_after(expanse_strmap_t *map, const char *key,
+                                     char *key_out, size_t buf_len, uint64_t *value_out);
+bool expanse_strmap_next_after(expanse_strmap_t *map, const char *key,
+                               char *key_out, size_t buf_len, uint64_t *value_out);
+bool expanse_strmap_prev_at_or_before(expanse_strmap_t *map, const char *key,
+                                      char *key_out, size_t buf_len, uint64_t *value_out);
+bool expanse_strmap_prev_before(expanse_strmap_t *map, const char *key,
+                                char *key_out, size_t buf_len, uint64_t *value_out);
+
 /* ---- Concurrent types: one writer, lock-free readers ---------------- */
 
 /*
