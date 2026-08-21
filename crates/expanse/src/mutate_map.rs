@@ -18,11 +18,11 @@
 use crate::alloc::NodeAlloc;
 use crate::leaf;
 use crate::mutate::{
-    BRANCHB_UP, ImmedBuf, LEAF_CAP, LEAF1_CAP, branch_form_level, bump_pop0, decode_value,
-    divergence_level, downgrade_b_to_l7, downgrade_l7_to_l3, downgrade_u_to_b, immed_map_keys,
-    key_low, linear_insert_slot, linear_remove_slot, map_immed_max, read_packed, restore_decode,
-    split_skip, sub_edges_size, sub_vals_size, upgrade_b_to_u, upgrade_l3_to_l7, upgrade_l7_to_b,
-    wrap_skip_level, write_decode, write_packed,
+    BRANCHB_UP, ImmedBuf, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, branch_form_level, bump_pop0,
+    decode_value, divergence_level, downgrade_b_to_l7, downgrade_l7_to_l3, downgrade_u_to_b,
+    immed_map_keys, key_low, linear_insert_slot, linear_remove_slot, map_immed_max, read_packed,
+    restore_decode, split_skip, sub_edges_size, sub_vals_size, upgrade_b_to_u, upgrade_l3_to_l7,
+    upgrade_l7_to_b, wrap_skip_level, write_decode, write_packed,
 };
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmapL};
 use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit};
@@ -385,6 +385,45 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 path.clear();
                 let kb = im.key_bytes();
                 let k = key_low(key, kb);
+                let n = im.key_count() as usize;
+                if n == 1 {
+                    // SAFETY: single-key map immediate holds 1 key in aux bytes.
+                    let existing_k =
+                        unsafe { read_packed(edge.aux_bytes().as_ptr(), 0, kb as usize) };
+                    if existing_k == k {
+                        let old = u64::from_le_bytes(edge.imm_bytes());
+                        if !KEEP {
+                            edge.set_imm_bytes(val.to_le_bytes());
+                        }
+                        return (Some(old), (&raw mut *edge).cast::<u64>());
+                    }
+                    if map_immed_max(kb) >= 2 {
+                        let old_val = u64::from_le_bytes(edge.imm_bytes());
+                        let (slot0_k, slot0_v, slot1_k, slot1_v, pos) = if k < existing_k {
+                            (k, val, existing_k, old_val, 0)
+                        } else {
+                            (existing_k, old_val, k, val, 1)
+                        };
+                        let vals = a.alloc_bytes(16).cast::<u64>();
+                        // SAFETY: fresh 2-slot value array.
+                        unsafe {
+                            vals.as_ptr().write(slot0_v);
+                            vals.as_ptr().add(1).write(slot1_v);
+                        }
+                        let mut new_aux = [0u8; 7];
+                        // SAFETY: new_aux has 7 bytes; 2 keys of kb bytes fit per map_immed_max >= 2.
+                        unsafe {
+                            write_packed(new_aux.as_mut_ptr(), 0, kb as usize, slot0_k);
+                            write_packed(new_aux.as_mut_ptr(), 1, kb as usize, slot1_k);
+                        }
+                        let new_im = ImmedType::new(kb, 2).expect("immediate capacity");
+                        *edge = Edge::new_node(vals.as_ptr().cast(), 0);
+                        edge.set_aux_bytes(new_aux);
+                        edge.set_tag(new_im.as_u8());
+                        // SAFETY: slot `pos` in the newly allocated value array.
+                        return (None, unsafe { vals.as_ptr().add(pos) });
+                    }
+                }
                 // SAFETY: live map immediate per contract.
                 let mut entries = unsafe { read_map_immed(edge, im) };
                 match entries.binary_search_by_key(&k, |e| e.0) {
@@ -985,19 +1024,75 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             let kb = im.key_bytes();
             debug_assert_eq!(kb, level);
             let k = key_low(key, kb);
-            // SAFETY: live map immediate per contract.
-            let mut entries = unsafe { read_map_immed(edge, im) };
-            let Ok(pos) = entries.binary_search_by_key(&k, |e| e.0) else {
+            let n = im.key_count() as usize;
+            if n == 1 {
+                // SAFETY: single-key map immediate holds 1 key in aux bytes.
+                let existing_k = unsafe { read_packed(edge.aux_bytes().as_ptr(), 0, kb as usize) };
+                if existing_k == k {
+                    let old = u64::from_le_bytes(edge.imm_bytes());
+                    *edge = Edge::NULL;
+                    return Some(old);
+                }
                 return None;
-            };
-            let (_, old) = entries.remove(pos);
-            // SAFETY: storage re-read above; safe to release.
-            unsafe { free_map_immed_storage(a, edge, im) };
-            if entries.is_empty() {
-                *edge = Edge::NULL;
-            } else {
-                write_map_immed(a, edge, kb, &entries);
             }
+            // SAFETY: aux bytes hold n packed keys of kb bytes.
+            let pos = match unsafe { leaf::locate(edge.aux_bytes().as_ptr(), n, kb, k) } {
+                Ok(p) => p,
+                Err(_) => return None,
+            };
+            let vals = edge.node_ptr().cast::<u64>();
+            // SAFETY: pos < n is within the live value array.
+            let old = unsafe { *vals.add(pos) };
+            if n == 2 {
+                let remain_slot = 1 - pos;
+                // SAFETY: remain_slot < 2 is within the live value array.
+                let remain_val = unsafe { *vals.add(remain_slot) };
+                let mut new_aux = [0u8; 7];
+                let kb_usize = kb as usize;
+                new_aux[..kb_usize].copy_from_slice(
+                    &edge.aux_bytes()[remain_slot * kb_usize..(remain_slot + 1) * kb_usize],
+                );
+                let new_im = ImmedType::new(kb, 1).expect("immediate capacity");
+                // SAFETY: freeing the old 2-entry value array.
+                unsafe {
+                    a.free_bytes(
+                        core::ptr::NonNull::new(edge.node_ptr()).expect("value array"),
+                        16,
+                    );
+                }
+                *edge = Edge::NULL;
+                edge.set_imm_bytes(remain_val.to_le_bytes());
+                edge.set_aux_bytes(new_aux);
+                edge.set_tag(new_im.as_u8());
+                return Some(old);
+            }
+            // n > 2: copy values around pos and shift keys in aux.
+            let new_vals = a.alloc_bytes((n - 1) * 8).cast::<u64>();
+            // SAFETY: copy n-1 surviving values and free old array.
+            unsafe {
+                if pos > 0 {
+                    core::ptr::copy_nonoverlapping(vals, new_vals.as_ptr(), pos);
+                }
+                if pos + 1 < n {
+                    core::ptr::copy_nonoverlapping(
+                        vals.add(pos + 1),
+                        new_vals.as_ptr().add(pos),
+                        n - 1 - pos,
+                    );
+                }
+                a.free_bytes(
+                    core::ptr::NonNull::new(edge.node_ptr()).expect("value array"),
+                    n * 8,
+                );
+            }
+            let mut new_aux = *edge.aux_bytes();
+            let kb_usize = kb as usize;
+            new_aux.copy_within((pos + 1) * kb_usize..n * kb_usize, pos * kb_usize);
+            new_aux[((n - 1) * kb_usize)..].fill(0);
+            let new_im = ImmedType::new(kb, (n - 1) as u8).expect("immediate capacity");
+            *edge = Edge::new_node(new_vals.as_ptr().cast(), 0);
+            edge.set_aux_bytes(new_aux);
+            edge.set_tag(new_im.as_u8());
             Some(old)
         }
 
@@ -1064,34 +1159,41 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 }
                 return Some(old);
             }
-            // Slow path (class boundary or conversion).
-            // SAFETY: live map leaf per contract.
-            let mut entries = unsafe { read_map_leaf(edge, kb, pop) };
-            let (_, old) = entries.remove(pos);
+            // Slow path (conversion to immediate or null).
             let old_ptr = edge.node_ptr();
             let old_size = leaf::size_map(kb, pop);
-            let saved_aux = *edge.aux_bytes();
-            // Hysteresis: back to an immediate one below the boundary —
-            // at the *slot* level for skipping leaves, absorbing decode
-            // bytes into full remainders. Wide keys (map_immed_max == 1)
-            // can drain a leaf to zero entries: back to null.
-            if entries.is_empty() {
+            // SAFETY: pos < pop is within the live map leaf values.
+            let old = unsafe { *base.cast::<u64>().add(pos) };
+            if pop == 1 {
+                // SAFETY: old leaf allocation no longer referenced.
+                unsafe {
+                    a.free_bytes(core::ptr::NonNull::new(old_ptr).expect("leaf"), old_size);
+                }
                 *edge = Edge::NULL;
-            } else if entries.len() < map_immed_max(level) {
-                let dv = if kb < level {
-                    decode_value(edge, kb, level)
-                } else {
-                    0
-                };
-                let full: Vec<(u64, u64)> = entries
-                    .iter()
-                    .map(|&(low, v)| ((dv << (8 * u32::from(kb))) | low, v))
-                    .collect();
-                write_map_immed(a, edge, level, &full);
-            } else {
-                build_map_leaf(a, edge, kb, &entries);
-                restore_decode(edge, kb, level, &saved_aux);
+                return Some(old);
             }
+            let rem_pop = pop - 1;
+            let dv = if kb < level {
+                decode_value(edge, kb, level)
+            } else {
+                0
+            };
+            let mut entries = [(0u64, 0u64); 8];
+            let mut idx = 0;
+            for slot in 0..pop {
+                if slot == pos {
+                    continue;
+                }
+                // SAFETY: map leaf = pop values then pop packed keys; slot < pop.
+                let low_k =
+                    unsafe { read_packed(base.add(leaf::map_keys_offset(pop)), slot, kb as usize) };
+                let k = (dv << (8 * u32::from(kb))) | low_k;
+                // SAFETY: slot < pop is within the live map leaf values.
+                let v = unsafe { *base.cast::<u64>().add(slot) };
+                entries[idx] = (k, v);
+                idx += 1;
+            }
+            write_map_immed(a, edge, level, &entries[..rem_pop]);
             // SAFETY: old leaf allocation no longer referenced.
             unsafe {
                 a.free_bytes(core::ptr::NonNull::new(old_ptr).expect("leaf"), old_size);
@@ -1142,8 +1244,8 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             }
             node.bitmap.clear(d);
             let pop = edge.pop0(1) as usize; // old pop - 1
-            // Hysteresis: back to a linear map leaf one below the cap.
-            if pop < LEAF1_CAP {
+            // Hysteresis: back to a linear map leaf when pop drops below the floor.
+            if pop < LEAFB1_DOWN {
                 let saved_aux = *edge.aux_bytes();
                 let dv = if level > 1 {
                     decode_value(edge, 1, level)

@@ -540,10 +540,15 @@ impl Bitmap256 {
     }
 
     /// Membership test.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub const fn test(&self, idx: u8) -> bool {
-        self.words[(idx >> 6) as usize] & (1u64 << (idx & 63)) != 0
+        let sub = (idx >> 5) as usize;
+        let bit = (idx & 31) as u32;
+        // SAFETY: `self.words` contains 4 `u64`s (32 bytes), aligned to 8 bytes.
+        // `sub < 8` accesses a valid `u32` within the 8 contiguous `u32` subwords.
+        let sub_word = unsafe { *self.words.as_ptr().cast::<u32>().add(sub) };
+        (sub_word & (1u32 << bit)) != 0
     }
 
     /// Inserts `idx`; returns `true` if it was newly inserted.
@@ -614,23 +619,30 @@ impl Bitmap256 {
     #[inline(always)]
     #[must_use]
     pub const fn subexpanse_rank(&self, idx: u8) -> u32 {
-        let sub_word = (self.words[(idx >> 6) as usize] >> ((idx & 32) as usize)) as u32;
-        let bit = idx & 31;
+        let sub = (idx >> 5) as usize;
+        let bit = (idx & 31) as u32;
+        // SAFETY: `self.words` contains 4 `u64`s (32 bytes), aligned to 8 bytes.
+        // `sub < 8` accesses a valid `u32` within the 8 contiguous `u32` subwords.
+        let sub_word = unsafe { *self.words.as_ptr().cast::<u32>().add(sub) };
         let below = (1u32 << bit) - 1;
         (sub_word & below).count_ones()
     }
 
     /// Tests if `idx` is present, and if so returns its subexpanse rank.
-    /// Fuses bit testing and rank calculation with a single word load and shift.
+    /// Fuses bit testing and rank calculation with a single direct 32-bit subword load.
     #[inline(always)]
     #[must_use]
     pub const fn test_and_subexpanse_rank(&self, idx: u8) -> Option<usize> {
-        let sub_word = (self.words[(idx >> 6) as usize] >> ((idx & 32) as usize)) as u32;
-        let bit = idx & 31;
-        if (sub_word & (1u32 << bit)) == 0 {
+        let sub = (idx >> 5) as usize;
+        let bit = (idx & 31) as u32;
+        // SAFETY: `self.words` contains 4 `u64`s (32 bytes), aligned to 8 bytes.
+        // `sub < 8` accesses a valid `u32` within the 8 contiguous `u32` subwords.
+        let sub_word = unsafe { *self.words.as_ptr().cast::<u32>().add(sub) };
+        let bit_mask = 1u32 << bit;
+        if (sub_word & bit_mask) == 0 {
             None
         } else {
-            let below = (1u32 << bit) - 1;
+            let below = bit_mask - 1;
             Some((sub_word & below).count_ones() as usize)
         }
     }
@@ -640,9 +652,11 @@ impl Bitmap256 {
     #[inline(always)]
     #[must_use]
     pub const fn subexpanse_count(&self, sub: usize) -> u32 {
-        let word = self.words[sub >> 1];
-        let shift = (sub & 1) << 5;
-        ((word >> shift) as u32).count_ones()
+        debug_assert!(sub < 8);
+        // SAFETY: `self.words` contains 4 `u64`s (32 bytes), aligned to 8 bytes.
+        // `sub < 8` accesses a valid `u32` within the 8 contiguous `u32` subwords.
+        let sub_word = unsafe { *self.words.as_ptr().cast::<u32>().add(sub) };
+        sub_word.count_ones()
     }
 
     /// The member with `n` members below it (0-based rank → bit), if any —
