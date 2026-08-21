@@ -218,6 +218,7 @@ pub struct Collector {
     epoch: AtomicUsize,
     readers: Mutex<Vec<Arc<Slot>>>,
     bins: [Mutex<Vec<Garbage>>; BINS],
+    freelists: std::sync::OnceLock<Arc<crate::alloc::FreelistPool>>,
 }
 
 impl Default for Collector {
@@ -238,7 +239,13 @@ impl Collector {
                 Mutex::new(Vec::new()),
                 Mutex::new(Vec::new()),
             ],
+            freelists: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Links a size-class freelist pool to recycle reclaimed blocks.
+    pub(crate) fn set_freelist_pool(&self, pool: Arc<crate::alloc::FreelistPool>) {
+        let _ = self.freelists.set(pool);
     }
 
     /// Registers a reader; the returned handle pins/unpins cheaply.
@@ -295,7 +302,14 @@ impl Collector {
                 .lock()
                 .expect("garbage bin poisoned"),
         );
+        let pool = self.freelists.get();
         for g in stale {
+            if let Some(p) = pool {
+                // SAFETY: reclaimed after grace period; recycling into size-class pool.
+                if unsafe { p.recycle(g.ptr, g.bytes, g.align) } {
+                    continue;
+                }
+            }
             free_raw(g.ptr, g.bytes, g.align);
         }
     }
