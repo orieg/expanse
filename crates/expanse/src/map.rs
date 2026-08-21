@@ -40,7 +40,7 @@ enum Root {
 pub struct ExpanseMap {
     root: Root,
     alloc: NodeAlloc,
-    path: crate::mutate_map::InsertPathMap,
+    path: core::cell::UnsafeCell<crate::mutate_map::InsertPathMap>,
 }
 
 // SAFETY: as for `ExpanseSet` — exclusive ownership of all reachable
@@ -78,7 +78,15 @@ impl ExpanseMap {
         Self {
             root: Root::Empty,
             alloc: NodeAlloc::new(),
-            path: crate::mutate_map::InsertPathMap::empty(),
+            path: core::cell::UnsafeCell::new(crate::mutate_map::InsertPathMap::empty()),
+        }
+    }
+
+    #[inline(always)]
+    fn flush_path(&self) {
+        // SAFETY: path is an internal cursor whose state is flushed through UnsafeCell.
+        unsafe {
+            (*self.path.get()).flush();
         }
     }
 
@@ -127,6 +135,7 @@ impl ExpanseMap {
     }
 
     /// Returns the value stored for `key`.
+    #[inline]
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         match &self.root {
@@ -148,6 +157,7 @@ impl ExpanseMap {
     /// convention. The pointer stays valid until the next structural
     /// mutation of the map (the classic JudyL contract); reading or
     /// writing through it after an `insert`/`remove`/`clear` is undefined.
+    #[inline]
     #[must_use]
     pub fn get_value_slot(&mut self, key: Key) -> Option<core::ptr::NonNull<u64>> {
         match &mut self.root {
@@ -162,11 +172,12 @@ impl ExpanseMap {
             // raw walk derives the slot from node pointers only.
             Root::Tree { top, .. } => {
                 let prefix = key >> 8;
-                if self.path.prefix == prefix {
-                    if !self.path.leaf.is_null() {
+                let path = self.path.get_mut();
+                if path.prefix == prefix {
+                    if !path.leaf.is_null() {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmapL pointer.
-                        let node = unsafe { &*self.path.leaf };
+                        let node = unsafe { &*path.leaf };
                         let sub = (d >> 5) as usize;
                         if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
                             // SAFETY: sub < 8 accesses valid subarray; rank is in bounds.
@@ -174,10 +185,10 @@ impl ExpanseMap {
                             return core::ptr::NonNull::new(slot);
                         }
                         return None;
-                    } else if !self.path.leaf1.is_null() {
+                    } else if !path.leaf1.is_null() {
                         let d = (key & 0xFF) as u8;
-                        let cur_pop = self.path.terminal_pop as usize;
-                        let base = self.path.leaf1;
+                        let cur_pop = path.terminal_pop as usize;
+                        let base = path.leaf1;
                         // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
                         let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
                         // SAFETY: keys_ptr holds cur_pop 1-byte keys.
@@ -205,11 +216,12 @@ impl ExpanseMap {
     pub fn ins_slot(&mut self, key: Key) -> core::ptr::NonNull<u64> {
         if let Root::Tree { top, pop } = &mut self.root {
             let prefix = key >> 8;
-            if self.path.prefix == prefix {
-                if !self.path.leaf.is_null() {
+            let path = self.path.get_mut();
+            if path.prefix == prefix {
+                if !path.leaf.is_null() {
                     let d = (key & 0xFF) as u8;
                     // SAFETY: path holds valid live LeafBitmapL pointer.
-                    let node = unsafe { &mut *self.path.leaf };
+                    let node = unsafe { &mut *path.leaf };
                     let sub = (d >> 5) as usize;
                     if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
                         // SAFETY: value subarray holds subexpanse_count values.
@@ -251,20 +263,20 @@ impl ExpanseMap {
                         node.values[sub] = new.as_ptr();
                     }
                     node.bitmap.set(d);
-                    self.path.pending_pop += 1;
-                    self.path.terminal_pop += 1;
+                    path.pending_pop += 1;
+                    path.terminal_pop += 1;
                     *pop += 1;
                     // SAFETY: keep terminal edge pop0 up to date.
                     unsafe {
-                        (*self.path.edges[0]).set_pop0(1, (self.path.terminal_pop - 1) as u64);
+                        (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
                     }
                     // SAFETY: freshly inserted slot.
                     let slot = unsafe { node.values[sub].add(rank) };
                     return core::ptr::NonNull::new(slot).expect("slot");
-                } else if !self.path.leaf1.is_null() {
+                } else if !path.leaf1.is_null() {
                     let d = (key & 0xFF) as u8;
-                    let cur_pop = self.path.terminal_pop as usize;
-                    let base = self.path.leaf1;
+                    let cur_pop = path.terminal_pop as usize;
+                    let base = path.leaf1;
                     // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
                     let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
                     // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
@@ -279,10 +291,10 @@ impl ExpanseMap {
                                 *keys_ptr.add(cur_pop) = d;
                                 let vals = base.cast::<u64>();
                                 vals.add(cur_pop).write(0);
-                                (*self.path.edges[0]).set_pop0(1, cur_pop as u64);
+                                (*path.edges[0]).set_pop0(1, cur_pop as u64);
                             }
-                            self.path.terminal_pop += 1;
-                            self.path.pending_pop += 1;
+                            path.terminal_pop += 1;
+                            path.pending_pop += 1;
                             *pop += 1;
                             // SAFETY: freshly written slot in live value area.
                             let slot = unsafe { base.cast::<u64>().add(cur_pop) };
@@ -295,10 +307,10 @@ impl ExpanseMap {
                     }
                 }
             }
-            self.path.clear();
+            path.clear();
             // SAFETY: trie maintained/owned by this map's engine.
             let (prev, slot) = unsafe {
-                mutate_map::map_insert_path_dyn::<true>(&self.alloc, top, key, 0, 8, &mut self.path)
+                mutate_map::map_insert_path_dyn::<true>(&self.alloc, top, key, 0, 8, path)
             };
             if prev.is_none() {
                 *pop += 1;
@@ -438,7 +450,7 @@ impl ExpanseMap {
                             key,
                             val,
                             8,
-                            &mut self.path,
+                            self.path.get_mut(),
                         )
                     };
                     debug_assert!(prev.0.is_none());
@@ -453,11 +465,12 @@ impl ExpanseMap {
             }
             Root::Tree { top, pop } => {
                 let prefix = key >> 8;
-                if self.path.prefix == prefix {
-                    if !self.path.leaf.is_null() {
+                let path = self.path.get_mut();
+                if path.prefix == prefix {
+                    if !path.leaf.is_null() {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmapL pointer.
-                        let node = unsafe { &mut *self.path.leaf };
+                        let node = unsafe { &mut *path.leaf };
                         let sub = (d >> 5) as usize;
                         if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
                             // SAFETY: value subarray holds subexpanse_count values; in-place swap.
@@ -503,18 +516,18 @@ impl ExpanseMap {
                             node.values[sub] = new.as_ptr();
                         }
                         node.bitmap.set(d);
-                        self.path.pending_pop += 1;
-                        self.path.terminal_pop += 1;
+                        path.pending_pop += 1;
+                        path.terminal_pop += 1;
                         *pop += 1;
                         // SAFETY: keep terminal edge pop0 up to date.
                         unsafe {
-                            (*self.path.edges[0]).set_pop0(1, (self.path.terminal_pop - 1) as u64);
+                            (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
                         }
                         return None;
-                    } else if !self.path.leaf1.is_null() {
+                    } else if !path.leaf1.is_null() {
                         let d = (key & 0xFF) as u8;
-                        let cur_pop = self.path.terminal_pop as usize;
-                        let base = self.path.leaf1;
+                        let cur_pop = path.terminal_pop as usize;
+                        let base = path.leaf1;
                         // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
                         let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
                         // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
@@ -529,10 +542,10 @@ impl ExpanseMap {
                                     *keys_ptr.add(cur_pop) = d;
                                     let vals = base.cast::<u64>();
                                     vals.add(cur_pop).write(val);
-                                    (*self.path.edges[0]).set_pop0(1, cur_pop as u64);
+                                    (*path.edges[0]).set_pop0(1, cur_pop as u64);
                                 }
-                                self.path.terminal_pop += 1;
-                                self.path.pending_pop += 1;
+                                path.terminal_pop += 1;
+                                path.pending_pop += 1;
                                 *pop += 1;
                                 return None;
                             }
@@ -548,17 +561,10 @@ impl ExpanseMap {
                         }
                     }
                 }
-                self.path.clear();
+                path.clear();
                 // SAFETY: trie maintained/owned by this map's engine.
                 let prev = unsafe {
-                    mutate_map::map_insert_path_dyn::<false>(
-                        &self.alloc,
-                        top,
-                        key,
-                        val,
-                        8,
-                        &mut self.path,
-                    )
+                    mutate_map::map_insert_path_dyn::<false>(&self.alloc, top, key, val, 8, path)
                 }
                 .0;
                 if prev.is_none() {
@@ -571,7 +577,7 @@ impl ExpanseMap {
 
     /// Removes `key`; returns its value if it was present.
     pub fn remove(&mut self, key: Key) -> Option<u64> {
-        self.path.clear();
+        self.path.get_mut().clear();
         match &mut self.root {
             Root::Empty => None,
             Root::Leaf { ptr, pop } => {
@@ -635,7 +641,7 @@ impl ExpanseMap {
 
     /// Removes every entry.
     pub fn clear(&mut self) {
-        self.path.clear();
+        self.path.get_mut().clear();
         match &mut self.root {
             Root::Empty => {}
             Root::Leaf { ptr, pop } => {
@@ -680,11 +686,7 @@ impl ExpanseMap {
                 if top.is_null() {
                     return Err("tree root with null top".into());
                 }
-                // SAFETY: flushing pending population before validating invariant counts.
-                unsafe {
-                    let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
-                    mut_self.path.flush();
-                }
+                self.flush_path();
                 let mut stats = ExpanseStats::default();
                 let counted =
                     crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0)?;
@@ -710,11 +712,7 @@ impl ExpanseMap {
                 stats.node_counts.leaf_linear = 1;
             }
             Root::Tree { top, .. } => {
-                // SAFETY: flushing pending population before gathering stats.
-                unsafe {
-                    let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
-                    mut_self.path.flush();
-                }
+                self.flush_path();
                 let _ = crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0);
             }
         }
@@ -789,11 +787,7 @@ impl ExpanseMap {
     /// Number of keys strictly below `key` (rank).
     #[must_use]
     pub fn count_below(&self, key: Key) -> u64 {
-        // SAFETY: flushing pending population before rank traversal.
-        unsafe {
-            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
-            mut_self.path.flush();
-        }
+        self.flush_path();
         match &self.root {
             Root::Empty => 0,
             Root::Leaf { ptr, pop } => {
@@ -822,11 +816,7 @@ impl ExpanseMap {
         if n >= self.len() {
             return None;
         }
-        // SAFETY: flushing pending population before select traversal.
-        unsafe {
-            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
-            mut_self.path.flush();
-        }
+        self.flush_path();
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => Some(self.leaf_entry(n as usize)),
@@ -918,7 +908,7 @@ impl ExpanseMap {
             from = k.checked_add(1);
         }
         debug_assert_eq!(written, n);
-        self.path.clear();
+        self.path.get_mut().clear();
         // SAFETY: whole trie owned by this map; freed exactly once.
         unsafe { mutate::free_subtree::<true>(&self.alloc, top) };
         self.root = Root::Leaf { ptr: new, pop: n };

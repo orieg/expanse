@@ -49,7 +49,7 @@ enum Root {
 pub struct ExpanseSet {
     root: Root,
     alloc: NodeAlloc,
-    path: crate::mutate::InsertPath,
+    path: core::cell::UnsafeCell<crate::mutate::InsertPath>,
 }
 
 // SAFETY: the tree exclusively owns every allocation reachable from its
@@ -65,7 +65,15 @@ impl ExpanseSet {
         Self {
             root: Root::Empty,
             alloc: NodeAlloc::new(),
-            path: crate::mutate::InsertPath::empty(),
+            path: core::cell::UnsafeCell::new(crate::mutate::InsertPath::empty()),
+        }
+    }
+
+    #[inline(always)]
+    fn flush_path(&self) {
+        // SAFETY: path is an internal cursor whose state is flushed through UnsafeCell.
+        unsafe {
+            (*self.path.get()).flush();
         }
     }
 
@@ -112,6 +120,7 @@ impl ExpanseSet {
     }
 
     /// Membership test.
+    #[inline]
     #[must_use]
     pub fn contains(&self, key: Key) -> bool {
         match &self.root {
@@ -196,7 +205,7 @@ impl ExpanseSet {
                     }
                     // SAFETY: same trie; populate path for subsequent sequential/clustered inserts.
                     let ins = unsafe {
-                        mutate::insert_path_dyn(&self.alloc, &mut top, key, 8, &mut self.path)
+                        mutate::insert_path_dyn(&self.alloc, &mut top, key, 8, self.path.get_mut())
                     };
                     debug_assert!(ins);
                     // SAFETY: old root leaf no longer referenced.
@@ -210,31 +219,31 @@ impl ExpanseSet {
             }
             Root::Tree { top, pop } => {
                 let prefix = key >> 8;
-                if self.path.prefix == prefix {
-                    if !self.path.leaf.is_null() {
+                let path = self.path.get_mut();
+                if path.prefix == prefix {
+                    if !path.leaf.is_null() {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmap1 pointer.
-                        let leaf = unsafe { &mut *self.path.leaf };
+                        let leaf = unsafe { &mut *path.leaf };
                         if leaf.bitmap.set(d) {
-                            self.path.pending_pop += 1;
-                            self.path.terminal_pop += 1;
+                            path.pending_pop += 1;
+                            path.terminal_pop += 1;
                             // SAFETY: keep terminal edge pop0 up to date.
                             unsafe {
-                                (*self.path.edges[0])
-                                    .set_pop0(1, (self.path.terminal_pop - 1) as u64);
+                                (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
                             }
-                            if self.path.terminal_pop == 256 {
+                            if path.terminal_pop == 256 {
                                 // SAFETY: terminal edge is valid and rewritten to FullExpanse.
                                 unsafe {
-                                    self.path.flush();
+                                    path.flush();
                                     let ptr = core::ptr::NonNull::new(leaf);
                                     self.alloc.free_node(ptr.expect("leaf ptr"));
-                                    let terminal_edge = &mut *self.path.edges[0];
+                                    let terminal_edge = &mut *path.edges[0];
                                     *terminal_edge = Edge::NULL;
                                     terminal_edge
                                         .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
                                     terminal_edge.set_pop0(1, 255);
-                                    self.path.clear();
+                                    path.clear();
                                 }
                             }
                             *pop += 1;
@@ -242,11 +251,11 @@ impl ExpanseSet {
                         } else {
                             return false;
                         }
-                    } else if !self.path.leaf1.is_null() {
+                    } else if !path.leaf1.is_null() {
                         let d = (key & 0xFF) as u8;
-                        let cur_pop = self.path.terminal_pop as usize;
+                        let cur_pop = path.terminal_pop as usize;
                         // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
-                        let last = unsafe { *self.path.leaf1.add(cur_pop - 1) };
+                        let last = unsafe { *path.leaf1.add(cur_pop - 1) };
                         if d > last {
                             if cur_pop < crate::mutate::LEAF1_CAP
                                 && crate::leaf::cap_class(cur_pop + 1)
@@ -254,11 +263,11 @@ impl ExpanseSet {
                             {
                                 // SAFETY: spare class capacity in the live Leaf1 allocation.
                                 unsafe {
-                                    *self.path.leaf1.add(cur_pop) = d;
-                                    (*self.path.edges[0]).set_pop0(1, cur_pop as u64);
+                                    *path.leaf1.add(cur_pop) = d;
+                                    (*path.edges[0]).set_pop0(1, cur_pop as u64);
                                 }
-                                self.path.terminal_pop += 1;
-                                self.path.pending_pop += 1;
+                                path.terminal_pop += 1;
+                                path.pending_pop += 1;
                                 *pop += 1;
                                 return true;
                             }
@@ -267,10 +276,9 @@ impl ExpanseSet {
                         }
                     }
                 }
-                self.path.clear();
+                path.clear();
                 // SAFETY: trie maintained/owned by this set's engine.
-                let inserted =
-                    unsafe { mutate::insert_path_dyn(&self.alloc, top, key, 8, &mut self.path) };
+                let inserted = unsafe { mutate::insert_path_dyn(&self.alloc, top, key, 8, path) };
                 if inserted {
                     *pop += 1;
                 }
@@ -296,7 +304,7 @@ impl ExpanseSet {
 
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&mut self, key: Key) -> bool {
-        self.path.clear();
+        self.path.get_mut().clear();
         match &mut self.root {
             Root::Empty => false,
             Root::Leaf { keys, pop } => {
@@ -360,7 +368,7 @@ impl ExpanseSet {
 
     /// Removes every key.
     pub fn clear(&mut self) {
-        self.path.clear();
+        self.path.get_mut().clear();
         match &mut self.root {
             Root::Empty => {}
             Root::Leaf { keys, pop } => {
@@ -406,11 +414,7 @@ impl ExpanseSet {
                 if top.is_null() {
                     return Err("tree root with null top".into());
                 }
-                // SAFETY: flushing pending population before validating invariant counts.
-                unsafe {
-                    let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
-                    mut_self.path.flush();
-                }
+                self.flush_path();
                 let mut stats = ExpanseStats::default();
                 let counted =
                     crate::validate::expanse_validate_and_stats::<false>(top, 8, &mut stats, 0)?;
@@ -436,11 +440,7 @@ impl ExpanseSet {
                 stats.node_counts.leaf_linear = 1;
             }
             Root::Tree { top, .. } => {
-                // SAFETY: flushing pending population before gathering stats.
-                unsafe {
-                    let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
-                    mut_self.path.flush();
-                }
+                self.flush_path();
                 let _ = crate::validate::expanse_validate_and_stats::<false>(top, 8, &mut stats, 0);
             }
         }
@@ -464,11 +464,6 @@ impl ExpanseSet {
     /// Smallest key `>= key` (compat: `Judy1First`).
     #[must_use]
     pub fn next_at_or_after(&self, key: Key) -> Option<u64> {
-        // SAFETY: flushing pending population before forward navigation.
-        unsafe {
-            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
-            mut_self.path.flush();
-        }
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => {
@@ -491,11 +486,6 @@ impl ExpanseSet {
     /// Largest key `<= key` (compat: `Judy1Last`).
     #[must_use]
     pub fn prev_at_or_before(&self, key: Key) -> Option<u64> {
-        // SAFETY: flushing pending population before backward navigation.
-        unsafe {
-            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
-            mut_self.path.flush();
-        }
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => {
@@ -519,11 +509,7 @@ impl ExpanseSet {
     /// Number of keys strictly below `key` (rank).
     #[must_use]
     pub fn count_below(&self, key: Key) -> u64 {
-        // SAFETY: flushing pending population before rank traversal.
-        unsafe {
-            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
-            mut_self.path.flush();
-        }
+        self.flush_path();
         match &self.root {
             Root::Empty => 0,
             Root::Leaf { .. } => self.root_leaf_keys().partition_point(|&k| k < key) as u64,
@@ -549,11 +535,7 @@ impl ExpanseSet {
         if n >= self.len() {
             return None;
         }
-        // SAFETY: flushing pending population before select traversal.
-        unsafe {
-            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
-            mut_self.path.flush();
-        }
+        self.flush_path();
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => self.root_leaf_keys().get(n as usize).copied(),
@@ -621,7 +603,7 @@ impl ExpanseSet {
     /// Rebuilds the flat sorted root leaf from a small tree (the shrink
     /// twin of the root-leaf → trie promotion).
     fn condense_to_root_leaf(&mut self) {
-        self.path.clear();
+        self.path.get_mut().clear();
         let Root::Tree { top, pop } = &mut self.root else {
             unreachable!("condense outside tree state")
         };

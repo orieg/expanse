@@ -27,6 +27,13 @@ use crate::mutate::{
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmapL};
 use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit};
 
+/// Allocation size of an immediate value array holding `n` values (`n >= 2`).
+/// Sized with capacity classes so growing immediates shift in-place without reallocating.
+#[inline(always)]
+pub(crate) const fn map_immed_val_size(n: usize) -> usize {
+    8 * crate::leaf::cap_class(n)
+}
+
 /// Builds a fresh map immediate from sorted entries.
 fn write_map_immed(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)]) {
     let im = ImmedType::new(kb, entries.len() as u8).expect("immediate capacity");
@@ -39,7 +46,9 @@ fn write_map_immed(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)
     if entries.len() == 1 {
         edge.set_imm_bytes(entries[0].1.to_le_bytes());
     } else {
-        let vals = a.alloc_bytes(entries.len() * 8).cast::<u64>();
+        let vals = a
+            .alloc_bytes(map_immed_val_size(entries.len()))
+            .cast::<u64>();
         for (slot, &(_, v)) in entries.iter().enumerate() {
             // SAFETY: fresh array of entries.len() slots.
             unsafe { vals.as_ptr().add(slot).write(v) };
@@ -280,7 +289,7 @@ impl InsertPathMap {
             for i in 1..self.depth {
                 // SAFETY: path contains valid live edge pointers during active bypass.
                 unsafe {
-                    crate::mutate::bump_pop0(&mut *self.edges[i], self.levels[i], delta);
+                    crate::mutate::bump_pop0(self.edges[i], self.levels[i], delta);
                 }
             }
         }
@@ -404,6 +413,728 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
     edge: &mut Edge,
     key: Key,
     val: u64,
+    level: u8,
+    path: &mut InsertPathMap,
+) -> (Option<u64>, *mut u64) {
+    if OCC {
+        // SAFETY: forwarded contract.
+        unsafe { map_insert_with_path_occ::<KEEP, OCC>(a, edge, key, val, level, path) }
+    } else {
+        // SAFETY: forwarded contract.
+        unsafe { map_insert_with_path_flat::<KEEP>(a, edge as *mut Edge, key, val, level, path) }
+    }
+}
+
+/// Iterative flat descent without function recursion or version checks for single-threaded maps.
+#[inline(always)]
+unsafe fn map_insert_with_path_flat<const KEEP: bool>(
+    a: &NodeAlloc,
+    mut edge: *mut Edge,
+    key: Key,
+    val: u64,
+    mut level: u8,
+    path: &mut InsertPathMap,
+) -> (Option<u64>, *mut u64) {
+    let mut ancestors: [(*mut Edge, u8); 8] = [(core::ptr::null_mut(), 0); 8];
+    let mut anc_depth = 0;
+    loop {
+        debug_assert!((1..=8).contains(&level));
+        // SAFETY: edge points to a live valid Edge in the trie.
+        let tag = unsafe { (*edge).tag().expect("valid edge tag") };
+        match tag {
+            EdgeTag::Structural(EdgeType::Null) => {
+                path.clear();
+                if level == 8 {
+                    let node = a.alloc_node_zeroed::<BranchL3>();
+                    // SAFETY: node is freshly allocated zeroed BranchL3 memory.
+                    unsafe {
+                        (*node.as_ptr()).hdr.level = level;
+                        *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
+                    }
+                    continue;
+                }
+                let kb = level;
+                let k = key_low(key, kb);
+                let im = ImmedType::new(kb, 1).expect("immediate 1 key");
+                let mut aux = [0u8; 7];
+                // SAFETY: aux has 7 bytes; write 1 packed key of kb bytes; ancestors array is valid.
+                unsafe {
+                    write_packed(aux.as_mut_ptr(), 0, kb as usize, k);
+                    *edge = Edge::NULL;
+                    (*edge).set_imm_bytes(val.to_le_bytes());
+                    (*edge).set_aux_bytes(aux);
+                    (*edge).set_tag(im.as_u8());
+                    for &(anc, al) in ancestors.iter().take(anc_depth) {
+                        bump_pop0(anc, al, 1);
+                        path.record_ancestor(anc, al);
+                    }
+                    return (None, (&raw mut *edge).cast::<u64>());
+                }
+            }
+
+            EdgeTag::Immed(im) => {
+                debug_assert_eq!(im.key_bytes(), level);
+                path.clear();
+                let kb = im.key_bytes();
+                let kb_usize = kb as usize;
+                let k = key_low(key, kb);
+                let n = im.key_count() as usize;
+                if n == 1 {
+                    // SAFETY: edge is a live 1-key immediate.
+                    let existing_k =
+                        unsafe { read_packed((*edge).aux_bytes().as_ptr(), 0, kb_usize) };
+                    if existing_k == k {
+                        // SAFETY: edge is a live 1-key immediate.
+                        let old = u64::from_le_bytes(unsafe { (*edge).imm_bytes() });
+                        if !KEEP {
+                            // SAFETY: edge is a live 1-key immediate.
+                            unsafe { (*edge).set_imm_bytes(val.to_le_bytes()) };
+                        }
+                        return (Some(old), (&raw mut *edge).cast::<u64>());
+                    }
+                    // SAFETY: edge is a live 1-key immediate.
+                    let old_val = u64::from_le_bytes(unsafe { (*edge).imm_bytes() });
+                    let (slot0_k, slot0_v, slot1_k, slot1_v, pos) = if k < existing_k {
+                        (k, val, existing_k, old_val, 0)
+                    } else {
+                        (existing_k, old_val, k, val, 1)
+                    };
+                    if map_immed_max(kb) >= 2 {
+                        let vals = a.alloc_bytes(16).cast::<u64>();
+                        // SAFETY: populate 2-entry array and install into edge; ancestors valid.
+                        unsafe {
+                            vals.as_ptr().write(slot0_v);
+                            vals.as_ptr().add(1).write(slot1_v);
+                            let mut new_aux = [0u8; 7];
+                            write_packed(new_aux.as_mut_ptr(), 0, kb_usize, slot0_k);
+                            write_packed(new_aux.as_mut_ptr(), 1, kb_usize, slot1_k);
+                            let new_im = ImmedType::new(kb, 2).expect("immediate capacity");
+                            *edge = Edge::new_node(vals.as_ptr().cast(), 0);
+                            (*edge).set_aux_bytes(new_aux);
+                            (*edge).set_tag(new_im.as_u8());
+                            for &(anc, al) in ancestors.iter().take(anc_depth) {
+                                bump_pop0(anc, al, 1);
+                                path.record_ancestor(anc, al);
+                            }
+                            return (None, vals.as_ptr().add(pos));
+                        }
+                    } else {
+                        let entries = [(slot0_k, slot0_v), (slot1_k, slot1_v)];
+                        // SAFETY: build fresh map leaf and update ancestors.
+                        unsafe {
+                            build_map_leaf(a, &mut *edge, kb, &entries);
+                            for &(anc, al) in ancestors.iter().take(anc_depth) {
+                                bump_pop0(anc, al, 1);
+                                path.record_ancestor(anc, al);
+                            }
+                            return (None, (*edge).node_ptr().cast::<u64>().add(pos));
+                        }
+                    }
+                }
+                // SAFETY: edge is a live immediate with n keys.
+                let pos = match unsafe { leaf::locate((*edge).aux_bytes().as_ptr(), n, kb, k) } {
+                    Ok(p) => {
+                        // SAFETY: p is in-bounds of live value array.
+                        let slot = unsafe { (*edge).node_ptr().cast::<u64>().add(p) };
+                        // SAFETY: slot is in-bounds and readable.
+                        let old = unsafe { *slot };
+                        if !KEEP {
+                            // SAFETY: slot is writable.
+                            unsafe { slot.write(val) };
+                        }
+                        return (Some(old), slot);
+                    }
+                    Err(p) => p,
+                };
+                // SAFETY: edge points to live value array.
+                let old_vals = unsafe { (*edge).node_ptr().cast::<u64>() };
+                if n < map_immed_max(kb) {
+                    let kb_usize = kb as usize;
+                    if leaf::cap_class(n + 1) == leaf::cap_class(n) {
+                        // SAFETY: class capacity holds n + 1 entries; in-place shifts and write; ancestors valid.
+                        unsafe {
+                            if pos < n {
+                                core::ptr::copy(old_vals.add(pos), old_vals.add(pos + 1), n - pos);
+                            }
+                            old_vals.add(pos).write(val);
+                            let mut new_aux = *(*edge).aux_bytes();
+                            if pos < n {
+                                new_aux.copy_within(
+                                    pos * kb_usize..n * kb_usize,
+                                    (pos + 1) * kb_usize,
+                                );
+                            }
+                            write_packed(new_aux.as_mut_ptr(), pos, kb_usize, k);
+                            let new_im =
+                                ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
+                            (*edge).set_aux_bytes(new_aux);
+                            (*edge).set_tag(new_im.as_u8());
+                            for &(anc, al) in ancestors.iter().take(anc_depth) {
+                                bump_pop0(anc, al, 1);
+                                path.record_ancestor(anc, al);
+                            }
+                            return (None, old_vals.add(pos));
+                        }
+                    }
+                    let new_vals = a.alloc_bytes(map_immed_val_size(n + 1)).cast::<u64>();
+                    // SAFETY: copy n values into fresh array, write val, free old array; ancestors valid.
+                    unsafe {
+                        if pos > 0 {
+                            core::ptr::copy_nonoverlapping(old_vals, new_vals.as_ptr(), pos);
+                        }
+                        new_vals.as_ptr().add(pos).write(val);
+                        if pos < n {
+                            core::ptr::copy_nonoverlapping(
+                                old_vals.add(pos),
+                                new_vals.as_ptr().add(pos + 1),
+                                n - pos,
+                            );
+                        }
+                        a.free_bytes(
+                            core::ptr::NonNull::new((*edge).node_ptr()).expect("value array"),
+                            map_immed_val_size(n),
+                        );
+                        let mut new_aux = *(*edge).aux_bytes();
+                        if pos < n {
+                            new_aux.copy_within(pos * kb_usize..n * kb_usize, (pos + 1) * kb_usize);
+                        }
+                        write_packed(new_aux.as_mut_ptr(), pos, kb_usize, k);
+                        let new_im = ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
+                        *edge = Edge::new_node(new_vals.as_ptr().cast(), 0);
+                        (*edge).set_aux_bytes(new_aux);
+                        (*edge).set_tag(new_im.as_u8());
+                        for &(anc, al) in ancestors.iter().take(anc_depth) {
+                            bump_pop0(anc, al, 1);
+                            path.record_ancestor(anc, al);
+                        }
+                        return (None, new_vals.as_ptr().add(pos));
+                    }
+                }
+                let mut entries = StackEntries32::new();
+                let kb_usize = kb as usize;
+                for i in 0..pos {
+                    // SAFETY: i < pos <= n <= 7; aux holds n packed keys.
+                    let ki = unsafe { read_packed((*edge).aux_bytes().as_ptr(), i, kb_usize) };
+                    // SAFETY: i < pos <= n; old_vals holds n values.
+                    let vi = unsafe { *old_vals.add(i) };
+                    entries.push((ki, vi));
+                }
+                entries.push((k, val));
+                for i in pos..n {
+                    // SAFETY: i < n <= 7; aux holds n packed keys.
+                    let ki = unsafe { read_packed((*edge).aux_bytes().as_ptr(), i, kb_usize) };
+                    // SAFETY: i < n; old_vals holds n values.
+                    let vi = unsafe { *old_vals.add(i) };
+                    entries.push((ki, vi));
+                }
+                // SAFETY: free old value array, build map leaf; ancestors valid.
+                unsafe {
+                    a.free_bytes(
+                        core::ptr::NonNull::new((*edge).node_ptr()).expect("value array"),
+                        map_immed_val_size(n),
+                    );
+                    build_map_leaf(a, &mut *edge, kb, entries.as_slice());
+                    for &(anc, al) in ancestors.iter().take(anc_depth) {
+                        bump_pop0(anc, al, 1);
+                        path.record_ancestor(anc, al);
+                    }
+                    return (None, (*edge).node_ptr().cast::<u64>().add(pos));
+                }
+            }
+
+            EdgeTag::Structural(
+                t @ (EdgeType::Leaf1
+                | EdgeType::Leaf2
+                | EdgeType::Leaf3
+                | EdgeType::Leaf4
+                | EdgeType::Leaf5
+                | EdgeType::Leaf6
+                | EdgeType::Leaf7),
+            ) => {
+                path.clear();
+                let kb = t.leaf_key_bytes().expect("leaf tag");
+                debug_assert!(kb <= level);
+                // SAFETY: edge is a live linear leaf edge.
+                let pop = unsafe { (*edge).pop0(kb) as usize + 1 };
+                // SAFETY: edge is a live linear leaf edge.
+                if kb < level && !unsafe { crate::get::decode_matches(&*edge, key, kb, level) } {
+                    // SAFETY: split_skip maintains valid tree invariants.
+                    unsafe { split_skip(a, &mut *edge, key, level, pop as u64) };
+                    continue;
+                }
+                let k = key_low(key, kb);
+                // SAFETY: edge is a live linear leaf edge.
+                let base = unsafe { (*edge).node_ptr() };
+                // SAFETY: keys live behind values at map_keys_offset.
+                let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
+                let (hit, pos) = if pop > 0 {
+                    // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
+                    let last = unsafe { read_packed(keys_ptr, pop - 1, kb as usize) };
+                    if k > last {
+                        (false, pop)
+                    } else if k == last {
+                        (true, pop - 1)
+                    } else {
+                        // SAFETY: keys_ptr holds pop packed keys.
+                        match unsafe { leaf::locate(keys_ptr, pop, kb, k) } {
+                            Ok(p) => (true, p),
+                            Err(p) => (false, p),
+                        }
+                    }
+                } else {
+                    (false, 0)
+                };
+                match if hit { Ok(pos) } else { Err(pos) } {
+                    Ok(pos) => {
+                        // SAFETY: pos is within live leaf value slots.
+                        unsafe {
+                            let slot = base.cast::<u64>().add(pos);
+                            let old = *slot;
+                            if !KEEP {
+                                slot.write(val);
+                            }
+                            return (Some(old), slot);
+                        }
+                    }
+                    Err(pos) => {
+                        let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
+                        if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
+                            // SAFETY: class capacity holds pop + 1 entries; in-place shifts and write.
+                            unsafe {
+                                leaf::map_insert_at(base, kb, pop, pos, k, val);
+                                (*edge).set_pop0(kb, pop as u64);
+                            }
+                            // SAFETY: slot pos is in-bounds of live leaf value slots.
+                            let slot = unsafe { base.cast::<u64>().add(pos) };
+                            if kb == 1 && level == 1 {
+                                path.prefix = key >> 8;
+                                path.leaf = core::ptr::null_mut();
+                                path.leaf1 = base;
+                                path.terminal_pop = (pop + 1) as u16;
+                                path.edges[0] = edge;
+                                path.levels[0] = 1;
+                                path.depth = 1;
+                                path.pending_pop = 0;
+                            } else {
+                                path.clear();
+                            }
+                            // SAFETY: ancestors array is valid.
+                            unsafe {
+                                for &(anc, al) in ancestors.iter().take(anc_depth) {
+                                    bump_pop0(anc, al, 1);
+                                    path.record_ancestor(anc, al);
+                                }
+                            }
+                            return (None, slot);
+                        }
+                        let old_ptr = base;
+                        let old_size = leaf::size_map(kb, pop);
+                        // SAFETY: edge is a live linear leaf edge.
+                        let saved_aux = unsafe { *(*edge).aux_bytes() };
+                        if pop < cap {
+                            let new = a.alloc_bytes(leaf::size_map(kb, pop + 1));
+                            // SAFETY: realloc_insert into fresh buffer, free old leaf; ancestors valid.
+                            let slot = unsafe {
+                                leaf::map_realloc_insert(base, new.as_ptr(), kb, pop, pos, k, val);
+                                *edge = Edge::new_node(new.as_ptr(), (*edge).tag_byte());
+                                (*edge).set_aux_bytes(saved_aux);
+                                (*edge).set_pop0(kb, pop as u64);
+                                a.free_bytes(
+                                    core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
+                                    old_size,
+                                );
+                                new.as_ptr().cast::<u64>().add(pos)
+                            };
+                            if kb == 1 && level == 1 {
+                                path.prefix = key >> 8;
+                                path.leaf = core::ptr::null_mut();
+                                path.leaf1 = new.as_ptr();
+                                path.terminal_pop = (pop + 1) as u16;
+                                path.edges[0] = edge;
+                                path.levels[0] = 1;
+                                path.depth = 1;
+                                path.pending_pop = 0;
+                            } else {
+                                path.clear();
+                            }
+                            // SAFETY: ancestors array is valid.
+                            unsafe {
+                                for &(anc, al) in ancestors.iter().take(anc_depth) {
+                                    bump_pop0(anc, al, 1);
+                                    path.record_ancestor(anc, al);
+                                }
+                            }
+                            return (None, slot);
+                        }
+                        // SAFETY: edge is a live linear leaf edge of pop entries.
+                        let mut entries = unsafe { read_map_leaf(&*edge, kb, pop) };
+                        // SAFETY: edge is a live linear leaf edge.
+                        let old_ptr = unsafe { (*edge).node_ptr() };
+                        let old_size = leaf::size_map(kb, pop);
+                        // SAFETY: edge is a live linear leaf edge.
+                        let saved_aux = unsafe { *(*edge).aux_bytes() };
+                        entries.insert(pos, (k, val));
+                        if kb < level {
+                            // SAFETY: edge is a live linear leaf edge.
+                            let prefix =
+                                unsafe { decode_value(&*edge, kb, level) } << (8 * u32::from(kb));
+                            for e in &mut entries {
+                                e.0 |= prefix;
+                            }
+                        }
+                        if entries.len() <= cap {
+                            // SAFETY: build fresh map leaf and restore decode.
+                            unsafe {
+                                build_map_leaf(a, &mut *edge, kb, &entries);
+                                restore_decode(&mut *edge, kb, level, &saved_aux);
+                            }
+                        } else if kb == 1 {
+                            // SAFETY: edge is a live valid edge.
+                            build_bitmap_leaf_map(a, unsafe { &mut *edge }, &entries);
+                            // SAFETY: edge is a live valid edge.
+                            restore_decode(unsafe { &mut *edge }, 1, level, &saved_aux);
+                        } else if divergence_level(
+                            entries[0].0,
+                            entries[entries.len() - 1].0,
+                            level,
+                        ) == 1
+                        {
+                            let low: Vec<(u64, u64)> =
+                                entries.iter().map(|&(k, v)| (key_low(k, 1), v)).collect();
+                            let prefix_key = entries[0].0;
+                            // SAFETY: edge is a live valid edge.
+                            build_bitmap_leaf_map(a, unsafe { &mut *edge }, &low);
+                            // SAFETY: edge is a live valid edge.
+                            write_decode(unsafe { &mut *edge }, 1, level, prefix_key);
+                            if level == 1 {
+                                path.prefix = key >> 8;
+                                // SAFETY: edge points to newly allocated LeafBitmapL.
+                                path.leaf = unsafe { (*edge).node_ptr().cast::<LeafBitmapL>() };
+                                path.leaf1 = core::ptr::null_mut();
+                                path.terminal_pop = entries.len() as u16;
+                                path.edges[0] = edge;
+                                path.levels[0] = 1;
+                                path.depth = 1;
+                                path.pending_pop = 0;
+                            }
+                        } else {
+                            let d =
+                                divergence_level(entries[0].0, entries[entries.len() - 1].0, level);
+                            let bl = if level <= 7 { d } else { level };
+                            let node = a.alloc_node_zeroed::<BranchL3>();
+                            // SAFETY: populate fresh BranchL3, insert entries, set pop0.
+                            unsafe {
+                                (*node.as_ptr()).hdr.level = bl;
+                                *edge = Edge::new_node(
+                                    node.as_ptr().cast(),
+                                    EdgeType::BranchL3.as_u8(),
+                                );
+                                if bl < level {
+                                    write_decode(&mut *edge, bl, level, entries[0].0);
+                                }
+                                for &(k, v) in &entries {
+                                    let prev = map_insert_with_path_flat::<KEEP>(
+                                        a, edge, k, v, level, path,
+                                    );
+                                    debug_assert!(prev.0.is_none());
+                                }
+                                (*edge).set_pop0(bl, entries.len() as u64 - 1);
+                            }
+                        }
+                        // SAFETY: free old linear leaf and update ancestors.
+                        unsafe {
+                            a.free_bytes(
+                                core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
+                                old_size,
+                            );
+                            for &(anc, al) in ancestors.iter().take(anc_depth) {
+                                bump_pop0(anc, al, 1);
+                                path.record_ancestor(anc, al);
+                            }
+                        }
+                        // SAFETY: edge is a live valid subtree containing key.
+                        let slot = unsafe { crate::get::locate_slot(&raw mut *edge, key, level) }
+                            .expect("just-inserted key")
+                            .as_ptr();
+                        return (None, slot);
+                    }
+                }
+            }
+
+            EdgeTag::Structural(EdgeType::LeafB1) => {
+                // SAFETY: edge is a live LeafB1 edge.
+                if level > 1 && !unsafe { crate::get::decode_matches(&*edge, key, 1, level) } {
+                    // SAFETY: edge is a live LeafB1 edge.
+                    let pop = unsafe { (*edge).pop0(1) + 1 };
+                    path.clear();
+                    // SAFETY: split_skip maintains valid tree invariants.
+                    unsafe { split_skip(a, &mut *edge, key, level, pop) };
+                    continue;
+                }
+                a.assert_bracketed();
+                let d = digit(key, 1);
+                let sub = (d >> 5) as usize;
+                // SAFETY: edge points to a live LeafBitmapL node.
+                let node = unsafe { &mut *(*edge).node_ptr().cast::<LeafBitmapL>() };
+                if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
+                    // SAFETY: rank is in-bounds for subarray; slot is readable/writable.
+                    unsafe {
+                        let slot = node.values[sub].add(rank);
+                        let old = *slot;
+                        if !KEEP {
+                            slot.write(val);
+                        }
+                        return (Some(old), slot);
+                    }
+                }
+                let rank = node.bitmap.subexpanse_rank(d) as usize;
+                let old_n = node.bitmap.subexpanse_count(sub) as usize;
+                if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
+                    // SAFETY: spare class capacity; shift values in-place and write val.
+                    unsafe {
+                        let arr = node.values[sub];
+                        core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                        arr.add(rank).write(val);
+                    }
+                } else {
+                    let new = a.alloc_bytes(sub_vals_size(old_n + 1)).cast::<u64>();
+                    // SAFETY: allocate fresh subarray, copy old entries, write val, free old subarray.
+                    unsafe {
+                        if old_n > 0 {
+                            let old = node.values[sub];
+                            new.as_ptr().copy_from_nonoverlapping(old, rank);
+                            new.as_ptr()
+                                .add(rank + 1)
+                                .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                            a.free_bytes(
+                                core::ptr::NonNull::new(old.cast()).expect("values"),
+                                sub_vals_size(old_n),
+                            );
+                        }
+                        new.as_ptr().add(rank).write(val);
+                    }
+                    node.values[sub] = new.as_ptr();
+                }
+                node.bitmap.set(d);
+                // SAFETY: edge is a live LeafB1 edge.
+                let pop0 = unsafe { (*edge).pop0(1) };
+                // SAFETY: edge is a live LeafB1 edge.
+                unsafe { (*edge).set_pop0(1, pop0 + 1) };
+                if level == 1 {
+                    path.prefix = key >> 8;
+                    // SAFETY: edge points to a live LeafBitmapL node.
+                    path.leaf = unsafe { (*edge).node_ptr().cast::<LeafBitmapL>() };
+                    path.leaf1 = core::ptr::null_mut();
+                    path.terminal_pop = (pop0 + 2) as u16;
+                    path.edges[0] = edge;
+                    path.levels[0] = 1;
+                    path.depth = 1;
+                    path.pending_pop = 0;
+                }
+                // SAFETY: node.values[sub] holds at least rank + 1 slots.
+                let slot = unsafe { node.values[sub].add(rank) };
+                // SAFETY: ancestors contains valid parent edges.
+                unsafe {
+                    for &(anc, al) in ancestors.iter().take(anc_depth) {
+                        bump_pop0(anc, al, 1);
+                        path.record_ancestor(anc, al);
+                    }
+                }
+                return (None, slot);
+            }
+
+            EdgeTag::Structural(EdgeType::FullExpanse) => {
+                unreachable!("full-expanse edges are set-flavor only")
+            }
+
+            EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                debug_assert!(level >= 2);
+                // SAFETY: edge is a live BranchL3 or BranchL7 edge.
+                let bl = unsafe { branch_form_level(&*edge, t, level) };
+                // SAFETY: edge is a live BranchL3 or BranchL7 edge.
+                if bl < level && !unsafe { crate::get::decode_matches(&*edge, key, bl, level) } {
+                    // SAFETY: edge is a live BranchL3 or BranchL7 edge.
+                    let pop = unsafe { (*edge).pop0(bl) + 1 };
+                    path.clear();
+                    // SAFETY: split_skip maintains valid tree invariants.
+                    unsafe { split_skip(a, &mut *edge, key, level, pop) };
+                    continue;
+                }
+                let d = digit(key, bl);
+                let is_l3 = matches!(t, EdgeType::BranchL3);
+                // SAFETY: edge points to a live BranchL3 or BranchL7 node.
+                let (found, num) = unsafe {
+                    if is_l3 {
+                        let b = &*(*edge).node_ptr().cast::<BranchL3>();
+                        (b.hdr.find(d), b.hdr.num as usize)
+                    } else {
+                        let b = &*(*edge).node_ptr().cast::<BranchL7>();
+                        (b.hdr.find(d), b.hdr.num as usize)
+                    }
+                };
+                if let Some(slot) = found {
+                    ancestors[anc_depth] = (edge, bl);
+                    anc_depth += 1;
+                    // SAFETY: slot is in-bounds for the branch edges array.
+                    edge = unsafe {
+                        if is_l3 {
+                            let b = &mut *(*edge).node_ptr().cast::<BranchL3>();
+                            &raw mut b.edges[slot]
+                        } else {
+                            let b = &mut *(*edge).node_ptr().cast::<BranchL7>();
+                            &raw mut b.edges[slot]
+                        }
+                    };
+                    level = bl - 1;
+                    continue;
+                }
+                let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
+                if num == cap {
+                    path.clear();
+                    // SAFETY: upgrades branch to next capacity class.
+                    unsafe {
+                        if is_l3 {
+                            upgrade_l3_to_l7(a, &mut *edge);
+                        } else {
+                            upgrade_l7_to_b(a, &mut *edge);
+                        }
+                    }
+                    continue;
+                }
+                // SAFETY: num < cap; inserting digit d shifts in-place.
+                let slot = unsafe {
+                    if is_l3 {
+                        let b = &mut *(*edge).node_ptr().cast::<BranchL3>();
+                        let s = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
+                        b.hdr.num += 1;
+                        s
+                    } else {
+                        let b = &mut *(*edge).node_ptr().cast::<BranchL7>();
+                        let s = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
+                        b.hdr.num += 1;
+                        s
+                    }
+                };
+                ancestors[anc_depth] = (edge, bl);
+                anc_depth += 1;
+                // SAFETY: edge points to a live BranchL3 or BranchL7 node; slot is in-bounds.
+                edge = unsafe {
+                    if is_l3 {
+                        let b = &mut *(*edge).node_ptr().cast::<BranchL3>();
+                        &raw mut b.edges[slot]
+                    } else {
+                        let b = &mut *(*edge).node_ptr().cast::<BranchL7>();
+                        &raw mut b.edges[slot]
+                    }
+                };
+                level = bl - 1;
+                continue;
+            }
+
+            EdgeTag::Structural(EdgeType::BranchB) => {
+                debug_assert!(level >= 2);
+                // SAFETY: edge is a live BranchB node.
+                let bl = unsafe { branch_form_level(&*edge, EdgeType::BranchB, level) };
+                // SAFETY: edge is a live BranchB node.
+                if bl < level && !unsafe { crate::get::decode_matches(&*edge, key, bl, level) } {
+                    // SAFETY: edge is a live BranchB node.
+                    let pop = unsafe { (*edge).pop0(bl) + 1 };
+                    path.clear();
+                    // SAFETY: split_skip maintains valid tree invariants.
+                    unsafe { split_skip(a, &mut *edge, key, level, pop) };
+                    continue;
+                }
+                let slot_level = level;
+                let d = digit(key, bl);
+                // SAFETY: edge is a live BranchB node.
+                let b = unsafe { &mut *(*edge).node_ptr().cast::<BranchB>() };
+                if let Some(slot) = b.bitmap.test_and_subexpanse_rank(d) {
+                    let sub = b.subarrays[(d >> 5) as usize];
+                    ancestors[anc_depth] = (edge, bl);
+                    anc_depth += 1;
+                    // SAFETY: sub points to valid live subarray; slot is in-bounds.
+                    edge = unsafe { sub.add(slot) };
+                    level = bl - 1;
+                    continue;
+                }
+                if b.bitmap.count() as usize + 1 > BRANCHB_UP {
+                    if bl < slot_level {
+                        // SAFETY: edge is a live BranchB node.
+                        let pop = unsafe { (*edge).pop0(bl) + 1 };
+                        path.clear();
+                        // SAFETY: wrap_skip_level maintains valid tree invariants.
+                        unsafe { wrap_skip_level(a, &mut *edge, bl + 1, slot_level, pop) };
+                        level = slot_level;
+                        continue;
+                    }
+                    path.clear();
+                    // SAFETY: upgrade_b_to_u upgrades live BranchB to BranchU.
+                    unsafe {
+                        upgrade_b_to_u(a, &mut *edge);
+                    }
+                    level = slot_level;
+                    continue;
+                }
+                let sub = (d >> 5) as usize;
+                let old_n = b.pop_counts[sub] as usize;
+                let rank = b.bitmap.subexpanse_rank(d) as usize;
+                if old_n > 0 && leaf::cap_class(old_n + 1) == leaf::cap_class(old_n) {
+                    // SAFETY: spare class capacity; shift subarray in-place.
+                    unsafe {
+                        let arr = b.subarrays[sub];
+                        core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                        arr.add(rank).write(Edge::NULL);
+                    }
+                } else {
+                    let new = a.alloc_bytes(sub_edges_size(old_n + 1)).cast::<Edge>();
+                    // SAFETY: allocate fresh subarray, copy old entries, write NULL, free old subarray.
+                    unsafe {
+                        if old_n > 0 {
+                            let old = b.subarrays[sub];
+                            new.as_ptr().copy_from_nonoverlapping(old, rank);
+                            new.as_ptr()
+                                .add(rank + 1)
+                                .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                            a.free_bytes(
+                                core::ptr::NonNull::new(old.cast()).expect("subarray"),
+                                sub_edges_size(old_n),
+                            );
+                        }
+                        new.as_ptr().add(rank).write(Edge::NULL);
+                    }
+                    b.subarrays[sub] = new.as_ptr();
+                }
+                b.pop_counts[sub] = (old_n + 1) as u16;
+                b.bitmap.set(d);
+                ancestors[anc_depth] = (edge, bl);
+                anc_depth += 1;
+                // SAFETY: sub is valid subarray with old_n + 1 edges; rank is in-bounds.
+                edge = unsafe { b.subarrays[sub].add(rank) };
+                level = bl - 1;
+                continue;
+            }
+
+            EdgeTag::Structural(EdgeType::BranchU) => {
+                debug_assert!(level >= 2);
+                let d = digit(key, level);
+                // SAFETY: edge is a live BranchU node.
+                let b = unsafe { &mut *(*edge).node_ptr().cast::<BranchU>() };
+                ancestors[anc_depth] = (edge, level);
+                anc_depth += 1;
+                edge = &raw mut b.edges[d as usize];
+                level -= 1;
+                continue;
+            }
+        }
+    }
+}
+
+/// Fallback version-bracketed recursive descent for OCC-enabled concurrent maps.
+unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
+    a: &NodeAlloc,
+    edge: &mut Edge,
+    key: Key,
+    val: u64,
     mut level: u8,
     path: &mut InsertPathMap,
 ) -> (Option<u64>, *mut u64) {
@@ -506,7 +1237,31 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 };
                 let old_vals = edge.node_ptr().cast::<u64>();
                 if n < map_immed_max(kb) {
-                    let new_vals = a.alloc_bytes((n + 1) * 8).cast::<u64>();
+                    let kb_usize = kb as usize;
+                    if leaf::cap_class(n + 1) == leaf::cap_class(n) {
+                        // Spare class capacity: shift values and keys in-place without reallocating!
+                        // SAFETY: class capacity holds n + 1 entries; in-bounds shifts.
+                        unsafe {
+                            if pos < n {
+                                core::ptr::copy(old_vals.add(pos), old_vals.add(pos + 1), n - pos);
+                            }
+                            old_vals.add(pos).write(val);
+                        }
+                        let mut new_aux = *edge.aux_bytes();
+                        if pos < n {
+                            new_aux.copy_within(pos * kb_usize..n * kb_usize, (pos + 1) * kb_usize);
+                        }
+                        // SAFETY: new_aux has capacity for n + 1 packed keys.
+                        unsafe {
+                            write_packed(new_aux.as_mut_ptr(), pos, kb_usize, k);
+                        }
+                        let new_im = ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
+                        edge.set_aux_bytes(new_aux);
+                        edge.set_tag(new_im.as_u8());
+                        // SAFETY: old_vals has capacity for n + 1 entries; pos is in-bounds.
+                        return (None, unsafe { old_vals.add(pos) });
+                    }
+                    let new_vals = a.alloc_bytes(map_immed_val_size(n + 1)).cast::<u64>();
                     // SAFETY: copy n values around pos, write val at pos, free old array.
                     unsafe {
                         if pos > 0 {
@@ -522,11 +1277,10 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                         }
                         a.free_bytes(
                             core::ptr::NonNull::new(edge.node_ptr()).expect("value array"),
-                            n * 8,
+                            map_immed_val_size(n),
                         );
                     }
                     let mut new_aux = *edge.aux_bytes();
-                    let kb_usize = kb as usize;
                     if pos < n {
                         new_aux.copy_within(pos * kb_usize..n * kb_usize, (pos + 1) * kb_usize);
                     }
@@ -563,7 +1317,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 unsafe {
                     a.free_bytes(
                         core::ptr::NonNull::new(edge.node_ptr()).expect("value array"),
-                        n * 8,
+                        map_immed_val_size(n),
                     );
                 }
                 build_map_leaf(a, edge, kb, entries.as_slice());
@@ -916,7 +1670,8 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                         }
                     };
                     if res.0.is_none() {
-                        bump_pop0(edge, bl, 1);
+                        // SAFETY: edge is a valid live edge.
+                        unsafe { bump_pop0(edge, bl, 1) };
                         path.record_ancestor(edge as *mut Edge, level);
                     }
                     return res;
@@ -969,7 +1724,8 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                     }
                 };
                 debug_assert!(res.0.is_none());
-                bump_pop0(edge, bl, 1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, 1) };
                 path.record_ancestor(edge as *mut Edge, level);
                 return (None, res.1);
             }
@@ -1006,7 +1762,8 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                     };
                     crate::occ::version_end_if::<OCC>(a, &mut b.version);
                     if res.0.is_none() {
-                        bump_pop0(edge, bl, 1);
+                        // SAFETY: edge is a valid live edge.
+                        unsafe { bump_pop0(edge, bl, 1) };
                         path.record_ancestor(edge as *mut Edge, level);
                     }
                     return res;
@@ -1075,7 +1832,8 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 };
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 debug_assert!(res.0.is_none());
-                bump_pop0(edge, bl, 1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, 1) };
                 path.record_ancestor(edge as *mut Edge, level);
                 return (None, res.1);
             }
@@ -1100,7 +1858,8 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 };
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 if res.0.is_none() {
-                    bump_pop0(edge, level, 1);
+                    // SAFETY: edge is a valid live edge.
+                    unsafe { bump_pop0(edge, level, 1) };
                     path.record_ancestor(edge as *mut Edge, level);
                 }
                 return res;
@@ -1162,7 +1921,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 unsafe {
                     a.free_bytes(
                         core::ptr::NonNull::new(edge.node_ptr()).expect("value array"),
-                        16,
+                        map_immed_val_size(2),
                     );
                 }
                 *edge = Edge::NULL;
@@ -1171,8 +1930,25 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 edge.set_tag(new_im.as_u8());
                 return Some(old);
             }
+            let kb_usize = kb as usize;
+            if leaf::cap_class(n - 1) == leaf::cap_class(n) {
+                // Spare class capacity: shift values and keys in-place without reallocating!
+                // SAFETY: shift surviving values left within the allocated array.
+                unsafe {
+                    if pos + 1 < n {
+                        core::ptr::copy(vals.add(pos + 1), vals.add(pos), n - 1 - pos);
+                    }
+                }
+                let mut new_aux = *edge.aux_bytes();
+                new_aux.copy_within((pos + 1) * kb_usize..n * kb_usize, pos * kb_usize);
+                new_aux[((n - 1) * kb_usize)..].fill(0);
+                let new_im = ImmedType::new(kb, (n - 1) as u8).expect("immediate capacity");
+                edge.set_aux_bytes(new_aux);
+                edge.set_tag(new_im.as_u8());
+                return Some(old);
+            }
             // n > 2: copy values around pos and shift keys in aux.
-            let new_vals = a.alloc_bytes((n - 1) * 8).cast::<u64>();
+            let new_vals = a.alloc_bytes(map_immed_val_size(n - 1)).cast::<u64>();
             // SAFETY: copy n-1 surviving values and free old array.
             unsafe {
                 if pos > 0 {
@@ -1187,11 +1963,10 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 }
                 a.free_bytes(
                     core::ptr::NonNull::new(edge.node_ptr()).expect("value array"),
-                    n * 8,
+                    map_immed_val_size(n),
                 );
             }
             let mut new_aux = *edge.aux_bytes();
-            let kb_usize = kb as usize;
             new_aux.copy_within((pos + 1) * kb_usize..n * kb_usize, pos * kb_usize);
             new_aux[((n - 1) * kb_usize)..].fill(0);
             let new_im = ImmedType::new(kb, (n - 1) as u8).expect("immediate capacity");
@@ -1485,7 +2260,8 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     }
                 }
             } else {
-                bump_pop0(edge, bl, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, -1) };
             }
             Some(old)
         }
@@ -1559,13 +2335,15 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     *edge = Edge::NULL;
                     return Some(old);
                 }
-                bump_pop0(edge, bl, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, -1) };
                 if digits < BRANCH_L7_CAP {
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_b_to_l7(a, edge) };
                 }
             } else {
-                bump_pop0(edge, bl, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, -1) };
             }
             Some(old)
         }
@@ -1599,13 +2377,15 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     *edge = Edge::NULL;
                     return Some(old);
                 }
-                bump_pop0(edge, level, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, level, -1) };
                 if digits < BRANCHB_UP {
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b(a, edge, level) };
                 }
             } else {
-                bump_pop0(edge, level, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, level, -1) };
             }
             Some(old)
         }

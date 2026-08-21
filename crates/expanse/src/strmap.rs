@@ -777,7 +777,7 @@ mod tests {
             .stack_size(256 * 1024)
             .spawn(|| {
                 let mut m = ExpanseStrMap::new();
-                let key = vec![b'k'; 64 * 1024];
+                let key = vec![b'k'; if cfg!(miri) { 512 } else { 64 * 1024 }];
                 assert_eq!(m.insert(&key, 1), None);
                 assert_eq!(m.get(&key), Some(1));
                 // A second key sharing most of the chain, so teardown has
@@ -801,7 +801,7 @@ mod tests {
             .stack_size(256 * 1024)
             .spawn(|| {
                 let mut m = ExpanseStrMap::new();
-                let key = vec![b'q'; 32 * 1024];
+                let key = vec![b'q'; if cfg!(miri) { 512 } else { 32 * 1024 }];
                 m.insert(&key, 7);
                 assert_eq!(m.remove(&key), Some(7));
                 assert!(m.is_empty());
@@ -823,7 +823,7 @@ mod tests {
             .stack_size(256 * 1024)
             .spawn(|| {
                 let mut m = ExpanseStrMap::new();
-                let deep = vec![b'm'; 64 * 1024];
+                let deep = vec![b'm'; if cfg!(miri) { 512 } else { 64 * 1024 }];
                 // A sibling diverging only in the very last chunk, so the
                 // whole chain is shared and backtracking is forced to the
                 // bottom before it can resolve.
