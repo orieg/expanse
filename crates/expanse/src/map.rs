@@ -745,7 +745,6 @@ impl ExpanseMap {
     /// Smallest entry with key `>= key` (compat: `JudyLFirst`).
     #[must_use]
     pub fn next_at_or_after(&self, key: Key) -> Option<(u64, u64)> {
-        self.flush_path();
         match &self.root {
             Root::Empty => None,
             Root::Leaf { ptr, pop } => {
@@ -767,7 +766,6 @@ impl ExpanseMap {
     /// Largest entry with key `<= key` (compat: `JudyLLast`).
     #[must_use]
     pub fn prev_at_or_before(&self, key: Key) -> Option<(u64, u64)> {
-        self.flush_path();
         match &self.root {
             Root::Empty => None,
             Root::Leaf { ptr, pop } => {

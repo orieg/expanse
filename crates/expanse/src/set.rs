@@ -464,7 +464,6 @@ impl ExpanseSet {
     /// Smallest key `>= key` (compat: `Judy1First`).
     #[must_use]
     pub fn next_at_or_after(&self, key: Key) -> Option<u64> {
-        self.flush_path();
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => {
@@ -487,7 +486,6 @@ impl ExpanseSet {
     /// Largest key `<= key` (compat: `Judy1Last`).
     #[must_use]
     pub fn prev_at_or_before(&self, key: Key) -> Option<u64> {
-        self.flush_path();
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => {
