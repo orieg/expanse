@@ -241,7 +241,7 @@ impl Collector {
                 Mutex::new(Vec::new()),
                 Mutex::new(Vec::new()),
             ],
-            freelists: [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_CLASSES],
+            freelists: core::array::from_fn(|_| AtomicPtr::new(core::ptr::null_mut())),
         }
     }
 
@@ -356,7 +356,7 @@ impl Drop for Collector {
         // Last owner: no readers remain by definition.
         self.drain();
         for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
-            let mut cur = *self.freelists[class].get_mut();
+            let mut cur = self.freelists[class].load(Ordering::Relaxed);
             let layout = Layout::from_size_align(bytes, align).expect("valid node layout");
             while !cur.is_null() {
                 // SAFETY: cur was allocated with `layout`.
