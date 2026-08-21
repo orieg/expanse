@@ -218,36 +218,8 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
                         // SAFETY: pointer-tagged edge → live BranchU with 256 edges.
                         let next_edge = unsafe { &*(*b_ptr).edges.as_ptr().add(d as usize) };
                         level -= 1;
-                        let next_tag = next_edge.tag_byte();
-                        if next_tag == EdgeType::BranchU as u8 {
+                        if next_edge.tag_byte() == EdgeType::BranchU as u8 {
                             b_ptr = next_edge.node_ptr().cast::<BranchU>();
-                        } else if next_tag == EdgeType::LeafB1 as u8 {
-                            if level > 1 && !decode_matches(next_edge, key, 1, level) {
-                                return Lookup::Absent;
-                            }
-                            let d1 = digit(key, 1);
-                            if MAP {
-                                // SAFETY: pointer-tagged edge → live LeafBitmapL.
-                                let l = unsafe { &*next_edge.node_ptr().cast::<LeafBitmapL>() };
-                                let sub = (d1 >> 5) as usize;
-                                let Some(slot) = l.bitmap.test_and_subexpanse_rank(d1) else {
-                                    return Lookup::Absent;
-                                };
-                                // SAFETY: `sub < 8` accesses a valid values subarray pointer.
-                                let vals = unsafe { *l.values.as_ptr().add(sub) };
-                                // SAFETY: the bit is set, so the value subarray is
-                                // non-null and holds at least `slot + 1` values.
-                                return Lookup::Value(unsafe { *vals.add(slot) });
-                            }
-                            // SAFETY: pointer-tagged edge → live LeafBitmap1.
-                            let l = unsafe { &*next_edge.node_ptr().cast::<LeafBitmap1>() };
-                            return if l.bitmap.test(d1) {
-                                Lookup::Present
-                            } else {
-                                Lookup::Absent
-                            };
-                        } else if next_tag == EdgeType::Null as u8 {
-                            return Lookup::Absent;
                         } else {
                             edge = next_edge;
                             break;
@@ -697,21 +669,6 @@ unsafe fn locate_slot_impl(
                     if next_tag == EdgeType::BranchU as u8 {
                         // SAFETY: pointer-tagged edge → live BranchU.
                         b_ptr = unsafe { (*next_edge).node_ptr().cast::<BranchU>() };
-                    } else if next_tag == EdgeType::LeafB1 as u8 {
-                        // SAFETY: reads of live leaf per contract.
-                        unsafe {
-                            if level > 1 && !decode_matches(&*next_edge, key, 1, level) {
-                                return None;
-                            }
-                            let d1 = digit(key, 1);
-                            let sub = (d1 >> 5) as usize;
-                            let node = (*next_edge).node_ptr().cast::<LeafBitmapL>();
-                            let rank = (*node).bitmap.test_and_subexpanse_rank(d1)?;
-                            let vals = *(*node).values.as_ptr().add(sub);
-                            return core::ptr::NonNull::new(vals.add(rank));
-                        }
-                    } else if next_tag == EdgeType::Null as u8 {
-                        return None;
                     } else {
                         edge = next_edge;
                         break;
