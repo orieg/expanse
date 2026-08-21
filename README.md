@@ -77,7 +77,7 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Performance vs stock libjudy
 
-Instructions retired and wall-clock latency through the identical C ABI on identical key streams, both libraries `dlopen`'d — measured via paired A/B rounds (*interleaved median of 5 rounds, 2026-08-20, main*). **Below 1.00 = libexpanse does less work / runs faster than the original.**
+Instructions retired and wall-clock latency through the identical C ABI on identical key streams, both libraries `dlopen`'d — measured via paired A/B rounds (*interleaved median of 5 rounds, 2026-08-20, main*). Ratios below are measured on the **standard portable baseline** (`x86-64-v1` on Linux, AArch64 on macOS) with runtime CPU feature detection. **Below 1.00 = libexpanse does less work / runs faster than the original.**
 
 | Benchmark Workload | Wall-Clock Latency (Expanse vs Stock) | Ratio | Memory Overhead (Expanse vs Stock) | Status |
 |---|---|---:|---|---|
@@ -91,8 +91,8 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 | **Clustered 100,000 lookup** | **16.1 ns** vs 18.3 ns | **0.88×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **12% faster than Judy** |
 | **Random 1,000,000 insert** | **198.8 ns** vs 195.9 ns | **1.01×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **Parity with Judy (5% less RAM)** |
 
-#### Modern Architecture (`x86-64-v3`: AVX2 / BMI2 / POPCNT)
-When compiled for modern CPUs (`-C target-cpu=x86-64-v3` or via `glibc-hwcaps`), **19 of 19 benchmarks are strictly faster** (up to **-42.60%** instruction reduction on deletions and churn).
+#### Modern CPU Compilation (`x86-64-v3`: AVX2 / BMI2 / POPCNT)
+The table above reflects the standard generic build. When compiled specifically for modern CPUs (`-C target-cpu=x86-64-v3`, `-C target-cpu=native`, or via `glibc-hwcaps`), **19 of 19 benchmarks are strictly faster** (up to **-42.60%** instruction reduction on deletions and churn by folding runtime feature probes and emitting fused AVX2/BMI2 hardware instructions directly).
 
 Memory: clustered and dense sets run **0.07–0.36 bytes/key** (deterministic allocator accounting; the `< 9.5 B/key` architecture target is met).
 
