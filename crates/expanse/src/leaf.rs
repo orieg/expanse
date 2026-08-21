@@ -55,7 +55,6 @@ pub const fn map_keys_offset(pop: usize) -> usize {
     8 * cap_class(pop)
 }
 
-
 /// Locates `needle` in a linear leaf's packed keys.
 /// Returns `Ok(pos)` if an exact match is found at `pos`.
 /// Returns `Err(pos)` if absent, where `pos` is the insertion index.
@@ -585,11 +584,13 @@ mod tests {
     #[test]
     fn locate_all_key_sizes() {
         for kb in 1u8..=7 {
-            let max_val = if kb >= 8 { u64::MAX } else { (1u64 << (8 * kb)) - 1 };
+            let max_val = if kb >= 8 {
+                u64::MAX
+            } else {
+                (1u64 << (8 * kb)) - 1
+            };
             for count in 0..=20 {
-                let mut keys: Vec<u64> = (0..count)
-                    .map(|i| (i * 7 + 10) & max_val)
-                    .collect();
+                let mut keys: Vec<u64> = (0..count).map(|i| (i * 7 + 10) & max_val).collect();
                 keys.sort_unstable();
                 keys.dedup();
                 let pop = keys.len();
