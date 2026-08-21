@@ -287,10 +287,7 @@ impl ExpanseSet {
                         let ptr = keys.as_ptr().cast::<u64>();
                         core::ptr::copy(ptr.add(at + 1), ptr.add(at), pop - 1 - at);
                     }
-                    self.root = Root::Leaf {
-                        keys,
-                        pop: pop - 1,
-                    };
+                    self.root = Root::Leaf { keys, pop: pop - 1 };
                 } else {
                     let new = self.alloc.alloc_bytes(root_leaf_size(pop - 1));
                     // SAFETY: copy the surviving keys into the smaller
