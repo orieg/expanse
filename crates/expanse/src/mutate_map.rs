@@ -444,10 +444,10 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                         (true, pop - 1)
                     } else {
                         // SAFETY: live map leaf per contract (keys behind the values).
-                        let p = unsafe { leaf::lower_bound(keys_ptr, pop, kb, k) };
-                        // SAFETY: p < pop is in bounds.
-                        let h = p < pop && unsafe { read_packed(keys_ptr, p, kb as usize) == k };
-                        (h, p)
+                        match unsafe { leaf::locate(keys_ptr, pop, kb, k) } {
+                            Ok(p) => (true, p),
+                            Err(p) => (false, p),
+                        }
                     }
                 } else {
                     (false, 0)
@@ -991,17 +991,12 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             a.assert_bracketed();
             let base = edge.node_ptr();
             // SAFETY: live map leaf per contract.
-            let pos =
-                unsafe { leaf::lower_bound(base.add(leaf::map_keys_offset(pop)), pop, kb, k) };
-            // SAFETY: pos < pop is in bounds.
-            // SAFETY: pos < pop is in bounds.
-            let miss = pos == pop
-                || unsafe {
-                    read_packed(base.add(leaf::map_keys_offset(pop)), pos, kb as usize) != k
-                };
-            if miss {
-                return None;
-            }
+            let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
+            // SAFETY: keys_ptr points to `pop * kb` valid bytes.
+            let pos = match unsafe { leaf::locate(keys_ptr, pop, kb, k) } {
+                Ok(pos) => pos,
+                Err(_) => return None,
+            };
             if pop > map_immed_max(level) && leaf::cap_class(pop - 1) == leaf::cap_class(pop) {
                 // Fast path: stays a leaf in the same class.
                 // SAFETY: pos < pop; same-class allocation.
