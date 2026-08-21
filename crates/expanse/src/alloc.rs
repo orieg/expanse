@@ -40,9 +40,158 @@
 use crate::occ::Collector;
 use crate::types::{CACHE_LINE, RAW_ALIGN};
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use std::alloc::{Layout, alloc_zeroed, dealloc, handle_alloc_error};
 use std::sync::{Arc, OnceLock};
+
+#[repr(C)]
+struct FreeBlock {
+    next: *mut FreeBlock,
+}
+
+const NUM_CLASSES: usize = 62;
+
+const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
+    (32, CACHE_LINE),
+    (64, CACHE_LINE),
+    (96, CACHE_LINE),
+    (128, CACHE_LINE),
+    (256, CACHE_LINE),
+    (2048, CACHE_LINE),
+    (8, RAW_ALIGN),
+    (9, RAW_ALIGN),
+    (10, RAW_ALIGN),
+    (11, RAW_ALIGN),
+    (12, RAW_ALIGN),
+    (13, RAW_ALIGN),
+    (14, RAW_ALIGN),
+    (15, RAW_ALIGN),
+    (16, RAW_ALIGN),
+    (18, RAW_ALIGN),
+    (20, RAW_ALIGN),
+    (22, RAW_ALIGN),
+    (24, RAW_ALIGN),
+    (25, RAW_ALIGN),
+    (26, RAW_ALIGN),
+    (28, RAW_ALIGN),
+    (30, RAW_ALIGN),
+    (32, RAW_ALIGN),
+    (36, RAW_ALIGN),
+    (40, RAW_ALIGN),
+    (44, RAW_ALIGN),
+    (48, RAW_ALIGN),
+    (50, RAW_ALIGN),
+    (52, RAW_ALIGN),
+    (56, RAW_ALIGN),
+    (60, RAW_ALIGN),
+    (64, RAW_ALIGN),
+    (72, RAW_ALIGN),
+    (75, RAW_ALIGN),
+    (80, RAW_ALIGN),
+    (88, RAW_ALIGN),
+    (96, RAW_ALIGN),
+    (100, RAW_ALIGN),
+    (104, RAW_ALIGN),
+    (112, RAW_ALIGN),
+    (120, RAW_ALIGN),
+    (125, RAW_ALIGN),
+    (128, RAW_ALIGN),
+    (144, RAW_ALIGN),
+    (150, RAW_ALIGN),
+    (160, RAW_ALIGN),
+    (175, RAW_ALIGN),
+    (176, RAW_ALIGN),
+    (192, RAW_ALIGN),
+    (200, RAW_ALIGN),
+    (208, RAW_ALIGN),
+    (224, RAW_ALIGN),
+    (225, RAW_ALIGN),
+    (240, RAW_ALIGN),
+    (248, RAW_ALIGN),
+    (250, RAW_ALIGN),
+    (275, RAW_ALIGN),
+    (300, RAW_ALIGN),
+    (325, RAW_ALIGN),
+    (350, RAW_ALIGN),
+    (375, RAW_ALIGN),
+];
+
+#[inline(always)]
+fn class_for(bytes: usize, align: usize) -> Option<usize> {
+    if align == CACHE_LINE {
+        match bytes {
+            32 => Some(0),
+            64 => Some(1),
+            96 => Some(2),
+            128 => Some(3),
+            256 => Some(4),
+            2048 => Some(5),
+            _ => None,
+        }
+    } else if align == RAW_ALIGN {
+        match bytes {
+            8 => Some(6),
+            9 => Some(7),
+            10 => Some(8),
+            11 => Some(9),
+            12 => Some(10),
+            13 => Some(11),
+            14 => Some(12),
+            15 => Some(13),
+            16 => Some(14),
+            18 => Some(15),
+            20 => Some(16),
+            22 => Some(17),
+            24 => Some(18),
+            25 => Some(19),
+            26 => Some(20),
+            28 => Some(21),
+            30 => Some(22),
+            32 => Some(23),
+            36 => Some(24),
+            40 => Some(25),
+            44 => Some(26),
+            48 => Some(27),
+            50 => Some(28),
+            52 => Some(29),
+            56 => Some(30),
+            60 => Some(31),
+            64 => Some(32),
+            72 => Some(33),
+            75 => Some(34),
+            80 => Some(35),
+            88 => Some(36),
+            96 => Some(37),
+            100 => Some(38),
+            104 => Some(39),
+            112 => Some(40),
+            120 => Some(41),
+            125 => Some(42),
+            128 => Some(43),
+            144 => Some(44),
+            150 => Some(45),
+            160 => Some(46),
+            175 => Some(47),
+            176 => Some(48),
+            192 => Some(49),
+            200 => Some(50),
+            208 => Some(51),
+            224 => Some(52),
+            225 => Some(53),
+            240 => Some(54),
+            248 => Some(55),
+            250 => Some(56),
+            275 => Some(57),
+            300 => Some(58),
+            325 => Some(59),
+            350 => Some(60),
+            375 => Some(61),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
 
 /// Allocation handle owned by a tree: hands out zeroed memory — at
 /// `align_of::<T>()` via [`Self::alloc_node`], at [`RAW_ALIGN`] via
@@ -51,7 +200,7 @@ use std::sync::{Arc, OnceLock};
 /// Counters are relaxed atomics (Phase 7): accounting must stay exact
 /// when a concurrent wrapper shares the tree across threads, and the
 /// counters order nothing — the OCC read protocol carries the fences.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct NodeAlloc {
     bytes_in_use: AtomicUsize,
     live_allocs: AtomicUsize,
@@ -67,6 +216,37 @@ pub struct NodeAlloc {
     /// scratch allocations elsewhere in a code path — see
     /// `tests/no_heap_churn.rs`.
     total_allocs: AtomicUsize,
+    freelists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
+}
+
+impl Default for NodeAlloc {
+    fn default() -> Self {
+        Self {
+            bytes_in_use: AtomicUsize::new(0),
+            live_allocs: AtomicUsize::new(0),
+            deferred: OnceLock::new(),
+            #[cfg(debug_assertions)]
+            bracket_depth: AtomicUsize::new(0),
+            total_allocs: AtomicUsize::new(0),
+            freelists: [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_CLASSES],
+        }
+    }
+}
+
+impl Drop for NodeAlloc {
+    fn drop(&mut self) {
+        for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
+            let mut cur = *self.freelists[class].get_mut();
+            let layout = Self::layout_for(bytes, align);
+            while !cur.is_null() {
+                // SAFETY: cur was allocated with `layout`.
+                let next = unsafe { (*cur).next };
+                // SAFETY: deallocating unreferenced freelist block with its original layout.
+                unsafe { dealloc(cur.cast::<u8>(), layout) };
+                cur = next;
+            }
+        }
+    }
 }
 
 impl NodeAlloc {
@@ -115,17 +295,38 @@ impl NodeAlloc {
     /// [`RAW_ALIGN`], `alloc_node`/`free_node` are always `align_of::<T>()`.
     #[inline(always)]
     fn alloc_raw(&self, bytes: usize, align: usize) -> NonNull<u8> {
+        let accounted_size = (bytes + (align - 1)) & !(align - 1);
+        self.bytes_in_use
+            .fetch_add(accounted_size, Ordering::Relaxed);
+        self.live_allocs.fetch_add(1, Ordering::Relaxed);
+
+        if let Some(class) = class_for(bytes, align) {
+            loop {
+                let head = self.freelists[class].load(Ordering::Acquire);
+                if head.is_null() {
+                    break;
+                }
+                // SAFETY: head points to a valid FreeBlock previously freed to this class.
+                let next = unsafe { (*head).next };
+                if self.freelists[class]
+                    .compare_exchange_weak(head, next, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    let raw = head.cast::<u8>();
+                    // SAFETY: zero out the reused memory before returning.
+                    unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                    return NonNull::new(raw).expect("non-null free block");
+                }
+            }
+        }
+
+        self.total_allocs.fetch_add(1, Ordering::Relaxed);
         let layout = Self::layout_for(bytes, align);
         // SAFETY: `layout` has nonzero size (asserted in `layout_for`).
         let raw = unsafe { alloc_zeroed(layout) };
         let Some(ptr) = NonNull::new(raw) else {
             handle_alloc_error(layout)
         };
-        let accounted_size = (bytes + (align - 1)) & !(align - 1);
-        self.bytes_in_use
-            .fetch_add(accounted_size, Ordering::Relaxed);
-        self.live_allocs.fetch_add(1, Ordering::Relaxed);
-        self.total_allocs.fetch_add(1, Ordering::Relaxed);
         ptr
     }
 
@@ -137,22 +338,39 @@ impl NodeAlloc {
     /// **the same `align`**, not yet freed, and nothing may use it after.
     #[inline(always)]
     unsafe fn free_raw(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
-        let layout = Self::layout_for(bytes, align);
         let accounted_size = (bytes + (align - 1)) & !(align - 1);
+        self.bytes_in_use
+            .fetch_sub(accounted_size, Ordering::Relaxed);
+        self.live_allocs.fetch_sub(1, Ordering::Relaxed);
+
         if let Some(c) = self.deferred.get() {
             // Deferred mode: the structure no longer references `ptr`,
             // but pinned readers may — reclamation waits out the grace
             // period. The alignment travels with the pointer, because the
             // collector frees it later and elsewhere.
             c.retire(ptr, bytes, align);
-        } else {
-            // SAFETY: per this function's contract, `ptr`/`layout` match
-            // the original allocation.
-            unsafe { dealloc(ptr.as_ptr(), layout) };
+            return;
         }
-        self.bytes_in_use
-            .fetch_sub(accounted_size, Ordering::Relaxed);
-        self.live_allocs.fetch_sub(1, Ordering::Relaxed);
+
+        if let Some(class) = class_for(bytes, align) {
+            let block = ptr.as_ptr().cast::<FreeBlock>();
+            loop {
+                let head = self.freelists[class].load(Ordering::Relaxed);
+                // SAFETY: block points to a valid allocation of at least size_of::<FreeBlock>().
+                unsafe { (*block).next = head };
+                if self.freelists[class]
+                    .compare_exchange_weak(head, block, Ordering::Release, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    return;
+                }
+            }
+        }
+
+        let layout = Self::layout_for(bytes, align);
+        // SAFETY: per this function's contract, `ptr`/`layout` match
+        // the original allocation.
+        unsafe { dealloc(ptr.as_ptr(), layout) };
     }
 
     /// Allocates `bytes` of zeroed memory for **raw byte storage** —
@@ -406,5 +624,44 @@ mod tests {
         }
         assert_eq!(a.bytes_in_use(), 0);
         assert_eq!(a.live_allocs(), 0);
+    }
+
+    #[test]
+    fn slab_freelist_recycling_round_trip() {
+        let a = NodeAlloc::new();
+        let p1 = a.alloc_bytes(32);
+        let total_after_p1 = a.total_allocs();
+        assert_eq!(total_after_p1, 1);
+
+        // Write non-zero data into p1
+        // SAFETY: p1 is a live 32-byte allocation.
+        unsafe {
+            core::ptr::write_bytes(p1.as_ptr(), 0xAA, 32);
+            a.free_bytes(p1, 32);
+        }
+        assert_eq!(a.live_allocs(), 0);
+        assert_eq!(a.bytes_in_use(), 0);
+
+        // Allocating the same size class must pop from the freelist without triggering a fresh system alloc
+        let p2 = a.alloc_bytes(32);
+        assert_eq!(p2, p1);
+        assert_eq!(a.total_allocs(), total_after_p1); // Zero new system allocations!
+        assert_eq!(a.live_allocs(), 1);
+        assert_eq!(a.bytes_in_use(), 32);
+
+        // Verify that the reused memory is guaranteed to be zeroed
+        for i in 0..32 {
+            // SAFETY: p2 is a live 32-byte allocation.
+            unsafe {
+                assert_eq!(*p2.as_ptr().add(i), 0);
+            }
+        }
+
+        // SAFETY: freeing p2 allocation.
+        unsafe {
+            a.free_bytes(p2, 32);
+        }
+        assert_eq!(a.live_allocs(), 0);
+        assert_eq!(a.bytes_in_use(), 0);
     }
 }
