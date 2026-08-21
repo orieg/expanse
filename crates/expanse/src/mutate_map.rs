@@ -88,6 +88,34 @@ fn write_map_immed(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)
     edge.set_tag(im.as_u8());
 }
 
+/// Fixed-capacity stack buffer for collecting small map leaf entries without heap allocation.
+pub(crate) struct StackEntries32 {
+    pub(crate) buf: [(u64, u64); 32],
+    pub(crate) len: usize,
+}
+
+impl StackEntries32 {
+    #[inline(always)]
+    pub(crate) const fn new() -> Self {
+        Self {
+            buf: [(0, 0); 32],
+            len: 0,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn push(&mut self, entry: (u64, u64)) {
+        debug_assert!(self.len < 32);
+        self.buf[self.len] = entry;
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    pub(crate) fn as_slice(&self) -> &[(u64, u64)] {
+        &self.buf[..self.len]
+    }
+}
+
 /// Reads a map leaf's entries (sorted by key).
 ///
 /// # Safety
@@ -1253,8 +1281,8 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     0
                 };
                 // SAFETY: live node; entries re-read for the rebuild.
-                let entries: Vec<(u64, u64)> = unsafe {
-                    let mut out = Vec::with_capacity(pop);
+                let entries = unsafe {
+                    let mut out = StackEntries32::new();
                     let mut dig = node.bitmap.next_set(0);
                     while let Some(g) = dig {
                         let s = (g >> 5) as usize;
@@ -1283,14 +1311,14 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                         core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmapL>()).unwrap(),
                     );
                 }
-                if entries.len() < map_immed_max(level) {
-                    let full: Vec<(u64, u64)> = entries
-                        .iter()
-                        .map(|&(low, v)| ((dv << 8) | low, v))
-                        .collect();
-                    write_map_immed(a, edge, level, &full);
+                if entries.len < map_immed_max(level) {
+                    let mut full = StackEntries32::new();
+                    for &(low, v) in entries.as_slice() {
+                        full.push(((dv << 8) | low, v));
+                    }
+                    write_map_immed(a, edge, level, full.as_slice());
                 } else {
-                    build_map_leaf(a, edge, 1, &entries);
+                    build_map_leaf(a, edge, 1, entries.as_slice());
                     restore_decode(edge, 1, level, &saved_aux);
                 }
             } else {
