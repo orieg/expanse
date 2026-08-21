@@ -34,3 +34,4 @@ iai-callgrind = "0.16"
 [[bench]]
 name = "vs_stock"
 harness = false
+test = false
