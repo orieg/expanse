@@ -219,16 +219,7 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 return l.bitmap.test(d);
             }
 
-            0x05 => {
-                if level > 1 && !decode_matches(edge, key, 1, level) {
-                    return false;
-                }
-                let pop = edge.pop0(1) as usize + 1;
-                let base = edge.node_ptr();
-                // SAFETY: set leaves are `pop * 1` readable key bytes.
-                return (unsafe { leaf::search_fixed::<1>(base, pop, key) }).is_some();
-            }
-            0x06..=0x0B => {
+            0x05..=0x0B => {
                 let lf = tag - 0x04;
                 if level > lf && !decode_matches(edge, key, lf, level) {
                     return false;
@@ -358,20 +349,7 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 return Some(unsafe { *vals.add(slot) });
             }
 
-            0x05 => {
-                if level > 1 && !decode_matches(edge, key, 1, level) {
-                    return None;
-                }
-                let pop = edge.pop0(1) as usize + 1;
-                let base = edge.node_ptr();
-                // SAFETY: map leaves are one live allocation of `pop` values followed by the packed keys.
-                let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
-                // SAFETY: keys spans pop * 1 readable bytes.
-                let slot = (unsafe { leaf::search_fixed::<1>(keys, pop, key) })?;
-                // SAFETY: slot < pop values live at the base.
-                return Some(unsafe { *base.cast::<u64>().add(slot) });
-            }
-            0x06..=0x0B => {
+            0x05..=0x0B => {
                 let lf = tag - 0x04;
                 if level > lf && !decode_matches(edge, key, lf, level) {
                     return None;

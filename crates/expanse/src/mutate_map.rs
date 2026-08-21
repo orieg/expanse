@@ -732,166 +732,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 return (None, slot);
             }
 
-            0x05 => {
-                // SAFETY: edge is a live Leaf1 linear leaf.
-                let pop = unsafe { (*edge).pop0(1) as usize + 1 };
-                // SAFETY: edge is a live Leaf1 linear leaf.
-                if level > 1 && !unsafe { crate::get::decode_matches(&*edge, key, 1, level) } {
-                    // SAFETY: split_skip maintains valid tree invariants.
-                    unsafe { split_skip(a, &mut *edge, key, level, pop as u64) };
-                    continue;
-                }
-                let k = key & 0xFF;
-                // SAFETY: edge is a live linear leaf edge.
-                let base = unsafe { (*edge).node_ptr() };
-                // SAFETY: keys live behind values at map_keys_offset.
-                let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
-                let (hit, pos) = if pop > 0 {
-                    // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
-                    let last = unsafe { *keys_ptr.add(pop - 1) as u64 };
-                    if k > last {
-                        (false, pop)
-                    } else if k == last {
-                        (true, pop - 1)
-                    } else {
-                        // SAFETY: keys_ptr holds pop packed 1-byte keys.
-                        match unsafe { leaf::locate_fixed::<1>(keys_ptr, pop, k) } {
-                            Ok(p) => (true, p),
-                            Err(p) => (false, p),
-                        }
-                    }
-                } else {
-                    (false, 0)
-                };
-                if hit {
-                    // SAFETY: pos is within live leaf value slots.
-                    unsafe {
-                        let slot = base.cast::<u64>().add(pos);
-                        let old = *slot;
-                        if !KEEP {
-                            slot.write(val);
-                        }
-                        return (Some(old), slot);
-                    }
-                }
-                let cap = LEAF1_CAP;
-                if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
-                    // SAFETY: class capacity holds pop + 1 entries; in-place shifts and write.
-                    unsafe {
-                        leaf::map_insert_at_fixed::<1>(base, pop, pos, k, val);
-                        (*edge).set_pop0(1, pop as u64);
-                    }
-                    // SAFETY: slot pos is in-bounds of live leaf value slots.
-                    let slot = unsafe { base.cast::<u64>().add(pos) };
-                    if level == 1 {
-                        path.prefix = key >> 8;
-                        path.leaf = core::ptr::null_mut();
-                        path.leaf1 = base;
-                        path.terminal_pop = (pop + 1) as u16;
-                        path.edges[0] = edge;
-                        path.levels[0] = 1;
-                        path.depth = 1;
-                        path.pending_pop = 0;
-                    } else {
-                        path.clear();
-                    }
-                    // SAFETY: ancestors array is valid.
-                    unsafe {
-                        for &(anc, al) in ancestors.iter().take(anc_depth) {
-                            bump_pop0(anc, al, 1);
-                            path.record_ancestor(anc, al);
-                        }
-                    }
-                    return (None, slot);
-                }
-                let old_ptr = base;
-                let old_size = leaf::size_map(1, pop);
-                // SAFETY: edge is a live linear leaf edge.
-                let saved_aux = unsafe { *(*edge).aux_bytes() };
-                if pop < cap {
-                    let new = a.alloc_bytes(leaf::size_map(1, pop + 1));
-                    // SAFETY: realloc_insert into fresh buffer, free old leaf; ancestors valid.
-                    let slot = unsafe {
-                        leaf::map_realloc_insert_fixed::<1>(base, new.as_ptr(), pop, pos, k, val);
-                        *edge = Edge::new_node(new.as_ptr(), (*edge).tag_byte());
-                        (*edge).set_aux_bytes(saved_aux);
-                        (*edge).set_pop0(1, pop as u64);
-                        a.free_bytes(
-                            core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
-                            old_size,
-                        );
-                        new.as_ptr().cast::<u64>().add(pos)
-                    };
-                    if level == 1 {
-                        path.prefix = key >> 8;
-                        path.leaf = core::ptr::null_mut();
-                        path.leaf1 = new.as_ptr();
-                        path.terminal_pop = (pop + 1) as u16;
-                        path.edges[0] = edge;
-                        path.levels[0] = 1;
-                        path.depth = 1;
-                        path.pending_pop = 0;
-                    } else {
-                        path.clear();
-                    }
-                    // SAFETY: ancestors array is valid.
-                    unsafe {
-                        for &(anc, al) in ancestors.iter().take(anc_depth) {
-                            bump_pop0(anc, al, 1);
-                            path.record_ancestor(anc, al);
-                        }
-                    }
-                    return (None, slot);
-                }
-                path.clear();
-                // SAFETY: edge is a live linear leaf edge of pop entries.
-                let mut entries = unsafe { read_map_leaf(&*edge, 1, pop) };
-                entries.insert(pos, (k, val));
-                if level > 1 {
-                    // SAFETY: edge is a live linear leaf edge.
-                    let prefix = unsafe { decode_value(&*edge, 1, level) } << 8;
-                    for (k_entry, _) in &mut entries {
-                        *k_entry |= prefix;
-                    }
-                }
-                // SAFETY: edge is a live edge allocation.
-                unsafe {
-                    build_bitmap_leaf_map(a, &mut *edge, &entries);
-                    restore_decode(&mut *edge, 1, level, &saved_aux);
-                }
-                // SAFETY: edge points to newly allocated LeafBitmapL.
-                let node = unsafe { &mut *(*edge).node_ptr().cast::<LeafBitmapL>() };
-                let d = k as u8;
-                let sub = (d >> 5) as usize;
-                let rank = node.bitmap.subexpanse_rank(d) as usize;
-                // SAFETY: values[sub] holds at least rank + 1 values.
-                let slot = unsafe { node.values[sub].add(rank) };
-                if level == 1 {
-                    path.prefix = key >> 8;
-                    // SAFETY: edge points to live LeafBitmapL.
-                    path.leaf = unsafe { (*edge).node_ptr().cast::<LeafBitmapL>() };
-                    path.leaf1 = core::ptr::null_mut();
-                    path.terminal_pop = entries.len() as u16;
-                    path.edges[0] = edge;
-                    path.levels[0] = 1;
-                    path.depth = 1;
-                    path.pending_pop = 0;
-                }
-                // SAFETY: free old linear leaf and update ancestors.
-                unsafe {
-                    a.free_bytes(
-                        core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
-                        old_size,
-                    );
-                    for &(anc, al) in ancestors.iter().take(anc_depth) {
-                        bump_pop0(anc, al, 1);
-                        path.record_ancestor(anc, al);
-                    }
-                }
-                return (None, slot);
-            }
-
-            0x06..=0x0B => {
+            0x05..=0x0B => {
                 path.clear();
                 let kb = tag - 0x04;
                 debug_assert!(kb <= level);
@@ -938,7 +779,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         }
                     }
                     Err(pos) => {
-                        let cap = LEAF_CAP;
+                        let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
                         if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
                             // SAFETY: class capacity holds pop + 1 entries; in-place shifts and write.
                             unsafe {
@@ -947,7 +788,18 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             }
                             // SAFETY: slot pos is in-bounds of live leaf value slots.
                             let slot = unsafe { base.cast::<u64>().add(pos) };
-                            path.clear();
+                            if kb == 1 && level == 1 {
+                                path.prefix = key >> 8;
+                                path.leaf = core::ptr::null_mut();
+                                path.leaf1 = base;
+                                path.terminal_pop = (pop + 1) as u16;
+                                path.edges[0] = edge;
+                                path.levels[0] = 1;
+                                path.depth = 1;
+                                path.pending_pop = 0;
+                            } else {
+                                path.clear();
+                            }
                             // SAFETY: ancestors array is valid.
                             unsafe {
                                 for &(anc, al) in ancestors.iter().take(anc_depth) {
@@ -975,7 +827,18 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                                 );
                                 new.as_ptr().cast::<u64>().add(pos)
                             };
-                            path.clear();
+                            if kb == 1 && level == 1 {
+                                path.prefix = key >> 8;
+                                path.leaf = core::ptr::null_mut();
+                                path.leaf1 = new.as_ptr();
+                                path.terminal_pop = (pop + 1) as u16;
+                                path.edges[0] = edge;
+                                path.levels[0] = 1;
+                                path.depth = 1;
+                                path.pending_pop = 0;
+                            } else {
+                                path.clear();
+                            }
                             // SAFETY: ancestors array is valid.
                             unsafe {
                                 for &(anc, al) in ancestors.iter().take(anc_depth) {
