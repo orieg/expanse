@@ -246,6 +246,53 @@ pub(crate) unsafe fn search_16_u8(hay: *const u8, len: usize, needle: u8) -> Opt
     }
 }
 
+/// Finds the first index `i < len` where `hay[i] == needle` in an 8-byte buffer.
+///
+/// # Safety
+///
+/// `hay` must point to at least 8 readable bytes.
+#[inline]
+pub(crate) unsafe fn search_8_u8(hay: *const u8, len: usize, needle: u8) -> Option<usize> {
+    // SAFETY: caller guarantees 8 readable bytes.
+    unsafe { find_byte_8(&*(hay as *const [u8; 8]), len, needle) }
+}
+
+/// Finds the lower bound index `i <= len` where `hay[i] >= needle` in an 8-byte sorted buffer.
+///
+/// # Safety
+///
+/// `hay` must point to at least 8 readable bytes with sorted contents.
+#[inline]
+pub(crate) unsafe fn lower_bound_8_u8(hay: *const u8, len: usize, needle: u8) -> usize {
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    {
+        use core::arch::x86_64::{
+            _mm_cmplt_epi8, _mm_cvtsi64_si128, _mm_movemask_epi8, _mm_set1_epi8, _mm_xor_si128,
+        };
+        // SAFETY: caller guarantees 8 readable bytes.
+        unsafe {
+            let bias = _mm_set1_epi8(0x80u8 as i8);
+            let raw_64 = (hay as *const i64).read_unaligned();
+            let v = _mm_cvtsi64_si128(raw_64);
+            let v_signed = _mm_xor_si128(v, bias);
+            let n_signed = _mm_set1_epi8((needle ^ 0x80) as i8);
+            let lt = _mm_cmplt_epi8(v_signed, n_signed);
+            let mask = _mm_movemask_epi8(lt) as u32 & ((1u32 << len.min(8)) - 1);
+            mask.count_ones() as usize
+        }
+    }
+    #[cfg(any(miri, not(target_arch = "x86_64")))]
+    {
+        for i in 0..len.min(8) {
+            // SAFETY: i < 8 is within the 8 readable bytes.
+            if unsafe { *hay.add(i) } >= needle {
+                return i;
+            }
+        }
+        len.min(8)
+    }
+}
+
 /// Finds the lower bound index `i <= len` where `hay[i] >= needle` in a 16-byte sorted buffer.
 ///
 /// # Safety
@@ -319,6 +366,42 @@ pub(crate) unsafe fn search_8_u16(hay: *const u8, len: usize, needle: u16) -> Op
     }
 }
 
+/// Finds the lower bound index `i <= len` where `hay[i] >= needle` in an 8-element `u16` buffer.
+///
+/// # Safety
+///
+/// `hay` must point to at least 16 readable bytes (8 x u16) with sorted contents.
+#[inline]
+pub(crate) unsafe fn lower_bound_8_u16(hay: *const u8, len: usize, needle: u16) -> usize {
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    {
+        use core::arch::x86_64::{
+            _mm_cmplt_epi16, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi16, _mm_xor_si128,
+        };
+        // SAFETY: caller guarantees 16 readable bytes.
+        unsafe {
+            let bias = _mm_set1_epi16(0x8000u16 as i16);
+            let v = _mm_loadu_si128(hay.cast());
+            let v_signed = _mm_xor_si128(v, bias);
+            let n_signed = _mm_set1_epi16((needle ^ 0x8000) as i16);
+            let lt = _mm_cmplt_epi16(v_signed, n_signed);
+            let mask = _mm_movemask_epi8(lt) as u32 & ((1u32 << (len.min(8) * 2)) - 1);
+            (mask.count_ones() / 2) as usize
+        }
+    }
+    #[cfg(any(miri, not(target_arch = "x86_64")))]
+    {
+        for i in 0..len.min(8) {
+            // SAFETY: i < 8 is within the 16 readable bytes.
+            let val = unsafe { (hay.add(i * 2) as *const u16).read_unaligned() };
+            if val >= needle {
+                return i;
+            }
+        }
+        len.min(8)
+    }
+}
+
 /// Finds the first index `i < len` where `hay[i] == needle` in a 4-element `u32` buffer.
 ///
 /// # Safety
@@ -354,6 +437,42 @@ pub(crate) unsafe fn search_4_u32(hay: *const u8, len: usize, needle: u32) -> Op
             }
         }
         None
+    }
+}
+
+/// Finds the lower bound index `i <= len` where `hay[i] >= needle` in a 4-element `u32` buffer.
+///
+/// # Safety
+///
+/// `hay` must point to at least 16 readable bytes (4 x u32) with sorted contents.
+#[inline]
+pub(crate) unsafe fn lower_bound_4_u32(hay: *const u8, len: usize, needle: u32) -> usize {
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    {
+        use core::arch::x86_64::{
+            _mm_cmplt_epi32, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi32, _mm_xor_si128,
+        };
+        // SAFETY: caller guarantees 16 readable bytes.
+        unsafe {
+            let bias = _mm_set1_epi32(0x8000_0000u32 as i32);
+            let v = _mm_loadu_si128(hay.cast());
+            let v_signed = _mm_xor_si128(v, bias);
+            let n_signed = _mm_set1_epi32((needle ^ 0x8000_0000) as i32);
+            let lt = _mm_cmplt_epi32(v_signed, n_signed);
+            let mask = _mm_movemask_epi8(lt) as u32 & ((1u32 << (len.min(4) * 4)) - 1);
+            (mask.count_ones() / 4) as usize
+        }
+    }
+    #[cfg(any(miri, not(target_arch = "x86_64")))]
+    {
+        for i in 0..len.min(4) {
+            // SAFETY: i < 4 is within the 16 readable bytes.
+            let val = unsafe { (hay.add(i * 4) as *const u32).read_unaligned() };
+            if val >= needle {
+                return i;
+            }
+        }
+        len.min(4)
     }
 }
 
@@ -876,6 +995,13 @@ mod tests {
             let expected_search = buf[..len.min(16)].iter().position(|&b| b == needle_u8);
             assert_eq!(actual_search, expected_search, "search_16_u8 parity");
 
+            // search_8_u8
+            let len_8 = (rng.next() % 9) as usize;
+            // SAFETY: buf is at least 8 bytes.
+            let actual_search_8 = unsafe { search_8_u8(buf.as_ptr(), len_8, needle_u8) };
+            let expected_search_8 = buf[..len_8.min(8)].iter().position(|&b| b == needle_u8);
+            assert_eq!(actual_search_8, expected_search_8, "search_8_u8 parity");
+
             // sorted lower_bound_16_u8
             buf.sort_unstable();
             // SAFETY: buf is 16 bytes.
@@ -885,6 +1011,15 @@ mod tests {
                 .position(|&b| b >= needle_u8)
                 .unwrap_or(len.min(16));
             assert_eq!(actual_lb, expected_lb, "lower_bound_16_u8 parity");
+
+            // sorted lower_bound_8_u8
+            // SAFETY: buf is at least 8 bytes sorted.
+            let actual_lb_8 = unsafe { lower_bound_8_u8(buf.as_ptr(), len_8, needle_u8) };
+            let expected_lb_8 = buf[..len_8.min(8)]
+                .iter()
+                .position(|&b| b >= needle_u8)
+                .unwrap_or(len_8.min(8));
+            assert_eq!(actual_lb_8, expected_lb_8, "lower_bound_8_u8 parity");
 
             // search_8_u16
             let needle_u16 = rng.next() as u16;
@@ -900,6 +1035,27 @@ mod tests {
                 }
             }
             assert_eq!(actual_u16, expected_u16, "search_8_u16 parity");
+
+            // sorted lower_bound_8_u16
+            let mut u16_arr = [0u16; 8];
+            for i in 0..8 {
+                u16_arr[i] = u16::from_ne_bytes([buf[i * 2], buf[i * 2 + 1]]);
+            }
+            u16_arr.sort_unstable();
+            let mut sorted_buf = [0u8; 16];
+            for i in 0..8 {
+                let bytes = u16_arr[i].to_ne_bytes();
+                sorted_buf[i * 2] = bytes[0];
+                sorted_buf[i * 2 + 1] = bytes[1];
+            }
+            // SAFETY: sorted_buf is 16 bytes (8 x u16) sorted.
+            let actual_lb_u16 =
+                unsafe { lower_bound_8_u16(sorted_buf.as_ptr(), len_u16, needle_u16) };
+            let expected_lb_u16 = u16_arr[..len_u16.min(8)]
+                .iter()
+                .position(|&v| v >= needle_u16)
+                .unwrap_or(len_u16.min(8));
+            assert_eq!(actual_lb_u16, expected_lb_u16, "lower_bound_8_u16 parity");
 
             // search_4_u32
             let needle_u32 = rng.next() as u32;
@@ -920,6 +1076,34 @@ mod tests {
                 }
             }
             assert_eq!(actual_u32, expected_u32, "search_4_u32 parity");
+
+            // sorted lower_bound_4_u32
+            let mut u32_arr = [0u32; 4];
+            for i in 0..4 {
+                u32_arr[i] = u32::from_ne_bytes([
+                    buf[i * 4],
+                    buf[i * 4 + 1],
+                    buf[i * 4 + 2],
+                    buf[i * 4 + 3],
+                ]);
+            }
+            u32_arr.sort_unstable();
+            let mut sorted_buf_32 = [0u8; 16];
+            for i in 0..4 {
+                let bytes = u32_arr[i].to_ne_bytes();
+                sorted_buf_32[i * 4] = bytes[0];
+                sorted_buf_32[i * 4 + 1] = bytes[1];
+                sorted_buf_32[i * 4 + 2] = bytes[2];
+                sorted_buf_32[i * 4 + 3] = bytes[3];
+            }
+            // SAFETY: sorted_buf_32 is 16 bytes (4 x u32) sorted.
+            let actual_lb_u32 =
+                unsafe { lower_bound_4_u32(sorted_buf_32.as_ptr(), len_u32, needle_u32) };
+            let expected_lb_u32 = u32_arr[..len_u32.min(4)]
+                .iter()
+                .position(|&v| v >= needle_u32)
+                .unwrap_or(len_u32.min(4));
+            assert_eq!(actual_lb_u32, expected_lb_u32, "lower_bound_4_u32 parity");
         }
     }
 }
