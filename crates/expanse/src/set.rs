@@ -120,7 +120,7 @@ impl ExpanseSet {
     }
 
     /// Membership test.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub fn contains(&self, key: Key) -> bool {
         match &self.root {
@@ -133,6 +133,7 @@ impl ExpanseSet {
     }
 
     /// Inserts `key`; returns `true` if it was newly inserted.
+    #[inline(always)]
     pub fn insert(&mut self, key: Key) -> bool {
         match &mut self.root {
             Root::Empty => {
