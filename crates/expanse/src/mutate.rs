@@ -1582,7 +1582,7 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             let d = digit(key, bl);
             let is_l3 = matches!(t, EdgeType::BranchL3);
             // SAFETY: live branch per contract.
-            let removed = unsafe {
+            let (removed, child_null) = unsafe {
                 if is_l3 {
                     let b = &mut *edge.node_ptr().cast::<BranchL3>();
                     let Some(slot) = b.hdr.find(d) else {
@@ -1590,7 +1590,8 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                     };
                     crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
                     let r = remove::<OCC>(a, &mut b.edges[slot], key, bl - 1);
-                    if r && b.edges[slot].is_null() {
+                    let child_null = r && b.edges[slot].is_null();
+                    if child_null {
                         linear_remove_slot(
                             &mut b.hdr.digits,
                             &mut b.edges,
@@ -1600,7 +1601,7 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                         b.hdr.num -= 1;
                     }
                     crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
-                    r
+                    (r, child_null)
                 } else {
                     let b = &mut *edge.node_ptr().cast::<BranchL7>();
                     let Some(slot) = b.hdr.find(d) else {
@@ -1608,7 +1609,8 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                     };
                     crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
                     let r = remove::<OCC>(a, &mut b.edges[slot], key, bl - 1);
-                    if r && b.edges[slot].is_null() {
+                    let child_null = r && b.edges[slot].is_null();
+                    if child_null {
                         linear_remove_slot(
                             &mut b.hdr.digits,
                             &mut b.edges,
@@ -1618,31 +1620,35 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                         b.hdr.num -= 1;
                     }
                     crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
-                    r
+                    (r, child_null)
                 }
             };
             if !removed {
                 return false;
             }
-            // SAFETY: node rebuilds below keep the subtree owned.
-            unsafe {
-                let num = if is_l3 {
-                    (*edge.node_ptr().cast::<BranchL3>()).hdr.num as usize
-                } else {
-                    (*edge.node_ptr().cast::<BranchL7>()).hdr.num as usize
-                };
-                if num == 0 {
-                    // Last key of the subtree: pop0 cannot express an
-                    // empty branch, so free it instead of bumping.
-                    free_branch_node(a, edge, is_l3);
-                    *edge = Edge::NULL;
-                    return true;
+            if child_null {
+                // SAFETY: node rebuilds below keep the subtree owned.
+                unsafe {
+                    let num = if is_l3 {
+                        (*edge.node_ptr().cast::<BranchL3>()).hdr.num as usize
+                    } else {
+                        (*edge.node_ptr().cast::<BranchL7>()).hdr.num as usize
+                    };
+                    if num == 0 {
+                        // Last key of the subtree: pop0 cannot express an
+                        // empty branch, so free it instead of bumping.
+                        free_branch_node(a, edge, is_l3);
+                        *edge = Edge::NULL;
+                        return true;
+                    }
+                    bump_pop0(edge, bl, -1);
+                    if !is_l3 && num < BRANCH_L3_CAP {
+                        // Hysteresis: L7 → L3 one index below the L3 capacity.
+                        downgrade_l7_to_l3(a, edge);
+                    }
                 }
+            } else {
                 bump_pop0(edge, bl, -1);
-                if !is_l3 && num < BRANCH_L3_CAP {
-                    // Hysteresis: L7 → L3 one index below the L3 capacity.
-                    downgrade_l7_to_l3(a, edge);
-                }
             }
             true
         }
@@ -1703,22 +1709,26 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                 b.bitmap.clear(d);
             }
             crate::occ::version_end_if::<OCC>(a, &mut b.version);
-            let digits = b.bitmap.count() as usize;
-            if digits == 0 {
-                // SAFETY: empty node no longer referenced.
-                unsafe {
-                    a.free_node(
-                        core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap(),
-                    );
+            if child_null {
+                let digits = b.bitmap.count() as usize;
+                if digits == 0 {
+                    // SAFETY: empty node no longer referenced.
+                    unsafe {
+                        a.free_node(
+                            core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap(),
+                        );
+                    }
+                    *edge = Edge::NULL;
+                    return true;
                 }
-                *edge = Edge::NULL;
-                return true;
-            }
-            bump_pop0(edge, bl, -1);
-            if digits < BRANCH_L7_CAP {
-                // Hysteresis: B → L7 one index below the L7 capacity.
-                // SAFETY: rebuild keeps the subtree owned.
-                unsafe { downgrade_b_to_l7(a, edge) };
+                bump_pop0(edge, bl, -1);
+                if digits < BRANCH_L7_CAP {
+                    // Hysteresis: B → L7 one index below the L7 capacity.
+                    // SAFETY: rebuild keeps the subtree owned.
+                    unsafe { downgrade_b_to_l7(a, edge) };
+                }
+            } else {
+                bump_pop0(edge, bl, -1);
             }
             true
         }
@@ -1731,26 +1741,31 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             crate::occ::version_begin_if::<OCC>(a, &mut b.version);
             // SAFETY: child subtree well-formed (or null) per contract.
             let removed = unsafe { remove::<OCC>(a, &mut b.edges[d as usize], key, level - 1) };
+            let child_is_null = b.edges[d as usize].is_null();
             crate::occ::version_end_if::<OCC>(a, &mut b.version);
             if !removed {
                 return false;
             }
-            let digits = b.edges.iter().filter(|e| !e.is_null()).count();
-            if digits == 0 {
-                // SAFETY: empty node no longer referenced.
-                unsafe {
-                    a.free_node(
-                        core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap(),
-                    );
+            if child_is_null {
+                let digits = b.edges.iter().filter(|e| !e.is_null()).count();
+                if digits == 0 {
+                    // SAFETY: empty node no longer referenced.
+                    unsafe {
+                        a.free_node(
+                            core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap(),
+                        );
+                    }
+                    *edge = Edge::NULL;
+                    return true;
                 }
-                *edge = Edge::NULL;
-                return true;
-            }
-            bump_pop0(edge, level, -1);
-            if digits < BRANCHB_UP {
-                // Hysteresis: U → B one index below the U threshold.
-                // SAFETY: rebuild keeps the subtree owned.
-                unsafe { downgrade_u_to_b(a, edge, level) };
+                bump_pop0(edge, level, -1);
+                if digits < BRANCHB_UP {
+                    // Hysteresis: U → B one index below the U threshold.
+                    // SAFETY: rebuild keeps the subtree owned.
+                    unsafe { downgrade_u_to_b(a, edge, level) };
+                }
+            } else {
+                bump_pop0(edge, level, -1);
             }
             true
         }
