@@ -280,6 +280,14 @@ impl ExpanseSet {
                     // SAFETY: last key removed; free the leaf.
                     unsafe { self.alloc.free_bytes(keys, root_leaf_size(1)) };
                     self.root = Root::Empty;
+                } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
+                    // Fast path: capacity class unchanged — shift surviving keys in-place.
+                    // SAFETY: in-place shift inside class-sized buffer.
+                    unsafe {
+                        let ptr = keys.as_ptr().cast::<u64>();
+                        core::ptr::copy(ptr.add(at + 1), ptr.add(at), pop - 1 - at);
+                    }
+                    self.root = Root::Leaf { keys, pop: pop - 1 };
                 } else {
                     let new = self.alloc.alloc_bytes(root_leaf_size(pop - 1));
                     // SAFETY: copy the surviving keys into the smaller
