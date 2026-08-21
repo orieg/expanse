@@ -18,52 +18,14 @@
 use crate::alloc::NodeAlloc;
 use crate::leaf;
 use crate::mutate::{
-    BRANCHB_UP, ImmedBuf, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, branch_form_level, bump_pop0,
-    decode_value, divergence_level, downgrade_b_to_l7, downgrade_l7_to_l3, downgrade_u_to_b,
-    immed_map_keys, key_low, linear_insert_slot, linear_remove_slot, map_immed_max, read_packed,
-    restore_decode, split_skip, sub_edges_size, sub_vals_size, upgrade_b_to_u, upgrade_l3_to_l7,
-    upgrade_l7_to_b, wrap_skip_level, write_decode, write_packed, write_packed_fixed,
+    BRANCHB_UP, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, branch_form_level, bump_pop0, decode_value,
+    divergence_level, downgrade_b_to_l7, downgrade_l7_to_l3, downgrade_u_to_b, key_low,
+    linear_insert_slot, linear_remove_slot, map_immed_max, read_packed, restore_decode, split_skip,
+    sub_edges_size, sub_vals_size, upgrade_b_to_u, upgrade_l3_to_l7, upgrade_l7_to_b,
+    wrap_skip_level, write_decode, write_packed, write_packed_fixed,
 };
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmapL};
 use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit};
-
-/// Reads a map immediate's entries (sorted by key).
-///
-/// # Safety
-///
-/// For key counts above one, word 0 must point to a live value array.
-unsafe fn read_map_immed(edge: &Edge, im: ImmedType) -> ImmedBuf<(u64, u64)> {
-    let keys = immed_map_keys(edge, im);
-    let n = im.key_count() as usize;
-    let mut out = ImmedBuf::new();
-    if n == 1 {
-        out.push((keys.as_slice()[0], u64::from_le_bytes(edge.imm_bytes())));
-    } else {
-        let vals = edge.node_ptr().cast::<u64>();
-        for (slot, &k) in keys.as_slice().iter().enumerate() {
-            // SAFETY: value array holds `n` values per contract.
-            out.push((k, unsafe { *vals.add(slot) }));
-        }
-    }
-    out
-}
-
-/// Frees a map immediate's value array, if it owns one.
-///
-/// # Safety
-///
-/// Same contract as [`read_map_immed`]; the array is not used afterwards.
-unsafe fn free_map_immed_storage(a: &NodeAlloc, edge: &Edge, im: ImmedType) {
-    if im.key_count() > 1 {
-        // SAFETY: live value array of key_count values per contract.
-        unsafe {
-            a.free_bytes(
-                core::ptr::NonNull::new(edge.node_ptr()).expect("value array"),
-                im.key_count() as usize * 8,
-            );
-        }
-    }
-}
 
 /// Builds a fresh map immediate from sorted entries.
 fn write_map_immed(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)]) {
@@ -461,7 +423,18 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                     // SAFETY: forwarded contract; edge is now a branch.
                     continue;
                 }
-                write_map_immed(a, edge, level, &[(key_low(key, level), val)]);
+                let kb = level;
+                let k = key_low(key, kb);
+                let im = ImmedType::new(kb, 1).expect("immediate 1 key");
+                let mut aux = [0u8; 7];
+                // SAFETY: aux has 7 bytes; 1 key of kb bytes fits per kb <= 7.
+                unsafe {
+                    write_packed(aux.as_mut_ptr(), 0, kb as usize, k);
+                }
+                *edge = Edge::NULL;
+                edge.set_imm_bytes(val.to_le_bytes());
+                edge.set_aux_bytes(aux);
+                edge.set_tag(im.as_u8());
                 // A single-entry immediate's value slot is the edge's word 0.
                 return (None, (&raw mut *edge).cast::<u64>());
             }
@@ -470,12 +443,12 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 debug_assert_eq!(im.key_bytes(), level);
                 path.clear();
                 let kb = im.key_bytes();
+                let kb_usize = kb as usize;
                 let k = key_low(key, kb);
                 let n = im.key_count() as usize;
                 if n == 1 {
                     // SAFETY: single-key map immediate holds 1 key in aux bytes.
-                    let existing_k =
-                        unsafe { read_packed(edge.aux_bytes().as_ptr(), 0, kb as usize) };
+                    let existing_k = unsafe { read_packed(edge.aux_bytes().as_ptr(), 0, kb_usize) };
                     if existing_k == k {
                         let old = u64::from_le_bytes(edge.imm_bytes());
                         if !KEEP {
@@ -483,13 +456,13 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                         }
                         return (Some(old), (&raw mut *edge).cast::<u64>());
                     }
+                    let old_val = u64::from_le_bytes(edge.imm_bytes());
+                    let (slot0_k, slot0_v, slot1_k, slot1_v, pos) = if k < existing_k {
+                        (k, val, existing_k, old_val, 0)
+                    } else {
+                        (existing_k, old_val, k, val, 1)
+                    };
                     if map_immed_max(kb) >= 2 {
-                        let old_val = u64::from_le_bytes(edge.imm_bytes());
-                        let (slot0_k, slot0_v, slot1_k, slot1_v, pos) = if k < existing_k {
-                            (k, val, existing_k, old_val, 0)
-                        } else {
-                            (existing_k, old_val, k, val, 1)
-                        };
                         let vals = a.alloc_bytes(16).cast::<u64>();
                         // SAFETY: fresh 2-slot value array.
                         unsafe {
@@ -499,8 +472,8 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                         let mut new_aux = [0u8; 7];
                         // SAFETY: new_aux has 7 bytes; 2 keys of kb bytes fit per map_immed_max >= 2.
                         unsafe {
-                            write_packed(new_aux.as_mut_ptr(), 0, kb as usize, slot0_k);
-                            write_packed(new_aux.as_mut_ptr(), 1, kb as usize, slot1_k);
+                            write_packed(new_aux.as_mut_ptr(), 0, kb_usize, slot0_k);
+                            write_packed(new_aux.as_mut_ptr(), 1, kb_usize, slot1_k);
                         }
                         let new_im = ImmedType::new(kb, 2).expect("immediate capacity");
                         *edge = Edge::new_node(vals.as_ptr().cast(), 0);
@@ -508,48 +481,94 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                         edge.set_tag(new_im.as_u8());
                         // SAFETY: slot `pos` in the newly allocated value array.
                         return (None, unsafe { vals.as_ptr().add(pos) });
+                    } else {
+                        // Immediate max capacity is 1 (for kb in 4..=7): upgrade directly to linear leaf.
+                        let entries = [(slot0_k, slot0_v), (slot1_k, slot1_v)];
+                        build_map_leaf(a, edge, kb, &entries);
+                        // SAFETY: build_map_leaf places value array at the base of the leaf.
+                        return (None, unsafe { edge.node_ptr().cast::<u64>().add(pos) });
                     }
                 }
-                // SAFETY: live map immediate per contract.
-                let mut entries = unsafe { read_map_immed(edge, im) };
-                match entries.binary_search_by_key(&k, |e| e.0) {
-                    Ok(pos) => {
-                        let old = entries[pos].1;
-                        if im.key_count() == 1 {
-                            if !KEEP {
-                                edge.set_imm_bytes(val.to_le_bytes());
-                            }
-                            return (Some(old), (&raw mut *edge).cast::<u64>());
-                        } else {
-                            // SAFETY: live value array per contract.
-                            let slot = unsafe { edge.node_ptr().cast::<u64>().add(pos) };
-                            if !KEEP {
-                                // SAFETY: same slot.
-                                unsafe { slot.write(val) };
-                            }
-                            return (Some(old), slot);
+                // SAFETY: aux bytes hold n packed keys of kb bytes.
+                let pos = match unsafe { leaf::locate(edge.aux_bytes().as_ptr(), n, kb, k) } {
+                    Ok(p) => {
+                        // SAFETY: live value array per contract.
+                        let slot = unsafe { edge.node_ptr().cast::<u64>().add(p) };
+                        // SAFETY: slot is within the allocated n-value array.
+                        let old = unsafe { *slot };
+                        if !KEEP {
+                            // SAFETY: slot is writable per contract.
+                            unsafe { slot.write(val) };
                         }
+                        return (Some(old), slot);
                     }
-                    Err(pos) => {
-                        entries.insert(pos, (k, val));
-                        // SAFETY: storage re-read above; safe to release.
-                        unsafe { free_map_immed_storage(a, edge, im) };
-                        let slot = if entries.len() <= map_immed_max(kb) {
-                            write_map_immed(a, edge, kb, &entries);
-                            if entries.len() == 1 {
-                                (&raw mut *edge).cast::<u64>()
-                            } else {
-                                // SAFETY: fresh value array of entries.len().
-                                unsafe { edge.node_ptr().cast::<u64>().add(pos) }
-                            }
-                        } else {
-                            build_map_leaf(a, edge, kb, &entries);
-                            // SAFETY: fresh map leaf; values at the base.
-                            unsafe { edge.node_ptr().cast::<u64>().add(pos) }
-                        };
-                        return (None, slot);
+                    Err(p) => p,
+                };
+                let old_vals = edge.node_ptr().cast::<u64>();
+                if n < map_immed_max(kb) {
+                    let new_vals = a.alloc_bytes((n + 1) * 8).cast::<u64>();
+                    // SAFETY: copy n values around pos, write val at pos, free old array.
+                    unsafe {
+                        if pos > 0 {
+                            core::ptr::copy_nonoverlapping(old_vals, new_vals.as_ptr(), pos);
+                        }
+                        new_vals.as_ptr().add(pos).write(val);
+                        if pos < n {
+                            core::ptr::copy_nonoverlapping(
+                                old_vals.add(pos),
+                                new_vals.as_ptr().add(pos + 1),
+                                n - pos,
+                            );
+                        }
+                        a.free_bytes(
+                            core::ptr::NonNull::new(edge.node_ptr()).expect("value array"),
+                            n * 8,
+                        );
                     }
+                    let mut new_aux = *edge.aux_bytes();
+                    let kb_usize = kb as usize;
+                    if pos < n {
+                        new_aux.copy_within(pos * kb_usize..n * kb_usize, (pos + 1) * kb_usize);
+                    }
+                    // SAFETY: new_aux has 7 bytes; (n + 1) * kb_usize <= 7.
+                    unsafe {
+                        write_packed(new_aux.as_mut_ptr(), pos, kb_usize, k);
+                    }
+                    let new_im = ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
+                    *edge = Edge::new_node(new_vals.as_ptr().cast(), 0);
+                    edge.set_aux_bytes(new_aux);
+                    edge.set_tag(new_im.as_u8());
+                    // SAFETY: slot pos in the newly allocated (n+1)-element value array.
+                    return (None, unsafe { new_vals.as_ptr().add(pos) });
                 }
+                // Overflow immediate capacity -> build linear leaf.
+                let mut entries = StackEntries32::new();
+                let kb_usize = kb as usize;
+                for i in 0..pos {
+                    // SAFETY: i < pos <= n <= 7; aux holds n packed keys.
+                    let ki = unsafe { read_packed(edge.aux_bytes().as_ptr(), i, kb_usize) };
+                    // SAFETY: i < pos <= n; old_vals holds n values.
+                    let vi = unsafe { *old_vals.add(i) };
+                    entries.push((ki, vi));
+                }
+                entries.push((k, val));
+                for i in pos..n {
+                    // SAFETY: i < n <= 7; aux holds n packed keys.
+                    let ki = unsafe { read_packed(edge.aux_bytes().as_ptr(), i, kb_usize) };
+                    // SAFETY: i < n; old_vals holds n values.
+                    let vi = unsafe { *old_vals.add(i) };
+                    entries.push((ki, vi));
+                }
+                // SAFETY: old_vals points to live n*8 byte allocation.
+                unsafe {
+                    a.free_bytes(
+                        core::ptr::NonNull::new(edge.node_ptr()).expect("value array"),
+                        n * 8,
+                    );
+                }
+                build_map_leaf(a, edge, kb, entries.as_slice());
+                // SAFETY: build_map_leaf places value array at the base of the leaf.
+                return (None, unsafe { edge.node_ptr().cast::<u64>().add(pos) });
             }
 
             EdgeTag::Structural(

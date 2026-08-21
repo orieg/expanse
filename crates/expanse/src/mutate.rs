@@ -249,10 +249,6 @@ impl<T: Copy + Default> ImmedBuf<T> {
         self.len -= 1;
         v
     }
-
-    pub(crate) fn as_slice(&self) -> &[T] {
-        &self.buf[..self.len]
-    }
 }
 
 /// Read access to the populated prefix: indexing, `binary_search`,
@@ -738,7 +734,22 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                     continue;
                 }
                 path.clear();
-                write_immed(edge, level, &[key_low(key, level)]);
+                let kb = level;
+                let k = key_low(key, kb);
+                let im = ImmedType::new(kb, 1).expect("immediate 1 key");
+                let mut payload = [0u8; 15];
+                // SAFETY: payload has 15 bytes; 1 key of kb bytes fits per kb <= 7.
+                unsafe {
+                    write_packed(payload.as_mut_ptr(), 0, kb as usize, k);
+                }
+                let mut w0 = [0u8; 8];
+                w0.copy_from_slice(&payload[..8]);
+                let mut aux = [0u8; 7];
+                aux.copy_from_slice(&payload[8..]);
+                *edge = Edge::NULL;
+                edge.set_imm_bytes(w0);
+                edge.set_aux_bytes(aux);
+                edge.set_tag(im.as_u8());
                 return true;
             }
 
