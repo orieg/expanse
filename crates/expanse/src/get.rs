@@ -154,44 +154,50 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
             EdgeTag::Structural(t) => match t {
                 EdgeType::Null => return Lookup::Absent,
 
-                EdgeType::BranchL3 | EdgeType::BranchL7 => {
-                    // SAFETY: pointer-tagged edge → live node of the tagged
-                    // type, per this function's contract.
-                    let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
+                EdgeType::BranchL3 => {
+                    // SAFETY: pointer-tagged edge → live BranchL3.
+                    let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                    let bl = b.hdr.level;
                     if bl < level && !decode_matches(edge, key, bl, level) {
                         return Lookup::Absent;
                     }
                     let d = digit(key, bl);
-                    // SAFETY: as above.
-                    let (slot, edges, cap) = unsafe {
-                        if matches!(t, EdgeType::BranchL3) {
-                            let b = &*edge.node_ptr().cast::<BranchL3>();
-                            (b.hdr.find(d), b.edges.as_ptr(), b.edges.len())
-                        } else {
-                            let b = &*edge.node_ptr().cast::<BranchL7>();
-                            (b.hdr.find(d), b.edges.as_ptr(), b.edges.len())
-                        }
-                    };
-                    let Some(slot) = slot else {
+                    let Some(slot) = b.hdr.find(d) else {
                         return Lookup::Absent;
                     };
-                    debug_assert!(slot < cap);
+                    debug_assert!(slot < b.edges.len());
                     // SAFETY: `find` returns a slot below the populated
                     // count, which never exceeds the array length.
-                    edge = unsafe { &*edges.add(slot) };
+                    edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                    level = bl - 1;
+                }
+
+                EdgeType::BranchL7 => {
+                    // SAFETY: pointer-tagged edge → live BranchL7.
+                    let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
+                    let bl = b.hdr.level;
+                    if bl < level && !decode_matches(edge, key, bl, level) {
+                        return Lookup::Absent;
+                    }
+                    let d = digit(key, bl);
+                    let Some(slot) = b.hdr.find(d) else {
+                        return Lookup::Absent;
+                    };
+                    debug_assert!(slot < b.edges.len());
+                    // SAFETY: `find` returns a slot below the populated
+                    // count, which never exceeds the array length.
+                    edge = unsafe { &*b.edges.as_ptr().add(slot) };
                     level = bl - 1;
                 }
 
                 EdgeType::BranchB => {
                     // SAFETY: pointer-tagged edge → live BranchB.
-                    let bl =
-                        unsafe { crate::mutate::branch_form_level(edge, EdgeType::BranchB, level) };
+                    let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
+                    let bl = b.level;
                     if bl < level && !decode_matches(edge, key, bl, level) {
                         return Lookup::Absent;
                     }
                     let d = digit(key, bl);
-                    // SAFETY: as above.
-                    let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
                     let Some(slot) = b.bitmap.test_and_subexpanse_rank(d) else {
                         return Lookup::Absent;
                     };
@@ -587,24 +593,34 @@ unsafe fn locate_slot_impl(
                 unreachable!("full-expanse edges are set-flavor only")
             }
 
-            EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+            EdgeTag::Structural(EdgeType::BranchL3) => {
                 // SAFETY: live branch per contract; the child edge pointer
                 // derives from the raw node pointer.
                 unsafe {
-                    let bl = crate::mutate::branch_form_level(&*edge, t, level);
+                    let b = (*edge).node_ptr().cast::<BranchL3>();
+                    let bl = (*b).hdr.level;
                     if bl < level && !decode_matches(&*edge, key, bl, level) {
                         return None;
                     }
                     let d = digit(key, bl);
-                    let (found, next_edge) = if matches!(t, EdgeType::BranchL3) {
-                        let b = (*edge).node_ptr().cast::<BranchL3>();
-                        ((*b).hdr.find(d), (*b).edges.as_mut_ptr())
-                    } else {
-                        let b = (*edge).node_ptr().cast::<BranchL7>();
-                        ((*b).hdr.find(d), (*b).edges.as_mut_ptr())
-                    };
-                    let slot = found?;
-                    edge = next_edge.add(slot);
+                    let slot = (*b).hdr.find(d)?;
+                    edge = (*b).edges.as_mut_ptr().add(slot);
+                    level = bl - 1;
+                }
+            }
+
+            EdgeTag::Structural(EdgeType::BranchL7) => {
+                // SAFETY: live branch per contract; the child edge pointer
+                // derives from the raw node pointer.
+                unsafe {
+                    let b = (*edge).node_ptr().cast::<BranchL7>();
+                    let bl = (*b).hdr.level;
+                    if bl < level && !decode_matches(&*edge, key, bl, level) {
+                        return None;
+                    }
+                    let d = digit(key, bl);
+                    let slot = (*b).hdr.find(d)?;
+                    edge = (*b).edges.as_mut_ptr().add(slot);
                     level = bl - 1;
                 }
             }
@@ -613,12 +629,12 @@ unsafe fn locate_slot_impl(
                 // SAFETY: live BranchB per contract; child from the stored
                 // subarray pointer.
                 unsafe {
-                    let bl = crate::mutate::branch_form_level(&*edge, EdgeType::BranchB, level);
+                    let b = (*edge).node_ptr().cast::<BranchB>();
+                    let bl = (*b).level;
                     if bl < level && !decode_matches(&*edge, key, bl, level) {
                         return None;
                     }
                     let d = digit(key, bl);
-                    let b = (*edge).node_ptr().cast::<BranchB>();
                     let rank = (*b).bitmap.test_and_subexpanse_rank(d)?;
                     edge = (*b).subarrays[(d >> 5) as usize].add(rank);
                     level = bl - 1;
