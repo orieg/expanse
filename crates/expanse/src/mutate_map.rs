@@ -216,8 +216,12 @@ impl InsertPathMap {
     }
 
     #[inline(always)]
-    pub fn is_active(&self) -> bool {
-        !self.leaf.is_null() || !self.leaf1.is_null()
+    pub fn record_ancestor(&mut self, edge: *mut Edge, level: u8) {
+        if self.depth > 0 && self.depth < 8 {
+            self.edges[self.depth] = edge;
+            self.levels[self.depth] = level;
+            self.depth += 1;
+        }
     }
 
     #[inline(always)]
@@ -769,11 +773,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                     };
                     if res.0.is_none() {
                         bump_pop0(edge, bl, 1);
-                        if path.is_active() && path.depth < 8 {
-                            path.edges[path.depth] = edge as *mut Edge;
-                            path.levels[path.depth] = level;
-                            path.depth += 1;
-                        }
+                        path.record_ancestor(edge as *mut Edge, level);
                     }
                     return res;
                 }
@@ -826,11 +826,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 };
                 debug_assert!(res.0.is_none());
                 bump_pop0(edge, bl, 1);
-                if path.is_active() && path.depth < 8 {
-                    path.edges[path.depth] = edge as *mut Edge;
-                    path.levels[path.depth] = level;
-                    path.depth += 1;
-                }
+                path.record_ancestor(edge as *mut Edge, level);
                 return (None, res.1);
             }
 
@@ -867,11 +863,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                     crate::occ::version_end_if::<OCC>(a, &mut b.version);
                     if res.0.is_none() {
                         bump_pop0(edge, bl, 1);
-                        if path.is_active() && path.depth < 8 {
-                            path.edges[path.depth] = edge as *mut Edge;
-                            path.levels[path.depth] = level;
-                            path.depth += 1;
-                        }
+                        path.record_ancestor(edge as *mut Edge, level);
                     }
                     return res;
                 }
@@ -940,11 +932,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 debug_assert!(res.0.is_none());
                 bump_pop0(edge, bl, 1);
-                if path.is_active() && path.depth < 8 {
-                    path.edges[path.depth] = edge as *mut Edge;
-                    path.levels[path.depth] = level;
-                    path.depth += 1;
-                }
+                path.record_ancestor(edge as *mut Edge, level);
                 return (None, res.1);
             }
 
@@ -969,11 +957,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 if res.0.is_none() {
                     bump_pop0(edge, level, 1);
-                    if path.is_active() && path.depth < 8 {
-                        path.edges[path.depth] = edge as *mut Edge;
-                        path.levels[path.depth] = level;
-                        path.depth += 1;
-                    }
+                    path.record_ancestor(edge as *mut Edge, level);
                 }
                 return res;
             }
