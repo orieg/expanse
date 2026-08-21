@@ -187,7 +187,7 @@ fn build_map_leaf(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)]
     edge.set_pop0(kb, pop as u64 - 1);
 }
 
-/// Tracks the descent path of edges from the root to the active `LeafBitmapL`
+/// Tracks the descent path of edges from the root to the active leaf
 /// for fast multi-level sequential bypass.
 #[derive(Clone, Copy)]
 pub(crate) struct InsertPathMap {
@@ -196,6 +196,8 @@ pub(crate) struct InsertPathMap {
     pub levels: [u8; 8],
     pub depth: usize,
     pub leaf: *mut LeafBitmapL,
+    pub leaf1: *mut u8,
+    pub terminal_pop: u16,
     pub pending_pop: usize,
 }
 
@@ -207,7 +209,18 @@ impl InsertPathMap {
             levels: [0; 8],
             depth: 0,
             leaf: core::ptr::null_mut(),
+            leaf1: core::ptr::null_mut(),
+            terminal_pop: 0,
             pending_pop: 0,
+        }
+    }
+
+    #[inline(always)]
+    pub fn record_ancestor(&mut self, edge: *mut Edge, level: u8) {
+        if self.depth > 0 && self.depth < 8 {
+            self.edges[self.depth] = edge;
+            self.levels[self.depth] = level;
+            self.depth += 1;
         }
     }
 
@@ -216,7 +229,7 @@ impl InsertPathMap {
         if self.pending_pop > 0 {
             let delta = self.pending_pop as i64;
             self.pending_pop = 0;
-            for i in 0..self.depth {
+            for i in 1..self.depth {
                 // SAFETY: path contains valid live edge pointers during active bypass.
                 unsafe {
                     crate::mutate::bump_pop0(&mut *self.edges[i], self.levels[i], delta);
@@ -237,6 +250,8 @@ impl InsertPathMap {
             self.prefix = u64::MAX;
             self.depth = 0;
             self.leaf = core::ptr::null_mut();
+            self.leaf1 = core::ptr::null_mut();
+            self.terminal_pop = 0;
         }
     }
 }
@@ -472,6 +487,18 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                             // SAFETY: class capacity spare per the check.
                             unsafe { leaf::map_insert_at(base, kb, pop, pos, k, val) };
                             edge.set_pop0(kb, pop as u64);
+                            if kb == 1 && level == 1 {
+                                path.prefix = key >> 8;
+                                path.leaf = core::ptr::null_mut();
+                                path.leaf1 = base;
+                                path.terminal_pop = (pop + 1) as u16;
+                                path.edges[0] = edge as *mut Edge;
+                                path.levels[0] = 1;
+                                path.depth = 1;
+                                path.pending_pop = 0;
+                            } else {
+                                path.clear();
+                            }
                             // SAFETY: freshly shifted value area.
                             return (None, unsafe { base.cast::<u64>().add(pos) });
                         }
@@ -502,6 +529,18 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                                     core::ptr::NonNull::new(base).expect("leaf ptr"),
                                     leaf::size_map(kb, pop),
                                 );
+                            }
+                            if kb == 1 && level == 1 {
+                                path.prefix = key >> 8;
+                                path.leaf = core::ptr::null_mut();
+                                path.leaf1 = new.as_ptr();
+                                path.terminal_pop = (pop + 1) as u16;
+                                path.edges[0] = edge as *mut Edge;
+                                path.levels[0] = 1;
+                                path.depth = 1;
+                                path.pending_pop = 0;
+                            } else {
+                                path.clear();
                             }
                             // SAFETY: slot `pos` of the fresh value area.
                             return (None, unsafe { new.as_ptr().cast::<u64>().add(pos) });
@@ -545,6 +584,16 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                             let prefix_key = entries[0].0;
                             build_bitmap_leaf_map(a, edge, &low);
                             write_decode(edge, 1, level, prefix_key);
+                            if level == 1 {
+                                path.prefix = key >> 8;
+                                path.leaf = edge.node_ptr().cast::<LeafBitmapL>();
+                                path.leaf1 = core::ptr::null_mut();
+                                path.terminal_pop = entries.len() as u16;
+                                path.edges[0] = edge as *mut Edge;
+                                path.levels[0] = 1;
+                                path.depth = 1;
+                                path.pending_pop = 0;
+                            }
                         } else {
                             // Cascade: an empty branch at the divergence level
                             // (a narrow pointer when that sits below the slot;
@@ -653,6 +702,8 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 if level == 1 {
                     path.prefix = key >> 8;
                     path.leaf = edge.node_ptr().cast::<LeafBitmapL>();
+                    path.leaf1 = core::ptr::null_mut();
+                    path.terminal_pop = (pop0 + 2) as u16;
                     path.edges[0] = edge as *mut Edge;
                     path.levels[0] = 1;
                     path.depth = 1;
@@ -722,11 +773,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                     };
                     if res.0.is_none() {
                         bump_pop0(edge, bl, 1);
-                        if !path.leaf.is_null() && path.depth < 8 {
-                            path.edges[path.depth] = edge as *mut Edge;
-                            path.levels[path.depth] = level;
-                            path.depth += 1;
-                        }
+                        path.record_ancestor(edge as *mut Edge, level);
                     }
                     return res;
                 }
@@ -779,11 +826,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 };
                 debug_assert!(res.0.is_none());
                 bump_pop0(edge, bl, 1);
-                if !path.leaf.is_null() && path.depth < 8 {
-                    path.edges[path.depth] = edge as *mut Edge;
-                    path.levels[path.depth] = level;
-                    path.depth += 1;
-                }
+                path.record_ancestor(edge as *mut Edge, level);
                 return (None, res.1);
             }
 
@@ -820,11 +863,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                     crate::occ::version_end_if::<OCC>(a, &mut b.version);
                     if res.0.is_none() {
                         bump_pop0(edge, bl, 1);
-                        if !path.leaf.is_null() && path.depth < 8 {
-                            path.edges[path.depth] = edge as *mut Edge;
-                            path.levels[path.depth] = level;
-                            path.depth += 1;
-                        }
+                        path.record_ancestor(edge as *mut Edge, level);
                     }
                     return res;
                 }
@@ -893,11 +932,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 debug_assert!(res.0.is_none());
                 bump_pop0(edge, bl, 1);
-                if !path.leaf.is_null() && path.depth < 8 {
-                    path.edges[path.depth] = edge as *mut Edge;
-                    path.levels[path.depth] = level;
-                    path.depth += 1;
-                }
+                path.record_ancestor(edge as *mut Edge, level);
                 return (None, res.1);
             }
 
@@ -922,11 +957,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 if res.0.is_none() {
                     bump_pop0(edge, level, 1);
-                    if !path.leaf.is_null() && path.depth < 8 {
-                        path.edges[path.depth] = edge as *mut Edge;
-                        path.levels[path.depth] = level;
-                        path.depth += 1;
-                    }
+                    path.record_ancestor(edge as *mut Edge, level);
                 }
                 return res;
             }

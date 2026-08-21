@@ -158,25 +158,9 @@ impl ExpanseMap {
                 // SAFETY: `at < pop` values live behind the keys.
                 core::ptr::NonNull::new(unsafe { vals.add(at) })
             }
-            Root::Tree { top, .. } => {
-                let prefix = key >> 8;
-                if self.path.prefix == prefix && !self.path.leaf.is_null() {
-                    let d = (key & 0xFF) as u8;
-                    // SAFETY: path holds valid live LeafBitmapL pointer.
-                    let node = unsafe { &*self.path.leaf };
-                    if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
-                        let sub = (d >> 5) as usize;
-                        let vals = node.values[sub];
-                        if !vals.is_null() {
-                            // SAFETY: the bit is set, so the subarray holds at least `rank + 1` values.
-                            return core::ptr::NonNull::new(unsafe { vals.add(rank) });
-                        }
-                    }
-                }
-                // SAFETY: trie maintained/owned by this map's engine; the
-                // raw walk derives the slot from node pointers only.
-                unsafe { crate::get::locate_slot(&raw mut *top, key, 8) }
-            }
+            // SAFETY: trie maintained/owned by this map's engine; the
+            // raw walk derives the slot from node pointers only.
+            Root::Tree { top, .. } => unsafe { crate::get::locate_slot(&raw mut *top, key, 8) },
         }
     }
 
@@ -187,54 +171,95 @@ impl ExpanseMap {
     pub fn ins_slot(&mut self, key: Key) -> core::ptr::NonNull<u64> {
         if let Root::Tree { top, pop } = &mut self.root {
             let prefix = key >> 8;
-            if self.path.prefix == prefix && !self.path.leaf.is_null() {
-                let d = (key & 0xFF) as u8;
-                // SAFETY: path holds valid live LeafBitmapL pointer.
-                let node = unsafe { &mut *self.path.leaf };
-                let sub = (d >> 5) as usize;
-                if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
-                    // SAFETY: value subarray holds subexpanse_count values.
+            if self.path.prefix == prefix {
+                if !self.path.leaf.is_null() {
+                    let d = (key & 0xFF) as u8;
+                    // SAFETY: path holds valid live LeafBitmapL pointer.
+                    let node = unsafe { &mut *self.path.leaf };
+                    let sub = (d >> 5) as usize;
+                    if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
+                        // SAFETY: value subarray holds subexpanse_count values.
+                        let slot = unsafe { node.values[sub].add(rank) };
+                        return core::ptr::NonNull::new(slot).expect("slot");
+                    }
+                    let rank = node.bitmap.subexpanse_rank(d) as usize;
+                    let old_n = node.bitmap.subexpanse_count(sub) as usize;
+                    if old_n > 0
+                        && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
+                    {
+                        // Fast path: spare class capacity — shift in place.
+                        // SAFETY: the subarray holds cap_class(old_n) slots.
+                        unsafe {
+                            let arr = node.values[sub];
+                            core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                            arr.add(rank).write(0);
+                        }
+                    } else {
+                        let new = self
+                            .alloc
+                            .alloc_bytes(crate::mutate::sub_vals_size(old_n + 1))
+                            .cast::<u64>();
+                        // SAFETY: copy old_n values around the inserted rank.
+                        unsafe {
+                            if old_n > 0 {
+                                let old = node.values[sub];
+                                new.as_ptr().copy_from_nonoverlapping(old, rank);
+                                new.as_ptr()
+                                    .add(rank + 1)
+                                    .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                                self.alloc.free_bytes(
+                                    core::ptr::NonNull::new(old.cast()).expect("values"),
+                                    crate::mutate::sub_vals_size(old_n),
+                                );
+                            }
+                            new.as_ptr().add(rank).write(0);
+                        }
+                        node.values[sub] = new.as_ptr();
+                    }
+                    node.bitmap.set(d);
+                    self.path.pending_pop += 1;
+                    self.path.terminal_pop += 1;
+                    *pop += 1;
+                    // SAFETY: keep terminal edge pop0 up to date.
+                    unsafe {
+                        (*self.path.edges[0]).set_pop0(1, (self.path.terminal_pop - 1) as u64);
+                    }
+                    // SAFETY: freshly inserted slot.
                     let slot = unsafe { node.values[sub].add(rank) };
                     return core::ptr::NonNull::new(slot).expect("slot");
-                }
-                let rank = node.bitmap.subexpanse_rank(d) as usize;
-                let old_n = node.bitmap.subexpanse_count(sub) as usize;
-                if old_n > 0 && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n) {
-                    // Fast path: spare class capacity — shift in place.
-                    // SAFETY: the subarray holds cap_class(old_n) slots.
-                    unsafe {
-                        let arr = node.values[sub];
-                        core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
-                        arr.add(rank).write(0);
-                    }
-                } else {
-                    let new = self
-                        .alloc
-                        .alloc_bytes(crate::mutate::sub_vals_size(old_n + 1))
-                        .cast::<u64>();
-                    // SAFETY: copy old_n values around the inserted rank.
-                    unsafe {
-                        if old_n > 0 {
-                            let old = node.values[sub];
-                            new.as_ptr().copy_from_nonoverlapping(old, rank);
-                            new.as_ptr()
-                                .add(rank + 1)
-                                .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                            self.alloc.free_bytes(
-                                core::ptr::NonNull::new(old.cast()).expect("values"),
-                                crate::mutate::sub_vals_size(old_n),
-                            );
+                } else if !self.path.leaf1.is_null() {
+                    let d = (key & 0xFF) as u8;
+                    let cur_pop = self.path.terminal_pop as usize;
+                    let base = self.path.leaf1;
+                    // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
+                    let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
+                    // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
+                    let last = unsafe { *keys_ptr.add(cur_pop - 1) };
+                    if d > last {
+                        if cur_pop < crate::mutate::LEAF1_CAP
+                            && crate::leaf::cap_class(cur_pop + 1)
+                                == crate::leaf::cap_class(cur_pop)
+                        {
+                            // SAFETY: spare class capacity in the live Leaf1 allocation.
+                            unsafe {
+                                *keys_ptr.add(cur_pop) = d;
+                                let vals = base.cast::<u64>();
+                                vals.add(cur_pop).write(0);
+                                (*self.path.edges[0]).set_pop0(1, cur_pop as u64);
+                            }
+                            self.path.terminal_pop += 1;
+                            self.path.pending_pop += 1;
+                            *pop += 1;
+                            // SAFETY: freshly written slot in live value area.
+                            let slot = unsafe { base.cast::<u64>().add(cur_pop) };
+                            return core::ptr::NonNull::new(slot).expect("slot");
                         }
-                        new.as_ptr().add(rank).write(0);
+                    } else if d == last {
+                        // SAFETY: cur_pop - 1 is the existing slot for `last`.
+                        let slot = unsafe { base.cast::<u64>().add(cur_pop - 1) };
+                        return core::ptr::NonNull::new(slot).expect("slot");
                     }
-                    node.values[sub] = new.as_ptr();
                 }
-                node.bitmap.set(d);
-                self.path.pending_pop += 1;
-                *pop += 1;
-                // SAFETY: freshly inserted slot.
-                let slot = unsafe { node.values[sub].add(rank) };
-                return core::ptr::NonNull::new(slot).expect("slot");
             }
             self.path.clear();
             // SAFETY: trie maintained/owned by this map's engine.
@@ -394,58 +419,100 @@ impl ExpanseMap {
             }
             Root::Tree { top, pop } => {
                 let prefix = key >> 8;
-                if self.path.prefix == prefix && !self.path.leaf.is_null() {
-                    let d = (key & 0xFF) as u8;
-                    // SAFETY: path holds valid live LeafBitmapL pointer.
-                    let node = unsafe { &mut *self.path.leaf };
-                    let sub = (d >> 5) as usize;
-                    if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
-                        // SAFETY: value subarray holds subexpanse_count values; in-place swap.
-                        unsafe {
-                            let slot = node.values[sub].add(rank);
-                            let old = *slot;
-                            slot.write(val);
-                            return Some(old);
-                        }
-                    }
-                    let rank = node.bitmap.subexpanse_rank(d) as usize;
-                    let old_n = node.bitmap.subexpanse_count(sub) as usize;
-                    if old_n > 0
-                        && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
-                    {
-                        // Fast path: spare class capacity — shift in place.
-                        // SAFETY: the subarray holds cap_class(old_n) slots.
-                        unsafe {
-                            let arr = node.values[sub];
-                            core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
-                            arr.add(rank).write(val);
-                        }
-                    } else {
-                        let new = self
-                            .alloc
-                            .alloc_bytes(crate::mutate::sub_vals_size(old_n + 1))
-                            .cast::<u64>();
-                        // SAFETY: copy old_n values around the inserted rank.
-                        unsafe {
-                            if old_n > 0 {
-                                let old = node.values[sub];
-                                new.as_ptr().copy_from_nonoverlapping(old, rank);
-                                new.as_ptr()
-                                    .add(rank + 1)
-                                    .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                                self.alloc.free_bytes(
-                                    core::ptr::NonNull::new(old.cast()).expect("values"),
-                                    crate::mutate::sub_vals_size(old_n),
-                                );
+                if self.path.prefix == prefix {
+                    if !self.path.leaf.is_null() {
+                        let d = (key & 0xFF) as u8;
+                        // SAFETY: path holds valid live LeafBitmapL pointer.
+                        let node = unsafe { &mut *self.path.leaf };
+                        let sub = (d >> 5) as usize;
+                        if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
+                            // SAFETY: value subarray holds subexpanse_count values; in-place swap.
+                            unsafe {
+                                let slot = node.values[sub].add(rank);
+                                let old = *slot;
+                                slot.write(val);
+                                return Some(old);
                             }
-                            new.as_ptr().add(rank).write(val);
                         }
-                        node.values[sub] = new.as_ptr();
+                        let rank = node.bitmap.subexpanse_rank(d) as usize;
+                        let old_n = node.bitmap.subexpanse_count(sub) as usize;
+                        if old_n > 0
+                            && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
+                        {
+                            // Fast path: spare class capacity — shift in place.
+                            // SAFETY: the subarray holds cap_class(old_n) slots.
+                            unsafe {
+                                let arr = node.values[sub];
+                                core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                                arr.add(rank).write(val);
+                            }
+                        } else {
+                            let new = self
+                                .alloc
+                                .alloc_bytes(crate::mutate::sub_vals_size(old_n + 1))
+                                .cast::<u64>();
+                            // SAFETY: copy old_n values around the inserted rank.
+                            unsafe {
+                                if old_n > 0 {
+                                    let old = node.values[sub];
+                                    new.as_ptr().copy_from_nonoverlapping(old, rank);
+                                    new.as_ptr()
+                                        .add(rank + 1)
+                                        .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                                    self.alloc.free_bytes(
+                                        core::ptr::NonNull::new(old.cast()).expect("values"),
+                                        crate::mutate::sub_vals_size(old_n),
+                                    );
+                                }
+                                new.as_ptr().add(rank).write(val);
+                            }
+                            node.values[sub] = new.as_ptr();
+                        }
+                        node.bitmap.set(d);
+                        self.path.pending_pop += 1;
+                        self.path.terminal_pop += 1;
+                        *pop += 1;
+                        // SAFETY: keep terminal edge pop0 up to date.
+                        unsafe {
+                            (*self.path.edges[0]).set_pop0(1, (self.path.terminal_pop - 1) as u64);
+                        }
+                        return None;
+                    } else if !self.path.leaf1.is_null() {
+                        let d = (key & 0xFF) as u8;
+                        let cur_pop = self.path.terminal_pop as usize;
+                        let base = self.path.leaf1;
+                        // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
+                        let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
+                        // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
+                        let last = unsafe { *keys_ptr.add(cur_pop - 1) };
+                        if d > last {
+                            if cur_pop < crate::mutate::LEAF1_CAP
+                                && crate::leaf::cap_class(cur_pop + 1)
+                                    == crate::leaf::cap_class(cur_pop)
+                            {
+                                // SAFETY: spare class capacity in the live Leaf1 allocation.
+                                unsafe {
+                                    *keys_ptr.add(cur_pop) = d;
+                                    let vals = base.cast::<u64>();
+                                    vals.add(cur_pop).write(val);
+                                    (*self.path.edges[0]).set_pop0(1, cur_pop as u64);
+                                }
+                                self.path.terminal_pop += 1;
+                                self.path.pending_pop += 1;
+                                *pop += 1;
+                                return None;
+                            }
+                        } else if d == last {
+                            // SAFETY: cur_pop - 1 is the existing slot for `last`.
+                            unsafe {
+                                let vals = base.cast::<u64>();
+                                let slot = vals.add(cur_pop - 1);
+                                let old = *slot;
+                                slot.write(val);
+                                return Some(old);
+                            }
+                        }
                     }
-                    node.bitmap.set(d);
-                    self.path.pending_pop += 1;
-                    *pop += 1;
-                    return None;
                 }
                 self.path.clear();
                 // SAFETY: trie maintained/owned by this map's engine.
@@ -1310,5 +1377,26 @@ mod tests {
         }
         map.validate();
         assert_eq!(map.len(), 2000);
+    }
+
+    #[test]
+    fn test_sequential_linear_leaf_cursor_bypass_and_upgrade() {
+        let mut map = ExpanseMap::new();
+        for i in 0..1000u64 {
+            assert_eq!(map.insert(i, i * 3), None);
+            assert_eq!(map.get(i), Some(i * 3));
+            assert_eq!(map.len(), i + 1);
+        }
+        map.validate();
+        for i in 0..1000u64 {
+            assert_eq!(map.get(i), Some(i * 3));
+        }
+        for i in 0..1000u64 {
+            assert_eq!(map.remove(i), Some(i * 3));
+            assert_eq!(map.get(i), None);
+        }
+        map.validate();
+        assert!(map.is_empty());
+        assert_eq!(map.mem_used(), 0);
     }
 }
