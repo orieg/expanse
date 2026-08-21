@@ -227,6 +227,14 @@ impl Edge {
         self.aux_word() & (u64::MAX >> (64 - 8 * u32::from(level)))
     }
 
+    /// Word 0 read as a little-endian 64-bit word.
+    #[inline(always)]
+    pub(crate) fn word0(&self) -> u64 {
+        // SAFETY: the read takes its provenance from the whole `Edge`,
+        // stays inside the 16-byte object, and is 8-byte aligned.
+        unsafe { (&raw const *self).cast::<u64>().read() }
+    }
+
     /// The `aux` bytes and the tag byte read as one little-endian word:
     /// `aux[0]` is the low byte, `tag` the high byte.
     ///

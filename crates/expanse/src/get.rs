@@ -40,17 +40,6 @@ use crate::leaf;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
 use crate::types::{ImmedType, Key, digit};
 
-/// Outcome of locating a key in a subtree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Lookup {
-    /// The key is not present.
-    Absent,
-    /// The key is present (set flavor; no value).
-    Present,
-    /// The key is present with this value (map flavor).
-    Value(u64),
-}
-
 /// Validates the skipped digits of a narrow pointer: the edge's decode bytes
 /// for a child at `child_level` must equal the key digits at levels
 /// `child_level + 1 ..= level`.
@@ -141,24 +130,24 @@ fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: Key) ->
 /// the clone, so the dispatcher is load + test + tail-jump.
 ///
 #[inline(always)]
-unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup {
+unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
     let (mut edge, mut level) = (edge, level);
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag_byte();
         match tag {
-            0x00 => return Lookup::Absent, // EdgeType::Null
+            0x00 => return false, // EdgeType::Null
 
             0x01 => {
                 // SAFETY: pointer-tagged edge → live BranchL3.
                 let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
                 let bl = b.hdr.level;
                 if bl < level && !decode_matches(edge, key, bl, level) {
-                    return Lookup::Absent;
+                    return false;
                 }
                 let d = digit(key, bl);
                 let Some(slot) = b.hdr.find(d) else {
-                    return Lookup::Absent;
+                    return false;
                 };
                 debug_assert!(slot < b.edges.len());
                 // SAFETY: `slot < 3` accesses a valid child edge pointer.
@@ -171,11 +160,11 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
                 let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
                 let bl = b.hdr.level;
                 if bl < level && !decode_matches(edge, key, bl, level) {
-                    return Lookup::Absent;
+                    return false;
                 }
                 let d = digit(key, bl);
                 let Some(slot) = b.hdr.find(d) else {
-                    return Lookup::Absent;
+                    return false;
                 };
                 debug_assert!(slot < b.edges.len());
                 // SAFETY: `slot < 7` accesses a valid child edge pointer.
@@ -188,16 +177,15 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
                 let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
                 let bl = b.level;
                 if bl < level && !decode_matches(edge, key, bl, level) {
-                    return Lookup::Absent;
+                    return false;
                 }
                 let d = digit(key, bl);
                 let Some(slot) = b.bitmap.test_and_subexpanse_rank(d) else {
-                    return Lookup::Absent;
+                    return false;
                 };
                 let sub = (d >> 5) as usize;
                 // SAFETY: `sub < 8` accesses a valid subarray pointer; the bit is set,
-                // so the subexpanse subarray is non-null and holds at least `subexpanse_rank + 1` edges
-                // (bitmap/subarray consistency invariant).
+                // so the subexpanse subarray is non-null and holds at least `subexpanse_rank + 1` edges.
                 let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
                 // SAFETY: slot is the verified rank inside the live subexpanse subarray.
                 edge = unsafe { &*sub_ptr.add(slot) };
@@ -223,96 +211,194 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
 
             0x0C => {
                 if level > 1 && !decode_matches(edge, key, 1, level) {
-                    return Lookup::Absent;
+                    return false;
                 }
                 let d = digit(key, 1);
-                if MAP {
-                    // SAFETY: pointer-tagged edge → live LeafBitmapL.
-                    let l = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
-                    let sub = (d >> 5) as usize;
-                    let Some(slot) = l.bitmap.test_and_subexpanse_rank(d) else {
-                        return Lookup::Absent;
-                    };
-                    // SAFETY: `sub < 8` accesses a valid values subarray pointer.
-                    let vals = unsafe { *l.values.as_ptr().add(sub) };
-                    // SAFETY: the bit is set, so the value subarray is
-                    // non-null and holds at least `slot + 1` values.
-                    return Lookup::Value(unsafe { *vals.add(slot) });
-                }
                 // SAFETY: pointer-tagged edge → live LeafBitmap1.
                 let l = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
-                return if l.bitmap.test(d) {
-                    Lookup::Present
-                } else {
-                    Lookup::Absent
-                };
+                return l.bitmap.test(d);
             }
 
             0x05..=0x0B => {
                 let lf = tag - 0x04;
                 if level > lf && !decode_matches(edge, key, lf, level) {
-                    return Lookup::Absent;
+                    return false;
                 }
                 let pop = edge.pop0(lf) as usize + 1;
                 let base = edge.node_ptr();
-                if MAP {
-                    // SAFETY: map leaves are one live allocation of
-                    // `pop` values followed by the packed keys
-                    // (leaf::size_map), per the tree contract.
-                    let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
-                    // SAFETY: `keys` spans `pop * lf` readable bytes.
-                    let Some(slot) = (unsafe { leaf::search(keys, pop, lf, key) }) else {
-                        return Lookup::Absent;
-                    };
-                    // SAFETY: slot < pop values live at the base.
-                    return Lookup::Value(unsafe { *base.cast::<u64>().add(slot) });
-                }
                 // SAFETY: set leaves are `pop * lf` readable key bytes.
                 let found = unsafe { leaf::search(base, pop, lf, key) };
-                return if found.is_some() {
-                    Lookup::Present
-                } else {
-                    Lookup::Absent
-                };
+                return found.is_some();
             }
 
             0x7F => {
-                debug_assert!(!MAP, "full-expanse edges are set-flavor only");
-                return Lookup::Present;
+                return true;
             }
 
             _ => {
                 let Some(im) = ImmedType::from_u8(tag) else {
                     debug_assert!(false, "invalid edge tag {:#04x}", tag);
-                    return Lookup::Absent;
+                    return false;
                 };
                 debug_assert_eq!(
                     im.key_bytes(),
                     level,
                     "an immediate's key size is its level"
                 );
-                if MAP {
-                    let kb = im.key_bytes() as usize;
-                    let n = im.key_count() as usize;
-                    debug_assert!(kb * n <= 7, "map immediates keep keys in aux");
-                    let Some(slot) = immed_find(im, edge.aux_bytes(), key) else {
-                        return Lookup::Absent;
-                    };
-                    return if n == 1 {
-                        Lookup::Value(u64::from_le_bytes(edge.imm_bytes()))
-                    } else {
-                        let vals = edge.node_ptr().cast::<u64>();
-                        // SAFETY: multi-key map immediates store a pointer
-                        // to a live array of `key_count` values in word 0.
-                        Lookup::Value(unsafe { *vals.add(slot) })
-                    };
+                let kb = im.key_bytes();
+                let n = im.key_count() as usize;
+                let mask = if kb >= 8 {
+                    u64::MAX
+                } else {
+                    (1u64 << (kb * 8)) - 1
+                };
+                if n == 1 {
+                    return ((key ^ edge.word0()) & mask) == 0;
                 }
                 let payload = edge.imm_payload();
-                return if immed_find(im, &payload, key).is_some() {
-                    Lookup::Present
-                } else {
-                    Lookup::Absent
+                return immed_find(im, &payload, key).is_some();
+            }
+        }
+    }
+}
+
+#[inline(always)]
+unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
+    let (mut edge, mut level) = (edge, level);
+    loop {
+        debug_assert!((1..=8).contains(&level));
+        let tag = edge.tag_byte();
+        match tag {
+            0x00 => return None,
+
+            0x01 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                let bl = b.hdr.level;
+                if bl < level && !decode_matches(edge, key, bl, level) {
+                    return None;
+                }
+                let d = digit(key, bl);
+                let slot = b.hdr.find(d)?;
+                debug_assert!(slot < b.edges.len());
+                // SAFETY: `slot < 3` accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = bl - 1;
+            }
+
+            0x02 => {
+                // SAFETY: pointer-tagged edge → live BranchL7.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
+                let bl = b.hdr.level;
+                if bl < level && !decode_matches(edge, key, bl, level) {
+                    return None;
+                }
+                let d = digit(key, bl);
+                let slot = b.hdr.find(d)?;
+                debug_assert!(slot < b.edges.len());
+                // SAFETY: `slot < 7` accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = bl - 1;
+            }
+
+            0x03 => {
+                // SAFETY: pointer-tagged edge → live BranchB.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
+                let bl = b.level;
+                if bl < level && !decode_matches(edge, key, bl, level) {
+                    return None;
+                }
+                let d = digit(key, bl);
+                let slot = b.bitmap.test_and_subexpanse_rank(d)?;
+                let sub = (d >> 5) as usize;
+                // SAFETY: `sub < 8` accesses a valid subarray pointer.
+                let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
+                // SAFETY: slot is the verified rank inside the live subexpanse subarray.
+                edge = unsafe { &*sub_ptr.add(slot) };
+                level = bl - 1;
+            }
+
+            0x04 => {
+                let mut b_ptr = edge.node_ptr().cast::<BranchU>();
+                loop {
+                    let d = digit(key, level);
+                    // SAFETY: pointer-tagged edge → live BranchU with 256 edges.
+                    let next_edge = unsafe { &*(*b_ptr).edges.as_ptr().add(d as usize) };
+                    level -= 1;
+                    let next_tag = next_edge.tag_byte();
+                    if next_tag == 0x04 {
+                        b_ptr = next_edge.node_ptr().cast::<BranchU>();
+                    } else {
+                        edge = next_edge;
+                        break;
+                    }
+                }
+            }
+
+            0x0C => {
+                if level > 1 && !decode_matches(edge, key, 1, level) {
+                    return None;
+                }
+                let d = digit(key, 1);
+                // SAFETY: pointer-tagged edge → live LeafBitmapL.
+                let l = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
+                let sub = (d >> 5) as usize;
+                let slot = l.bitmap.test_and_subexpanse_rank(d)?;
+                // SAFETY: `sub < 8` accesses a valid values subarray pointer.
+                let vals = unsafe { *l.values.as_ptr().add(sub) };
+                // SAFETY: the bit is set, so the value subarray is non-null and holds at least `slot + 1` values.
+                return Some(unsafe { *vals.add(slot) });
+            }
+
+            0x05..=0x0B => {
+                let lf = tag - 0x04;
+                if level > lf && !decode_matches(edge, key, lf, level) {
+                    return None;
+                }
+                let pop = edge.pop0(lf) as usize + 1;
+                let base = edge.node_ptr();
+                // SAFETY: map leaves are one live allocation of `pop` values followed by the packed keys.
+                let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
+                // SAFETY: keys spans pop * lf readable bytes.
+                let slot = (unsafe { leaf::search(keys, pop, lf, key) })?;
+                // SAFETY: slot < pop values live at the base.
+                return Some(unsafe { *base.cast::<u64>().add(slot) });
+            }
+
+            0x7F => {
+                unreachable!("full-expanse edges are set-flavor only");
+            }
+
+            _ => {
+                let Some(im) = ImmedType::from_u8(tag) else {
+                    debug_assert!(false, "invalid edge tag {:#04x}", tag);
+                    return None;
                 };
+                debug_assert_eq!(
+                    im.key_bytes(),
+                    level,
+                    "an immediate's key size is its level"
+                );
+                let kb = im.key_bytes();
+                let n = im.key_count() as usize;
+                let mask = if kb >= 8 {
+                    u64::MAX
+                } else {
+                    (1u64 << (kb * 8)) - 1
+                };
+                if n == 1 {
+                    return if ((key ^ edge.aux_word()) & mask) == 0 {
+                        Some(edge.word0())
+                    } else {
+                        None
+                    };
+                }
+                let kb_usize = kb as usize;
+                debug_assert!(kb_usize * n <= 7, "map immediates keep keys in aux");
+                let slot = immed_find(im, edge.aux_bytes(), key)?;
+                let vals = edge.node_ptr().cast::<u64>();
+                // SAFETY: multi-key map immediates store a pointer to a live array of `key_count` values in word 0.
+                return Some(unsafe { *vals.add(slot) });
             }
         }
     }
@@ -327,7 +413,7 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
 /// The tree reachable from `edge` must satisfy the structural invariants
 /// described on the module: every pointer-tagged edge references a live,
 /// well-formed node of its tagged type.
-#[inline]
+#[inline(always)]
 #[must_use]
 pub unsafe fn test_set(edge: &Edge, key: Key, level: u8) -> bool {
     #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
@@ -348,8 +434,7 @@ pub unsafe fn test_set(edge: &Edge, key: Key, level: u8) -> bool {
     {
         // No dispatch on this target: the walk fuses directly.
         // SAFETY: forwarded caller contract.
-        let r = unsafe { walk_impl::<false>(edge, key, level) };
-        matches!(r, Lookup::Present)
+        unsafe { walk_set_impl(edge, key, level) }
     }
 }
 
@@ -364,12 +449,11 @@ pub unsafe fn test_set(edge: &Edge, key: Key, level: u8) -> bool {
 #[inline(never)]
 unsafe fn test_set_swar(edge: &Edge, key: Key, level: u8) -> bool {
     // SAFETY: forwarded caller contract.
-    let r = unsafe { walk_impl::<false>(edge, key, level) };
-    matches!(r, Lookup::Present)
+    unsafe { walk_set_impl(edge, key, level) }
 }
 
 /// [`test_set`] compiled with `popcnt`, result-shaping included — see
-/// `walk_impl` for why the boundary sits at the public signature.
+/// `walk_set_impl` for why the boundary sits at the public signature.
 ///
 /// # Safety
 ///
@@ -379,8 +463,7 @@ unsafe fn test_set_swar(edge: &Edge, key: Key, level: u8) -> bool {
 unsafe fn test_set_popcnt(edge: &Edge, key: Key, level: u8) -> bool {
     // SAFETY: contract forwarded; the `inline(always)` body adopts the
     // feature, bitmap ranks included.
-    let r = unsafe { walk_impl::<false>(edge, key, level) };
-    matches!(r, Lookup::Present)
+    unsafe { walk_set_impl(edge, key, level) }
 }
 
 /// Retrieves the value of `key` from a map-flavor subtree (`ExpanseMap`;
@@ -405,10 +488,7 @@ pub unsafe fn get_map(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     #[cfg(not(all(target_arch = "x86_64", not(target_feature = "popcnt"))))]
     {
         // SAFETY: forwarded caller contract.
-        match unsafe { walk_impl::<true>(edge, key, level) } {
-            Lookup::Value(v) => Some(v),
-            _ => None,
-        }
+        unsafe { walk_map_impl(edge, key, level) }
     }
 }
 
@@ -422,10 +502,7 @@ pub unsafe fn get_map(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 #[inline(never)]
 unsafe fn get_map_swar(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     // SAFETY: forwarded caller contract.
-    match unsafe { walk_impl::<true>(edge, key, level) } {
-        Lookup::Value(v) => Some(v),
-        _ => None,
-    }
+    unsafe { walk_map_impl(edge, key, level) }
 }
 
 /// [`get_map`] compiled with `popcnt` — see [`test_set_popcnt`].
@@ -437,10 +514,7 @@ unsafe fn get_map_swar(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 #[target_feature(enable = "popcnt")]
 unsafe fn get_map_popcnt(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     // SAFETY: contract forwarded.
-    match unsafe { walk_impl::<true>(edge, key, level) } {
-        Lookup::Value(v) => Some(v),
-        _ => None,
-    }
+    unsafe { walk_map_impl(edge, key, level) }
 }
 
 /// Locates the **writable value slot** of `key` in a map-flavor subtree —
@@ -639,14 +713,27 @@ unsafe fn locate_slot_impl(
             _ => {
                 let im = ImmedType::from_u8(tag)?;
                 debug_assert_eq!(im.key_bytes(), level);
+                let kb = im.key_bytes();
+                let n = im.key_count() as usize;
+                let mask = if kb >= 8 {
+                    u64::MAX
+                } else {
+                    (1u64 << (kb * 8)) - 1
+                };
+                if n == 1 {
+                    // SAFETY: live edge per contract; read aux_word for key match.
+                    if ((key ^ unsafe { (*edge).aux_word() }) & mask) == 0 {
+                        // Word 0 (offset 0 of the edge) is the value itself.
+                        return core::ptr::NonNull::new(edge.cast::<u64>());
+                    } else {
+                        return None;
+                    }
+                }
                 // SAFETY: live map immediate per contract; keys live in the aux bytes.
                 let slot = immed_find(im, unsafe { (*edge).aux_bytes() }, key)?;
-                return core::ptr::NonNull::new(if im.key_count() == 1 {
-                    // Word 0 (offset 0 of the edge) is the value itself.
-                    edge.cast::<u64>()
-                } else {
-                    // SAFETY: live value array of key_count values.
-                    unsafe { (*edge).node_ptr().cast::<u64>().add(slot) }
+                // SAFETY: live value array of key_count values.
+                return core::ptr::NonNull::new(unsafe {
+                    (*edge).node_ptr().cast::<u64>().add(slot)
                 });
             }
         }

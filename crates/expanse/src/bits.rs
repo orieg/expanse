@@ -502,12 +502,15 @@ pub(crate) mod popcnt_rt {
 
     static STATE: AtomicU8 = AtomicU8::new(0);
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn available() -> bool {
-        match STATE.load(Ordering::Relaxed) {
-            2 => true,
-            1 => false,
-            _ => detect(),
+        let s = STATE.load(Ordering::Relaxed);
+        if s == 2 {
+            true
+        } else if s == 1 {
+            false
+        } else {
+            detect()
         }
     }
 
