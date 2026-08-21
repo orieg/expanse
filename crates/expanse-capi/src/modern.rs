@@ -14,6 +14,7 @@ use core::ffi::{CStr, c_char, c_void};
 use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
+use expanse_trie::strmap::ExpanseStrMap;
 use expanse_trie::sync::{MapReader, SetReader, SyncExpanseMap, SyncExpanseSet};
 
 /// Writes `v` through `out` when `out` is non-null.
@@ -23,6 +24,32 @@ unsafe fn put(out: *mut u64, v: u64) {
         // SAFETY: non-null, caller-provided writable u64 per the C contract.
         unsafe { *out = v };
     }
+}
+
+/// Reads a NUL-terminated C string argument into a byte slice.
+#[inline]
+unsafe fn cstr<'a>(key: *const c_char) -> Option<&'a [u8]> {
+    if key.is_null() {
+        return None;
+    }
+    // SAFETY: caller guarantees a valid NUL-terminated C string.
+    let s = unsafe { CStr::from_ptr(key) };
+    Some(s.to_bytes())
+}
+
+/// Copies a byte slice plus terminating NUL into the caller's buffer.
+/// Returns false if the buffer is too small.
+#[inline]
+unsafe fn write_cstr_buf(key_out: *mut c_char, buf_len: usize, bytes: &[u8]) -> bool {
+    if key_out.is_null() || buf_len <= bytes.len() {
+        return false;
+    }
+    // SAFETY: key_out is non-null and writable for buf_len > bytes.len() bytes.
+    unsafe {
+        core::ptr::copy_nonoverlapping(bytes.as_ptr().cast::<c_char>(), key_out, bytes.len());
+        *key_out.add(bytes.len()) = 0;
+    }
+    true
 }
 
 /// Reads a `(pointer, length)` byte-string argument. A null pointer is
@@ -658,6 +685,250 @@ pub unsafe extern "C" fn expanse_bytesmap_ins_slot(
 }
 
 // ---------------------------------------------------------------------
+// expanse_strmap_t — ordered C-string -> u64 map (cf. JudySL)
+// ---------------------------------------------------------------------
+
+container!(
+    ExpanseStrMap,
+    expanse_strmap_new,
+    expanse_strmap_free,
+    expanse_strmap_len,
+    expanse_strmap_mem_used,
+    expanse_strmap_clear,
+    "string map"
+);
+
+/// Stores `key -> value`. Returns true when the key is new; when it
+/// replaced an existing entry, writes the old value through `old_out`
+/// (if non-null) and returns false.
+///
+/// # Safety
+///
+/// `map` null or live; `key` valid NUL-terminated C string; `old_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_strmap_insert(
+    map: *mut ExpanseStrMap,
+    key: *const c_char,
+    value: u64,
+    old_out: *mut u64,
+) -> bool {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        let (Some(m), Some(k)) = (map.as_mut(), cstr(key)) else {
+            return false;
+        };
+        match m.insert(k, value) {
+            Some(old) => {
+                put(old_out, old);
+                false
+            }
+            None => true,
+        }
+    }
+}
+
+/// Reads the string's value into `value_out`; false if absent.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_strmap_insert`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_strmap_get(
+    map: *const ExpanseStrMap,
+    key: *const c_char,
+    value_out: *mut u64,
+) -> bool {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        let (Some(m), Some(k)) = (map.as_ref(), cstr(key)) else {
+            return false;
+        };
+        let Some(v) = m.get(k) else {
+            return false;
+        };
+        put(value_out, v);
+        true
+    }
+}
+
+/// Removes the string, reporting its value; false if absent.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_strmap_insert`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_strmap_remove(
+    map: *mut ExpanseStrMap,
+    key: *const c_char,
+    old_out: *mut u64,
+) -> bool {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        let (Some(m), Some(k)) = (map.as_mut(), cstr(key)) else {
+            return false;
+        };
+        let Some(v) = m.remove(k) else {
+            return false;
+        };
+        put(old_out, v);
+        true
+    }
+}
+
+/// Writable value slot of the string, or null if absent.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_strmap_insert`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_strmap_slot(
+    map: *mut ExpanseStrMap,
+    key: *const c_char,
+) -> *mut u64 {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        let (Some(m), Some(k)) = (map.as_mut(), cstr(key)) else {
+            return core::ptr::null_mut();
+        };
+        m.get_value_slot(k)
+            .map_or(core::ptr::null_mut(), core::ptr::NonNull::as_ptr)
+    }
+}
+
+/// Inserts the string with value 0 if absent and returns its slot.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_strmap_insert`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_strmap_ins_slot(
+    map: *mut ExpanseStrMap,
+    key: *const c_char,
+) -> *mut u64 {
+    // SAFETY: forwarded C contract.
+    unsafe {
+        let (Some(m), Some(k)) = (map.as_mut(), cstr(key)) else {
+            return core::ptr::null_mut();
+        };
+        m.ins_slot(k).as_ptr()
+    }
+}
+
+/// Generates a string map navigation entry point returning `bool` + key/value.
+macro_rules! strmap_nav {
+    ($name:ident, $method:ident, $doc:literal) => {
+        #[doc = $doc]
+        ///
+        /// # Safety
+        ///
+        /// `map` must be null or a live handle; `key` a NUL-terminated C string;
+        /// `key_out` non-null with `buf_len` bytes capacity; `value_out` null or writable.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $name(
+            map: *mut ExpanseStrMap,
+            key: *const c_char,
+            key_out: *mut c_char,
+            buf_len: usize,
+            value_out: *mut u64,
+        ) -> bool {
+            // SAFETY: null or live handle per contract.
+            let (Some(m), Some(k)) = (unsafe { map.as_mut() }, unsafe { cstr(key) }) else {
+                return false;
+            };
+            let Some((found_k, slot)) = m.$method(k) else {
+                return false;
+            };
+            // SAFETY: caller guarantees key_out writable for buf_len bytes.
+            if !unsafe { write_cstr_buf(key_out, buf_len, &found_k) } {
+                return false;
+            }
+            // SAFETY: slot is valid until next mutation; value_out null or writable.
+            unsafe {
+                put(value_out, *slot.as_ptr());
+            }
+            true
+        }
+    };
+}
+
+strmap_nav!(
+    expanse_strmap_next_at_or_after,
+    next_at_or_after,
+    "Smallest entry with key >= `key`."
+);
+strmap_nav!(
+    expanse_strmap_next_after,
+    next_after,
+    "Smallest entry with key > `key`."
+);
+strmap_nav!(
+    expanse_strmap_prev_at_or_before,
+    prev_at_or_before,
+    "Largest entry with key <= `key`."
+);
+strmap_nav!(
+    expanse_strmap_prev_before,
+    prev_before,
+    "Largest entry with key < `key`."
+);
+
+/// Smallest entry in the string map.
+///
+/// # Safety
+///
+/// `map` null or live handle; `key_out` non-null with `buf_len` bytes capacity; `value_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_strmap_first(
+    map: *mut ExpanseStrMap,
+    key_out: *mut c_char,
+    buf_len: usize,
+    value_out: *mut u64,
+) -> bool {
+    // SAFETY: forwarded C contract.
+    let Some(m) = (unsafe { map.as_mut() }) else {
+        return false;
+    };
+    let Some((found_k, slot)) = m.first() else {
+        return false;
+    };
+    // SAFETY: caller guarantees key_out writable for buf_len bytes.
+    if !unsafe { write_cstr_buf(key_out, buf_len, &found_k) } {
+        return false;
+    }
+    // SAFETY: slot valid until next mutation.
+    unsafe { put(value_out, *slot.as_ptr()) };
+    true
+}
+
+/// Largest entry in the string map.
+///
+/// # Safety
+///
+/// Same contract as [`expanse_strmap_first`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_strmap_last(
+    map: *mut ExpanseStrMap,
+    key_out: *mut c_char,
+    buf_len: usize,
+    value_out: *mut u64,
+) -> bool {
+    // SAFETY: forwarded C contract.
+    let Some(m) = (unsafe { map.as_mut() }) else {
+        return false;
+    };
+    let Some((found_k, slot)) = m.last() else {
+        return false;
+    };
+    // SAFETY: caller guarantees key_out writable for buf_len bytes.
+    if !unsafe { write_cstr_buf(key_out, buf_len, &found_k) } {
+        return false;
+    }
+    // SAFETY: slot valid until next mutation.
+    unsafe { put(value_out, *slot.as_ptr()) };
+    true
+}
+
+// ---------------------------------------------------------------------
 // Concurrent containers — one writer, lock-free readers
 // ---------------------------------------------------------------------
 
@@ -1059,6 +1330,72 @@ mod tests {
             assert_eq!(expanse_bytesmap_len(m), 0);
             assert_eq!(expanse_bytesmap_mem_used(m), 0);
             expanse_bytesmap_free(m);
+        }
+    }
+
+    #[test]
+    fn strmap_surface() {
+        // SAFETY: handles managed per the C contract throughout.
+        unsafe {
+            let m = expanse_strmap_new();
+            let k1 = c"apple".as_ptr();
+            let k2 = c"banana".as_ptr();
+            let k3 = c"cherry".as_ptr();
+            let mut old = 0u64;
+
+            assert!(expanse_strmap_insert(m, k1, 100, &raw mut old));
+            assert!(expanse_strmap_insert(m, k3, 300, null_mut()));
+            assert!(expanse_strmap_insert(m, k2, 200, null_mut()));
+            assert_eq!(expanse_strmap_len(m), 3);
+            assert!(expanse_strmap_mem_used(m) > 0);
+
+            // Re-insert updates and reports old value
+            assert!(!expanse_strmap_insert(m, k1, 105, &raw mut old));
+            assert_eq!(old, 100);
+
+            let mut v = 0u64;
+            assert!(expanse_strmap_get(m, k1, &raw mut v) && v == 105);
+            assert!(expanse_strmap_get(m, k2, &raw mut v) && v == 200);
+            assert!(!expanse_strmap_get(m, c"durian".as_ptr(), &raw mut v));
+
+            // Slot conventions
+            let slot = expanse_strmap_ins_slot(m, c"date".as_ptr());
+            assert!(!slot.is_null() && *slot == 0);
+            *slot = 400;
+            assert!(expanse_strmap_get(m, c"date".as_ptr(), &raw mut v) && v == 400);
+            let slot = expanse_strmap_slot(m, c"date".as_ptr());
+            assert_eq!(*slot, 400);
+            assert!(expanse_strmap_slot(m, c"fig".as_ptr()).is_null());
+
+            // Navigation
+            let mut buf = [0 as c_char; 64];
+            let mut val = 0u64;
+            assert!(expanse_strmap_first(m, buf.as_mut_ptr(), buf.len(), &raw mut val));
+            assert_eq!(CStr::from_ptr(buf.as_ptr()).to_bytes(), b"apple");
+            assert_eq!(val, 105);
+
+            assert!(expanse_strmap_last(m, buf.as_mut_ptr(), buf.len(), &raw mut val));
+            assert_eq!(CStr::from_ptr(buf.as_ptr()).to_bytes(), b"date");
+            assert_eq!(val, 400);
+
+            assert!(expanse_strmap_next_after(m, c"apple".as_ptr(), buf.as_mut_ptr(), buf.len(), &raw mut val));
+            assert_eq!(CStr::from_ptr(buf.as_ptr()).to_bytes(), b"banana");
+            assert_eq!(val, 200);
+
+            assert!(expanse_strmap_prev_before(m, c"cherry".as_ptr(), buf.as_mut_ptr(), buf.len(), &raw mut val));
+            assert_eq!(CStr::from_ptr(buf.as_ptr()).to_bytes(), b"banana");
+            assert_eq!(val, 200);
+
+            // Buffer too small returns false
+            let mut tiny_buf = [0 as c_char; 3];
+            assert!(!expanse_strmap_first(m, tiny_buf.as_mut_ptr(), tiny_buf.len(), &raw mut val));
+
+            assert!(expanse_strmap_remove(m, k1, &raw mut old) && old == 105);
+            assert_eq!(expanse_strmap_len(m), 3);
+            expanse_strmap_clear(m);
+            assert_eq!(expanse_strmap_len(m), 0);
+            assert_eq!(expanse_strmap_mem_used(m), 0);
+            expanse_strmap_free(m);
         }
     }
 

@@ -367,6 +367,14 @@ impl ExpanseStrMap {
         self.pop == 0
     }
 
+    /// Heap bytes used by the map (read-only accounting walk).
+    #[must_use]
+    pub fn mem_used(&self) -> usize {
+        self.root
+            .as_deref()
+            .map_or(0, |r| r.subtree_bytes() as usize)
+    }
+
     fn assert_key(key: &[u8]) {
         debug_assert!(!key.contains(&0), "keys are NUL-free byte strings");
     }
