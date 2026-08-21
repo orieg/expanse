@@ -517,18 +517,18 @@ pub(crate) unsafe fn search_fixed<const KB: usize>(
     pop: usize,
     key: Key,
 ) -> Option<usize> {
-    if KB == 1 && (13..=16).contains(&pop) {
-        // SAFETY: cap_class(pop >= 13) is 16, so keys holds at least 16 bytes.
-        unsafe { crate::bits::search_16_u8(keys, pop, key as u8) }
-    } else if KB == 1 && (5..=8).contains(&pop) {
-        // SAFETY: cap_class(pop >= 5) is 8, so keys holds at least 8 bytes.
-        unsafe { crate::bits::search_8_u8(keys, pop, key as u8) }
-    } else if KB == 2 && (5..=8).contains(&pop) {
-        // SAFETY: cap_class(5..=8) * 2 is 16, so keys holds at least 16 bytes.
-        unsafe { crate::bits::search_8_u16(keys, pop, key as u16) }
-    } else if KB == 4 && (3..=4).contains(&pop) {
-        // SAFETY: cap_class(3..=4) * 4 is 16, so keys holds at least 16 bytes.
-        unsafe { crate::bits::search_4_u32(keys, pop, key as u32) }
+    if KB == 1 && pop == 16 {
+        // SAFETY: pop is 16, so keys holds at least 16 bytes.
+        unsafe { crate::bits::search_16_u8(keys, 16, key as u8) }
+    } else if KB == 1 && pop == 8 {
+        // SAFETY: pop is 8, so keys holds at least 8 bytes.
+        unsafe { crate::bits::search_8_u8(keys, 8, key as u8) }
+    } else if KB == 2 && pop == 8 {
+        // SAFETY: pop is 8, so keys holds at least 16 bytes (8 * 2).
+        unsafe { crate::bits::search_8_u16(keys, 8, key as u16) }
+    } else if KB == 4 && pop == 4 {
+        // SAFETY: pop is 4, so keys holds at least 16 bytes (4 * 4).
+        unsafe { crate::bits::search_4_u32(keys, 4, key as u32) }
     } else if pop <= 4 {
         let needle = crate::mutate::key_low(key, KB as u8);
         if KB == 1 {
