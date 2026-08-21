@@ -22,7 +22,7 @@ use crate::mutate::{
     decode_value, divergence_level, downgrade_b_to_l7, downgrade_l7_to_l3, downgrade_u_to_b,
     immed_map_keys, key_low, linear_insert_slot, linear_remove_slot, map_immed_max, read_packed,
     restore_decode, split_skip, sub_edges_size, sub_vals_size, upgrade_b_to_u, upgrade_l3_to_l7,
-    upgrade_l7_to_b, wrap_skip_level, write_decode, write_packed,
+    upgrade_l7_to_b, wrap_skip_level, write_decode, write_packed, write_packed_fixed,
 };
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmapL};
 use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit};
@@ -88,15 +88,16 @@ fn write_map_immed(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)
     edge.set_tag(im.as_u8());
 }
 
-/// Fixed-capacity stack buffer for collecting small map leaf entries without heap allocation.
+/// Fixed-size stack buffer for collecting up to 32 map entries during node
+/// downgrades.
 pub(crate) struct StackEntries32 {
-    pub(crate) buf: [core::mem::MaybeUninit<(u64, u64)>; 32],
-    pub(crate) len: usize,
+    buf: [core::mem::MaybeUninit<(u64, u64)>; 32],
+    len: usize,
 }
 
 impl StackEntries32 {
     #[inline(always)]
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             buf: [core::mem::MaybeUninit::uninit(); 32],
             len: 0,
@@ -191,16 +192,72 @@ fn build_bitmap_leaf_map(a: &NodeAlloc, edge: &mut Edge, entries: &[(u64, u64)])
 fn build_map_leaf(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)]) {
     let pop = entries.len();
     let ptr = a.alloc_bytes(leaf::size_map(kb, pop));
-    for (slot, &(k, v)) in entries.iter().enumerate() {
-        // SAFETY: in-bounds writes of the fresh allocation.
-        unsafe {
-            ptr.as_ptr().cast::<u64>().add(slot).write(v);
-            write_packed(
-                ptr.as_ptr().add(leaf::map_keys_offset(pop)),
-                slot,
-                kb as usize,
-                k,
-            );
+    let vals = ptr.as_ptr().cast::<u64>();
+    // SAFETY: freshly allocated leaf buffer holds keys at map_keys_offset.
+    let keys = unsafe { ptr.as_ptr().add(leaf::map_keys_offset(pop)) };
+    match kb {
+        1 => {
+            for (slot, &(k, v)) in entries.iter().enumerate() {
+                // SAFETY: in-bounds writes of the fresh allocation.
+                unsafe {
+                    vals.add(slot).write(v);
+                    write_packed_fixed::<1>(keys, slot, k);
+                }
+            }
+        }
+        2 => {
+            for (slot, &(k, v)) in entries.iter().enumerate() {
+                // SAFETY: in-bounds writes of the fresh allocation.
+                unsafe {
+                    vals.add(slot).write(v);
+                    write_packed_fixed::<2>(keys, slot, k);
+                }
+            }
+        }
+        3 => {
+            for (slot, &(k, v)) in entries.iter().enumerate() {
+                // SAFETY: in-bounds writes of the fresh allocation.
+                unsafe {
+                    vals.add(slot).write(v);
+                    write_packed_fixed::<3>(keys, slot, k);
+                }
+            }
+        }
+        4 => {
+            for (slot, &(k, v)) in entries.iter().enumerate() {
+                // SAFETY: in-bounds writes of the fresh allocation.
+                unsafe {
+                    vals.add(slot).write(v);
+                    write_packed_fixed::<4>(keys, slot, k);
+                }
+            }
+        }
+        5 => {
+            for (slot, &(k, v)) in entries.iter().enumerate() {
+                // SAFETY: in-bounds writes of the fresh allocation.
+                unsafe {
+                    vals.add(slot).write(v);
+                    write_packed_fixed::<5>(keys, slot, k);
+                }
+            }
+        }
+        6 => {
+            for (slot, &(k, v)) in entries.iter().enumerate() {
+                // SAFETY: in-bounds writes of the fresh allocation.
+                unsafe {
+                    vals.add(slot).write(v);
+                    write_packed_fixed::<6>(keys, slot, k);
+                }
+            }
+        }
+        _ => {
+            for (slot, &(k, v)) in entries.iter().enumerate() {
+                // SAFETY: in-bounds writes of the fresh allocation.
+                unsafe {
+                    vals.add(slot).write(v);
+                    write_packed_fixed::<7>(keys, slot, k);
+                }
+            }
         }
     }
     let tag = match kb {
