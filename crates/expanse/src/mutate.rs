@@ -249,10 +249,6 @@ impl<T: Copy + Default> ImmedBuf<T> {
         self.len -= 1;
         v
     }
-
-    pub(crate) fn as_slice(&self) -> &[T] {
-        &self.buf[..self.len]
-    }
 }
 
 /// Read access to the populated prefix: indexing, `binary_search`,
