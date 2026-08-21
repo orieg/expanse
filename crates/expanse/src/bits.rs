@@ -543,12 +543,9 @@ impl Bitmap256 {
     #[inline(always)]
     #[must_use]
     pub const fn test(&self, idx: u8) -> bool {
-        let sub = (idx >> 5) as usize;
-        let bit = (idx & 31) as u32;
-        // SAFETY: `self.words` contains 4 `u64`s (32 bytes), aligned to 8 bytes.
-        // `sub < 8` accesses a valid `u32` within the 8 contiguous `u32` subwords.
-        let sub_word = unsafe { *self.words.as_ptr().cast::<u32>().add(sub) };
-        (sub_word & (1u32 << bit)) != 0
+        let w = (idx >> 6) as usize;
+        let bit = 1u64 << (idx & 63);
+        (self.words[w] & bit) != 0
     }
 
     /// Inserts `idx`; returns `true` if it was newly inserted.
