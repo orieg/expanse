@@ -55,27 +55,68 @@ pub const fn map_keys_offset(pop: usize) -> usize {
     8 * cap_class(pop)
 }
 
-/// Binary search over packed little-endian keys: first slot whose key is
-/// `>= needle` (`needle` already masked to `key_bytes`).
+
+/// Locates `needle` in a linear leaf's packed keys.
+/// Returns `Ok(pos)` if an exact match is found at `pos`.
+/// Returns `Err(pos)` if absent, where `pos` is the insertion index.
 ///
 /// # Safety
 ///
 /// `keys` must be valid for reads of `key_bytes * pop` bytes.
 #[inline]
-#[must_use]
-pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, needle: u64) -> usize {
+pub(crate) unsafe fn locate(
+    keys: *const u8,
+    pop: usize,
+    key_bytes: u8,
+    needle: u64,
+) -> Result<usize, usize> {
     debug_assert!((1..=7).contains(&key_bytes));
     // SAFETY: forwarded contract; each arm's KB equals `key_bytes`.
     unsafe {
         match key_bytes {
-            1 => lower_bound_fixed::<1>(keys, pop, needle),
-            2 => lower_bound_fixed::<2>(keys, pop, needle),
-            3 => lower_bound_fixed::<3>(keys, pop, needle),
-            4 => lower_bound_fixed::<4>(keys, pop, needle),
-            5 => lower_bound_fixed::<5>(keys, pop, needle),
-            6 => lower_bound_fixed::<6>(keys, pop, needle),
-            _ => lower_bound_fixed::<7>(keys, pop, needle),
+            1 => locate_fixed::<1>(keys, pop, needle),
+            2 => locate_fixed::<2>(keys, pop, needle),
+            3 => locate_fixed::<3>(keys, pop, needle),
+            4 => locate_fixed::<4>(keys, pop, needle),
+            5 => locate_fixed::<5>(keys, pop, needle),
+            6 => locate_fixed::<6>(keys, pop, needle),
+            _ => locate_fixed::<7>(keys, pop, needle),
         }
+    }
+}
+
+/// Locates `needle` at a compile-time key width.
+///
+/// # Safety
+///
+/// `keys` must be valid for reads of `KB * pop` bytes.
+#[inline(always)]
+unsafe fn locate_fixed<const KB: usize>(
+    keys: *const u8,
+    pop: usize,
+    needle: u64,
+) -> Result<usize, usize> {
+    if pop == 0 {
+        return Err(0);
+    }
+    // Fast path: appending to the end (the sequential / append insert pattern).
+    // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
+    let last = unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pop - 1) };
+    if needle > last {
+        return Err(pop);
+    }
+    if needle == last {
+        return Ok(pop - 1);
+    }
+
+    // Since needle < last, search in 0..pop - 1
+    // SAFETY: pop >= 2 per above checks, keys holds at least `pop * KB` bytes.
+    let pos = unsafe { lower_bound_fixed::<KB>(keys, pop - 1, needle) };
+    // SAFETY: pos <= pop - 1 < pop, so slot pos is always in-bounds.
+    if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pos) } == needle {
+        Ok(pos)
+    } else {
+        Err(pos)
     }
 }
 
@@ -538,6 +579,51 @@ mod tests {
             // SAFETY: same buffer.
             let got = unsafe { search(packed.as_ptr(), keys.len(), kb, with_garbage) };
             assert_eq!(got, Some(2), "kb={kb}: high bytes must be ignored");
+        }
+    }
+
+    #[test]
+    fn locate_all_key_sizes() {
+        for kb in 1u8..=7 {
+            let max_val = if kb >= 8 { u64::MAX } else { (1u64 << (8 * kb)) - 1 };
+            for count in 0..=20 {
+                let mut keys: Vec<u64> = (0..count)
+                    .map(|i| (i * 7 + 10) & max_val)
+                    .collect();
+                keys.sort_unstable();
+                keys.dedup();
+                let pop = keys.len();
+                let mut packed = Vec::new();
+                for k in &keys {
+                    packed.extend_from_slice(&k.to_le_bytes()[..kb as usize]);
+                }
+                // Pad to capacity class
+                let cap = cap_class(pop);
+                packed.resize(cap * kb as usize, 0);
+
+                let ptr = if packed.is_empty() {
+                    core::ptr::NonNull::<u8>::dangling().as_ptr()
+                } else {
+                    packed.as_ptr()
+                };
+
+                // Test existing keys
+                for (idx, &k) in keys.iter().enumerate() {
+                    // SAFETY: `ptr` holds at least `pop * kb` valid bytes.
+                    let res = unsafe { locate(ptr, pop, kb, k) };
+                    assert_eq!(res, Ok(idx), "kb={kb} pop={pop} key={k}");
+                }
+
+                // Test probe before, between, and after keys
+                let probes = [0, 5, 15, 50, 100, max_val];
+                for &needle in &probes {
+                    let needle = needle & max_val;
+                    // SAFETY: `ptr` holds at least `pop * kb` valid bytes.
+                    let res = unsafe { locate(ptr, pop, kb, needle) };
+                    let expected_idx = keys.binary_search(&needle);
+                    assert_eq!(res, expected_idx, "kb={kb} pop={pop} probe={needle}");
+                }
+            }
         }
     }
 

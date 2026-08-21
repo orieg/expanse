@@ -628,24 +628,10 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 }
                 let k = key_low(key, kb);
                 let base = edge.node_ptr();
-                let pos = if pop > 0 {
-                    // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
-                    let last = unsafe { read_packed(base, pop - 1, kb as usize) };
-                    if k > last {
-                        pop
-                    } else if k == last {
-                        return false;
-                    } else {
-                        // SAFETY: live leaf of `pop` keys per contract.
-                        let p = unsafe { leaf::lower_bound(base, pop, kb, k) };
-                        // SAFETY: p < pop is in bounds.
-                        if p < pop && unsafe { read_packed(base, p, kb as usize) } == k {
-                            return false;
-                        }
-                        p
-                    }
-                } else {
-                    0
+                // SAFETY: live leaf of `pop` keys per contract.
+                let pos = match unsafe { leaf::locate(base, pop, kb, k) } {
+                    Ok(_) => return false, // already present
+                    Err(p) => p,
                 };
                 let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
                 if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
@@ -1200,11 +1186,10 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             a.assert_bracketed();
             let base = edge.node_ptr();
             // SAFETY: live leaf of `pop` keys per contract.
-            let pos = unsafe { leaf::lower_bound(base, pop, kb, k) };
-            // SAFETY: pos < pop is in bounds.
-            if pos == pop || unsafe { read_packed(base, pos, kb as usize) } != k {
-                return false;
-            }
+            let pos = match unsafe { leaf::locate(base, pop, kb, k) } {
+                Ok(pos) => pos,
+                Err(_) => return false,
+            };
             if pop > ImmedType::max_count(level) as usize
                 && leaf::cap_class(pop - 1) == leaf::cap_class(pop)
             {
