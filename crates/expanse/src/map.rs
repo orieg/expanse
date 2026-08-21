@@ -160,7 +160,41 @@ impl ExpanseMap {
             }
             // SAFETY: trie maintained/owned by this map's engine; the
             // raw walk derives the slot from node pointers only.
-            Root::Tree { top, .. } => unsafe { crate::get::locate_slot(&raw mut *top, key, 8) },
+            Root::Tree { top, .. } => {
+                let prefix = key >> 8;
+                if self.path.prefix == prefix {
+                    if !self.path.leaf.is_null() {
+                        let d = (key & 0xFF) as u8;
+                        // SAFETY: path holds valid live LeafBitmapL pointer.
+                        let node = unsafe { &*self.path.leaf };
+                        let sub = (d >> 5) as usize;
+                        if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
+                            // SAFETY: sub < 8 accesses valid subarray; rank is in bounds.
+                            let slot = unsafe { (*node.values.as_ptr().add(sub)).add(rank) };
+                            return core::ptr::NonNull::new(slot);
+                        }
+                        return None;
+                    } else if !self.path.leaf1.is_null() {
+                        let d = (key & 0xFF) as u8;
+                        let cur_pop = self.path.terminal_pop as usize;
+                        let base = self.path.leaf1;
+                        // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
+                        let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
+                        // SAFETY: keys_ptr holds cur_pop 1-byte keys.
+                        let slot =
+                            unsafe { crate::leaf::search_fixed::<1>(keys_ptr, cur_pop, d as u64) };
+                        if let Some(slot) = slot {
+                            // SAFETY: slot < cur_pop values live behind keys.
+                            return core::ptr::NonNull::new(unsafe {
+                                base.cast::<u64>().add(slot)
+                            });
+                        }
+                        return None;
+                    }
+                }
+                // SAFETY: top is live valid tree root pointer.
+                unsafe { crate::get::locate_slot(&raw mut *top, key, 8) }
+            }
         }
     }
 
