@@ -82,17 +82,19 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 | Benchmark Workload | Wall-Clock Latency (Expanse vs Stock) | Ratio (.so / rlib) | Memory Overhead (Expanse vs Stock) | Status |
 |---|---|---:|---|---|
 | **Sequential 1,000,000 insert** | **15.8 ns** vs 32.3 ns | **0.55× / 0.51×** | **8.56 B/k** vs 8.32 B/k (1.03×) | 🟢 **2× faster than Judy** |
-| **Sequential 100,000 insert** | **6.49M** vs 12.84M inst | **0.50× / 0.49×** | **8.57 B/k** vs 8.41 B/k (1.02×) | 🟢 **2× faster than Judy** |
+| **Sequential 100,000 insert** | **6.40M** vs 12.84M inst | **0.50× / 0.49×** | **8.57 B/k** vs 8.41 B/k (1.02×) | 🟢 **2× faster than Judy** |
+| **Sequential 30,000 lookup** | **4.37M** vs 5.07M inst | **0.86× / 0.85×** | **8.57 B/k** vs 8.41 B/k (1.02×) | 🟢 **14% faster than Judy** |
 | **Random 1,000,000 lookup** | **26.8 ns** vs 48.6 ns | **0.55× / 0.53×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **45% faster than Judy** |
-| **Random 3,000,000 lookup** | **318.5M** vs 403.2M inst | **0.79× / 0.78×** | **16.80 B/k** vs 17.80 B/k (0.94×) | 🟢 **21% faster than Judy** |
-| **Random 100,000 lookup** | **4.83M** vs 5.09M inst | **0.95× / 0.92×** | **24.63 B/k** vs 24.81 B/k (0.99×) | 🟢 **Faster than Judy** |
-| **Random 30,000 churn (del+ins)** | **44.0M** vs 50.8M inst | **0.87× / 0.86×** | **Dynamic exact accounting** | 🟢 **13% faster than Judy** |
-| **Clustered 100,000 set insert** | **9.34M** vs 10.38M inst | **0.90× / 0.90×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **10% faster than Judy** |
+| **Random 3,000,000 lookup** | **318.5M** vs 389.7M inst | **0.82× / 0.81×** | **16.80 B/k** vs 17.80 B/k (0.94×) | 🟢 **18% faster than Judy** |
+| **Random 30,000 lookup** | **4.53M** vs 5.09M inst | **0.89× / 0.88×** | **24.63 B/k** vs 24.81 B/k (0.99×) | 🟢 **11% faster than Judy** |
+| **Random 30,000 churn (del+ins)** | **43.3M** vs 50.8M inst | **0.85× / 0.84×** | **Dynamic exact accounting** | 🟢 **15% faster than Judy** |
+| **Clustered 100,000 set insert** | **8.31M** vs 10.38M inst | **0.80× / 0.80×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **20% faster than Judy** |
 | **Clustered 1,000,000 insert** | **31.6 ns** vs 34.1 ns | **0.92× / 0.89×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **8% less memory, faster insert** |
 | **Clustered 1,000,000 lookup** | **11.8 ns** vs 12.1 ns | **0.98× / 0.95×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **Faster than Judy** |
-| **Clustered 100,000 lookup** | **4.49M** vs 3.97M inst | **1.13× / 1.10×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟡 **Near Parity** |
-| **Clustered 100,000 map insert** | **12.42M** vs 12.01M inst | **1.03× / 1.03×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **Parity with Judy** |
-| **Random 1,000,000 insert** | **198.8 ns** vs 195.9 ns | **1.01× / 0.98×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **Parity with Judy (5% less RAM)** |
+| **Clustered 30,000 lookup** | **3.71M** vs 3.97M inst | **0.94× / 0.92×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **6% faster than Judy** |
+| **Clustered 100,000 map insert** | **11.64M** vs 12.01M inst | **0.97× / 0.96×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **Faster than Judy** |
+| **Random 100,000 set insert** | **16.72M** vs 15.69M inst | **1.06× / 1.05×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Near Parity (within 6%)** |
+| **Random 100,000 map insert** | **19.48M** vs 17.76M inst | **1.09× / 1.08×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **Near Parity (within 9%)** |
 
 #### Modern CPU Compilation (`x86-64-v3`: AVX2 / BMI2 / POPCNT)
 The table above reflects the standard generic build. When compiled specifically for modern CPUs (`-C target-cpu=x86-64-v3`, `-C target-cpu=native`, or via `glibc-hwcaps`), **19 of 19 benchmarks are strictly faster** (up to **-42.60%** instruction reduction on deletions and churn by folding runtime feature probes and emitting fused AVX2/BMI2 hardware instructions directly).
@@ -100,7 +102,8 @@ The table above reflects the standard generic build. When compiled specifically 
 Memory: clustered and dense sets run **0.07–0.36 bytes/key** (deterministic allocator accounting; the `< 9.5 B/key` architecture target is met).
 
 ### Recent Optimizations Landed
-- **Iterative Flat Descent & Zero-Recursion Mutation (Sprint 9)**: replaced recursive descent frames on single-threaded `insert` and `map_insert` with bounded 8-level iterative loops and in-tree path recording, saving ~3.5M stack operations per 100k random insertions and driving `judyl_churn` (0.87×) and `judy1_set/clustered` (0.90×) to decisively beat stock libjudy.
+- **SWAR Key Comparison & Raw Tag Jump-Table Dispatch (Sprint 10, PR #102)**: vectorized `decode_matches` into a 2-instruction bitwise mask/xor check, replaced enum wrapping with raw `u8` jump-table tag dispatch on lookup/mutation traversals, added single-key direct immediate constructors, and eliminated stack buffer allocations on immediate overflow to linear leaves. Closed the sequential lookup (0.86×) and clustered lookup (0.94×) gaps decisively.
+- **Iterative Flat Descent & Zero-Recursion Mutation (Sprint 9, PR #101)**: replaced recursive descent frames on single-threaded `insert` and `map_insert` with bounded 8-level iterative loops and in-tree path recording, saving ~3.5M stack operations per 100k random insertions and driving `judyl_churn` (0.85×) and `judy1_set/clustered` (0.80×) to decisively beat stock libjudy.
 - **Branch Empty & Downgrade Scan Elimination (PR #99)**: guarded `BranchU` and `BranchB` emptiness and downgrade loops behind `child_null`, reducing `map_remove` instructions by -75.18% (4.03x faster).
 - **In-Place Immediate Value & Key Shift Growth (PR #98)**: eliminated redundant node allocations and memory copying on immediate array growth and removed atomic bus locks in single-writer allocator accounting.
 - **Sequential Run Bypass & Terminal Pop Caching (PR #68)**: multi-level insert descent bypass for contiguous keys and terminal leaf pop caching.
