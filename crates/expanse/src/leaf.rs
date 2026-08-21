@@ -108,11 +108,10 @@ unsafe fn locate_fixed<const KB: usize>(
         return Ok(pop - 1);
     }
 
-    // Since needle < last, search in 0..pop - 1
-    // SAFETY: pop >= 2 per above checks, keys holds at least `pop * KB` bytes.
-    let pos = unsafe { lower_bound_fixed::<KB>(keys, pop - 1, needle) };
-    // SAFETY: pos <= pop - 1 < pop, so slot pos is always in-bounds.
-    if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pos) } == needle {
+    // SAFETY: keys holds at least `pop * KB` bytes.
+    let pos = unsafe { lower_bound_fixed::<KB>(keys, pop, needle) };
+    // SAFETY: pos < pop because needle < last.
+    if pos < pop && unsafe { crate::mutate::read_packed_fixed::<KB>(keys, pos) } == needle {
         Ok(pos)
     } else {
         Err(pos)
