@@ -228,59 +228,15 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 // SAFETY: set leaves are `pop * 1` readable key bytes.
                 return (unsafe { leaf::search_fixed::<1>(base, pop, key) }).is_some();
             }
-            0x06 => {
-                if level > 2 && !decode_matches(edge, key, 2, level) {
+            0x06..=0x0B => {
+                let lf = tag - 0x04;
+                if level > lf && !decode_matches(edge, key, lf, level) {
                     return false;
                 }
-                let pop = edge.pop0(2) as usize + 1;
+                let pop = edge.pop0(lf) as usize + 1;
                 let base = edge.node_ptr();
-                // SAFETY: set leaves are `pop * 2` readable key bytes.
-                return (unsafe { leaf::search_fixed::<2>(base, pop, key) }).is_some();
-            }
-            0x07 => {
-                if level > 3 && !decode_matches(edge, key, 3, level) {
-                    return false;
-                }
-                let pop = edge.pop0(3) as usize + 1;
-                let base = edge.node_ptr();
-                // SAFETY: set leaves are `pop * 3` readable key bytes.
-                return (unsafe { leaf::search_fixed::<3>(base, pop, key) }).is_some();
-            }
-            0x08 => {
-                if level > 4 && !decode_matches(edge, key, 4, level) {
-                    return false;
-                }
-                let pop = edge.pop0(4) as usize + 1;
-                let base = edge.node_ptr();
-                // SAFETY: set leaves are `pop * 4` readable key bytes.
-                return (unsafe { leaf::search_fixed::<4>(base, pop, key) }).is_some();
-            }
-            0x09 => {
-                if level > 5 && !decode_matches(edge, key, 5, level) {
-                    return false;
-                }
-                let pop = edge.pop0(5) as usize + 1;
-                let base = edge.node_ptr();
-                // SAFETY: set leaves are `pop * 5` readable key bytes.
-                return (unsafe { leaf::search_fixed::<5>(base, pop, key) }).is_some();
-            }
-            0x0A => {
-                if level > 6 && !decode_matches(edge, key, 6, level) {
-                    return false;
-                }
-                let pop = edge.pop0(6) as usize + 1;
-                let base = edge.node_ptr();
-                // SAFETY: set leaves are `pop * 6` readable key bytes.
-                return (unsafe { leaf::search_fixed::<6>(base, pop, key) }).is_some();
-            }
-            0x0B => {
-                if level > 7 && !decode_matches(edge, key, 7, level) {
-                    return false;
-                }
-                let pop = edge.pop0(7) as usize + 1;
-                let base = edge.node_ptr();
-                // SAFETY: set leaves are `pop * 7` readable key bytes.
-                return (unsafe { leaf::search_fixed::<7>(base, pop, key) }).is_some();
+                // SAFETY: set leaves are `pop * lf` readable key bytes.
+                return (unsafe { leaf::search(base, pop, lf, key) }).is_some();
             }
 
             0x7F => {
@@ -415,81 +371,17 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 // SAFETY: slot < pop values live at the base.
                 return Some(unsafe { *base.cast::<u64>().add(slot) });
             }
-            0x06 => {
-                if level > 2 && !decode_matches(edge, key, 2, level) {
+            0x06..=0x0B => {
+                let lf = tag - 0x04;
+                if level > lf && !decode_matches(edge, key, lf, level) {
                     return None;
                 }
-                let pop = edge.pop0(2) as usize + 1;
+                let pop = edge.pop0(lf) as usize + 1;
                 let base = edge.node_ptr();
                 // SAFETY: map leaves are one live allocation of `pop` values followed by the packed keys.
                 let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
-                // SAFETY: keys spans pop * 2 readable bytes.
-                let slot = (unsafe { leaf::search_fixed::<2>(keys, pop, key) })?;
-                // SAFETY: slot < pop values live at the base.
-                return Some(unsafe { *base.cast::<u64>().add(slot) });
-            }
-            0x07 => {
-                if level > 3 && !decode_matches(edge, key, 3, level) {
-                    return None;
-                }
-                let pop = edge.pop0(3) as usize + 1;
-                let base = edge.node_ptr();
-                // SAFETY: map leaves are one live allocation of `pop` values followed by the packed keys.
-                let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
-                // SAFETY: keys spans pop * 3 readable bytes.
-                let slot = (unsafe { leaf::search_fixed::<3>(keys, pop, key) })?;
-                // SAFETY: slot < pop values live at the base.
-                return Some(unsafe { *base.cast::<u64>().add(slot) });
-            }
-            0x08 => {
-                if level > 4 && !decode_matches(edge, key, 4, level) {
-                    return None;
-                }
-                let pop = edge.pop0(4) as usize + 1;
-                let base = edge.node_ptr();
-                // SAFETY: map leaves are one live allocation of `pop` values followed by the packed keys.
-                let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
-                // SAFETY: keys spans pop * 4 readable bytes.
-                let slot = (unsafe { leaf::search_fixed::<4>(keys, pop, key) })?;
-                // SAFETY: slot < pop values live at the base.
-                return Some(unsafe { *base.cast::<u64>().add(slot) });
-            }
-            0x09 => {
-                if level > 5 && !decode_matches(edge, key, 5, level) {
-                    return None;
-                }
-                let pop = edge.pop0(5) as usize + 1;
-                let base = edge.node_ptr();
-                // SAFETY: map leaves are one live allocation of `pop` values followed by the packed keys.
-                let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
-                // SAFETY: keys spans pop * 5 readable bytes.
-                let slot = (unsafe { leaf::search_fixed::<5>(keys, pop, key) })?;
-                // SAFETY: slot < pop values live at the base.
-                return Some(unsafe { *base.cast::<u64>().add(slot) });
-            }
-            0x0A => {
-                if level > 6 && !decode_matches(edge, key, 6, level) {
-                    return None;
-                }
-                let pop = edge.pop0(6) as usize + 1;
-                let base = edge.node_ptr();
-                // SAFETY: map leaves are one live allocation of `pop` values followed by the packed keys.
-                let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
-                // SAFETY: keys spans pop * 6 readable bytes.
-                let slot = (unsafe { leaf::search_fixed::<6>(keys, pop, key) })?;
-                // SAFETY: slot < pop values live at the base.
-                return Some(unsafe { *base.cast::<u64>().add(slot) });
-            }
-            0x0B => {
-                if level > 7 && !decode_matches(edge, key, 7, level) {
-                    return None;
-                }
-                let pop = edge.pop0(7) as usize + 1;
-                let base = edge.node_ptr();
-                // SAFETY: map leaves are one live allocation of `pop` values followed by the packed keys.
-                let keys = unsafe { base.add(leaf::map_keys_offset(pop)) };
-                // SAFETY: keys spans pop * 7 readable bytes.
-                let slot = (unsafe { leaf::search_fixed::<7>(keys, pop, key) })?;
+                // SAFETY: keys spans pop * lf readable bytes.
+                let slot = (unsafe { leaf::search(keys, pop, lf, key) })?;
                 // SAFETY: slot < pop values live at the base.
                 return Some(unsafe { *base.cast::<u64>().add(slot) });
             }

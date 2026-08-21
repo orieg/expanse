@@ -138,7 +138,9 @@ impl ExpanseSet {
     pub fn contains_c_int(&self, key: Key) -> core::ffi::c_int {
         match &self.root {
             Root::Empty => 0,
-            Root::Leaf { .. } => self.root_leaf_keys().binary_search(&key).is_ok() as core::ffi::c_int,
+            Root::Leaf { .. } => {
+                self.root_leaf_keys().binary_search(&key).is_ok() as core::ffi::c_int
+            }
             // SAFETY: the trie is maintained by the mutation engine and satisfies the lookup contract.
             Root::Tree { top, .. } => unsafe { get::test_set_c_int(top, key, 8) },
         }
