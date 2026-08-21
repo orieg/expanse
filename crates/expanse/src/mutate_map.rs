@@ -580,6 +580,16 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                             let prefix_key = entries[0].0;
                             build_bitmap_leaf_map(a, edge, &low);
                             write_decode(edge, 1, level, prefix_key);
+                            if level == 1 {
+                                path.prefix = key >> 8;
+                                path.leaf = edge.node_ptr().cast::<LeafBitmapL>();
+                                path.leaf1 = core::ptr::null_mut();
+                                path.terminal_pop = entries.len() as u16;
+                                path.edges[0] = edge as *mut Edge;
+                                path.levels[0] = 1;
+                                path.depth = 1;
+                                path.pending_pop = 0;
+                            }
                         } else {
                             // Cascade: an empty branch at the divergence level
                             // (a narrow pointer when that sits below the slot;
@@ -689,6 +699,7 @@ pub(crate) unsafe fn map_insert_with_path<const KEEP: bool, const OCC: bool>(
                     path.prefix = key >> 8;
                     path.leaf = edge.node_ptr().cast::<LeafBitmapL>();
                     path.leaf1 = core::ptr::null_mut();
+                    path.terminal_pop = (pop0 + 2) as u16;
                     path.edges[0] = edge as *mut Edge;
                     path.levels[0] = 1;
                     path.depth = 1;

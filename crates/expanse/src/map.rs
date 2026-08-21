@@ -218,10 +218,11 @@ impl ExpanseMap {
                     }
                     node.bitmap.set(d);
                     self.path.pending_pop += 1;
+                    self.path.terminal_pop += 1;
                     *pop += 1;
                     // SAFETY: keep terminal edge pop0 up to date.
                     unsafe {
-                        (*self.path.edges[0]).set_pop0(1, (node.bitmap.count() - 1) as u64);
+                        (*self.path.edges[0]).set_pop0(1, (self.path.terminal_pop - 1) as u64);
                     }
                     // SAFETY: freshly inserted slot.
                     let slot = unsafe { node.values[sub].add(rank) };
@@ -469,10 +470,11 @@ impl ExpanseMap {
                         }
                         node.bitmap.set(d);
                         self.path.pending_pop += 1;
+                        self.path.terminal_pop += 1;
                         *pop += 1;
                         // SAFETY: keep terminal edge pop0 up to date.
                         unsafe {
-                            (*self.path.edges[0]).set_pop0(1, (node.bitmap.count() - 1) as u64);
+                            (*self.path.edges[0]).set_pop0(1, (self.path.terminal_pop - 1) as u64);
                         }
                         return None;
                     } else if !self.path.leaf1.is_null() {

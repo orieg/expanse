@@ -759,6 +759,16 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                         *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
                         edge.set_pop0(1, keys.len() as u64 - 1);
                         write_decode(edge, 1, level, keys[0]);
+                        if level == 1 {
+                            path.prefix = key >> 8;
+                            path.leaf = ptr.as_ptr();
+                            path.leaf1 = core::ptr::null_mut();
+                            path.terminal_pop = keys.len() as u16;
+                            path.edges[0] = edge as *mut Edge;
+                            path.levels[0] = 1;
+                            path.depth = 1;
+                            path.pending_pop = 0;
+                        }
                     } else {
                         // Cascade: an empty branch at the divergence level (a
                         // narrow pointer when that sits below the slot; the
