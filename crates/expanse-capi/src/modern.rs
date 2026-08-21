@@ -1370,25 +1370,52 @@ mod tests {
             // Navigation
             let mut buf = [0 as c_char; 64];
             let mut val = 0u64;
-            assert!(expanse_strmap_first(m, buf.as_mut_ptr(), buf.len(), &raw mut val));
+            assert!(expanse_strmap_first(
+                m,
+                buf.as_mut_ptr(),
+                buf.len(),
+                &raw mut val
+            ));
             assert_eq!(CStr::from_ptr(buf.as_ptr()).to_bytes(), b"apple");
             assert_eq!(val, 105);
 
-            assert!(expanse_strmap_last(m, buf.as_mut_ptr(), buf.len(), &raw mut val));
+            assert!(expanse_strmap_last(
+                m,
+                buf.as_mut_ptr(),
+                buf.len(),
+                &raw mut val
+            ));
             assert_eq!(CStr::from_ptr(buf.as_ptr()).to_bytes(), b"date");
             assert_eq!(val, 400);
 
-            assert!(expanse_strmap_next_after(m, c"apple".as_ptr(), buf.as_mut_ptr(), buf.len(), &raw mut val));
+            assert!(expanse_strmap_next_after(
+                m,
+                c"apple".as_ptr(),
+                buf.as_mut_ptr(),
+                buf.len(),
+                &raw mut val
+            ));
             assert_eq!(CStr::from_ptr(buf.as_ptr()).to_bytes(), b"banana");
             assert_eq!(val, 200);
 
-            assert!(expanse_strmap_prev_before(m, c"cherry".as_ptr(), buf.as_mut_ptr(), buf.len(), &raw mut val));
+            assert!(expanse_strmap_prev_before(
+                m,
+                c"cherry".as_ptr(),
+                buf.as_mut_ptr(),
+                buf.len(),
+                &raw mut val
+            ));
             assert_eq!(CStr::from_ptr(buf.as_ptr()).to_bytes(), b"banana");
             assert_eq!(val, 200);
 
             // Buffer too small returns false
             let mut tiny_buf = [0 as c_char; 3];
-            assert!(!expanse_strmap_first(m, tiny_buf.as_mut_ptr(), tiny_buf.len(), &raw mut val));
+            assert!(!expanse_strmap_first(
+                m,
+                tiny_buf.as_mut_ptr(),
+                tiny_buf.len(),
+                &raw mut val
+            ));
 
             assert!(expanse_strmap_remove(m, k1, &raw mut old) && old == 105);
             assert_eq!(expanse_strmap_len(m), 3);

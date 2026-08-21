@@ -390,6 +390,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --depth=1 origin "${{ github.base_ref }}"
             DIFF=$(git diff --name-only FETCH_HEAD HEAD)
             PERF_DIFF=$(echo "$DIFF" | grep -E '^crates/|^scripts/perf_report\.py|^Cargo\.(toml|lock)|^rust-toolchain' || true)
             if [ -z "$PERF_DIFF" ]; then
