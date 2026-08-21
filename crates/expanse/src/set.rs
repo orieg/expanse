@@ -119,7 +119,25 @@ impl ExpanseSet {
             Root::Leaf { .. } => self.root_leaf_keys().binary_search(&key).is_ok(),
             // SAFETY: the trie is maintained by the mutation engine and
             // satisfies the lookup contract.
-            Root::Tree { top, .. } => unsafe { get::test_set(top, key, 8) },
+            Root::Tree { top, .. } => {
+                let prefix = key >> 8;
+                if self.path.prefix == prefix {
+                    if !self.path.leaf.is_null() {
+                        let d = (key & 0xFF) as u8;
+                        // SAFETY: path holds valid live LeafBitmap1 pointer.
+                        let leaf = unsafe { &*self.path.leaf };
+                        return leaf.bitmap.test(d);
+                    } else if !self.path.leaf1.is_null() {
+                        let d = (key & 0xFF) as u8;
+                        let cur_pop = self.path.terminal_pop as usize;
+                        let base = self.path.leaf1;
+                        // SAFETY: base points to a live Leaf1 allocation holding `cur_pop` keys.
+                        return unsafe { crate::leaf::search(base, cur_pop, 1, d as u64).is_some() };
+                    }
+                }
+                // SAFETY: the trie is maintained by the mutation engine and satisfies the lookup contract.
+                unsafe { get::test_set(top, key, 8) }
+            }
         }
     }
 
@@ -210,30 +228,53 @@ impl ExpanseSet {
             }
             Root::Tree { top, pop } => {
                 let prefix = key >> 8;
-                if self.path.prefix == prefix && !self.path.leaf.is_null() {
-                    let d = (key & 0xFF) as u8;
-                    // SAFETY: path holds valid live LeafBitmap1 pointer.
-                    let leaf = unsafe { &mut *self.path.leaf };
-                    if leaf.bitmap.set(d) {
-                        self.path.pending_pop += 1;
-                        self.path.terminal_pop += 1;
-                        if self.path.terminal_pop == 256 {
-                            // SAFETY: terminal edge is valid and rewritten to FullExpanse.
-                            unsafe {
-                                self.path.flush();
-                                let ptr = core::ptr::NonNull::new(leaf);
-                                self.alloc.free_node(ptr.expect("leaf ptr"));
-                                let terminal_edge = &mut *self.path.edges[0];
-                                *terminal_edge = Edge::NULL;
-                                terminal_edge.set_tag(crate::types::EdgeType::FullExpanse.as_u8());
-                                terminal_edge.set_pop0(1, 255);
-                                self.path.clear();
+                if self.path.prefix == prefix {
+                    if !self.path.leaf.is_null() {
+                        let d = (key & 0xFF) as u8;
+                        // SAFETY: path holds valid live LeafBitmap1 pointer.
+                        let leaf = unsafe { &mut *self.path.leaf };
+                        if leaf.bitmap.set(d) {
+                            self.path.pending_pop += 1;
+                            self.path.terminal_pop += 1;
+                            if self.path.terminal_pop == 256 {
+                                // SAFETY: terminal edge is valid and rewritten to FullExpanse.
+                                unsafe {
+                                    self.path.flush();
+                                    let ptr = core::ptr::NonNull::new(leaf);
+                                    self.alloc.free_node(ptr.expect("leaf ptr"));
+                                    let terminal_edge = &mut *self.path.edges[0];
+                                    *terminal_edge = Edge::NULL;
+                                    terminal_edge.set_tag(crate::types::EdgeType::FullExpanse.as_u8());
+                                    terminal_edge.set_pop0(1, 255);
+                                    self.path.clear();
+                                }
                             }
+                            *pop += 1;
+                            return true;
+                        } else {
+                            return false;
                         }
-                        *pop += 1;
-                        return true;
-                    } else {
-                        return false;
+                    } else if !self.path.leaf1.is_null() {
+                        let d = (key & 0xFF) as u8;
+                        let cur_pop = self.path.terminal_pop as usize;
+                        // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
+                        let last = unsafe { *self.path.leaf1.add(cur_pop - 1) };
+                        if d > last {
+                            if cur_pop < crate::mutate::LEAF1_CAP
+                                && crate::leaf::cap_class(cur_pop + 1) == crate::leaf::cap_class(cur_pop)
+                            {
+                                // SAFETY: spare class capacity in the live Leaf1 allocation.
+                                unsafe {
+                                    *self.path.leaf1.add(cur_pop) = d;
+                                }
+                                self.path.terminal_pop += 1;
+                                self.path.pending_pop += 1;
+                                *pop += 1;
+                                return true;
+                            }
+                        } else if d == last {
+                            return false;
+                        }
                     }
                 }
                 self.path.clear();
@@ -1153,5 +1194,27 @@ mod tests {
         // Validation performs full recursive pop0 check at all tree levels
         set.validate();
         assert_eq!(set.len(), 2000);
+    }
+
+    #[test]
+    fn test_sequential_linear_leaf_cursor_bypass_and_upgrade() {
+        let mut set = ExpanseSet::new();
+        // Push 1000 sequential items across many linear leaves and bitmap upgrades
+        for i in 0..1000u64 {
+            assert!(set.insert(i));
+            assert!(set.contains(i));
+            assert_eq!(set.len(), i + 1);
+        }
+        set.validate();
+        for i in 0..1000u64 {
+            assert!(set.contains(i));
+        }
+        for i in 0..1000u64 {
+            assert!(set.remove(i));
+            assert!(!set.contains(i));
+        }
+        set.validate();
+        assert!(set.is_empty());
+        assert_eq!(set.mem_used(), 0);
     }
 }
