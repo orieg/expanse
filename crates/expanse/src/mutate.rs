@@ -461,7 +461,7 @@ impl InsertPath {
         if self.pending_pop > 0 {
             let delta = self.pending_pop as i64;
             self.pending_pop = 0;
-            for i in 0..self.depth {
+            for i in 1..self.depth {
                 // SAFETY: path contains valid live edge pointers during active bypass.
                 unsafe {
                     bump_pop0(&mut *self.edges[i], self.levels[i], delta);

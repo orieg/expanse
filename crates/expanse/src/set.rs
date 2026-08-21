@@ -119,27 +119,7 @@ impl ExpanseSet {
             Root::Leaf { .. } => self.root_leaf_keys().binary_search(&key).is_ok(),
             // SAFETY: the trie is maintained by the mutation engine and
             // satisfies the lookup contract.
-            Root::Tree { top, .. } => {
-                let prefix = key >> 8;
-                if self.path.prefix == prefix {
-                    if !self.path.leaf.is_null() {
-                        let d = (key & 0xFF) as u8;
-                        // SAFETY: path holds valid live LeafBitmap1 pointer.
-                        let leaf = unsafe { &*self.path.leaf };
-                        return leaf.bitmap.test(d);
-                    } else if !self.path.leaf1.is_null() {
-                        let d = (key & 0xFF) as u8;
-                        let cur_pop = self.path.terminal_pop as usize;
-                        let base = self.path.leaf1;
-                        // SAFETY: base points to a live Leaf1 allocation holding `cur_pop` keys.
-                        return unsafe {
-                            crate::leaf::search(base, cur_pop, 1, d as u64).is_some()
-                        };
-                    }
-                }
-                // SAFETY: the trie is maintained by the mutation engine and satisfies the lookup contract.
-                unsafe { get::test_set(top, key, 8) }
-            }
+            Root::Tree { top, .. } => unsafe { get::test_set(top, key, 8) },
         }
     }
 
@@ -238,6 +218,11 @@ impl ExpanseSet {
                         if leaf.bitmap.set(d) {
                             self.path.pending_pop += 1;
                             self.path.terminal_pop += 1;
+                            // SAFETY: keep terminal edge pop0 up to date.
+                            unsafe {
+                                (*self.path.edges[0])
+                                    .set_pop0(1, (self.path.terminal_pop - 1) as u64);
+                            }
                             if self.path.terminal_pop == 256 {
                                 // SAFETY: terminal edge is valid and rewritten to FullExpanse.
                                 unsafe {
@@ -270,6 +255,7 @@ impl ExpanseSet {
                                 // SAFETY: spare class capacity in the live Leaf1 allocation.
                                 unsafe {
                                     *self.path.leaf1.add(cur_pop) = d;
+                                    (*self.path.edges[0]).set_pop0(1, cur_pop as u64);
                                 }
                                 self.path.terminal_pop += 1;
                                 self.path.pending_pop += 1;

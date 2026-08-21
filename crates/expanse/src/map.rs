@@ -139,38 +139,7 @@ impl ExpanseMap {
             }
             // SAFETY: the trie is maintained by the map mutation engine
             // and satisfies the lookup contract.
-            Root::Tree { top, .. } => {
-                let prefix = key >> 8;
-                if self.path.prefix == prefix {
-                    if !self.path.leaf.is_null() {
-                        let d = (key & 0xFF) as u8;
-                        // SAFETY: path holds valid live LeafBitmapL pointer.
-                        let node = unsafe { &*self.path.leaf };
-                        if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
-                            let sub = (d >> 5) as usize;
-                            let vals = node.values[sub];
-                            if !vals.is_null() {
-                                // SAFETY: the bit is set, so the subarray holds at least `rank + 1` values.
-                                return Some(unsafe { *vals.add(rank) });
-                            }
-                        }
-                    } else if !self.path.leaf1.is_null() {
-                        let d = (key & 0xFF) as u8;
-                        let cur_pop = self.path.terminal_pop as usize;
-                        let base = self.path.leaf1;
-                        // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
-                        let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
-                        // SAFETY: keys_ptr holds `cur_pop` 1-byte keys.
-                        let loc = unsafe { crate::leaf::locate(keys_ptr, cur_pop, 1, d as u64) };
-                        if let Ok(pos) = loc {
-                            // SAFETY: pos < cur_pop is in-bounds of the live value area.
-                            return Some(unsafe { *base.cast::<u64>().add(pos) });
-                        }
-                    }
-                }
-                // SAFETY: the trie is maintained by the map mutation engine and satisfies the lookup contract.
-                unsafe { get::get_map(top, key, 8) }
-            }
+            Root::Tree { top, .. } => unsafe { get::get_map(top, key, 8) },
         }
     }
 
@@ -189,39 +158,9 @@ impl ExpanseMap {
                 // SAFETY: `at < pop` values live behind the keys.
                 core::ptr::NonNull::new(unsafe { vals.add(at) })
             }
-            Root::Tree { top, .. } => {
-                let prefix = key >> 8;
-                if self.path.prefix == prefix {
-                    if !self.path.leaf.is_null() {
-                        let d = (key & 0xFF) as u8;
-                        // SAFETY: path holds valid live LeafBitmapL pointer.
-                        let node = unsafe { &*self.path.leaf };
-                        if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
-                            let sub = (d >> 5) as usize;
-                            let vals = node.values[sub];
-                            if !vals.is_null() {
-                                // SAFETY: the bit is set, so the subarray holds at least `rank + 1` values.
-                                return core::ptr::NonNull::new(unsafe { vals.add(rank) });
-                            }
-                        }
-                    } else if !self.path.leaf1.is_null() {
-                        let d = (key & 0xFF) as u8;
-                        let cur_pop = self.path.terminal_pop as usize;
-                        let base = self.path.leaf1;
-                        // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
-                        let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
-                        // SAFETY: keys_ptr holds `cur_pop` 1-byte keys.
-                        let loc = unsafe { crate::leaf::locate(keys_ptr, cur_pop, 1, d as u64) };
-                        if let Ok(pos) = loc {
-                            // SAFETY: pos < cur_pop is in-bounds of the live value area.
-                            return core::ptr::NonNull::new(unsafe { base.cast::<u64>().add(pos) });
-                        }
-                    }
-                }
-                // SAFETY: trie maintained/owned by this map's engine; the
-                // raw walk derives the slot from node pointers only.
-                unsafe { crate::get::locate_slot(&raw mut *top, key, 8) }
-            }
+            // SAFETY: trie maintained/owned by this map's engine; the
+            // raw walk derives the slot from node pointers only.
+            Root::Tree { top, .. } => unsafe { crate::get::locate_slot(&raw mut *top, key, 8) },
         }
     }
 
@@ -280,6 +219,10 @@ impl ExpanseMap {
                     node.bitmap.set(d);
                     self.path.pending_pop += 1;
                     *pop += 1;
+                    // SAFETY: keep terminal edge pop0 up to date.
+                    unsafe {
+                        (*self.path.edges[0]).set_pop0(1, (node.bitmap.count() - 1) as u64);
+                    }
                     // SAFETY: freshly inserted slot.
                     let slot = unsafe { node.values[sub].add(rank) };
                     return core::ptr::NonNull::new(slot).expect("slot");
@@ -301,6 +244,7 @@ impl ExpanseMap {
                                 *keys_ptr.add(cur_pop) = d;
                                 let vals = base.cast::<u64>();
                                 vals.add(cur_pop).write(0);
+                                (*self.path.edges[0]).set_pop0(1, cur_pop as u64);
                             }
                             self.path.terminal_pop += 1;
                             self.path.pending_pop += 1;
@@ -526,6 +470,10 @@ impl ExpanseMap {
                         node.bitmap.set(d);
                         self.path.pending_pop += 1;
                         *pop += 1;
+                        // SAFETY: keep terminal edge pop0 up to date.
+                        unsafe {
+                            (*self.path.edges[0]).set_pop0(1, (node.bitmap.count() - 1) as u64);
+                        }
                         return None;
                     } else if !self.path.leaf1.is_null() {
                         let d = (key & 0xFF) as u8;
@@ -545,6 +493,7 @@ impl ExpanseMap {
                                     *keys_ptr.add(cur_pop) = d;
                                     let vals = base.cast::<u64>();
                                     vals.add(cur_pop).write(val);
+                                    (*self.path.edges[0]).set_pop0(1, cur_pop as u64);
                                 }
                                 self.path.terminal_pop += 1;
                                 self.path.pending_pop += 1;
