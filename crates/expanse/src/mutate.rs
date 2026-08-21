@@ -246,6 +246,35 @@ pub(crate) fn immed_map_keys(edge: &Edge, im: ImmedType) -> ImmedBuf<u64> {
     out
 }
 
+/// Fixed-capacity stack buffer for collecting small leaf keys without heap allocation.
+pub(crate) struct StackKeys32 {
+    pub(crate) buf: [core::mem::MaybeUninit<u64>; 32],
+    pub(crate) len: usize,
+}
+
+impl StackKeys32 {
+    #[inline(always)]
+    pub(crate) const fn new() -> Self {
+        Self {
+            buf: [core::mem::MaybeUninit::uninit(); 32],
+            len: 0,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn push(&mut self, k: u64) {
+        debug_assert!(self.len < 32);
+        self.buf[self.len].write(k);
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    pub(crate) fn as_slice(&self) -> &[u64] {
+        // SAFETY: `len` elements have been written via `push`.
+        unsafe { core::slice::from_raw_parts(self.buf.as_ptr().cast::<u64>(), self.len) }
+    }
+}
+
 /// Collects the sorted keys of a linear leaf.
 ///
 /// # Safety
@@ -1374,7 +1403,7 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             let pop = edge.pop0(1) as usize; // old pop - 1
             // Hysteresis: convert back to a linear leaf when pop drops below the floor.
             if pop < LEAFB1_DOWN {
-                let mut keys = Vec::with_capacity(pop);
+                let mut keys = StackKeys32::new();
                 let mut d = node.bitmap.next_set(0);
                 while let Some(dig) = d {
                     keys.push(u64::from(dig));
@@ -1396,12 +1425,15 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                         core::ptr::NonNull::new(edge.node_ptr().cast::<LeafBitmap1>()).unwrap(),
                     );
                 }
-                if keys.len() < ImmedType::max_count(level) as usize {
+                if keys.len < ImmedType::max_count(level) as usize {
                     // Absorb any decode bytes into full slot-level keys.
-                    let full: Vec<u64> = keys.iter().map(|&low| (dv << 8) | low).collect();
-                    write_immed(edge, level, &full);
+                    let mut full = StackKeys32::new();
+                    for &low in keys.as_slice() {
+                        full.push((dv << 8) | low);
+                    }
+                    write_immed(edge, level, full.as_slice());
                 } else {
-                    build_leaf(a, edge, 1, &keys);
+                    build_leaf(a, edge, 1, keys.as_slice());
                     restore_decode(edge, 1, level, &saved_aux);
                 }
             } else {

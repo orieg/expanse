@@ -653,12 +653,14 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
             };
             let mut below = 0;
             for (slot, &bd) in digits.iter().enumerate().take(num) {
-                // SAFETY: slot < num live child edges.
-                let child = unsafe { &*edges_ptr.add(slot) };
                 if bd < d {
+                    // SAFETY: slot < num live child edges.
+                    let child = unsafe { &*edges_ptr.add(slot) };
                     // SAFETY: live child per contract.
                     below += unsafe { edge_pop(child, bl - 1) };
                 } else if bd == d {
+                    // SAFETY: slot < num live child edges.
+                    let child = unsafe { &*edges_ptr.add(slot) };
                     // SAFETY: child subtree per contract.
                     below += unsafe { count_below::<MAP>(child, key_low(suffix, bl - 1), bl - 1) };
                 }

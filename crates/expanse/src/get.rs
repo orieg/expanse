@@ -138,9 +138,6 @@ fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: Key) ->
 /// optimization. Cloning at the public signature puts the remap INSIDE
 /// the clone, so the dispatcher is load + test + tail-jump.
 ///
-/// # Safety
-///
-/// Same contract as [`test_set`]/[`get_map`].
 #[inline(always)]
 unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup {
     let (mut edge, mut level) = (edge, level);
@@ -166,8 +163,7 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
                         return Lookup::Absent;
                     };
                     debug_assert!(slot < b.edges.len());
-                    // SAFETY: `find` returns a slot below the populated
-                    // count, which never exceeds the array length.
+                    // SAFETY: `slot < 3` accesses a valid child edge pointer.
                     edge = unsafe { &*b.edges.as_ptr().add(slot) };
                     level = bl - 1;
                 }
@@ -184,8 +180,7 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
                         return Lookup::Absent;
                     };
                     debug_assert!(slot < b.edges.len());
-                    // SAFETY: `find` returns a slot below the populated
-                    // count, which never exceeds the array length.
+                    // SAFETY: `slot < 7` accesses a valid child edge pointer.
                     edge = unsafe { &*b.edges.as_ptr().add(slot) };
                     level = bl - 1;
                 }
@@ -218,8 +213,25 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
                         // SAFETY: pointer-tagged edge → live BranchU with 256 edges.
                         let next_edge = unsafe { &*(*b_ptr).edges.as_ptr().add(d as usize) };
                         level -= 1;
-                        if next_edge.tag_byte() == EdgeType::BranchU as u8 {
+                        let next_tag = next_edge.tag_byte();
+                        if next_tag == EdgeType::BranchU as u8 {
                             b_ptr = next_edge.node_ptr().cast::<BranchU>();
+                        } else if MAP && next_tag == EdgeType::LeafB1 as u8 {
+                            // Fast path: direct terminal LeafB1 lookup from uncompressed branch.
+                            if level > 1 && !decode_matches(next_edge, key, 1, level) {
+                                return Lookup::Absent;
+                            }
+                            let d1 = digit(key, 1);
+                            // SAFETY: pointer-tagged edge → live LeafBitmapL.
+                            let l = unsafe { &*next_edge.node_ptr().cast::<LeafBitmapL>() };
+                            let sub = (d1 >> 5) as usize;
+                            let Some(slot) = l.bitmap.test_and_subexpanse_rank(d1) else {
+                                return Lookup::Absent;
+                            };
+                            // SAFETY: `sub < 8` accesses a valid values subarray pointer.
+                            let vals = unsafe { *l.values.as_ptr().add(sub) };
+                            // SAFETY: slot is verified rank in live subexpanse values.
+                            return Lookup::Value(unsafe { *vals.add(slot) });
                         } else {
                             edge = next_edge;
                             break;
@@ -669,6 +681,24 @@ unsafe fn locate_slot_impl(
                     if next_tag == EdgeType::BranchU as u8 {
                         // SAFETY: pointer-tagged edge → live BranchU.
                         b_ptr = unsafe { (*next_edge).node_ptr().cast::<BranchU>() };
+                    } else if next_tag == EdgeType::LeafB1 as u8 {
+                        // Fast path: direct terminal LeafB1 slot lookup from uncompressed branch.
+                        // SAFETY: reads of live next_edge per contract.
+                        unsafe {
+                            if level > 1 && !decode_matches(&*next_edge, key, 1, level) {
+                                return None;
+                            }
+                        }
+                        let d1 = digit(key, 1);
+                        let sub = (d1 >> 5) as usize;
+                        // SAFETY: next_edge is pointer-tagged live LeafBitmapL.
+                        let node = unsafe { (*next_edge).node_ptr().cast::<LeafBitmapL>() };
+                        // SAFETY: node is valid live pointer.
+                        let rank = unsafe { (*node).bitmap.test_and_subexpanse_rank(d1)? };
+                        // SAFETY: sub < 8 accesses valid values subarray pointer.
+                        let vals = unsafe { *(*node).values.as_ptr().add(sub) };
+                        // SAFETY: rank is verified slot in live subexpanse values.
+                        return core::ptr::NonNull::new(unsafe { vals.add(rank) });
                     } else {
                         edge = next_edge;
                         break;
