@@ -216,11 +216,8 @@ impl ExpanseSet {
                     let leaf = unsafe { &mut *self.path.leaf };
                     if leaf.bitmap.set(d) {
                         self.path.pending_pop += 1;
-                        // SAFETY: path.depth >= 1 and edges[0] is the live leaf edge.
-                        let terminal_pop = unsafe { (*self.path.edges[0]).pop0(1) } as usize
-                            + 1
-                            + self.path.pending_pop;
-                        if terminal_pop == 256 {
+                        self.path.terminal_pop += 1;
+                        if self.path.terminal_pop == 256 {
                             // SAFETY: terminal edge is valid and rewritten to FullExpanse.
                             unsafe {
                                 self.path.flush();
@@ -428,6 +425,11 @@ impl ExpanseSet {
     /// Smallest key `>= key` (compat: `Judy1First`).
     #[must_use]
     pub fn next_at_or_after(&self, key: Key) -> Option<u64> {
+        // SAFETY: flushing pending population before forward navigation.
+        unsafe {
+            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
+            mut_self.path.flush();
+        }
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => {
@@ -450,6 +452,11 @@ impl ExpanseSet {
     /// Largest key `<= key` (compat: `Judy1Last`).
     #[must_use]
     pub fn prev_at_or_before(&self, key: Key) -> Option<u64> {
+        // SAFETY: flushing pending population before backward navigation.
+        unsafe {
+            let mut_self = (self as *const Self as *mut Self).as_mut().unwrap();
+            mut_self.path.flush();
+        }
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => {

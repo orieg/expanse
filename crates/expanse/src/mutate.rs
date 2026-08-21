@@ -432,6 +432,7 @@ pub(crate) struct InsertPath {
     pub levels: [u8; 8],
     pub depth: usize,
     pub leaf: *mut LeafBitmap1,
+    pub terminal_pop: u16,
     pub pending_pop: usize,
 }
 
@@ -443,6 +444,7 @@ impl InsertPath {
             levels: [0; 8],
             depth: 0,
             leaf: core::ptr::null_mut(),
+            terminal_pop: 0,
             pending_pop: 0,
         }
     }
@@ -473,6 +475,7 @@ impl InsertPath {
             self.prefix = u64::MAX;
             self.depth = 0;
             self.leaf = core::ptr::null_mut();
+            self.terminal_pop = 0;
         }
     }
 }
@@ -793,6 +796,7 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                     if level == 1 {
                         path.prefix = key >> 8;
                         path.leaf = edge.node_ptr().cast::<LeafBitmap1>();
+                        path.terminal_pop = pop as u16;
                         path.edges[0] = edge as *mut Edge;
                         path.levels[0] = 1;
                         path.depth = 1;
