@@ -63,12 +63,7 @@ pub const fn map_keys_offset(pop: usize) -> usize {
 /// `keys` must be valid for reads of `key_bytes * pop` bytes.
 #[inline]
 #[must_use]
-pub(crate) unsafe fn lower_bound(
-    keys: *const u8,
-    pop: usize,
-    key_bytes: u8,
-    needle: u64,
-) -> usize {
+pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, needle: u64) -> usize {
     debug_assert!((1..=7).contains(&key_bytes));
     // SAFETY: forwarded contract; each arm's KB equals `key_bytes`.
     unsafe {
