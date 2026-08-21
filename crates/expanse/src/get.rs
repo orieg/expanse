@@ -201,20 +201,58 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
                     let Some(slot) = b.bitmap.test_and_subexpanse_rank(d) else {
                         return Lookup::Absent;
                     };
-                    let sub = b.subarrays[(d >> 5) as usize];
-                    // SAFETY: the bit is set, so the subexpanse subarray is
-                    // non-null and holds at least `subexpanse_rank + 1` edges
+                    let sub = (d >> 5) as usize;
+                    // SAFETY: `sub < 8` accesses a valid subarray pointer; the bit is set,
+                    // so the subexpanse subarray is non-null and holds at least `subexpanse_rank + 1` edges
                     // (bitmap/subarray consistency invariant).
-                    edge = unsafe { &*sub.add(slot) };
+                    let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
+                    // SAFETY: slot is the verified rank inside the live subexpanse subarray.
+                    edge = unsafe { &*sub_ptr.add(slot) };
                     level = bl - 1;
                 }
 
                 EdgeType::BranchU => {
-                    let d = digit(key, level);
-                    // SAFETY: pointer-tagged edge → live BranchU.
-                    let b = unsafe { &*edge.node_ptr().cast::<BranchU>() };
-                    edge = &b.edges[d as usize];
-                    level -= 1;
+                    let mut b_ptr = edge.node_ptr().cast::<BranchU>();
+                    loop {
+                        let d = digit(key, level);
+                        // SAFETY: pointer-tagged edge → live BranchU with 256 edges.
+                        let next_edge = unsafe { &*(*b_ptr).edges.as_ptr().add(d as usize) };
+                        level -= 1;
+                        let next_tag = next_edge.tag_byte();
+                        if next_tag == EdgeType::BranchU as u8 {
+                            b_ptr = next_edge.node_ptr().cast::<BranchU>();
+                        } else if next_tag == EdgeType::LeafB1 as u8 {
+                            if level > 1 && !decode_matches(next_edge, key, 1, level) {
+                                return Lookup::Absent;
+                            }
+                            let d1 = digit(key, 1);
+                            if MAP {
+                                // SAFETY: pointer-tagged edge → live LeafBitmapL.
+                                let l = unsafe { &*next_edge.node_ptr().cast::<LeafBitmapL>() };
+                                let sub = (d1 >> 5) as usize;
+                                let Some(slot) = l.bitmap.test_and_subexpanse_rank(d1) else {
+                                    return Lookup::Absent;
+                                };
+                                // SAFETY: `sub < 8` accesses a valid values subarray pointer.
+                                let vals = unsafe { *l.values.as_ptr().add(sub) };
+                                // SAFETY: the bit is set, so the value subarray is
+                                // non-null and holds at least `slot + 1` values.
+                                return Lookup::Value(unsafe { *vals.add(slot) });
+                            }
+                            // SAFETY: pointer-tagged edge → live LeafBitmap1.
+                            let l = unsafe { &*next_edge.node_ptr().cast::<LeafBitmap1>() };
+                            return if l.bitmap.test(d1) {
+                                Lookup::Present
+                            } else {
+                                Lookup::Absent
+                            };
+                        } else if next_tag == EdgeType::Null as u8 {
+                            return Lookup::Absent;
+                        } else {
+                            edge = next_edge;
+                            break;
+                        }
+                    }
                 }
 
                 EdgeType::LeafB1 => {
@@ -225,10 +263,12 @@ unsafe fn walk_impl<const MAP: bool>(edge: &Edge, key: Key, level: u8) -> Lookup
                     if MAP {
                         // SAFETY: pointer-tagged edge → live LeafBitmapL.
                         let l = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
+                        let sub = (d >> 5) as usize;
                         let Some(slot) = l.bitmap.test_and_subexpanse_rank(d) else {
                             return Lookup::Absent;
                         };
-                        let vals = l.values[(d >> 5) as usize];
+                        // SAFETY: `sub < 8` accesses a valid values subarray pointer.
+                        let vals = unsafe { *l.values.as_ptr().add(sub) };
                         // SAFETY: the bit is set, so the value subarray is
                         // non-null and holds at least `slot + 1` values.
                         return Lookup::Value(unsafe { *vals.add(slot) });
@@ -582,9 +622,10 @@ unsafe fn locate_slot_impl(
                         return None;
                     }
                     let d = digit(key, 1);
+                    let sub = (d >> 5) as usize;
                     let node = (*edge).node_ptr().cast::<LeafBitmapL>();
                     let rank = (*node).bitmap.test_and_subexpanse_rank(d)?;
-                    let vals = (*node).values[(d >> 5) as usize];
+                    let vals = *(*node).values.as_ptr().add(sub);
                     return core::ptr::NonNull::new(vals.add(rank));
                 }
             }
@@ -636,19 +677,46 @@ unsafe fn locate_slot_impl(
                     }
                     let d = digit(key, bl);
                     let rank = (*b).bitmap.test_and_subexpanse_rank(d)?;
-                    edge = (*b).subarrays[(d >> 5) as usize].add(rank);
+                    let sub = (d >> 5) as usize;
+                    let sub_ptr = *(*b).subarrays.as_ptr().add(sub);
+                    edge = sub_ptr.add(rank);
                     level = bl - 1;
                 }
             }
 
             EdgeTag::Structural(EdgeType::BranchU) => {
-                let d = digit(key, level);
-                // SAFETY: live BranchU per contract.
-                unsafe {
-                    let b = (*edge).node_ptr().cast::<BranchU>();
-                    edge = (*b).edges.as_mut_ptr().add(d as usize);
+                // SAFETY: pointer-tagged edge → live BranchU.
+                let mut b_ptr = unsafe { (*edge).node_ptr().cast::<BranchU>() };
+                loop {
+                    let d = digit(key, level);
+                    // SAFETY: live BranchU per contract; edges array has 256 edges.
+                    let next_edge = unsafe { (*b_ptr).edges.as_mut_ptr().add(d as usize) };
+                    level -= 1;
+                    // SAFETY: read tag byte of live child edge.
+                    let next_tag = unsafe { (*next_edge).tag_byte() };
+                    if next_tag == EdgeType::BranchU as u8 {
+                        // SAFETY: pointer-tagged edge → live BranchU.
+                        b_ptr = unsafe { (*next_edge).node_ptr().cast::<BranchU>() };
+                    } else if next_tag == EdgeType::LeafB1 as u8 {
+                        // SAFETY: reads of live leaf per contract.
+                        unsafe {
+                            if level > 1 && !decode_matches(&*next_edge, key, 1, level) {
+                                return None;
+                            }
+                            let d1 = digit(key, 1);
+                            let sub = (d1 >> 5) as usize;
+                            let node = (*next_edge).node_ptr().cast::<LeafBitmapL>();
+                            let rank = (*node).bitmap.test_and_subexpanse_rank(d1)?;
+                            let vals = *(*node).values.as_ptr().add(sub);
+                            return core::ptr::NonNull::new(vals.add(rank));
+                        }
+                    } else if next_tag == EdgeType::Null as u8 {
+                        return None;
+                    } else {
+                        edge = next_edge;
+                        break;
+                    }
                 }
-                level -= 1;
             }
         }
     }

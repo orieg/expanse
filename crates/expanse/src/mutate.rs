@@ -33,6 +33,8 @@ use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, K
 /// Linear-leaf population cap at level 1; overflow converts to a bitmap
 /// leaf (the published design converts at populations above ~25).
 pub(crate) const LEAF1_CAP: usize = 25;
+/// Bitmap leaf demotes to linear leaf when population drops below this floor.
+pub(crate) const LEAFB1_DOWN: usize = 21;
 /// Linear-leaf population cap at levels 2..=7; overflow cascades into a
 /// branch. 32 seven-byte keys = 224 B, a handful of cache lines.
 pub(crate) const LEAF_CAP: usize = 32;
@@ -170,6 +172,7 @@ impl<T: Copy + Default> ImmedBuf<T> {
         self.len += 1;
     }
 
+    #[allow(dead_code)]
     pub(crate) fn remove(&mut self, at: usize) -> T {
         debug_assert!(at < self.len);
         let v = self.buf[at];
@@ -605,6 +608,37 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 path.clear();
                 let kb = im.key_bytes();
                 let k = key_low(key, kb);
+                let n = im.key_count() as usize;
+                if n == 1 {
+                    let payload = edge.imm_payload();
+                    // SAFETY: single-key immediate payload has 1 key of kb bytes.
+                    let existing_k = unsafe { read_packed(payload.as_ptr(), 0, kb as usize) };
+                    if existing_k == k {
+                        return false;
+                    }
+                    if ImmedType::max_count(kb) >= 2 {
+                        let mut new_payload = [0u8; 15];
+                        let (k0, k1) = if k < existing_k {
+                            (k, existing_k)
+                        } else {
+                            (existing_k, k)
+                        };
+                        // SAFETY: new_payload has 15 bytes; 2 keys of kb bytes fit per check.
+                        unsafe {
+                            write_packed(new_payload.as_mut_ptr(), 0, kb as usize, k0);
+                            write_packed(new_payload.as_mut_ptr(), 1, kb as usize, k1);
+                        }
+                        let mut w0 = [0u8; 8];
+                        w0.copy_from_slice(&new_payload[..8]);
+                        let mut aux = [0u8; 7];
+                        aux.copy_from_slice(&new_payload[8..]);
+                        let new_im = ImmedType::new(kb, 2).expect("immediate capacity");
+                        edge.set_imm_bytes(w0);
+                        edge.set_aux_bytes(aux);
+                        edge.set_tag(new_im.as_u8());
+                        return true;
+                    }
+                }
                 let mut keys = immed_keys(edge, im);
                 let Err(pos) = keys.binary_search(&k) else {
                     return false;
@@ -1193,16 +1227,34 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             let kb = im.key_bytes();
             debug_assert_eq!(kb, level);
             let k = key_low(key, kb);
-            let mut keys = immed_keys(edge, im);
-            let Ok(pos) = keys.binary_search(&k) else {
+            let n = im.key_count() as usize;
+            let payload = edge.imm_payload();
+            if n == 1 {
+                // SAFETY: single-key immediate payload has 1 key of kb bytes.
+                let existing_k = unsafe { read_packed(payload.as_ptr(), 0, kb as usize) };
+                if existing_k == k {
+                    *edge = Edge::NULL;
+                    return true;
+                }
                 return false;
-            };
-            keys.remove(pos);
-            if keys.is_empty() {
-                *edge = Edge::NULL;
-            } else {
-                write_immed(edge, kb, &keys);
             }
+            // SAFETY: payload holds n packed keys of kb bytes.
+            let pos = match unsafe { leaf::locate(payload.as_ptr(), n, kb, k) } {
+                Ok(p) => p,
+                Err(_) => return false,
+            };
+            let mut new_payload = payload;
+            let kb_usize = kb as usize;
+            new_payload.copy_within((pos + 1) * kb_usize..n * kb_usize, pos * kb_usize);
+            new_payload[((n - 1) * kb_usize)..].fill(0);
+            let new_im = ImmedType::new(kb, (n - 1) as u8).expect("immediate capacity");
+            let mut w0 = [0u8; 8];
+            w0.copy_from_slice(&new_payload[..8]);
+            let mut aux = [0u8; 7];
+            aux.copy_from_slice(&new_payload[8..]);
+            edge.set_imm_bytes(w0);
+            edge.set_aux_bytes(aux);
+            edge.set_tag(new_im.as_u8());
             true
         }
 
@@ -1264,32 +1316,39 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                 }
                 return true;
             }
-            // Slow path (conversion to immediate).
-            // SAFETY: live leaf of `pop` keys per contract.
-            let mut keys = unsafe { leaf_keys(edge, kb, pop) };
-            keys.remove(pos);
+            // Slow path (conversion to immediate or null).
             let old_ptr = base;
             let old_size = leaf::size_set(kb, pop);
-            let saved_aux = *edge.aux_bytes();
-            // Hysteresis: convert to an immediate one index below the
-            // immediate→leaf boundary. A skipping leaf converts to an
-            // immediate at the *slot* level, absorbing its decode bytes
-            // back into full key remainders.
-            if keys.len() < ImmedType::max_count(level) as usize {
-                let dv = if kb < level {
-                    decode_value(edge, kb, level)
-                } else {
-                    0
-                };
-                let full: Vec<u64> = keys
-                    .iter()
-                    .map(|&low| (dv << (8 * u32::from(kb))) | low)
-                    .collect();
-                write_immed(edge, level, &full);
-            } else {
-                build_leaf(a, edge, kb, &keys);
-                restore_decode(edge, kb, level, &saved_aux);
+            if pop == 1 {
+                // SAFETY: old leaf allocation no longer referenced.
+                unsafe {
+                    a.free_bytes(
+                        core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
+                        old_size,
+                    );
+                }
+                *edge = Edge::NULL;
+                return true;
             }
+            let rem_pop = pop - 1;
+            let dv = if kb < level {
+                decode_value(edge, kb, level)
+            } else {
+                0
+            };
+            let mut entries = [0u64; 16];
+            let mut idx = 0;
+            for slot in 0..pop {
+                if slot == pos {
+                    continue;
+                }
+                // SAFETY: live leaf of `pop` keys per contract.
+                let low_k = unsafe { read_packed(base, slot, kb as usize) };
+                let k = (dv << (8 * u32::from(kb))) | low_k;
+                entries[idx] = k;
+                idx += 1;
+            }
+            write_immed(edge, level, &entries[..rem_pop]);
             // SAFETY: old leaf allocation no longer referenced.
             unsafe {
                 a.free_bytes(
@@ -1313,8 +1372,8 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                 return false;
             }
             let pop = edge.pop0(1) as usize; // old pop - 1
-            // Hysteresis: convert back to a linear leaf one below the cap.
-            if pop < LEAF1_CAP {
+            // Hysteresis: convert back to a linear leaf when pop drops below the floor.
+            if pop < LEAFB1_DOWN {
                 let mut keys = Vec::with_capacity(pop);
                 let mut d = node.bitmap.next_set(0);
                 while let Some(dig) = d {

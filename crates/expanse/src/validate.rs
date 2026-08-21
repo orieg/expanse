@@ -1,8 +1,8 @@
 //! Defensive trie structure validation and statistics collection.
 
 use crate::mutate::{
-    BRANCHB_UP, LEAF_CAP, LEAF1_CAP, branch_form_level, immed_keys, immed_map_keys, leaf_keys,
-    map_immed_max, pow256, read_packed,
+    BRANCHB_UP, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, branch_form_level, immed_keys, immed_map_keys,
+    leaf_keys, map_immed_max, pow256, read_packed,
 };
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
 use crate::types::{EdgeTag, EdgeType, ImmedType};
@@ -243,9 +243,9 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                     count
                 ));
             }
-            if (count as usize) < LEAF1_CAP {
+            if (count as usize) < LEAFB1_DOWN {
                 return Err(format!(
-                    "bitmap leaf population {count} below hysteresis floor"
+                    "bitmap leaf population {count} below hysteresis floor {LEAFB1_DOWN}"
                 ));
             }
             stats.leaf_pop_histogram[count as usize] += 1;
