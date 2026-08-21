@@ -289,7 +289,7 @@ impl InsertPathMap {
             for i in 1..self.depth {
                 // SAFETY: path contains valid live edge pointers during active bypass.
                 unsafe {
-                    crate::mutate::bump_pop0(&mut *self.edges[i], self.levels[i], delta);
+                    crate::mutate::bump_pop0(self.edges[i], self.levels[i], delta);
                 }
             }
         }
@@ -465,7 +465,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     (*edge).set_aux_bytes(aux);
                     (*edge).set_tag(im.as_u8());
                     for &(anc, al) in ancestors.iter().take(anc_depth) {
-                        bump_pop0(&mut *anc, al, 1);
+                        bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);
                     }
                     return (None, (&raw mut *edge).cast::<u64>());
@@ -513,7 +513,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             (*edge).set_aux_bytes(new_aux);
                             (*edge).set_tag(new_im.as_u8());
                             for &(anc, al) in ancestors.iter().take(anc_depth) {
-                                bump_pop0(&mut *anc, al, 1);
+                                bump_pop0(anc, al, 1);
                                 path.record_ancestor(anc, al);
                             }
                             return (None, vals.as_ptr().add(pos));
@@ -524,7 +524,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         unsafe {
                             build_map_leaf(a, &mut *edge, kb, &entries);
                             for &(anc, al) in ancestors.iter().take(anc_depth) {
-                                bump_pop0(&mut *anc, al, 1);
+                                bump_pop0(anc, al, 1);
                                 path.record_ancestor(anc, al);
                             }
                             return (None, (*edge).node_ptr().cast::<u64>().add(pos));
@@ -570,7 +570,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             (*edge).set_aux_bytes(new_aux);
                             (*edge).set_tag(new_im.as_u8());
                             for &(anc, al) in ancestors.iter().take(anc_depth) {
-                                bump_pop0(&mut *anc, al, 1);
+                                bump_pop0(anc, al, 1);
                                 path.record_ancestor(anc, al);
                             }
                             return (None, old_vals.add(pos));
@@ -604,7 +604,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         (*edge).set_aux_bytes(new_aux);
                         (*edge).set_tag(new_im.as_u8());
                         for &(anc, al) in ancestors.iter().take(anc_depth) {
-                            bump_pop0(&mut *anc, al, 1);
+                            bump_pop0(anc, al, 1);
                             path.record_ancestor(anc, al);
                         }
                         return (None, new_vals.as_ptr().add(pos));
@@ -635,7 +635,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     );
                     build_map_leaf(a, &mut *edge, kb, entries.as_slice());
                     for &(anc, al) in ancestors.iter().take(anc_depth) {
-                        bump_pop0(&mut *anc, al, 1);
+                        bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);
                     }
                     return (None, (*edge).node_ptr().cast::<u64>().add(pos));
@@ -721,7 +721,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             // SAFETY: ancestors array is valid.
                             unsafe {
                                 for &(anc, al) in ancestors.iter().take(anc_depth) {
-                                    bump_pop0(&mut *anc, al, 1);
+                                    bump_pop0(anc, al, 1);
                                     path.record_ancestor(anc, al);
                                 }
                             }
@@ -760,7 +760,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                             // SAFETY: ancestors array is valid.
                             unsafe {
                                 for &(anc, al) in ancestors.iter().take(anc_depth) {
-                                    bump_pop0(&mut *anc, al, 1);
+                                    bump_pop0(anc, al, 1);
                                     path.record_ancestor(anc, al);
                                 }
                             }
@@ -848,7 +848,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                                 old_size,
                             );
                             for &(anc, al) in ancestors.iter().take(anc_depth) {
-                                bump_pop0(&mut *anc, al, 1);
+                                bump_pop0(anc, al, 1);
                                 path.record_ancestor(anc, al);
                             }
                         }
@@ -936,7 +936,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 // SAFETY: ancestors contains valid parent edges.
                 unsafe {
                     for &(anc, al) in ancestors.iter().take(anc_depth) {
-                        bump_pop0(&mut *anc, al, 1);
+                        bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);
                     }
                 }
@@ -1670,7 +1670,8 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                         }
                     };
                     if res.0.is_none() {
-                        bump_pop0(edge, bl, 1);
+                        // SAFETY: edge is a valid live edge.
+                        unsafe { bump_pop0(edge, bl, 1) };
                         path.record_ancestor(edge as *mut Edge, level);
                     }
                     return res;
@@ -1723,7 +1724,8 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     }
                 };
                 debug_assert!(res.0.is_none());
-                bump_pop0(edge, bl, 1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, 1) };
                 path.record_ancestor(edge as *mut Edge, level);
                 return (None, res.1);
             }
@@ -1760,7 +1762,8 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     };
                     crate::occ::version_end_if::<OCC>(a, &mut b.version);
                     if res.0.is_none() {
-                        bump_pop0(edge, bl, 1);
+                        // SAFETY: edge is a valid live edge.
+                        unsafe { bump_pop0(edge, bl, 1) };
                         path.record_ancestor(edge as *mut Edge, level);
                     }
                     return res;
@@ -1829,7 +1832,8 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 };
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 debug_assert!(res.0.is_none());
-                bump_pop0(edge, bl, 1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, 1) };
                 path.record_ancestor(edge as *mut Edge, level);
                 return (None, res.1);
             }
@@ -1854,7 +1858,8 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 };
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 if res.0.is_none() {
-                    bump_pop0(edge, level, 1);
+                    // SAFETY: edge is a valid live edge.
+                    unsafe { bump_pop0(edge, level, 1) };
                     path.record_ancestor(edge as *mut Edge, level);
                 }
                 return res;
@@ -2255,7 +2260,8 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     }
                 }
             } else {
-                bump_pop0(edge, bl, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, -1) };
             }
             Some(old)
         }
@@ -2329,13 +2335,15 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     *edge = Edge::NULL;
                     return Some(old);
                 }
-                bump_pop0(edge, bl, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, -1) };
                 if digits < BRANCH_L7_CAP {
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_b_to_l7(a, edge) };
                 }
             } else {
-                bump_pop0(edge, bl, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, -1) };
             }
             Some(old)
         }
@@ -2369,13 +2377,15 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     *edge = Edge::NULL;
                     return Some(old);
                 }
-                bump_pop0(edge, level, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, level, -1) };
                 if digits < BRANCHB_UP {
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b(a, edge, level) };
                 }
             } else {
-                bump_pop0(edge, level, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, level, -1) };
             }
             Some(old)
         }

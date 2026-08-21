@@ -537,10 +537,16 @@ pub(crate) fn split_skip(a: &NodeAlloc, edge: &mut Edge, key: Key, level: u8, su
 
 /// Bumps the subtree `pop0` of an edge at `level` by `delta` (level 8 has
 /// no pop0 field; the tree owner tracks the total).
-pub(crate) fn bump_pop0(edge: &mut Edge, level: u8, delta: i64) {
+///
+/// # Safety
+/// `edge` must be a valid, live, aligned raw pointer to an `Edge`.
+pub(crate) unsafe fn bump_pop0(edge: *mut Edge, level: u8, delta: i64) {
     if level <= 7 {
-        let pop0 = edge.pop0(level) as i64;
-        edge.set_pop0(level, (pop0 + delta) as u64);
+        // SAFETY: caller guarantees edge is valid, live, and aligned.
+        unsafe {
+            let pop0 = (*edge).pop0(level) as i64;
+            (*edge).set_pop0(level, (pop0 + delta) as u64);
+        }
     }
 }
 
@@ -607,7 +613,7 @@ impl InsertPath {
             for i in 1..self.depth {
                 // SAFETY: path contains valid live edge pointers during active bypass.
                 unsafe {
-                    bump_pop0(&mut *self.edges[i], self.levels[i], delta);
+                    bump_pop0(self.edges[i], self.levels[i], delta);
                 }
             }
         }
@@ -760,7 +766,7 @@ unsafe fn insert_with_path_flat(
                 unsafe {
                     write_immed(&mut *edge, level, &[key_low(key, level)]);
                     for &(anc, al) in ancestors.iter().take(anc_depth) {
-                        bump_pop0(&mut *anc, al, 1);
+                        bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);
                     }
                 }
@@ -805,7 +811,7 @@ unsafe fn insert_with_path_flat(
                             (*edge).set_aux_bytes(aux);
                             (*edge).set_tag(new_im.as_u8());
                             for &(anc, al) in ancestors.iter().take(anc_depth) {
-                                bump_pop0(&mut *anc, al, 1);
+                                bump_pop0(anc, al, 1);
                                 path.record_ancestor(anc, al);
                             }
                         }
@@ -837,7 +843,7 @@ unsafe fn insert_with_path_flat(
                         (*edge).set_aux_bytes(aux);
                         (*edge).set_tag(new_im.as_u8());
                         for &(anc, al) in ancestors.iter().take(anc_depth) {
-                            bump_pop0(&mut *anc, al, 1);
+                            bump_pop0(anc, al, 1);
                             path.record_ancestor(anc, al);
                         }
                     }
@@ -860,7 +866,7 @@ unsafe fn insert_with_path_flat(
                 unsafe {
                     build_leaf(a, &mut *edge, kb, keys.as_slice());
                     for &(anc, al) in ancestors.iter().take(anc_depth) {
-                        bump_pop0(&mut *anc, al, 1);
+                        bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);
                     }
                 }
@@ -929,7 +935,7 @@ unsafe fn insert_with_path_flat(
                     // SAFETY: ancestors contains valid parent edges.
                     unsafe {
                         for &(anc, al) in ancestors.iter().take(anc_depth) {
-                            bump_pop0(&mut *anc, al, 1);
+                            bump_pop0(anc, al, 1);
                             path.record_ancestor(anc, al);
                         }
                     }
@@ -967,7 +973,7 @@ unsafe fn insert_with_path_flat(
                     // SAFETY: ancestors contains valid parent edges.
                     unsafe {
                         for &(anc, al) in ancestors.iter().take(anc_depth) {
-                            bump_pop0(&mut *anc, al, 1);
+                            bump_pop0(anc, al, 1);
                             path.record_ancestor(anc, al);
                         }
                     }
@@ -1048,7 +1054,7 @@ unsafe fn insert_with_path_flat(
                         old_size,
                     );
                     for &(anc, al) in ancestors.iter().take(anc_depth) {
-                        bump_pop0(&mut *anc, al, 1);
+                        bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);
                     }
                 }
@@ -1104,7 +1110,7 @@ unsafe fn insert_with_path_flat(
                 // SAFETY: ancestors contains valid parent edges.
                 unsafe {
                     for &(anc, al) in ancestors.iter().take(anc_depth) {
-                        bump_pop0(&mut *anc, al, 1);
+                        bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);
                     }
                 }
@@ -1684,7 +1690,8 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                         }
                     };
                     if inserted {
-                        bump_pop0(edge, bl, 1);
+                        // SAFETY: edge is a valid live edge.
+                        unsafe { bump_pop0(edge, bl, 1) };
                         path.record_ancestor(edge as *mut Edge, level);
                     }
                     return inserted;
@@ -1723,7 +1730,8 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                     }
                 };
                 debug_assert!(inserted);
-                bump_pop0(edge, bl, 1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, 1) };
                 path.record_ancestor(edge as *mut Edge, level);
                 return true;
             }
@@ -1753,7 +1761,8 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                     };
                     crate::occ::version_end_if::<OCC>(a, &mut b.version);
                     if inserted {
-                        bump_pop0(edge, bl, 1);
+                        // SAFETY: edge is a valid live edge.
+                        unsafe { bump_pop0(edge, bl, 1) };
                         path.record_ancestor(edge as *mut Edge, level);
                     }
                     return inserted;
@@ -1821,7 +1830,8 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                 };
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 debug_assert!(inserted);
-                bump_pop0(edge, bl, 1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, 1) };
                 path.record_ancestor(edge as *mut Edge, level);
                 return true;
             }
@@ -1839,7 +1849,8 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                 };
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 if inserted {
-                    bump_pop0(edge, level, 1);
+                    // SAFETY: edge is a valid live edge.
+                    unsafe { bump_pop0(edge, level, 1) };
                     path.record_ancestor(edge as *mut Edge, level);
                 }
                 return inserted;
@@ -2263,7 +2274,8 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                     }
                 }
             } else {
-                bump_pop0(edge, bl, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, -1) };
             }
             true
         }
@@ -2336,14 +2348,16 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                     *edge = Edge::NULL;
                     return true;
                 }
-                bump_pop0(edge, bl, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, -1) };
                 if digits < BRANCH_L7_CAP {
                     // Hysteresis: B → L7 one index below the L7 capacity.
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_b_to_l7(a, edge) };
                 }
             } else {
-                bump_pop0(edge, bl, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, bl, -1) };
             }
             true
         }
@@ -2373,14 +2387,16 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                     *edge = Edge::NULL;
                     return true;
                 }
-                bump_pop0(edge, level, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, level, -1) };
                 if digits < BRANCHB_UP {
                     // Hysteresis: U → B one index below the U threshold.
                     // SAFETY: rebuild keeps the subtree owned.
                     unsafe { downgrade_u_to_b(a, edge, level) };
                 }
             } else {
-                bump_pop0(edge, level, -1);
+                // SAFETY: edge is a valid live edge.
+                unsafe { bump_pop0(edge, level, -1) };
             }
             true
         }

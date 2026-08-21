@@ -5,6 +5,8 @@
 //! If any geometry constant, promotion ceiling, or benchmark definition changes
 //! in the Rust source code, this test will fail until the visualizer is updated.
 
+#![cfg(not(miri))]
+
 use expanse_trie::set::ROOT_LEAF_CAP;
 use expanse_trie::types::{
     BITMAP_TO_UNCOMPRESSED_THRESHOLD, BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP, CACHE_LINE,
