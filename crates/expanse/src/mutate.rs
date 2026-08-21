@@ -423,8 +423,8 @@ pub(crate) fn linear_insert_slot(
     pos
 }
 
-/// Tracks the descent path of edges from the root to the active `LeafB1`
-/// for fast multi-level sequential bypass.
+/// Tracks the descent path of edges from the root to the active `LeafB1` or
+/// `Leaf1` for fast multi-level sequential bypass.
 #[derive(Clone, Copy)]
 pub(crate) struct InsertPath {
     pub prefix: u64,
@@ -432,6 +432,9 @@ pub(crate) struct InsertPath {
     pub levels: [u8; 8],
     pub depth: usize,
     pub leaf: *mut LeafBitmap1,
+    pub linear_leaf: *mut u8,
+    pub linear_pop: u8,
+    pub linear_last: u8,
     pub pending_pop: usize,
 }
 
@@ -443,8 +446,16 @@ impl InsertPath {
             levels: [0; 8],
             depth: 0,
             leaf: core::ptr::null_mut(),
+            linear_leaf: core::ptr::null_mut(),
+            linear_pop: 0,
+            linear_last: 0,
             pending_pop: 0,
         }
+    }
+
+    #[inline(always)]
+    pub fn is_active(&self) -> bool {
+        !self.leaf.is_null() || !self.linear_leaf.is_null()
     }
 
     #[inline(always)]
@@ -473,6 +484,9 @@ impl InsertPath {
             self.prefix = u64::MAX;
             self.depth = 0;
             self.leaf = core::ptr::null_mut();
+            self.linear_leaf = core::ptr::null_mut();
+            self.linear_pop = 0;
+            self.linear_last = 0;
         }
     }
 }
@@ -599,6 +613,17 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                     write_immed(edge, kb, &keys);
                 } else {
                     build_leaf(a, edge, kb, &keys);
+                    if kb == 1 && level == 1 && pos == keys.len() - 1 {
+                        path.prefix = key >> 8;
+                        path.linear_leaf = edge.node_ptr();
+                        path.linear_pop = keys.len() as u8;
+                        path.linear_last = k as u8;
+                        path.edges[0] = edge as *mut Edge;
+                        path.levels[0] = 1;
+                        path.depth = 1;
+                        path.pending_pop = 0;
+                        path.leaf = core::ptr::null_mut();
+                    }
                 }
                 return true;
             }
@@ -651,6 +676,17 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                     // SAFETY: class capacity spare per the check.
                     unsafe { leaf::set_insert_at(base, kb, pop, pos, k) };
                     edge.set_pop0(kb, pop as u64);
+                    if kb == 1 && level == 1 && pos == pop {
+                        path.prefix = key >> 8;
+                        path.linear_leaf = base;
+                        path.linear_pop = (pop + 1) as u8;
+                        path.linear_last = k as u8;
+                        path.edges[0] = edge as *mut Edge;
+                        path.levels[0] = 1;
+                        path.depth = 1;
+                        path.pending_pop = 0;
+                        path.leaf = core::ptr::null_mut();
+                    }
                     return true;
                 }
                 let old_ptr = base;
@@ -675,6 +711,17 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                             core::ptr::NonNull::new(old_ptr).expect("leaf ptr"),
                             old_size,
                         );
+                    }
+                    if kb == 1 && level == 1 && pos == pop {
+                        path.prefix = key >> 8;
+                        path.linear_leaf = new.as_ptr();
+                        path.linear_pop = (pop + 1) as u8;
+                        path.linear_last = k as u8;
+                        path.edges[0] = edge as *mut Edge;
+                        path.levels[0] = 1;
+                        path.depth = 1;
+                        path.pending_pop = 0;
+                        path.leaf = core::ptr::null_mut();
                     }
                     return true;
                 }
@@ -852,7 +899,7 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                     };
                     if inserted {
                         bump_pop0(edge, bl, 1);
-                        if !path.leaf.is_null() && path.depth < 8 {
+                        if path.is_active() && path.depth < 8 {
                             path.edges[path.depth] = edge as *mut Edge;
                             path.levels[path.depth] = level;
                             path.depth += 1;
@@ -895,7 +942,7 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 };
                 debug_assert!(inserted);
                 bump_pop0(edge, bl, 1);
-                if !path.leaf.is_null() && path.depth < 8 {
+                if path.is_active() && path.depth < 8 {
                     path.edges[path.depth] = edge as *mut Edge;
                     path.levels[path.depth] = level;
                     path.depth += 1;
@@ -929,7 +976,7 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                     crate::occ::version_end_if::<OCC>(a, &mut b.version);
                     if inserted {
                         bump_pop0(edge, bl, 1);
-                        if !path.leaf.is_null() && path.depth < 8 {
+                        if path.is_active() && path.depth < 8 {
                             path.edges[path.depth] = edge as *mut Edge;
                             path.levels[path.depth] = level;
                             path.depth += 1;
@@ -1001,7 +1048,7 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 debug_assert!(inserted);
                 bump_pop0(edge, bl, 1);
-                if !path.leaf.is_null() && path.depth < 8 {
+                if path.is_active() && path.depth < 8 {
                     path.edges[path.depth] = edge as *mut Edge;
                     path.levels[path.depth] = level;
                     path.depth += 1;
@@ -1023,7 +1070,7 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                 crate::occ::version_end_if::<OCC>(a, &mut b.version);
                 if inserted {
                     bump_pop0(edge, level, 1);
-                    if !path.leaf.is_null() && path.depth < 8 {
+                    if path.is_active() && path.depth < 8 {
                         path.edges[path.depth] = edge as *mut Edge;
                         path.levels[path.depth] = level;
                         path.depth += 1;

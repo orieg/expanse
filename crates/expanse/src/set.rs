@@ -9,8 +9,9 @@
 
 use crate::alloc::NodeAlloc;
 use crate::get;
+use crate::leaf;
 use crate::mutate;
-use crate::node::Edge;
+use crate::node::{Edge, LeafBitmap1};
 use crate::sync::RootSnapshot;
 use crate::types::Key;
 use crate::validate::ExpanseStats;
@@ -210,33 +211,111 @@ impl ExpanseSet {
             }
             Root::Tree { top, pop } => {
                 let prefix = key >> 8;
-                if self.path.prefix == prefix && !self.path.leaf.is_null() {
-                    let d = (key & 0xFF) as u8;
-                    // SAFETY: path holds valid live LeafBitmap1 pointer.
-                    let leaf = unsafe { &mut *self.path.leaf };
-                    if leaf.bitmap.set(d) {
-                        self.path.pending_pop += 1;
-                        // SAFETY: path.depth >= 1 and edges[0] is the live leaf edge.
-                        let terminal_pop = unsafe { (*self.path.edges[0]).pop0(1) } as usize
-                            + 1
-                            + self.path.pending_pop;
-                        if terminal_pop == 256 {
-                            // SAFETY: terminal edge is valid and rewritten to FullExpanse.
+                let d = (key & 0xFF) as u8;
+                if self.path.prefix == prefix {
+                    if !self.path.leaf.is_null() {
+                        // SAFETY: path holds valid live LeafBitmap1 pointer.
+                        let leaf = unsafe { &mut *self.path.leaf };
+                        if leaf.bitmap.set(d) {
+                            self.path.pending_pop += 1;
+                            // SAFETY: path.depth >= 1 and edges[0] is the live leaf edge.
+                            let terminal_pop = unsafe { (*self.path.edges[0]).pop0(1) } as usize
+                                + 1
+                                + self.path.pending_pop;
+                            if terminal_pop == 256 {
+                                // SAFETY: terminal edge is valid and rewritten to FullExpanse.
+                                unsafe {
+                                    self.path.flush();
+                                    let ptr = core::ptr::NonNull::new(leaf);
+                                    self.alloc.free_node(ptr.expect("leaf ptr"));
+                                    let terminal_edge = &mut *self.path.edges[0];
+                                    *terminal_edge = Edge::NULL;
+                                    terminal_edge
+                                        .set_tag(crate::types::EdgeType::FullExpanse.as_u8());
+                                    terminal_edge.set_pop0(1, 255);
+                                    self.path.clear();
+                                }
+                            }
+                            *pop += 1;
+                            return true;
+                        } else {
+                            return false;
+                        }
+                    } else if !self.path.linear_leaf.is_null() && d > self.path.linear_last {
+                        let cur_pop = self.path.linear_pop as usize;
+                        if cur_pop < mutate::LEAF1_CAP {
+                            if leaf::cap_class(cur_pop + 1) == leaf::cap_class(cur_pop) {
+                                // SAFETY: spare class capacity in linear leaf.
+                                unsafe {
+                                    *self.path.linear_leaf.add(cur_pop) = d;
+                                }
+                                self.path.linear_pop += 1;
+                                self.path.linear_last = d;
+                                self.path.pending_pop += 1;
+                                *pop += 1;
+                                return true;
+                            } else {
+                                let new = self.alloc.alloc_bytes(leaf::size_set(1, cur_pop + 1));
+                                // SAFETY: copying cur_pop live keys to fresh buffer; old leaf is freed.
+                                unsafe {
+                                    core::ptr::copy_nonoverlapping(
+                                        self.path.linear_leaf,
+                                        new.as_ptr(),
+                                        cur_pop,
+                                    );
+                                    *new.as_ptr().add(cur_pop) = d;
+                                    let old_size = leaf::size_set(1, cur_pop);
+                                    let old_ptr = core::ptr::NonNull::new(self.path.linear_leaf)
+                                        .expect("linear leaf ptr");
+                                    let edge = &mut *self.path.edges[0];
+                                    let saved_aux = *edge.aux_bytes();
+                                    *edge = Edge::new_node(
+                                        new.as_ptr(),
+                                        crate::types::EdgeType::Leaf1.as_u8(),
+                                    );
+                                    edge.set_aux_bytes(saved_aux);
+                                    self.alloc.free_bytes(old_ptr, old_size);
+                                }
+                                self.path.linear_leaf = new.as_ptr();
+                                self.path.linear_pop += 1;
+                                self.path.linear_last = d;
+                                self.path.pending_pop += 1;
+                                *pop += 1;
+                                return true;
+                            }
+                        } else {
+                            // Upgrade from LeafLinear1 (25 keys) to LeafBitmap1 (26th key)
+                            // SAFETY: freshly allocated LeafBitmap1 is populated from linear leaf keys.
                             unsafe {
                                 self.path.flush();
-                                let ptr = core::ptr::NonNull::new(leaf);
-                                self.alloc.free_node(ptr.expect("leaf ptr"));
-                                let terminal_edge = &mut *self.path.edges[0];
-                                *terminal_edge = Edge::NULL;
-                                terminal_edge.set_tag(crate::types::EdgeType::FullExpanse.as_u8());
-                                terminal_edge.set_pop0(1, 255);
-                                self.path.clear();
+                                let bitmap_node = self.alloc.alloc_node_zeroed::<LeafBitmap1>();
+                                let bm = &mut (*bitmap_node.as_ptr()).bitmap;
+                                for i in 0..cur_pop {
+                                    let k = *self.path.linear_leaf.add(i);
+                                    bm.set(k);
+                                }
+                                bm.set(d);
+                                let old_size = leaf::size_set(1, cur_pop);
+                                let old_ptr = core::ptr::NonNull::new(self.path.linear_leaf)
+                                    .expect("linear leaf ptr");
+                                let edge = &mut *self.path.edges[0];
+                                let saved_aux = *edge.aux_bytes();
+                                *edge = Edge::new_node(
+                                    bitmap_node.as_ptr().cast(),
+                                    crate::types::EdgeType::LeafB1.as_u8(),
+                                );
+                                edge.set_aux_bytes(saved_aux);
+                                edge.set_pop0(1, (cur_pop - 1) as u64);
+                                self.alloc.free_bytes(old_ptr, old_size);
+                                self.path.linear_leaf = core::ptr::null_mut();
+                                self.path.linear_pop = 0;
+                                self.path.linear_last = 0;
+                                self.path.leaf = bitmap_node.as_ptr();
+                                self.path.pending_pop = 1;
                             }
+                            *pop += 1;
+                            return true;
                         }
-                        *pop += 1;
-                        return true;
-                    } else {
-                        return false;
                     }
                 }
                 self.path.clear();
