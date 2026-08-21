@@ -45,13 +45,13 @@ use std::alloc::{Layout, alloc_zeroed, dealloc, handle_alloc_error};
 use std::sync::{Arc, OnceLock};
 
 #[repr(C)]
-struct FreeBlock {
-    next: *mut FreeBlock,
+pub(crate) struct FreeBlock {
+    pub(crate) next: *mut FreeBlock,
 }
 
-const NUM_CLASSES: usize = 62;
+pub(crate) const NUM_CLASSES: usize = 62;
 
-const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
+pub(crate) const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
     (32, CACHE_LINE),
     (64, CACHE_LINE),
     (96, CACHE_LINE),
@@ -117,7 +117,7 @@ const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
 ];
 
 #[inline(always)]
-fn class_for(bytes: usize, align: usize) -> Option<usize> {
+pub(crate) fn class_for(bytes: usize, align: usize) -> Option<usize> {
     if align == CACHE_LINE {
         match bytes {
             32 => Some(0),
@@ -278,7 +278,7 @@ impl NodeAlloc {
     }
 
     #[inline(always)]
-    fn layout_for(bytes: usize, align: usize) -> Layout {
+    pub(crate) fn layout_for(bytes: usize, align: usize) -> Layout {
         debug_assert!(bytes > 0);
         // SAFETY-adjacent invariant: `align` is a nonzero power of two
         // (both call paths pass a constant or `align_of`), and node/leaf
@@ -301,6 +301,7 @@ impl NodeAlloc {
         self.live_allocs.fetch_add(1, Ordering::Relaxed);
 
         if let Some(class) = class_for(bytes, align) {
+            let mut raw = core::ptr::null_mut();
             loop {
                 let head = self.freelists[class].load(Ordering::Acquire);
                 if head.is_null() {
@@ -312,11 +313,21 @@ impl NodeAlloc {
                     .compare_exchange_weak(head, next, Ordering::AcqRel, Ordering::Acquire)
                     .is_ok()
                 {
-                    let raw = head.cast::<u8>();
-                    // SAFETY: zero out the reused memory before returning.
-                    unsafe { core::ptr::write_bytes(raw, 0, bytes) };
-                    return NonNull::new(raw).expect("non-null free block");
+                    raw = head.cast::<u8>();
+                    break;
                 }
+            }
+
+            if raw.is_null()
+                && let Some(c) = self.deferred.get()
+            {
+                raw = c.pop_freelist(class);
+            }
+
+            if !raw.is_null() {
+                // SAFETY: zero out the reused memory before returning.
+                unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                return NonNull::new(raw).expect("non-null free block");
             }
         }
 
@@ -663,5 +674,50 @@ mod tests {
         }
         assert_eq!(a.live_allocs(), 0);
         assert_eq!(a.bytes_in_use(), 0);
+    }
+
+    #[test]
+    fn occ_collector_freelist_recycling_round_trip() {
+        let collector = Arc::new(Collector::new());
+        let a = NodeAlloc::new();
+        a.defer_to(Arc::clone(&collector));
+
+        let p1 = a.alloc_bytes(32);
+        let total_after_p1 = a.total_allocs();
+        assert_eq!(total_after_p1, 1);
+
+        // Write non-zero data into p1
+        // SAFETY: p1 is a live 32-byte allocation.
+        unsafe {
+            core::ptr::write_bytes(p1.as_ptr(), 0xBB, 32);
+            a.free_bytes(p1, 32);
+        }
+
+        // Before epoch advance, p1 is queued in collector bins
+        assert_eq!(a.total_allocs(), 1);
+
+        // Advance epochs to reclaim the retired block
+        collector.try_advance();
+        collector.try_advance();
+
+        // Allocating the same size class must pop from the recycled freelist without new system allocs
+        let p2 = a.alloc_bytes(32);
+        assert_eq!(p2, p1);
+        assert_eq!(a.total_allocs(), total_after_p1);
+        assert_eq!(a.live_allocs(), 1);
+        assert_eq!(a.bytes_in_use(), 32);
+
+        // Memory must be zeroed upon reuse
+        for i in 0..32 {
+            // SAFETY: p2 is a live 32-byte allocation.
+            unsafe {
+                assert_eq!(*p2.as_ptr().add(i), 0);
+            }
+        }
+
+        // SAFETY: freeing p2 allocation.
+        unsafe {
+            a.free_bytes(p2, 32);
+        }
     }
 }
