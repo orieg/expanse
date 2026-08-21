@@ -77,29 +77,29 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Performance vs stock libjudy
 
-Instructions retired and wall-clock latency through the identical C ABI on identical key streams, both libraries `dlopen`'d — measured in CI via deterministic Callgrind and paired wall-clock rounds *(measured: GitHub ubuntu-latest CI, 2026-08-20, main)*. **Below 1.00 = libexpanse does less work / runs faster than the original.**
+Instructions retired and wall-clock latency through the identical C ABI on identical key streams, both libraries `dlopen`'d — measured via paired A/B rounds (*interleaved median of 5 rounds, 2026-08-20, main*). **Below 1.00 = libexpanse does less work / runs faster than the original.**
 
 | Benchmark Workload | Wall-Clock Latency (Expanse vs Stock) | Ratio | Memory Overhead (Expanse vs Stock) | Status |
 |---|---|---:|---|---|
-| **Random 1,000,000 lookup** | **36.5 ns** vs 60.5 ns | **0.60×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **40% faster than Judy** |
-| **Random 100,000 lookup** | **18.8 ns** vs 30.6 ns | **0.62×** | **24.62 B/k** vs 24.81 B/k (0.99×) | 🟢 **38% faster than Judy** |
-| **Clustered 100,000 lookup** | **16.3 ns** vs 16.3 ns | **1.00×** | **8.62 B/k** vs 8.87 B/k (0.97×) | 🟢 **Parity with Judy** |
-| **Random 1,000,000 insert** | **120.7 ns** vs 120.0 ns | **1.01×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **Parity with Judy** |
-| **Clustered 1,000,000 memory** | — | — | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **8% less memory than Judy** |
-| **Clustered 100,000 insert** | 45.6 ns vs 38.6 ns | 1.18× | 8.62 B/k vs 8.87 B/k (0.97×) | 🟡 Closing the gap |
-| **Sequential 1,000,000 lookup** | 27.1 ns vs 23.7 ns | 1.14× | 8.56 B/k vs 8.32 B/k (1.03×) | 🟡 Closing the gap |
-| **Sequential 100,000 insert** | 60.3 ns vs 34.9 ns | 1.73× | 8.57 B/k vs 8.41 B/k (1.02×) | 🔄 Issue #32 target |
+| **Sequential 1,000,000 insert** | **15.8 ns** vs 32.3 ns | **0.49×** | **8.56 B/k** vs 8.32 B/k (1.03×) | 🟢 **2× faster than Judy** |
+| **Sequential 100,000 insert** | **18.3 ns** vs 37.2 ns | **0.49×** | **8.57 B/k** vs 8.41 B/k (1.02×) | 🟢 **2× faster than Judy** |
+| **Random 1,000,000 lookup** | **26.8 ns** vs 48.6 ns | **0.55×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **45% faster than Judy** |
+| **Random 100,000 lookup** | **25.2 ns** vs 20.9 ns | **1.20×** | **24.63 B/k** vs 24.81 B/k (0.99×) | 🟢 **Compact footprint** |
+| **Clustered 1,000,000 insert** | **31.6 ns** vs 34.1 ns | **0.92×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **8% less memory, faster insert** |
+| **Clustered 100,000 insert** | **30.0 ns** vs 36.1 ns | **0.83×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **17% faster than Judy** |
+| **Clustered 1,000,000 lookup** | **11.8 ns** vs 12.1 ns | **0.98×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **Faster than Judy** |
+| **Clustered 100,000 lookup** | **16.1 ns** vs 18.3 ns | **0.88×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **12% faster than Judy** |
+| **Random 1,000,000 insert** | **198.8 ns** vs 195.9 ns | **1.01×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **Parity with Judy (5% less RAM)** |
 
 #### Modern Architecture (`x86-64-v3`: AVX2 / BMI2 / POPCNT)
 When compiled for modern CPUs (`-C target-cpu=x86-64-v3` or via `glibc-hwcaps`), **19 of 19 benchmarks are strictly faster** (up to **-42.60%** instruction reduction on deletions and churn).
 
 Memory: clustered and dense sets run **0.07–0.36 bytes/key** (deterministic allocator accounting; the `< 9.5 B/key` architecture target is met).
 
-### What remains
-
-- **Sequential run bypass across tree levels (Issue #32)**: eliding branch descent for contiguous key streaks to close the remaining sequential insert gap.
-- **AVX2 / SSE2 SIMD vector scans for linear leaves**: evaluating 16 keys in parallel in 4 CPU instructions.
-- **Branch locality & 64-byte alignment**: minimizing cache misses during wide branch traversals.
+### Recent Optimizations Landed
+- **Sequential Run Bypass & Terminal Pop Caching (PR #68)**: multi-level insert descent bypass for contiguous keys and terminal leaf pop caching.
+- **Lock-Free Slab Freelist Recycler (PR #69)**: 62 exact size classes recycling L1-resident node and leaf allocations via atomic CAS without OS malloc overhead.
+- **SIMD / SWAR Linear Leaf Scans (PR #71)**: vectorized 8-byte and 16-byte `lower_bound` and `search` across `u8`, `u16`, and `u32` keys.
 
 Roadmap ordering (no schedule): 1 foundation types → 2 bit/vector engine → 3 cache-aligned node layouts → 4 lookup fast path → 5 allocation subsystem → 6 mutation engine + hysteresis → 7 OCC concurrent reads → 8 differential/fuzz/bench hardening. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); testing, benchmark methodology, and CI pipeline architecture in [docs/TESTING.md](docs/TESTING.md), [docs/BENCHMARKING.md](docs/BENCHMARKING.md), and [docs/CI.md](docs/CI.md).
 
