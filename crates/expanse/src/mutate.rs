@@ -278,11 +278,17 @@ pub(crate) fn immed_keys(edge: &Edge, im: ImmedType) -> ImmedBuf<u64> {
 
 /// Rebuilds a set-flavor immediate edge from sorted keys.
 fn write_immed(edge: &mut Edge, kb: u8, keys: &[u64]) {
-    let im = ImmedType::new(kb, keys.len() as u8).expect("immediate capacity");
+    let count = keys.len();
+    if count == 1 {
+        *edge = Edge::new_immed_single_set(kb, keys[0]);
+        return;
+    }
+    let im = ImmedType::new(kb, count as u8).expect("immediate capacity");
     let mut payload = [0u8; 15];
+    let kb_usize = kb as usize;
     for (slot, &k) in keys.iter().enumerate() {
-        payload[slot * kb as usize..(slot + 1) * kb as usize]
-            .copy_from_slice(&k.to_le_bytes()[..kb as usize]);
+        // SAFETY: slot < count <= max_count(kb); (slot + 1) * kb_usize <= 15.
+        unsafe { write_packed(payload.as_mut_ptr(), slot, kb_usize, k) };
     }
     let mut w0 = [0u8; 8];
     w0.copy_from_slice(&payload[..8]);
@@ -850,21 +856,23 @@ unsafe fn insert_with_path_flat(
                     return true;
                 }
                 // Overflow immediate capacity -> build linear leaf.
-                let mut keys = StackKeys32::new();
-                for i in 0..pos {
-                    // SAFETY: i < pos <= n <= 7; payload has 15 bytes.
-                    let ki = unsafe { read_packed(payload.as_ptr(), i, kb_usize) };
-                    keys.push(ki);
-                }
-                keys.push(k);
-                for i in pos..n {
-                    // SAFETY: i < n <= 7; payload has 15 bytes.
-                    let ki = unsafe { read_packed(payload.as_ptr(), i, kb_usize) };
-                    keys.push(ki);
-                }
-                // SAFETY: build fresh linear leaf and update ancestors.
+                let ptr = a.alloc_bytes(leaf::size_set(kb, n + 1));
+                let base = ptr.as_ptr();
+                // SAFETY: ptr is freshly allocated with size for n + 1 keys; payload has n keys.
                 unsafe {
-                    build_leaf(a, &mut *edge, kb, keys.as_slice());
+                    if pos > 0 {
+                        core::ptr::copy_nonoverlapping(payload.as_ptr(), base, pos * kb_usize);
+                    }
+                    write_packed(base, pos, kb_usize, k);
+                    if pos < n {
+                        core::ptr::copy_nonoverlapping(
+                            payload.as_ptr().add(pos * kb_usize),
+                            base.add((pos + 1) * kb_usize),
+                            (n - pos) * kb_usize,
+                        );
+                    }
+                    *edge = Edge::new_node(base, EdgeType::Leaf1 as u8 + (kb - 1));
+                    (*edge).set_pop0(kb, n as u64);
                     for &(anc, al) in ancestors.iter().take(anc_depth) {
                         bump_pop0(anc, al, 1);
                         path.record_ancestor(anc, al);

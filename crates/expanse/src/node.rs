@@ -84,6 +84,40 @@ impl Edge {
         }
     }
 
+    /// Builds a 1-key set-flavor immediate edge.
+    #[inline]
+    #[must_use]
+    pub const fn new_immed_single_set(kb: u8, key: u64) -> Self {
+        Self {
+            w0: Word0 {
+                imm: key.to_le_bytes(),
+            },
+            aux: [0; 7],
+            tag: kb << 4,
+        }
+    }
+
+    /// Builds a 1-key map-flavor immediate edge.
+    #[inline]
+    #[must_use]
+    pub fn new_immed_single_map(kb: u8, key: u64, val: u64) -> Self {
+        let mut aux = [0u8; 7];
+        let k_bytes = key.to_le_bytes();
+        let count = kb as usize;
+        let mut i = 0;
+        while i < count && i < 7 {
+            aux[i] = k_bytes[i];
+            i += 1;
+        }
+        Self {
+            w0: Word0 {
+                imm: val.to_le_bytes(),
+            },
+            aux,
+            tag: kb << 4,
+        }
+    }
+
     /// The raw tag byte.
     #[inline]
     #[must_use]
@@ -200,8 +234,8 @@ impl Edge {
     /// pointer), with `aux` at offset 8 and `tag` at 15 — both
     /// const-asserted at the bottom of this file — so the pair is exactly
     /// the second 64-bit word of the struct.
-    #[inline]
-    fn aux_word(&self) -> u64 {
+    #[inline(always)]
+    pub(crate) fn aux_word(&self) -> u64 {
         // SAFETY: the read takes its provenance from the whole `Edge`
         // (not from the `aux` field alone), stays inside the 16-byte
         // object, and is 8-byte aligned by the struct's own alignment.
