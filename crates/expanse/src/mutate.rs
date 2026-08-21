@@ -637,10 +637,12 @@ pub(crate) unsafe fn insert_with_path<const OCC: bool>(
                         return false;
                     } else {
                         // SAFETY: live leaf of `pop` keys per contract.
-                        match unsafe { leaf::locate(base, pop, kb, k) } {
-                            Ok(_) => return false,
-                            Err(p) => p,
+                        let p = unsafe { leaf::lower_bound(base, pop, kb, k) };
+                        // SAFETY: p < pop is in bounds.
+                        if p < pop && unsafe { read_packed(base, p, kb as usize) } == k {
+                            return false;
                         }
+                        p
                     }
                 } else {
                     0
@@ -1198,10 +1200,11 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             a.assert_bracketed();
             let base = edge.node_ptr();
             // SAFETY: live leaf of `pop` keys per contract.
-            let pos = match unsafe { leaf::locate(base, pop, kb, k) } {
-                Ok(pos) => pos,
-                Err(_) => return false,
-            };
+            let pos = unsafe { leaf::lower_bound(base, pop, kb, k) };
+            // SAFETY: pos < pop is in bounds.
+            if pos == pop || unsafe { read_packed(base, pos, kb as usize) } != k {
+                return false;
+            }
             if pop > ImmedType::max_count(level) as usize
                 && leaf::cap_class(pop - 1) == leaf::cap_class(pop)
             {

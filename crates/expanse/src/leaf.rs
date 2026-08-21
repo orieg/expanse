@@ -55,6 +55,35 @@ pub const fn map_keys_offset(pop: usize) -> usize {
     8 * cap_class(pop)
 }
 
+/// Binary search over packed little-endian keys: first slot whose key is
+/// `>= needle` (`needle` already masked to `key_bytes`).
+///
+/// # Safety
+///
+/// `keys` must be valid for reads of `key_bytes * pop` bytes.
+#[inline]
+#[must_use]
+pub(crate) unsafe fn lower_bound(
+    keys: *const u8,
+    pop: usize,
+    key_bytes: u8,
+    needle: u64,
+) -> usize {
+    debug_assert!((1..=7).contains(&key_bytes));
+    // SAFETY: forwarded contract; each arm's KB equals `key_bytes`.
+    unsafe {
+        match key_bytes {
+            1 => lower_bound_fixed::<1>(keys, pop, needle),
+            2 => lower_bound_fixed::<2>(keys, pop, needle),
+            3 => lower_bound_fixed::<3>(keys, pop, needle),
+            4 => lower_bound_fixed::<4>(keys, pop, needle),
+            5 => lower_bound_fixed::<5>(keys, pop, needle),
+            6 => lower_bound_fixed::<6>(keys, pop, needle),
+            _ => lower_bound_fixed::<7>(keys, pop, needle),
+        }
+    }
+}
+
 /// Locates `needle` in a linear leaf's packed keys.
 /// Returns `Ok(pos)` if an exact match is found at `pos`.
 /// Returns `Err(pos)` if absent, where `pos` is the insertion index.
