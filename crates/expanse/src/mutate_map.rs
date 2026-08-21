@@ -1423,7 +1423,8 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                     let slot = b.hdr.find(d)?;
                     crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
                     let r = map_remove::<OCC>(a, &mut b.edges[slot], key, bl - 1);
-                    if r.is_some() && b.edges[slot].is_null() {
+                    let child_null = r.is_some() && b.edges[slot].is_null();
+                    if child_null {
                         linear_remove_slot(
                             &mut b.hdr.digits,
                             &mut b.edges,
@@ -1433,13 +1434,14 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                         b.hdr.num -= 1;
                     }
                     crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
-                    r
+                    (r, child_null)
                 } else {
                     let b = &mut *edge.node_ptr().cast::<BranchL7>();
                     let slot = b.hdr.find(d)?;
                     crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
                     let r = map_remove::<OCC>(a, &mut b.edges[slot], key, bl - 1);
-                    if r.is_some() && b.edges[slot].is_null() {
+                    let child_null = r.is_some() && b.edges[slot].is_null();
+                    if child_null {
                         linear_remove_slot(
                             &mut b.hdr.digits,
                             &mut b.edges,
@@ -1449,34 +1451,41 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                         b.hdr.num -= 1;
                     }
                     crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
-                    r
+                    (r, child_null)
                 }
             };
-            let old = removed?;
-            // SAFETY: node rebuilds below keep the subtree owned.
-            unsafe {
-                let num = if is_l3 {
-                    (*edge.node_ptr().cast::<BranchL3>()).hdr.num as usize
-                } else {
-                    (*edge.node_ptr().cast::<BranchL7>()).hdr.num as usize
-                };
-                if num == 0 {
-                    if is_l3 {
-                        a.free_node(
-                            core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL3>()).unwrap(),
-                        );
+            let (old_opt, child_null) = removed;
+            let old = old_opt?;
+            if child_null {
+                // SAFETY: node rebuilds below keep the subtree owned.
+                unsafe {
+                    let num = if is_l3 {
+                        (*edge.node_ptr().cast::<BranchL3>()).hdr.num as usize
                     } else {
-                        a.free_node(
-                            core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>()).unwrap(),
-                        );
+                        (*edge.node_ptr().cast::<BranchL7>()).hdr.num as usize
+                    };
+                    if num == 0 {
+                        if is_l3 {
+                            a.free_node(
+                                core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL3>())
+                                    .unwrap(),
+                            );
+                        } else {
+                            a.free_node(
+                                core::ptr::NonNull::new(edge.node_ptr().cast::<BranchL7>())
+                                    .unwrap(),
+                            );
+                        }
+                        *edge = Edge::NULL;
+                        return Some(old);
                     }
-                    *edge = Edge::NULL;
-                    return Some(old);
+                    bump_pop0(edge, bl, -1);
+                    if !is_l3 && num < BRANCH_L3_CAP {
+                        downgrade_l7_to_l3(a, edge);
+                    }
                 }
+            } else {
                 bump_pop0(edge, bl, -1);
-                if !is_l3 && num < BRANCH_L3_CAP {
-                    downgrade_l7_to_l3(a, edge);
-                }
             }
             Some(old)
         }
@@ -1538,21 +1547,25 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                 b.bitmap.clear(d);
             }
             crate::occ::version_end_if::<OCC>(a, &mut b.version);
-            let digits = b.bitmap.count() as usize;
-            if digits == 0 {
-                // SAFETY: empty node no longer referenced.
-                unsafe {
-                    a.free_node(
-                        core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap(),
-                    );
+            if child_null {
+                let digits = b.bitmap.count() as usize;
+                if digits == 0 {
+                    // SAFETY: empty node no longer referenced.
+                    unsafe {
+                        a.free_node(
+                            core::ptr::NonNull::new(edge.node_ptr().cast::<BranchB>()).unwrap(),
+                        );
+                    }
+                    *edge = Edge::NULL;
+                    return Some(old);
                 }
-                *edge = Edge::NULL;
-                return Some(old);
-            }
-            bump_pop0(edge, bl, -1);
-            if digits < BRANCH_L7_CAP {
-                // SAFETY: rebuild keeps the subtree owned.
-                unsafe { downgrade_b_to_l7(a, edge) };
+                bump_pop0(edge, bl, -1);
+                if digits < BRANCH_L7_CAP {
+                    // SAFETY: rebuild keeps the subtree owned.
+                    unsafe { downgrade_b_to_l7(a, edge) };
+                }
+            } else {
+                bump_pop0(edge, bl, -1);
             }
             Some(old)
         }
@@ -1572,22 +1585,27 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                         return None;
                     }
                 };
+            let child_is_null = b.edges[d as usize].is_null();
             crate::occ::version_end_if::<OCC>(a, &mut b.version);
-            let digits = b.edges.iter().filter(|e| !e.is_null()).count();
-            if digits == 0 {
-                // SAFETY: empty node no longer referenced.
-                unsafe {
-                    a.free_node(
-                        core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap(),
-                    );
+            if child_is_null {
+                let digits = b.edges.iter().filter(|e| !e.is_null()).count();
+                if digits == 0 {
+                    // SAFETY: empty node no longer referenced.
+                    unsafe {
+                        a.free_node(
+                            core::ptr::NonNull::new(edge.node_ptr().cast::<BranchU>()).unwrap(),
+                        );
+                    }
+                    *edge = Edge::NULL;
+                    return Some(old);
                 }
-                *edge = Edge::NULL;
-                return Some(old);
-            }
-            bump_pop0(edge, level, -1);
-            if digits < BRANCHB_UP {
-                // SAFETY: rebuild keeps the subtree owned.
-                unsafe { downgrade_u_to_b(a, edge, level) };
+                bump_pop0(edge, level, -1);
+                if digits < BRANCHB_UP {
+                    // SAFETY: rebuild keeps the subtree owned.
+                    unsafe { downgrade_u_to_b(a, edge, level) };
+                }
+            } else {
+                bump_pop0(edge, level, -1);
             }
             Some(old)
         }
