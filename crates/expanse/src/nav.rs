@@ -267,8 +267,16 @@ pub(crate) unsafe fn next<const MAP: bool>(
                     (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
                 }
             };
-            // SAFETY: digits is valid for num bytes.
-            let start_slot = unsafe { crate::bits::lower_bound_8_u8(digits.as_ptr(), num, d) };
+            let start_slot = if num <= 3 {
+                let mut s = 0;
+                while s < num && digits[s] < d {
+                    s += 1;
+                }
+                s
+            } else {
+                // SAFETY: digits is valid for num bytes.
+                unsafe { crate::bits::lower_bound_8_u8(digits.as_ptr(), num, d) }
+            };
             for (slot, &bd) in digits.iter().enumerate().take(num).skip(start_slot) {
                 let rem = if bd == d { key_low(suffix, bl - 1) } else { 0 };
                 // SAFETY: slot < num live child edges.
@@ -472,6 +480,12 @@ pub(crate) unsafe fn prev<const MAP: bool>(
             };
             let upper_bound = if d == 255 {
                 num
+            } else if num <= 3 {
+                let mut s = 0;
+                while s < num && digits[s] <= d {
+                    s += 1;
+                }
+                s
             } else {
                 // SAFETY: digits is valid for num bytes.
                 unsafe { crate::bits::lower_bound_8_u8(digits.as_ptr(), num, d + 1) }
@@ -654,8 +668,16 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
                     (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
                 }
             };
-            // SAFETY: digits is valid for num bytes.
-            let pos = unsafe { crate::bits::lower_bound_8_u8(digits.as_ptr(), num, d) };
+            let pos = if num <= 3 {
+                let mut s = 0;
+                while s < num && digits[s] < d {
+                    s += 1;
+                }
+                s
+            } else {
+                // SAFETY: digits is valid for num bytes.
+                unsafe { crate::bits::lower_bound_8_u8(digits.as_ptr(), num, d) }
+            };
             let mut below = 0;
             for slot in 0..pos {
                 // SAFETY: slot < num live child edges.
