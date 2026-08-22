@@ -7,9 +7,9 @@
 //! readers validate their root snapshot against it) with **per-node**
 //! versions in the branch headers: the mutation engine brackets each
 //! node's in-place mutation region — child-slot rewrites and the
-//! recursion beneath them — via [`version_begin_if`] (active only for
+//! recursion beneath them — via `version_begin_if` (active only for
 //! concurrently shared trees), and readers validate hand-over-hand with
-//! [`node_sample`]/[`node_validate`]. Measured motivation and effect in
+//! `node_sample`/`node_validate`. Measured motivation and effect in
 //! `docs/BENCHMARKING.md` (concurrent read scaling).
 //!
 //! Under `--cfg loom` the atomics and sync types swap to loom's, and the
