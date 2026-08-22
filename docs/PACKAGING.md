@@ -82,7 +82,35 @@ sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat
 
 ---
 
-### 2.3 Windows Distribution (`expanse.dll` / `expanse.lib`)
+---
+
+### 2.3 Enterprise Linux Official RPM Repository (RHEL / CentOS / Fedora / Rocky / Amazon Linux)
+
+Expanse maintains an automated, official RPM repository hosted on GitHub Pages:
+
+#### Quick RPM / DNF Setup:
+```bash
+# 1. Add repository configuration
+sudo dnf config-manager --add-repo https://orieg.github.io/expanse/rpm/expanse.repo
+
+# Or manually download repo file for older YUM / Amazon Linux:
+# sudo curl -sS -o /etc/yum.repos.d/expanse.repo https://orieg.github.io/expanse/rpm/expanse.repo
+
+# 2. Update and install
+sudo dnf install -y libexpanse libexpanse-devel libjudy-compat
+```
+
+- **Architectures Supported in RPM Repo**:
+  - `x86_64` (`x86-64-v1`, `v2`, `v3`, `v4` with `glibc-hwcaps`)
+  - `aarch64` (AWS Graviton, ARM64 servers)
+  - `riscv64` (RV64GC embedded and server systems)
+
+- **Packages Available**:
+  - `libexpanse`: Runtime shared library (`/usr/lib64/libexpanse.so.1` with `glibc-hwcaps/` variants).
+  - `libexpanse-devel`: Development headers (`/usr/include/expanse.h`, `Judy.h`), static library (`libexpanse.a`), and pkg-config.
+  - `libjudy-compat`: Drop-in replacement creating system-wide `/usr/lib64/libJudy.so.1` symlinks to Expanse.
+
+### 2.4 Windows Distribution (`expanse.dll` / `expanse.lib`)
 Expanse delivers first-class Windows MSVC binaries built with 64-bit calling conventions:
 
 1. **GitHub Releases Windows ZIP Bundle**:
@@ -98,14 +126,14 @@ Expanse delivers first-class Windows MSVC binaries built with 64-bit calling con
 
 ---
 
-### 2.4 Pkg-Config & Build System Integration
+### 2.5 Pkg-Config & Build System Integration
 Templates in `extra/pkgconfig/`:
 - `expanse.pc.in` (`pkg-config --cflags --libs expanse`)
 - `judy.pc.in` (`pkg-config --cflags --libs judy`)
 
 ---
 
-### 2.5 Multi-Platform GitHub Release Archives
+### 2.6 Multi-Platform GitHub Release Archives
 Every GitHub release bundles precompiled native archives:
 - `expanse-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz` (glibc + hwcaps)
 - `expanse-vX.Y.Z-x86_64-unknown-linux-musl.tar.gz` (static Alpine Linux)

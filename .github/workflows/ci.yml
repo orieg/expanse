@@ -175,7 +175,7 @@ jobs:
         timeout-minutes: 8
         run: |
           if timeout 120 sudo apt-get install -y musl-tools; then exit 0; fi
-          for i in 1 2 3; do
+          for _ in 1 2 3; do
             timeout 120 sudo apt-get update || true
             if timeout 120 sudo apt-get install -y musl-tools; then exit 0; fi
             echo "apt attempt $i failed; retrying"
@@ -454,7 +454,7 @@ jobs:
         timeout-minutes: 10
         run: |
           if timeout 120 sudo apt-get install -y valgrind libjudy-dev; then exit 0; fi
-          for i in 1 2 3; do
+          for _ in 1 2 3; do
             timeout 120 sudo apt-get update || true
             if timeout 120 sudo apt-get install -y valgrind libjudy-dev; then exit 0; fi
             echo "apt attempt $i failed; retrying"
@@ -801,7 +801,7 @@ jobs:
         timeout-minutes: 8
         run: |
           if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
-          for i in 1 2 3; do
+          for _ in 1 2 3; do
             timeout 120 sudo apt-get update || true
             if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
             echo "apt attempt $i failed; retrying"

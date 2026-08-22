@@ -3,6 +3,7 @@
 [![CI](https://github.com/orieg/expanse/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/orieg/expanse/actions/workflows/ci.yml?query=branch%3Amain)
 [![Crates.io Version](https://img.shields.io/crates/v/expanse-trie.svg?style=flat-square&logo=rust)](https://crates.io/crates/expanse-trie)
 [![APT Repository](https://img.shields.io/badge/apt-debian%20%7C%20ubuntu-orange.svg?style=flat-square&logo=debian)](https://orieg.github.io/expanse/apt/)
+[![RPM Repository](https://img.shields.io/badge/rpm-rhel%20%7C%20fedora%20%7C%20centos-red.svg?style=flat-square&logo=redhat)](https://orieg.github.io/expanse/rpm/)
 [![Architectures](https://img.shields.io/badge/arch-x86--64%20%7C%20aarch64%20%7C%20riscv64-blueviolet.svg?style=flat-square)](#platform-support)
 [![MSRV](https://img.shields.io/badge/MSRV-1.85%2B%20(Edition%202024)-informational.svg?style=flat-square)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg?style=flat-square)](LICENSE-MIT)
@@ -33,7 +34,7 @@ Naming the project after the mechanism honors the algorithm itself without inher
 - **Strictly Faster than Stock Judy**: Outperforms original `libjudy` across 100% of benchmark workloads (inserts, lookups, deletions, and churn).
 - **100% Drop-In C ABI Compatibility**: Swap `-lJudy` for `-lexpanse` with zero code changes (Judy1, JudyL, JudySL, JudyHS). Passes `php-judy` test suite (221/221) and differential oracle.
 - **Multi-Architecture Vectorization**: Hardware-accelerated with dynamic `glibc-hwcaps` packaging (`x86-64-v1..v4`), ARM64 NEON, and 64-bit RISC-V (`RV64GC`).
-- **Lock-Free OCC Concurrency**: Multi-core optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet`) scaling linearly up to **78.4M ops/s** on 16 cores with zero read locks.
+- **Lock-Free OCC Concurrency**: Multi-core optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet`) scaling linearly up to **260.9M ops/s** on 16 cores with zero read locks.
 - **Ultra-Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on clustered/dense integer sets through adaptive digital trie compaction.
 
 ---
@@ -199,7 +200,16 @@ sudo apt-get update
 sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat
 ```
 
-### 3. Modern C API (`expanse.h`)
+### 3. Enterprise Linux Official RPM Repository (RHEL / CentOS / Fedora / Rocky / Amazon Linux)
+```bash
+# 1. Add official repository configuration
+sudo dnf config-manager --add-repo https://orieg.github.io/expanse/rpm/expanse.repo
+
+# 2. Update & install runtime, dev headers, and legacy Judy compatibility symlinks
+sudo dnf install -y libexpanse libexpanse-devel libjudy-compat
+```
+
+### 4. Modern C API (`expanse.h`)
 ```c
 #include <stdio.h>
 #include <expanse.h>

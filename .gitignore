@@ -12,3 +12,11 @@
 # Original Judy reference PDFs — design context only, never committed
 # (clean-room implementation; see CLAUDE.md and docs/COMPAT.md)
 /references/
+
+# Packaging build artifacts
+/debian_build/
+/rpm_build/
+/dist/
+/package/
+__pycache__/
+*.pyc
