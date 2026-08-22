@@ -648,7 +648,7 @@ impl SyncExpanseMap {
         self.shared.write(|m| m.remove(key))
     }
 
-    /// Removes every entry from the map.
+    /// Removes every key-value pair from the map.
     pub fn clear(&self) {
         self.shared.write(|m| m.clear());
     }
