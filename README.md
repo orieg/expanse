@@ -64,7 +64,16 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | 6+ | Ordered navigation: first/last/next/prev, O(depth) rank & select | ✅ |
 | 7 | Concurrent reads: `SyncExpanseSet`/`SyncExpanseMap` — one writer, lock-free validated readers (seqlock + epoch reclamation, loom-checked) | ✅ |
 | 8 | Compat surface: **Judy1 / JudyL / JudySL / JudyHS all exported**, `Judy.h` shipped, modern `expanse.h` API alongside | ✅ |
-| 8 | Performance vs stock libjudy | 🔄 in progress (table below) |
+| 8+ | Performance vs stock libjudy (Callgrind harness, OCC monomorphization, width-specialization, allocator locality) | ✅ |
+
+### Active Roadmap & Architecture Backlog
+
+| Area | Scope & Objectives | Tracking Issue | State |
+|---|---|---|---|
+| **Performance Leadership** | Outperform stock libjudy across 100% of benchmark metrics (glibc-hwcaps, branch bitmasks, deep branch prefetch) | [#110](https://github.com/orieg/expanse/issues/110) | 🔄 in progress |
+| **RISC-V 64-bit** | Support 64-bit RISC-V (`riscv64gc`) for memory-constrained edge/Linux systems | [#96](https://github.com/orieg/expanse/issues/96) | 📋 planned |
+| **32-Bit Microprocessors** | 32-bit architecture support (`RV32`, `ESP32`, `Cortex-M`) for microcontrollers and embedded IoT/robotics | [#109](https://github.com/orieg/expanse/issues/109) | 📋 planned |
+| **Distribution & Packaging** | Automated release publishing (crates.io trusted publishing, `.deb`, and distro packaging) | [#73](https://github.com/orieg/expanse/issues/73) | 📋 planned |
 
 ### Compatibility gates (standing CI jobs, all green)
 

@@ -40,22 +40,29 @@ use crate::leaf;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
 use crate::types::{ImmedType, Key, digit};
 
+/// Precomputed key masks for 1-key immediate edges per byte width (1..=7).
+const IMM_MASKS: [u64; 8] = [
+    0,
+    0x0000_0000_0000_00FF,
+    0x0000_0000_0000_FFFF,
+    0x0000_0000_00FF_FFFF,
+    0x0000_0000_FFFF_FFFF,
+    0x0000_00FF_FFFF_FFFF,
+    0x0000_FFFF_FFFF_FFFF,
+    0x00FF_FFFF_FFFF_FFFF,
+];
+
 /// Validates the skipped digits of a narrow pointer: the edge's decode bytes
 /// for a child at `child_level` must equal the key digits at levels
 /// `child_level + 1 ..= level`.
 #[inline(always)]
 pub(crate) fn decode_matches(edge: &Edge, key: Key, child_level: u8, level: u8) -> bool {
     debug_assert!(child_level <= level && level <= 7);
-    let count = (level - child_level) as u32;
+    let count = (level - child_level) as usize;
     if count == 0 {
         return true;
     }
-    let shift = child_level as u32 * 8;
-    let mask = if count >= 8 {
-        u64::MAX
-    } else {
-        ((1u64 << (count * 8)) - 1) << shift
-    };
+    let mask = IMM_MASKS[count] << ((child_level as u32) << 3);
     ((key ^ edge.aux_word()) & mask) == 0
 }
 
@@ -87,23 +94,34 @@ fn immed_find(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
 #[inline(always)]
 fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
     let n = im.key_count() as usize;
-    debug_assert!(payload.len() >= n * KB);
+    let needle = crate::mutate::key_low(key, KB as u8);
+    if n == 1 {
+        // SAFETY: payload holds at least 1 * KB readable bytes.
+        if unsafe { crate::mutate::read_packed_fixed::<KB>(payload.as_ptr(), 0) } == needle {
+            return Some(0);
+        }
+        return None;
+    }
+    if n == 2 {
+        // SAFETY: payload holds at least 2 * KB readable bytes.
+        unsafe {
+            if crate::mutate::read_packed_fixed::<KB>(payload.as_ptr(), 0) == needle {
+                return Some(0);
+            }
+            if crate::mutate::read_packed_fixed::<KB>(payload.as_ptr(), 1) == needle {
+                return Some(1);
+            }
+        }
+        return None;
+    }
     let le = key.to_le_bytes();
-    let mut needle = [0u8; KB];
-    needle.copy_from_slice(&le[..KB]);
-    // Same idiom as `leaf::search_fixed`, and for the same reason. The
-    // `chunks_exact(KB).take(n)` version this replaces yielded `&[u8]`,
-    // so `candidate == needle` was a **slice**-to-array comparison — a
-    // length check plus slice-equality machinery, under two iterator
-    // adapters. Casting to `[u8; KB]` first makes it an array-to-array
-    // compare of statically known width, which lowers to a word compare
-    // with no length test.
-    //
-    // SAFETY: `[u8; KB]` has alignment 1, and the edge's tag guarantees
-    // `n * KB` payload bytes (debug-asserted above) — exactly `n` such
-    // arrays.
+    let mut needle_bytes = [0u8; KB];
+    needle_bytes.copy_from_slice(&le[..KB]);
+    // SAFETY: `[u8; KB]` has alignment 1, and payload holds `n * KB` bytes.
     let packed = unsafe { core::slice::from_raw_parts(payload.as_ptr().cast::<[u8; KB]>(), n) };
-    packed.iter().position(|candidate| *candidate == needle)
+    packed
+        .iter()
+        .position(|candidate| *candidate == needle_bytes)
 }
 
 /// The shared descent; `MAP` selects map flavor (values) over set flavor.
@@ -146,10 +164,16 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                     return false;
                 }
                 let d = digit(key, bl);
-                let Some(slot) = b.hdr.find(d) else {
+                let num = b.hdr.num as usize;
+                let slot = if num >= 1 && b.hdr.digits[0] == d {
+                    0
+                } else if num >= 2 && b.hdr.digits[1] == d {
+                    1
+                } else if num >= 3 && b.hdr.digits[2] == d {
+                    2
+                } else {
                     return false;
                 };
-                debug_assert!(slot < b.edges.len());
                 // SAFETY: `slot < 3` accesses a valid child edge pointer.
                 edge = unsafe { &*b.edges.as_ptr().add(slot) };
                 level = bl - 1;
@@ -213,7 +237,7 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 if level > 1 && !decode_matches(edge, key, 1, level) {
                     return false;
                 }
-                let d = digit(key, 1);
+                let d = (key & 0xFF) as u8;
                 // SAFETY: pointer-tagged edge → live LeafBitmap1.
                 let l = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
                 return l.bitmap.test(d);
@@ -234,6 +258,14 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 return true;
             }
 
+            // Single-key immediate fast-paths (Immed1_1 ..= Immed7_1):
+            // The lower nibble (count - 1) is 0, so tag & 0x0F == 0.
+            // Direct 1-cycle XOR + mask lookup bypasses ImmedType::from_u8 validation.
+            0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
+                let kb = (tag >> 4) as usize;
+                return ((key ^ edge.word0()) & IMM_MASKS[kb]) == 0;
+            }
+
             _ => {
                 let Some(im) = ImmedType::from_u8(tag) else {
                     debug_assert!(false, "invalid edge tag {:#04x}", tag);
@@ -244,16 +276,6 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                     level,
                     "an immediate's key size is its level"
                 );
-                let kb = im.key_bytes();
-                let n = im.key_count() as usize;
-                let mask = if kb >= 8 {
-                    u64::MAX
-                } else {
-                    (1u64 << (kb * 8)) - 1
-                };
-                if n == 1 {
-                    return ((key ^ edge.word0()) & mask) == 0;
-                }
                 let payload = edge.imm_payload();
                 return immed_find(im, &payload, key).is_some();
             }
@@ -278,8 +300,16 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                     return None;
                 }
                 let d = digit(key, bl);
-                let slot = b.hdr.find(d)?;
-                debug_assert!(slot < b.edges.len());
+                let num = b.hdr.num as usize;
+                let slot = if num >= 1 && b.hdr.digits[0] == d {
+                    0
+                } else if num >= 2 && b.hdr.digits[1] == d {
+                    1
+                } else if num >= 3 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return None;
+                };
                 // SAFETY: `slot < 3` accesses a valid child edge pointer.
                 edge = unsafe { &*b.edges.as_ptr().add(slot) };
                 level = bl - 1;
@@ -338,7 +368,7 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 if level > 1 && !decode_matches(edge, key, 1, level) {
                     return None;
                 }
-                let d = digit(key, 1);
+                let d = (key & 0xFF) as u8;
                 // SAFETY: pointer-tagged edge → live LeafBitmapL.
                 let l = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
                 let sub = (d >> 5) as usize;
@@ -368,6 +398,15 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 unreachable!("full-expanse edges are set-flavor only");
             }
 
+            0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
+                let kb = (tag >> 4) as usize;
+                return if ((key ^ edge.aux_word()) & IMM_MASKS[kb]) == 0 {
+                    Some(edge.word0())
+                } else {
+                    None
+                };
+            }
+
             _ => {
                 let Some(im) = ImmedType::from_u8(tag) else {
                     debug_assert!(false, "invalid edge tag {:#04x}", tag);
@@ -378,21 +417,8 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                     level,
                     "an immediate's key size is its level"
                 );
-                let kb = im.key_bytes();
+                let kb_usize = im.key_bytes() as usize;
                 let n = im.key_count() as usize;
-                let mask = if kb >= 8 {
-                    u64::MAX
-                } else {
-                    (1u64 << (kb * 8)) - 1
-                };
-                if n == 1 {
-                    return if ((key ^ edge.aux_word()) & mask) == 0 {
-                        Some(edge.word0())
-                    } else {
-                        None
-                    };
-                }
-                let kb_usize = kb as usize;
                 debug_assert!(kb_usize * n <= 7, "map immediates keep keys in aux");
                 let slot = immed_find(im, edge.aux_bytes(), key)?;
                 let vals = edge.node_ptr().cast::<u64>();
@@ -510,7 +536,7 @@ unsafe fn test_set_popcnt_c_int(edge: &Edge, key: Key, level: u8) -> core::ffi::
 /// # Safety
 ///
 /// Same contract as [`test_set`].
-#[inline]
+#[inline(always)]
 #[must_use]
 pub unsafe fn get_map(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
@@ -719,7 +745,7 @@ unsafe fn locate_slot_impl(
                     if level > 1 && !decode_matches(&*edge, key, 1, level) {
                         return None;
                     }
-                    let d = digit(key, 1);
+                    let d = (key & 0xFF) as u8;
                     let sub = (d >> 5) as usize;
                     let node = (*edge).node_ptr().cast::<LeafBitmapL>();
                     let rank = (*node).bitmap.test_and_subexpanse_rank(d)?;
@@ -747,25 +773,20 @@ unsafe fn locate_slot_impl(
                 unreachable!("full-expanse edges are set-flavor only")
             }
 
+            0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
+                let kb = (tag >> 4) as usize;
+                // SAFETY: live edge per contract; read aux_word for key match.
+                if ((key ^ unsafe { (*edge).aux_word() }) & IMM_MASKS[kb]) == 0 {
+                    // Word 0 (offset 0 of the edge) is the value itself.
+                    return core::ptr::NonNull::new(edge.cast::<u64>());
+                } else {
+                    return None;
+                }
+            }
+
             _ => {
                 let im = ImmedType::from_u8(tag)?;
                 debug_assert_eq!(im.key_bytes(), level);
-                let kb = im.key_bytes();
-                let n = im.key_count() as usize;
-                let mask = if kb >= 8 {
-                    u64::MAX
-                } else {
-                    (1u64 << (kb * 8)) - 1
-                };
-                if n == 1 {
-                    // SAFETY: live edge per contract; read aux_word for key match.
-                    if ((key ^ unsafe { (*edge).aux_word() }) & mask) == 0 {
-                        // Word 0 (offset 0 of the edge) is the value itself.
-                        return core::ptr::NonNull::new(edge.cast::<u64>());
-                    } else {
-                        return None;
-                    }
-                }
                 // SAFETY: live map immediate per contract; keys live in the aux bytes.
                 let slot = immed_find(im, unsafe { (*edge).aux_bytes() }, key)?;
                 // SAFETY: live value array of key_count values.

@@ -339,10 +339,24 @@ impl BranchHeader {
     }
 
     /// Slot of `digit` among the populated children, if present.
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub fn find(&self, digit: u8) -> Option<usize> {
-        crate::bits::find_byte_8(&self.digits, self.num as usize, digit)
+        let num = self.num as usize;
+        if num <= 3 {
+            if num >= 1 && self.digits[0] == digit {
+                return Some(0);
+            }
+            if num >= 2 && self.digits[1] == digit {
+                return Some(1);
+            }
+            if num >= 3 && self.digits[2] == digit {
+                return Some(2);
+            }
+            None
+        } else {
+            crate::bits::find_byte_8(&self.digits, num, digit)
+        }
     }
 }
 

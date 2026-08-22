@@ -175,7 +175,11 @@ pub unsafe extern "C" fn expanse_set_remove(set: *mut ExpanseSet, key: u64) -> b
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_set_contains(set: *const ExpanseSet, key: u64) -> bool {
     // SAFETY: null or live handle per contract.
-    unsafe { set.as_ref() }.is_some_and(|s| s.contains(key))
+    if set.is_null() {
+        return false;
+    }
+    // SAFETY: set is non-null and points to a live ExpanseSet per contract.
+    unsafe { (*set).contains(key) }
 }
 
 /// Generates a set navigation entry point returning `bool` + `key_out`.
@@ -348,7 +352,11 @@ pub unsafe extern "C" fn expanse_map_get(
     value_out: *mut u64,
 ) -> bool {
     // SAFETY: null or live handle per contract.
-    let Some(v) = (unsafe { map.as_ref() }).and_then(|m| m.get(key)) else {
+    if map.is_null() {
+        return false;
+    }
+    // SAFETY: map is non-null and points to a live ExpanseMap per contract.
+    let Some(v) = (unsafe { (*map).get(key) }) else {
         return false;
     };
     // SAFETY: `value_out` null or writable per contract.
