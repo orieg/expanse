@@ -55,22 +55,30 @@ graph TD
 
 ---
 
-### 2.2 Linux Debian / Ubuntu (`.deb`) & `glibc-hwcaps`
-Expanse packages modern multi-architecture libraries utilizing `glibc-hwcaps` (glibc ≥ 2.33 / Ubuntu 22.04+, Debian 12+, RHEL 9+):
+### 2.2 Linux Debian / Ubuntu (`.deb`) & Official APT Repository
 
-- **Packages Generated** via `scripts/package_deb.sh`:
-  - `libexpanse1_<ver>_amd64.deb`: Runtime shared libraries containing:
-    - `/usr/lib/x86_64-linux-gnu/libexpanse.so.1.0.0` (baseline `x86-64-v1` fallback)
-    - `/usr/lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v2/libexpanse.so.1.0.0` (`+popcnt, +sse4.2`)
-    - `/usr/lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v3/libexpanse.so.1.0.0` (`+avx2, +bmi2, +lzcnt` — **15–21% faster**)
-    - `/usr/lib/x86_64-linux-gnu/glibc-hwcaps/x86-64-v4/libexpanse.so.1.0.0` (`+avx512`)
-  - `libexpanse-dev_<ver>_amd64.deb`: Development package containing:
-    - Headers: `/usr/include/expanse.h` and `/usr/include/Judy.h`
-    - Static library: `/usr/lib/x86_64-linux-gnu/libexpanse.a`
-    - Symlinks: `/usr/lib/x86_64-linux-gnu/libexpanse.so`
-    - Pkg-config: `/usr/lib/x86_64-linux-gnu/pkgconfig/expanse.pc` and `judy.pc`
-  - `libjudy-compat_<ver>_amd64.deb`: Drop-in replacement package:
-    - Symlinks `/usr/lib/x86_64-linux-gnu/libJudy.so.1` -> `libexpanse.so.1`
+Expanse maintains an automated, official Debian/Ubuntu APT repository hosted on GitHub Pages:
+
+#### Quick APT Setup (Debian / Ubuntu / Raspberry Pi OS / RISC-V Linux):
+```bash
+# 1. Add repository source
+echo "deb [trusted=yes] https://orieg.github.io/expanse/apt/ stable main" | sudo tee /etc/apt/sources.list.d/expanse.list
+
+# 2. Update and install
+sudo apt-get update
+sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat
+```
+
+- **Architectures Supported in APT Repo**:
+  - `amd64` (`x86-64-v1`, `v2`, `v3`, `v4` with `glibc-hwcaps`)
+  - `arm64` (AArch64 Apple Silicon Linux, Graviton, Raspberry Pi 4/5)
+  - `riscv64` (RV64GC embedded and server systems)
+
+- **Packages Available**:
+  - `libexpanse1`: Runtime shared libraries (`libexpanse.so.1.0.0` with `glibc-hwcaps/` variants).
+  - `libexpanse-dev`: Development headers (`expanse.h`, `Judy.h`), static library (`libexpanse.a`), and pkg-config.
+  - `libjudy-compat`: Drop-in replacement creating system-wide `/usr/lib/.../libJudy.so.1` symlinks to Expanse.
+
 
 ---
 
