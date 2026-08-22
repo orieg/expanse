@@ -34,6 +34,43 @@ pub(crate) const fn map_immed_val_size(n: usize) -> usize {
     8 * crate::leaf::cap_class(n)
 }
 
+#[inline(always)]
+pub(crate) unsafe fn read_packed_fixed(keys_ptr: *const u8, slot: usize, kb: u8) -> u64 {
+    // SAFETY: forwarded contract.
+    unsafe {
+        match kb {
+            1 => *keys_ptr.add(slot) as u64,
+            2 => core::ptr::read_unaligned(keys_ptr.add(slot * 2).cast::<u16>()) as u64,
+            3 => read_packed(keys_ptr, slot, 3),
+            4 => core::ptr::read_unaligned(keys_ptr.add(slot * 4).cast::<u32>()) as u64,
+            5 => read_packed(keys_ptr, slot, 5),
+            6 => read_packed(keys_ptr, slot, 6),
+            _ => read_packed(keys_ptr, slot, 7),
+        }
+    }
+}
+
+#[inline(always)]
+pub(crate) unsafe fn leaf_locate_fixed(
+    keys_ptr: *const u8,
+    pop: usize,
+    kb: u8,
+    k: u64,
+) -> Result<usize, usize> {
+    // SAFETY: forwarded contract.
+    unsafe {
+        match kb {
+            1 => leaf::locate_fixed::<1>(keys_ptr, pop, k),
+            2 => leaf::locate_fixed::<2>(keys_ptr, pop, k),
+            3 => leaf::locate_fixed::<3>(keys_ptr, pop, k),
+            4 => leaf::locate_fixed::<4>(keys_ptr, pop, k),
+            5 => leaf::locate_fixed::<5>(keys_ptr, pop, k),
+            6 => leaf::locate_fixed::<6>(keys_ptr, pop, k),
+            _ => leaf::locate_fixed::<7>(keys_ptr, pop, k),
+        }
+    }
+}
+
 /// Builds a fresh map immediate from sorted entries.
 fn write_map_immed(a: &NodeAlloc, edge: &mut Edge, kb: u8, entries: &[(u64, u64)]) {
     let im = ImmedType::new(kb, entries.len() as u8).expect("immediate capacity");
@@ -490,7 +527,17 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 let (found, num) = unsafe {
                     if is_l3 {
                         let b = &*(*edge).node_ptr().cast::<BranchL3>();
-                        (b.hdr.find(d), b.hdr.num as usize)
+                        let num = b.hdr.num as usize;
+                        let found = if num >= 1 && b.hdr.digits[0] == d {
+                            Some(0)
+                        } else if num >= 2 && b.hdr.digits[1] == d {
+                            Some(1)
+                        } else if num >= 3 && b.hdr.digits[2] == d {
+                            Some(2)
+                        } else {
+                            None
+                        };
+                        (found, num)
                     } else {
                         let b = &*(*edge).node_ptr().cast::<BranchL7>();
                         (b.hdr.find(d), b.hdr.num as usize)
@@ -753,14 +800,14 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
                 let (hit, pos) = if pop > 0 {
                     // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
-                    let last = unsafe { read_packed(keys_ptr, pop - 1, kb as usize) };
+                    let last = unsafe { read_packed_fixed(keys_ptr, pop - 1, kb) };
                     if k > last {
                         (false, pop)
                     } else if k == last {
                         (true, pop - 1)
                     } else {
                         // SAFETY: keys_ptr holds pop packed keys.
-                        match unsafe { leaf::locate(keys_ptr, pop, kb, k) } {
+                        match unsafe { leaf_locate_fixed(keys_ptr, pop, kb, k) } {
                             Ok(p) => (true, p),
                             Err(p) => (false, p),
                         }
@@ -1357,14 +1404,14 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
                 let (hit, pos) = if pop > 0 {
                     // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
-                    let last = unsafe { read_packed(keys_ptr, pop - 1, kb as usize) };
+                    let last = unsafe { read_packed_fixed(keys_ptr, pop - 1, kb) };
                     if k > last {
                         (false, pop)
                     } else if k == last {
                         (true, pop - 1)
                     } else {
                         // SAFETY: live map leaf per contract (keys behind the values).
-                        match unsafe { leaf::locate(keys_ptr, pop, kb, k) } {
+                        match unsafe { leaf_locate_fixed(keys_ptr, pop, kb, k) } {
                             Ok(p) => (true, p),
                             Err(p) => (false, p),
                         }
@@ -1638,7 +1685,17 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 let (found, num) = unsafe {
                     if is_l3 {
                         let b = &*edge.node_ptr().cast::<BranchL3>();
-                        (b.hdr.find(d), b.hdr.num as usize)
+                        let num = b.hdr.num as usize;
+                        let found = if num >= 1 && b.hdr.digits[0] == d {
+                            Some(0)
+                        } else if num >= 2 && b.hdr.digits[1] == d {
+                            Some(1)
+                        } else if num >= 3 && b.hdr.digits[2] == d {
+                            Some(2)
+                        } else {
+                            None
+                        };
+                        (found, num)
                     } else {
                         let b = &*edge.node_ptr().cast::<BranchL7>();
                         (b.hdr.find(d), b.hdr.num as usize)

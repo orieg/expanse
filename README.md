@@ -99,14 +99,14 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 | **Random 3,000,000 lookup** | **318.5M** vs 389.7M inst | **0.82× / 0.81×** | **16.80 B/k** vs 17.80 B/k (0.94×) | 🟢 **18% faster than Judy** |
 | **Random 30,000 lookup** | **4.53M** vs 5.09M inst | **0.89× / 0.88×** | **24.63 B/k** vs 24.81 B/k (0.99×) | 🟢 **11% faster than Judy** |
 | **Random 30,000 set test** | **3.78M** vs 3.83M inst | **0.988× / 0.98×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Faster than Judy** |
-| **Random 30,000 churn (del+ins)** | **39.4M** vs 50.8M inst | **0.776× / 0.77×** | **Dynamic exact accounting** | 🟢 **22.4% faster than Judy** |
-| **Clustered 100,000 set insert** | **7.73M** vs 10.38M inst | **0.745× / 0.74×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **25.5% faster than Judy** |
+| **Random 30,000 churn (del+ins)** | **38.3M** vs 50.8M inst | **0.754× / 0.75×** | **Dynamic exact accounting** | 🟢 **24.6% faster than Judy** |
+| **Clustered 100,000 set insert** | **7.60M** vs 10.38M inst | **0.733× / 0.73×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **26.7% faster than Judy** |
 | **Clustered 1,000,000 insert** | **31.6 ns** vs 34.1 ns | **0.92× / 0.89×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **8% less memory, faster insert** |
 | **Clustered 1,000,000 lookup** | **11.8 ns** vs 12.1 ns | **0.98× / 0.95×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **Faster than Judy** |
 | **Clustered 30,000 lookup** | **3.71M** vs 3.97M inst | **0.94× / 0.92×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **6% faster than Judy** |
-| **Clustered 100,000 map insert** | **11.64M** vs 12.01M inst | **0.97× / 0.96×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **Faster than Judy** |
-| **Random 100,000 set insert** | **15.61M** vs 15.69M inst | **0.995× / 0.99×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Faster than Judy** |
-| **Random 100,000 map insert** | **19.48M** vs 17.76M inst | **1.09× / 1.08×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **Near Parity (within 9%)** |
+| **Clustered 100,000 map insert** | **11.47M** vs 12.01M inst | **0.95× / 0.95×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **Faster than Judy** |
+| **Random 100,000 set insert** | **15.32M** vs 15.69M inst | **0.977× / 0.97×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Faster than Judy** |
+| **Random 100,000 map insert** | **18.06M** vs 17.76M inst | **1.01× / 1.01×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **Near Parity (within 1%)** |
 
 #### Modern CPU Compilation (`x86-64-v3`: AVX2 / BMI2 / POPCNT)
 The table above reflects the standard generic build. When compiled specifically for modern CPUs (`-C target-cpu=x86-64-v3`, `-C target-cpu=native`, or via `glibc-hwcaps`), **19 of 19 benchmarks are strictly faster** (up to **-42.60%** instruction reduction on deletions and churn by folding runtime feature probes and emitting fused AVX2/BMI2 hardware instructions directly).

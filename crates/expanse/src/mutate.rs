@@ -171,6 +171,27 @@ pub(crate) unsafe fn write_packed_fixed<const KB: usize>(keys: *mut u8, slot: us
     }
 }
 
+#[inline(always)]
+pub(crate) unsafe fn leaf_locate_fixed(
+    keys_ptr: *const u8,
+    pop: usize,
+    kb: u8,
+    k: u64,
+) -> Result<usize, usize> {
+    // SAFETY: forwarded contract.
+    unsafe {
+        match kb {
+            1 => leaf::locate_fixed::<1>(keys_ptr, pop, k),
+            2 => leaf::locate_fixed::<2>(keys_ptr, pop, k),
+            3 => leaf::locate_fixed::<3>(keys_ptr, pop, k),
+            4 => leaf::locate_fixed::<4>(keys_ptr, pop, k),
+            5 => leaf::locate_fixed::<5>(keys_ptr, pop, k),
+            6 => leaf::locate_fixed::<6>(keys_ptr, pop, k),
+            _ => leaf::locate_fixed::<7>(keys_ptr, pop, k),
+        }
+    }
+}
+
 /// Writes `val`'s low `kb` bytes as the `slot`-th packed key.
 ///
 /// # Safety
@@ -805,7 +826,17 @@ unsafe fn insert_with_path_flat(
                 let (hdr_find, num) = unsafe {
                     if is_l3 {
                         let b = &*(*edge).node_ptr().cast::<BranchL3>();
-                        (b.hdr.find(d), b.hdr.num as usize)
+                        let num = b.hdr.num as usize;
+                        let found = if num >= 1 && b.hdr.digits[0] == d {
+                            Some(0)
+                        } else if num >= 2 && b.hdr.digits[1] == d {
+                            Some(1)
+                        } else if num >= 3 && b.hdr.digits[2] == d {
+                            Some(2)
+                        } else {
+                            None
+                        };
+                        (found, num)
                     } else {
                         let b = &*(*edge).node_ptr().cast::<BranchL7>();
                         (b.hdr.find(d), b.hdr.num as usize)
@@ -1187,7 +1218,7 @@ unsafe fn insert_with_path_flat(
                         return false;
                     } else {
                         // SAFETY: base holds pop sorted keys of kb bytes.
-                        match unsafe { leaf::locate(base, pop, kb, k) } {
+                        match unsafe { leaf_locate_fixed(base, pop, kb, k) } {
                             Ok(_) => return false,
                             Err(p) => p,
                         }
@@ -1795,7 +1826,17 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                 let (hdr_find, num) = unsafe {
                     if is_l3 {
                         let b = &*edge.node_ptr().cast::<BranchL3>();
-                        (b.hdr.find(d), b.hdr.num as usize)
+                        let num = b.hdr.num as usize;
+                        let found = if num >= 1 && b.hdr.digits[0] == d {
+                            Some(0)
+                        } else if num >= 2 && b.hdr.digits[1] == d {
+                            Some(1)
+                        } else if num >= 3 && b.hdr.digits[2] == d {
+                            Some(2)
+                        } else {
+                            None
+                        };
+                        (found, num)
                     } else {
                         let b = &*edge.node_ptr().cast::<BranchL7>();
                         (b.hdr.find(d), b.hdr.num as usize)
