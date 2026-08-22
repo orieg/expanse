@@ -1,11 +1,11 @@
 # Expanse
 
-[![CI](https://github.com/orieg/expanse/actions/workflows/ci.yml/badge.svg)](https://github.com/orieg/expanse/actions/workflows/ci.yml)
+[![CI](https://github.com/orieg/expanse/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/orieg/expanse/actions/workflows/ci.yml?query=branch%3Amain)
 [![Crates.io Version](https://img.shields.io/crates/v/expanse-trie.svg?style=flat-square&logo=rust)](https://crates.io/crates/expanse-trie)
-[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg?style=flat-square)](LICENSE-MIT)
 [![APT Repository](https://img.shields.io/badge/apt-debian%20%7C%20ubuntu-orange.svg?style=flat-square&logo=debian)](https://orieg.github.io/expanse/apt/)
 [![Architectures](https://img.shields.io/badge/arch-x86--64%20%7C%20aarch64%20%7C%20riscv64-blueviolet.svg?style=flat-square)](#platform-support)
 [![MSRV](https://img.shields.io/badge/MSRV-1.85%2B%20(Edition%202024)-informational.svg?style=flat-square)](Cargo.toml)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg?style=flat-square)](LICENSE-MIT)
 
 A **clean-room, pure-Rust implementation of Judy arrays**, modernized for modern 64-bit microarchitectures, with **`libexpanse` — a high-performance, drop-in C ABI replacement for `libjudy`**.
 
@@ -26,28 +26,9 @@ Judy arrays (invented by Doug Baskins at Hewlett-Packard, ~2002) are sparse, dyn
 
 ## Visual Performance Comparison
 
-```text
-1. Ordered Range Scan (100k sorted keys) — higher is faster
-ExpanseMap   ████████████████████████████████████████  3.4× speedup vs BTreeMap
-BTreeMap     ████████████                              1.0× baseline
+![Comparative Performance](docs/assets/bench_comparative.svg)
 
-2. Point Lookup Latency (1M keys) — lower is better
-ExpanseSet   ██████████████                            15.8 ns  (2.0× faster than Judy)
-Roaring      ████████████████████                      24.2 ns
-Stock Judy   ████████████████████████████████          32.3 ns
-
-3. Memory Consumption on Clustered Sets (100k keys) — lower is better
-ExpanseSet   █                                         0.36 B/key
-Roaring      █                                         0.38 B/key
-BTreeSet     ████████████████████████████████████████  16.00 B/key
-HashMap      ████████████████████████████████████████  32.00 B/key
-
-4. Multithreaded Lock-Free Read Scalability (100% Read, 1M keys)
- 1 Thread   [█████]                                     10.1 M ops/s  (1.0×)
- 4 Threads  [████████████████]                          32.8 M ops/s  (3.2×)
- 8 Threads  [████████████████████]                      39.8 M ops/s  (3.9×)
-16 Threads  [███████████████████████████████████████]   78.4 M ops/s  (7.8× linear)
-```
+![OCC Concurrency Scalability](docs/assets/bench_concurrency.svg)
 
 ---
 
@@ -204,19 +185,27 @@ sudo apt-get update
 sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat
 ```
 
-### 3. C / C++ Integration (Drop-in `Judy.h` or modern `expanse.h`)
+### 3. Modern C API (`expanse.h`)
 ```c
 #include <stdio.h>
-#include <Judy.h>
+#include <expanse.h>
 
-int main() {
-    Pvoid_t judy = (Pvoid_t)NULL;
-    Word_t *val;
-    JLI(val, judy, 42);
-    *val = 100;
+int main(void) {
+    expanse_map_t *map = expanse_map_new();
     
-    JLG(val, judy, 42);
-    printf("Value: %lu\n", *val);
+    // Insert key -> value
+    expanse_map_insert(map, 42, 100, NULL);
+    
+    // Fast O(depth) lookup
+    uint64_t val;
+    if (expanse_map_get(map, 42, &val)) {
+        printf("Key 42 -> %lu\n", val);
+    }
+    
+    // Exact byte memory accounting
+    printf("Memory: %zu bytes\n", expanse_map_mem_used(map));
+    
+    expanse_map_free(map);
     return 0;
 }
 ```
@@ -225,7 +214,40 @@ Compile and link directly:
 gcc main.c -lexpanse -o main
 ```
 
-### 4. Windows MSVC / vcpkg / NuGet
+### 4. Drop-in Legacy C API (`Judy.h`)
+```c
+#include <stdio.h>
+#include <Judy.h>
+
+int main(void) {
+    Pvoid_t judy = (Pvoid_t)NULL;
+    Word_t *val;
+    
+    // JudyL insert macro
+    JLI(val, judy, 42);
+    *val = 100;
+    
+    // JudyL lookup macro
+    JLG(val, judy, 42);
+    printf("Value: %lu\n", *val);
+    
+    // Exact memory used macro
+    Word_t bytes;
+    JLMU(bytes, judy);
+    printf("Memory: %lu bytes\n", bytes);
+    
+    // Free array macro
+    Word_t freed;
+    JLFA(freed, judy);
+    return 0;
+}
+```
+Compile with `-lexpanse` or drop-in `-lJudy`:
+```bash
+gcc legacy.c -lJudy -o legacy
+```
+
+### 5. Windows MSVC / vcpkg / NuGet
 - **Release Bundle**: `expanse-v0.2.0-x86_64-pc-windows-msvc.zip` with DLL, import lib, and headers.
 - **vcpkg**: `vcpkg install expanse` using `extra/vcpkg/`.
 - **NuGet**: Visual Studio C++ package template in `extra/nuget/`.
@@ -236,7 +258,11 @@ See [docs/PACKAGING.md](docs/PACKAGING.md) for full packaging instructions.
 
 ## Clean-Room Statement
 
-The original Judy C library is LGPL. **No code from it has been consulted or ported.** This implementation derives strictly from published algorithmic descriptions and specifications. C API compatibility is defined by the documented API contract (man pages, published documentation) and validated by black-box differential testing. Licensed under **MIT OR Apache-2.0**.
+The original Judy C library is LGPL. **No code from it has been consulted or ported.** This implementation derives strictly from published algorithm papers and shop manuals:
+- Doug Baskins, [*A 10-Minute Description of How Judy Arrays Work and Why They Are So Fast*](https://judy.sourceforge.net/doc/10minute.htm) (Hewlett-Packard, 2002)
+- Alan Silverstein, [*Judy IV Shop Manual*](https://judy.sourceforge.net/doc/shop_interm.pdf) (Hewlett-Packard, 2002)
+
+C API compatibility is defined by the documented API contract (man pages, published documentation) and validated by black-box differential testing. Licensed under **MIT OR Apache-2.0**.
 
 ---
 

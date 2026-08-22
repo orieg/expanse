@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 340" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0d1117; }
+      .card-bg { fill: #161b22; stroke: #30363d; stroke-width: 1; rx: 8px; }
+      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700; fill: #f0f6fc; }
+      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; fill: #8b949e; }
+      .section-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; fill: #58a6ff; }
+      .bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 600; fill: #c9d1d9; }
+      .bar-val { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-size: 12px; font-weight: 600; fill: #f0f6fc; }
+      .bar-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; fill: #8b949e; }
+      
+      .bar-100 { fill: #2ea043; rx: 4px; }
+      .bar-oltp { fill: #1f6feb; rx: 4px; }
+      .bar-churn { fill: #8957e5; rx: 4px; }
+      .legend-text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; fill: #c9d1d9; }
+
+      @media (prefers-color-scheme: light) {
+        .bg { fill: #ffffff; }
+        .card-bg { fill: #f6f8fa; stroke: #d0d7de; }
+        .title { fill: #1f2328; }
+        .subtitle { fill: #656d76; }
+        .section-title { fill: #0969da; }
+        .bar-label { fill: #1f2328; }
+        .bar-val { fill: #1f2328; }
+        .bar-sub { fill: #656d76; }
+        .legend-text { fill: #1f2328; }
+      }
+    </style>
+  </defs>
+
+  <rect width="100%" height="100%" class="bg"/>
+
+  <g transform="translate(20, 20)">
+    <rect width="800" height="300" class="card-bg"/>
+    <text x="25" y="32" class="section-title">MULTITHREADED OCC CONCURRENCY SCALABILITY (SyncExpanseMap)</text>
+    <text x="25" y="50" class="subtitle">Throughput (Million ops/sec) across 1,000,000 keys with optimistic lock-free readers</text>
+
+    <!-- Legend -->
+    <g transform="translate(480, 25)">
+      <rect x="0" y="0" width="12" height="12" class="bar-100"/>
+      <text x="18" y="10" class="legend-text">100% Read</text>
+      <rect x="100" y="0" width="12" height="12" class="bar-oltp"/>
+      <text x="118" y="10" class="legend-text">95% R / 5% W (OLTP)</text>
+      <rect x="235" y="0" width="12" height="12" class="bar-churn"/>
+      <text x="253" y="10" class="legend-text">50/50 Churn</text>
+    </g>
+
+    <!-- 1 Thread -->
+    <text x="25" y="90" class="bar-label">1 Thread</text>
+    <rect x="120" y="78" width="64" height="16" class="bar-100"/>
+    <text x="192" y="91" class="bar-val">10.1M</text>
+
+    <!-- 4 Threads -->
+    <text x="25" y="135" class="bar-label">4 Threads</text>
+    <rect x="120" y="123" width="207" height="16" class="bar-100"/>
+    <text x="335" y="136" class="bar-val">32.8M</text>
+    <text x="390" y="136" class="bar-sub">(3.2× scale)</text>
+
+    <!-- 8 Threads -->
+    <text x="25" y="180" class="bar-label">8 Threads</text>
+    <rect x="120" y="168" width="251" height="16" class="bar-100"/>
+    <text x="380" y="181" class="bar-val">39.8M</text>
+    <text x="435" y="181" class="bar-sub">(3.9× scale)</text>
+
+    <!-- 16 Threads -->
+    <text x="25" y="225" class="bar-label">16 Threads</text>
+    <rect x="120" y="213" width="495" height="16" class="bar-100"/>
+    <text x="625" y="226" class="bar-val">78.4M ops/s</text>
+    <text x="715" y="226" class="bar-sub" font-weight="bold">(7.8× linear)</text>
+
+    <text x="25" y="275" class="bar-sub">🔒 Readers validate subtrees via per-node version sequence counters with zero locks and zero writer stalls</text>
+  </g>
+</svg>
