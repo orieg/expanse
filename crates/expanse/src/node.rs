@@ -65,6 +65,18 @@ pub struct Edge {
     tag: u8,
 }
 
+/// Precomputed bitmasks for low `level` bytes (1..=7).
+const POP0_MASKS: [u64; 8] = [
+    0,
+    0x0000_0000_0000_00FF,
+    0x0000_0000_0000_FFFF,
+    0x0000_0000_00FF_FFFF,
+    0x0000_0000_FFFF_FFFF,
+    0x0000_00FF_FFFF_FFFF,
+    0x0000_FFFF_FFFF_FFFF,
+    0x00FF_FFFF_FFFF_FFFF,
+];
+
 impl Edge {
     /// The null edge: empty subexpanse.
     pub const NULL: Self = Self {
@@ -212,19 +224,13 @@ impl Edge {
     pub(crate) const fn clear_aux_byte(&mut self, i: usize) {
         self.aux[i] = 0;
     }
-
     /// Subtree population minus one, for a child at `level` (1..=7): reads
     /// the low `level` bytes of the aux field (little-endian).
-    #[inline]
+    #[inline(always)]
     #[must_use]
     pub fn pop0(&self, level: u8) -> u64 {
         debug_assert!((1..=7).contains(&level));
-        // One masked load. The byte-at-a-time loop this replaces compiled
-        // to ~22 instructions and 6 data-dependent branches — a serial
-        // dependent-load chain — over a field that is already a
-        // contiguous little-endian integer. Insert paid it twice per
-        // level, on the way down and on the way back up (issue #1).
-        self.aux_word() & (u64::MAX >> (64 - 8 * u32::from(level)))
+        self.aux_word() & POP0_MASKS[level as usize]
     }
 
     /// Word 0 read as a little-endian 64-bit word.
@@ -251,7 +257,7 @@ impl Edge {
     }
 
     /// Writes the `aux`/tag word read by [`Self::aux_word`].
-    #[inline]
+    #[inline(always)]
     fn set_aux_word(&mut self, w: u64) {
         // SAFETY: as in `aux_word`; same object, same offset, same
         // alignment, and `Edge` has no padding to invalidate.
@@ -261,13 +267,13 @@ impl Edge {
     /// Stores `pop0` for a child at `level` (1..=7) into the low `level`
     /// aux bytes. `pop0` must fit in `level` bytes (a level-`level` subtree
     /// holds at most `256^level` keys).
-    #[inline]
+    #[inline(always)]
     pub fn set_pop0(&mut self, level: u8, pop0: u64) {
         debug_assert!((1..=7).contains(&level));
         debug_assert!(level == 7 || pop0 < 1u64 << (level as u32 * 8));
         // Masked read-modify-write of the same word `pop0` reads, so the
         // decode bytes above `level` and the tag byte are preserved.
-        let mask = u64::MAX >> (64 - 8 * u32::from(level));
+        let mask = POP0_MASKS[level as usize];
         let w = self.aux_word();
         self.set_aux_word((w & !mask) | (pop0 & mask));
     }

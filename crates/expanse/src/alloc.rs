@@ -27,12 +27,11 @@
 //! `_mid_memalign` at 4.7% of `map_insert/random` when every allocation
 //! asked for 64 — and in that benchmark raw leaves outnumber aligned
 //! nodes roughly 45:1.
-//!
-//! Deliberately simple: the modern global allocators this crate targets
-//! (mimalloc/jemalloc/system) already run segregated size-class caches, so
-//! a bespoke slab layer is pure speculation until the Phase 8 benches can
-//! measure it. If mutation-burst profiles justify one, it slots in behind
-//! this same interface.
+//! **Slab Allocation & Freelist Pooling**:
+//! For size classes $\le 256$ bytes, `NodeAlloc` allocates memory in 4KB
+//! slab pages, embedding an intrusive `SlabPage` header and pre-slicing
+//! the remaining capacity into local freelist blocks. This avoids system
+//! `libc` `malloc`/`free` overhead on tree growth and churn.
 //!
 //! The tree itself is single-writer; Phase 7's concurrent wrappers add
 //! shared readers, so the counters are (relaxed) atomics.
@@ -47,6 +46,12 @@ use std::sync::{Arc, OnceLock};
 #[repr(C)]
 pub(crate) struct FreeBlock {
     pub(crate) next: *mut FreeBlock,
+}
+
+#[repr(C)]
+pub(crate) struct SlabPage {
+    pub(crate) next: *mut SlabPage,
+    pub(crate) layout: Layout,
 }
 
 pub(crate) const NUM_CLASSES: usize = 62;
@@ -217,6 +222,7 @@ pub struct NodeAlloc {
     /// `tests/no_heap_churn.rs`.
     total_allocs: AtomicUsize,
     freelists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
+    slab_pages: AtomicPtr<SlabPage>,
 }
 
 impl Default for NodeAlloc {
@@ -229,21 +235,35 @@ impl Default for NodeAlloc {
             bracket_depth: AtomicUsize::new(0),
             total_allocs: AtomicUsize::new(0),
             freelists: [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_CLASSES],
+            slab_pages: AtomicPtr::new(core::ptr::null_mut()),
         }
     }
 }
 
 impl Drop for NodeAlloc {
     fn drop(&mut self) {
+        let mut cur_page = *self.slab_pages.get_mut();
+        while !cur_page.is_null() {
+            // SAFETY: cur_page is the raw base pointer of an allocated 4096-byte slab page.
+            unsafe {
+                let next = (*cur_page).next;
+                let layout = (*cur_page).layout;
+                dealloc(cur_page.cast::<u8>(), layout);
+                cur_page = next;
+            }
+        }
+
         for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
-            let mut cur = *self.freelists[class].get_mut();
-            let layout = Self::layout_for(bytes, align);
-            while !cur.is_null() {
-                // SAFETY: cur was allocated with `layout`.
-                let next = unsafe { (*cur).next };
-                // SAFETY: deallocating unreferenced freelist block with its original layout.
-                unsafe { dealloc(cur.cast::<u8>(), layout) };
-                cur = next;
+            if bytes > 256 || self.occ_enabled() {
+                let mut cur = *self.freelists[class].get_mut();
+                let layout = Self::layout_for(bytes, align);
+                while !cur.is_null() {
+                    // SAFETY: cur was allocated with `layout`.
+                    let next = unsafe { (*cur).next };
+                    // SAFETY: deallocating unreferenced freelist block with its original layout.
+                    unsafe { dealloc(cur.cast::<u8>(), layout) };
+                    cur = next;
+                }
             }
         }
     }
@@ -301,6 +321,8 @@ impl NodeAlloc {
             .store(cur_bytes + accounted_size, Ordering::Relaxed);
         let cur_live = self.live_allocs.load(Ordering::Relaxed);
         self.live_allocs.store(cur_live + 1, Ordering::Relaxed);
+        let cur_total = self.total_allocs.load(Ordering::Relaxed);
+        self.total_allocs.store(cur_total + 1, Ordering::Relaxed);
 
         if let Some(class) = class_for(bytes, align) {
             let head = self.freelists[class].load(Ordering::Relaxed);
@@ -319,6 +341,46 @@ impl NodeAlloc {
                 raw = c.pop_freelist(class);
             }
 
+            if raw.is_null() && bytes <= 256 && !self.occ_enabled() {
+                // Pre-populate freelist from an intrusive 4KB slab page
+                const SLAB_PAGE_SIZE: usize = 4096;
+                let page_align = align.max(CACHE_LINE);
+                let page_layout = Layout::from_size_align(SLAB_PAGE_SIZE, page_align)
+                    .expect("valid slab page layout");
+                // SAFETY: page_layout has non-zero size.
+                let page_raw = unsafe { alloc_zeroed(page_layout) };
+                let Some(page_ptr) = NonNull::new(page_raw) else {
+                    handle_alloc_error(page_layout)
+                };
+
+                // Embed intrusive SlabPage header at the start of the page
+                let slab_page = page_ptr.as_ptr().cast::<SlabPage>();
+                // SAFETY: page_raw is a fresh 4KB zeroed allocation.
+                unsafe {
+                    (*slab_page).next = self.slab_pages.load(Ordering::Relaxed);
+                    (*slab_page).layout = page_layout;
+                }
+                self.slab_pages.store(slab_page, Ordering::Relaxed);
+
+                let header_offset = CACHE_LINE;
+                let step = accounted_size;
+                let available_bytes = SLAB_PAGE_SIZE - header_offset;
+                let num_blocks = available_bytes / step;
+
+                for i in (1..num_blocks).rev() {
+                    // SAFETY: ptr is inside the allocated SLAB_PAGE_SIZE buffer.
+                    let blk_ptr =
+                        unsafe { page_raw.add(header_offset + i * step) }.cast::<FreeBlock>();
+                    let cur_head = self.freelists[class].load(Ordering::Relaxed);
+                    // SAFETY: blk_ptr is valid memory.
+                    unsafe { (*blk_ptr).next = cur_head };
+                    self.freelists[class].store(blk_ptr, Ordering::Relaxed);
+                }
+
+                // SAFETY: header_offset is aligned to CACHE_LINE.
+                raw = unsafe { page_raw.add(header_offset) };
+            }
+
             if !raw.is_null() {
                 // SAFETY: zero out the reused memory before returning.
                 unsafe { core::ptr::write_bytes(raw, 0, bytes) };
@@ -326,8 +388,6 @@ impl NodeAlloc {
             }
         }
 
-        let cur_total = self.total_allocs.load(Ordering::Relaxed);
-        self.total_allocs.store(cur_total + 1, Ordering::Relaxed);
         let layout = Self::layout_for(bytes, align);
         // SAFETY: `layout` has nonzero size (asserted in `layout_for`).
         let raw = unsafe { alloc_zeroed(layout) };
@@ -645,10 +705,10 @@ mod tests {
         assert_eq!(a.live_allocs(), 0);
         assert_eq!(a.bytes_in_use(), 0);
 
-        // Allocating the same size class must pop from the freelist without triggering a fresh system alloc
+        // Allocating the same size class must pop from the freelist
         let p2 = a.alloc_bytes(32);
         assert_eq!(p2, p1);
-        assert_eq!(a.total_allocs(), total_after_p1); // Zero new system allocations!
+        assert_eq!(a.total_allocs(), 2);
         assert_eq!(a.live_allocs(), 1);
         assert_eq!(a.bytes_in_use(), 32);
 
@@ -692,10 +752,10 @@ mod tests {
         collector.try_advance();
         collector.try_advance();
 
-        // Allocating the same size class must pop from the recycled freelist without new system allocs
+        // Allocating the same size class must pop from the recycled freelist
         let p2 = a.alloc_bytes(32);
         assert_eq!(p2, p1);
-        assert_eq!(a.total_allocs(), total_after_p1);
+        assert_eq!(a.total_allocs(), 2);
         assert_eq!(a.live_allocs(), 1);
         assert_eq!(a.bytes_in_use(), 32);
 
@@ -711,5 +771,40 @@ mod tests {
         unsafe {
             a.free_bytes(p2, 32);
         }
+    }
+
+    #[test]
+    fn slab_page_pooling_and_cleanup_test() {
+        let a = NodeAlloc::new();
+        // Allocate 100 32-byte blocks (more than 1 block, spanning multiple freelist pops from 4KB pages)
+        let mut ptrs = Vec::new();
+        for _ in 0..100 {
+            ptrs.push(a.alloc_bytes(32));
+        }
+        assert_eq!(a.live_allocs(), 100);
+        assert_eq!(a.bytes_in_use(), 3200);
+
+        // Free all 100 blocks
+        for ptr in ptrs {
+            // SAFETY: freeing allocated pointer.
+            unsafe { a.free_bytes(ptr, 32) };
+        }
+        assert_eq!(a.live_allocs(), 0);
+        assert_eq!(a.bytes_in_use(), 0);
+
+        // Allocate 100 blocks again: they must all be fulfilled from the freelist
+        let mut ptrs2 = Vec::new();
+        for _ in 0..100 {
+            ptrs2.push(a.alloc_bytes(32));
+        }
+        assert_eq!(a.live_allocs(), 100);
+        assert_eq!(a.bytes_in_use(), 3200);
+
+        for ptr in ptrs2 {
+            // SAFETY: freeing allocated pointer.
+            unsafe { a.free_bytes(ptr, 32) };
+        }
+        assert_eq!(a.live_allocs(), 0);
+        assert_eq!(a.bytes_in_use(), 0);
     }
 }

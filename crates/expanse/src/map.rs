@@ -305,115 +305,224 @@ impl ExpanseMap {
     /// valid until the next structural mutation.
     #[inline(always)]
     pub fn ins_slot(&mut self, key: Key) -> core::ptr::NonNull<u64> {
-        if let Root::Tree { top, pop } = &mut self.root {
-            let prefix = key >> 8;
-            let path = self.path.get_mut();
-            if path.prefix == prefix {
-                if !path.leaf.is_null() {
-                    let d = (key & 0xFF) as u8;
-                    // SAFETY: path holds valid live LeafBitmapL pointer.
-                    let node = unsafe { &mut *path.leaf };
-                    let sub = (d >> 5) as usize;
-                    if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
-                        // SAFETY: value subarray holds subexpanse_count values.
-                        let slot = unsafe { node.values[sub].add(rank) };
-                        return core::ptr::NonNull::new(slot).expect("slot");
-                    }
-                    let rank = node.bitmap.subexpanse_rank(d) as usize;
-                    let old_n = node.bitmap.subexpanse_count(sub) as usize;
-                    if old_n > 0
-                        && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
-                    {
-                        // Fast path: spare class capacity — shift in place.
-                        // SAFETY: the subarray holds cap_class(old_n) slots.
-                        unsafe {
-                            let arr = node.values[sub];
-                            core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
-                            arr.add(rank).write(0);
-                        }
-                    } else {
-                        let new = self
-                            .alloc
-                            .alloc_bytes(crate::mutate::sub_vals_size(old_n + 1))
-                            .cast::<u64>();
-                        // SAFETY: copy old_n values around the inserted rank.
-                        unsafe {
-                            if old_n > 0 {
-                                let old = node.values[sub];
-                                new.as_ptr().copy_from_nonoverlapping(old, rank);
-                                new.as_ptr()
-                                    .add(rank + 1)
-                                    .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                                self.alloc.free_bytes(
-                                    core::ptr::NonNull::new(old.cast()).expect("values"),
-                                    crate::mutate::sub_vals_size(old_n),
-                                );
-                            }
-                            new.as_ptr().add(rank).write(0);
-                        }
-                        node.values[sub] = new.as_ptr();
-                    }
-                    node.bitmap.set(d);
-                    path.pending_pop += 1;
-                    path.terminal_pop += 1;
-                    *pop += 1;
-                    // SAFETY: keep terminal edge pop0 up to date.
-                    unsafe {
-                        (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
-                    }
-                    // SAFETY: freshly inserted slot.
-                    let slot = unsafe { node.values[sub].add(rank) };
-                    return core::ptr::NonNull::new(slot).expect("slot");
-                } else if !path.leaf1.is_null() {
-                    let d = (key & 0xFF) as u8;
-                    let cur_pop = path.terminal_pop as usize;
-                    let base = path.leaf1;
-                    // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
-                    let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
-                    // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
-                    let last = unsafe { *keys_ptr.add(cur_pop - 1) };
-                    if d > last {
-                        if cur_pop < crate::mutate::LEAF1_CAP
-                            && crate::leaf::cap_class(cur_pop + 1)
-                                == crate::leaf::cap_class(cur_pop)
-                        {
-                            // SAFETY: spare class capacity in the live Leaf1 allocation.
-                            unsafe {
-                                *keys_ptr.add(cur_pop) = d;
-                                let vals = base.cast::<u64>();
-                                vals.add(cur_pop).write(0);
-                                (*path.edges[0]).set_pop0(1, cur_pop as u64);
-                            }
-                            path.terminal_pop += 1;
-                            path.pending_pop += 1;
-                            *pop += 1;
-                            // SAFETY: freshly written slot in live value area.
-                            let slot = unsafe { base.cast::<u64>().add(cur_pop) };
+        match &mut self.root {
+            Root::Tree { top, pop } => {
+                let prefix = key >> 8;
+                let path = self.path.get_mut();
+                if path.prefix == prefix {
+                    if !path.leaf.is_null() {
+                        let d = (key & 0xFF) as u8;
+                        // SAFETY: path holds valid live LeafBitmapL pointer.
+                        let node = unsafe { &mut *path.leaf };
+                        let sub = (d >> 5) as usize;
+                        if let Some(rank) = node.bitmap.test_and_subexpanse_rank(d) {
+                            // SAFETY: value subarray holds subexpanse_count values.
+                            let slot = unsafe { node.values[sub].add(rank) };
                             return core::ptr::NonNull::new(slot).expect("slot");
                         }
-                    } else if d == last {
-                        // SAFETY: cur_pop - 1 is the existing slot for `last`.
-                        let slot = unsafe { base.cast::<u64>().add(cur_pop - 1) };
+                        let rank = node.bitmap.subexpanse_rank(d) as usize;
+                        let old_n = node.bitmap.subexpanse_count(sub) as usize;
+                        if old_n > 0
+                            && crate::leaf::cap_class(old_n + 1) == crate::leaf::cap_class(old_n)
+                        {
+                            // Fast path: spare class capacity — shift in place.
+                            // SAFETY: the subarray holds cap_class(old_n) slots.
+                            unsafe {
+                                let arr = node.values[sub];
+                                core::ptr::copy(arr.add(rank), arr.add(rank + 1), old_n - rank);
+                                arr.add(rank).write(0);
+                            }
+                        } else {
+                            let new = self
+                                .alloc
+                                .alloc_bytes(crate::mutate::sub_vals_size(old_n + 1))
+                                .cast::<u64>();
+                            // SAFETY: copy old_n values around the inserted rank.
+                            unsafe {
+                                if old_n > 0 {
+                                    let old = node.values[sub];
+                                    new.as_ptr().copy_from_nonoverlapping(old, rank);
+                                    new.as_ptr()
+                                        .add(rank + 1)
+                                        .copy_from_nonoverlapping(old.add(rank), old_n - rank);
+                                    self.alloc.free_bytes(
+                                        core::ptr::NonNull::new(old.cast()).expect("values"),
+                                        crate::mutate::sub_vals_size(old_n),
+                                    );
+                                }
+                                new.as_ptr().add(rank).write(0);
+                            }
+                            node.values[sub] = new.as_ptr();
+                        }
+                        node.bitmap.set(d);
+                        path.pending_pop += 1;
+                        path.terminal_pop += 1;
+                        *pop += 1;
+                        // SAFETY: keep terminal edge pop0 up to date.
+                        unsafe {
+                            (*path.edges[0]).set_pop0(1, (path.terminal_pop - 1) as u64);
+                        }
+                        // SAFETY: freshly inserted slot.
+                        let slot = unsafe { node.values[sub].add(rank) };
                         return core::ptr::NonNull::new(slot).expect("slot");
+                    } else if !path.leaf1.is_null() {
+                        let d = (key & 0xFF) as u8;
+                        let cur_pop = path.terminal_pop as usize;
+                        let base = path.leaf1;
+                        // SAFETY: base points to a live Leaf1 allocation; map_keys_offset is in-bounds.
+                        let keys_ptr = unsafe { base.add(crate::leaf::map_keys_offset(cur_pop)) };
+                        // SAFETY: cur_pop >= 1 when leaf1 is active, so cur_pop - 1 is in bounds.
+                        let last = unsafe { *keys_ptr.add(cur_pop - 1) };
+                        if d > last {
+                            if cur_pop < crate::mutate::LEAF1_CAP
+                                && crate::leaf::cap_class(cur_pop + 1)
+                                    == crate::leaf::cap_class(cur_pop)
+                            {
+                                // SAFETY: spare class capacity in the live Leaf1 allocation.
+                                unsafe {
+                                    *keys_ptr.add(cur_pop) = d;
+                                    let vals = base.cast::<u64>();
+                                    vals.add(cur_pop).write(0);
+                                    (*path.edges[0]).set_pop0(1, cur_pop as u64);
+                                }
+                                path.terminal_pop += 1;
+                                path.pending_pop += 1;
+                                *pop += 1;
+                                // SAFETY: freshly written slot in live value area.
+                                let slot = unsafe { base.cast::<u64>().add(cur_pop) };
+                                return core::ptr::NonNull::new(slot).expect("slot");
+                            }
+                        } else if d == last {
+                            // SAFETY: cur_pop - 1 is the existing slot for `last`.
+                            let slot = unsafe { base.cast::<u64>().add(cur_pop - 1) };
+                            return core::ptr::NonNull::new(slot).expect("slot");
+                        }
                     }
                 }
+                path.clear();
+                // SAFETY: trie maintained/owned by this map's engine.
+                let (prev, slot) = unsafe {
+                    mutate_map::map_insert_path_dyn::<true>(&self.alloc, top, key, 0, 8, path)
+                };
+                if prev.is_none() {
+                    *pop += 1;
+                }
+                core::ptr::NonNull::new(slot).expect("insert produced a slot")
             }
-            path.clear();
-            // SAFETY: trie maintained/owned by this map's engine.
-            let (prev, slot) = unsafe {
-                mutate_map::map_insert_path_dyn::<true>(&self.alloc, top, key, 0, 8, path)
-            };
-            if prev.is_none() {
-                *pop += 1;
+            Root::Empty => {
+                let ptr = self.alloc.alloc_bytes(leaf_size(1));
+                // SAFETY: fresh allocation: key slot then value slot.
+                unsafe {
+                    ptr.as_ptr().cast::<u64>().write(key);
+                    let vptr = ptr.as_ptr().add(leaf_values_offset(1)).cast::<u64>();
+                    vptr.write(0);
+                    self.root = Root::Leaf { ptr, pop: 1 };
+                    core::ptr::NonNull::new(vptr).expect("slot")
+                }
             }
-            return core::ptr::NonNull::new(slot).expect("insert produced a slot");
+            Root::Leaf { ptr, pop } => {
+                let (ptr_val, pop_val) = (*ptr, *pop);
+                let (keys, vals) = Self::leaf_parts(ptr_val, pop_val);
+                let (hit, at) = if pop_val > 0 {
+                    let last = keys[pop_val - 1];
+                    if key > last {
+                        (false, pop_val)
+                    } else if key == last {
+                        (true, pop_val - 1)
+                    } else if pop_val <= 4 {
+                        let k0 = keys[0];
+                        if key < k0 {
+                            (false, 0)
+                        } else if key == k0 {
+                            (true, 0)
+                        } else if pop_val == 2 {
+                            (false, 1)
+                        } else {
+                            let k1 = keys[1];
+                            if key < k1 {
+                                (false, 1)
+                            } else if key == k1 {
+                                (true, 1)
+                            } else if pop_val == 3 {
+                                (false, 2)
+                            } else {
+                                let k2 = keys[2];
+                                if key < k2 {
+                                    (false, 2)
+                                } else if key == k2 {
+                                    (true, 2)
+                                } else {
+                                    (false, 3)
+                                }
+                            }
+                        }
+                    } else {
+                        match keys.binary_search(&key) {
+                            Ok(pos) => (true, pos),
+                            Err(pos) => (false, pos),
+                        }
+                    }
+                } else {
+                    (false, 0)
+                };
+                if hit {
+                    // SAFETY: vals points to live values array in the root leaf.
+                    let slot = unsafe { vals.add(at) };
+                    return core::ptr::NonNull::new(slot).expect("slot");
+                }
+                if pop_val < ROOT_LEAF_CAP {
+                    if leaf_size(pop_val + 1) == leaf_size(pop_val) {
+                        // Spare class capacity: shift in place, no realloc.
+                        // SAFETY: same class, areas keep offsets, slot is in bounds.
+                        unsafe {
+                            let base = ptr_val.as_ptr().cast::<u64>();
+                            core::ptr::copy(base.add(at), base.add(at + 1), pop_val - at);
+                            base.add(at).write(key);
+                            let v = ptr_val
+                                .as_ptr()
+                                .add(leaf_values_offset(pop_val))
+                                .cast::<u64>();
+                            core::ptr::copy(v.add(at), v.add(at + 1), pop_val - at);
+                            let slot = v.add(at);
+                            slot.write(0);
+                            self.root = Root::Leaf {
+                                ptr: ptr_val,
+                                pop: pop_val + 1,
+                            };
+                            core::ptr::NonNull::new(slot).expect("slot")
+                        }
+                    } else {
+                        let new = self.alloc.alloc_bytes(leaf_size(pop_val + 1));
+                        // SAFETY: copy keys and values around insertion point into new leaf.
+                        unsafe {
+                            let nk = new.as_ptr().cast::<u64>();
+                            nk.copy_from_nonoverlapping(keys.as_ptr(), at);
+                            nk.add(at).write(key);
+                            nk.add(at + 1)
+                                .copy_from_nonoverlapping(keys.as_ptr().add(at), pop_val - at);
+                            let nv = new
+                                .as_ptr()
+                                .add(leaf_values_offset(pop_val + 1))
+                                .cast::<u64>();
+                            nv.copy_from_nonoverlapping(vals, at);
+                            let slot = nv.add(at);
+                            slot.write(0);
+                            nv.add(at + 1)
+                                .copy_from_nonoverlapping(vals.add(at), pop_val - at);
+                            self.alloc.free_bytes(ptr_val, leaf_size(pop_val));
+                            self.root = Root::Leaf {
+                                ptr: new,
+                                pop: pop_val + 1,
+                            };
+                            core::ptr::NonNull::new(slot).expect("slot")
+                        }
+                    }
+                } else {
+                    self.insert(key, 0);
+                    self.get_value_slot(key).expect("just-ensured key")
+                }
+            }
         }
-        // Root-leaf / empty states: the flat-array paths are already a
-        // couple of memcpys; reuse them.
-        if !self.contains_key(key) {
-            self.insert(key, 0);
-        }
-        self.get_value_slot(key).expect("just-ensured key")
     }
 
     /// Phase 7 (occ): by-value root snapshot + allocation handle for
