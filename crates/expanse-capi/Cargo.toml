@@ -1,6 +1,6 @@
 [package]
 name = "expanse-capi"
-version = "0.1.0"
+version = "0.2.0"
 description = "libexpanse: C ABI for the Expanse trie engine, drop-in binary replacement for libjudy"
 keywords = ["judy", "trie", "ffi", "capi", "c-api"]
 categories = ["external-ffi-bindings", "data-structures"]
@@ -25,7 +25,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 oracle = []
 
 [dependencies]
-expanse-trie = { version = "0.1.0", path = "../expanse" }
+expanse-trie = { version = "0.2.0", path = "../expanse" }
 
 [lints]
 workspace = true
