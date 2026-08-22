@@ -29,8 +29,14 @@ impl ExpanseBytesMap {
     }
 
     /// True when no entries are in the map.
-    #[getter]
+    /// True when empty.
     pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Property returning True if empty.
+    #[getter]
+    pub fn empty(&self) -> bool {
         self.inner.is_empty()
     }
 

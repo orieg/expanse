@@ -33,8 +33,14 @@ impl ExpanseSet {
     }
 
     /// True when no elements are in the set.
-    #[getter]
+    /// True when empty.
     pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Property returning True if empty.
+    #[getter]
+    pub fn empty(&self) -> bool {
         self.inner.is_empty()
     }
 
@@ -63,15 +69,9 @@ impl ExpanseSet {
         self.inner.insert(key)
     }
 
-    /// Removes `key` from the set; raises `KeyError` if absent.
-    pub fn remove(&mut self, key: u64) -> PyResult<()> {
-        if self.inner.remove(key) {
-            Ok(())
-        } else {
-            Err(pyo3::exceptions::PyKeyError::new_err(format!(
-                "Key {key} not in ExpanseSet"
-            )))
-        }
+    /// Removes `key` from the set; returns `True` if it was present, `False` otherwise.
+    pub fn remove(&mut self, key: u64) -> bool {
+        self.inner.remove(key)
     }
 
     /// Removes `key` if present; returns `True` if it was present, `False` otherwise.

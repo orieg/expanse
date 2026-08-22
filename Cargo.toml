@@ -5,6 +5,10 @@ members = [
     "crates/expanse-capi",
     "crates/expanse-py",
 ]
+default-members = [
+    "crates/expanse",
+    "crates/expanse-capi",
+]
 
 [workspace.package]
 edition = "2024"

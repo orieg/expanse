@@ -174,8 +174,8 @@ fn test_expanse_set_basic_and_navigation() {
         assert!(set.discard(20));
         assert!(!set.discard(20));
         assert_eq!(set.__len__(), 2);
-        assert!(set.remove(10).is_ok());
-        assert!(set.remove(10).is_err());
+        assert!(set.remove(10));
+        assert!(!set.remove(10));
 
         // Navigation
         set.clear();

@@ -33,8 +33,14 @@ impl SyncExpanseMap {
     }
 
     /// True when no entries are present (GIL-free read).
-    #[getter]
+    /// True when empty releasing the GIL.
     pub fn is_empty(&self, py: Python<'_>) -> bool {
+        py.allow_threads(|| self.inner.is_empty())
+    }
+
+    /// Property returning True if empty.
+    #[getter]
+    pub fn empty(&self, py: Python<'_>) -> bool {
         py.allow_threads(|| self.inner.is_empty())
     }
 
@@ -326,8 +332,14 @@ impl SyncExpanseSet {
     }
 
     /// True when no elements are in the set releasing the GIL.
-    #[getter]
+    /// True when empty releasing the GIL.
     pub fn is_empty(&self, py: Python<'_>) -> bool {
+        py.allow_threads(|| self.inner.is_empty())
+    }
+
+    /// Property returning True if empty.
+    #[getter]
+    pub fn empty(&self, py: Python<'_>) -> bool {
         py.allow_threads(|| self.inner.is_empty())
     }
 
@@ -342,6 +354,12 @@ impl SyncExpanseSet {
     }
 
     /// Inserts `key` into the set releasing the GIL; returns `True` if newly inserted.
+    /// Check membership releasing the GIL.
+    pub fn contains(&self, py: Python<'_>, key: u64) -> bool {
+        py.allow_threads(|| self.inner.contains(key))
+    }
+
+    /// Inserts key releasing the GIL.
     pub fn insert(&self, py: Python<'_>, key: u64) -> bool {
         py.allow_threads(|| self.inner.insert(key))
     }

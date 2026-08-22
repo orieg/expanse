@@ -49,7 +49,7 @@ jobs:
 
       - name: Build and install expanse-trie
         run: |
-          maturin develop --release
+          maturin develop -m crates/expanse-py/Cargo.toml --release
 
       - name: Run Pytest suite
         run: |
@@ -87,7 +87,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter
+          args: -m crates/expanse-py/Cargo.toml --release --out dist --find-interpreter
           manylinux: ${{ matrix.manylinux }}
 
       - name: Upload wheel artifact
