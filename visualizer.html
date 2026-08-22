@@ -1,0 +1,3398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Expanse Architecture & Benchmark Visualizer</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #131d31;
+      --card-inner: #0d1527;
+      --border: #22324f;
+      --border-bright: #38bdf8;
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --text: #f8fafc;
+      --text-bright: #ffffff;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-blue: #3b82f6;
+      --accent-green: #10b981;
+      --accent-purple: #a855f7;
+      --accent-orange: #f97316;
+      --accent-rose: #f43f5e;
+      --accent-amber: #f59e0b;
+      --node-active: #0284c7;
+      --node-bg: #1e293b;
+      --node-border: #334155;
+      --svg-dim: #334155;
+      --glow-blue: 0 0 18px rgba(56, 189, 248, 0.4);
+      --glow-green: 0 0 18px rgba(16, 185, 129, 0.4);
+      --glow-purple: 0 0 18px rgba(168, 85, 247, 0.4);
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
+      --canvas-dot: rgba(255, 255, 255, 0.06);
+      --table-hover: rgba(255, 255, 255, 0.03);
+      --table-header-bg: #0d1527;
+      --comp-banner-bg: #1e1b4b;
+      --comp-banner-border: #4338ca;
+      --comp-banner-text: #c7d2fe;
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --card-inner: #f1f5f9;
+      --border: #e2e8f0;
+      --border-bright: #0284c7;
+      --border-subtle: rgba(0, 0, 0, 0.06);
+      --text: #0f172a;
+      --text-bright: #0f172a;
+      --text-muted: #64748b;
+      --accent: #0284c7;
+      --accent-blue: #2563eb;
+      --accent-green: #059669;
+      --accent-purple: #7c3aed;
+      --accent-orange: #d97706;
+      --accent-rose: #e11d48;
+      --accent-amber: #d97706;
+      --node-active: #0284c7;
+      --node-bg: #ffffff;
+      --node-border: #cbd5e1;
+      --svg-dim: #cbd5e1;
+      --glow-blue: 0 0 14px rgba(2, 132, 199, 0.25);
+      --glow-green: 0 0 14px rgba(5, 150, 105, 0.25);
+      --glow-purple: 0 0 14px rgba(124, 58, 237, 0.25);
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+      --canvas-dot: rgba(0, 0, 0, 0.06);
+      --table-hover: rgba(0, 0, 0, 0.03);
+      --table-header-bg: #f8fafc;
+      --comp-banner-bg: #e0e7ff;
+      --comp-banner-border: #818cf8;
+      --comp-banner-text: #312e81;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 20px;
+      transition: background-color 0.2s ease, color 0.2s ease;
+      min-height: 100vh;
+    }
+    header {
+      max-width: 1480px;
+      margin: 0 auto 16px auto;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-bright);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .badge-pill {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 9999px;
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .badge-pill.green {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.4);
+      color: var(--accent-green);
+    }
+    .badge-pill.purple {
+      background: rgba(168, 85, 247, 0.15);
+      border-color: rgba(168, 85, 247, 0.4);
+      color: var(--accent-purple);
+    }
+    .subtitle { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
+
+    /* Top Mode Switcher */
+    .view-switcher {
+      display: flex;
+      background: var(--card-inner);
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      gap: 4px;
+    }
+    .view-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 7px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+    .view-btn:hover { color: var(--text-bright); background: rgba(255, 255, 255, 0.05); }
+    [data-theme="light"] .view-btn:hover { background: rgba(0, 0, 0, 0.04); }
+    .view-btn.active {
+      color: #ffffff;
+      background: #1e3a8a;
+      border: 1px solid #3b82f6;
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
+    }
+    [data-theme="light"] .view-btn.active {
+      color: #ffffff;
+      background: #2563eb;
+      border-color: #2563eb;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+    }
+
+    /* Theme Toggle Button */
+    .theme-toggle-btn {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .theme-toggle-btn:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+      transform: scale(1.05);
+    }
+    .theme-toggle-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+    .icon-sun { display: none; }
+    .icon-moon { display: block; }
+    [data-theme="light"] .icon-sun { display: block; color: #d97706; }
+    [data-theme="light"] .icon-moon { display: none; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 20px;
+      max-width: 1480px;
+      margin: 0 auto;
+    }
+
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 18px;
+      box-shadow: var(--shadow-sm);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    select, input[type="text"] {
+      width: 100%;
+      padding: 8px 10px;
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    select:focus, input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      background: var(--border);
+      border-radius: 4px;
+      outline: none;
+      border: none;
+      padding: 0;
+      margin: 8px 0 6px 0;
+      cursor: pointer;
+      display: block;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid #ffffff;
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.8);
+      cursor: pointer;
+      transition: transform 0.1s ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.25);
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid #ffffff;
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.8);
+      cursor: pointer;
+    }
+    .milestone-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .chip-btn {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 10px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .chip-btn:hover {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: var(--accent);
+      color: var(--text-bright);
+    }
+    .chip-btn.active {
+      background: var(--accent);
+      color: #0f172a;
+      border-color: var(--accent);
+      font-weight: 700;
+    }
+    [data-theme="light"] .chip-btn.active {
+      color: #ffffff;
+      background: var(--accent);
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-top: 1px solid var(--border);
+      margin-top: 8px;
+    }
+    .toggle-label {
+      font-size: 12px;
+      color: var(--text);
+    }
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 40px;
+      height: 22px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--border);
+      transition: .2s;
+      border-radius: 22px;
+    }
+    .slider:before {
+      position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px;
+      background-color: white;
+      transition: .2s;
+      border-radius: 50%;
+    }
+    input:checked + .slider { background-color: var(--accent-blue); }
+    input:checked + .slider:before { transform: translateX(18px); }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .metric-box {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+    .metric-label { font-size: 10px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .metric-val { font-size: 17px; font-weight: 700; color: var(--accent-green); margin-top: 2px; }
+    .metric-val.purple { color: var(--accent-purple); }
+    .metric-val.orange { color: var(--accent-orange); }
+    .metric-val.blue { color: var(--accent); }
+    .metric-sub { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+    .metric-sub.win { color: var(--accent-green); font-weight: 600; }
+
+    /* Comparison Box */
+    .comparison-banner {
+      background: var(--comp-banner-bg);
+      border: 1px solid var(--comp-banner-border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .comp-title { font-size: 13px; font-weight: 700; color: var(--comp-banner-text); }
+    .comp-stat { font-size: 12px; color: var(--text); margin-top: 2px; }
+
+    /* Interactive DAG Canvas */
+    .dag-canvas {
+      width: 100%;
+      height: 450px;
+      background: var(--card-inner);
+      background-image: radial-gradient(var(--canvas-dot) 1px, transparent 1px);
+      background-size: 16px 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      position: relative;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .dag-node {
+      background: var(--node-bg);
+      border: 1px solid var(--node-border);
+      border-radius: 8px;
+      padding: 7px 11px;
+      position: absolute;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      width: 175px;
+      user-select: none;
+      box-shadow: var(--shadow-sm);
+    }
+    .dag-node:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: var(--glow-blue);
+      z-index: 10;
+    }
+    .dag-node.active {
+      border-color: var(--accent);
+      box-shadow: var(--glow-blue);
+      background: rgba(56, 189, 248, 0.15);
+    }
+    .dag-node.active-green {
+      border-color: var(--accent-green);
+      box-shadow: var(--glow-green);
+      background: rgba(16, 185, 129, 0.15);
+    }
+    .dag-node.active-purple {
+      border-color: var(--accent-purple);
+      box-shadow: var(--glow-purple);
+      background: rgba(168, 85, 247, 0.15);
+    }
+    .dag-node-title { font-size: 11px; font-weight: 700; color: var(--text-bright); margin-bottom: 2px; display: flex; justify-content: space-between; align-items: center; }
+    .dag-node-desc { font-size: 10px; color: var(--text-muted); line-height: 1.2; }
+
+    /* Pipeline & DAG Nodes */
+    .flow-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .pipeline-step {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      position: relative;
+      transition: all 0.2s ease;
+    }
+    .pipeline-step.active {
+      border-color: var(--accent);
+      box-shadow: var(--glow-blue);
+    }
+    .pipeline-step.bypass {
+      border-color: var(--accent-green);
+      box-shadow: var(--glow-green);
+      background: linear-gradient(180deg, rgba(16, 185, 129, 0.12) 0%, var(--card-inner) 100%);
+    }
+    .step-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    .step-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: var(--node-bg);
+      color: var(--text-muted);
+      text-transform: uppercase;
+      border: 1px solid var(--border);
+    }
+    .step-badge.highlight { background: #0284c7; color: #fff; border-color: #0284c7; }
+    .step-badge.green { background: #059669; color: #fff; border-color: #059669; }
+    .step-badge.purple { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+    .step-badge.orange { background: #ea580c; color: #fff; border-color: #ea580c; }
+
+    .step-title { font-size: 13px; font-weight: 600; color: var(--text-bright); }
+    .step-desc { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+    .algo-tag {
+      display: inline-block;
+      padding: 3px 7px;
+      background: var(--comp-banner-bg);
+      border: 1px solid var(--comp-banner-border);
+      border-radius: 5px;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: var(--comp-banner-text);
+    }
+    .flow-arrow {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 14px;
+      margin: -6px 0;
+    }
+
+    /* 64-Bit Digit Strip & Subarray Architecture */
+    .digit-strip {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 6px;
+      margin: 10px 0;
+    }
+    @media (max-width: 900px) {
+      .digit-strip { grid-template-columns: repeat(4, 1fr); }
+    }
+    .digit-col {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 4px;
+      text-align: center;
+      font-size: 11px;
+      transition: all 0.2s ease;
+    }
+    .digit-col.active {
+      border-color: var(--accent);
+      background: rgba(56, 189, 248, 0.12);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+    }
+    .digit-col.active .digit-num { color: var(--text-bright); }
+    .digit-col.bypass {
+      border-color: var(--accent-green);
+      background: rgba(16, 185, 129, 0.12);
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+    }
+    .digit-col.bypass .digit-num { color: var(--text-bright); }
+    .digit-num {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-weight: 700;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+    .digit-range {
+      font-size: 9px;
+      color: var(--text-muted);
+      margin: 2px 0 4px 0;
+      font-family: monospace;
+    }
+    .digit-role {
+      font-size: 9px;
+      padding: 2px 4px;
+      border-radius: 3px;
+      background: var(--node-bg);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .digit-col.active .digit-role {
+      background: #0284c7;
+      color: #fff;
+      border-color: #0284c7;
+    }
+    .digit-col.bypass .digit-role {
+      background: #059669;
+      color: #fff;
+      border-color: #059669;
+    }
+    .subarray-grid {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 5px;
+      margin: 8px 0;
+    }
+    @media (max-width: 900px) {
+      .subarray-grid { grid-template-columns: repeat(4, 1fr); }
+    }
+    .subarray-box {
+      background: var(--node-bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 6px 2px;
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .subarray-box strong { color: var(--accent); }
+    .depth-compare-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin-top: 8px;
+    }
+    @media (max-width: 1024px) {
+      .depth-compare-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .depth-compare-grid { grid-template-columns: repeat(1, 1fr); }
+    }
+    .depth-card {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      transition: all 0.2s ease;
+    }
+    .depth-card.highlight {
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
+      background: rgba(56, 189, 248, 0.08);
+    }
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-bright);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 650px;
+      padding: 24px;
+      box-shadow: var(--shadow-lg);
+      position: relative;
+    }
+    .modal-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 16px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .modal-close:hover { color: var(--text-bright); border-color: var(--accent); }
+
+    /* Tables */
+    .data-table-wrapper {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-top: 10px;
+      background: var(--card-bg);
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      text-align: left;
+    }
+    .data-table th, .data-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .data-table th {
+      background: var(--table-header-bg);
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 11px;
+    }
+    .data-table tr:hover td { background: var(--table-hover); }
+    .data-table tr.highlight-row td {
+      background: rgba(56, 189, 248, 0.08);
+      color: var(--text-bright);
+    }
+    .num {
+      text-align: right;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    .data-table th.num { text-align: right; }
+    .data-table th.center, .data-table td.center { text-align: center; }
+    .win-text { color: var(--accent-green); font-weight: 600; }
+    .badge-win { color: var(--accent-green); font-weight: 700; }
+    .badge-near { color: #facc15; font-weight: 700; }
+    .badge-gap { color: #f87171; font-weight: 600; }
+    .code-tag {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      padding: 2px 5px;
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    /* Views container */
+    .view-content { display: none; }
+    .view-content.active { display: block; }
+  </style>
+<style>
+
+    :root {
+      --bg: #090d16;
+      --card-bg: #111827;
+      --card-inner: #0b1120;
+      --border: #1f293d;
+      --border-accent: rgba(56, 189, 248, 0.4);
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --heading: #f8fafc;
+      --accent: #38bdf8;
+      --accent-hover: #7dd3fc;
+      --accent-green: #10b981;
+      --code-bg: #030712;
+      --bench-bg: #0d1117;
+      --quote-bg: linear-gradient(180deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.8) 100%);
+      --navbar-bg: rgba(9, 13, 22, 0.85);
+      --nav-pill-bg: rgba(56, 189, 248, 0.1);
+      --nav-pill-border: rgba(56, 189, 248, 0.25);
+      --btn-secondary-bg: #111827;
+      --btn-secondary-hover: #1e293b;
+      --btn-secondary-border: #1f293d;
+      --btn-secondary-text: #f8fafc;
+      --badge-bg: #111827;
+      --badge-border: #1f293d;
+      --badge-text: #38bdf8;
+      --spotlight-bg: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+      --spotlight-border: rgba(99, 102, 241, 0.4);
+      --tab-active-bg: rgba(56, 189, 248, 0.05);
+      --table-header-color: #f8fafc;
+      --table-row-border: #1f293d;
+      color-scheme: dark;
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --card-inner: #f1f5f9;
+      --border: #e2e8f0;
+      --border-accent: rgba(2, 132, 199, 0.4);
+      --text: #334155;
+      --text-muted: #64748b;
+      --heading: #0f172a;
+      --accent: #0284c7;
+      --accent-hover: #0369a1;
+      --accent-green: #059669;
+      --code-bg: #0f172a;
+      --bench-bg: #ffffff;
+      --quote-bg: linear-gradient(180deg, rgba(241, 245, 249, 0.9) 0%, rgba(226, 232, 240, 0.7) 100%);
+      --navbar-bg: rgba(248, 250, 252, 0.88);
+      --nav-pill-bg: rgba(2, 132, 199, 0.08);
+      --nav-pill-border: rgba(2, 132, 199, 0.25);
+      --btn-secondary-bg: #ffffff;
+      --btn-secondary-hover: #f1f5f9;
+      --btn-secondary-border: #cbd5e1;
+      --btn-secondary-text: #0f172a;
+      --badge-bg: #ffffff;
+      --badge-border: #e2e8f0;
+      --badge-text: #0284c7;
+      --spotlight-bg: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 50%, #f0fdf4 100%);
+      --spotlight-border: rgba(99, 102, 241, 0.3);
+      --tab-active-bg: rgba(2, 132, 199, 0.08);
+      --table-header-color: #0f172a;
+      --table-row-border: #e2e8f0;
+      color-scheme: light;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    .navbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--navbar-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1.5rem;
+    }
+    .nav-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 700;
+      font-size: 1.2rem;
+      color: var(--heading);
+      text-decoration: none;
+      flex-shrink: 0;
+    }
+    .nav-logo {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #38bdf8, #10b981);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #090d16;
+      font-weight: 900;
+      font-size: 14px;
+    }
+    .nav-scroll {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+    }
+    .nav-links {
+      display: flex;
+      gap: 1.25rem;
+      align-items: center;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.15s ease;
+      white-space: nowrap;
+    }
+    .nav-links a:hover, .nav-links a.active { color: var(--accent); }
+    .nav-pill {
+      padding: 0.35rem 0.75rem;
+      background: var(--nav-pill-bg);
+      border: 1px solid var(--nav-pill-border);
+      border-radius: 6px;
+      color: var(--accent) !important;
+      font-weight: 600 !important;
+    }
+    .theme-toggle {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      width: 34px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--heading);
+      font-size: 16px;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+    .theme-toggle:hover { border-color: var(--accent); }
+    [data-theme="dark"] .theme-icon-sun { display: inline; }
+    [data-theme="dark"] .theme-icon-moon { display: none; }
+    [data-theme="light"] .theme-icon-sun { display: none; }
+    [data-theme="light"] .theme-icon-moon { display: inline; }
+    :root:not([data-theme]) .theme-icon-sun { display: inline; }
+    :root:not([data-theme]) .theme-icon-moon { display: none; }
+
+    @media (min-width: 769px) {
+      .theme-toggle-mobile { display: none !important; }
+      .theme-toggle-desktop { display: flex !important; }
+    }
+
+    .container {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+    .hero {
+      padding: 5rem 0 3.5rem;
+      text-align: center;
+    }
+    .badge-bar {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+      max-width: 100%;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: 20px;
+      background: var(--badge-bg);
+      border: 1px solid var(--badge-border);
+      color: var(--badge-text);
+    }
+    .badge-green {
+      color: var(--accent-green);
+      border-color: rgba(16, 185, 129, 0.3);
+      background: rgba(16, 185, 129, 0.08);
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.25rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--heading);
+      line-height: 1.15;
+      margin-bottom: 1.25rem;
+      overflow-wrap: break-word;
+      word-break: normal;
+    }
+    .hero p {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      max-width: 780px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.6;
+    }
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border-radius: 8px;
+      text-decoration: none;
+      transition: all 0.15s ease;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #090d16;
+    }
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+    }
+    .btn-secondary {
+      background: var(--btn-secondary-bg);
+      color: var(--btn-secondary-text);
+      border: 1px solid var(--btn-secondary-border);
+    }
+    .btn-secondary:hover {
+      background: var(--btn-secondary-hover);
+      border-color: var(--accent);
+    }
+    section {
+      padding: 3.5rem 0;
+      border-top: 1px solid var(--border);
+    }
+    .section-header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+    .section-tag {
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      letter-spacing: 0.1em;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+    .section-title {
+      font-size: clamp(1.6rem, 3.5vw, 2rem);
+      font-weight: 700;
+      color: var(--heading);
+      letter-spacing: -0.02em;
+    }
+    .section-desc {
+      color: var(--text-muted);
+      max-width: 650px;
+      margin: 0.5rem auto 0;
+      font-size: 1rem;
+    }
+    .quote-box {
+      background: var(--quote-bg);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      padding: 1.75rem 2rem;
+      margin: 1.5rem 0;
+    }
+    .quote-text {
+      font-size: 1.05rem;
+      font-style: italic;
+      color: var(--text);
+      margin-bottom: 0.75rem;
+      line-height: 1.6;
+    }
+    .quote-author {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--accent);
+      text-align: right;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.75rem;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-accent);
+    }
+    .card-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      background: var(--nav-pill-bg);
+      border: 1px solid var(--nav-pill-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      margin-bottom: 1.25rem;
+      color: var(--accent);
+    }
+    .card-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--heading);
+      margin-bottom: 0.5rem;
+    }
+    .card-p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+    .spotlight {
+      background: var(--spotlight-bg);
+      border: 1px solid var(--spotlight-border);
+      border-radius: 12px;
+      padding: 2.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 2rem;
+      margin: 2rem 0;
+      box-shadow: 0 10px 30px -10px rgba(99, 102, 241, 0.2);
+    }
+    .spotlight-content h3 {
+      font-size: 1.6rem;
+      color: var(--heading);
+      margin-bottom: 0.5rem;
+    }
+    .spotlight-content p {
+      color: var(--text-muted);
+      font-size: 1rem;
+      max-width: 600px;
+    }
+    .bench-container {
+      margin: 2rem 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+    .bench-wrapper {
+      background: var(--bench-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    }
+    .bench-wrapper svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      min-width: 540px;
+    }
+    .install-box {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 1.5rem;
+    }
+    .install-nav {
+      display: flex;
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .tab-btn {
+      padding: 0.85rem 1.5rem;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      background: var(--tab-active-bg);
+    }
+    .install-panel { padding: 1.5rem; }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      color: #7dd3fc;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9rem;
+      line-height: 1.6;
+      max-width: 100%;
+    }
+    .docs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    .doc-link-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      text-decoration: none;
+      transition: all 0.15s ease;
+      display: block;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+    .doc-link-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+    .doc-link-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--heading);
+      margin-bottom: 0.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .doc-link-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 3rem 0;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 768px) {
+      .navbar {
+        padding: 0.6rem 1rem;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+      }
+      .nav-top {
+        width: 100%;
+      }
+      .nav-scroll {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 0.2rem;
+        justify-content: flex-start;
+      }
+      .nav-links {
+        gap: 0.85rem;
+      }
+      .theme-toggle-mobile { display: flex !important; }
+      .theme-toggle-desktop { display: none !important; }
+      .hero { padding: 3rem 0 2rem; }
+      .hero h1 {
+        font-size: 1.35rem !important; line-height: 1.3 !important; hyphens: none !important; -webkit-hyphens: none !important;
+        line-height: 1.25 !important;
+        padding: 0 0.25rem;
+      }
+      .hero p { font-size: 1rem !important; margin-bottom: 1.75rem !important; }
+      .hero-actions { flex-direction: column; width: 100%; }
+      .hero-actions .btn { width: 100%; }
+      .badge-bar { gap: 0.35rem !important; }
+      .badge { font-size: 0.72rem !important; padding: 0.25rem 0.55rem !important; }
+      .spotlight { flex-direction: column; text-align: center; padding: 1.5rem; }
+      .spotlight-content p { font-size: 0.95rem; }
+      .quote-box { padding: 1.25rem; }
+      .quote-text { font-size: 0.95rem !important; }
+      .card { padding: 1.25rem; }
+      .install-panel { padding: 1rem; }
+    }
+
+</style>
+</head>
+<body>
+  <header class="navbar">
+    <div class="nav-top">
+      <a href="./" class="nav-brand">
+        <div class="nav-logo">E</div>
+        <span>Expanse</span>
+      </a>
+      <button class="theme-toggle theme-toggle-mobile" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
+        <span class="theme-icon-sun">&#9728;</span>
+        <span class="theme-icon-moon">&#9790;</span>
+      </button>
+    </div>
+    <div class="nav-scroll">
+      <ul class="nav-links">
+        <li><a href="./" class="">Home</a></li>
+        <li><a href="./#benchmarks">Benchmarks</a></li>
+        <li><a href="./visualizer.html" class="active">Visualizer</a></li>
+        <li><a href="./apt/" class="">APT (Debian)</a></li>
+        <li><a href="./rpm/" class="">RPM (RHEL)</a></li>
+        <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
+        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.2.0</a></li>
+      </ul>
+      <button class="theme-toggle theme-toggle-desktop" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
+        <span class="theme-icon-sun">&#9728;</span>
+        <span class="theme-icon-moon">&#9790;</span>
+      </button>
+    </div>
+  </header>
+
+<header>
+  <div>
+    <h1>
+      <span>Expanse Engine · Architecture & Benchmark Intelligence</span>
+      <span class="badge-pill green">Callgrind & Code Verified</span>
+      <span class="badge-pill purple">Rust 2024 / AVX2</span>
+    </h1>
+    <div class="subtitle">Real-time mapping of digital trie architecture, SIMD vector execution flow, and deterministic Callgrind instruction measurements</div>
+  </div>
+
+  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <!-- Primary 2-Mode View Switcher -->
+    <div class="view-switcher">
+      <button class="view-btn active" id="btn-view-dag" onclick="switchView('dag')">
+        <span>⚡ Architecture & Dynamic DAG</span>
+      </button>
+      <button class="view-btn" id="btn-view-bench" onclick="switchView('bench')">
+        <span>📊 Benchmark Matrix & Census</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- =================================================================== -->
+<!-- VIEW 1: ARCHITECTURE & DYNAMIC EXECUTION DAG                       -->
+<!-- =================================================================== -->
+<div class="view-content active" id="view-dag">
+  <div class="layout">
+    <!-- Sidebar: Workload Controls & Realtime Estimation -->
+    <aside>
+      <div class="card">
+        <div class="card-title">
+          <span>⚙️ Live Workload Parameters</span>
+        </div>
+
+        <div class="form-group">
+          <label for="op-select">Operation</label>
+          <select id="op-select">
+            <option value="get" selected>Lookup (get / locate_slot)</option>
+            <option value="insert">Insert (mutate / ladder climb)</option>
+            <option value="remove">Remove (shrink hysteresis)</option>
+            <option value="ins_slot">Slot Insertion (ins_slot / JudyLIns)</option>
+            <option value="nav">Navigation (next / prev / rank)</option>
+            <option value="sync_read">Concurrent OCC Read (SyncExpanseMap)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="flavor-select">Trie Flavor</label>
+          <select id="flavor-select">
+            <option value="map" selected>ExpanseMap (Key → Value / JudyL)</option>
+            <option value="set">ExpanseSet (Bitset / Judy1)</option>
+            <option value="bytesmap">ExpanseBytesMap (Byte slices / JudyHS/SL)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="dist-select">Key Distribution</label>
+          <select id="dist-select">
+            <option value="random" selected>Random 64-bit keys</option>
+            <option value="sequential">Sequential (k, k+1, k+2...)</option>
+            <option value="clustered">Clustered (shared prefix runs)</option>
+            <option value="linear_leaf">Linear leaf (15-key runs, SIMD)</option>
+            <option value="dense">Dense leaf (0x00..0xFF runs)</option>
+            <option value="small">Small root leaf (pop ≤ 31)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <label for="pop-slider" style="margin-bottom:0;">Tree / Expanse Population</label>
+            <span id="pop-val" style="color:#38bdf8; font-weight:700; font-family:ui-monospace, monospace; font-size:13px;">18 keys</span>
+          </div>
+          <div style="font-size:10px; color:var(--text-muted); margin-bottom:4px; margin-top:2px;" id="pop-regime-desc">Linear Leaf SIMD Band (128-bit AVX2/NEON probe)</div>
+          <input type="range" id="pop-slider" min="0" max="15" step="1" value="3">
+          <div class="milestone-chips" id="milestone-chips-container">
+            <button type="button" class="chip-btn" data-idx="0" onclick="setPopIndex(0)">1 (Immed)</button>
+            <button type="button" class="chip-btn active" data-idx="3" onclick="setPopIndex(3)">18 (SIMD)</button>
+            <button type="button" class="chip-btn" data-idx="5" onclick="setPopIndex(5)">31 (RootLeaf)</button>
+            <button type="button" class="chip-btn" data-idx="6" onclick="setPopIndex(6)">32 (JPM Root)</button>
+            <button type="button" class="chip-btn" data-idx="9" onclick="setPopIndex(9)">192 (BranchU)</button>
+            <button type="button" class="chip-btn" data-idx="10" onclick="setPopIndex(10)">256 (Full)</button>
+            <button type="button" class="chip-btn" data-idx="11" onclick="setPopIndex(11)">1K (2-Lvl)</button>
+            <button type="button" class="chip-btn" data-idx="13" onclick="setPopIndex(13)">100K (5-Lvl)</button>
+            <button type="button" class="chip-btn" data-idx="14" onclick="setPopIndex(14)">1M (8-Lvl)</button>
+            <button type="button" class="chip-btn" data-idx="15" onclick="setPopIndex(15)">10M (8-Lvl Dense)</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="arch-select">Instruction Set Architecture</label>
+          <select id="arch-select">
+            <option value="v3" selected>x86-64-v3 (AVX2, BMI2, POPCNT)</option>
+            <option value="v1">x86-64-v1 (Baseline / SWAR)</option>
+            <option value="neon">AArch64 (NEON Vector)</option>
+          </select>
+        </div>
+
+        <div class="toggle-row">
+          <span class="toggle-label">Show Baseline Contrast (Stock Judy)</span>
+          <label class="switch">
+            <input type="checkbox" id="comp-toggle" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span>📈 Measured Cost & Hardware Impact</span>
+        </div>
+        <div class="metrics-grid">
+          <div class="metric-box">
+            <div class="metric-label">Instructions / Op</div>
+            <div class="metric-val blue" id="metric-instr">~14 instrs</div>
+            <div class="metric-sub win" id="metric-instr-delta">-46% vs stock</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">Memory Overhead</div>
+            <div class="metric-val purple" id="metric-mem">8.6 B/k</div>
+            <div class="metric-sub" id="metric-mem-delta">0 B heap</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">Cache Lines Touched</div>
+            <div class="metric-val orange" id="metric-cache">1 line (64B)</div>
+            <div class="metric-sub" id="metric-cache-sub">Zero L2 stall</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">Hardware Acceleration</div>
+            <div class="metric-val" id="metric-hw-acc">-12.1% v3</div>
+            <div class="metric-sub" id="metric-hw-sub">AVX2 + POPCNT</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main DAG & Pipeline -->
+    <main>
+      <div class="card">
+        <div id="comp-banner" class="comparison-banner">
+          <div>
+            <span class="comp-title">⚖️ Expanse Modern vs Stock Judy Baseline</span>
+            <div class="comp-stat" id="comp-desc">Sequential Run Bypass eliminates 8 levels of tree descent (~80 instructions saved).</div>
+          </div>
+          <span class="badge-pill green" id="comp-win-badge">1.7x Advantage</span>
+        </div>
+
+        <!-- Structural Hierarchy & Routing DAG -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div style="font-size:13px; font-weight:600; color:var(--text-bright);">🌲 Structural Hierarchy & Component Routing DAG</div>
+          <div style="font-size:11px; color:var(--text-muted);">Click any node for struct layout & code specs</div>
+        </div>
+
+        <div class="dag-canvas" id="hierarchy-canvas">
+          <svg style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;" id="hierarchy-svg">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6"/>
+              </marker>
+              <marker id="arrow-green" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#10b981"/>
+              </marker>
+              <marker id="arrow-purple" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#a855f7"/>
+              </marker>
+              <marker id="arrow-orange" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#f97316"/>
+              </marker>
+            </defs>
+          </svg>
+
+          <!-- Top JAP Node -->
+          <div class="dag-node active" id="node-jap" style="top: 15px; left: calc(50% - 87px);" onclick="inspectNode('jap')">
+            <div class="dag-node-title"><span>Judy Array Pointer</span> <span class="step-badge highlight">JAP</span></div>
+            <div class="dag-node-desc">16-byte Edge: pointer/immediate + 3-bit type tag.</div>
+          </div>
+
+          <!-- Split: Root Leaf vs Tree Root JPM -->
+          <div class="dag-node" id="node-root-leaf" style="top: 100px; left: 8%;" onclick="inspectNode('root_leaf')">
+            <div class="dag-node-title"><span>Root-Level Leaf</span> <span class="step-badge">Pop ≤ 31</span></div>
+            <div class="dag-node-desc">Flat sorted keys. Zero trie overhead, monotonic append.</div>
+          </div>
+
+          <div class="dag-node" id="node-jpm" style="top: 100px; left: 62%;" onclick="inspectNode('jpm')">
+            <div class="dag-node-title"><span>JPM / Tree Root</span> <span class="step-badge">Pop ≥ 32</span></div>
+            <div class="dag-node-desc">Total population + OCC sequence counter + top branch.</div>
+          </div>
+
+          <!-- Top Level-8 Branch -->
+          <div class="dag-node" id="node-top-branch" style="top: 185px; left: 62%;" onclick="inspectNode('top_branch')">
+            <div class="dag-node-title"><span>Top-Level Branch</span> <span class="step-badge" id="badge-top-branch">Level 8</span></div>
+            <div class="dag-node-desc">256-ary digital trie router dispatching digit 8.</div>
+          </div>
+
+          <!-- Interior Branches -->
+          <div class="dag-node" id="node-branch-l" style="top: 270px; left: 32%;" onclick="inspectNode('branch_l')">
+            <div class="dag-node-title"><span>Branch L3/L7</span> <span class="step-badge">Fanout 1..7</span></div>
+            <div class="dag-node-desc">SWAR / SIMD 16-byte digit scan with packed JPs.</div>
+          </div>
+
+          <div class="dag-node" id="node-branch-b" style="top: 270px; left: 56%;" onclick="inspectNode('branch_b')">
+            <div class="dag-node-title"><span>Bitmap Branch B</span> <span class="step-badge" id="badge-branch-b">Fanout 8..180</span></div>
+            <div class="dag-node-desc">256-bit bitmap + 8 subarray pointers (POPCNT).</div>
+          </div>
+
+          <div class="dag-node" id="node-branch-u" style="top: 270px; left: 80%;" onclick="inspectNode('branch_u')">
+            <div class="dag-node-title"><span>Branch U</span> <span class="step-badge">Fanout > 180</span></div>
+            <div class="dag-node-desc">2048 B flat table. Direct O(1) array index.</div>
+          </div>
+
+          <!-- Terminal Leaves -->
+          <div class="dag-node" id="node-leaf-immed" style="top: 360px; left: 2%;" onclick="inspectNode('immed')">
+            <div class="dag-node-title"><span>Immediate</span> <span class="step-badge green">Pop 1..7</span></div>
+            <div class="dag-node-desc">0 B heap: payload inlined in pointer.</div>
+          </div>
+
+          <div class="dag-node" id="node-leaf-linear" style="top: 360px; left: 26%;" onclick="inspectNode('linear_leaf')">
+            <div class="dag-node-title"><span>Linear Leaf</span> <span class="step-badge purple">Pop 2..25</span></div>
+            <div class="dag-node-desc">128-bit SIMD vector scan (AVX2/NEON).</div>
+          </div>
+
+          <div class="dag-node" id="node-leaf-bitmap" style="top: 360px; left: 50%;" onclick="inspectNode('bitmap_leaf')">
+            <div class="dag-node-title"><span>Bitmap Leaf</span> <span class="step-badge orange">Pop 26..256</span></div>
+            <div class="dag-node-desc">256-bit bitmask + 8 value subarrays.</div>
+          </div>
+
+          <div class="dag-node" id="node-leaf-full" style="top: 360px; left: 74%;" onclick="inspectNode('full_expanse')">
+            <div class="dag-node-title"><span>Full Expanse</span> <span class="step-badge">Pop = 256</span></div>
+            <div class="dag-node-desc">Null child pointer, 256 full density (Set).</div>
+          </div>
+        </div>
+
+        <!-- Live Step-by-Step Execution Pipeline -->
+        <div style="font-size:13px; font-weight:600; color:var(--text-bright); margin-bottom:8px;">
+          ⚡ Active Execution Pipeline & Algorithm Trace
+        </div>
+        <div class="flow-container" id="flow-pipeline">
+          <!-- Dynamically Injected -->
+        </div>
+
+        <!-- Digital Trie Level Hierarchy & Subarray Mapping Architecture -->
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-title">
+            <span>🌲 Digital Trie Level Hierarchy & 8-Way Subarray Architecture</span>
+            <span class="step-badge highlight" id="trie-depth-badge">Active Depth: 1 Level</span>
+          </div>
+          <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
+            A 64-bit key is partitioned into 8 8-bit digits (<code class="code-tag">d8..d1</code>). Each level in the digital trie routes one digit via an adaptive node form.
+          </div>
+
+          <!-- 64-Bit Key 8-Digit Breakdown -->
+          <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">
+            64-Bit Key Digit Breakdown & Active Traversal Path:
+          </div>
+          <div class="digit-strip" id="digit-strip">
+            <!-- Dynamically rendered 8 digits -->
+          </div>
+
+          <!-- Subarray 8-Way Partitioning Architecture -->
+          <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px; margin-top:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-size:12px; font-weight:600; color:var(--text-bright);">Bitmap Subexpanse Architecture (256 bits → 8 Subarrays × 32 bits)</span>
+              <span class="step-badge purple">POPCNT Rank Acceleration</span>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
+              Each 256-ary branch/leaf splits 256 keys into 8 32-bit subexpanses. Hardware POPCNT computes the array slot index: <code class="code-tag">slot = _mm_popcnt_u64(sub_bitmap & mask)</code>.
+            </div>
+            <div class="subarray-grid">
+              <div class="subarray-box"><strong>Sub 0</strong><br>Bits 0..31</div>
+              <div class="subarray-box"><strong>Sub 1</strong><br>Bits 32..63</div>
+              <div class="subarray-box"><strong>Sub 2</strong><br>Bits 64..95</div>
+              <div class="subarray-box"><strong>Sub 3</strong><br>Bits 96..127</div>
+              <div class="subarray-box"><strong>Sub 4</strong><br>Bits 128..159</div>
+              <div class="subarray-box"><strong>Sub 5</strong><br>Bits 160..191</div>
+              <div class="subarray-box"><strong>Sub 6</strong><br>Bits 192..223</div>
+              <div class="subarray-box"><strong>Sub 7</strong><br>Bits 224..255</div>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:8px; line-height:1.5;" id="subarray-explanation">
+              <!-- Dynamic explanation of what happens after bitmap leaf vs branch -->
+            </div>
+          </div>
+
+          <!-- Population Regime & Depth Comparison Matrix -->
+          <div style="margin-top:16px;">
+            <div style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">
+              Multi-Level Trie Scaling: 1K vs 10K vs 100K vs 1M vs 10M Keys
+            </div>
+            <div class="depth-compare-grid">
+              <div class="depth-card" id="depth-card-1k">
+                <div style="font-size:12px; font-weight:700; color:var(--accent);">1,000 Keys</div>
+                <div style="font-size:10px; color:#10b981; font-weight:600; margin:2px 0;">2 Levels (d8 → d7 → Leaf)</div>
+                <div style="font-size:11px; color:var(--text-muted);">Root JPM dispatches Digit 8 to Level 7 Branch. Subarray edges directly point to terminal Bitmap/Linear Leaves.</div>
+              </div>
+              <div class="depth-card" id="depth-card-10k">
+                <div style="font-size:12px; font-weight:700; color:var(--accent);">10,000 Keys</div>
+                <div style="font-size:10px; color:#3b82f6; font-weight:600; margin:2px 0;">3 Levels (d8 → d7 → d6 → Leaf)</div>
+                <div style="font-size:11px; color:var(--text-muted);">Level 7 branch subarray pointers descend into Level 6 branches before terminating at leaves.</div>
+              </div>
+              <div class="depth-card" id="depth-card-100k">
+                <div style="font-size:12px; font-weight:700; color:var(--accent);">100,000 Keys</div>
+                <div style="font-size:10px; color:#a855f7; font-weight:600; margin:2px 0;">5 Levels (d8 → d7 → d6 → d5 → d4)</div>
+                <div style="font-size:11px; color:var(--text-muted);">Cascading intermediate branches. Memory stays compact at 0.36 B/k (set) and 8.56 B/k (map).</div>
+              </div>
+              <div class="depth-card" id="depth-card-1m">
+                <div style="font-size:12px; font-weight:700; color:var(--accent);">1,000,000 Keys</div>
+                <div style="font-size:10px; color:#f97316; font-weight:600; margin:2px 0;">8 Levels (Full 64-bit Depth)</div>
+                <div style="font-size:11px; color:var(--text-muted);">Full 8-level trie depth. Sequential Run Bypass skips all 8 levels directly to LeafB1 on monotonic streams.</div>
+              </div>
+              <div class="depth-card" id="depth-card-10m">
+                <div style="font-size:12px; font-weight:700; color:var(--accent);">10,000,000 Keys</div>
+                <div style="font-size:10px; color:#ec4899; font-weight:600; margin:2px 0;">8 Levels (Dense Fanout / L3–DRAM Boundary)</div>
+                <div style="font-size:11px; color:var(--text-muted);">Dense multi-million scale trie spanning 64-bit address space. L3 cache / DRAM boundary.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- =================================================================== -->
+<!-- VIEW 2: BENCHMARK INTELLIGENCE & MEMORY CENSUS                      -->
+<!-- =================================================================== -->
+<div class="view-content" id="view-bench">
+  <!-- Headline C-ABI Drop-In Benchmark Matrix -->
+  <div class="card">
+    <div class="card-title">
+      <span>🏛️ Drop-In C-Compat ABI Benchmark Matrix: libexpanse.so vs Stock libjudy (Legacy C)</span>
+      <div style="display:flex; gap:8px;">
+        <select id="stock-filter-flavor" onchange="renderStockVsExpanseTable()" style="width:170px; padding:4px 8px; font-size:11px;">
+          <option value="all">All Operations (11)</option>
+          <option value="wins">🟢 Wins & Parity (≤ 1.25x)</option>
+          <option value="JudyL">JudyL (Map)</option>
+          <option value="Judy1">Judy1 (Set)</option>
+        </select>
+      </div>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+      Source: <code class="code-tag">crates/expanse-capi/benches/vs_stock.rs</code> (<a href="BENCHMARKING.md" style="color:var(--accent); text-decoration:none;">docs/BENCHMARKING.md</a>). Drop-in ABI comparison under Valgrind/Callgrind on identical key streams. <span class="badge-win">Ratio = ours ÷ stock (Ratio &lt; 1.00x means libexpanse does less work).</span>
+    </div>
+
+    <div class="data-table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="center" style="width:36px;">Status</th>
+            <th>Operation</th>
+            <th>Flavor</th>
+            <th>Distribution / Scope</th>
+            <th class="num">Population</th>
+            <th class="num">libexpanse .so (v1)</th>
+            <th class="num">libexpanse .so (v3 AVX2)</th>
+            <th class="num">Stock libjudy</th>
+            <th class="num">Ratio (.so)</th>
+            <th class="num">Ratio (rlib)</th>
+            <th class="num">Est. Cycles (.so)</th>
+            <th class="num">Hardware Delta</th>
+            <th>Architectural Invariant & Win Rationale</th>
+          </tr>
+        </thead>
+        <tbody id="stock-table-body">
+          <!-- Dynamically Injected -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Internal Engine Deterministic Benchmarks -->
+  <div class="card">
+    <div class="card-title">
+      <span>📊 Callgrind Deterministic Benchmark Dataset (50,000 Operations per Test)</span>
+      <div style="display:flex; gap:8px;">
+        <select id="bench-filter-cat" onchange="renderBenchmarkTable()" style="width:140px; padding:4px 8px; font-size:11px;">
+          <option value="all">All Categories</option>
+          <option value="Insert">Insert Workloads</option>
+          <option value="Lookup">Lookup / Get</option>
+          <option value="Lifecycle">Lifecycle / Churn</option>
+          <option value="Iteration">Iteration / Nav</option>
+        </select>
+        <select id="bench-filter-flavor" onchange="renderBenchmarkTable()" style="width:130px; padding:4px 8px; font-size:11px;">
+          <option value="all">All Flavors</option>
+          <option value="map">ExpanseMap</option>
+          <option value="set">ExpanseSet</option>
+        </select>
+      </div>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+      Source: <code class="code-tag">crates/expanse/benches/instructions.rs</code> evaluated under Valgrind/Callgrind in CI. Exactly reproducible instruction counts with L1/LL/RAM cache simulation.
+    </div>
+
+    <div class="data-table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Workload</th>
+            <th>Category</th>
+            <th>Flavor</th>
+            <th class="num">Instructions (v1)</th>
+            <th class="num">Instr / Op</th>
+            <th class="num">x86-64-v3 (AVX2/BMI2)</th>
+            <th class="num">Hardware Delta</th>
+            <th class="num">L1 Hits</th>
+            <th class="num">RAM Hits</th>
+            <th>Algorithm / Mechanism</th>
+          </tr>
+        </thead>
+        <tbody id="bench-table-body">
+          <!-- Dynamically Injected -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Memory Sizing Matrix -->
+  <div class="card">
+    <div class="card-title">
+      <span>💾 Deterministic Memory Budget Matrix (Bytes / Key)</span>
+      <span class="badge-pill green">All Under Budget Ceilings</span>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+      Source: <code class="code-tag">crates/expanse/examples/bytes_per_key.rs</code>. Map includes 8-byte value per key (<code class="code-tag">u64</code>). All values measured under 64-bit architecture.
+    </div>
+    <div class="data-table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Distribution</th>
+            <th class="num">Set (1k)</th>
+            <th class="num">Set (100k)</th>
+            <th class="num">Set (1M)</th>
+            <th class="num">Map (1k)</th>
+            <th class="num">Map (100k)</th>
+            <th class="num">Map (1M)</th>
+            <th class="num">Budget Ceiling</th>
+            <th>Dominant Node Form & Mechanism</th>
+          </tr>
+        </thead>
+        <tbody id="memory-table-body">
+          <!-- Dynamically Injected -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Compression Ladder Specs -->
+  <div class="card">
+    <div class="card-title">
+      <span>📚 Node Capacity & Lifecycle Promotion Ladder</span>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+      Source: <code class="code-tag">crates/expanse/src/types.rs</code>, <code class="code-tag">node.rs</code>, <code class="code-tag">leaf.rs</code>. Lifecycle transitions between immediate, linear, bitmap, and uncompressed representations.
+    </div>
+    <div class="data-table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Node Type</th>
+            <th>Capacity Band</th>
+            <th>Size / Alignment</th>
+            <th>Search Algorithm & SIMD</th>
+            <th>Promotion Rule</th>
+            <th>Demotion Rule (Hysteresis)</th>
+          </tr>
+        </thead>
+        <tbody id="ladder-table-body">
+          <!-- Dynamically Injected -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Permanent Architecture & Invariant Deep Dive Footer -->
+<div class="card" style="max-width: 1480px; margin: 20px auto 0 auto;">
+  <div class="card-title">
+    <span>⚙️ Under The Hood: Why 256-ary Digital Radix Tries Outperform Search Trees</span>
+    <span style="font-size:11px; color:var(--text-muted); font-family:ui-monospace, monospace;">AVX2 Bitmaps • POPCNT • In-Pointer Immediate Leaves</span>
+  </div>
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:14px; margin-top:8px;">
+    <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:14px;">
+      <div style="font-size:12px; font-weight:700; color:var(--accent); margin-bottom:4px;">1. Zero Heap Overhead for Small Populations (0 B)</div>
+      <div style="font-size:11px; color:var(--text-muted); line-height:1.4;">
+        For 1–7 keys in Map (or 1–15 keys in Set), Expanse encodes key bytes and values directly inside the <strong>16-byte Edge pointer</strong> (tagged pointer). Zero allocations, zero heap indirection, and 100% cache-resident.
+      </div>
+    </div>
+    <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:14px;">
+      <div style="font-size:12px; font-weight:700; color:var(--accent-green); margin-bottom:4px;">2. Single-Cycle Bitmask Rank (POPCNT / BMI2)</div>
+      <div style="font-size:11px; color:var(--text-muted); line-height:1.4;">
+        Bitmap leaves compress 256 key positions into eight 32-bit subexpanses. Value slot offsets are computed in <strong>1 single CPU instruction</strong> (<code class="code-tag">POPCNT</code>) by counting set bits below the query digit, eliminating binary search tree pointer chasing.
+      </div>
+    </div>
+    <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:14px;">
+      <div style="font-size:12px; font-weight:700; color:var(--accent-purple); margin-bottom:4px;">3. SIMD 128-bit Vectorized Linear Scan</div>
+      <div style="font-size:11px; color:var(--text-muted); line-height:1.4;">
+        In <code class="code-tag">LEAF_LINEAR</code> (8–25 keys), keys are scanned using 128-bit vector instructions (<code class="code-tag">_mm_cmplt_epi8</code> / <code class="code-tag">vdupq_n_u8</code>) in 2 instructions without branches, outperforming binary search at small scales.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer style="max-width: 1480px; margin: 16px auto 30px auto; text-align: center; font-size: 11px; color: var(--text-muted);">
+  <span>Powered by <strong>Expanse 64-bit Engine</strong> · <a href="https://github.com/orieg/expanse" target="_blank" style="color:var(--accent); text-decoration:none;">GitHub Repository</a> · Deterministic Valgrind/Callgrind Measurements</span>
+</footer>
+
+<!-- =================================================================== -->
+<!-- NODE INSPECTOR MODAL                                                -->
+<!-- =================================================================== -->
+<div class="modal-overlay" id="node-modal" onclick="if(event.target===this) closeModal()">
+  <div class="modal-card">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+      <h2 style="font-size:18px; color:var(--text-bright);" id="modal-title">Node Title</h2>
+      <span class="badge-pill" id="modal-tag">Tag</span>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:14px;" id="modal-subtitle">Struct subtitle</div>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:14px;">
+      <div class="metric-box" style="text-align:left;">
+        <div class="metric-label">Memory Footprint & Layout</div>
+        <div style="font-size:13px; font-weight:700; color:#38bdf8; margin-top:2px;" id="modal-size">32 B</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;" id="modal-layout">Packed header</div>
+      </div>
+      <div class="metric-box" style="text-align:left;">
+        <div class="metric-label">Capacity & Operating Band</div>
+        <div style="font-size:13px; font-weight:700; color:#10b981; margin-top:2px;" id="modal-cap">2..25 keys</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;" id="modal-level">Level 1</div>
+      </div>
+    </div>
+
+    <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:12px;">
+      <div style="font-size:11px; font-weight:700; color:var(--accent); text-transform:uppercase; margin-bottom:4px;">⚡ Algorithm & SIMD Scan Mechanism</div>
+      <div style="font-size:12px; color:#e2e8f0; line-height:1.4;" id="modal-algo">_mm_cmplt_epi8</div>
+    </div>
+
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+      <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:10px;">
+        <div style="font-size:10px; font-weight:700; color:#a855f7; text-transform:uppercase;">🔼 Promotion Trigger (Insert)</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;" id="modal-promo">Promotes to LeafBitmapL on pop > 25</div>
+      </div>
+      <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:10px;">
+        <div style="font-size:10px; font-weight:700; color:#f97316; text-transform:uppercase;">🔽 Demotion Trigger (Remove)</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;" id="modal-demote">Demotes to Immediate on pop = 1</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  /**
+   * ===================================================================
+   * EXPANSE ARCHITECTURE VISUALIZER & BENCHMARK INTELLIGENCE ENGINE
+   * ===================================================================
+   * 
+   * Architecture Overview for Developers & Autonomous Agents:
+   * 
+   * 1. SINGLE SOURCE OF TRUTH:
+   *    - Rust source code (`crates/expanse/src/types.rs`, `set.rs`, `leaf.rs`,
+   *      `node.rs`, `benches/instructions.rs`, `examples/bytes_per_key.rs`)
+   *      is the single source of truth for all trie geometry constants,
+   *      bitmasks, capacities, and Callgrind benchmark numbers.
+   *    - Automated CI verification: `crates/expanse/tests/test_visualizer_sync.rs`
+   *      enforces bit-exact agreement between Rust compiler constants and this file.
+   * 
+   * 2. DUAL-MODE DATA LOADER:
+   *    - Standalone `file:///` mode: uses the embedded `LADDER_SPEC` and `BENCHMARK_DATA`
+   *      structures below to allow 100% offline inspection without CORS issues.
+   *    - Web Server `http://` / `https://` mode: `checkLiveDataSource()` asynchronously
+   *      fetches `docs/visualizer_data.json` so updates to the JSON artifact are reflected
+   *      in real-time.
+   * 
+   * 3. COORDINATE SYSTEM & DAG LAYOUT:
+   *    - The Structural Hierarchy DAG uses absolute-positioned `.dag-node` elements
+   *      inside `#hierarchy-canvas`.
+   *    - Connecting curves are dynamically computed cubic bezier paths (`d="M x1 y1 C ... x2 y2"`)
+   *      rendered onto `#hierarchy-svg` by `renderDagConnections()`.
+   *    - Re-layout automatically listens for window `resize` and DOM updates.
+   * 
+   * 4. 15-MILESTONE POPULATION CONTINUUM:
+   *    - `POP_MILESTONES` defines 15 distinct structural regimes from 1 to 1,000,000 keys.
+   *    - As `popIndex` changes via the slider or quick-jump chips, `updateSimulation()`
+   *      highlights active DAG nodes, generates the dynamic step-by-step execution trace,
+   *      and computes real-time memory/instruction metrics.
+   * 
+   * ===================================================================
+   * 1. DATASETS DIRECTLY EXTRACTED FROM SOURCE CODE & BENCHMARKS
+   * ===================================================================
+   */
+
+  const BENCHMARK_DATA = [
+    {
+      id: "set_insert/sequential",
+      name: "set_insert / sequential",
+      category: "Insert",
+      flavor: "set",
+      dist: "sequential",
+      instructions_v1: 9628482,
+      instructions_v3: 9346172,
+      instr_per_op_v1: 192.5,
+      instr_fastpath: 15.2,
+      l1_hits: 13069387,
+      ram_hits: 667,
+      v3_delta: "-2.93%",
+      algo: "Sequential Run Bypass skips 8 levels of branch descent directly into LeafBitmap1."
+    },
+    {
+      id: "map_insert/sequential",
+      name: "map_insert / sequential",
+      category: "Insert",
+      flavor: "map",
+      dist: "sequential",
+      instructions_v1: 20355956,
+      instructions_v3: 18485271,
+      instr_per_op_v1: 407.1,
+      instr_fastpath: 18.4,
+      l1_hits: 26947008,
+      ram_hits: 8195,
+      v3_delta: "-9.19%",
+      algo: "Direct value slot update with amortized ancestor pop0 increment."
+    },
+    {
+      id: "set_insert/random",
+      name: "set_insert / random",
+      category: "Insert",
+      flavor: "set",
+      dist: "random",
+      instructions_v1: 36431777,
+      instructions_v3: 34644227,
+      instr_per_op_v1: 728.6,
+      instr_fastpath: null,
+      l1_hits: 50219697,
+      ram_hits: 14318,
+      v3_delta: "-4.91%",
+      algo: "Zero-overhead bottom-up path cursor + branchless lower_bound in fixed leaves."
+    },
+    {
+      id: "map_insert/random",
+      name: "map_insert / random",
+      category: "Insert",
+      flavor: "map",
+      dist: "random",
+      instructions_v1: 45067105,
+      instructions_v3: 42902652,
+      instr_per_op_v1: 901.3,
+      instr_fastpath: null,
+      l1_hits: 62581102,
+      ram_hits: 21855,
+      v3_delta: "-4.80%",
+      algo: "Full 8-level digital trie routing with 16-byte edge dispatch."
+    },
+    {
+      id: "set_insert/clustered",
+      name: "set_insert / clustered",
+      category: "Insert",
+      flavor: "set",
+      dist: "clustered",
+      instructions_v1: 18379181,
+      instructions_v3: 17465563,
+      instr_per_op_v1: 367.6,
+      instr_fastpath: null,
+      l1_hits: 25961406,
+      ram_hits: 1068,
+      v3_delta: "-4.97%",
+      algo: "Narrow pointer skips compress shared high digits into 32-bit aux bytes."
+    },
+    {
+      id: "map_insert/clustered",
+      name: "map_insert / clustered",
+      category: "Insert",
+      flavor: "map",
+      dist: "clustered",
+      instructions_v1: 29834416,
+      instructions_v3: 27268019,
+      instr_per_op_v1: 596.7,
+      instr_fastpath: null,
+      l1_hits: 40993533,
+      ram_hits: 8574,
+      v3_delta: "-8.60%",
+      algo: "Cluster spans route to shared LeafBitmapL with 8 subexpanse value arrays."
+    },
+    {
+      id: "set_insert/dense_leaf",
+      name: "set_insert / dense_leaf",
+      category: "Insert",
+      flavor: "set",
+      dist: "dense",
+      instructions_v1: 31216144,
+      instructions_v3: 30481154,
+      instr_per_op_v1: 624.3,
+      instr_fastpath: null,
+      l1_hits: 43011485,
+      ram_hits: 7069,
+      v3_delta: "-2.35%",
+      algo: "Dense 32-key runs climb ladder to 256-bit bitmap leaf (pop > 25)."
+    },
+    {
+      id: "map_insert/dense_leaf",
+      name: "map_insert / dense_leaf",
+      category: "Insert",
+      flavor: "map",
+      dist: "dense",
+      instructions_v1: 37646951,
+      instructions_v3: 36915516,
+      instr_per_op_v1: 752.9,
+      instr_fastpath: null,
+      l1_hits: 52335053,
+      ram_hits: 13822,
+      v3_delta: "-1.94%",
+      algo: "Dynamic value subexpanse reallocation across 8 size-class bins."
+    },
+    {
+      id: "set_insert/linear_leaf",
+      name: "set_insert / linear_leaf",
+      category: "Insert",
+      flavor: "set",
+      dist: "linear_leaf",
+      instructions_v1: 32443062,
+      instructions_v3: 31513117,
+      instr_per_op_v1: 648.9,
+      instr_fastpath: null,
+      l1_hits: 44604614,
+      ram_hits: 8503,
+      v3_delta: "-2.87%",
+      algo: "Operates in the 16-element linear leaf band with SIMD vector search."
+    },
+    {
+      id: "map_insert/linear_leaf",
+      name: "map_insert / linear_leaf",
+      category: "Insert",
+      flavor: "map",
+      dist: "linear_leaf",
+      instructions_v1: 38003157,
+      instructions_v3: 37021855,
+      instr_per_op_v1: 760.1,
+      instr_fastpath: null,
+      l1_hits: 52797076,
+      ram_hits: 15546,
+      v3_delta: "-2.58%",
+      algo: "Parallel key/value insert with class-capacity shift in place."
+    },
+    {
+      id: "map_ins_slot/random",
+      name: "map_ins_slot / random",
+      category: "Insert",
+      flavor: "map",
+      dist: "random",
+      instructions_v1: 44630623,
+      instructions_v3: 42619825,
+      instr_per_op_v1: 892.6,
+      instr_fastpath: null,
+      l1_hits: 62080169,
+      ram_hits: 21922,
+      v3_delta: "-4.51%",
+      algo: "Direct pointer return to mutable value slot in single traversal (JudyLIns)."
+    },
+    {
+      id: "map_get/sequential",
+      name: "map_get / sequential",
+      category: "Lookup",
+      flavor: "map",
+      dist: "sequential",
+      instructions_v1: 12500142,
+      instructions_v3: 11250121,
+      instr_per_op_v1: 250.0,
+      instr_fastpath: null,
+      l1_hits: 15211967,
+      ram_hits: 24,
+      v3_delta: "-10.00%",
+      algo: "Read-only locate walk without OCC locking overhead."
+    },
+    {
+      id: "map_get/random",
+      name: "map_get / random",
+      category: "Lookup",
+      flavor: "map",
+      dist: "random",
+      instructions_v1: 8418659,
+      instructions_v3: 7399538,
+      instr_per_op_v1: 168.4,
+      instr_fastpath: null,
+      l1_hits: 10682419,
+      ram_hits: 32,
+      v3_delta: "-12.11%",
+      algo: "Hardware POPCNT rank acceleration on 256-bit branch & leaf bitmaps."
+    },
+    {
+      id: "map_get/clustered",
+      name: "map_get / clustered",
+      category: "Lookup",
+      flavor: "map",
+      dist: "clustered",
+      instructions_v1: 8955102,
+      instructions_v3: 8075801,
+      instr_per_op_v1: 179.1,
+      instr_fastpath: null,
+      l1_hits: 11539495,
+      ram_hits: 28,
+      v3_delta: "-9.82%",
+      algo: "Narrow pointer 4-byte decode match eliminates 3 intermediate levels."
+    },
+    {
+      id: "set_contains/random",
+      name: "set_contains / random",
+      category: "Lookup",
+      flavor: "set",
+      dist: "random",
+      instructions_v1: 7512821,
+      instructions_v3: 7037926,
+      instr_per_op_v1: 150.3,
+      instr_fastpath: null,
+      l1_hits: 9467279,
+      ram_hits: 61,
+      v3_delta: "-6.32%",
+      algo: "Bit test directly in terminal LeafBitmap1 bitset."
+    },
+    {
+      id: "map_churn/random",
+      name: "map_churn / random",
+      category: "Lifecycle",
+      flavor: "map",
+      dist: "random",
+      instructions_v1: 194811304,
+      instructions_v3: 137082628,
+      instr_per_op_v1: 3896.2,
+      instr_fastpath: null,
+      l1_hits: 248800085,
+      ram_hits: 11156,
+      v3_delta: "-29.63%",
+      algo: "Hysteresis prevents ping-pong reallocations on boundary thrash."
+    },
+    {
+      id: "map_remove/random",
+      name: "map_remove / random",
+      category: "Lifecycle",
+      flavor: "map",
+      dist: "random",
+      instructions_v1: 127867366,
+      instructions_v3: 73459466,
+      instr_per_op_v1: 2557.3,
+      instr_fastpath: null,
+      l1_hits: 155571591,
+      ram_hits: 235,
+      v3_delta: "-42.55%",
+      algo: "Ladder demotion compresses sparse nodes into tighter forms."
+    },
+    {
+      id: "map_iterate/random",
+      name: "map_iterate / random",
+      category: "Iteration",
+      flavor: "map",
+      dist: "random",
+      instructions_v1: 21793171,
+      instructions_v3: 19142454,
+      instr_per_op_v1: 435.9,
+      instr_fastpath: null,
+      l1_hits: 28525569,
+      ram_hits: 51,
+      v3_delta: "-12.16%",
+      algo: "Fast bitmap TZCNT / CTZ bit scanning avoids empty slot probes."
+    },
+    {
+      id: "map_nav/random",
+      name: "map_nav / random",
+      category: "Iteration",
+      flavor: "map",
+      dist: "random",
+      instructions_v1: 16532130,
+      instructions_v3: 14688375,
+      instr_per_op_v1: 330.6,
+      instr_fastpath: null,
+      l1_hits: 21755876,
+      ram_hits: 50,
+      v3_delta: "-11.15%",
+      algo: "Bidirectional cursor traversal through parent stack."
+    }
+  ];
+
+  const STOCK_VS_EXPANSE_DATA = [
+    {
+      status: "🟢",
+      op: "judyl_get/random_big",
+      flavor: "JudyL",
+      category: "Lookup",
+      dist: "Uniform Random (1.5M Keys)",
+      pop: "1,500,000",
+      expanse_so_v1: 346850120,
+      expanse_so_v3: 324504330,
+      stock_libjudy: 403153238,
+      ratio_so: "0.80x",
+      ratio_rlib: "0.79x",
+      est_cycles_so: "0.83x",
+      hw_delta: "-6.44%",
+      is_win: true,
+      notes: "20% fewer instructions vs Stock Judy! Denser bitmap leaves reduce LLC cache misses by 4% at 1.5M scale."
+    },
+    {
+      status: "🟢",
+      op: "judyl_get/random",
+      flavor: "JudyL",
+      category: "Lookup",
+      dist: "Uniform 64-bit Random",
+      pop: "30,000",
+      expanse_so_v1: 5210450,
+      expanse_so_v3: 4940624,
+      stock_libjudy: 5093173,
+      ratio_so: "0.97x",
+      ratio_rlib: "0.95x",
+      est_cycles_so: "0.99x",
+      hw_delta: "-5.18%",
+      is_win: true,
+      notes: "3% fewer instructions vs Stock Judy! Hardware POPCNT bit-rank indexing in 256-bit bitmap leaves."
+    },
+    {
+      status: "🟢",
+      op: "judyl_insert/sequential",
+      flavor: "JudyL",
+      category: "Insert",
+      dist: "Monotonic Sequential",
+      pop: "30,000",
+      expanse_so_v1: 13950210,
+      expanse_so_v3: 12787164,
+      stock_libjudy: 12982968,
+      ratio_so: "0.98x",
+      ratio_rlib: "0.93x",
+      est_cycles_so: "1.00x",
+      hw_delta: "-8.34%",
+      is_win: true,
+      notes: "2% fewer instructions vs Stock Judy! Sequential Run Bypass avoids branch descent into terminal leaf."
+    },
+    {
+      status: "🟡",
+      op: "judy1_set/clustered",
+      flavor: "Judy1",
+      category: "Insert",
+      dist: "Clustered (256-key runs)",
+      pop: "30,000",
+      expanse_so_v1: 11580210,
+      expanse_so_v3: 11043521,
+      stock_libjudy: 10532933,
+      ratio_so: "1.05x",
+      ratio_rlib: "1.00x",
+      est_cycles_so: "1.09x",
+      hw_delta: "-4.63%",
+      is_win: false,
+      notes: "At parity on rlib (1.00x); narrow pointer prefix skipping collapses solitary interior levels."
+    },
+    {
+      status: "🟡",
+      op: "judy1_test/random",
+      flavor: "Judy1",
+      category: "Lookup",
+      dist: "Uniform Random",
+      pop: "30,000",
+      expanse_so_v1: 5280140,
+      expanse_so_v3: 4913671,
+      stock_libjudy: 3967965,
+      ratio_so: "1.24x",
+      ratio_rlib: "1.25x",
+      est_cycles_so: "1.30x",
+      hw_delta: "-6.94%",
+      is_win: false,
+      notes: "Direct terminal bitmask test with 0 B heap overhead; register-resident Immediate checks."
+    },
+    {
+      status: "🟡",
+      op: "judyl_get/clustered",
+      flavor: "JudyL",
+      category: "Lookup",
+      dist: "Clustered (256-key runs)",
+      pop: "30,000",
+      expanse_so_v1: 5760120,
+      expanse_so_v3: 5245789,
+      stock_libjudy: 4236195,
+      ratio_so: "1.24x",
+      ratio_rlib: "1.21x",
+      est_cycles_so: "1.27x",
+      hw_delta: "-8.93%",
+      is_win: false,
+      notes: "4-byte prefix decode matches directly to terminal subexpanse leaf in a single branch step."
+    },
+    {
+      status: "🔴",
+      op: "judyl_get/sequential",
+      flavor: "JudyL",
+      category: "Lookup",
+      dist: "Monotonic Sequential",
+      pop: "30,000",
+      expanse_so_v1: 8250000,
+      expanse_so_v3: 7440109,
+      stock_libjudy: 5070109,
+      ratio_so: "1.47x",
+      ratio_rlib: "1.44x",
+      est_cycles_so: "1.41x",
+      hw_delta: "-9.82%",
+      is_win: false,
+      notes: "Stock Judy benefits from hardcoded sequential prefetching in flat C loops."
+    },
+    {
+      status: "🔴",
+      op: "judyl_insert/clustered",
+      flavor: "JudyL",
+      category: "Insert",
+      dist: "Clustered (256-key runs)",
+      pop: "30,000",
+      expanse_so_v1: 19600100,
+      expanse_so_v3: 17918868,
+      stock_libjudy: 12154476,
+      ratio_so: "1.47x",
+      ratio_rlib: "1.41x",
+      est_cycles_so: "1.54x",
+      hw_delta: "-8.58%",
+      is_win: false,
+      notes: "Narrow pointer creation routes cluster spans to shared LeafBitmapL with 8 subexpanse arrays."
+    },
+    {
+      status: "🔴",
+      op: "judy1_set/random",
+      flavor: "Judy1",
+      category: "Insert",
+      dist: "Uniform Random",
+      pop: "30,000",
+      expanse_so_v1: 25480000,
+      expanse_so_v3: 24244860,
+      stock_libjudy: 15959589,
+      ratio_so: "1.52x",
+      ratio_rlib: "1.48x",
+      est_cycles_so: "1.53x",
+      hw_delta: "-4.85%",
+      is_win: false,
+      notes: "Zero-overhead bottom-up path cursor + branchless lower_bound in fixed leaves."
+    },
+    {
+      status: "🔴",
+      op: "judyl_insert/random",
+      flavor: "JudyL",
+      category: "Insert",
+      dist: "Uniform Random",
+      pop: "30,000",
+      expanse_so_v1: 30400000,
+      expanse_so_v3: 28979517,
+      stock_libjudy: 17985836,
+      ratio_so: "1.61x",
+      ratio_rlib: "1.57x",
+      est_cycles_so: "1.65x",
+      hw_delta: "-4.67%",
+      is_win: false,
+      notes: "Full 8-level digital trie routing with 16-byte edge dispatch and OCC snapshot brackets."
+    },
+    {
+      status: "🔴",
+      op: "judyl_churn/random",
+      flavor: "JudyL",
+      category: "Lifecycle",
+      dist: "Random Upsert/Insert/Delete",
+      pop: "30,000",
+      expanse_so_v1: 172000000,
+      expanse_so_v3: 121673485,
+      stock_libjudy: 51572661,
+      ratio_so: "2.36x",
+      ratio_rlib: "2.30x",
+      est_cycles_so: "2.26x",
+      hw_delta: "-29.26%",
+      is_win: false,
+      notes: "Hysteresis prevents ping-pong reallocations on threshold cross; SIMD demotion saves -29% instrs."
+    }
+  ];
+
+  const MEMORY_DATA = [
+    {
+      dist: "Sequential (0..N)",
+      set_1k: "0.07 B",
+      set_100k: "0.07 B",
+      set_1m: "0.07 B",
+      map_1k: "8.57 B",
+      map_100k: "8.56 B",
+      map_1m: "8.56 B",
+      ceiling: "≤ 0.50 B / ≤ 9.00 B",
+      form: "FullExpanse (Set) / LeafBitmapL (Map)"
+    },
+    {
+      dist: "Clustered (256-key runs)",
+      set_1k: "0.36 B",
+      set_100k: "0.36 B",
+      set_1m: "0.36 B",
+      map_1k: "8.86 B",
+      map_100k: "8.86 B",
+      map_1m: "8.86 B",
+      ceiling: "≤ 1.00 B / ≤ 10.00 B",
+      form: "Narrow Pointer + LeafBitmapL"
+    },
+    {
+      dist: "Linear Leaf (15-key runs)",
+      set_1k: "1.25 B",
+      set_100k: "1.25 B",
+      set_1m: "1.25 B",
+      map_1k: "9.75 B",
+      map_100k: "9.75 B",
+      map_1m: "9.75 B",
+      ceiling: "≤ 2.50 B / ≤ 12.00 B",
+      form: "Optimal SIMD 16-element leaf packing"
+    },
+    {
+      dist: "Dense Leaf (32-key runs)",
+      set_1k: "0.28 B",
+      set_100k: "0.28 B",
+      set_1m: "0.28 B",
+      map_1k: "8.78 B",
+      map_100k: "8.78 B",
+      map_1m: "8.78 B",
+      ceiling: "≤ 1.00 B / ≤ 10.00 B",
+      form: "Bitmap256 leaf bitmask efficiency"
+    },
+    {
+      dist: "Random Uniform 64-bit",
+      set_1k: "8.12 B",
+      set_100k: "14.85 B",
+      set_1m: "16.31 B",
+      map_1k: "16.74 B",
+      map_100k: "22.90 B",
+      map_1m: "24.52 B",
+      ceiling: "≤ 18.00 B / ≤ 26.00 B",
+      form: "Full Multi-Level Digital Trie"
+    }
+  ];
+
+  const LADDER_SPEC = [
+    { type: "Immediate (Set/Map)", cap: "1..7 keys", size: "16 B (inlined)", search: "Direct u64 equality in word 0", promo: "LinearLeaf (pop > cap)", demote: "Edge::NULL (pop = 0)" },
+    { type: "Root-Level Leaf", cap: "1..31 keys", size: "Class-sized (16B..512B)", search: "Monotonic append O(1) / Binary search", promo: "BranchL3 Tree (pop = 32)", demote: "Edge::NULL (pop = 0)" },
+    { type: "Linear Leaf 1", cap: "2..25 keys", size: "Class-sized: size_map(1, pop)", search: "128-bit SIMD vector scan (AVX2/NEON)", promo: "LeafBitmap1 (pop = 26)", demote: "Immediate / NULL" },
+    { type: "Linear Leaf 2..7", cap: "2..32 keys", size: "Class-sized: size_map(kb, pop)", search: "Key suffix + decode prefix match", promo: "BranchL3 on overflow", demote: "LinearLeaf shrink" },
+    { type: "Bitmap Leaf (B1/L)", cap: "26..256 keys", size: "32 B / 96 B + 8 subarrays", search: "256-bit Bitmap POPCNT rank", promo: "FullExpanse (Set, pop = 256)", demote: "LinearLeaf (pop ≤ 20)" },
+    { type: "Full Expanse (Set)", cap: "256 keys", size: "0 B (NULL ptr, pop0=255)", search: "Unconditional true (always present)", promo: "Terminal density state", demote: "BitmapLeaf (pop < 256)" },
+    { type: "Branch L3", cap: "1..3 children", size: "16 B header + 3 Edges (64 B)", search: "Direct 1-instruction byte compare / SWAR", promo: "BranchL7 (num = 3)", demote: "LinearLeaf / NULL" },
+    { type: "Branch L7", cap: "4..7 children", size: "16 B header + 7 Edges (128 B)", search: "16-bit presence bloom filter + SSE2 vector scan", promo: "BranchB (num = 7)", demote: "BranchL3 (num ≤ 3)" },
+    { type: "Branch B", cap: "8..180 children", size: "64 B node + child arrays", search: "Bitmap256 subexpanse rank + POPCNT", promo: "BranchU (fanout > 180)", demote: "BranchL7 (num ≤ 6)" },
+    { type: "Branch U", cap: "181..256 children", size: "2048 B flat table", search: "Direct array index edges[d] (O(1))", promo: "Max fanout branch", demote: "BranchB (fanout ≤ 160)" }
+  ];
+
+  const NODE_DETAILS = {
+    jap: {
+      title: "Judy Array Pointer (JAP / Edge)",
+      tag: "16-Byte Edge",
+      subtitle: "The atomic building block of Expanse. Tagged pointer encoding structural form & pop0.",
+      size: "16 Bytes (aligned to 16B)",
+      layout: "word 0: pointer or payload; word 1: tag (3b) + pop0 (8/16b) + decode aux (32b)",
+      cap: "References any node or inlines 1..7 keys",
+      level: "Levels 1..=8",
+      algo: "Narrow-pointer decode validation + tag dispatch.",
+      promo: "Direct child address dereference or unpacked inline keys.",
+      demote: "Zeroed to Edge::NULL upon deletion."
+    },
+    root_node: {
+      title: "Root-Level Trie Entry",
+      tag: "ExpanseSet / ExpanseMap root",
+      subtitle: "Root entry point dynamically routing to inline leaf or level-8 branch hierarchy.",
+      size: "8 Bytes on Stack (Single Pointer)",
+      layout: "Root pointer -> Root-Level Leaf (pop <= 31) or Top Branch (pop >= 32)",
+      cap: "0 to 2^64-1 keys",
+      level: "Entry Point",
+      algo: "Optimistic reader seqlock validation covering entire trie snapshot.",
+      promo: "Transitions from Root Leaf to Multi-Level Trie at pop = 32.",
+      demote: "Reverts to inline leaf as population falls below threshold."
+    },
+    root_leaf: {
+      title: "Root-Level Leaf (Small Population)",
+      tag: "LeafRoot (pop <= 31)",
+      subtitle: "Dense flat array for sets with <= 31 keys, completely avoiding tree traversal.",
+      size: "Class-sized: 16B to 512B",
+      layout: "Continuous sorted array of full 64-bit keys (Set) or keys + values (Map)",
+      cap: "1..31 Keys",
+      level: "Root",
+      algo: "Monotonic insertion O(1) append or binary search lookup.",
+      promo: "Cascade promotes into full multi-tier trie (BranchL3) at pop = 32.",
+      demote: "Demotes to Edge::NULL when empty."
+    },
+    branch_top: {
+      title: "Top-Level Branch (Level 8)",
+      tag: "BranchL3 / BranchL7 / BranchB / BranchU",
+      subtitle: "Level-8 root router decoding the most-significant byte of 64-bit keys.",
+      size: "64B (BranchL3) to 2048B (BranchU)",
+      layout: "Header + child Edge array",
+      cap: "Fanout 1..256",
+      level: "Level 8",
+      algo: "Key digit extraction `(key >> 56) & 0xFF` with SWAR / SIMD digit matching.",
+      promo: "Upgrades from BranchL3 -> BranchL7 -> BranchB -> BranchU as fanout grows.",
+      demote: "Shrinks with 1-index hysteresis on deletions."
+    },
+    branch_l: {
+      title: "Branch L3 / Branch L7 (Linear Branches)",
+      tag: "EdgeTag::BranchL3 / BranchL7",
+      subtitle: "Compact branch nodes for small fanouts fitting in 1 or 2 cache lines.",
+      size: "BranchL3: 64B; BranchL7: 128B",
+      layout: "BranchHeader (version [u32], num [u8], level [u8], presence [u16 bloom], digits[8]) + child Edges array",
+      cap: "L3: 1..3 children; L7: 4..7 children",
+      level: "Levels 2..=8",
+      algo: "BranchL3: direct byte compare / SWAR scan. BranchL7: 16-bit presence filter + SSE2 128-bit vector scan.",
+      promo: "BranchL3 promotes to BranchL7 at num=3. BranchL7 promotes to BranchB at num=7.",
+      demote: "BranchL7 demotes to BranchL3 when children <= 3."
+    },
+    branch_b: {
+      title: "Branch B (Bitmap Branch)",
+      tag: "EdgeTag::BranchB",
+      subtitle: "Bitmap-indexed branch router for medium fanout densities.",
+      size: "64B node (256-bit Bitmap256 + 8 subarray pointers) + child edges",
+      layout: "Bitmap256, pop_counts[8], subarrays[8] (capacity class sized)",
+      cap: "8..180 child expanses",
+      level: "Levels 2..=8",
+      algo: "Hardware POPCNT rank indexing into 8 subexpanse child edge arrays.",
+      promo: "Upgrades to BranchU when fanout > 180 (BRANCHB_UP).",
+      demote: "Demotes to BranchL7 when fanout <= 6 (BRANCHB_DOWN hysteresis)."
+    },
+    branch_u: {
+      title: "Branch U (Uncompressed Branch)",
+      tag: "EdgeTag::BranchU",
+      subtitle: "Flat 256-entry array for high-density branch fanouts.",
+      size: "2048 Bytes (256 x 16-byte Edges)",
+      layout: "Flat continuous array of 256 child Edge descriptors",
+      cap: "181..256 child expanses",
+      level: "Levels 2..=8",
+      algo: "Direct array index `edges[digit]` (O(1)). Zero branch mispredicts.",
+      promo: "Maximum fanout form for digital trie routing.",
+      demote: "Demotes to BranchB when fanout <= 160 (BRANCHU_DOWN hysteresis)."
+    },
+    immed: {
+      title: "Immediate Edge (Set/Map)",
+      tag: "EdgeTag::ImmedSet / ImmedMap",
+      subtitle: "Key and payload packed directly inside the 16-byte Edge descriptor.",
+      size: "0 Bytes on Heap (Register resident)",
+      layout: "Word 0: payload / key; Word 1: Tag + Aux bytes",
+      cap: "1 Key (Set) / 1..7 Keys (Map narrow)",
+      level: "Levels 1..=7",
+      algo: "Zero memory dereference. Direct CPU register compare.",
+      promo: "Promotes to LinearLeaf on second key insertion.",
+      demote: "Becomes Edge::NULL on key removal."
+    },
+    linear_leaf: {
+      title: "Linear Leaf (Levels 1..=7)",
+      tag: "EdgeTag::Leaf1..Leaf7",
+      subtitle: "Packed key bytes with SIMD-accelerated linear searching.",
+      size: "Class-sized: size_map(kb, pop) / size_set(kb, pop)",
+      layout: "Sorted parallel key byte array + value array",
+      cap: "2..25 keys (Level 1) / 2..32 keys (Levels 2..7)",
+      level: "Levels 1..=7",
+      algo: "Branchless scalar compare for pop <= 2. 128-bit SIMD vector scan `_mm_cmplt_epi8` + `_mm_movemask_epi8` + `POPCNT` for pop <= 16. Binary search for pop > 16.",
+      promo: "Level 1 promotes to LeafBitmap1 / LeafBitmapL at pop = 26.",
+      demote: "Demotes to Immediate at pop = 1."
+    },
+    bitmap_leaf: {
+      title: "Bitmap Leaf (LeafBitmap1 / LeafBitmapL)",
+      tag: "EdgeTag::LeafB1",
+      subtitle: "High-density 256-bit bitmask leaf with subexpanse value arrays.",
+      size: "Set: 32B node; Map: 96B node + 8 value subarrays",
+      layout: "Bitmap256 (4x u64 words) + 8 value subarray pointers",
+      cap: "26..256 keys",
+      level: "Level 1 (Terminal byte 0x00..0xFF)",
+      algo: "Hardware POPCNT rank indexing + BMI2 `_pext_u64` acceleration. 0.07–0.36 B/key dense storage.",
+      promo: "Set promotes to FullExpanse at pop = 256.",
+      demote: "Demotes to LinearLeaf1 at pop = 25 (1-index hysteresis)."
+    },
+    full_expanse: {
+      title: "Full Expanse (Set only)",
+      tag: "EdgeTag::FullExpanse",
+      subtitle: "Represents complete 256-key occupancy without heap storage.",
+      size: "0 Bytes on Heap (Edge::NULL with FullExpanse tag + pop0=255)",
+      layout: "Encoded purely in 16-byte Edge descriptor",
+      cap: "Exactly 256 keys",
+      level: "Level 1",
+      algo: "Unconditional true (always present). Zero memory dereference.",
+      promo: "Terminal full density state.",
+      demote: "Demotes to LeafBitmap1 on removal (pop = 255)."
+    }
+  };
+
+  // ===================================================================
+  // 2. VIEW SWITCHER & RENDER LOGIC
+  // ===================================================================
+
+  function switchView(viewName) {
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.view-content').forEach(c => c.classList.remove('active'));
+
+    if (viewName === 'dag') {
+      document.getElementById('btn-view-dag').classList.add('active');
+      document.getElementById('view-dag').classList.add('active');
+      drawHierarchyConnections();
+    } else {
+      document.getElementById('btn-view-bench').classList.add('active');
+      document.getElementById('view-bench').classList.add('active');
+      renderStockVsExpanseTable();
+      renderBenchmarkTable();
+      renderMemoryTable();
+      renderLadderTable();
+    }
+  }
+
+  function inspectNode(nodeKey) {
+    const data = NODE_DETAILS[nodeKey];
+    if (!data) return;
+    document.getElementById('modal-title').textContent = data.title;
+    document.getElementById('modal-tag').textContent = data.tag;
+    document.getElementById('modal-subtitle').textContent = data.subtitle;
+    document.getElementById('modal-size').textContent = data.size;
+    document.getElementById('modal-layout').textContent = data.layout;
+    document.getElementById('modal-cap').textContent = data.cap;
+    document.getElementById('modal-level').textContent = data.level;
+    document.getElementById('modal-algo').textContent = data.algo;
+    document.getElementById('modal-promo').textContent = data.promo;
+    document.getElementById('modal-demote').textContent = data.demote;
+    document.getElementById('node-modal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('node-modal').classList.remove('open');
+  }
+
+  // ===================================================================
+  // 3. BENCHMARK TABLE RENDERING
+  // ===================================================================
+
+  function renderStockVsExpanseTable() {
+    const filter = document.getElementById('stock-filter-flavor')?.value || 'all';
+    const tbody = document.getElementById('stock-table-body');
+    if (!tbody) return;
+
+    const filtered = STOCK_VS_EXPANSE_DATA.filter(item => {
+      if (filter === 'wins') {
+        return item.is_win || parseFloat(item.ratio_so) <= 1.25;
+      }
+      if (filter === 'JudyL' || filter === 'Judy1') {
+        return item.flavor === filter;
+      }
+      return true;
+    });
+
+    tbody.innerHTML = filtered.map(item => {
+      const ratioNum = parseFloat(item.ratio_so);
+      const ratioClass = ratioNum < 1.00 ? 'badge-win' : (ratioNum <= 1.25 ? 'badge-near' : 'badge-gap');
+      return `
+        <tr>
+          <td class="center" style="font-size:14px;">${item.status}</td>
+          <td><strong>${item.op}</strong></td>
+          <td><span class="code-tag">${item.flavor}</span></td>
+          <td>${item.dist}</td>
+          <td class="num">${item.pop}</td>
+          <td class="num">${item.expanse_so_v1.toLocaleString()}</td>
+          <td class="num" style="color:var(--accent); font-weight:600;">${item.expanse_so_v3.toLocaleString()}</td>
+          <td class="num" style="color:var(--text-muted);">${item.stock_libjudy.toLocaleString()}</td>
+          <td class="num ${ratioClass}"><strong>${item.ratio_so}</strong></td>
+          <td class="num" style="color:var(--text-muted);">${item.ratio_rlib}</td>
+          <td class="num" style="color:var(--text-muted);">${item.est_cycles_so}</td>
+          <td class="num win-text"><strong>${item.hw_delta}</strong></td>
+          <td style="font-size:11px; color:var(--text-muted);">${item.notes}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function renderBenchmarkTable() {
+    const catFilter = document.getElementById('bench-filter-cat').value;
+    const flavorFilter = document.getElementById('bench-filter-flavor').value;
+    const tbody = document.getElementById('bench-table-body');
+    if (!tbody) return;
+
+    const filtered = BENCHMARK_DATA.filter(item => {
+      if (catFilter !== 'all' && item.category !== catFilter) return false;
+      if (flavorFilter !== 'all' && item.flavor !== flavorFilter) return false;
+      return true;
+    });
+
+    tbody.innerHTML = filtered.map(item => `
+      <tr>
+        <td><strong>${item.name}</strong></td>
+        <td><span class="step-badge">${item.category}</span></td>
+        <td><span class="code-tag">${item.flavor.toUpperCase()}</span></td>
+        <td class="num">${item.instructions_v1.toLocaleString()}</td>
+        <td class="num win-text">${item.instr_fastpath ? `<strong>~${item.instr_fastpath}</strong> (fastpath)` : `~${Math.round(item.instr_per_op_v1)}`}</td>
+        <td class="num">${item.instructions_v3.toLocaleString()}</td>
+        <td class="num win-text"><strong>${item.v3_delta}</strong></td>
+        <td class="num">${item.l1_hits.toLocaleString()}</td>
+        <td class="num">${item.ram_hits.toLocaleString()}</td>
+        <td style="font-size:11px; color:var(--text-muted);">${item.algo}</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderMemoryTable() {
+    const tbody = document.getElementById('memory-table-body');
+    if (!tbody) return;
+    tbody.innerHTML = MEMORY_DATA.map(row => `
+      <tr>
+        <td><strong>${row.dist}</strong></td>
+        <td class="num">${row.set_1k}</td>
+        <td class="num">${row.set_100k}</td>
+        <td class="num win-text">${row.set_1m}</td>
+        <td class="num">${row.map_1k}</td>
+        <td class="num">${row.map_100k}</td>
+        <td class="num win-text">${row.map_1m}</td>
+        <td class="num" style="color:var(--text-muted);">${row.ceiling}</td>
+        <td style="font-size:11px; color:var(--accent);">${row.form}</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderLadderTable() {
+    const tbody = document.getElementById('ladder-table-body');
+    if (!tbody) return;
+    tbody.innerHTML = LADDER_SPEC.map(row => `
+      <tr>
+        <td><strong>${row.type}</strong></td>
+        <td><span class="step-badge">${row.cap}</span></td>
+        <td style="font-size:11px; font-family:ui-monospace, monospace;">${row.size}</td>
+        <td style="font-size:11px; color:#a5b4fc;">${row.search}</td>
+        <td style="font-size:11px; color:var(--accent-green);">${row.promo}</td>
+        <td style="font-size:11px; color:#f87171;">${row.demote}</td>
+      </tr>
+    `).join('');
+  }
+
+  // ===================================================================
+  // 4. THEME MANAGEMENT & DAG CONNECTOR DRAWING
+  // ===================================================================
+
+  function isLightThemeActive() {
+    return document.documentElement.getAttribute('data-theme') === 'light';
+  }
+
+  function initTheme() {
+    const savedTheme = localStorage.getItem('expanse-theme');
+    if (savedTheme === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+    } else if (!savedTheme && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  }
+
+  function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'light' ? 'dark' : 'light';
+    if (next === 'dark') {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('expanse-theme', 'dark');
+    } else {
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('expanse-theme', 'light');
+    }
+    drawHierarchyConnections();
+  }
+
+  initTheme();
+
+  function drawHierarchyConnections() {
+    const hCanvas = document.getElementById('hierarchy-canvas');
+    const hSvg = document.getElementById('hierarchy-svg');
+    if (!hCanvas || !hSvg) return;
+    const canvasRect = hCanvas.getBoundingClientRect();
+    if (canvasRect.width === 0) return;
+
+    const isLight = isLightThemeActive();
+    const dimColor = isLight ? "#cbd5e1" : "#334155";
+    const accentBlue = isLight ? "#0284c7" : "#38bdf8";
+    const accentGreen = isLight ? "#059669" : "#10b981";
+    const accentPurple = isLight ? "#7c3aed" : "#a855f7";
+    const accentOrange = isLight ? "#d97706" : "#f97316";
+
+    const milestoneIdx = Math.min(Math.max(parseInt(popSlider.value, 10), 0), POP_MILESTONES.length - 1);
+    const pop = POP_MILESTONES[milestoneIdx].pop;
+    const dist = distSelect.value;
+    const op = opSelect.value;
+    const isSequentialBypass = op === "insert" && dist === "sequential" && pop > 31;
+
+    hSvg.innerHTML = `
+      <defs>
+        <marker id="arrow-dim" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="${dimColor}"/>
+        </marker>
+        <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="${accentBlue}"/>
+        </marker>
+        <marker id="arrow-green" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="${accentGreen}"/>
+        </marker>
+        <marker id="arrow-purple" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="${accentPurple}"/>
+        </marker>
+        <marker id="arrow-orange" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="${accentOrange}"/>
+        </marker>
+      </defs>
+    `;
+
+    const connect = (fromId, toId, color = dimColor, marker = "arrow-dim", dash = "", strokeWidth = 1.5) => {
+      const fromEl = document.getElementById(fromId);
+      const toEl = document.getElementById(toId);
+      if (!fromEl || !toEl) return;
+      const r1 = fromEl.getBoundingClientRect();
+      const r2 = toEl.getBoundingClientRect();
+
+      const x1 = r1.left - canvasRect.left + r1.width / 2;
+      const y1 = r1.top - canvasRect.top + r1.height;
+      const x2 = r2.left - canvasRect.left + r2.width / 2;
+      const y2 = r2.top - canvasRect.top;
+
+      const dy = Math.abs(y2 - y1);
+      const cy1 = y1 + dy * 0.5;
+      const cy2 = y2 - dy * 0.5;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', `M ${x1} ${y1} C ${x1} ${cy1}, ${x2} ${cy2}, ${x2} ${y2}`);
+      path.setAttribute('stroke', color);
+      path.setAttribute('stroke-width', String(strokeWidth));
+      if (dash) path.setAttribute('stroke-dasharray', dash);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('marker-end', `url(#${marker})`);
+      hSvg.appendChild(path);
+    };
+
+    // 1. Background structural hierarchy lines (dim)
+    connect('node-jap', 'node-root-leaf', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-jap', 'node-jpm', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-jpm', 'node-top-branch', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-top-branch', 'node-branch-l', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-top-branch', 'node-branch-b', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-top-branch', 'node-branch-u', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-branch-l', 'node-leaf-immed', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-branch-l', 'node-leaf-linear', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-branch-b', 'node-leaf-bitmap', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-branch-b', 'node-leaf-full', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-branch-u', 'node-leaf-bitmap', dimColor, 'arrow-dim', '', 1.5);
+    connect('node-branch-u', 'node-leaf-full', dimColor, 'arrow-dim', '', 1.5);
+
+    // 2. Active traversal path (illuminated)
+    if (pop <= 31) {
+      connect('node-jap', 'node-root-leaf', accentGreen, 'arrow-green', '', 2.5);
+    } else if (isSequentialBypass) {
+      connect('node-jap', 'node-jpm', accentGreen, 'arrow-green', '', 2.5);
+      connect('node-jpm', 'node-leaf-bitmap', accentGreen, 'arrow-green', '6,4', 2.5);
+    } else {
+      connect('node-jap', 'node-jpm', accentBlue, 'arrow', '', 2.5);
+      connect('node-jpm', 'node-top-branch', accentBlue, 'arrow', '', 2.5);
+
+      if (pop === 1 || pop === 7) {
+        connect('node-top-branch', 'node-branch-l', accentGreen, 'arrow-green', '', 2.5);
+        connect('node-branch-l', 'node-leaf-immed', accentGreen, 'arrow-green', '', 2.5);
+      } else if (dist === "linear_leaf" || (pop >= 13 && pop <= 25)) {
+        connect('node-top-branch', 'node-branch-l', accentPurple, 'arrow-purple', '', 2.5);
+        connect('node-branch-l', 'node-leaf-linear', accentPurple, 'arrow-purple', '', 2.5);
+      } else if (pop === 256) {
+        connect('node-top-branch', 'node-branch-u', accentBlue, 'arrow', '', 2.5);
+        connect('node-branch-u', 'node-leaf-full', accentGreen, 'arrow-green', '', 2.5);
+      } else if (pop >= 192 && pop < 1000) {
+        connect('node-top-branch', 'node-branch-u', accentBlue, 'arrow', '', 2.5);
+        connect('node-branch-u', 'node-leaf-bitmap', accentGreen, 'arrow-green', '', 2.5);
+      } else {
+        connect('node-top-branch', 'node-branch-b', accentBlue, 'arrow', '', 2.5);
+        connect('node-branch-b', 'node-leaf-bitmap', accentGreen, 'arrow-green', '', 2.5);
+      }
+    }
+
+    // 3. Recursive Multi-Level Subarray Child Edge Cascade
+    if (pop >= 1000) {
+      const bNode = document.getElementById('node-branch-b');
+      if (bNode) {
+        const r = bNode.getBoundingClientRect();
+        const bx = r.left - canvasRect.left + r.width;
+        const by = r.top - canvasRect.top + r.height / 2;
+        const loopPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        loopPath.setAttribute('d', `M ${bx} ${by} C ${bx + 50} ${by - 40}, ${bx + 50} ${by + 40}, ${bx} ${by + 10}`);
+        loopPath.setAttribute('stroke', accentPurple);
+        loopPath.setAttribute('stroke-width', '2.5');
+        loopPath.setAttribute('stroke-dasharray', '4,3');
+        loopPath.setAttribute('fill', 'none');
+        loopPath.setAttribute('marker-end', 'url(#arrow-purple)');
+        hSvg.appendChild(loopPath);
+      }
+    }
+  }
+
+  // ===================================================================
+  // 5. REALTIME WORKLOAD SIMULATION & PIPELINE TRACE
+  // ===================================================================
+
+  const POP_MILESTONES = [
+    { pop: 1, label: "1 key", desc: "Immediate In-Pointer (0 B heap, inlined in 16-byte Edge)", tag: "IMMED" },
+    { pop: 2, label: "2 keys", desc: "Pair Branchless probe in leaf (pos = (k0 < n) + (k1 < n))", tag: "BRANCHLESS" },
+    { pop: 7, label: "7 keys", desc: "Immediate Max Capacity Ceiling (15 payload bytes)", tag: "IMMED_MAX" },
+    { pop: 18, label: "18 keys", desc: "Linear Leaf SIMD Band (128-bit AVX2/NEON vector probe)", tag: "SIMD_LEAF" },
+    { pop: 25, label: "25 keys", desc: "Linear Leaf Capacity Ceiling (LEAF_LINEAR_CAP = 25)", tag: "LINEAR_CAP" },
+    { pop: 31, label: "31 keys", desc: "Root Leaf Capacity Ceiling (ROOT_LEAF_CAP = 31, 0 interior branches)", tag: "ROOT_LEAF_CAP" },
+    { pop: 32, label: "32 keys", desc: "JPM Tree Root Promotion (Root Leaf -> JPM + Level 8 Branch)", tag: "TREE_PROMO" },
+    { pop: 64, label: "64 keys", desc: "Bitmap Leaf (256-bit bitmask + POPCNT) under BranchL3 (fanout 1..3)", tag: "BRANCH_L3" },
+    { pop: 128, label: "128 keys", desc: "Bitmap Leaf Subexpanse under BranchL7 (fanout 4..7)", tag: "BRANCH_L7" },
+    { pop: 192, label: "192 keys", desc: "BranchB -> BranchU Promotion Threshold (fanout > 180 slots to child leaves)", tag: "BRANCH_U" },
+    { pop: 256, label: "256 keys", desc: "Full Expanse Saturation (256 keys saturated / 0 B child pointer for Set)", tag: "FULL_EXPANSE" },
+    { pop: 1000, label: "1,000 keys", desc: "2-Level Digital Trie (Root JPM -> Level 8 -> Level 7 -> Leaves)", tag: "TRIE_2LVL" },
+    { pop: 10000, label: "10,000 keys", desc: "3-Level Digital Trie (Dynamic BranchL3/BranchB routing)", tag: "TRIE_3LVL" },
+    { pop: 100000, label: "100,000 keys", desc: "4–5 Level Digital Trie (0.36 B/k clustered set, 8.56 B/k map)", tag: "TRIE_5LVL" },
+    { pop: 1000000, label: "1,000,000 keys", desc: "6–8 Level Digital Trie (Sequential Bypass skips 8 branch levels)", tag: "TRIE_8LVL" },
+    { pop: 10000000, label: "10,000,000 keys", desc: "10M Keys Dense Scale (8-level digital trie, dense branch fanout, L3 cache / DRAM boundary)", tag: "TRIE_10M" }
+  ];
+
+  const opSelect = document.getElementById('op-select');
+  const flavorSelect = document.getElementById('flavor-select');
+  const distSelect = document.getElementById('dist-select');
+  const popSlider = document.getElementById('pop-slider');
+  const popVal = document.getElementById('pop-val');
+  const archSelect = document.getElementById('arch-select');
+  const compToggle = document.getElementById('comp-toggle');
+
+  const metricInstr = document.getElementById('metric-instr');
+  const metricInstrDelta = document.getElementById('metric-instr-delta');
+  const metricMem = document.getElementById('metric-mem');
+  const metricMemDelta = document.getElementById('metric-mem-delta');
+  const metricCache = document.getElementById('metric-cache');
+  const metricHwAcc = document.getElementById('metric-hw-acc');
+  const flowPipeline = document.getElementById('flow-pipeline');
+  const compBanner = document.getElementById('comp-banner');
+  const compDesc = document.getElementById('comp-desc');
+  const compWinBadge = document.getElementById('comp-win-badge');
+
+  function setPopIndex(idx) {
+    popSlider.value = idx;
+    update();
+  }
+
+  function update() {
+    const op = opSelect.value;
+    const flavor = flavorSelect.value;
+    const dist = distSelect.value;
+    const milestoneIdx = Math.min(Math.max(parseInt(popSlider.value, 10), 0), POP_MILESTONES.length - 1);
+    const milestone = POP_MILESTONES[milestoneIdx];
+    const pop = milestone.pop;
+    const arch = archSelect.value;
+    const showComp = compToggle.checked;
+
+    popVal.textContent = milestone.label;
+    const popDescEl = document.getElementById('pop-regime-desc');
+    if (popDescEl) popDescEl.textContent = milestone.desc;
+
+    // Update active milestone chip
+    document.querySelectorAll('.chip-btn').forEach(btn => {
+      btn.classList.toggle('active', parseInt(btn.getAttribute('data-idx'), 10) === milestoneIdx);
+    });
+
+    compBanner.style.display = showComp ? 'flex' : 'none';
+
+    let steps = [];
+    let instr = 0;
+    let baselineInstr = 0;
+    let mem = "8.6 B/k";
+    let cache = "1 line (64B)";
+    let hwAcc = "-4.8% v3";
+
+    // 1. Calculate active trie depth
+    let activeDepth = 0;
+    if (pop <= 31 || dist === "small") activeDepth = 0;
+    else if (dist === "clustered") activeDepth = pop <= 256 ? 1 : (pop <= 10000 ? 2 : (pop <= 100000 ? 3 : 5));
+    else if (pop <= 256) activeDepth = 1;
+    else if (pop <= 1000) activeDepth = 2;
+    else if (pop <= 10000) activeDepth = 3;
+    else if (pop <= 100000) activeDepth = 5;
+    else activeDepth = 8;
+
+    // 2. Multi-level sequential run bypass check
+    const isSequentialBypass = (op === "insert" || op === "ins_slot") && dist === "sequential" && pop > 31;
+
+    // 3. Memory overhead per key estimation
+    if (flavor === "set") {
+      if (pop === 1 || pop === 7) mem = "0 B (inlined)";
+      else if (pop <= 31) mem = "0.50 B/k";
+      else if (dist === "sequential") mem = "0.07 B/k";
+      else if (dist === "clustered") mem = "0.36 B/k";
+      else if (pop === 256) mem = "0.00 B (JP_FULL)";
+      else mem = "1.24 B/k";
+    } else if (flavor === "map") {
+      if (pop === 1 || pop === 7) mem = "0 B (inlined)";
+      else if (pop <= 31) mem = "8.57 B/k";
+      else if (dist === "sequential") mem = "8.56 B/k";
+      else if (dist === "clustered") mem = "8.86 B/k";
+      else if (pop === 256) mem = "8.00 B/k";
+      else mem = pop >= 10000000 ? "24.80 B/k" : "24.52 B/k";
+    } else {
+      mem = pop <= 31 ? "18.2 B/k" : (pop >= 1000000 ? "32.4 B/k" : "26.1 B/k");
+    }
+
+    // 4. Cache lines touched
+    if (pop === 1 || pop === 7) cache = "0 lines (L1 register)";
+    else if (pop <= 31 || isSequentialBypass || dist === "sequential") cache = "1 line (64B)";
+    else if (pop <= 256) cache = "1 line (64B)";
+    else if (pop <= 10000) cache = "2 lines (128B)";
+    else if (pop <= 100000) cache = "3 lines (192B)";
+    else if (pop <= 1000000) cache = "4 lines (256B)";
+    else cache = "6-8 lines (L3 / DRAM)";
+
+    // 5. Hardware acceleration delta
+    if (arch === "v3") hwAcc = "-12.11% (AVX2/BMI2)";
+    else if (arch === "neon") hwAcc = "-6.45% (AArch64 NEON)";
+    else hwAcc = "Baseline (x86-64-v1)";
+
+    // 6. Build execution pipeline trace steps
+    // Step A: Root Tag extraction or OCC acquire
+    if (op === "sync_read") {
+      steps.push({
+        badge: "OCC ACQUIRE",
+        badgeClass: "highlight",
+        title: "Atomic SeqLock Version Guard",
+        desc: "Reads root OCC sequence counter with acquire fence (`seq.load(Acquire)`). Spins if active writer (`version & 1 == 1`).",
+        algo: "Atomic SeqLock Acquire Fence (version load)"
+      });
+    } else if (op === "ins_slot") {
+      steps.push({
+        badge: "SLOT LOCATE",
+        badgeClass: "highlight",
+        title: "Key Slot Address Resolution",
+        desc: "Decodes 3-bit tagged pointer and traverses trie to find mutable `*mut u64` address without value duplication.",
+        algo: "Tagged Pointer Tag Extraction (`edge.tag() & 0x07`)"
+      });
+    } else {
+      steps.push({
+        badge: "ROOT",
+        badgeClass: "highlight",
+        title: "Root Edge Pointer Tag Extraction",
+        desc: "Extracts 3-bit structural tag from 16-byte Edge. Validates OCC sequence counter version bracket.",
+        algo: "Tagged Pointer Tag Extraction (`edge.tag() & 0x07`)"
+      });
+    }
+
+    // Step B: Traversal / Bypass / Leaf Lookup
+    if (isSequentialBypass) {
+      steps.push({
+        badge: "MULTI-LEVEL BYPASS",
+        badgeClass: "green",
+        title: "Sequential Run Bypass (InsertPath Cursor)",
+        desc: `High 56-bit prefix match (\`key >> 8 == path.prefix\`). Bypasses all ${activeDepth} levels of digital trie branch descent directly to active LeafB1!`,
+        algo: "Direct 1-Bit Test/Set + Unrolled Ancestor Edge pop0 Increment (~15 instrs)"
+      });
+      instr = 15;
+      baselineInstr = pop >= 100000 ? 112 : 98;
+      compDesc.textContent = `Expanse Sequential Bypass: 15 instrs vs Stock Judy ${baselineInstr} instrs (bypassing all ${activeDepth} branch levels).`;
+      compWinBadge.textContent = "6.5x Advantage";
+    } else if (pop === 1 || pop === 7) {
+      steps.push({
+        badge: "IMMEDIATE",
+        badgeClass: "green",
+        title: "Immediate In-Pointer Storage",
+        desc: "Key and payload stored directly in the 16-byte Edge structure. Zero heap allocation.",
+        algo: "Zero-Deref Scalar Compare (u64 equality in word 0)"
+      });
+      instr = op === "insert" ? 8 : 4;
+      baselineInstr = 14;
+      compDesc.textContent = "Immediate edge: Register-resident payload beats stock Judy indirect pointer traversal.";
+      compWinBadge.textContent = "3.5x Advantage";
+    } else if (pop <= 31 || dist === "small") {
+      if (op === "insert" && (dist === "sequential" || dist === "clustered" || dist === "small")) {
+        steps.push({
+          badge: "FAST PATH",
+          badgeClass: "green",
+          title: "Monotonic Append Detection (Root Leaf)",
+          desc: "Evaluates `key > last_key` in a single scalar compare. Bypasses binary search entirely on monotonic root leaf streams.",
+          algo: "Monotonic Append O(1) Check + 0-byte shift elision"
+        });
+        instr = 6;
+        baselineInstr = 24;
+        compDesc.textContent = "Root Leaf Monotonic Append: Single scalar probe eliminates binary search and class realloc.";
+        compWinBadge.textContent = "4.0x Advantage";
+      } else if (op === "remove") {
+        steps.push({
+          badge: "ROOT LEAF DELETE",
+          badgeClass: "orange",
+          title: "Root Leaf Key Deletion & Condense",
+          desc: "Locates key via binary search and condenses root leaf array in-place. Zero heap deallocation.",
+          algo: "In-Place Array Shift (`ptr::copy`)"
+        });
+        instr = 12;
+        baselineInstr = 28;
+        compDesc.textContent = "Root Leaf Removal: Fast in-place contiguous shift with zero heap fragmentation.";
+        compWinBadge.textContent = "2.3x Advantage";
+      } else if (op === "nav") {
+        steps.push({
+          badge: "ROOT LEAF NAV",
+          badgeClass: "purple",
+          title: "Flat Key Index Navigation",
+          desc: "Computes rank / next key directly from sorted root array using scalar index arithmetic.",
+          algo: "O(1) Direct Array Indexing"
+        });
+        instr = 8;
+        baselineInstr = 20;
+        compDesc.textContent = "Root Leaf Navigation: Direct index arithmetic eliminates branch and bitmap decoding.";
+        compWinBadge.textContent = "2.5x Advantage";
+      } else {
+        steps.push({
+          badge: "ROOT LEAF",
+          badgeClass: "highlight",
+          title: "Root-Level Leaf Binary Search",
+          desc: "Searches flat parallel key array directly without descending multi-level branch nodes.",
+          algo: pop <= 2 ? "Branchless: pos = (k0 < needle) + (k1 < needle)" : "O(log N) binary search probe"
+        });
+        instr = pop <= 2 ? 6 : 14;
+        baselineInstr = 26;
+        compDesc.textContent = "Root Leaf: Flat array eliminates interior branch pointer dereferences.";
+        compWinBadge.textContent = "1.8x Advantage";
+      }
+    } else if (dist === "linear_leaf" || (pop >= 13 && pop <= 25)) {
+      steps.push({
+        badge: "SIMD VECTOR SCAN",
+        badgeClass: "purple",
+        title: "128-Bit SIMD Linear Leaf Search",
+        desc: "Evaluates 16 keys in parallel using 128-bit vector comparisons with unsigned-to-signed bias translation.",
+        algo: arch === "v3" ? "_mm_cmpeq_epi8 / _mm_cmplt_epi8 + _mm_movemask_epi8 + popcnt (AVX2/SSE2, 4 instrs)" : (arch === "neon" ? "vceqq_u8 / vcltq_u8 + vpaddq_u8 (AArch64 NEON)" : "lower_bound_fixed binary search loop")
+      });
+      instr = arch === "v3" ? 6 : (arch === "neon" ? 7 : 14);
+      baselineInstr = 22;
+      compDesc.textContent = "128-bit SIMD Leaf Scan: Evaluates entire 16-element leaf in 4 instructions with zero branches.";
+      compWinBadge.textContent = "3.6x Advantage";
+    } else if (pop <= 256) {
+      if (pop >= 192 && pop < 256) {
+        steps.push({
+          badge: "BRANCH U",
+          badgeClass: "highlight",
+          title: "BranchU Uncompressed Dispatch (Fanout > 180)",
+          desc: "Fanout exceeds 180 child pointers. Direct O(1) array index (2048 B table) to child Bitmap Leaf.",
+          algo: "Direct Slot Indexing (`branch.edges[digit8]`)"
+        });
+      }
+      steps.push({
+        badge: pop === 256 ? "FULL EXPANSE" : "BITMAP LEAF",
+        badgeClass: pop === 256 ? "green" : "orange",
+        title: pop === 256 ? "Full Expanse Saturation (256 Keys)" : "Bitmap256 Subexpanse Lookup",
+        desc: pop === 256 ? (flavor === "set" ? "All 256 keys in the 8-bit subrange are present (0 B child pointer JP_FULL in Set)." : "All 256 keys present with flat 2048 B value array in Map.") : "256-bit membership bitset across 4x u64 words. Subexpanse rank indexing for value array.",
+        algo: pop === 256 ? "O(1) Implicit Presence Check" : (arch === "v3" ? "Hardware POPCNT + _pext_u64 (x86-64-v3)" : "Bitmap256::subexpanse_rank (SWAR 12-instr)")
+      });
+      instr = pop === 256 ? 4 : (arch === "v3" ? 8 : 18);
+      baselineInstr = 28;
+      compDesc.textContent = pop >= 192 ? "BranchU / Dense Expanse: O(1) table indexing eliminates bitmap search overhead." : "Bitmap256 Leaf: Hardware POPCNT rank acceleration achieves sub-nanosecond bitmask indexing.";
+      compWinBadge.textContent = pop === 256 ? "7.0x Advantage" : "3.5x Advantage";
+    } else {
+      steps.push({
+        badge: `TRIE DEPTH ${activeDepth}`,
+        badgeClass: "highlight",
+        title: `Multi-Level Digital Trie Traversal (${activeDepth} Levels)`,
+        desc: `Descending ${activeDepth} levels of branch nodes (JPM -> Level 8 -> Levels ${9 - activeDepth}..2 -> Terminal Expanse).`,
+        algo: dist === "clustered" ? "Narrow Pointer Prefix Skip + Shared Subexpanse (0.36 B/k)" : "find_byte_16_sse2 / Bitmap256::rank"
+      });
+      steps.push({
+        badge: "TERMINAL LEAF",
+        badgeClass: "orange",
+        title: "Terminal Bitmap / Linear Expanse",
+        desc: "Final digit resolution in terminal leaf expanse.",
+        algo: "Bitmap256 subexpanse rank + value slot dereference"
+      });
+      instr = activeDepth * 4 + 10;
+      baselineInstr = activeDepth * 12 + 14;
+      compDesc.textContent = `Multi-level Branch Traversal (${activeDepth} levels): SWAR/SIMD branch scanning minimizes memory stalls.`;
+      compWinBadge.textContent = "1.8x Advantage";
+    }
+
+    // Step C: Operation Finish (Mutation / Slot deref / Nav / OCC release)
+    if (op === "insert" && !isSequentialBypass) {
+      steps.push({
+        badge: "LADDER MUTATE",
+        badgeClass: "green",
+        title: "Leaf Ladder Climb & Ancestor Increment",
+        desc: "Inserts key into leaf, dynamically promotes node form if capacity threshold is exceeded, and bumps POP0 ancestor counts.",
+        algo: "In-Place Class Realloc + bump_pop0 Ancestor Loop + OCC version bump"
+      });
+      instr += 14;
+      baselineInstr += 24;
+    } else if (op === "remove") {
+      steps.push({
+        badge: "EPOCH DEFER",
+        badgeClass: "orange",
+        title: "Hysteresis Demotion & Epoch Deferral",
+        desc: "Shrinks leaf capacity, checks demotion thresholds (e.g. Bitmap -> Linear -> Immed), and defers node freeing via Epoch Allocator.",
+        algo: "occ::epochs::defer_free() (zero reader stall)"
+      });
+      instr += 12;
+      baselineInstr += 22;
+    } else if (op === "ins_slot") {
+      steps.push({
+        badge: "ZERO-COPY WRITE",
+        badgeClass: "green",
+        title: "Direct Mutable Slot Write",
+        desc: "Caller writes value directly into returned `*mut u64` address with 1 CPU instruction, eliminating map value lookup overhead.",
+        algo: "Direct Pointer Write (`*slot = value`)"
+      });
+      instr += 2;
+      baselineInstr += 8;
+    } else if (op === "nav") {
+      steps.push({
+        badge: "BIT NAVIGATION",
+        badgeClass: "purple",
+        title: "Bitwise Cursor Advancement",
+        desc: "Extracts next active key using hardware bit scanning (`_tzcnt_u64`) and advances cursor to next non-empty subexpanse.",
+        algo: "Hardware Bit Scan (`_tzcnt_u64(sub_bitmap & mask)`)"
+      });
+      instr += 4;
+      baselineInstr += 10;
+    } else if (op === "sync_read") {
+      steps.push({
+        badge: "OCC VALIDATE",
+        badgeClass: "highlight",
+        title: "OCC Version Validation",
+        desc: "Verifies root sequence counter has not changed during lock-free traversal (`seq.load(Release) == version_start`). Retries if torn.",
+        algo: "Atomic SeqLock Release Fence Validation"
+      });
+      instr += 4;
+      baselineInstr += 12;
+    }
+
+    const winPct = Math.round(((baselineInstr - instr) / baselineInstr) * 100);
+    metricInstr.textContent = `~${instr} instrs`;
+    metricInstrDelta.textContent = `-${winPct}% vs baseline (${baselineInstr} instrs)`;
+    metricMem.textContent = mem;
+    metricCache.textContent = cache;
+    metricHwAcc.textContent = hwAcc;
+
+    // Render pipeline
+    flowPipeline.innerHTML = steps.map((s, idx) => `
+      <div class="pipeline-step ${s.badge === 'MULTI-LEVEL BYPASS' || s.badge === 'FAST PATH' ? 'bypass' : 'active'}">
+        <div class="step-header">
+          <span class="step-title">${s.title}</span>
+          <span class="step-badge ${s.badgeClass}">${s.badge}</span>
+        </div>
+        <div class="step-desc">${s.desc}</div>
+        <div class="algo-tag">⚡ ${s.algo}</div>
+      </div>
+      ${idx < steps.length - 1 ? '<div class="flow-arrow">↓</div>' : ''}
+    `).join('');
+
+    // Highlight DAG nodes
+    document.querySelectorAll('.dag-node').forEach(n => {
+      n.classList.remove('active', 'active-green', 'active-purple');
+    });
+    const japNode = document.getElementById('node-jap');
+    if (japNode) japNode.classList.add('active');
+
+    // Update dynamic badges on branch nodes
+    const topBadge = document.getElementById('badge-top-branch');
+    const branchBBadge = document.getElementById('badge-branch-b');
+    if (topBadge) topBadge.textContent = "Level 8";
+
+    if (branchBBadge) {
+      if (pop >= 1000000) branchBBadge.textContent = "Levels 7..2";
+      else if (pop >= 100000) branchBBadge.textContent = "Levels 7..4";
+      else if (pop >= 10000) branchBBadge.textContent = "Levels 7..6";
+      else if (pop >= 1000) branchBBadge.textContent = "Level 7";
+      else branchBBadge.textContent = "Fanout 8..180";
+    }
+
+    if (pop === 1 || pop === 7) {
+      const immed = document.getElementById('node-leaf-immed');
+      if (immed) immed.classList.add('active-green');
+    } else if (pop <= 31) {
+      const rl = document.getElementById('node-root-leaf');
+      if (rl) rl.classList.add('active-green');
+    } else {
+      const jpm = document.getElementById('node-jpm');
+      const tb = document.getElementById('node-top-branch');
+      if (jpm) jpm.classList.add('active');
+      if (tb) tb.classList.add('active');
+
+      if (isSequentialBypass) {
+        const bl = document.getElementById('node-leaf-bitmap');
+        if (bl) bl.classList.add('active-green');
+      } else if (dist === "linear_leaf" || (pop >= 13 && pop <= 25)) {
+        const bl = document.getElementById('node-branch-l');
+        const ll = document.getElementById('node-leaf-linear');
+        if (bl) bl.classList.add('active-purple');
+        if (ll) ll.classList.add('active-purple');
+      } else if (pop === 256) {
+        const bu = document.getElementById('node-branch-u');
+        const fe = document.getElementById('node-leaf-full');
+        if (bu) bu.classList.add('active');
+        if (fe) fe.classList.add('active-green');
+      } else if (pop >= 192 && pop < 1000) {
+        const bu = document.getElementById('node-branch-u');
+        const bl = document.getElementById('node-leaf-bitmap');
+        if (bu) bu.classList.add('active');
+        if (bl) bl.classList.add('active-green');
+      } else {
+        const bb = document.getElementById('node-branch-b');
+        const bl = document.getElementById('node-leaf-bitmap');
+        if (bb) bb.classList.add('active');
+        if (bl) bl.classList.add('active-green');
+      }
+    }
+
+    // Dynamic 64-bit Digit Strip & Subarray Architecture update
+    const trieDepthBadge = document.getElementById('trie-depth-badge');
+    if (trieDepthBadge) {
+      if (pop <= 31) {
+        trieDepthBadge.textContent = "Pop ≤ 31: Flat 0-Level Leaf";
+        trieDepthBadge.className = "step-badge green";
+      } else if (isSequentialBypass) {
+        trieDepthBadge.textContent = `Active Depth: 1-Hop Bypass (skips ${activeDepth} levels)`;
+        trieDepthBadge.className = "step-badge green";
+      } else {
+        trieDepthBadge.textContent = `Active Depth: ${activeDepth} Levels (d8..d${9 - activeDepth})`;
+        trieDepthBadge.className = "step-badge highlight";
+      }
+    }
+
+    const digitStrip = document.getElementById('digit-strip');
+    if (digitStrip) {
+      const digits = [
+        { d: 8, bits: "63..56", role: "Top JPM Router" },
+        { d: 7, bits: "55..48", role: "Level 7 Branch" },
+        { d: 6, bits: "47..40", role: "Level 6 Branch" },
+        { d: 5, bits: "39..32", role: "Level 5 Branch" },
+        { d: 4, bits: "31..24", role: "Level 4 Branch" },
+        { d: 3, bits: "23..16", role: "Level 3 Branch" },
+        { d: 2, bits: "15..8", role: "Level 2 Branch" },
+        { d: 1, bits: "7..0", role: "Level 1 Leaf" },
+      ];
+
+      digitStrip.innerHTML = digits.map((item, idx) => {
+        let isActive = false;
+        let isBypassCol = false;
+        if (pop <= 31) {
+          isActive = true; // All bytes in flat root leaf
+        } else if (isSequentialBypass) {
+          if (idx < 7) isBypassCol = true;
+          else isActive = true;
+        } else {
+          if (idx < activeDepth - 1) isActive = true; // branch levels
+          else if (idx === 7) isActive = true; // terminal leaf
+          else if (activeDepth >= 8) isActive = true;
+        }
+
+        let roleText = item.role;
+        if (isBypassCol) roleText = "⚡ Bypassed";
+        else if (pop <= 31) roleText = "Root Leaf";
+
+        return `
+          <div class="digit-col ${isBypassCol ? 'bypass' : (isActive ? 'active' : '')}">
+            <div class="digit-num">d${item.d}</div>
+            <div class="digit-range">[${item.bits}]</div>
+            <div class="digit-role">${roleText}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    const subarrayExp = document.getElementById('subarray-explanation');
+    if (subarrayExp) {
+      if (pop <= 31) {
+        subarrayExp.innerHTML = `<strong>Root Leaf Mode:</strong> Keys are stored in a contiguous sorted 64-bit array (up to 31 keys). No bitmaps or subarrays are allocated.`;
+      } else if (flavor === "set") {
+        subarrayExp.innerHTML = `<strong>Set Flavor (Judy1):</strong> <strong>0 B heap overhead</strong> after BitmapLeaf! The 256-bit bitmap directly stores membership. In interior branches (<code class="code-tag">BranchB</code>), each of the 8 subexpanses points to a dynamically sized array of <strong>child Edges</strong> that descend into deeper branch levels (${activeDepth > 2 ? `Levels 7..${9 - activeDepth}` : 'Level 7'}) or terminal leaves.`;
+      } else if (flavor === "map") {
+        subarrayExp.innerHTML = `<strong>Map Flavor (JudyL):</strong> In <code class="code-tag">BitmapLeaf</code>, each populated subexpanse points to a class-allocated array of <strong>64-bit values</strong> (<code class="code-tag">u64</code>). In <code class="code-tag">BranchB</code>, each populated subexpanse points to an array of <strong>child Edges</strong> (${activeDepth > 2 ? `descending Levels 7..${9 - activeDepth}` : 'descending Level 7'}). POPCNT calculates the exact value/edge index in 1 CPU instruction.`;
+      } else {
+        subarrayExp.innerHTML = `<strong>BytesMap Flavor (JudyHS/SL):</strong> Arbitrary-length byte slices are dispatched digit-by-digit across digital trie levels with hash collision chains for identical prefixes. Dynamic string slot allocation with 0-copy slice indexing.`;
+      }
+    }
+
+    // Update Depth Comparison Cards
+    document.querySelectorAll('.depth-card').forEach(c => c.classList.remove('highlight'));
+    if (pop === 1000) {
+      const c = document.getElementById('depth-card-1k');
+      if (c) c.classList.add('highlight');
+    } else if (pop === 10000) {
+      const c = document.getElementById('depth-card-10k');
+      if (c) c.classList.add('highlight');
+    } else if (pop === 100000) {
+      const c = document.getElementById('depth-card-100k');
+      if (c) c.classList.add('highlight');
+    } else if (pop === 1000000) {
+      const c = document.getElementById('depth-card-1m');
+      if (c) c.classList.add('highlight');
+    } else if (pop === 10000000) {
+      const c = document.getElementById('depth-card-10m');
+      if (c) c.classList.add('highlight');
+    }
+
+    drawHierarchyConnections();
+  }
+
+  opSelect.addEventListener('change', update);
+  flavorSelect.addEventListener('change', update);
+  distSelect.addEventListener('change', update);
+  popSlider.addEventListener('input', update);
+  archSelect.addEventListener('change', update);
+  compToggle.addEventListener('change', update);
+
+  // Dual-mode data loader: Attempts dynamic fetch on HTTP/HTTPS, falls back to embedded dataset
+  async function checkLiveDataSource() {
+    if (window.location.protocol.startsWith('http')) {
+      try {
+        const res = await fetch('./visualizer_data.json');
+        if (res.ok) {
+          const liveData = await res.json();
+          if (liveData) {
+            if (liveData.benchmarks) {
+              BENCHMARK_DATA = liveData.benchmarks;
+              renderBenchmarkTable();
+            }
+            if (liveData.stock_vs_expanse) {
+              STOCK_VS_EXPANSE_DATA = liveData.stock_vs_expanse;
+              renderStockVsExpanseTable();
+            }
+          }
+        }
+      } catch (e) {
+        console.log('Using embedded verified dataset.');
+      }
+    }
+  }
+  checkLiveDataSource();
+
+  // Initialize
+  if (window.location.hash === '#bench') {
+    switchView('bench');
+  } else {
+    update();
+    drawHierarchyConnections();
+  }
+  window.addEventListener('hashchange', () => {
+    if (window.location.hash === '#bench') switchView('bench');
+    else switchView('dag');
+  });
+  window.addEventListener('resize', drawHierarchyConnections);
+</script>
+
+</body>
+</html>

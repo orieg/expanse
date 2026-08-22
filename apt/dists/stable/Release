@@ -1,0 +1,9 @@
+Origin: Expanse
+Label: Expanse
+Suite: stable
+Codename: stable
+Architectures: 
+Components: main
+Description: Official Expanse APT Repository
+Date: Sat, 22 Aug 2026 21:03:27 UTC
+SHA256:
