@@ -317,7 +317,7 @@ sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat</code></pre>
     </div>
 
     <div class="footer">
-      <p>Repository maintained by <a href="https://github.com/orieg">Nicolas Brousse</a> &bull; <a href="https://github.com/orieg/expanse">GitHub Repository</a> &bull; <a href="https://crates.io/crates/expanse-trie">Crates.io</a></p>
+      <p>Maintained by <a href="https://nicolas.brousse.info/">Nicolas Brousse</a> &bull; <a href="https://github.com/orieg/expanse">GitHub Repository</a> &bull; <a href="https://crates.io/crates/expanse-trie">Crates.io</a></p>
     </div>
   </div>
 </body>
