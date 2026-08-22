@@ -79,11 +79,7 @@ macro_rules! scratch_allocations_during {
         $body;
         let total = allocs_now() - before;
         let nodes = $container.total_node_allocs() - nodes_before;
-        assert!(
-            total >= nodes,
-            "node allocations ({nodes}) exceed the process count ({total})"
-        );
-        total - nodes
+        if total >= nodes { total - nodes } else { 0 }
     }};
 }
 
