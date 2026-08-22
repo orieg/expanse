@@ -364,19 +364,16 @@ pub(crate) unsafe fn set_realloc_insert(
     pos: usize,
     key: u64,
 ) {
-    let kb = key_bytes as usize;
-    // SAFETY: bounds per contract; the two allocations are disjoint.
+    // SAFETY: caller guarantees old/new pointers and pop/pos bounds for key_bytes.
     unsafe {
-        if pos > 0 {
-            core::ptr::copy_nonoverlapping(old, new, pos * kb);
-        }
-        crate::mutate::write_packed(new, pos, kb, key);
-        if pos < pop {
-            core::ptr::copy_nonoverlapping(
-                old.add(pos * kb),
-                new.add((pos + 1) * kb),
-                (pop - pos) * kb,
-            );
+        match key_bytes {
+            1 => set_realloc_insert_fixed::<1>(old, new, pop, pos, key),
+            2 => set_realloc_insert_fixed::<2>(old, new, pop, pos, key),
+            3 => set_realloc_insert_fixed::<3>(old, new, pop, pos, key),
+            4 => set_realloc_insert_fixed::<4>(old, new, pop, pos, key),
+            5 => set_realloc_insert_fixed::<5>(old, new, pop, pos, key),
+            6 => set_realloc_insert_fixed::<6>(old, new, pop, pos, key),
+            _ => set_realloc_insert_fixed::<7>(old, new, pop, pos, key),
         }
     }
 }
@@ -467,7 +464,30 @@ pub(crate) unsafe fn map_realloc_insert(
     key: u64,
     val: u64,
 ) {
-    let kb = key_bytes as usize;
+    // SAFETY: caller guarantees old/new pointers and pop/pos bounds for key_bytes.
+    unsafe {
+        match key_bytes {
+            1 => map_realloc_insert_fixed::<1>(old, new, pop, pos, key, val),
+            2 => map_realloc_insert_fixed::<2>(old, new, pop, pos, key, val),
+            3 => map_realloc_insert_fixed::<3>(old, new, pop, pos, key, val),
+            4 => map_realloc_insert_fixed::<4>(old, new, pop, pos, key, val),
+            5 => map_realloc_insert_fixed::<5>(old, new, pop, pos, key, val),
+            6 => map_realloc_insert_fixed::<6>(old, new, pop, pos, key, val),
+            _ => map_realloc_insert_fixed::<7>(old, new, pop, pos, key, val),
+        }
+    }
+}
+
+/// Copies a map leaf with compile-time known key width into `new`.
+#[inline(always)]
+pub(crate) unsafe fn map_realloc_insert_fixed<const KB: usize>(
+    old: *const u8,
+    new: *mut u8,
+    pop: usize,
+    pos: usize,
+    key: u64,
+    val: u64,
+) {
     // SAFETY: bounds per contract; the two allocations are disjoint.
     unsafe {
         let ov = old.cast::<u64>();
@@ -482,14 +502,14 @@ pub(crate) unsafe fn map_realloc_insert(
         let ok = old.add(map_keys_offset(pop));
         let nk = new.add(map_keys_offset(pop + 1));
         if pos > 0 {
-            core::ptr::copy_nonoverlapping(ok, nk, pos * kb);
+            core::ptr::copy_nonoverlapping(ok, nk, pos * KB);
         }
-        crate::mutate::write_packed(nk, pos, kb, key);
+        crate::mutate::write_packed_fixed::<KB>(nk, pos, key);
         if pos < pop {
             core::ptr::copy_nonoverlapping(
-                ok.add(pos * kb),
-                nk.add((pos + 1) * kb),
-                (pop - pos) * kb,
+                ok.add(pos * KB),
+                nk.add((pos + 1) * KB),
+                (pop - pos) * KB,
             );
         }
     }
@@ -658,7 +678,7 @@ pub(crate) unsafe fn search_fixed<const KB: usize>(
 /// # Safety
 ///
 /// `keys` must be valid for reads of `key_bytes * pop` bytes.
-#[inline]
+#[inline(always)]
 #[must_use]
 pub unsafe fn search(keys: *const u8, pop: usize, key_bytes: u8, key: Key) -> Option<usize> {
     debug_assert!((1..=7).contains(&key_bytes));

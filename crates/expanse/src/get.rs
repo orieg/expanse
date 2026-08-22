@@ -237,7 +237,7 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 if level > 1 && !decode_matches(edge, key, 1, level) {
                     return false;
                 }
-                let d = digit(key, 1);
+                let d = (key & 0xFF) as u8;
                 // SAFETY: pointer-tagged edge → live LeafBitmap1.
                 let l = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
                 return l.bitmap.test(d);
@@ -365,7 +365,7 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 if level > 1 && !decode_matches(edge, key, 1, level) {
                     return None;
                 }
-                let d = digit(key, 1);
+                let d = (key & 0xFF) as u8;
                 // SAFETY: pointer-tagged edge → live LeafBitmapL.
                 let l = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
                 let sub = (d >> 5) as usize;
@@ -742,7 +742,7 @@ unsafe fn locate_slot_impl(
                     if level > 1 && !decode_matches(&*edge, key, 1, level) {
                         return None;
                     }
-                    let d = digit(key, 1);
+                    let d = (key & 0xFF) as u8;
                     let sub = (d >> 5) as usize;
                     let node = (*edge).node_ptr().cast::<LeafBitmapL>();
                     let rank = (*node).bitmap.test_and_subexpanse_rank(d)?;
