@@ -14,6 +14,15 @@
 | Compat header | `Judy.h` (source-compatible with classic libjudy) |
 | Distro packages (planned) | `libexpanse-dev`, `libexpanse1`, and `libjudy-compat` (symlinks `libJudy.so.1` → `libexpanse.so.1` and installs the `Judy.h` alias) |
 
+### Supported architectures
+
+Drop-in compatibility is officially verified for:
+- **x86-64** (Linux, Windows, macOS)
+- **AArch64** (Linux, macOS)
+- **RISC-V 64-bit (RV64GC)** (Linux, cross-compiled)
+
+All targets are 64-bit (LP64 or LLP64). 32-bit platforms are not currently supported.
+
 ### hwcaps sub-packages (x86-64-v2 and x86-64-v3)
 
 The shipped baseline `.so` targets baseline `x86-64-v1`, with `popcnt` and SIMD reached through

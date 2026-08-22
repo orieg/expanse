@@ -92,6 +92,43 @@ jobs:
           echo "capi artifacts present: ${arts[*]}"
         shell: bash
 
+  test-riscv64:
+    # Issue #96: 64-bit RISC-V (RV64GC) support for memory-constrained
+    # embedded/edge systems. Cross-compilation check to ensure no x86/ARM
+    # intrinsics leak and 64-bit/pointer sizes are handled correctly.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check code changes
+        id: filter
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --depth=1 origin "${{ github.base_ref }}"
+            DIFF=$(git diff --name-only FETCH_HEAD HEAD)
+            RUST_DIFF=$(echo "$DIFF" | grep -E '^crates/|^Cargo\.(toml|lock)|^rust-toolchain' || true)
+            if [ -z "$RUST_DIFF" ]; then
+              echo "code_changed=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::No Rust code changes detected; skipping test-riscv64 in PR."
+              exit 0
+            fi
+          fi
+          echo "code_changed=true" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.filter.outputs.code_changed != 'false'
+        with:
+          targets: riscv64gc-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.filter.outputs.code_changed != 'false'
+
+      - name: Check (riscv64, cross-compile)
+        if: steps.filter.outputs.code_changed != 'false'
+        run: cargo check --workspace --target riscv64gc-unknown-linux-gnu
+
   test-musl:
     # Most containerized deployments run Alpine. musl differs from glibc
     # enough (allocator, default stack sizes) that a clean glibc build is no
