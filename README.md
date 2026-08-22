@@ -72,6 +72,9 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 |---|---|---|---|
 | **Performance Leadership** | Outperform stock libjudy across 100% of benchmark metrics (glibc-hwcaps, branch bitmasks, deep branch prefetch) | [#110](https://github.com/orieg/expanse/issues/110) | 🔄 in progress |
 | **Multi-Arch Dynamic Packaging** | Multi-architecture dynamic packaging with `glibc-hwcaps` (`x86-64-v2`, `x86-64-v3`, and `x86-64-v4`) | [#115](https://github.com/orieg/expanse/issues/115) | 🔄 in progress |
+| **Comparative Benchmarks** | Suite against ART, Roaring Bitmaps, Swiss Tables (hashbrown), and BTreeMap | [#122](https://github.com/orieg/expanse/issues/122) | 📋 planned |
+| **Concurrency Scalability** | Multithreaded scalability suite under varying read/write ratios (1..64 threads) | [#123](https://github.com/orieg/expanse/issues/123) | 📋 planned |
+| **Database Subsystems** | Evaluate and optimize Expanse for DB engines (posting lists, MVCC visibility, string dicts) | [#124](https://github.com/orieg/expanse/issues/124) | 📋 planned |
 | **Large-Value Optimizations** | Polymorphic 64-bit value slots, arena/slab backing, and metadata-predicate range filtering | [#112](https://github.com/orieg/expanse/issues/112) | 📋 planned |
 | **RISC-V 64-bit** | Support 64-bit RISC-V (`riscv64gc`) for memory-constrained edge/Linux systems | [#96](https://github.com/orieg/expanse/issues/96) | 📋 planned |
 | **32-Bit Microprocessors** | 32-bit architecture support (`RV32`, `ESP32`, `Cortex-M`) for microcontrollers and embedded IoT/robotics | [#109](https://github.com/orieg/expanse/issues/109) | 📋 planned |
