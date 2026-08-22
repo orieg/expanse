@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write # Required for crates.io OIDC trusted publishing
+
+jobs:
+  publish-crates:
+    name: Publish to Crates.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+      - name: Publish expanse-trie
+        run: cargo publish -p expanse-trie
+      - name: Publish expanse-capi
+        run: cargo publish -p expanse-capi
+
+  build-release-artifacts:
+    name: Build Release Artifacts
+    needs: publish-crates
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - name: Install dependencies (Linux)
+        if: contains(matrix.os, 'ubuntu')
+        run: sudo apt-get update && sudo apt-get install -y gcc-x86-64-linux-gnu libc6-dev musl-tools
+      - name: Build
+        run: cargo build --workspace --release --target ${{ matrix.target }}
+      - name: Prepare archives (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p package/include package/lib
+          cp crates/expanse-capi/include/*.h package/include/
+          cp target/${{ matrix.target }}/release/libexpanse.so package/lib/ || true
+          cp target/${{ matrix.target }}/release/libexpanse.dylib package/lib/ || true
+          cp target/${{ matrix.target }}/release/libexpanse.a package/lib/ || true
+          # For Debian packaging
+          if [ "${{ matrix.target }}" = "x86_64-unknown-linux-gnu" ]; then
+            sudo apt-get install -y dpkg-dev
+            mkdir -p deb/usr/lib deb/usr/include deb/usr/lib/pkgconfig deb/DEBIAN
+            cp package/lib/* deb/usr/lib/
+            cp package/include/* deb/usr/include/
+            cat <<EOF > deb/DEBIAN/control
+Package: libexpanse
+Version: ${GITHUB_REF#refs/tags/v}
+Architecture: amd64
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
+Description: Expanse trie engine
+EOF
+            dpkg-deb --build deb libexpanse_${GITHUB_REF#refs/tags/v}_amd64.deb
+          fi
+          tar -czvf expanse-${GITHUB_REF#refs/tags/v}-${{ matrix.target }}.tar.gz -C package .
+      - name: Prepare archives (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir package
+          copy target\${{ matrix.target }}\release\expanse.dll package\
+          copy target\${{ matrix.target }}\release\expanse.lib package\
+          copy crates\expanse-capi\include\*.h package\
+          echo "MSVC Build Instructions: Add expanse.lib to your linker input, and include Judy.h/expanse.h" > package\README_MSVC.txt
+          Compress-Archive -Path package\* -DestinationPath expanse-${env:GITHUB_REF_NAME}-${{ matrix.target }}.zip
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts-${{ matrix.target }}
+          path: |
+            expanse-*.tar.gz
+            expanse-*.zip
+            *.deb
+
+  github-release:
+    name: Create GitHub Release
+    needs: build-release-artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-artifacts-*
+          merge-multiple: true
+          path: artifacts
+      - name: Generate SHA256SUMS
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/*
+          generate_release_notes: true

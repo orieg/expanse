@@ -1,0 +1,10 @@
+prefix=@prefix@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: expanse
+Description: Expanse trie engine C-API
+Version: @VERSION@
+Libs: -L${libdir} -lexpanse
+Cflags: -I${includedir}

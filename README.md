@@ -136,6 +136,15 @@ cargo build --workspace
 cargo test  --workspace
 ```
 
+## Distribution and Packaging
+
+Expanse provides an automated release pipeline with support for multiple distribution channels:
+- **Rust/Cargo**: Available on crates.io as `expanse-trie` and `expanse-capi`
+- **Linux**: `.deb` packages and `pkg-config` files
+- **Windows MSVC**: ZIP archives containing `.dll`, `.lib`, and headers, plus vcpkg and NuGet templates
+
+See [docs/PACKAGING.md](docs/PACKAGING.md) for detailed information on package manager integration and the release process.
+
 ## License
 
 Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
