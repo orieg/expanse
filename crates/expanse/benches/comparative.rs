@@ -1,11 +1,12 @@
 //! Comparative benchmarking of Expanse vs standard and third-party collections.
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
 use hashbrown::HashMap;
 use roaring::RoaringBitmap;
 use std::collections::BTreeMap;
+use std::hint::black_box;
 
 struct XorShift(u64);
 impl XorShift {
@@ -124,9 +125,9 @@ fn bench_map_comparative(c: &mut Criterion) {
             let mut hash = HashMap::new();
             let mut btree = BTreeMap::new();
             for &k in &ks {
-                expanse.insert(k as u64, k);
+                expanse.insert(k as u64, k as u64);
                 hash.insert(k, k);
-                btree.insert(k as u64, k);
+                btree.insert(k as u64, k as u64);
             }
 
             let mut g = c.benchmark_group(format!("comparative_map_lookup/{dist}/{pop}"));
@@ -146,11 +147,11 @@ fn bench_map_comparative(c: &mut Criterion) {
             });
             g.finish();
 
-            let mut g = c.benchmark_group(format!("comparative_map_range/{dist}/{pop}"));
+            let mut g = c.benchmark_group(format!("comparative_map_scan/{dist}/{pop}"));
             g.bench_function("expanse", |b| {
                 b.iter(|| {
                     let mut count = 0;
-                    for (k, v) in expanse.range(..) {
+                    for (k, v) in expanse.iter() {
                         black_box((k, v));
                         count += 1;
                     }
@@ -160,7 +161,7 @@ fn bench_map_comparative(c: &mut Criterion) {
             g.bench_function("btree", |b| {
                 b.iter(|| {
                     let mut count = 0;
-                    for (k, v) in btree.range(..) {
+                    for (k, v) in btree.iter() {
                         black_box((k, v));
                         count += 1;
                     }
@@ -175,7 +176,7 @@ fn bench_map_comparative(c: &mut Criterion) {
                 b.iter(|| {
                     i = (i + 1) % ks.len();
                     let mut m = ExpanseMap::new();
-                    m.insert(black_box(ks[i] as u64), ks[i]);
+                    m.insert(black_box(ks[i] as u64), black_box(ks[i] as u64));
                 })
             });
             let mut i2 = 0;
@@ -183,7 +184,7 @@ fn bench_map_comparative(c: &mut Criterion) {
                 b.iter(|| {
                     i2 = (i2 + 1) % ks.len();
                     let mut m = HashMap::new();
-                    m.insert(black_box(ks[i2]), ks[i2]);
+                    m.insert(black_box(ks[i2]), black_box(ks[i2]));
                 })
             });
             g.finish();

@@ -27,6 +27,9 @@ proptest = "1"
 # wall-clock cannot resolve the few-percent changes the perf work makes
 # (issue #1). Needs valgrind, so these run on Linux/CI only.
 iai-callgrind = "0.16"
+# Comparative benchmarks against industry primitives (issue #122).
+roaring = "0.10"
+hashbrown = "0.15"
 
 # Loom model-checks the OCC/EBR protocol (occ module) under
 # `RUSTFLAGS="--cfg loom" cargo test -p expanse-trie --release loom_`.
@@ -43,5 +46,16 @@ name = "instructions"
 harness = false
 test = false
 
+[[bench]]
+name = "comparative"
+harness = false
+test = false
+
+[[bench]]
+name = "concurrency"
+harness = false
+test = false
+
 [lints]
 workspace = true
+
