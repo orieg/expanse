@@ -143,12 +143,20 @@ Every GitHub release bundles precompiled native archives:
 - `.deb` packages for Debian/Ubuntu
 - `SHA256SUMS` cryptographic manifest
 
----
+### 2.7 Python Wheels (`pip install expanse-trie`) & PyPI Distribution
+Expanse is distributed on PyPI as `expanse-trie` with binary `abi3` wheels across Linux (`x86_64`, `aarch64`), macOS (`arm64`, `x86_64`), and Windows (`x86_64`).
 
-## 3. Future Ecosystem Bindings Roadmap
+- **Package Configuration**: `pyproject.toml` using `maturin` backend.
+- **Python Crate**: `crates/expanse-py` exporting `expanse_trie._expanse`.
+- **Type Stubs**: PEP 561 typed (`python/expanse_trie/py.typed` and `__init__.pyi`).
+- **CI / Distribution Workflow**: [`.github/workflows/python.yml`](../.github/workflows/python.yml) builds wheels, runs the `pytest` test suite, and publishes to PyPI with trusted publishing (OIDC).
+- **Full Guide**: See [docs/BINDINGS_PYTHON.md](BINDINGS_PYTHON.md).
 
-1. **Java / Scala ([Issue #128](https://github.com/orieg/expanse/issues/128))**:
-   - Distributed via Maven Central (`io.github.orieg:expanse-java` & `expanse-scala`) as a fat-JAR with embedded multi-arch native libraries loaded via Project Panama FFM.
-2. **Python ([Issue #129](https://github.com/orieg/expanse/issues/129))**:
-   - Distributed via PyPI (`pip install expanse-trie`) with precompiled `manylinux`, `musllinux`, `macosx`, and `win_amd64` wheels built via `cibuildwheel`.
+### 2.8 Java & Scala Distribution (`io.github.orieg:expanse-java`) & Maven Central
+Expanse is distributed on Maven Central as `io.github.orieg:expanse-java` with bundled multi-arch native libraries loaded via Project Panama Foreign Function & Memory (FFM) API.
+
+- **Package Configuration**: `bindings/java/pom.xml` and `bindings/java/build.gradle`.
+- **Native Loader**: `io.github.orieg.expanse.internal.NativeLoader` extracts and loads precompiled native libraries across Linux, macOS, and Windows.
+- **Full Guide**: See [docs/BINDINGS_JAVA.md](BINDINGS_JAVA.md).
+
 

@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/orieg/expanse/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/orieg/expanse/actions/workflows/ci.yml?query=branch%3Amain)
 [![Crates.io Version](https://img.shields.io/crates/v/expanse-trie.svg?style=flat-square&logo=rust)](https://crates.io/crates/expanse-trie)
+[![PyPI Version](https://img.shields.io/pypi/v/expanse-trie.svg?style=flat-square&logo=pypi)](https://pypi.org/project/expanse-trie/)
 [![APT Repository](https://img.shields.io/badge/apt-debian%20%7C%20ubuntu-orange.svg?style=flat-square&logo=debian)](https://orieg.github.io/expanse/apt/)
 [![RPM Repository](https://img.shields.io/badge/rpm-rhel%20%7C%20fedora%20%7C%20centos-red.svg?style=flat-square&logo=redhat)](https://orieg.github.io/expanse/rpm/)
 [![Architectures](https://img.shields.io/badge/arch-x86--64%20%7C%20aarch64%20%7C%20riscv64-blueviolet.svg?style=flat-square)](#platform-support)
@@ -47,12 +48,14 @@ Naming the project after the mechanism honors the algorithm itself without inher
 
 ---
 
-## Two API Surfaces
+## API Surfaces
 
-| Surface | Crate / Library | Deliverable |
+| Surface | Crate / Package | Deliverable |
 |---|---|---|
 | **Native Rust API** | [`crates/expanse`](crates/expanse) (package `expanse-trie`) | Pure-Rust library: `ExpanseSet` (bit set), `ExpanseMap` (word→word), `ExpanseStrMap` (string→word), `ExpanseBytesMap` (bytes→word), plus iterators and lock-free concurrent readers (`SyncExpanseMap`) |
 | **C ABI (`libexpanse`)** | [`crates/expanse-capi`](crates/expanse-capi) | `cdylib`/`staticlib` exporting **both** the legacy `Judy.h` surface (`Judy1*`, `JudyL*`, `JudySL*`, `JudyHS*` — allowing consumers like [php-judy](https://github.com/orieg/php-judy) to swap `libJudy` for `libexpanse` without source changes) **and** modern `expanse.h` |
+| **Java / Scala FFM API** | [`bindings/java`](bindings/java) (`io.github.orieg:expanse-java`) | Java 22+ / 21 LTS Project Panama Foreign Function & Memory bindings: zero-GC off-heap collections (`ExpanseMap`, `ExpanseSet`, `ExpanseStrMap`, `ExpanseBytesMap`), value slots, `NavigableMap`/`NavigableSet` |
+| **Python API** | [`crates/expanse-py`](crates/expanse-py) (`pip install expanse-trie`) | High-performance Python extension via PyO3: `ExpanseSet`, `ExpanseMap`, `SyncExpanseMap`, GIL-released queries |
 
 Legacy ↔ modern naming:
 
@@ -276,7 +279,55 @@ gcc legacy.c -lJudy -o legacy
 - **vcpkg**: `vcpkg install expanse` using `extra/vcpkg/`.
 - **NuGet**: Visual Studio C++ package template in `extra/nuget/`.
 
-See [docs/PACKAGING.md](docs/PACKAGING.md) for full packaging instructions.
+### 6. Python Quickstart (`pip install expanse-trie`)
+```python
+from expanse_trie import ExpanseSet, ExpanseMap, SyncExpanseMap
+
+# 1. Dynamic sparse 64-bit integer set (Judy1)
+s = ExpanseSet([10, 20, 50, 100])
+assert 20 in s
+assert s.next_at_or_after(25) == 50
+assert s.count_range(10, 50) == 3
+
+# 2. Key-value associative map (JudyL)
+m = ExpanseMap({1: 100, 2: 200})
+m[42] = 1000
+assert m.range(0, 50) == [(1, 100), (2, 200), (42, 1000)]
+
+# 3. Multithreaded lock-free OCC map (GIL-free queries)
+sync_m = SyncExpanseMap({10: 100})
+assert sync_m[10] == 100
+```
+See [docs/BINDINGS_PYTHON.md](docs/BINDINGS_PYTHON.md) for full Python documentation and benchmarks.
+
+### 7. Java & Scala Quickstart (`io.github.orieg:expanse-java`)
+```xml
+<dependency>
+    <groupId>io.github.orieg</groupId>
+    <artifactId>expanse-java</artifactId>
+    <version>0.2.0</version>
+</dependency>
+```
+
+```java
+import io.github.orieg.expanse.ExpanseMap;
+import io.github.orieg.expanse.ExpanseSet;
+
+// Zero-allocation, off-heap ordered map & set (Project Panama FFM)
+try (ExpanseMap map = new ExpanseMap();
+     ExpanseSet set = new ExpanseSet()) {
+    // Inserts & lookups with zero JVM heap allocations
+    map.put(42L, 1000L);
+    long val = map.getOrDefault(42L, -1L);
+
+    set.add(100L);
+    set.add(200L);
+    long count = set.countRange(50L, 250L); // O(depth) rank
+}
+```
+See [docs/BINDINGS_JAVA.md](docs/BINDINGS_JAVA.md) for Panama FFM architecture, GC elimination benchmarks, and Spark/Flink off-heap integration patterns.
+
+See [docs/PACKAGING.md](docs/PACKAGING.md) for full packaging instructions across all platforms.
 
 ---
 

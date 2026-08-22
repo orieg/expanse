@@ -538,6 +538,11 @@ impl SyncExpanseSet {
         self.shared.write(|s| s.remove(key))
     }
 
+    /// Removes every key from the set.
+    pub fn clear(&self) {
+        self.shared.write(|s| s.clear());
+    }
+
     /// Registers a reader handle for this thread's lookups.
     #[must_use]
     pub fn reader(&self) -> SetReader<'_> {
@@ -641,6 +646,11 @@ impl SyncExpanseMap {
     /// Removes `key`; returns its value, if present.
     pub fn remove(&self, key: Key) -> Option<u64> {
         self.shared.write(|m| m.remove(key))
+    }
+
+    /// Removes every entry from the map.
+    pub fn clear(&self) {
+        self.shared.write(|m| m.clear());
     }
 
     /// Registers a reader handle for this thread's lookups.
