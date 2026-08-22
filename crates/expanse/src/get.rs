@@ -258,6 +258,9 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 return true;
             }
 
+            // Single-key immediate fast-paths (Immed1_1 ..= Immed7_1):
+            // The lower nibble (count - 1) is 0, so tag & 0x0F == 0.
+            // Direct 1-cycle XOR + mask lookup bypasses ImmedType::from_u8 validation.
             0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
                 let kb = (tag >> 4) as usize;
                 return ((key ^ edge.word0()) & IMM_MASKS[kb]) == 0;
