@@ -110,22 +110,17 @@ impl Edge {
     }
 
     /// Builds a 1-key map-flavor immediate edge.
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub fn new_immed_single_map(kb: u8, key: u64, val: u64) -> Self {
-        let mut aux = [0u8; 7];
+    pub const fn new_immed_single_map(kb: u8, key: u64, val: u64) -> Self {
         let k_bytes = key.to_le_bytes();
-        let count = kb as usize;
-        let mut i = 0;
-        while i < count && i < 7 {
-            aux[i] = k_bytes[i];
-            i += 1;
-        }
         Self {
             w0: Word0 {
                 imm: val.to_le_bytes(),
             },
-            aux,
+            aux: [
+                k_bytes[0], k_bytes[1], k_bytes[2], k_bytes[3], k_bytes[4], k_bytes[5], k_bytes[6],
+            ],
             tag: kb << 4,
         }
     }

@@ -286,13 +286,10 @@ impl NodeAlloc {
     #[inline(always)]
     fn alloc_raw(&self, bytes: usize, align: usize) -> NonNull<u8> {
         let accounted_size = (bytes + (align - 1)) & !(align - 1);
-        let cur_bytes = self.bytes_in_use.load(Ordering::Relaxed);
         self.bytes_in_use
-            .store(cur_bytes + accounted_size, Ordering::Relaxed);
-        let cur_live = self.live_allocs.load(Ordering::Relaxed);
-        self.live_allocs.store(cur_live + 1, Ordering::Relaxed);
-        let cur_total = self.total_allocs.load(Ordering::Relaxed);
-        self.total_allocs.store(cur_total + 1, Ordering::Relaxed);
+            .fetch_add(accounted_size, Ordering::Relaxed);
+        self.live_allocs.fetch_add(1, Ordering::Relaxed);
+        self.total_allocs.fetch_add(1, Ordering::Relaxed);
 
         if let Some(class) = class_for(bytes, align) {
             let head = self.freelists[class].load(Ordering::Relaxed);
@@ -377,11 +374,9 @@ impl NodeAlloc {
     #[inline(always)]
     unsafe fn free_raw(&self, ptr: NonNull<u8>, bytes: usize, align: usize) {
         let accounted_size = (bytes + (align - 1)) & !(align - 1);
-        let cur_bytes = self.bytes_in_use.load(Ordering::Relaxed);
         self.bytes_in_use
-            .store(cur_bytes - accounted_size, Ordering::Relaxed);
-        let cur_live = self.live_allocs.load(Ordering::Relaxed);
-        self.live_allocs.store(cur_live - 1, Ordering::Relaxed);
+            .fetch_sub(accounted_size, Ordering::Relaxed);
+        self.live_allocs.fetch_sub(1, Ordering::Relaxed);
 
         if let Some(c) = self.deferred.get() {
             // Deferred mode: the structure no longer references `ptr`,
