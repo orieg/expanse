@@ -17,8 +17,8 @@
 //!
 //! For non-terminal chunks (8 non-NUL bytes), continuation entries use
 //! pointer tagging:
-//! - Tag `0`: Pointer to child [`StrNode`] branch.
-//! - Tag `1`: Pointer to [`StrSuffix`] leaf, which stores the remaining
+//! - Tag `0`: Pointer to child `StrNode` branch.
+//! - Tag `1`: Pointer to `StrSuffix` leaf, which stores the remaining
 //!   NUL-free key bytes and the user value in a single allocation.
 
 use crate::map::ExpanseMap;

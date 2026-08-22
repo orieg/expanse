@@ -21,7 +21,7 @@
 //! `pop0`; the level-8 total lives in the owning tree (`ExpanseSet`), the
 //! original's JPM role. Immediates carry their count in the tag.
 //!
-//! The invariant validator ([`validate_subtree`]) walks a tree and panics
+//! The invariant validator (`validate_subtree`) walks a tree and panics
 //! on any structural violation; `docs/TESTING.md` requires a negative
 //! control proving it can fail, which lives in the `set` module's tests.
 
