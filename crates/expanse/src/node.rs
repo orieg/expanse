@@ -186,16 +186,16 @@ impl Edge {
         self.w0 = Word0 { imm: bytes };
     }
 
-    /// The full 15-byte immediate payload (word 0 followed by the aux
-    /// bytes) of a set-flavor immediate edge, which packs its keys across
-    /// both regions. Same caller obligations as [`Self::imm_bytes`].
+    /// The full 16-byte immediate payload (word 0 followed by the 7 aux
+    /// bytes and 1 byte of padding) of a set-flavor immediate edge, which packs
+    /// its keys across both regions. Sized to 16 bytes for safe 128-bit SIMD/word loads.
     #[inline]
     #[must_use]
-    pub fn imm_payload(&self) -> [u8; 15] {
-        let mut out = [0u8; 15];
+    pub fn imm_payload(&self) -> [u8; 16] {
+        let mut out = [0u8; 16];
         let w0 = self.imm_bytes();
         out[..8].copy_from_slice(&w0);
-        out[8..].copy_from_slice(&self.aux);
+        out[8..15].copy_from_slice(&self.aux);
         out
     }
 

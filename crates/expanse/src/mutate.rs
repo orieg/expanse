@@ -305,7 +305,7 @@ fn write_immed(edge: &mut Edge, kb: u8, keys: &[u64]) {
         return;
     }
     let im = ImmedType::new(kb, count as u8).expect("immediate capacity");
-    let mut payload = [0u8; 15];
+    let mut payload = [0u8; 16];
     let kb_usize = kb as usize;
     for (slot, &k) in keys.iter().enumerate() {
         // SAFETY: slot < count <= max_count(kb); (slot + 1) * kb_usize <= 15.
@@ -314,7 +314,7 @@ fn write_immed(edge: &mut Edge, kb: u8, keys: &[u64]) {
     let mut w0 = [0u8; 8];
     w0.copy_from_slice(&payload[..8]);
     let mut aux = [0u8; 7];
-    aux.copy_from_slice(&payload[8..]);
+    aux.copy_from_slice(&payload[8..15]);
     edge.set_imm_bytes(w0);
     edge.set_aux_bytes(aux);
     edge.set_tag(im.as_u8());
@@ -1449,7 +1449,7 @@ unsafe fn insert_with_path_flat(
                     let mut w0 = [0u8; 8];
                     w0.copy_from_slice(&new_payload[..8]);
                     let mut aux = [0u8; 7];
-                    aux.copy_from_slice(&new_payload[8..]);
+                    aux.copy_from_slice(&new_payload[8..15]);
                     let new_im = ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
                     // SAFETY: edge is a live valid edge; ancestors array is valid.
                     unsafe {
@@ -1536,13 +1536,13 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                         return false;
                     }
                     if ImmedType::max_count(kb) >= 2 {
-                        let mut new_payload = [0u8; 15];
+                        let mut new_payload = [0u8; 16];
                         let (k0, k1) = if k < existing_k {
                             (k, existing_k)
                         } else {
                             (existing_k, k)
                         };
-                        // SAFETY: new_payload has 15 bytes; 2 keys of kb <= 7 bytes fit per max_count >= 2.
+                        // SAFETY: new_payload has 16 bytes; 2 keys of kb <= 7 bytes fit per max_count >= 2.
                         unsafe {
                             write_packed(new_payload.as_mut_ptr(), 0, kb_usize, k0);
                             write_packed(new_payload.as_mut_ptr(), 1, kb_usize, k1);
@@ -1550,7 +1550,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                         let mut w0 = [0u8; 8];
                         w0.copy_from_slice(&new_payload[..8]);
                         let mut aux = [0u8; 7];
-                        aux.copy_from_slice(&new_payload[8..]);
+                        aux.copy_from_slice(&new_payload[8..15]);
                         let new_im = ImmedType::new(kb, 2).expect("immediate capacity");
                         edge.set_imm_bytes(w0);
                         edge.set_aux_bytes(aux);
@@ -1558,7 +1558,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                         return true;
                     }
                 }
-                // SAFETY: payload has 15 bytes; n keys of kb bytes.
+                // SAFETY: payload has 16 bytes; n keys of kb bytes.
                 let pos = match unsafe { leaf::locate(payload.as_ptr(), n, kb, k) } {
                     Ok(_) => return false,
                     Err(p) => p,
@@ -1568,14 +1568,14 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                     if pos < n {
                         new_payload.copy_within(pos * kb_usize..n * kb_usize, (pos + 1) * kb_usize);
                     }
-                    // SAFETY: new_payload has 15 bytes; pos <= n; (n + 1) * kb_usize <= 15.
+                    // SAFETY: new_payload has 16 bytes; pos <= n; (n + 1) * kb_usize <= 15.
                     unsafe {
                         write_packed(new_payload.as_mut_ptr(), pos, kb_usize, k);
                     }
                     let mut w0 = [0u8; 8];
                     w0.copy_from_slice(&new_payload[..8]);
                     let mut aux = [0u8; 7];
-                    aux.copy_from_slice(&new_payload[8..]);
+                    aux.copy_from_slice(&new_payload[8..15]);
                     let new_im = ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
                     edge.set_imm_bytes(w0);
                     edge.set_aux_bytes(aux);
@@ -2213,7 +2213,7 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             let mut w0 = [0u8; 8];
             w0.copy_from_slice(&new_payload[..8]);
             let mut aux = [0u8; 7];
-            aux.copy_from_slice(&new_payload[8..]);
+            aux.copy_from_slice(&new_payload[8..15]);
             edge.set_imm_bytes(w0);
             edge.set_aux_bytes(aux);
             edge.set_tag(new_im.as_u8());
