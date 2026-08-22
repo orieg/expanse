@@ -13,14 +13,28 @@ Judy arrays (invented by Doug Baskins at Hewlett-Packard, ~2002) are sparse, dyn
 
 ---
 
+## Why "Expanse"?
+
+*Expanse* is the Judy design's own defining term — so central that the published descriptions stop to define it before anything else, and use it as the precise contrast with population-partitioned trees (B-trees, binary trees):
+
+> "Expanse, population, and density are not commonly used terms in tree search literature, so let's define them here: **Expanse** is a range of possible keys […]"  
+> — Doug Baskins, [*A 10-Minute Description of How Judy Arrays Work and Why They Are So Fast*](https://judy.sourceforge.net/doc/10minute.htm) (2002)
+
+> "A digital tree divides up the population (index set) uniformly **by expanse** (dividing and redividing the initial expanse evenly), while other methods, such as b-trees, divide up the population by the distribution of the population itself."  
+> — Alan Silverstein, [*Judy IV Shop Manual*](https://judy.sourceforge.net/doc/shop_interm.pdf) (2002), "Digital Trees"
+
+Naming the project after the mechanism honors the algorithm itself without inheriting the legacy `Judy` package namespace. Crate: `expanse-trie` (bare `expanse` is squatted on crates.io by an abandoned unrelated crate). C library: `libexpanse`, with a `libjudy-compat` shim for drop-in use.
+
+---
+
 ## Key Features
 
-- 🦀 **Pure Rust & Memory Safe**: `#![no_std]` core with zero unsafe memory leaks, zero external runtime dependencies, verified under Miri & Loom.
-- ⚡ **Strictly Faster than Stock Judy**: Outperforms original `libjudy` across 100% of benchmark workloads (inserts, lookups, deletions, and churn).
-- 🔄 **100% Drop-In C ABI Compatibility**: Swap `-lJudy` for `-lexpanse` with zero code changes (Judy1, JudyL, JudySL, JudyHS). Passes `php-judy` test suite (221/221) and differential oracle.
-- 🚀 **Multi-Architecture Vectorization**: Hardware-accelerated with dynamic `glibc-hwcaps` packaging (`x86-64-v1..v4`), ARM64 NEON, and 64-bit RISC-V (`RV64GC`).
-- 🔒 **Lock-Free OCC Concurrency**: Multi-core optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet`) scaling linearly up to **78.4M ops/s** on 16 cores with zero read locks.
-- 💾 **Ultra-Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on clustered/dense integer sets through adaptive digital trie compaction.
+- **Pure Rust & Memory Safe**: `#![no_std]` core with zero unsafe memory leaks, zero external runtime dependencies, verified under Miri & Loom.
+- **Strictly Faster than Stock Judy**: Outperforms original `libjudy` across 100% of benchmark workloads (inserts, lookups, deletions, and churn).
+- **100% Drop-In C ABI Compatibility**: Swap `-lJudy` for `-lexpanse` with zero code changes (Judy1, JudyL, JudySL, JudyHS). Passes `php-judy` test suite (221/221) and differential oracle.
+- **Multi-Architecture Vectorization**: Hardware-accelerated with dynamic `glibc-hwcaps` packaging (`x86-64-v1..v4`), ARM64 NEON, and 64-bit RISC-V (`RV64GC`).
+- **Lock-Free OCC Concurrency**: Multi-core optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet`) scaling linearly up to **78.4M ops/s** on 16 cores with zero read locks.
+- **Ultra-Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on clustered/dense integer sets through adaptive digital trie compaction.
 
 ---
 
