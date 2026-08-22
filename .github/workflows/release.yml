@@ -132,3 +132,27 @@ EOF
         with:
           files: artifacts/*
           generate_release_notes: true
+
+  publish-apt-repo:
+    name: Publish APT Repository (GitHub Pages)
+    needs: build-release-artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all deb packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-artifacts-*
+          merge-multiple: true
+          path: deb-artifacts
+      - name: Generate APT repository
+        run: |
+          python3 scripts/build_apt_repo.py deb-artifacts apt-repo
+      - name: Deploy APT repository to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./apt-repo
+          destination_dir: apt
+          keep_files: true
+
