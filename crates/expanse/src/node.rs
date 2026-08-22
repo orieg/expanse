@@ -110,22 +110,17 @@ impl Edge {
     }
 
     /// Builds a 1-key map-flavor immediate edge.
-    #[inline]
+    #[inline(always)]
     #[must_use]
-    pub fn new_immed_single_map(kb: u8, key: u64, val: u64) -> Self {
-        let mut aux = [0u8; 7];
+    pub const fn new_immed_single_map(kb: u8, key: u64, val: u64) -> Self {
         let k_bytes = key.to_le_bytes();
-        let count = kb as usize;
-        let mut i = 0;
-        while i < count && i < 7 {
-            aux[i] = k_bytes[i];
-            i += 1;
-        }
         Self {
             w0: Word0 {
                 imm: val.to_le_bytes(),
             },
-            aux,
+            aux: [
+                k_bytes[0], k_bytes[1], k_bytes[2], k_bytes[3], k_bytes[4], k_bytes[5], k_bytes[6],
+            ],
             tag: kb << 4,
         }
     }
@@ -191,16 +186,16 @@ impl Edge {
         self.w0 = Word0 { imm: bytes };
     }
 
-    /// The full 15-byte immediate payload (word 0 followed by the aux
-    /// bytes) of a set-flavor immediate edge, which packs its keys across
-    /// both regions. Same caller obligations as [`Self::imm_bytes`].
+    /// The full 16-byte immediate payload (word 0 followed by the 7 aux
+    /// bytes and 1 byte of padding) of a set-flavor immediate edge, which packs
+    /// its keys across both regions. Sized to 16 bytes for safe 128-bit SIMD/word loads.
     #[inline]
     #[must_use]
-    pub fn imm_payload(&self) -> [u8; 15] {
-        let mut out = [0u8; 15];
+    pub fn imm_payload(&self) -> [u8; 16] {
+        let mut out = [0u8; 16];
         let w0 = self.imm_bytes();
         out[..8].copy_from_slice(&w0);
-        out[8..].copy_from_slice(&self.aux);
+        out[8..15].copy_from_slice(&self.aux);
         out
     }
 

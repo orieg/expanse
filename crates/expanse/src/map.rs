@@ -407,7 +407,8 @@ impl ExpanseMap {
                 if prev.is_none() {
                     *pop += 1;
                 }
-                core::ptr::NonNull::new(slot).expect("insert produced a slot")
+                // SAFETY: map_insert always returns a valid, non-null slot pointer.
+                unsafe { core::ptr::NonNull::new_unchecked(slot) }
             }
             Root::Empty => {
                 let ptr = self.alloc.alloc_bytes(leaf_size(1));

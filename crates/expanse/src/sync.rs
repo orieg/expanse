@@ -425,8 +425,8 @@ unsafe fn walk_validated<const MAP: bool>(
                 let kb = im.key_bytes() as usize;
                 let n = im.key_count() as usize;
                 let needle = &key.to_le_bytes()[..kb];
-                let payload: [u8; 15] = if MAP {
-                    let mut p = [0u8; 15];
+                let payload: [u8; 16] = if MAP {
+                    let mut p = [0u8; 16];
                     p[..7].copy_from_slice(edge.aux_bytes());
                     p
                 } else {

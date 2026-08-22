@@ -305,7 +305,7 @@ fn write_immed(edge: &mut Edge, kb: u8, keys: &[u64]) {
         return;
     }
     let im = ImmedType::new(kb, count as u8).expect("immediate capacity");
-    let mut payload = [0u8; 15];
+    let mut payload = [0u8; 16];
     let kb_usize = kb as usize;
     for (slot, &k) in keys.iter().enumerate() {
         // SAFETY: slot < count <= max_count(kb); (slot + 1) * kb_usize <= 15.
@@ -314,7 +314,7 @@ fn write_immed(edge: &mut Edge, kb: u8, keys: &[u64]) {
     let mut w0 = [0u8; 8];
     w0.copy_from_slice(&payload[..8]);
     let mut aux = [0u8; 7];
-    aux.copy_from_slice(&payload[8..]);
+    aux.copy_from_slice(&payload[8..15]);
     edge.set_imm_bytes(w0);
     edge.set_aux_bytes(aux);
     edge.set_tag(im.as_u8());
@@ -597,6 +597,41 @@ pub(crate) fn linear_insert_slot(
     pos
 }
 
+/// Inserts a new digit + null child into a BranchL3 header at its sorted position
+/// and returns the slot, without slice iterators or loops.
+#[inline(always)]
+pub(crate) fn linear_insert_slot_l3(
+    digits: &mut [u8; 8],
+    edges: &mut [Edge; BRANCH_L3_CAP],
+    num: usize,
+    d: u8,
+) -> usize {
+    let pos = if num == 0 || digits[0] > d {
+        0
+    } else if num == 1 || digits[1] > d {
+        1
+    } else {
+        2
+    };
+    if num == 2 {
+        if pos == 0 {
+            digits[2] = digits[1];
+            digits[1] = digits[0];
+            edges[2] = edges[1];
+            edges[1] = edges[0];
+        } else if pos == 1 {
+            digits[2] = digits[1];
+            edges[2] = edges[1];
+        }
+    } else if num == 1 && pos == 0 {
+        digits[1] = digits[0];
+        edges[1] = edges[0];
+    }
+    digits[pos] = d;
+    edges[pos] = Edge::NULL;
+    pos
+}
+
 /// Tracks the descent path of edges from the root to the active leaf
 /// for fast multi-level sequential bypass.
 #[derive(Clone, Copy)]
@@ -650,13 +685,13 @@ impl InsertPath {
 
     #[inline(always)]
     pub fn clear(&mut self) {
-        if self.pending_pop > 0 {
-            // SAFETY: flushing pending population before clearing path references.
-            unsafe {
-                self.flush();
+        if self.depth != 0 {
+            if self.pending_pop > 0 {
+                // SAFETY: flushing pending population before clearing path references.
+                unsafe {
+                    self.flush();
+                }
             }
-        }
-        if self.prefix != u64::MAX {
             self.prefix = u64::MAX;
             self.depth = 0;
             self.leaf = core::ptr::null_mut();
@@ -802,19 +837,14 @@ unsafe fn insert_with_path_flat(
                 return true;
             }
 
-            0x01 | 0x02 => {
+            0x01 => {
                 debug_assert!(level >= 2);
-                let is_l3 = tag == 0x01;
-                let t = if is_l3 {
-                    EdgeType::BranchL3
-                } else {
-                    EdgeType::BranchL7
-                };
-                // SAFETY: edge is a live BranchL3 or BranchL7 edge.
-                let bl = unsafe { branch_form_level(&*edge, t, level) };
-                // SAFETY: edge is a live BranchL3 or BranchL7 edge.
+                // SAFETY: edge points to a live BranchL3 node.
+                let b = unsafe { &mut *(*edge).node_ptr().cast::<BranchL3>() };
+                let bl = b.hdr.level;
+                // SAFETY: edge is a live BranchL3 node.
                 if bl < level && !unsafe { crate::get::decode_matches(&*edge, key, bl, level) } {
-                    // SAFETY: edge is a live BranchL3 or BranchL7 edge.
+                    // SAFETY: edge is a live BranchL3 edge.
                     let pop = unsafe { (*edge).pop0(bl) + 1 };
                     path.clear();
                     // SAFETY: split_skip maintains valid tree invariants.
@@ -822,83 +852,80 @@ unsafe fn insert_with_path_flat(
                     continue;
                 }
                 let d = digit(key, bl);
-                // SAFETY: edge is a live BranchL3 or BranchL7 edge.
-                let (hdr_find, num) = unsafe {
-                    if is_l3 {
-                        let b = &*(*edge).node_ptr().cast::<BranchL3>();
-                        let num = b.hdr.num as usize;
-                        let found = if num >= 1 && b.hdr.digits[0] == d {
-                            Some(0)
-                        } else if num >= 2 && b.hdr.digits[1] == d {
-                            Some(1)
-                        } else if num >= 3 && b.hdr.digits[2] == d {
-                            Some(2)
-                        } else {
-                            None
-                        };
-                        (found, num)
-                    } else {
-                        let b = &*(*edge).node_ptr().cast::<BranchL7>();
-                        (b.hdr.find(d), b.hdr.num as usize)
-                    }
+                let num = b.hdr.num as usize;
+                let found = if num >= 1 && b.hdr.digits[0] == d {
+                    Some(0)
+                } else if num >= 2 && b.hdr.digits[1] == d {
+                    Some(1)
+                } else if num >= 3 && b.hdr.digits[2] == d {
+                    Some(2)
+                } else {
+                    None
                 };
-                if let Some(slot) = hdr_find {
+                if let Some(slot) = found {
                     ancestors[anc_depth] = (edge, bl);
                     anc_depth += 1;
-                    // SAFETY: slot is in-bounds for the branch node.
-                    edge = unsafe {
-                        if is_l3 {
-                            let b = &mut *(*edge).node_ptr().cast::<BranchL3>();
-                            &raw mut b.edges[slot]
-                        } else {
-                            let b = &mut *(*edge).node_ptr().cast::<BranchL7>();
-                            &raw mut b.edges[slot]
-                        }
-                    };
+                    // SAFETY: slot is in-bounds for BranchL3 edges array.
+                    edge = &raw mut b.edges[slot];
                     level = bl - 1;
                     continue;
                 }
-                let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
-                if num == cap {
+                if num == BRANCH_L3_CAP {
                     path.clear();
-                    // SAFETY: upgrades branch to next capacity class.
-                    unsafe {
-                        if is_l3 {
-                            upgrade_l3_to_l7(a, &mut *edge);
-                        } else {
-                            upgrade_l7_to_b(a, &mut *edge);
-                        }
-                    }
+                    // SAFETY: upgrades branch to BranchL7.
+                    unsafe { upgrade_l3_to_l7(a, &mut *edge) };
                     continue;
                 }
-                // SAFETY: num < cap; inserting digit d shifts in-place.
-                let slot = unsafe {
-                    if is_l3 {
-                        let b = &mut *(*edge).node_ptr().cast::<BranchL3>();
-                        let s = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
-                        b.hdr.num += 1;
-                        b.hdr.add_presence(d);
-                        s
-                    } else {
-                        let b = &mut *(*edge).node_ptr().cast::<BranchL7>();
-                        let s = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
-                        b.hdr.num += 1;
-                        b.hdr.add_presence(d);
-                        s
-                    }
-                };
+                // SAFETY: num < BRANCH_L3_CAP; inserting digit d shifts in-place.
+                let slot = linear_insert_slot_l3(&mut b.hdr.digits, &mut b.edges, num, d);
+                b.hdr.num += 1;
+                b.hdr.add_presence(d);
                 ancestors[anc_depth] = (edge, bl);
                 anc_depth += 1;
-                // SAFETY: slot is the newly inserted slot in the branch node.
-                edge = unsafe {
-                    if is_l3 {
-                        let b = &mut *(*edge).node_ptr().cast::<BranchL3>();
-                        &raw mut b.edges[slot]
-                    } else {
-                        let b = &mut *(*edge).node_ptr().cast::<BranchL7>();
-                        &raw mut b.edges[slot]
-                    }
-                };
+                // SAFETY: slot is in-bounds for BranchL3 edges array.
+                edge = &raw mut b.edges[slot];
+                level = bl - 1;
+                continue;
+            }
+
+            0x02 => {
+                debug_assert!(level >= 2);
+                // SAFETY: edge points to a live BranchL7 node.
+                let b = unsafe { &mut *(*edge).node_ptr().cast::<BranchL7>() };
+                let bl = b.hdr.level;
+                // SAFETY: edge is a live BranchL7 node.
+                if bl < level && !unsafe { crate::get::decode_matches(&*edge, key, bl, level) } {
+                    // SAFETY: edge is a live BranchL7 edge.
+                    let pop = unsafe { (*edge).pop0(bl) + 1 };
+                    path.clear();
+                    // SAFETY: split_skip maintains valid tree invariants.
+                    unsafe { split_skip(a, &mut *edge, key, level, pop) };
+                    continue;
+                }
+                let d = digit(key, bl);
+                if let Some(slot) = b.hdr.find(d) {
+                    ancestors[anc_depth] = (edge, bl);
+                    anc_depth += 1;
+                    // SAFETY: slot is in-bounds for BranchL7 edges array.
+                    edge = &raw mut b.edges[slot];
+                    level = bl - 1;
+                    continue;
+                }
+                let num = b.hdr.num as usize;
+                if num == BRANCH_L7_CAP {
+                    path.clear();
+                    // SAFETY: upgrades branch to BranchB.
+                    unsafe { upgrade_l7_to_b(a, &mut *edge) };
+                    continue;
+                }
+                // SAFETY: num < BRANCH_L7_CAP; inserting digit d shifts in-place.
+                let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
+                b.hdr.num += 1;
+                b.hdr.add_presence(d);
+                ancestors[anc_depth] = (edge, bl);
+                anc_depth += 1;
+                // SAFETY: slot is in-bounds for BranchL7 edges array.
+                edge = &raw mut b.edges[slot];
                 level = bl - 1;
                 continue;
             }
@@ -1422,7 +1449,7 @@ unsafe fn insert_with_path_flat(
                     let mut w0 = [0u8; 8];
                     w0.copy_from_slice(&new_payload[..8]);
                     let mut aux = [0u8; 7];
-                    aux.copy_from_slice(&new_payload[8..]);
+                    aux.copy_from_slice(&new_payload[8..15]);
                     let new_im = ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
                     // SAFETY: edge is a live valid edge; ancestors array is valid.
                     unsafe {
@@ -1509,13 +1536,13 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                         return false;
                     }
                     if ImmedType::max_count(kb) >= 2 {
-                        let mut new_payload = [0u8; 15];
+                        let mut new_payload = [0u8; 16];
                         let (k0, k1) = if k < existing_k {
                             (k, existing_k)
                         } else {
                             (existing_k, k)
                         };
-                        // SAFETY: new_payload has 15 bytes; 2 keys of kb <= 7 bytes fit per max_count >= 2.
+                        // SAFETY: new_payload has 16 bytes; 2 keys of kb <= 7 bytes fit per max_count >= 2.
                         unsafe {
                             write_packed(new_payload.as_mut_ptr(), 0, kb_usize, k0);
                             write_packed(new_payload.as_mut_ptr(), 1, kb_usize, k1);
@@ -1523,7 +1550,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                         let mut w0 = [0u8; 8];
                         w0.copy_from_slice(&new_payload[..8]);
                         let mut aux = [0u8; 7];
-                        aux.copy_from_slice(&new_payload[8..]);
+                        aux.copy_from_slice(&new_payload[8..15]);
                         let new_im = ImmedType::new(kb, 2).expect("immediate capacity");
                         edge.set_imm_bytes(w0);
                         edge.set_aux_bytes(aux);
@@ -1531,7 +1558,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                         return true;
                     }
                 }
-                // SAFETY: payload has 15 bytes; n keys of kb bytes.
+                // SAFETY: payload has 16 bytes; n keys of kb bytes.
                 let pos = match unsafe { leaf::locate(payload.as_ptr(), n, kb, k) } {
                     Ok(_) => return false,
                     Err(p) => p,
@@ -1541,14 +1568,14 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                     if pos < n {
                         new_payload.copy_within(pos * kb_usize..n * kb_usize, (pos + 1) * kb_usize);
                     }
-                    // SAFETY: new_payload has 15 bytes; pos <= n; (n + 1) * kb_usize <= 15.
+                    // SAFETY: new_payload has 16 bytes; pos <= n; (n + 1) * kb_usize <= 15.
                     unsafe {
                         write_packed(new_payload.as_mut_ptr(), pos, kb_usize, k);
                     }
                     let mut w0 = [0u8; 8];
                     w0.copy_from_slice(&new_payload[..8]);
                     let mut aux = [0u8; 7];
-                    aux.copy_from_slice(&new_payload[8..]);
+                    aux.copy_from_slice(&new_payload[8..15]);
                     let new_im = ImmedType::new(kb, (n + 1) as u8).expect("immediate capacity");
                     edge.set_imm_bytes(w0);
                     edge.set_aux_bytes(aux);
@@ -1888,7 +1915,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                     if is_l3 {
                         let b = &mut *edge.node_ptr().cast::<BranchL3>();
                         crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
-                        let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
+                        let slot = linear_insert_slot_l3(&mut b.hdr.digits, &mut b.edges, num, d);
                         b.hdr.num += 1;
                         b.hdr.add_presence(d);
                         let r = insert_with_path::<OCC>(a, &mut b.edges[slot], key, bl - 1, path);
@@ -2186,7 +2213,7 @@ pub(crate) unsafe fn remove<const OCC: bool>(
             let mut w0 = [0u8; 8];
             w0.copy_from_slice(&new_payload[..8]);
             let mut aux = [0u8; 7];
-            aux.copy_from_slice(&new_payload[8..]);
+            aux.copy_from_slice(&new_payload[8..15]);
             edge.set_imm_bytes(w0);
             edge.set_aux_bytes(aux);
             edge.set_tag(new_im.as_u8());

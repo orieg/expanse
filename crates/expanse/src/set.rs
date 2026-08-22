@@ -1284,4 +1284,22 @@ mod tests {
             assert!(extended.contains(k));
         }
     }
+
+    #[test]
+    fn test_fuzz_set_ops_crash_case() {
+        let mut set = ExpanseSet::new();
+        let k1 = 4268070197446520623u64;
+        let k2 = 0xAABB_CCDD_EE00 + 29555u64;
+        let k_c = 0x1122_3344_0000 + 37265u64;
+        assert!(set.insert(k1));
+        assert!(!set.contains(k_c));
+        assert!(!set.contains(k_c));
+        assert!(set.insert(k2));
+        set.validate();
+        assert!(set.contains(k1));
+        assert!(set.contains(k2));
+        assert!(set.remove(k1));
+        assert!(set.remove(k2));
+        assert!(set.is_empty());
+    }
 }

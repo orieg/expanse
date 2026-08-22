@@ -330,7 +330,33 @@ pub(crate) unsafe fn map_insert_at(
     key: u64,
     val: u64,
 ) {
-    let kb = key_bytes as usize;
+    // SAFETY: caller guarantees live map leaf and in-bounds indices for key_bytes.
+    unsafe {
+        match key_bytes {
+            1 => map_insert_at_fixed::<1>(base, pop, pos, key, val),
+            2 => map_insert_at_fixed::<2>(base, pop, pos, key, val),
+            3 => map_insert_at_fixed::<3>(base, pop, pos, key, val),
+            4 => map_insert_at_fixed::<4>(base, pop, pos, key, val),
+            5 => map_insert_at_fixed::<5>(base, pop, pos, key, val),
+            6 => map_insert_at_fixed::<6>(base, pop, pos, key, val),
+            _ => map_insert_at_fixed::<7>(base, pop, pos, key, val),
+        }
+    }
+}
+
+/// In-place insert into a map leaf with compile-time known key width.
+///
+/// # Safety
+///
+/// `cap_class(pop) == cap_class(pop + 1)`, `pos <= pop`, live map leaf.
+#[inline(always)]
+pub(crate) unsafe fn map_insert_at_fixed<const KB: usize>(
+    base: *mut u8,
+    pop: usize,
+    pos: usize,
+    key: u64,
+    val: u64,
+) {
     let keys = base.wrapping_add(map_keys_offset(pop));
     // SAFETY: in-bounds shifts within the class-sized areas.
     unsafe {
@@ -338,13 +364,13 @@ pub(crate) unsafe fn map_insert_at(
         if pos < pop {
             core::ptr::copy(vals.add(pos), vals.add(pos + 1), pop - pos);
             core::ptr::copy(
-                keys.add(pos * kb),
-                keys.add((pos + 1) * kb),
-                (pop - pos) * kb,
+                keys.add(pos * KB),
+                keys.add((pos + 1) * KB),
+                (pop - pos) * KB,
             );
         }
         vals.add(pos).write(val);
-        crate::mutate::write_packed(keys, pos, kb, key);
+        crate::mutate::write_packed_fixed::<KB>(keys, pos, key);
     }
 }
 
