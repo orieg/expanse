@@ -121,9 +121,39 @@ pub(crate) const CLASS_SPECS: [(usize, usize); NUM_CLASSES] = [
     (375, RAW_ALIGN),
 ];
 
+const NO_CLASS: u8 = 0xFF;
+
+const fn build_raw_class_table() -> [u8; 376] {
+    let mut table = [NO_CLASS; 376];
+    let mut i = 6;
+    while i < NUM_CLASSES {
+        let (bytes, align) = CLASS_SPECS[i];
+        if align == RAW_ALIGN && bytes < 376 {
+            table[bytes] = i as u8;
+        }
+        i += 1;
+    }
+    table
+}
+
+pub(crate) const RAW_CLASS_TABLE: [u8; 376] = build_raw_class_table();
+
+#[inline(always)]
+pub(crate) fn class_for_raw(bytes: usize) -> Option<usize> {
+    if bytes < RAW_CLASS_TABLE.len() {
+        let c = RAW_CLASS_TABLE[bytes];
+        if c != NO_CLASS {
+            return Some(c as usize);
+        }
+    }
+    None
+}
+
 #[inline(always)]
 pub(crate) fn class_for(bytes: usize, align: usize) -> Option<usize> {
-    if align == CACHE_LINE {
+    if align == RAW_ALIGN {
+        class_for_raw(bytes)
+    } else if align == CACHE_LINE {
         match bytes {
             32 => Some(0),
             64 => Some(1),
@@ -131,66 +161,6 @@ pub(crate) fn class_for(bytes: usize, align: usize) -> Option<usize> {
             128 => Some(3),
             256 => Some(4),
             2048 => Some(5),
-            _ => None,
-        }
-    } else if align == RAW_ALIGN {
-        match bytes {
-            8 => Some(6),
-            9 => Some(7),
-            10 => Some(8),
-            11 => Some(9),
-            12 => Some(10),
-            13 => Some(11),
-            14 => Some(12),
-            15 => Some(13),
-            16 => Some(14),
-            18 => Some(15),
-            20 => Some(16),
-            22 => Some(17),
-            24 => Some(18),
-            25 => Some(19),
-            26 => Some(20),
-            28 => Some(21),
-            30 => Some(22),
-            32 => Some(23),
-            36 => Some(24),
-            40 => Some(25),
-            44 => Some(26),
-            48 => Some(27),
-            50 => Some(28),
-            52 => Some(29),
-            56 => Some(30),
-            60 => Some(31),
-            64 => Some(32),
-            72 => Some(33),
-            75 => Some(34),
-            80 => Some(35),
-            88 => Some(36),
-            96 => Some(37),
-            100 => Some(38),
-            104 => Some(39),
-            112 => Some(40),
-            120 => Some(41),
-            125 => Some(42),
-            128 => Some(43),
-            144 => Some(44),
-            150 => Some(45),
-            160 => Some(46),
-            175 => Some(47),
-            176 => Some(48),
-            192 => Some(49),
-            200 => Some(50),
-            208 => Some(51),
-            224 => Some(52),
-            225 => Some(53),
-            240 => Some(54),
-            248 => Some(55),
-            250 => Some(56),
-            275 => Some(57),
-            300 => Some(58),
-            325 => Some(59),
-            350 => Some(60),
-            375 => Some(61),
             _ => None,
         }
     } else {
@@ -326,20 +296,21 @@ impl NodeAlloc {
 
         if let Some(class) = class_for(bytes, align) {
             let head = self.freelists[class].load(Ordering::Relaxed);
-            let mut raw = if !head.is_null() {
+            if !head.is_null() {
                 // SAFETY: head points to a valid FreeBlock previously freed to this class.
                 let next = unsafe { (*head).next };
                 self.freelists[class].store(next, Ordering::Relaxed);
-                head.cast::<u8>()
+                let raw = head.cast::<u8>();
+                // SAFETY: zero out the reused memory before returning.
+                unsafe { core::ptr::write_bytes(raw, 0, bytes) };
+                return NonNull::new(raw).expect("non-null free block");
+            }
+
+            let mut raw = if let Some(c) = self.deferred.get() {
+                c.pop_freelist(class)
             } else {
                 core::ptr::null_mut()
             };
-
-            if raw.is_null()
-                && let Some(c) = self.deferred.get()
-            {
-                raw = c.pop_freelist(class);
-            }
 
             if raw.is_null() && bytes <= 256 && !self.occ_enabled() {
                 // Pre-populate freelist from an intrusive 4KB slab page
@@ -806,5 +777,20 @@ mod tests {
         }
         assert_eq!(a.live_allocs(), 0);
         assert_eq!(a.bytes_in_use(), 0);
+    }
+
+    #[test]
+    fn raw_class_table_matches_class_specs() {
+        for (class, &(bytes, align)) in CLASS_SPECS.iter().enumerate() {
+            if align == RAW_ALIGN {
+                assert_eq!(class_for_raw(bytes), Some(class));
+                assert_eq!(class_for(bytes, RAW_ALIGN), Some(class));
+            }
+        }
+        for b in 0..8 {
+            assert_eq!(class_for_raw(b), None);
+        }
+        assert_eq!(class_for_raw(376), None);
+        assert_eq!(class_for_raw(1000), None);
     }
 }
