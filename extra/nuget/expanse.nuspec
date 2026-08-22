@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package >
+  <metadata>
+    <id>expanse</id>
+    <version>0.1.0</version>
+    <authors>Nicolas Brousse</authors>
+    <owners>Nicolas Brousse</owners>
+    <projectUrl>https://github.com/orieg/expanse</projectUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Expanse trie engine C-API (Judy drop-in replacement)</description>
+    <releaseNotes>Initial release.</releaseNotes>
+    <copyright>Copyright 2024</copyright>
+    <tags>native judy trie</tags>
+  </metadata>
+  <files>
+    <file src="..\..\target\x86_64-pc-windows-msvc\release\expanse.dll" target="runtimes\win-x64\native\" />
+    <file src="..\..\target\x86_64-pc-windows-msvc\release\expanse.lib" target="build\native\lib\x64\" />
+    <file src="..\..\crates\expanse-capi\include\expanse.h" target="build\native\include\" />
+    <file src="..\..\crates\expanse-capi\include\Judy.h" target="build\native\include\" />
+    <file src="expanse.targets" target="build\native\" />
+  </files>
+</package>
