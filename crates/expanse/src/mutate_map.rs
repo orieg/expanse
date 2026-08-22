@@ -531,11 +531,13 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                         let b = &mut *(*edge).node_ptr().cast::<BranchL3>();
                         let s = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                         b.hdr.num += 1;
+                        b.hdr.add_presence(d);
                         s
                     } else {
                         let b = &mut *(*edge).node_ptr().cast::<BranchL7>();
                         let s = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                         b.hdr.num += 1;
+                        b.hdr.add_presence(d);
                         s
                     }
                 };
@@ -1701,6 +1703,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                         crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
                         let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                         b.hdr.num += 1;
+                        b.hdr.add_presence(d);
                         let r = map_insert_with_path::<KEEP, OCC>(
                             a,
                             &mut b.edges[slot],
@@ -1716,6 +1719,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                         crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
                         let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                         b.hdr.num += 1;
+                        b.hdr.add_presence(d);
                         let r = map_insert_with_path::<KEEP, OCC>(
                             a,
                             &mut b.edges[slot],
@@ -2212,6 +2216,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                             slot,
                         );
                         b.hdr.num -= 1;
+                        b.hdr.refresh_presence();
                     }
                     crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                     (r, child_null)
@@ -2229,6 +2234,7 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
                             slot,
                         );
                         b.hdr.num -= 1;
+                        b.hdr.refresh_presence();
                     }
                     crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                     (r, child_null)

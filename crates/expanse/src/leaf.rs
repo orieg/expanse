@@ -141,7 +141,11 @@ pub(crate) unsafe fn locate_fixed<const KB: usize>(
 ///
 /// `keys` must be valid for reads of `KB * pop` bytes.
 #[inline]
-unsafe fn lower_bound_fixed<const KB: usize>(keys: *const u8, pop: usize, needle: u64) -> usize {
+pub(crate) unsafe fn lower_bound_fixed<const KB: usize>(
+    keys: *const u8,
+    pop: usize,
+    needle: u64,
+) -> usize {
     if KB == 1 && (9..=16).contains(&pop) {
         // SAFETY: cap_class(pop >= 9) is 16, so keys holds at least 16 bytes.
         unsafe { crate::bits::lower_bound_16_u8(keys, pop, needle as u8) }
