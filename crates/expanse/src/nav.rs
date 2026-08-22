@@ -120,24 +120,6 @@ unsafe fn leaf_value(edge: &Edge, slot: usize) -> u64 {
     unsafe { *edge.node_ptr().cast::<u64>().add(slot) }
 }
 
-/// Binary-searches a leaf for the first slot with key `>= suffix`.
-///
-/// # Safety
-///
-/// Same contract as [`leaf_suffix`].
-unsafe fn leaf_lower_bound<const MAP: bool>(edge: &Edge, kb: u8, pop: usize, suffix: u64) -> usize {
-    let (mut lo, mut hi) = (0usize, pop);
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        // SAFETY: mid < pop.
-        if unsafe { leaf_suffix::<MAP>(edge, kb, pop, mid) } < suffix {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    lo
-}
 
 /// Smallest key `>= suffix` in the subtree, with its value (0 for sets).
 ///
@@ -185,16 +167,32 @@ pub(crate) unsafe fn next<const MAP: bool>(
                 core::cmp::Ordering::Equal => key_low(suffix, kb),
                 core::cmp::Ordering::Greater => return None,
             };
+            let base = edge.node_ptr();
+            let keys = if MAP {
+                // SAFETY: map leaf = values then packed keys.
+                unsafe { base.add(leaf::map_keys_offset(pop)) }
+            } else {
+                base
+            };
             // SAFETY: live leaf of `pop` keys per contract.
-            let slot = unsafe { leaf_lower_bound::<MAP>(edge, kb, pop, low) };
+            let slot = match kb {
+                1 => unsafe { leaf::lower_bound_fixed::<1>(keys, pop, low) },
+                2 => unsafe { leaf::lower_bound_fixed::<2>(keys, pop, low) },
+                3 => unsafe { leaf::lower_bound_fixed::<3>(keys, pop, low) },
+                4 => unsafe { leaf::lower_bound_fixed::<4>(keys, pop, low) },
+                5 => unsafe { leaf::lower_bound_fixed::<5>(keys, pop, low) },
+                6 => unsafe { leaf::lower_bound_fixed::<6>(keys, pop, low) },
+                7 => unsafe { leaf::lower_bound_fixed::<7>(keys, pop, low) },
+                _ => unreachable!(),
+            };
             if slot == pop {
                 return None;
             }
             // SAFETY: slot < pop.
-            let k = unsafe { leaf_suffix::<MAP>(edge, kb, pop, slot) };
+            let k = unsafe { crate::mutate::read_packed(keys, slot, kb as usize) };
             let v = if MAP {
                 // SAFETY: map leaves hold pop values at the base.
-                unsafe { leaf_value(edge, slot) }
+                unsafe { *base.cast::<u64>().add(slot) }
             } else {
                 0
             };
@@ -267,10 +265,9 @@ pub(crate) unsafe fn next<const MAP: bool>(
                     (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
                 }
             };
-            for (slot, &bd) in digits.iter().enumerate().take(num) {
-                if bd < d {
-                    continue;
-                }
+            let start = digits[..num].partition_point(|&bd| bd < d);
+            for slot in start..num {
+                let bd = digits[slot];
                 let rem = if bd == d { key_low(suffix, bl - 1) } else { 0 };
                 // SAFETY: slot < num live child edges.
                 let child = unsafe { &*edges_ptr.add(slot) };
@@ -394,18 +391,34 @@ pub(crate) unsafe fn prev<const MAP: bool>(
                 core::cmp::Ordering::Equal => key_low(suffix, kb),
                 core::cmp::Ordering::Greater => key_low(u64::MAX, kb),
             };
+            let base = edge.node_ptr();
+            let keys = if MAP {
+                // SAFETY: map leaf = values then packed keys.
+                unsafe { base.add(leaf::map_keys_offset(pop)) }
+            } else {
+                base
+            };
             let bound = if low == key_low(u64::MAX, kb) {
                 pop
             } else {
                 // SAFETY: live leaf of `pop` keys per contract.
-                unsafe { leaf_lower_bound::<MAP>(edge, kb, pop, low + 1) }
+                match kb {
+                    1 => unsafe { leaf::lower_bound_fixed::<1>(keys, pop, low + 1) },
+                    2 => unsafe { leaf::lower_bound_fixed::<2>(keys, pop, low + 1) },
+                    3 => unsafe { leaf::lower_bound_fixed::<3>(keys, pop, low + 1) },
+                    4 => unsafe { leaf::lower_bound_fixed::<4>(keys, pop, low + 1) },
+                    5 => unsafe { leaf::lower_bound_fixed::<5>(keys, pop, low + 1) },
+                    6 => unsafe { leaf::lower_bound_fixed::<6>(keys, pop, low + 1) },
+                    7 => unsafe { leaf::lower_bound_fixed::<7>(keys, pop, low + 1) },
+                    _ => unreachable!(),
+                }
             };
             let slot = bound.checked_sub(1)?;
             // SAFETY: slot < pop.
-            let k = unsafe { leaf_suffix::<MAP>(edge, kb, pop, slot) };
+            let k = unsafe { crate::mutate::read_packed(keys, slot, kb as usize) };
             let v = if MAP {
                 // SAFETY: map leaves hold pop values at the base.
-                unsafe { leaf_value(edge, slot) }
+                unsafe { *base.cast::<u64>().add(slot) }
             } else {
                 0
             };
@@ -471,10 +484,9 @@ pub(crate) unsafe fn prev<const MAP: bool>(
                     (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
                 }
             };
-            for (slot, &bd) in digits.iter().enumerate().take(num).rev() {
-                if bd > d {
-                    continue;
-                }
+            let bound = digits[..num].partition_point(|&bd| bd <= d);
+            for slot in (0..bound).rev() {
+                let bd = digits[slot];
                 let rem = if bd == d {
                     key_low(suffix, bl - 1)
                 } else {
@@ -593,8 +605,26 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
             match (suffix >> shift).cmp(&dv) {
                 core::cmp::Ordering::Less => 0,
                 core::cmp::Ordering::Equal => {
+                    let base = edge.node_ptr();
+                    let keys = if MAP {
+                        // SAFETY: map leaf = values then packed keys.
+                        unsafe { base.add(leaf::map_keys_offset(pop)) }
+                    } else {
+                        base
+                    };
+                    let low = key_low(suffix, kb);
                     // SAFETY: live leaf of `pop` keys per contract.
-                    unsafe { leaf_lower_bound::<MAP>(edge, kb, pop, key_low(suffix, kb)) as u64 }
+                    let slot = match kb {
+                        1 => unsafe { leaf::lower_bound_fixed::<1>(keys, pop, low) },
+                        2 => unsafe { leaf::lower_bound_fixed::<2>(keys, pop, low) },
+                        3 => unsafe { leaf::lower_bound_fixed::<3>(keys, pop, low) },
+                        4 => unsafe { leaf::lower_bound_fixed::<4>(keys, pop, low) },
+                        5 => unsafe { leaf::lower_bound_fixed::<5>(keys, pop, low) },
+                        6 => unsafe { leaf::lower_bound_fixed::<6>(keys, pop, low) },
+                        7 => unsafe { leaf::lower_bound_fixed::<7>(keys, pop, low) },
+                        _ => unreachable!(),
+                    };
+                    slot as u64
                 }
                 core::cmp::Ordering::Greater => pop as u64,
             }
