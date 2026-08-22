@@ -84,7 +84,7 @@ Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
-## Comparative Performance vs Industry Primitives (#122)
+## Comparative Performance vs Industry Primitives
 
 Expanse is benchmarked against standard Rust and industry collections (`crates/expanse/benches/comparative.rs`):
 
@@ -98,7 +98,7 @@ Expanse is benchmarked against standard Rust and industry collections (`crates/e
 
 ---
 
-## Multithreaded OCC Concurrency Scalability (#123)
+## Multithreaded OCC Concurrency Scalability
 
 Expanse provides lock-free optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet` in `benches/concurrency.rs`):
 
@@ -112,7 +112,7 @@ Expanse provides lock-free optimistic concurrency control (`SyncExpanseMap` / `S
 
 ---
 
-## Microarchitecture Scaling: x86-64-v1 vs v2 vs v3 vs v4 (#135)
+## Microarchitecture Scaling: x86-64-v1 vs v2 vs v3 vs v4
 
 Expanse exploits hardware primitives via `glibc-hwcaps` and native CPU compilation:
 
