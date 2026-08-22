@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 430" width="100%" height="100%">
+  <defs>
+    <linearGradient id="grad-expanse" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#238636"/>
+      <stop offset="100%" stop-color="#3fb950"/>
+    </linearGradient>
+    <linearGradient id="grad-blue" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1f6feb"/>
+      <stop offset="100%" stop-color="#58a6ff"/>
+    </linearGradient>
+    <linearGradient id="grad-purple" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#8957e5"/>
+      <stop offset="100%" stop-color="#bc8cff"/>
+    </linearGradient>
+    <linearGradient id="grad-gray" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#30363d"/>
+      <stop offset="100%" stop-color="#484f58"/>
+    </linearGradient>
+
+    <style>
+      .bg { fill: #0d1117; }
+      .card { fill: #161b22; stroke: #30363d; stroke-width: 1px; rx: 12px; }
+      .track { fill: #21262d; rx: 6px; }
+      .chip-bg { fill: rgba(56, 139, 253, 0.15); stroke: rgba(56, 139, 253, 0.4); stroke-width: 1px; rx: 6px; }
+      .chip-green { fill: rgba(46, 160, 67, 0.15); stroke: rgba(46, 160, 67, 0.4); stroke-width: 1px; rx: 6px; }
+      
+      .header-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; fill: #8b949e; text-transform: uppercase; }
+      .sub-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; fill: #6e7681; }
+      .label-main { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; fill: #e6edf3; }
+      .metric-main { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 700; fill: #3fb950; }
+      .metric-blue { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; fill: #58a6ff; }
+      .metric-gray { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 500; fill: #8b949e; }
+      .badge-text { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #3fb950; }
+      .badge-blue-text { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #58a6ff; }
+      .caption { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; fill: #8b949e; }
+
+      @media (prefers-color-scheme: light) {
+        .bg { fill: #ffffff; }
+        .card { fill: #f6f8fa; stroke: #d0d7de; }
+        .track { fill: #eaeef2; }
+        .header-title { fill: #57606a; }
+        .sub-title { fill: #8c959f; }
+        .label-main { fill: #1f2328; }
+        .metric-main { fill: #1a7f37; }
+        .metric-blue { fill: #0969da; }
+        .metric-gray { fill: #656d76; }
+        .badge-text { fill: #1a7f37; }
+        .badge-blue-text { fill: #0969da; }
+        .chip-green { fill: rgba(46, 160, 67, 0.1); stroke: rgba(46, 160, 67, 0.3); }
+        .chip-bg { fill: rgba(9, 105, 218, 0.1); stroke: rgba(9, 105, 218, 0.3); }
+        .caption { fill: #57606a; }
+        .grad-gray { stop-color: #d0d7de; }
+      }
+    </style>
+  </defs>
+
+  <rect width="100%" height="100%" class="bg"/>
+
+  <!-- Left Card: Ordered Range Scans -->
+  <g transform="translate(24, 20)">
+    <rect width="404" height="200" class="card"/>
+    <text x="24" y="36" class="header-title">ORDERED RANGE SCAN THROUGHPUT</text>
+    <text x="24" y="52" class="sub-title">100,000 sorted keys traversal (higher is better)</text>
+    
+    <!-- ExpanseMap -->
+    <g transform="translate(24, 76)">
+      <text x="0" y="11" class="label-main">ExpanseMap</text>
+      <rect x="115" y="0" width="165" height="12" class="track"/>
+      <rect x="115" y="0" width="165" height="12" rx="6" fill="url(#grad-expanse)"/>
+      <text x="290" y="11" class="metric-main">88.4M/s</text>
+      <rect x="350" y="-1" width="38" height="16" class="chip-green"/>
+      <text x="356" y="11" class="badge-text">3.4×</text>
+    </g>
+
+    <!-- BTreeMap -->
+    <g transform="translate(24, 118)">
+      <text x="0" y="11" class="label-main">BTreeMap</text>
+      <rect x="115" y="0" width="165" height="12" class="track"/>
+      <rect x="115" y="0" width="48" height="12" rx="6" fill="url(#grad-gray)"/>
+      <text x="290" y="11" class="metric-gray">26.0M/s</text>
+      <text x="356" y="11" class="sub-title">1.0×</text>
+    </g>
+
+    <text x="24" y="174" class="caption">⚡ 3.4× faster by skipping empty digital branches in cache</text>
+  </g>
+
+  <!-- Right Card: Point Lookup Latency -->
+  <g transform="translate(452, 20)">
+    <rect width="404" height="200" class="card"/>
+    <text x="24" y="36" class="header-title">POINT LOOKUP LATENCY</text>
+    <text x="24" y="52" class="sub-title">1,000,000 random key queries (lower is better)</text>
+
+    <!-- ExpanseSet -->
+    <g transform="translate(24, 72)">
+      <text x="0" y="11" class="label-main">ExpanseSet</text>
+      <rect x="110" y="0" width="170" height="12" class="track"/>
+      <rect x="110" y="0" width="80" height="12" rx="6" fill="url(#grad-expanse)"/>
+      <text x="290" y="11" class="metric-main">15.8 ns</text>
+      <rect x="345" y="-1" width="45" height="16" class="chip-green"/>
+      <text x="350" y="11" class="badge-text">fastest</text>
+    </g>
+
+    <!-- RoaringBitmap -->
+    <g transform="translate(24, 106)">
+      <text x="0" y="11" class="label-main">Roaring</text>
+      <rect x="110" y="0" width="170" height="12" class="track"/>
+      <rect x="110" y="0" width="122" height="12" rx="6" fill="url(#grad-blue)"/>
+      <text x="290" y="11" class="metric-blue">24.2 ns</text>
+      <text x="350" y="11" class="sub-title">1.5×</text>
+    </g>
+
+    <!-- Stock Judy -->
+    <g transform="translate(24, 140)">
+      <text x="0" y="11" class="label-main">Stock Judy</text>
+      <rect x="110" y="0" width="170" height="12" class="track"/>
+      <rect x="110" y="0" width="165" height="12" rx="6" fill="url(#grad-gray)"/>
+      <text x="290" y="11" class="metric-gray">32.3 ns</text>
+      <text x="350" y="11" class="sub-title">2.0×</text>
+    </g>
+
+    <text x="24" y="182" class="caption">⚡ 2.0× faster than Stock Judy via immediate slot bypass</text>
+  </g>
+
+  <!-- Bottom Card: Clustered Memory Density -->
+  <g transform="translate(24, 238)">
+    <rect width="832" height="170" class="card"/>
+    <text x="24" y="34" class="header-title">MEMORY CONSUMPTION: CLUSTERED INTEGER SETS</text>
+    <text x="24" y="50" class="sub-title">Bytes per key on 100,000 keys in 256-key clusters (lower is better)</text>
+
+    <!-- ExpanseSet -->
+    <g transform="translate(24, 76)">
+      <text x="0" y="11" class="label-main">ExpanseSet</text>
+      <rect x="120" y="0" width="480" height="12" class="track"/>
+      <rect x="120" y="0" width="12" height="12" rx="6" fill="url(#grad-expanse)"/>
+      <text x="615" y="11" class="metric-main">0.36 B/k</text>
+      <text x="690" y="11" class="sub-title">36 KB total heap</text>
+      <rect x="780" y="-1" width="38" height="16" class="chip-green"/>
+      <text x="785" y="11" class="badge-text">-98%</text>
+    </g>
+
+    <!-- RoaringBitmap -->
+    <g transform="translate(24, 104)">
+      <text x="0" y="11" class="label-main">RoaringBitmap</text>
+      <rect x="120" y="0" width="480" height="12" class="track"/>
+      <rect x="120" y="0" width="13" height="12" rx="6" fill="url(#grad-blue)"/>
+      <text x="615" y="11" class="metric-blue">0.38 B/k</text>
+      <text x="690" y="11" class="sub-title">38 KB total heap</text>
+    </g>
+
+    <!-- BTreeSet -->
+    <g transform="translate(24, 132)">
+      <text x="0" y="11" class="label-main">BTreeSet</text>
+      <rect x="120" y="0" width="480" height="12" class="track"/>
+      <rect x="120" y="0" width="480" height="12" rx="6" fill="url(#grad-gray)"/>
+      <text x="615" y="11" class="metric-gray">16.00 B/k</text>
+      <text x="690" y="11" class="sub-title">1,600 KB heap (44× larger)</text>
+    </g>
+  </g>
+</svg>
