@@ -533,7 +533,7 @@ unsafe fn test_set_popcnt_c_int(edge: &Edge, key: Key, level: u8) -> core::ffi::
 /// # Safety
 ///
 /// Same contract as [`test_set`].
-#[inline]
+#[inline(always)]
 #[must_use]
 pub unsafe fn get_map(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]

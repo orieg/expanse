@@ -678,7 +678,7 @@ pub(crate) unsafe fn search_fixed<const KB: usize>(
 /// # Safety
 ///
 /// `keys` must be valid for reads of `key_bytes * pop` bytes.
-#[inline(always)]
+#[inline]
 #[must_use]
 pub unsafe fn search(keys: *const u8, pop: usize, key_bytes: u8, key: Key) -> Option<usize> {
     debug_assert!((1..=7).contains(&key_bytes));
