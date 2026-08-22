@@ -82,13 +82,15 @@ jobs:
             mkdir -p deb/usr/lib deb/usr/include deb/DEBIAN
             cp package/lib/* deb/usr/lib/
             cp package/include/* deb/usr/include/
-            cat <<EOF > deb/DEBIAN/control
-Package: libexpanse
-Version: ${GITHUB_REF#refs/tags/v}
-Architecture: ${{ matrix.deb_arch }}
-Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Expanse: modern Judy arrays and high-performance trie engine
-EOF
+            cat << 'EOF' > deb/DEBIAN/control
+            Package: libexpanse
+            Architecture: all
+            Maintainer: Nicolas Brousse <nicolas@brousse.info>
+            Description: Expanse modern Judy arrays and high-performance trie engine
+            EOF
+            sed -i 's/^ *//' deb/DEBIAN/control
+            sed -i "s/Architecture: all/Architecture: ${{ matrix.deb_arch }}/" deb/DEBIAN/control
+            sed -i "s/Version:.*/Version: ${GITHUB_REF#refs\/tags\/v}/" deb/DEBIAN/control || echo "Version: 0.2.0" >> deb/DEBIAN/control
             dpkg-deb --build deb libexpanse_${GITHUB_REF#refs/tags/v}_${{ matrix.deb_arch }}.deb
           fi
           
