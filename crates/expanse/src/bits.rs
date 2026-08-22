@@ -168,33 +168,35 @@ pub fn find_byte_8(hay: &[u8; 8], len: usize, needle: u8) -> Option<usize> {
     }
     #[cfg(all(target_arch = "aarch64", not(miri)))]
     {
-        const LO: u64 = 0x0101_0101_0101_0101;
-        const HI: u64 = 0x8080_8080_8080_8080;
-        let x = u64::from_le_bytes(*hay) ^ (LO.wrapping_mul(needle as u64));
-        let mut zeros = x.wrapping_sub(LO) & !x & HI;
-        if len < 8 {
-            zeros &= (1u64 << (len * 8)) - 1;
-        }
-        if zeros == 0 {
+        use core::arch::aarch64::{
+            vceq_u8, vdup_n_u8, vget_lane_u64, vld1_u8, vreinterpret_u64_u8,
+        };
+        // SAFETY: NEON is baseline on AArch64; reads 8 bytes from hay.
+        let mask = unsafe {
+            let t = vdup_n_u8(needle);
+            let h = vld1_u8(hay.as_ptr());
+            let eq = vceq_u8(t, h);
+            vget_lane_u64::<0>(vreinterpret_u64_u8(eq))
+        };
+        let active_mask = if len < 8 {
+            mask & ((1u64 << (len * 8)) - 1)
+        } else {
+            mask
+        };
+        if active_mask == 0 {
             None
         } else {
-            Some((zeros.trailing_zeros() / 8) as usize)
+            Some((active_mask.trailing_zeros() / 8) as usize)
         }
     }
     #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
     {
-        const LO: u64 = 0x0101_0101_0101_0101;
-        const HI: u64 = 0x8080_8080_8080_8080;
-        let x = u64::from_le_bytes(*hay) ^ (LO.wrapping_mul(needle as u64));
-        let mut zeros = x.wrapping_sub(LO) & !x & HI;
-        if len < 8 {
-            zeros &= (1u64 << (len * 8)) - 1;
+        for i in 0..len {
+            if hay[i] == needle {
+                return Some(i);
+            }
         }
-        if zeros == 0 {
-            None
-        } else {
-            Some((zeros.trailing_zeros() / 8) as usize)
-        }
+        None
     }
 }
 
@@ -327,6 +329,7 @@ pub(crate) unsafe fn lower_bound_16_u8(hay: *const u8, len: usize, needle: u8) -
 ///
 /// `hay` must point to at least 16 readable bytes (8 x u16).
 #[inline]
+#[allow(dead_code)]
 pub(crate) unsafe fn search_8_u16(hay: *const u8, len: usize, needle: u16) -> Option<usize> {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     {
@@ -401,6 +404,7 @@ pub(crate) unsafe fn lower_bound_8_u16(hay: *const u8, len: usize, needle: u16) 
 ///
 /// `hay` must point to at least 16 readable bytes (4 x u32).
 #[inline]
+#[allow(dead_code)]
 pub(crate) unsafe fn search_4_u32(hay: *const u8, len: usize, needle: u32) -> Option<usize> {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     {
