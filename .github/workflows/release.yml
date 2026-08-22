@@ -38,13 +38,16 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             deb_arch: amd64
+            rpm_arch: x86_64
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             deb_arch: arm64
+            rpm_arch: aarch64
             cross_pkg: gcc-aarch64-linux-gnu libc6-dev-arm64-cross
           - target: riscv64gc-unknown-linux-gnu
             os: ubuntu-latest
             deb_arch: riscv64
+            rpm_arch: riscv64
             cross_pkg: gcc-riscv64-linux-gnu libc6-dev-riscv64-cross
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
@@ -67,7 +70,7 @@ jobs:
         if: contains(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential dpkg-dev ${{ matrix.cross_pkg }}
+          sudo apt-get install -y build-essential dpkg-dev rpm ${{ matrix.cross_pkg }}
       - name: Build release binaries
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
@@ -78,9 +81,9 @@ jobs:
         run: |
           mkdir -p package/include package/lib
           cp crates/expanse-capi/include/*.h package/include/
-          [ -f target/${{ matrix.target }}/release/libexpanse.so ] && cp target/${{ matrix.target }}/release/libexpanse.so package/lib/ || true
-          [ -f target/${{ matrix.target }}/release/libexpanse.dylib ] && cp target/${{ matrix.target }}/release/libexpanse.dylib package/lib/ || true
-          [ -f target/${{ matrix.target }}/release/libexpanse.a ] && cp target/${{ matrix.target }}/release/libexpanse.a package/lib/ || true
+          [ -f "target/${{ matrix.target }}/release/libexpanse.so" ] && cp "target/${{ matrix.target }}/release/libexpanse.so" package/lib/ || true
+          [ -f "target/${{ matrix.target }}/release/libexpanse.dylib" ] && cp "target/${{ matrix.target }}/release/libexpanse.dylib" package/lib/ || true
+          [ -f "target/${{ matrix.target }}/release/libexpanse.a" ] && cp "target/${{ matrix.target }}/release/libexpanse.a" package/lib/ || true
           
           VERSION="${GITHUB_REF#refs/tags/v}"
           [ -z "$VERSION" ] && VERSION="0.2.0"
@@ -93,17 +96,23 @@ jobs:
             printf "Package: libexpanse\nVersion: %s\nArchitecture: %s\nMaintainer: Nicolas Brousse <nicolas@brousse.info>\nDescription: Expanse: modern Judy arrays and high-performance trie engine\n" "$VERSION" "${{ matrix.deb_arch }}" > deb/DEBIAN/control
             dpkg-deb --build deb "libexpanse_${VERSION}_${{ matrix.deb_arch }}.deb"
           fi
+
+          # Build RPM package if rpm_arch is set
+          if [ -n "${{ matrix.rpm_arch }}" ]; then
+            bash scripts/package_rpm.sh "$VERSION" "${{ matrix.rpm_arch }}" package || true
+          fi
           
           tar -czvf "expanse-${VERSION}-${{ matrix.target }}.tar.gz" -C package .
       - name: Prepare archives (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          mkdir package
-          copy target\${{ matrix.target }}\release\expanse.dll package\
-          copy target\${{ matrix.target }}\release\expanse.lib package\
-          copy crates\expanse-capi\include\*.h package\
-          echo "MSVC Build Instructions: Add expanse.lib to your linker input, and include Judy.h/expanse.h" > package\README_MSVC.txt
-          Compress-Archive -Path package\* -DestinationPath expanse-${env:GITHUB_REF_NAME}-${{ matrix.target }}.zip
+          New-Item -ItemType Directory -Force -Path package
+          Copy-Item target\${{ matrix.target }}\release\expanse.dll package\
+          Copy-Item target\${{ matrix.target }}\release\expanse.lib package\
+          Copy-Item crates\expanse-capi\include\*.h package\
+          Set-Content -Path package\README_MSVC.txt -Value "MSVC Build Instructions: Add expanse.lib to your linker input, and include Judy.h/expanse.h"
+          Compress-Archive -Path package\* -DestinationPath "expanse-$($env:GITHUB_REF_NAME)-${{ matrix.target }}.zip"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -112,6 +121,7 @@ jobs:
             expanse-*.tar.gz
             expanse-*.zip
             *.deb
+            *.rpm
 
   github-release:
     name: Create GitHub Release
@@ -128,33 +138,36 @@ jobs:
       - name: Generate SHA256SUMS
         run: |
           cd artifacts
-          sha256sum * > SHA256SUMS
+          sha256sum ./* > SHA256SUMS
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
           generate_release_notes: true
 
-  publish-apt-repo:
-    name: Publish APT Repository (GitHub Pages)
+  publish-pages:
+    name: Publish Portal & Repositories (GitHub Pages)
     needs: build-release-artifacts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Download all deb packages
+      - name: Install repodata tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y createrepo-c dpkg-dev
+      - name: Download all release packages
         uses: actions/download-artifact@v4
         with:
           pattern: release-artifacts-*
           merge-multiple: true
-          path: deb-artifacts
-      - name: Generate APT repository
+          path: artifacts
+      - name: Generate complete Pages website
         run: |
-          python3 scripts/build_apt_repo.py deb-artifacts apt-repo
-      - name: Deploy APT repository to GitHub Pages
+          python3 scripts/build_pages.py artifacts pages-root
+      - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./apt-repo
-          destination_dir: apt
-          keep_files: true
+          publish_dir: ./pages-root
+          keep_files: false
 
