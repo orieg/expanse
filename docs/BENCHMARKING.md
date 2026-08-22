@@ -19,8 +19,11 @@ Performance claims are this project's reason to exist, so they follow the strict
 ## Comparison targets
 
 1. **C libjudy** — the headline comparison ("faster than the original, or explain why").
-2. `std::collections::BTreeMap` / `HashMap` — the "why not just use std" baseline.
-3. An ART (adaptive radix tree) implementation — the modern-SOTA trie baseline, when a maintained crate is selected.
+2. `std::collections::BTreeMap` / `HashMap` — the "why not just use std" baseline ([#122](https://github.com/orieg/expanse/issues/122)).
+3. **Adaptive Radix Tree (ART)** (`art-tree` / `art-rs`) — modern trie baseline ([#122](https://github.com/orieg/expanse/issues/122)).
+4. **Roaring Bitmaps** (`roaring` / `croaring`) — integer set and posting list baseline ([#122](https://github.com/orieg/expanse/issues/122)).
+5. **Swiss Tables** (`hashbrown::HashMap`) — flat SIMD hash map baseline ([#122](https://github.com/orieg/expanse/issues/122)).
+6. **Concurrent Maps** (`crossbeam-skiplist`, `dashmap`, `parking_lot::RwLock<BTreeMap>`) — multithreaded scalability baseline ([#123](https://github.com/orieg/expanse/issues/123)).
 
 ## Methodology rules (binding)
 
