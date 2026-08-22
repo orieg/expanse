@@ -141,10 +141,55 @@ impl ExpanseMap {
         match &self.root {
             Root::Empty => None,
             Root::Leaf { ptr, pop } => {
-                let (keys, vals) = Self::leaf_parts(*ptr, *pop);
-                let at = keys.binary_search(&key).ok()?;
+                let pop = *pop;
+                let kptr = ptr.as_ptr().cast::<u64>();
+                let at = if pop <= 4 {
+                    // SAFETY: root leaf holds `pop` keys.
+                    unsafe {
+                        if pop >= 1 && *kptr == key {
+                            0
+                        } else if pop >= 2 && *kptr.add(1) == key {
+                            1
+                        } else if pop >= 3 && *kptr.add(2) == key {
+                            2
+                        } else if pop >= 4 && *kptr.add(3) == key {
+                            3
+                        } else {
+                            return None;
+                        }
+                    }
+                } else if pop <= 8 {
+                    // SAFETY: root leaf holds `pop` keys.
+                    unsafe {
+                        if *kptr == key {
+                            0
+                        } else if *kptr.add(1) == key {
+                            1
+                        } else if *kptr.add(2) == key {
+                            2
+                        } else if *kptr.add(3) == key {
+                            3
+                        } else if pop >= 5 && *kptr.add(4) == key {
+                            4
+                        } else if pop >= 6 && *kptr.add(5) == key {
+                            5
+                        } else if pop >= 7 && *kptr.add(6) == key {
+                            6
+                        } else if pop >= 8 && *kptr.add(7) == key {
+                            7
+                        } else {
+                            return None;
+                        }
+                    }
+                } else {
+                    // SAFETY: root leaf holds `pop` keys.
+                    let keys = unsafe { core::slice::from_raw_parts(kptr, pop) };
+                    keys.binary_search(&key).ok()?
+                };
+                // SAFETY: root leaf values live at values offset.
+                let vptr = unsafe { ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>() };
                 // SAFETY: `at < pop` values live behind the keys.
-                Some(unsafe { *vals.add(at) })
+                Some(unsafe { *vptr.add(at) })
             }
             // SAFETY: the trie is maintained by the map mutation engine
             // and satisfies the lookup contract.
@@ -163,10 +208,55 @@ impl ExpanseMap {
         match &mut self.root {
             Root::Empty => None,
             Root::Leaf { ptr, pop } => {
-                let (keys, vals) = Self::leaf_parts(*ptr, *pop);
-                let at = keys.binary_search(&key).ok()?;
+                let pop = *pop;
+                let kptr = ptr.as_ptr().cast::<u64>();
+                let at = if pop <= 4 {
+                    // SAFETY: root leaf holds `pop` keys.
+                    unsafe {
+                        if pop >= 1 && *kptr == key {
+                            0
+                        } else if pop >= 2 && *kptr.add(1) == key {
+                            1
+                        } else if pop >= 3 && *kptr.add(2) == key {
+                            2
+                        } else if pop >= 4 && *kptr.add(3) == key {
+                            3
+                        } else {
+                            return None;
+                        }
+                    }
+                } else if pop <= 8 {
+                    // SAFETY: root leaf holds `pop` keys.
+                    unsafe {
+                        if *kptr == key {
+                            0
+                        } else if *kptr.add(1) == key {
+                            1
+                        } else if *kptr.add(2) == key {
+                            2
+                        } else if *kptr.add(3) == key {
+                            3
+                        } else if pop >= 5 && *kptr.add(4) == key {
+                            4
+                        } else if pop >= 6 && *kptr.add(5) == key {
+                            5
+                        } else if pop >= 7 && *kptr.add(6) == key {
+                            6
+                        } else if pop >= 8 && *kptr.add(7) == key {
+                            7
+                        } else {
+                            return None;
+                        }
+                    }
+                } else {
+                    // SAFETY: root leaf holds `pop` keys.
+                    let keys = unsafe { core::slice::from_raw_parts(kptr, pop) };
+                    keys.binary_search(&key).ok()?
+                };
+                // SAFETY: root leaf values live at values offset.
+                let vptr = unsafe { ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>() };
                 // SAFETY: `at < pop` values live behind the keys.
-                core::ptr::NonNull::new(unsafe { vals.add(at) })
+                core::ptr::NonNull::new(unsafe { vptr.add(at) })
             }
             // SAFETY: trie maintained/owned by this map's engine; the
             // raw walk derives the slot from node pointers only.

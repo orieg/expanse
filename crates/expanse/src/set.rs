@@ -123,13 +123,7 @@ impl ExpanseSet {
     #[inline(always)]
     #[must_use]
     pub fn contains(&self, key: Key) -> bool {
-        match &self.root {
-            Root::Empty => false,
-            Root::Leaf { .. } => self.root_leaf_keys().binary_search(&key).is_ok(),
-            // SAFETY: the trie is maintained by the mutation engine and
-            // satisfies the lookup contract.
-            Root::Tree { top, .. } => unsafe { get::test_set(top, key, 8) },
-        }
+        self.contains_c_int(key) != 0
     }
 
     /// Membership test returning `c_int` (1 or 0).
@@ -138,8 +132,53 @@ impl ExpanseSet {
     pub fn contains_c_int(&self, key: Key) -> core::ffi::c_int {
         match &self.root {
             Root::Empty => 0,
-            Root::Leaf { .. } => {
-                self.root_leaf_keys().binary_search(&key).is_ok() as core::ffi::c_int
+            Root::Leaf { keys, pop } => {
+                let pop = *pop;
+                let kptr = keys.as_ptr().cast::<u64>();
+                if pop <= 4 {
+                    // SAFETY: root leaf holds `pop` valid u64 keys.
+                    unsafe {
+                        if pop >= 1 && *kptr == key {
+                            return 1;
+                        }
+                        if pop >= 2 && *kptr.add(1) == key {
+                            return 1;
+                        }
+                        if pop >= 3 && *kptr.add(2) == key {
+                            return 1;
+                        }
+                        if pop >= 4 && *kptr.add(3) == key {
+                            return 1;
+                        }
+                    }
+                    0
+                } else if pop <= 8 {
+                    // SAFETY: root leaf holds `pop` valid u64 keys.
+                    unsafe {
+                        if *kptr == key
+                            || *kptr.add(1) == key
+                            || *kptr.add(2) == key
+                            || *kptr.add(3) == key
+                        {
+                            return 1;
+                        }
+                        if pop >= 5 && *kptr.add(4) == key {
+                            return 1;
+                        }
+                        if pop >= 6 && *kptr.add(5) == key {
+                            return 1;
+                        }
+                        if pop >= 7 && *kptr.add(6) == key {
+                            return 1;
+                        }
+                        if pop >= 8 && *kptr.add(7) == key {
+                            return 1;
+                        }
+                    }
+                    0
+                } else {
+                    self.root_leaf_keys().binary_search(&key).is_ok() as core::ffi::c_int
+                }
             }
             // SAFETY: the trie is maintained by the mutation engine and satisfies the lookup contract.
             Root::Tree { top, .. } => unsafe { get::test_set_c_int(top, key, 8) },

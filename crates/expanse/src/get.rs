@@ -87,23 +87,34 @@ fn immed_find(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
 #[inline(always)]
 fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
     let n = im.key_count() as usize;
-    debug_assert!(payload.len() >= n * KB);
+    let needle = crate::mutate::key_low(key, KB as u8);
+    if n == 1 {
+        // SAFETY: payload holds at least 1 * KB readable bytes.
+        if unsafe { crate::mutate::read_packed_fixed::<KB>(payload.as_ptr(), 0) } == needle {
+            return Some(0);
+        }
+        return None;
+    }
+    if n == 2 {
+        // SAFETY: payload holds at least 2 * KB readable bytes.
+        unsafe {
+            if crate::mutate::read_packed_fixed::<KB>(payload.as_ptr(), 0) == needle {
+                return Some(0);
+            }
+            if crate::mutate::read_packed_fixed::<KB>(payload.as_ptr(), 1) == needle {
+                return Some(1);
+            }
+        }
+        return None;
+    }
     let le = key.to_le_bytes();
-    let mut needle = [0u8; KB];
-    needle.copy_from_slice(&le[..KB]);
-    // Same idiom as `leaf::search_fixed`, and for the same reason. The
-    // `chunks_exact(KB).take(n)` version this replaces yielded `&[u8]`,
-    // so `candidate == needle` was a **slice**-to-array comparison — a
-    // length check plus slice-equality machinery, under two iterator
-    // adapters. Casting to `[u8; KB]` first makes it an array-to-array
-    // compare of statically known width, which lowers to a word compare
-    // with no length test.
-    //
-    // SAFETY: `[u8; KB]` has alignment 1, and the edge's tag guarantees
-    // `n * KB` payload bytes (debug-asserted above) — exactly `n` such
-    // arrays.
+    let mut needle_bytes = [0u8; KB];
+    needle_bytes.copy_from_slice(&le[..KB]);
+    // SAFETY: `[u8; KB]` has alignment 1, and payload holds `n * KB` bytes.
     let packed = unsafe { core::slice::from_raw_parts(payload.as_ptr().cast::<[u8; KB]>(), n) };
-    packed.iter().position(|candidate| *candidate == needle)
+    packed
+        .iter()
+        .position(|candidate| *candidate == needle_bytes)
 }
 
 /// The shared descent; `MAP` selects map flavor (values) over set flavor.
@@ -146,10 +157,16 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                     return false;
                 }
                 let d = digit(key, bl);
-                let Some(slot) = b.hdr.find(d) else {
+                let num = b.hdr.num as usize;
+                let slot = if num >= 1 && b.hdr.digits[0] == d {
+                    0
+                } else if num >= 2 && b.hdr.digits[1] == d {
+                    1
+                } else if num >= 3 && b.hdr.digits[2] == d {
+                    2
+                } else {
                     return false;
                 };
-                debug_assert!(slot < b.edges.len());
                 // SAFETY: `slot < 3` accesses a valid child edge pointer.
                 edge = unsafe { &*b.edges.as_ptr().add(slot) };
                 level = bl - 1;
@@ -278,8 +295,16 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                     return None;
                 }
                 let d = digit(key, bl);
-                let slot = b.hdr.find(d)?;
-                debug_assert!(slot < b.edges.len());
+                let num = b.hdr.num as usize;
+                let slot = if num >= 1 && b.hdr.digits[0] == d {
+                    0
+                } else if num >= 2 && b.hdr.digits[1] == d {
+                    1
+                } else if num >= 3 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return None;
+                };
                 // SAFETY: `slot < 3` accesses a valid child edge pointer.
                 edge = unsafe { &*b.edges.as_ptr().add(slot) };
                 level = bl - 1;
