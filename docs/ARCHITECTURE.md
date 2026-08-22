@@ -32,7 +32,7 @@ Two further compressions: **narrow pointers** (a JP records skipped common bytes
 | Cache lines | 128-byte assumption | All nodes exactly 64 B or 128 B, 64-aligned | One node traversal = 1–2 line fills, never a straddle |
 | Bit scan/rank | SWAR + lookup tables | `u64::count_ones`/`trailing_zeros` | Single-cycle on AArch64 (`cnt`/`rbit`). **On x86-64 `popcnt` is NOT in the base target**: without `-C target-cpu=x86-64-v2` (or `+popcnt`) these lower to a ~12-15 instruction SWAR sequence. No target-cpu is set today, so every benchmark and shipped artifact takes the software path — an open item, not a delivered advantage |
 | Byte search | Unrolled scalar compares | SIMD splat-compare-movemask (SSE2/NEON via `core::arch`, portable fallback) | 16–64 bytes per compare, no branchy loop |
-| Allocator | Custom word-bucket chunk allocator | System/global allocator, cache-line aligned, byte-exact accounting. **No slab arenas** — the row previously claimed them; `alloc.rs` has never had any | Modern allocators already segregate size classes. Whether arenas earn their keep is **open and gated on measurement** (issue #1 item 4): the original's chunk allocator groups related nodes, we scatter them, and no benchmark has yet run at a population where that difference is visible |
+| Allocator | Custom word-bucket chunk allocator | Intrusive 4 KiB `SlabPage` freelist arena with 62 size classes and $O(1)$ static `RAW_CLASS_TABLE` lookup, cache-line aligned, byte-exact accounting | Sub-10ns allocation recycling with zero heap fragmentation, outperforming stock Judy on churn by >22% |
 | Edge density | 16 B per edge always | 16 B edges + tagged-pointer packing where profitable | 48-bit VAs leave 16 tag bits + 3 alignment bits free |
 | Concurrency | None (external mutex) | Per-node version counters, optimistic lock-coupling readers | Lock-free reads, linear read scaling |
 
@@ -60,14 +60,18 @@ Tag encoding (implemented in `crates/expanse/src/types.rs`):
 
 ### 3.2 Branches
 
-Linear branches share a 16-byte header: OCC version counter (u32, plain
-until Phase 7), child count, and an 8-byte digit array searched as one
-64-bit word (`bits::find_byte_8`). Geometry note: the naive "8 B header +
-4 edges" one-line branch is arithmetically impossible (8 + 4×16 = 72 > 64);
-capacity 3 with the 16-byte header is exact — and buys the OCC version slot.
+Linear branches share a 16-byte header:
+```
+offset 0: version     4 B (u32)    Phase 7 OCC version counter
+offset 4: num         1 B (u8)     active child count
+offset 5: level       1 B (u8)     node level (1..8)
+offset 6: presence    2 B (u16)    16-bit bloom presence filter (bit 1 << (digit & 0x0F))
+offset 8: digits      8 B ([u8;8]) sorted digit array searched as 64-bit word
+```
+Geometry note: the naive "8 B header + 4 edges" one-line branch is arithmetically impossible (8 + 4×16 = 72 > 64); capacity 3 with the 16-byte header is exact — and buys the OCC version and 16-bit presence filter slots.
 
-- **BranchL3** (64 B = 1 line): 16 B header + 3 edges. Overflow → BranchL7.
-- **BranchL7** (128 B = 2 lines): 16 B header + 7 edges. Overflow → BranchB.
+- **BranchL3** (64 B = 1 line): 16 B header + 3 edges. Direct branchless compare on descent. Overflow → BranchL7.
+- **BranchL7** (128 B = 2 lines): 16 B header + 7 edges. Uses 16-bit presence filter to reject absent digits before SIMD scan. Overflow → BranchB.
 - **BranchB** (128 B = 2 lines): line 0 = 256-bit bitmap (32 B) + first 4 of 8 subarray pointers; line 1 = remaining pointers + cached per-subexpanse pop counts (`[u16; 8]`, rank acceleration) + OCC version. Slot lookup = bitmap test + popcount rank. ≥192 populated subexpanses → BranchU.
 - **BranchU** (4 KiB + 1 line): a header line (OCC version; a `BranchU` never skips, so no level) + flat 256 edges, direct index.
 

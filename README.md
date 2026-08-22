@@ -71,6 +71,8 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | Area | Scope & Objectives | Tracking Issue | State |
 |---|---|---|---|
 | **Performance Leadership** | Outperform stock libjudy across 100% of benchmark metrics (glibc-hwcaps, branch bitmasks, deep branch prefetch) | [#110](https://github.com/orieg/expanse/issues/110) | 🔄 in progress |
+| **Multi-Arch Dynamic Packaging** | Multi-architecture dynamic packaging with `glibc-hwcaps` (`x86-64-v2`, `x86-64-v3`, and `x86-64-v4`) | [#115](https://github.com/orieg/expanse/issues/115) | 🔄 in progress |
+| **Large-Value Optimizations** | Polymorphic 64-bit value slots, arena/slab backing, and metadata-predicate range filtering | [#112](https://github.com/orieg/expanse/issues/112) | 📋 planned |
 | **RISC-V 64-bit** | Support 64-bit RISC-V (`riscv64gc`) for memory-constrained edge/Linux systems | [#96](https://github.com/orieg/expanse/issues/96) | 📋 planned |
 | **32-Bit Microprocessors** | 32-bit architecture support (`RV32`, `ESP32`, `Cortex-M`) for microcontrollers and embedded IoT/robotics | [#109](https://github.com/orieg/expanse/issues/109) | 📋 planned |
 | **Distribution & Packaging** | Automated release publishing (crates.io trusted publishing, `.deb`, and distro packaging) | [#73](https://github.com/orieg/expanse/issues/73) | 📋 planned |
@@ -96,14 +98,14 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 | **Random 1,000,000 lookup** | **26.8 ns** vs 48.6 ns | **0.55× / 0.53×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **45% faster than Judy** |
 | **Random 3,000,000 lookup** | **318.5M** vs 389.7M inst | **0.82× / 0.81×** | **16.80 B/k** vs 17.80 B/k (0.94×) | 🟢 **18% faster than Judy** |
 | **Random 30,000 lookup** | **4.53M** vs 5.09M inst | **0.89× / 0.88×** | **24.63 B/k** vs 24.81 B/k (0.99×) | 🟢 **11% faster than Judy** |
-| **Random 30,000 set test** | **4.10M** vs 3.83M inst | **1.07× / 1.06×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Near Parity (within 7%)** |
-| **Random 30,000 churn (del+ins)** | **42.8M** vs 50.8M inst | **0.84× / 0.83×** | **Dynamic exact accounting** | 🟢 **16% faster than Judy** |
-| **Clustered 100,000 set insert** | **7.66M** vs 10.38M inst | **0.73× / 0.73×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **27% faster than Judy** |
+| **Random 30,000 set test** | **3.78M** vs 3.83M inst | **0.988× / 0.98×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Faster than Judy** |
+| **Random 30,000 churn (del+ins)** | **39.4M** vs 50.8M inst | **0.776× / 0.77×** | **Dynamic exact accounting** | 🟢 **22.4% faster than Judy** |
+| **Clustered 100,000 set insert** | **7.73M** vs 10.38M inst | **0.745× / 0.74×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **25.5% faster than Judy** |
 | **Clustered 1,000,000 insert** | **31.6 ns** vs 34.1 ns | **0.92× / 0.89×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **8% less memory, faster insert** |
 | **Clustered 1,000,000 lookup** | **11.8 ns** vs 12.1 ns | **0.98× / 0.95×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **Faster than Judy** |
 | **Clustered 30,000 lookup** | **3.71M** vs 3.97M inst | **0.94× / 0.92×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **6% faster than Judy** |
 | **Clustered 100,000 map insert** | **11.64M** vs 12.01M inst | **0.97× / 0.96×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **Faster than Judy** |
-| **Random 100,000 set insert** | **16.00M** vs 15.69M inst | **1.019× / 1.01×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Near Parity (within 1.9%)** |
+| **Random 100,000 set insert** | **15.61M** vs 15.69M inst | **0.995× / 0.99×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Faster than Judy** |
 | **Random 100,000 map insert** | **19.48M** vs 17.76M inst | **1.09× / 1.08×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **Near Parity (within 9%)** |
 
 #### Modern CPU Compilation (`x86-64-v3`: AVX2 / BMI2 / POPCNT)
