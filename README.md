@@ -76,7 +76,7 @@ Full design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 | **Concurrency Scalability** | Multithreaded scalability suite under varying read/write ratios (1..64 threads) | [#123](https://github.com/orieg/expanse/issues/123) | 📋 planned |
 | **Database Subsystems** | Evaluate and optimize Expanse for DB engines (posting lists, MVCC visibility, string dicts) | [#124](https://github.com/orieg/expanse/issues/124) | 📋 planned |
 | **Large-Value Optimizations** | Polymorphic 64-bit value slots, arena/slab backing, and metadata-predicate range filtering | [#112](https://github.com/orieg/expanse/issues/112) | 📋 planned |
-| **RISC-V 64-bit** | Support 64-bit RISC-V (`riscv64gc`) for memory-constrained edge/Linux systems | [#96](https://github.com/orieg/expanse/issues/96) | 📋 planned |
+| **RISC-V 64-bit** | Support 64-bit RISC-V (`riscv64gc`) for memory-constrained edge/Linux systems | [#96](https://github.com/orieg/expanse/issues/96) | ✅ completed |
 | **32-Bit Microprocessors** | 32-bit architecture support (`RV32`, `ESP32`, `Cortex-M`) for microcontrollers and embedded IoT/robotics | [#109](https://github.com/orieg/expanse/issues/109) | 📋 planned |
 | **Distribution & Packaging** | Automated release publishing (crates.io trusted publishing, `.deb`, and distro packaging) | [#73](https://github.com/orieg/expanse/issues/73) | 📋 planned |
 
@@ -126,6 +126,7 @@ Roadmap ordering (no schedule): 1 foundation types → 2 bit/vector engine → 3
 | macOS AArch64 | CI-tested |
 | Windows x86-64 (MSVC) | CI-tested, first-class (`expanse.dll` is a deliverable) |
 | Linux x86-64 (musl/Alpine) | CI-tested (tests static; `libexpanse.so` built dynamic, the Alpine drop-in artifact) |
+| Linux RISC-V 64-bit (RV64GC) | CI-tested (cross-compiled) |
 
 64-bit targets only (enforced at compile time).
 
