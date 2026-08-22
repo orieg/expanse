@@ -25,15 +25,25 @@ jobs:
         run: cargo publish -p expanse-capi
 
   build-release-artifacts:
-    name: Build Release Artifacts
+    name: Build Artifacts (${{ matrix.target }})
     needs: publish-crates
     strategy:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+            deb_arch: amd64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            deb_arch: arm64
+            cross_pkg: gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+          - target: riscv64gc-unknown-linux-gnu
+            os: ubuntu-latest
+            deb_arch: riscv64
+            cross_pkg: gcc-riscv64-linux-gnu libc6-dev-riscv64-cross
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
+            cross_pkg: musl-tools
           - target: aarch64-apple-darwin
             os: macos-latest
           - target: x86_64-apple-darwin
@@ -48,10 +58,15 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
-      - name: Install dependencies (Linux)
+      - name: Install cross-compilation dependencies (Linux)
         if: contains(matrix.os, 'ubuntu')
-        run: sudo apt-get update && sudo apt-get install -y gcc-x86-64-linux-gnu libc6-dev musl-tools
-      - name: Build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-x86-64-linux-gnu libc6-dev dpkg-dev ${{ matrix.cross_pkg }}
+      - name: Build release binaries
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
         run: cargo build --workspace --release --target ${{ matrix.target }}
       - name: Prepare archives (Unix)
         if: runner.os != 'Windows'
@@ -61,21 +76,22 @@ jobs:
           cp target/${{ matrix.target }}/release/libexpanse.so package/lib/ || true
           cp target/${{ matrix.target }}/release/libexpanse.dylib package/lib/ || true
           cp target/${{ matrix.target }}/release/libexpanse.a package/lib/ || true
-          # For Debian packaging
-          if [ "${{ matrix.target }}" = "x86_64-unknown-linux-gnu" ]; then
-            sudo apt-get install -y dpkg-dev
-            mkdir -p deb/usr/lib deb/usr/include deb/usr/lib/pkgconfig deb/DEBIAN
+          
+          # Build Debian package if deb_arch is set
+          if [ -n "${{ matrix.deb_arch }}" ]; then
+            mkdir -p deb/usr/lib deb/usr/include deb/DEBIAN
             cp package/lib/* deb/usr/lib/
             cp package/include/* deb/usr/include/
             cat <<EOF > deb/DEBIAN/control
 Package: libexpanse
 Version: ${GITHUB_REF#refs/tags/v}
-Architecture: amd64
+Architecture: ${{ matrix.deb_arch }}
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Expanse trie engine
+Description: Expanse: modern Judy arrays and high-performance trie engine
 EOF
-            dpkg-deb --build deb libexpanse_${GITHUB_REF#refs/tags/v}_amd64.deb
+            dpkg-deb --build deb libexpanse_${GITHUB_REF#refs/tags/v}_${{ matrix.deb_arch }}.deb
           fi
+          
           tar -czvf expanse-${GITHUB_REF#refs/tags/v}-${{ matrix.target }}.tar.gz -C package .
       - name: Prepare archives (Windows)
         if: runner.os == 'Windows'
