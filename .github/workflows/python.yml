@@ -49,7 +49,7 @@ jobs:
 
       - name: Build and install expanse-trie
         run: |
-          maturin develop -m crates/expanse-py/Cargo.toml --release
+          pip install .
 
       - name: Run Pytest suite
         run: |
