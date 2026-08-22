@@ -1,0 +1,64 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+group = 'io.github.orieg'
+version = '0.2.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(22)
+    }
+    withSourcesJar()
+    withJavadocJar()
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    jvmArgs(['--enable-native-access=ALL-UNNAMED'])
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            pom {
+                name = 'Expanse Java Bindings'
+                description = 'Zero-GC, off-heap associative trie collections for Java and Scala powered by Project Panama FFM and libexpanse.'
+                url = 'https://github.com/orieg/expanse'
+                licenses {
+                    license {
+                        name = 'MIT License'
+                        url = 'https://opensource.org/licenses/MIT'
+                    }
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'orieg'
+                        name = 'Nicolas Brousse'
+                        email = 'nicolas@brousse.info'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:git://github.com/orieg/expanse.git'
+                    developerConnection = 'scm:git:ssh://github.com:orieg/expanse.git'
+                    url = 'https://github.com/orieg/expanse'
+                }
+            }
+        }
+    }
+}
