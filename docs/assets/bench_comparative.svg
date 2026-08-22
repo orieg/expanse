@@ -1,110 +1,159 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 460" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 430" width="100%" height="100%">
   <defs>
+    <linearGradient id="grad-expanse" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#238636"/>
+      <stop offset="100%" stop-color="#3fb950"/>
+    </linearGradient>
+    <linearGradient id="grad-blue" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1f6feb"/>
+      <stop offset="100%" stop-color="#58a6ff"/>
+    </linearGradient>
+    <linearGradient id="grad-purple" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#8957e5"/>
+      <stop offset="100%" stop-color="#bc8cff"/>
+    </linearGradient>
+    <linearGradient id="grad-gray" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#30363d"/>
+      <stop offset="100%" stop-color="#484f58"/>
+    </linearGradient>
+
     <style>
       .bg { fill: #0d1117; }
-      .card-bg { fill: #161b22; stroke: #30363d; stroke-width: 1; rx: 8px; }
-      .title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700; fill: #f0f6fc; }
-      .subtitle { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; fill: #8b949e; }
-      .section-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; fill: #58a6ff; }
-      .bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 600; fill: #c9d1d9; }
-      .bar-val { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-size: 12px; font-weight: 600; fill: #f0f6fc; }
-      .bar-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; fill: #8b949e; }
+      .card { fill: #161b22; stroke: #30363d; stroke-width: 1px; rx: 12px; }
+      .track { fill: #21262d; rx: 6px; }
+      .chip-bg { fill: rgba(56, 139, 253, 0.15); stroke: rgba(56, 139, 253, 0.4); stroke-width: 1px; rx: 6px; }
+      .chip-green { fill: rgba(46, 160, 67, 0.15); stroke: rgba(46, 160, 67, 0.4); stroke-width: 1px; rx: 6px; }
       
-      .bar-expanse { fill: #238636; rx: 4px; }
-      .bar-expanse-accent { fill: #2ea043; rx: 4px; }
-      .bar-roaring { fill: #1f6feb; rx: 4px; }
-      .bar-other { fill: #484f58; rx: 4px; }
-      .grid { stroke: #21262d; stroke-dasharray: 2,4; }
+      .header-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; fill: #8b949e; text-transform: uppercase; }
+      .sub-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; fill: #6e7681; }
+      .label-main { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 600; fill: #e6edf3; }
+      .metric-main { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 700; fill: #3fb950; }
+      .metric-blue { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 600; fill: #58a6ff; }
+      .metric-gray { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; font-weight: 500; fill: #8b949e; }
+      .badge-text { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #3fb950; }
+      .badge-blue-text { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #58a6ff; }
+      .caption { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; fill: #8b949e; }
 
       @media (prefers-color-scheme: light) {
         .bg { fill: #ffffff; }
-        .card-bg { fill: #f6f8fa; stroke: #d0d7de; }
-        .title { fill: #1f2328; }
-        .subtitle { fill: #656d76; }
-        .section-title { fill: #0969da; }
-        .bar-label { fill: #1f2328; }
-        .bar-val { fill: #1f2328; }
-        .bar-sub { fill: #656d76; }
-        .bar-other { fill: #afb8c1; }
-        .grid { stroke: #eaeef2; }
+        .card { fill: #f6f8fa; stroke: #d0d7de; }
+        .track { fill: #eaeef2; }
+        .header-title { fill: #57606a; }
+        .sub-title { fill: #8c959f; }
+        .label-main { fill: #1f2328; }
+        .metric-main { fill: #1a7f37; }
+        .metric-blue { fill: #0969da; }
+        .metric-gray { fill: #656d76; }
+        .badge-text { fill: #1a7f37; }
+        .badge-blue-text { fill: #0969da; }
+        .chip-green { fill: rgba(46, 160, 67, 0.1); stroke: rgba(46, 160, 67, 0.3); }
+        .chip-bg { fill: rgba(9, 105, 218, 0.1); stroke: rgba(9, 105, 218, 0.3); }
+        .caption { fill: #57606a; }
+        .grad-gray { stop-color: #d0d7de; }
       }
     </style>
   </defs>
 
   <rect width="100%" height="100%" class="bg"/>
 
-  <!-- Card 1: Range Scan Throughput -->
-  <g transform="translate(20, 20)">
-    <rect width="385" height="195" class="card-bg"/>
-    <text x="20" y="30" class="section-title">ORDERED RANGE SCAN THROUGHPUT</text>
-    <text x="20" y="46" class="subtitle">100,000 sequential 64-bit keys (higher is better)</text>
+  <!-- Left Card: Ordered Range Scans -->
+  <g transform="translate(24, 20)">
+    <rect width="404" height="200" class="card"/>
+    <text x="24" y="36" class="header-title">ORDERED RANGE SCAN THROUGHPUT</text>
+    <text x="24" y="52" class="sub-title">100,000 sorted keys traversal (higher is better)</text>
     
     <!-- ExpanseMap -->
-    <text x="20" y="80" class="bar-label">ExpanseMap</text>
-    <rect x="120" y="66" width="200" height="18" class="bar-expanse-accent"/>
-    <text x="328" y="80" class="bar-val">3.4×</text>
-    <text x="125" y="80" class="bar-sub" fill="#ffffff">88.4M keys/s</text>
+    <g transform="translate(24, 76)">
+      <text x="0" y="11" class="label-main">ExpanseMap</text>
+      <rect x="115" y="0" width="165" height="12" class="track"/>
+      <rect x="115" y="0" width="165" height="12" rx="6" fill="url(#grad-expanse)"/>
+      <text x="290" y="11" class="metric-main">88.4M/s</text>
+      <rect x="350" y="-1" width="38" height="16" class="chip-green"/>
+      <text x="356" y="11" class="badge-text">3.4×</text>
+    </g>
 
     <!-- BTreeMap -->
-    <text x="20" y="125" class="bar-label">BTreeMap</text>
-    <rect x="120" y="111" width="59" height="18" class="bar-other"/>
-    <text x="187" y="125" class="bar-val">1.0×</text>
-    <text x="125" y="125" class="bar-sub" fill="#ffffff">26.0M</text>
+    <g transform="translate(24, 118)">
+      <text x="0" y="11" class="label-main">BTreeMap</text>
+      <rect x="115" y="0" width="165" height="12" class="track"/>
+      <rect x="115" y="0" width="48" height="12" rx="6" fill="url(#grad-gray)"/>
+      <text x="290" y="11" class="metric-gray">26.0M/s</text>
+      <text x="356" y="11" class="sub-title">1.0×</text>
+    </g>
 
-    <text x="20" y="170" class="bar-sub">⚡ 3.4× faster by skipping empty digit branches in cache</text>
+    <text x="24" y="174" class="caption">⚡ 3.4× faster by skipping empty digital branches in cache</text>
   </g>
 
-  <!-- Card 2: Point Lookup Latency -->
-  <g transform="translate(435, 20)">
-    <rect width="385" height="195" class="card-bg"/>
-    <text x="20" y="30" class="section-title">POINT LOOKUP LATENCY</text>
-    <text x="20" y="46" class="subtitle">1,000,000 keys random query (lower is better)</text>
+  <!-- Right Card: Point Lookup Latency -->
+  <g transform="translate(452, 20)">
+    <rect width="404" height="200" class="card"/>
+    <text x="24" y="36" class="header-title">POINT LOOKUP LATENCY</text>
+    <text x="24" y="52" class="sub-title">1,000,000 random key queries (lower is better)</text>
 
     <!-- ExpanseSet -->
-    <text x="20" y="75" class="bar-label">ExpanseSet</text>
-    <rect x="110" y="61" width="105" height="18" class="bar-expanse"/>
-    <text x="223" y="75" class="bar-val">15.8 ns</text>
-    <text x="280" y="75" class="bar-sub">(fastest)</text>
+    <g transform="translate(24, 72)">
+      <text x="0" y="11" class="label-main">ExpanseSet</text>
+      <rect x="110" y="0" width="170" height="12" class="track"/>
+      <rect x="110" y="0" width="80" height="12" rx="6" fill="url(#grad-expanse)"/>
+      <text x="290" y="11" class="metric-main">15.8 ns</text>
+      <rect x="345" y="-1" width="45" height="16" class="chip-green"/>
+      <text x="350" y="11" class="badge-text">fastest</text>
+    </g>
 
     <!-- RoaringBitmap -->
-    <text x="20" y="110" class="bar-label">Roaring</text>
-    <rect x="110" y="96" width="161" height="18" class="bar-roaring"/>
-    <text x="279" y="110" class="bar-val">24.2 ns</text>
-    <text x="336" y="110" class="bar-sub">(1.5×)</text>
+    <g transform="translate(24, 106)">
+      <text x="0" y="11" class="label-main">Roaring</text>
+      <rect x="110" y="0" width="170" height="12" class="track"/>
+      <rect x="110" y="0" width="122" height="12" rx="6" fill="url(#grad-blue)"/>
+      <text x="290" y="11" class="metric-blue">24.2 ns</text>
+      <text x="350" y="11" class="sub-title">1.5×</text>
+    </g>
 
     <!-- Stock Judy -->
-    <text x="20" y="145" class="bar-label">Stock Judy</text>
-    <rect x="110" y="131" width="215" height="18" class="bar-other"/>
-    <text x="333" y="145" class="bar-val">32.3 ns</text>
-    <text x="382" y="145" class="bar-sub"></text>
+    <g transform="translate(24, 140)">
+      <text x="0" y="11" class="label-main">Stock Judy</text>
+      <rect x="110" y="0" width="170" height="12" class="track"/>
+      <rect x="110" y="0" width="165" height="12" rx="6" fill="url(#grad-gray)"/>
+      <text x="290" y="11" class="metric-gray">32.3 ns</text>
+      <text x="350" y="11" class="sub-title">2.0×</text>
+    </g>
 
-    <text x="20" y="178" class="bar-sub">⚡ 2.0× faster than Stock Judy via immediate slot bypass</text>
+    <text x="24" y="182" class="caption">⚡ 2.0× faster than Stock Judy via immediate slot bypass</text>
   </g>
 
-  <!-- Card 3: Memory Density on Clustered Sets -->
-  <g transform="translate(20, 235)">
-    <rect width="800" height="205" class="card-bg"/>
-    <text x="20" y="30" class="section-title">MEMORY FOOTPRINT: CLUSTERED &amp; DENSE INTEGER SETS</text>
-    <text x="20" y="48" class="subtitle">Bytes per key on 100,000 keys across 256-key clusters (lower is better)</text>
+  <!-- Bottom Card: Clustered Memory Density -->
+  <g transform="translate(24, 238)">
+    <rect width="832" height="170" class="card"/>
+    <text x="24" y="34" class="header-title">MEMORY CONSUMPTION: CLUSTERED INTEGER SETS</text>
+    <text x="24" y="50" class="sub-title">Bytes per key on 100,000 keys in 256-key clusters (lower is better)</text>
 
     <!-- ExpanseSet -->
-    <text x="20" y="85" class="bar-label">ExpanseSet</text>
-    <rect x="130" y="71" width="9" height="20" class="bar-expanse-accent"/>
-    <text x="147" y="86" class="bar-val">0.36 B/key</text>
-    <text x="240" y="86" class="bar-sub">36 KB total heap — adaptive 256-bit bitmap leaves</text>
+    <g transform="translate(24, 76)">
+      <text x="0" y="11" class="label-main">ExpanseSet</text>
+      <rect x="120" y="0" width="480" height="12" class="track"/>
+      <rect x="120" y="0" width="12" height="12" rx="6" fill="url(#grad-expanse)"/>
+      <text x="615" y="11" class="metric-main">0.36 B/k</text>
+      <text x="690" y="11" class="sub-title">36 KB total heap</text>
+      <rect x="780" y="-1" width="38" height="16" class="chip-green"/>
+      <text x="785" y="11" class="badge-text">-98%</text>
+    </g>
 
     <!-- RoaringBitmap -->
-    <text x="20" y="120" class="bar-label">RoaringBitmap</text>
-    <rect x="130" y="106" width="10" height="20" class="bar-roaring"/>
-    <text x="148" y="121" class="bar-val">0.38 B/key</text>
-    <text x="240" y="121" class="bar-sub">38 KB total heap — run/bit container array</text>
+    <g transform="translate(24, 104)">
+      <text x="0" y="11" class="label-main">RoaringBitmap</text>
+      <rect x="120" y="0" width="480" height="12" class="track"/>
+      <rect x="120" y="0" width="13" height="12" rx="6" fill="url(#grad-blue)"/>
+      <text x="615" y="11" class="metric-blue">0.38 B/k</text>
+      <text x="690" y="11" class="sub-title">38 KB total heap</text>
+    </g>
 
     <!-- BTreeSet -->
-    <text x="20" y="155" class="bar-label">BTreeSet</text>
-    <rect x="130" y="141" width="380" height="20" class="bar-other"/>
-    <text x="518" y="156" class="bar-val">16.00 B/key</text>
-    <text x="610" y="156" class="bar-sub">1,600 KB (44× larger)</text>
-
-    <text x="20" y="190" class="bar-sub">💾 Expanse achieves 97.7% memory reduction vs BTreeSet while preserving sorted order and O(depth) rank/select</text>
+    <g transform="translate(24, 132)">
+      <text x="0" y="11" class="label-main">BTreeSet</text>
+      <rect x="120" y="0" width="480" height="12" class="track"/>
+      <rect x="120" y="0" width="480" height="12" rx="6" fill="url(#grad-gray)"/>
+      <text x="615" y="11" class="metric-gray">16.00 B/k</text>
+      <text x="690" y="11" class="sub-title">1,600 KB heap (44× larger)</text>
+    </g>
   </g>
 </svg>
