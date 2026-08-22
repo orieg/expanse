@@ -472,6 +472,7 @@ repo_gpgcheck=0
     <div class="nav-scroll">
       <ul class="nav-links">
         <li><a href="../" class="">Home</a></li>
+        <li><a href="../#benchmarks">Benchmarks</a></li>
         <li><a href="../visualizer.html" class="">Visualizer</a></li>
         <li><a href="../apt/" class="">APT (Debian)</a></li>
         <li><a href="./" class="active">RPM (RHEL)</a></li>

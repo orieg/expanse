@@ -546,6 +546,7 @@ NAV_HTML = """  <header class="navbar">
     <div class="nav-scroll">
       <ul class="nav-links">
         <li><a href="./" class="active">Home</a></li>
+        <li><a href="./#benchmarks">Benchmarks</a></li>
         <li><a href="./visualizer.html" class="">Visualizer</a></li>
         <li><a href="./apt/" class="">APT (Debian)</a></li>
         <li><a href="./rpm/" class="">RPM (RHEL)</a></li>
@@ -573,6 +574,7 @@ NAV_VIS_HTML = """  <header class="navbar">
     <div class="nav-scroll">
       <ul class="nav-links">
         <li><a href="./" class="">Home</a></li>
+        <li><a href="./#benchmarks">Benchmarks</a></li>
         <li><a href="./visualizer.html" class="active">Visualizer</a></li>
         <li><a href="./apt/" class="">APT (Debian)</a></li>
         <li><a href="./rpm/" class="">RPM (RHEL)</a></li>
@@ -653,9 +655,10 @@ def build_pages(artifacts_dir: str, output_dir: str):
       <h1>Modern Judy Arrays &amp; High-Performance Digital Tree Engine</h1>
       <p>Clean-room pure-Rust implementation of digital trees modernized for modern 64-bit microarchitectures with zero-allocation immediates, SWAR/SIMD vectorization, and lock-free OCC reader concurrency.</p>
       <div class="hero-actions">
-        <a href="#quickstart" class="btn btn-primary">Quickstart Installation</a>
-        <a href="./visualizer.html" class="btn btn-secondary">Open Architecture Visualizer &#8594;</a>
-        <a href="https://github.com/orieg/expanse" class="btn btn-secondary">Source Code</a>
+        <a href="#benchmarks" class="btn btn-primary" style="background: linear-gradient(135deg, #38bdf8, #2563eb); color: #ffffff;">&#9889; Performance Benchmarks &#8595;</a>
+        <a href="./visualizer.html" class="btn btn-secondary">Architecture Visualizer &#8594;</a>
+        <a href="#quickstart" class="btn btn-secondary">Quickstart</a>
+        <a href="https://github.com/orieg/expanse" class="btn btn-secondary">GitHub</a>
       </div>
     </div>
   </div>
@@ -746,7 +749,7 @@ def build_pages(artifacts_dir: str, output_dir: str):
     </div>
   </div>
 
-  <section>
+  <section id="benchmarks">
     <div class="container">
       <div class="section-header">
         <span class="section-tag">Performance</span>
