@@ -2,17 +2,594 @@
 """Builds the complete GitHub Pages web distribution with portal index, visualizer, APT, and RPM repositories."""
 
 import os
-import re
 import shutil
 import sys
 from build_apt_repo import build_apt_repo
 from build_rpm_repo import build_rpm_repo
 
+MAIN_CSS = """
+    :root {
+      --bg: #090d16;
+      --card-bg: #111827;
+      --card-inner: #0b1120;
+      --border: #1f293d;
+      --border-accent: rgba(56, 189, 248, 0.4);
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --heading: #f8fafc;
+      --accent: #38bdf8;
+      --accent-hover: #7dd3fc;
+      --accent-green: #10b981;
+      --code-bg: #030712;
+      --bench-bg: #0d1117;
+      --quote-bg: linear-gradient(180deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.8) 100%);
+      --navbar-bg: rgba(9, 13, 22, 0.85);
+      --nav-pill-bg: rgba(56, 189, 248, 0.1);
+      --nav-pill-border: rgba(56, 189, 248, 0.25);
+      --btn-secondary-bg: #111827;
+      --btn-secondary-hover: #1e293b;
+      --btn-secondary-border: #1f293d;
+      --btn-secondary-text: #f8fafc;
+      --badge-bg: #111827;
+      --badge-border: #1f293d;
+      --badge-text: #38bdf8;
+      --spotlight-bg: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+      --spotlight-border: rgba(99, 102, 241, 0.4);
+      --tab-active-bg: rgba(56, 189, 248, 0.05);
+      --table-header-color: #f8fafc;
+      --table-row-border: #1f293d;
+      color-scheme: dark;
+    }
+
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --card-inner: #f1f5f9;
+      --border: #e2e8f0;
+      --border-accent: rgba(2, 132, 199, 0.4);
+      --text: #334155;
+      --text-muted: #64748b;
+      --heading: #0f172a;
+      --accent: #0284c7;
+      --accent-hover: #0369a1;
+      --accent-green: #059669;
+      --code-bg: #0f172a;
+      --bench-bg: #ffffff;
+      --quote-bg: linear-gradient(180deg, rgba(241, 245, 249, 0.9) 0%, rgba(226, 232, 240, 0.7) 100%);
+      --navbar-bg: rgba(248, 250, 252, 0.88);
+      --nav-pill-bg: rgba(2, 132, 199, 0.08);
+      --nav-pill-border: rgba(2, 132, 199, 0.25);
+      --btn-secondary-bg: #ffffff;
+      --btn-secondary-hover: #f1f5f9;
+      --btn-secondary-border: #cbd5e1;
+      --btn-secondary-text: #0f172a;
+      --badge-bg: #ffffff;
+      --badge-border: #e2e8f0;
+      --badge-text: #0284c7;
+      --spotlight-bg: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 50%, #f0fdf4 100%);
+      --spotlight-border: rgba(99, 102, 241, 0.3);
+      --tab-active-bg: rgba(2, 132, 199, 0.08);
+      --table-header-color: #0f172a;
+      --table-row-border: #e2e8f0;
+      color-scheme: light;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    .navbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--navbar-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1.5rem;
+    }
+    .nav-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 700;
+      font-size: 1.2rem;
+      color: var(--heading);
+      text-decoration: none;
+      flex-shrink: 0;
+    }
+    .nav-logo {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #38bdf8, #10b981);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #090d16;
+      font-weight: 900;
+      font-size: 14px;
+    }
+    .nav-scroll {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+    }
+    .nav-links {
+      display: flex;
+      gap: 1.25rem;
+      align-items: center;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.15s ease;
+      white-space: nowrap;
+    }
+    .nav-links a:hover, .nav-links a.active { color: var(--accent); }
+    .nav-pill {
+      padding: 0.35rem 0.75rem;
+      background: var(--nav-pill-bg);
+      border: 1px solid var(--nav-pill-border);
+      border-radius: 6px;
+      color: var(--accent) !important;
+      font-weight: 600 !important;
+    }
+    .theme-toggle {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      width: 34px;
+      height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--heading);
+      font-size: 16px;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+    .theme-toggle:hover { border-color: var(--accent); }
+    [data-theme="dark"] .theme-icon-sun { display: inline; }
+    [data-theme="dark"] .theme-icon-moon { display: none; }
+    [data-theme="light"] .theme-icon-sun { display: none; }
+    [data-theme="light"] .theme-icon-moon { display: inline; }
+    :root:not([data-theme]) .theme-icon-sun { display: inline; }
+    :root:not([data-theme]) .theme-icon-moon { display: none; }
+
+    @media (min-width: 769px) {
+      .theme-toggle-mobile { display: none !important; }
+      .theme-toggle-desktop { display: flex !important; }
+    }
+
+    .container {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+    .hero {
+      padding: 5rem 0 3.5rem;
+      text-align: center;
+    }
+    .badge-bar {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+      max-width: 100%;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.3rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: 20px;
+      background: var(--badge-bg);
+      border: 1px solid var(--badge-border);
+      color: var(--badge-text);
+    }
+    .badge-green {
+      color: var(--accent-green);
+      border-color: rgba(16, 185, 129, 0.3);
+      background: rgba(16, 185, 129, 0.08);
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.25rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--heading);
+      line-height: 1.15;
+      margin-bottom: 1.25rem;
+      overflow-wrap: break-word;
+      word-break: normal;
+    }
+    .hero p {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      max-width: 780px;
+      margin: 0 auto 2.5rem;
+      line-height: 1.6;
+    }
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border-radius: 8px;
+      text-decoration: none;
+      transition: all 0.15s ease;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #090d16;
+    }
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+    }
+    .btn-secondary {
+      background: var(--btn-secondary-bg);
+      color: var(--btn-secondary-text);
+      border: 1px solid var(--btn-secondary-border);
+    }
+    .btn-secondary:hover {
+      background: var(--btn-secondary-hover);
+      border-color: var(--accent);
+    }
+    section {
+      padding: 3.5rem 0;
+      border-top: 1px solid var(--border);
+    }
+    .section-header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+    .section-tag {
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      letter-spacing: 0.1em;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+    .section-title {
+      font-size: clamp(1.6rem, 3.5vw, 2rem);
+      font-weight: 700;
+      color: var(--heading);
+      letter-spacing: -0.02em;
+    }
+    .section-desc {
+      color: var(--text-muted);
+      max-width: 650px;
+      margin: 0.5rem auto 0;
+      font-size: 1rem;
+    }
+    .quote-box {
+      background: var(--quote-bg);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      padding: 1.75rem 2rem;
+      margin: 1.5rem 0;
+    }
+    .quote-text {
+      font-size: 1.05rem;
+      font-style: italic;
+      color: var(--text);
+      margin-bottom: 0.75rem;
+      line-height: 1.6;
+    }
+    .quote-author {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--accent);
+      text-align: right;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.75rem;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-accent);
+    }
+    .card-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      background: var(--nav-pill-bg);
+      border: 1px solid var(--nav-pill-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      margin-bottom: 1.25rem;
+      color: var(--accent);
+    }
+    .card-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--heading);
+      margin-bottom: 0.5rem;
+    }
+    .card-p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+    .spotlight {
+      background: var(--spotlight-bg);
+      border: 1px solid var(--spotlight-border);
+      border-radius: 12px;
+      padding: 2.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 2rem;
+      margin: 2rem 0;
+      box-shadow: 0 10px 30px -10px rgba(99, 102, 241, 0.2);
+    }
+    .spotlight-content h3 {
+      font-size: 1.6rem;
+      color: var(--heading);
+      margin-bottom: 0.5rem;
+    }
+    .spotlight-content p {
+      color: var(--text-muted);
+      font-size: 1rem;
+      max-width: 600px;
+    }
+    .bench-container {
+      margin: 2rem 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+    .bench-wrapper {
+      background: var(--bench-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    }
+    .bench-wrapper svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      min-width: 540px;
+    }
+    .install-box {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 1.5rem;
+    }
+    .install-nav {
+      display: flex;
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .tab-btn {
+      padding: 0.85rem 1.5rem;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      background: var(--tab-active-bg);
+    }
+    .install-panel { padding: 1.5rem; }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.25rem;
+      overflow-x: auto;
+      color: #7dd3fc;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9rem;
+      line-height: 1.6;
+      max-width: 100%;
+    }
+    .docs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    .doc-link-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      text-decoration: none;
+      transition: all 0.15s ease;
+      display: block;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+    .doc-link-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+    .doc-link-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--heading);
+      margin-bottom: 0.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .doc-link-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 3rem 0;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 768px) {
+      .navbar {
+        padding: 0.6rem 1rem;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+      }
+      .nav-top {
+        width: 100%;
+      }
+      .nav-scroll {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 0.2rem;
+        justify-content: flex-start;
+      }
+      .nav-links {
+        gap: 0.85rem;
+      }
+      .theme-toggle-mobile { display: flex !important; }
+      .theme-toggle-desktop { display: none !important; }
+      .hero { padding: 3rem 0 2rem; }
+      .hero h1 {
+        font-size: 1.35rem !important; line-height: 1.3 !important; hyphens: none !important; -webkit-hyphens: none !important;
+        line-height: 1.25 !important;
+        padding: 0 0.25rem;
+      }
+      .hero p { font-size: 1rem !important; margin-bottom: 1.75rem !important; }
+      .hero-actions { flex-direction: column; width: 100%; }
+      .hero-actions .btn { width: 100%; }
+      .badge-bar { gap: 0.35rem !important; }
+      .badge { font-size: 0.72rem !important; padding: 0.25rem 0.55rem !important; }
+      .spotlight { flex-direction: column; text-align: center; padding: 1.5rem; }
+      .spotlight-content p { font-size: 0.95rem; }
+      .quote-box { padding: 1.25rem; }
+      .quote-text { font-size: 0.95rem !important; }
+      .card { padding: 1.25rem; }
+      .install-panel { padding: 1rem; }
+    }
+"""
+
+NAV_HTML = """  <header class="navbar">
+    <div class="nav-top">
+      <a href="./" class="nav-brand">
+        <div class="nav-logo">E</div>
+        <span>Expanse</span>
+      </a>
+      <button class="theme-toggle theme-toggle-mobile" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
+        <span class="theme-icon-sun">&#9728;</span>
+        <span class="theme-icon-moon">&#9790;</span>
+      </button>
+    </div>
+    <div class="nav-scroll">
+      <ul class="nav-links">
+        <li><a href="./" class="active">Home</a></li>
+        <li><a href="./visualizer.html" class="">Visualizer</a></li>
+        <li><a href="./apt/" class="">APT (Debian)</a></li>
+        <li><a href="./rpm/" class="">RPM (RHEL)</a></li>
+        <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
+        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.2.0</a></li>
+      </ul>
+      <button class="theme-toggle theme-toggle-desktop" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
+        <span class="theme-icon-sun">&#9728;</span>
+        <span class="theme-icon-moon">&#9790;</span>
+      </button>
+    </div>
+  </header>"""
+
+NAV_VIS_HTML = """  <header class="navbar">
+    <div class="nav-top">
+      <a href="./" class="nav-brand">
+        <div class="nav-logo">E</div>
+        <span>Expanse</span>
+      </a>
+      <button class="theme-toggle theme-toggle-mobile" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
+        <span class="theme-icon-sun">&#9728;</span>
+        <span class="theme-icon-moon">&#9790;</span>
+      </button>
+    </div>
+    <div class="nav-scroll">
+      <ul class="nav-links">
+        <li><a href="./" class="">Home</a></li>
+        <li><a href="./visualizer.html" class="active">Visualizer</a></li>
+        <li><a href="./apt/" class="">APT (Debian)</a></li>
+        <li><a href="./rpm/" class="">RPM (RHEL)</a></li>
+        <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
+        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.2.0</a></li>
+      </ul>
+      <button class="theme-toggle theme-toggle-desktop" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
+        <span class="theme-icon-sun">&#9728;</span>
+        <span class="theme-icon-moon">&#9790;</span>
+      </button>
+    </div>
+  </header>"""
 
 def build_pages(artifacts_dir: str, output_dir: str):
     os.makedirs(output_dir, exist_ok=True)
-    
-    # 1. Assets directory
+
+    # 1. Copy documentation assets
     assets_dest = os.path.join(output_dir, "docs", "assets")
     os.makedirs(assets_dest, exist_ok=True)
     repo_assets = os.path.join(os.path.dirname(__file__), "..", "docs", "assets")
@@ -25,7 +602,7 @@ def build_pages(artifacts_dir: str, output_dir: str):
     # Read SVGs to inline in the main index
     comp_svg_path = os.path.join(repo_assets, "bench_comparative.svg")
     conc_svg_path = os.path.join(repo_assets, "bench_concurrency.svg")
-    
+
     comp_svg = ""
     conc_svg = ""
     if os.path.isfile(comp_svg_path):
@@ -36,403 +613,34 @@ def build_pages(artifacts_dir: str, output_dir: str):
             conc_svg = f.read()
 
     # 2. Main Portal index.html
-    main_html = f"""<!DOCTYPE html>
+    main_html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Expanse — Modern Judy Arrays & Digital Tree Engine in Rust</title>
   <meta name="description" content="Clean-room, pure-Rust Judy arrays modernized for 64-bit microarchitectures with zero-allocation immediates, SWAR/SIMD vectorization, and lock-free OCC concurrency.">
+  <script>
+    (function() {
+      const saved = localStorage.getItem('expanse-theme');
+      const attr = document.documentElement.getAttribute('data-theme');
+      if (saved) {
+        document.documentElement.setAttribute('data-theme', saved);
+      } else if (!attr) {
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+          document.documentElement.setAttribute('data-theme', 'light');
+        } else {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      }
+    })();
+  </script>
   <style>
-    :root {{
-      --bg: #090d16;
-      --card-bg: #111827;
-      --card-inner: #0b1120;
-      --border: #1f293d;
-      --border-accent: rgba(56, 189, 248, 0.4);
-      --text: #e2e8f0;
-      --text-muted: #94a3b8;
-      --heading: #f8fafc;
-      --accent: #38bdf8;
-      --accent-blue: #3b82f6;
-      --accent-green: #10b981;
-      --code-bg: #030712;
-      --green: #22c55e;
-      --glow: 0 0 24px rgba(56, 189, 248, 0.15);
-    }}
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      -webkit-font-smoothing: antialiased;
-    }}
-    .navbar {{
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      background: rgba(9, 13, 22, 0.85);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border);
-      padding: 0.75rem 2rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }}
-    .nav-brand {{
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      font-weight: 700;
-      font-size: 1.25rem;
-      color: var(--heading);
-      text-decoration: none;
-    }}
-    .nav-logo {{
-      width: 28px;
-      height: 28px;
-      background: linear-gradient(135deg, #38bdf8, #10b981);
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #090d16;
-      font-weight: 900;
-      font-size: 14px;
-    }}
-    .nav-links {{
-      display: flex;
-      gap: 1.5rem;
-      align-items: center;
-      list-style: none;
-    }}
-    .nav-links a {{
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 0.9rem;
-      font-weight: 500;
-      transition: color 0.15s ease;
-    }}
-    .nav-links a:hover, .nav-links a.active {{ color: var(--accent); }}
-    .nav-pill {{
-      padding: 0.35rem 0.75rem;
-      background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.25);
-      border-radius: 6px;
-      color: var(--accent) !important;
-      font-weight: 600 !important;
-    }}
-    .container {{
-      max-width: 1140px;
-      margin: 0 auto;
-      padding: 0 1.5rem;
-    }}
-    .hero {{ padding: 5rem 0 3.5rem; text-align: center; }}
-    .badge-bar {{
-      display: flex;
-      justify-content: center;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      margin-bottom: 1.5rem;
-    }}
-    .badge {{
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      padding: 0.3rem 0.75rem;
-      font-size: 0.8rem;
-      font-weight: 600;
-      border-radius: 20px;
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      color: var(--accent);
-    }}
-    .badge-green {{
-      color: var(--accent-green);
-      border-color: rgba(16, 185, 129, 0.3);
-      background: rgba(16, 185, 129, 0.08);
-    }}
-    .hero h1 {{
-      font-size: 3.25rem;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      color: var(--heading);
-      line-height: 1.15;
-      margin-bottom: 1.25rem;
-      background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }}
-    .hero p {{
-      font-size: 1.2rem;
-      color: var(--text-muted);
-      max-width: 780px;
-      margin: 0 auto 2.5rem;
-      line-height: 1.6;
-    }}
-    .hero-actions {{
-      display: flex;
-      justify-content: center;
-      gap: 1rem;
-      flex-wrap: wrap;
-    }}
-    .btn {{
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.75rem 1.5rem;
-      font-size: 0.95rem;
-      font-weight: 600;
-      border-radius: 8px;
-      text-decoration: none;
-      transition: all 0.15s ease;
-      cursor: pointer;
-    }}
-    .btn-primary {{ background: #38bdf8; color: #090d16; }}
-    .btn-primary:hover {{
-      background: #7dd3fc;
-      box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
-    }}
-    .btn-secondary {{
-      background: var(--card-bg);
-      color: var(--heading);
-      border: 1px solid var(--border);
-    }}
-    .btn-secondary:hover {{
-      background: #1e293b;
-      border-color: #475569;
-    }}
-    section {{ padding: 3.5rem 0; border-top: 1px solid var(--border); }}
-    .section-header {{ text-align: center; margin-bottom: 2.5rem; }}
-    .section-tag {{
-      text-transform: uppercase;
-      font-size: 0.8rem;
-      letter-spacing: 0.1em;
-      font-weight: 700;
-      color: var(--accent);
-      margin-bottom: 0.5rem;
-      display: block;
-    }}
-    .section-title {{
-      font-size: 2rem;
-      font-weight: 700;
-      color: var(--heading);
-      letter-spacing: -0.02em;
-    }}
-    .section-desc {{
-      color: var(--text-muted);
-      max-width: 650px;
-      margin: 0.5rem auto 0;
-      font-size: 1rem;
-    }}
-    .quote-box {{
-      background: linear-gradient(180deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.8) 100%);
-      border: 1px solid var(--border);
-      border-left: 4px solid var(--accent);
-      border-radius: 8px;
-      padding: 1.75rem 2rem;
-      margin: 1.5rem 0;
-    }}
-    .quote-text {{
-      font-size: 1.05rem;
-      font-style: italic;
-      color: #e2e8f0;
-      margin-bottom: 0.75rem;
-      line-height: 1.6;
-    }}
-    .quote-author {{
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--accent);
-      text-align: right;
-    }}
-    .grid-3 {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 1.5rem;
-    }}
-    .card {{
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1.75rem;
-      transition: transform 0.2s ease, border-color 0.2s ease;
-    }}
-    .card:hover {{
-      transform: translateY(-2px);
-      border-color: var(--border-accent);
-    }}
-    .card-icon {{
-      width: 42px;
-      height: 42px;
-      border-radius: 8px;
-      background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.25);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.25rem;
-      margin-bottom: 1.25rem;
-      color: var(--accent);
-    }}
-    .card-title {{
-      font-size: 1.2rem;
-      font-weight: 700;
-      color: var(--heading);
-      margin-bottom: 0.5rem;
-    }}
-    .card-p {{
-      color: var(--text-muted);
-      font-size: 0.95rem;
-      line-height: 1.6;
-    }}
-    .spotlight {{
-      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
-      border: 1px solid rgba(99, 102, 241, 0.4);
-      border-radius: 12px;
-      padding: 2.5rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 2rem;
-      margin: 2rem 0;
-      box-shadow: 0 10px 30px -10px rgba(99, 102, 241, 0.3);
-    }}
-    .spotlight-content h3 {{
-      font-size: 1.6rem;
-      color: #ffffff;
-      margin-bottom: 0.5rem;
-    }}
-    .spotlight-content p {{
-      color: #cbd5e1;
-      font-size: 1rem;
-      max-width: 600px;
-    }}
-    .bench-container {{
-      margin: 2rem 0;
-      display: flex;
-      flex-direction: column;
-      gap: 2rem;
-    }}
-    .bench-wrapper {{
-      background: #0d1117;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1.25rem;
-      overflow-x: auto;
-    }}
-    .bench-wrapper svg {{
-      width: 100%;
-      height: auto;
-      display: block;
-    }}
-    .install-box {{
-      background: var(--card-inner);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      overflow: hidden;
-      margin-top: 1.5rem;
-    }}
-    .install-nav {{
-      display: flex;
-      background: #030712;
-      border-bottom: 1px solid var(--border);
-      overflow-x: auto;
-    }}
-    .tab-btn {{
-      padding: 0.85rem 1.5rem;
-      background: none;
-      border: none;
-      color: var(--text-muted);
-      font-size: 0.9rem;
-      font-weight: 600;
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      white-space: nowrap;
-    }}
-    .tab-btn.active {{
-      color: var(--accent);
-      border-bottom-color: var(--accent);
-      background: rgba(56, 189, 248, 0.05);
-    }}
-    .install-panel {{ padding: 1.5rem; }}
-    pre {{
-      background: var(--code-bg);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 1.25rem;
-      overflow-x: auto;
-      color: #7dd3fc;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 0.9rem;
-      line-height: 1.6;
-    }}
-    .docs-grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 1rem;
-      margin-top: 1.5rem;
-    }}
-    .doc-link-card {{
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1.25rem;
-      text-decoration: none;
-      transition: all 0.15s ease;
-      display: block;
-    }}
-    .doc-link-card:hover {{
-      border-color: var(--accent);
-      background: #1e293b;
-    }}
-    .doc-link-title {{
-      font-size: 1rem;
-      font-weight: 700;
-      color: var(--heading);
-      margin-bottom: 0.25rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }}
-    .doc-link-desc {{
-      font-size: 0.85rem;
-      color: var(--text-muted);
-    }}
-    footer {{
-      border-top: 1px solid var(--border);
-      padding: 3rem 0;
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 0.9rem;
-    }}
-    footer a {{ color: var(--accent); text-decoration: none; }}
-    footer a:hover {{ text-decoration: underline; }}
-    @media (max-width: 768px) {{
-      .hero h1 {{ font-size: 2.25rem; }}
-      .spotlight {{ flex-direction: column; text-align: center; }}
-      .navbar {{ padding: 0.75rem 1rem; }}
-      .nav-links {{ gap: 0.75rem; }}
-    }}
+""" + MAIN_CSS + """
   </style>
 </head>
 <body>
-  <header class="navbar">
-    <a href="./" class="nav-brand">
-      <div class="nav-logo">E</div>
-      <span>Expanse</span>
-    </a>
-    <ul class="nav-links">
-      <li><a href="./" class="active">Home</a></li>
-      <li><a href="./visualizer.html">Visualizer</a></li>
-      <li><a href="./apt/">APT (Debian)</a></li>
-      <li><a href="./rpm/">RPM (RHEL)</a></li>
-      <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
-      <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.2.0</a></li>
-    </ul>
-  </header>
+""" + NAV_HTML + """
 
   <div class="container">
     <div class="hero">
@@ -548,10 +756,10 @@ def build_pages(artifacts_dir: str, output_dir: str):
 
       <div class="bench-container">
         <div class="bench-wrapper">
-          {comp_svg}
+          BENCH_COMP_SVG_PLACEHOLDER
         </div>
         <div class="bench-wrapper">
-          {conc_svg}
+          BENCH_CONC_SVG_PLACEHOLDER
         </div>
       </div>
     </div>
@@ -609,17 +817,17 @@ sudo dnf install -y libexpanse libexpanse-devel libjudy-compat</code></pre>
 #include &lt;expanse.h&gt;
 #include &lt;stdio.h&gt;
 
-int main() {{
+int main() {
     expanse_map_t map = NULL;
-    expanse_map_insert(&amp;map, 100, 500);
+    expanse_map_insert(&map, 100, 500);
     
     uint64_t val = 0;
-    if (expanse_map_get(map, 100, &amp;val)) {{
-        printf("Found key 100 -> %llu\\n", (unsigned long long)val);
-    }}
-    expanse_map_free(&amp;map);
+    if (expanse_map_get(map, 100, &val)) {
+        printf("Found key 100 -> %llu\n", (unsigned long long)val);
+    }
+    expanse_map_free(&map);
     return 0;
-}}</code></pre>
+}</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Build with gcc/clang:</p>
           <pre><code>gcc $(pkg-config --cflags expanse) main.c $(pkg-config --libs expanse) -o main</code></pre>
         </div>
@@ -674,40 +882,52 @@ int main() {{
   </footer>
 
   <script>
-    function switchTab(tabId) {{
+    function switchTab(tabId) {
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
       document.querySelectorAll('.install-panel').forEach(panel => panel.style.display = 'none');
       
       event.target.classList.add('active');
       document.getElementById(tabId).style.display = 'block';
-    }}
+    }
+
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme') || 
+        (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('expanse-theme', next);
+    }
   </script>
 </body>
 </html>
 """
+    main_html = main_html_template.replace("BENCH_COMP_SVG_PLACEHOLDER", comp_svg).replace("BENCH_CONC_SVG_PLACEHOLDER", conc_svg)
+
     with open(os.path.join(output_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(main_html)
 
     # 3. Visualizer
-    visualizer_src = os.path.join(os.path.dirname(__file__), "..", "docs", "architecture_visualizer.html")
+    visualizer_src = os.path.join(
+        os.path.dirname(__file__), "..", "docs", "architecture_visualizer.html"
+    )
     if os.path.isfile(visualizer_src):
         with open(visualizer_src, "r", encoding="utf-8") as f:
             v_content = f.read()
-        # Add shared top navigation to visualizer
-        nav_html = """  <header style="background: rgba(9, 13, 22, 0.95); border-bottom: 1px solid #1f293d; padding: 0.75rem 2rem; display: flex; justify-content: space-between; align-items: center; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-    <a href="./" style="display: flex; align-items: center; gap: 0.75rem; font-weight: 700; font-size: 1.15rem; color: #f8fafc; text-decoration: none;">
-      <div style="width: 26px; height: 26px; background: linear-gradient(135deg, #38bdf8, #10b981); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #090d16; font-weight: 900; font-size: 13px;">E</div>
-      <span>Expanse</span>
-    </a>
-    <ul style="display: flex; gap: 1.25rem; align-items: center; list-style: none; margin: 0; padding: 0;">
-      <li><a href="./" style="color: #94a3b8; text-decoration: none; font-size: 0.85rem; font-weight: 500;">Home</a></li>
-      <li><a href="./visualizer.html" style="color: #38bdf8; text-decoration: none; font-size: 0.85rem; font-weight: 600;">Visualizer</a></li>
-      <li><a href="./apt/" style="color: #94a3b8; text-decoration: none; font-size: 0.85rem; font-weight: 500;">APT (Debian)</a></li>
-      <li><a href="./rpm/" style="color: #94a3b8; text-decoration: none; font-size: 0.85rem; font-weight: 500;">RPM (RHEL)</a></li>
-      <li><a href="https://github.com/orieg/expanse" style="padding: 0.3rem 0.65rem; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 6px; color: #38bdf8; font-size: 0.85rem; font-weight: 600; text-decoration: none;">GitHub</a></li>
-    </ul>
-  </header>\n"""
-        v_content = v_content.replace("<body>", f"<body>\n{nav_html}", 1)
+
+        v_content = v_content.replace(
+            "localStorage.setItem('theme', theme);",
+            "localStorage.setItem('expanse-theme', theme); localStorage.setItem('theme', theme);",
+        )
+        v_content = v_content.replace(
+            "const savedTheme = localStorage.getItem('theme');",
+            "const savedTheme = localStorage.getItem('expanse-theme') || localStorage.getItem('theme');",
+        )
+
+        nav_style = """<style>
+""" + MAIN_CSS + """
+</style>"""
+        v_content = v_content.replace("</head>", f"{nav_style}\n</head>", 1)
+        v_content = v_content.replace("<body>", f"<body>\n{NAV_VIS_HTML}", 1)
         with open(os.path.join(output_dir, "visualizer.html"), "w", encoding="utf-8") as f:
             f.write(v_content)
 
@@ -718,7 +938,6 @@ int main() {{
     build_rpm_repo(artifacts_dir, rpm_out)
 
     print(f"Complete GitHub Pages site generated in {output_dir}")
-
 
 if __name__ == "__main__":
     art_dir = sys.argv[1] if len(sys.argv) > 1 else "artifacts"
