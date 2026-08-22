@@ -32,6 +32,7 @@ jobs:
   build-release-artifacts:
     name: Build Artifacts (${{ matrix.target }})
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
@@ -66,7 +67,7 @@ jobs:
         if: contains(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-x86-64-linux-gnu libc6-dev dpkg-dev ${{ matrix.cross_pkg }}
+          sudo apt-get install -y build-essential dpkg-dev ${{ matrix.cross_pkg }}
       - name: Build release binaries
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
@@ -77,28 +78,23 @@ jobs:
         run: |
           mkdir -p package/include package/lib
           cp crates/expanse-capi/include/*.h package/include/
-          cp target/${{ matrix.target }}/release/libexpanse.so package/lib/ || true
-          cp target/${{ matrix.target }}/release/libexpanse.dylib package/lib/ || true
-          cp target/${{ matrix.target }}/release/libexpanse.a package/lib/ || true
+          [ -f target/${{ matrix.target }}/release/libexpanse.so ] && cp target/${{ matrix.target }}/release/libexpanse.so package/lib/ || true
+          [ -f target/${{ matrix.target }}/release/libexpanse.dylib ] && cp target/${{ matrix.target }}/release/libexpanse.dylib package/lib/ || true
+          [ -f target/${{ matrix.target }}/release/libexpanse.a ] && cp target/${{ matrix.target }}/release/libexpanse.a package/lib/ || true
           
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          [ -z "$VERSION" ] && VERSION="0.2.0"
+
           # Build Debian package if deb_arch is set
           if [ -n "${{ matrix.deb_arch }}" ]; then
             mkdir -p deb/usr/lib deb/usr/include deb/DEBIAN
             cp package/lib/* deb/usr/lib/
             cp package/include/* deb/usr/include/
-            cat << 'EOF' > deb/DEBIAN/control
-            Package: libexpanse
-            Architecture: all
-            Maintainer: Nicolas Brousse <nicolas@brousse.info>
-            Description: Expanse modern Judy arrays and high-performance trie engine
-            EOF
-            sed -i 's/^ *//' deb/DEBIAN/control
-            sed -i "s/Architecture: all/Architecture: ${{ matrix.deb_arch }}/" deb/DEBIAN/control
-            sed -i "s/Version:.*/Version: ${GITHUB_REF#refs\/tags\/v}/" deb/DEBIAN/control || echo "Version: 0.2.0" >> deb/DEBIAN/control
-            dpkg-deb --build deb libexpanse_${GITHUB_REF#refs/tags/v}_${{ matrix.deb_arch }}.deb
+            printf "Package: libexpanse\nVersion: %s\nArchitecture: %s\nMaintainer: Nicolas Brousse <nicolas@brousse.info>\nDescription: Expanse: modern Judy arrays and high-performance trie engine\n" "$VERSION" "${{ matrix.deb_arch }}" > deb/DEBIAN/control
+            dpkg-deb --build deb "libexpanse_${VERSION}_${{ matrix.deb_arch }}.deb"
           fi
           
-          tar -czvf expanse-${GITHUB_REF#refs/tags/v}-${{ matrix.target }}.tar.gz -C package .
+          tar -czvf "expanse-${VERSION}-${{ matrix.target }}.tar.gz" -C package .
       - name: Prepare archives (Windows)
         if: runner.os == 'Windows'
         run: |
