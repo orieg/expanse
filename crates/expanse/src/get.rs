@@ -40,22 +40,29 @@ use crate::leaf;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
 use crate::types::{ImmedType, Key, digit};
 
+/// Precomputed key masks for 1-key immediate edges per byte width (1..=7).
+const IMM_MASKS: [u64; 8] = [
+    0,
+    0x0000_0000_0000_00FF,
+    0x0000_0000_0000_FFFF,
+    0x0000_0000_00FF_FFFF,
+    0x0000_0000_FFFF_FFFF,
+    0x0000_00FF_FFFF_FFFF,
+    0x0000_FFFF_FFFF_FFFF,
+    0x00FF_FFFF_FFFF_FFFF,
+];
+
 /// Validates the skipped digits of a narrow pointer: the edge's decode bytes
 /// for a child at `child_level` must equal the key digits at levels
 /// `child_level + 1 ..= level`.
 #[inline(always)]
 pub(crate) fn decode_matches(edge: &Edge, key: Key, child_level: u8, level: u8) -> bool {
     debug_assert!(child_level <= level && level <= 7);
-    let count = (level - child_level) as u32;
+    let count = (level - child_level) as usize;
     if count == 0 {
         return true;
     }
-    let shift = child_level as u32 * 8;
-    let mask = if count >= 8 {
-        u64::MAX
-    } else {
-        ((1u64 << (count * 8)) - 1) << shift
-    };
+    let mask = IMM_MASKS[count] << ((child_level as u32) << 3);
     ((key ^ edge.aux_word()) & mask) == 0
 }
 
@@ -251,6 +258,11 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 return true;
             }
 
+            0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
+                let kb = (tag >> 4) as usize;
+                return ((key ^ edge.word0()) & IMM_MASKS[kb]) == 0;
+            }
+
             _ => {
                 let Some(im) = ImmedType::from_u8(tag) else {
                     debug_assert!(false, "invalid edge tag {:#04x}", tag);
@@ -261,16 +273,6 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                     level,
                     "an immediate's key size is its level"
                 );
-                let kb = im.key_bytes();
-                let n = im.key_count() as usize;
-                let mask = if kb >= 8 {
-                    u64::MAX
-                } else {
-                    (1u64 << (kb * 8)) - 1
-                };
-                if n == 1 {
-                    return ((key ^ edge.word0()) & mask) == 0;
-                }
                 let payload = edge.imm_payload();
                 return immed_find(im, &payload, key).is_some();
             }
@@ -393,6 +395,15 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 unreachable!("full-expanse edges are set-flavor only");
             }
 
+            0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
+                let kb = (tag >> 4) as usize;
+                return if ((key ^ edge.aux_word()) & IMM_MASKS[kb]) == 0 {
+                    Some(edge.word0())
+                } else {
+                    None
+                };
+            }
+
             _ => {
                 let Some(im) = ImmedType::from_u8(tag) else {
                     debug_assert!(false, "invalid edge tag {:#04x}", tag);
@@ -403,21 +414,8 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                     level,
                     "an immediate's key size is its level"
                 );
-                let kb = im.key_bytes();
+                let kb_usize = im.key_bytes() as usize;
                 let n = im.key_count() as usize;
-                let mask = if kb >= 8 {
-                    u64::MAX
-                } else {
-                    (1u64 << (kb * 8)) - 1
-                };
-                if n == 1 {
-                    return if ((key ^ edge.aux_word()) & mask) == 0 {
-                        Some(edge.word0())
-                    } else {
-                        None
-                    };
-                }
-                let kb_usize = kb as usize;
                 debug_assert!(kb_usize * n <= 7, "map immediates keep keys in aux");
                 let slot = immed_find(im, edge.aux_bytes(), key)?;
                 let vals = edge.node_ptr().cast::<u64>();
@@ -772,25 +770,20 @@ unsafe fn locate_slot_impl(
                 unreachable!("full-expanse edges are set-flavor only")
             }
 
+            0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
+                let kb = (tag >> 4) as usize;
+                // SAFETY: live edge per contract; read aux_word for key match.
+                if ((key ^ unsafe { (*edge).aux_word() }) & IMM_MASKS[kb]) == 0 {
+                    // Word 0 (offset 0 of the edge) is the value itself.
+                    return core::ptr::NonNull::new(edge.cast::<u64>());
+                } else {
+                    return None;
+                }
+            }
+
             _ => {
                 let im = ImmedType::from_u8(tag)?;
                 debug_assert_eq!(im.key_bytes(), level);
-                let kb = im.key_bytes();
-                let n = im.key_count() as usize;
-                let mask = if kb >= 8 {
-                    u64::MAX
-                } else {
-                    (1u64 << (kb * 8)) - 1
-                };
-                if n == 1 {
-                    // SAFETY: live edge per contract; read aux_word for key match.
-                    if ((key ^ unsafe { (*edge).aux_word() }) & mask) == 0 {
-                        // Word 0 (offset 0 of the edge) is the value itself.
-                        return core::ptr::NonNull::new(edge.cast::<u64>());
-                    } else {
-                        return None;
-                    }
-                }
                 // SAFETY: live map immediate per contract; keys live in the aux bytes.
                 let slot = immed_find(im, unsafe { (*edge).aux_bytes() }, key)?;
                 // SAFETY: live value array of key_count values.
