@@ -164,10 +164,16 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                     return false;
                 }
                 let d = digit(key, bl);
-                let Some(slot) = b.hdr.find(d) else {
+                let num = b.hdr.num as usize;
+                let slot = if num > 0 && b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
                     return false;
                 };
-                debug_assert!(slot < b.edges.len());
                 // SAFETY: `slot < 3` accesses a valid child edge pointer.
                 edge = unsafe { &*b.edges.as_ptr().add(slot) };
                 level = bl - 1;
@@ -294,8 +300,16 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                     return None;
                 }
                 let d = digit(key, bl);
-                let slot = b.hdr.find(d)?;
-                debug_assert!(slot < b.edges.len());
+                let num = b.hdr.num as usize;
+                let slot = if num > 0 && b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return None;
+                };
                 // SAFETY: `slot < 3` accesses a valid child edge pointer.
                 edge = unsafe { &*b.edges.as_ptr().add(slot) };
                 level = bl - 1;
