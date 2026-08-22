@@ -27,12 +27,11 @@
 //! `_mid_memalign` at 4.7% of `map_insert/random` when every allocation
 //! asked for 64 — and in that benchmark raw leaves outnumber aligned
 //! nodes roughly 45:1.
-//!
-//! Deliberately simple: the modern global allocators this crate targets
-//! (mimalloc/jemalloc/system) already run segregated size-class caches, so
-//! a bespoke slab layer is pure speculation until the Phase 8 benches can
-//! measure it. If mutation-burst profiles justify one, it slots in behind
-//! this same interface.
+//! **Slab Allocation & Freelist Pooling**:
+//! For size classes $\le 256$ bytes, `NodeAlloc` allocates memory in 4KB
+//! slab pages, embedding an intrusive `SlabPage` header and pre-slicing
+//! the remaining capacity into local freelist blocks. This avoids system
+//! `libc` `malloc`/`free` overhead on tree growth and churn.
 //!
 //! The tree itself is single-writer; Phase 7's concurrent wrappers add
 //! shared readers, so the counters are (relaxed) atomics.
