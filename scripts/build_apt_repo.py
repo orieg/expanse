@@ -481,6 +481,7 @@ def build_apt_repo(input_dir: str, output_dir: str):
     <div class="nav-scroll">
       <ul class="nav-links">
         <li><a href="../" class="">Home</a></li>
+        <li><a href="../#benchmarks">Benchmarks</a></li>
         <li><a href="../visualizer.html" class="">Visualizer</a></li>
         <li><a href="./" class="active">APT (Debian)</a></li>
         <li><a href="../rpm/" class="">RPM (RHEL)</a></li>
