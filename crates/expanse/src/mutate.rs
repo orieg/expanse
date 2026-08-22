@@ -517,6 +517,7 @@ pub(crate) fn wrap_skip_level(
     unsafe {
         (*node.as_ptr()).hdr.level = at;
         (*node.as_ptr()).hdr.num = 1;
+        (*node.as_ptr()).hdr.presence = 1 << (t & 0x0F);
         (*node.as_ptr()).hdr.digits[0] = t;
         (*node.as_ptr()).edges[0] = child;
     }
@@ -845,11 +846,13 @@ unsafe fn insert_with_path_flat(
                         let b = &mut *(*edge).node_ptr().cast::<BranchL3>();
                         let s = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                         b.hdr.num += 1;
+                        b.hdr.add_presence(d);
                         s
                     } else {
                         let b = &mut *(*edge).node_ptr().cast::<BranchL7>();
                         let s = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                         b.hdr.num += 1;
+                        b.hdr.add_presence(d);
                         s
                     }
                 };
@@ -1846,6 +1849,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                         crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
                         let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                         b.hdr.num += 1;
+                        b.hdr.add_presence(d);
                         let r = insert_with_path::<OCC>(a, &mut b.edges[slot], key, bl - 1, path);
                         crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                         r
@@ -1854,6 +1858,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                         crate::occ::version_begin_if::<OCC>(a, &mut b.hdr.version);
                         let slot = linear_insert_slot(&mut b.hdr.digits, &mut b.edges, num, d);
                         b.hdr.num += 1;
+                        b.hdr.add_presence(d);
                         let r = insert_with_path::<OCC>(a, &mut b.edges[slot], key, bl - 1, path);
                         crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                         r
@@ -2355,6 +2360,7 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                             slot,
                         );
                         b.hdr.num -= 1;
+                        b.hdr.refresh_presence();
                     }
                     crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                     (r, child_null)
@@ -2374,6 +2380,7 @@ pub(crate) unsafe fn remove<const OCC: bool>(
                             slot,
                         );
                         b.hdr.num -= 1;
+                        b.hdr.refresh_presence();
                     }
                     crate::occ::version_end_if::<OCC>(a, &mut b.hdr.version);
                     (r, child_null)
@@ -2604,6 +2611,7 @@ pub(crate) unsafe fn downgrade_b_to_l7(a: &NodeAlloc, edge: &mut Edge) {
             (*new.as_ptr()).hdr.digits[num] = dig;
             (*new.as_ptr()).edges[num] = *old.subarrays[sub].add(rank);
             (*new.as_ptr()).hdr.num += 1;
+            (*new.as_ptr()).hdr.add_presence(dig);
             d = if dig == 255 {
                 None
             } else {

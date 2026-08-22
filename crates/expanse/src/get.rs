@@ -164,16 +164,10 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                     return false;
                 }
                 let d = digit(key, bl);
-                let num = b.hdr.num as usize;
-                let slot = if num >= 1 && b.hdr.digits[0] == d {
-                    0
-                } else if num >= 2 && b.hdr.digits[1] == d {
-                    1
-                } else if num >= 3 && b.hdr.digits[2] == d {
-                    2
-                } else {
+                let Some(slot) = b.hdr.find(d) else {
                     return false;
                 };
+                debug_assert!(slot < b.edges.len());
                 // SAFETY: `slot < 3` accesses a valid child edge pointer.
                 edge = unsafe { &*b.edges.as_ptr().add(slot) };
                 level = bl - 1;
@@ -300,16 +294,8 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                     return None;
                 }
                 let d = digit(key, bl);
-                let num = b.hdr.num as usize;
-                let slot = if num >= 1 && b.hdr.digits[0] == d {
-                    0
-                } else if num >= 2 && b.hdr.digits[1] == d {
-                    1
-                } else if num >= 3 && b.hdr.digits[2] == d {
-                    2
-                } else {
-                    return None;
-                };
+                let slot = b.hdr.find(d)?;
+                debug_assert!(slot < b.edges.len());
                 // SAFETY: `slot < 3` accesses a valid child edge pointer.
                 edge = unsafe { &*b.edges.as_ptr().add(slot) };
                 level = bl - 1;
@@ -955,6 +941,7 @@ mod tests {
         let mut b7 = BranchL7::new(2);
         b7.hdr.num = 7;
         b7.hdr.digits[..7].copy_from_slice(&digits_hi);
+        b7.hdr.refresh_presence();
         for i in 0..7 {
             // SAFETY: `base.add(i)` stays inside the 7-element allocation.
             let leaf = unsafe { base.add(i) };
@@ -968,6 +955,7 @@ mod tests {
         let mut b3 = BranchL3::new(2);
         b3.hdr.num = 3;
         b3.hdr.digits[..3].copy_from_slice(&digits_hi[..3]);
+        b3.hdr.refresh_presence();
         let mut model3 = BTreeSet::new();
         for (i, &hi) in digits_hi.iter().take(3).enumerate() {
             // SAFETY: `base.add(i)` stays inside the 7-element allocation.
@@ -1127,6 +1115,7 @@ mod tests {
         let mut b7 = BranchL7::new(3);
         b7.hdr.num = 2;
         b7.hdr.digits[..2].copy_from_slice(&[0x21, 0x9E]);
+        b7.hdr.refresh_presence();
         b7.edges[0] = e2;
         b7.edges[1] = e1;
         let root = Edge::new_node((&raw mut b7).cast(), EdgeType::BranchL7.as_u8());
@@ -1228,6 +1217,7 @@ mod tests {
         let mut b3 = BranchL3::new(2);
         b3.hdr.num = 3;
         b3.hdr.digits[..3].copy_from_slice(&[0x10, 0x80, 0xC0]);
+        b3.hdr.refresh_presence();
         b3.edges[0] = Edge::new_node((&raw mut leaf).cast(), EdgeType::LeafB1.as_u8());
         b3.edges[1] = imm1;
         b3.edges[2] = imm3;

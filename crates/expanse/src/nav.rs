@@ -120,7 +120,6 @@ unsafe fn leaf_value(edge: &Edge, slot: usize) -> u64 {
     unsafe { *edge.node_ptr().cast::<u64>().add(slot) }
 }
 
-
 /// Smallest key `>= suffix` in the subtree, with its value (0 for sets).
 ///
 /// # Safety
@@ -174,16 +173,18 @@ pub(crate) unsafe fn next<const MAP: bool>(
             } else {
                 base
             };
-            // SAFETY: live leaf of `pop` keys per contract.
-            let slot = match kb {
-                1 => unsafe { leaf::lower_bound_fixed::<1>(keys, pop, low) },
-                2 => unsafe { leaf::lower_bound_fixed::<2>(keys, pop, low) },
-                3 => unsafe { leaf::lower_bound_fixed::<3>(keys, pop, low) },
-                4 => unsafe { leaf::lower_bound_fixed::<4>(keys, pop, low) },
-                5 => unsafe { leaf::lower_bound_fixed::<5>(keys, pop, low) },
-                6 => unsafe { leaf::lower_bound_fixed::<6>(keys, pop, low) },
-                7 => unsafe { leaf::lower_bound_fixed::<7>(keys, pop, low) },
-                _ => unreachable!(),
+            // SAFETY: `keys` points to a live leaf of `pop` keys of `kb` bytes.
+            let slot = unsafe {
+                match kb {
+                    1 => leaf::lower_bound_fixed::<1>(keys, pop, low),
+                    2 => leaf::lower_bound_fixed::<2>(keys, pop, low),
+                    3 => leaf::lower_bound_fixed::<3>(keys, pop, low),
+                    4 => leaf::lower_bound_fixed::<4>(keys, pop, low),
+                    5 => leaf::lower_bound_fixed::<5>(keys, pop, low),
+                    6 => leaf::lower_bound_fixed::<6>(keys, pop, low),
+                    7 => leaf::lower_bound_fixed::<7>(keys, pop, low),
+                    _ => unreachable!(),
+                }
             };
             if slot == pop {
                 return None;
@@ -266,8 +267,7 @@ pub(crate) unsafe fn next<const MAP: bool>(
                 }
             };
             let start = digits[..num].partition_point(|&bd| bd < d);
-            for slot in start..num {
-                let bd = digits[slot];
+            for (slot, &bd) in digits.iter().enumerate().take(num).skip(start) {
                 let rem = if bd == d { key_low(suffix, bl - 1) } else { 0 };
                 // SAFETY: slot < num live child edges.
                 let child = unsafe { &*edges_ptr.add(slot) };
@@ -401,16 +401,18 @@ pub(crate) unsafe fn prev<const MAP: bool>(
             let bound = if low == key_low(u64::MAX, kb) {
                 pop
             } else {
-                // SAFETY: live leaf of `pop` keys per contract.
-                match kb {
-                    1 => unsafe { leaf::lower_bound_fixed::<1>(keys, pop, low + 1) },
-                    2 => unsafe { leaf::lower_bound_fixed::<2>(keys, pop, low + 1) },
-                    3 => unsafe { leaf::lower_bound_fixed::<3>(keys, pop, low + 1) },
-                    4 => unsafe { leaf::lower_bound_fixed::<4>(keys, pop, low + 1) },
-                    5 => unsafe { leaf::lower_bound_fixed::<5>(keys, pop, low + 1) },
-                    6 => unsafe { leaf::lower_bound_fixed::<6>(keys, pop, low + 1) },
-                    7 => unsafe { leaf::lower_bound_fixed::<7>(keys, pop, low + 1) },
-                    _ => unreachable!(),
+                // SAFETY: `keys` points to a live leaf of `pop` keys of `kb` bytes.
+                unsafe {
+                    match kb {
+                        1 => leaf::lower_bound_fixed::<1>(keys, pop, low + 1),
+                        2 => leaf::lower_bound_fixed::<2>(keys, pop, low + 1),
+                        3 => leaf::lower_bound_fixed::<3>(keys, pop, low + 1),
+                        4 => leaf::lower_bound_fixed::<4>(keys, pop, low + 1),
+                        5 => leaf::lower_bound_fixed::<5>(keys, pop, low + 1),
+                        6 => leaf::lower_bound_fixed::<6>(keys, pop, low + 1),
+                        7 => leaf::lower_bound_fixed::<7>(keys, pop, low + 1),
+                        _ => unreachable!(),
+                    }
                 }
             };
             let slot = bound.checked_sub(1)?;
@@ -485,8 +487,7 @@ pub(crate) unsafe fn prev<const MAP: bool>(
                 }
             };
             let bound = digits[..num].partition_point(|&bd| bd <= d);
-            for slot in (0..bound).rev() {
-                let bd = digits[slot];
+            for (slot, &bd) in digits.iter().enumerate().take(bound).rev() {
                 let rem = if bd == d {
                     key_low(suffix, bl - 1)
                 } else {
@@ -613,16 +614,18 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
                         base
                     };
                     let low = key_low(suffix, kb);
-                    // SAFETY: live leaf of `pop` keys per contract.
-                    let slot = match kb {
-                        1 => unsafe { leaf::lower_bound_fixed::<1>(keys, pop, low) },
-                        2 => unsafe { leaf::lower_bound_fixed::<2>(keys, pop, low) },
-                        3 => unsafe { leaf::lower_bound_fixed::<3>(keys, pop, low) },
-                        4 => unsafe { leaf::lower_bound_fixed::<4>(keys, pop, low) },
-                        5 => unsafe { leaf::lower_bound_fixed::<5>(keys, pop, low) },
-                        6 => unsafe { leaf::lower_bound_fixed::<6>(keys, pop, low) },
-                        7 => unsafe { leaf::lower_bound_fixed::<7>(keys, pop, low) },
-                        _ => unreachable!(),
+                    // SAFETY: `keys` points to a live leaf of `pop` keys of `kb` bytes.
+                    let slot = unsafe {
+                        match kb {
+                            1 => leaf::lower_bound_fixed::<1>(keys, pop, low),
+                            2 => leaf::lower_bound_fixed::<2>(keys, pop, low),
+                            3 => leaf::lower_bound_fixed::<3>(keys, pop, low),
+                            4 => leaf::lower_bound_fixed::<4>(keys, pop, low),
+                            5 => leaf::lower_bound_fixed::<5>(keys, pop, low),
+                            6 => leaf::lower_bound_fixed::<6>(keys, pop, low),
+                            7 => leaf::lower_bound_fixed::<7>(keys, pop, low),
+                            _ => unreachable!(),
+                        }
                     };
                     slot as u64
                 }

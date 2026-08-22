@@ -313,7 +313,7 @@ impl core::fmt::Debug for Edge {
 }
 
 /// Common 16-byte header of linear branches: OCC version counter, child
-/// count, and the sorted digit array searched with `bits::find_byte_8`.
+/// count, 16-bit presence bloom filter, and the sorted digit array.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct BranchHeader {
@@ -325,7 +325,8 @@ pub struct BranchHeader {
     /// The node's own level. Behind a narrow pointer this sits below the
     /// slot level; the edge's decode bytes name the skipped digits.
     pub level: u8,
-    _pad: [u8; 2],
+    /// 16-bit presence filter: bit `(digit & 0x0F)` is set for every present child.
+    pub presence: u16,
     /// Sorted decode digits of the populated children; slot 7 is unused
     /// padding so the array is directly searchable as one 64-bit word.
     pub digits: [u8; 8],
@@ -339,15 +340,37 @@ impl BranchHeader {
             version: 0,
             num: 0,
             level,
-            _pad: [0; 2],
+            presence: 0,
             digits: [0; 8],
         }
+    }
+
+    /// Records `digit` in the 16-bit presence filter.
+    #[inline(always)]
+    pub fn add_presence(&mut self, digit: u8) {
+        self.presence |= 1u16 << (digit & 0x0F);
+    }
+
+    /// Rebuilds the 16-bit presence filter from active `num` digits.
+    #[inline(always)]
+    pub fn refresh_presence(&mut self) {
+        let mut mask = 0u16;
+        let num = self.num as usize;
+        let mut i = 0;
+        while i < num {
+            mask |= 1u16 << (self.digits[i] & 0x0F);
+            i += 1;
+        }
+        self.presence = mask;
     }
 
     /// Slot of `digit` among the populated children, if present.
     #[inline(always)]
     #[must_use]
     pub fn find(&self, digit: u8) -> Option<usize> {
+        if (self.presence & (1u16 << (digit & 0x0F))) == 0 {
+            return None;
+        }
         let num = self.num as usize;
         if num <= 3 {
             if num >= 1 && self.digits[0] == digit {
@@ -650,11 +673,13 @@ mod tests {
         let mut hdr = BranchHeader::new(2);
         hdr.digits[..4].copy_from_slice(&[0x03, 0x41, 0x9C, 0xFF]);
         hdr.num = 4;
+        hdr.refresh_presence();
         assert_eq!(hdr.find(0x03), Some(0));
         assert_eq!(hdr.find(0x9C), Some(2));
         assert_eq!(hdr.find(0xFF), Some(3));
         assert_eq!(hdr.find(0x42), None);
         hdr.num = 2;
+        hdr.refresh_presence();
         assert_eq!(hdr.find(0x9C), None, "count limits the searched digits");
         // Unused slots (zero-filled) must not produce phantom matches.
         let empty = BranchHeader::new(2);
