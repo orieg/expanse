@@ -35,7 +35,7 @@ EOF
 # 2. libexpanse-dev package
 mkdir -p "${DEB_DIR}/libexpanse-dev/usr/include"
 mkdir -p "${DEB_DIR}/libexpanse-dev/usr/lib/x86_64-linux-gnu"
-cp crates/expanse-capi/include/*.h "${DEB_DIR}/libexpanse-dev/usr/include/" || echo "No headers found, skipping"
+cp crates/expanse-capi/include/*.h* "${DEB_DIR}/libexpanse-dev/usr/include/" || echo "No headers found, skipping"
 cp "${DIST_DIR}/lib/libexpanse.a" "${DEB_DIR}/libexpanse-dev/usr/lib/x86_64-linux-gnu/"
 
 cat <<EOF > "${DEB_DIR}/libexpanse-dev/DEBIAN/control"
