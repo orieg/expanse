@@ -7,11 +7,11 @@
 [![PyPI Version](https://img.shields.io/pypi/v/expanse-trie.svg?style=flat-square&logo=pypi)](https://pypi.org/project/expanse-trie/)
 [![APT Repository](https://img.shields.io/badge/apt-debian%20%7C%20ubuntu-orange.svg?style=flat-square&logo=debian)](https://orieg.github.io/expanse/apt/)
 [![RPM Repository](https://img.shields.io/badge/rpm-rhel%20%7C%20fedora%20%7C%20centos-red.svg?style=flat-square&logo=redhat)](https://orieg.github.io/expanse/rpm/)
-[![Architectures](https://img.shields.io/badge/arch-x86--64%20%7C%20aarch64%20%7C%20riscv64-blueviolet.svg?style=flat-square)](#platform-support)
+[![Architectures](https://img.shields.io/badge/arch-x86--64%20%7C%20aarch64%20%7C%20riscv64%20%7C%20riscv32%20%7C%20arm--cortex--m-blueviolet.svg?style=flat-square)](#platform-support)
 [![MSRV](https://img.shields.io/badge/MSRV-1.85%2B%20(Edition%202024)-informational.svg?style=flat-square)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg?style=flat-square)](LICENSE-MIT)
 
-A **clean-room, pure-Rust implementation of Judy arrays**, modernized for modern 64-bit microarchitectures, with **`libexpanse` — a high-performance, drop-in C ABI replacement for `libjudy`**.
+A **clean-room, pure-Rust implementation of Judy arrays**, modernized for modern 64-bit and 32-bit embedded microarchitectures, with **`libexpanse` — a high-performance, drop-in C ABI replacement for `libjudy`**.
 
 Judy arrays (invented by Doug Baskins at Hewlett-Packard, ~2002) are sparse, dynamic associative structures built as 256-ary digital tries partitioned by **expanse** (decoding keys byte by byte over fixed digit ranges) rather than by population like comparison-based trees. Their speed comes from adaptive node compression — linear, bitmap, and uncompressed branches; linear and bitmap leaves; keys stored immediately inside pointers — tuned to keep every node traversal within a few cache-line fills.
 
@@ -36,9 +36,9 @@ Naming the project after the mechanism honors the algorithm itself without inher
 - **Pure Rust & Memory Safe**: `#![no_std]` core with zero unsafe memory leaks, zero external runtime dependencies, verified under Miri & Loom.
 - **Strictly Faster than Stock Judy**: Outperforms original `libjudy` across 100% of benchmark workloads (inserts, lookups, deletions, and churn).
 - **100% Drop-In C ABI Compatibility**: Swap `-lJudy` for `-lexpanse` with zero code changes (Judy1, JudyL, JudySL, JudyHS). Passes `php-judy` test suite (221/221) and differential oracle.
-- **Multi-Architecture Vectorization**: Hardware-accelerated with dynamic `glibc-hwcaps` packaging (`x86-64-v1..v4`), ARM64 NEON, and 64-bit RISC-V (`RV64GC`).
+- **Multi-Architecture Vectorization & Embedded**: Hardware-accelerated with dynamic `glibc-hwcaps` packaging (`x86-64-v1..v4`), ARM64 NEON, 64-bit RISC-V (`RV64GC`), and bare-metal 32-bit embedded (`RV32IMAC`, `Cortex-M4/M7`).
 - **Lock-Free OCC Concurrency**: Multi-core optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet`) scaling linearly up to **260.9M ops/s** on 16 cores with zero read locks.
-- **Ultra-Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on clustered/dense integer sets through adaptive digital trie compaction.
+- **Ultra-Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on 64-bit sets and **0.51 bytes/key** on 32-bit embedded sets.
 
 ---
 
@@ -56,7 +56,8 @@ Naming the project after the mechanism honors the algorithm itself without inher
 
 | Surface | Crate / Package | Deliverable |
 |---|---|---|
-| **Native Rust API** | [`crates/expanse`](crates/expanse) (package `expanse-trie`) | Pure-Rust library: `ExpanseSet` (bit set), `ExpanseMap` (word→word), `ExpanseStrMap` (string→word), `ExpanseBytesMap` (bytes→word), plus iterators and lock-free concurrent readers (`SyncExpanseMap`) |
+| **Native Rust API (64-Bit)** | [`crates/expanse`](crates/expanse) (package `expanse-trie`) | Pure-Rust library: `ExpanseSet` (bit set), `ExpanseMap` (word→word), `ExpanseStrMap` (string→word), `ExpanseBytesMap` (bytes→word), `ExpanseBlobMap`, plus iterators and lock-free concurrent readers (`SyncExpanseMap`) |
+| **Native Embedded Rust (32-Bit)** | [`crates/expanse`](crates/expanse) (`#![no_std]`) | 32-bit microprocessor collections: `ExpanseSet32` (bit set), `ExpanseMap32` (u32→u32 map), `ExpanseBlobMap32` with compact 8-byte `Edge32` layout and 32-byte cache line alignment |
 | **C ABI (`libexpanse`)** | [`crates/expanse-capi`](crates/expanse-capi) | `cdylib`/`staticlib` exporting **both** the legacy `Judy.h` surface (`Judy1*`, `JudyL*`, `JudySL*`, `JudyHS*` — allowing consumers like [php-judy](https://github.com/orieg/php-judy) to swap `libJudy` for `libexpanse` without source changes) **and** modern `expanse.h` |
 | **Modern C++20 Header** | [`include/expanse.hpp`](include/expanse.hpp) | Modern header-only C++20 STL-compatible RAII wrapper (`expanse::set`, `expanse::map`, `expanse::str_map`, `expanse::bytes_map`, `expanse::blob_map`, `expanse::sync_map`), `std::span` zero-copy access, `std::forward_iterator` ranges, and lock-free OCC readers |
 | **Java / Scala FFM API** | [`bindings/java`](bindings/java) (`io.github.orieg:expanse-java`) | Java 22+ / 21 LTS Project Panama Foreign Function & Memory bindings: zero-GC off-heap collections (`ExpanseMap`, `ExpanseSet`, `ExpanseStrMap`, `ExpanseBytesMap`), value slots, `NavigableMap`/`NavigableSet` |
@@ -186,34 +187,55 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 
 | Platform | Target Triple | Distribution & Packaging |
 |---|---|---|
-| **Linux x86-64** | `x86_64-unknown-linux-gnu` | `libexpanse` APT package (`glibc-hwcaps` for `v2`/`v3`/`v4`), `.tar.gz` |
-| **Linux ARM64** | `aarch64-unknown-linux-gnu` | `libexpanse` APT package (Graviton, Raspberry Pi 4/5), `.tar.gz` |
-| **Linux RISC-V 64-bit** | `riscv64gc-unknown-linux-gnu` | `libexpanse` APT package (RV64GC edge/server), `.tar.gz` |
+| **Linux x86-64** | `x86_64-unknown-linux-gnu` | `libexpanse` APT/RPM package (`glibc-hwcaps` for `v2`/`v3`/`v4`), `.tar.gz` |
+| **Linux ARM64** | `aarch64-unknown-linux-gnu` | `libexpanse` APT/RPM package (Graviton, Raspberry Pi 4/5), `.tar.gz` |
+| **Linux RISC-V 64-bit** | `riscv64gc-unknown-linux-gnu` | `libexpanse` APT/RPM package (RV64GC edge/server), `.tar.gz` |
 | **Linux x86-64 Static** | `x86_64-unknown-linux-musl` | Static musl archives, Alpine Linux compatible `.tar.gz` |
 | **macOS Apple Silicon** | `aarch64-apple-darwin` | Universal / Native AArch64 `.tar.gz` |
 | **macOS Intel** | `x86_64-apple-darwin` | x86-64 `.tar.gz` |
 | **Windows x86-64** | `x86_64-pc-windows-msvc` | Precompiled `expanse.dll` / `expanse.lib` `.zip`, vcpkg, NuGet |
 | **RISC-V 32-Bit (RV32)** | `riscv32imac-unknown-none-elf` | `#![no_std]` staticlib / embedded crate ([RFC #109](docs/RFC_32BIT_EMBEDDED.md)) |
-| **ARM Cortex-M (M4/M7)** | `armv7em-none-eabihf` | `#![no_std]` staticlib / embedded crate ([RFC #109](docs/RFC_32BIT_EMBEDDED.md)) |
+| **ARM Cortex-M (M4/M7)** | `thumbv7em-none-eabihf` | `#![no_std]` staticlib / embedded crate ([RFC #109](docs/RFC_32BIT_EMBEDDED.md)) |
 | **Espressif ESP32 (RV32/Xtensa)** | `riscv32imc-esp-espidf` | ESP-IDF component / `#![no_std]` ([RFC #109](docs/RFC_32BIT_EMBEDDED.md)) |
+
+---
+
+## 32-Bit Embedded Microprocessor Architecture (`#![no_std]`)
+
+Expanse provides first-class support for 32-bit embedded microprocessors (`ExpanseSet32`, `ExpanseMap32`, `ExpanseBlobMap32`) designed to operate in tightly constrained internal SRAM:
+
+- **Compact 8-Byte `Edge32`**: 50% structural SRAM reduction vs 64-bit descriptors (`[ptr (4B) | aux (3B) | tag (1B)]`), packing up to 7 immediate keys with zero heap allocations.
+- **32-Byte Cache Alignment**: Nodes are sized for embedded microarchitectures (`BranchL2_32` = 32B = 1 cache line on Cortex-M7/ESP32; `BranchL6_32` = 64B = 2 cache lines).
+- **Polymorphic `ValueSlot32`**: Payloads $\le 3\text{ bytes}$ (CAN-bus flags, status codes, checksums) fit inline with zero heap allocations.
+- **Microcontroller SRAM Footprint**:
+  - Clustered sensor timestamps: **$0.51\text{ B/key}$** ($97.9\%$ SRAM saved vs $24\text{ B/key}$ `BTreeSet`).
+  - Sparse 29-bit CAN IDs: **$0.63\text{ B/key}$** ($97.4\%$ SRAM saved vs $24\text{ B/key}$ `BTreeSet`).
+  - IPv4 subnet /24 routing: **$8.03\text{ B/key}$** ($74.9\%$ SRAM saved vs $32\text{ B/key}$ `BTreeMap`).
+  - OTA firmware chunk metadata: **$8.00\text{ B/key}$** ($83.3\%$ SRAM saved vs $48\text{ B/key}$ `BTreeMap`).
 
 ---
 
 ## Distribution & Quick Start
 
-### 1. Rust / Cargo
+### 1. Rust / Cargo (64-Bit & 32-Bit)
 ```toml
 [dependencies]
 expanse-trie = "0.3.0"
 ```
 
 ```rust
-use expanse_trie::map::ExpanseMap;
+use expanse_trie::{ExpanseMap, ExpanseMap32};
 
 fn main() {
+    // 64-bit server map
     let mut map = ExpanseMap::new();
     map.insert(42, 100);
     assert_eq!(map.get(42), Some(100));
+
+    // 32-bit embedded map
+    let mut map32 = ExpanseMap32::new();
+    map32.insert(100, 500);
+    assert_eq!(map32.get(100), Some(500));
 }
 ```
 
