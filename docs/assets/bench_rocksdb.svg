@@ -98,127 +98,117 @@
   <rect width="100%" height="100%" class="bg" rx="8"/>
   <rect width="100%" height="100%" class="border" rx="8"/>
 
-  <!-- PANEL 1: SEQUENTIAL SCAN THROUGHPUT (prefixscan) -->
-  <g transform="translate(15, 0)">
-    <text x="15" y="24" class="t-chart-title">RocksDB Sequential Scan</text>
-    <text x="15" y="38" class="t-chart-sub">prefixscan throughput (100K keys)</text>
-    <text x="280" y="24" class="t-unit-header" text-anchor="end">Mops/s (Higher=Better)</text>
+  <!-- ================= CHART 1: SEQUENTIAL SCAN ================= -->
+  <g transform="translate(30, 20)">
+    <text x="0" y="0" class="t-chart-title">Sequential Scan</text>
+    <text x="0" y="13" class="t-chart-sub">100,000 keys prefixscan (higher is better)</text>
+    <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M ops / sec)</text>
 
-    <!-- Grid lines (0, 100, 200, 300, 400, 500) -->
-    <!-- Max = 500 Mops/s. Scale: 240px / 500 = 0.48 px per Mops/s -->
-    <line x1="45" y1="60" x2="45" y2="225" class="axis"/>
-    <line x1="45" y1="225" x2="280" y2="225" class="axis"/>
+    <!-- Y Axis: 0 to 500M -->
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">500M</text>
+    
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">250M</text>
+    
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <line x1="93" y1="60" x2="93" y2="225" class="grid"/>
-    <text x="93" y="238" class="t-axis-label" text-anchor="middle">100</text>
+    <!-- Bar 1: ExpanseMemTable (215.32M -> height = 64.6, y = 130.4) -->
+    <rect x="45" y="130.4" width="50" height="64.6" class="b-expanse" rx="2"/>
+    <text x="70" y="122" class="t-val-accent">215.3 M/s</text>
+    <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
+    <text x="70" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">19.7&#215; speedup</text>
 
-    <line x1="141" y1="60" x2="141" y2="225" class="grid"/>
-    <text x="141" y="238" class="t-axis-label" text-anchor="middle">200</text>
+    <!-- Bar 2: SkipList (10.95M -> height = 3.3, y = 191.7) -->
+    <rect x="115" y="191.7" width="50" height="3.3" class="b-rocksdb" rx="2"/>
+    <text x="140" y="183" class="t-val-blue">11.0 M/s</text>
+    <text x="140" y="214" class="t-bar-label" text-anchor="middle">SkipList</text>
+    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
 
-    <line x1="189" y1="60" x2="189" y2="225" class="grid"/>
-    <text x="189" y="238" class="t-axis-label" text-anchor="middle">300</text>
-
-    <line x1="237" y1="60" x2="237" y2="225" class="grid"/>
-    <text x="237" y="238" class="t-axis-label" text-anchor="middle">400</text>
-
-    <line x1="280" y1="60" x2="280" y2="225" class="grid"/>
-    <text x="280" y="238" class="t-axis-label" text-anchor="middle">500</text>
-
-    <!-- Bar 1: ExpanseMemTable (215.32 Mops/s -> width = 103.3px) -->
-    <text x="15" y="85" class="t-bar-label">Expanse</text>
-    <rect x="45" y="70" width="103.3" height="24" rx="3" class="b-expanse"/>
-    <text x="180" y="86" class="t-val-accent">215.3 Mops/s (19.7x)</text>
-
-    <!-- Bar 2: SkipListRep (10.95 Mops/s -> width = 5.3px) -->
-    <text x="15" y="130" class="t-bar-label">SkipList</text>
-    <rect x="45" y="115" width="7" height="24" rx="3" class="b-rocksdb"/>
-    <text x="95" y="131" class="t-val-blue">11.0 Mops/s</text>
-
-    <!-- Bar 3: VectorRep (464.58 Mops/s -> width = 223px) -->
-    <text x="15" y="175" class="t-bar-label">Vector</text>
-    <rect x="45" y="160" width="223" height="24" rx="3" class="b-other"/>
-    <text x="230" y="152" class="t-val-muted" text-anchor="end">464.6 Mops/s (Read-Only)</text>
+    <!-- Bar 3: Vector (464.58M -> height = 139.4, y = 55.6) -->
+    <rect x="185" y="55.6" width="50" height="139.4" class="b-other" rx="2"/>
+    <text x="210" y="47" class="t-val-muted">464.6 M/s</text>
+    <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
+    <text x="210" y="228" class="t-chart-sub" text-anchor="middle">read-only</text>
   </g>
 
-  <!-- Vertical Divider 1 -->
-  <line x1="320" y1="15" x2="320" y2="255" class="divider"/>
+  <!-- Divider 1 -->
+  <line x1="310" y1="20" x2="310" y2="255" class="divider"/>
 
-  <!-- PANEL 2: RAM MEMORY FOOTPRINT (Bytes per Entry) -->
-  <g transform="translate(335, 0)">
-    <text x="15" y="24" class="t-chart-title">RAM Footprint per Entry</text>
-    <text x="15" y="38" class="t-chart-sub">100K keys (16B key / 64B val)</text>
-    <text x="280" y="24" class="t-unit-header" text-anchor="end">Bytes / Key (Lower=Better)</text>
+  <!-- ================= CHART 2: RAM FOOTPRINT ================= -->
+  <g transform="translate(340, 20)">
+    <text x="0" y="0" class="t-chart-title">RAM Footprint per Entry</text>
+    <text x="0" y="13" class="t-chart-sub">100,000 keys (16B key / 64B val) (lower is better)</text>
+    <text x="0" y="29" class="t-unit-header">&#9660; Indexing Overhead (Bytes / key)</text>
 
-    <!-- Max = 160 Bytes. Scale: 235px / 160 = 1.47 px per Byte -->
-    <line x1="45" y1="60" x2="45" y2="225" class="axis"/>
-    <line x1="45" y1="225" x2="280" y2="225" class="axis"/>
+    <!-- Y Axis: 0 to 160 B/key -->
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">160 B</text>
+    
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">80 B</text>
+    
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <line x1="104" y1="60" x2="104" y2="225" class="grid"/>
-    <text x="104" y="238" class="t-axis-label" text-anchor="middle">40B</text>
+    <!-- Bar 1: ExpanseMemTable (13.2 B -> height = 12.4, y = 182.6) -->
+    <rect x="45" y="182.6" width="50" height="12.4" class="b-expanse" rx="2"/>
+    <text x="70" y="174" class="t-val-accent">13.2 B</text>
+    <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
+    <text x="70" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">-91.0% RAM</text>
 
-    <line x1="163" y1="60" x2="163" y2="225" class="grid"/>
-    <text x="163" y="238" class="t-axis-label" text-anchor="middle">80B</text>
+    <!-- Bar 2: SkipList (146.7 B -> height = 137.5, y = 57.5) -->
+    <rect x="115" y="57.5" width="50" height="137.5" class="b-rocksdb" rx="2"/>
+    <text x="140" y="49" class="t-val-blue">146.7 B</text>
+    <text x="140" y="214" class="t-bar-label" text-anchor="middle">SkipList</text>
+    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">11.1&#215; memory</text>
 
-    <line x1="221" y1="60" x2="221" y2="225" class="grid"/>
-    <text x="221" y="238" class="t-axis-label" text-anchor="middle">120B</text>
-
-    <line x1="280" y1="60" x2="280" y2="225" class="grid"/>
-    <text x="280" y="238" class="t-axis-label" text-anchor="middle">160B</text>
-
-    <!-- Bar 1: ExpanseMemTable (13.2 B/entry -> width = 19.4px) -->
-    <text x="15" y="85" class="t-bar-label">Expanse</text>
-    <rect x="45" y="70" width="19.4" height="24" rx="3" class="b-expanse"/>
-    <text x="110" y="86" class="t-val-accent">13.2 B (-91.0%)</text>
-
-    <!-- Bar 2: SkipListRep (146.7 B/entry -> width = 215.6px) -->
-    <text x="15" y="130" class="t-bar-label">SkipList</text>
-    <rect x="45" y="115" width="215.6" height="24" rx="3" class="b-rocksdb"/>
-    <text x="210" y="131" class="t-val-blue" text-anchor="end">146.7 B / key</text>
-
-    <!-- Bar 3: VectorRep (10.5 B/entry -> width = 15.4px) -->
-    <text x="15" y="175" class="t-bar-label">Vector</text>
-    <rect x="45" y="160" width="15.4" height="24" rx="3" class="b-other"/>
-    <text x="105" y="176" class="t-val-muted">10.5 B / key</text>
+    <!-- Bar 3: Vector (10.5 B -> height = 9.8, y = 185.2) -->
+    <rect x="185" y="185.2" width="50" height="9.8" class="b-other" rx="2"/>
+    <text x="210" y="177" class="t-val-muted">10.5 B</text>
+    <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
+    <text x="210" y="228" class="t-chart-sub" text-anchor="middle">read-only</text>
   </g>
 
-  <!-- Vertical Divider 2 -->
-  <line x1="640" y1="15" x2="640" y2="255" class="divider"/>
+  <!-- Divider 2 -->
+  <line x1="635" y1="20" x2="635" y2="255" class="divider"/>
 
-  <!-- PANEL 3: POINT LOOKUP LATENCY (readrandom) -->
-  <g transform="translate(655, 0)">
-    <text x="15" y="24" class="t-chart-title">Point Lookup Latency</text>
-    <text x="15" y="38" class="t-chart-sub">readrandom single-key query</text>
-    <text x="280" y="24" class="t-unit-header" text-anchor="end">Nanoseconds (Lower=Better)</text>
+  <!-- ================= CHART 3: POINT LOOKUP LATENCY ================= -->
+  <g transform="translate(665, 20)">
+    <text x="0" y="0" class="t-chart-title">Point Lookup Latency</text>
+    <text x="0" y="13" class="t-chart-sub">readrandom single-key query (lower is better)</text>
+    <text x="0" y="29" class="t-unit-header">&#9660; Query Latency (ns / op)</text>
 
-    <!-- Max = 1400 ns. Scale: 235px / 1400 = 0.168 px per ns -->
-    <line x1="45" y1="60" x2="45" y2="225" class="axis"/>
-    <line x1="45" y1="225" x2="280" y2="225" class="axis"/>
+    <!-- Y Axis: 0 to 1400 ns -->
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">1400 ns</text>
+    
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">700 ns</text>
+    
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <line x1="104" y1="60" x2="104" y2="225" class="grid"/>
-    <text x="104" y="238" class="t-axis-label" text-anchor="middle">350</text>
+    <!-- Bar 1: Expanse (999 ns -> height = 107.0, y = 88.0) -->
+    <rect x="45" y="88.0" width="50" height="107.0" class="b-expanse" rx="2"/>
+    <text x="70" y="80" class="t-val-accent">999 ns</text>
+    <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
+    <text x="70" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">1.08&#215; faster</text>
 
-    <line x1="163" y1="60" x2="163" y2="225" class="grid"/>
-    <text x="163" y="238" class="t-axis-label" text-anchor="middle">700</text>
+    <!-- Bar 2: SkipList (1077 ns -> height = 115.4, y = 79.6) -->
+    <rect x="115" y="79.6" width="50" height="115.4" class="b-rocksdb" rx="2"/>
+    <text x="140" y="71" class="t-val-blue">1077 ns</text>
+    <text x="140" y="214" class="t-bar-label" text-anchor="middle">SkipList</text>
+    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
 
-    <line x1="221" y1="60" x2="221" y2="225" class="grid"/>
-    <text x="221" y="238" class="t-axis-label" text-anchor="middle">1050</text>
-
-    <line x1="280" y1="60" x2="280" y2="225" class="grid"/>
-    <text x="280" y="238" class="t-axis-label" text-anchor="middle">1400</text>
-
-    <!-- Bar 1: ExpanseMemTable (999 ns -> width = 167.8px) -->
-    <text x="15" y="85" class="t-bar-label">Expanse</text>
-    <rect x="45" y="70" width="167.8" height="24" rx="3" class="b-expanse"/>
-    <text x="125" y="86" class="t-val-accent">999 ns / op</text>
-
-    <!-- Bar 2: SkipListRep (1077 ns -> width = 180.9px) -->
-    <text x="15" y="130" class="t-bar-label">SkipList</text>
-    <rect x="45" y="115" width="180.9" height="24" rx="3" class="b-rocksdb"/>
-    <text x="145" y="131" class="t-val-blue">1077 ns / op</text>
-
-    <!-- Bar 3: VectorRep (1065 ns -> width = 178.9px) -->
-    <text x="15" y="175" class="t-bar-label">Vector</text>
-    <rect x="45" y="160" width="178.9" height="24" rx="3" class="b-other"/>
-    <text x="145" y="176" class="t-val-muted">1065 ns / op</text>
+    <!-- Bar 3: Vector (1065 ns -> height = 114.1, y = 80.9) -->
+    <rect x="185" y="80.9" width="50" height="114.1" class="b-other" rx="2"/>
+    <text x="210" y="72" class="t-val-muted">1065 ns</text>
+    <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
+    <text x="210" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215;</text>
   </g>
 </svg>

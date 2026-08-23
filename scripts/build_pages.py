@@ -850,9 +850,6 @@ def build_pages(artifacts_dir: str, output_dir: str):
 
       <div class="bench-container">
         <div class="bench-wrapper">
-          BENCH_ROCKSDB_SVG_PLACEHOLDER
-        </div>
-        <div class="bench-wrapper">
           BENCH_COMP_SVG_PLACEHOLDER
         </div>
         <div class="bench-wrapper">
@@ -1076,6 +1073,14 @@ int main() {
     db-&gt;Put(rocksdb::WriteOptions(), "user:1001", "payload");
     // ...
 }</code></pre>
+          <div style="margin-top: 1.5rem; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; background: var(--bg-card);">
+            <div style="padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-color); font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">
+              Micro-Benchmark: ExpanseMemTable vs. RocksDB SkipListRep vs. VectorRep (100K keys, 16B key / 64B val)
+            </div>
+            <div style="padding: 1rem;">
+              BENCH_ROCKSDB_SVG_PLACEHOLDER
+            </div>
+          </div>
         </div>
 
         <div id="tab-php" class="install-panel" style="display: none;">
