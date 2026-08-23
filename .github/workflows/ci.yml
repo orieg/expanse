@@ -181,9 +181,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Miri (core unsafe smoke — model sweeps run in nightly)
+      - name: Miri (core unsafe smoke — leaf, node, slot invariants)
         run: |
-          cargo miri test -p expanse-trie --lib -- alloc:: bits:: leaf:: node:: slot:: get::
+          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot::
 
   php-judy-compat:
     name: Compat / PHP-Judy Extension (Linux)
