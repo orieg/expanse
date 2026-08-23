@@ -11,10 +11,13 @@ Expanse is an unsafe-heavy, invariant-dense data structure whose compat story re
 | 1 | Unit tests | `cargo test`, per module | Local logic: tag encodings, digit math, SIMD lane edges, node transitions |
 | 2 | Model-based op-sequence tests | Deterministic seeded harness (xorshift): random op sequences run against `BTreeMap`/`BTreeSet` as the semantic model, per key-distribution class; `proptest` with shrinking joins in Phase 8 hardening | Semantic divergence of insert/delete/get/iterate/count under arbitrary interleavings |
 | 3 | Differential oracle | Same op sequences through `libexpanse` and **stock C libjudy** (dlopen'd by the harness so symbols never collide; CI job with `libjudy-dev`, active since the Phase 8 capi surface) | Contract gaps the docs under-specify; the black-box proof behind COMPAT.md G1 |
-| 4 | Fuzzing | `cargo-fuzz` targets consuming op-sequence bytecode (op, key) pairs | Crashes, UB triggers, pathological cascades no generator thinks of |
+| 4 | Fuzzing | `cargo-fuzz` targets consuming op-sequence bytecode (op, key) pairs, plus `blobmap_image_corrupt` | Crashes, UB triggers, persistent snapshot corruption, pathological cascades |
 | 5 | Miri | `cargo +nightly miri test` on the core crate | UB in unsafe code: aliasing, alignment, leaks, uninit reads |
-| 6 | Concurrency | `loom` for the OCC protocol’s small state machines; multi-thread stress tests for reader/writer races (Phase 7+) | Torn reads, missed version bumps, reclamation races |
+| 6 | Concurrency & Loom | `loom` for OCC protocol & branch node split state machines; multi-thread stress tests | Torn reads, missed version bumps, reclamation races |
 | 7 | Documentation & Visualizer Sync | `cargo test --test test_visualizer_sync` against `docs/` | Divergence between compiled Rust geometry/ladder constants and architecture visualizer representations |
+| 8 | Integrations & Sanitizers | `test_expanse_memtable` with ASan, UBSan, and TSan in CI | Memory corruption, undefined behavior in arenas, and data races in concurrent leaf chaining |
+| 9 | MemTable Differential Fuzzing | `test_differential_memtable` vs `std::set` / SkipList reference model | State desynchronization, incorrect MVCC sequence sorting, iterator seek errors |
+| 10 | OCC Linearizability Verification | `tests/linearizability.rs` concurrent history verification harness | Non-linearizable execution traces across concurrent multi-threaded writers and readers |
 
 Rules of engagement:
 
