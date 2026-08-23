@@ -35,6 +35,7 @@ compile_error!("expanse currently supports 64-bit targets only");
 
 pub mod alloc;
 pub mod bits;
+pub mod blobmap;
 pub mod bytesmap;
 pub mod get;
 pub mod leaf;
@@ -45,7 +46,11 @@ mod nav;
 pub mod node;
 pub mod occ;
 pub mod set;
+pub mod slot;
 pub mod strmap;
 pub mod sync;
 pub mod types;
 pub mod validate;
+
+pub use blobmap::{BlobArena, BlobView, ExpanseBlobMap};
+pub use slot::{SlotTag, ValueSlot};
