@@ -18,8 +18,8 @@
       .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #58a6ff; text-anchor: middle; }
 
       .b-expanse { fill: #2ea043; }
-      .b-roaring { fill: #1f6feb; }
-      .b-other { fill: #30363d; }
+      .b-btreemap { fill: #1f6feb; }
+      .b-skipmap { fill: #30363d; }
 
       @media (prefers-color-scheme: dark) {
         .bg { fill: #0d1117; }
@@ -36,8 +36,8 @@
         .t-val-blue { fill: #58a6ff; }
         .t-val-muted { fill: #8b949e; }
         .b-expanse { fill: #2ea043; }
-        .b-roaring { fill: #1f6feb; }
-        .b-other { fill: #30363d; }
+        .b-btreemap { fill: #1f6feb; }
+        .b-skipmap { fill: #30363d; }
       }
 
       @media (prefers-color-scheme: light) {
@@ -55,8 +55,8 @@
         .t-val-blue { fill: #0969da; }
         .t-val-muted { fill: #656d76; }
         .b-expanse { fill: #1a7f37; }
-        .b-roaring { fill: #0969da; }
-        .b-other { fill: #d0d7de; }
+        .b-btreemap { fill: #0969da; }
+        .b-skipmap { fill: #d0d7de; }
       }
 
       [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0d1117; }
@@ -73,8 +73,8 @@
       [data-theme="dark"] .t-val-blue, :root[data-theme="dark"] .t-val-blue { fill: #58a6ff; }
       [data-theme="dark"] .t-val-muted, :root[data-theme="dark"] .t-val-muted { fill: #8b949e; }
       [data-theme="dark"] .b-expanse, :root[data-theme="dark"] .b-expanse { fill: #2ea043; }
-      [data-theme="dark"] .b-roaring, :root[data-theme="dark"] .b-roaring { fill: #1f6feb; }
-      [data-theme="dark"] .b-other, :root[data-theme="dark"] .b-other { fill: #30363d; }
+      [data-theme="dark"] .b-btreemap, :root[data-theme="dark"] .b-btreemap { fill: #1f6feb; }
+      [data-theme="dark"] .b-skipmap, :root[data-theme="dark"] .b-skipmap { fill: #30363d; }
 
       [data-theme="light"] .bg, :root[data-theme="light"] .bg { fill: #ffffff; }
       [data-theme="light"] .border, :root[data-theme="light"] .border { stroke: #d0d7de; }
@@ -90,119 +90,119 @@
       [data-theme="light"] .t-val-blue, :root[data-theme="light"] .t-val-blue { fill: #0969da; }
       [data-theme="light"] .t-val-muted, :root[data-theme="light"] .t-val-muted { fill: #656d76; }
       [data-theme="light"] .b-expanse, :root[data-theme="light"] .b-expanse { fill: #1a7f37; }
-      [data-theme="light"] .b-roaring, :root[data-theme="light"] .b-roaring { fill: #0969da; }
-      [data-theme="light"] .b-other, :root[data-theme="light"] .b-other { fill: #d0d7de; }
+      [data-theme="light"] .b-btreemap, :root[data-theme="light"] .b-btreemap { fill: #0969da; }
+      [data-theme="light"] .b-skipmap, :root[data-theme="light"] .b-skipmap { fill: #d0d7de; }
     </style>
   </defs>
 
   <rect width="100%" height="100%" class="bg" rx="8"/>
   <rect width="100%" height="100%" class="border" rx="8"/>
 
-  <!-- ================= CHART 1: RANGE SCAN ================= -->
+  <!-- ================= CHART 1: YCSB WORKLOAD E (RANGE SCANS) ================= -->
   <g transform="translate(30, 20)">
-    <text x="0" y="0" class="t-chart-title">Ordered Range Scan</text>
-    <text x="0" y="13" class="t-chart-sub">100,000 keys sequential scan (higher is better)</text>
-    <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M keys / sec)</text>
+    <text x="0" y="0" class="t-chart-title">YCSB Workload E (OLAP Scan)</text>
+    <text x="0" y="13" class="t-chart-sub">95% Range Scan, 5% Insert (higher is better)</text>
+    <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M ops / sec)</text>
 
-    <!-- Y Axis: 0 to 100M -->
-    <line x1="30" y1="45" x2="240" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">100M</text>
-    
-    <line x1="30" y1="120" x2="240" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">50M</text>
-    
-    <line x1="30" y1="195" x2="240" y2="195" class="axis"/>
-    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
-    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-
-    <!-- Bar 1: ExpanseMap (88.4M -> height = 88.4 * 1.5 = 132.6, y = 195 - 132.6 = 62.4) -->
-    <rect x="55" y="62.4" width="65" height="132.6" class="b-expanse" rx="2"/>
-    <text x="87.5" y="54" class="t-val-accent">88.4 M/s</text>
-    <text x="87.5" y="214" class="t-bar-label" text-anchor="middle">ExpanseMap</text>
-    <text x="87.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">3.4&#215; speedup</text>
-
-    <!-- Bar 2: BTreeMap (26.0M -> height = 39.0, y = 156.0) -->
-    <rect x="145" y="156.0" width="65" height="39.0" class="b-other" rx="2"/>
-    <text x="177.5" y="148" class="t-val-muted">26.0 M/s</text>
-    <text x="177.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
-    <text x="177.5" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
-  </g>
-
-  <!-- Divider 1 -->
-  <line x1="310" y1="20" x2="310" y2="255" class="divider"/>
-
-  <!-- ================= CHART 2: POINT LOOKUP LATENCY ================= -->
-  <g transform="translate(340, 20)">
-    <text x="0" y="0" class="t-chart-title">Point Lookup Latency</text>
-    <text x="0" y="13" class="t-chart-sub">1,000,000 keys random queries (lower is better)</text>
-    <text x="0" y="29" class="t-unit-header">&#9660; Latency (ns / op)</text>
-
-    <!-- Y Axis: 0 to 40 ns -->
+    <!-- Y Axis: 0 to 15M -->
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">40 ns</text>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">15M</text>
     
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">20 ns</text>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">7.5M</text>
     
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <!-- Bar 1: ExpanseSet (15.8ns -> height = 15.8 * 3.75 = 59.25, y = 135.75) -->
-    <rect x="45" y="135.75" width="50" height="59.25" class="b-expanse" rx="2"/>
-    <text x="70" y="128" class="t-val-accent">15.8 ns</text>
-    <text x="70" y="214" class="t-bar-label" text-anchor="middle">ExpanseSet</text>
-    <text x="70" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">fastest</text>
+    <!-- Bar 1: ExpanseBlobMap (13.10M -> height = 13.10 * 10 = 131.0, y = 195 - 131.0 = 64.0) -->
+    <rect x="42" y="64.0" width="55" height="131.0" class="b-expanse" rx="2"/>
+    <text x="69.5" y="56" class="t-val-accent">13.1 M/s</text>
+    <text x="69.5" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
+    <text x="69.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">7.2&#215; speedup</text>
 
-    <!-- Bar 2: Roaring (24.2ns -> height = 90.75, y = 104.25) -->
-    <rect x="115" y="104.25" width="50" height="90.75" class="b-roaring" rx="2"/>
-    <text x="140" y="96" class="t-val-blue">24.2 ns</text>
-    <text x="140" y="214" class="t-bar-label" text-anchor="middle">Roaring</text>
-    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1.5&#215;</text>
+    <!-- Bar 2: BTreeMap (3.96M -> height = 39.6, y = 155.4) -->
+    <rect x="114" y="155.4" width="55" height="39.6" class="b-btreemap" rx="2"/>
+    <text x="141.5" y="147" class="t-val-blue">3.96 M/s</text>
+    <text x="141.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
+    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.2&#215;</text>
 
-    <!-- Bar 3: Stock Judy (32.3ns -> height = 121.1, y = 73.9) -->
-    <rect x="185" y="73.9" width="50" height="121.1" class="b-other" rx="2"/>
-    <text x="210" y="66" class="t-val-muted">32.3 ns</text>
-    <text x="210" y="214" class="t-bar-label" text-anchor="middle">Stock Judy</text>
-    <text x="210" y="228" class="t-chart-sub" text-anchor="middle">2.0&#215; baseline</text>
+    <!-- Bar 3: SkipMap (1.81M -> height = 18.1, y = 176.9) -->
+    <rect x="186" y="176.9" width="55" height="18.1" class="b-skipmap" rx="2"/>
+    <text x="213.5" y="169" class="t-val-muted">1.81 M/s</text>
+    <text x="213.5" y="214" class="t-bar-label" text-anchor="middle">SkipMap</text>
+    <text x="213.5" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
+  </g>
+
+  <!-- Divider 1 -->
+  <line x1="315" y1="20" x2="315" y2="255" class="divider"/>
+
+  <!-- ================= CHART 2: YCSB WORKLOAD F (READ-MODIFY-WRITE) ================= -->
+  <g transform="translate(345, 20)">
+    <text x="0" y="0" class="t-chart-title">YCSB Workload F (Atomic RMW)</text>
+    <text x="0" y="13" class="t-chart-sub">50% Read, 50% RMW (higher is better)</text>
+    <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M ops / sec)</text>
+
+    <!-- Y Axis: 0 to 16M -->
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">16M</text>
+    
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">8.0M</text>
+    
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+
+    <!-- Bar 1: ExpanseBlobMap (14.20M -> height = 14.2 * 9.375 = 133.1, y = 61.9) -->
+    <rect x="42" y="61.9" width="55" height="133.1" class="b-expanse" rx="2"/>
+    <text x="69.5" y="54" class="t-val-accent">14.2 M/s</text>
+    <text x="69.5" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
+    <text x="69.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">8.1&#215; speedup</text>
+
+    <!-- Bar 2: BTreeMap (4.19M -> height = 39.3, y = 155.7) -->
+    <rect x="114" y="155.7" width="55" height="39.3" class="b-btreemap" rx="2"/>
+    <text x="141.5" y="148" class="t-val-blue">4.19 M/s</text>
+    <text x="141.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
+    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.4&#215;</text>
+
+    <!-- Bar 3: SkipMap (1.76M -> height = 16.5, y = 178.5) -->
+    <rect x="186" y="178.5" width="55" height="16.5" class="b-skipmap" rx="2"/>
+    <text x="213.5" y="171" class="t-val-muted">1.76 M/s</text>
+    <text x="213.5" y="214" class="t-bar-label" text-anchor="middle">SkipMap</text>
+    <text x="213.5" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
   </g>
 
   <!-- Divider 2 -->
   <line x1="635" y1="20" x2="635" y2="255" class="divider"/>
 
-  <!-- ================= CHART 3: MEMORY CONSUMPTION ================= -->
+  <!-- ================= CHART 3: SMALL PAYLOAD INLINING (POINT GET) ================= -->
   <g transform="translate(665, 20)">
-    <text x="0" y="0" class="t-chart-title">Memory Footprint</text>
-    <text x="0" y="13" class="t-chart-sub">100,000 keys in 256-key clusters (lower is better)</text>
-    <text x="0" y="29" class="t-unit-header">&#9660; Density (Bytes / key)</text>
+    <text x="0" y="0" class="t-chart-title">Small-Payload Inlining</text>
+    <text x="0" y="13" class="t-chart-sub">&#8804; 7B payloads, zero heap alloc (lower is better)</text>
+    <text x="0" y="29" class="t-unit-header">&#9660; Latency (ns / op)</text>
 
-    <!-- Y Axis: 0 to 20 B/k -->
+    <!-- Y Axis: 0 to 70 ns -->
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">20 B</text>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">70 ns</text>
     
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">10 B</text>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">35 ns</text>
     
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <!-- Bar 1: ExpanseSet -->
-    <rect x="45" y="191" width="50" height="4" class="b-expanse" rx="1"/>
-    <text x="70" y="183" class="t-val-accent">0.36 B</text>
-    <text x="70" y="214" class="t-bar-label" text-anchor="middle">ExpanseSet</text>
-    <text x="70" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">-98% heap</text>
+    <!-- Bar 1: Expanse (13.4ns -> height = 13.4 * 2.14 = 28.7, y = 195 - 28.7 = 166.3) -->
+    <rect x="55" y="166.3" width="70" height="28.7" class="b-expanse" rx="2"/>
+    <text x="90" y="158" class="t-val-accent">13.4 ns</text>
+    <text x="90" y="214" class="t-bar-label" text-anchor="middle">ExpanseBlobMap</text>
+    <text x="90" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">4.3&#215; faster (0 alloc)</text>
 
-    <!-- Bar 2: Roaring -->
-    <rect x="115" y="191" width="50" height="4" class="b-roaring" rx="1"/>
-    <text x="140" y="183" class="t-val-blue">0.38 B</text>
-    <text x="140" y="214" class="t-bar-label" text-anchor="middle">Roaring</text>
-    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">-98% heap</text>
-
-    <!-- Bar 3: BTreeSet (16.0 B -> height = 120, y = 75) -->
-    <rect x="185" y="75" width="50" height="120" class="b-other" rx="2"/>
-    <text x="210" y="67" class="t-val-muted">16.00 B</text>
-    <text x="210" y="214" class="t-bar-label" text-anchor="middle">BTreeSet</text>
-    <text x="210" y="228" class="t-chart-sub" text-anchor="middle">44&#215; larger</text>
+    <!-- Bar 2: BTreeMap (58.2ns -> height = 58.2 * 2.14 = 124.5, y = 70.5) -->
+    <rect x="155" y="70.5" width="70" height="124.5" class="b-btreemap" rx="2"/>
+    <text x="190" y="62" class="t-val-blue">58.2 ns</text>
+    <text x="190" y="214" class="t-bar-label" text-anchor="middle">BTreeMap (Heap)</text>
+    <text x="190" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; (16B header)</text>
   </g>
 </svg>

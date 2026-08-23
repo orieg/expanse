@@ -10,11 +10,28 @@
       .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; fill: #6e7681; }
       .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #8b949e; }
       .t-tick { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; fill: #8b949e; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; fill: #c9d1d9; }
       
       .line-occ { fill: none; stroke: #2ea043; stroke-width: 2.5px; stroke-linecap: round; }
       .line-linear { fill: none; stroke: #6e7681; stroke-width: 1.5px; stroke-dasharray: 4,4; }
       .dot-occ { fill: #2ea043; stroke: #0d1117; stroke-width: 2px; }
       .t-tag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #3fb950; }
+
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .t-title { fill: #8b949e; }
+        .t-sub { fill: #6e7681; }
+        .t-unit { fill: #8b949e; }
+        .t-tick { fill: #8b949e; }
+        .t-legend { fill: #c9d1d9; }
+        .line-occ { stroke: #2ea043; }
+        .dot-occ { fill: #2ea043; stroke: #0d1117; }
+        .line-linear { stroke: #6e7681; }
+        .t-tag { fill: #3fb950; }
+      }
 
       @media (prefers-color-scheme: light) {
         .bg { fill: #ffffff; }
@@ -25,10 +42,40 @@
         .t-sub { fill: #8c959f; }
         .t-unit { fill: #57606a; }
         .t-tick { fill: #57606a; }
+        .t-legend { fill: #1f2328; }
         .line-occ { stroke: #1a7f37; }
         .dot-occ { fill: #1a7f37; stroke: #ffffff; }
+        .line-linear { stroke: #8c959f; }
         .t-tag { fill: #1a7f37; }
       }
+
+      [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0d1117; }
+      [data-theme="dark"] .border, :root[data-theme="dark"] .border { stroke: #30363d; }
+      [data-theme="dark"] .grid, :root[data-theme="dark"] .grid { stroke: #21262d; }
+      [data-theme="dark"] .axis, :root[data-theme="dark"] .axis { stroke: #484f58; }
+      [data-theme="dark"] .t-title, :root[data-theme="dark"] .t-title { fill: #8b949e; }
+      [data-theme="dark"] .t-sub, :root[data-theme="dark"] .t-sub { fill: #6e7681; }
+      [data-theme="dark"] .t-unit, :root[data-theme="dark"] .t-unit { fill: #8b949e; }
+      [data-theme="dark"] .t-tick, :root[data-theme="dark"] .t-tick { fill: #8b949e; }
+      [data-theme="dark"] .t-legend, :root[data-theme="dark"] .t-legend { fill: #c9d1d9; }
+      [data-theme="dark"] .line-occ, :root[data-theme="dark"] .line-occ { stroke: #2ea043; }
+      [data-theme="dark"] .dot-occ, :root[data-theme="dark"] .dot-occ { fill: #2ea043; stroke: #0d1117; }
+      [data-theme="dark"] .line-linear, :root[data-theme="dark"] .line-linear { stroke: #6e7681; }
+      [data-theme="dark"] .t-tag, :root[data-theme="dark"] .t-tag { fill: #3fb950; }
+
+      [data-theme="light"] .bg, :root[data-theme="light"] .bg { fill: #ffffff; }
+      [data-theme="light"] .border, :root[data-theme="light"] .border { stroke: #d0d7de; }
+      [data-theme="light"] .grid, :root[data-theme="light"] .grid { stroke: #eaeef2; }
+      [data-theme="light"] .axis, :root[data-theme="light"] .axis { stroke: #afb8c1; }
+      [data-theme="light"] .t-title, :root[data-theme="light"] .t-title { fill: #57606a; }
+      [data-theme="light"] .t-sub, :root[data-theme="light"] .t-sub { fill: #8c959f; }
+      [data-theme="light"] .t-unit, :root[data-theme="light"] .t-unit { fill: #57606a; }
+      [data-theme="light"] .t-tick, :root[data-theme="light"] .t-tick { fill: #57606a; }
+      [data-theme="light"] .t-legend, :root[data-theme="light"] .t-legend { fill: #1f2328; }
+      [data-theme="light"] .line-occ, :root[data-theme="light"] .line-occ { stroke: #1a7f37; }
+      [data-theme="light"] .dot-occ, :root[data-theme="light"] .dot-occ { fill: #1a7f37; stroke: #ffffff; }
+      [data-theme="light"] .line-linear, :root[data-theme="light"] .line-linear { stroke: #8c959f; }
+      [data-theme="light"] .t-tag, :root[data-theme="light"] .t-tag { fill: #1a7f37; }
     </style>
   </defs>
 
@@ -43,7 +90,7 @@
     <g transform="translate(600, 0)">
       <line x1="0" y1="4" x2="16" y2="4" class="line-occ"/>
       <circle cx="8" cy="4" r="3.5" class="dot-occ"/>
-      <text x="22" y="7" class="t-sub" fill="#c9d1d9">SyncExpanseMap</text>
+      <text x="22" y="7" class="t-sub t-legend">SyncExpanseMap</text>
 
       <line x1="150" y1="4" x2="166" y2="4" class="line-linear"/>
       <text x="172" y="7" class="t-sub">Linear Ideal</text>

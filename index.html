@@ -8,14 +8,24 @@
   <script>
     (function() {
       const saved = localStorage.getItem('expanse-theme');
-      const attr = document.documentElement.getAttribute('data-theme');
       if (saved) {
         document.documentElement.setAttribute('data-theme', saved);
-      } else if (!attr) {
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-          document.documentElement.setAttribute('data-theme', 'light');
-        } else {
-          document.documentElement.setAttribute('data-theme', 'dark');
+      } else {
+        const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+      }
+
+      if (window.matchMedia) {
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        const updateTheme = function(e) {
+          if (!localStorage.getItem('expanse-theme')) {
+            document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+          }
+        };
+        if (mediaQuery.addEventListener) {
+          mediaQuery.addEventListener('change', updateTheme);
+        } else if (mediaQuery.addListener) {
+          mediaQuery.addListener(updateTheme);
         }
       }
     })();
@@ -417,6 +427,62 @@
       display: block;
       min-width: 540px;
     }
+    /* SVG Chart Theme Recolor Rules */
+    [data-theme="light"] .bench-wrapper svg .bg { fill: #ffffff !important; }
+    [data-theme="light"] .bench-wrapper svg .border { stroke: #d0d7de !important; }
+    [data-theme="light"] .bench-wrapper svg .grid { stroke: #eaeef2 !important; }
+    [data-theme="light"] .bench-wrapper svg .axis { stroke: #afb8c1 !important; }
+    [data-theme="light"] .bench-wrapper svg .divider { stroke: #eaeef2 !important; }
+    [data-theme="light"] .bench-wrapper svg .t-chart-title,
+    [data-theme="light"] .bench-wrapper svg .t-title { fill: #57606a !important; }
+    [data-theme="light"] .bench-wrapper svg .t-chart-sub,
+    [data-theme="light"] .bench-wrapper svg .t-sub { fill: #8c959f !important; }
+    [data-theme="light"] .bench-wrapper svg .t-unit-header,
+    [data-theme="light"] .bench-wrapper svg .t-unit { fill: #57606a !important; }
+    [data-theme="light"] .bench-wrapper svg .t-axis-label,
+    [data-theme="light"] .bench-wrapper svg .t-tick { fill: #57606a !important; }
+    [data-theme="light"] .bench-wrapper svg .t-bar-label,
+    [data-theme="light"] .bench-wrapper svg .t-legend { fill: #1f2328 !important; }
+    [data-theme="light"] .bench-wrapper svg .t-val-accent,
+    [data-theme="light"] .bench-wrapper svg .t-tag { fill: #1a7f37 !important; }
+    [data-theme="light"] .bench-wrapper svg .t-val-blue { fill: #0969da !important; }
+    [data-theme="light"] .bench-wrapper svg .t-val-muted { fill: #656d76 !important; }
+    [data-theme="light"] .bench-wrapper svg .b-expanse { fill: #1a7f37 !important; }
+    [data-theme="light"] .bench-wrapper svg .b-roaring,
+    [data-theme="light"] .bench-wrapper svg .b-btreemap { fill: #0969da !important; }
+    [data-theme="light"] .bench-wrapper svg .b-other,
+    [data-theme="light"] .bench-wrapper svg .b-skipmap { fill: #d0d7de !important; }
+    [data-theme="light"] .bench-wrapper svg .line-occ { stroke: #1a7f37 !important; }
+    [data-theme="light"] .bench-wrapper svg .dot-occ { fill: #1a7f37 !important; stroke: #ffffff !important; }
+    [data-theme="light"] .bench-wrapper svg .line-linear { stroke: #8c959f !important; }
+
+    [data-theme="dark"] .bench-wrapper svg .bg { fill: #0d1117; }
+    [data-theme="dark"] .bench-wrapper svg .border { stroke: #30363d; }
+    [data-theme="dark"] .bench-wrapper svg .grid { stroke: #21262d; }
+    [data-theme="dark"] .bench-wrapper svg .axis { stroke: #484f58; }
+    [data-theme="dark"] .bench-wrapper svg .divider { stroke: #21262d; }
+    [data-theme="dark"] .bench-wrapper svg .t-chart-title,
+    [data-theme="dark"] .bench-wrapper svg .t-title { fill: #8b949e; }
+    [data-theme="dark"] .bench-wrapper svg .t-chart-sub,
+    [data-theme="dark"] .bench-wrapper svg .t-sub { fill: #6e7681; }
+    [data-theme="dark"] .bench-wrapper svg .t-unit-header,
+    [data-theme="dark"] .bench-wrapper svg .t-unit { fill: #8b949e; }
+    [data-theme="dark"] .bench-wrapper svg .t-axis-label,
+    [data-theme="dark"] .bench-wrapper svg .t-tick { fill: #8b949e; }
+    [data-theme="dark"] .bench-wrapper svg .t-bar-label,
+    [data-theme="dark"] .bench-wrapper svg .t-legend { fill: #c9d1d9; }
+    [data-theme="dark"] .bench-wrapper svg .t-val-accent,
+    [data-theme="dark"] .bench-wrapper svg .t-tag { fill: #3fb950; }
+    [data-theme="dark"] .bench-wrapper svg .t-val-blue { fill: #58a6ff; }
+    [data-theme="dark"] .bench-wrapper svg .t-val-muted { fill: #8b949e; }
+    [data-theme="dark"] .bench-wrapper svg .b-expanse { fill: #2ea043; }
+    [data-theme="dark"] .bench-wrapper svg .b-roaring,
+    [data-theme="dark"] .bench-wrapper svg .b-btreemap { fill: #1f6feb; }
+    [data-theme="dark"] .bench-wrapper svg .b-other,
+    [data-theme="dark"] .bench-wrapper svg .b-skipmap { fill: #30363d; }
+    [data-theme="dark"] .bench-wrapper svg .line-occ { stroke: #2ea043; }
+    [data-theme="dark"] .bench-wrapper svg .dot-occ { fill: #2ea043; stroke: #0d1117; }
+    [data-theme="dark"] .bench-wrapper svg .line-linear { stroke: #6e7681; }
     .install-box {
       background: var(--card-inner);
       border: 1px solid var(--border);
@@ -698,6 +764,7 @@
       .border { stroke: #30363d; stroke-width: 1px; fill: none; }
       .grid { stroke: #21262d; stroke-width: 1px; stroke-dasharray: 2,3; }
       .axis { stroke: #484f58; stroke-width: 1.5px; }
+      .divider { stroke: #21262d; stroke-width: 1px; }
       
       .t-chart-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; fill: #8b949e; text-transform: uppercase; }
       .t-chart-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; fill: #6e7681; }
@@ -713,11 +780,31 @@
       .b-roaring { fill: #1f6feb; }
       .b-other { fill: #30363d; }
 
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .divider { stroke: #21262d; }
+        .t-chart-title { fill: #8b949e; }
+        .t-chart-sub { fill: #6e7681; }
+        .t-unit-header { fill: #8b949e; }
+        .t-axis-label { fill: #8b949e; }
+        .t-bar-label { fill: #c9d1d9; }
+        .t-val-accent { fill: #3fb950; }
+        .t-val-blue { fill: #58a6ff; }
+        .t-val-muted { fill: #8b949e; }
+        .b-expanse { fill: #2ea043; }
+        .b-roaring { fill: #1f6feb; }
+        .b-other { fill: #30363d; }
+      }
+
       @media (prefers-color-scheme: light) {
         .bg { fill: #ffffff; }
         .border { stroke: #d0d7de; }
         .grid { stroke: #eaeef2; }
         .axis { stroke: #afb8c1; }
+        .divider { stroke: #eaeef2; }
         .t-chart-title { fill: #57606a; }
         .t-chart-sub { fill: #8c959f; }
         .t-unit-header { fill: #57606a; }
@@ -730,6 +817,40 @@
         .b-roaring { fill: #0969da; }
         .b-other { fill: #d0d7de; }
       }
+
+      [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0d1117; }
+      [data-theme="dark"] .border, :root[data-theme="dark"] .border { stroke: #30363d; }
+      [data-theme="dark"] .grid, :root[data-theme="dark"] .grid { stroke: #21262d; }
+      [data-theme="dark"] .axis, :root[data-theme="dark"] .axis { stroke: #484f58; }
+      [data-theme="dark"] .divider, :root[data-theme="dark"] .divider { stroke: #21262d; }
+      [data-theme="dark"] .t-chart-title, :root[data-theme="dark"] .t-chart-title { fill: #8b949e; }
+      [data-theme="dark"] .t-chart-sub, :root[data-theme="dark"] .t-chart-sub { fill: #6e7681; }
+      [data-theme="dark"] .t-unit-header, :root[data-theme="dark"] .t-unit-header { fill: #8b949e; }
+      [data-theme="dark"] .t-axis-label, :root[data-theme="dark"] .t-axis-label { fill: #8b949e; }
+      [data-theme="dark"] .t-bar-label, :root[data-theme="dark"] .t-bar-label { fill: #c9d1d9; }
+      [data-theme="dark"] .t-val-accent, :root[data-theme="dark"] .t-val-accent { fill: #3fb950; }
+      [data-theme="dark"] .t-val-blue, :root[data-theme="dark"] .t-val-blue { fill: #58a6ff; }
+      [data-theme="dark"] .t-val-muted, :root[data-theme="dark"] .t-val-muted { fill: #8b949e; }
+      [data-theme="dark"] .b-expanse, :root[data-theme="dark"] .b-expanse { fill: #2ea043; }
+      [data-theme="dark"] .b-roaring, :root[data-theme="dark"] .b-roaring { fill: #1f6feb; }
+      [data-theme="dark"] .b-other, :root[data-theme="dark"] .b-other { fill: #30363d; }
+
+      [data-theme="light"] .bg, :root[data-theme="light"] .bg { fill: #ffffff; }
+      [data-theme="light"] .border, :root[data-theme="light"] .border { stroke: #d0d7de; }
+      [data-theme="light"] .grid, :root[data-theme="light"] .grid { stroke: #eaeef2; }
+      [data-theme="light"] .axis, :root[data-theme="light"] .axis { stroke: #afb8c1; }
+      [data-theme="light"] .divider, :root[data-theme="light"] .divider { stroke: #eaeef2; }
+      [data-theme="light"] .t-chart-title, :root[data-theme="light"] .t-chart-title { fill: #57606a; }
+      [data-theme="light"] .t-chart-sub, :root[data-theme="light"] .t-chart-sub { fill: #8c959f; }
+      [data-theme="light"] .t-unit-header, :root[data-theme="light"] .t-unit-header { fill: #57606a; }
+      [data-theme="light"] .t-axis-label, :root[data-theme="light"] .t-axis-label { fill: #57606a; }
+      [data-theme="light"] .t-bar-label, :root[data-theme="light"] .t-bar-label { fill: #1f2328; }
+      [data-theme="light"] .t-val-accent, :root[data-theme="light"] .t-val-accent { fill: #1a7f37; }
+      [data-theme="light"] .t-val-blue, :root[data-theme="light"] .t-val-blue { fill: #0969da; }
+      [data-theme="light"] .t-val-muted, :root[data-theme="light"] .t-val-muted { fill: #656d76; }
+      [data-theme="light"] .b-expanse, :root[data-theme="light"] .b-expanse { fill: #1a7f37; }
+      [data-theme="light"] .b-roaring, :root[data-theme="light"] .b-roaring { fill: #0969da; }
+      [data-theme="light"] .b-other, :root[data-theme="light"] .b-other { fill: #d0d7de; }
     </style>
   </defs>
 
@@ -767,7 +888,7 @@
   </g>
 
   <!-- Divider 1 -->
-  <line x1="310" y1="20" x2="310" y2="255" stroke="#21262d" stroke-width="1"/>
+  <line x1="310" y1="20" x2="310" y2="255" class="divider"/>
 
   <!-- ================= CHART 2: POINT LOOKUP LATENCY ================= -->
   <g transform="translate(340, 20)">
@@ -806,7 +927,7 @@
   </g>
 
   <!-- Divider 2 -->
-  <line x1="635" y1="20" x2="635" y2="255" stroke="#21262d" stroke-width="1"/>
+  <line x1="635" y1="20" x2="635" y2="255" class="divider"/>
 
   <!-- ================= CHART 3: MEMORY CONSUMPTION ================= -->
   <g transform="translate(665, 20)">
@@ -859,11 +980,28 @@
       .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; fill: #6e7681; }
       .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #8b949e; }
       .t-tick { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; fill: #8b949e; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; fill: #c9d1d9; }
       
       .line-occ { fill: none; stroke: #2ea043; stroke-width: 2.5px; stroke-linecap: round; }
       .line-linear { fill: none; stroke: #6e7681; stroke-width: 1.5px; stroke-dasharray: 4,4; }
       .dot-occ { fill: #2ea043; stroke: #0d1117; stroke-width: 2px; }
       .t-tag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #3fb950; }
+
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .t-title { fill: #8b949e; }
+        .t-sub { fill: #6e7681; }
+        .t-unit { fill: #8b949e; }
+        .t-tick { fill: #8b949e; }
+        .t-legend { fill: #c9d1d9; }
+        .line-occ { stroke: #2ea043; }
+        .dot-occ { fill: #2ea043; stroke: #0d1117; }
+        .line-linear { stroke: #6e7681; }
+        .t-tag { fill: #3fb950; }
+      }
 
       @media (prefers-color-scheme: light) {
         .bg { fill: #ffffff; }
@@ -874,10 +1012,40 @@
         .t-sub { fill: #8c959f; }
         .t-unit { fill: #57606a; }
         .t-tick { fill: #57606a; }
+        .t-legend { fill: #1f2328; }
         .line-occ { stroke: #1a7f37; }
         .dot-occ { fill: #1a7f37; stroke: #ffffff; }
+        .line-linear { stroke: #8c959f; }
         .t-tag { fill: #1a7f37; }
       }
+
+      [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0d1117; }
+      [data-theme="dark"] .border, :root[data-theme="dark"] .border { stroke: #30363d; }
+      [data-theme="dark"] .grid, :root[data-theme="dark"] .grid { stroke: #21262d; }
+      [data-theme="dark"] .axis, :root[data-theme="dark"] .axis { stroke: #484f58; }
+      [data-theme="dark"] .t-title, :root[data-theme="dark"] .t-title { fill: #8b949e; }
+      [data-theme="dark"] .t-sub, :root[data-theme="dark"] .t-sub { fill: #6e7681; }
+      [data-theme="dark"] .t-unit, :root[data-theme="dark"] .t-unit { fill: #8b949e; }
+      [data-theme="dark"] .t-tick, :root[data-theme="dark"] .t-tick { fill: #8b949e; }
+      [data-theme="dark"] .t-legend, :root[data-theme="dark"] .t-legend { fill: #c9d1d9; }
+      [data-theme="dark"] .line-occ, :root[data-theme="dark"] .line-occ { stroke: #2ea043; }
+      [data-theme="dark"] .dot-occ, :root[data-theme="dark"] .dot-occ { fill: #2ea043; stroke: #0d1117; }
+      [data-theme="dark"] .line-linear, :root[data-theme="dark"] .line-linear { stroke: #6e7681; }
+      [data-theme="dark"] .t-tag, :root[data-theme="dark"] .t-tag { fill: #3fb950; }
+
+      [data-theme="light"] .bg, :root[data-theme="light"] .bg { fill: #ffffff; }
+      [data-theme="light"] .border, :root[data-theme="light"] .border { stroke: #d0d7de; }
+      [data-theme="light"] .grid, :root[data-theme="light"] .grid { stroke: #eaeef2; }
+      [data-theme="light"] .axis, :root[data-theme="light"] .axis { stroke: #afb8c1; }
+      [data-theme="light"] .t-title, :root[data-theme="light"] .t-title { fill: #57606a; }
+      [data-theme="light"] .t-sub, :root[data-theme="light"] .t-sub { fill: #8c959f; }
+      [data-theme="light"] .t-unit, :root[data-theme="light"] .t-unit { fill: #57606a; }
+      [data-theme="light"] .t-tick, :root[data-theme="light"] .t-tick { fill: #57606a; }
+      [data-theme="light"] .t-legend, :root[data-theme="light"] .t-legend { fill: #1f2328; }
+      [data-theme="light"] .line-occ, :root[data-theme="light"] .line-occ { stroke: #1a7f37; }
+      [data-theme="light"] .dot-occ, :root[data-theme="light"] .dot-occ { fill: #1a7f37; stroke: #ffffff; }
+      [data-theme="light"] .line-linear, :root[data-theme="light"] .line-linear { stroke: #8c959f; }
+      [data-theme="light"] .t-tag, :root[data-theme="light"] .t-tag { fill: #1a7f37; }
     </style>
   </defs>
 
@@ -892,7 +1060,7 @@
     <g transform="translate(600, 0)">
       <line x1="0" y1="4" x2="16" y2="4" class="line-occ"/>
       <circle cx="8" cy="4" r="3.5" class="dot-occ"/>
-      <text x="22" y="7" class="t-sub" fill="#c9d1d9">SyncExpanseMap</text>
+      <text x="22" y="7" class="t-sub t-legend">SyncExpanseMap</text>
 
       <line x1="150" y1="4" x2="166" y2="4" class="line-linear"/>
       <text x="172" y="7" class="t-sub">Linear Ideal</text>
@@ -961,6 +1129,217 @@
     <text x="820" y="50" class="t-tag" text-anchor="middle">260.9 M/s (12.0&#215;)</text>
 
     <text x="450" y="235" class="t-sub" text-anchor="middle">Measured on 16-core Intel i9-12900F &#8226; Lock-free optimistic concurrency reader scaling</text>
+  </g>
+</svg>
+
+        </div>
+        <div class="bench-wrapper">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 275" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #0d1117; }
+      .border { stroke: #30363d; stroke-width: 1px; fill: none; }
+      .grid { stroke: #21262d; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #484f58; stroke-width: 1.5px; }
+      .divider { stroke: #21262d; stroke-width: 1px; }
+      
+      .t-chart-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; fill: #8b949e; text-transform: uppercase; }
+      .t-chart-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; fill: #6e7681; }
+      .t-unit-header { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #8b949e; }
+      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; fill: #8b949e; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; fill: #c9d1d9; }
+      
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #3fb950; text-anchor: middle; }
+      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 500; fill: #8b949e; text-anchor: middle; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #58a6ff; text-anchor: middle; }
+
+      .b-expanse { fill: #2ea043; }
+      .b-btreemap { fill: #1f6feb; }
+      .b-skipmap { fill: #30363d; }
+
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .divider { stroke: #21262d; }
+        .t-chart-title { fill: #8b949e; }
+        .t-chart-sub { fill: #6e7681; }
+        .t-unit-header { fill: #8b949e; }
+        .t-axis-label { fill: #8b949e; }
+        .t-bar-label { fill: #c9d1d9; }
+        .t-val-accent { fill: #3fb950; }
+        .t-val-blue { fill: #58a6ff; }
+        .t-val-muted { fill: #8b949e; }
+        .b-expanse { fill: #2ea043; }
+        .b-btreemap { fill: #1f6feb; }
+        .b-skipmap { fill: #30363d; }
+      }
+
+      @media (prefers-color-scheme: light) {
+        .bg { fill: #ffffff; }
+        .border { stroke: #d0d7de; }
+        .grid { stroke: #eaeef2; }
+        .axis { stroke: #afb8c1; }
+        .divider { stroke: #eaeef2; }
+        .t-chart-title { fill: #57606a; }
+        .t-chart-sub { fill: #8c959f; }
+        .t-unit-header { fill: #57606a; }
+        .t-axis-label { fill: #57606a; }
+        .t-bar-label { fill: #1f2328; }
+        .t-val-accent { fill: #1a7f37; }
+        .t-val-blue { fill: #0969da; }
+        .t-val-muted { fill: #656d76; }
+        .b-expanse { fill: #1a7f37; }
+        .b-btreemap { fill: #0969da; }
+        .b-skipmap { fill: #d0d7de; }
+      }
+
+      [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0d1117; }
+      [data-theme="dark"] .border, :root[data-theme="dark"] .border { stroke: #30363d; }
+      [data-theme="dark"] .grid, :root[data-theme="dark"] .grid { stroke: #21262d; }
+      [data-theme="dark"] .axis, :root[data-theme="dark"] .axis { stroke: #484f58; }
+      [data-theme="dark"] .divider, :root[data-theme="dark"] .divider { stroke: #21262d; }
+      [data-theme="dark"] .t-chart-title, :root[data-theme="dark"] .t-chart-title { fill: #8b949e; }
+      [data-theme="dark"] .t-chart-sub, :root[data-theme="dark"] .t-chart-sub { fill: #6e7681; }
+      [data-theme="dark"] .t-unit-header, :root[data-theme="dark"] .t-unit-header { fill: #8b949e; }
+      [data-theme="dark"] .t-axis-label, :root[data-theme="dark"] .t-axis-label { fill: #8b949e; }
+      [data-theme="dark"] .t-bar-label, :root[data-theme="dark"] .t-bar-label { fill: #c9d1d9; }
+      [data-theme="dark"] .t-val-accent, :root[data-theme="dark"] .t-val-accent { fill: #3fb950; }
+      [data-theme="dark"] .t-val-blue, :root[data-theme="dark"] .t-val-blue { fill: #58a6ff; }
+      [data-theme="dark"] .t-val-muted, :root[data-theme="dark"] .t-val-muted { fill: #8b949e; }
+      [data-theme="dark"] .b-expanse, :root[data-theme="dark"] .b-expanse { fill: #2ea043; }
+      [data-theme="dark"] .b-btreemap, :root[data-theme="dark"] .b-btreemap { fill: #1f6feb; }
+      [data-theme="dark"] .b-skipmap, :root[data-theme="dark"] .b-skipmap { fill: #30363d; }
+
+      [data-theme="light"] .bg, :root[data-theme="light"] .bg { fill: #ffffff; }
+      [data-theme="light"] .border, :root[data-theme="light"] .border { stroke: #d0d7de; }
+      [data-theme="light"] .grid, :root[data-theme="light"] .grid { stroke: #eaeef2; }
+      [data-theme="light"] .axis, :root[data-theme="light"] .axis { stroke: #afb8c1; }
+      [data-theme="light"] .divider, :root[data-theme="light"] .divider { stroke: #eaeef2; }
+      [data-theme="light"] .t-chart-title, :root[data-theme="light"] .t-chart-title { fill: #57606a; }
+      [data-theme="light"] .t-chart-sub, :root[data-theme="light"] .t-chart-sub { fill: #8c959f; }
+      [data-theme="light"] .t-unit-header, :root[data-theme="light"] .t-unit-header { fill: #57606a; }
+      [data-theme="light"] .t-axis-label, :root[data-theme="light"] .t-axis-label { fill: #57606a; }
+      [data-theme="light"] .t-bar-label, :root[data-theme="light"] .t-bar-label { fill: #1f2328; }
+      [data-theme="light"] .t-val-accent, :root[data-theme="light"] .t-val-accent { fill: #1a7f37; }
+      [data-theme="light"] .t-val-blue, :root[data-theme="light"] .t-val-blue { fill: #0969da; }
+      [data-theme="light"] .t-val-muted, :root[data-theme="light"] .t-val-muted { fill: #656d76; }
+      [data-theme="light"] .b-expanse, :root[data-theme="light"] .b-expanse { fill: #1a7f37; }
+      [data-theme="light"] .b-btreemap, :root[data-theme="light"] .b-btreemap { fill: #0969da; }
+      [data-theme="light"] .b-skipmap, :root[data-theme="light"] .b-skipmap { fill: #d0d7de; }
+    </style>
+  </defs>
+
+  <rect width="100%" height="100%" class="bg" rx="8"/>
+  <rect width="100%" height="100%" class="border" rx="8"/>
+
+  <!-- ================= CHART 1: YCSB WORKLOAD E (RANGE SCANS) ================= -->
+  <g transform="translate(30, 20)">
+    <text x="0" y="0" class="t-chart-title">YCSB Workload E (OLAP Scan)</text>
+    <text x="0" y="13" class="t-chart-sub">95% Range Scan, 5% Insert (higher is better)</text>
+    <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M ops / sec)</text>
+
+    <!-- Y Axis: 0 to 15M -->
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">15M</text>
+    
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">7.5M</text>
+    
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+
+    <!-- Bar 1: ExpanseBlobMap (13.10M -> height = 13.10 * 10 = 131.0, y = 195 - 131.0 = 64.0) -->
+    <rect x="42" y="64.0" width="55" height="131.0" class="b-expanse" rx="2"/>
+    <text x="69.5" y="56" class="t-val-accent">13.1 M/s</text>
+    <text x="69.5" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
+    <text x="69.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">7.2&#215; speedup</text>
+
+    <!-- Bar 2: BTreeMap (3.96M -> height = 39.6, y = 155.4) -->
+    <rect x="114" y="155.4" width="55" height="39.6" class="b-btreemap" rx="2"/>
+    <text x="141.5" y="147" class="t-val-blue">3.96 M/s</text>
+    <text x="141.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
+    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.2&#215;</text>
+
+    <!-- Bar 3: SkipMap (1.81M -> height = 18.1, y = 176.9) -->
+    <rect x="186" y="176.9" width="55" height="18.1" class="b-skipmap" rx="2"/>
+    <text x="213.5" y="169" class="t-val-muted">1.81 M/s</text>
+    <text x="213.5" y="214" class="t-bar-label" text-anchor="middle">SkipMap</text>
+    <text x="213.5" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
+  </g>
+
+  <!-- Divider 1 -->
+  <line x1="315" y1="20" x2="315" y2="255" class="divider"/>
+
+  <!-- ================= CHART 2: YCSB WORKLOAD F (READ-MODIFY-WRITE) ================= -->
+  <g transform="translate(345, 20)">
+    <text x="0" y="0" class="t-chart-title">YCSB Workload F (Atomic RMW)</text>
+    <text x="0" y="13" class="t-chart-sub">50% Read, 50% RMW (higher is better)</text>
+    <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M ops / sec)</text>
+
+    <!-- Y Axis: 0 to 16M -->
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">16M</text>
+    
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">8.0M</text>
+    
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+
+    <!-- Bar 1: ExpanseBlobMap (14.20M -> height = 14.2 * 9.375 = 133.1, y = 61.9) -->
+    <rect x="42" y="61.9" width="55" height="133.1" class="b-expanse" rx="2"/>
+    <text x="69.5" y="54" class="t-val-accent">14.2 M/s</text>
+    <text x="69.5" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
+    <text x="69.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">8.1&#215; speedup</text>
+
+    <!-- Bar 2: BTreeMap (4.19M -> height = 39.3, y = 155.7) -->
+    <rect x="114" y="155.7" width="55" height="39.3" class="b-btreemap" rx="2"/>
+    <text x="141.5" y="148" class="t-val-blue">4.19 M/s</text>
+    <text x="141.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
+    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.4&#215;</text>
+
+    <!-- Bar 3: SkipMap (1.76M -> height = 16.5, y = 178.5) -->
+    <rect x="186" y="178.5" width="55" height="16.5" class="b-skipmap" rx="2"/>
+    <text x="213.5" y="171" class="t-val-muted">1.76 M/s</text>
+    <text x="213.5" y="214" class="t-bar-label" text-anchor="middle">SkipMap</text>
+    <text x="213.5" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
+  </g>
+
+  <!-- Divider 2 -->
+  <line x1="635" y1="20" x2="635" y2="255" class="divider"/>
+
+  <!-- ================= CHART 3: SMALL PAYLOAD INLINING (POINT GET) ================= -->
+  <g transform="translate(665, 20)">
+    <text x="0" y="0" class="t-chart-title">Small-Payload Inlining</text>
+    <text x="0" y="13" class="t-chart-sub">&#8804; 7B payloads, zero heap alloc (lower is better)</text>
+    <text x="0" y="29" class="t-unit-header">&#9660; Latency (ns / op)</text>
+
+    <!-- Y Axis: 0 to 70 ns -->
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">70 ns</text>
+    
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">35 ns</text>
+    
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+
+    <!-- Bar 1: Expanse (13.4ns -> height = 13.4 * 2.14 = 28.7, y = 195 - 28.7 = 166.3) -->
+    <rect x="55" y="166.3" width="70" height="28.7" class="b-expanse" rx="2"/>
+    <text x="90" y="158" class="t-val-accent">13.4 ns</text>
+    <text x="90" y="214" class="t-bar-label" text-anchor="middle">ExpanseBlobMap</text>
+    <text x="90" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">4.3&#215; faster (0 alloc)</text>
+
+    <!-- Bar 2: BTreeMap (58.2ns -> height = 58.2 * 2.14 = 124.5, y = 70.5) -->
+    <rect x="155" y="70.5" width="70" height="124.5" class="b-btreemap" rx="2"/>
+    <text x="190" y="62" class="t-val-blue">58.2 ns</text>
+    <text x="190" y="214" class="t-bar-label" text-anchor="middle">BTreeMap (Heap)</text>
+    <text x="190" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; (16B header)</text>
   </g>
 </svg>
 
@@ -1097,7 +1476,7 @@ int main() {
 
     function toggleTheme() {
       const current = document.documentElement.getAttribute('data-theme') || 
-        (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
       const next = current === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next);
       localStorage.setItem('expanse-theme', next);
