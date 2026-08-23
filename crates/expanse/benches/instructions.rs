@@ -284,7 +284,8 @@ fn map_nav(built: (ExpanseMap, Vec<u64>)) -> u64 {
 }
 
 #[library_benchmark]
-fn set32_insert_sensor_timestamps() -> ExpanseSet32 {
+#[bench::sensor_timestamps()]
+fn set32_insert() -> ExpanseSet32 {
     let mut set = ExpanseSet32::new();
     for i in 0..10_000 {
         set.insert(black_box(1_700_000_000 + i as Key32));
@@ -293,7 +294,8 @@ fn set32_insert_sensor_timestamps() -> ExpanseSet32 {
 }
 
 #[library_benchmark]
-fn map32_get_can_dispatch() -> u64 {
+#[bench::can_dispatch()]
+fn map32_get() -> u64 {
     let mut map = ExpanseMap32::new();
     for i in 0..500 {
         map.insert((i * 100_007) & 0x1FFF_FFFF, i);
@@ -308,7 +310,8 @@ fn map32_get_can_dispatch() -> u64 {
 }
 
 #[library_benchmark]
-fn blobmap32_scan_ipv4_routes() -> usize {
+#[bench::ipv4_routes()]
+fn blobmap32_scan() -> usize {
     let mut blobmap = ExpanseBlobMap32::new();
     for i in 0..2_000 {
         let ip = (10 << 24) | ((i as Key32 / 256) << 16) | ((i as Key32 % 256) << 8);
@@ -336,9 +339,9 @@ library_benchmark_group!(
         map_remove,
         map_iterate,
         map_nav,
-        set32_insert_sensor_timestamps,
-        map32_get_can_dispatch,
-        blobmap32_scan_ipv4_routes
+        set32_insert,
+        map32_get,
+        blobmap32_scan
 );
 
 #[cfg(target_os = "linux")]
