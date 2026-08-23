@@ -248,6 +248,7 @@ fn test_edge_cases_and_clear() {
 }
 
 #[test]
+#[cfg(not(miri))]
 fn test_mmap_and_binary_serialization() {
     let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
 

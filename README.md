@@ -48,6 +48,8 @@ Naming the project after the mechanism honors the algorithm itself without inher
 
 ![OCC Concurrency Scalability](docs/assets/bench_concurrency.svg)
 
+![YCSB & Large-Value Storage Benchmarks](docs/assets/bench_ycsb.svg)
+
 ---
 
 ## API Surfaces
