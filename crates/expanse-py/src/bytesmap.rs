@@ -155,7 +155,7 @@ impl ExpanseBytesMap {
 
     /// Updates the map from another mapping or iterable of `(key, value)` pairs.
     pub fn update(&mut self, other: &Bound<'_, PyAny>) -> PyResult<()> {
-        if let Ok(dict) = other.downcast::<pyo3::types::PyDict>() {
+        if let Ok(dict) = other.cast::<pyo3::types::PyDict>() {
             for (k, v) in dict.iter() {
                 let k_bytes = extract_bytes_key(&k)?;
                 let v: u64 = v.extract()?;

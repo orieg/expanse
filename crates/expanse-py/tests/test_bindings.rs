@@ -12,8 +12,8 @@ use std::thread;
 
 #[test]
 fn test_expanse_map_basic_and_mapping_protocol() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|_py| {
+    Python::initialize();
+    Python::attach(|_py| {
         let mut map = ExpanseMap::default();
         assert_eq!(map.__len__(), 0);
         assert!(map.is_empty());
@@ -71,8 +71,8 @@ fn test_expanse_map_basic_and_mapping_protocol() {
 
 #[test]
 fn test_expanse_map_ordered_navigation_and_iterators() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|_py| {
+    Python::initialize();
+    Python::attach(|_py| {
         let mut map = ExpanseMap::default();
         let keys = [10u64, 20, 30, 40, 50, 60, 70, 80, 90, 100];
         for &k in &keys {
@@ -135,8 +135,8 @@ fn test_expanse_map_ordered_navigation_and_iterators() {
 
 #[test]
 fn test_expanse_map_bulk_ingest_and_update() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    Python::initialize();
+    Python::attach(|py| {
         let mut map = ExpanseMap::default();
 
         // Dict update
@@ -151,8 +151,8 @@ fn test_expanse_map_bulk_ingest_and_update() {
 
 #[test]
 fn test_expanse_set_basic_and_navigation() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|_py| {
+    Python::initialize();
+    Python::attach(|_py| {
         let mut set = ExpanseSet::default();
         assert_eq!(set.__len__(), 0);
         assert!(set.is_empty());
@@ -205,12 +205,12 @@ fn test_expanse_set_basic_and_navigation() {
 
 #[test]
 fn test_sync_expanse_map_multithreaded_gil_free() {
-    pyo3::prepare_freethreaded_python();
+    Python::initialize();
 
     let sync_map = SyncExpanseMap::default();
 
     // Populate initial data
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         for i in 0u64..1000 {
             sync_map.insert(py, i, i * 2);
         }
@@ -229,8 +229,8 @@ fn test_sync_expanse_map_multithreaded_gil_free() {
     for thread_id in 0..8 {
         let map_clone = sync_map.clone();
         let handle = thread::spawn(move || {
-            pyo3::prepare_freethreaded_python();
-            Python::with_gil(|py| {
+            Python::initialize();
+            Python::attach(|py| {
                 for i in 0..500 {
                     let key = ((thread_id * 100 + i) % 1000) as u64;
                     let val = map_clone.get(py, key, None);
@@ -255,7 +255,7 @@ fn test_sync_expanse_map_multithreaded_gil_free() {
     }
 
     // Verify mutating and clearing
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         assert_eq!(sync_map.remove(py, 500).unwrap(), 1000);
         assert!(!sync_map.__contains__(py, 500));
         sync_map.clear(py);
@@ -265,11 +265,11 @@ fn test_sync_expanse_map_multithreaded_gil_free() {
 
 #[test]
 fn test_sync_expanse_set_multithreaded_gil_free() {
-    pyo3::prepare_freethreaded_python();
+    Python::initialize();
 
     let sync_set = SyncExpanseSet::default();
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         for i in 0u64..1000 {
             sync_set.insert(py, i);
         }
@@ -285,8 +285,8 @@ fn test_sync_expanse_set_multithreaded_gil_free() {
     for thread_id in 0..8 {
         let set_clone = sync_set.clone();
         let handle = thread::spawn(move || {
-            pyo3::prepare_freethreaded_python();
-            Python::with_gil(|py| {
+            Python::initialize();
+            Python::attach(|py| {
                 for i in 0..500 {
                     let key = ((thread_id * 100 + i) % 1000) as u64;
                     assert!(set_clone.__contains__(py, key));
@@ -308,7 +308,7 @@ fn test_sync_expanse_set_multithreaded_gil_free() {
         h.join().unwrap();
     }
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         assert!(sync_set.remove(py, 500).is_ok());
         assert!(!sync_set.__contains__(py, 500));
         sync_set.clear(py);
@@ -318,8 +318,8 @@ fn test_sync_expanse_set_multithreaded_gil_free() {
 
 #[test]
 fn test_expanse_str_map_lexicographical_and_nul_check() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    Python::initialize();
+    Python::attach(|py| {
         let mut strmap = ExpanseStrMap::default();
         assert_eq!(strmap.__len__(), 0);
 
@@ -374,8 +374,8 @@ fn test_expanse_str_map_lexicographical_and_nul_check() {
 
 #[test]
 fn test_expanse_bytes_map_arbitrary_binary_keys_and_nul() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    Python::initialize();
+    Python::attach(|py| {
         let mut bytesmap = ExpanseBytesMap::default();
         assert_eq!(bytesmap.__len__(), 0);
 
@@ -410,8 +410,8 @@ fn test_expanse_bytes_map_arbitrary_binary_keys_and_nul() {
 
 #[test]
 fn test_expanse_blob_map_pyo3_bindings() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    Python::initialize();
+    Python::attach(|py| {
         let mut map = ExpanseBlobMap::new(Some(64 * 1024));
         assert_eq!(map.__len__(), 0);
         assert!(map.is_empty());

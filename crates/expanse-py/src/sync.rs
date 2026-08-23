@@ -10,8 +10,8 @@ use std::sync::Arc;
 /// A thread-safe, concurrent 64-bit integer map with optimistic concurrency control (OCC).
 ///
 /// Lookups, scans, and range queries execute lock-free and release the Python GIL
-/// via `py.allow_threads(...)`, unlocking multithreaded read throughput across CPU cores.
-#[pyclass(module = "expanse")]
+/// via `py.detach(...)`, unlocking multithreaded read throughput across CPU cores.
+#[pyclass(from_py_object, module = "expanse_trie._expanse")]
 #[derive(Clone)]
 pub struct SyncExpanseMap {
     pub(crate) inner: Arc<InnerSyncMap>,
@@ -29,47 +29,47 @@ impl SyncExpanseMap {
 
     /// Number of entries in the concurrent map (GIL-free read).
     pub fn __len__(&self, py: Python<'_>) -> usize {
-        py.allow_threads(|| self.inner.len() as usize)
+        py.detach(|| self.inner.len() as usize)
     }
 
     /// True when no entries are present (GIL-free read).
     /// True when empty releasing the GIL.
     pub fn is_empty(&self, py: Python<'_>) -> bool {
-        py.allow_threads(|| self.inner.is_empty())
+        py.detach(|| self.inner.is_empty())
     }
 
     /// Property returning True if empty.
     #[getter]
     pub fn empty(&self, py: Python<'_>) -> bool {
-        py.allow_threads(|| self.inner.is_empty())
+        py.detach(|| self.inner.is_empty())
     }
 
     /// Truth value testing for Python (GIL-free read).
     pub fn __bool__(&self, py: Python<'_>) -> bool {
-        py.allow_threads(|| !self.inner.is_empty())
+        py.detach(|| !self.inner.is_empty())
     }
 
     /// Lock-free membership test `key in map` releasing the GIL.
     pub fn __contains__(&self, py: Python<'_>, key: u64) -> bool {
-        py.allow_threads(|| self.inner.get(key).is_some())
+        py.detach(|| self.inner.get(key).is_some())
     }
 
     /// Retrieves `val = map[key]` releasing the GIL; raises `KeyError` if key is missing.
     pub fn __getitem__(&self, py: Python<'_>, key: u64) -> PyResult<u64> {
-        let val = py.allow_threads(|| self.inner.get(key));
+        let val = py.detach(|| self.inner.get(key));
         val.ok_or_else(|| PyKeyError::new_err(format!("Key {key} not found in SyncExpanseMap")))
     }
 
     /// Sets `map[key] = val` releasing the GIL.
     pub fn __setitem__(&self, py: Python<'_>, key: u64, val: u64) {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.inner.insert(key, val);
         });
     }
 
     /// Deletes `del map[key]` releasing the GIL; raises `KeyError` if key is missing.
     pub fn __delitem__(&self, py: Python<'_>, key: u64) -> PyResult<()> {
-        let prev = py.allow_threads(|| self.inner.remove(key));
+        let prev = py.detach(|| self.inner.remove(key));
         if prev.is_some() {
             Ok(())
         } else {
@@ -82,17 +82,17 @@ impl SyncExpanseMap {
     /// Look up `key` releasing the GIL, returning `default` (or None) if absent.
     #[pyo3(signature = (key, default=None))]
     pub fn get(&self, py: Python<'_>, key: u64, default: Option<u64>) -> Option<u64> {
-        py.allow_threads(|| self.inner.get(key)).or(default)
+        py.detach(|| self.inner.get(key)).or(default)
     }
 
     /// Inserts `key -> val` releasing the GIL; returns the previous value, if any.
     pub fn insert(&self, py: Python<'_>, key: u64, val: u64) -> Option<u64> {
-        py.allow_threads(|| self.inner.insert(key, val))
+        py.detach(|| self.inner.insert(key, val))
     }
 
     /// Removes `key` releasing the GIL; returns its value or raises `KeyError` if missing.
     pub fn remove(&self, py: Python<'_>, key: u64) -> PyResult<u64> {
-        let prev = py.allow_threads(|| self.inner.remove(key));
+        let prev = py.detach(|| self.inner.remove(key));
         prev.ok_or_else(|| PyKeyError::new_err(format!("Key {key} not found in SyncExpanseMap")))
     }
 
@@ -100,7 +100,7 @@ impl SyncExpanseMap {
     /// if given, otherwise raises `KeyError`.
     #[pyo3(signature = (key, default=None))]
     pub fn pop(&self, py: Python<'_>, key: u64, default: Option<u64>) -> PyResult<u64> {
-        match py.allow_threads(|| self.inner.remove(key)) {
+        match py.detach(|| self.inner.remove(key)) {
             Some(v) => Ok(v),
             None => default.ok_or_else(|| {
                 PyKeyError::new_err(format!("Key {key} not found in SyncExpanseMap"))
@@ -110,25 +110,25 @@ impl SyncExpanseMap {
 
     /// Removes all entries from the concurrent map.
     pub fn clear(&self, py: Python<'_>) {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.inner.clear();
         });
     }
 
     /// Smallest entry `(key, value)` releasing the GIL.
     pub fn first(&self, py: Python<'_>) -> Option<(u64, u64)> {
-        py.allow_threads(|| self.inner.with_locked(|m| m.first()))
+        py.detach(|| self.inner.with_locked(|m| m.first()))
     }
 
     /// Largest entry `(key, value)` releasing the GIL.
     pub fn last(&self, py: Python<'_>) -> Option<(u64, u64)> {
-        py.allow_threads(|| self.inner.with_locked(|m| m.last()))
+        py.detach(|| self.inner.with_locked(|m| m.last()))
     }
 
     /// Smallest entry with key `> key` (or `>= key` if `inclusive=True`) releasing the GIL.
     #[pyo3(signature = (key, inclusive=false))]
     pub fn next(&self, py: Python<'_>, key: u64, inclusive: bool) -> Option<(u64, u64)> {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.inner.with_locked(|m| {
                 if inclusive {
                     m.next_at_or_after(key)
@@ -142,7 +142,7 @@ impl SyncExpanseMap {
     /// Largest entry with key `< key` (or `<= key` if `inclusive=True`) releasing the GIL.
     #[pyo3(signature = (key, inclusive=false))]
     pub fn prev(&self, py: Python<'_>, key: u64, inclusive: bool) -> Option<(u64, u64)> {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.inner.with_locked(|m| {
                 if inclusive {
                     m.prev_at_or_before(key)
@@ -155,17 +155,17 @@ impl SyncExpanseMap {
 
     /// Number of keys strictly below `key` releasing the GIL.
     pub fn count_below(&self, py: Python<'_>, key: u64) -> u64 {
-        py.allow_threads(|| self.inner.with_locked(|m| m.count_below(key)))
+        py.detach(|| self.inner.with_locked(|m| m.count_below(key)))
     }
 
     /// The entry `(key, value)` with `index` keys below it releasing the GIL.
     pub fn by_count(&self, py: Python<'_>, index: u64) -> Option<(u64, u64)> {
-        py.allow_threads(|| self.inner.with_locked(|m| m.by_count(index)))
+        py.detach(|| self.inner.with_locked(|m| m.by_count(index)))
     }
 
     /// Number of keys in the range `[start, end]` releasing the GIL.
     pub fn count_range(&self, py: Python<'_>, start: u64, end: u64) -> u64 {
-        py.allow_threads(|| self.inner.with_locked(|m| m.count_range(start..=end)))
+        py.detach(|| self.inner.with_locked(|m| m.count_range(start..=end)))
     }
 
     /// Range scan releasing the GIL during traversal.
@@ -178,7 +178,7 @@ impl SyncExpanseMap {
         inclusive: bool,
     ) -> SyncExpanseMapRangeIter {
         let from = start.unwrap_or(0);
-        let items: Vec<(u64, u64)> = py.allow_threads(|| {
+        let items: Vec<(u64, u64)> = py.detach(|| {
             self.inner.with_locked(|m| {
                 m.iter()
                     .skip_while(|&(k, _)| k < from)
@@ -200,7 +200,7 @@ impl SyncExpanseMap {
 
     /// Key iterator for Python `for key in map:`.
     pub fn __iter__(&self, py: Python<'_>) -> SyncExpanseMapKeyIter {
-        let keys: Vec<u64> = py.allow_threads(|| {
+        let keys: Vec<u64> = py.detach(|| {
             self.inner
                 .with_locked(|m| m.iter().map(|(k, _)| k).collect())
         });
@@ -214,7 +214,7 @@ impl SyncExpanseMap {
 
     /// Returns all values in key-ascending order.
     pub fn values(&self, py: Python<'_>) -> SyncExpanseMapValueIter {
-        let values: Vec<u64> = py.allow_threads(|| {
+        let values: Vec<u64> = py.detach(|| {
             self.inner
                 .with_locked(|m| m.iter().map(|(_, v)| v).collect())
         });
@@ -223,8 +223,7 @@ impl SyncExpanseMap {
 
     /// Returns all `(key, value)` pairs in ascending order.
     pub fn items(&self, py: Python<'_>) -> SyncExpanseMapItemIter {
-        let items: Vec<(u64, u64)> =
-            py.allow_threads(|| self.inner.with_locked(|m| m.iter().collect()));
+        let items: Vec<(u64, u64)> = py.detach(|| self.inner.with_locked(|m| m.iter().collect()));
         SyncExpanseMapItemIter { items, index: 0 }
     }
 
@@ -233,8 +232,8 @@ impl SyncExpanseMap {
         if let Ok(other_map) = other.extract::<PyRef<'_, SyncExpanseMap>>() {
             let other_inner = Arc::clone(&other_map.inner);
             let pairs: Vec<(u64, u64)> =
-                py.allow_threads(|| other_inner.with_locked(|m| m.iter().collect()));
-            py.allow_threads(|| {
+                py.detach(|| other_inner.with_locked(|m| m.iter().collect()));
+            py.detach(|| {
                 for (k, v) in pairs {
                     self.inner.insert(k, v);
                 }
@@ -244,7 +243,7 @@ impl SyncExpanseMap {
 
         if let Ok(other_map) = other.extract::<PyRef<'_, crate::map::ExpanseMap>>() {
             let pairs: Vec<(u64, u64)> = other_map.inner.iter().collect();
-            py.allow_threads(|| {
+            py.detach(|| {
                 for (k, v) in pairs {
                     self.inner.insert(k, v);
                 }
@@ -252,14 +251,14 @@ impl SyncExpanseMap {
             return Ok(());
         }
 
-        if let Ok(dict) = other.downcast::<pyo3::types::PyDict>() {
+        if let Ok(dict) = other.cast::<pyo3::types::PyDict>() {
             let mut pairs = Vec::with_capacity(dict.len());
             for (k, v) in dict.iter() {
                 let k: u64 = k.extract()?;
                 let v: u64 = v.extract()?;
                 pairs.push((k, v));
             }
-            py.allow_threads(|| {
+            py.detach(|| {
                 for (k, v) in pairs {
                     self.inner.insert(k, v);
                 }
@@ -273,7 +272,7 @@ impl SyncExpanseMap {
             let (k, v): (u64, u64) = item.extract()?;
             pairs.push((k, v));
         }
-        py.allow_threads(|| {
+        py.detach(|| {
             for (k, v) in pairs {
                 self.inner.insert(k, v);
             }
@@ -309,8 +308,8 @@ impl Default for SyncExpanseMap {
 /// A thread-safe, concurrent 64-bit integer set with optimistic concurrency control (OCC).
 ///
 /// Lookups, scans, and range queries execute lock-free and release the Python GIL
-/// via `py.allow_threads(...)`, unlocking multithreaded read throughput across CPU cores.
-#[pyclass(module = "expanse")]
+/// via `py.detach(...)`, unlocking multithreaded read throughput across CPU cores.
+#[pyclass(from_py_object, module = "expanse_trie._expanse")]
 #[derive(Clone)]
 pub struct SyncExpanseSet {
     pub(crate) inner: Arc<InnerSyncSet>,
@@ -328,50 +327,50 @@ impl SyncExpanseSet {
 
     /// Number of elements in the set releasing the GIL.
     pub fn __len__(&self, py: Python<'_>) -> usize {
-        py.allow_threads(|| self.inner.len() as usize)
+        py.detach(|| self.inner.len() as usize)
     }
 
     /// True when no elements are in the set releasing the GIL.
     /// True when empty releasing the GIL.
     pub fn is_empty(&self, py: Python<'_>) -> bool {
-        py.allow_threads(|| self.inner.is_empty())
+        py.detach(|| self.inner.is_empty())
     }
 
     /// Property returning True if empty.
     #[getter]
     pub fn empty(&self, py: Python<'_>) -> bool {
-        py.allow_threads(|| self.inner.is_empty())
+        py.detach(|| self.inner.is_empty())
     }
 
     /// Truth value testing for Python releasing the GIL.
     pub fn __bool__(&self, py: Python<'_>) -> bool {
-        py.allow_threads(|| !self.inner.is_empty())
+        py.detach(|| !self.inner.is_empty())
     }
 
     /// Lock-free membership test `key in set` releasing the GIL.
     pub fn __contains__(&self, py: Python<'_>, key: u64) -> bool {
-        py.allow_threads(|| self.inner.contains(key))
+        py.detach(|| self.inner.contains(key))
     }
 
     /// Inserts `key` into the set releasing the GIL; returns `True` if newly inserted.
     /// Check membership releasing the GIL.
     pub fn contains(&self, py: Python<'_>, key: u64) -> bool {
-        py.allow_threads(|| self.inner.contains(key))
+        py.detach(|| self.inner.contains(key))
     }
 
     /// Inserts key releasing the GIL.
     pub fn insert(&self, py: Python<'_>, key: u64) -> bool {
-        py.allow_threads(|| self.inner.insert(key))
+        py.detach(|| self.inner.insert(key))
     }
 
     /// Adds `key` to the set (standard Python set method). Returns `True` if newly inserted.
     pub fn add(&self, py: Python<'_>, key: u64) -> bool {
-        py.allow_threads(|| self.inner.insert(key))
+        py.detach(|| self.inner.insert(key))
     }
 
     /// Removes `key` from the set releasing the GIL; raises `KeyError` if absent.
     pub fn remove(&self, py: Python<'_>, key: u64) -> PyResult<()> {
-        let removed = py.allow_threads(|| self.inner.remove(key));
+        let removed = py.detach(|| self.inner.remove(key));
         if removed {
             Ok(())
         } else {
@@ -383,30 +382,30 @@ impl SyncExpanseSet {
 
     /// Removes `key` if present releasing the GIL; returns `True` if present.
     pub fn discard(&self, py: Python<'_>, key: u64) -> bool {
-        py.allow_threads(|| self.inner.remove(key))
+        py.detach(|| self.inner.remove(key))
     }
 
     /// Removes all elements from the concurrent set.
     pub fn clear(&self, py: Python<'_>) {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.inner.clear();
         });
     }
 
     /// Smallest element in the set releasing the GIL.
     pub fn first(&self, py: Python<'_>) -> Option<u64> {
-        py.allow_threads(|| self.inner.with_locked(|s| s.first()))
+        py.detach(|| self.inner.with_locked(|s| s.first()))
     }
 
     /// Largest element in the set releasing the GIL.
     pub fn last(&self, py: Python<'_>) -> Option<u64> {
-        py.allow_threads(|| self.inner.with_locked(|s| s.last()))
+        py.detach(|| self.inner.with_locked(|s| s.last()))
     }
 
     /// Smallest element with key `> key` (or `>= key` if `inclusive=True`) releasing the GIL.
     #[pyo3(signature = (key, inclusive=false))]
     pub fn next(&self, py: Python<'_>, key: u64, inclusive: bool) -> Option<u64> {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.inner.with_locked(|s| {
                 if inclusive {
                     s.next_at_or_after(key)
@@ -420,7 +419,7 @@ impl SyncExpanseSet {
     /// Largest element with key `< key` (or `<= key` if `inclusive=True`) releasing the GIL.
     #[pyo3(signature = (key, inclusive=false))]
     pub fn prev(&self, py: Python<'_>, key: u64, inclusive: bool) -> Option<u64> {
-        py.allow_threads(|| {
+        py.detach(|| {
             self.inner.with_locked(|s| {
                 if inclusive {
                     s.prev_at_or_before(key)
@@ -433,17 +432,17 @@ impl SyncExpanseSet {
 
     /// Number of keys strictly below `key` releasing the GIL.
     pub fn count_below(&self, py: Python<'_>, key: u64) -> u64 {
-        py.allow_threads(|| self.inner.with_locked(|s| s.count_below(key)))
+        py.detach(|| self.inner.with_locked(|s| s.count_below(key)))
     }
 
     /// The element with `index` keys below it releasing the GIL.
     pub fn by_count(&self, py: Python<'_>, index: u64) -> Option<u64> {
-        py.allow_threads(|| self.inner.with_locked(|s| s.by_count(index)))
+        py.detach(|| self.inner.with_locked(|s| s.by_count(index)))
     }
 
     /// Number of keys in the range `[start, end]` releasing the GIL.
     pub fn count_range(&self, py: Python<'_>, start: u64, end: u64) -> u64 {
-        py.allow_threads(|| self.inner.with_locked(|s| s.count_range(start..=end)))
+        py.detach(|| self.inner.with_locked(|s| s.count_range(start..=end)))
     }
 
     /// Range scan releasing the GIL during traversal.
@@ -456,7 +455,7 @@ impl SyncExpanseSet {
         inclusive: bool,
     ) -> SyncExpanseSetRangeIter {
         let from = start.unwrap_or(0);
-        let items: Vec<u64> = py.allow_threads(|| {
+        let items: Vec<u64> = py.detach(|| {
             self.inner.with_locked(|s| {
                 s.iter()
                     .skip_while(|&k| k < from)
@@ -478,7 +477,7 @@ impl SyncExpanseSet {
 
     /// Key iterator for Python `for key in set:`.
     pub fn __iter__(&self, py: Python<'_>) -> SyncExpanseSetIter {
-        let items: Vec<u64> = py.allow_threads(|| self.inner.with_locked(|s| s.iter().collect()));
+        let items: Vec<u64> = py.detach(|| self.inner.with_locked(|s| s.iter().collect()));
         SyncExpanseSetIter { items, index: 0 }
     }
 
@@ -486,9 +485,8 @@ impl SyncExpanseSet {
     pub fn update(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<()> {
         if let Ok(other_set) = other.extract::<PyRef<'_, SyncExpanseSet>>() {
             let other_inner = Arc::clone(&other_set.inner);
-            let keys: Vec<u64> =
-                py.allow_threads(|| other_inner.with_locked(|s| s.iter().collect()));
-            py.allow_threads(|| {
+            let keys: Vec<u64> = py.detach(|| other_inner.with_locked(|s| s.iter().collect()));
+            py.detach(|| {
                 for k in keys {
                     self.inner.insert(k);
                 }
@@ -498,7 +496,7 @@ impl SyncExpanseSet {
 
         if let Ok(other_set) = other.extract::<PyRef<'_, crate::set::ExpanseSet>>() {
             let keys: Vec<u64> = other_set.inner.iter().collect();
-            py.allow_threads(|| {
+            py.detach(|| {
                 for k in keys {
                     self.inner.insert(k);
                 }
@@ -511,7 +509,7 @@ impl SyncExpanseSet {
             let k: u64 = item?.extract()?;
             keys.push(k);
         }
-        py.allow_threads(|| {
+        py.detach(|| {
             for k in keys {
                 self.inner.insert(k);
             }
@@ -540,7 +538,7 @@ impl Default for SyncExpanseSet {
 }
 
 /// Key iterator for [`SyncExpanseMap`].
-#[pyclass(unsendable, module = "expanse")]
+#[pyclass(unsendable, module = "expanse_trie._expanse")]
 pub struct SyncExpanseMapKeyIter {
     pub(crate) keys: Vec<u64>,
     pub(crate) index: usize,
@@ -571,7 +569,7 @@ impl SyncExpanseMapKeyIter {
 }
 
 /// Value iterator for [`SyncExpanseMap`].
-#[pyclass(unsendable, module = "expanse")]
+#[pyclass(unsendable, module = "expanse_trie._expanse")]
 pub struct SyncExpanseMapValueIter {
     pub(crate) values: Vec<u64>,
     pub(crate) index: usize,
@@ -602,7 +600,7 @@ impl SyncExpanseMapValueIter {
 }
 
 /// Item iterator for [`SyncExpanseMap`].
-#[pyclass(unsendable, module = "expanse")]
+#[pyclass(unsendable, module = "expanse_trie._expanse")]
 pub struct SyncExpanseMapItemIter {
     pub(crate) items: Vec<(u64, u64)>,
     pub(crate) index: usize,
@@ -633,7 +631,7 @@ impl SyncExpanseMapItemIter {
 }
 
 /// Range iterator for [`SyncExpanseMap`].
-#[pyclass(unsendable, module = "expanse")]
+#[pyclass(unsendable, module = "expanse_trie._expanse")]
 pub struct SyncExpanseMapRangeIter {
     pub(crate) items: Vec<(u64, u64)>,
     pub(crate) index: usize,
@@ -664,7 +662,7 @@ impl SyncExpanseMapRangeIter {
 }
 
 /// Key iterator for [`SyncExpanseSet`].
-#[pyclass(unsendable, module = "expanse")]
+#[pyclass(unsendable, module = "expanse_trie._expanse")]
 pub struct SyncExpanseSetIter {
     pub(crate) items: Vec<u64>,
     pub(crate) index: usize,
@@ -695,7 +693,7 @@ impl SyncExpanseSetIter {
 }
 
 /// Range iterator for [`SyncExpanseSet`].
-#[pyclass(unsendable, module = "expanse")]
+#[pyclass(unsendable, module = "expanse_trie._expanse")]
 pub struct SyncExpanseSetRangeIter {
     pub(crate) items: Vec<u64>,
     pub(crate) index: usize,

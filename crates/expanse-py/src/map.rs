@@ -20,7 +20,7 @@ impl ExpanseMap {
     pub fn new(items: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
         let mut map = InnerMap::new();
         if let Some(obj) = items {
-            if let Ok(dict) = obj.downcast::<pyo3::types::PyDict>() {
+            if let Ok(dict) = obj.cast::<pyo3::types::PyDict>() {
                 for (k, v) in dict.iter() {
                     let key: u64 = k.extract()?;
                     let val: u64 = v.extract()?;
@@ -254,7 +254,7 @@ impl ExpanseMap {
             return Ok(());
         }
 
-        if let Ok(dict) = other.downcast::<pyo3::types::PyDict>() {
+        if let Ok(dict) = other.cast::<pyo3::types::PyDict>() {
             for (k, v) in dict.iter() {
                 let k: u64 = k.extract()?;
                 let v: u64 = v.extract()?;

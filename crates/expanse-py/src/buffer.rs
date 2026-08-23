@@ -9,7 +9,7 @@ use std::borrow::Cow;
 
 /// Extracts a string or byte slice as a NUL-free byte slice for `ExpanseStrMap`.
 pub fn extract_str_key<'a>(key: &'a Bound<'_, PyAny>) -> PyResult<Cow<'a, [u8]>> {
-    if let Ok(s) = key.downcast::<PyString>() {
+    if let Ok(s) = key.cast::<PyString>() {
         let text = s.to_cow()?;
         let bytes = text.as_bytes();
         if bytes.contains(&0) {
@@ -19,7 +19,7 @@ pub fn extract_str_key<'a>(key: &'a Bound<'_, PyAny>) -> PyResult<Cow<'a, [u8]>>
         }
         return Ok(Cow::Owned(bytes.to_vec()));
     }
-    if let Ok(b) = key.downcast::<PyBytes>() {
+    if let Ok(b) = key.cast::<PyBytes>() {
         let bytes = b.as_bytes();
         if bytes.contains(&0) {
             return Err(PyValueError::new_err(
@@ -28,7 +28,7 @@ pub fn extract_str_key<'a>(key: &'a Bound<'_, PyAny>) -> PyResult<Cow<'a, [u8]>>
         }
         return Ok(Cow::Borrowed(bytes));
     }
-    if let Ok(ba) = key.downcast::<PyByteArray>() {
+    if let Ok(ba) = key.cast::<PyByteArray>() {
         // SAFETY: `ba` is a valid PyByteArray reference whose backing bytes remain valid during this call.
         let bytes = unsafe { ba.as_bytes() };
         if bytes.contains(&0) {
@@ -45,14 +45,14 @@ pub fn extract_str_key<'a>(key: &'a Bound<'_, PyAny>) -> PyResult<Cow<'a, [u8]>>
 
 /// Extracts arbitrary byte slices for `ExpanseBytesMap` (allows NUL bytes).
 pub fn extract_bytes_key<'a>(key: &'a Bound<'_, PyAny>) -> PyResult<Cow<'a, [u8]>> {
-    if let Ok(s) = key.downcast::<PyString>() {
+    if let Ok(s) = key.cast::<PyString>() {
         let text = s.to_cow()?;
         return Ok(Cow::Owned(text.into_owned().into_bytes()));
     }
-    if let Ok(b) = key.downcast::<PyBytes>() {
+    if let Ok(b) = key.cast::<PyBytes>() {
         return Ok(Cow::Borrowed(b.as_bytes()));
     }
-    if let Ok(ba) = key.downcast::<PyByteArray>() {
+    if let Ok(ba) = key.cast::<PyByteArray>() {
         // SAFETY: `ba` is a valid PyByteArray reference whose backing bytes remain valid during this call.
         return Ok(Cow::Owned(unsafe { ba.as_bytes() }.to_vec()));
     }
@@ -67,10 +67,7 @@ pub fn for_each_u64_pair(
     vals_obj: &Bound<'_, PyAny>,
     mut f: impl FnMut(u64, u64),
 ) -> PyResult<usize> {
-    if let (Ok(k_bytes), Ok(v_bytes)) = (
-        keys_obj.downcast::<PyBytes>(),
-        vals_obj.downcast::<PyBytes>(),
-    ) {
+    if let (Ok(k_bytes), Ok(v_bytes)) = (keys_obj.cast::<PyBytes>(), vals_obj.cast::<PyBytes>()) {
         let k_slice = k_bytes.as_bytes();
         let v_slice = v_bytes.as_bytes();
         if k_slice.len() % 8 == 0 && v_slice.len() % 8 == 0 {
@@ -98,7 +95,7 @@ pub fn for_each_u64_pair(
 
 /// Iterates through keys from a Python iterable or sequence.
 pub fn for_each_u64_key(keys_obj: &Bound<'_, PyAny>, mut f: impl FnMut(u64)) -> PyResult<usize> {
-    if let Ok(k_bytes) = keys_obj.downcast::<PyBytes>() {
+    if let Ok(k_bytes) = keys_obj.cast::<PyBytes>() {
         let k_slice = k_bytes.as_bytes();
         if k_slice.len() % 8 == 0 {
             let count = k_slice.len() / 8;
