@@ -63,10 +63,10 @@ unsafe fn bytes<'a>(key: *const c_void, len: usize) -> Option<&'a [u8]> {
     Some(unsafe { core::slice::from_raw_parts(key.cast::<u8>(), len) })
 }
 
-/// Library version as a NUL-terminated string, `"MAJOR.MINOR.PATCH"`.
+/// Library version as a NUL-terminated string.
 #[unsafe(no_mangle)]
 pub extern "C" fn expanse_version() -> *const c_char {
-    concat!(env!("CARGO_PKG_VERSION"), "\0")
+    concat!(env!("EXPANSE_VERSION_FULL"), "\0")
         .as_ptr()
         .cast::<c_char>()
 }
@@ -1492,7 +1492,10 @@ mod tests {
     #[test]
     fn version_is_semver() {
         let v = version_str();
-        assert_eq!(v, env!("CARGO_PKG_VERSION"));
-        assert_eq!(v.split('.').count(), 3, "MAJOR.MINOR.PATCH");
+        let pkg = env!("CARGO_PKG_VERSION");
+        assert!(
+            v.contains(pkg),
+            "expected version '{v}' to contain package version '{pkg}'"
+        );
     }
 }
