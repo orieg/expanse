@@ -1,3 +1,5 @@
+//! Concurrent OCC linearizability verification test harness.
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -66,10 +68,8 @@ fn check_linearizability_for_key(events: &[Event]) -> bool {
         // of all other unused events.
         let mut min_end = None;
         for (i, e) in events.iter().enumerate() {
-            if !used[i] {
-                if min_end.is_none() || e.end < min_end.unwrap() {
-                    min_end = Some(e.end);
-                }
+            if !used[i] && min_end.is_none_or(|me| e.end < me) {
+                min_end = Some(e.end);
             }
         }
 
