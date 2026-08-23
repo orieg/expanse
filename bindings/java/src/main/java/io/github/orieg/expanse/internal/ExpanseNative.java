@@ -110,6 +110,19 @@ public final class ExpanseNative {
     public static final MethodHandle MH_expanse_sync_map_reader_free;
     public static final MethodHandle MH_expanse_sync_map_reader_get;
 
+    // BlobMap
+    public static final MethodHandle MH_expanse_blob_map_new;
+    public static final MethodHandle MH_expanse_blob_map_free;
+    public static final MethodHandle MH_expanse_blob_map_insert;
+    public static final MethodHandle MH_expanse_blob_map_remove;
+    public static final MethodHandle MH_expanse_blob_map_get;
+    public static final MethodHandle MH_expanse_blob_map_scan_filtered;
+    public static final MethodHandle MH_expanse_blob_map_compact;
+    public static final MethodHandle MH_expanse_blob_map_len;
+    public static final MethodHandle MH_expanse_blob_map_mem_used;
+    public static final MethodHandle MH_expanse_blob_map_clear;
+    public static final MethodHandle MH_expanse_blob_map_contains_key;
+
     static {
         // Version
         MH_expanse_version = downcall("expanse_version", FunctionDescriptor.of(ValueLayout.ADDRESS));
@@ -204,6 +217,19 @@ public final class ExpanseNative {
         MH_expanse_sync_map_reader_new = downcall("expanse_sync_map_reader_new", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS));
         MH_expanse_sync_map_reader_free = downcall("expanse_sync_map_reader_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
         MH_expanse_sync_map_reader_get = downcall("expanse_sync_map_reader_get", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+
+        // BlobMap
+        MH_expanse_blob_map_new = downcall("expanse_blob_map_new", FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        MH_expanse_blob_map_free = downcall("expanse_blob_map_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+        MH_expanse_blob_map_insert = downcall("expanse_blob_map_insert", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
+        MH_expanse_blob_map_remove = downcall("expanse_blob_map_remove", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        MH_expanse_blob_map_get = downcall("expanse_blob_map_get", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_blob_map_scan_filtered = downcall("expanse_blob_map_scan_filtered", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_blob_map_compact = downcall("expanse_blob_map_compact", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS));
+        MH_expanse_blob_map_len = downcall("expanse_blob_map_len", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_blob_map_mem_used = downcall("expanse_blob_map_mem_used", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_blob_map_clear = downcall("expanse_blob_map_clear", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
+        MH_expanse_blob_map_contains_key = downcall("expanse_blob_map_contains_key", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
     }
 
     private static MethodHandle downcall(String name, FunctionDescriptor desc) {

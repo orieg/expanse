@@ -23,6 +23,7 @@
 
 use core::ffi::{c_int, c_void};
 use core::ptr::{NonNull, null_mut};
+pub mod blobmap;
 pub mod modern;
 
 use expanse_trie::bytesmap::ExpanseBytesMap;

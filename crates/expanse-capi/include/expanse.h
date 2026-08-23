@@ -225,6 +225,54 @@ void                       expanse_sync_map_reader_free(expanse_sync_map_reader_
 bool expanse_sync_map_reader_get(const expanse_sync_map_reader_t *reader, uint64_t key,
                                  uint64_t *value_out);
 
+/* ---- ExpanseBlobMap: polymorphic large-value map with inline/arena backing ---- */
+
+typedef struct ExpanseBlobMap ExpanseBlobMap;
+
+typedef struct {
+    const uint8_t *ptr;
+    size_t         len;
+    uint32_t       hot_meta;
+    bool           is_inline;
+} ExpanseBlobView;
+
+typedef bool (*expanse_predicate_fn)(uint64_t key, uint32_t hot_meta, void *user_ctx);
+typedef bool (*expanse_scan_cb_fn)(uint64_t key, ExpanseBlobView view, void *user_ctx);
+
+ExpanseBlobMap *expanse_blob_map_new(size_t chunk_size);
+void            expanse_blob_map_free(ExpanseBlobMap *map);
+
+bool expanse_blob_map_insert(
+    ExpanseBlobMap *map,
+    uint64_t key,
+    const uint8_t *data,
+    size_t len,
+    uint32_t hot_meta
+);
+
+bool expanse_blob_map_remove(ExpanseBlobMap *map, uint64_t key);
+
+bool expanse_blob_map_get(
+    const ExpanseBlobMap *map,
+    uint64_t key,
+    ExpanseBlobView *out_view
+);
+
+size_t expanse_blob_map_scan_filtered(
+    const ExpanseBlobMap *map,
+    uint64_t start_key,
+    uint64_t end_key,
+    expanse_predicate_fn predicate,
+    expanse_scan_cb_fn callback,
+    void *user_ctx
+);
+
+bool     expanse_blob_map_compact(ExpanseBlobMap *map);
+uint64_t expanse_blob_map_len(const ExpanseBlobMap *map);
+size_t   expanse_blob_map_mem_used(const ExpanseBlobMap *map);
+void     expanse_blob_map_clear(ExpanseBlobMap *map);
+bool     expanse_blob_map_contains_key(const ExpanseBlobMap *map, uint64_t key);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

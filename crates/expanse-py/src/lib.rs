@@ -5,6 +5,7 @@
 
 #![warn(missing_docs)]
 
+pub mod blobmap;
 pub mod buffer;
 pub mod bytesmap;
 pub mod map;
@@ -14,6 +15,7 @@ pub mod sync;
 
 use pyo3::prelude::*;
 
+pub use blobmap::ExpanseBlobMap;
 pub use bytesmap::{
     ExpanseBytesMap, ExpanseBytesMapItemIter, ExpanseBytesMapKeyIter, ExpanseBytesMapValueIter,
 };
@@ -41,6 +43,7 @@ fn _expanse(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SyncExpanseSet>()?;
     m.add_class::<ExpanseStrMap>()?;
     m.add_class::<ExpanseBytesMap>()?;
+    m.add_class::<ExpanseBlobMap>()?;
 
     // Iterator types for ExpanseMap
     m.add_class::<ExpanseMapKeyIter>()?;
