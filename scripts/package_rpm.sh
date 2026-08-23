@@ -83,9 +83,9 @@ done
 
 # Headers
 if [ -d "crates/expanse-capi/include" ]; then
-    cp crates/expanse-capi/include/*.h %{buildroot}/usr/include/
+    cp crates/expanse-capi/include/*.h* %{buildroot}/usr/include/
 elif [ -d "package/include" ]; then
-    cp package/include/*.h %{buildroot}/usr/include/
+    cp package/include/*.h* %{buildroot}/usr/include/
 fi
 
 # Compat symlink
