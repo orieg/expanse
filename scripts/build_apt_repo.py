@@ -591,6 +591,15 @@ sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat</code></pre>
 
 
 if __name__ == "__main__":
-    in_dir = sys.argv[1] if len(sys.argv) > 1 else "artifacts"
-    out_dir = sys.argv[2] if len(sys.argv) > 2 else "apt"
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Build APT repository.")
+    parser.add_argument("in_pos", nargs="?", default=None)
+    parser.add_argument("out_pos", nargs="?", default=None)
+    parser.add_argument("--artifacts-dir", "--input-dir", dest="in_dir", default=None)
+    parser.add_argument("--output-dir", dest="out_dir", default=None)
+    args = parser.parse_args()
+
+    in_dir = args.in_dir or args.in_pos or "artifacts"
+    out_dir = args.out_dir or args.out_pos or "apt"
     build_apt_repo(in_dir, out_dir)
