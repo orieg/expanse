@@ -1428,6 +1428,9 @@
             <option value="v3" selected>x86-64-v3 (AVX2, BMI2, POPCNT)</option>
             <option value="v1">x86-64-v1 (Baseline / SWAR)</option>
             <option value="neon">AArch64 (NEON Vector)</option>
+            <option value="rv32">RISC-V 32-Bit (RV32IMAC - 4-Level)</option>
+            <option value="cortex_m">ARM Cortex-M4/M7 (32B Cache Line)</option>
+            <option value="esp32">Espressif ESP32 (Edge32 / SRAM)</option>
           </select>
         </div>
 
@@ -3338,8 +3341,89 @@
     tbody.innerHTML = rows.join('');
   }
 
+  const NODE_DETAILS_32BIT = {
+    jap: {
+      title: "Judy Array Pointer 32-Bit (Edge32)",
+      tag: "8-Byte Edge32",
+      subtitle: "Compact 8-byte edge descriptor designed for 32-bit embedded SRAM.",
+      size: "8 Bytes (aligned to 8B)",
+      layout: "word 0 (4B): 32-bit pointer or immediate payload; aux (3B) + tag discriminant (1B)",
+      cap: "References child node or inlines 1..3 keys / payloads",
+      level: "Levels 1..=4",
+      algo: "32-bit narrow pointer decode + 8-bit tag discriminant dispatch.",
+      promo: "Direct child address dereference or unpacked inline keys.",
+      demote: "Zeroed to Edge32::NULL upon deletion."
+    },
+    top_branch: {
+      title: "Top-Level Branch 32-Bit (Level 4)",
+      tag: "BranchL2_32 / BranchL6_32 / BranchB_32",
+      subtitle: "Level-4 root router decoding the most-significant byte of 32-bit keys.",
+      size: "32B (BranchL2_32 = 1 cache line) to 1024B",
+      layout: "Header + 32-bit child Edge32 array",
+      cap: "Fanout 1..256",
+      level: "Level 4",
+      algo: "Key digit extraction `(key >> 24) & 0xFF` with 32-bit SWAR scan.",
+      promo: "Upgrades from BranchL2_32 -> BranchL6_32 -> BranchB_32 as fanout grows.",
+      demote: "Shrinks with hysteresis on deletions."
+    },
+    branch_l: {
+      title: "Branch L2 / Branch L6 32-Bit (Embedded Linear Branches)",
+      tag: "BranchL2_32 / BranchL6_32",
+      subtitle: "Nodes sized exactly to 32-byte (1 line) and 64-byte (2 lines) microcontroller cache lines.",
+      size: "BranchL2_32: 32B (1 line); BranchL6_32: 64B (2 lines)",
+      layout: "BranchHeader32 (num [u8], level [u8], digits[2..6]) + child Edge32 array",
+      cap: "L2: 1..2 children; L6: 3..6 children",
+      level: "Levels 2..=4",
+      algo: "Direct byte comparison across 32-bit word.",
+      promo: "BranchL2_32 promotes to BranchL6_32 at num=2. BranchL6_32 promotes to BranchB_32 at num=6.",
+      demote: "BranchL6_32 demotes to BranchL2_32 when children <= 2."
+    },
+    branch_b: {
+      title: "Bitmap Branch B 32-Bit",
+      tag: "BranchB_32",
+      subtitle: "256-bit bitmap + 8 subarray pointers to compact Edge32 arrays.",
+      size: "32B header + dynamically allocated child Edge32 arrays",
+      layout: "256-bit presence bitmap (4x u64) + 8 subexpanse pointers",
+      cap: "Fanout 7..180",
+      level: "Levels 2..=4",
+      algo: "Hardware POPCNT rank indexing on 32-bit subexpanses.",
+      promo: "Promotes to uncompressed branch when fanout exceeds 180.",
+      demote: "Demotes to BranchL6_32 when population drops below 7."
+    },
+    node_leaf_immed: {
+      title: "Immediate Edge32 Storage",
+      tag: "Edge32 Immediate Mode",
+      subtitle: "Inline keys / payloads stored directly in the 8-byte edge word with 0 allocations.",
+      size: "8 Bytes (Inlined)",
+      layout: "32-bit immediate payload in word 0 + tag discriminant in high byte",
+      cap: "1..3 keys / values (<= 3 bytes)",
+      level: "Level 1",
+      algo: "Zero-deref scalar equality check.",
+      promo: "Promotes to Linear / Bitmap Leaf when capacity exceeded.",
+      demote: "Zeroed on deletion."
+    }
+  };
 
   function inspectNode(nodeKey) {
+    const arch = archSelect ? archSelect.value : "v3";
+    const is32Bit = arch === "rv32" || arch === "cortex_m" || arch === "esp32";
+
+    if (is32Bit && NODE_DETAILS_32BIT[nodeKey]) {
+      const data = NODE_DETAILS_32BIT[nodeKey];
+      document.getElementById('modal-title').textContent = data.title;
+      document.getElementById('modal-tag').textContent = data.tag;
+      document.getElementById('modal-subtitle').textContent = data.subtitle;
+      document.getElementById('modal-size').textContent = data.size;
+      document.getElementById('modal-layout').textContent = data.layout;
+      document.getElementById('modal-cap').textContent = data.cap;
+      document.getElementById('modal-level').textContent = data.level;
+      document.getElementById('modal-algo').textContent = data.algo;
+      document.getElementById('modal-promo').textContent = data.promo;
+      document.getElementById('modal-demote').textContent = data.demote;
+      document.getElementById('node-modal').classList.add('open');
+      return;
+    }
+
     const data = NODE_DETAILS[nodeKey];
     if (!data) return;
     document.getElementById('modal-title').textContent = data.title;
@@ -3695,50 +3779,91 @@
     let cache = "1 line (64B)";
     let hwAcc = "-4.8% v3";
 
+    const is32Bit = arch === "rv32" || arch === "cortex_m" || arch === "esp32";
+
     // 1. Calculate active trie depth
     let activeDepth = 0;
     if (pop <= 31 || dist === "small") activeDepth = 0;
-    else if (dist === "clustered") activeDepth = pop <= 256 ? 1 : (pop <= 10000 ? 2 : (pop <= 100000 ? 3 : 5));
-    else if (pop <= 256) activeDepth = 1;
-    else if (pop <= 1000) activeDepth = 2;
-    else if (pop <= 10000) activeDepth = 3;
-    else if (pop <= 100000) activeDepth = 5;
-    else activeDepth = 8;
+    else if (is32Bit) {
+      if (dist === "clustered") activeDepth = pop <= 256 ? 1 : (pop <= 10000 ? 2 : 3);
+      else if (pop <= 256) activeDepth = 1;
+      else if (pop <= 1000) activeDepth = 2;
+      else if (pop <= 10000) activeDepth = 3;
+      else activeDepth = 4;
+    } else {
+      if (dist === "clustered") activeDepth = pop <= 256 ? 1 : (pop <= 10000 ? 2 : (pop <= 100000 ? 3 : 5));
+      else if (pop <= 256) activeDepth = 1;
+      else if (pop <= 1000) activeDepth = 2;
+      else if (pop <= 10000) activeDepth = 3;
+      else if (pop <= 100000) activeDepth = 5;
+      else activeDepth = 8;
+    }
 
     // 2. Multi-level sequential run bypass check
     const isSequentialBypass = (op === "insert" || op === "ins_slot") && dist === "sequential" && pop > 31;
 
     // 3. Memory overhead per key estimation
-    if (flavor === "set") {
-      if (pop === 1 || pop === 7) mem = "0 B (inlined)";
-      else if (pop <= 31) mem = "0.50 B/k";
-      else if (dist === "sequential") mem = "0.07 B/k";
-      else if (dist === "clustered") mem = "0.36 B/k";
-      else if (pop === 256) mem = "0.00 B (JP_FULL)";
-      else mem = "1.24 B/k";
-    } else if (flavor === "map") {
-      if (pop === 1 || pop === 7) mem = "0 B (inlined)";
-      else if (pop <= 31) mem = "8.57 B/k";
-      else if (dist === "sequential") mem = "8.56 B/k";
-      else if (dist === "clustered") mem = "8.86 B/k";
-      else if (pop === 256) mem = "8.00 B/k";
-      else mem = pop >= 10000000 ? "24.80 B/k" : "24.52 B/k";
+    if (is32Bit) {
+      if (flavor === "set") {
+        if (pop === 1 || pop === 7) mem = "0 B (inlined)";
+        else if (pop <= 31) mem = "0.50 B/k";
+        else if (dist === "sequential") mem = "0.07 B/k";
+        else if (dist === "clustered") mem = "0.51 B/k";
+        else if (pop === 256) mem = "0.00 B (JP_FULL)";
+        else mem = "0.63 B/k";
+      } else if (flavor === "map") {
+        if (pop === 1 || pop === 7) mem = "0 B (inlined)";
+        else if (pop <= 31) mem = "4.20 B/k";
+        else if (dist === "sequential") mem = "8.03 B/k";
+        else if (dist === "clustered") mem = "8.03 B/k";
+        else if (pop === 256) mem = "4.00 B/k";
+        else mem = "12.40 B/k";
+      } else {
+        mem = pop <= 31 ? "8.0 B/k" : "16.0 B/k";
+      }
     } else {
-      mem = pop <= 31 ? "18.2 B/k" : (pop >= 1000000 ? "32.4 B/k" : "26.1 B/k");
+      if (flavor === "set") {
+        if (pop === 1 || pop === 7) mem = "0 B (inlined)";
+        else if (pop <= 31) mem = "0.50 B/k";
+        else if (dist === "sequential") mem = "0.07 B/k";
+        else if (dist === "clustered") mem = "0.36 B/k";
+        else if (pop === 256) mem = "0.00 B (JP_FULL)";
+        else mem = "1.24 B/k";
+      } else if (flavor === "map") {
+        if (pop === 1 || pop === 7) mem = "0 B (inlined)";
+        else if (pop <= 31) mem = "8.57 B/k";
+        else if (dist === "sequential") mem = "8.56 B/k";
+        else if (dist === "clustered") mem = "8.86 B/k";
+        else if (pop === 256) mem = "8.00 B/k";
+        else mem = pop >= 10000000 ? "24.80 B/k" : "24.52 B/k";
+      } else {
+        mem = pop <= 31 ? "18.2 B/k" : (pop >= 1000000 ? "32.4 B/k" : "26.1 B/k");
+      }
     }
 
     // 4. Cache lines touched
-    if (pop === 1 || pop === 7) cache = "0 lines (L1 register)";
-    else if (pop <= 31 || isSequentialBypass || dist === "sequential") cache = "1 line (64B)";
-    else if (pop <= 256) cache = "1 line (64B)";
-    else if (pop <= 10000) cache = "2 lines (128B)";
-    else if (pop <= 100000) cache = "3 lines (192B)";
-    else if (pop <= 1000000) cache = "4 lines (256B)";
-    else cache = "6-8 lines (L3 / DRAM)";
+    if (is32Bit) {
+      if (pop === 1 || pop === 7) cache = "0 lines (L1 register)";
+      else if (pop <= 31 || isSequentialBypass || dist === "sequential") cache = "1 line (32B)";
+      else if (pop <= 256) cache = "1 line (32B)";
+      else if (pop <= 10000) cache = "2 lines (64B)";
+      else cache = "3-4 lines (96-128B SRAM)";
+    } else {
+      if (pop === 1 || pop === 7) cache = "0 lines (L1 register)";
+      else if (pop <= 31 || isSequentialBypass || dist === "sequential") cache = "1 line (64B)";
+      else if (pop <= 256) cache = "1 line (64B)";
+      else if (pop <= 10000) cache = "2 lines (128B)";
+      else if (pop <= 100000) cache = "3 lines (192B)";
+      else if (pop <= 1000000) cache = "4 lines (256B)";
+      else cache = "6-8 lines (L3 / DRAM)";
+    }
 
     // 5. Hardware acceleration delta
     if (arch === "v3") hwAcc = "-12.11% (AVX2/BMI2)";
     else if (arch === "neon") hwAcc = "-6.45% (AArch64 NEON)";
+    else if (arch === "rv32") hwAcc = "Bare-Metal RV32IMAC";
+    else if (arch === "cortex_m") hwAcc = "32B Cache (Cortex-M7)";
+    else if (arch === "esp32") hwAcc = "ESP32 SRAM (Edge32 8B)";
     else hwAcc = "Baseline (x86-64-v1)";
 
     // 6. Build execution pipeline trace steps
@@ -3981,14 +4106,29 @@
     // Update dynamic badges on branch nodes
     const topBadge = document.getElementById('badge-top-branch');
     const branchBBadge = document.getElementById('badge-branch-b');
-    if (topBadge) topBadge.textContent = "Level 8";
+    if (topBadge) topBadge.textContent = is32Bit ? "Level 4" : "Level 8";
 
     if (branchBBadge) {
-      if (pop >= 1000000) branchBBadge.textContent = "Levels 7..2";
-      else if (pop >= 100000) branchBBadge.textContent = "Levels 7..4";
-      else if (pop >= 10000) branchBBadge.textContent = "Levels 7..6";
-      else if (pop >= 1000) branchBBadge.textContent = "Level 7";
-      else branchBBadge.textContent = "Fanout 8..180";
+      if (is32Bit) {
+        if (pop >= 10000) branchBBadge.textContent = "Levels 3..2";
+        else if (pop >= 1000) branchBBadge.textContent = "Level 3";
+        else branchBBadge.textContent = "Fanout 8..180";
+      } else {
+        if (pop >= 1000000) branchBBadge.textContent = "Levels 7..2";
+        else if (pop >= 100000) branchBBadge.textContent = "Levels 7..4";
+        else if (pop >= 10000) branchBBadge.textContent = "Levels 7..6";
+        else if (pop >= 1000) branchBBadge.textContent = "Level 7";
+        else branchBBadge.textContent = "Fanout 8..180";
+      }
+    }
+
+    if (japNode) {
+      const japDesc = japNode.querySelector('.dag-node-desc');
+      if (japDesc) {
+        japDesc.textContent = is32Bit
+          ? "8-byte Edge32: 32-bit pointer/immediate + 8-bit tag discriminant."
+          : "16-byte Edge: pointer/immediate + 3-bit type tag.";
+      }
     }
 
     if (pop === 1 || pop === 7) {
