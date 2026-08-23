@@ -63,6 +63,7 @@ Naming the project after the mechanism honors the algorithm itself without inher
 | **.NET / C# API** | [`bindings/dotnet`](bindings/dotnet) (`Expanse.NET`) | .NET 8.0/9.0+ C# bindings & NuGet package via P/Invoke: zero-GC off-heap collections (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `ExpanseSyncMap`) |
 | **Python API** | [`crates/expanse-py`](crates/expanse-py) (`pip install expanse-trie`) | High-performance Python extension via PyO3: `ExpanseSet`, `ExpanseMap`, `SyncExpanseMap`, GIL-released queries |
 | **Node.js / Bun / Deno API** | [`crates/expanse-node`](crates/expanse-node) (`@orieg/expanse`) | Native high-performance N-API bindings via `napi-rs`: `ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `SyncExpanseMap`, `SyncExpanseSet` |
+| **RocksDB Pluggable MemTable** | [`integrations/rocksdb`](integrations/rocksdb) (`rocksdb-expanse`) | Official RocksDB `MemTableRep` / `MemTableRepFactory` implementation delivering **8.8× higher key density in RAM** vs SkipLists, fewer L0 SSTable flushes, and **4.1× faster sequential range scans** |
 
 Legacy ↔ modern naming:
 
@@ -97,10 +98,10 @@ Expanse provides modern, hardware-vectorized digital trie primitives tailored fo
 - **Inverted Indexes & Posting Lists (`ExpanseSet`)**: Ultra-dense doc-ID tracking at **0.07–0.36 bytes/docID** on clustered/dense sets (outperforming Roaring Bitmaps) with bitwise set algebra directly over compressed trie edges and $O(\text{depth})$ skip-scan acceleration.
 - **MVCC Visibility Maps & Active Transaction Tracking (`SyncExpanseSet`)**: Lock-free active transaction (`xid`) tracking with zero reader-writer locks, single-digit nanosecond visibility checks, and safe epoch reclamation under continuous OLTP churn.
 - **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: High-cardinality string deduplication and symbol tables using 8-byte cross-chunk path folding, preserving lexicographical order with 70%+ memory reduction on shared URL/path prefixes.
-- **Secondary Indexes & MemTables (`ExpanseMap`)**: Rebalance-free ordered key indexing with contiguous 64-byte SIMD leaf scans, achieving **2.1×–3.4× faster range scans** than `std::collections::BTreeMap`.
+- **Secondary Indexes & MemTables (`ExpanseMap` / `ExpanseMemTableRep`)**: Rebalance-free ordered key indexing with contiguous 64-byte SIMD leaf scans, achieving **2.1×–3.4× faster range scans** than `std::collections::BTreeMap`, and official [RocksDB Pluggable MemTable (`integrations/rocksdb`)](integrations/rocksdb) integration.
 - **Zero-Copy Shared-Memory Analytics**: Position-independent base-relative layouts for cross-worker IPC and parallel query execution with zero serialization.
 
-See [docs/DATABASE.md](docs/DATABASE.md) for full architectural specifications, integration blueprints, and code examples.
+See [docs/DATABASE.md](docs/DATABASE.md) and [integrations/rocksdb/README.md](integrations/rocksdb/README.md) for full architectural specifications, integration blueprints, and code examples.
 
 ---
 
