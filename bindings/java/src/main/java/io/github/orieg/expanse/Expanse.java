@@ -23,7 +23,7 @@ public final class Expanse {
     private Expanse() {}
 
     /**
-     * Returns the native libexpanse library version (e.g. "0.2.0").
+     * Returns the native libexpanse library version (e.g. "0.3.0").
      *
      * @return semantic version string
      */

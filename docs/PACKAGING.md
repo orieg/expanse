@@ -35,8 +35,8 @@ graph TD
    - Record release highlights, performance deltas, and bug fixes in `CHANGELOG.md`.
 3. **Commit & Tag**:
    ```bash
-   git commit -am "chore(release): prepare v0.2.0"
-   git tag -a v0.2.0 -m "Release v0.2.0"
+   git commit -am "chore(release): prepare v0.3.0"
+   git tag -a v0.3.0 -m "Release v0.3.0"
    git push origin main --tags
    ```
 4. **Automated Pipeline Execution**:

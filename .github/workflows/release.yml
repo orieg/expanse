@@ -86,7 +86,7 @@ jobs:
           [ -f "target/${{ matrix.target }}/release/libexpanse.a" ] && cp "target/${{ matrix.target }}/release/libexpanse.a" package/lib/ || true
           
           VERSION="${GITHUB_REF#refs/tags/v}"
-          [ -z "$VERSION" ] && VERSION="0.2.0"
+          [ -z "$VERSION" ] && VERSION="0.3.0"
 
           # Build Debian package if deb_arch is set
           if [ -n "${{ matrix.deb_arch }}" ]; then
