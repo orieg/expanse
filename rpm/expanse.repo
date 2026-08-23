@@ -1,0 +1,6 @@
+[expanse]
+name=Expanse Enterprise Linux Repository
+baseurl=https://orieg.github.io/expanse/rpm/
+enabled=1
+gpgcheck=0
+repo_gpgcheck=0
