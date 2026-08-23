@@ -3,8 +3,12 @@
 //! Integrates `ValueSlot32` with embedded slab arenas for variable-length payload storage
 //! and columnar hot metadata range filtering on 32-bit targets per `docs/RFC_32BIT_EMBEDDED.md`.
 
-extern crate alloc;
-use alloc::vec::Vec;
+#[cfg(feature = "std")]
+use std::vec::Vec;
+#[cfg(not(feature = "std"))]
+extern crate alloc as alloc_crate;
+#[cfg(not(feature = "std"))]
+use alloc_crate::vec::Vec;
 use core::fmt;
 
 use crate::map32::ExpanseMap32;

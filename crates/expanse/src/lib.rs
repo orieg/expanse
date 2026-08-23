@@ -26,11 +26,7 @@
 //! a drop-in binary-compatible layer by the sibling `expanse-capi` crate
 //! (`libexpanse`); this crate holds the core implementation and the native
 //! Rust API (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`
-//! as the public surface lands).
-//!
-#![no_std]
-
-extern crate alloc;
+#![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(not(any(target_pointer_width = "64", target_pointer_width = "32")))]
 compile_error!("expanse supports 64-bit and 32-bit targets");

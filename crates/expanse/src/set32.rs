@@ -3,8 +3,12 @@
 //! Provides dense, lock-free, sub-byte/key integer bitsets for 32-bit keys (`u32`)
 //! optimized for embedded SRAM and microcontrollers per `docs/RFC_32BIT_EMBEDDED.md`.
 
-extern crate alloc;
-use alloc::collections::BTreeSet;
+#[cfg(feature = "std")]
+use std::collections::BTreeSet;
+#[cfg(not(feature = "std"))]
+extern crate alloc as alloc_crate;
+#[cfg(not(feature = "std"))]
+use alloc_crate::collections::BTreeSet;
 use core::fmt;
 
 use crate::types32::{Edge32, Key32};

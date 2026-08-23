@@ -3,8 +3,12 @@
 //! Provides dense, lock-free associative mapping from 32-bit keys (`u32`) to 32-bit values (`u32`)
 //! optimized for embedded SRAM and microcontrollers per `docs/RFC_32BIT_EMBEDDED.md`.
 
-extern crate alloc;
-use alloc::collections::BTreeMap;
+#[cfg(feature = "std")]
+use std::collections::BTreeMap;
+#[cfg(not(feature = "std"))]
+extern crate alloc as alloc_crate;
+#[cfg(not(feature = "std"))]
+use alloc_crate::collections::BTreeMap;
 use core::fmt;
 
 use crate::types32::{Edge32, Key32, Value32};

@@ -147,7 +147,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Check RV32IMAC Core
-        run: cargo check -p expanse-trie --target riscv32imac-unknown-none-elf
+        run: cargo check -p expanse-trie --no-default-features --target riscv32imac-unknown-none-elf
 
   test-cortex-m:
     name: Cross / ARM Cortex-M4 Cross-Compile (Bare-Metal)
@@ -166,7 +166,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Check Cortex-M4 Core
-        run: cargo check -p expanse-trie --target thumbv7em-none-eabihf
+        run: cargo check -p expanse-trie --no-default-features --target thumbv7em-none-eabihf
 
   test-musl:
     name: Cross / Musl Static C ABI (Linux)

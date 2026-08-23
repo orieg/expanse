@@ -16,6 +16,10 @@ authors.workspace = true
 [lib]
 name = "expanse_trie"
 
+[features]
+default = ["std"]
+std = []
+
 [dependencies]
 
 [dev-dependencies]
