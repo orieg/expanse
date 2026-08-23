@@ -390,6 +390,47 @@ jobs:
             fi
           fi
 
+      - name: Post or Update Benchmark PR Comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('pr-report.md')) {
+              console.log('No pr-report.md found, skipping comment');
+              return;
+            }
+            const report = fs.readFileSync('pr-report.md', 'utf8').trim();
+            if (!report) return;
+
+            const marker = '<!-- expanse-perf-report -->';
+            const body = `${marker}\n${report}`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              console.log(`Updating existing PR benchmark comment #${existing.id}`);
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body,
+              });
+            } else {
+              console.log('Creating new PR benchmark comment');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
   differential-oracle:
     name: Compat / Stock libjudy Oracle (Linux)
     needs: [detect-changes]
