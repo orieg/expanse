@@ -584,7 +584,7 @@ mod loom_tests {
 
             let mut read_val = 0;
             let mut success = false;
-            
+
             let v = version.load(Ordering::Acquire);
             if v % 2 == 0 {
                 let e = edge.load(Ordering::Relaxed);
@@ -597,7 +597,11 @@ mod loom_tests {
             }
 
             if success {
-                assert!(read_val == 100 || read_val == 200, "Torn read: {}", read_val);
+                assert!(
+                    read_val == 100 || read_val == 200,
+                    "Torn read: {}",
+                    read_val
+                );
             }
 
             writer.join().unwrap();
