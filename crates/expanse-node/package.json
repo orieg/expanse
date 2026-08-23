@@ -1,6 +1,6 @@
 {
   "name": "@orieg/expanse",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Clean-room, pure-Rust modern Judy arrays and digital tries with cache-line-tuned node geometries, inline value packing, slab arenas, and OCC concurrency for Node.js, Bun, and Deno.",
   "main": "index.js",
   "types": "index.d.ts",
