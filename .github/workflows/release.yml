@@ -151,12 +151,16 @@ jobs:
   package-npm:
     name: Package Node.js (npm)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Required for npm provenance / trusted publishing
     steps:
       - uses: actions/checkout@v4
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
       - name: Pack npm package
         run: |
           mkdir -p dist/npm
@@ -168,12 +172,11 @@ jobs:
           name: release-artifacts-npm
           path: dist/npm/*.tgz
       - name: Publish to npm registry
-        if: env.NPM_TOKEN != ''
+        if: env.NODE_AUTH_TOKEN != ''
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
-          npm publish dist/npm/*.tgz --access public || true
+          npm publish dist/npm/*.tgz --access public --provenance || npm publish dist/npm/*.tgz --access public || true
 
   github-release:
     name: Create GitHub Release
