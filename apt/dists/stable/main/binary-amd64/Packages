@@ -4,6 +4,6 @@ Architecture: amd64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine: modern Judy replacement
 Filename: pool/main/libexpanse_0.3.0_amd64.deb
-Size: 5342136
-SHA256: 10454ab8d90dee3543d1fae7d2a8e21035cebb9df7a2e209990a6dd8cd423cc8
+Size: 5342140
+SHA256: 7a44cdab695545db50ec0a12700f1a8cb74be620fb83ac4e17d147a6c6a87e62
 
