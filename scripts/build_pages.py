@@ -178,6 +178,9 @@ MAIN_CSS = """
     :root:not([data-theme]) .theme-icon-sun { display: inline; }
     :root:not([data-theme]) .theme-icon-moon { display: none; }
 
+    .theme-toggle-mobile { display: flex; }
+    .theme-toggle-desktop { display: none; }
+
     @media (min-width: 769px) {
       .theme-toggle-mobile { display: none !important; }
       .theme-toggle-desktop { display: flex !important; }
@@ -656,6 +659,11 @@ def build_pages(artifacts_dir: str, output_dir: str):
             src = os.path.join(repo_assets, f)
             if os.path.isfile(src):
                 shutil.copy2(src, os.path.join(assets_dest, f))
+
+    # Copy visualizer_data.json to output_dir/docs/
+    json_src = os.path.join(os.path.dirname(__file__), "..", "docs", "visualizer_data.json")
+    if os.path.isfile(json_src):
+        shutil.copy2(json_src, os.path.join(output_dir, "docs", "visualizer_data.json"))
 
     # Read SVGs to inline in the main index
     comp_svg_path = os.path.join(repo_assets, "bench_comparative.svg")
