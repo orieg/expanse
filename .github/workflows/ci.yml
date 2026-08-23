@@ -130,6 +130,42 @@ jobs:
       - name: Check (riscv64, cross-compile)
         run: cargo check --workspace --target riscv64gc-unknown-linux-gnu
 
+  test-rv32:
+    name: Cross / RV32IMAC Cross-Compile (Bare-Metal)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv32imac-unknown-none-elf
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check RV32IMAC Core
+        run: cargo check -p expanse-trie --target riscv32imac-unknown-none-elf
+
+  test-cortex-m:
+    name: Cross / ARM Cortex-M4 Cross-Compile (Bare-Metal)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7em-none-eabihf
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check Cortex-M4 Core
+        run: cargo check -p expanse-trie --target armv7em-none-eabihf
+
   test-musl:
     name: Cross / Musl Static C ABI (Linux)
     needs: [detect-changes]
@@ -499,6 +535,8 @@ jobs:
       - test
       - test-musl
       - test-riscv64
+      - test-rv32
+      - test-cortex-m
       - miri
       - php-judy-compat
       - php-judy-windows

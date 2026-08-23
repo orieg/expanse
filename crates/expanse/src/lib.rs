@@ -30,27 +30,38 @@
 //!
 //! Currently 64-bit platforms only (x86-64, AArch64).
 
-#[cfg(not(target_pointer_width = "64"))]
-compile_error!("expanse currently supports 64-bit targets only");
+#[cfg(not(any(target_pointer_width = "64", target_pointer_width = "32")))]
+compile_error!("expanse supports 64-bit and 32-bit targets");
 
 pub mod alloc;
 pub mod bits;
 pub mod blobmap;
+pub mod blobmap32;
 pub mod bytesmap;
 pub mod get;
 pub mod leaf;
 pub mod map;
+pub mod map32;
 pub mod mutate;
 mod mutate_map;
 mod nav;
 pub mod node;
+pub mod node32;
 pub mod occ;
 pub mod set;
+pub mod set32;
 pub mod slot;
+pub mod slot32;
 pub mod strmap;
 pub mod sync;
 pub mod types;
+pub mod types32;
 pub mod validate;
 
 pub use blobmap::{BlobArena, BlobView, ExpanseBlobMap};
+pub use blobmap32::{BlobView32, ExpanseBlobMap32};
+pub use map32::ExpanseMap32;
+pub use set32::ExpanseSet32;
 pub use slot::{SlotTag, ValueSlot};
+pub use slot32::{SlotTag32, ValueSlot32};
+pub use types32::{Edge32, Key32, Tag32, Value32};
