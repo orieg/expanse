@@ -814,6 +814,12 @@ def build_pages(artifacts_dir: str, output_dir: str):
           <h3 class="card-title">Drop-in Judy C ABI Parity</h3>
           <p class="card-p">Provides 100% C ABI compatibility with stock <code>libjudy</code> (<code>Judy1</code>, <code>JudyL</code>, <code>JudySL</code>, <code>JudyHS</code>) alongside modern, type-safe <code>expanse_*</code> C interfaces.</p>
         </div>
+
+        <div class="card">
+          <div class="card-icon">&#127793;</div>
+          <h3 class="card-title">32-Bit Embedded (#![no_std])</h3>
+          <p class="card-p">Compact 8-byte <code>Edge32</code> layout saving 50% structural SRAM on ARM Cortex-M and RISC-V RV32 microcontrollers, with 32-byte cache alignment and zero-alloc inlined payloads.</p>
+        </div>
       </div>
     </div>
   </section>
