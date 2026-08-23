@@ -10,6 +10,8 @@
     <!-- Package Metadata -->
     <PackageId>OriEg.Expanse</PackageId>
     <Version>0.3.0</Version>
+    <PackageVersion>0.3.0</PackageVersion>
+    <AssemblyVersion>0.3.0</AssemblyVersion>
     <Authors>Nicolas</Authors>
     <Company>OriEg</Company>
     <Description>High-performance native trie, word map, binary key map, off-heap slab blob map, and concurrent collections with lock-free readers for .NET via libexpanse.</Description>

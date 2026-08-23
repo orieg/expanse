@@ -13,24 +13,29 @@ The entire release process is automated via [`.github/workflows/release.yml`](..
 
 ```mermaid
 graph TD
-    A[1. Bump Version in Cargo.toml] --> B[2. Update CHANGELOG.md]
+    A[1. Synchronize Versions via scripts/bump_version.py] --> B[2. Update CHANGELOG.md]
     B --> C[3. Commit & Create Git Tag 'vX.Y.Z']
     C --> D[4. Push Tag to GitHub: git push origin vX.Y.Z]
     D --> E[GitHub Actions Release Pipeline]
     
     E --> F[Job 1: Crates.io Trusted Publishing]
-    E --> G[Job 2: Multi-Platform Binary Matrix]
-    E --> H[Job 3: Multi-Arch glibc-hwcaps & .deb Packaging]
+    E --> G[Job 2: Node.js npm OIDC Trusted Publishing]
+    E --> H[Job 3: .NET NuGet.org OIDC Trusted Publishing]
+    E --> I[Job 4: Multi-Platform Binary Matrix]
+    E --> J[Job 5: Multi-Arch glibc-hwcaps & .deb / .rpm Packaging]
     
-    F --> I[crates.io: expanse-trie & expanse-capi]
-    G --> J[GitHub Release: Binaries, DLLs, Tarballs, ZIPs]
-    H --> J
-    J --> K[SHA256SUMS & Release Notes]
+    F --> K[crates.io: expanse-trie & expanse-capi]
+    G --> L[npm: @orieg/expanse]
+    H --> M[NuGet.org: OriEg.Expanse]
+    I --> N[GitHub Release: Binaries, DLLs, Tarballs, ZIPs]
+    J --> N
+    N --> O[SHA256SUMS & Release Notes]
 ```
 
 ### Release Steps:
-1. **Version Bump**:
-   - Update `version = "X.Y.Z"` in `Cargo.toml`, `crates/expanse/Cargo.toml`, and `crates/expanse-capi/Cargo.toml`.
+1. **Multi-Ecosystem Version Bump**:
+   - Run `python3 scripts/bump_version.py <NEW_VERSION>` to synchronize version numbers across all 10 manifests (`Cargo.toml`, `pyproject.toml`, `package.json`, `.csproj`, `pom.xml`, `build.gradle`, etc.) and regenerate `Cargo.lock`.
+   - Verify lockstep sync: `python3 scripts/bump_version.py --check`.
 2. **Changelog & Documentation**:
    - Record release highlights, performance deltas, and bug fixes in `CHANGELOG.md`.
 3. **Commit & Tag**:
@@ -40,7 +45,7 @@ graph TD
    git push origin main --tags
    ```
 4. **Automated Pipeline Execution**:
-   - GitHub Actions automatically executes `.github/workflows/release.yml`, publishing to crates.io and creating the GitHub Release with all binary assets.
+   - GitHub Actions automatically executes `.github/workflows/release.yml`, publishing to crates.io, npm, NuGet.org, and creating the GitHub Release with all binary assets.
 
 ---
 
@@ -158,6 +163,187 @@ Expanse is distributed on Maven Central as `io.github.orieg:expanse-java` with b
 - **Package Configuration**: `bindings/java/pom.xml` and `bindings/java/build.gradle`.
 - **Native Loader**: `io.github.orieg.expanse.internal.NativeLoader` extracts and loads precompiled native libraries across Linux, macOS, and Windows.
 - **Full Guide**: See [docs/BINDINGS_JAVA.md](BINDINGS_JAVA.md).
+
+---
+
+### 2.9 Node.js / JavaScript Distribution (`@orieg/expanse`) via npm Registry
+Expanse is distributed on the npm registry as [`@orieg/expanse`](https://www.npmjs.com/package/@orieg/expanse) featuring high-performance native N-API binary bindings built via `napi-rs` (`crates/expanse-node/`).
+
+- **Package Configuration**: `crates/expanse-node/package.json` and `crates/expanse-node/Cargo.toml`.
+- **Native OIDC Trusted Publishing**:
+  - Eliminates long-lived, static npm automation tokens by leveraging native OpenID Connect (OIDC) identity federation between GitHub Actions and npmjs.com.
+  - Configured in `.github/workflows/release.yml` with `permissions: id-token: write, contents: read`.
+  - Configured on npmjs.com under **@orieg/expanse** -> **Settings** -> **Publishing Access** -> **Trusted Publishing** bound to repository `orieg/expanse`, workflow `release.yml`, and environment/tag rules.
+- **Sigstore Build Provenance (`--provenance`)**:
+  - Published using `npm publish --access public --provenance`.
+  - Automatically generates cryptographic build attestations backed by Sigstore, linking the published tarball to the exact GitHub Actions runner, workflow run, and commit SHA.
+  - Users can verify package authenticity directly on npmjs.com via the verified provenance badge.
+- **Multi-Runtime Installation**:
+  ```bash
+  # npm
+  npm install @orieg/expanse
+
+  # pnpm
+  pnpm add @orieg/expanse
+
+  # yarn
+  yarn add @orieg/expanse
+
+  # Bun
+  bun add @orieg/expanse
+
+  # Deno
+  deno add npm:@orieg/expanse
+  ```
+- **Quick Usage Snippet (Node.js / Bun / Deno)**:
+  ```javascript
+  import { ExpanseSet, ExpanseMap, ExpanseBlobMap, SyncExpanseMap } from '@orieg/expanse';
+
+  // 1. Dynamic sparse 64-bit integer set (Judy1)
+  const set = new ExpanseSet([10n, 20n, 50n, 100n]);
+  console.log(set.has(20n));             // true
+  console.log(set.next(25n));            // 50n
+  console.log(set.countRange(10n, 50n)); // 3n
+
+  // 2. High-performance word map (JudyL)
+  const map = new ExpanseMap();
+  map.set(42n, 1000n);
+  console.log(map.get(42n));             // 1000n
+
+  // 3. Off-heap polymorphic blob map (inline packing + slab arena)
+  const blobMap = new ExpanseBlobMap();
+  blobMap.set(1n, Buffer.from("expanse payload"), 0x01);
+  const entry = blobMap.getWithMeta(1n);
+  console.log(entry.isInline);           // true (0 heap allocations)
+
+  // 4. Lock-free OCC concurrent map for worker threads
+  const syncMap = new SyncExpanseMap();
+  syncMap.set(100n, 5000n);
+  console.log(syncMap.get(100n));        // 5000n
+  ```
+- **Full Guide**: See [crates/expanse-node/README.md](../crates/expanse-node/README.md).
+
+---
+
+### 2.10 .NET / C# Distribution (`OriEg.Expanse`) via NuGet.org
+Expanse is distributed on [NuGet.org](https://www.nuget.org) as [`OriEg.Expanse`](https://www.nuget.org/packages/OriEg.Expanse), providing zero-GC off-heap collections and P/Invoke bindings wrapping `libexpanse` for .NET 8.0 and .NET 9.0+.
+
+- **Package Configuration**: `bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj`.
+- **OIDC Trusted Publishing on NuGet.org**:
+  - NuGet.org supports secretless OpenID Connect (OIDC) authentication via **Trusted Signing & Publishing Policies**.
+  - **Policy Configuration**:
+    - **Policy Name**: `expanse-nuget-ci` (Active)
+    - **Package Owner**: `orieg`
+    - **Scopes**: Push new packages and package versions
+    - **Glob Patterns & Packages**: `*` (or `OriEg.*`)
+    - **Publisher**: GitHubActions (Repository Owner: `orieg`, Repository: `expanse`, Workflow: `release.yml`)
+  - **Workflow Authentication**:
+    - Executed in `.github/workflows/release.yml` with `permissions: id-token: write, contents: read`.
+    - Authenticates via the official `NuGet/login@v1` action:
+      ```yaml
+      - name: NuGet login
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: orieg
+      - name: Publish to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY || secrets.NUGET_API_KEY }}
+        if: env.NUGET_API_KEY != ''
+        run: |
+          dotnet nuget push dist/nuget/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate || true
+      ```
+    - Supports fallback authentication via GitHub repository secret `NUGET_API_KEY` when OIDC token is absent.
+- **Automated Packaging Pipeline in `release.yml`**:
+  - `dotnet pack bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj -c Release -o dist/nuget` generates both the `.nupkg` binary package and `.snupkg` symbol package for SourceLink step-through debugging.
+  - Automatically pushes to `https://api.nuget.org/v3/index.json`.
+- **Installation**:
+  ```bash
+  # .NET CLI
+  dotnet add package OriEg.Expanse
+
+  # PackageReference (csproj)
+  <PackageReference Include="OriEg.Expanse" Version="0.3.0" />
+  ```
+- **Quick Usage Snippet (C#)**:
+  ```csharp
+  using System;
+  using Expanse;
+
+  // 1. Dynamic sparse 64-bit integer set (Judy1)
+  using var set = new ExpanseSet();
+  set.Add(10);
+  set.Add(20);
+  set.Add(50);
+  set.Add(100);
+  Console.WriteLine(set.Contains(20));     // True
+  Console.WriteLine(set.Rank(50));         // O(depth) rank
+
+  // 2. Off-heap key-value map (JudyL)
+  using var map = new ExpanseMap();
+  map[42] = 1000;
+  if (map.TryGet(42, out ulong val))
+  {
+      Console.WriteLine($"Key 42 -> {val}");
+  }
+
+  // 3. String trie (JudySL) and Binary key map (JudyHS)
+  using var strMap = new ExpanseStrMap();
+  strMap["metrics.cpu"] = 95;
+
+  // 4. Large-value off-heap blob map with zero-copy views
+  using var blobMap = new ExpanseBlobMap();
+  blobMap.Insert(1, "payload data"u8, 0x01);
+
+  // 5. Lock-free OCC concurrent map
+  using var syncMap = new ExpanseSyncMap();
+  syncMap.Insert(100, 500);
+  ```
+- **Full Guide**: See [bindings/dotnet/README.md](../bindings/dotnet/README.md).
+
+---
+
+### 2.11 Multi-Ecosystem Version Synchronization (`scripts/bump_version.py`)
+Expanse is distributed across 5 major software ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, and Java/Maven/Gradle) spanning 10 canonical manifests. To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
+
+#### Synchronized Manifests:
+| Manifest File | Section / Key | Description |
+|---|---|---|
+| `Cargo.toml` | `[workspace.package] version` | Root workspace package metadata |
+| `crates/expanse/Cargo.toml` | `[package] version` | Core `expanse-trie` Rust crate |
+| `crates/expanse-capi/Cargo.toml` | `[package] version`, `expanse-trie` dep | C ABI `expanse-capi` crate |
+| `crates/expanse-py/Cargo.toml` | `[package] version`, `expanse-trie` dep | PyO3 Python native binding crate |
+| `crates/expanse-node/Cargo.toml` | `[package] version`, `expanse-trie` dep | napi-rs Node.js native binding crate |
+| `crates/expanse-node/package.json` | `"version"` | npm package manifest (`@orieg/expanse`) |
+| `pyproject.toml` | `[project] version` | Python PyPI wheel manifest (`expanse-trie`) |
+| `bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj` | `<Version>`, `<PackageVersion>`, `<AssemblyVersion>` | .NET NuGet package manifest (`OriEg.Expanse`) |
+| `bindings/java/pom.xml` | `<project><version>` | Maven Central POM manifest (`io.github.orieg:expanse-java`) |
+| `bindings/java/build.gradle` | `version = '...'` | Gradle build manifest |
+| `extra/vcpkg/vcpkg.json` *(extra)* | `"version"` | Microsoft vcpkg C/C++ port manifest |
+| `extra/nuget/expanse.nuspec` *(extra)* | `<version>` | C++ native NuGet package specification |
+
+#### Usage:
+1. **Bump Version Across All Manifests & Re-generate `Cargo.lock`**:
+   ```bash
+   python3 scripts/bump_version.py 0.4.0
+   ```
+   This automatically updates all 10 manifests and executes `cargo check --workspace` to update `Cargo.lock` with zero manual intervention.
+
+2. **Dry Run (Preview Changes Without Modifying Files)**:
+   ```bash
+   python3 scripts/bump_version.py 0.4.0 --dry-run
+   ```
+
+3. **Verify Lockstep Synchronization (CI Gate)**:
+   ```bash
+   python3 scripts/bump_version.py --check
+   ```
+   Or verify against a specific expected version:
+   ```bash
+   python3 scripts/bump_version.py 0.3.0 --check
+   ```
+   Exits with code `0` on success, or code `1` with descriptive mismatch reports if any manifest drifts out of sync.
+
 
 
 
