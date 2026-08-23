@@ -1018,6 +1018,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(miri))]
     fn mmap_file_save_and_load_roundtrip() {
         let temp_dir = std::env::temp_dir();
         let path = temp_dir.join("expanse_test_mmap.bin");
