@@ -44,3 +44,10 @@ path = "fuzz_targets/strmap_ops.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "blobmap_image_corrupt"
+path = "fuzz_targets/blobmap_image_corrupt.rs"
+test = false
+doc = false
+bench = false

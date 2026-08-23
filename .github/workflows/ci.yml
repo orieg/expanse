@@ -554,7 +554,7 @@ jobs:
 
       - name: Fuzz smoke (60s per target)
         run: |
-          for t in set_ops map_ops bytesmap_ops strmap_ops; do
+          for t in set_ops map_ops bytesmap_ops strmap_ops blobmap_image_corrupt; do
             echo "::group::$t"
             cargo fuzz run "$t" -- -max_total_time=60 -print_final_stats=1
             echo "::endgroup::"
@@ -700,6 +700,35 @@ jobs:
           path: nupkg/*.nupkg
           if-no-files-found: error
 
+  test-rocksdb-memtable:
+    name: Integrations / RocksDB MemTable (${{ matrix.os }}, ${{ matrix.sanitizer || 'Standard' }})
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        sanitizer: ['', 'address,undefined', 'thread']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build native libexpanse
+        run: cargo build --release -p expanse-capi
+
+      - name: Compile and Test
+        run: |
+          cd integrations/rocksdb
+          if [ -n "${{ matrix.sanitizer }}" ]; then
+            export CXXFLAGS="-std=c++20 -O3 -Wall -Wextra -pthread -fsanitize=${{ matrix.sanitizer }} -fno-omit-frame-pointer"
+          fi
+          make test
+
   ci-gate:
     name: CI Gate / All Checks Passed
     if: always()
@@ -723,6 +752,7 @@ jobs:
       - test-node
       - test-dotnet
       - pack-dotnet
+      - test-rocksdb-memtable
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
