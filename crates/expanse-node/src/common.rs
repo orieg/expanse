@@ -41,7 +41,7 @@ pub fn key_to_u64(key: KeyInput) -> Result<u64> {
 }
 
 /// Converts a `BytesInput` to a borrowed byte slice.
-pub fn bytes_input_to_slice<'a>(input: &'a BytesInput) -> &'a [u8] {
+pub fn bytes_input_to_slice(input: &BytesInput) -> &[u8] {
     match input {
         Either3::A(buf) => buf.as_ref(),
         Either3::B(u8arr) => u8arr.as_ref(),

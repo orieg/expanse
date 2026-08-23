@@ -48,12 +48,7 @@ impl ExpanseBlobMap {
 
     /// Inserts a key-blob pair with optional 32-bit hot metadata.
     #[napi]
-    pub fn set(
-        &mut self,
-        key: KeyInput,
-        payload: BytesInput,
-        hot_meta: Option<u32>,
-    ) -> Result<()> {
+    pub fn set(&mut self, key: KeyInput, payload: BytesInput, hot_meta: Option<u32>) -> Result<()> {
         let k = key_to_u64(key)?;
         let bytes = bytes_input_to_slice(&payload);
         let meta = hot_meta.unwrap_or(0);
@@ -66,7 +61,10 @@ impl ExpanseBlobMap {
     #[napi]
     pub fn get(&self, key: KeyInput) -> Result<Option<Buffer>> {
         let k = key_to_u64(key)?;
-        Ok(self.inner.get(k).map(|(view, _)| Buffer::from(view.as_bytes())))
+        Ok(self
+            .inner
+            .get(k)
+            .map(|(view, _)| Buffer::from(view.as_bytes())))
     }
 
     /// Retrieves `{ payload: Buffer, hotMeta: number, isInline: boolean }` for `key`, or `null` if absent.
@@ -140,18 +138,18 @@ impl ExpanseBlobMap {
     /// Saves the map to a relocatable binary image file. Returns the number of bytes written.
     #[napi(js_name = "saveImage")]
     pub fn save_image(&self, path: String) -> Result<u32> {
-        let written = self
-            .inner
-            .save_to_file(&path)
-            .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to save image: {e}")))?;
+        let written = self.inner.save_to_file(&path).map_err(|e| {
+            Error::new(Status::GenericFailure, format!("Failed to save image: {e}"))
+        })?;
         Ok(written as u32)
     }
 
     /// Loads a map from a relocatable binary image file.
     #[napi(factory, js_name = "openImage")]
     pub fn open_image(path: String, _mmap: Option<bool>) -> Result<ExpanseBlobMap> {
-        let inner = InnerBlobMap::mmap_file(&path)
-            .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to open image: {e}")))?;
+        let inner = InnerBlobMap::mmap_file(&path).map_err(|e| {
+            Error::new(Status::GenericFailure, format!("Failed to open image: {e}"))
+        })?;
         Ok(Self { inner })
     }
 }
