@@ -727,8 +727,9 @@ def build_pages(artifacts_dir: str, output_dir: str):
     <div class="hero">
       <div class="badge-bar">
         <span class="badge badge-green">Pure Rust &bull; #![no_std]</span>
-        <span class="badge">64-Bit Microarchitectures</span>
-        <span class="badge">Drop-in Judy C ABI</span>
+        <span class="badge">Rust &bull; Python &bull; Node.js &bull; .NET &bull; C++20 &bull; Java &bull; C ABI</span>
+        <span class="badge">64-Bit &amp; 32-Bit Embedded</span>
+        <span class="badge">RocksDB MemTable Plugin</span>
         <span class="badge">glibc-hwcaps (x86-64-v1..v4)</span>
       </div>
       <h1>Modern Judy Arrays &amp; High-Performance Digital Tree Engine</h1>
@@ -859,28 +860,157 @@ def build_pages(artifacts_dir: str, output_dir: str):
   <section id="quickstart">
     <div class="container">
       <div class="section-header">
-        <span class="section-tag">Distribution</span>
-        <h2 class="section-title">Installation Hub</h2>
-        <p class="section-desc">Available across Rust crates.io, native Debian/Ubuntu APT, and Enterprise Linux RPM repositories.</p>
+        <span class="section-tag">Ecosystem &amp; Distribution</span>
+        <h2 class="section-title">Installation &amp; Quickstart Hub</h2>
+        <p class="section-desc">Zero-cost bindings and native packages across Rust, Python, Node.js/Bun, .NET/C#, C++20, Java, C ABI, RocksDB, Linux APT/RPM repos, and PHP.</p>
       </div>
 
       <div class="install-box">
         <div class="install-nav">
           <button class="tab-btn active" onclick="switchTab('tab-cargo')">Rust (Cargo)</button>
+          <button class="tab-btn" onclick="switchTab('tab-python')">Python (PyPI)</button>
+          <button class="tab-btn" onclick="switchTab('tab-node')">Node.js / Bun (npm)</button>
+          <button class="tab-btn" onclick="switchTab('tab-dotnet')">.NET / C# (NuGet)</button>
+          <button class="tab-btn" onclick="switchTab('tab-cpp')">C++20 (Header-Only)</button>
+          <button class="tab-btn" onclick="switchTab('tab-c')">C ABI (expanse.h)</button>
           <button class="tab-btn" onclick="switchTab('tab-apt')">Debian / Ubuntu (APT)</button>
-          <button class="tab-btn" onclick="switchTab('tab-rpm')">RHEL / CentOS / Fedora (RPM)</button>
-          <button class="tab-btn" onclick="switchTab('tab-c')">C / C++ Integration</button>
+          <button class="tab-btn" onclick="switchTab('tab-rpm')">RHEL / Fedora (RPM)</button>
+          <button class="tab-btn" onclick="switchTab('tab-java')">Java / JVM (Maven)</button>
+          <button class="tab-btn" onclick="switchTab('tab-rocksdb')">RocksDB MemTable</button>
+          <button class="tab-btn" onclick="switchTab('tab-php')">PHP Judy &amp; Cache</button>
         </div>
 
         <div id="tab-cargo" class="install-panel">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Add core Expanse engine to your <code>Cargo.toml</code>:</p>
           <pre><code>cargo add expanse-trie</code></pre>
-          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Rust:</p>
-          <pre><code>use expanse_trie::ExpanseMap;
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Rust (Maps, Sets, Off-Heap Blobs, Lock-Free OCC):</p>
+          <pre><code>use expanse_trie::{ExpanseMap, ExpanseSet, ExpanseBlobMap, SyncExpanseMap};
 
+// 64-bit integer map with zero-allocation immediates
 let mut map = ExpanseMap::new();
 map.insert(42, 100);
-assert_eq!(map.get(42), Some(100));</code></pre>
+assert_eq!(map.get(42), Some(100));
+
+// Variable-length byte blob map with slab arena &amp; hot metadata
+let mut blobs = ExpanseBlobMap::new();
+blobs.insert(1, b"hello expanse", 0x2A);
+assert_eq!(blobs.get(1), Some(&amp;b"hello expanse"[..]));
+
+// Thread-safe lock-free OCC map (zero reader locks)
+let sync_map = SyncExpanseMap::new();
+sync_map.insert(99, 500);
+let reader = sync_map.reader();
+assert_eq!(reader.get(99), Some(500));</code></pre>
+        </div>
+
+        <div id="tab-python" class="install-panel" style="display: none;">
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install the official Python extension from PyPI (binary wheels for Linux, macOS, Windows):</p>
+          <pre><code>pip install expanse-trie</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Python:</p>
+          <pre><code>from expanse import ExpanseMap, ExpanseSet, ExpanseStrMap, ExpanseBlobMap
+
+# High-performance integer word map
+m = ExpanseMap()
+m[42] = 100
+assert m[42] == 100
+
+# Lexicographical String Trie (JudySL) with zero-copy prefix range scans
+st = ExpanseStrMap()
+st["https://api.service.internal/v1/users"] = 1001
+assert "https://api.service.internal/v1/users" in st
+
+# Off-heap Blob Map with 32-bit hot metadata &amp; TTL pruning
+bm = ExpanseBlobMap()
+bm.insert(42, b"raw binary payload data", hot_meta=1750000000)
+print(bm.get(42))  # b'raw binary payload data'</code></pre>
+        </div>
+
+        <div id="tab-node" class="install-panel" style="display: none;">
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install native Node.js / Bun / Deno bindings via npm (napi-rs v8+ with zero-copy Buffer views):</p>
+          <pre><code>npm install @orieg/expanse
+# or: bun add @orieg/expanse / pnpm add @orieg/expanse</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in TypeScript / JavaScript:</p>
+          <pre><code>import { ExpanseMap, ExpanseSet, ExpanseStrMap, ExpanseBlobMap } from '@orieg/expanse';
+
+// Integer map with BigInt key support
+const map = new ExpanseMap();
+map.set(42n, 100n);
+console.log(map.get(42n)); // 100n
+
+// Off-heap blob map with Buffer / Uint8Array slices &amp; hot metadata
+const blobs = new ExpanseBlobMap();
+blobs.set(1001n, Buffer.from("payload bytes"), 42);
+const entry = blobs.getWithMeta(1001n);
+console.log(entry?.payload.toString()); // "payload bytes"</code></pre>
+        </div>
+
+        <div id="tab-dotnet" class="install-panel" style="display: none;">
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install the official .NET package from NuGet (multi-targeting .NET 8.0 &amp; 9.0 with SafeHandle zero-GC memory safety):</p>
+          <pre><code>dotnet add package OriEg.Expanse</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in C#:</p>
+          <pre><code>using OriEg.Expanse;
+
+// High-speed integer word map
+using var map = new ExpanseMap();
+map[42] = 100;
+if (map.TryGet(42, out var val)) {
+    Console.WriteLine($"Found: {val}");
+}
+
+// Off-heap blob map with zero-copy ReadOnlySpan&lt;byte&gt; views
+using var blobs = new ExpanseBlobMap();
+blobs.Set(1001, "Hello .NET"u8, hotMeta: 1);
+if (blobs.TryGet(1001, out var payload, out var meta)) {
+    Console.WriteLine($"Payload: {System.Text.Encoding.UTF8.GetString(payload)}");
+}</code></pre>
+        </div>
+
+        <div id="tab-cpp" class="install-panel" style="display: none;">
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Header-only modern C++20 RAII container wrapper (<code>include/expanse.hpp</code>):</p>
+          <pre><code>// main.cpp - Header-only C++20 STL-compatible RAII wrapper
+#include &lt;expanse.hpp&gt;
+#include &lt;iostream&gt;
+#include &lt;span&gt;
+
+int main() {
+    // RAII word map with std::forward_iterator compatibility
+    expanse::map&lt;uint64_t, uint64_t&gt; map;
+    map.insert(42, 100);
+    std::cout &lt;&lt; "Key 42 -&gt; " &lt;&lt; *map.get(42) &lt;&lt; "\n";
+
+    // Binary-safe byte map (JudyHS) with std::string_view / std::span
+    expanse::bytes_map&lt;uint64_t&gt; bmap;
+    bmap.insert("embedded\0binary\0key"sv, 999);
+
+    // Off-heap blob map with zero-copy std::span
+    expanse::blob_map blobs;
+    std::string data = "cache-line aligned blob";
+    blobs.insert(1, std::as_bytes(std::span(data)), 0x1F);
+    return 0;
+}</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Compile with any C++20 compiler:</p>
+          <pre><code>clang++ -std=c++20 -I/usr/include main.cpp -lexpanse -o main</code></pre>
+        </div>
+
+        <div id="tab-c" class="install-panel" style="display: none;">
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Compile with modern <code>expanse.h</code> or drop-in <code>Judy.h</code> via pkg-config:</p>
+          <pre><code>// main.c - Using modern Expanse C API
+#include &lt;expanse.h&gt;
+#include &lt;stdio.h&gt;
+
+int main() {
+    expanse_map_t map = NULL;
+    expanse_map_insert(&amp;map, 100, 500);
+    
+    uint64_t val = 0;
+    if (expanse_map_get(map, 100, &amp;val)) {
+        printf("Found key 100 -&gt; %llu\n", (unsigned long long)val);
+    }
+    expanse_map_free(&amp;map);
+    return 0;
+}</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Build with gcc/clang:</p>
+          <pre><code>gcc $(pkg-config --cflags expanse) main.c $(pkg-config --libs expanse) -o main</code></pre>
         </div>
 
         <div id="tab-apt" class="install-panel" style="display: none;">
@@ -902,25 +1032,60 @@ sudo dnf config-manager --add-repo https://orieg.github.io/expanse/rpm/expanse.r
 sudo dnf install -y libexpanse libexpanse-devel libjudy-compat</code></pre>
         </div>
 
-        <div id="tab-c" class="install-panel" style="display: none;">
-          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Compile with modern <code>expanse.h</code> or drop-in <code>Judy.h</code> via pkg-config:</p>
-          <pre><code>// main.c - Using modern Expanse C API
-#include &lt;expanse.h&gt;
-#include &lt;stdio.h&gt;
+        <div id="tab-java" class="install-panel" style="display: none;">
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Add Java / JVM bindings via Maven Central (Java 22+ Foreign Function &amp; Memory / JNI):</p>
+          <pre><code>&lt;!-- Maven pom.xml --&gt;
+&lt;dependency&gt;
+    &lt;groupId&gt;io.github.orieg&lt;/groupId&gt;
+    &lt;artifactId&gt;expanse&lt;/artifactId&gt;
+    &lt;version&gt;0.1.0&lt;/version&gt;
+&lt;/dependency&gt;</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Java:</p>
+          <pre><code>import io.github.orieg.expanse.ExpanseMap;
+
+try (var map = new ExpanseMap()) {
+    map.put(42L, 100L);
+    System.out.println("Value: " + map.get(42L));
+}</code></pre>
+        </div>
+
+        <div id="tab-rocksdb" class="install-panel" style="display: none;">
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">RocksDB pluggable MemTable plugin (<code>ExpanseMemTableRepFactory</code> / <code>integrations/rocksdb</code>):</p>
+          <pre><code>// RocksDB integration: 2x-3x higher key density in RAM, fewer SSTable flushes
+#include &lt;expanse_memtable.h&gt;
+#include &lt;rocksdb/db.h&gt;
+#include &lt;rocksdb/options.h&gt;
 
 int main() {
-    expanse_map_t map = NULL;
-    expanse_map_insert(&map, 100, 500);
-    
-    uint64_t val = 0;
-    if (expanse_map_get(map, 100, &val)) {
-        printf("Found key 100 -> %llu\n", (unsigned long long)val);
-    }
-    expanse_map_free(&map);
-    return 0;
+    rocksdb::Options options;
+    // Plug in Expanse digital trie MemTable representation
+    options.memtable_factory.reset(
+        rocksdb::NewExpanseMemTableRepFactory(/*leaf_capacity=*/64, /*enable_prefix_trie=*/true)
+    );
+
+    rocksdb::DB* db;
+    rocksdb::DB::Open(options, "/tmp/rocksdb_expanse", &amp;db);
+    db-&gt;Put(rocksdb::WriteOptions(), "user:1001", "payload");
+    // ...
 }</code></pre>
-          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Build with gcc/clang:</p>
-          <pre><code>gcc $(pkg-config --cflags expanse) main.c $(pkg-config --libs expanse) -o main</code></pre>
+        </div>
+
+        <div id="tab-php" class="install-panel" style="display: none;">
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">PHP C extension (<code>ext-judy</code>), pure-PHP polyfill (<code>judy-polyfill</code>), and high-density PSR-16 cache (<code>judy-cache</code>):</p>
+          <pre><code># Install Judy polyfill &amp; high-density cache
+composer require orieg/judy-cache orieg/judy-polyfill</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in PHP:</p>
+          <pre><code>use Judy;
+use OriEg\JudyCache\JudySimpleCache;
+
+// Core digital trie array
+$judy = new Judy(Judy::INT_TO_INT);
+$judy[42] = 100;
+
+// High-density PSR-16 cache with native TTL pruning &amp; compression
+$cache = new JudySimpleCache();
+$cache-&gt;set('user:42:profile', ['name' =&gt; 'Alice', 'role' =&gt; 'admin'], ttl: 3600);
+$data = $cache-&gt;get('user:42:profile');</code></pre>
         </div>
       </div>
     </div>
@@ -939,6 +1104,18 @@ int main() {
           <div class="doc-link-title">ARCHITECTURE.md &#8599;</div>
           <div class="doc-link-desc">Trie node layouts, memory packing, pointer tagging, concurrency design.</div>
         </a>
+        <a href="https://github.com/orieg/expanse/blob/main/docs/DATABASE.md" class="doc-link-card">
+          <div class="doc-link-title">DATABASE.md &#8599;</div>
+          <div class="doc-link-desc">Database engine subsystems, MVCC visibility, string dictionaries, and RocksDB MemTable.</div>
+        </a>
+        <a href="https://github.com/orieg/expanse/blob/main/docs/BINDINGS_PYTHON.md" class="doc-link-card">
+          <div class="doc-link-title">BINDINGS_PYTHON.md &#8599;</div>
+          <div class="doc-link-desc">Pythonic bindings (expanse-trie), zero-copy buffers, and dictionary encoders.</div>
+        </a>
+        <a href="https://github.com/orieg/expanse/blob/main/docs/BINDINGS_JAVA.md" class="doc-link-card">
+          <div class="doc-link-title">BINDINGS_JAVA.md &#8599;</div>
+          <div class="doc-link-desc">JVM Foreign Function &amp; Memory (FFM) bindings with zero-GC overhead.</div>
+        </a>
         <a href="https://github.com/orieg/expanse/blob/main/docs/ALGORITHMS.md" class="doc-link-card">
           <div class="doc-link-title">ALGORITHMS.md &#8599;</div>
           <div class="doc-link-desc">Algorithmic specifications, search kernels, SIMD/SWAR vectorization.</div>
@@ -947,9 +1124,9 @@ int main() {
           <div class="doc-link-title">COMPAT.md &#8599;</div>
           <div class="doc-link-desc">C ABI contracts, drop-in parity gates, error handling, packaging specifications.</div>
         </a>
-        <a href="https://github.com/orieg/expanse/blob/main/docs/TESTING.md" class="doc-link-card">
-          <div class="doc-link-title">TESTING.md &#8599;</div>
-          <div class="doc-link-desc">Test methodology, differential testing, invariants validator, fuzzing.</div>
+        <a href="https://github.com/orieg/expanse/blob/main/docs/CI_CD_GUIDE.md" class="doc-link-card">
+          <div class="doc-link-title">CI_CD_GUIDE.md &#8599;</div>
+          <div class="doc-link-desc">CI/CD engineering standards, zero-regression gating, and multi-architecture matrices.</div>
         </a>
         <a href="https://github.com/orieg/expanse/blob/main/docs/BENCHMARKING.md" class="doc-link-card">
           <div class="doc-link-title">BENCHMARKING.md &#8599;</div>
