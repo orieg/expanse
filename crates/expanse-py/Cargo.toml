@@ -1,0 +1,31 @@
+[package]
+name = "expanse-py"
+version = "0.2.0"
+description = "Python bindings for Expanse: clean-room, pure-Rust Judy arrays with GIL-free multithreaded queries"
+keywords = ["judy", "trie", "pyo3", "python", "data-structures"]
+categories = ["api-bindings", "data-structures"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+
+[lib]
+name = "_expanse"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["abi3-py38"] }
+expanse-trie = { version = "0.2.0", path = "../expanse" }
+
+[dev-dependencies]
+pyo3 = { version = "0.23", features = ["auto-initialize"] }
+
+[lints]
+workspace = true

@@ -326,7 +326,6 @@ try (ExpanseMap map = new ExpanseMap();
 }
 ```
 See [docs/BINDINGS_JAVA.md](docs/BINDINGS_JAVA.md) for Panama FFM architecture, GC elimination benchmarks, and Spark/Flink off-heap integration patterns.
-
 See [docs/PACKAGING.md](docs/PACKAGING.md) for full packaging instructions across all platforms.
 
 ---

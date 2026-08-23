@@ -185,7 +185,7 @@ jobs:
 
       - name: Test (musl, static)
         if: steps.filter.outputs.code_changed != 'false'
-        run: cargo test --workspace --target x86_64-unknown-linux-musl
+        run: cargo test -p expanse-trie -p expanse-capi --target x86_64-unknown-linux-musl
 
       - name: Build capi (musl, dynamic — the Alpine drop-in artifact)
         # musl defaults to +crt-static, under which no cdylib is produced;

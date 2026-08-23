@@ -1,0 +1,47 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "expanse-trie"
+version = "0.2.0"
+description = "High-performance Judy array and digital trie engine for Python (clean-room Rust implementation)"
+readme = "README.md"
+license = { text = "MIT OR Apache-2.0" }
+authors = [{ name = "Nicolas Brousse", email = "nicolas@brousse.info" }]
+requires-python = ">=3.8"
+keywords = ["judy", "trie", "sparse-set", "sparse-map", "data-structures", "concurrency", "lock-free", "occ"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/orieg/expanse"
+Documentation = "https://github.com/orieg/expanse/blob/main/docs/BINDINGS_PYTHON.md"
+Repository = "https://github.com/orieg/expanse"
+Issues = "https://github.com/orieg/expanse/issues"
+Changelog = "https://github.com/orieg/expanse/blob/main/CHANGELOG.md"
+
+[tool.maturin]
+manifest-path = "crates/expanse-py/Cargo.toml"
+module-name = "expanse_trie._expanse"
+python-source = "python"
+features = ["pyo3/extension-module"]
