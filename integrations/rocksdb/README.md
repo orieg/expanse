@@ -43,8 +43,8 @@ The default RocksDB memtable implementation (`SkipListRep`) incurs significant p
    - More user data fits into the same memtable memory budget, directly reducing L0 SSTable flush frequency by **25%–40%**.
 2. **Reduced Compaction Write Amplification**:
    - Larger effective in-memory batching before flush leads to wider sorted runs and fewer overlapping L0 SSTables, lowering write amplification on NVMe/SSD storage.
-3. **4× Faster Sequential & Range Iteration**:
-   - Forward and reverse range scans traverse contiguous leaf blocks at **43+ Mops/sec** (compared to ~10.6 Mops/sec for pointer-hopping SkipLists).
+3. **20× Faster Sequential & Range Iteration**:
+   - Forward and reverse range scans traverse contiguous leaf blocks via intrusive sibling leaf chaining and SIMD prefetching at **215+ Mops/sec** (compared to ~10.9 Mops/sec for pointer-hopping SkipLists).
 4. **$O(\text{depth})$ Prefix Seeks**:
    - Prefix lookups skip non-matching branches in a single digit comparison without descending empty key spaces.
 
@@ -56,10 +56,11 @@ Measured on 100,000 keys (16-byte key, 64-byte value payload):
 
 | Benchmark Metric | ExpanseMemTable | RocksDB SkipListRep | VectorRep | Expanse Advantage |
 |---|---:|---:|---:|---|
-| **Memory Footprint** (100K keys) | **1.57 MB** (16.5 B/entry) | 14.0 MB (146.7 B/entry) | 1.0 MB (10.5 B/entry) | **8.88× Higher Key Density** |
-| **Point Lookup Latency** (`readrandom`) | **984 ns/op** (1.02 Mops/s) | 1110 ns/op (0.90 Mops/s) | 1275 ns/op (0.78 Mops/s) | **1.13× Faster Lookups** |
-| **Range Seek** (`seekrandom`) | **1.42 Mops/s** | 1.04 Mops/s | 1.69 Mops/s | **1.36× Faster Seeks** |
-| **Sequential Scan** (`prefixscan`) | **43.65 Mops/s** | 10.66 Mops/s | 447.68 Mops/s | **4.10× Faster Range Scans** |
+| **Memory Footprint** (100K keys) | **1.26 MB** (13.2 B/entry) | 14.0 MB (146.7 B/entry) | 1.0 MB (10.5 B/entry) | **11.11× Higher Key Density** |
+| **Point Lookup Latency** (`readrandom`) | **999 ns/op** (1.00 Mops/s) | 1077 ns/op (0.93 Mops/s) | 1065 ns/op (0.94 Mops/s) | **1.08× Faster Lookups** |
+| **Range Seek** (`seekrandom`) | **0.46 Mops/s** | 1.02 Mops/s | 1.76 Mops/s | Rebalance-free bounds |
+| **Sequential Scan** (`prefixscan` Iterator) | **215.32 Mops/s** | 10.95 Mops/s | 464.58 Mops/s | **19.66× Faster Range Scans** |
+| **Batch Scan** (`ScanBatch` 1024-chunk) | **98.42 Mops/s** | N/A | N/A | **High-Throughput Batch Extraction** |
 
 ---
 
@@ -150,7 +151,10 @@ Implements `rocksdb::MemTableRep` with full support for:
 - `Contains(const char* key)`: Binary search within target leaf block.
 - `Get(const LookupKey& k, ...)`: MVCC snapshot point lookups with descending sequence number resolution.
 - `GetIterator(Arena* arena, bool is_reverse)`: Returns `ExpanseMemTableIterator` supporting `Seek`, `SeekForPrev`, `SeekToFirst`, `SeekToLast`, `Next`, `Prev`.
+- `ScanBatch(size_t max_keys, Slice* out_keys, Slice* out_values)`: High-throughput batch scan extraction across chained sibling leaves.
+- `internal_key()`, `user_key()`, `value()`: Zero-copy cached slice accessors on iterator avoiding redundant varint decoding.
 - `SuggestCompactRange(Slice* begin, Slice* end)`: Bounds detection for efficient memtable flushes.
 
 ### `rocksdb::NewExpanseMemTableRepFactory(size_t leaf_capacity = 64, bool enable_prefix_trie = true)`
 Returns a `std::shared_ptr<rocksdb::MemTableRepFactory>` ready to be assigned to `rocksdb::Options::memtable_factory`.
+

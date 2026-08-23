@@ -449,6 +449,159 @@ void TestLargeVolumeRandomOperations() {
     std::cout << "  -> PASSED (10,000 keys verified, memory: " << mem << " bytes)" << std::endl;
 }
 
+void TestBatchScanApi() {
+    std::cout << "[RUN] TestBatchScanApi" << std::endl;
+    TestBytewiseComparator cmp;
+    Arena arena;
+    ExpanseMemTableRep memtable(cmp, &arena, nullptr, nullptr, 16); // small capacity to create multiple leaves
+
+    const int total = 500;
+    std::vector<std::string> keys;
+    keys.reserve(total);
+    for (int i = 0; i < total; ++i) {
+        std::ostringstream ss;
+        ss << "batch_key_" << std::setw(5) << std::setfill('0') << i;
+        keys.push_back(ss.str());
+        const char* e = EncodeEntry(arena, keys.back(), 100 + i, kTypeValue, "val_" + keys.back());
+        memtable.Insert(const_cast<char*>(e));
+    }
+
+    std::unique_ptr<MemTableRep::Iterator> it(memtable.GetIterator());
+    auto* exp_it = dynamic_cast<ExpanseMemTableRep::IteratorImpl*>(it.get());
+    assert(exp_it != nullptr);
+
+    exp_it->SeekToFirst();
+    assert(exp_it->Valid());
+
+    // Test zero-copy accessors
+    Slice ikey = exp_it->internal_key();
+    Slice ukey = exp_it->user_key();
+    Slice val = exp_it->value();
+    assert(ukey.ToString() == keys[0]);
+    assert(val.ToString() == "val_" + keys[0]);
+    assert(ikey.size() == ukey.size() + 8);
+
+    // Batch extraction 1: 100 keys
+    std::vector<Slice> batch_keys(100);
+    std::vector<Slice> batch_vals(100);
+    size_t n1 = exp_it->ScanBatch(100, batch_keys.data(), batch_vals.data());
+    assert(n1 == 100);
+
+    for (size_t i = 0; i < 100; ++i) {
+        Slice u(batch_keys[i].data(), batch_keys[i].size() - 8);
+        assert(u.ToString() == keys[i]);
+        assert(batch_vals[i].ToString() == "val_" + keys[i]);
+    }
+
+    // Batch extraction 2: 250 keys via helper function
+    std::vector<Slice> batch_keys2(250);
+    std::vector<Slice> batch_vals2(250);
+    size_t n2 = ScanBatch(exp_it, 250, batch_keys2.data(), batch_vals2.data());
+    assert(n2 == 250);
+
+    for (size_t i = 0; i < 250; ++i) {
+        Slice u(batch_keys2[i].data(), batch_keys2[i].size() - 8);
+        assert(u.ToString() == keys[100 + i]);
+        assert(batch_vals2[i].ToString() == "val_" + keys[100 + i]);
+    }
+
+    // Batch extraction 3: remaining (150 keys requested with buffer for 200)
+    std::vector<Slice> batch_keys3(200);
+    std::vector<Slice> batch_vals3(200);
+    size_t n3 = exp_it->ScanBatch(200, batch_keys3.data(), batch_vals3.data());
+    assert(n3 == 150);
+
+    for (size_t i = 0; i < 150; ++i) {
+        Slice u(batch_keys3[i].data(), batch_keys3[i].size() - 8);
+        assert(u.ToString() == keys[350 + i]);
+        assert(batch_vals3[i].ToString() == "val_" + keys[350 + i]);
+    }
+
+    // Further scans at end return 0
+    size_t n4 = exp_it->ScanBatch(10, batch_keys.data(), batch_vals.data());
+    assert(n4 == 0);
+    assert(!exp_it->Valid());
+
+    std::cout << "  -> PASSED" << std::endl;
+}
+
+void TestIntrusiveLeafChainingAndPrefetch() {
+    std::cout << "[RUN] TestIntrusiveLeafChainingAndPrefetch" << std::endl;
+    TestBytewiseComparator cmp;
+    Arena arena;
+    ExpanseMemTableRep memtable(cmp, &arena, nullptr, nullptr, 8); // Force high number of leaf splits
+
+    const int total = 1000;
+    std::vector<std::string> keys;
+    keys.reserve(total);
+    for (int i = 0; i < total; ++i) {
+        std::ostringstream ss;
+        ss << "chain_" << std::setw(6) << std::setfill('0') << i;
+        keys.push_back(ss.str());
+        const char* e = EncodeEntry(arena, keys.back(), 1000 + i, kTypeValue, "val");
+        memtable.Insert(const_cast<char*>(e));
+    }
+
+    // Step-by-step forward traversal
+    {
+        std::unique_ptr<MemTableRep::Iterator> it(memtable.GetIterator());
+        it->SeekToFirst();
+        int idx = 0;
+        while (it->Valid()) {
+            Slice ikey = expanse_rocksdb::GetLengthPrefixedSlice(it->key());
+            Slice ukey(ikey.data(), ikey.size() - 8);
+            assert(ukey.ToString() == keys[idx]);
+            idx++;
+            it->Next();
+        }
+        assert(idx == total);
+    }
+
+    // Step-by-step backward traversal
+    {
+        std::unique_ptr<MemTableRep::Iterator> it(memtable.GetIterator());
+        it->SeekToLast();
+        int idx = total - 1;
+        while (it->Valid()) {
+            Slice ikey = expanse_rocksdb::GetLengthPrefixedSlice(it->key());
+            Slice ukey(ikey.data(), ikey.size() - 8);
+            assert(ukey.ToString() == keys[idx]);
+            idx--;
+            it->Prev();
+        }
+        assert(idx == -1);
+    }
+
+    // Seek to middle and alternate Next/Prev across leaf boundaries
+    {
+        std::unique_ptr<MemTableRep::Iterator> it(memtable.GetIterator());
+        LookupKey lk(Slice("chain_000500"), 1500);
+        it->Seek(lk.internal_key(), lk.memtable_key().data());
+        assert(it->Valid());
+
+        Slice ikey = expanse_rocksdb::GetLengthPrefixedSlice(it->key());
+        Slice ukey(ikey.data(), ikey.size() - 8);
+        assert(ukey.ToString() == "chain_000500");
+
+        it->Next();
+        ikey = expanse_rocksdb::GetLengthPrefixedSlice(it->key());
+        ukey = Slice(ikey.data(), ikey.size() - 8);
+        assert(ukey.ToString() == "chain_000501");
+
+        it->Prev();
+        ikey = expanse_rocksdb::GetLengthPrefixedSlice(it->key());
+        ukey = Slice(ikey.data(), ikey.size() - 8);
+        assert(ukey.ToString() == "chain_000500");
+
+        it->Prev();
+        ikey = expanse_rocksdb::GetLengthPrefixedSlice(it->key());
+        ukey = Slice(ikey.data(), ikey.size() - 8);
+        assert(ukey.ToString() == "chain_000499");
+    }
+
+    std::cout << "  -> PASSED" << std::endl;
+}
+
 void TestFactory() {
     std::cout << "[RUN] TestFactory" << std::endl;
     auto factory = NewExpanseMemTableRepFactory(32, true);
@@ -481,6 +634,8 @@ int main() {
     TestSuggestCompactRange();
     TestMultiThreadedConcurrentOperations();
     TestLargeVolumeRandomOperations();
+    TestBatchScanApi();
+    TestIntrusiveLeafChainingAndPrefetch();
     TestFactory();
 
     std::cout << "============================================================" << std::endl;

@@ -67,15 +67,16 @@ ExpanseMemTableRep::ExpanseMemTableRep(
         own_arena_ = std::make_unique<Arena>(4096);
         allocator_ = own_arena_.get();
     }
-    head_ = new LeafBlock();
-    tail_ = head_;
+    LeafBlock* root = new LeafBlock();
+    head_.store(root, std::memory_order_release);
+    tail_.store(root, std::memory_order_release);
     total_allocated_bytes_.fetch_add(sizeof(LeafBlock), std::memory_order_relaxed);
 }
 
 ExpanseMemTableRep::~ExpanseMemTableRep() {
-    LeafBlock* curr = head_;
+    LeafBlock* curr = head_.load(std::memory_order_relaxed);
     while (curr != nullptr) {
-        LeafBlock* next = curr->next;
+        LeafBlock* next = curr->next_leaf.load(std::memory_order_relaxed);
         delete curr;
         curr = next;
     }
@@ -90,24 +91,40 @@ ExpanseMemTableRep::~ExpanseMemTableRep() {
 }
 
 ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::FindLeafBlockForInsert(const char* entry) {
-    if (!head_ || head_ == tail_) {
-        return head_;
+    LeafBlock* h = head_.load(std::memory_order_relaxed);
+    LeafBlock* t = tail_.load(std::memory_order_relaxed);
+    if (!h || h == t) {
+        return h;
     }
 
     uint64_t prefix = expanse_rocksdb::ExtractKeyPrefix64(entry);
     uint64_t out_k = 0;
     uint64_t out_v = 0;
 
-    LeafBlock* candidate = head_;
+    LeafBlock* candidate = h;
     if (expanse_map_prev_at_or_before(trie_index_, prefix, &out_k, &out_v)) {
         if (out_v != 0) {
             candidate = reinterpret_cast<LeafBlock*>(static_cast<uintptr_t>(out_v));
         }
     }
 
-    while (candidate->next != nullptr && candidate->next->count > 0 &&
-           compare_(candidate->next->min_key(), entry) <= 0) {
-        candidate = candidate->next;
+    // Step backward via prev_leaf if candidate is positioned after entry
+    while (candidate->prev_leaf.load(std::memory_order_relaxed) != nullptr &&
+           candidate->min_key() != nullptr &&
+           compare_(candidate->min_key(), entry) > 0) {
+        candidate = candidate->prev_leaf.load(std::memory_order_relaxed);
+    }
+
+    // Step forward via next_leaf to find the right leaf block
+    while (candidate->next_leaf.load(std::memory_order_relaxed) != nullptr) {
+        LeafBlock* nxt = candidate->next_leaf.load(std::memory_order_relaxed);
+        if (nxt->count.load(std::memory_order_relaxed) > 0 &&
+            nxt->min_key() != nullptr &&
+            compare_(nxt->min_key(), entry) <= 0) {
+            candidate = nxt;
+        } else {
+            break;
+        }
     }
     return candidate;
 }
@@ -116,8 +133,10 @@ const ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::FindLeafBlockForSeek(
     const Slice& internal_key,
     const char* memtable_key
 ) const {
-    if (!head_ || head_ == tail_) {
-        return head_;
+    const LeafBlock* h = head_.load(std::memory_order_relaxed);
+    const LeafBlock* t = tail_.load(std::memory_order_relaxed);
+    if (!h || h == t) {
+        return h;
     }
 
     uint64_t prefix = (memtable_key != nullptr)
@@ -126,7 +145,7 @@ const ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::FindLeafBlockForSeek(
 
     uint64_t out_k = 0;
     uint64_t out_v = 0;
-    const LeafBlock* candidate = head_;
+    const LeafBlock* candidate = h;
 
     if (expanse_map_prev_at_or_before(trie_index_, prefix, &out_k, &out_v)) {
         if (out_v != 0) {
@@ -134,16 +153,38 @@ const ExpanseMemTableRep::LeafBlock* ExpanseMemTableRep::FindLeafBlockForSeek(
         }
     }
 
-    while (candidate->next != nullptr && candidate->next->count > 0) {
+    // Step backward via prev_leaf if candidate is positioned after search target
+    while (candidate->prev_leaf.load(std::memory_order_relaxed) != nullptr &&
+           candidate->min_key() != nullptr) {
+        bool is_after = (memtable_key != nullptr)
+            ? (compare_(candidate->min_key(), memtable_key) > 0)
+            : (compare_(internal_key, candidate->min_key()) < 0);
+        if (is_after) {
+            candidate = candidate->prev_leaf.load(std::memory_order_relaxed);
+        } else {
+            break;
+        }
+    }
+
+    // Step forward via next_leaf
+    while (candidate->next_leaf.load(std::memory_order_relaxed) != nullptr) {
+        const LeafBlock* nxt = candidate->next_leaf.load(std::memory_order_relaxed);
+        if (nxt->count.load(std::memory_order_relaxed) == 0) {
+            candidate = nxt;
+            continue;
+        }
+        if (nxt->min_key() == nullptr) {
+            break;
+        }
         if (memtable_key != nullptr) {
-            if (compare_(candidate->next->min_key(), memtable_key) <= 0) {
-                candidate = candidate->next;
+            if (compare_(nxt->min_key(), memtable_key) <= 0) {
+                candidate = nxt;
             } else {
                 break;
             }
         } else {
-            if (compare_(internal_key, candidate->next->min_key()) > 0) {
-                candidate = candidate->next;
+            if (compare_(internal_key, nxt->min_key()) > 0) {
+                candidate = nxt;
             } else {
                 break;
             }
@@ -156,27 +197,35 @@ void ExpanseMemTableRep::SplitLeafBlock(LeafBlock* block) {
     LeafBlock* new_block = new LeafBlock();
     total_allocated_bytes_.fetch_add(sizeof(LeafBlock), std::memory_order_relaxed);
 
-    size_t mid = block->count / 2;
-    size_t move_count = block->count - mid;
+    uint32_t b_count = block->count.load(std::memory_order_relaxed);
+    size_t mid = b_count / 2;
+    size_t move_count = b_count - mid;
 
     for (size_t i = 0; i < move_count; ++i) {
-        new_block->entries[i] = block->entries[mid + i];
-        block->entries[mid + i] = nullptr;
+        new_block->entries[i].store(block->entries[mid + i].load(std::memory_order_relaxed), std::memory_order_relaxed);
+        block->entries[mid + i].store(nullptr, std::memory_order_relaxed);
     }
-    new_block->count = static_cast<uint32_t>(move_count);
-    block->count = static_cast<uint32_t>(mid);
+    new_block->count.store(static_cast<uint32_t>(move_count), std::memory_order_relaxed);
+    block->count.store(static_cast<uint32_t>(mid), std::memory_order_relaxed);
 
-    new_block->next = block->next;
-    new_block->prev = block;
-    if (block->next) {
-        block->next->prev = new_block;
+    LeafBlock* old_next = block->next_leaf.load(std::memory_order_relaxed);
+    new_block->next.store(old_next, std::memory_order_relaxed);
+    new_block->next_leaf.store(old_next, std::memory_order_relaxed);
+    new_block->prev.store(block, std::memory_order_relaxed);
+    new_block->prev_leaf.store(block, std::memory_order_relaxed);
+
+    if (old_next != nullptr) {
+        old_next->prev.store(new_block, std::memory_order_release);
+        old_next->prev_leaf.store(new_block, std::memory_order_release);
     } else {
-        tail_ = new_block;
+        tail_.store(new_block, std::memory_order_release);
     }
-    block->next = new_block;
+    block->next.store(new_block, std::memory_order_release);
+    block->next_leaf.store(new_block, std::memory_order_release);
 
-    if (new_block->count > 0) {
-        uint64_t pfx = expanse_rocksdb::ExtractKeyPrefix64(new_block->entries[0]);
+    if (new_block->count.load(std::memory_order_relaxed) > 0) {
+        const char* first_entry = new_block->entries[0].load(std::memory_order_relaxed);
+        uint64_t pfx = expanse_rocksdb::ExtractKeyPrefix64(first_entry);
         expanse_map_insert(trie_index_, pfx, reinterpret_cast<uintptr_t>(new_block), nullptr);
     }
 }
@@ -187,14 +236,15 @@ void ExpanseMemTableRep::Insert(KeyHandle handle) {
 
     LeafBlock* block = FindLeafBlockForInsert(entry);
     if (!block) {
-        block = head_;
+        block = head_.load(std::memory_order_relaxed);
     }
 
+    uint32_t b_count = block->count.load(std::memory_order_relaxed);
     int left = 0;
-    int right = static_cast<int>(block->count);
+    int right = static_cast<int>(b_count);
     while (left < right) {
         int mid = left + (right - left) / 2;
-        int cmp = compare_(entry, block->entries[mid]);
+        int cmp = compare_(entry, block->entries[mid].load(std::memory_order_relaxed));
         if (cmp > 0) {
             left = mid + 1;
         } else {
@@ -202,11 +252,11 @@ void ExpanseMemTableRep::Insert(KeyHandle handle) {
         }
     }
 
-    for (int i = static_cast<int>(block->count); i > left; --i) {
-        block->entries[i] = block->entries[i - 1];
+    for (int i = static_cast<int>(b_count); i > left; --i) {
+        block->entries[i].store(block->entries[i - 1].load(std::memory_order_relaxed), std::memory_order_relaxed);
     }
-    block->entries[left] = entry;
-    block->count++;
+    block->entries[left].store(entry, std::memory_order_relaxed);
+    block->count.store(b_count + 1, std::memory_order_release);
     total_keys_.fetch_add(1, std::memory_order_relaxed);
 
     if (left == 0) {
@@ -231,7 +281,7 @@ void ExpanseMemTableRep::Insert(KeyHandle handle) {
         }
     }
 
-    if (block->count >= leaf_capacity_) {
+    if (block->count.load(std::memory_order_relaxed) >= leaf_capacity_) {
         SplitLeafBlock(block);
     }
 }
@@ -245,10 +295,10 @@ bool ExpanseMemTableRep::Contains(const char* key) const {
     const LeafBlock* block = FindLeafBlockForSeek(Slice(), key);
     while (block != nullptr) {
         int left = 0;
-        int right = static_cast<int>(block->count);
+        int right = static_cast<int>(block->count.load(std::memory_order_acquire));
         while (left < right) {
             int mid = left + (right - left) / 2;
-            int cmp = compare_(key, block->entries[mid]);
+            int cmp = compare_(key, block->entries[mid].load(std::memory_order_relaxed));
             if (cmp == 0) {
                 return true;
             } else if (cmp > 0) {
@@ -257,10 +307,10 @@ bool ExpanseMemTableRep::Contains(const char* key) const {
                 right = mid;
             }
         }
-        if (block->count > 0 && compare_(key, block->max_key()) < 0) {
+        if (block->count.load(std::memory_order_acquire) > 0 && compare_(key, block->max_key()) < 0) {
             break;
         }
-        block = block->next;
+        block = block->next_leaf.load(std::memory_order_acquire);
     }
     return false;
 }
@@ -283,11 +333,11 @@ void ExpanseMemTableRep::Get(
     void* callback_args,
     bool (*callback_func)(void* arg, const char* entry)
 ) {
-    auto it = std::make_unique<IteratorImpl>(this);
-    it->Seek(k.internal_key(), k.memtable_key().data());
+    IteratorImpl it(this);
+    it.Seek(k.internal_key(), k.memtable_key().data());
     Slice user_key = k.user_key();
-    while (it->Valid()) {
-        const char* entry = it->key();
+    while (it.Valid()) {
+        const char* entry = it.key();
         Slice entry_ikey = expanse_rocksdb::GetLengthPrefixedSlice(entry);
         if (entry_ikey.size() < 8) break;
         Slice entry_ukey(entry_ikey.data(), entry_ikey.size() - 8);
@@ -297,7 +347,7 @@ void ExpanseMemTableRep::Get(
         if (!callback_func(callback_args, entry)) {
             break;
         }
-        it->Next();
+        it.Next();
     }
 }
 
@@ -325,11 +375,14 @@ MemTableRep::Iterator* ExpanseMemTableRep::GetPrefixIterator(
 
 void ExpanseMemTableRep::SuggestCompactRange(Slice* begin, Slice* end) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (head_ && head_->count > 0 && begin) {
-        *begin = expanse_rocksdb::GetLengthPrefixedSlice(head_->entries[0]);
+    LeafBlock* h = head_.load(std::memory_order_relaxed);
+    LeafBlock* t = tail_.load(std::memory_order_relaxed);
+    if (h && h->count.load(std::memory_order_relaxed) > 0 && begin) {
+        *begin = expanse_rocksdb::GetLengthPrefixedSlice(h->entries[0].load(std::memory_order_relaxed));
     }
-    if (tail_ && tail_->count > 0 && end) {
-        *end = expanse_rocksdb::GetLengthPrefixedSlice(tail_->entries[tail_->count - 1]);
+    if (t && t->count.load(std::memory_order_relaxed) > 0 && end) {
+        uint32_t tc = t->count.load(std::memory_order_relaxed);
+        *end = expanse_rocksdb::GetLengthPrefixedSlice(t->entries[tc - 1].load(std::memory_order_relaxed));
     }
 }
 
@@ -338,118 +391,201 @@ void ExpanseMemTableRep::SuggestCompactRange(Slice* begin, Slice* end) {
 // ============================================================================
 
 ExpanseMemTableRep::IteratorImpl::IteratorImpl(const ExpanseMemTableRep* rep)
-    : rep_(rep), curr_block_(nullptr), curr_idx_(-1), valid_(false) {}
+    : rep_(rep), current_leaf_(nullptr), current_slot_(-1), valid_(false) {}
+
+void ExpanseMemTableRep::IteratorImpl::EnsureKeyCached() const {
+    if (cached_key_.valid) return;
+    const char* entry = key();
+    cached_key_.raw_entry = entry;
+    if (entry == nullptr) {
+        cached_key_.internal_key.clear();
+        cached_key_.user_key.clear();
+        cached_key_.value.clear();
+        cached_key_.valid = true;
+        return;
+    }
+    uint32_t ikey_len = 0;
+    const char* p = expanse_rocksdb::GetVarint32Ptr(entry, entry + 5, &ikey_len);
+    if (p != nullptr) {
+        cached_key_.internal_key = Slice(p, ikey_len);
+        if (ikey_len >= 8) {
+            cached_key_.user_key = Slice(p, ikey_len - 8);
+        } else {
+            cached_key_.user_key = cached_key_.internal_key;
+        }
+        const char* val_p = p + ikey_len;
+        uint32_t val_len = 0;
+        const char* val_data = expanse_rocksdb::GetVarint32Ptr(val_p, val_p + 5, &val_len);
+        if (val_data != nullptr) {
+            cached_key_.value = Slice(val_data, val_len);
+        } else {
+            cached_key_.value.clear();
+        }
+    }
+    cached_key_.valid = true;
+}
+
+Slice ExpanseMemTableRep::IteratorImpl::internal_key() const {
+    EnsureKeyCached();
+    return cached_key_.internal_key;
+}
+
+Slice ExpanseMemTableRep::IteratorImpl::user_key() const {
+    EnsureKeyCached();
+    return cached_key_.user_key;
+}
+
+Slice ExpanseMemTableRep::IteratorImpl::value() const {
+    EnsureKeyCached();
+    return cached_key_.value;
+}
 
 bool ExpanseMemTableRep::IteratorImpl::Valid() const {
-    if (!valid_ || curr_block_ == nullptr || curr_idx_ < 0) return false;
-    std::lock_guard<std::mutex> lock(rep_->mutex_);
-    return curr_idx_ < static_cast<int>(curr_block_->count);
+    if (!valid_ || current_leaf_ == nullptr || current_slot_ < 0) return false;
+    return current_slot_ < static_cast<int>(current_leaf_->count.load(std::memory_order_acquire));
 }
 
 const char* ExpanseMemTableRep::IteratorImpl::key() const {
-    std::lock_guard<std::mutex> lock(rep_->mutex_);
-    if (!valid_ || curr_block_ == nullptr || curr_idx_ < 0 ||
-        curr_idx_ >= static_cast<int>(curr_block_->count)) {
+    if (!valid_ || current_leaf_ == nullptr || current_slot_ < 0 ||
+        current_slot_ >= static_cast<int>(current_leaf_->count.load(std::memory_order_acquire))) {
         return nullptr;
     }
-    return curr_block_->entries[curr_idx_];
+    return current_leaf_->entries[current_slot_].load(std::memory_order_relaxed);
 }
 
 void ExpanseMemTableRep::IteratorImpl::Next() {
-    std::lock_guard<std::mutex> lock(rep_->mutex_);
-    if (!valid_ || curr_block_ == nullptr || curr_idx_ < 0) return;
-    curr_idx_++;
-    if (curr_idx_ >= static_cast<int>(curr_block_->count)) {
-        curr_block_ = curr_block_->next;
-        while (curr_block_ != nullptr && curr_block_->count == 0) {
-            curr_block_ = curr_block_->next;
+    if (!valid_ || current_leaf_ == nullptr || current_slot_ < 0) return;
+    InvalidateCache();
+    current_slot_++;
+    uint32_t count = current_leaf_->count.load(std::memory_order_acquire);
+
+    // Software SIMD prefetch hint for sibling leaf block when processing latter entries
+    if (current_slot_ + 4 >= static_cast<int>(count)) {
+        LeafBlock* nxt = current_leaf_->next_leaf.load(std::memory_order_relaxed);
+        if (nxt != nullptr) {
+            expanse_rocksdb::Prefetch<0, 3>(nxt);
+            expanse_rocksdb::Prefetch<0, 3>(nxt->entries);
         }
-        if (curr_block_ != nullptr && curr_block_->count > 0) {
-            curr_idx_ = 0;
+    } else if (current_slot_ + 2 < static_cast<int>(count)) {
+        const char* future_entry = current_leaf_->entries[current_slot_ + 2].load(std::memory_order_relaxed);
+        if (future_entry != nullptr) {
+            expanse_rocksdb::Prefetch<0, 1>(future_entry);
+        }
+    }
+
+    if (current_slot_ >= static_cast<int>(count)) {
+        // Advance directly via next_leaf intrusive pointer without re-seeking trie!
+        current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
+        while (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) == 0) {
+            current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
+        }
+        if (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) > 0) {
+            current_slot_ = 0;
             valid_ = true;
+            LeafBlock* nxt_nxt = current_leaf_->next_leaf.load(std::memory_order_relaxed);
+            if (nxt_nxt != nullptr) {
+                expanse_rocksdb::Prefetch<0, 3>(nxt_nxt);
+            }
         } else {
-            curr_idx_ = -1;
+            current_slot_ = -1;
             valid_ = false;
         }
     }
 }
 
 void ExpanseMemTableRep::IteratorImpl::Prev() {
-    std::lock_guard<std::mutex> lock(rep_->mutex_);
-    if (!valid_ || curr_block_ == nullptr || curr_idx_ < 0) return;
-    curr_idx_--;
-    if (curr_idx_ < 0) {
-        curr_block_ = curr_block_->prev;
-        while (curr_block_ != nullptr && curr_block_->count == 0) {
-            curr_block_ = curr_block_->prev;
+    if (!valid_ || current_leaf_ == nullptr || current_slot_ < 0) return;
+    InvalidateCache();
+    current_slot_--;
+
+    // Prefetch prev sibling leaf when approaching beginning of leaf
+    if (current_slot_ < 4) {
+        LeafBlock* prv = current_leaf_->prev_leaf.load(std::memory_order_relaxed);
+        if (prv != nullptr) {
+            expanse_rocksdb::Prefetch<0, 3>(prv);
+            expanse_rocksdb::Prefetch<0, 3>(prv->entries);
         }
-        if (curr_block_ != nullptr && curr_block_->count > 0) {
-            curr_idx_ = static_cast<int>(curr_block_->count) - 1;
+    }
+
+    if (current_slot_ < 0) {
+        // Advance backwards via prev_leaf intrusive pointer!
+        current_leaf_ = current_leaf_->prev_leaf.load(std::memory_order_acquire);
+        while (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) == 0) {
+            current_leaf_ = current_leaf_->prev_leaf.load(std::memory_order_acquire);
+        }
+        if (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) > 0) {
+            current_slot_ = static_cast<int>(current_leaf_->count.load(std::memory_order_acquire)) - 1;
             valid_ = true;
         } else {
-            curr_idx_ = -1;
+            current_slot_ = -1;
             valid_ = false;
         }
     }
 }
 
 void ExpanseMemTableRep::IteratorImpl::SeekToFirst() {
-    std::lock_guard<std::mutex> lock(rep_->mutex_);
-    curr_block_ = rep_->head_;
-    while (curr_block_ != nullptr && curr_block_->count == 0) {
-        curr_block_ = curr_block_->next;
+    InvalidateCache();
+    current_leaf_ = rep_->head_.load(std::memory_order_acquire);
+    while (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) == 0) {
+        current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
     }
-    if (curr_block_ != nullptr && curr_block_->count > 0) {
-        curr_idx_ = 0;
+    if (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) > 0) {
+        current_slot_ = 0;
         valid_ = true;
+        const char* entry0 = current_leaf_->entries[0].load(std::memory_order_relaxed);
+        if (entry0) expanse_rocksdb::Prefetch<0, 1>(entry0);
+        LeafBlock* nxt = current_leaf_->next_leaf.load(std::memory_order_relaxed);
+        if (nxt) expanse_rocksdb::Prefetch<0, 3>(nxt);
     } else {
-        curr_idx_ = -1;
+        current_slot_ = -1;
         valid_ = false;
     }
 }
 
 void ExpanseMemTableRep::IteratorImpl::SeekToLast() {
-    std::lock_guard<std::mutex> lock(rep_->mutex_);
-    curr_block_ = rep_->tail_;
-    while (curr_block_ != nullptr && curr_block_->count == 0) {
-        curr_block_ = curr_block_->prev;
+    InvalidateCache();
+    current_leaf_ = rep_->tail_.load(std::memory_order_acquire);
+    while (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) == 0) {
+        current_leaf_ = current_leaf_->prev_leaf.load(std::memory_order_acquire);
     }
-    if (curr_block_ != nullptr && curr_block_->count > 0) {
-        curr_idx_ = static_cast<int>(curr_block_->count) - 1;
+    if (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) > 0) {
+        current_slot_ = static_cast<int>(current_leaf_->count.load(std::memory_order_acquire)) - 1;
         valid_ = true;
     } else {
-        curr_idx_ = -1;
+        current_slot_ = -1;
         valid_ = false;
     }
 }
 
 void ExpanseMemTableRep::IteratorImpl::Seek(const Slice& internal_key, const char* memtable_key) {
+    InvalidateCache();
     std::lock_guard<std::mutex> lock(rep_->mutex_);
     const LeafBlock* block = rep_->FindLeafBlockForSeek(internal_key, memtable_key);
     while (block != nullptr) {
         int left = 0;
-        int right = static_cast<int>(block->count);
+        int right = static_cast<int>(block->count.load(std::memory_order_acquire));
         while (left < right) {
             int mid = left + (right - left) / 2;
+            const char* mid_entry = block->entries[mid].load(std::memory_order_relaxed);
             int cmp = (memtable_key != nullptr)
-                ? rep_->compare_(block->entries[mid], memtable_key)
-                : rep_->compare_(internal_key, block->entries[mid]);
+                ? rep_->compare_(mid_entry, memtable_key)
+                : rep_->compare_(internal_key, mid_entry);
             if (cmp >= 0) {
                 right = mid;
             } else {
                 left = mid + 1;
             }
         }
-        if (left < static_cast<int>(block->count)) {
-            curr_block_ = block;
-            curr_idx_ = left;
+        if (left < static_cast<int>(block->count.load(std::memory_order_acquire))) {
+            current_leaf_ = block;
+            current_slot_ = left;
             valid_ = true;
             return;
         }
-        block = block->next;
+        block = block->next_leaf.load(std::memory_order_acquire);
     }
-    curr_block_ = nullptr;
-    curr_idx_ = -1;
+    current_leaf_ = nullptr;
+    current_slot_ = -1;
     valid_ = false;
 }
 
@@ -465,6 +601,94 @@ void ExpanseMemTableRep::IteratorImpl::SeekForPrev(const Slice& internal_key, co
     } else {
         SeekToLast();
     }
+}
+
+size_t ExpanseMemTableRep::IteratorImpl::ScanBatch(
+    size_t max_keys,
+    Slice* out_keys,
+    Slice* out_values
+) {
+    if (!valid_ || current_leaf_ == nullptr || current_slot_ < 0 || max_keys == 0) {
+        return 0;
+    }
+
+    InvalidateCache();
+    size_t extracted = 0;
+
+    while (extracted < max_keys && current_leaf_ != nullptr) {
+        uint32_t count = current_leaf_->count.load(std::memory_order_acquire);
+        if (current_slot_ >= static_cast<int>(count)) {
+            current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
+            while (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) == 0) {
+                current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
+            }
+            if (current_leaf_ == nullptr) {
+                current_slot_ = -1;
+                valid_ = false;
+                break;
+            }
+            current_slot_ = 0;
+            count = current_leaf_->count.load(std::memory_order_acquire);
+        }
+
+        size_t available = count - current_slot_;
+        size_t to_extract = std::min(available, max_keys - extracted);
+
+        // Issue prefetch hint for next leaf block when scanning through current block
+        LeafBlock* nxt = current_leaf_->next_leaf.load(std::memory_order_relaxed);
+        if (nxt != nullptr) {
+            expanse_rocksdb::Prefetch<0, 3>(nxt);
+            expanse_rocksdb::Prefetch<0, 3>(nxt->entries);
+        }
+
+        for (size_t i = 0; i < to_extract; ++i) {
+            const char* entry = current_leaf_->entries[current_slot_ + i].load(std::memory_order_relaxed);
+            if (entry != nullptr) {
+                // Prefetch entry payload 2 slots ahead
+                if (i + 2 < to_extract) {
+                    const char* ahead = current_leaf_->entries[current_slot_ + i + 2].load(std::memory_order_relaxed);
+                    if (ahead) expanse_rocksdb::Prefetch<0, 1>(ahead);
+                }
+
+                uint32_t ikey_len = 0;
+                const char* p = expanse_rocksdb::GetVarint32Ptr(entry, entry + 5, &ikey_len);
+                if (out_keys != nullptr && p != nullptr) {
+                    out_keys[extracted] = Slice(p, ikey_len);
+                }
+                if (out_values != nullptr && p != nullptr) {
+                    const char* val_p = p + ikey_len;
+                    uint32_t val_len = 0;
+                    const char* val_data = expanse_rocksdb::GetVarint32Ptr(val_p, val_p + 5, &val_len);
+                    if (val_data != nullptr) {
+                        out_values[extracted] = Slice(val_data, val_len);
+                    } else {
+                        out_values[extracted].clear();
+                    }
+                }
+            }
+            extracted++;
+        }
+
+        current_slot_ += to_extract;
+        if (current_slot_ >= static_cast<int>(count)) {
+            current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
+            while (current_leaf_ != nullptr && current_leaf_->count.load(std::memory_order_acquire) == 0) {
+                current_leaf_ = current_leaf_->next_leaf.load(std::memory_order_acquire);
+            }
+            if (current_leaf_ != nullptr) {
+                current_slot_ = 0;
+                valid_ = true;
+            } else {
+                current_slot_ = -1;
+                valid_ = false;
+                break;
+            }
+        } else {
+            valid_ = true;
+        }
+    }
+
+    return extracted;
 }
 
 } // namespace rocksdb
