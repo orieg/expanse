@@ -56,6 +56,11 @@ name = "concurrency"
 harness = false
 test = false
 
+[[bench]]
+name = "large_values"
+harness = false
+test = false
+
 [lints]
 workspace = true
 

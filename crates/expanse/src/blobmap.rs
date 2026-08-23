@@ -20,6 +20,35 @@ pub struct BlobRecordHeader {
     pub generation: u32,
 }
 
+/// Magic identifier for Expanse binary image files ("EXPANSE\0").
+pub const EXPANSE_MAGIC: [u8; 8] = *b"EXPANSE\0";
+/// Current format version for relocatable ExpanseBlobMap images.
+pub const EXPANSE_FORMAT_VERSION: u32 = 1;
+
+/// Relocatable 64-byte binary image file header.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct BlobMapFileHeader {
+    /// Magic string `EXPANSE\0`.
+    pub magic: [u8; 8],
+    /// Format version (`1`).
+    pub version: u32,
+    /// Format flags (reserved, 0).
+    pub flags: u32,
+    /// Total number of entries in the index.
+    pub entry_count: u64,
+    /// Byte offset where the index/entries section begins.
+    pub index_offset: u64,
+    /// Byte offset where the arena slab section begins.
+    pub arena_offset: u64,
+    /// Total file/image size in bytes.
+    pub total_size: u64,
+    /// Chunk size used by the arena.
+    pub chunk_size: u64,
+    /// Number of arena chunks.
+    pub chunk_count: u64,
+}
+
 /// A typed view of a retrieved value payload.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BlobView<'a> {
@@ -244,6 +273,49 @@ impl ArenaChunk {
             Some(core::slice::from_raw_parts(base.add(8), len))
         }
     }
+
+    /// Returns the generation counter.
+    #[inline(always)]
+    #[must_use]
+    pub fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    /// Returns the raw allocated slice up to the cursor.
+    #[must_use]
+    pub fn raw_bytes(&self) -> &[u8] {
+        if self.cursor == 0 {
+            &[]
+        } else {
+            // SAFETY: cursor <= capacity, ptr is allocated and valid.
+            unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.cursor) }
+        }
+    }
+
+    /// Creates an arena chunk pre-populated from a raw data slice.
+    pub fn from_raw_parts(
+        capacity: usize,
+        cursor: usize,
+        generation: u32,
+        data: &[u8],
+    ) -> Result<Self, ArenaError> {
+        let mut chunk = Self::new(capacity, generation)?;
+        if cursor > capacity || data.len() > capacity {
+            return Err(ArenaError::InvalidOffset);
+        }
+        if !data.is_empty() {
+            // SAFETY: destination chunk.ptr has at least capacity bytes, data is valid.
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    data.as_ptr(),
+                    chunk.ptr.as_ptr(),
+                    data.len().min(cursor),
+                );
+            }
+        }
+        chunk.cursor = cursor;
+        Ok(chunk)
+    }
 }
 
 impl Drop for ArenaChunk {
@@ -426,6 +498,27 @@ impl BlobArena {
         self.chunks.len()
     }
 
+    /// Returns a slice of the arena chunks.
+    #[inline(always)]
+    #[must_use]
+    pub fn chunks(&self) -> &[ArenaChunk] {
+        &self.chunks
+    }
+
+    /// Returns the chunk capacity in bytes.
+    #[inline(always)]
+    #[must_use]
+    pub fn chunk_size(&self) -> usize {
+        self.chunk_size
+    }
+
+    /// Appends a pre-populated chunk to the arena.
+    pub fn push_chunk(&mut self, chunk: ArenaChunk) {
+        self.total_allocated += chunk.capacity();
+        self.chunks.push(chunk);
+        self.active_chunk = Some(self.chunks.len() - 1);
+    }
+
     /// Resets and frees all arena chunks.
     pub fn clear(&mut self) {
         self.chunks.clear();
@@ -600,6 +693,156 @@ impl ExpanseBlobMap {
         self.arena.compact_with_index(&mut self.index)
     }
 
+    /// Returns a reference to the internal index.
+    #[must_use]
+    pub fn index(&self) -> &ExpanseMap {
+        &self.index
+    }
+
+    /// Serializes the blob map to a writer in relocatable binary image format.
+    pub fn save_to_writer<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
+        let entry_count = self.index.len();
+        let index_offset = 64u64;
+        let index_size = entry_count * 16;
+        let arena_offset = index_offset + index_size;
+
+        let chunk_count = self.arena.chunks.len() as u64;
+        let mut total_arena_size = 0u64;
+        for chunk in &self.arena.chunks {
+            let cursor = chunk.cursor();
+            let aligned_cursor = (cursor + 15) & !15;
+            total_arena_size += 24 + aligned_cursor as u64;
+        }
+
+        let total_size = arena_offset + total_arena_size;
+
+        let header = BlobMapFileHeader {
+            magic: EXPANSE_MAGIC,
+            version: EXPANSE_FORMAT_VERSION,
+            flags: 0,
+            entry_count,
+            index_offset,
+            arena_offset,
+            total_size,
+            chunk_size: self.arena.chunk_size as u64,
+            chunk_count,
+        };
+
+        // SAFETY: BlobMapFileHeader is 64 bytes repr(C), safe to cast to bytes slice.
+        let header_bytes = unsafe {
+            core::slice::from_raw_parts((&header as *const BlobMapFileHeader).cast::<u8>(), 64)
+        };
+        writer.write_all(header_bytes)?;
+
+        // Write index entries (key: u64, raw_slot: u64)
+        for (key, raw_slot) in self.index.iter() {
+            writer.write_all(&key.to_le_bytes())?;
+            writer.write_all(&raw_slot.to_le_bytes())?;
+        }
+
+        // Write arena chunks
+        for chunk in &self.arena.chunks {
+            let cap = chunk.capacity() as u64;
+            let cur = chunk.cursor() as u64;
+            let generation = chunk.generation;
+            writer.write_all(&cap.to_le_bytes())?;
+            writer.write_all(&cur.to_le_bytes())?;
+            writer.write_all(&generation.to_le_bytes())?;
+            writer.write_all(&0u32.to_le_bytes())?; // 4-byte padding
+
+            let chunk_data = chunk.raw_bytes();
+            writer.write_all(chunk_data)?;
+            let pad_len = ((cur as usize + 15) & !15) - cur as usize;
+            if pad_len > 0 {
+                writer.write_all(&[0u8; 16][..pad_len])?;
+            }
+        }
+
+        Ok(total_size as usize)
+    }
+
+    /// Saves the blob map to a file at the given path.
+    pub fn save_to_file<P: AsRef<std::path::Path>>(&self, path: P) -> std::io::Result<usize> {
+        let mut file = std::fs::File::create(path)?;
+        self.save_to_writer(&mut file)
+    }
+
+    /// Deserializes a relocatable binary image from a byte slice.
+    pub fn from_bytes_slice(bytes: &[u8]) -> Result<Self, ArenaError> {
+        if bytes.len() < 64 {
+            return Err(ArenaError::CorruptedHeader);
+        }
+
+        // SAFETY: bytes has length >= 64.
+        let header: BlobMapFileHeader =
+            unsafe { core::ptr::read_unaligned(bytes.as_ptr().cast::<BlobMapFileHeader>()) };
+
+        if header.magic != EXPANSE_MAGIC || header.version != EXPANSE_FORMAT_VERSION {
+            return Err(ArenaError::CorruptedHeader);
+        }
+
+        if header.total_size as usize > bytes.len() {
+            return Err(ArenaError::CorruptedHeader);
+        }
+
+        let mut map = Self::with_chunk_size(header.chunk_size as usize);
+
+        // Read arena chunks
+        let mut arena_pos = header.arena_offset as usize;
+        for _ in 0..header.chunk_count {
+            if arena_pos + 24 > bytes.len() {
+                return Err(ArenaError::CorruptedHeader);
+            }
+            let cap =
+                u64::from_le_bytes(bytes[arena_pos..arena_pos + 8].try_into().unwrap()) as usize;
+            let cur = u64::from_le_bytes(bytes[arena_pos + 8..arena_pos + 16].try_into().unwrap())
+                as usize;
+            let generation =
+                u32::from_le_bytes(bytes[arena_pos + 16..arena_pos + 20].try_into().unwrap());
+            arena_pos += 24;
+
+            if arena_pos + cur > bytes.len() {
+                return Err(ArenaError::CorruptedHeader);
+            }
+
+            let chunk_data = &bytes[arena_pos..arena_pos + cur];
+            let chunk = ArenaChunk::from_raw_parts(cap, cur, generation, chunk_data)?;
+            map.arena.push_chunk(chunk);
+
+            let aligned_cur = (cur + 15) & !15;
+            arena_pos += aligned_cur;
+        }
+
+        // Read index entries
+        let mut idx_pos = header.index_offset as usize;
+        for _ in 0..header.entry_count {
+            if idx_pos + 16 > bytes.len() {
+                return Err(ArenaError::CorruptedHeader);
+            }
+            let key = u64::from_le_bytes(bytes[idx_pos..idx_pos + 8].try_into().unwrap());
+            let raw_slot = u64::from_le_bytes(bytes[idx_pos + 8..idx_pos + 16].try_into().unwrap());
+            idx_pos += 16;
+            map.index.insert(key, raw_slot);
+
+            // Recompute live_bytes if ArenaShort
+            let slot = ValueSlot::from_raw(raw_slot);
+            if slot.tag() == SlotTag::ArenaShort {
+                let offset = slot.arena_offset();
+                if let Some(payload) = map.arena.get_blob_slice(offset) {
+                    map.arena.live_bytes += 8 + payload.len();
+                }
+            }
+        }
+
+        Ok(map)
+    }
+
+    /// Loads a blob map from a binary image file at `path`.
+    pub fn mmap_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, ArenaError> {
+        let bytes = std::fs::read(path).map_err(|_| ArenaError::CorruptedHeader)?;
+        Self::from_bytes_slice(&bytes)
+    }
+
     /// Removes all entries from the map and frees all arena slabs.
     pub fn clear(&mut self) {
         self.index.clear();
@@ -724,5 +967,79 @@ mod tests {
             assert_eq!(view.len(), 256);
             assert_eq!(view.as_bytes(), &vec![0xAB; 256][..]);
         }
+    }
+
+    #[test]
+    fn relocatable_binary_image_roundtrip() {
+        let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
+
+        // Mix of inline (0..7 bytes) and arena payloads (>7 bytes)
+        map.insert(1, b"", 0).unwrap();
+        map.insert(2, b"a", 0).unwrap();
+        map.insert(3, b"1234567", 0).unwrap();
+        map.insert(4, b"12345678", 10).unwrap();
+        map.insert(5, b"large payload in arena chunk memory", 20)
+            .unwrap();
+        map.insert(6, &vec![0x42; 1024], 30).unwrap();
+
+        let mut buffer = Vec::new();
+        let bytes_written = map.save_to_writer(&mut buffer).unwrap();
+        assert_eq!(bytes_written, buffer.len());
+
+        let restored = ExpanseBlobMap::from_bytes_slice(&buffer).unwrap();
+        assert_eq!(restored.len(), 6);
+
+        let (v1, _) = restored.get(1).unwrap();
+        assert!(v1.is_inline());
+        assert_eq!(v1.as_bytes(), b"");
+
+        let (v2, _) = restored.get(2).unwrap();
+        assert!(v2.is_inline());
+        assert_eq!(v2.as_bytes(), b"a");
+
+        let (v3, _) = restored.get(3).unwrap();
+        assert!(v3.is_inline());
+        assert_eq!(v3.as_bytes(), b"1234567");
+
+        let (v4, m4) = restored.get(4).unwrap();
+        assert!(v4.is_arena());
+        assert_eq!(v4.as_bytes(), b"12345678");
+        assert_eq!(m4, 10);
+
+        let (v5, m5) = restored.get(5).unwrap();
+        assert!(v5.is_arena());
+        assert_eq!(v5.as_bytes(), b"large payload in arena chunk memory");
+        assert_eq!(m5, 20);
+
+        let (v6, m6) = restored.get(6).unwrap();
+        assert!(v6.is_arena());
+        assert_eq!(v6.as_bytes(), &vec![0x42; 1024][..]);
+        assert_eq!(m6, 30);
+    }
+
+    #[test]
+    fn mmap_file_save_and_load_roundtrip() {
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("expanse_test_mmap.bin");
+
+        let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
+        for i in 0..50u64 {
+            let payload = format!("test-payload-record-{i}");
+            map.insert(i * 10, payload.as_bytes(), i as u32).unwrap();
+        }
+
+        map.save_to_file(&path).unwrap();
+
+        let loaded = ExpanseBlobMap::mmap_file(&path).unwrap();
+        assert_eq!(loaded.len(), 50);
+
+        for i in 0..50u64 {
+            let (view, meta) = loaded.get(i * 10).unwrap();
+            let expected = format!("test-payload-record-{i}");
+            assert_eq!(view.as_bytes(), expected.as_bytes());
+            assert_eq!(meta, i as u32);
+        }
+
+        let _ = std::fs::remove_file(path);
     }
 }

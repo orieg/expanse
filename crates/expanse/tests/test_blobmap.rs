@@ -246,3 +246,40 @@ fn test_edge_cases_and_clear() {
     assert!(map.is_empty());
     assert!(map.get(1).is_none());
 }
+
+#[test]
+fn test_mmap_and_binary_serialization() {
+    let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
+
+    for i in 0..100u64 {
+        let payload = if i % 2 == 0 {
+            format!("in-{i}") // <= 7 bytes, inline
+        } else {
+            format!("large-arena-payload-data-entry-number-{i}") // > 7 bytes, arena
+        };
+        map.insert(i, payload.as_bytes(), (i * 5) as u32).unwrap();
+    }
+
+    let temp_file = std::env::temp_dir().join("test_blobmap_integ.bin");
+    map.save_to_file(&temp_file).unwrap();
+
+    let loaded = ExpanseBlobMap::mmap_file(&temp_file).unwrap();
+    assert_eq!(loaded.len(), 100);
+
+    for i in 0..100u64 {
+        let (view, meta) = loaded.get(i).unwrap();
+        if i % 2 == 0 {
+            assert!(view.is_inline());
+            let expected = format!("in-{i}");
+            assert_eq!(view.as_bytes(), expected.as_bytes());
+            assert_eq!(meta, 0); // Inline slots do not store separate hot_meta
+        } else {
+            assert!(view.is_arena());
+            let expected = format!("large-arena-payload-data-entry-number-{i}");
+            assert_eq!(view.as_bytes(), expected.as_bytes());
+            assert_eq!(meta, (i * 5) as u32);
+        }
+    }
+
+    let _ = std::fs::remove_file(temp_file);
+}

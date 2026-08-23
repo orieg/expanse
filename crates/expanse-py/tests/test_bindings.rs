@@ -1,5 +1,6 @@
 //! Comprehensive unit tests for Expanse PyO3 Python bindings.
 
+use _expanse::blobmap::ExpanseBlobMap;
 use _expanse::bytesmap::ExpanseBytesMap;
 use _expanse::map::ExpanseMap;
 use _expanse::set::ExpanseSet;
@@ -404,5 +405,89 @@ fn test_expanse_bytes_map_arbitrary_binary_keys_and_nul() {
         assert_eq!(bytesmap.__len__(), 2);
         bytesmap.clear();
         assert_eq!(bytesmap.__len__(), 0);
+    });
+}
+
+#[test]
+fn test_expanse_blob_map_pyo3_bindings() {
+    pyo3::prepare_freethreaded_python();
+    Python::with_gil(|py| {
+        let mut map = ExpanseBlobMap::new(Some(64 * 1024));
+        assert_eq!(map.__len__(), 0);
+        assert!(map.is_empty());
+        assert!(!map.__bool__());
+
+        // Insert inline (0..7 bytes)
+        let b_inline0 = PyBytes::new(py, b"");
+        let b_inline4 = PyBytes::new(py, b"test");
+        let b_inline7 = PyBytes::new(py, b"1234567");
+
+        map.insert(1, b_inline0.as_any(), 0).unwrap();
+        map.insert(2, b_inline4.as_any(), 0).unwrap();
+        map.insert(3, b_inline7.as_any(), 0).unwrap();
+
+        // Insert arena (>7 bytes)
+        let b_arena = PyBytes::new(py, b"a longer payload that goes into arena");
+        map.insert(4, b_arena.as_any(), 100).unwrap();
+
+        assert_eq!(map.__len__(), 4);
+        assert!(map.__contains__(1));
+        assert!(map.__contains__(4));
+        assert!(!map.__contains__(5));
+
+        // Get
+        let (v1, m1) = map.get(py, 1).unwrap();
+        assert_eq!(v1.as_bytes(), b"");
+        assert_eq!(m1, 0);
+
+        let (v2, m2) = map.get(py, 2).unwrap();
+        assert_eq!(v2.as_bytes(), b"test");
+        assert_eq!(m2, 0);
+
+        let (v4, m4) = map.get(py, 4).unwrap();
+        assert_eq!(v4.as_bytes(), b"a longer payload that goes into arena");
+        assert_eq!(m4, 100);
+
+        // __getitem__ and __setitem__
+        let v2_bytes = map.__getitem__(py, 2).unwrap();
+        assert_eq!(v2_bytes.as_bytes(), b"test");
+
+        let b_new = PyBytes::new(py, b"new_val");
+        map.__setitem__(5, b_new.as_any()).unwrap();
+        assert_eq!(map.__getitem__(py, 5).unwrap().as_bytes(), b"new_val");
+
+        // Scan filtered
+        let scan_results = map.scan_filtered(py, 1, 5, None, None).unwrap();
+        assert_eq!(scan_results.len(), 5);
+
+        // Delete
+        assert!(map.remove(2));
+        assert_eq!(map.__len__(), 4);
+        assert!(map.__delitem__(1).is_ok());
+        assert_eq!(map.__len__(), 3);
+
+        // Compact
+        let (live_b, live_a, _, _) = map.compact().unwrap();
+        assert_eq!(live_b, live_a);
+
+        // File serialization
+        let temp_file = std::env::temp_dir().join("py_blobmap_test.bin");
+        let path_str = temp_file.to_str().unwrap();
+        map.save_to_file(path_str).unwrap();
+
+        let loaded = ExpanseBlobMap::load_from_file(path_str).unwrap();
+        assert_eq!(loaded.__len__(), 3);
+        let (v4_loaded, m4_loaded) = loaded.get(py, 4).unwrap();
+        assert_eq!(
+            v4_loaded.as_bytes(),
+            b"a longer payload that goes into arena"
+        );
+        assert_eq!(m4_loaded, 100);
+
+        let _ = std::fs::remove_file(temp_file);
+
+        // Clear
+        map.clear();
+        assert_eq!(map.__len__(), 0);
     });
 }
