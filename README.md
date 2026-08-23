@@ -81,7 +81,7 @@ Legacy ↔ modern naming:
 | **Pointer layout** | Full 16-byte JP per edge | Tagged pointers exploiting 48-bit virtual addressing |
 | **Concurrency** | Single-threaded, external locks | Lock-free optimistic concurrency control (OCC) for reads |
 
-Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Embedded 32-Bit RFC: [docs/RFC_32BIT_EMBEDDED.md](docs/RFC_32BIT_EMBEDDED.md) · Large-Value RFC: [docs/RFC_LARGE_VALUES.md](docs/RFC_LARGE_VALUES.md) · Database engine patterns: [docs/DATABASE.md](docs/DATABASE.md).
+Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Embedded 32-Bit RFC: [docs/RFC_32BIT_EMBEDDED.md](docs/RFC_32BIT_EMBEDDED.md) · Large-Value RFC: [docs/RFC_LARGE_VALUES.md](docs/RFC_LARGE_VALUES.md) · Database engine patterns: [docs/DATABASE.md](docs/DATABASE.md) · CI/CD Standards: [docs/CI_CD_GUIDE.md](docs/CI_CD_GUIDE.md).
 
 ---
 

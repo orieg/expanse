@@ -6,835 +6,50 @@ on:
   pull_request:
     branches: [main]
 
-# One in-flight run per PR: a new commit supersedes the previous run, so
-# only the tip of the branch is fully verified. That is what branch
-# protection gates on anyway, and it stops a rapid series of review
-# fixups from queueing several ~25-minute matrices at once.
-#
-# Pushes to `main` get a group PER COMMIT (`github.sha`), not one shared
-# `refs/heads/main` group. `cancel-in-progress: false` is NOT enough to
-# keep them: GitHub holds only one *pending* run per group and cancels
-# any previously pending one, whatever that flag says. Three merges
-# landing in quick succession did exactly that — the run for the middle
-# commit was cancelled with zero jobs executed, so a commit reached the
-# protected branch with no verification record at all. Per-commit groups
-# make main runs queue behind each other instead of evicting each other.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        # Windows is a first-class target: expanse.dll is the artifact
-        # php-judy's Windows build will link instead of compiling C libjudy
-        # from source (see docs/COMPAT.md gate G3).
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check code changes
-        id: filter
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --depth=1 origin "${{ github.base_ref }}"
-            DIFF=$(git diff --name-only FETCH_HEAD HEAD)
-            RUST_DIFF=$(echo "$DIFF" | grep -E '^crates/|^Cargo\.(toml|lock)|^rust-toolchain' || true)
-            if [ -z "$RUST_DIFF" ]; then
-              echo "code_changed=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::No Rust code changes detected; skipping test suite in PR."
-              exit 0
-            fi
-          fi
-          echo "code_changed=true" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@stable
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - name: Build
-        if: steps.filter.outputs.code_changed != 'false'
-        run: cargo build --workspace
-
-      - name: Test
-        if: steps.filter.outputs.code_changed != 'false'
-        run: cargo test --workspace
-
-      - name: Assert capi drop-in artifacts exist (Windows)
-        if: steps.filter.outputs.code_changed != 'false' && runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $dll = "target/debug/expanse.dll"
-          $lib = "target/debug/expanse.lib"
-          if (!(Test-Path $dll)) { Write-Error "missing $dll"; exit 1 }
-          if (!(Test-Path $lib)) { Write-Error "missing $lib"; exit 1 }
-          Write-Host "capi artifacts present: $dll, $lib"
-
-      - name: Assert capi drop-in artifacts exist (Unix)
-        if: steps.filter.outputs.code_changed != 'false' && runner.os != 'Windows'
-        run: |
-          shopt -s nullglob
-          arts=(target/debug/libexpanse.{so,dylib} target/debug/libexpanse.a)
-          if [ ${#arts[@]} -lt 2 ]; then
-            echo "::error::expected cdylib + staticlib capi artifacts, found: ${arts[*]:-none}"
-            exit 1
-          fi
-          echo "capi artifacts present: ${arts[*]}"
-        shell: bash
-
-  test-riscv64:
-    # Issue #96: 64-bit RISC-V (RV64GC) support for memory-constrained
-    # embedded/edge systems. Cross-compilation check to ensure no x86/ARM
-    # intrinsics leak and 64-bit/pointer sizes are handled correctly.
+  detect-changes:
+    name: Subsystems / Change Detection
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      python: ${{ steps.filter.outputs.python }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Check code changes
+      - uses: dorny/paths-filter@v3
         id: filter
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --depth=1 origin "${{ github.base_ref }}"
-            DIFF=$(git diff --name-only FETCH_HEAD HEAD)
-            RUST_DIFF=$(echo "$DIFF" | grep -E '^crates/|^Cargo\.(toml|lock)|^rust-toolchain' || true)
-            if [ -z "$RUST_DIFF" ]; then
-              echo "code_changed=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::No Rust code changes detected; skipping test-riscv64 in PR."
-              exit 0
-            fi
-          fi
-          echo "code_changed=true" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@stable
-        if: steps.filter.outputs.code_changed != 'false'
         with:
-          targets: riscv64gc-unknown-linux-gnu
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - name: Check (riscv64, cross-compile)
-        if: steps.filter.outputs.code_changed != 'false'
-        run: cargo check --workspace --target riscv64gc-unknown-linux-gnu
-
-  test-musl:
-    # Most containerized deployments run Alpine. musl differs from glibc
-    # enough (allocator, default stack sizes) that a clean glibc build is no
-    # proof of a clean musl one — php-judy precedent. Cross-built from the
-    # glibc runner: GitHub's JS actions need glibc node, so a `container:
-    # alpine` job can't even check out.
-    runs-on: ubuntu-latest
-    # Without this the GitHub default is 6 hours. An apt hang here — which
-    # has happened, holding a required check for ~2h and blocking a merge —
-    # should fail fast and be retried, not idle all afternoon.
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check code changes
-        id: filter
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --depth=1 origin "${{ github.base_ref }}"
-            DIFF=$(git diff --name-only FETCH_HEAD HEAD)
-            RUST_DIFF=$(echo "$DIFF" | grep -E '^crates/|^Cargo\.(toml|lock)|^rust-toolchain' || true)
-            if [ -z "$RUST_DIFF" ]; then
-              echo "code_changed=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::No Rust code changes detected; skipping test-musl in PR."
-              exit 0
-            fi
-          fi
-          echo "code_changed=true" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@stable
-        if: steps.filter.outputs.code_changed != 'false'
-        with:
-          targets: x86_64-unknown-linux-musl
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - name: Install musl toolchain
-        # apt mirrors flake on hosted runners: try the preinstalled index
-        # first (no `update`), hard-timeout each attempt, retry bounded.
-        # Same pattern as the differential-oracle job.
-        if: steps.filter.outputs.code_changed != 'false'
-        timeout-minutes: 8
-        run: |
-          if timeout 120 sudo apt-get install -y musl-tools; then exit 0; fi
-          for _ in 1 2 3; do
-            timeout 120 sudo apt-get update || true
-            if timeout 120 sudo apt-get install -y musl-tools; then exit 0; fi
-            echo "apt attempt $i failed; retrying"
-            sleep 15
-          done
-          exit 1
-
-      - name: Test (musl, static)
-        if: steps.filter.outputs.code_changed != 'false'
-        run: cargo test -p expanse-trie -p expanse-capi --target x86_64-unknown-linux-musl
-
-      - name: Build capi (musl, dynamic — the Alpine drop-in artifact)
-        # musl defaults to +crt-static, under which no cdylib is produced;
-        # the libjudy swap on Alpine needs a real shared object.
-        if: steps.filter.outputs.code_changed != 'false'
-        env:
-          RUSTFLAGS: -C target-feature=-crt-static
-        run: cargo build -p expanse-capi --target x86_64-unknown-linux-musl
-
-      - name: Assert capi drop-in artifacts exist (musl)
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          dir=target/x86_64-unknown-linux-musl/debug
-          test -f "$dir/libexpanse.so" || { echo "::error::missing $dir/libexpanse.so"; exit 1; }
-          test -f "$dir/libexpanse.a"  || { echo "::error::missing $dir/libexpanse.a"; exit 1; }
-          echo "capi artifacts present: $dir/libexpanse.so, $dir/libexpanse.a"
-
-  miri:
-    # docs/TESTING.md layer 5. Unsafe entered the core with the Phase 4
-    # lookup engine — Miri caught a real Stacked Borrows violation on its
-    # first run — so this job is not optional. But it costs ~22 minutes
-    # against <=3 for every other job, and a docs, CI or benchmark change
-    # cannot affect `unsafe` at all.
-    #
-    # So it is REQUIRED but conditional, and the condition is evaluated
-    # INSIDE the job: a required check that is skipped at the workflow
-    # level never reports, and the PR waits on it forever. Here the job
-    # always runs and exits success early when the diff cannot matter.
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # need the base commit to diff against
-
-      - name: Does this change touch code Miri can check?
-        id: scope
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Pull request: skipping Miri in CI (Miri runs on push to main and nightly; run locally prior to PR)."
-          else
-            # Push to main: always run
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - uses: dtolnay/rust-toolchain@nightly
-        if: steps.scope.outputs.run == 'true'
-        with:
-          components: miri
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.scope.outputs.run == 'true'
-
-      - name: Miri (quick — model suites run in the nightly workflow)
-        if: steps.scope.outputs.run == 'true'
-        run: cargo miri test -p expanse-trie -- --skip model_
-
-  php-judy-compat:
-    # docs/COMPAT.md gate G2: the php-judy test suite passes built against
-    # libexpanse via a libjudy-compat prefix (include/Judy.h +
-    # lib/libJudy.so). First proven locally on macOS (221/221, PHP 8.5).
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check code changes
-        id: filter
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --depth=1 origin "${{ github.base_ref }}"
-            DIFF=$(git diff --name-only FETCH_HEAD HEAD)
-            RUST_DIFF=$(echo "$DIFF" | grep -E '^crates/|^Cargo\.(toml|lock)|^rust-toolchain' || true)
-            if [ -z "$RUST_DIFF" ]; then
-              echo "code_changed=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::No Rust code changes detected; skipping php-judy-compat in PR."
-              exit 0
-            fi
-          fi
-          echo "code_changed=true" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@stable
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - name: Install PHP toolchain
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          sudo apt-get install -y --no-install-recommends php-dev php-cli || {
-            sudo apt-get update && sudo apt-get install -y --no-install-recommends php-dev php-cli
-          }
-
-      - name: Build libexpanse and assemble the libjudy-compat prefix
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          cargo build --release -p expanse-capi
-          # No lowercase "judy" in the prefix path: php-judy's bench
-          # harness preflight greps /proc/self/maps for judy .so paths
-          # (\S spans slashes) and must find exactly its own module.
-          PREFIX="$PWD/compat-prefix"
-          mkdir -p "$PREFIX/include" "$PREFIX/lib"
-          cp crates/expanse-capi/include/Judy.h "$PREFIX/include/"
-          cp target/release/libexpanse.so "$PREFIX/lib/libJudy.so"
-          echo "JUDY_PREFIX=$PREFIX" >> "$GITHUB_ENV"
-
-      - name: Build php-judy against libexpanse
-        # Pinned to a known-good php-judy commit so this required check
-        # stays deterministic — a php-judy HEAD change cannot break
-        # expanse CI. Bump the SHA deliberately when picking up new
-        # php-judy tests.
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          git clone --filter=blob:none https://github.com/orieg/php-judy.git
-          cd php-judy
-          git checkout -q fb490245854fad4bfc0c9e0e987e846d2a0ae3bb
-          phpize
-          ./configure --with-judy="$JUDY_PREFIX"
-          make -j"$(nproc)"
-
-      - name: Run the php-judy test suite
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          cd php-judy
-          export LD_LIBRARY_PATH="$JUDY_PREFIX/lib"
-          NO_INTERACTION=1 make test | tee test-output.log
-          grep -E 'Tests failed *: *0 ' test-output.log || {
-            echo '::group::failing-test diffs'
-            for f in tests/*.diff tests/*.out; do
-              [ -f "$f" ] && { echo "--- $f"; cat "$f"; }
-            done
-            echo '::endgroup::'
-            exit 1
-          }
-
-  php-judy-windows:
-    # docs/COMPAT.md gate G3: php-judy builds on Windows against
-    # expanse.dll (via config.w32 --with-judy=DIR system-lib mode:
-    # Judy.h + libJudy.lib import library) instead of compiling the
-    # bundled C libjudy, and its suite passes. Same pinned php-judy
-    # commit as the Linux job.
-    runs-on: windows-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check code changes
-        id: filter
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --depth=1 origin "${{ github.base_ref }}"
-            DIFF=$(git diff --name-only FETCH_HEAD HEAD)
-            RUST_DIFF=$(echo "$DIFF" | grep -E '^crates/|^Cargo\.(toml|lock)|^rust-toolchain' || true)
-            if [ -z "$RUST_DIFF" ]; then
-              echo "code_changed=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::No Rust code changes detected; skipping php-judy-windows in PR."
-              exit 0
-            fi
-          fi
-          echo "code_changed=true" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@stable
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - name: Build expanse.dll and assemble the --with-judy prefix
-        if: steps.filter.outputs.code_changed != 'false'
-        shell: pwsh
-        run: |
-          cargo build --release -p expanse-capi
-          $prefix = "$PWD\compat-prefix"
-          New-Item -ItemType Directory -Force -Path "$prefix\include", "$prefix\lib" | Out-Null
-          Copy-Item crates/expanse-capi/include/Judy.h "$prefix\include\"
-          # The import library is what the linker consumes; the DLL it
-          # names (expanse.dll) is resolved from PATH at run time.
-          Copy-Item target/release/expanse.dll.lib "$prefix\lib\libJudy.lib"
-          Copy-Item target/release/expanse.dll.lib "$prefix\libJudy.lib"
-          Copy-Item target/release/expanse.dll "$prefix\"
-          # PHP on Windows restricts the DLL search path
-          # (SetDefaultDllDirectories) — PATH is NOT searched for an
-          # extension's dependencies, but System32 always is. The runner
-          # is disposable; this is the simplest reliable resolution.
-          Copy-Item target/release/expanse.dll "C:\Windows\System32\"
-          Add-Content $env:GITHUB_ENV "JUDY_PREFIX=$prefix"
-
-      - name: Disable Windows Error Reporting
-        if: steps.filter.outputs.code_changed != 'false'
-        shell: pwsh
-        run: |
-          # Prevent WER from intercepting crashed test processes and
-          # stalling run-tests.php (php-judy CI precedent).
-          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting" /v Disabled /t REG_DWORD /d 1 /f
-
-      - name: Exclude workspace from Windows Defender
-        if: steps.filter.outputs.code_changed != 'false'
-        shell: pwsh
-        run: |
-          Add-MpPreference -ExclusionPath "${{ github.workspace }}"
-          Add-MpPreference -ExclusionPath "${{ runner.temp }}"
-
-      - name: Build php-judy against expanse.dll and run its suite
-        if: steps.filter.outputs.code_changed != 'false'
-        uses: php/php-windows-builder/extension@v1
-        with:
-          extension-url: https://github.com/orieg/php-judy
-          extension-ref: fb490245854fad4bfc0c9e0e987e846d2a0ae3bb
-          php-version: "8.4"
-          arch: x64
-          ts: nts
-          args: --with-judy=${{ env.JUDY_PREFIX }}
-          test-workers: "1"
-          test-runner-args: "--set-timeout 30"
-
-  instruction-counts:
-    # docs/BENCHMARKING.md + issue #1: deterministic cost measurement.
-    # Callgrind counts are exact and reproducible, so unlike wall-clock
-    # they resolve the few-percent changes the perf work makes — and a
-    # noisy runner cannot corrupt them. Reported, not gated: a threshold
-    # would need a stored baseline per benchmark, which lands with the
-    # first optimization that moves these numbers.
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # the merge-base measurement needs history
-
-      - name: Check code changes
-        id: filter
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --depth=1 origin "${{ github.base_ref }}"
-            DIFF=$(git diff --name-only FETCH_HEAD HEAD)
-            PERF_DIFF=$(echo "$DIFF" | grep -E '^crates/|^scripts/perf_report\.py|^Cargo\.(toml|lock)|^rust-toolchain' || true)
-            if [ -z "$PERF_DIFF" ]; then
-              echo "code_changed=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::No Rust or perf reporting changes detected; skipping Callgrind benchmarks in PR."
-              exit 0
-            fi
-          fi
-          echo "code_changed=true" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@stable
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - name: Install valgrind and stock libjudy
-        # libjudy-dev is the other arm of the headline comparison.
-        # Bounded retries, same pattern as test-musl: the untimed fallback
-        # `apt-get update` here once hung 43 minutes on a flaky mirror and
-        # burned the whole job timeout — a required check failing on apt,
-        # not on code.
-        if: steps.filter.outputs.code_changed != 'false'
-        timeout-minutes: 10
-        run: |
-          if timeout 120 sudo apt-get install -y valgrind libjudy-dev; then exit 0; fi
-          for _ in 1 2 3; do
-            timeout 120 sudo apt-get update || true
-            if timeout 120 sudo apt-get install -y valgrind libjudy-dev; then exit 0; fi
-            echo "apt attempt $i failed; retrying"
-            sleep 15
-          done
-          exit 1
-
-      - name: Install iai-callgrind-runner
-        # The runner binary must match the library version exactly, so
-        # take the resolved version from the lockfile — the dependency
-        # requirement ("^0.16") is not a version `cargo install` accepts.
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          VERSION=$(cargo metadata --format-version 1 --locked             | python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='iai-callgrind'))")
-          echo "iai-callgrind resolved to $VERSION"
-          cargo install iai-callgrind-runner --version "$VERSION" --locked
-
-      - name: popcnt detection probe (native and under valgrind)
-        # Pre-registered caveat from issue #1: valgrind can mask CPUID
-        # bits, in which case the callgrind numbers measure the SWAR
-        # fallback and the popcnt dispatch reads as "no effect". This
-        # prints the truth next to the numbers it qualifies.
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          cargo build --release -p expanse-trie --example popcnt_probe
-          echo "native:   $(./target/release/examples/popcnt_probe)"
-          echo "valgrind: $(valgrind --tool=callgrind --callgrind-out-file=/dev/null ./target/release/examples/popcnt_probe 2>/dev/null)"
-
-      - name: Instruction and cache-miss counts (this branch, baseline)
-        if: steps.filter.outputs.code_changed != 'false'
-        run: cargo bench --bench instructions -p expanse-trie | tee instruction-counts.txt
-
-      - name: Instruction and cache-miss counts (this branch, x86-64-v3 modern)
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          RUSTFLAGS="-C target-cpu=x86-64-v3" cargo bench --bench instructions -p expanse-trie | tee v3-counts.txt
-
-      - name: bytes/key table
-        if: steps.filter.outputs.code_changed != 'false'
-        run: cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
-
-      # The `_expanse_dl` arms dlopen our own cdylib so they are the same
-      # shape as the stock arm. Build it explicitly and pass its path:
-      # letting the bench guess would let it silently measure a stale
-      # `libexpanse.so` from an earlier build, which is the kind of error
-      # that produces a confident wrong number.
-      - name: Build libexpanse.so for the same-shape arm
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          cargo build --release -p expanse-capi
-          SO=$(find target/release -maxdepth 1 -name 'libexpanse.so' -print -quit)
-          test -n "$SO" || { echo "libexpanse.so not produced"; exit 1; }
-          echo "EXPANSE_CDYLIB=$PWD/$SO" >> "$GITHUB_ENV"
-          echo "using $PWD/$SO"
-
-      - name: Codegen guard — popcnt present in the shipped clone
-        # The failure mode this guards is silent: if the inline(always)
-        # body ever stops folding into the #[target_feature] clones, the
-        # clones compile SWAR and everything stays correct but slow, and
-        # no test can see it. The baseline build contains no popcnt
-        # instruction anywhere EXCEPT inside the clones, so its presence
-        # in the .so is a direct proof the fast path exists (review
-        # finding, PR #19).
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          if objdump -d "$EXPANSE_CDYLIB" | grep -qw popcnt; then
-            echo "popcnt instruction present in libexpanse.so"
-          else
-            echo "::error::no popcnt instruction in libexpanse.so — the target_feature clones degraded to SWAR"
-            exit 1
-          fi
-
-      # The headline comparison: identical C ABI calls through libexpanse
-      # and through stock libjudy, counted deterministically. Wall-clock
-      # cannot answer this per-PR; instructions can.
-      - name: libexpanse vs stock libjudy (instructions)
-        if: steps.filter.outputs.code_changed != 'false'
-        run: cargo bench --bench vs_stock -p expanse-capi | tee vs-stock.txt
-
-      # Per-function costs, so a delta can be attributed to a function
-      # instead of only observed. PR #6 landed a real, deterministic
-      # +1.50% on one arm that nobody could attribute, because the job
-      # kept only per-benchmark totals — this is the fix for that.
-      - name: Per-function attribution (callgrind_annotate)
-        if: always() && steps.filter.outputs.code_changed != 'false'
-        run: |
-          {
-            for f in $(find target/iai -name 'callgrind.*.out' | sort); do
-              echo "===== $f"
-              callgrind_annotate --threshold=90 "$f" 2>/dev/null | head -40
-            done
-          } > callgrind-annotated.txt || true
-          wc -l callgrind-annotated.txt
-
-      - name: Upload per-function attribution
-        if: always() && steps.filter.outputs.code_changed != 'false'
-        uses: actions/upload-artifact@v4
-        with:
-          name: callgrind-annotated
-          path: callgrind-annotated.txt
-          if-no-files-found: warn
-
-      # Same benchmarks on the merge base, so the PR comment can report a
-      # delta rather than a bare number. Deterministic counts make one run
-      # per side sufficient.
-      - name: Instruction counts (merge base)
-        if: steps.filter.outputs.code_changed != 'false' && github.event_name == 'pull_request'
-        run: |
-          git fetch --depth 1 origin "${{ github.base_ref }}"
-          git checkout --detach FETCH_HEAD
-          cargo bench --bench instructions -p expanse-trie | tee base-counts.txt || true
-          git checkout --force -
-
-      - name: Render report
-        if: steps.filter.outputs.code_changed != 'false' && github.event_name == 'pull_request'
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          printf "%s\n" "$PR_BODY" > pr-body.txt
-          python3 scripts/perf_report.py \
-            --head instruction-counts.txt \
-            --base base-counts.txt \
-            --bytes bytes-per-key.txt \
-            --vs-stock vs-stock.txt \
-            --v3 v3-counts.txt \
-            --base-ref "${{ github.base_ref }}" \
-            --pr-body-file pr-body.txt \
-            --fail-on-regression > perf-report.md
-          cat perf-report.md
-
-      - name: Skip profiling for non-code PR
-        if: steps.filter.outputs.code_changed == 'false' && github.event_name == 'pull_request'
-        run: |
-          echo "### Deterministic Instruction-Count Benchmarks" > perf-report.md
-          echo "" >> perf-report.md
-          echo "> ℹ️ **Non-code change**: Callgrind benchmark profiling skipped." >> perf-report.md
-
-      - name: Comment on the PR
-        if: always() && github.event_name == 'pull_request' && hashFiles('perf-report.md') != ''
-        continue-on-error: true # fork PRs get a read-only token
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const marker = '<!-- expanse-perf-report -->';
-            const body = marker + '\n' + fs.readFileSync('perf-report.md', 'utf8');
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.find(c => c.body && c.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
-
-      - name: Upload counts
-        if: always() && steps.filter.outputs.code_changed != 'false'
-        uses: actions/upload-artifact@v4
-        with:
-          name: instruction-counts
-          path: |
-            instruction-counts.txt
-            base-counts.txt
-            vs-stock.txt
-            perf-report.md
-          if-no-files-found: ignore
-
-  memory-budget:
-    # docs/BENCHMARKING.md: bytes/key comes from deterministic allocator
-    # accounting, so unlike the timing tables it is load-immune and can
-    # gate a build. This catches a compression path silently ceasing to
-    # fire — the failure mode that produced the 21 -> 27 B/key random-map
-    # regression during the insert-path work.
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check code changes
-        id: filter
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --depth=1 origin "${{ github.base_ref }}"
-            DIFF=$(git diff --name-only FETCH_HEAD HEAD)
-            RUST_DIFF=$(echo "$DIFF" | grep -E '^crates/|^Cargo\.(toml|lock)|^rust-toolchain' || true)
-            if [ -z "$RUST_DIFF" ]; then
-              echo "code_changed=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::No Rust code changes detected; skipping memory budget in PR."
-              exit 0
-            fi
-          fi
-          echo "code_changed=true" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@stable
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - name: bytes/key within budget
-        if: steps.filter.outputs.code_changed != 'false'
-        run: cargo run --release -p expanse-trie --example bytes_per_key
-
-  fuzz-smoke:
-    # docs/TESTING.md layer 4. A short per-push run is a build check plus
-    # a shallow sweep; the nightly workflow runs the long sessions where
-    # coverage-guided exploration actually pays off.
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check code changes
-        id: filter
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --depth=1 origin "${{ github.base_ref }}"
-            DIFF=$(git diff --name-only FETCH_HEAD HEAD)
-            FUZZ_DIFF=$(echo "$DIFF" | grep -E '^crates/|^fuzz/|^Cargo\.(toml|lock)|^rust-toolchain' || true)
-            if [ -z "$FUZZ_DIFF" ]; then
-              echo "code_changed=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::No Rust or fuzz changes detected; skipping fuzz-smoke in PR."
-              exit 0
-            fi
-          fi
-          echo "code_changed=true" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@nightly
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - name: Install cargo-fuzz
-        if: steps.filter.outputs.code_changed != 'false'
-        run: cargo install cargo-fuzz --locked
-
-      - name: Fuzz smoke (60s per target)
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          for t in set_ops map_ops bytesmap_ops strmap_ops; do
-            echo "::group::$t"
-            cargo fuzz run "$t" -- -max_total_time=60 -print_final_stats=1
-            echo "::endgroup::"
-          done
-
-      - name: Upload crash artifacts
-        if: failure() && steps.filter.outputs.code_changed != 'false'
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuzz-artifacts
-          path: fuzz/artifacts/
-          if-no-files-found: ignore
-
-  loom:
-    # docs/TESTING.md: the Phase 7 OCC/EBR protocol (occ module) is
-    # model-checked under loom — it found two real ordering bugs (missing
-    # seqlock fences; a store-buffer race between pin and epoch advance)
-    # on its first run, so this job is not optional either.
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check code changes
-        id: filter
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --depth=1 origin "${{ github.base_ref }}"
-            DIFF=$(git diff --name-only FETCH_HEAD HEAD)
-            RUST_DIFF=$(echo "$DIFF" | grep -E '^crates/|^Cargo\.(toml|lock)|^rust-toolchain' || true)
-            if [ -z "$RUST_DIFF" ]; then
-              echo "code_changed=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::No Rust code changes detected; skipping loom in PR."
-              exit 0
-            fi
-          fi
-          echo "code_changed=true" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@stable
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - name: Loom model checks
-        if: steps.filter.outputs.code_changed != 'false'
-        run: cargo test -p expanse-trie --release loom_
-        env:
-          RUSTFLAGS: --cfg loom
-
-  differential-oracle:
-    # docs/COMPAT.md gate G1: identical observable behavior between
-    # libexpanse and stock libjudy under shared op sequences. The stock
-    # library is dlopen'd by the harness, so the two never collide at link
-    # time.
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check code changes
-        id: filter
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --depth=1 origin "${{ github.base_ref }}"
-            DIFF=$(git diff --name-only FETCH_HEAD HEAD)
-            RUST_DIFF=$(echo "$DIFF" | grep -E '^crates/|^Cargo\.(toml|lock)|^rust-toolchain' || true)
-            if [ -z "$RUST_DIFF" ]; then
-              echo "code_changed=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::No Rust code changes detected; skipping differential oracle in PR."
-              exit 0
-            fi
-          fi
-          echo "code_changed=true" >> "$GITHUB_OUTPUT"
-
-      - uses: dtolnay/rust-toolchain@stable
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - uses: Swatinem/rust-cache@v2
-        if: steps.filter.outputs.code_changed != 'false'
-
-      - name: Install stock libjudy
-        # apt mirrors flake on hosted runners: try the preinstalled index
-        # first (no `update`), hard-timeout each attempt, retry bounded.
-        if: steps.filter.outputs.code_changed != 'false'
-        timeout-minutes: 8
-        run: |
-          if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
-          for _ in 1 2 3; do
-            timeout 120 sudo apt-get update || true
-            if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
-            echo "apt attempt $i failed; retrying"
-            sleep 15
-          done
-          exit 1
-
-      - name: Differential oracle vs stock libjudy
-        if: steps.filter.outputs.code_changed != 'false'
-        run: cargo test -p expanse-capi --features oracle
-
-      - name: Modern API smoke (expanse.h)
-        # The modern expanse_* surface must compile and run from real C:
-        # rank/select, concurrent readers, byte keys with embedded NULs.
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          cargo build --release -p expanse-capi
-          cc crates/expanse-capi/smoke/modern_api_smoke.c             -Icrates/expanse-capi/include -Ltarget/release -lexpanse -o modern_smoke
-          LD_LIBRARY_PATH="$PWD/target/release" ./modern_smoke
-
-      - name: Preload smoke (COMPAT.md gate G4)
-        # An unmodified consumer compiled against the STOCK header and
-        # library must behave identically under LD_PRELOAD of libexpanse.
-        if: steps.filter.outputs.code_changed != 'false'
-        run: |
-          cargo build --release -p expanse-capi
-          cc crates/expanse-capi/smoke/preload_smoke.c -lJudy -o smoke
-          ./smoke > stock.out
-          LD_PRELOAD="$PWD/target/release/libexpanse.so" ./smoke > preload.out
-          diff stock.out preload.out
-          grep -q '^ok$' stock.out
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain*'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/nightly.yml'
+            python:
+              - 'crates/expanse-py/**'
+              - 'tests/test_python_bindings.py'
+              - 'pyproject.toml'
+              - '.github/workflows/python.yml'
+            docs:
+              - 'docs/**'
+              - '*.md'
+              - 'scripts/**'
+              - 'website/**'
 
   lint:
+    name: Core / Linter & Formatting
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -851,3 +66,470 @@ jobs:
 
       - name: Format
         run: cargo fmt --all --check
+
+  test:
+    name: Core / Workspace Tests (${{ matrix.os }})
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Assert capi drop-in artifacts exist (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dll = "target/debug/expanse.dll"
+          $lib = "target/debug/expanse.lib"
+          if (!(Test-Path $dll)) { Write-Error "missing $dll"; exit 1 }
+          if (!(Test-Path $lib)) { Write-Error "missing $lib"; exit 1 }
+          Write-Host "capi artifacts present: $dll, $lib"
+
+      - name: Assert capi drop-in artifacts exist (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          shopt -s nullglob
+          arts=(target/debug/libexpanse.{so,dylib} target/debug/libexpanse.a)
+          if [ ${#arts[@]} -lt 2 ]; then
+            echo "::error::expected cdylib + staticlib capi artifacts, found: ${arts[*]:-none}"
+            exit 1
+          fi
+          echo "capi artifacts present: ${arts[*]}"
+        shell: bash
+
+  test-riscv64:
+    name: Cross / RV64GC Cross-Compile (Linux)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv64gc-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check (riscv64, cross-compile)
+        run: cargo check --workspace --target riscv64gc-unknown-linux-gnu
+
+  test-musl:
+    name: Cross / Musl Static C ABI (Linux)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install musl tools
+        run: |
+          sudo apt-get install -y --no-install-recommends musl-tools || {
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+          }
+
+      - name: Test (musl, static)
+        run: cargo test -p expanse-trie -p expanse-capi --target x86_64-unknown-linux-musl
+
+      - name: Build capi (musl, dynamic — the Alpine drop-in artifact)
+        env:
+          RUSTFLAGS: -C target-feature=-crt-static
+        run: cargo build -p expanse-capi --target x86_64-unknown-linux-musl
+
+      - name: Assert capi drop-in artifacts exist (musl)
+        run: |
+          dir=target/x86_64-unknown-linux-musl/debug
+          test -f "$dir/libexpanse.so" || { echo "::error::missing $dir/libexpanse.so"; exit 1; }
+          test -f "$dir/libexpanse.a"  || { echo "::error::missing $dir/libexpanse.a"; exit 1; }
+          echo "capi artifacts present: $dir/libexpanse.so, $dir/libexpanse.a"
+
+  miri:
+    name: Safety / Tier 1 Miri Fast Smoke
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Miri (core unsafe smoke — leaf, node, slot invariants)
+        run: |
+          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot::
+
+  php-judy-compat:
+    name: Compat / PHP-Judy Extension (Linux)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install PHP toolchain
+        run: |
+          sudo apt-get install -y --no-install-recommends php-dev php-cli || {
+            sudo apt-get update && sudo apt-get install -y --no-install-recommends php-dev php-cli
+          }
+
+      - name: Build libexpanse and assemble the libjudy-compat prefix
+        run: |
+          cargo build --release -p expanse-capi
+          PREFIX="$PWD/compat-prefix"
+          mkdir -p "$PREFIX/include" "$PREFIX/lib"
+          cp crates/expanse-capi/include/Judy.h "$PREFIX/include/"
+          cp target/release/libexpanse.so "$PREFIX/lib/libJudy.so"
+          echo "JUDY_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+
+      - name: Build php-judy against libexpanse
+        run: |
+          git clone --filter=blob:none https://github.com/orieg/php-judy.git
+          cd php-judy
+          git checkout -q fb490245854fad4bfc0c9e0e987e846d2a0ae3bb
+          phpize
+          ./configure --with-judy="$JUDY_PREFIX"
+          make -j"$(nproc)"
+
+      - name: Run the php-judy test suite
+        run: |
+          cd php-judy
+          export LD_LIBRARY_PATH="$JUDY_PREFIX/lib"
+          NO_INTERACTION=1 make test | tee test-output.log
+          grep -E 'Tests failed *: *0 ' test-output.log || {
+            echo '::group::failing-test diffs'
+            for f in tests/*.diff tests/*.out; do
+              [ -f "$f" ] && { echo "--- $f"; cat "$f"; }
+            done
+            echo '::endgroup::'
+            exit 1
+          }
+
+  php-judy-windows:
+    name: Compat / PHP-Judy Extension (Windows x64)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build expanse.dll and assemble the --with-judy prefix
+        shell: pwsh
+        run: |
+          cargo build --release -p expanse-capi
+          $prefix = "$PWD\compat-prefix"
+          New-Item -ItemType Directory -Force -Path "$prefix\include", "$prefix\lib" | Out-Null
+          Copy-Item crates/expanse-capi/include/Judy.h "$prefix\include"
+          Copy-Item target/release/expanse.dll.lib "$prefix\lib\libJudy.lib"
+          Copy-Item target/release/expanse.dll.lib "$prefix\libJudy.lib"
+          Copy-Item target/release/expanse.dll "$prefix"
+          Copy-Item target/release/expanse.dll "C:\Windows\System32"
+          Add-Content $env:GITHUB_ENV "JUDY_PREFIX=$prefix"
+
+      - name: Disable Windows Error Reporting
+        shell: pwsh
+        run: |
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting" /v Disabled /t REG_DWORD /d 1 /f
+
+      - name: Exclude workspace from Windows Defender
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath "${{ github.workspace }}"
+          Add-MpPreference -ExclusionPath "${{ runner.temp }}"
+
+      - name: Build php-judy against expanse.dll and run its suite
+        uses: php/php-windows-builder/extension@v1
+        with:
+          extension-url: https://github.com/orieg/php-judy
+          extension-ref: fb490245854fad4bfc0c9e0e987e846d2a0ae3bb
+          php-version: "8.4"
+          arch: x64
+          ts: nts
+          args: --with-judy=${{ env.JUDY_PREFIX }}
+          test-workers: "1"
+          test-runner-args: "--set-timeout 30"
+
+  instruction-counts:
+    name: Perf / Callgrind Deterministic Instructions
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install valgrind and stock libjudy
+        timeout-minutes: 8
+        run: |
+          if timeout 120 sudo apt-get install -y valgrind libjudy-dev; then exit 0; fi
+          for i in 1 2 3; do
+            timeout 120 sudo apt-get update || true
+            if timeout 120 sudo apt-get install -y valgrind libjudy-dev; then exit 0; fi
+            echo "apt attempt $i failed; retrying in 15s"
+            sleep 15
+          done
+          exit 1
+
+      - name: Install iai-callgrind-runner
+        run: |
+          VERSION=$(cargo metadata --format-version 1 --locked | python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='iai-callgrind'))")
+          echo "iai-callgrind resolved to $VERSION"
+          cargo install iai-callgrind-runner --version "$VERSION" --locked
+
+      - name: Build libexpanse.so for the same-shape arm
+        run: |
+          cargo build --release -p expanse-capi
+          SO=$(find target/release -maxdepth 1 -name 'libexpanse.so' -print -quit)
+          test -n "$SO" || { echo "libexpanse.so not produced"; exit 1; }
+          echo "EXPANSE_CDYLIB=$PWD/$SO" >> "$GITHUB_ENV"
+          echo "using $PWD/$SO"
+
+      - name: Instruction and cache-miss counts (this branch, baseline)
+        run: cargo bench --bench instructions -p expanse-trie | tee instruction-counts.txt
+
+      - name: Instruction and cache-miss counts (this branch, x86-64-v3 modern)
+        run: |
+          RUSTFLAGS="-C target-cpu=x86-64-v3" cargo bench --bench instructions -p expanse-trie | tee v3-counts.txt
+
+      - name: bytes/key table
+        run: cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
+
+      - name: libexpanse vs stock libjudy (instructions)
+        run: cargo bench --bench vs_stock -p expanse-capi | tee vs-stock.txt
+
+      - name: Generate and Emit Step Summary Report
+        if: always()
+        run: |
+          if [ -f instruction-counts.txt ] && [ -f bytes-per-key.txt ] && [ -f vs-stock.txt ]; then
+            python3 scripts/perf_report.py --head instruction-counts.txt --bytes bytes-per-key.txt --vs-stock vs-stock.txt --v3 v3-counts.txt > pr-report.md || true
+            if [ -f pr-report.md ]; then
+              cat pr-report.md >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+  differential-oracle:
+    name: Compat / Stock libjudy Oracle (Linux)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install stock libjudy
+        timeout-minutes: 8
+        run: |
+          if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
+          for _ in 1 2 3; do
+            timeout 120 sudo apt-get update || true
+            if timeout 120 sudo apt-get install -y libjudy-dev; then exit 0; fi
+            echo "apt attempt failed; retrying in 15s"
+            sleep 15
+          done
+          exit 1
+
+      - name: Differential oracle vs stock libjudy
+        run: cargo test -p expanse-capi --features oracle
+
+      - name: Modern API smoke (expanse.h)
+        run: |
+          cargo build --release -p expanse-capi
+          cc crates/expanse-capi/smoke/modern_api_smoke.c -Icrates/expanse-capi/include -Ltarget/release -lexpanse -o modern_smoke
+          LD_LIBRARY_PATH="$PWD/target/release" ./modern_smoke
+
+      - name: Preload smoke (COMPAT.md gate G4)
+        run: |
+          cargo build --release -p expanse-capi
+          cc crates/expanse-capi/smoke/preload_smoke.c -lJudy -o smoke
+          ./smoke > stock.out
+          LD_PRELOAD="$PWD/target/release/libexpanse.so" ./smoke > preload.out
+          diff stock.out preload.out
+          grep -q '^ok$' stock.out
+
+  memory-budget:
+    name: Perf / Memory Budget Invariants
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run memory budget assertions
+        run: cargo run --release --example bytes_per_key
+
+  loom:
+    name: Safety / Loom Concurrency Race Model
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Loom model checks
+        run: cargo test -p expanse-trie --release loom_
+        env:
+          RUSTFLAGS: --cfg loom
+
+  fuzz-smoke:
+    name: Safety / Fuzz Invariants Smoke
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Fuzz smoke (60s per target)
+        run: |
+          for t in set_ops map_ops bytesmap_ops strmap_ops; do
+            echo "::group::$t"
+            cargo fuzz run "$t" -- -max_total_time=60 -print_final_stats=1
+            echo "::endgroup::"
+          done
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
+
+  test-python:
+    name: Bindings / Python Fast Smoke (Py3.12)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.python == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "maturin>=1.5,<2.0" pytest
+
+      - name: Build and install expanse-trie
+        run: pip install .
+
+      - name: Run Pytest suite
+        run: pytest tests/test_python_bindings.py -v
+
+  ci-gate:
+    name: CI Gate / All Checks Passed
+    if: always()
+    needs:
+      - detect-changes
+      - lint
+      - test
+      - test-musl
+      - test-riscv64
+      - miri
+      - php-judy-compat
+      - php-judy-windows
+      - instruction-counts
+      - differential-oracle
+      - memory-budget
+      - loom
+      - fuzz-smoke
+      - test-python
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate Dependency Statuses
+        shell: bash
+        run: |
+          echo "Evaluating CI matrix health..."
+          STATUSES='${{ toJson(needs) }}'
+          FAILED=()
+
+          for job in $(echo "$STATUSES" | jq -r 'keys[]'); do
+            result=$(echo "$STATUSES" | jq -r --arg j "$job" '.[$j].result')
+            echo "  Job [$job]: $result"
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              FAILED+=("$job")
+            fi
+          done
+
+          if [ ${#FAILED[@]} -gt 0 ]; then
+            echo "::error::The following required checks failed: ${FAILED[*]}"
+            exit 1
+          fi
+
+          echo "::notice::All applicable CI checks passed (or were cleanly skipped by path filters)."
+          exit 0
