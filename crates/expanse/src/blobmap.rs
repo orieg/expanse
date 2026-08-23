@@ -825,24 +825,37 @@ impl ExpanseBlobMap {
         let mut arena_pos = header.arena_offset as usize;
         for _ in 0..header.chunk_count {
             let chunk_header_bytes = bytes
-                .get(arena_pos..arena_pos.checked_add(24).ok_or(ArenaError::CorruptedHeader)?)
+                .get(
+                    arena_pos
+                        ..arena_pos
+                            .checked_add(24)
+                            .ok_or(ArenaError::CorruptedHeader)?,
+                )
                 .ok_or(ArenaError::CorruptedHeader)?;
             let cap = u64::from_le_bytes(chunk_header_bytes[0..8].try_into().unwrap()) as usize;
             let cur = u64::from_le_bytes(chunk_header_bytes[8..16].try_into().unwrap()) as usize;
             let generation = u32::from_le_bytes(chunk_header_bytes[16..20].try_into().unwrap());
-            arena_pos = arena_pos.checked_add(24).ok_or(ArenaError::CorruptedHeader)?;
+            arena_pos = arena_pos
+                .checked_add(24)
+                .ok_or(ArenaError::CorruptedHeader)?;
 
             if cap == 0 || cap > ArenaChunk::MAX_CHUNK_CAPACITY || cur > cap {
                 return Err(ArenaError::CorruptedHeader);
             }
 
-            let chunk_end = arena_pos.checked_add(cur).ok_or(ArenaError::CorruptedHeader)?;
-            let chunk_data = bytes.get(arena_pos..chunk_end).ok_or(ArenaError::CorruptedHeader)?;
+            let chunk_end = arena_pos
+                .checked_add(cur)
+                .ok_or(ArenaError::CorruptedHeader)?;
+            let chunk_data = bytes
+                .get(arena_pos..chunk_end)
+                .ok_or(ArenaError::CorruptedHeader)?;
             let chunk = ArenaChunk::from_raw_parts(cap, cur, generation, chunk_data)?;
             map.arena.push_chunk(chunk);
 
             let aligned_cur = (cur.checked_add(15).ok_or(ArenaError::CorruptedHeader)?) & !15;
-            arena_pos = arena_pos.checked_add(aligned_cur).ok_or(ArenaError::CorruptedHeader)?;
+            arena_pos = arena_pos
+                .checked_add(aligned_cur)
+                .ok_or(ArenaError::CorruptedHeader)?;
         }
 
         // Read index entries
@@ -1101,13 +1114,12 @@ mod tests {
         // Fuzzer regression unit: offset overflow in header offsets
         let fuzzer_crash = [
             69, 88, 80, 65, 78, 83, 69, 0, 1, 0, 0, 0, 0, 1, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 255,
-            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 69, 78, 80, 1, 83, 0, 0, 0,
-            0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 110, 46, 110, 110, 110,
-            0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 65, 0, 0, 0, 0, 0, 0, 0, 110, 83, 69,
-            0, 69, 78, 80, 1, 83, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 110, 46, 110, 59, 110, 255, 255, 255, 255, 255, 255, 191, 255, 255, 255,
-            255, 255, 255, 255, 255, 201, 255, 255, 255, 255, 255, 255, 255, 255, 1, 255, 0,
-            0, 0, 0, 110, 0, 0,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 69, 78, 80, 1, 83, 0, 0, 0, 0,
+            0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 110, 46, 110, 110, 110, 0, 0,
+            0, 0, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 65, 0, 0, 0, 0, 0, 0, 0, 110, 83, 69, 0, 69, 78,
+            80, 1, 83, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 110,
+            46, 110, 59, 110, 255, 255, 255, 255, 255, 255, 191, 255, 255, 255, 255, 255, 255, 255,
+            255, 201, 255, 255, 255, 255, 255, 255, 255, 255, 1, 255, 0, 0, 0, 0, 110, 0, 0,
         ];
         assert!(ExpanseBlobMap::from_bytes_slice(&fuzzer_crash).is_err());
     }
