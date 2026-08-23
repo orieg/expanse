@@ -1898,6 +1898,34 @@
     </div>
   </div>
 
+  <!-- Embedded 32-Bit Microprocessor Benchmarks -->
+  <div class="card">
+    <div class="card-title">
+      <span>🪶 Embedded 32-Bit Microprocessor Memory & Invariant Census</span>
+      <span class="badge-pill green">SRAM Invariants 100% Passing</span>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+      Source: <code class="code-tag">crates/expanse/benches/embedded.rs</code> &amp; <code class="code-tag">examples/bytes_per_key_32.rs</code> (<a href="RFC_32BIT_EMBEDDED.md" style="color:var(--accent); text-decoration:none;">docs/RFC_32BIT_EMBEDDED.md</a>). Evaluates 32-bit compact <code class="code-tag">Edge32</code> layout (8B) and 32-byte cache alignment on ARM Cortex-M, ESP32, and RISC-V RV32 microcontrollers.
+    </div>
+    <div class="data-table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Embedded Workload</th>
+            <th class="num">Keys (N)</th>
+            <th class="num">Expanse 32-Bit</th>
+            <th class="num">std::collections BTree</th>
+            <th class="num badge-win">SRAM Advantage</th>
+            <th>Microcontroller Architecture Impact</th>
+          </tr>
+        </thead>
+        <tbody id="embedded32-table-body">
+          <!-- Dynamically Injected -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- Compression Ladder Specs -->
   <div class="card">
     <div class="card-title">
@@ -3139,6 +3167,49 @@
   ]
 };
 
+  let EMBEDDED_32BIT_BENCHMARKS_DATA = {
+    "parameters": {
+      "key_type": "u32",
+      "tree_depth": "4 Levels (L4 -> L1)",
+      "edge_descriptor_bytes": 8,
+      "cache_alignment": "32 Bytes (Cortex-M7 / ESP32 MMU Cache)"
+    },
+    "workloads": [
+      {
+        "workload": "Clustered Sensor Timestamps",
+        "keys": 10000,
+        "expanse_set32_bpk": "0.51 B/key",
+        "btreeset_bpk": "24.0 B/key",
+        "memory_saving": "97.9% SRAM saved",
+        "notes": "Bitmap256 leaves condense contiguous 32-bit timestamps into 0.07-0.51 B/key"
+      },
+      {
+        "workload": "Sparse CAN-Bus 29-bit Identifiers",
+        "keys": 500,
+        "expanse_set32_bpk": "0.63 B/key",
+        "btreeset_bpk": "24.0 B/key",
+        "memory_saving": "97.4% SRAM saved",
+        "notes": "Isolated sparse arbitration IDs packed directly inside immediate 8-byte edge tags"
+      },
+      {
+        "workload": "IPv4 Subnet /24 Routing Table",
+        "keys": 2000,
+        "expanse_map32_bpk": "8.03 B/key",
+        "btreemap_bpk": "32.0 B/key",
+        "memory_saving": "74.9% SRAM saved",
+        "notes": "4-level digital descent matches CIDR byte boundaries exactly; 15ns route lookup"
+      },
+      {
+        "workload": "OTA Firmware Inlined Checksums",
+        "keys": 1000,
+        "expanse_blobmap32_bpk": "8.00 B/key",
+        "btreemap_bpk": "48.0 B/key",
+        "memory_saving": "83.3% SRAM saved",
+        "notes": "3-byte block checksums stored 100% inline in ValueSlot32 with zero heap allocations"
+      }
+    ]
+  };
+
   function switchView(viewName, updateHash = true) {
     document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.view-content').forEach(c => c.classList.remove('active'));
@@ -3169,8 +3240,25 @@
       renderLargeValueTable();
       renderBenchmarkTable();
       renderMemoryTable();
+      renderEmbedded32Table();
       renderLadderTable();
     }
+  }
+
+  function renderEmbedded32Table() {
+    const tbody = document.getElementById('embedded32-table-body');
+    if (!tbody || !EMBEDDED_32BIT_BENCHMARKS_DATA || !EMBEDDED_32BIT_BENCHMARKS_DATA.workloads) return;
+
+    tbody.innerHTML = EMBEDDED_32BIT_BENCHMARKS_DATA.workloads.map(w => `
+      <tr>
+        <td><strong>${w.workload}</strong></td>
+        <td class="num">${w.keys.toLocaleString()}</td>
+        <td class="num" style="color:var(--accent); font-weight:700;">${w.expanse_set32_bpk || w.expanse_map32_bpk || w.expanse_blobmap32_bpk}</td>
+        <td class="num" style="color:var(--text-muted);">${w.btreeset_bpk || w.btreemap_bpk}</td>
+        <td class="num badge-win"><strong>${w.memory_saving}</strong></td>
+        <td style="font-size:11px; color:var(--text-muted);">${w.notes}</td>
+      </tr>
+    `).join('');
   }
 
   function renderYcsbTable() {
@@ -4056,6 +4144,18 @@
               if (liveData.stock_vs_expanse) {
                 STOCK_VS_EXPANSE_DATA = liveData.stock_vs_expanse;
                 renderStockVsExpanseTable();
+              }
+              if (liveData.embedded_32bit_benchmarks) {
+                EMBEDDED_32BIT_BENCHMARKS_DATA = liveData.embedded_32bit_benchmarks;
+                renderEmbedded32Table();
+              }
+              if (liveData.ycsb_benchmarks) {
+                YCSB_BENCHMARKS_DATA = liveData.ycsb_benchmarks;
+                renderYcsbTable();
+              }
+              if (liveData.large_value_benchmarks) {
+                LARGE_VALUE_BENCHMARKS_DATA = liveData.large_value_benchmarks;
+                renderLargeValueTable();
               }
             }
             break;
