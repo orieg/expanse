@@ -23,7 +23,7 @@ public sealed class ExpanseSet : IDisposable, IEnumerable<ulong>, IReadOnlyColle
         _handle = NativeMethods.expanse_set_new();
         if (_handle.IsInvalid)
         {
-            throw new OutOfMemoryError("Failed to allocate native expanse_set_t");
+            throw new OutOfMemoryException("Failed to allocate native expanse_set_t");
         }
     }
 

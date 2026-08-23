@@ -11,7 +11,9 @@ internal static class NativeLoader
     private static bool _initialized = false;
     private static readonly object _lock = new();
 
+#pragma warning disable CA2255
     [ModuleInitializer]
+#pragma warning restore CA2255
     internal static void Initialize()
     {
         lock (_lock)

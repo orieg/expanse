@@ -21,7 +21,7 @@ public sealed class ExpanseBytesMap : IDisposable
         _handle = NativeMethods.expanse_bytesmap_new();
         if (_handle.IsInvalid)
         {
-            throw new OutOfMemoryError("Failed to allocate native expanse_bytesmap_t");
+            throw new OutOfMemoryException("Failed to allocate native expanse_bytesmap_t");
         }
     }
 

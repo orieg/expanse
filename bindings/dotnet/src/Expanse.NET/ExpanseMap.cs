@@ -24,7 +24,7 @@ public sealed class ExpanseMap : IDisposable, IEnumerable<KeyValuePair<ulong, ul
         _handle = NativeMethods.expanse_map_new();
         if (_handle.IsInvalid)
         {
-            throw new OutOfMemoryError("Failed to allocate native expanse_map_t");
+            throw new OutOfMemoryException("Failed to allocate native expanse_map_t");
         }
     }
 

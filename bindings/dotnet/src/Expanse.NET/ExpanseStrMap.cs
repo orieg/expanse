@@ -26,7 +26,7 @@ public sealed class ExpanseStrMap : IDisposable, IEnumerable<KeyValuePair<string
         _handle = NativeMethods.expanse_strmap_new();
         if (_handle.IsInvalid)
         {
-            throw new OutOfMemoryError("Failed to allocate native expanse_strmap_t");
+            throw new OutOfMemoryException("Failed to allocate native expanse_strmap_t");
         }
     }
 

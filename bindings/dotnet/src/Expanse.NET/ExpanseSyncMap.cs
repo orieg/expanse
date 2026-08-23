@@ -4,7 +4,8 @@ using Expanse.Native;
 namespace Expanse;
 
 /// <summary>
-/// Thread-safe concurrent map (ulong to ulong) allowing one serialized writer and lock-free readers.
+/// Thread-safe concurrent 64-bit integer map (<c>ulong</c> to <c>ulong</c>) supporting serialized
+/// single-writer updates and scalable, wait-free, lock-free parallel readers.
 /// </summary>
 public sealed class ExpanseSyncMap : IDisposable
 {
@@ -12,26 +13,14 @@ public sealed class ExpanseSyncMap : IDisposable
     private bool _disposed;
 
     /// <summary>
-    /// Creates a new concurrent <see cref="ExpanseSyncMap"/>.
+    /// Creates a new empty <see cref="ExpanseSyncMap"/>.
     /// </summary>
     public ExpanseSyncMap()
     {
         _handle = NativeMethods.expanse_sync_map_new();
         if (_handle.IsInvalid)
         {
-            throw new OutOfMemoryError("Failed to allocate native expanse_sync_map_t");
-        }
-    }
-
-    /// <summary>
-    /// Gets the native handle.
-    /// </summary>
-    public SafeExpanseSyncMapHandle Handle
-    {
-        get
-        {
-            ThrowIfDisposed();
-            return _handle;
+            throw new OutOfMemoryException("Failed to allocate native ExpanseSyncMap");
         }
     }
 
@@ -41,7 +30,7 @@ public sealed class ExpanseSyncMap : IDisposable
     }
 
     /// <summary>
-    /// Sets key -> value.
+    /// Inserts or updates a key-value mapping (writer thread).
     /// </summary>
     public bool Set(ulong key, ulong value)
     {
@@ -50,7 +39,7 @@ public sealed class ExpanseSyncMap : IDisposable
     }
 
     /// <summary>
-    /// Inserts or replaces key -> value, reporting previous value.
+    /// Inserts or updates key -> value (writer thread).
     /// </summary>
     public bool Insert(ulong key, ulong value, out ulong oldValue)
     {
@@ -59,16 +48,7 @@ public sealed class ExpanseSyncMap : IDisposable
     }
 
     /// <summary>
-    /// One-shot lookup.
-    /// </summary>
-    public bool TryGet(ulong key, out ulong value)
-    {
-        ThrowIfDisposed();
-        return NativeMethods.expanse_sync_map_get(_handle, key, out value);
-    }
-
-    /// <summary>
-    /// Removes a key from the map.
+    /// Removes a key from the map (writer thread).
     /// </summary>
     public bool Remove(ulong key)
     {
@@ -77,7 +57,30 @@ public sealed class ExpanseSyncMap : IDisposable
     }
 
     /// <summary>
-    /// Number of entries stored in the map.
+    /// Removes a key from the map, outputting the old value (writer thread).
+    /// </summary>
+    public bool Remove(ulong key, out ulong oldValue)
+    {
+        ThrowIfDisposed();
+        return NativeMethods.expanse_sync_map_remove(_handle, key, out oldValue);
+    }
+
+    /// <summary>
+    /// Looks up a key's value (writer thread).
+    /// </summary>
+    public bool TryGet(ulong key, out ulong value)
+    {
+        ThrowIfDisposed();
+        return NativeMethods.expanse_sync_map_get(_handle, key, out value);
+    }
+
+    /// <summary>
+    /// Checks whether the key exists (writer thread).
+    /// </summary>
+    public bool ContainsKey(ulong key) => TryGet(key, out _);
+
+    /// <summary>
+    /// Gets the number of entries stored in the map.
     /// </summary>
     public ulong Count
     {
@@ -89,21 +92,22 @@ public sealed class ExpanseSyncMap : IDisposable
     }
 
     /// <summary>
-    /// Creates a dedicated per-thread reader handle for zero-overhead lock-free lookups.
+    /// Creates a lightweight lock-free reader handle bound to this concurrent map.
+    /// Each querying thread should maintain its own reader handle.
     /// </summary>
     public ExpanseSyncMapReader CreateReader()
     {
         ThrowIfDisposed();
-        var readerHandle = NativeMethods.expanse_sync_map_reader_new(_handle);
+        SafeExpanseSyncMapReaderHandle readerHandle = NativeMethods.expanse_sync_map_reader_new(_handle);
         if (readerHandle.IsInvalid)
         {
-            throw new OutOfMemoryError("Failed to create reader handle for ExpanseSyncMap");
+            throw new OutOfMemoryException("Failed to allocate native ExpanseSyncMapReader");
         }
         return new ExpanseSyncMapReader(readerHandle);
     }
 
     /// <summary>
-    /// Frees the unmanaged concurrent map.
+    /// Frees the unmanaged memory allocated by this concurrent map.
     /// </summary>
     public void Dispose()
     {
@@ -116,7 +120,8 @@ public sealed class ExpanseSyncMap : IDisposable
 }
 
 /// <summary>
-/// A dedicated per-thread lock-free reader for <see cref="ExpanseSyncMap"/>.
+/// Lightweight, lock-free reader for <see cref="ExpanseSyncMap"/>.
+/// Safe for parallel multi-threaded queries without locking out the writer.
 /// </summary>
 public sealed class ExpanseSyncMapReader : IDisposable
 {
@@ -134,7 +139,7 @@ public sealed class ExpanseSyncMapReader : IDisposable
     }
 
     /// <summary>
-    /// Fast lock-free lookup for a key.
+    /// Retrieves the value associated with the key without acquiring locks.
     /// </summary>
     public bool TryGet(ulong key, out ulong value)
     {
@@ -143,7 +148,24 @@ public sealed class ExpanseSyncMapReader : IDisposable
     }
 
     /// <summary>
-    /// Frees the reader handle.
+    /// Checks whether the key is present in the concurrent map without acquiring locks.
+    /// </summary>
+    public bool ContainsKey(ulong key) => TryGet(key, out _);
+
+    /// <summary>
+    /// Gets the total number of entries in the concurrent map.
+    /// </summary>
+    public ulong Count
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return NativeMethods.expanse_sync_map_reader_len(_handle);
+        }
+    }
+
+    /// <summary>
+    /// Disposes this reader instance.
     /// </summary>
     public void Dispose()
     {

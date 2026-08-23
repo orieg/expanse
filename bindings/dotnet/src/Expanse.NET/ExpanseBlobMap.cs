@@ -6,6 +6,14 @@ using Expanse.Native;
 namespace Expanse;
 
 /// <summary>
+/// Delegate action invoked during zero-copy blob range scans.
+/// </summary>
+/// <param name="key">The 64-bit key.</param>
+/// <param name="payload">Zero-copy span pointing directly to the payload bytes.</param>
+/// <param name="hotMeta">32-bit hot metadata word.</param>
+public delegate void ExpanseBlobScanAction(ulong key, ReadOnlySpan<byte> payload, uint hotMeta);
+
+/// <summary>
 /// High-performance off-heap map from 64-bit integer keys to arbitrary-length byte payloads
 /// backed by inline polymorphic 64-bit value slots and chunked slab arenas.
 /// </summary>
@@ -28,7 +36,7 @@ public sealed class ExpanseBlobMap : IDisposable
         _handle = NativeMethods.expanse_blob_map_new(chunkSize);
         if (_handle.IsInvalid)
         {
-            throw new OutOfMemoryError("Failed to allocate native ExpanseBlobMap");
+            throw new OutOfMemoryException("Failed to allocate native ExpanseBlobMap");
         }
     }
 
@@ -290,7 +298,7 @@ public sealed class ExpanseBlobMap : IDisposable
         ulong startKey,
         ulong endKey,
         Func<ulong, uint, bool>? predicate,
-        Action<ulong, ReadOnlySpan<byte>, uint> callback)
+        ExpanseBlobScanAction callback)
     {
         ArgumentNullException.ThrowIfNull(callback);
         ThrowIfDisposed();

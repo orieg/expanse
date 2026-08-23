@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
+    <NoWarn>$(NoWarn);CA2255</NoWarn>
 
     <!-- NuGet Package Metadata -->
     <PackageId>Expanse.NET</PackageId>

@@ -14,21 +14,22 @@ concurrency:
 
 jobs:
   test:
-    name: Test .NET Bindings (${{ matrix.os }}, .NET ${{ matrix.dotnet-version }})
+    name: Test .NET Bindings (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        dotnet-version: ["8.0.x", "9.0.x"]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up .NET ${{ matrix.dotnet-version }}
+      - name: Set up .NET SDKs (8.0 and 9.0)
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: ${{ matrix.dotnet-version }}
+          dotnet-version: |
+            8.0.x
+            9.0.x
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -60,10 +61,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up .NET 9.0
+      - name: Set up .NET SDKs (8.0 and 9.0)
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: |
+            8.0.x
+            9.0.x
 
       - uses: dtolnay/rust-toolchain@stable
 

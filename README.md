@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/orieg/expanse/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/orieg/expanse/actions/workflows/ci.yml?query=branch%3Amain)
 [![Crates.io Version](https://img.shields.io/crates/v/expanse-trie.svg?style=flat-square&logo=rust)](https://crates.io/crates/expanse-trie)
+[![npm Version](https://img.shields.io/npm/v/@orieg/expanse.svg?style=flat-square&logo=npm)](https://www.npmjs.com/package/@orieg/expanse)
 [![NuGet Version](https://img.shields.io/nuget/v/Expanse.NET.svg?style=flat-square&logo=nuget)](https://www.nuget.org/packages/Expanse.NET)
 [![PyPI Version](https://img.shields.io/pypi/v/expanse-trie.svg?style=flat-square&logo=pypi)](https://pypi.org/project/expanse-trie/)
 [![APT Repository](https://img.shields.io/badge/apt-debian%20%7C%20ubuntu-orange.svg?style=flat-square&logo=debian)](https://orieg.github.io/expanse/apt/)
@@ -58,6 +59,7 @@ Naming the project after the mechanism honors the algorithm itself without inher
 | **Java / Scala FFM API** | [`bindings/java`](bindings/java) (`io.github.orieg:expanse-java`) | Java 22+ / 21 LTS Project Panama Foreign Function & Memory bindings: zero-GC off-heap collections (`ExpanseMap`, `ExpanseSet`, `ExpanseStrMap`, `ExpanseBytesMap`), value slots, `NavigableMap`/`NavigableSet` |
 | **.NET / C# API** | [`bindings/dotnet`](bindings/dotnet) (`Expanse.NET`) | .NET 8.0/9.0+ C# bindings & NuGet package via P/Invoke: zero-GC off-heap collections (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `ExpanseSyncMap`) |
 | **Python API** | [`crates/expanse-py`](crates/expanse-py) (`pip install expanse-trie`) | High-performance Python extension via PyO3: `ExpanseSet`, `ExpanseMap`, `SyncExpanseMap`, GIL-released queries |
+| **Node.js / Bun / Deno API** | [`crates/expanse-node`](crates/expanse-node) (`@orieg/expanse`) | Native high-performance N-API bindings via `napi-rs`: `ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `SyncExpanseMap`, `SyncExpanseSet` |
 
 Legacy ↔ modern naming:
 
@@ -365,6 +367,34 @@ ulong rank = set.Rank(100); // O(depth) rank
 bool found = map.TryGet(42, out ulong value);
 ```
 See [bindings/dotnet/README.md](bindings/dotnet/README.md) for full .NET documentation and guides.
+
+### 9. Node.js, Bun & Deno Quickstart (`npm i @orieg/expanse`)
+```bash
+npm install @orieg/expanse
+# or bun add @orieg/expanse
+```
+
+```javascript
+import { ExpanseSet, ExpanseMap, ExpanseBlobMap } from '@orieg/expanse';
+
+// 1. Dynamic sparse 64-bit integer set (Judy1)
+const set = new ExpanseSet([10n, 20n, 50n, 100n]);
+console.log(set.has(20n));               // true
+console.log(set.next(25n));              // 50n
+console.log(set.countRange(10n, 50n));   // 3n
+
+// 2. Key-value associative map (JudyL)
+const map = new ExpanseMap();
+map.set(42n, 1000n);
+console.log(map.get(42n));               // 1000n
+
+// 3. High-performance polymorphic blob map (inline packing + arena)
+const blobmap = new ExpanseBlobMap();
+blobmap.set(1n, Buffer.from('inline'), 10 /* 32-bit hot metadata */);
+const res = blobmap.getWithMeta(1n);
+console.log(res.isInline);               // true (0 heap allocations)
+```
+See [crates/expanse-node/README.md](crates/expanse-node/README.md) for full Node.js documentation.
 See [docs/PACKAGING.md](docs/PACKAGING.md) for full packaging instructions across all platforms.
 
 ---
