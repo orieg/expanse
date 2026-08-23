@@ -5,11 +5,22 @@ on:
     branches: [main]
     tags:
       - 'v*'
+    paths:
+      - 'crates/expanse-py/**'
+      - 'tests/test_python_bindings.py'
+      - 'pyproject.toml'
+      - '.github/workflows/python.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'crates/expanse-py/**'
+      - 'tests/test_python_bindings.py'
+      - 'pyproject.toml'
+      - '.github/workflows/python.yml'
+  workflow_dispatch:
 
 concurrency:
-  group: python-${{ github.event.pull_request.number || github.sha }}
+  group: python-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -57,8 +68,10 @@ jobs:
 
   wheels:
     name: Build Wheels (${{ matrix.target }} - ${{ matrix.os }})
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'build-wheels'))
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix:
         include:
           - os: ubuntu-latest
@@ -99,6 +112,7 @@ jobs:
 
   sdist:
     name: Build Source Distribution (sdist)
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

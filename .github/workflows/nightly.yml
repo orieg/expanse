@@ -12,14 +12,13 @@ on:
         type: choice
         options: [all, bench]
 
-# Never run two nightlies at once — a manual `only: bench` dispatch
-# landing on top of the cron would produce two bench-report artifacts for
-# the same commit and contend for the same runners. Queue instead of
-# cancelling: a long fuzz session that is nearly done is worth more than
-# the run that would replace it.
 concurrency:
   group: nightly
   cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -30,6 +29,7 @@ jobs:
     # fast; this run executes the whole suite under Miri daily.
     if: inputs.only != 'bench'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -42,13 +42,78 @@ jobs:
       - name: Miri (full)
         run: cargo miri test -p expanse-trie
 
+      - name: Report or Update Nightly Failure Issue
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '🚨 [Nightly CI Failure] Full Miri Model Verification Failed on main';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'nightly-failure'
+            });
+
+            const existing = issues.find(i => i.title.includes('Full Miri'));
+            const body = [
+              '### Nightly Verification Failure Alert',
+              '',
+              `- **Commit**: [${context.sha}](${context.payload.repository?.html_url}/commit/${context.sha})`,
+              `- **Workflow Run**: [View Failed Run Logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              '- **Failing Target**: `cargo miri test -p expanse-trie`',
+              '',
+              '#### Local Reproduction Command:',
+              '```bash',
+              'cargo miri test -p expanse-trie',
+              '```'
+            ].join('\n');
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `⚠️ Nightly run still failing on commit ${context.sha}. [View Run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['bug', 'nightly-failure', 'automated-triage']
+              });
+            }
+
+      - name: Auto-Close Resolved Nightly Issue on Success
+        if: success() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'nightly-failure'
+            });
+            const existing = issues.find(i => i.title.includes('Full Miri'));
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `🟢 Nightly verification succeeded on commit ${context.sha}! Auto-closing this issue.`
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                state: 'closed'
+              });
+            }
+
   bench-report:
-    # Timing numbers from a shared CI runner are NOT publishable (see
-    # docs/BENCHMARKING.md rule 3) — they are a regression alarm. The
-    # harness interleaves arms on the same runner, so drift hits both
-    # sides and cancels in the ratio. Results are uploaded as an
-    # artifact; nothing here gates the build, because a noisy runner
-    # would produce false alarms.
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -96,10 +161,6 @@ jobs:
           path: bench-report.txt
 
   fuzz-long:
-    # docs/TESTING.md layer 4: the sessions where coverage-guided
-    # exploration actually reaches new ladder transitions. The per-push
-    # job is a 60s smoke; this one runs each target for 20 minutes and
-    # keeps the corpus between nights via the cache.
     if: inputs.only != 'bench'
     runs-on: ubuntu-latest
     timeout-minutes: 90
