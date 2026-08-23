@@ -193,5 +193,47 @@
       "protocol": "Optimistic Version Bracketing (SeqVersion) + Epoch-Based Reclamation (EBR)",
       "reader_guarantee": "Lock-free & wait-free read paths with hand-over-hand validation and zero CAS overhead"
     }
+  },
+  "embedded_32bit_benchmarks": {
+    "parameters": {
+      "key_type": "u32",
+      "tree_depth": "4 Levels (L4 -> L1)",
+      "edge_descriptor_bytes": 8,
+      "cache_alignment": "32 Bytes (Cortex-M7 / ESP32 MMU Cache)"
+    },
+    "workloads": [
+      {
+        "workload": "Clustered Sensor Timestamps",
+        "keys": 10000,
+        "expanse_set32_bpk": "0.51 B/key",
+        "btreeset_bpk": "24.0 B/key",
+        "memory_saving": "97.9% SRAM saved",
+        "notes": "Bitmap256 leaves condense contiguous 32-bit timestamps into 0.07-0.51 B/key"
+      },
+      {
+        "workload": "Sparse CAN-Bus 29-bit Identifiers",
+        "keys": 500,
+        "expanse_set32_bpk": "0.63 B/key",
+        "btreeset_bpk": "24.0 B/key",
+        "memory_saving": "97.4% SRAM saved",
+        "notes": "Isolated sparse arbitration IDs packed directly inside immediate 8-byte edge tags"
+      },
+      {
+        "workload": "IPv4 Subnet /24 Routing Table",
+        "keys": 2000,
+        "expanse_map32_bpk": "8.03 B/key",
+        "btreemap_bpk": "32.0 B/key",
+        "memory_saving": "74.9% SRAM saved",
+        "notes": "4-level digital descent matches CIDR byte boundaries exactly; 15ns route lookup"
+      },
+      {
+        "workload": "OTA Firmware Inlined Checksums",
+        "keys": 1000,
+        "expanse_blobmap32_bpk": "8.00 B/key",
+        "btreemap_bpk": "48.0 B/key",
+        "memory_saving": "83.3% SRAM saved",
+        "notes": "3-byte block checksums stored 100% inline in ValueSlot32 with zero heap allocations"
+      }
+    ]
   }
 }
