@@ -422,7 +422,7 @@ try (ExpanseMap map = new ExpanseMap();
 ```
 See [docs/BINDINGS_JAVA.md](docs/BINDINGS_JAVA.md) for Panama FFM architecture, GC elimination benchmarks, and Spark/Flink off-heap integration patterns.
 
-### 8. .NET & C# Quickstart (`Expanse.NET`)
+### 10. .NET & C# Quickstart (`OriEg.Expanse`)
 ```bash
 dotnet add package OriEg.Expanse
 ```
@@ -442,7 +442,7 @@ bool found = map.TryGet(42, out ulong value);
 ```
 See [bindings/dotnet/README.md](bindings/dotnet/README.md) for full .NET documentation and guides.
 
-### 9. Node.js, Bun & Deno Quickstart (`npm i @orieg/expanse`)
+### 11. Node.js, Bun & Deno Quickstart (`npm i @orieg/expanse`)
 ```bash
 npm install @orieg/expanse
 # or bun add @orieg/expanse

@@ -84,6 +84,9 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
 
+      - name: Verify Multi-Ecosystem Version Lockstep
+        run: python3 scripts/bump_version.py --check
+
   test:
     name: Core / Workspace Tests (${{ matrix.os }})
     needs: [detect-changes]
