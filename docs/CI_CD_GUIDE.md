@@ -270,7 +270,33 @@ Nightly workflows run out-of-band without a human reviewing PR check results. To
 
 ---
 
-## 6. Architectural Role of `yaml-workflows` GitHub Action
+## 6. Data Binary Compatibility, Sanitizers & Concurrency Verification Standards
+
+To guarantee 100% data integrity, binary compatibility, and crash consistency under high contention without ballooning PR turn-around times, Expanse enforces a strict multi-tiered testing discipline:
+
+### 6.1 Sanitizer Matrix (ASan, UBSan, TSan)
+- **AddressSanitizer (`-fsanitize=address`) & UBSan (`-fsanitize=undefined`)**: Run in PR CI across all C/C++ integrations (including `ExpanseMemTable`) to catch unaligned reads, buffer overruns, and memory corruption in arena allocations.
+- **ThreadSanitizer (`-fsanitize=thread`)**: Applied to concurrent writer/reader tests (`TestMultiThreadedConcurrentOperations`) to catch data races in atomic sibling leaf pointers (`next_leaf`/`prev_leaf`) and concurrent memory access paths.
+
+### 6.2 Differential Fuzzing & Model Oracles
+- **Pure Rust vs. Stock libJudy C ABI**: `differential-oracle` tests identical operation sequences across both implementations.
+- **ExpanseMemTable vs. Reference Data Structures**: `test_differential_memtable.cc` applies randomized MVCC mutations and snapshot point lookups side-by-side against standard library references, asserting 100% byte-for-byte state equality.
+
+### 6.3 Concurrency State Machine & Linearizability Models
+- **Loom Model-Checking (`--cfg loom`)**: Deterministically model-checks atomic seqlock ordering (`loom_seqlock_no_torn_reads`), 2-epoch EBR retirement invariants (`loom_pin_blocks_second_advance`), and dynamic branch node promotion retry safety (`loom_node_split_retry_safety`).
+- **OCC Linearizability Verification**: Multi-threaded history recorder (`tests/linearizability.rs`) records real-time start/end timestamps and validates that the concurrent execution graph is strictly linearizable.
+
+### 6.4 PR Latency Budget vs. Nightly Deep Sweeps
+To keep developer feedback loops fast:
+* **PR CI Latency Target**: $\le 3\text{--}5\text{ minutes}$ total wall-clock.
+  - Runs fast smokes: 60s fuzz smoke, fast Miri unsafe core checks, standard/sanitizer unit tests, and deterministic Callgrind instruction verification.
+* **Nightly Sweep Target**: Multi-hour exhaustive verification (`nightly.yml`).
+  - Runs 60-minute full Miri model suite (`miri-full`).
+  - Runs 80-minute deep fuzzing (20 min/target across `set_ops`, `map_ops`, `bytesmap_ops`, `strmap_ops`, and `blobmap_image_corrupt`) with persistent corpus caching.
+
+---
+
+## 7. Architectural Role of `yaml-workflows` GitHub Action
 
 When deciding between native GitHub Actions YAML and `orieg/yaml-workflow`:
 
