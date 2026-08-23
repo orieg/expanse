@@ -41,17 +41,17 @@ jobs:
       - name: Run .NET test suite (Unix)
         if: runner.os != 'Windows'
         env:
-          EXPANSE_LIB_DIR: target/release
+          EXPANSE_LIB_DIR: ${{ github.workspace }}/target/release
         run: |
-          dotnet test bindings/dotnet/Expanse.NET.sln -c Release --verbosity normal
+          dotnet test bindings/dotnet/tests/Expanse.NET.Tests/Expanse.NET.Tests.csproj -c Release --verbosity normal
 
       - name: Run .NET test suite (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          EXPANSE_LIB_DIR: target\release
+          EXPANSE_LIB_DIR: ${{ github.workspace }}\target\release
         run: |
-          dotnet test bindings\dotnet\Expanse.NET.sln -c Release --verbosity normal
+          dotnet test bindings\dotnet\tests\Expanse.NET.Tests\Expanse.NET.Tests.csproj -c Release --verbosity normal
 
   pack:
     name: Build NuGet Package

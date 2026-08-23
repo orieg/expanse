@@ -8,6 +8,7 @@
     <IsTestProject>true</IsTestProject>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
+    <NoWarn>$(NoWarn);xUnit2013</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

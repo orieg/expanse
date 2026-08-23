@@ -32,20 +32,25 @@ internal static class NativeLoader
             return IntPtr.Zero;
         }
 
+        string nativeLibName = GetNativeLibraryFileName();
+
         // 1. Check explicit environment variable EXPANSE_CDYLIB
         string? envCdylib = Environment.GetEnvironmentVariable("EXPANSE_CDYLIB");
-        if (!string.IsNullOrEmpty(envCdylib) && File.Exists(envCdylib))
+        if (!string.IsNullOrEmpty(envCdylib))
         {
-            if (NativeLibrary.TryLoad(envCdylib, out IntPtr handle))
+            if (File.Exists(envCdylib) && NativeLibrary.TryLoad(envCdylib, out IntPtr handle))
             {
                 return handle;
+            }
+            string fullPath = Path.GetFullPath(envCdylib);
+            if (File.Exists(fullPath) && NativeLibrary.TryLoad(fullPath, out IntPtr h2))
+            {
+                return h2;
             }
         }
 
         // 2. Check explicit directory EXPANSE_LIB_DIR
         string? envLibDir = Environment.GetEnvironmentVariable("EXPANSE_LIB_DIR");
-        string nativeLibName = GetNativeLibraryFileName();
-
         if (!string.IsNullOrEmpty(envLibDir))
         {
             string candidate = Path.Combine(envLibDir, nativeLibName);
@@ -53,11 +58,33 @@ internal static class NativeLoader
             {
                 return handle;
             }
+            string fullCandidate = Path.GetFullPath(candidate);
+            if (File.Exists(fullCandidate) && NativeLibrary.TryLoad(fullCandidate, out IntPtr h2))
+            {
+                return h2;
+            }
         }
 
         // 3. Search directory of current executing assembly & base directory
-        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        string baseDir = AppContext.BaseDirectory;
         string currentAssemblyDir = Path.GetDirectoryName(assembly.Location) ?? baseDir;
+
+        // Try ascending search for target/release or target/debug
+        DirectoryInfo? cur = new DirectoryInfo(baseDir);
+        for (int i = 0; i < 8 && cur != null; i++)
+        {
+            string relCandidate = Path.Combine(cur.FullName, "target", "release", nativeLibName);
+            if (File.Exists(relCandidate) && NativeLibrary.TryLoad(relCandidate, out IntPtr h))
+            {
+                return h;
+            }
+            string debCandidate = Path.Combine(cur.FullName, "target", "debug", nativeLibName);
+            if (File.Exists(debCandidate) && NativeLibrary.TryLoad(debCandidate, out IntPtr hDeb))
+            {
+                return hDeb;
+            }
+            cur = cur.Parent;
+        }
 
         string[] searchDirs =
         {
@@ -65,23 +92,6 @@ internal static class NativeLoader
             baseDir,
             Path.Combine(baseDir, "runtimes", GetRuntimeIdentifier(), "native"),
             Path.Combine(currentAssemblyDir, "runtimes", GetRuntimeIdentifier(), "native"),
-            // Cargo target lookup paths for local dev & testing
-            Path.Combine(baseDir, "..", "..", "..", "..", "target", "release"),
-            Path.Combine(baseDir, "..", "..", "..", "..", "target", "debug"),
-            Path.Combine(baseDir, "..", "..", "..", "target", "release"),
-            Path.Combine(baseDir, "..", "..", "..", "target", "debug"),
-            Path.Combine(baseDir, "..", "..", "target", "release"),
-            Path.Combine(baseDir, "..", "..", "target", "debug"),
-            Path.Combine(baseDir, "..", "target", "release"),
-            Path.Combine(baseDir, "..", "target", "debug"),
-            Path.Combine(baseDir, "target", "release"),
-            Path.Combine(baseDir, "target", "debug"),
-            Path.Combine(currentAssemblyDir, "..", "..", "..", "..", "target", "release"),
-            Path.Combine(currentAssemblyDir, "..", "..", "..", "..", "target", "debug"),
-            Path.Combine(currentAssemblyDir, "..", "..", "..", "target", "release"),
-            Path.Combine(currentAssemblyDir, "..", "..", "..", "target", "debug"),
-            Path.Combine(currentAssemblyDir, "..", "..", "target", "release"),
-            Path.Combine(currentAssemblyDir, "..", "..", "target", "debug"),
             "/usr/local/lib",
             "/usr/lib",
             "/opt/homebrew/lib"
