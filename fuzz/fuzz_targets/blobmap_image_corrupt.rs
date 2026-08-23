@@ -10,8 +10,8 @@ fuzz_target!(|data: &[u8]| {
         let _ = map.get(0);
         let _ = map.get(1);
         let _ = map.get(u64::MAX);
-        let _ = map.contains(0);
-        let _ = map.size();
+        let _ = map.contains_key(0);
+        let _ = map.len();
         map.clear();
     }
 });
