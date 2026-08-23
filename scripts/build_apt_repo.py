@@ -7,6 +7,8 @@ import hashlib
 import os
 import shutil
 import sys
+import io
+import subprocess
 import tarfile
 
 
@@ -20,36 +22,108 @@ def sha256_file(filepath: str) -> str:
 
 def extract_control_info(deb_path: str) -> dict:
     info = {}
-    with tarfile.open(deb_path, "r:*") as ar:
-        control_member = None
-        for m in ar.getmembers():
-            if m.name in (
-                "control.tar.gz",
-                "./control.tar.gz",
-                "control.tar.xz",
-                "./control.tar.xz",
-                "control.tar.zst",
-                "./control.tar.zst",
-            ):
-                control_member = m
-                break
 
-        if control_member:
-            f = ar.extractfile(control_member)
-            if f:
-                with tarfile.open(fileobj=f, mode="r:*") as ctar:
-                    for cm in ctar.getmembers():
-                        if cm.name in ("control", "./control"):
-                            cf = ctar.extractfile(cm)
-                            if cf:
-                                for line in (
-                                    cf.read()
-                                    .decode("utf-8", errors="ignore")
-                                    .splitlines()
-                                ):
-                                    if ":" in line:
-                                        k, v = line.split(":", 1)
-                                        info[k.strip()] = v.strip()
+    # 1. Try dpkg-deb if available
+    try:
+        res = subprocess.run(
+            ["dpkg-deb", "-f", deb_path],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        for line in res.stdout.splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                info[k.strip().lower()] = v.strip()
+        if "package" in info:
+            return info
+    except Exception:
+        pass
+
+    # 2. Native 'ar' format extraction
+    try:
+        with open(deb_path, "rb") as f:
+            magic = f.read(8)
+            if magic == b"!<arch>\n":
+                while True:
+                    header = f.read(60)
+                    if len(header) < 60:
+                        break
+                    member_name = (
+                        header[0:16]
+                        .decode("ascii", errors="ignore")
+                        .strip()
+                        .rstrip("/")
+                    )
+                    member_size = int(
+                        header[48:58].decode("ascii", errors="ignore").strip()
+                    )
+                    member_data = f.read(member_size)
+                    if member_size % 2 != 0:
+                        f.read(1)  # ar padding
+
+                    if member_name in (
+                        "control.tar.gz",
+                        "control.tar.xz",
+                        "control.tar.zst",
+                        "control.tar",
+                    ):
+                        with tarfile.open(
+                            fileobj=io.BytesIO(member_data), mode="r:*"
+                        ) as ctar:
+                            for cm in ctar.getmembers():
+                                if cm.name in ("control", "./control"):
+                                    cf = ctar.extractfile(cm)
+                                    if cf:
+                                        for line in (
+                                            cf.read()
+                                            .decode("utf-8", errors="ignore")
+                                            .splitlines()
+                                        ):
+                                            if ":" in line:
+                                                k, v = line.split(":", 1)
+                                                info[k.strip().lower()] = (
+                                                    v.strip()
+                                                )
+                        if "package" in info:
+                            return info
+    except Exception:
+        pass
+
+    # 3. Direct tarfile fallback
+    try:
+        with tarfile.open(deb_path, "r:*") as ar:
+            for m in ar.getmembers():
+                if m.name in (
+                    "control.tar.gz",
+                    "./control.tar.gz",
+                    "control.tar.xz",
+                    "./control.tar.xz",
+                    "control.tar.zst",
+                    "./control.tar.zst",
+                ):
+                    cf_extracted = ar.extractfile(m)
+                    if cf_extracted:
+                        with tarfile.open(
+                            fileobj=cf_extracted, mode="r:*"
+                        ) as ctar:
+                            for cm in ctar.getmembers():
+                                if cm.name in ("control", "./control"):
+                                    cf = ctar.extractfile(cm)
+                                    if cf:
+                                        for line in (
+                                            cf.read()
+                                            .decode("utf-8", errors="ignore")
+                                            .splitlines()
+                                        ):
+                                            if ":" in line:
+                                                k, v = line.split(":", 1)
+                                                info[k.strip().lower()] = (
+                                                    v.strip()
+                                                )
+    except Exception:
+        pass
+
     return info
 
 
