@@ -197,6 +197,71 @@ impl ExpanseMap {
         }
     }
 
+    /// Returns a pointer to `key`'s value slot in the leaf or root leaf, or `None`
+    /// if absent.
+    #[inline(always)]
+    #[must_use]
+    pub fn get_slot_ptr(&self, key: Key) -> Option<core::ptr::NonNull<u64>> {
+        match &self.root {
+            Root::Empty => None,
+            Root::Leaf { ptr, pop } => {
+                let pop = *pop;
+                let kptr = ptr.as_ptr().cast::<u64>();
+                let at = if pop <= 4 {
+                    // SAFETY: root leaf holds `pop` keys.
+                    unsafe {
+                        if pop >= 1 && *kptr == key {
+                            0
+                        } else if pop >= 2 && *kptr.add(1) == key {
+                            1
+                        } else if pop >= 3 && *kptr.add(2) == key {
+                            2
+                        } else if pop >= 4 && *kptr.add(3) == key {
+                            3
+                        } else {
+                            return None;
+                        }
+                    }
+                } else if pop <= 8 {
+                    // SAFETY: root leaf holds `pop` keys.
+                    unsafe {
+                        if *kptr == key {
+                            0
+                        } else if *kptr.add(1) == key {
+                            1
+                        } else if *kptr.add(2) == key {
+                            2
+                        } else if *kptr.add(3) == key {
+                            3
+                        } else if pop >= 5 && *kptr.add(4) == key {
+                            4
+                        } else if pop >= 6 && *kptr.add(5) == key {
+                            5
+                        } else if pop >= 7 && *kptr.add(6) == key {
+                            6
+                        } else if pop >= 8 && *kptr.add(7) == key {
+                            7
+                        } else {
+                            return None;
+                        }
+                    }
+                } else {
+                    // SAFETY: root leaf holds `pop` keys.
+                    let keys = unsafe { core::slice::from_raw_parts(kptr, pop) };
+                    keys.binary_search(&key).ok()?
+                };
+                // SAFETY: root leaf values live at values offset.
+                let vptr = unsafe { ptr.as_ptr().add(leaf_values_offset(pop)).cast::<u64>() };
+                // SAFETY: `at < pop` values live behind the keys.
+                core::ptr::NonNull::new(unsafe { vptr.add(at) })
+            }
+            Root::Tree { top, .. } => {
+                // SAFETY: top is live valid tree root pointer.
+                unsafe { crate::get::locate_slot((&raw const *top).cast_mut(), key, 8) }
+            }
+        }
+    }
+
     /// Returns a **writable pointer to `key`'s value slot**, or `None` if
     /// the key is absent — the compat layer's `JudyLGet`/`JudyLIns` return
     /// convention. The pointer stays valid until the next structural
@@ -1035,6 +1100,52 @@ impl ExpanseMap {
             from: Some(0),
         }
     }
+
+    /// Returns an iterator over entries in the inclusive range `[start, end]`.
+    #[must_use]
+    pub fn range(&self, range: core::ops::RangeInclusive<Key>) -> MapRange<'_> {
+        let (start, end) = (*range.start(), *range.end());
+        MapRange {
+            map: self,
+            current: if start <= end { Some(start) } else { None },
+            end,
+        }
+    }
+
+    /// Returns an iterator over entries in `range` where the hot metadata word
+    /// (bits 63..32 of the 64-bit value slot) satisfies the predicate.
+    pub fn range_filtered<'a, P>(
+        &'a self,
+        range: core::ops::RangeInclusive<Key>,
+        mut predicate: P,
+    ) -> impl Iterator<Item = (Key, u64)> + 'a
+    where
+        P: FnMut(Key, u32) -> bool + 'a,
+    {
+        self.range(range).filter(move |&(k, v)| {
+            let meta = (v >> 32) as u32;
+            predicate(k, meta)
+        })
+    }
+
+    /// Scans entries in `range`, evaluating `predicate(key, hot_meta)` directly on
+    /// the raw value slot before invoking `callback(key, raw_val)`.
+    pub fn scan_filtered<P, F>(
+        &self,
+        range: core::ops::RangeInclusive<Key>,
+        mut predicate: P,
+        mut callback: F,
+    ) where
+        P: FnMut(Key, u32) -> bool,
+        F: FnMut(Key, u64) -> bool,
+    {
+        for (k, v) in self.range(range) {
+            let meta = (v >> 32) as u32;
+            if predicate(k, meta) && !callback(k, v) {
+                break;
+            }
+        }
+    }
 }
 
 /// Ascending entry iterator over an [`ExpanseMap`].
@@ -1052,6 +1163,32 @@ impl Iterator for MapIter<'_> {
             return None;
         };
         self.from = k.checked_add(1);
+        Some((k, v))
+    }
+}
+
+/// Ascending entry iterator over a key range in an [`ExpanseMap`].
+pub struct MapRange<'a> {
+    map: &'a ExpanseMap,
+    current: Option<Key>,
+    end: Key,
+}
+
+impl Iterator for MapRange<'_> {
+    type Item = (Key, u64);
+
+    fn next(&mut self) -> Option<(Key, u64)> {
+        let cur = self.current?;
+        if cur > self.end {
+            self.current = None;
+            return None;
+        }
+        let (k, v) = self.map.next_at_or_after(cur)?;
+        if k > self.end {
+            self.current = None;
+            return None;
+        }
+        self.current = k.checked_add(1);
         Some((k, v))
     }
 }
