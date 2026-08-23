@@ -669,10 +669,12 @@ def build_pages(artifacts_dir: str, output_dir: str):
     comp_svg_path = os.path.join(repo_assets, "bench_comparative.svg")
     conc_svg_path = os.path.join(repo_assets, "bench_concurrency.svg")
     ycsb_svg_path = os.path.join(repo_assets, "bench_ycsb.svg")
+    rocksdb_svg_path = os.path.join(repo_assets, "bench_rocksdb.svg")
 
     comp_svg = ""
     conc_svg = ""
     ycsb_svg = ""
+    rocksdb_svg = ""
     if os.path.isfile(comp_svg_path):
         with open(comp_svg_path, "r", encoding="utf-8") as f:
             comp_svg = f.read()
@@ -682,6 +684,9 @@ def build_pages(artifacts_dir: str, output_dir: str):
     if os.path.isfile(ycsb_svg_path):
         with open(ycsb_svg_path, "r", encoding="utf-8") as f:
             ycsb_svg = f.read()
+    if os.path.isfile(rocksdb_svg_path):
+        with open(rocksdb_svg_path, "r", encoding="utf-8") as f:
+            rocksdb_svg = f.read()
 
     # 2. Main Portal index.html
     main_html_template = """<!DOCTYPE html>
@@ -844,6 +849,9 @@ def build_pages(artifacts_dir: str, output_dir: str):
       </div>
 
       <div class="bench-container">
+        <div class="bench-wrapper">
+          BENCH_ROCKSDB_SVG_PLACEHOLDER
+        </div>
         <div class="bench-wrapper">
           BENCH_COMP_SVG_PLACEHOLDER
         </div>
@@ -1170,7 +1178,8 @@ $data = $cache-&gt;get('user:42:profile');</code></pre>
 </html>
 """
     main_html = (
-        main_html_template.replace("BENCH_COMP_SVG_PLACEHOLDER", comp_svg)
+        main_html_template.replace("BENCH_ROCKSDB_SVG_PLACEHOLDER", rocksdb_svg)
+        .replace("BENCH_COMP_SVG_PLACEHOLDER", comp_svg)
         .replace("BENCH_CONC_SVG_PLACEHOLDER", conc_svg)
         .replace("BENCH_YCSB_SVG_PLACEHOLDER", ycsb_svg)
     )

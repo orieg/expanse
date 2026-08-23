@@ -440,6 +440,9 @@ options.memtable_factory = rocksdb::NewExpanseMemTableRepFactory(
 ```
 
 **Architectural Benefits in RocksDB LSM Storage**:
+
+![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](./assets/bench_rocksdb.svg)
+
 1. **8.8×–11.1× Higher In-Memory Key Density**: Leaf blocks store entry pointers in contiguous 64-byte aligned spans, cutting indexing overhead from **146.7 B/entry (SkipList) to 13.2 B/entry**.
 2. **Fewer L0 SSTable Flushes**: With 25%–40% fewer flushes for the same memory budget, LSM-tree compaction write amplification on SSD/NVMe drives is significantly reduced.
 3. **19.6× Faster Sequential Range Scans**: Traverses contiguous 64-byte SIMD leaf blocks via intrusive sibling leaf chaining and SIMD prefetching at **215.3 Mops/s** vs 10.9 Mops/s in SkipList.

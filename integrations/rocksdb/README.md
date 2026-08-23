@@ -52,6 +52,8 @@ The default RocksDB memtable implementation (`SkipListRep`) incurs significant p
 
 ## 2. Benchmark Results
 
+![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](../../docs/assets/bench_rocksdb.svg)
+
 Measured on 100,000 keys (16-byte key, 64-byte value payload):
 
 | Benchmark Metric | ExpanseMemTable | RocksDB SkipListRep | VectorRep | Expanse Advantage |
