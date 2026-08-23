@@ -740,21 +740,20 @@ jobs:
       - name: Build native libexpanse
         run: cargo build --release -p expanse-capi
 
-      - name: Copy native library to Java resources (Unix)
+      - name: Run Maven test suite (Unix)
         if: runner.os != 'Windows'
+        env:
+          EXPANSE_LIBRARY_PATH: ${{ github.workspace }}/target/release
         run: |
-          mkdir -p bindings/java/src/main/resources/native/
-          cp target/release/libexpanse.* bindings/java/src/main/resources/native/ || true
+          mvn test -f bindings/java/pom.xml -Dexpanse.library.path=${{ github.workspace }}/target/release/libexpanse.${{ runner.os == 'macOS' && 'dylib' || 'so' }}
 
-      - name: Copy native library to Java resources (Windows)
+      - name: Run Maven test suite (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          EXPANSE_LIBRARY_PATH: ${{ github.workspace }}\target\release
         run: |
-          New-Item -ItemType Directory -Force -Path bindings/java/src/main/resources/native/
-          Copy-Item target/release/expanse.dll bindings/java/src/main/resources/native/ -ErrorAction SilentlyContinue
-
-      - name: Run Maven test suite
-        run: mvn test -f bindings/java/pom.xml
+          mvn test -f bindings/java/pom.xml -Dexpanse.library.path=${{ github.workspace }}\target\release\expanse.dll
 
   test-rocksdb-memtable:
     name: Integrations / RocksDB MemTable (${{ matrix.os }}, ${{ matrix.sanitizer }})

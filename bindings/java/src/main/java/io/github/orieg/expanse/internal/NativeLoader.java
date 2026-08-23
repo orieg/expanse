@@ -60,6 +60,9 @@ public final class NativeLoader {
         String propPath = System.getProperty(PROPERTY_LIB_PATH);
         if (propPath != null && !propPath.isBlank()) {
             Path p = Path.of(propPath);
+            if (Files.isDirectory(p)) {
+                p = p.resolve(libName);
+            }
             if (Files.exists(p)) {
                 try {
                     SymbolLookup lookup = SymbolLookup.libraryLookup(p.toAbsolutePath(), Arena.global());
@@ -77,6 +80,9 @@ public final class NativeLoader {
         String envPath = System.getenv(ENV_LIB_PATH);
         if (envPath != null && !envPath.isBlank()) {
             Path p = Path.of(envPath);
+            if (Files.isDirectory(p)) {
+                p = p.resolve(libName);
+            }
             if (Files.exists(p)) {
                 try {
                     SymbolLookup lookup = SymbolLookup.libraryLookup(p.toAbsolutePath(), Arena.global());
