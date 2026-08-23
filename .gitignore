@@ -20,3 +20,6 @@
 /package/
 __pycache__/
 *.pyc
+*.so
+*.dylib
+*.dll

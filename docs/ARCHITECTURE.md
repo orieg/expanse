@@ -1,6 +1,6 @@
 # Expanse Architecture
 
-> Canonical design doc. Compat contract: [COMPAT.md](COMPAT.md) · Testing: [TESTING.md](TESTING.md) · Benchmarks: [BENCHMARKING.md](BENCHMARKING.md)
+> Canonical design doc. Compat contract: [COMPAT.md](COMPAT.md) · Testing: [TESTING.md](TESTING.md) · Benchmarks: [BENCHMARKING.md](BENCHMARKING.md) · Database Engines: [DATABASE.md](DATABASE.md)
 
 Expanse is a clean-room reimplementation of the Judy array family (Judy1 bit set, JudyL word→word map, JudySL string→word map), redesigned for 2026 hardware and named for Judy's defining idea: partitioning keys by *expanse* rather than by population. Derived from published algorithm descriptions only; no libjudy source consulted (see COMPAT.md for the clean-room rules).
 
@@ -122,3 +122,18 @@ An external review confirmed Phases 1–6b and identified five gaps (narrow-poin
 5. **Phase 7 OCC** — **done, including the per-node refinement.** `occ` (seqlock `SeqVersion` with Boehm's fence construction; epoch `Collector` with pin/advance SeqCst-fence pairing — both loom-model-checked, and loom found real ordering bugs in the first drafts of each) + `sync` (`SyncExpanseSet`/`SyncExpanseMap`: writers serialize on a mutex inside version brackets, readers run a validated walk — re-check before every dereference, bounded retries, mutex fallback — with frees routed through the collector; `NodeAlloc` accounting moved `Cell`→relaxed atomics). One tree-level version was the correctness landing; the measured collapse under writer churn (BENCHMARKING.md: single-reader reads fell to 3.4 K/s against a saturating writer) then justified the **per-node refinement**: `BranchU` gained a version header (4 KiB + one line), writers bracket every node's in-place mutation region — child-slot rewrites and the recursion beneath them — with that node's version (skipped entirely on single-threaded trees via `NodeAlloc::occ_enabled`), and readers validate hand-over-hand, node by node, falling back to the tree version only for the root snapshot. Measured: single-reader churn throughput ~700× (3.4 K/s → 2.4 M/s).
 
 Performance targets (measured per BENCHMARKING.md before any claim): point lookup < 15 ns on random 64-bit keys (target); < 9.5 bytes/key on dense/clustered distributions (target). Comparative benchmarking against `RoaringBitmap`, `hashbrown::HashMap`, and `std::collections::BTreeMap`, as well as multithreaded concurrency scaling models (1..16 threads), are implemented in `benches/comparative.rs` and `benches/concurrency.rs`.
+
+---
+
+## 7. Database Engine Subsystems & Integration
+
+Expanse is architecturally suited as a high-density, low-latency primitive across core database subsystems:
+
+- **Inverted Indexes & Posting Lists (`ExpanseSet`)**: Tracks 64-bit document IDs at **0.07–0.36 bytes/docID** on clustered/dense sets (outperforming Roaring Bitmaps) with bitwise set algebra executed directly over compressed trie edges and $O(\text{depth})$ skip-scans (`next_at_or_after`).
+- **MVCC Visibility Maps & Active Transaction Tracking (`SyncExpanseSet`)**: Provides lock-free reader validation over active transaction IDs (`xid`) with zero reader-writer locks, single-digit nanosecond point lookups, and epoch-based safe reclamation under continuous OLTP commit/vacuum churn.
+- **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: Maps high-cardinality strings to 32/64-bit symbol IDs using 8-byte big-endian cross-chunk path folding, preserving lexicographical sort order while eliminating redundant prefix storage (70%+ memory reduction on URLs and paths).
+- **Secondary Indexes & MemTables (`ExpanseMap`)**: Serves as a rebalance-free LSM MemTable and secondary index engine with contiguous 64-byte SIMD leaf scans, achieving 2.1×–3.4× faster range scans than `std::collections::BTreeMap`.
+- **Zero-Copy Shared-Memory Analytics**: Off-heap / mmap base-relative layouts enable cross-worker zero-serialization analytics for parallel multi-process query execution.
+
+For detailed architecture, integration mechanics, algorithms, and code blueprints, see [DATABASE.md](DATABASE.md).
+
