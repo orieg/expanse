@@ -679,7 +679,7 @@ unsafe fn locate_slot_impl(
                     }
                     let d = digit(key, bl);
                     let slot = (*b).hdr.find(d)?;
-                    edge = (*b).edges.as_mut_ptr().add(slot);
+                    edge = &raw mut (*b).edges[slot];
                     level = bl - 1;
                 }
             }
@@ -695,7 +695,7 @@ unsafe fn locate_slot_impl(
                     }
                     let d = digit(key, bl);
                     let slot = (*b).hdr.find(d)?;
-                    edge = (*b).edges.as_mut_ptr().add(slot);
+                    edge = &raw mut (*b).edges[slot];
                     level = bl - 1;
                 }
             }
@@ -724,7 +724,7 @@ unsafe fn locate_slot_impl(
                 loop {
                     let d = digit(key, level);
                     // SAFETY: live BranchU per contract; edges array has 256 edges.
-                    let next_edge = unsafe { (*b_ptr).edges.as_mut_ptr().add(d as usize) };
+                    let next_edge = unsafe { &raw mut (*b_ptr).edges[d as usize] };
                     level -= 1;
                     // SAFETY: read tag byte of live child edge.
                     let next_tag = unsafe { (*next_edge).tag_byte() };
