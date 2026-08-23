@@ -27,6 +27,7 @@
 
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
+use expanse_trie::{ExpanseBlobMap32, ExpanseMap32, ExpanseSet32, Key32};
 #[cfg(target_os = "linux")]
 use iai_callgrind::main;
 use iai_callgrind::{library_benchmark, library_benchmark_group};
@@ -282,6 +283,47 @@ fn map_nav(built: (ExpanseMap, Vec<u64>)) -> u64 {
     black_box(sink)
 }
 
+#[library_benchmark]
+fn set32_insert_sensor_timestamps() -> ExpanseSet32 {
+    let mut set = ExpanseSet32::new();
+    for i in 0..10_000 {
+        set.insert(black_box(1_700_000_000 + i as Key32));
+    }
+    black_box(set)
+}
+
+#[library_benchmark]
+fn map32_get_can_dispatch() -> u64 {
+    let mut map = ExpanseMap32::new();
+    for i in 0..500 {
+        map.insert((i * 100_007) & 0x1FFF_FFFF, i);
+    }
+    let mut sum = 0u64;
+    for i in 0..500 {
+        if let Some(v) = map.get(black_box((i * 100_007) & 0x1FFF_FFFF)) {
+            sum += v as u64;
+        }
+    }
+    black_box(sum)
+}
+
+#[library_benchmark]
+fn blobmap32_scan_ipv4_routes() -> usize {
+    let mut blobmap = ExpanseBlobMap32::new();
+    for i in 0..2_000 {
+        let ip = (10 << 24) | ((i as Key32 / 256) << 16) | ((i as Key32 % 256) << 8);
+        blobmap.insert(ip, &[0xAA, 0xBB, 0xCC], (i % 16) as u16);
+    }
+    let mut count = 0;
+    blobmap.scan_filtered(
+        black_box(10 << 24),
+        black_box((10 << 24) | 0x00FF_FFFF),
+        |_k, meta| meta < 8,
+        |_k, _view, _meta| count += 1,
+    );
+    black_box(count)
+}
+
 library_benchmark_group!(
     name = cost;
     benchmarks =
@@ -293,7 +335,10 @@ library_benchmark_group!(
         map_churn,
         map_remove,
         map_iterate,
-        map_nav
+        map_nav,
+        set32_insert_sensor_timestamps,
+        map32_get_can_dispatch,
+        blobmap32_scan_ipv4_routes
 );
 
 #[cfg(target_os = "linux")]

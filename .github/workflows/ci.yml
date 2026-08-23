@@ -490,8 +490,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Run memory budget assertions
+      - name: Run memory budget assertions (64-bit)
         run: cargo run --release --example bytes_per_key
+
+      - name: Run memory budget assertions (32-bit embedded)
+        run: cargo run --release --example bytes_per_key_32
 
   loom:
     name: Safety / Loom Concurrency Race Model
