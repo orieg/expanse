@@ -2,8 +2,14 @@ Origin: Expanse
 Label: Expanse
 Suite: stable
 Codename: stable
-Architectures: 
+Architectures: amd64 arm64 riscv64
 Components: main
 Description: Official Expanse APT Repository
-Date: Sun, 23 Aug 2026 16:19:34 UTC
+Date: Sun, 23 Aug 2026 16:28:46 UTC
 SHA256:
+ a946889a1630b3fa8c0f6da9369571b1ef1e1450939e1906d6f2f7cc10834b12 299 main/binary-amd64/Packages
+ 4c4b1a7a51a8db34ac88b74a970800e93df3b844adc1c470c9ca5c87d44fb8cd 255 main/binary-amd64/Packages.gz
+ e863fe114844ce23b19f85e8f4f1aab797563205014727911fd1690086ec9f73 299 main/binary-arm64/Packages
+ ace19a2a68ea40f10bd4d40e6021afdcff404b636a7ede4df2feb07be9f170d6 255 main/binary-arm64/Packages.gz
+ 1edb8c5a9a4cdb6dfaae15a10c957de02eedef73095ce8fa8b7c52a8151233b0 303 main/binary-riscv64/Packages
+ ffd7f9dae5e6e39a4cdb61ed056313c5e2636fa319ffc57f1bdd37ae22b9bd00 258 main/binary-riscv64/Packages.gz
