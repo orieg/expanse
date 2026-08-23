@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   test:
-    name: Test Node.js Bindings (${{ matrix.os }}, Node ${{ matrix.node-version }})
+    name: Bindings / Node.js (${{ matrix.os }}, Node ${{ matrix.node-version }})
     strategy:
       fail-fast: false
       matrix:
