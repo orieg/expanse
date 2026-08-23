@@ -1076,7 +1076,7 @@ int main() {
 composer require orieg/judy-cache orieg/judy-polyfill</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in PHP:</p>
           <pre><code>use Judy;
-use OriEg\JudyCache\JudySimpleCache;
+use OriEg\\JudyCache\\JudySimpleCache;
 
 // Core digital trie array
 $judy = new Judy(Judy::INT_TO_INT);
