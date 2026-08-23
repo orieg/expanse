@@ -114,7 +114,7 @@ public class ExpanseBlobMapTests
         {
             byte[] data = new byte[128];
             Array.Fill(data, (byte)i);
-            // Even keys have meta=1 (expired), odd keys have meta=0 (active)
+            // Odd keys have meta=1 (expired), even keys have meta=0 (active)
             uint meta = (uint)(i % 2);
             map.Set(i, data, meta);
         }
@@ -129,7 +129,7 @@ public class ExpanseBlobMapTests
         // Verify remaining items
         for (ulong i = 0; i < 100; i++)
         {
-            if (i % 2 == 0)
+            if (i % 2 == 1)
             {
                 Assert.False(map.ContainsKey(i));
             }
