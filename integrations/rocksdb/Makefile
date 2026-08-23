@@ -23,11 +23,12 @@ endif
 BUILD_DIR := build
 TARGET_LIB := $(BUILD_DIR)/librocksdb_expanse.a
 TEST_BIN := $(BUILD_DIR)/test_expanse_memtable
+TEST_DIFF_BIN := $(BUILD_DIR)/test_differential_memtable
 BENCH_BIN := $(BUILD_DIR)/bench_memtable
 
 .PHONY: all test bench clean build_cargo
 
-all: $(TARGET_LIB) $(TEST_BIN) $(BENCH_BIN)
+all: $(TARGET_LIB) $(TEST_BIN) $(TEST_DIFF_BIN) $(BENCH_BIN)
 
 build_cargo:
 	@cd $(ROOT_DIR) && cargo build -p expanse-capi
@@ -44,16 +45,17 @@ $(TARGET_LIB): $(BUILD_DIR)/expanse_memtable.o
 $(TEST_BIN): tests/test_expanse_memtable.cc $(TARGET_LIB) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) $< -L$(BUILD_DIR) -lrocksdb_expanse $(LIBEXPANSE) -o $@
 
+$(TEST_DIFF_BIN): tests/test_differential_memtable.cc $(TARGET_LIB) | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) $< -L$(BUILD_DIR) -lrocksdb_expanse $(LIBEXPANSE) -o $@
+
 $(BENCH_BIN): benches/bench_memtable.cc $(TARGET_LIB) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_DIRS) $< -L$(BUILD_DIR) -lrocksdb_expanse $(LIBEXPANSE) -o $@
 
-test: $(TEST_BIN)
+test: $(TEST_BIN) $(TEST_DIFF_BIN)
 	@echo "Running Expanse RocksDB MemTable tests..."
 	@$(TEST_BIN)
-
-bench: $(BENCH_BIN)
-	@echo "Running Expanse RocksDB MemTable microbenchmarks..."
-	@$(BENCH_BIN)
+	@echo "Running Differential Fuzz tests..."
+	@$(TEST_DIFF_BIN)
 
 clean:
 	rm -rf $(BUILD_DIR)

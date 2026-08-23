@@ -1,11 +1,92 @@
 #!/usr/bin/env python3
 """Builds the complete GitHub Pages web distribution with portal index, visualizer, APT, and RPM repositories."""
 
+import datetime
 import os
 import shutil
+import subprocess
 import sys
 from build_apt_repo import build_apt_repo
 from build_rpm_repo import build_rpm_repo
+
+
+def get_workspace_version(repo_root: str) -> str:
+    """Inspects workspace and crate Cargo.toml files to extract the package version."""
+    for toml_path in [
+        os.path.join(repo_root, "Cargo.toml"),
+        os.path.join(repo_root, "crates", "expanse", "Cargo.toml"),
+        os.path.join(repo_root, "crates", "expanse-capi", "Cargo.toml"),
+    ]:
+        if os.path.isfile(toml_path):
+            with open(toml_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("version = ") or line.startswith("version="):
+                        v = line.split("=", 1)[1].strip().strip('"\'')
+                        if v and not v.endswith(".workspace"):
+                            return v
+    return "0.3.0"
+
+
+def get_git_metadata(repo_root: str, default_version: str) -> dict:
+    """Extracts latest release tag, short commit SHA, and commit timestamp via git."""
+    tag = None
+    try:
+        res = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            tag = res.stdout.strip()
+    except Exception:
+        pass
+    if not tag:
+        tag = f"v{default_version}"
+
+    commit_sha = ""
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            commit_sha = res.stdout.strip()
+    except Exception:
+        pass
+    if not commit_sha:
+        commit_sha = "unknown"
+
+    build_date = ""
+    try:
+        res = subprocess.run(
+            ["git", "log", "-1", "--format=%cs"],
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            build_date = res.stdout.strip()
+    except Exception:
+        pass
+    if not build_date:
+        build_date = datetime.date.today().isoformat()
+
+    return {
+        "tag": tag,
+        "commit_sha": commit_sha,
+        "build_date": build_date,
+    }
+
 
 MAIN_CSS = """
     :root {
@@ -650,6 +731,21 @@ NAV_VIS_HTML = """  <header class="navbar">
 def build_pages(artifacts_dir: str, output_dir: str):
     os.makedirs(output_dir, exist_ok=True)
 
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    version = get_workspace_version(repo_root)
+    git_meta = get_git_metadata(repo_root, version)
+
+    nav_html = NAV_HTML.replace("GitHub &bull; 0.3.0", f"GitHub &bull; {version}")
+    nav_vis_html = NAV_VIS_HTML.replace("GitHub &bull; 0.3.0", f"GitHub &bull; {version}")
+
+    footer_meta = (
+        f'      <p style="margin-bottom: 0.75rem;">\n'
+        f'        <span class="badge" style="font-size: 0.78rem;">Release {git_meta["tag"]}</span> &bull; '
+        f'Commit <a href="https://github.com/orieg/expanse/commit/{git_meta["commit_sha"]}">'
+        f'<code>{git_meta["commit_sha"]}</code></a> &bull; Built on {git_meta["build_date"]}\n'
+        f'      </p>'
+    )
+
     # 1. Copy documentation assets
     assets_dest = os.path.join(output_dir, "docs", "assets")
     os.makedirs(assets_dest, exist_ok=True)
@@ -726,7 +822,7 @@ def build_pages(artifacts_dir: str, output_dir: str):
   </style>
 </head>
 <body>
-""" + NAV_HTML + """
+""" + nav_html + """
 
   <div class="container">
     <div class="hero">
@@ -1043,7 +1139,7 @@ sudo dnf install -y libexpanse libexpanse-devel libjudy-compat</code></pre>
 &lt;dependency&gt;
     &lt;groupId&gt;io.github.orieg&lt;/groupId&gt;
     &lt;artifactId&gt;expanse&lt;/artifactId&gt;
-    &lt;version&gt;0.1.0&lt;/version&gt;
+    &lt;version&gt;""" + version + """&lt;/version&gt;
 &lt;/dependency&gt;</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Java:</p>
           <pre><code>import io.github.orieg.expanse.ExpanseMap;
@@ -1155,6 +1251,7 @@ $data = $cache-&gt;get('user:42:profile');</code></pre>
 
   <footer>
     <div class="container">
+""" + footer_meta + """
       <p>
         <strong>Expanse</strong> is open source software released under dual MIT / Apache-2.0 licenses.<br>
         Maintained by <a href="https://nicolas.brousse.info/">Nicolas Brousse</a> &bull; <a href="https://github.com/orieg/expanse">GitHub</a> &bull; <a href="https://crates.io/crates/expanse-trie">Crates.io</a> &bull; <a href="./apt/">APT Repo</a> &bull; <a href="./rpm/">RPM Repo</a>
@@ -1213,7 +1310,7 @@ $data = $cache-&gt;get('user:42:profile');</code></pre>
 """ + MAIN_CSS + """
 </style>"""
         v_content = v_content.replace("</head>", f"{nav_style}\n</head>", 1)
-        v_content = v_content.replace("<body>", f"<body>\n{NAV_VIS_HTML}", 1)
+        v_content = v_content.replace("<body>", f"<body>\n{nav_vis_html}", 1)
         with open(os.path.join(output_dir, "visualizer.html"), "w", encoding="utf-8") as f:
             f.write(v_content)
 
