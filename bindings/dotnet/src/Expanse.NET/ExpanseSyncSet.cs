@@ -124,17 +124,6 @@ public sealed class ExpanseSyncSetReader : IDisposable
         return NativeMethods.expanse_sync_set_reader_contains(_handle, key);
     }
 
-    /// <summary>
-    /// Gets the total number of keys in the concurrent set.
-    /// </summary>
-    public ulong Count
-    {
-        get
-        {
-            ThrowIfDisposed();
-            return NativeMethods.expanse_sync_set_reader_len(_handle);
-        }
-    }
 
     /// <summary>
     /// Disposes this reader instance.

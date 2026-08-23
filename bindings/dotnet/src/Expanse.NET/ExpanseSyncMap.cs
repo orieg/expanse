@@ -152,17 +152,6 @@ public sealed class ExpanseSyncMapReader : IDisposable
     /// </summary>
     public bool ContainsKey(ulong key) => TryGet(key, out _);
 
-    /// <summary>
-    /// Gets the total number of entries in the concurrent map.
-    /// </summary>
-    public ulong Count
-    {
-        get
-        {
-            ThrowIfDisposed();
-            return NativeMethods.expanse_sync_map_reader_len(_handle);
-        }
-    }
 
     /// <summary>
     /// Disposes this reader instance.
