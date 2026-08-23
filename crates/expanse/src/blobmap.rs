@@ -1075,4 +1075,27 @@ mod tests {
 
         let _ = std::fs::remove_file(path);
     }
+
+    #[test]
+    fn test_corrupted_image_rejection() {
+        // Truncated input
+        assert!(ExpanseBlobMap::from_bytes_slice(&[0u8; 10]).is_err());
+
+        // Invalid magic
+        let mut bad_magic = vec![0u8; 64];
+        bad_magic[0..8].copy_from_slice(b"BADMAGIC");
+        assert!(ExpanseBlobMap::from_bytes_slice(&bad_magic).is_err());
+
+        // Huge chunk size attack input
+        let mut huge_chunk = vec![0u8; 64];
+        huge_chunk[0..8].copy_from_slice(b"EXPANSE\0");
+        huge_chunk[8..16].copy_from_slice(&1u64.to_le_bytes()); // version
+        huge_chunk[16..24].copy_from_slice(&64u64.to_le_bytes()); // total size
+        huge_chunk[40..48].copy_from_slice(&0x45534e41505845u64.to_le_bytes()); // huge chunk_size
+        assert!(ExpanseBlobMap::from_bytes_slice(&huge_chunk).is_err());
+
+        // Zero chunk size
+        huge_chunk[40..48].copy_from_slice(&0u64.to_le_bytes());
+        assert!(ExpanseBlobMap::from_bytes_slice(&huge_chunk).is_err());
+    }
 }
