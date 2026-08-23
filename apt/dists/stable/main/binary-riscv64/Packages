@@ -1,9 +1,0 @@
-Package: libexpanse
-Version: 0.3.0
-Architecture: riscv64
-Maintainer: Nicolas Brousse <nicolas@brousse.info>
-Description: Expanse trie engine: modern Judy replacement
-Filename: pool/main/libexpanse_0.3.0_riscv64.deb
-Size: 5777160
-SHA256: 0fad28299cacded1ed38753fc6b5a18d758f3e0982e63917bfd9a5c487f12c0f
-
