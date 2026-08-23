@@ -23,8 +23,8 @@ import re
 import sys
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
-# "instructions::cost::map_insert random:"random"" -> group, bench, arg
-HEADER = re.compile(r"^([\w:]+)::(\w+)\s+(\S+?):")
+# Matches both "instructions::cost::map_insert random:"random"" and "instructions::cost::set32_insert_sensor_timestamps"
+HEADER = re.compile(r"^([\w:]+)::(\w+)(?:\s+([^:\s]+):?.*)?$")
 METRIC = re.compile(r"^\s{2,}([\w+ ]+):\s+([\d,]+)\|")
 
 # Metrics worth showing, in report order. Instructions first: it is the
@@ -44,7 +44,7 @@ def parse(text: str) -> dict[str, dict[str, int]]:
         head = HEADER.match(line)
         if head:
             _group, bench, arg = head.groups()
-            current = f"{bench}/{arg}"
+            current = f"{bench}/{arg}" if arg else bench
             out[current] = {}
             continue
         metric = METRIC.match(line)
@@ -111,6 +111,7 @@ def render(
     base_ref: str,
     vs_stock: dict[str, dict[str, int]] | None = None,
     v3: dict[str, dict[str, int]] | None = None,
+    bytes32_table: str | None = None,
 ) -> str:
     lines: list[str] = ["## Performance", ""]
 
@@ -119,23 +120,30 @@ def render(
     # cannot answer it.
     if vs_stock:
         lines += render_vs_stock(vs_stock)
-        lines += ["### vs this branch's merge base", ""]
 
-    if not head:
-        return "\n".join(lines) + "\nNo self-comparison benchmark output was produced.\n"
+    if v3:
+        lines += render_v3(v3, head)
 
     if base:
-        rows = []
-        improved = regressed = unchanged = 0
-        worst, best = 0.0, 0.0
+        # Comparison mode: this branch vs merge base.
+        rows: list[str] = []
+        regressed = improved = unchanged = 0
+        worst = float("-inf")
+        best = float("inf")
         for name, metrics in head.items():
-            b = base.get(name)
-            ins, cyc = metrics.get("Instructions", 0), metrics.get("Estimated Cycles", 0)
-            if not b:
-                rows.append(f"| 🆕 | `{name}` | {ins:,} | new | {cyc:,} | new |")
+            ins = metrics.get("Instructions")
+            cyc = metrics.get("Estimated Cycles")
+            if ins is None or cyc is None:
                 continue
-            d_ins = pct(ins, b.get("Instructions", 0))
-            d_cyc = pct(cyc, b.get("Estimated Cycles", 0))
+            b = base.get(name)
+            if not b or "Instructions" not in b:
+                # New benchmark on this branch: no base to compare against.
+                rows.append(f"| 🆕 | `{name}` | {ins:,} | — | {cyc:,} | — |")
+                continue
+            b_ins = b["Instructions"]
+            b_cyc = b.get("Estimated Cycles", cyc)
+            d_ins = pct(ins, b_ins)
+            d_cyc = pct(cyc, b_cyc)
             if abs(d_ins) < NOISE_PCT:
                 unchanged += 1
             elif d_ins < 0:
@@ -200,22 +208,22 @@ def render(
             "|---|---:|---:|",
         ]
         for name, metrics in head.items():
-            lines.append(
-                f"| `{name}` | {metrics.get('Instructions', 0):,} "
-                f"| {metrics.get('Estimated Cycles', 0):,} |"
-            )
+            ins = metrics.get("Instructions")
+            cyc = metrics.get("Estimated Cycles")
+            if ins is not None and cyc is not None:
+                lines.append(f"| `{name}` | {ins:,} | {cyc:,} |")
         lines.append("")
 
-    if v3 and head:
-        lines += render_v3(v3, head)
-
-    # Full metric detail, collapsed: cache behaviour matters for the
-    # allocator-locality work but would swamp the summary table.
-    lines += ["<details>", "<summary>All metrics (cache hits, RAM traffic)</summary>", ""]
-    header = "| Benchmark | " + " | ".join(METRICS) + " |"
-    lines += [header, "|---" * (len(METRICS) + 1) + "|"]
+    # Detailed metrics (L1/LL/RAM hits) collapsed by default.
+    lines += [
+        "<details>",
+        "<summary>Cache-miss details (L1 / Last-Level / RAM hits)</summary>",
+        "",
+        "| Benchmark | " + " | ".join(METRICS) + " |",
+        "|---|" + "|".join(["---:"] * len(METRICS)) + "|",
+    ]
     for name, metrics in head.items():
-        cells = []
+        cells: list[str] = []
         for m in METRICS:
             value = metrics.get(m)
             cell = f"{value:,}" if value is not None else "—"
@@ -228,13 +236,28 @@ def render(
     if bytes_table:
         lines += [
             "<details>",
-            "<summary>Memory: bytes/key by distribution</summary>",
+            "<summary>Memory (64-Bit Server Architecture): bytes/key by distribution</summary>",
             "",
             "Deterministic allocator accounting; the `memory-budget` job fails the "
             "build if any distribution exceeds its ceiling.",
             "",
             "```",
             bytes_table.strip(),
+            "```",
+            "",
+            "</details>",
+            "",
+        ]
+
+    if bytes32_table:
+        lines += [
+            "<details>",
+            "<summary>Memory (32-Bit Embedded Architecture: RV32 / ESP32 / Cortex-M): bytes/key</summary>",
+            "",
+            "Measured under 32-bit pointer width (`Edge32` compact 8-byte layout):",
+            "",
+            "```",
+            bytes32_table.strip(),
             "```",
             "",
             "</details>",
@@ -445,6 +468,7 @@ def main() -> int:
     ap.add_argument("--head", required=True, help="bench output for this branch")
     ap.add_argument("--base", help="bench output for the merge base")
     ap.add_argument("--bytes", help="bytes_per_key output")
+    ap.add_argument("--bytes32", help="bytes_per_key_32 output")
     ap.add_argument("--base-ref", default="main")
     ap.add_argument("--vs-stock", help="vs_stock bench output")
     ap.add_argument("--v3", help="bench output for x86-64-v3")
@@ -494,6 +518,7 @@ def main() -> int:
         args.base_ref,
         parse(stock_text) if stock_text else None,
         parse(v3_text) if v3_text else None,
+        read(args.bytes32) if args.bytes32 else None,
     )
 
     if reg_messages:

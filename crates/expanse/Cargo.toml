@@ -16,6 +16,10 @@ authors.workspace = true
 [lib]
 name = "expanse_trie"
 
+[features]
+default = ["std"]
+std = []
+
 [dependencies]
 
 [dev-dependencies]
@@ -66,6 +70,11 @@ test = false
 
 [[bench]]
 name = "ycsb"
+harness = false
+test = false
+
+[[bench]]
+name = "embedded"
 harness = false
 test = false
 

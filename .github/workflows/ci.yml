@@ -137,6 +137,44 @@ jobs:
       - name: Check (riscv64, cross-compile)
         run: cargo check --workspace --target riscv64gc-unknown-linux-gnu
 
+  test-rv32:
+    name: Cross / RV32IMAC Cross-Compile (Bare-Metal)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Target
+        run: rustup target add riscv32imac-unknown-none-elf
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check RV32IMAC Core
+        run: cargo check -p expanse-trie --no-default-features --target riscv32imac-unknown-none-elf
+
+  test-cortex-m:
+    name: Cross / ARM Cortex-M4 Cross-Compile (Bare-Metal)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Target
+        run: rustup target add thumbv7em-none-eabihf
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check Cortex-M4 Core
+        run: cargo check -p expanse-trie --no-default-features --target thumbv7em-none-eabihf
+
   test-musl:
     name: Cross / Musl Static C ABI (Linux)
     needs: [detect-changes]
@@ -343,8 +381,11 @@ jobs:
         run: |
           RUSTFLAGS="-C target-cpu=x86-64-v3" cargo bench --bench instructions -p expanse-trie | tee v3-counts.txt
 
-      - name: bytes/key table
+      - name: bytes/key table (64-bit)
         run: cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
+
+      - name: bytes/key table (32-bit embedded)
+        run: cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
 
       - name: libexpanse vs stock libjudy (instructions)
         run: cargo bench --bench vs_stock -p expanse-capi | tee vs-stock.txt
@@ -353,11 +394,52 @@ jobs:
         if: always()
         run: |
           if [ -f instruction-counts.txt ] && [ -f bytes-per-key.txt ] && [ -f vs-stock.txt ]; then
-            python3 scripts/perf_report.py --head instruction-counts.txt --bytes bytes-per-key.txt --vs-stock vs-stock.txt --v3 v3-counts.txt > pr-report.md || true
+            python3 scripts/perf_report.py --head instruction-counts.txt --bytes bytes-per-key.txt --bytes32 bytes-per-key-32.txt --vs-stock vs-stock.txt --v3 v3-counts.txt > pr-report.md || true
             if [ -f pr-report.md ]; then
               cat pr-report.md >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
+
+      - name: Post or Update Benchmark PR Comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (!fs.existsSync('pr-report.md')) {
+              console.log('No pr-report.md found, skipping comment');
+              return;
+            }
+            const report = fs.readFileSync('pr-report.md', 'utf8').trim();
+            if (!report) return;
+
+            const marker = '<!-- expanse-perf-report -->';
+            const body = `${marker}\n${report}`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              console.log(`Updating existing PR benchmark comment #${existing.id}`);
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body,
+              });
+            } else {
+              console.log('Creating new PR benchmark comment');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
 
   differential-oracle:
     name: Compat / Stock libjudy Oracle (Linux)
@@ -415,8 +497,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Run memory budget assertions
+      - name: Run memory budget assertions (64-bit)
         run: cargo run --release --example bytes_per_key
+
+      - name: Run memory budget assertions (32-bit embedded)
+        run: cargo run --release --example bytes_per_key_32
 
   loom:
     name: Safety / Loom Concurrency Race Model
@@ -506,6 +591,8 @@ jobs:
       - test
       - test-musl
       - test-riscv64
+      - test-rv32
+      - test-cortex-m
       - miri
       - php-judy-compat
       - php-judy-windows

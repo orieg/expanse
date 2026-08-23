@@ -104,6 +104,15 @@ fn test_visualizer_constants_sync() {
         json_content.contains(r#""MAX_LEVEL": 8"#),
         "JSON must contain MAX_LEVEL: 8"
     );
+
+    // 4. Verify 32-bit embedded constants
+    assert_eq!(expanse_trie::types32::MAX_LEVEL_32, 4);
+    assert_eq!(expanse_trie::types32::CACHE_LINE_32, 32);
+    assert_eq!(core::mem::size_of::<expanse_trie::types32::Edge32>(), 8);
+    assert!(
+        json_content.contains("embedded_32bit_benchmarks"),
+        "JSON must contain embedded_32bit_benchmarks section"
+    );
 }
 
 #[test]
