@@ -21,6 +21,7 @@ Do not scatter architecture notes into arbitrary files. Use and maintain the can
 - **`docs/COMPAT.md`**: C ABI contracts, drop-in parity gates, error handling, packaging specifications.
 - **`docs/TESTING.md`**: Test methodology, differential testing, invariants validator, fuzzing.
 - **`docs/BENCHMARKING.md`**: Benchmarking methodology, instruction counting, hardware counters, profiling.
+- **`docs/CI_CD_GUIDE.md`**: CI/CD engineering standards, path filtering, Miri tiering, aggregation gates, and regression gating.
 
 ---
 
