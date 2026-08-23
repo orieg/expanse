@@ -148,9 +148,36 @@ jobs:
         run: |
           dotnet nuget push dist/nuget/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate || true
 
+  package-npm:
+    name: Package Node.js (npm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pack npm package
+        run: |
+          mkdir -p dist/npm
+          cp LICENSE-MIT LICENSE-APACHE crates/expanse-node/ || true
+          npm pack ./crates/expanse-node --pack-destination dist/npm
+      - name: Upload npm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts-npm
+          path: dist/npm/*.tgz
+      - name: Publish to npm registry
+        if: env.NPM_TOKEN != ''
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+          npm publish dist/npm/*.tgz --access public || true
+
   github-release:
     name: Create GitHub Release
-    needs: [build-release-artifacts, package-nuget]
+    needs: [build-release-artifacts, package-nuget, package-npm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

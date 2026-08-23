@@ -45,3 +45,4 @@ manifest-path = "crates/expanse-py/Cargo.toml"
 module-name = "expanse_trie._expanse"
 python-source = "python"
 features = ["pyo3/extension-module"]
+include = ["LICENSE-APACHE", "LICENSE-MIT"]
