@@ -180,6 +180,33 @@ fn test_benchmark_coverage_sync() {
         html_content.contains("STOCK_VS_EXPANSE_DATA"),
         "docs/architecture_visualizer.html must define STOCK_VS_EXPANSE_DATA"
     );
+    assert!(
+        html_content.contains("YCSB_BENCHMARKS_DATA"),
+        "docs/architecture_visualizer.html must define YCSB_BENCHMARKS_DATA"
+    );
+    assert!(
+        html_content.contains("LARGE_VALUE_BENCHMARKS_DATA"),
+        "docs/architecture_visualizer.html must define LARGE_VALUE_BENCHMARKS_DATA"
+    );
+    assert!(
+        json_content.contains("ycsb_benchmarks"),
+        "docs/visualizer_data.json must contain ycsb_benchmarks"
+    );
+    assert!(
+        json_content.contains("large_value_benchmarks"),
+        "docs/visualizer_data.json must contain large_value_benchmarks"
+    );
+    assert!(
+        json_content.contains("modern_architecture"),
+        "docs/visualizer_data.json must contain modern_architecture"
+    );
+    assert!(
+        html_content.contains("ValueSlot")
+            && html_content.contains("BlobArena")
+            && html_content.contains("Edge32")
+            && html_content.contains("SyncExpanseMap"),
+        "docs/architecture_visualizer.html must contain modern architecture sections"
+    );
 }
 
 #[test]
