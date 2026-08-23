@@ -839,22 +839,19 @@ unsafe fn insert_with_path_flat(
 
             0x01 => {
                 debug_assert!(level >= 2);
-                // SAFETY: edge points to a live BranchL3 node.
-                let b_ptr = unsafe { (*edge).node_ptr().cast::<BranchL3>() };
-                let bl = unsafe { (*b_ptr).hdr.level };
-                // SAFETY: edge is a live BranchL3 node.
-                if bl < level && !unsafe { crate::get::decode_matches(&*edge, key, bl, level) } {
-                    // SAFETY: edge is a live BranchL3 edge.
-                    let pop = unsafe { (*edge).pop0(bl) + 1 };
-                    path.clear();
-                    // SAFETY: split_skip maintains valid tree invariants.
-                    unsafe { split_skip(a, &mut *edge, key, level, pop) };
-                    continue;
-                }
-                let d = digit(key, bl);
-                let num = unsafe { (*b_ptr).hdr.num as usize };
-                let found = unsafe {
-                    if num >= 1 && (*b_ptr).hdr.digits[0] == d {
+                // SAFETY: edge points to a live BranchL3 node; raw pointer derivations avoid creating unique references over parent edges.
+                unsafe {
+                    let b_ptr = (*edge).node_ptr().cast::<BranchL3>();
+                    let bl = (*b_ptr).hdr.level;
+                    if bl < level && !crate::get::decode_matches(&*edge, key, bl, level) {
+                        let pop = (*edge).pop0(bl) + 1;
+                        path.clear();
+                        split_skip(a, &mut *edge, key, level, pop);
+                        continue;
+                    }
+                    let d = digit(key, bl);
+                    let num = (*b_ptr).hdr.num as usize;
+                    let found = if num >= 1 && (*b_ptr).hdr.digits[0] == d {
                         Some(0)
                     } else if num >= 2 && (*b_ptr).hdr.digits[1] == d {
                         Some(1)
@@ -862,82 +859,71 @@ unsafe fn insert_with_path_flat(
                         Some(2)
                     } else {
                         None
+                    };
+                    if let Some(slot) = found {
+                        ancestors[anc_depth] = (edge, bl);
+                        anc_depth += 1;
+                        edge = &raw mut (*b_ptr).edges[slot];
+                        level = bl - 1;
+                        continue;
                     }
-                };
-                if let Some(slot) = found {
+                    if num == BRANCH_L3_CAP {
+                        path.clear();
+                        upgrade_l3_to_l7(a, &mut *edge);
+                        continue;
+                    }
+                    let slot = linear_insert_slot_l3(
+                        &mut (*b_ptr).hdr.digits,
+                        &mut (*b_ptr).edges,
+                        num,
+                        d,
+                    );
+                    (*b_ptr).hdr.num += 1;
+                    (*b_ptr).hdr.add_presence(d);
                     ancestors[anc_depth] = (edge, bl);
                     anc_depth += 1;
-                    // SAFETY: slot is in-bounds for BranchL3 edges array.
-                    edge = unsafe { &raw mut (*b_ptr).edges[slot] };
+                    edge = &raw mut (*b_ptr).edges[slot];
                     level = bl - 1;
                     continue;
                 }
-                if num == BRANCH_L3_CAP {
-                    path.clear();
-                    // SAFETY: upgrades branch to BranchL7.
-                    unsafe { upgrade_l3_to_l7(a, &mut *edge) };
-                    continue;
-                }
-                // SAFETY: num < BRANCH_L3_CAP; inserting digit d shifts in-place.
-                let slot = unsafe {
-                    linear_insert_slot_l3(&mut (*b_ptr).hdr.digits, &mut (*b_ptr).edges, num, d)
-                };
-                unsafe {
-                    (*b_ptr).hdr.num += 1;
-                    (*b_ptr).hdr.add_presence(d);
-                }
-                ancestors[anc_depth] = (edge, bl);
-                anc_depth += 1;
-                // SAFETY: slot is in-bounds for BranchL3 edges array.
-                edge = unsafe { &raw mut (*b_ptr).edges[slot] };
-                level = bl - 1;
-                continue;
             }
 
             0x02 => {
                 debug_assert!(level >= 2);
-                // SAFETY: edge points to a live BranchL7 node.
-                let b_ptr = unsafe { (*edge).node_ptr().cast::<BranchL7>() };
-                let bl = unsafe { (*b_ptr).hdr.level };
-                // SAFETY: edge is a live BranchL7 node.
-                if bl < level && !unsafe { crate::get::decode_matches(&*edge, key, bl, level) } {
-                    // SAFETY: edge is a live BranchL7 edge.
-                    let pop = unsafe { (*edge).pop0(bl) + 1 };
-                    path.clear();
-                    // SAFETY: split_skip maintains valid tree invariants.
-                    unsafe { split_skip(a, &mut *edge, key, level, pop) };
-                    continue;
-                }
-                let d = digit(key, bl);
-                if let Some(slot) = unsafe { (*b_ptr).hdr.find(d) } {
+                // SAFETY: edge points to a live BranchL7 node; raw pointer derivations avoid creating unique references over parent edges.
+                unsafe {
+                    let b_ptr = (*edge).node_ptr().cast::<BranchL7>();
+                    let bl = (*b_ptr).hdr.level;
+                    if bl < level && !crate::get::decode_matches(&*edge, key, bl, level) {
+                        let pop = (*edge).pop0(bl) + 1;
+                        path.clear();
+                        split_skip(a, &mut *edge, key, level, pop);
+                        continue;
+                    }
+                    let d = digit(key, bl);
+                    if let Some(slot) = (*b_ptr).hdr.find(d) {
+                        ancestors[anc_depth] = (edge, bl);
+                        anc_depth += 1;
+                        edge = &raw mut (*b_ptr).edges[slot];
+                        level = bl - 1;
+                        continue;
+                    }
+                    let num = (*b_ptr).hdr.num as usize;
+                    if num == BRANCH_L7_CAP {
+                        path.clear();
+                        upgrade_l7_to_b(a, &mut *edge);
+                        continue;
+                    }
+                    let slot =
+                        linear_insert_slot(&mut (*b_ptr).hdr.digits, &mut (*b_ptr).edges, num, d);
+                    (*b_ptr).hdr.num += 1;
+                    (*b_ptr).hdr.add_presence(d);
                     ancestors[anc_depth] = (edge, bl);
                     anc_depth += 1;
-                    // SAFETY: slot is in-bounds for BranchL7 edges array.
-                    edge = unsafe { &raw mut (*b_ptr).edges[slot] };
+                    edge = &raw mut (*b_ptr).edges[slot];
                     level = bl - 1;
                     continue;
                 }
-                let num = unsafe { (*b_ptr).hdr.num as usize };
-                if num == BRANCH_L7_CAP {
-                    path.clear();
-                    // SAFETY: upgrades branch to BranchB.
-                    unsafe { upgrade_l7_to_b(a, &mut *edge) };
-                    continue;
-                }
-                // SAFETY: num < BRANCH_L7_CAP; inserting digit d shifts in-place.
-                let slot = unsafe {
-                    linear_insert_slot(&mut (*b_ptr).hdr.digits, &mut (*b_ptr).edges, num, d)
-                };
-                unsafe {
-                    (*b_ptr).hdr.num += 1;
-                    (*b_ptr).hdr.add_presence(d);
-                }
-                ancestors[anc_depth] = (edge, bl);
-                anc_depth += 1;
-                // SAFETY: slot is in-bounds for BranchL7 edges array.
-                edge = unsafe { &raw mut (*b_ptr).edges[slot] };
-                level = bl - 1;
-                continue;
             }
 
             0x03 => {
