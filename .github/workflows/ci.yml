@@ -15,7 +15,7 @@ env:
 
 jobs:
   detect-changes:
-    name: Detect Modified Subsystems
+    name: Subsystems / Change Detection
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -47,7 +47,7 @@ jobs:
               - 'website/**'
 
   lint:
-    name: lint
+    name: Core / Linter & Formatting
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -68,7 +68,7 @@ jobs:
         run: cargo fmt --all --check
 
   test:
-    name: test (${{ matrix.os }})
+    name: Core / Workspace Tests (${{ matrix.os }})
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     strategy:
@@ -113,7 +113,7 @@ jobs:
         shell: bash
 
   test-riscv64:
-    name: test-riscv64
+    name: Cross / RV64GC Cross-Compile (Linux)
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -131,7 +131,7 @@ jobs:
         run: cargo check --workspace --target riscv64gc-unknown-linux-gnu
 
   test-musl:
-    name: test-musl
+    name: Cross / Musl Static C ABI (Linux)
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -152,10 +152,10 @@ jobs:
           }
 
       - name: Build (musl)
-        run: cargo build -p expanse-trie -p expanse-capi --target x86_64-unknown-linux-musl
+        run: cargo build --workspace --exclude expanse-py --target x86_64-unknown-linux-musl
 
       - name: Test (musl)
-        run: cargo test -p expanse-trie -p expanse-capi --target x86_64-unknown-linux-musl
+        run: cargo test --workspace --exclude expanse-py --target x86_64-unknown-linux-musl
 
       - name: Assert capi drop-in artifacts exist (musl)
         run: |
@@ -165,7 +165,7 @@ jobs:
           echo "capi artifacts present: $dir/libexpanse.so, $dir/libexpanse.a"
 
   miri:
-    name: miri
+    name: Safety / Tier 1 Miri Fast Smoke
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -184,7 +184,7 @@ jobs:
           cargo miri test -p expanse-trie --lib -- alloc:: bits:: leaf:: node:: slot:: get::
 
   php-judy-compat:
-    name: php-judy-compat
+    name: Compat / PHP-Judy Extension (Linux)
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -235,7 +235,7 @@ jobs:
           }
 
   php-judy-windows:
-    name: php-judy-windows
+    name: Compat / PHP-Judy Extension (Windows x64)
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: windows-latest
@@ -284,7 +284,7 @@ jobs:
           test-runner-args: "--set-timeout 30"
 
   instruction-counts:
-    name: instruction-counts
+    name: Perf / Callgrind Deterministic Instructions
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -351,7 +351,7 @@ jobs:
           fi
 
   differential-oracle:
-    name: differential-oracle
+    name: Compat / Stock libjudy Oracle (Linux)
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -394,7 +394,7 @@ jobs:
           grep -q '^ok$' stock.out
 
   memory-budget:
-    name: memory-budget
+    name: Perf / Memory Budget Invariants
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -410,7 +410,7 @@ jobs:
         run: cargo run --release --example bytes_per_key
 
   loom:
-    name: loom
+    name: Safety / Loom Concurrency Race Model
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -428,7 +428,7 @@ jobs:
           RUSTFLAGS: --cfg loom
 
   fuzz-smoke:
-    name: fuzz-smoke
+    name: Safety / Fuzz Invariants Smoke
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -460,7 +460,7 @@ jobs:
           if-no-files-found: ignore
 
   test-python:
-    name: test-python (smoke)
+    name: Bindings / Python Fast Smoke (Py3.12)
     needs: [detect-changes]
     if: needs.detect-changes.outputs.python == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
