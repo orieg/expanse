@@ -4,10 +4,12 @@ members = [
     "crates/expanse",
     "crates/expanse-capi",
     "crates/expanse-py",
+    "crates/expanse-node",
 ]
 default-members = [
     "crates/expanse",
     "crates/expanse-capi",
+    "crates/expanse-node",
 ]
 
 [workspace.package]

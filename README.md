@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/orieg/expanse/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/orieg/expanse/actions/workflows/ci.yml?query=branch%3Amain)
 [![Crates.io Version](https://img.shields.io/crates/v/expanse-trie.svg?style=flat-square&logo=rust)](https://crates.io/crates/expanse-trie)
+[![npm Version](https://img.shields.io/npm/v/@orieg/expanse.svg?style=flat-square&logo=npm)](https://www.npmjs.com/package/@orieg/expanse)
 [![PyPI Version](https://img.shields.io/pypi/v/expanse-trie.svg?style=flat-square&logo=pypi)](https://pypi.org/project/expanse-trie/)
 [![APT Repository](https://img.shields.io/badge/apt-debian%20%7C%20ubuntu-orange.svg?style=flat-square&logo=debian)](https://orieg.github.io/expanse/apt/)
 [![RPM Repository](https://img.shields.io/badge/rpm-rhel%20%7C%20fedora%20%7C%20centos-red.svg?style=flat-square&logo=redhat)](https://orieg.github.io/expanse/rpm/)
@@ -56,6 +57,7 @@ Naming the project after the mechanism honors the algorithm itself without inher
 | **C ABI (`libexpanse`)** | [`crates/expanse-capi`](crates/expanse-capi) | `cdylib`/`staticlib` exporting **both** the legacy `Judy.h` surface (`Judy1*`, `JudyL*`, `JudySL*`, `JudyHS*` — allowing consumers like [php-judy](https://github.com/orieg/php-judy) to swap `libJudy` for `libexpanse` without source changes) **and** modern `expanse.h` |
 | **Java / Scala FFM API** | [`bindings/java`](bindings/java) (`io.github.orieg:expanse-java`) | Java 22+ / 21 LTS Project Panama Foreign Function & Memory bindings: zero-GC off-heap collections (`ExpanseMap`, `ExpanseSet`, `ExpanseStrMap`, `ExpanseBytesMap`), value slots, `NavigableMap`/`NavigableSet` |
 | **Python API** | [`crates/expanse-py`](crates/expanse-py) (`pip install expanse-trie`) | High-performance Python extension via PyO3: `ExpanseSet`, `ExpanseMap`, `SyncExpanseMap`, GIL-released queries |
+| **Node.js / Bun / Deno API** | [`crates/expanse-node`](crates/expanse-node) (`@orieg/expanse`) | Native high-performance N-API bindings via `napi-rs`: `ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `SyncExpanseMap`, `SyncExpanseSet` |
 
 Legacy ↔ modern naming:
 
@@ -343,6 +345,34 @@ try (ExpanseMap map = new ExpanseMap();
 }
 ```
 See [docs/BINDINGS_JAVA.md](docs/BINDINGS_JAVA.md) for Panama FFM architecture, GC elimination benchmarks, and Spark/Flink off-heap integration patterns.
+
+### 8. Node.js, Bun & Deno Quickstart (`npm i @orieg/expanse`)
+```bash
+npm install @orieg/expanse
+# or bun add @orieg/expanse
+```
+
+```javascript
+import { ExpanseSet, ExpanseMap, ExpanseBlobMap } from '@orieg/expanse';
+
+// 1. Dynamic sparse 64-bit integer set (Judy1)
+const set = new ExpanseSet([10n, 20n, 50n, 100n]);
+console.log(set.has(20n));               // true
+console.log(set.next(25n));              // 50n
+console.log(set.countRange(10n, 50n));   // 3n
+
+// 2. Key-value associative map (JudyL)
+const map = new ExpanseMap();
+map.set(42n, 1000n);
+console.log(map.get(42n));               // 1000n
+
+// 3. High-performance polymorphic blob map (inline packing + arena)
+const blobmap = new ExpanseBlobMap();
+blobmap.set(1n, Buffer.from('inline'), 10 /* 32-bit hot metadata */);
+const res = blobmap.getWithMeta(1n);
+console.log(res.isInline);               // true (0 heap allocations)
+```
+See [crates/expanse-node/README.md](crates/expanse-node/README.md) for full Node.js documentation.
 See [docs/PACKAGING.md](docs/PACKAGING.md) for full packaging instructions across all platforms.
 
 ---
