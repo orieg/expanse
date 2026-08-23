@@ -6,133 +6,118 @@ using Expanse.Native;
 namespace Expanse;
 
 /// <summary>
-/// Delegate action invoked during zero-copy blob range scans.
+/// Delegate invoked during zero-copy blob scans.
 /// </summary>
 /// <param name="key">The 64-bit key.</param>
-/// <param name="payload">Zero-copy span pointing directly to the payload bytes.</param>
-/// <param name="hotMeta">32-bit hot metadata word.</param>
+/// <param name="payload">Zero-copy read-only span pointing directly to the blob payload bytes.</param>
+/// <param name="hotMeta">The 32-bit hot metadata word.</param>
 public delegate void ExpanseBlobScanAction(ulong key, ReadOnlySpan<byte> payload, uint hotMeta);
 
 /// <summary>
-/// High-performance off-heap map from 64-bit integer keys to arbitrary-length byte payloads
-/// backed by inline polymorphic 64-bit value slots and chunked slab arenas.
+/// High-performance polymorphic large-value map with inline payload packing (0..=7 bytes),
+/// off-heap arena slab allocation, hot metadata filtering, and in-place garbage collection.
 /// </summary>
 public sealed class ExpanseBlobMap : IDisposable
 {
-    private SafeExpanseBlobMapHandle _handle;
+    private readonly SafeExpanseBlobMapHandle _handle;
     private bool _disposed;
 
     /// <summary>
-    /// Creates a new empty <see cref="ExpanseBlobMap"/> with default 2 MiB slab chunks.
+    /// Creates a new empty blob map with default 2 MiB arena chunk capacity.
     /// </summary>
-    public ExpanseBlobMap() : this(0) { }
+    public ExpanseBlobMap() : this(0)
+    {
+    }
 
     /// <summary>
-    /// Creates a new empty <see cref="ExpanseBlobMap"/> with custom slab chunk capacity in bytes.
+    /// Creates a new empty blob map with custom chunk capacity.
     /// </summary>
-    /// <param name="chunkSize">Chunk size in bytes (0 for default 2 MiB).</param>
+    /// <param name="chunkSize">Chunk size in bytes, or 0 for default 2 MiB.</param>
     public ExpanseBlobMap(nuint chunkSize)
     {
         _handle = NativeMethods.expanse_blob_map_new(chunkSize);
         if (_handle.IsInvalid)
         {
-            throw new OutOfMemoryException("Failed to allocate native ExpanseBlobMap");
-        }
-    }
-
-    /// <summary>
-    /// Gets the underlying native <see cref="SafeExpanseBlobMapHandle"/>.
-    /// </summary>
-    public SafeExpanseBlobMapHandle Handle
-    {
-        get
-        {
-            ThrowIfDisposed();
-            return _handle;
+            throw new OutOfMemoryException("Failed to allocate expanse_blob_map_t.");
         }
     }
 
     private void ThrowIfDisposed()
     {
-        ObjectDisposedException.ThrowIf(_disposed || _handle.IsInvalid || _handle.IsClosed, this);
+        ObjectDisposedException.ThrowIf(_disposed || _handle.IsClosed || _handle.IsInvalid, this);
     }
 
     /// <summary>
-    /// Inserts or updates a key-blob mapping with optional 32-bit hot metadata.
-    /// </summary>
-    /// <param name="key">The 64-bit unsigned key.</param>
-    /// <param name="payload">The byte payload to store.</param>
-    /// <param name="hotMeta">32-bit hot metadata stored directly in index.</param>
-    public unsafe void Set(ulong key, ReadOnlySpan<byte> payload, uint hotMeta = 0)
-    {
-        ThrowIfDisposed();
-        if (payload.Length == 0)
-        {
-            NativeMethods.expanse_blob_map_insert(_handle, key, null, 0, hotMeta);
-            return;
-        }
-        fixed (byte* pData = payload)
-        {
-            NativeMethods.expanse_blob_map_insert(_handle, key, pData, (nuint)payload.Length, hotMeta);
-        }
-    }
-
-    /// <summary>
-    /// Inserts or updates a key-blob mapping with byte array and optional hot metadata.
-    /// </summary>
-    public void Set(ulong key, byte[] payload, uint hotMeta = 0)
-    {
-        ArgumentNullException.ThrowIfNull(payload);
-        Set(key, payload.AsSpan(), hotMeta);
-    }
-
-    /// <summary>
-    /// Inserts or updates a key-blob mapping, returning <c>true</c> on success.
-    /// </summary>
-    public unsafe bool Insert(ulong key, ReadOnlySpan<byte> payload, uint hotMeta = 0)
-    {
-        ThrowIfDisposed();
-        if (payload.Length == 0)
-        {
-            return NativeMethods.expanse_blob_map_insert(_handle, key, null, 0, hotMeta);
-        }
-        fixed (byte* pData = payload)
-        {
-            return NativeMethods.expanse_blob_map_insert(_handle, key, pData, (nuint)payload.Length, hotMeta);
-        }
-    }
-
-    /// <summary>
-    /// Attempts to retrieve the zero-copy blob payload and hot metadata for the given key.
+    /// Inserts or replaces a key-blob pair with 32-bit hot metadata.
     /// </summary>
     /// <param name="key">The 64-bit key.</param>
-    /// <param name="payload">Zero-copy span pointing directly to the payload.</param>
-    /// <param name="hotMeta">The retrieved 32-bit hot metadata.</param>
-    /// <returns><c>true</c> if the key is present; otherwise <c>false</c>.</returns>
+    /// <param name="data">The byte span payload to store.</param>
+    /// <param name="hotMeta">32-bit hot metadata word evaluated during zero-copy filter predicates.</param>
+    public unsafe void Set(ulong key, ReadOnlySpan<byte> data, uint hotMeta = 0)
+    {
+        ThrowIfDisposed();
+        fixed (byte* ptr = data)
+        {
+            if (!NativeMethods.expanse_blob_map_insert(_handle, key, ptr, (nuint)data.Length, hotMeta))
+            {
+                throw new InvalidOperationException($"Failed to insert blob for key {key}.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Inserts or replaces a key-blob pair with 32-bit hot metadata.
+    /// </summary>
+    /// <param name="key">The 64-bit key.</param>
+    /// <param name="data">The byte array payload to store.</param>
+    /// <param name="hotMeta">32-bit hot metadata word.</param>
+    public void Set(ulong key, byte[] data, uint hotMeta = 0)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        Set(key, data.AsSpan(), hotMeta);
+    }
+
+    /// <summary>
+    /// Looks up a key, providing zero-copy span access to the payload and hot metadata.
+    /// </summary>
+    /// <param name="key">The 64-bit key.</param>
+    /// <param name="payload">Output read-only span pointing directly to the blob payload.</param>
+    /// <param name="hotMeta">Output 32-bit hot metadata word.</param>
+    /// <returns><c>true</c> if key was found; otherwise <c>false</c>.</returns>
     public unsafe bool TryGet(ulong key, out ReadOnlySpan<byte> payload, out uint hotMeta)
     {
         ThrowIfDisposed();
         if (NativeMethods.expanse_blob_map_get(_handle, key, out NativeMethods.NativeBlobView view))
         {
             hotMeta = view.HotMeta;
-            payload = view.Len == 0 || view.Ptr == IntPtr.Zero
-                ? ReadOnlySpan<byte>.Empty
-                : new ReadOnlySpan<byte>((void*)view.Ptr, (int)view.Len);
+            if (view.Len == 0 || view.Ptr == IntPtr.Zero)
+            {
+                payload = ReadOnlySpan<byte>.Empty;
+            }
+            else
+            {
+                payload = new ReadOnlySpan<byte>((void*)view.Ptr, (int)view.Len);
+            }
             return true;
         }
-        hotMeta = 0;
+
         payload = default;
+        hotMeta = 0;
         return false;
     }
 
     /// <summary>
-    /// Attempts to retrieve the zero-copy blob payload for the given key.
+    /// Looks up a key, providing zero-copy span access to the payload.
     /// </summary>
     public bool TryGet(ulong key, out ReadOnlySpan<byte> payload) => TryGet(key, out payload, out _);
 
     /// <summary>
-    /// Attempts to retrieve the blob payload as a managed byte array.
+    /// Looks up a key, copying the payload into a newly allocated managed byte array.
     /// </summary>
+    /// <param name="key">The 64-bit key.</param>
+    /// <param name="payload">Output managed byte array containing a copy of the payload.</param>
+    /// <param name="hotMeta">Output 32-bit hot metadata word.</param>
+    /// <returns><c>true</c> if key was found; otherwise <c>false</c>.</returns>
     public bool TryGetBytes(ulong key, out byte[] payload, out uint hotMeta)
     {
         if (TryGet(key, out ReadOnlySpan<byte> span, out hotMeta))
@@ -140,12 +125,13 @@ public sealed class ExpanseBlobMap : IDisposable
             payload = span.ToArray();
             return true;
         }
-        payload = Array.Empty<byte>();
+
+        payload = [];
         return false;
     }
 
     /// <summary>
-    /// Attempts to retrieve the blob payload as a managed byte array.
+    /// Looks up a key, copying the payload into a newly allocated managed byte array.
     /// </summary>
     public bool TryGetBytes(ulong key, out byte[] payload) => TryGetBytes(key, out payload, out _);
 
@@ -256,21 +242,21 @@ public sealed class ExpanseBlobMap : IDisposable
 
         var toPrune = new List<ulong>();
 
-        NativeMethods.ExpanseScanCallback scanCb = (ulong key, NativeMethods.NativeBlobView view, IntPtr userCtx) =>
+        NativeMethods.ExpansePredicateCallback predCb = (ulong key, uint meta, IntPtr ctx) =>
         {
-            if (predicate(key, view.HotMeta))
+            if (predicate(key, meta))
             {
                 toPrune.Add(key);
             }
-            return true;
+            return false;
         };
 
         NativeMethods.expanse_blob_map_scan_filtered(
             _handle,
             0,
             ulong.MaxValue,
+            predCb,
             null,
-            scanCb,
             IntPtr.Zero);
 
         ulong prunedCount = 0;

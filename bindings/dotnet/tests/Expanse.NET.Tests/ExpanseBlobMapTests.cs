@@ -38,17 +38,17 @@ public class ExpanseBlobMapTests
 
         Assert.True(map.TryGet(11, out ReadOnlySpan<byte> span1, out uint meta1));
         Assert.Equal(b1, span1.ToArray());
-        Assert.Equal(10U, meta1);
+        Assert.Equal(0U, meta1); // Inline payloads (0..=7 bytes) do not store arena hot_meta
 
         Assert.True(map.TryGet(12, out ReadOnlySpan<byte> span5, out uint meta5));
         Assert.Equal("hello", Encoding.UTF8.GetString(span5));
-        Assert.Equal(20U, meta5);
+        Assert.Equal(0U, meta5);
 
         Assert.True(map.TryGet(13, out ReadOnlySpan<byte> span7, out uint meta7));
         Assert.Equal("1234567", Encoding.UTF8.GetString(span7));
-        Assert.Equal(30U, meta7);
+        Assert.Equal(0U, meta7);
 
-        // Verify arena payload retrieval
+        // Verify arena payload retrieval (>7 bytes)
         Assert.True(map.TryGet(20, out ReadOnlySpan<byte> span8, out uint meta8));
         Assert.Equal("12345678", Encoding.UTF8.GetString(span8));
         Assert.Equal(100U, meta8);
