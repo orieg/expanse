@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   test:
-    name: Test .NET Bindings (${{ matrix.os }})
+    name: Bindings / .NET (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -54,7 +54,7 @@ jobs:
           dotnet test bindings\dotnet\tests\Expanse.NET.Tests\Expanse.NET.Tests.csproj -c Release --verbosity normal
 
   pack:
-    name: Build NuGet Package
+    name: Bindings / .NET NuGet Package
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
