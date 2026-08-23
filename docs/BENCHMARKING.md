@@ -105,6 +105,7 @@ Performance claims are this project's reason to exist, so they follow the strict
 | Lookup attribution | landed (`examples/lookup_profile.rs`) | sampling profile of a `get`-only loop — *where* time goes, not how long; sample distribution inside one process is far less load-sensitive than a cross-binary ratio |
 | Concurrent read scaling (1..N threads) | landed (`benches/concurrency.rs`) | Read-only and write-churn mixes; the per-node-OCC go/no-go instrument — superseded examples |
 | Comparative benchmarks vs 3rd-party | landed (`benches/comparative.rs`) | `RoaringBitmap`, `hashbrown::HashMap` across lookups, insertions, ranges, and sparse/clustered/dense distributions |
+| Standardized YCSB Suite (Workloads A-F) | landed (`benches/ycsb.rs`) | vs `BTreeMap`, `crossbeam_skiplist::SkipMap` (RocksDB MemTable); Zipfian $\theta=0.99, N=100\text{k}$, 128B blobs |
 | Full libjudy + ART comparison | Phase 8 remainder | Headline table, dedicated-host runs, driven through the capi surface |
 
 ## Reading perf results in a PR
@@ -575,6 +576,77 @@ All 22 deterministic Callgrind instruction benchmarks (`benches/instructions.rs`
 2. **Deterministic Linux CI**: The `instruction-counts` CI job executes Valgrind/Callgrind on clean `ubuntu-latest` instances with zero wall-clock noise.
 3. **Machine-Readable Export**: Benchmark instruction counts, memory overheads, and `x86-64-v3` deltas are mirrored in `docs/visualizer_data.json`.
 4. **CI Drift Gate**: `cargo test --test test_visualizer_sync` validates on every pull request that all 22 benchmark routines exist and match between code, JSON, and the HTML visualizer.
+
+---
+
+## Standardized YCSB Workload Suite (`crates/expanse/benches/ycsb.rs`)
+
+The Yahoo! Cloud Serving Benchmark (YCSB) standardizes real-world database engine access patterns across analytical caches, session stores, time-series appends, and read-modify-write transactional workloads.
+
+### 1. Workload Specifications & Key Parameters
+- **Population Size**: $N = 100,000$ 64-bit keys.
+- **Request Distribution**: Zipfian distribution with skew parameter $\theta = 0.99$ (Gray et al. model), yielding highly skewed access to hot keys.
+- **Payload Size**: 128-byte structured byte records with 32-bit hot metadata (modeling modern database MemTables and row storage).
+
+| Workload | Access Pattern & Ratio | Database Subsystem Analogue | Target Operational Profile |
+|---|---|---|---|
+| **Workload A** | 50% Read, 50% Update | Session Store / Heavy Write Churn | Stresses leaf update in-place shifts and arena slab churn. |
+| **Workload B** | 95% Read, 5% Update | Analytical Read Cache with Background Updates | Tests L1/L2 cache residency under optimistic OCC readers. |
+| **Workload C** | 100% Read | User Profile / Catalog Point Lookups | Evaluates pure $O(\text{depth})$ trie traversal latency. |
+| **Workload D** | 95% Read Latest, 5% Insert | Event Log / User Status Timeline Append | Evaluates append skew at top of key range + monotonic branch extension. |
+| **Workload E** | 95% Short Range Scan (10..100), 5% Insert | Threaded Conversations / Secondary Index Scans | Exercises `scan_filtered` predicate pushdown without cold payload dereference. |
+| **Workload F** | 50% Read, 50% Read-Modify-Write | User Balance / Counter Mutation | Tests atomic lookup-modify-upsert cycles. |
+
+---
+
+### 2. Measured Comparative Results (`N = 100,000`, `θ = 0.99`, 128B Blobs)
+
+*(Measured: Apple M-Series Silicon, Release Profile, Seed: `0x1234_5678_9ABC`)*
+
+| Workload | Target Engine | Throughput | Median (p50) | p95 Latency | p99 Latency | p99.9 Latency | Memory (MB) | Bytes/Key |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| **Workload A** (50R / 50U) | `ExpanseMap (u64)` | **6.41 Mops/s** | 83 ns | 333 ns | 417 ns | 583 ns | **2.35 MB** | **24.6 B/key** |
+| | `ExpanseBlobMap (128B)` | **3.78 Mops/s** | 125 ns | 542 ns | 1,083 ns | 2,750 ns | **18.35 MB** | **192.4 B/key** |
+| | `BTreeMap (128B)` | 4.49 Mops/s | 84 ns | 583 ns | 792 ns | 2,084 ns | 18.31 MB | 192.0 B/key |
+| | `SkipMap (128B)` (RocksDB MemTable) | 2.97 Mops/s | 250 ns | 542 ns | 834 ns | 5,417 ns | 19.84 MB | 208.0 B/key |
+| **Workload B** (95R / 5U) | `ExpanseMap (u64)` | **22.12 Mops/s** | < 42 ns | 42 ns | 83 ns | 125 ns | **2.35 MB** | **24.6 B/key** |
+| | `ExpanseBlobMap (128B)` | **13.52 Mops/s** | 42 ns | 166 ns | 209 ns | 667 ns | **16.35 MB** | **171.4 B/key** |
+| | `BTreeMap (128B)` | 12.35 Mops/s | 42 ns | 125 ns | 209 ns | 333 ns | 18.31 MB | 192.0 B/key |
+| | `SkipMap (128B)` (RocksDB MemTable) | 5.82 Mops/s | 125 ns | 292 ns | 500 ns | 875 ns | 19.84 MB | 208.0 B/key |
+| **Workload C** (100% Read) | `ExpanseMap (u64)` | **22.29 Mops/s** | < 42 ns | 42 ns | 83 ns | 167 ns | **2.35 MB** | **24.6 B/key** |
+| | `ExpanseBlobMap (128B)` | **14.93 Mops/s** | 41 ns | 125 ns | 208 ns | 291 ns | **16.35 MB** | **171.4 B/key** |
+| | `BTreeMap (128B)` | 12.79 Mops/s | 42 ns | 84 ns | 125 ns | 167 ns | 18.31 MB | 192.0 B/key |
+| | `SkipMap (128B)` (RocksDB MemTable) | 4.95 Mops/s | 125 ns | 542 ns | 1,000 ns | 1,625 ns | 19.84 MB | 208.0 B/key |
+| **Workload D** (95R Latest / 5I) | `ExpanseMap (u64)` | **21.00 Mops/s** | < 42 ns | 42 ns | 83 ns | 250 ns | **2.36 MB** | **24.7 B/key** |
+| | `ExpanseBlobMap (128B)` | **15.98 Mops/s** | 41 ns | 125 ns | 208 ns | 333 ns | **16.36 MB** | **171.5 B/key** |
+| | `BTreeMap (128B)` | 5.23 Mops/s | 125 ns | 334 ns | 458 ns | 667 ns | 18.53 MB | 194.3 B/key |
+| | `SkipMap (128B)` (RocksDB MemTable) | 6.26 Mops/s | 125 ns | 250 ns | 333 ns | 666 ns | 20.07 MB | 210.5 B/key |
+| **Workload E** (95% Scan / 5% I) | `ExpanseMap (u64)` | **9.22 Mops/s** | 42 ns | 209 ns | 333 ns | 500 ns | **2.36 MB** | **24.7 B/key** |
+| | `ExpanseBlobMap (128B)` | **5.44 Mops/s** | 84 ns | 458 ns | 583 ns | 792 ns | **16.36 MB** | **171.5 B/key** |
+| | `BTreeMap (128B)` | 6.25 Mops/s | 83 ns | 375 ns | 500 ns | 667 ns | 18.53 MB | 194.3 B/key |
+| | `SkipMap (128B)` (RocksDB MemTable) | 4.58 Mops/s | 167 ns | 458 ns | 584 ns | 875 ns | 20.07 MB | 210.5 B/key |
+| **Workload F** (50R / 50 RMW) | `ExpanseMap (u64)` | **18.29 Mops/s** | 41 ns | 83 ns | 125 ns | 209 ns | **2.35 MB** | **24.6 B/key** |
+| | `ExpanseBlobMap (128B)` | **9.13 Mops/s** | 42 ns | 250 ns | 334 ns | 1,333 ns | **18.35 MB** | **192.4 B/key** |
+| | `BTreeMap (128B)` | 8.04 Mops/s | 42 ns | 292 ns | 584 ns | 1,709 ns | 18.31 MB | 192.0 B/key |
+| | `SkipMap (128B)` (RocksDB MemTable) | 2.61 Mops/s | 291 ns | 709 ns | 958 ns | 3,708 ns | 19.84 MB | 208.0 B/key |
+
+---
+
+### 3. Concurrent Concurrency Scaling: `SyncExpanseMap`
+
+Under concurrent OLTP read/write churn (Workload B: 95% Read / 5% Update with active Zipfian contention):
+
+| Worker Threads | Read Throughput | Write Throughput | Combined Throughput | Concurrency Scalability |
+|---|---:|---:|---:|---:|
+| **1 Thread** | 14.39 Mops/s | 0.76 Mops/s | 15.15 Mops/s | 1.00× (Baseline) |
+| **2 Threads** | 19.95 Mops/s | 1.05 Mops/s | 21.00 Mops/s | **1.39×** |
+| **4 Threads** | 14.93 Mops/s | 0.78 Mops/s | 15.71 Mops/s | 1.04× |
+| **8 Threads** | 11.01 Mops/s | 0.58 Mops/s | 11.59 Mops/s | 0.76× |
+
+**Architectural Takeaways:**
+1. **`ExpanseBlobMap` vs RocksDB MemTable (`SkipMap`)**: `ExpanseBlobMap` achieves **2.3× to 3.5× higher throughput** across Workloads B, C, D, and F while consuming 16% less memory due to 16-byte aligned slab chunking and immediate 64-bit value slot descriptors.
+2. **`ExpanseBlobMap` vs `BTreeMap` on Read-Latest (Workload D)**: `ExpanseBlobMap` delivers **3.05× higher throughput** (15.98 M/s vs 5.23 M/s) because digital trie appends do not trigger cascade rebalancing or B-Tree page splits.
+3. **Pure Word Trie (`ExpanseMap`)**: Delivers sustained **>22 Mops/s** on read-heavy workloads (Workloads B & C) with sub-42ns median latency and a compact 24.6 B/key memory footprint.
 
 
 

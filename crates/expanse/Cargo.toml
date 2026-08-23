@@ -30,6 +30,9 @@ iai-callgrind = "0.16"
 # Comparative benchmarks against industry primitives (issue #122).
 roaring = "0.10"
 hashbrown = "0.15"
+crossbeam-skiplist = "0.1"
+rand = "0.8"
+rand_distr = "0.4"
 
 # Loom model-checks the OCC/EBR protocol (occ module) under
 # `RUSTFLAGS="--cfg loom" cargo test -p expanse-trie --release loom_`.
@@ -61,6 +64,10 @@ name = "large_values"
 harness = false
 test = false
 
+[[bench]]
+name = "ycsb"
+harness = false
+test = false
+
 [lints]
 workspace = true
-
