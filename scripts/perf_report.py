@@ -23,8 +23,8 @@ import re
 import sys
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
-# "instructions::cost::map_insert random:"random"" -> group, bench, arg
-HEADER = re.compile(r"^([\w:]+)::(\w+)\s+(\S+?):")
+# Matches both "instructions::cost::map_insert random:"random"" and "instructions::cost::set32_insert_sensor_timestamps"
+HEADER = re.compile(r"^([\w:]+)::(\w+)(?:\s+([^:\s]+):?.*)?$")
 METRIC = re.compile(r"^\s{2,}([\w+ ]+):\s+([\d,]+)\|")
 
 # Metrics worth showing, in report order. Instructions first: it is the
@@ -44,7 +44,7 @@ def parse(text: str) -> dict[str, dict[str, int]]:
         head = HEADER.match(line)
         if head:
             _group, bench, arg = head.groups()
-            current = f"{bench}/{arg}"
+            current = f"{bench}/{arg}" if arg else bench
             out[current] = {}
             continue
         metric = METRIC.match(line)
