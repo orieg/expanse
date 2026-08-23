@@ -2492,9 +2492,20 @@
   // 2. VIEW SWITCHER & RENDER LOGIC
   // ===================================================================
 
-  function switchView(viewName) {
+  function switchView(viewName, updateHash = true) {
     document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.view-content').forEach(c => c.classList.remove('active'));
+
+    if (updateHash) {
+      const targetHash = viewName === 'dag' ? '' : '#' + viewName;
+      if (window.location.hash !== targetHash) {
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search + targetHash);
+        } else {
+          window.location.hash = targetHash;
+        }
+      }
+    }
 
     if (viewName === 'dag') {
       document.getElementById('btn-view-dag').classList.add('active');
@@ -3486,20 +3497,22 @@
 
   // Initialize
   initTheme();
-  if (window.location.hash === '#bench') {
-    switchView('bench');
-  } else if (window.location.hash === '#modern') {
-    switchView('modern');
-  } else {
-    update();
-    drawHierarchyConnections();
+  function handleUrlHash() {
+    const hash = (window.location.hash || '').toLowerCase();
+    if (hash === '#bench' || hash === '#benchmarks' || hash === '#benchmark') {
+      switchView('bench', false);
+    } else if (hash === '#modern' || hash === '#architecture' || hash === '#arch') {
+      switchView('modern', false);
+    } else {
+      switchView('dag', false);
+      update();
+      drawHierarchyConnections();
+    }
   }
 
-  window.addEventListener('hashchange', () => {
-    if (window.location.hash === '#bench') switchView('bench');
-    else if (window.location.hash === '#modern') switchView('modern');
-    else switchView('dag');
-  });
+  handleUrlHash();
+
+  window.addEventListener('hashchange', handleUrlHash);
   window.addEventListener('resize', drawHierarchyConnections);
 </script>
 
