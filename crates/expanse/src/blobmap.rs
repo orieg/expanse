@@ -184,8 +184,14 @@ pub struct ArenaChunk {
 }
 
 impl ArenaChunk {
+    /// Maximum allowed chunk capacity (1 GiB) to prevent corrupted images from causing OOM.
+    pub const MAX_CHUNK_CAPACITY: usize = 1024 * 1024 * 1024;
+
     /// Creates a new arena chunk of given capacity and initial generation.
     pub fn new(capacity: usize, generation: u32) -> Result<Self, ArenaError> {
+        if capacity == 0 || capacity > Self::MAX_CHUNK_CAPACITY {
+            return Err(ArenaError::AllocationFailed);
+        }
         let layout = std::alloc::Layout::from_size_align(capacity, 16)
             .map_err(|_| ArenaError::AllocationFailed)?;
         // SAFETY: Allocating memory with 16-byte alignment.
@@ -281,15 +287,21 @@ impl ArenaChunk {
         self.generation
     }
 
-    /// Returns the raw allocated slice up to the cursor.
+    /// Returns the live bump-allocated slice of this chunk.
     #[must_use]
-    pub fn raw_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         if self.cursor == 0 {
             &[]
         } else {
             // SAFETY: cursor <= capacity, ptr is allocated and valid.
             unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.cursor) }
         }
+    }
+
+    /// Returns the raw allocated slice up to the cursor.
+    #[must_use]
+    pub fn raw_bytes(&self) -> &[u8] {
+        self.as_bytes()
     }
 
     /// Creates an arena chunk pre-populated from a raw data slice.
@@ -299,10 +311,14 @@ impl ArenaChunk {
         generation: u32,
         data: &[u8],
     ) -> Result<Self, ArenaError> {
-        let mut chunk = Self::new(capacity, generation)?;
-        if cursor > capacity || data.len() > capacity {
+        if capacity == 0
+            || capacity > Self::MAX_CHUNK_CAPACITY
+            || cursor > capacity
+            || data.len() > capacity
+        {
             return Err(ArenaError::InvalidOffset);
         }
+        let mut chunk = Self::new(capacity, generation)?;
         if !data.is_empty() {
             // SAFETY: destination chunk.ptr has at least capacity bytes, data is valid.
             unsafe {
@@ -781,7 +797,19 @@ impl ExpanseBlobMap {
             return Err(ArenaError::CorruptedHeader);
         }
 
-        if header.total_size as usize > bytes.len() {
+        if header.total_size as usize > bytes.len() || (header.total_size as usize) < 64 {
+            return Err(ArenaError::CorruptedHeader);
+        }
+
+        if header.chunk_size == 0 || header.chunk_size > ArenaChunk::MAX_CHUNK_CAPACITY as u64 {
+            return Err(ArenaError::CorruptedHeader);
+        }
+
+        if header.chunk_count > (bytes.len() / 24) as u64 {
+            return Err(ArenaError::CorruptedHeader);
+        }
+
+        if header.entry_count > (bytes.len() / 16) as u64 {
             return Err(ArenaError::CorruptedHeader);
         }
 
@@ -800,6 +828,10 @@ impl ExpanseBlobMap {
             let generation =
                 u32::from_le_bytes(bytes[arena_pos + 16..arena_pos + 20].try_into().unwrap());
             arena_pos += 24;
+
+            if cap == 0 || cap > ArenaChunk::MAX_CHUNK_CAPACITY || cur > cap {
+                return Err(ArenaError::CorruptedHeader);
+            }
 
             if arena_pos + cur > bytes.len() {
                 return Err(ArenaError::CorruptedHeader);
