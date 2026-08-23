@@ -1,0 +1,154 @@
+using System;
+using System.IO;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
+namespace Expanse.Native;
+
+internal static class NativeLoader
+{
+    private static bool _initialized = false;
+    private static readonly object _lock = new();
+
+#pragma warning disable CA2255
+    [ModuleInitializer]
+#pragma warning restore CA2255
+    internal static void Initialize()
+    {
+        lock (_lock)
+        {
+            if (_initialized) return;
+            NativeLibrary.SetDllImportResolver(typeof(NativeLoader).Assembly, DllImportResolver);
+            _initialized = true;
+        }
+    }
+
+    private static IntPtr DllImportResolver(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+    {
+        if (!string.Equals(libraryName, "expanse", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(libraryName, "libexpanse", StringComparison.OrdinalIgnoreCase))
+        {
+            return IntPtr.Zero;
+        }
+
+        string nativeLibName = GetNativeLibraryFileName();
+
+        // 1. Check explicit environment variable EXPANSE_CDYLIB
+        string? envCdylib = Environment.GetEnvironmentVariable("EXPANSE_CDYLIB");
+        if (!string.IsNullOrEmpty(envCdylib))
+        {
+            if (File.Exists(envCdylib) && NativeLibrary.TryLoad(envCdylib, out IntPtr handle))
+            {
+                return handle;
+            }
+            string fullPath = Path.GetFullPath(envCdylib);
+            if (File.Exists(fullPath) && NativeLibrary.TryLoad(fullPath, out IntPtr h2))
+            {
+                return h2;
+            }
+        }
+
+        // 2. Check explicit directory EXPANSE_LIB_DIR
+        string? envLibDir = Environment.GetEnvironmentVariable("EXPANSE_LIB_DIR");
+        if (!string.IsNullOrEmpty(envLibDir))
+        {
+            string candidate = Path.Combine(envLibDir, nativeLibName);
+            if (File.Exists(candidate) && NativeLibrary.TryLoad(candidate, out IntPtr handle))
+            {
+                return handle;
+            }
+            string fullCandidate = Path.GetFullPath(candidate);
+            if (File.Exists(fullCandidate) && NativeLibrary.TryLoad(fullCandidate, out IntPtr h2))
+            {
+                return h2;
+            }
+        }
+
+        // 3. Search directory of current executing assembly & base directory
+        string baseDir = AppContext.BaseDirectory;
+        string currentAssemblyDir = Path.GetDirectoryName(assembly.Location) ?? baseDir;
+
+        // Try ascending search for target/release or target/debug
+        DirectoryInfo? cur = new DirectoryInfo(baseDir);
+        for (int i = 0; i < 8 && cur != null; i++)
+        {
+            string relCandidate = Path.Combine(cur.FullName, "target", "release", nativeLibName);
+            if (File.Exists(relCandidate) && NativeLibrary.TryLoad(relCandidate, out IntPtr h))
+            {
+                return h;
+            }
+            string debCandidate = Path.Combine(cur.FullName, "target", "debug", nativeLibName);
+            if (File.Exists(debCandidate) && NativeLibrary.TryLoad(debCandidate, out IntPtr hDeb))
+            {
+                return hDeb;
+            }
+            cur = cur.Parent;
+        }
+
+        string[] searchDirs =
+        {
+            currentAssemblyDir,
+            baseDir,
+            Path.Combine(baseDir, "runtimes", GetRuntimeIdentifier(), "native"),
+            Path.Combine(currentAssemblyDir, "runtimes", GetRuntimeIdentifier(), "native"),
+            "/usr/local/lib",
+            "/usr/lib",
+            "/opt/homebrew/lib"
+        };
+
+        foreach (string dir in searchDirs)
+        {
+            if (!Directory.Exists(dir)) continue;
+
+            string fullPath = Path.GetFullPath(Path.Combine(dir, nativeLibName));
+            if (File.Exists(fullPath) && NativeLibrary.TryLoad(fullPath, out IntPtr handle))
+            {
+                return handle;
+            }
+        }
+
+        // 4. Fallback to OS default search
+        if (NativeLibrary.TryLoad(libraryName, assembly, searchPath, out IntPtr defaultHandle))
+        {
+            return defaultHandle;
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private static string GetNativeLibraryFileName()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return "expanse.dll";
+        }
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return "libexpanse.dylib";
+        }
+        return "libexpanse.so";
+    }
+
+    private static string GetRuntimeIdentifier()
+    {
+        string arch = RuntimeInformation.ProcessArchitecture switch
+        {
+            Architecture.X64 => "x64",
+            Architecture.Arm64 => "arm64",
+            Architecture.X86 => "x86",
+            Architecture.Arm => "arm",
+            _ => "x64"
+        };
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return $"win-{arch}";
+        }
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return $"osx-{arch}";
+        }
+        return $"linux-{arch}";
+    }
+}

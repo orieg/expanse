@@ -30,6 +30,8 @@ jobs:
           filters: |
             rust:
               - 'crates/**'
+              - 'include/**'
+              - 'tests/cpp/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain*'
@@ -112,6 +114,11 @@ jobs:
           echo "capi artifacts present: ${arts[*]}"
         shell: bash
 
+      - name: Run C++20 Header Tests (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          c++ -std=c++20 -Iinclude tests/cpp/test_expanse.cpp target/debug/libexpanse.a -lpthread -ldl -lm -o /tmp/test_cpp
+          /tmp/test_cpp
   test-riscv64:
     name: Cross / RV64GC Cross-Compile (Linux)
     needs: [detect-changes]
