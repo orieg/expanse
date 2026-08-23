@@ -71,7 +71,7 @@ Two further compressions: **narrow pointers** (a JP records skipped common bytes
 | Bit scan/rank | SWAR + lookup tables | `u64::count_ones`/`trailing_zeros` | Single-cycle on AArch64 (`cnt`/`rbit`). **On x86-64 `popcnt` is NOT in the base target**: without `-C target-cpu=x86-64-v2` (or `+popcnt`) these lower to a ~12-15 instruction SWAR sequence. No target-cpu is set today, so every benchmark and shipped artifact takes the software path — an open item, not a delivered advantage |
 | Byte search | Unrolled scalar compares | SIMD splat-compare-movemask (SSE2/NEON via `core::arch`, portable fallback) | 16–64 bytes per compare, no branchy loop |
 | Allocator | Custom word-bucket chunk allocator | Intrusive 4 KiB `SlabPage` freelist arena with 62 size classes and $O(1)$ static `RAW_CLASS_TABLE` lookup, cache-line aligned, byte-exact accounting | Sub-10ns allocation recycling with zero heap fragmentation, outperforming stock Judy on churn by >22% |
-| Edge density | 16 B per edge always | 16 B edges + tagged-pointer packing where profitable | 48-bit VAs leave 16 tag bits + 3 alignment bits free |
+| Edge representation | 16 B hybrid pointer stealing | Dual-word 16 B Edge: Word 0 holds raw unmasked 64-bit pointer / immediate; Word 1 holds aux + tag | Full 57-bit (PML5/LA57) & 52-bit (ARM64-LVA) virtual address safety with zero upper-bit pointer stealing |
 | Concurrency | None (external mutex) | Per-node version counters, optimistic lock-coupling readers | Lock-free reads, linear read scaling |
 
 ## 3. Core layouts
@@ -188,4 +188,32 @@ Expanse v0.4.0 introduces first-class support for 32-bit embedded platforms (RIS
 - **32-Byte Cache Alignment & Native Atomics**: Node geometries tailored for 32-byte cache lines (Cortex-M7, ESP32) and un-cached internal SRAM, with native 32-bit OCC reader validation (`SeqVersion32` via `AtomicU32`) on `RV32A` without 64-bit atomic dependencies.
  
 For complete struct definitions, bit layouts, cache models, and implementation phase gates, see [RFC_32BIT_EMBEDDED.md](RFC_32BIT_EMBEDDED.md).
+
+---
+
+## 9. 57-Bit / 64-Bit Virtual Addressing & 5-Level Paging (PML5 / LA57 / ARMv8.2-LVA)
+
+On modern 64-bit server architectures, **48-bit virtual addressing is an obsolete assumption**:
+- **x86-64 5-Level Paging (PML5 / LA57)**: Current Intel (Ice Lake, Sapphire Rapids, Emerald Rapids, Granite Rapids) and AMD (Zen 4 Genoa, Zen 5 Turin) processors extend userspace virtual addresses from 48 bits (256 TB) to **57 bits (128 PB)**.
+- **ARM64 Large Virtual Addressing (ARMv8.2-A+ / LVA)**: Modern ARM architectures (AWS Graviton 3/4, Apple Silicon, Neoverse V2) extend userspace virtual addressing to **52 bits (4 PB)**.
+- **High-Memory Nodes & ASLR**: Modern Linux kernels (since v4.14 for x86 and v5.4 for ARM) dynamically allocate heap, `mmap`, and stack pages above `0x0000_7FFF_FFFF_FFFF` (bit 47), and aggressive Address Space Layout Randomization (ASLR) places memory regions across the full 57-bit space.
+
+### The Classic Flaw (Upper-Bit Pointer Stealing)
+Older 2002-era C implementations (including classic `libjudy` and V8-style NaN-tagging) packed metadata by assuming bits 48–63 of pointers were unused zeros. On PML5/LVA hardware, allocating heap memory above 48 bits causes pointer corruption and non-canonical address `#GP` (General Protection Fault) segfaults when dereferenced.
+
+### Expanse's First-Principles 64-Bit Design
+
+1. **Dual-Word 16-Byte `Edge` Representation (Zero Upper-Bit Stealing)**:
+   - **Word 0 (8 Bytes)** holds the raw, untruncated 64-bit virtual pointer or integer immediate payload. All bits 0–63 are preserved intact without bit-stealing.
+   - **Word 1 (8 Bytes)** holds structural metadata: 7 bytes of level-split population/decode bytes and a dedicated 1-byte discriminant tag (`EdgeTag`).
+   - Pointers are always canonical and directly dereferenceable with zero masking overhead.
+2. **Low-Bit Alignment Guarantees (Bottom 4 Bits, Never Top 16)**:
+   - Where compact discriminant tagging is required internally, Expanse relies exclusively on **allocator-enforced low-bit alignment**:
+     - All internal trie nodes (Branches, Linear Leaves, Bitmap Leaves) are 16-byte or 64-byte aligned (`#[repr(align(16))]` / `#[repr(align(64))]`).
+     - By mathematical definition, bits 0..3 of valid node pointers are guaranteed to be `0b0000`.
+3. **Base-Relative Offsets in Large-Value Arenas (`BlobArena`)**:
+   - In `ExpanseBlobMap`, chunks and slabs are indexed via 32-bit chunk indices and relative offsets from a base arena pointer, allowing unlimited virtual memory expansion across terabytes on PML5 systems without tag collisions.
+
+Expanse functions transparently on 48-bit legacy systems, 52-bit ARM64, and 57-bit x86-64 PML5/LA57 hardware without address truncation, bit masking, or `#GP` faults.
+
 
