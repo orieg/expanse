@@ -75,7 +75,7 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
-        run: cargo build --workspace --release --target ${{ matrix.target }}
+        run: cargo build -p expanse-capi --release --target ${{ matrix.target }}
       - name: Prepare archives (Unix)
         if: runner.os != 'Windows'
         run: |
