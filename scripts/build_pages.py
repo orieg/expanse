@@ -178,6 +178,9 @@ MAIN_CSS = """
     :root:not([data-theme]) .theme-icon-sun { display: inline; }
     :root:not([data-theme]) .theme-icon-moon { display: none; }
 
+    .theme-toggle-mobile { display: flex; }
+    .theme-toggle-desktop { display: none; }
+
     @media (min-width: 769px) {
       .theme-toggle-mobile { display: none !important; }
       .theme-toggle-desktop { display: flex !important; }
