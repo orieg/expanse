@@ -140,8 +140,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: riscv32imac-unknown-none-elf
+
+      - name: Add Target
+        run: rustup target add riscv32imac-unknown-none-elf
 
       - uses: Swatinem/rust-cache@v2
 
@@ -158,13 +159,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: armv7em-none-eabihf
+
+      - name: Add Target
+        run: rustup target add thumbv7em-none-eabihf
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Check Cortex-M4 Core
-        run: cargo check -p expanse-trie --target armv7em-none-eabihf
+        run: cargo check -p expanse-trie --target thumbv7em-none-eabihf
 
   test-musl:
     name: Cross / Musl Static C ABI (Linux)

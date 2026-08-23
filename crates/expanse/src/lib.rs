@@ -28,40 +28,77 @@
 //! Rust API (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`
 //! as the public surface lands).
 //!
-//! Currently 64-bit platforms only (x86-64, AArch64).
+#![no_std]
+
+extern crate alloc;
 
 #[cfg(not(any(target_pointer_width = "64", target_pointer_width = "32")))]
 compile_error!("expanse supports 64-bit and 32-bit targets");
 
+#[cfg(target_pointer_width = "64")]
 pub mod alloc;
+#[cfg(target_pointer_width = "64")]
 pub mod bits;
+#[cfg(target_pointer_width = "64")]
 pub mod blobmap;
-pub mod blobmap32;
+#[cfg(target_pointer_width = "64")]
 pub mod bytesmap;
+#[cfg(target_pointer_width = "64")]
 pub mod get;
+#[cfg(target_pointer_width = "64")]
 pub mod leaf;
+#[cfg(target_pointer_width = "64")]
 pub mod map;
-pub mod map32;
+#[cfg(target_pointer_width = "64")]
 pub mod mutate;
+#[cfg(target_pointer_width = "64")]
 mod mutate_map;
+#[cfg(target_pointer_width = "64")]
 mod nav;
+#[cfg(target_pointer_width = "64")]
 pub mod node;
-pub mod node32;
+#[cfg(target_pointer_width = "64")]
 pub mod occ;
+#[cfg(target_pointer_width = "64")]
 pub mod set;
-pub mod set32;
+#[cfg(target_pointer_width = "64")]
 pub mod slot;
-pub mod slot32;
+#[cfg(target_pointer_width = "64")]
 pub mod strmap;
+#[cfg(target_pointer_width = "64")]
 pub mod sync;
+#[cfg(target_pointer_width = "64")]
 pub mod types;
-pub mod types32;
+#[cfg(target_pointer_width = "64")]
 pub mod validate;
 
+pub mod blobmap32;
+pub mod map32;
+pub mod node32;
+pub mod set32;
+pub mod slot32;
+pub mod types32;
+
+#[cfg(target_pointer_width = "64")]
 pub use blobmap::{BlobArena, BlobView, ExpanseBlobMap};
+#[cfg(target_pointer_width = "64")]
+pub use map::ExpanseMap;
+#[cfg(target_pointer_width = "64")]
+pub use set::ExpanseSet;
+#[cfg(target_pointer_width = "64")]
+pub use slot::{SlotTag, ValueSlot};
+
+#[cfg(target_pointer_width = "32")]
+pub use blobmap32::ExpanseBlobMap32 as ExpanseBlobMap;
+#[cfg(target_pointer_width = "32")]
+pub use map32::ExpanseMap32 as ExpanseMap;
+#[cfg(target_pointer_width = "32")]
+pub use set32::ExpanseSet32 as ExpanseSet;
+#[cfg(target_pointer_width = "32")]
+pub use slot32::ValueSlot32 as ValueSlot;
+
 pub use blobmap32::{BlobView32, ExpanseBlobMap32};
 pub use map32::ExpanseMap32;
 pub use set32::ExpanseSet32;
-pub use slot::{SlotTag, ValueSlot};
 pub use slot32::{SlotTag32, ValueSlot32};
 pub use types32::{Edge32, Key32, Tag32, Value32};
