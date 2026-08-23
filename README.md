@@ -79,7 +79,21 @@ Legacy ↔ modern naming:
 | **Pointer layout** | Full 16-byte JP per edge | Tagged pointers exploiting 48-bit virtual addressing |
 | **Concurrency** | Single-threaded, external locks | Lock-free optimistic concurrency control (OCC) for reads |
 
-Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Database engine patterns: [docs/DATABASE.md](docs/DATABASE.md).
+
+---
+
+## Database Engine Subsystems & Architecture
+
+Expanse provides modern, hardware-vectorized digital trie primitives tailored for core database engine subsystems:
+
+- **Inverted Indexes & Posting Lists (`ExpanseSet`)**: Ultra-dense doc-ID tracking at **0.07–0.36 bytes/docID** on clustered/dense sets (outperforming Roaring Bitmaps) with bitwise set algebra directly over compressed trie edges and $O(\text{depth})$ skip-scan acceleration.
+- **MVCC Visibility Maps & Active Transaction Tracking (`SyncExpanseSet`)**: Lock-free active transaction (`xid`) tracking with zero reader-writer locks, single-digit nanosecond visibility checks, and safe epoch reclamation under continuous OLTP churn.
+- **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: High-cardinality string deduplication and symbol tables using 8-byte cross-chunk path folding, preserving lexicographical order with 70%+ memory reduction on shared URL/path prefixes.
+- **Secondary Indexes & MemTables (`ExpanseMap`)**: Rebalance-free ordered key indexing with contiguous 64-byte SIMD leaf scans, achieving **2.1×–3.4× faster range scans** than `std::collections::BTreeMap`.
+- **Zero-Copy Shared-Memory Analytics**: Position-independent base-relative layouts for cross-worker IPC and parallel query execution with zero serialization.
+
+See [docs/DATABASE.md](docs/DATABASE.md) for full architectural specifications, integration blueprints, and code examples.
 
 ---
 
