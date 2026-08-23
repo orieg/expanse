@@ -557,7 +557,7 @@ jobs:
 
       - name: Fuzz smoke (60s per target)
         run: |
-          for t in set_ops map_ops bytesmap_ops strmap_ops; do
+          for t in set_ops map_ops bytesmap_ops strmap_ops blobmap_image_corrupt; do
             echo "::group::$t"
             cargo fuzz run "$t" -- -max_total_time=60 -print_final_stats=1
             echo "::endgroup::"
