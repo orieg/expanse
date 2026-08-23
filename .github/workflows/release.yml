@@ -123,9 +123,34 @@ jobs:
             *.deb
             *.rpm
 
+  package-nuget:
+    name: Package .NET NuGet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Pack NuGet package
+        run: |
+          mkdir -p dist/nuget
+          dotnet pack bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj -c Release -o dist/nuget
+      - name: Upload NuGet artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts-nuget
+          path: dist/nuget/*.nupkg
+      - name: Publish to NuGet.org
+        if: env.NUGET_API_KEY != ''
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          dotnet nuget push dist/nuget/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate || true
+
   github-release:
     name: Create GitHub Release
-    needs: build-release-artifacts
+    needs: [build-release-artifacts, package-nuget]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
