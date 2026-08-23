@@ -3,7 +3,7 @@
 [![CI](https://github.com/orieg/expanse/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/orieg/expanse/actions/workflows/ci.yml?query=branch%3Amain)
 [![Crates.io Version](https://img.shields.io/crates/v/expanse-trie.svg?style=flat-square&logo=rust)](https://crates.io/crates/expanse-trie)
 [![npm Version](https://img.shields.io/npm/v/@orieg/expanse.svg?style=flat-square&logo=npm)](https://www.npmjs.com/package/@orieg/expanse)
-[![NuGet Version](https://img.shields.io/nuget/v/Expanse.NET.svg?style=flat-square&logo=nuget)](https://www.nuget.org/packages/Expanse.NET)
+[![NuGet Version](https://img.shields.io/nuget/v/OriEg.Expanse.svg?style=flat-square&logo=nuget)](https://www.nuget.org/packages/OriEg.Expanse)
 [![PyPI Version](https://img.shields.io/pypi/v/expanse-trie.svg?style=flat-square&logo=pypi)](https://pypi.org/project/expanse-trie/)
 [![APT Repository](https://img.shields.io/badge/apt-debian%20%7C%20ubuntu-orange.svg?style=flat-square&logo=debian)](https://orieg.github.io/expanse/apt/)
 [![RPM Repository](https://img.shields.io/badge/rpm-rhel%20%7C%20fedora%20%7C%20centos-red.svg?style=flat-square&logo=redhat)](https://orieg.github.io/expanse/rpm/)
@@ -58,6 +58,7 @@ Naming the project after the mechanism honors the algorithm itself without inher
 |---|---|---|
 | **Native Rust API** | [`crates/expanse`](crates/expanse) (package `expanse-trie`) | Pure-Rust library: `ExpanseSet` (bit set), `ExpanseMap` (word→word), `ExpanseStrMap` (string→word), `ExpanseBytesMap` (bytes→word), plus iterators and lock-free concurrent readers (`SyncExpanseMap`) |
 | **C ABI (`libexpanse`)** | [`crates/expanse-capi`](crates/expanse-capi) | `cdylib`/`staticlib` exporting **both** the legacy `Judy.h` surface (`Judy1*`, `JudyL*`, `JudySL*`, `JudyHS*` — allowing consumers like [php-judy](https://github.com/orieg/php-judy) to swap `libJudy` for `libexpanse` without source changes) **and** modern `expanse.h` |
+| **Modern C++20 Header** | [`include/expanse.hpp`](include/expanse.hpp) | Modern header-only C++20 STL-compatible RAII wrapper (`expanse::set`, `expanse::map`, `expanse::str_map`, `expanse::bytes_map`, `expanse::blob_map`, `expanse::sync_map`), `std::span` zero-copy access, `std::forward_iterator` ranges, and lock-free OCC readers |
 | **Java / Scala FFM API** | [`bindings/java`](bindings/java) (`io.github.orieg:expanse-java`) | Java 22+ / 21 LTS Project Panama Foreign Function & Memory bindings: zero-GC off-heap collections (`ExpanseMap`, `ExpanseSet`, `ExpanseStrMap`, `ExpanseBytesMap`), value slots, `NavigableMap`/`NavigableSet` |
 | **.NET / C# API** | [`bindings/dotnet`](bindings/dotnet) (`Expanse.NET`) | .NET 8.0/9.0+ C# bindings & NuGet package via P/Invoke: zero-GC off-heap collections (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `ExpanseSyncMap`) |
 | **Python API** | [`crates/expanse-py`](crates/expanse-py) (`pip install expanse-trie`) | High-performance Python extension via PyO3: `ExpanseSet`, `ExpanseMap`, `SyncExpanseMap`, GIL-released queries |
@@ -264,7 +265,55 @@ Compile and link directly:
 gcc main.c -lexpanse -o main
 ```
 
-### 4. Drop-in Legacy C API (`Judy.h`)
+### 5. Modern C++20 Header-Only API (`expanse.hpp`)
+```cpp
+#include <iostream>
+#include <string_view>
+#include <expanse.hpp>
+
+int main() {
+    // 1. Bitset (Judy1) with range iteration & O(depth) rank/select
+    expanse::set s;
+    s.insert(42);
+    s.insert(100);
+    for (uint64_t key : s) {
+        std::cout << "Key: " << key << "\n";
+    }
+    std::cout << "Rank of 50: " << s.rank(50) << "\n";
+
+    // 2. Word map (JudyL) with operator[] and structured binding iteration
+    expanse::map<uint64_t, uint64_t> m;
+    m[42] = 1000;
+    for (auto [k, v] : m) {
+        std::cout << k << " -> " << v << "\n";
+    }
+
+    // 3. String trie (JudySL) with std::string_view keys
+    expanse::str_map<uint64_t> sm;
+    sm["apple"] = 10;
+    sm["banana"] = 20;
+
+    // 4. Large-value off-heap blob map with zero-copy views
+    expanse::blob_map bm;
+    bm.insert(1, std::string_view("arbitrary payload bytes"), 0x01);
+    if (auto view = bm.get(1)) {
+        std::cout << "Blob: " << view->as_string_view() << "\n";
+    }
+
+    // 5. Multi-threaded OCC lock-free concurrent map
+    expanse::sync_map sync_m;
+    sync_m.insert(10, 500);
+    auto reader = sync_m.make_reader();
+    std::cout << "Read concurrent: " << reader.get(10).value_or(0) << "\n";
+    return 0;
+}
+```
+Compile with any C++20 compiler:
+```bash
+clang++ -std=c++20 main.cpp -Iinclude -lexpanse -lpthread -ldl -lm -o main
+```
+
+### 6. Drop-in Legacy C API (`Judy.h`)
 ```c
 #include <stdio.h>
 #include <Judy.h>
@@ -297,12 +346,12 @@ Compile with `-lexpanse` or drop-in `-lJudy`:
 gcc legacy.c -lJudy -o legacy
 ```
 
-### 5. Windows MSVC / vcpkg / NuGet
+### 7. Windows MSVC / vcpkg / NuGet
 - **Release Bundle**: `expanse-v0.3.0-x86_64-pc-windows-msvc.zip` with DLL, import lib, and headers.
 - **vcpkg**: `vcpkg install expanse` using `extra/vcpkg/`.
 - **NuGet**: Visual Studio C++ package template in `extra/nuget/`.
 
-### 6. Python Quickstart (`pip install expanse-trie`)
+### 8. Python Quickstart (`pip install expanse-trie`)
 ```python
 from expanse_trie import ExpanseSet, ExpanseMap, SyncExpanseMap
 
@@ -323,7 +372,7 @@ assert sync_m[10] == 100
 ```
 See [docs/BINDINGS_PYTHON.md](docs/BINDINGS_PYTHON.md) for full Python documentation and benchmarks.
 
-### 7. Java & Scala Quickstart (`io.github.orieg:expanse-java`)
+### 9. Java & Scala Quickstart (`io.github.orieg:expanse-java`)
 ```xml
 <dependency>
     <groupId>io.github.orieg</groupId>
@@ -352,7 +401,7 @@ See [docs/BINDINGS_JAVA.md](docs/BINDINGS_JAVA.md) for Panama FFM architecture, 
 
 ### 8. .NET & C# Quickstart (`Expanse.NET`)
 ```bash
-dotnet add package Expanse.NET
+dotnet add package OriEg.Expanse
 ```
 
 ```csharp

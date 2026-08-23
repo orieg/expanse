@@ -1,0 +1,44 @@
+{
+  "name": "@orieg/expanse",
+  "version": "0.1.0",
+  "description": "Clean-room, pure-Rust modern Judy arrays and digital tries with cache-line-tuned node geometries, inline value packing, slab arenas, and OCC concurrency for Node.js, Bun, and Deno.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "index.node",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "scripts": {
+    "test": "node test.js",
+    "build": "cargo build --release -p expanse-node",
+    "build:debug": "cargo build -p expanse-node"
+  },
+  "keywords": [
+    "judy",
+    "judy-array",
+    "trie",
+    "radix-tree",
+    "sparse-set",
+    "sparse-map",
+    "napi",
+    "occ",
+    "concurrency",
+    "high-performance",
+    "data-structures"
+  ],
+  "author": "Nicolas Brousse <nicolas@brousse.info>",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/orieg/expanse.git",
+    "directory": "crates/expanse-node"
+  },
+  "homepage": "https://github.com/orieg/expanse",
+  "engines": {
+    "node": ">= 18.0.0"
+  }
+}
