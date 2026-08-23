@@ -80,7 +80,7 @@ def build_apt_repo(input_dir: str, output_dir: str):
             "Package", filename.split("_")[0] if "_" in filename else "libexpanse"
         )
         version = control.get(
-            "Version", filename.split("_")[1] if "_" in filename else "0.2.0"
+            "Version", filename.split("_")[1] if "_" in filename else "0.3.0"
         )
         arch = control.get(
             "Architecture",
@@ -486,7 +486,7 @@ def build_apt_repo(input_dir: str, output_dir: str):
         <li><a href="./" class="active">APT (Debian)</a></li>
         <li><a href="../rpm/" class="">RPM (RHEL)</a></li>
         <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
-        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.2.0</a></li>
+        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.3.0</a></li>
       </ul>
       <button class="theme-toggle theme-toggle-desktop" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
         <span class="theme-icon-sun">&#9728;</span>
@@ -496,7 +496,7 @@ def build_apt_repo(input_dir: str, output_dir: str):
   </header>
 
   <div class="container">
-    <h1>Expanse APT Repository <span class="badge">v0.2.0</span></h1>
+    <h1>Expanse APT Repository <span class="badge">v0.3.0</span></h1>
     <p style="color: var(--text-muted);">Official Debian and Ubuntu package repository for <strong><a href="https://github.com/orieg/expanse">Expanse</a></strong> &mdash; clean-room, pure-Rust Judy arrays modernized for modern 64-bit microarchitectures.</p>
 
     <div class="card">
@@ -539,17 +539,17 @@ sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat</code></pre>
         html_content += """            <tr>
               <td><strong>libexpanse1</strong></td>
               <td><code>amd64</code></td>
-              <td><a href="pool/main/libexpanse1_0.2.0_amd64.deb">libexpanse1_0.2.0_amd64.deb</a></td>
+              <td><a href="pool/main/libexpanse1_0.3.0_amd64.deb">libexpanse1_0.3.0_amd64.deb</a></td>
             </tr>
             <tr>
               <td><strong>libexpanse-dev</strong></td>
               <td><code>amd64</code></td>
-              <td><a href="pool/main/libexpanse-dev_0.2.0_amd64.deb">libexpanse-dev_0.2.0_amd64.deb</a></td>
+              <td><a href="pool/main/libexpanse-dev_0.3.0_amd64.deb">libexpanse-dev_0.3.0_amd64.deb</a></td>
             </tr>
             <tr>
               <td><strong>libjudy-compat</strong></td>
               <td><code>amd64</code></td>
-              <td><a href="pool/main/libjudy-compat_0.2.0_amd64.deb">libjudy-compat_0.2.0_amd64.deb</a></td>
+              <td><a href="pool/main/libjudy-compat_0.3.0_amd64.deb">libjudy-compat_0.3.0_amd64.deb</a></td>
             </tr>
 """
 

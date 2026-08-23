@@ -551,7 +551,7 @@ NAV_HTML = """  <header class="navbar">
         <li><a href="./apt/" class="">APT (Debian)</a></li>
         <li><a href="./rpm/" class="">RPM (RHEL)</a></li>
         <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
-        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.2.0</a></li>
+        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.3.0</a></li>
       </ul>
       <button class="theme-toggle theme-toggle-desktop" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
         <span class="theme-icon-sun">&#9728;</span>
@@ -579,7 +579,7 @@ NAV_VIS_HTML = """  <header class="navbar">
         <li><a href="./apt/" class="">APT (Debian)</a></li>
         <li><a href="./rpm/" class="">RPM (RHEL)</a></li>
         <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
-        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.2.0</a></li>
+        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.3.0</a></li>
       </ul>
       <button class="theme-toggle theme-toggle-desktop" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
         <span class="theme-icon-sun">&#9728;</span>

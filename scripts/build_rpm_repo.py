@@ -52,7 +52,7 @@ def build_rpm_repo(input_dir: str, output_dir: str):
         size = os.path.getsize(dest_path)
         sha256 = sha256_file(dest_path)
         pkg_name = filename.split("-")[0]
-        version = "0.2.0"
+        version = "0.3.0"
 
         entry = {
             "name": pkg_name,
@@ -477,7 +477,7 @@ repo_gpgcheck=0
         <li><a href="../apt/" class="">APT (Debian)</a></li>
         <li><a href="./" class="active">RPM (RHEL)</a></li>
         <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
-        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.2.0</a></li>
+        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.3.0</a></li>
       </ul>
       <button class="theme-toggle theme-toggle-desktop" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
         <span class="theme-icon-sun">&#9728;</span>
@@ -487,7 +487,7 @@ repo_gpgcheck=0
   </header>
 
   <div class="container">
-    <h1>Expanse RPM Repository <span class="badge">v0.2.0</span></h1>
+    <h1>Expanse RPM Repository <span class="badge">v0.3.0</span></h1>
     <p style="color: var(--text-muted);">Official YUM / DNF repository for <strong><a href="https://github.com/orieg/expanse">Expanse</a></strong> across Enterprise Linux: RHEL 8/9/10, CentOS Stream, Fedora, Rocky Linux, AlmaLinux, and Amazon Linux 2023.</p>
 
     <div class="card">
@@ -532,17 +532,17 @@ sudo dnf install -y libexpanse libexpanse-devel libjudy-compat</code></pre>
         html_content += """            <tr>
               <td><strong>libexpanse</strong></td>
               <td><code>x86_64</code></td>
-              <td><a href="Packages/x86_64/libexpanse-0.2.0-1.x86_64.rpm">libexpanse-0.2.0-1.x86_64.rpm</a></td>
+              <td><a href="Packages/x86_64/libexpanse-0.3.0-1.x86_64.rpm">libexpanse-0.3.0-1.x86_64.rpm</a></td>
             </tr>
             <tr>
               <td><strong>libexpanse-devel</strong></td>
               <td><code>x86_64</code></td>
-              <td><a href="Packages/x86_64/libexpanse-devel-0.2.0-1.x86_64.rpm">libexpanse-devel-0.2.0-1.x86_64.rpm</a></td>
+              <td><a href="Packages/x86_64/libexpanse-devel-0.3.0-1.x86_64.rpm">libexpanse-devel-0.3.0-1.x86_64.rpm</a></td>
             </tr>
             <tr>
               <td><strong>libjudy-compat</strong></td>
               <td><code>x86_64</code></td>
-              <td><a href="Packages/x86_64/libjudy-compat-0.2.0-1.x86_64.rpm">libjudy-compat-0.2.0-1.x86_64.rpm</a></td>
+              <td><a href="Packages/x86_64/libjudy-compat-0.3.0-1.x86_64.rpm">libjudy-compat-0.3.0-1.x86_64.rpm</a></td>
             </tr>
 """
 

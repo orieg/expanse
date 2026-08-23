@@ -194,7 +194,7 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 ### 1. Rust / Cargo
 ```toml
 [dependencies]
-expanse-trie = "0.2.0"
+expanse-trie = "0.3.0"
 ```
 
 ```rust
@@ -289,7 +289,7 @@ gcc legacy.c -lJudy -o legacy
 ```
 
 ### 5. Windows MSVC / vcpkg / NuGet
-- **Release Bundle**: `expanse-v0.2.0-x86_64-pc-windows-msvc.zip` with DLL, import lib, and headers.
+- **Release Bundle**: `expanse-v0.3.0-x86_64-pc-windows-msvc.zip` with DLL, import lib, and headers.
 - **vcpkg**: `vcpkg install expanse` using `extra/vcpkg/`.
 - **NuGet**: Visual Studio C++ package template in `extra/nuget/`.
 
@@ -319,7 +319,7 @@ See [docs/BINDINGS_PYTHON.md](docs/BINDINGS_PYTHON.md) for full Python documenta
 <dependency>
     <groupId>io.github.orieg</groupId>
     <artifactId>expanse-java</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 
