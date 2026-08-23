@@ -385,10 +385,8 @@ inline uint64_t ExtractKeyPrefix64(const char* prefix_len_key) {
         res |= (static_cast<uint64_t>(static_cast<unsigned char>(user_key[i])) << (56 - i * 8));
     }
     return res;
-}
-
-inline uint64_t ExtractSlicePrefix64(const rocksdb::Slice& internal_key) {
-    rocksdb::Slice user_key = (internal_key.size() >= 8)
+}inline uint64_t ExtractSlicePrefix64(const rocksdb::Slice& internal_key) {
+    rocksdb::Slice user_key = (internal_key.size() >= 8) 
         ? rocksdb::Slice(internal_key.data(), internal_key.size() - 8)
         : internal_key;
     uint64_t res = 0;
@@ -397,6 +395,18 @@ inline uint64_t ExtractSlicePrefix64(const rocksdb::Slice& internal_key) {
         res |= (static_cast<uint64_t>(static_cast<unsigned char>(user_key[i])) << (56 - i * 8));
     }
     return res;
+}
+
+// Software SIMD Prefetching Helper
+template <int rw = 0, int locality = 3>
+inline void Prefetch(const void* ptr) {
+#if defined(__GNUC__) || defined(__clang__)
+    __builtin_prefetch(ptr, rw, locality);
+#elif defined(__x86_64__) || defined(_M_X64)
+    _mm_prefetch(reinterpret_cast<const char*>(ptr), _MM_HINT_T0);
+#else
+    (void)ptr;
+#endif
 }
 
 } // namespace expanse_rocksdb
@@ -408,21 +418,29 @@ namespace rocksdb {
 
 class ExpanseMemTableRep : public MemTableRep {
 public:
-    struct LeafBlock {
+    struct alignas(64) LeafBlock {
         static constexpr size_t kMaxCapacity = 64; // 64 entries per cache-line block
-        uint32_t count{0};
-        LeafBlock* prev{nullptr};
-        LeafBlock* next{nullptr};
-        const char* entries[kMaxCapacity]{nullptr};
+        std::atomic<uint32_t> count{0};
+        std::atomic<LeafBlock*> prev{nullptr};
+        std::atomic<LeafBlock*> next{nullptr};
+        std::atomic<LeafBlock*> prev_leaf{nullptr};
+        std::atomic<LeafBlock*> next_leaf{nullptr};
+        std::atomic<const char*> entries[kMaxCapacity]{};
 
-        LeafBlock() = default;
+        LeafBlock() {
+            for (size_t i = 0; i < kMaxCapacity; ++i) {
+                entries[i].store(nullptr, std::memory_order_relaxed);
+            }
+        }
 
         const char* min_key() const {
-            return count > 0 ? entries[0] : nullptr;
+            uint32_t c = count.load(std::memory_order_acquire);
+            return c > 0 ? entries[0].load(std::memory_order_relaxed) : nullptr;
         }
 
         const char* max_key() const {
-            return count > 0 ? entries[count - 1] : nullptr;
+            uint32_t c = count.load(std::memory_order_acquire);
+            return c > 0 ? entries[c - 1].load(std::memory_order_relaxed) : nullptr;
         }
     };
 
@@ -440,11 +458,35 @@ public:
         void SeekToFirst() override;
         void SeekToLast() override;
 
+        // Zero-Copy In-Place Internal Key References
+        Slice internal_key() const;
+        Slice user_key() const;
+        Slice value() const;
+
+        // Batch Scanning API
+        size_t ScanBatch(size_t max_keys, Slice* out_keys, Slice* out_values = nullptr);
+
     private:
+        struct CachedKeyInfo {
+            const char* raw_entry{nullptr};
+            Slice internal_key{};
+            Slice user_key{};
+            Slice value{};
+            bool valid{false};
+        };
+
         const ExpanseMemTableRep* rep_;
-        const LeafBlock* curr_block_;
-        int curr_idx_;
+        const LeafBlock* current_leaf_;
+        int current_slot_;
         bool valid_;
+        mutable CachedKeyInfo cached_key_{};
+
+        void InvalidateCache() {
+            cached_key_.valid = false;
+            cached_key_.raw_entry = nullptr;
+        }
+
+        void EnsureKeyCached() const;
     };
 
     ExpanseMemTableRep(
@@ -487,8 +529,8 @@ private:
     size_t leaf_capacity_;
 
     mutable std::mutex mutex_;
-    LeafBlock* head_{nullptr};
-    LeafBlock* tail_{nullptr};
+    std::atomic<LeafBlock*> head_{nullptr};
+    std::atomic<LeafBlock*> tail_{nullptr};
     std::atomic<uint64_t> total_keys_{0};
     std::atomic<size_t> total_allocated_bytes_{0};
 
@@ -542,6 +584,44 @@ inline std::shared_ptr<MemTableRepFactory> NewExpanseMemTableRepFactory(
     bool enable_prefix_trie = true
 ) {
     return std::make_shared<ExpanseMemTableRepFactory>(leaf_capacity, enable_prefix_trie);
+}
+
+/// Standalone batch scanning helper for high-throughput batch extraction
+inline size_t ScanBatch(
+    MemTableRep::Iterator* it,
+    size_t max_keys,
+    Slice* out_keys,
+    Slice* out_values = nullptr
+) {
+    if (it == nullptr) return 0;
+    auto* exp_it = dynamic_cast<ExpanseMemTableRep::IteratorImpl*>(it);
+    if (exp_it != nullptr) {
+        return exp_it->ScanBatch(max_keys, out_keys, out_values);
+    }
+    size_t count = 0;
+    while (count < max_keys && it->Valid()) {
+        const char* entry = it->key();
+        if (entry != nullptr) {
+            uint32_t ikey_len = 0;
+            const char* p = expanse_rocksdb::GetVarint32Ptr(entry, entry + 5, &ikey_len);
+            if (out_keys != nullptr && p != nullptr) {
+                out_keys[count] = Slice(p, ikey_len);
+            }
+            if (out_values != nullptr && p != nullptr) {
+                const char* val_p = p + ikey_len;
+                uint32_t val_len = 0;
+                const char* val_data = expanse_rocksdb::GetVarint32Ptr(val_p, val_p + 5, &val_len);
+                if (val_data != nullptr) {
+                    out_values[count] = Slice(val_data, val_len);
+                } else {
+                    out_values[count].clear();
+                }
+            }
+            count++;
+        }
+        it->Next();
+    }
+    return count;
 }
 
 } // namespace rocksdb

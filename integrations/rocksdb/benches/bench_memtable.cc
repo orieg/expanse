@@ -484,6 +484,22 @@ int main() {
     double expanse_scan_sec = std::chrono::duration<double>(t1 - t0).count();
     double expanse_scan_mops = (expanse_scan_count / expanse_scan_sec) / 1e6;
 
+    // Expanse Batch Scan (1024 keys per batch)
+    t0 = std::chrono::high_resolution_clock::now();
+    it_expanse->SeekToFirst();
+    uint64_t expanse_batch_scan_count = 0;
+    constexpr size_t kBatchSize = 1024;
+    std::vector<Slice> batch_keys(kBatchSize);
+    std::vector<Slice> batch_vals(kBatchSize);
+    while (it_expanse->Valid()) {
+        size_t n = ScanBatch(it_expanse.get(), kBatchSize, batch_keys.data(), batch_vals.data());
+        if (n == 0) break;
+        expanse_batch_scan_count += n;
+    }
+    t1 = std::chrono::high_resolution_clock::now();
+    double expanse_batch_sec = std::chrono::duration<double>(t1 - t0).count();
+    double expanse_batch_mops = (expanse_batch_scan_count / expanse_batch_sec) / 1e6;
+
     t0 = std::chrono::high_resolution_clock::now();
     it_skiplist->SeekToFirst();
     uint64_t skiplist_scan_count = 0;
@@ -506,9 +522,10 @@ int main() {
     double vector_scan_sec = std::chrono::duration<double>(t1 - t0).count();
     double vector_scan_mops = (vector_scan_count / vector_scan_sec) / 1e6;
 
-    std::cout << "  ExpanseMemTable: " << std::fixed << std::setprecision(2) << expanse_scan_mops << " Mops/s" << std::endl;
-    std::cout << "  SkipListRep:     " << std::fixed << std::setprecision(2) << skiplist_scan_mops << " Mops/s" << std::endl;
-    std::cout << "  VectorRep:       " << std::fixed << std::setprecision(2) << vector_scan_mops << " Mops/s" << std::endl;
+    std::cout << "  ExpanseMemTable (Iterator): " << std::fixed << std::setprecision(2) << expanse_scan_mops << " Mops/s" << std::endl;
+    std::cout << "  ExpanseMemTable (Batch):    " << std::fixed << std::setprecision(2) << expanse_batch_mops << " Mops/s" << std::endl;
+    std::cout << "  SkipListRep:                " << std::fixed << std::setprecision(2) << skiplist_scan_mops << " Mops/s" << std::endl;
+    std::cout << "  VectorRep:                  " << std::fixed << std::setprecision(2) << vector_scan_mops << " Mops/s" << std::endl;
 
     // ------------------------------------------------------------------------
     // Benchmark 5: Memory Density & Footprint Analysis
