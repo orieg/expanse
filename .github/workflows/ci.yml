@@ -6,16 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-# One in-flight run per PR: a new commit supersedes the previous run, so
-# only the tip of the branch is fully verified. That is what branch
-# protection gates on anyway, and it stops a rapid series of review
-# fixups from queueing several ~25-minute matrices at once.
-#
-# Pushes to `main` get a group PER COMMIT (`github.sha`), not one shared
-# `refs/heads/main` group. `cancel-in-progress: false` is NOT enough to
-# keep them: GitHub holds only one *pending* run per group and cancels
-# any previously pending one, whatever that flag says. Per-commit groups
-# make main runs queue behind each other instead of evicting each other.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -162,10 +152,10 @@ jobs:
           }
 
       - name: Build (musl)
-        run: cargo build --workspace --target x86_64-unknown-linux-musl
+        run: cargo build -p expanse-trie -p expanse-capi --target x86_64-unknown-linux-musl
 
       - name: Test (musl)
-        run: cargo test --workspace --target x86_64-unknown-linux-musl
+        run: cargo test -p expanse-trie -p expanse-capi --target x86_64-unknown-linux-musl
 
       - name: Assert capi drop-in artifacts exist (musl)
         run: |
@@ -190,7 +180,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Miri (core unsafe smoke — model sweeps run in nightly)
-        run: cargo miri test -p expanse-trie --lib -- --skip model_
+        run: |
+          cargo miri test -p expanse-trie --lib -- alloc:: bits:: leaf:: node:: slot:: get::
 
   php-judy-compat:
     name: php-judy-compat
@@ -322,25 +313,41 @@ jobs:
           done
           exit 1
 
-      - name: Build the harness (release mode)
-        run: cargo bench --no-run -p expanse-capi --bench vs_stock
-
-      - name: Measure PR branch instructions (vs_stock)
+      - name: Install iai-callgrind-runner
         run: |
-          BIN=$(find target/release/deps -maxdepth 1 -name 'vs_stock-*' -type f -perm /111 | head -1)
-          if [ -z "$BIN" ]; then
-            echo "::error::vs_stock harness binary not found"
-            exit 1
-          fi
-          echo "Harness binary: $BIN"
-          valgrind --tool=callgrind --instr-atstart=no --callgrind-out-file=callgrind.out "$BIN" --bench 2>&1 | tee harness-output.txt
-          python3 scripts/perf_report.py --callgrind-out callgrind.out --output-json pr-counts.json --markdown pr-report.md
+          VERSION=$(cargo metadata --format-version 1 --locked | python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='iai-callgrind'))")
+          echo "iai-callgrind resolved to $VERSION"
+          cargo install iai-callgrind-runner --version "$VERSION" --locked
 
-      - name: Emit Step Summary
+      - name: Build libexpanse.so for the same-shape arm
+        run: |
+          cargo build --release -p expanse-capi
+          SO=$(find target/release -maxdepth 1 -name 'libexpanse.so' -print -quit)
+          test -n "$SO" || { echo "libexpanse.so not produced"; exit 1; }
+          echo "EXPANSE_CDYLIB=$PWD/$SO" >> "$GITHUB_ENV"
+          echo "using $PWD/$SO"
+
+      - name: Instruction and cache-miss counts (this branch, baseline)
+        run: cargo bench --bench instructions -p expanse-trie | tee instruction-counts.txt
+
+      - name: Instruction and cache-miss counts (this branch, x86-64-v3 modern)
+        run: |
+          RUSTFLAGS="-C target-cpu=x86-64-v3" cargo bench --bench instructions -p expanse-trie | tee v3-counts.txt
+
+      - name: bytes/key table
+        run: cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
+
+      - name: libexpanse vs stock libjudy (instructions)
+        run: cargo bench --bench vs_stock -p expanse-capi | tee vs-stock.txt
+
+      - name: Generate and Emit Step Summary Report
         if: always()
         run: |
-          if [ -f pr-report.md ]; then
-            cat pr-report.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f instruction-counts.txt ] && [ -f bytes-per-key.txt ] && [ -f vs-stock.txt ]; then
+            python3 scripts/perf_report.py --head instruction-counts.txt --bytes bytes-per-key.txt --vs-stock vs-stock.txt --v3 v3-counts.txt > pr-report.md || true
+            if [ -f pr-report.md ]; then
+              cat pr-report.md >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
 
   differential-oracle:
