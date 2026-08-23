@@ -1,6 +1,6 @@
 # Expanse Architecture
 
-> Canonical design doc. Compat contract: [COMPAT.md](COMPAT.md) · Testing: [TESTING.md](TESTING.md) · Benchmarks: [BENCHMARKING.md](BENCHMARKING.md) · Database Engines: [DATABASE.md](DATABASE.md)
+> Canonical design doc. Compat contract: [COMPAT.md](COMPAT.md) · Testing: [TESTING.md](TESTING.md) · Benchmarks: [BENCHMARKING.md](BENCHMARKING.md) · Database Engines: [DATABASE.md](DATABASE.md) · 32-Bit & Embedded: [RFC_32BIT_EMBEDDED.md](RFC_32BIT_EMBEDDED.md) · Large Values: [RFC_LARGE_VALUES.md](RFC_LARGE_VALUES.md)
 
 Expanse is a clean-room reimplementation of the Judy array family (Judy1 bit set, JudyL word→word map, JudySL string→word map), redesigned for 2026 hardware and named for Judy's defining idea: partitioning keys by *expanse* rather than by population. Derived from published algorithm descriptions only; no libjudy source consulted (see COMPAT.md for the clean-room rules).
 
@@ -136,4 +136,18 @@ Expanse is architecturally suited as a high-density, low-latency primitive acros
 - **Zero-Copy Shared-Memory Analytics**: Off-heap / mmap base-relative layouts enable cross-worker zero-serialization analytics for parallel multi-process query execution.
 
 For detailed architecture, integration mechanics, algorithms, and code blueprints, see [DATABASE.md](DATABASE.md).
+ 
+---
+ 
+## 8. 32-Bit Architecture & Embedded Microprocessor Support (RV32 / ESP32 / Cortex-M)
+ 
+Expanse v0.4.0 introduces first-class support for 32-bit embedded platforms (RISC-V `RV32I`/`RV32EMAC`, Espressif `ESP32`/`ESP32-S3`/`ESP32-C3`, ARM `Cortex-M0+`/`M3`/`M4`/`M7`/`M33`):
+ 
+- **4-Level Digital Tree Hierarchy**: 32-bit keys (`Key = u32`, Levels 4 $\rightarrow$ 1) halve maximum trie descent depth from 8 to 4 hops.
+- **Compact 8-Byte `Edge32`**: 4-byte pointer/immediate + 3-byte level-split `pop0`/decode field + 1-byte tag discriminant, delivering an immediate **50% reduction in structural memory**.
+- **Immediate In-Edge Storage**: Up to 7 1-byte keys, 3 2-byte keys, or 2 3-byte keys packed directly inside a single 8-byte edge without heap allocation.
+- **Polymorphic 32-Bit Value Slots (`ValueSlot32`)**: Inline mode ($\le 3$ bytes payload) with zero heap allocations, 16-bit hot metadata + 12-bit arena offset, and raw 32-bit machine word mode for 100% classic `JudyL` 32-bit C ABI drop-in compatibility.
+- **32-Byte Cache Alignment & Native Atomics**: Node geometries tailored for 32-byte cache lines (Cortex-M7, ESP32) and un-cached internal SRAM, with native 32-bit OCC reader validation (`SeqVersion32` via `AtomicU32`) on `RV32A` without 64-bit atomic dependencies.
+ 
+For complete struct definitions, bit layouts, cache models, and implementation phase gates, see [RFC_32BIT_EMBEDDED.md](RFC_32BIT_EMBEDDED.md).
 
