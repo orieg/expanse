@@ -119,7 +119,6 @@ jobs:
         run: |
           c++ -std=c++20 -Iinclude tests/cpp/test_expanse.cpp target/debug/libexpanse.a -lpthread -ldl -lm -o /tmp/test_cpp
           /tmp/test_cpp
-
   test-riscv64:
     name: Cross / RV64GC Cross-Compile (Linux)
     needs: [detect-changes]

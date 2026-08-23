@@ -1,0 +1,85 @@
+name: .NET CI & Package
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: dotnet-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Test .NET Bindings (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET SDKs (8.0 and 9.0)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build native libexpanse
+        run: cargo build --release -p expanse-capi
+
+      - name: Run .NET test suite (Unix)
+        if: runner.os != 'Windows'
+        env:
+          EXPANSE_LIB_DIR: ${{ github.workspace }}/target/release
+        run: |
+          dotnet test bindings/dotnet/tests/Expanse.NET.Tests/Expanse.NET.Tests.csproj -c Release --verbosity normal
+
+      - name: Run .NET test suite (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          EXPANSE_LIB_DIR: ${{ github.workspace }}\target\release
+        run: |
+          dotnet test bindings\dotnet\tests\Expanse.NET.Tests\Expanse.NET.Tests.csproj -c Release --verbosity normal
+
+  pack:
+    name: Build NuGet Package
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET SDKs (8.0 and 9.0)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build native libexpanse
+        run: cargo build --release -p expanse-capi
+
+      - name: Pack NuGet package
+        run: |
+          dotnet pack bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj -c Release -o nupkg
+
+      - name: Upload NuGet package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-package
+          path: nupkg/*.nupkg
+          if-no-files-found: error
