@@ -403,6 +403,62 @@ MAIN_CSS = """
       display: block;
       min-width: 540px;
     }
+    /* SVG Chart Theme Recolor Rules */
+    [data-theme="light"] .bench-wrapper svg .bg { fill: #ffffff !important; }
+    [data-theme="light"] .bench-wrapper svg .border { stroke: #d0d7de !important; }
+    [data-theme="light"] .bench-wrapper svg .grid { stroke: #eaeef2 !important; }
+    [data-theme="light"] .bench-wrapper svg .axis { stroke: #afb8c1 !important; }
+    [data-theme="light"] .bench-wrapper svg .divider { stroke: #eaeef2 !important; }
+    [data-theme="light"] .bench-wrapper svg .t-chart-title,
+    [data-theme="light"] .bench-wrapper svg .t-title { fill: #57606a !important; }
+    [data-theme="light"] .bench-wrapper svg .t-chart-sub,
+    [data-theme="light"] .bench-wrapper svg .t-sub { fill: #8c959f !important; }
+    [data-theme="light"] .bench-wrapper svg .t-unit-header,
+    [data-theme="light"] .bench-wrapper svg .t-unit { fill: #57606a !important; }
+    [data-theme="light"] .bench-wrapper svg .t-axis-label,
+    [data-theme="light"] .bench-wrapper svg .t-tick { fill: #57606a !important; }
+    [data-theme="light"] .bench-wrapper svg .t-bar-label,
+    [data-theme="light"] .bench-wrapper svg .t-legend { fill: #1f2328 !important; }
+    [data-theme="light"] .bench-wrapper svg .t-val-accent,
+    [data-theme="light"] .bench-wrapper svg .t-tag { fill: #1a7f37 !important; }
+    [data-theme="light"] .bench-wrapper svg .t-val-blue { fill: #0969da !important; }
+    [data-theme="light"] .bench-wrapper svg .t-val-muted { fill: #656d76 !important; }
+    [data-theme="light"] .bench-wrapper svg .b-expanse { fill: #1a7f37 !important; }
+    [data-theme="light"] .bench-wrapper svg .b-roaring,
+    [data-theme="light"] .bench-wrapper svg .b-btreemap { fill: #0969da !important; }
+    [data-theme="light"] .bench-wrapper svg .b-other,
+    [data-theme="light"] .bench-wrapper svg .b-skipmap { fill: #d0d7de !important; }
+    [data-theme="light"] .bench-wrapper svg .line-occ { stroke: #1a7f37 !important; }
+    [data-theme="light"] .bench-wrapper svg .dot-occ { fill: #1a7f37 !important; stroke: #ffffff !important; }
+    [data-theme="light"] .bench-wrapper svg .line-linear { stroke: #8c959f !important; }
+
+    [data-theme="dark"] .bench-wrapper svg .bg { fill: #0d1117; }
+    [data-theme="dark"] .bench-wrapper svg .border { stroke: #30363d; }
+    [data-theme="dark"] .bench-wrapper svg .grid { stroke: #21262d; }
+    [data-theme="dark"] .bench-wrapper svg .axis { stroke: #484f58; }
+    [data-theme="dark"] .bench-wrapper svg .divider { stroke: #21262d; }
+    [data-theme="dark"] .bench-wrapper svg .t-chart-title,
+    [data-theme="dark"] .bench-wrapper svg .t-title { fill: #8b949e; }
+    [data-theme="dark"] .bench-wrapper svg .t-chart-sub,
+    [data-theme="dark"] .bench-wrapper svg .t-sub { fill: #6e7681; }
+    [data-theme="dark"] .bench-wrapper svg .t-unit-header,
+    [data-theme="dark"] .bench-wrapper svg .t-unit { fill: #8b949e; }
+    [data-theme="dark"] .bench-wrapper svg .t-axis-label,
+    [data-theme="dark"] .bench-wrapper svg .t-tick { fill: #8b949e; }
+    [data-theme="dark"] .bench-wrapper svg .t-bar-label,
+    [data-theme="dark"] .bench-wrapper svg .t-legend { fill: #c9d1d9; }
+    [data-theme="dark"] .bench-wrapper svg .t-val-accent,
+    [data-theme="dark"] .bench-wrapper svg .t-tag { fill: #3fb950; }
+    [data-theme="dark"] .bench-wrapper svg .t-val-blue { fill: #58a6ff; }
+    [data-theme="dark"] .bench-wrapper svg .t-val-muted { fill: #8b949e; }
+    [data-theme="dark"] .bench-wrapper svg .b-expanse { fill: #2ea043; }
+    [data-theme="dark"] .bench-wrapper svg .b-roaring,
+    [data-theme="dark"] .bench-wrapper svg .b-btreemap { fill: #1f6feb; }
+    [data-theme="dark"] .bench-wrapper svg .b-other,
+    [data-theme="dark"] .bench-wrapper svg .b-skipmap { fill: #30363d; }
+    [data-theme="dark"] .bench-wrapper svg .line-occ { stroke: #2ea043; }
+    [data-theme="dark"] .bench-wrapper svg .dot-occ { fill: #2ea043; stroke: #0d1117; }
+    [data-theme="dark"] .bench-wrapper svg .line-linear { stroke: #6e7681; }
     .install-box {
       background: var(--card-inner);
       border: 1px solid var(--border);
@@ -630,14 +686,24 @@ def build_pages(artifacts_dir: str, output_dir: str):
   <script>
     (function() {
       const saved = localStorage.getItem('expanse-theme');
-      const attr = document.documentElement.getAttribute('data-theme');
       if (saved) {
         document.documentElement.setAttribute('data-theme', saved);
-      } else if (!attr) {
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-          document.documentElement.setAttribute('data-theme', 'light');
-        } else {
-          document.documentElement.setAttribute('data-theme', 'dark');
+      } else {
+        const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+      }
+
+      if (window.matchMedia) {
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        const updateTheme = function(e) {
+          if (!localStorage.getItem('expanse-theme')) {
+            document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+          }
+        };
+        if (mediaQuery.addEventListener) {
+          mediaQuery.addEventListener('change', updateTheme);
+        } else if (mediaQuery.addListener) {
+          mediaQuery.addListener(updateTheme);
         }
       }
     })();
@@ -903,7 +969,7 @@ int main() {
 
     function toggleTheme() {
       const current = document.documentElement.getAttribute('data-theme') || 
-        (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
       const next = current === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next);
       localStorage.setItem('expanse-theme', next);
@@ -955,6 +1021,38 @@ int main() {
     print(f"Complete GitHub Pages site generated in {output_dir}")
 
 if __name__ == "__main__":
-    art_dir = sys.argv[1] if len(sys.argv) > 1 else "artifacts"
-    out_dir = sys.argv[2] if len(sys.argv) > 2 else "pages-root"
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Build complete GitHub Pages web distribution."
+    )
+    parser.add_argument(
+        "artifacts_pos",
+        nargs="?",
+        default=None,
+        help="Directory containing package artifacts",
+    )
+    parser.add_argument(
+        "output_pos",
+        nargs="?",
+        default=None,
+        help="Output directory for generated site",
+    )
+    parser.add_argument(
+        "--artifacts-dir",
+        "--input-dir",
+        dest="artifacts_dir",
+        default=None,
+        help="Directory containing package artifacts",
+    )
+    parser.add_argument(
+        "--output-dir",
+        dest="output_dir",
+        default=None,
+        help="Output directory for generated site",
+    )
+    args = parser.parse_args()
+
+    art_dir = args.artifacts_dir or args.artifacts_pos or "artifacts"
+    out_dir = args.output_dir or args.output_pos or "pages-root"
     build_pages(art_dir, out_dir)
