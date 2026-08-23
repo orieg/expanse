@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+
+    <!-- NuGet Package Metadata -->
+    <PackageId>Expanse.NET</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Nicolas / OriEg</Authors>
+    <Company>OriEg</Company>
+    <Description>High-performance .NET / C# bindings and off-heap collection data structures for Expanse (modernized, clean-room Judy arrays). Features bit sets, word maps, string tries, binary-safe hash maps, off-heap slab blob maps with inline packing, and lock-free concurrent readers.</Description>
+    <PackageTags>expanse;judy;trie;bitset;bitmap;map;strmap;blobmap;off-heap;collections;high-performance;cache;zero-copy;native</PackageTags>
+    <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/orieg/expanse</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/orieg/expanse</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- Native Library Bundling for Runtime Packaging -->
+  <ItemGroup Condition="Exists('../../../../target/release/libexpanse.so')">
+    <Content Include="../../../../target/release/libexpanse.so" PackagePath="runtimes/linux-x64/native/libexpanse.so" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('../../../../target/release/libexpanse.dylib')">
+    <Content Include="../../../../target/release/libexpanse.dylib" PackagePath="runtimes/osx-x64/native/libexpanse.dylib" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <Content Include="../../../../target/release/libexpanse.dylib" PackagePath="runtimes/osx-arm64/native/libexpanse.dylib" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('../../../../target/release/expanse.dll')">
+    <Content Include="../../../../target/release/expanse.dll" PackagePath="runtimes/win-x64/native/expanse.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+</Project>
