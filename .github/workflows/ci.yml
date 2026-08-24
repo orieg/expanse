@@ -251,6 +251,32 @@ jobs:
       - name: Check Cortex-M4 Core
         run: cargo check -p expanse-trie --no-default-features --target thumbv7em-none-eabihf
 
+  test-i686:
+    name: Cross / i686 32-bit Test Execution (Linux)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu
+
+      - name: Install 32-bit toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Runs the real 32-bit trie engine with 32-bit `usize`/pointers — the
+      # only host-runnable 32-bit target — so the differential oracle and
+      # leak checks execute under the actual embedded word size.
+      - name: Test expanse-trie (i686, 32-bit std)
+        run: cargo test -p expanse-trie --target i686-unknown-linux-gnu
+
   test-musl:
     name: Cross / Musl Static C ABI (Linux)
     needs: [detect-changes]
@@ -302,7 +328,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Miri (core unsafe smoke — leaf, node, slot invariants)
+      - name: Miri (core unsafe smoke — leaf, node, slot, 32-bit trie invariants)
         run: |
           cargo miri test -p expanse-trie --lib -- --skip model_
 
@@ -646,7 +672,7 @@ jobs:
 
       - name: Fuzz smoke (60s per target)
         run: |
-          for t in set_ops map_ops bytesmap_ops strmap_ops blobmap_image_corrupt; do
+          for t in set_ops map_ops bytesmap_ops strmap_ops blobmap_image_corrupt set32_ops map32_ops; do
             echo "::group::$t"
             cargo fuzz run "$t" -- -max_total_time=60 -print_final_stats=1
             echo "::endgroup::"
@@ -1017,6 +1043,7 @@ jobs:
       - test-riscv64
       - test-rv32
       - test-cortex-m
+      - test-i686
       - miri
       - test-asan
       - php-judy-compat
