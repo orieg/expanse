@@ -1034,7 +1034,7 @@ assert_eq!(reader.get(99), Some(500));</code></pre>
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install the official Python extension from PyPI (binary wheels for Linux, macOS, Windows):</p>
           <pre><code>pip install expanse-trie</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Python:</p>
-          <pre><code>from expanse import ExpanseMap, ExpanseSet, ExpanseStrMap, ExpanseBlobMap
+          <pre><code>from expanse_trie import ExpanseMap, ExpanseSet, ExpanseStrMap, ExpanseBlobMap
 
 # High-performance integer word map
 m = ExpanseMap()

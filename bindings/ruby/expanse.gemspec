@@ -8,7 +8,7 @@ Gem::Specification.new do |spec|
   spec.homepage      = "https://github.com/orieg/expanse"
   spec.license       = "MIT OR Apache-2.0"
 
-  spec.files         = Dir["lib/**/*.rb", "ext/**/*.{c,h,rb}", "Cargo.toml", "src/**/*.rs"]
+  spec.files         = Dir["lib/**/*.rb", "README.md", "expanse.gemspec", "Rakefile"]
   spec.require_paths = ["lib"]
-  spec.extensions    = ["ext/expanse/extconf.rb"]
+  spec.required_ruby_version = ">= 3.0.0"
 end

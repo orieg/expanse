@@ -43,6 +43,6 @@ Changelog = "https://github.com/orieg/expanse/blob/main/CHANGELOG.md"
 [tool.maturin]
 manifest-path = "crates/expanse-py/Cargo.toml"
 module-name = "expanse_trie._expanse"
-python-source = "python"
+python-source = "bindings/python"
 features = ["pyo3/extension-module"]
 include = ["LICENSE-APACHE", "LICENSE-MIT"]

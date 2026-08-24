@@ -151,9 +151,9 @@ Every GitHub release bundles precompiled native archives:
 ### 2.7 Python Wheels (`pip install expanse-trie`) & PyPI Distribution
 Expanse is distributed on PyPI as `expanse-trie` with binary `abi3` wheels across Linux (`x86_64`, `aarch64`), macOS (`arm64`, `x86_64`), and Windows (`x86_64`).
 
-- **Package Configuration**: `pyproject.toml` using `maturin` backend.
+- **Package Configuration**: `pyproject.toml` using `maturin` backend (`bindings/python`).
 - **Python Crate**: `crates/expanse-py` exporting `expanse_trie._expanse`.
-- **Type Stubs**: PEP 561 typed (`python/expanse_trie/py.typed` and `__init__.pyi`).
+- **Type Stubs**: PEP 561 typed (`bindings/python/expanse_trie/py.typed` and `__init__.pyi`).
 - **CI / Distribution Workflow**: [`.github/workflows/python.yml`](../.github/workflows/python.yml) builds wheels, runs the `pytest` test suite, and publishes to PyPI with trusted publishing (OIDC).
 - **Full Guide**: See [docs/BINDINGS_PYTHON.md](BINDINGS_PYTHON.md).
 
@@ -330,8 +330,29 @@ Expanse provides a unified dual-driver distribution for PHP 8.1–8.5+:
 
 ---
 
-### 2.12 Multi-Ecosystem Version Synchronization (`scripts/bump_version.py`)
-Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, Java/Maven/Gradle, and PHP/Composer/PIE) spanning 14 canonical manifests. Publication status differs per registry (see the per-ecosystem sections: crates.io/npm/PyPI wired; NuGet wired-not-landed; Java/Maven not yet built or published; PHP Packagist subsplit wired). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
+### 2.12 Ruby Gem (`gem install expanse`)
+Expanse is distributed for Ruby 3.0+ as the `expanse` gem under `bindings/ruby`:
+- **Package Configuration**: `bindings/ruby/expanse.gemspec` and `bindings/ruby/Rakefile`.
+- **FFI Integration**: Uses Ruby's standard library `Fiddle` to load `libexpanse` dynamically across Linux, macOS, and Windows with zero compilation dependencies.
+- **Quickstart**:
+  ```bash
+  gem install expanse
+  ```
+  ```ruby
+  require "expanse"
+
+  set = Expanse::Set.new
+  set.add(42)
+
+  map = Expanse::Map.new
+  map[42] = 1000
+  ```
+- **Full Guide**: See [docs/BINDINGS_RUBY.md](BINDINGS_RUBY.md).
+
+---
+
+### 2.13 Multi-Ecosystem Version Synchronization (`scripts/bump_version.py`)
+Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, Java/Maven/Gradle, PHP/Composer/PIE, and Ruby/Gems) spanning 16 canonical manifests. Publication status differs per registry (see the per-ecosystem sections: crates.io/npm/PyPI wired; NuGet wired-not-landed; Java/Maven not yet built or published; PHP Packagist subsplit wired). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
 
 #### Synchronized Manifests:
 | Manifest File | Section / Key | Description |
@@ -348,6 +369,8 @@ Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C
 | `bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj` | `<Version>`, `<PackageVersion>`, `<AssemblyVersion>` | .NET NuGet package manifest (`Orieg.Expanse`) |
 | `bindings/java/pom.xml` | `<project><version>` | Maven Central POM manifest (`io.github.orieg:expanse-java`) |
 | `bindings/java/build.gradle` | `version = '...'` | Gradle build manifest |
+| `bindings/ruby/expanse.gemspec` | `spec.version` | Ruby gem specification (`expanse`) |
+| `bindings/ruby/lib/expanse.rb` | `VERSION = '...'` | Ruby module version constant |
 | `extra/vcpkg/vcpkg.json` *(extra)* | `"version"` | Microsoft vcpkg C/C++ port manifest |
 | `extra/nuget/expanse.nuspec` *(extra)* | `<version>` | C++ native NuGet package specification |
 
@@ -356,7 +379,7 @@ Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C
    ```bash
    python3 scripts/bump_version.py 0.4.0
    ```
-   This automatically updates all 10 manifests and executes `cargo check --workspace` to update `Cargo.lock` with zero manual intervention.
+   This automatically updates all manifests and executes `cargo check --workspace` to update `Cargo.lock` with zero manual intervention.
 
 2. **Dry Run (Preview Changes Without Modifying Files)**:
    ```bash
