@@ -16,6 +16,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.SortedMap;
+import java.util.SortedSet;
 
 /**
  * Standard {@link NavigableMap} wrapper over an off-heap {@link ExpanseMap}.

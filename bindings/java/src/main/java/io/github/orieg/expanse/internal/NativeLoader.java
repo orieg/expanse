@@ -55,6 +55,9 @@ public final class NativeLoader {
 
     private static SymbolLookup loadLibrary() {
         List<String> errors = new ArrayList<>();
+        OS os = OS.current();
+        String libName = os.getLibraryFileName();
+        String classifier = os.getClassifier();
 
         // 1. Check system property override: -Dexpanse.library.path=/path/to/libexpanse.so
         String propPath = System.getProperty(PROPERTY_LIB_PATH);
@@ -95,10 +98,6 @@ public final class NativeLoader {
                 errors.add("Path specified in " + ENV_LIB_PATH + " does not exist: " + envPath);
             }
         }
-
-        OS os = OS.current();
-        String libName = os.getLibraryFileName();
-        String classifier = os.getClassifier();
 
         // 3. Check development / build target directories
         String[] devRelativePaths = {
