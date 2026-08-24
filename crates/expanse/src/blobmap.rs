@@ -184,8 +184,14 @@ pub struct ArenaChunk {
 }
 
 impl ArenaChunk {
+    /// Maximum allowed chunk capacity (1 GiB) to prevent corrupted images from causing OOM.
+    pub const MAX_CHUNK_CAPACITY: usize = 1024 * 1024 * 1024;
+
     /// Creates a new arena chunk of given capacity and initial generation.
     pub fn new(capacity: usize, generation: u32) -> Result<Self, ArenaError> {
+        if capacity == 0 || capacity > Self::MAX_CHUNK_CAPACITY {
+            return Err(ArenaError::AllocationFailed);
+        }
         let layout = std::alloc::Layout::from_size_align(capacity, 16)
             .map_err(|_| ArenaError::AllocationFailed)?;
         // SAFETY: Allocating memory with 16-byte alignment.
@@ -256,7 +262,7 @@ impl ArenaChunk {
     /// Reads payload slice from offset within chunk.
     #[must_use]
     pub fn get_slice(&self, offset_in_chunk: usize) -> Option<&[u8]> {
-        if offset_in_chunk + 8 > self.cursor {
+        if offset_in_chunk.checked_add(8)? > self.cursor {
             return None;
         }
         // SAFETY: offset_in_chunk + 8 <= cursor <= capacity, valid allocated memory.
@@ -267,7 +273,7 @@ impl ArenaChunk {
                 return None;
             }
             let len = header.len as usize;
-            if offset_in_chunk + 8 + len > self.cursor {
+            if offset_in_chunk.checked_add(8)?.checked_add(len)? > self.cursor {
                 return None;
             }
             Some(core::slice::from_raw_parts(base.add(8), len))
@@ -281,15 +287,21 @@ impl ArenaChunk {
         self.generation
     }
 
-    /// Returns the raw allocated slice up to the cursor.
+    /// Returns the live bump-allocated slice of this chunk.
     #[must_use]
-    pub fn raw_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         if self.cursor == 0 {
             &[]
         } else {
             // SAFETY: cursor <= capacity, ptr is allocated and valid.
             unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.cursor) }
         }
+    }
+
+    /// Returns the raw allocated slice up to the cursor.
+    #[must_use]
+    pub fn raw_bytes(&self) -> &[u8] {
+        self.as_bytes()
     }
 
     /// Creates an arena chunk pre-populated from a raw data slice.
@@ -299,10 +311,14 @@ impl ArenaChunk {
         generation: u32,
         data: &[u8],
     ) -> Result<Self, ArenaError> {
-        let mut chunk = Self::new(capacity, generation)?;
-        if cursor > capacity || data.len() > capacity {
+        if capacity == 0
+            || capacity > Self::MAX_CHUNK_CAPACITY
+            || cursor > capacity
+            || data.len() > capacity
+        {
             return Err(ArenaError::InvalidOffset);
         }
+        let mut chunk = Self::new(capacity, generation)?;
         if !data.is_empty() {
             // SAFETY: destination chunk.ptr has at least capacity bytes, data is valid.
             unsafe {
@@ -781,7 +797,25 @@ impl ExpanseBlobMap {
             return Err(ArenaError::CorruptedHeader);
         }
 
-        if header.total_size as usize > bytes.len() {
+        if header.total_size as usize > bytes.len() || (header.total_size as usize) < 64 {
+            return Err(ArenaError::CorruptedHeader);
+        }
+
+        if header.chunk_size == 0 || header.chunk_size > ArenaChunk::MAX_CHUNK_CAPACITY as u64 {
+            return Err(ArenaError::CorruptedHeader);
+        }
+
+        if header.chunk_count > (bytes.len() / 24) as u64 {
+            return Err(ArenaError::CorruptedHeader);
+        }
+
+        if header.entry_count > (bytes.len() / 16) as u64 {
+            return Err(ArenaError::CorruptedHeader);
+        }
+
+        if (header.arena_offset as usize) > bytes.len()
+            || (header.index_offset as usize) > bytes.len()
+        {
             return Err(ArenaError::CorruptedHeader);
         }
 
@@ -790,38 +824,49 @@ impl ExpanseBlobMap {
         // Read arena chunks
         let mut arena_pos = header.arena_offset as usize;
         for _ in 0..header.chunk_count {
-            if arena_pos + 24 > bytes.len() {
+            let chunk_header_bytes = bytes
+                .get(
+                    arena_pos
+                        ..arena_pos
+                            .checked_add(24)
+                            .ok_or(ArenaError::CorruptedHeader)?,
+                )
+                .ok_or(ArenaError::CorruptedHeader)?;
+            let cap = u64::from_le_bytes(chunk_header_bytes[0..8].try_into().unwrap()) as usize;
+            let cur = u64::from_le_bytes(chunk_header_bytes[8..16].try_into().unwrap()) as usize;
+            let generation = u32::from_le_bytes(chunk_header_bytes[16..20].try_into().unwrap());
+            arena_pos = arena_pos
+                .checked_add(24)
+                .ok_or(ArenaError::CorruptedHeader)?;
+
+            if cap == 0 || cap > ArenaChunk::MAX_CHUNK_CAPACITY || cur > cap {
                 return Err(ArenaError::CorruptedHeader);
             }
-            let cap =
-                u64::from_le_bytes(bytes[arena_pos..arena_pos + 8].try_into().unwrap()) as usize;
-            let cur = u64::from_le_bytes(bytes[arena_pos + 8..arena_pos + 16].try_into().unwrap())
-                as usize;
-            let generation =
-                u32::from_le_bytes(bytes[arena_pos + 16..arena_pos + 20].try_into().unwrap());
-            arena_pos += 24;
 
-            if arena_pos + cur > bytes.len() {
-                return Err(ArenaError::CorruptedHeader);
-            }
-
-            let chunk_data = &bytes[arena_pos..arena_pos + cur];
+            let chunk_end = arena_pos
+                .checked_add(cur)
+                .ok_or(ArenaError::CorruptedHeader)?;
+            let chunk_data = bytes
+                .get(arena_pos..chunk_end)
+                .ok_or(ArenaError::CorruptedHeader)?;
             let chunk = ArenaChunk::from_raw_parts(cap, cur, generation, chunk_data)?;
             map.arena.push_chunk(chunk);
 
-            let aligned_cur = (cur + 15) & !15;
-            arena_pos += aligned_cur;
+            let aligned_cur = (cur.checked_add(15).ok_or(ArenaError::CorruptedHeader)?) & !15;
+            arena_pos = arena_pos
+                .checked_add(aligned_cur)
+                .ok_or(ArenaError::CorruptedHeader)?;
         }
 
         // Read index entries
         let mut idx_pos = header.index_offset as usize;
         for _ in 0..header.entry_count {
-            if idx_pos + 16 > bytes.len() {
-                return Err(ArenaError::CorruptedHeader);
-            }
-            let key = u64::from_le_bytes(bytes[idx_pos..idx_pos + 8].try_into().unwrap());
-            let raw_slot = u64::from_le_bytes(bytes[idx_pos + 8..idx_pos + 16].try_into().unwrap());
-            idx_pos += 16;
+            let entry_bytes = bytes
+                .get(idx_pos..idx_pos.checked_add(16).ok_or(ArenaError::CorruptedHeader)?)
+                .ok_or(ArenaError::CorruptedHeader)?;
+            let key = u64::from_le_bytes(entry_bytes[0..8].try_into().unwrap());
+            let raw_slot = u64::from_le_bytes(entry_bytes[8..16].try_into().unwrap());
+            idx_pos = idx_pos.checked_add(16).ok_or(ArenaError::CorruptedHeader)?;
             map.index.insert(key, raw_slot);
 
             // Recompute live_bytes if ArenaShort
@@ -1042,5 +1087,40 @@ mod tests {
         }
 
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_corrupted_image_rejection() {
+        // Truncated input
+        assert!(ExpanseBlobMap::from_bytes_slice(&[0u8; 10]).is_err());
+
+        // Invalid magic
+        let mut bad_magic = vec![0u8; 64];
+        bad_magic[0..8].copy_from_slice(b"BADMAGIC");
+        assert!(ExpanseBlobMap::from_bytes_slice(&bad_magic).is_err());
+
+        // Huge chunk size attack input
+        let mut huge_chunk = vec![0u8; 64];
+        huge_chunk[0..8].copy_from_slice(b"EXPANSE\0");
+        huge_chunk[8..16].copy_from_slice(&1u64.to_le_bytes()); // version
+        huge_chunk[16..24].copy_from_slice(&64u64.to_le_bytes()); // total size
+        huge_chunk[40..48].copy_from_slice(&0x45534e41505845u64.to_le_bytes()); // huge chunk_size
+        assert!(ExpanseBlobMap::from_bytes_slice(&huge_chunk).is_err());
+
+        // Zero chunk size
+        huge_chunk[40..48].copy_from_slice(&0u64.to_le_bytes());
+        assert!(ExpanseBlobMap::from_bytes_slice(&huge_chunk).is_err());
+
+        // Fuzzer regression unit: offset overflow in header offsets
+        let fuzzer_crash = [
+            69, 88, 80, 65, 78, 83, 69, 0, 1, 0, 0, 0, 0, 1, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 255,
+            255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 69, 78, 80, 1, 83, 0, 0, 0, 0,
+            0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 110, 46, 110, 110, 110, 0, 0,
+            0, 0, 1, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 65, 0, 0, 0, 0, 0, 0, 0, 110, 83, 69, 0, 69, 78,
+            80, 1, 83, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 110,
+            46, 110, 59, 110, 255, 255, 255, 255, 255, 255, 191, 255, 255, 255, 255, 255, 255, 255,
+            255, 201, 255, 255, 255, 255, 255, 255, 255, 255, 1, 255, 0, 0, 0, 0, 110, 0, 0,
+        ];
+        assert!(ExpanseBlobMap::from_bytes_slice(&fuzzer_crash).is_err());
     }
 }
