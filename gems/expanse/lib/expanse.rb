@@ -115,17 +115,17 @@ module Expanse
     end
 
     def add(key)
-      Native.expanse_set_insert(@ptr, key) == 1
+      Native.expanse_set_insert(@ptr, key) != 0
     end
     alias << add
 
     def delete(key)
-      Native.expanse_set_remove(@ptr, key) == 1
+      Native.expanse_set_remove(@ptr, key) != 0
     end
     alias remove delete
 
     def include?(key)
-      Native.expanse_set_contains(@ptr, key) == 1
+      Native.expanse_set_contains(@ptr, key) != 0
     end
     alias key? include?
     alias member? include?
@@ -147,28 +147,28 @@ module Expanse
 
     def first
       buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_set_first(@ptr, buf) == 1
+      if Native.expanse_set_first(@ptr, buf) != 0
         buf.to_str(8).unpack1("Q<")
       end
     end
 
     def last
       buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_set_last(@ptr, buf) == 1
+      if Native.expanse_set_last(@ptr, buf) != 0
         buf.to_str(8).unpack1("Q<")
       end
     end
 
     def next(key)
       buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_set_next_after(@ptr, key, buf) == 1
+      if Native.expanse_set_next_after(@ptr, key, buf) != 0
         buf.to_str(8).unpack1("Q<")
       end
     end
 
     def prev(key)
       buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_set_prev_before(@ptr, key, buf) == 1
+      if Native.expanse_set_prev_before(@ptr, key, buf) != 0
         buf.to_str(8).unpack1("Q<")
       end
     end
@@ -179,7 +179,7 @@ module Expanse
 
     def select(k)
       buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_set_by_count(@ptr, k, buf) == 1
+      if Native.expanse_set_by_count(@ptr, k, buf) != 0
         buf.to_str(8).unpack1("Q<")
       end
     end
@@ -218,7 +218,7 @@ module Expanse
 
     def [](key)
       buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_map_get(@ptr, key, buf) == 1
+      if Native.expanse_map_get(@ptr, key, buf) != 0
         buf.to_str(8).unpack1("Q<")
       end
     end
@@ -226,7 +226,7 @@ module Expanse
 
     def delete(key)
       buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_map_remove(@ptr, key, buf) == 1
+      if Native.expanse_map_remove(@ptr, key, buf) != 0
         buf.to_str(8).unpack1("Q<")
       end
     end
@@ -249,7 +249,7 @@ module Expanse
     def first
       k_buf = Fiddle::Pointer.malloc(8)
       v_buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_map_first(@ptr, k_buf, v_buf) == 1
+      if Native.expanse_map_first(@ptr, k_buf, v_buf) != 0
         [k_buf.to_str(8).unpack1("Q<"), v_buf.to_str(8).unpack1("Q<")]
       end
     end
@@ -257,7 +257,7 @@ module Expanse
     def next(key)
       k_buf = Fiddle::Pointer.malloc(8)
       v_buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_map_next_after(@ptr, key, k_buf, v_buf) == 1
+      if Native.expanse_map_next_after(@ptr, key, k_buf, v_buf) != 0
         [k_buf.to_str(8).unpack1("Q<"), v_buf.to_str(8).unpack1("Q<")]
       end
     end
@@ -292,7 +292,7 @@ module Expanse
     def [](key)
       s = key.to_s
       buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_strmap_get(@ptr, s, buf) == 1
+      if Native.expanse_strmap_get(@ptr, s, buf) != 0
         buf.to_str(8).unpack1("Q<")
       end
     end
@@ -301,7 +301,7 @@ module Expanse
     def delete(key)
       s = key.to_s
       buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_strmap_remove(@ptr, s, buf) == 1
+      if Native.expanse_strmap_remove(@ptr, s, buf) != 0
         buf.to_str(8).unpack1("Q<")
       end
     end
@@ -340,7 +340,7 @@ module Expanse
     def [](key)
       b = key.b
       buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_bytesmap_get(@ptr, b, b.bytesize, buf) == 1
+      if Native.expanse_bytesmap_get(@ptr, b, b.bytesize, buf) != 0
         buf.to_str(8).unpack1("Q<")
       end
     end
@@ -349,7 +349,7 @@ module Expanse
     def delete(key)
       b = key.b
       buf = Fiddle::Pointer.malloc(8)
-      if Native.expanse_bytesmap_remove(@ptr, b, b.bytesize, buf) == 1
+      if Native.expanse_bytesmap_remove(@ptr, b, b.bytesize, buf) != 0
         buf.to_str(8).unpack1("Q<")
       end
     end
@@ -380,27 +380,27 @@ module Expanse
 
     def set(key, payload, hot_meta: 0)
       b = payload.b
-      Native.expanse_blob_map_insert(@ptr, key, b, b.bytesize, hot_meta) == 1
+      Native.expanse_blob_map_insert(@ptr, key, b, b.bytesize, hot_meta) != 0
     end
 
     def get(key)
       # ExpanseBlobView: ptr (8B), len (8B), hot_meta (4B), is_inline (1B) + padding (3B) = 24 bytes
       view_buf = Fiddle::Pointer.malloc(24)
-      if Native.expanse_blob_map_get(@ptr, key, view_buf) == 1
-        raw_ptr = view_buf.to_str(8).unpack1("Q<")
+      if Native.expanse_blob_map_get(@ptr, key, view_buf) != 0
+        raw_ptr = view_buf[0, 8].unpack1("Q<")
         len = view_buf[8, 8].unpack1("Q<")
         meta = view_buf[16, 4].unpack1("L<")
-        val = Fiddle::Pointer.new(raw_ptr).to_str(len)
+        val = len.zero? ? "" : Fiddle::Pointer.new(raw_ptr).to_str(len)
         [val, meta]
       end
     end
 
     def delete(key)
-      Native.expanse_blob_map_remove(@ptr, key) == 1
+      Native.expanse_blob_map_remove(@ptr, key) != 0
     end
 
     def key?(key)
-      Native.expanse_blob_map_contains_key(@ptr, key) == 1
+      Native.expanse_blob_map_contains_key(@ptr, key) != 0
     end
 
     def size
