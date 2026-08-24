@@ -659,7 +659,7 @@ jobs:
   test-php:
     name: Bindings / PHP (${{ matrix.os }}, PHP ${{ matrix.php-version }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -684,12 +684,8 @@ jobs:
       - name: Build native addon
         run: cargo build --release -p expanse-capi
 
-      - name: Install dependencies
-        run: composer install
-        working-directory: bindings/php
-
-      - name: Run tests
-        run: vendor/bin/phpunit tests/ExpanseTest.php
+      - name: Run PHP test suite
+        run: php -d ffi.enable=1 tests/ExpanseTest.php
         working-directory: bindings/php
 
   test-dotnet:
@@ -893,37 +889,6 @@ jobs:
         run: |
           cargo build --release -p expanse-capi
           ruby -Igems/expanse/lib gems/expanse/test/test_expanse.rb
-
-  test-php:
-    name: Bindings / PHP (${{ matrix.os }}, PHP ${{ matrix.php-version }})
-    runs-on: ${{ matrix.os }}
-    needs: [detect-changes]
-    if: needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        php-version: ['8.2', '8.3', '8.4']
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: ${{ matrix.php-version }}
-          extensions: ffi
-          coverage: none
-
-      - name: Build native libexpanse
-        run: cargo build --release -p expanse-capi
-
-      - name: Run PHP test suite
-        run: php -d ffi.enable=1 bindings/php/tests/ExpanseTest.php
 
   ci-gate:
     name: CI Gate / All Checks Passed
