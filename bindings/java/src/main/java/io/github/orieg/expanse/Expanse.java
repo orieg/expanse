@@ -14,7 +14,7 @@ public final class Expanse {
     static {
         try {
             MemorySegment ptr = (MemorySegment) ExpanseNative.MH_expanse_version.invokeExact();
-            VERSION = ptr.getString(0, StandardCharsets.UTF_8);
+            VERSION = ptr.reinterpret(1024).getString(0, StandardCharsets.UTF_8);
         } catch (Throwable t) {
             throw new ExceptionInInitializerError(t);
         }

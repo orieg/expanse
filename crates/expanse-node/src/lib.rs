@@ -20,3 +20,9 @@ pub use map::ExpanseMap;
 pub use set::ExpanseSet;
 pub use strmap::ExpanseStrMap;
 pub use sync::{SyncExpanseMap, SyncExpanseSet};
+
+/// Returns the Expanse library version string.
+#[napi_derive::napi]
+pub fn expanse_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}

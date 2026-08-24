@@ -8,13 +8,14 @@
     <LangVersion>latest</LangVersion>
 
     <!-- Package Metadata -->
-    <PackageId>OriEg.Expanse</PackageId>
+    <PackageId>Orieg.Expanse</PackageId>
+    <Title>Expanse.NET</Title>
+    <Description>High-performance, cache-line-tuned modern Judy arrays and off-heap zero-GC associative collections for .NET 8.0 and .NET 9.0+ powered by libexpanse.</Description>
     <Version>0.3.0</Version>
     <PackageVersion>0.3.0</PackageVersion>
     <AssemblyVersion>0.3.0</AssemblyVersion>
-    <Authors>Nicolas</Authors>
-    <Company>OriEg</Company>
-    <Description>High-performance native trie, word map, binary key map, off-heap slab blob map, and concurrent collections with lock-free readers for .NET via libexpanse.</Description>
+    <Authors>Nicolas Brousse</Authors>
+    <Company>Orieg</Company>
     <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/orieg/expanse</PackageProjectUrl>
     <RepositoryUrl>https://github.com/orieg/expanse.git</RepositoryUrl>

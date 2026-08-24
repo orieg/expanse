@@ -119,3 +119,24 @@ Modern features (lock-free concurrent reads, iterators, arena controls) are expo
 | D5 | Convenience-macro grammar (`JLI`/`J1S`/…) | Statement blocks `{ … ; }`, not expressions. Black-box evidence: php-judy invokes several macros without trailing semicolons at statement position and compiles against classic system libjudy, so classic's macros tolerate that; ours match, accepting both `JLI(...)` and `JLI(...);`. Consequence: the macros cannot be used as expressions, and unbraced `if/else` around one needs braces (no observed consumer does either) |
 
 Status: **all four families exported** — Judy1, JudyL, JudySL, and JudyHS — with the shipped `Judy.h`; the gate G1 differential-oracle harness runs in CI against a dlopen'd stock libjudy for all four (randomized op sequences, full-sweep/rank agreement, byte-exact JudySL buffer sweeps, JudyHS byte-key sequences including zero-length keys). **Gate G2 is green**: the php-judy test suite passes built against libexpanse via the libjudy-compat prefix — 221/221 locally (macOS AArch64, PHP 8.5) and as the `php-judy-compat` Linux CI job. **All four gates are green** — G1 (differential oracle), G2 (php-judy Linux), G3 (php-judy Windows against `expanse.dll`), G4 (`LD_PRELOAD` smoke) — each as a standing CI job.
+
+---
+
+## Cross-Language Feature & Container Parity
+
+Expanse provides 100% C ABI symbol coverage across all high-level language bindings, continuously validated by `scripts/check_abi_parity.py` in CI:
+
+| Container / Feature | C ABI (`expanse.h`) | Rust (`expanse-trie`) | Java 22+ (`expanse-java`) | .NET 9 (`Orieg.Expanse`) | Python (`expanse-trie`) | Node.js (`@orieg/expanse`) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`ExpanseSet` (Judy1)** | `expanse_set_*` (17 fns) | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` |
+| **`ExpanseMap` (JudyL)** | `expanse_map_*` (19 fns) | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` |
+| **`ExpanseBytesMap` (JudyHS)** | `expanse_bytesmap_*` (10 fns) | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` |
+| **`ExpanseStrMap` (JudySL)** | `expanse_strmap_*` (16 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` |
+| **`SyncExpanseSet` (OCC Set)**| `expanse_sync_set_*` (9 fns) | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` | `SyncExpanseSet` |
+| **`SyncExpanseMap` (OCC Map)**| `expanse_sync_map_*` (9 fns) | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` | `SyncExpanseMap` |
+| **`ExpanseBlobMap` (Large-Value)**| `expanse_blob_map_*` (11 fns) | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` | `ExpanseBlobMap` |
+| **Rank/Select (`by_count`)** | ✅ All ordered types | ✅ `count_below`/`by_count` | ✅ `rank`/`select` | ✅ `Rank`/`ByCount` | ✅ `count_below`/`by_count` | ✅ `countRange`/`byCount` |
+| **Metadata Filtering** | ✅ Predicate callbacks | ✅ SWAR vector kernels | ✅ Functional predicates | ✅ Delegated predicates | ✅ Predicate callbacks | ✅ Predicate callbacks |
+| **Lock-Free Concurrency** | ✅ Epoch-based OCC | ✅ `SeqVersion` atomics | ✅ Read-coupling handles | ✅ Reader handles | ✅ GIL-free thread queries | ✅ Event-loop safe |
+| **C ABI Symbol Parity** | **92 / 92 (100%)** | **92 / 92 (100%)** | **92 / 92 (100%)** | **92 / 92 (100%)** | **92 / 92 (100%)** | **92 / 92 (100%)** |
+
