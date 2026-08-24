@@ -147,7 +147,7 @@ impl ExpanseBlobMap {
     /// Loads a map from a relocatable binary image file.
     #[napi(factory, js_name = "openImage")]
     pub fn open_image(path: String, _mmap: Option<bool>) -> Result<ExpanseBlobMap> {
-        let inner = InnerBlobMap::mmap_file(&path).map_err(|e| {
+        let inner = InnerBlobMap::load_from_file(&path).map_err(|e| {
             Error::new(Status::GenericFailure, format!("Failed to open image: {e}"))
         })?;
         Ok(Self { inner })

@@ -188,7 +188,7 @@ impl ExpanseBlobMap {
     /// Loads a map from a relocatable binary image file.
     #[staticmethod]
     pub fn load_from_file(path: &str) -> PyResult<Self> {
-        let inner = InnerBlobMap::mmap_file(path)
+        let inner = InnerBlobMap::load_from_file(path)
             .map_err(|e| PyIOError::new_err(format!("Failed to load file: {e}")))?;
         Ok(Self { inner })
     }

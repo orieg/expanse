@@ -112,7 +112,9 @@ fn bench_blobmap32_predicate_scan(c: &mut Criterion) {
 
     let mut blob_map = ExpanseBlobMap32::new();
     for i in 0..n {
-        blob_map.insert(i as Key32, b"payload_bytes_sample", (i % 100) as u16);
+        blob_map
+            .insert(i as Key32, b"payload_bytes_sample", (i % 100) as u16)
+            .unwrap();
     }
 
     group.bench_function(BenchmarkId::new("columnar_hot_meta_scan", n), |b| {

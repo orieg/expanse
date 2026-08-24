@@ -160,3 +160,7 @@ Implements `rocksdb::MemTableRep` with full support for:
 ### `rocksdb::NewExpanseMemTableRepFactory(size_t leaf_capacity = 64, bool enable_prefix_trie = true)`
 Returns a `std::shared_ptr<rocksdb::MemTableRepFactory>` ready to be assigned to `rocksdb::Options::memtable_factory`.
 
+## Known limitation
+
+The lock-free reader protocol in `ExpanseMemTableRep` is not yet safe under concurrent writes. `SplitLeafBlock` nulls source entries before lowering the block count, so a reader with the stale count can dereference a `nullptr` in `Get`; `Insert`'s in-place shift leaves the leaf array transiently unsorted, so a racing binary search can return a spurious miss. All fields are `std::atomic`, so this is a protocol race that ThreadSanitizer does not flag. Until it is resolved, do not rely on `Get`/iterator reads that run concurrently with writes to the same memtable. Analysis and candidate fixes are tracked in [issue #229](https://github.com/orieg/expanse/issues/229).
+

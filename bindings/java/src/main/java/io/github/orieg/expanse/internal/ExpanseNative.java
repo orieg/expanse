@@ -88,6 +88,14 @@ public final class ExpanseNative {
     public static final MethodHandle MH_expanse_strmap_next_after;
     public static final MethodHandle MH_expanse_strmap_prev_at_or_before;
     public static final MethodHandle MH_expanse_strmap_prev_before;
+    // Truncation-aware navigation (_ex): return an int status and report the
+    // required buffer size through a size_t* out-param.
+    public static final MethodHandle MH_expanse_strmap_first_ex;
+    public static final MethodHandle MH_expanse_strmap_last_ex;
+    public static final MethodHandle MH_expanse_strmap_next_at_or_after_ex;
+    public static final MethodHandle MH_expanse_strmap_next_after_ex;
+    public static final MethodHandle MH_expanse_strmap_prev_at_or_before_ex;
+    public static final MethodHandle MH_expanse_strmap_prev_before_ex;
 
     // Concurrent Types
     public static final MethodHandle MH_expanse_sync_set_new;
@@ -196,6 +204,13 @@ public final class ExpanseNative {
         MH_expanse_strmap_next_after = downcall("expanse_strmap_next_after", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_strmap_prev_at_or_before = downcall("expanse_strmap_prev_at_or_before", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_strmap_prev_before = downcall("expanse_strmap_prev_before", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        // _ex variants: int status; (map, [key,] key_out, buf_len, required_len, value_out).
+        MH_expanse_strmap_first_ex = downcall("expanse_strmap_first_ex", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_strmap_last_ex = downcall("expanse_strmap_last_ex", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_strmap_next_at_or_after_ex = downcall("expanse_strmap_next_at_or_after_ex", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_strmap_next_after_ex = downcall("expanse_strmap_next_after_ex", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_strmap_prev_at_or_before_ex = downcall("expanse_strmap_prev_at_or_before_ex", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        MH_expanse_strmap_prev_before_ex = downcall("expanse_strmap_prev_before_ex", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
         // Concurrent
         MH_expanse_sync_set_new = downcall("expanse_sync_set_new", FunctionDescriptor.of(ValueLayout.ADDRESS));

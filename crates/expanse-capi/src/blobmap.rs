@@ -8,6 +8,13 @@ use core::ffi::c_void;
 use expanse_trie::blobmap::ExpanseBlobMap;
 
 /// C representation of a retrieved blob payload view.
+///
+/// `ptr` borrows directly into the map's inline-slot or arena memory and stays
+/// valid only until the next structural mutation of that map — the classic
+/// JudyL value-slot contract (mirrors `ExpanseMap::get_value_slot`). Any
+/// `expanse_blob_map_insert`/`_remove`/`_clear`/`_compact`/`_free` invalidates
+/// every previously returned view's `ptr`; reading through it afterwards is
+/// undefined. Views handed to a scan callback are valid only for that call.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ExpanseBlobView {
@@ -102,6 +109,11 @@ pub unsafe extern "C" fn expanse_blob_map_remove(map: *mut ExpanseBlobMap, key: 
 /// Looks up a key, writing the zero-copy view to `out_view` if present.
 /// Returns `true` if found.
 ///
+/// The written [`ExpanseBlobView::ptr`] borrows into the map and is valid only
+/// until the next structural mutation of `map` (any
+/// insert/remove/clear/compact/free); using it after that is undefined. Copy
+/// the bytes out first if they must outlive the next mutation.
+///
 /// # Safety
 ///
 /// `map` must be a valid handle. `out_view` must be non-null and writable (or null).
@@ -137,6 +149,10 @@ pub unsafe extern "C" fn expanse_blob_map_get(
 
 /// Executes a range scan with optional hot metadata predicate filtering.
 /// Returns the number of entries passed to the callback.
+///
+/// Each [`ExpanseBlobView`] passed to `callback` borrows into the map and is
+/// valid only for the duration of that callback invocation; do not retain its
+/// `ptr`, and do not mutate the map from within the callback.
 ///
 /// # Safety
 ///

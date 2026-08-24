@@ -94,7 +94,7 @@ pub use set32::ExpanseSet32 as ExpanseSet;
 #[cfg(target_pointer_width = "32")]
 pub use slot32::ValueSlot32 as ValueSlot;
 
-pub use blobmap32::{BlobView32, ExpanseBlobMap32};
+pub use blobmap32::{BlobMap32Error, BlobView32, ExpanseBlobMap32};
 pub use map32::ExpanseMap32;
 pub use set32::ExpanseSet32;
 pub use slot32::{SlotTag32, ValueSlot32};
