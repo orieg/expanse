@@ -2,7 +2,6 @@
 
 require_once __DIR__ . '/../src/Expanse.php';
 
-use PHPUnit\Framework\TestCase;
 use Expanse\Set;
 use Expanse\Map;
 use Expanse\StrMap;
@@ -11,7 +10,24 @@ use Expanse\BlobMap;
 use Expanse\SyncMap;
 use Expanse\SyncSet;
 
-class ExpanseTest extends TestCase {
+if (!class_exists('PHPUnit\Framework\TestCase')) {
+    abstract class TestCaseShim {
+        public function assertTrue($condition, $msg = '') {
+            if (!$condition) throw new \Exception("Expected true, got false. $msg");
+        }
+        public function assertFalse($condition, $msg = '') {
+            if ($condition) throw new \Exception("Expected false, got true. $msg");
+        }
+        public function assertEquals($expected, $actual, $msg = '') {
+            if ($expected !== $actual) {
+                throw new \Exception("Expected " . var_export($expected, true) . ", got " . var_export($actual, true) . ". $msg");
+            }
+        }
+    }
+    class_alias('TestCaseShim', 'PHPUnit\Framework\TestCase');
+}
+
+class ExpanseTest extends PHPUnit\Framework\TestCase {
     public function testSet() {
         $set = new Set();
         $this->assertTrue($set->add(42));
@@ -109,4 +125,18 @@ class ExpanseTest extends TestCase {
         $map->set(42, 100);
         $this->assertEquals(100, $map->get(42));
     }
+}
+
+if (php_sapi_name() === 'cli' && basename(__FILE__) === basename($_SERVER['SCRIPT_FILENAME'] ?? '')) {
+    $test = new ExpanseTest();
+    $methods = get_class_methods($test);
+    $count = 0;
+    foreach ($methods as $m) {
+        if (str_starts_with($m, 'test')) {
+            $test->$m();
+            $count++;
+            echo "PASS: $m\n";
+        }
+    }
+    echo "OK ($count tests passed)\n";
 }

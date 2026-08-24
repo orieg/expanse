@@ -26,6 +26,7 @@ jobs:
       java: ${{ steps.filter.outputs.java }}
       docs: ${{ steps.filter.outputs.docs }}
       ruby: ${{ steps.filter.outputs.ruby }}
+      php: ${{ steps.filter.outputs.php }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -73,6 +74,13 @@ jobs:
               - 'website/**'
             ruby:
               - 'gems/expanse/**'
+              - 'include/**'
+              - 'crates/expanse-capi/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+            php:
+              - 'bindings/php/**'
               - 'include/**'
               - 'crates/expanse-capi/**'
               - 'Cargo.toml'
@@ -886,6 +894,38 @@ jobs:
           cargo build --release -p expanse-capi
           ruby -Igems/expanse/lib gems/expanse/test/test_expanse.rb
 
+  test-php:
+    name: Bindings / PHP (${{ matrix.os }}, PHP ${{ matrix.php-version }})
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        php-version: ['8.2', '8.3', '8.4']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: ffi
+          coverage: none
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build native libexpanse
+        run: cargo build --release -p expanse-capi
+
+      - name: Run PHP test suite
+        run: php -d ffi.enable=1 tests/ExpanseTest.php
+        working-directory: bindings/php
+
   ci-gate:
     name: CI Gate / All Checks Passed
     if: always()
@@ -912,6 +952,7 @@ jobs:
       - test-java
       - test-rocksdb-memtable
       - test-ruby
+      - test-php
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
