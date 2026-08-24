@@ -143,7 +143,7 @@ class ExpanseSetTest {
 
             // Stream operations
             long sum = set.stream().sum();
-            assertEquals(50 * 52, sum); // sum of 2..100
+            assertEquals(50 * 51, sum); // sum of 2, 4, ..., 100 (50 even numbers: 50 * 51 = 2550)
         }
     }
 
