@@ -15,20 +15,20 @@ impl WasmExpanseStrMap {
         }
     }
 
-    pub fn set(&mut self, key: &str, value: u64) {
-        self.inner.insert(key, value);
+    pub fn set(&mut self, key: &str, value: u64) -> Option<u64> {
+        self.inner.insert(key.as_bytes(), value)
     }
 
     pub fn get(&self, key: &str) -> Option<u64> {
-        self.inner.get(key)
+        self.inner.get(key.as_bytes())
     }
 
     pub fn delete(&mut self, key: &str) -> bool {
-        self.inner.remove(key)
+        self.inner.remove(key.as_bytes()).is_some()
     }
 
     pub fn contains(&self, key: &str) -> bool {
-        self.inner.contains(key)
+        self.inner.get(key.as_bytes()).is_some()
     }
 
     pub fn size(&self) -> u64 {
@@ -36,33 +36,34 @@ impl WasmExpanseStrMap {
     }
 
     pub fn clear(&mut self) {
-        self.inner.clear()
+        self.inner.clear();
     }
 
-    pub fn first(&self) -> Option<js_sys::Array> {
-        self.inner.first().map(|(k, v)| {
+    pub fn first(&mut self) -> Option<js_sys::Array> {
+        self.inner.first().map(|(k, slot)| {
+            let val = unsafe { *slot.as_ptr() };
             let arr = js_sys::Array::new();
-            arr.push(&JsValue::from(k));
-            arr.push(&JsValue::from(v));
+            let key_str = String::from_utf8_lossy(&k).into_owned();
+            arr.push(&JsValue::from_str(&key_str));
+            arr.push(&JsValue::from(val));
             arr
         })
     }
 
-    pub fn next(&self, key: &str) -> Option<js_sys::Array> {
-        self.inner.next(key).map(|(k, v)| {
+    pub fn next(&mut self, key: &str) -> Option<js_sys::Array> {
+        self.inner.next_after(key.as_bytes()).map(|(k, slot)| {
+            let val = unsafe { *slot.as_ptr() };
             let arr = js_sys::Array::new();
-            arr.push(&JsValue::from(k));
-            arr.push(&JsValue::from(v));
+            let key_str = String::from_utf8_lossy(&k).into_owned();
+            arr.push(&JsValue::from_str(&key_str));
+            arr.push(&JsValue::from(val));
             arr
         })
     }
+}
 
-    #[wasm_bindgen(js_name = keysWithPrefix)]
-    pub fn keys_with_prefix(&self, prefix: &str) -> js_sys::Array {
-        let arr = js_sys::Array::new();
-        for (k, _) in self.inner.iter_prefix(prefix) {
-            arr.push(&JsValue::from(k));
-        }
-        arr
+impl Default for WasmExpanseStrMap {
+    fn default() -> Self {
+        Self::new()
     }
 }

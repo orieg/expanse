@@ -15,8 +15,8 @@ impl WasmExpanseMap {
         }
     }
 
-    pub fn set(&mut self, key: u64, value: u64) {
-        self.inner.insert(key, value);
+    pub fn set(&mut self, key: u64, value: u64) -> Option<u64> {
+        self.inner.insert(key, value)
     }
 
     pub fn get(&self, key: u64) -> Option<u64> {
@@ -24,11 +24,11 @@ impl WasmExpanseMap {
     }
 
     pub fn delete(&mut self, key: u64) -> bool {
-        self.inner.remove(key)
+        self.inner.remove(key).is_some()
     }
 
     pub fn contains(&self, key: u64) -> bool {
-        self.inner.contains(key)
+        self.inner.contains_key(key)
     }
 
     pub fn size(&self) -> u64 {
@@ -36,7 +36,7 @@ impl WasmExpanseMap {
     }
 
     pub fn clear(&mut self) {
-        self.inner.clear()
+        self.inner.clear();
     }
 
     pub fn first(&self) -> Option<js_sys::Array> {
@@ -49,11 +49,17 @@ impl WasmExpanseMap {
     }
 
     pub fn next(&self, key: u64) -> Option<js_sys::Array> {
-        self.inner.next(key).map(|(k, v)| {
+        self.inner.next_after(key).map(|(k, v)| {
             let arr = js_sys::Array::new();
             arr.push(&JsValue::from(k));
             arr.push(&JsValue::from(v));
             arr
         })
+    }
+}
+
+impl Default for WasmExpanseMap {
+    fn default() -> Self {
+        Self::new()
     }
 }

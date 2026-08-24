@@ -15,8 +15,8 @@ impl WasmExpanseBytesMap {
         }
     }
 
-    pub fn set(&mut self, key: &[u8], value: u64) {
-        self.inner.insert(key, value);
+    pub fn set(&mut self, key: &[u8], value: u64) -> Option<u64> {
+        self.inner.insert(key, value)
     }
 
     pub fn get(&self, key: &[u8]) -> Option<u64> {
@@ -24,11 +24,11 @@ impl WasmExpanseBytesMap {
     }
 
     pub fn delete(&mut self, key: &[u8]) -> bool {
-        self.inner.remove(key)
+        self.inner.remove(key).is_some()
     }
 
     pub fn contains(&self, key: &[u8]) -> bool {
-        self.inner.contains(key)
+        self.inner.contains_key(key)
     }
 
     pub fn size(&self) -> u64 {
@@ -36,6 +36,12 @@ impl WasmExpanseBytesMap {
     }
 
     pub fn clear(&mut self) {
-        self.inner.clear()
+        self.inner.clear();
+    }
+}
+
+impl Default for WasmExpanseBytesMap {
+    fn default() -> Self {
+        Self::new()
     }
 }

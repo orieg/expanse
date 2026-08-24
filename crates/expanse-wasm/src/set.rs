@@ -1,4 +1,4 @@
-use expanse_trie::set::ExpanseSet;
+use expanse_trie::ExpanseSet;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -16,15 +16,15 @@ impl WasmExpanseSet {
     }
 
     pub fn add(&mut self, key: u64) -> bool {
-        self.inner.insert(key)
+        self.inner.insert(key as u32)
     }
 
     pub fn remove(&mut self, key: u64) -> bool {
-        self.inner.remove(key)
+        self.inner.remove(key as u32)
     }
 
     pub fn contains(&self, key: u64) -> bool {
-        self.inner.contains(key)
+        self.inner.contains(key as u32)
     }
 
     pub fn size(&self) -> u64 {
@@ -36,37 +36,37 @@ impl WasmExpanseSet {
     }
 
     pub fn first(&self) -> Option<u64> {
-        self.inner.first()
+        self.inner.first().map(|v| v as u64)
     }
 
     pub fn next(&self, key: u64) -> Option<u64> {
-        self.inner.next(key)
+        self.inner.next(key as u32).map(|v| v as u64)
     }
 
     pub fn last(&self) -> Option<u64> {
-        self.inner.last()
+        self.inner.last().map(|v| v as u64)
     }
 
     pub fn prev(&self, key: u64) -> Option<u64> {
-        self.inner.prev(key)
+        self.inner.prev(key as u32).map(|v| v as u64)
     }
 
     pub fn rank(&self, key: u64) -> u64 {
-        self.inner.rank(key)
+        self.inner.rank(key as u32) as u64
     }
 
     pub fn select(&self, k: u64) -> Option<u64> {
-        self.inner.select(k)
+        self.inner.select(k as u32).map(|v| v as u64)
     }
 
     #[wasm_bindgen(js_name = countRange)]
     pub fn count_range(&self, start: u64, end: u64) -> u64 {
-        self.inner.count_range(start, end)
+        self.inner.count_range(start as u32, end as u32) as u64
     }
 
     #[wasm_bindgen(js_name = toArray)]
     pub fn to_array(&self) -> js_sys::BigUint64Array {
-        let vec: Vec<u64> = self.inner.iter().collect();
+        let vec: Vec<u64> = self.inner.iter().map(|v| v as u64).collect();
         let array = js_sys::BigUint64Array::new_with_length(vec.len() as u32);
         array.copy_from(&vec);
         array
