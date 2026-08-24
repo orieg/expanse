@@ -247,6 +247,7 @@ Method note: attribution is done inside a single process, so co-resident load sh
 
 - **vs `BTreeMap`/`BTreeSet`: Expanse wins every cell** — 2.9× (random) to ~14.5× (sequential/sparse) faster.
 - **vs `HashMap`/`HashSet` (Swiss table)**: near parity on sequential/clustered; **~3× slower on uniform-random 1M** (hash O(1) probe beats trie descent under cache misses); faster on sparse. Expanse buys ordering + prefix search for that.
+- **Random lookup is a working-set-vs-cache crossover** — `benches/compare.rs` measures it at both 10k (cache-resident: ~1.1× hashbrown, 10.0 ns vs 8.9 ns) and 1M (out-of-cache: ~2.9×, cache-miss-bound trie descent vs single hash probe) *(measured: honeycomb, commit 4a12f046)*. Never quote a single random-key ratio without its population: the widening from ~1.1× to ~2.9× is a scale/cache effect (verified stable, not a regression), not a fixed weakness.
 
 **Cold-build insert, 100,000 keys (`set_insert_build`)**:
 
