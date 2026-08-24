@@ -477,7 +477,8 @@ pub(crate) unsafe fn lower_bound_4_u32(hay: *const u8, len: usize, needle: u32) 
 /// bitmap branches and bitmap leaves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Bitmap256 {
-    words: [u64; 4],
+    /// 4 x 64-bit words representing the 256 membership bits.
+    pub words: [u64; 4],
 }
 
 /// Runtime `popcnt` dispatch (x86-64 only).

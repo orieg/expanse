@@ -608,29 +608,34 @@ impl ExpanseSet {
     /// Ascending iterator over the keys.
     #[must_use]
     pub fn iter(&self) -> SetIter<'_> {
+        let raw = match &self.root {
+            Root::Empty => crate::iter::RawIter::new(),
+            Root::Leaf { pop, .. } => {
+                let keys_ptr = self.root_leaf_keys().as_ptr();
+                crate::iter::RawIter::from_root_leaf(keys_ptr, core::ptr::null(), *pop)
+            }
+            // SAFETY: tree maintained by set engine per invariants.
+            Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree(top) },
+        };
         SetIter {
-            set: self,
-            from: Some(0),
+            _set: core::marker::PhantomData,
+            raw,
         }
     }
 }
 
 /// Ascending key iterator over an [`ExpanseSet`].
 pub struct SetIter<'a> {
-    set: &'a ExpanseSet,
-    from: Option<u64>,
+    _set: core::marker::PhantomData<&'a ExpanseSet>,
+    raw: crate::iter::RawIter<false>,
 }
 
 impl Iterator for SetIter<'_> {
     type Item = u64;
 
+    #[inline]
     fn next(&mut self) -> Option<u64> {
-        let Some(found) = self.set.next_at_or_after(self.from?) else {
-            self.from = None;
-            return None;
-        };
-        self.from = found.checked_add(1);
-        Some(found)
+        self.raw.next().map(|(k, _)| k)
     }
 }
 

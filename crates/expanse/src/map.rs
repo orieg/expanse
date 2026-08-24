@@ -1095,9 +1095,20 @@ impl ExpanseMap {
     /// Ascending iterator over `(key, value)` entries.
     #[must_use]
     pub fn iter(&self) -> MapIter<'_> {
+        let raw = match &self.root {
+            Root::Empty => crate::iter::RawIter::new(),
+            Root::Leaf { ptr, pop } => {
+                let keys_ptr = ptr.as_ptr().cast::<u64>();
+                // SAFETY: root leaf holds pop values starting at leaf_values_offset(pop).
+                let vals_ptr = unsafe { keys_ptr.add(leaf_values_offset(*pop) / 8) };
+                crate::iter::RawIter::from_root_leaf(keys_ptr, vals_ptr, *pop)
+            }
+            // SAFETY: tree maintained by map engine per invariants.
+            Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree(top) },
+        };
         MapIter {
-            map: self,
-            from: Some(0),
+            _map: core::marker::PhantomData,
+            raw,
         }
     }
 
@@ -1150,20 +1161,16 @@ impl ExpanseMap {
 
 /// Ascending entry iterator over an [`ExpanseMap`].
 pub struct MapIter<'a> {
-    map: &'a ExpanseMap,
-    from: Option<u64>,
+    _map: core::marker::PhantomData<&'a ExpanseMap>,
+    raw: crate::iter::RawIter<true>,
 }
 
 impl Iterator for MapIter<'_> {
     type Item = (u64, u64);
 
+    #[inline]
     fn next(&mut self) -> Option<(u64, u64)> {
-        let Some((k, v)) = self.map.next_at_or_after(self.from?) else {
-            self.from = None;
-            return None;
-        };
-        self.from = k.checked_add(1);
-        Some((k, v))
+        self.raw.next()
     }
 }
 
