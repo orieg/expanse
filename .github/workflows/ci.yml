@@ -273,9 +273,12 @@ jobs:
 
       # Runs the real 32-bit trie engine with 32-bit `usize`/pointers — the
       # only host-runnable 32-bit target — so the differential oracle and
-      # leak checks execute under the actual embedded word size.
+      # leak checks execute under the actual embedded word size. Scoped to
+      # `--lib`: the integration tests under `tests/` exercise the
+      # 64-bit-only engine modules (cfg'd out on 32-bit targets), so they do
+      # not compile here; the 32-bit engine's own tests live in the lib.
       - name: Test expanse-trie (i686, 32-bit std)
-        run: cargo test -p expanse-trie --target i686-unknown-linux-gnu
+        run: cargo test -p expanse-trie --lib --target i686-unknown-linux-gnu
 
   test-musl:
     name: Cross / Musl Static C ABI (Linux)
