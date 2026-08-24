@@ -1047,9 +1047,9 @@ console.log(entry?.payload.toString()); // "payload bytes"</code></pre>
 
         <div id="tab-dotnet" class="install-panel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install the official .NET package from NuGet (multi-targeting .NET 8.0 &amp; 9.0 with SafeHandle zero-GC memory safety):</p>
-          <pre><code>dotnet add package OriEg.Expanse</code></pre>
+          <pre><code>dotnet add package Orieg.Expanse</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in C#:</p>
-          <pre><code>using OriEg.Expanse;
+          <pre><code>using Expanse;
 
 // High-speed integer word map
 using var map = new ExpanseMap();
@@ -1185,7 +1185,7 @@ int main() {
 composer require orieg/judy-cache orieg/judy-polyfill</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in PHP:</p>
           <pre><code>use Judy;
-use OriEg\\JudyCache\\JudySimpleCache;
+use Orieg\\JudyCache\\JudySimpleCache;
 
 // Core digital trie array
 $judy = new Judy(Judy::INT_TO_INT);

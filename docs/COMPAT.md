@@ -126,7 +126,7 @@ Status: **all four families exported** — Judy1, JudyL, JudySL, and JudyHS — 
 
 Expanse provides 100% C ABI symbol coverage across all high-level language bindings, continuously validated by `scripts/check_abi_parity.py` in CI:
 
-| Container / Feature | C ABI (`expanse.h`) | Rust (`expanse-trie`) | Java 22+ (`expanse-java`) | .NET 9 (`OriEg.Expanse`) | Python (`expanse-trie`) | Node.js (`@orieg/expanse`) |
+| Container / Feature | C ABI (`expanse.h`) | Rust (`expanse-trie`) | Java 22+ (`expanse-java`) | .NET 9 (`Orieg.Expanse`) | Python (`expanse-trie`) | Node.js (`@orieg/expanse`) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
 | **`ExpanseSet` (Judy1)** | `expanse_set_*` (17 fns) | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` |
 | **`ExpanseMap` (JudyL)** | `expanse_map_*` (19 fns) | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` |
