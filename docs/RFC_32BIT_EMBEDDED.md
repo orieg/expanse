@@ -1,11 +1,50 @@
 # RFC: 32-Bit Architecture & Embedded Microprocessor Support (RV32 / ESP32 / Cortex-M)
 
-**Status**: Proposed  
+**Status**: Implemented (core trie engine) — 2026-08-23  
 **Author**: Expanse Core Architecture Team  
 **Issue**: [#109](https://github.com/orieg/expanse/issues/109)  
 **Target Milestone**: Expanse v0.4.0  
 **Affected Crates**: `expanse-trie` (`crates/expanse`), `expanse-capi` (`crates/expanse-capi`)  
 **Canonical Documentation**: `docs/RFC_32BIT_EMBEDDED.md` (Design context for `docs/ARCHITECTURE.md`, `docs/COMPAT.md`, and `docs/DATABASE.md`)
+
+---
+
+## 0. Implementation Status
+
+The BTree-backed placeholders for `ExpanseSet32` / `ExpanseMap32` have been
+replaced by a **real 256-ary digital trie** (`crates/expanse/src/trie32.rs`),
+verified by a differential oracle against `BTreeSet`/`BTreeMap`, a drain
+leak-check, cross-compilation for RV32/Cortex-M, 32-bit test execution on
+`i686`, and coverage-guided fuzzing (`set32_ops` / `map32_ops`).
+
+| RFC item | Status | Notes |
+|---|---|---|
+| §3 4-level byte-digit descent (`L4 → L1`) | **Shipped** | `trie32` descent |
+| §3.2 `Key32`, `digit32`, level constants | **Shipped** | `types32.rs` |
+| §4 8-byte `Edge32` descriptor + immediates | **Shipped** | word 0 holds a 32-bit **arena handle** (see deviation below), not a raw pointer |
+| §4.3 In-edge immediates | **Shipped** | set: up to 7/3/2/1 keys by width; map: single entry (`kb ≤ 3`) |
+| §5.1–5.2 Linear branches `BranchL2_32` / `BranchL6_32` | **Shipped** | `node32.rs`; grow/demote ladder in `trie32` |
+| §5.4 Uncompressed branch `BranchU32` (2080 B) | **Shipped** | `node32.rs` (50% vs 64-bit `BranchU`) |
+| §5.5 Set bitmap leaf `LeafBitmap1_32` (64 B) | **Shipped** | dense level-1 sets |
+| §6 Variable-length linear leaves + `cap_class` | **Shipped** | set `[keys]`, map `[values][keys]` |
+| Real `mem_used()` (byte-exact node accounting) | **Shipped** | arena `bytes_in_use`; replaces the invented ≈0.5 B/key formula |
+| §5.3 Bitmap branch `BranchB32` | **Not yet** | correctness covered by `BranchU32`; deferred as a mid-density memory optimization |
+| §5.5 Map bitmap leaf `LeafBitmapL_32` | **Not yet** | maps use linear leaves; value-subarray leaf deferred |
+| §7 `ValueSlot32` arena/hot-metadata mode | **Partial** | inline + raw used by `ExpanseBlobMap32`; embedded 12-bit slab arena deferred |
+| §8 `SlabPage32` custom allocator / freelist classes | **Not yet** | arena uses the global allocator via `alloc` |
+| §9 `SeqVersion32` / OCC / concurrent (sync) wrapper | **Not yet** | 32-bit layer is single-threaded (docs no longer claim "lock-free") |
+| §12/§13 QEMU runners, ESP-IDF component | **Not yet** | CI adds RV32/Cortex-M `check` + `i686` test execution; QEMU/ESP-IDF deferred |
+| Published density numbers | **Deferred** | `bytes_per_key_32` reports real measured B/key; publication awaits a tagged, load-controlled re-run per `docs/BENCHMARKING.md` |
+
+**Deviation — handle vs raw pointer.** The RFC describes `Edge32` word 0 as
+a raw child pointer. A real heap pointer does not fit in a `u32` on the
+64-bit hosts where this crate's tests, Miri, and differential fuzzing run,
+so the engine stores nodes in a per-tree arena and keeps a 32-bit **handle**
+(arena index) in word 0. This is pointer-width-independent (identical on
+`i686`/RV32 and the 64-bit host), needs no `unsafe`, and — since each node
+is a real heap allocation sized to the RFC's on-target byte layout — makes
+`mem_used()` an exact figure. The 8-byte `Edge32` size, tag scheme, and
+immediate packing are unchanged.
 
 ---
 
