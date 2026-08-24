@@ -205,7 +205,10 @@ void ExpanseMemTableRep::SplitLeafBlock(LeafBlock* block) {
     block->version.fetch_add(1, std::memory_order_acquire);
 
     for (size_t i = 0; i < move_count; ++i) {
-        new_block->entries[i].store(block->entries[mid + i].load(std::memory_order_relaxed), std::memory_order_relaxed);
+        // Release: a lock-free reader that acquire-loads this moved entry pointer must
+        // gain a happens-before edge to the entry's (write-once) key bytes, which were
+        // published under mutex_ by the original inserter.
+        new_block->entries[i].store(block->entries[mid + i].load(std::memory_order_relaxed), std::memory_order_release);
     }
     new_block->count.store(static_cast<uint32_t>(move_count), std::memory_order_release);
     block->count.store(static_cast<uint32_t>(mid), std::memory_order_release);
@@ -262,7 +265,10 @@ void ExpanseMemTableRep::Insert(KeyHandle handle) {
     block->version.fetch_add(1, std::memory_order_acquire);
     
     for (int i = static_cast<int>(b_count); i > left; --i) {
-        block->entries[i].store(block->entries[i - 1].load(std::memory_order_relaxed), std::memory_order_relaxed);
+        // Release: shifting republishes an existing entry pointer into a new slot that
+        // lock-free readers scan; the acquire-load on the reader side needs this release
+        // to carry happens-before to that entry's key bytes.
+        block->entries[i].store(block->entries[i - 1].load(std::memory_order_relaxed), std::memory_order_release);
     }
     block->entries[left].store(entry, std::memory_order_release);
     block->count.store(b_count + 1, std::memory_order_release);
@@ -319,7 +325,10 @@ bool ExpanseMemTableRep::Contains(const char* key) const {
             int right = static_cast<int>(block->count.load(std::memory_order_acquire));
             while (left < right) {
                 int mid = left + (right - left) / 2;
-                const char* mid_entry = block->entries[mid].load(std::memory_order_relaxed);
+                // Acquire: synchronizes-with the release store that published this entry
+                // pointer, establishing happens-before to the entry's key bytes before
+                // the comparator dereferences them.
+                const char* mid_entry = block->entries[mid].load(std::memory_order_acquire);
                 if (mid_entry == nullptr) {
                     retry = true;
                     break;
@@ -401,7 +410,9 @@ void ExpanseMemTableRep::Get(
             
             while (left < right) {
                 int mid = left + (right - left) / 2;
-                const char* mid_entry = block->entries[mid].load(std::memory_order_relaxed);
+                // Acquire: gain happens-before to this entry's key bytes (published via a
+                // release store) before the comparator reads them.
+                const char* mid_entry = block->entries[mid].load(std::memory_order_acquire);
                 if (mid_entry == nullptr) {
                     retry_block = true;
                     break;
@@ -416,7 +427,8 @@ void ExpanseMemTableRep::Get(
             if (retry_block) continue;
 
             for (int i = left; i < count; ++i) {
-                const char* entry = block->entries[i].load(std::memory_order_relaxed);
+                // Acquire: gain happens-before to this entry's key bytes before decoding them.
+                const char* entry = block->entries[i].load(std::memory_order_acquire);
                 if (entry == nullptr) {
                     retry_block = true;
                     break;
@@ -556,7 +568,9 @@ const char* ExpanseMemTableRep::IteratorImpl::key() const {
         current_slot_ >= static_cast<int>(current_leaf_->count.load(std::memory_order_acquire))) {
         return nullptr;
     }
-    return current_leaf_->entries[current_slot_].load(std::memory_order_relaxed);
+    // Acquire: the returned pointer is dereferenced for key bytes by the caller; acquire
+    // pairs with the release publication store to establish happens-before to those bytes.
+    return current_leaf_->entries[current_slot_].load(std::memory_order_acquire);
 }
 
 void ExpanseMemTableRep::IteratorImpl::Next() {
@@ -684,7 +698,9 @@ void ExpanseMemTableRep::IteratorImpl::Seek(const Slice& internal_key, const cha
 
             while (left < right) {
                 int mid = left + (right - left) / 2;
-                const char* mid_entry = block->entries[mid].load(std::memory_order_relaxed);
+                // Acquire: gain happens-before to this entry's key bytes before the
+                // comparator dereferences them.
+                const char* mid_entry = block->entries[mid].load(std::memory_order_acquire);
                 if (mid_entry == nullptr) {
                     retry = true;
                     break;
@@ -775,9 +791,10 @@ size_t ExpanseMemTableRep::IteratorImpl::ScanBatch(
         }
 
         for (size_t i = 0; i < to_extract; ++i) {
-            const char* entry = current_leaf_->entries[current_slot_ + i].load(std::memory_order_relaxed);
+            // Acquire: gain happens-before to this entry's bytes before decoding them.
+            const char* entry = current_leaf_->entries[current_slot_ + i].load(std::memory_order_acquire);
             if (entry != nullptr) {
-                // Prefetch entry payload 2 slots ahead
+                // Prefetch entry payload 2 slots ahead (relaxed: prefetch never dereferences)
                 if (i + 2 < to_extract) {
                     const char* ahead = current_leaf_->entries[current_slot_ + i + 2].load(std::memory_order_relaxed);
                     if (ahead) expanse_rocksdb::Prefetch<0, 1>(ahead);
