@@ -95,33 +95,9 @@ fn immed_find(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
 fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
     let n = im.key_count() as usize;
     let needle = crate::mutate::key_low(key, KB as u8);
-    if n == 1 {
-        // SAFETY: payload holds at least 1 * KB readable bytes.
-        if unsafe { crate::mutate::read_packed_fixed::<KB>(payload.as_ptr(), 0) } == needle {
-            return Some(0);
-        }
-        return None;
-    }
-    if n == 2 {
-        // SAFETY: payload holds at least 2 * KB readable bytes.
-        unsafe {
-            if crate::mutate::read_packed_fixed::<KB>(payload.as_ptr(), 0) == needle {
-                return Some(0);
-            }
-            if crate::mutate::read_packed_fixed::<KB>(payload.as_ptr(), 1) == needle {
-                return Some(1);
-            }
-        }
-        return None;
-    }
-    let le = key.to_le_bytes();
-    let mut needle_bytes = [0u8; KB];
-    needle_bytes.copy_from_slice(&le[..KB]);
-    // SAFETY: `[u8; KB]` has alignment 1, and payload holds `n * KB` bytes.
-    let packed = unsafe { core::slice::from_raw_parts(payload.as_ptr().cast::<[u8; KB]>(), n) };
-    packed
-        .iter()
-        .position(|candidate| *candidate == needle_bytes)
+    let ptr = payload.as_ptr();
+    // SAFETY: payload holds at least n * KB readable bytes per ImmedType invariant and i < n.
+    (0..n).find(|&i| unsafe { crate::mutate::read_packed_fixed::<KB>(ptr, i) } == needle)
 }
 
 /// The shared descent; `MAP` selects map flavor (values) over set flavor.
@@ -153,17 +129,6 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag_byte();
-
-        #[cfg(target_arch = "x86_64")]
-        if tag < 0x10 {
-            // SAFETY: _mm_prefetch does not fault on invalid pointers.
-            unsafe {
-                core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(
-                    edge.node_ptr() as *const i8,
-                );
-            }
-        }
-
         match tag {
             0x00 => return false, // EdgeType::Null
 
@@ -300,17 +265,6 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag_byte();
-
-        #[cfg(target_arch = "x86_64")]
-        if tag < 0x10 {
-            // SAFETY: _mm_prefetch does not fault on invalid pointers.
-            unsafe {
-                core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(
-                    edge.node_ptr() as *const i8,
-                );
-            }
-        }
-
         match tag {
             0x00 => return None,
 
@@ -687,17 +641,6 @@ unsafe fn locate_slot_impl(
         debug_assert!((1..=8).contains(&level));
         // SAFETY: live edge per contract.
         let tag = unsafe { (*edge).tag_byte() };
-
-        #[cfg(target_arch = "x86_64")]
-        if tag < 0x10 {
-            // SAFETY: _mm_prefetch does not fault on invalid pointers.
-            unsafe {
-                core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(
-                    (*edge).node_ptr() as *const i8,
-                );
-            }
-        }
-
         match tag {
             0x00 => return None, // Null
 
