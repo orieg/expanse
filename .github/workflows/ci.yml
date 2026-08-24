@@ -740,20 +740,24 @@ jobs:
       - name: Build native libexpanse
         run: cargo build --release -p expanse-capi
 
-      - name: Run Maven test suite (Unix)
-        if: runner.os != 'Windows'
+      - name: Run Maven test suite (Linux)
+        if: runner.os == 'Linux'
         env:
           EXPANSE_LIBRARY_PATH: ${{ github.workspace }}/target/release
-        run: |
-          mvn test -f bindings/java/pom.xml -Dexpanse.library.path=${{ github.workspace }}/target/release/libexpanse.${{ runner.os == 'macOS' && 'dylib' || 'so' }}
+        run: mvn test -f bindings/java/pom.xml -Dexpanse.library.path=${{ github.workspace }}/target/release/libexpanse.so
+
+      - name: Run Maven test suite (macOS)
+        if: runner.os == 'macOS'
+        env:
+          EXPANSE_LIBRARY_PATH: ${{ github.workspace }}/target/release
+        run: mvn test -f bindings/java/pom.xml -Dexpanse.library.path=${{ github.workspace }}/target/release/libexpanse.dylib
 
       - name: Run Maven test suite (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           EXPANSE_LIBRARY_PATH: ${{ github.workspace }}\target\release
-        run: |
-          mvn test -f bindings/java/pom.xml -Dexpanse.library.path=${{ github.workspace }}\target\release\expanse.dll
+        run: mvn test -f bindings/java/pom.xml "-Dexpanse.library.path=${{ github.workspace }}\target\release\expanse.dll"
 
   test-rocksdb-memtable:
     name: Integrations / RocksDB MemTable (${{ matrix.os }}, ${{ matrix.sanitizer }})
