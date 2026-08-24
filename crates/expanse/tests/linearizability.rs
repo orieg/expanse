@@ -103,6 +103,55 @@ fn check_linearizability_for_key(events: &[Event]) -> bool {
 }
 
 #[test]
+fn test_sync_map_sequential_linearizability() {
+    let map = Arc::new(SyncExpanseMap::new());
+    let mut history = Vec::new();
+    let ops = 20; // smaller for miri
+    let keys = [1, 2, 3];
+
+    for i in 0..ops {
+        let key = keys[i % keys.len()];
+        let op = match i % 3 {
+            0 => Op::Insert(key, i as u64),
+            1 => Op::Remove(key),
+            _ => Op::Get(key),
+        };
+
+        let start = Instant::now();
+        let ret = match &op {
+            Op::Insert(k, v) => Ret::Insert(map.insert(*k, *v)),
+            Op::Remove(k) => Ret::Remove(map.remove(*k)),
+            Op::Get(k) => Ret::Get(map.get(*k)),
+        };
+        let end = Instant::now();
+
+        history.push(Event {
+            op,
+            ret,
+            start,
+            end,
+        });
+    }
+
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in history {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+
+    for (key, events) in by_key {
+        assert!(
+            check_linearizability_for_key(&events),
+            "Linearizability violation for key {}",
+            key
+        );
+    }
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
 fn test_sync_map_linearizability() {
     let map = Arc::new(SyncExpanseMap::new());
     let history = Arc::new(Mutex::new(Vec::new()));

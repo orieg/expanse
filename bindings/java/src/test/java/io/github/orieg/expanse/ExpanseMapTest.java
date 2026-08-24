@@ -187,4 +187,21 @@ class ExpanseMapTest {
             assertEquals(2100, valSum);
         }
     }
+
+    @Test
+    @DisplayName("64-Bit Boundary Value Test Vectors")
+    void boundaryValues() {
+        try (ExpanseMap map = new ExpanseMap()) {
+            long[] keys = {0L, 1L, (1L << 53) - 1, 1L << 53, Long.MAX_VALUE, -1L /* 0xFFFF_FFFF_FFFF_FFFF */, -100L};
+            for (long k : keys) {
+                map.put(k, k * 2);
+            }
+            
+            for (long k : keys) {
+                assertTrue(map.containsKey(k));
+                assertEquals(OptionalLong.of(k * 2), map.get(k));
+            }
+            assertEquals(keys.length, map.size());
+        }
+    }
 }

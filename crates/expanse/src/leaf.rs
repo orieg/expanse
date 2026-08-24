@@ -736,6 +736,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn simd_gate_safety() {
+        // lower_bound_fixed / search_fixed have SIMD fast-paths.
+        // For a pop in a gate range, `cap_class(pop) * KB` must be >= load width.
+        for pop in 13..=16 {
+            let kb = 1;
+            assert!(cap_class(pop) * kb >= 16);
+        }
+        for pop in 5..=8 {
+            let kb = 1;
+            assert!(cap_class(pop) * kb >= 8);
+        }
+        for pop in 5..=8 {
+            let kb = 2;
+            assert!(cap_class(pop) * kb >= 16);
+        }
+        for pop in 3..=4 {
+            let kb = 4;
+            assert!(cap_class(pop) * kb >= 16);
+        }
+
+        // search_fixed (point queries)
+        assert!(cap_class(16) >= 16);
+        assert!(cap_class(8) >= 8);
+        assert!(cap_class(8) * 2 >= 16);
+        assert!(cap_class(4) * 4 >= 16);
+    }
+
+    #[test]
     fn sizes_and_offsets() {
         // Class-based sizing: allocations round the population up to a
         // multiple of four slots.

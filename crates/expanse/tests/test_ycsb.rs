@@ -1,4 +1,5 @@
 //! Unit and integration tests for YCSB benchmark generation and workload execution.
+#![cfg(not(miri))]
 
 use crossbeam_skiplist::SkipMap;
 use expanse_trie::blobmap::ExpanseBlobMap;
