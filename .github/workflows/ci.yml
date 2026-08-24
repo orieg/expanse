@@ -26,6 +26,7 @@ jobs:
       java: ${{ steps.filter.outputs.java }}
       docs: ${{ steps.filter.outputs.docs }}
       ruby: ${{ steps.filter.outputs.ruby }}
+      php: ${{ steps.filter.outputs.php }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -73,6 +74,13 @@ jobs:
               - 'website/**'
             ruby:
               - 'gems/expanse/**'
+              - 'include/**'
+              - 'crates/expanse-capi/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+            php:
+              - 'bindings/php/**'
               - 'include/**'
               - 'crates/expanse-capi/**'
               - 'Cargo.toml'
@@ -651,7 +659,7 @@ jobs:
   test-php:
     name: Bindings / PHP (${{ matrix.os }}, PHP ${{ matrix.php-version }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -676,12 +684,8 @@ jobs:
       - name: Build native addon
         run: cargo build --release -p expanse-capi
 
-      - name: Install dependencies
-        run: composer install
-        working-directory: bindings/php
-
-      - name: Run tests
-        run: vendor/bin/phpunit tests/ExpanseTest.php
+      - name: Run PHP test suite
+        run: php -d ffi.enable=1 tests/ExpanseTest.php
         working-directory: bindings/php
 
   test-dotnet:
@@ -912,6 +916,7 @@ jobs:
       - test-java
       - test-rocksdb-memtable
       - test-ruby
+      - test-php
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
