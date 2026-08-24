@@ -58,7 +58,7 @@ impl WasmExpanseBlobMap {
     }
 
     pub fn size(&self) -> u64 {
-        self.inner.len() as u64
+        self.inner.len()
     }
 
     pub fn clear(&mut self) {
@@ -67,16 +67,21 @@ impl WasmExpanseBlobMap {
 
     pub fn prune(&mut self, predicate: &js_sys::Function) -> Result<usize, JsValue> {
         let mut keys_to_remove = Vec::new();
-        for (k, _payload, meta) in self.inner.iter() {
-            let this = JsValue::null();
-            let key_val = JsValue::from(k);
-            let meta_val = JsValue::from(meta);
-            if let Ok(res) = predicate.call2(&this, &key_val, &meta_val) {
-                if res.is_truthy() {
-                    keys_to_remove.push(k);
+        self.inner.scan_filtered(
+            0..=u64::MAX,
+            |key, meta| {
+                let this = JsValue::null();
+                let key_val = JsValue::from(key);
+                let meta_val = JsValue::from(meta);
+                if let Ok(res) = predicate.call2(&this, &key_val, &meta_val) {
+                    if res.is_truthy() {
+                        keys_to_remove.push(key);
+                    }
                 }
-            }
-        }
+                false
+            },
+            |_k, _v, _m| true,
+        );
         let count = keys_to_remove.len();
         for k in keys_to_remove {
             self.inner.remove(k);

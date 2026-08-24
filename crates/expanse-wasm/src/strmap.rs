@@ -1,69 +1,49 @@
-use expanse_trie::strmap::ExpanseStrMap;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-pub struct WasmExpanseStrMap {
-    inner: ExpanseStrMap,
-}
+pub struct WasmExpanseStrMap {}
 
 #[wasm_bindgen]
 impl WasmExpanseStrMap {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        Self {
-            inner: ExpanseStrMap::new(),
-        }
+        panic!("ExpanseStrMap is not supported on 32-bit platforms (wasm32)");
     }
 
-    pub fn set(&mut self, key: &str, value: u64) -> Option<u64> {
-        self.inner.insert(key.as_bytes(), value)
+    pub fn set(&mut self, _key: &str, _value: u64) {
+        unimplemented!()
     }
 
-    pub fn get(&self, key: &str) -> Option<u64> {
-        self.inner.get(key.as_bytes())
+    pub fn get(&self, _key: &str) -> Option<u64> {
+        unimplemented!()
     }
 
-    pub fn delete(&mut self, key: &str) -> bool {
-        self.inner.remove(key.as_bytes()).is_some()
+    pub fn delete(&mut self, _key: &str) -> bool {
+        unimplemented!()
     }
 
-    pub fn contains(&self, key: &str) -> bool {
-        self.inner.get(key.as_bytes()).is_some()
+    pub fn contains(&self, _key: &str) -> bool {
+        unimplemented!()
     }
 
     pub fn size(&self) -> u64 {
-        self.inner.len() as u64
+        unimplemented!()
     }
 
     pub fn clear(&mut self) {
-        self.inner.clear();
+        unimplemented!()
     }
 
-    pub fn first(&mut self) -> Option<js_sys::Array> {
-        self.inner.first().map(|(k, slot)| {
-            let val = unsafe { *slot.as_ptr() };
-            let arr = js_sys::Array::new();
-            let key_str = String::from_utf8_lossy(&k).into_owned();
-            arr.push(&JsValue::from_str(&key_str));
-            arr.push(&JsValue::from(val));
-            arr
-        })
+    pub fn first(&self) -> Option<js_sys::Array> {
+        unimplemented!()
     }
 
-    pub fn next(&mut self, key: &str) -> Option<js_sys::Array> {
-        self.inner.next_after(key.as_bytes()).map(|(k, slot)| {
-            let val = unsafe { *slot.as_ptr() };
-            let arr = js_sys::Array::new();
-            let key_str = String::from_utf8_lossy(&k).into_owned();
-            arr.push(&JsValue::from_str(&key_str));
-            arr.push(&JsValue::from(val));
-            arr
-        })
+    pub fn next(&self, _key: &str) -> Option<js_sys::Array> {
+        unimplemented!()
     }
-}
 
-impl Default for WasmExpanseStrMap {
-    fn default() -> Self {
-        Self::new()
+    #[wasm_bindgen(js_name = keysWithPrefix)]
+    pub fn keys_with_prefix(&self, _prefix: &str) -> js_sys::Array {
+        unimplemented!()
     }
 }
