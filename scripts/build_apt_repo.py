@@ -127,17 +127,31 @@ def extract_control_info(deb_path: str) -> dict:
     return info
 
 
-def build_apt_repo(input_dir: str, output_dir: str):
-    os.makedirs(output_dir, exist_ok=True)
-    pool_dir = os.path.join(output_dir, "pool", "main")
-    os.makedirs(pool_dir, exist_ok=True)
-
+def build_apt_repo(input_dir: str, output_dir: str, allow_empty: bool = False):
     deb_files = []
     if os.path.isdir(input_dir):
         for root, _, files in os.walk(input_dir):
             for file in files:
                 if file.endswith(".deb"):
                     deb_files.append(os.path.join(root, file))
+
+    # Fail loudly rather than silently publishing an empty repository that would
+    # force-replace a populated one on gh-pages (keep_files: false).
+    if not allow_empty:
+        if not os.path.isdir(input_dir):
+            raise SystemExit(
+                f"::error::APT repo build: artifacts directory '{input_dir}' does not exist. "
+                f"Download the release .deb assets first, or pass --allow-empty to bootstrap an empty repo."
+            )
+        if not deb_files:
+            raise SystemExit(
+                f"::error::APT repo build: no .deb packages found under '{input_dir}'. "
+                f"Refusing to publish an empty APT repository. Pass --allow-empty to bootstrap intentionally."
+            )
+
+    os.makedirs(output_dir, exist_ok=True)
+    pool_dir = os.path.join(output_dir, "pool", "main")
+    os.makedirs(pool_dir, exist_ok=True)
 
     arch_packages = {"amd64": [], "arm64": [], "riscv64": [], "all": []}
 
@@ -672,8 +686,13 @@ if __name__ == "__main__":
     parser.add_argument("out_pos", nargs="?", default=None)
     parser.add_argument("--artifacts-dir", "--input-dir", dest="in_dir", default=None)
     parser.add_argument("--output-dir", dest="out_dir", default=None)
+    parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="Permit building an empty repository (bootstrap only) instead of failing.",
+    )
     args = parser.parse_args()
 
     in_dir = args.in_dir or args.in_pos or "artifacts"
     out_dir = args.out_dir or args.out_pos or "apt"
-    build_apt_repo(in_dir, out_dir)
+    build_apt_repo(in_dir, out_dir, allow_empty=args.allow_empty)

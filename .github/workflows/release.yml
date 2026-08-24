@@ -5,32 +5,106 @@ on:
     tags:
       - 'v*'
 
+# Minimal default; each job elevates only what it needs.
 permissions:
-  contents: write
-  id-token: write # Required for crates.io OIDC trusted publishing
+  contents: read
 
 jobs:
+  # Gate: only publish artifacts for a tag whose commit already passed the full
+  # CI rollup on main, and whose manifests are in version lockstep with the tag.
+  release-gate:
+    name: Release Gate / Verify CI + Version Lockstep
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Assert tagged commit passed the CI Gate rollup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Checking CI Gate check-run for ${GITHUB_SHA}..."
+          # One conclusion per line (robust to pagination; no array wrapping).
+          mapfile -t conclusions < <(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs" \
+            --jq '.check_runs[] | select(.name=="CI Gate / All Checks Passed") | .conclusion')
+          if [ "${#conclusions[@]}" -eq 0 ]; then
+            echo "::error::No 'CI Gate / All Checks Passed' check-run found for ${GITHUB_SHA}. Tag a commit that passed CI on main."
+            exit 1
+          fi
+          for c in "${conclusions[@]}"; do
+            echo "CI Gate conclusion: ${c}"
+            if [ "${c}" != "success" ]; then
+              echo "::error::The CI Gate rollup did not conclude success for ${GITHUB_SHA} (found: ${c})"
+              exit 1
+            fi
+          done
+          echo "CI Gate rollup concluded success for ${GITHUB_SHA}."
+
+      - name: Assert manifests are in version lockstep with the tag
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "Verifying all manifests match tag version ${TAG_VERSION}..."
+          python3 scripts/bump_version.py --check "${TAG_VERSION}"
+
   publish-crates:
     name: Publish to Crates.io
+    needs: [release-gate]
     runs-on: ubuntu-latest
-    continue-on-error: true
+    permissions:
+      contents: read
+      id-token: write # crates.io OIDC trusted publishing
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           toolchain: stable
-      - name: Publish expanse-trie
+      - name: Publish crates (idempotent on already-published versions)
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish -p expanse-trie || echo "crates.io publish skipped or completed"
-      - name: Publish expanse-capi
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish -p expanse-capi || echo "crates.io publish skipped or completed"
+        run: |
+          set -uo pipefail
+          publish_crate() {
+            crate="$1"
+            attempt=0
+            max=3
+            while :; do
+              attempt=$((attempt + 1))
+              echo "Publishing ${crate} (attempt ${attempt}/${max})..."
+              if cargo publish -p "${crate}" 2>&1 | tee /tmp/publish.log; then
+                echo "Published ${crate}."
+                return 0
+              fi
+              if grep -qiE 'already (exists|uploaded)|is already uploaded|crate version .* is already' /tmp/publish.log; then
+                echo "${crate} version already on crates.io; treating as success (idempotent)."
+                return 0
+              fi
+              if [ "${attempt}" -ge "${max}" ]; then
+                echo "::error::cargo publish failed for ${crate} after ${max} attempts"
+                return 1
+              fi
+              echo "Retrying ${crate} after crates.io index propagation delay..."
+              sleep 20
+            done
+          }
+          publish_crate expanse-trie
+          publish_crate expanse-capi
 
   build-release-artifacts:
     name: Build Artifacts (${{ matrix.target }})
+    needs: [release-gate]
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -39,6 +113,8 @@ jobs:
             os: ubuntu-latest
             deb_arch: amd64
             rpm_arch: x86_64
+            dotnet_rid: linux-x64
+            nativefile: libexpanse.so
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             deb_arch: arm64
@@ -54,15 +130,21 @@ jobs:
             cross_pkg: musl-tools
           - target: aarch64-apple-darwin
             os: macos-latest
+            dotnet_rid: osx-arm64
+            nativefile: libexpanse.dylib
           - target: x86_64-apple-darwin
             os: macos-latest
+            dotnet_rid: osx-x64
+            nativefile: libexpanse.dylib
           - target: x86_64-pc-windows-msvc
             os: windows-latest
+            dotnet_rid: win-x64
+            nativefile: expanse.dll
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
@@ -76,34 +158,43 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
         run: cargo build -p expanse-capi --release --target ${{ matrix.target }}
-      - name: Prepare archives (Unix)
+
+      - name: Prepare dist, archive, and Linux packages (Unix)
         if: runner.os != 'Windows'
+        shell: bash
         run: |
-          mkdir -p package/include package/lib
-          cp crates/expanse-capi/include/*.h package/include/
-          [ -f "target/${{ matrix.target }}/release/libexpanse.so" ] && cp "target/${{ matrix.target }}/release/libexpanse.so" package/lib/ || true
-          [ -f "target/${{ matrix.target }}/release/libexpanse.dylib" ] && cp "target/${{ matrix.target }}/release/libexpanse.dylib" package/lib/ || true
-          [ -f "target/${{ matrix.target }}/release/libexpanse.a" ] && cp "target/${{ matrix.target }}/release/libexpanse.a" package/lib/ || true
-          
+          set -euo pipefail
           VERSION="${GITHUB_REF#refs/tags/v}"
           [ -z "$VERSION" ] && VERSION="0.3.0"
+          T="${{ matrix.target }}"
 
-          # Build Debian package if deb_arch is set
+          mkdir -p dist/include dist/lib
+          cp crates/expanse-capi/include/*.h dist/include/
+
+          if [ -f "target/$T/release/libexpanse.a" ]; then
+            cp "target/$T/release/libexpanse.a" dist/lib/
+          fi
+
+          # cargo emits an unversioned library; synthesize the soname chain so the
+          # libjudy-compat symlink (libJudy.so.1 -> libexpanse.so.1) is not dangling.
+          if [ -f "target/$T/release/libexpanse.so" ]; then
+            cp "target/$T/release/libexpanse.so" dist/lib/libexpanse.so.1.0.0
+            ln -sf libexpanse.so.1.0.0 dist/lib/libexpanse.so.1
+            ln -sf libexpanse.so.1 dist/lib/libexpanse.so
+          elif [ -f "target/$T/release/libexpanse.dylib" ]; then
+            cp "target/$T/release/libexpanse.dylib" dist/lib/libexpanse.dylib
+          fi
+
+          tar -czvf "expanse-${VERSION}-${T}.tar.gz" -C dist .
+
           if [ -n "${{ matrix.deb_arch }}" ]; then
-            mkdir -p deb/usr/lib deb/usr/include deb/DEBIAN
-            cp package/lib/* deb/usr/lib/
-            cp package/include/* deb/usr/include/
-            printf "Package: libexpanse\nVersion: %s\nArchitecture: %s\nMaintainer: Nicolas Brousse <nicolas@brousse.info>\nDescription: Expanse: modern Judy arrays and high-performance trie engine\n" "$VERSION" "${{ matrix.deb_arch }}" > deb/DEBIAN/control
-            dpkg-deb --build deb "libexpanse_${VERSION}_${{ matrix.deb_arch }}.deb"
+            bash scripts/package_deb.sh "$VERSION" "${{ matrix.deb_arch }}" dist
+          fi
+          if [ -n "${{ matrix.rpm_arch }}" ]; then
+            bash scripts/package_rpm.sh "$VERSION" "${{ matrix.rpm_arch }}" dist
           fi
 
-          # Build RPM package if rpm_arch is set
-          if [ -n "${{ matrix.rpm_arch }}" ]; then
-            bash scripts/package_rpm.sh "$VERSION" "${{ matrix.rpm_arch }}" package || true
-          fi
-          
-          tar -czvf "expanse-${VERSION}-${{ matrix.target }}.tar.gz" -C package .
-      - name: Prepare archives (Windows)
+      - name: Prepare archive (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -113,8 +204,25 @@ jobs:
           Copy-Item crates\expanse-capi\include\*.h package\
           Set-Content -Path package\README_MSVC.txt -Value "MSVC Build Instructions: Add expanse.lib to your linker input, and include Judy.h/expanse.h"
           Compress-Archive -Path package\* -DestinationPath "expanse-$($env:GITHUB_REF_NAME)-${{ matrix.target }}.zip"
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+
+      - name: Stage native library for NuGet
+        if: matrix.dotnet_rid
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "native/${{ matrix.dotnet_rid }}"
+          cp "target/${{ matrix.target }}/release/${{ matrix.nativefile }}" "native/${{ matrix.dotnet_rid }}/"
+
+      - name: Upload native library artifact (NuGet)
+        if: matrix.dotnet_rid
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-${{ matrix.dotnet_rid }}
+          path: native/${{ matrix.dotnet_rid }}/*
+          if-no-files-found: error
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-artifacts-${{ matrix.target }}
           path: |
@@ -122,79 +230,197 @@ jobs:
             expanse-*.zip
             *.deb
             *.rpm
+          if-no-files-found: error
+
+  build-npm:
+    name: Build npm addon (${{ matrix.platform }})
+    needs: [release-gate]
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64-gnu
+            target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            libfile: libexpanse_node.so
+          - platform: darwin-x64
+            target: x86_64-apple-darwin
+            os: macos-latest
+            libfile: libexpanse_node.dylib
+          - platform: darwin-arm64
+            target: aarch64-apple-darwin
+            os: macos-latest
+            libfile: libexpanse_node.dylib
+          - platform: win32-x64-msvc
+            target: x86_64-pc-windows-msvc
+            os: windows-latest
+            libfile: expanse_node.dll
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - name: Build native addon
+        run: cargo build -p expanse-node --release --target ${{ matrix.target }}
+      - name: Assemble platform .node
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp "target/${{ matrix.target }}/release/${{ matrix.libfile }}" "out/expanse.${{ matrix.platform }}.node"
+      - name: Upload platform addon artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-${{ matrix.platform }}
+          path: out/expanse.${{ matrix.platform }}.node
+          if-no-files-found: error
 
   package-nuget:
-    name: Package .NET NuGet
+    name: Package & Publish .NET NuGet
+    needs: [release-gate, build-release-artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # Required for NuGet.org OIDC trusted publishing
+      id-token: write # NuGet.org OIDC trusted publishing
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: '8.0.x'
+      - name: Download native libraries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: native-*
+          path: native-staging
+      - name: Stage native libraries into runtimes/{rid}/native
+        run: |
+          set -euo pipefail
+          base="bindings/dotnet/src/Expanse.NET/runtimes"
+          found=0
+          for d in native-staging/native-*; do
+            [ -d "$d" ] || continue
+            rid="${d#native-staging/native-}"
+            mkdir -p "${base}/${rid}/native"
+            cp "$d"/* "${base}/${rid}/native/"
+            found=$((found + 1))
+            echo "Staged ${rid}: $(ls "${base}/${rid}/native")"
+          done
+          if [ "${found}" -eq 0 ]; then
+            echo "::error::No native libraries staged for NuGet"; exit 1
+          fi
       - name: Pack NuGet package
         run: |
           mkdir -p dist/nuget
           dotnet pack bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj -c Release -o dist/nuget
       - name: Upload NuGet artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-artifacts-nuget
           path: dist/nuget/*.nupkg
+          if-no-files-found: error
       - name: NuGet login
-        uses: NuGet/login@v1
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
         id: nuget-login
         with:
           user: orieg
       - name: Publish to NuGet.org
         env:
           NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY || secrets.NUGET_API_KEY }}
-        if: env.NUGET_API_KEY != ''
         run: |
-          dotnet nuget push dist/nuget/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate || true
+          set -euo pipefail
+          if [ -z "${NUGET_API_KEY:-}" ]; then
+            echo "::error::No NuGet API key available (OIDC login failed and NUGET_API_KEY secret unset)"
+            exit 1
+          fi
+          dotnet nuget push dist/nuget/*.nupkg \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
 
-  package-npm:
-    name: Package Node.js (npm)
+  publish-npm:
+    name: Publish Node.js (npm)
+    needs: [release-gate, build-npm]
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # Required for npm OIDC trusted publishing & provenance
+      id-token: write # npm OIDC trusted publishing & provenance
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
-      - name: Upgrade npm CLI to latest (supports OIDC Trusted Publishing)
+      - name: Upgrade npm CLI (OIDC provenance support)
         run: npm install -g npm@latest
-      - name: Pack npm package
-        run: |
-          mkdir -p dist/npm
-          cp LICENSE-MIT LICENSE-APACHE crates/expanse-node/ || true
-          npm pack ./crates/expanse-node --pack-destination dist/npm
-      - name: Upload npm artifact
-        uses: actions/upload-artifact@v4
+      - name: Download platform addons
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: release-artifacts-npm
-          path: dist/npm/*.tgz
-      - name: Publish to npm registry (OIDC Trusted Publishing with token fallback)
+          pattern: npm-*
+          path: npm-staging
+      - name: Assemble and publish platform packages + main package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          npm publish dist/npm/*.tgz --access public --provenance || npm publish dist/npm/*.tgz --access public || echo "npm publish skipped or already completed"
+          set -euo pipefail
+          CRATE=crates/expanse-node
+          VERSION=$(node -p "require('./${CRATE}/package.json').version")
+          echo "Publishing @orieg/expanse platform packages at ${VERSION}"
+
+          platform_os() { case "$1" in linux-*) echo linux ;; darwin-*) echo darwin ;; win32-*) echo win32 ;; esac; }
+          platform_cpu() { case "$1" in *-arm64) echo arm64 ;; *) echo x64 ;; esac; }
+
+          for d in npm-staging/npm-*; do
+            [ -d "$d" ] || continue
+            plat="${d#npm-staging/npm-}"
+            pkgdir="${CRATE}/npm/${plat}"
+            mkdir -p "${pkgdir}"
+            cp "$d"/expanse.*.node "${pkgdir}/"
+            # shellcheck disable=SC2016  # ${...} below are JS template literals, not shell
+            PKGDIR="${pkgdir}" node -e '
+              const fs = require("fs");
+              const [plat, version, os, cpu] = process.argv.slice(1);
+              const pkg = {
+                name: `@orieg/expanse-${plat}`,
+                version,
+                description: `Prebuilt @orieg/expanse native addon for ${plat}.`,
+                main: `expanse.${plat}.node`,
+                files: [`expanse.${plat}.node`],
+                os: [os],
+                cpu: [cpu],
+                license: "MIT OR Apache-2.0",
+                repository: { type: "git", url: "git+https://github.com/orieg/expanse.git", directory: "crates/expanse-node" },
+                engines: { node: ">= 20.0.0" },
+              };
+              fs.writeFileSync(`${process.env.PKGDIR}/package.json`, JSON.stringify(pkg, null, 2));
+            ' "$plat" "$VERSION" "$(platform_os "$plat")" "$(platform_cpu "$plat")"
+            echo "Publishing @orieg/expanse-${plat}..."
+            npm publish "${pkgdir}" --access public --provenance
+          done
+
+          echo "Publishing main package @orieg/expanse..."
+          npm publish "${CRATE}" --access public --provenance
 
   github-release:
     name: Create GitHub Release
-    needs: [build-release-artifacts, package-nuget, package-npm]
+    needs: [build-release-artifacts, package-nuget, publish-npm]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload assets
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: release-artifacts-*
           merge-multiple: true
@@ -204,34 +430,39 @@ jobs:
           cd artifacts
           sha256sum ./* > SHA256SUMS
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@62c96d0c4e8a889135c1f3a25910db8dbe0e85f7 # v2.3.4
         with:
           files: artifacts/*
           generate_release_notes: true
 
   publish-pages:
     name: Publish Portal & Repositories (GitHub Pages)
-    needs: build-release-artifacts
+    needs: [build-release-artifacts]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push to the gh-pages branch
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
       - name: Install repodata tools
         run: |
           sudo apt-get update
           sudo apt-get install -y createrepo-c dpkg-dev
       - name: Download all release packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: release-artifacts-*
           merge-multiple: true
           path: artifacts
       - name: Generate complete Pages website
         run: |
-          python3 scripts/build_pages.py artifacts pages-root
+          python3 scripts/build_pages.py --artifacts-dir artifacts --output-dir pages-root
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./pages-root
           keep_files: false
-
