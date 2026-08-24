@@ -887,7 +887,7 @@ mod tests {
 
     #[test]
     fn model_differential() {
-        let ops = if cfg!(miri) { 300 } else { 4000 };
+        let ops = if cfg!(miri) { 50 } else { 4000 };
         let mut rng = XorShift(0x571A_5EED_1234 | 1);
         let mut map = ExpanseStrMap::new();
         let mut model: BTreeMap<Vec<u8>, u64> = BTreeMap::new();

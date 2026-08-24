@@ -742,15 +742,16 @@ mod tests {
     #[test]
     fn slab_page_pooling_and_cleanup_test() {
         let a = NodeAlloc::new();
-        // Allocate 100 32-byte blocks (more than 1 block, spanning multiple freelist pops from 4KB pages)
+        let count = if cfg!(miri) { 10 } else { 100 };
+        // Allocate blocks (more than 1 block, spanning multiple freelist pops from 4KB pages)
         let mut ptrs = Vec::new();
-        for _ in 0..100 {
+        for _ in 0..count {
             ptrs.push(a.alloc_bytes(32));
         }
-        assert_eq!(a.live_allocs(), 100);
-        assert_eq!(a.bytes_in_use(), 3200);
+        assert_eq!(a.live_allocs(), count);
+        assert_eq!(a.bytes_in_use(), count * 32);
 
-        // Free all 100 blocks
+        // Free all blocks
         for ptr in ptrs {
             // SAFETY: freeing allocated pointer.
             unsafe { a.free_bytes(ptr, 32) };
@@ -758,13 +759,13 @@ mod tests {
         assert_eq!(a.live_allocs(), 0);
         assert_eq!(a.bytes_in_use(), 0);
 
-        // Allocate 100 blocks again: they must all be fulfilled from the freelist
+        // Allocate blocks again: they must all be fulfilled from the freelist
         let mut ptrs2 = Vec::new();
-        for _ in 0..100 {
+        for _ in 0..count {
             ptrs2.push(a.alloc_bytes(32));
         }
-        assert_eq!(a.live_allocs(), 100);
-        assert_eq!(a.bytes_in_use(), 3200);
+        assert_eq!(a.live_allocs(), count);
+        assert_eq!(a.bytes_in_use(), count * 32);
 
         for ptr in ptrs2 {
             // SAFETY: freeing allocated pointer.
