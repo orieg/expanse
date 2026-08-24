@@ -226,9 +226,11 @@ def test_expanse_map_boundary_keys():
     MAX_I64 = (1 << 63) - 1
     keys = [0, 1, (1 << 53) - 1, 1 << 53, MAX_I64, MAX_U64]
     for k in keys:
-        m[k] = k * 2
+        val = (k ^ 0x5555555555555555) & 0xFFFFFFFFFFFFFFFF
+        m[k] = val
     for k in keys:
-        assert m[k] == k * 2
+        expected = (k ^ 0x5555555555555555) & 0xFFFFFFFFFFFFFFFF
+        assert m[k] == expected
     assert len(m) == len(keys)
 
 

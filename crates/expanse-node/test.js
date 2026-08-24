@@ -180,11 +180,13 @@ test('ExpanseMap 64-Bit Boundary Value Test Vectors', () => {
   const map = new ExpanseMap();
   const keys = [0n, 1n, (1n << 53n) - 1n, 1n << 53n, 9223372036854775807n, 18446744073709551615n];
   for (const k of keys) {
-    map.set(k, k * 2n);
+    const val = (k ^ 0x5555555555555555n) & 0xFFFFFFFFFFFFFFFFn;
+    map.set(k, val);
   }
   for (const k of keys) {
+    const expectedVal = (k ^ 0x5555555555555555n) & 0xFFFFFFFFFFFFFFFFn;
     assert.strictEqual(map.has(k), true);
-    assert.strictEqual(map.get(k), k * 2n);
+    assert.strictEqual(map.get(k), expectedVal);
   }
   assert.strictEqual(map.size(), BigInt(keys.length));
 });
