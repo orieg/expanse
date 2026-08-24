@@ -7,11 +7,13 @@ reimplemented from first principles in clean-room pure Rust:
 - `ExpanseMap`: Dynamic sparse 64-bit integer key-to-value map (JudyL equivalent).
 - `ExpanseStrMap`: Variable-length string/bytes-to-integer trie map (JudySL equivalent).
 - `ExpanseBytesMap`: Arbitrary byte array-to-integer hash map (JudyHS equivalent).
+- `ExpanseBlobMap`: 64-bit key-to-byte-payload map with inline packing and arena backing.
 - `SyncExpanseSet`: Multithreaded lock-free OCC integer set with GIL-released queries.
 - `SyncExpanseMap`: Multithreaded lock-free OCC integer map with GIL-released queries.
 """
 
 from ._expanse import (
+    ExpanseBlobMap,
     ExpanseBytesMap,
     ExpanseMap,
     ExpanseSet,
@@ -22,6 +24,7 @@ from ._expanse import (
 )
 
 __all__ = [
+    "ExpanseBlobMap",
     "ExpanseBytesMap",
     "ExpanseMap",
     "ExpanseSet",

@@ -90,10 +90,12 @@ impl SyncExpanseMap {
         py.detach(|| self.inner.insert(key, val))
     }
 
-    /// Removes `key` releasing the GIL; returns its value or raises `KeyError` if missing.
-    pub fn remove(&self, py: Python<'_>, key: u64) -> PyResult<u64> {
-        let prev = py.detach(|| self.inner.remove(key));
-        prev.ok_or_else(|| PyKeyError::new_err(format!("Key {key} not found in SyncExpanseMap")))
+    /// Removes `key` releasing the GIL; returns its previous value, or `None` if absent.
+    ///
+    /// This mirrors `ExpanseMap.remove` (which returns an `Optional[int]`); use
+    /// `del map[key]` or `pop(key)` for the KeyError-on-missing semantics.
+    pub fn remove(&self, py: Python<'_>, key: u64) -> Option<u64> {
+        py.detach(|| self.inner.remove(key))
     }
 
     /// Removes `key` and returns its value. If `key` is absent, returns `default`
@@ -169,7 +171,10 @@ impl SyncExpanseMap {
     }
 
     /// Range scan releasing the GIL during traversal.
-    #[pyo3(signature = (start=None, end=None, inclusive=false))]
+    ///
+    /// `inclusive=True` (the default) includes `end`, matching `ExpanseMap.range`/
+    /// `ExpanseSet.range`; pass `inclusive=False` for a half-open `[start, end)` range.
+    #[pyo3(signature = (start=None, end=None, inclusive=true))]
     pub fn range(
         &self,
         py: Python<'_>,
@@ -368,16 +373,12 @@ impl SyncExpanseSet {
         py.detach(|| self.inner.insert(key))
     }
 
-    /// Removes `key` from the set releasing the GIL; raises `KeyError` if absent.
-    pub fn remove(&self, py: Python<'_>, key: u64) -> PyResult<()> {
-        let removed = py.detach(|| self.inner.remove(key));
-        if removed {
-            Ok(())
-        } else {
-            Err(PyKeyError::new_err(format!(
-                "Key {key} not found in SyncExpanseSet"
-            )))
-        }
+    /// Removes `key` from the set releasing the GIL; returns `True` if it was present.
+    ///
+    /// This mirrors `ExpanseSet.remove` (which returns a `bool`); use `discard` for the
+    /// same non-raising semantics, or a future `del`/checked path for KeyError behaviour.
+    pub fn remove(&self, py: Python<'_>, key: u64) -> bool {
+        py.detach(|| self.inner.remove(key))
     }
 
     /// Removes `key` if present releasing the GIL; returns `True` if present.
@@ -446,7 +447,10 @@ impl SyncExpanseSet {
     }
 
     /// Range scan releasing the GIL during traversal.
-    #[pyo3(signature = (start=None, end=None, inclusive=false))]
+    ///
+    /// `inclusive=True` (the default) includes `end`, matching `ExpanseMap.range`/
+    /// `ExpanseSet.range`; pass `inclusive=False` for a half-open `[start, end)` range.
+    #[pyo3(signature = (start=None, end=None, inclusive=true))]
     pub fn range(
         &self,
         py: Python<'_>,
