@@ -1,81 +1,54 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 285" width="100%" height="100%">
   <defs>
     <style>
-      .bg { fill: #0d1117; }
-      .border { stroke: #30363d; stroke-width: 1px; fill: none; }
-      .grid { stroke: #21262d; stroke-width: 1px; stroke-dasharray: 2,3; }
-      .axis { stroke: #484f58; stroke-width: 1.5px; }
+      /* Default styles: Light theme by default for maximum compatibility */
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
       
-      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; fill: #8b949e; text-transform: uppercase; }
-      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; fill: #6e7681; }
-      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #8b949e; }
-      .t-tick { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; fill: #8b949e; }
-      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; fill: #c9d1d9; }
+      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
+      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-tick { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; fill: #475569; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
       
-      .line-occ { fill: none; stroke: #2ea043; stroke-width: 2.5px; stroke-linecap: round; }
-      .line-linear { fill: none; stroke: #6e7681; stroke-width: 1.5px; stroke-dasharray: 4,4; }
-      .dot-occ { fill: #2ea043; stroke: #0d1117; stroke-width: 2px; }
-      .t-tag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #3fb950; }
+      .line-occ { fill: none; stroke: #16a34a; stroke-width: 2.5px; stroke-linecap: round; }
+      .line-linear { fill: none; stroke: #64748b; stroke-width: 1.5px; stroke-dasharray: 4,4; }
+      .dot-occ { fill: #16a34a; stroke: #ffffff; stroke-width: 2px; }
+      .t-tag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #16a34a; }
 
+      /* Dark theme overrides */
       @media (prefers-color-scheme: dark) {
         .bg { fill: #0d1117; }
         .border { stroke: #30363d; }
         .grid { stroke: #21262d; }
         .axis { stroke: #484f58; }
-        .t-title { fill: #8b949e; }
-        .t-sub { fill: #6e7681; }
-        .t-unit { fill: #8b949e; }
-        .t-tick { fill: #8b949e; }
-        .t-legend { fill: #c9d1d9; }
-        .line-occ { stroke: #2ea043; }
-        .dot-occ { fill: #2ea043; stroke: #0d1117; }
-        .line-linear { stroke: #6e7681; }
-        .t-tag { fill: #3fb950; }
-      }
-
-      @media (prefers-color-scheme: light) {
-        .bg { fill: #ffffff; }
-        .border { stroke: #d0d7de; }
-        .grid { stroke: #eaeef2; }
-        .axis { stroke: #afb8c1; }
-        .t-title { fill: #57606a; }
-        .t-sub { fill: #8c959f; }
-        .t-unit { fill: #57606a; }
-        .t-tick { fill: #57606a; }
-        .t-legend { fill: #1f2328; }
-        .line-occ { stroke: #1a7f37; }
-        .dot-occ { fill: #1a7f37; stroke: #ffffff; }
-        .line-linear { stroke: #8c959f; }
-        .t-tag { fill: #1a7f37; }
+        .t-title { fill: #f0f6fc; }
+        .t-sub { fill: #94a3b8; }
+        .t-unit { fill: #94a3b8; }
+        .t-tick { fill: #94a3b8; }
+        .t-legend { fill: #f8fafc; }
+        .line-occ { stroke: #22c55e; }
+        .dot-occ { fill: #22c55e; stroke: #0d1117; }
+        .line-linear { stroke: #8b949e; }
+        .t-tag { fill: #4ade80; }
+        .t-win { fill: #4ade80; }
       }
 
       [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0d1117; }
       [data-theme="dark"] .border, :root[data-theme="dark"] .border { stroke: #30363d; }
       [data-theme="dark"] .grid, :root[data-theme="dark"] .grid { stroke: #21262d; }
       [data-theme="dark"] .axis, :root[data-theme="dark"] .axis { stroke: #484f58; }
-      [data-theme="dark"] .t-title, :root[data-theme="dark"] .t-title { fill: #8b949e; }
-      [data-theme="dark"] .t-sub, :root[data-theme="dark"] .t-sub { fill: #6e7681; }
-      [data-theme="dark"] .t-unit, :root[data-theme="dark"] .t-unit { fill: #8b949e; }
-      [data-theme="dark"] .t-tick, :root[data-theme="dark"] .t-tick { fill: #8b949e; }
-      [data-theme="dark"] .t-legend, :root[data-theme="dark"] .t-legend { fill: #c9d1d9; }
-      [data-theme="dark"] .line-occ, :root[data-theme="dark"] .line-occ { stroke: #2ea043; }
-      [data-theme="dark"] .dot-occ, :root[data-theme="dark"] .dot-occ { fill: #2ea043; stroke: #0d1117; }
-      [data-theme="dark"] .line-linear, :root[data-theme="dark"] .line-linear { stroke: #6e7681; }
-      [data-theme="dark"] .t-tag, :root[data-theme="dark"] .t-tag { fill: #3fb950; }
-
-      [data-theme="light"] .bg, :root[data-theme="light"] .bg { fill: #ffffff; }
-      [data-theme="light"] .border, :root[data-theme="light"] .border { stroke: #d0d7de; }
-      [data-theme="light"] .grid, :root[data-theme="light"] .grid { stroke: #eaeef2; }
-      [data-theme="light"] .axis, :root[data-theme="light"] .axis { stroke: #afb8c1; }
-      [data-theme="light"] .t-title, :root[data-theme="light"] .t-title { fill: #57606a; }
-      [data-theme="light"] .t-sub, :root[data-theme="light"] .t-sub { fill: #8c959f; }
-      [data-theme="light"] .t-unit, :root[data-theme="light"] .t-unit { fill: #57606a; }
-      [data-theme="light"] .t-tick, :root[data-theme="light"] .t-tick { fill: #57606a; }
-      [data-theme="light"] .t-legend, :root[data-theme="light"] .t-legend { fill: #1f2328; }
-      [data-theme="light"] .line-occ, :root[data-theme="light"] .line-occ { stroke: #1a7f37; }
-      [data-theme="light"] .dot-occ, :root[data-theme="light"] .dot-occ { fill: #1a7f37; stroke: #ffffff; }
-      [data-theme="light"] .line-linear, :root[data-theme="light"] .line-linear { stroke: #8c959f; }
-      [data-theme="light"] .t-tag, :root[data-theme="light"] .t-tag { fill: #1a7f37; }
+      [data-theme="dark"] .t-title, :root[data-theme="dark"] .t-title { fill: #f0f6fc; }
+      [data-theme="dark"] .t-sub, :root[data-theme="dark"] .t-sub { fill: #94a3b8; }
+      [data-theme="dark"] .t-unit, :root[data-theme="dark"] .t-unit { fill: #94a3b8; }
+      [data-theme="dark"] .t-tick, :root[data-theme="dark"] .t-tick { fill: #94a3b8; }
+      [data-theme="dark"] .t-legend, :root[data-theme="dark"] .t-legend { fill: #f8fafc; }
+      [data-theme="dark"] .line-occ, :root[data-theme="dark"] .line-occ { stroke: #22c55e; }
+      [data-theme="dark"] .dot-occ, :root[data-theme="dark"] .dot-occ { fill: #22c55e; stroke: #0d1117; }
+      [data-theme="dark"] .line-linear, :root[data-theme="dark"] .line-linear { stroke: #8b949e; }
+      [data-theme="dark"] .t-tag, :root[data-theme="dark"] .t-tag { fill: #4ade80; }
     </style>
   </defs>
 
@@ -90,10 +63,10 @@
     <g transform="translate(600, 0)">
       <line x1="0" y1="4" x2="16" y2="4" class="line-occ"/>
       <circle cx="8" cy="4" r="3.5" class="dot-occ"/>
-      <text x="22" y="7" class="t-sub t-legend">SyncExpanseMap</text>
+      <text x="22" y="7" class="t-legend">SyncExpanseMap</text>
 
       <line x1="150" y1="4" x2="166" y2="4" class="line-linear"/>
-      <text x="172" y="7" class="t-sub">Linear Ideal</text>
+      <text x="172" y="7" class="t-legend">Linear Ideal</text>
     </g>
 
     <!-- Y Axis Header -->

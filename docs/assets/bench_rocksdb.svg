@@ -1,62 +1,47 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 275" width="100%" height="100%">
   <defs>
     <style>
-      .bg { fill: #0d1117; }
-      .border { stroke: #30363d; stroke-width: 1px; fill: none; }
-      .grid { stroke: #21262d; stroke-width: 1px; stroke-dasharray: 2,3; }
-      .axis { stroke: #484f58; stroke-width: 1.5px; }
-      .divider { stroke: #21262d; stroke-width: 1px; }
+      /* Default styles: Light theme by default for maximum contrast on web */
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
+      .divider { stroke: #e2e8f0; stroke-width: 1px; }
       
-      .t-chart-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; fill: #8b949e; text-transform: uppercase; }
-      .t-chart-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; fill: #6e7681; }
-      .t-unit-header { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #8b949e; }
-      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; fill: #8b949e; }
-      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; fill: #c9d1d9; }
+      .t-chart-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-chart-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
+      .t-unit-header { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; fill: #475569; }
+      .t-win { fill: #16a34a; font-weight: 600; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
       
-      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #3fb950; text-anchor: middle; }
-      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 500; fill: #8b949e; text-anchor: middle; }
-      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #58a6ff; text-anchor: middle; }
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #16a34a; text-anchor: middle; }
+      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #334155; text-anchor: middle; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; text-anchor: middle; }
 
-      .b-expanse { fill: #2ea043; }
-      .b-rocksdb { fill: #1f6feb; }
-      .b-other { fill: #30363d; }
+      .b-expanse { fill: #16a34a; }
+      .b-rocksdb { fill: #2563eb; }
+      .b-skipmap { fill: #64748b; }
 
+      /* Dark theme overrides */
       @media (prefers-color-scheme: dark) {
         .bg { fill: #0d1117; }
         .border { stroke: #30363d; }
         .grid { stroke: #21262d; }
         .axis { stroke: #484f58; }
         .divider { stroke: #21262d; }
-        .t-chart-title { fill: #8b949e; }
-        .t-chart-sub { fill: #6e7681; }
-        .t-unit-header { fill: #8b949e; }
-        .t-axis-label { fill: #8b949e; }
-        .t-bar-label { fill: #c9d1d9; }
-        .t-val-accent { fill: #3fb950; }
-        .t-val-blue { fill: #58a6ff; }
-        .t-val-muted { fill: #8b949e; }
-        .b-expanse { fill: #2ea043; }
-        .b-rocksdb { fill: #1f6feb; }
-        .b-other { fill: #30363d; }
-      }
-
-      @media (prefers-color-scheme: light) {
-        .bg { fill: #ffffff; }
-        .border { stroke: #d0d7de; }
-        .grid { stroke: #eaeef2; }
-        .axis { stroke: #afb8c1; }
-        .divider { stroke: #eaeef2; }
-        .t-chart-title { fill: #57606a; }
-        .t-chart-sub { fill: #8c959f; }
-        .t-unit-header { fill: #57606a; }
-        .t-axis-label { fill: #57606a; }
-        .t-bar-label { fill: #1f2328; }
-        .t-val-accent { fill: #1a7f37; }
-        .t-val-blue { fill: #0969da; }
-        .t-val-muted { fill: #656d76; }
-        .b-expanse { fill: #1a7f37; }
-        .b-rocksdb { fill: #0969da; }
-        .b-other { fill: #d0d7de; }
+        .t-chart-title { fill: #f0f6fc; }
+        .t-chart-sub { fill: #94a3b8; }
+        .t-unit-header { fill: #94a3b8; }
+        .t-axis-label { fill: #94a3b8; }
+        .t-win { fill: #4ade80; font-weight: 600; }
+        .t-bar-label { fill: #f8fafc; }
+        .t-val-accent { fill: #4ade80; }
+        .t-val-blue { fill: #38bdf8; }
+        .t-val-muted { fill: #e2e8f0; }
+        .b-expanse { fill: #22c55e; }
+        .b-rocksdb { fill: #3b82f6; }
+        .b-skipmap { fill: #475569; }
       }
 
       [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0d1117; }
@@ -64,34 +49,18 @@
       [data-theme="dark"] .grid, :root[data-theme="dark"] .grid { stroke: #21262d; }
       [data-theme="dark"] .axis, :root[data-theme="dark"] .axis { stroke: #484f58; }
       [data-theme="dark"] .divider, :root[data-theme="dark"] .divider { stroke: #21262d; }
-      [data-theme="dark"] .t-chart-title, :root[data-theme="dark"] .t-chart-title { fill: #8b949e; }
-      [data-theme="dark"] .t-chart-sub, :root[data-theme="dark"] .t-chart-sub { fill: #6e7681; }
-      [data-theme="dark"] .t-unit-header, :root[data-theme="dark"] .t-unit-header { fill: #8b949e; }
-      [data-theme="dark"] .t-axis-label, :root[data-theme="dark"] .t-axis-label { fill: #8b949e; }
-      [data-theme="dark"] .t-bar-label, :root[data-theme="dark"] .t-bar-label { fill: #c9d1d9; }
-      [data-theme="dark"] .t-val-accent, :root[data-theme="dark"] .t-val-accent { fill: #3fb950; }
-      [data-theme="dark"] .t-val-blue, :root[data-theme="dark"] .t-val-blue { fill: #58a6ff; }
-      [data-theme="dark"] .t-val-muted, :root[data-theme="dark"] .t-val-muted { fill: #8b949e; }
-      [data-theme="dark"] .b-expanse, :root[data-theme="dark"] .b-expanse { fill: #2ea043; }
-      [data-theme="dark"] .b-rocksdb, :root[data-theme="dark"] .b-rocksdb { fill: #1f6feb; }
-      [data-theme="dark"] .b-other, :root[data-theme="dark"] .b-other { fill: #30363d; }
-
-      [data-theme="light"] .bg, :root[data-theme="light"] .bg { fill: #ffffff; }
-      [data-theme="light"] .border, :root[data-theme="light"] .border { stroke: #d0d7de; }
-      [data-theme="light"] .grid, :root[data-theme="light"] .grid { stroke: #eaeef2; }
-      [data-theme="light"] .axis, :root[data-theme="light"] .axis { stroke: #afb8c1; }
-      [data-theme="light"] .divider, :root[data-theme="light"] .divider { stroke: #eaeef2; }
-      [data-theme="light"] .t-chart-title, :root[data-theme="light"] .t-chart-title { fill: #57606a; }
-      [data-theme="light"] .t-chart-sub, :root[data-theme="light"] .t-chart-sub { fill: #8c959f; }
-      [data-theme="light"] .t-unit-header, :root[data-theme="light"] .t-unit-header { fill: #57606a; }
-      [data-theme="light"] .t-axis-label, :root[data-theme="light"] .t-axis-label { fill: #57606a; }
-      [data-theme="light"] .t-bar-label, :root[data-theme="light"] .t-bar-label { fill: #1f2328; }
-      [data-theme="light"] .t-val-accent, :root[data-theme="light"] .t-val-accent { fill: #1a7f37; }
-      [data-theme="light"] .t-val-blue, :root[data-theme="light"] .t-val-blue { fill: #0969da; }
-      [data-theme="light"] .t-val-muted, :root[data-theme="light"] .t-val-muted { fill: #656d76; }
-      [data-theme="light"] .b-expanse, :root[data-theme="light"] .b-expanse { fill: #1a7f37; }
-      [data-theme="light"] .b-rocksdb, :root[data-theme="light"] .b-rocksdb { fill: #0969da; }
-      [data-theme="light"] .b-other, :root[data-theme="light"] .b-other { fill: #d0d7de; }
+      [data-theme="dark"] .t-chart-title, :root[data-theme="dark"] .t-chart-title { fill: #f0f6fc; }
+      [data-theme="dark"] .t-chart-sub, :root[data-theme="dark"] .t-chart-sub { fill: #94a3b8; }
+      [data-theme="dark"] .t-unit-header, :root[data-theme="dark"] .t-unit-header { fill: #94a3b8; }
+      [data-theme="dark"] .t-axis-label, :root[data-theme="dark"] .t-axis-label { fill: #94a3b8; }
+      [data-theme="dark"] .t-win, :root[data-theme="dark"] .t-win { fill: #4ade80; }
+      [data-theme="dark"] .t-bar-label, :root[data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      [data-theme="dark"] .t-val-accent, :root[data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      [data-theme="dark"] .t-val-blue, :root[data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      [data-theme="dark"] .t-val-muted, :root[data-theme="dark"] .t-val-muted { fill: #e2e8f0; }
+      [data-theme="dark"] .b-expanse, :root[data-theme="dark"] .b-expanse { fill: #22c55e; }
+      [data-theme="dark"] .b-rocksdb, :root[data-theme="dark"] .b-rocksdb { fill: #3b82f6; }
+      [data-theme="dark"] .b-skipmap, :root[data-theme="dark"] .b-skipmap { fill: #475569; }
     </style>
   </defs>
 
@@ -119,7 +88,7 @@
     <rect x="45" y="162.6" width="50" height="32.4" class="b-expanse" rx="2"/>
     <text x="70" y="154" class="t-val-accent">151.4 M/s</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">9.3&#215; speedup</text>
+    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">9.3&#215; speedup</text>
 
     <!-- Bar 2: SkipList (16.20M -> height = 3.5, y = 191.5) -->
     <rect x="115" y="191.5" width="50" height="3.5" class="b-rocksdb" rx="2"/>
@@ -158,7 +127,7 @@
     <rect x="45" y="182.6" width="50" height="12.4" class="b-expanse" rx="2"/>
     <text x="70" y="174" class="t-val-accent">13.2 B</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">-91.0% RAM</text>
+    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">-91.0% RAM</text>
 
     <!-- Bar 2: SkipList (146.7 B -> height = 137.5, y = 57.5) -->
     <rect x="115" y="57.5" width="50" height="137.5" class="b-rocksdb" rx="2"/>
@@ -197,7 +166,7 @@
     <rect x="45" y="126.0" width="50" height="69.0" class="b-expanse" rx="2"/>
     <text x="70" y="118" class="t-val-accent">276 ns</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">1.96&#215; faster</text>
+    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">1.96&#215; faster</text>
 
     <!-- Bar 2: SkipList (539 ns -> height = 134.8, y = 60.2) -->
     <rect x="115" y="60.2" width="50" height="134.8" class="b-rocksdb" rx="2"/>
