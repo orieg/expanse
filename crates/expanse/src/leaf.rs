@@ -146,8 +146,12 @@ pub(crate) unsafe fn lower_bound_fixed<const KB: usize>(
     pop: usize,
     needle: u64,
 ) -> usize {
-    if KB == 1 && (9..=16).contains(&pop) {
-        // SAFETY: cap_class(pop >= 9) is 16, so keys holds at least 16 bytes.
+    // Every vectorized branch below must satisfy: cap_class(pop) * KB >=
+    // the kernel's fixed load width (see `simd_gates_within_cap_class`).
+    // cap_class rounds to multiples of FOUR, so pop 9..=12 only guarantees
+    // 12 slots — gating those into the 16-byte kernel read out of bounds.
+    if KB == 1 && (13..=16).contains(&pop) {
+        // SAFETY: cap_class(pop >= 13) is 16, so keys holds at least 16 bytes.
         unsafe { crate::bits::lower_bound_16_u8(keys, pop, needle as u8) }
     } else if KB == 1 && (5..=8).contains(&pop) {
         // SAFETY: cap_class(pop >= 5) is 8, so keys holds at least 8 bytes.
@@ -748,6 +752,55 @@ mod tests {
         assert_eq!(map_keys_offset(3), 32);
         assert_eq!(map_keys_offset(4), 32);
         assert_eq!(map_keys_offset(5), 64);
+    }
+
+    #[test]
+    fn simd_gates_within_cap_class() {
+        // Mirrors the dispatch gates in `lower_bound_fixed`: (KB, pop
+        // range, fixed load width in bytes). A gate whose smallest
+        // cap_class-derived key area is narrower than its kernel's load
+        // width reads out of bounds (the pop 9..=12 ASan overflow,
+        // crash-7048e639). Update this table in lockstep with the gates.
+        const GATES: &[(usize, core::ops::RangeInclusive<usize>, usize)] = &[
+            (1, 13..=16, 16), // lower_bound_16_u8
+            (1, 5..=8, 8),    // lower_bound_8_u8
+            (2, 5..=8, 16),   // lower_bound_8_u16
+            (4, 3..=4, 16),   // lower_bound_4_u32
+        ];
+        for (kb, pops, load_width) in GATES {
+            for pop in pops.clone() {
+                assert!(
+                    cap_class(pop) * kb >= *load_width,
+                    "gate KB={kb} pop={pop}: cap_class yields {} key bytes, kernel loads {load_width}",
+                    cap_class(pop) * kb,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn lower_bound_fixed_parity_at_exact_capacity() {
+        // Runs every population through `lower_bound_fixed::<1>` with the
+        // key area allocated at exactly cap_class(pop) bytes — the same
+        // guarantee real leaves provide — and checks parity against a
+        // scalar reference. Covers the pop 9..=12 fallback path that the
+        // vectorized gate must not claim.
+        for pop in 0..=32usize {
+            let cap = cap_class(pop).max(pop);
+            let mut buf = vec![0u8; cap];
+            for (i, b) in buf.iter_mut().enumerate().take(pop) {
+                *b = (i * 7 + 3) as u8; // strictly increasing, sorted
+            }
+            for needle in 0..=255u64 {
+                let expected = buf[..pop]
+                    .iter()
+                    .filter(|&&k| u64::from(k) < needle)
+                    .count();
+                // SAFETY: buf holds cap_class(pop) readable bytes, sorted.
+                let got = unsafe { lower_bound_fixed::<1>(buf.as_ptr(), pop, needle) };
+                assert_eq!(got, expected, "pop={pop} needle={needle}");
+            }
+        }
     }
 
     #[test]

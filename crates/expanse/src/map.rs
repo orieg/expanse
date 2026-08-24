@@ -1270,6 +1270,26 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    /// Regression for the fuzz crash `crash-7048e639` (ASan overflow):
+    /// a 1-byte-remainder linear leaf with pop 9..=12 has a
+    /// cap_class-derived key area of only 12 bytes, which the 16-byte
+    /// vectorized search kernel must not be gated into. Exercises every
+    /// pop in the formerly-misgated range through get/insert probes.
+    #[test]
+    fn kb1_leaf_pop_9_to_12_lookups() {
+        for pop in 9usize..=12 {
+            let mut m = ExpanseMap::new();
+            for i in 0..pop as u64 {
+                m.insert(i * 3, i + 100);
+            }
+            for i in 0..pop as u64 {
+                assert_eq!(m.get(i * 3), Some(i + 100), "pop={pop} key={}", i * 3);
+                assert_eq!(m.get(i * 3 + 1), None, "pop={pop} miss={}", i * 3 + 1);
+            }
+            assert_eq!(m.get(u64::MAX), None);
+        }
+    }
+
     struct XorShift(u64);
     impl XorShift {
         fn next(&mut self) -> u64 {
