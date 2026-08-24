@@ -27,6 +27,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       ruby: ${{ steps.filter.outputs.ruby }}
       php: ${{ steps.filter.outputs.php }}
+      wasm: ${{ steps.filter.outputs.wasm }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -83,6 +84,11 @@ jobs:
               - 'bindings/php/**'
               - 'include/**'
               - 'crates/expanse-capi/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+            wasm:
+              - 'crates/expanse-wasm/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/ci.yml'
@@ -890,6 +896,27 @@ jobs:
           cargo build --release -p expanse-capi
           ruby -Igems/expanse/lib gems/expanse/test/test_expanse.rb
 
+  test-wasm:
+    name: Bindings / WebAssembly (wasm32)
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check Wasm build
+        run: cargo check -p expanse-wasm --target wasm32-unknown-unknown
+
+      - name: Run Wasm crate unit tests
+        run: cargo test -p expanse-wasm
+
   ci-gate:
     name: CI Gate / All Checks Passed
     if: always()
@@ -917,6 +944,7 @@ jobs:
       - test-rocksdb-memtable
       - test-ruby
       - test-php
+      - test-wasm
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
