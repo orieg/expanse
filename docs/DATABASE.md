@@ -33,7 +33,7 @@ Expanse provides modern, clean-room 64-bit digital trie primitives designed for 
 | **MVCC Read Visibility** | RWLock-guarded Arrays, HashSets, Snapshot Bitmaps | `SyncExpanseSet` / `SyncExpanseMap` | **Zero reader locks (OCC + EBR)**; single-digit nanosecond point lookups under heavy concurrent vacuum/commit churn. |
 | **String & Symbol Dictionaries** | Hash Tables (`std::unordered_map`), Radix Trees | `ExpanseStrMap` (JudySL) / `ExpanseBytesMap` | **Cross-chunk prefix compression**; string byte-lexicographical order matches integer order; zero copy. |
 | **MemTables & Secondary Indexes** | SkipLists (RocksDB), B-Trees, ART (Adaptive Radix Tree) | `ExpanseMap` (JudyL) | **Deterministic $O(\text{depth})$ bounds** ($\le 8$ levels); zero tree rebalancing; contiguous 64-byte SIMD leaf scans. |
-| **Multi-Worker Shared Analytics** | Serialized Arrow IPC buffers, Shared Hash Grids | Position-Independent / Off-Heap Trie Layout | **Zero-copy shared-memory queries** across spawned worker processes (`mmap`/`shm_open`). |
+| **Multi-Worker Shared Analytics** *(roadmap — not yet implemented)* | Serialized Arrow IPC buffers, Shared Hash Grids | Position-Independent / Off-Heap Trie Layout | *(target)* Zero-copy shared-memory queries across spawned worker processes (`mmap`/`shm_open`). No `RelOffset` / position-independent layout exists in code today; the trie uses absolute in-process allocations. |
 
 ---
 
@@ -321,16 +321,21 @@ impl ColumnarStringDictionary {
         new_id
     }
 
-    /// Evaluates prefix range query: finds all symbol IDs starting with prefix
-    pub fn find_prefix_range(&self, prefix: &str) -> Vec<u32> {
+    /// Evaluates prefix range query: finds all symbol IDs starting with prefix.
+    // NB: `ExpanseStrMap::next_at_or_after` / `next_after` take `&mut self` and
+    // return `Option<(Vec<u8>, NonNull<u64>)>` — the second element is a pointer
+    // to the value slot, so the stored id is read by dereferencing it.
+    pub fn find_prefix_range(&mut self, prefix: &str) -> Vec<u32> {
         let mut results = Vec::new();
         let prefix_bytes = prefix.as_bytes();
-        
+
         let mut cursor = self.forward_dict.next_at_or_after(prefix_bytes);
-        while let Some((matched_bytes, symbol_id)) = cursor {
+        while let Some((matched_bytes, slot)) = cursor {
             if !matched_bytes.starts_with(prefix_bytes) {
                 break; // Left prefix range in lexicographical order
             }
+            // SAFETY: `slot` points at the live value slot for `matched_bytes`.
+            let symbol_id = unsafe { *slot.as_ptr() };
             results.push(symbol_id as u32);
             cursor = self.forward_dict.next_after(&matched_bytes);
         }
@@ -410,9 +415,11 @@ impl ExpanseMemTable {
         self.index.get(key)
     }
 
-    /// High-performance range scan: returns all key-value pairs in [start, end]
+    /// High-performance range scan: returns all key-value pairs in [start, end].
+    // `ExpanseMap::range` yields a lazy `MapRange<'_>` iterator (Item = (u64, u64)),
+    // so materialize it with `.collect()` when a `Vec` is wanted.
     pub fn scan_range(&self, start: u64, end: u64) -> Vec<(u64, u64)> {
-        self.index.range(start..=end)
+        self.index.range(start..=end).collect()
     }
 
     /// Fast count pushdown: O(depth) rank query without scanning items
@@ -452,7 +459,9 @@ See [`integrations/rocksdb/README.md`](../integrations/rocksdb/README.md) for fu
 
 ---
 
-## 6. Zero-Copy Shared-Memory Analytics (Multi-Process IPC)
+## 6. Zero-Copy Shared-Memory Analytics (Multi-Process IPC) — *(roadmap / target, not yet implemented)*
+
+> **Status:** This section describes a *planned* capability. As of commit 6c63826a there is **no** `RelOffset` type, no `shm_open`/`MAP_SHARED` path, and no position-independent (base-relative) layout anywhere in the codebase — the trie allocates with absolute in-process pointers via its arena allocator, and the only file-backed path is `ExpanseBlobMap::load_from_file`, which does a full `std::fs::read` + index rebuild (it is *not* an mmap). Everything below is a design target.
 
 In modern parallel query engines (ClickHouse multi-worker processes, PostgreSQL parallel query workers, DuckDB execution pipelines), intermediate query artifacts (hash aggregate tables, bitmap filter masks, semi-join filters) must be shared across worker processes.
 
@@ -467,9 +476,9 @@ Traditional IPC mechanisms serialize data structures to byte streams (Arrow IPC,
  └────────────────────────┘              └────────────────────────┘
 ```
 
-### 6.1 Position-Independent Base-Relative Trie Layout
+### 6.1 Position-Independent Base-Relative Trie Layout *(target)*
 
-By utilizing base-relative offset pointers (`RelOffset<T> = u32` or `u64`) instead of absolute virtual memory addresses (`*const T`), an Expanse digital trie built in a shared memory region (`shm_open`, `mmap`, or POSIX hugepages) is completely position-independent:
+The intended design: by utilizing base-relative offset pointers (a planned `RelOffset<T> = u32` or `u64`) instead of absolute virtual memory addresses (`*const T`), an Expanse digital trie built in a shared memory region (`shm_open`, `mmap`, or POSIX hugepages) would be completely position-independent. None of these types or code paths exist yet:
 1. **Builder Worker**: Ingests partition data, builds the `ExpanseSet` or `ExpanseMap` directly inside an off-heap arena.
 2. **Reader Workers**: Map the shared memory file descriptor into arbitrary virtual addresses across worker processes (`mmap(MAP_SHARED)`).
 3. **Zero-Copy Instant Access**: Reader workers immediately execute point queries, range scans, and rank counts without executing a single byte of deserialization or allocation.
@@ -477,6 +486,8 @@ By utilizing base-relative offset pointers (`RelOffset<T> = u32` or `u64`) inste
 ---
 
 ## 7. Comparative Benchmark & Decision Matrix
+
+> **Timing figures below are load-sensitive and not currently provenance-tagged.** The latency (ns) and throughput (Mops/s) numbers in §7.1–§7.2 (and the §5 RocksDB figures) predate this sweep and lack a `(measured: host, commit)` tag; per `docs/BENCHMARKING.md` they are **not** regenerated here (the measuring host was under load). The memory-overhead (B/key) columns are deterministic byte accounting; the time columns await a unified clean-host re-measurement (deferred).
 
 ### 7.1 Expanse vs Industry Primitives Matrix
 
@@ -531,8 +542,8 @@ F (50% Read, 50% RMW)        18.29 Mops/s          9.13 Mops/s          8.04 Mop
   │      └── NUL-Terminated / Text:    Use `ExpanseStrMap` (JudySL)
   │      └── Arbitrary Binary Blobs:   Use `ExpanseBytesMap` (JudyHS)
   │
-  └── 4. Cross-Process Analytics / Worker IPC
-         └── Shared Off-Heap Mmap:     Use Position-Independent Base-Relative Layout
+  └── 4. Cross-Process Analytics / Worker IPC  [roadmap — see §6, not yet implemented]
+         └── Shared Off-Heap Mmap:     (target) Position-Independent Base-Relative Layout
 ```
 
 ---

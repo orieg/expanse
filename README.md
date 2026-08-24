@@ -37,8 +37,8 @@ Naming the project after the mechanism honors the algorithm itself without inher
 - **Strictly Faster than Stock Judy**: Outperforms original `libjudy` across 100% of benchmark workloads (inserts, lookups, deletions, and churn).
 - **100% Drop-In C ABI Compatibility**: Swap `-lJudy` for `-lexpanse` with zero code changes (Judy1, JudyL, JudySL, JudyHS). Passes `php-judy` test suite (221/221) and differential oracle.
 - **Multi-Architecture Vectorization & Embedded**: Hardware-accelerated with dynamic `glibc-hwcaps` packaging (`x86-64-v1..v4`), ARM64 NEON, 64-bit RISC-V (`RV64GC`), and bare-metal 32-bit embedded (`RV32IMAC`, `Cortex-M4/M7`).
-- **Lock-Free OCC Concurrency**: Multi-core optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet`) scaling linearly up to **260.9M ops/s** on 16 cores with zero read locks.
-- **Ultra-Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on 64-bit sets and **0.51 bytes/key** on 32-bit embedded sets.
+- **Lock-Free OCC Concurrency**: Multi-core optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet`) scaling across 16 cores with zero read locks (see the concurrency scaling table below; absolute throughput figures are pending a unified clean-host re-measurement).
+- **Ultra-Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on 64-bit sets *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a)* and **~0.67 bytes/key** on clustered 32-bit embedded sets *(measured: `bytes_per_key_32`, commit 6c63826a)*.
 
 ---
 
@@ -68,7 +68,7 @@ Naming the project after the mechanism honors the algorithm itself without inher
 | **Node.js / Bun / Deno API** | [`crates/expanse-node`](crates/expanse-node) (`@orieg/expanse`) | Native high-performance N-API bindings via `napi-rs`: `ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `SyncExpanseMap`, `SyncExpanseSet` |
 | **WebAssembly / Edge** | [`crates/expanse-wasm`](crates/expanse-wasm) (`@orieg/expanse-wasm`) | WebAssembly bindings for edge runtimes (Cloudflare Workers, Fastly) and browsers |
 | **Ruby API** | [`gems/expanse`](gems/expanse) (`gem install expanse`) | Native Ruby extension via magnus / C ABI: `Expanse::Set`, `Expanse::Map`, `Expanse::StrMap`, `Expanse::BytesMap`, `Expanse::BlobMap` |
-| **RocksDB Pluggable MemTable** | [`integrations/rocksdb`](integrations/rocksdb) (`rocksdb-expanse`) | Official RocksDB `MemTableRep` / `MemTableRepFactory` implementation delivering **8.8× higher key density in RAM** vs SkipLists, fewer L0 SSTable flushes, and **4.1× faster sequential range scans** |
+| **RocksDB Pluggable MemTable** | [`integrations/rocksdb`](integrations/rocksdb) (`rocksdb-expanse`) | Official RocksDB `MemTableRep` / `MemTableRepFactory` implementation delivering higher key density in RAM vs SkipLists, fewer L0 SSTable flushes, and faster sequential range scans (specific multipliers in [`integrations/rocksdb/README.md`](integrations/rocksdb/README.md) — under clean-host re-measurement after the memtable rework in #234/#236) |
 
 Legacy ↔ modern naming:
 
@@ -92,7 +92,7 @@ Legacy ↔ modern naming:
 | **Pointer layout** | Full 16-byte JP per edge | Tagged pointers exploiting 48-bit virtual addressing |
 | **Concurrency** | Single-threaded, external locks | Lock-free optimistic concurrency control (OCC) for reads |
 
-Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Embedded 32-Bit RFC: [docs/RFC_32BIT_EMBEDDED.md](docs/RFC_32BIT_EMBEDDED.md) · Large-Value RFC: [docs/RFC_LARGE_VALUES.md](docs/RFC_LARGE_VALUES.md) · Database engine patterns: [docs/DATABASE.md](docs/DATABASE.md) · CI/CD Standards: [docs/CI_CD_GUIDE.md](docs/CI_CD_GUIDE.md).
+Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Embedded 32-Bit RFC: [docs/RFC_32BIT_EMBEDDED.md](docs/RFC_32BIT_EMBEDDED.md) · Large-Value RFC: [docs/RFC_LARGE_VALUES.md](docs/RFC_LARGE_VALUES.md) · Database engine patterns: [docs/DATABASE.md](docs/DATABASE.md) · CI/CD: [docs/CI.md](docs/CI.md).
 
 ---
 
@@ -104,7 +104,7 @@ Expanse provides modern, hardware-vectorized digital trie primitives tailored fo
 - **MVCC Visibility Maps & Active Transaction Tracking (`SyncExpanseSet`)**: Lock-free active transaction (`xid`) tracking with zero reader-writer locks, single-digit nanosecond visibility checks, and safe epoch reclamation under continuous OLTP churn.
 - **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: High-cardinality string deduplication and symbol tables using 8-byte cross-chunk path folding, preserving lexicographical order with 70%+ memory reduction on shared URL/path prefixes.
 - **Secondary Indexes & MemTables (`ExpanseMap` / `ExpanseMemTableRep`)**: Rebalance-free ordered key indexing with contiguous 64-byte SIMD leaf scans, achieving **2.1×–3.4× faster range scans** than `std::collections::BTreeMap`, and official [RocksDB Pluggable MemTable (`integrations/rocksdb`)](integrations/rocksdb) integration.
-- **Zero-Copy Shared-Memory Analytics**: Position-independent base-relative layouts for cross-worker IPC and parallel query execution with zero serialization.
+- **Zero-Copy Shared-Memory Analytics** *(roadmap)*: Position-independent base-relative layouts for cross-worker IPC and parallel query execution with zero serialization — a design target; not yet implemented (see [docs/DATABASE.md](docs/DATABASE.md) §6).
 
 See [docs/DATABASE.md](docs/DATABASE.md) and [integrations/rocksdb/README.md](integrations/rocksdb/README.md) for full architectural specifications, integration blueprints, and code examples.
 
@@ -112,11 +112,11 @@ See [docs/DATABASE.md](docs/DATABASE.md) and [integrations/rocksdb/README.md](in
 
 ## Comparative Performance vs Industry Primitives
 
-Expanse is benchmarked against standard Rust and industry collections (`crates/expanse/benches/comparative.rs`):
+Expanse is benchmarked against standard Rust and industry collections (`crates/expanse/benches/comparative.rs`). *The speedup multipliers below are load-sensitive wall-clock figures not tagged to a specific host/commit; they await a clean-host re-measurement (deferred). Memory-footprint figures are deterministic.*
 
 ### 1. `ExpanseSet` vs `RoaringBitmap`
 - **Sparse (<0.1% density)**: Expanse point lookups (`contains`) and rank/select are **1.3×–1.8× faster** than Roaring Bitmaps due to direct tagged pointer immediate storage.
-- **Clustered / Dense (>50% density)**: `ExpanseSet` achieves **0.07–0.36 bytes/key** (deterministic memory budget), matching Roaring's run/bit container compression while providing $O(\text{depth})$ forward and backward iteration.
+- **Clustered / Dense (>50% density)**: `ExpanseSet` achieves **0.07–0.36 bytes/key** *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a — deterministic allocator accounting)*, matching Roaring's run/bit container compression while providing $O(\text{depth})$ forward and backward iteration.
 
 ### 2. `ExpanseMap` vs `hashbrown::HashMap` & `BTreeMap`
 - **Ordered Range Scans (`range()`, `iter_from()`)**: `ExpanseMap` traverses sorted integer ranges **2.1×–3.4× faster** than `std::collections::BTreeMap` by skipping empty branch expanses in cache lines.
@@ -127,6 +127,8 @@ Expanse is benchmarked against standard Rust and industry collections (`crates/e
 ## Multithreaded OCC Concurrency Scalability
 
 Expanse provides lock-free optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet` in `benches/concurrency.rs`):
+
+> **Provenance note (timing — re-measurement pending):** the table below and the `bench_concurrency.svg` chart above were captured on *different reference hosts* (the SVG is labeled 16-core Intel i9-12900F and reports a 260.9 M ops/s peak; the table's per-thread figures are from a separate run and are not host-tagged). The two do not agree and have not been reconciled. Throughput/latency numbers are load-sensitive, so they are **not** regenerated here; a unified single clean-host re-measurement across all workloads is a deferred follow-up (see `docs/BENCHMARKING.md`). Treat the absolute figures as indicative pending that run.
 
 | Workload Ratio | 1 Thread | 4 Threads | 8 Threads | 16 Threads | Scaling Efficiency |
 |---|---:|---:|---:|---:|---:|
@@ -140,7 +142,7 @@ Expanse provides lock-free optimistic concurrency control (`SyncExpanseMap` / `S
 
 ## Microarchitecture Scaling: x86-64-v1 vs v2 vs v3 vs v4
 
-Expanse exploits hardware primitives via `glibc-hwcaps` and native CPU compilation:
+Expanse exploits hardware primitives via `glibc-hwcaps` and native CPU compilation (the instruction-reduction figures below are deterministic Callgrind instruction counts, not wall-clock; not tagged to a specific commit here):
 
 | Microarchitecture Tier | Hardware Primitives Exploited | Instruction Reduction vs Baseline |
 |---|---|---:|
@@ -156,6 +158,8 @@ See [docs/BENCHMARKING.md](docs/BENCHMARKING.md) for detailed instruction counte
 ## Performance vs Stock libjudy
 
 Instructions retired and wall-clock latency through the identical C ABI on identical key streams, both libraries `dlopen`'d — measured via paired A/B rounds (*interleaved median of 5 rounds, main*). Ratios below are measured on the **standard portable baseline** (`x86-64-v1` on Linux, AArch64 on macOS) with runtime CPU feature detection. **Below 1.00 = libexpanse does less work / runs faster than original libjudy.**
+
+> **Provenance (timing — re-measurement pending):** the instruction-retired columns (`M inst`, ratios) are deterministic and reproducible; the **wall-clock `ns` columns are load-sensitive and are not tagged to a specific host/commit** in this table. They are not regenerated here (the reference host was under load); the `B/k` memory columns are deterministic byte accounting. A clean-host re-measurement with full `(measured: host, commit)` tagging is a deferred follow-up (see `docs/BENCHMARKING.md`).
 
 | Benchmark Workload | Wall-Clock Latency (Expanse vs Stock) | Ratio (.so / rlib) | Memory Overhead (Expanse vs Stock) | Status |
 |---|---|---:|---|---|
@@ -212,11 +216,11 @@ Expanse provides first-class support for 32-bit embedded microprocessors (`Expan
 - **Compact 8-Byte `Edge32`**: 50% structural SRAM reduction vs 64-bit descriptors (`[ptr (4B) | aux (3B) | tag (1B)]`), packing up to 7 immediate keys with zero heap allocations.
 - **32-Byte Cache Alignment**: Nodes are sized for embedded microarchitectures (`BranchL2_32` = 32B = 1 cache line on Cortex-M7/ESP32; `BranchL6_32` = 64B = 2 cache lines).
 - **Polymorphic `ValueSlot32`**: Payloads $\le 3\text{ bytes}$ (CAN-bus flags, status codes, checksums) fit inline with zero heap allocations.
-- **Microcontroller SRAM Footprint**:
-  - Clustered sensor timestamps: **$0.51\text{ B/key}$** ($97.9\%$ SRAM saved vs $24\text{ B/key}$ `BTreeSet`).
-  - Sparse 29-bit CAN IDs: **$0.63\text{ B/key}$** ($97.4\%$ SRAM saved vs $24\text{ B/key}$ `BTreeSet`).
-  - IPv4 subnet /24 routing: **$8.03\text{ B/key}$** ($74.9\%$ SRAM saved vs $32\text{ B/key}$ `BTreeMap`).
-  - OTA firmware chunk metadata: **$8.00\text{ B/key}$** ($83.3\%$ SRAM saved vs $48\text{ B/key}$ `BTreeMap`).
+- **Microcontroller SRAM Footprint** — real `mem_used()` byte accounting from `cargo run --release --example bytes_per_key_32` *(measured, commit 6c63826a; deterministic — host-independent for the fixed 8-byte `Edge32` layout)*:
+  - Clustered sensor timestamps (10k consecutive): **$0.67\text{ B/key}$**.
+  - Sparse 29-bit CAN IDs (500 IDs): **$12.61\text{ B/key}$** (genuinely sparse — a handful of keys spread across the 29-bit space).
+  - IPv4 subnet /24 routing map (2k routes): **$9.38\text{ B/key}$**.
+  - Dense consecutive map (10k, `u32→u32`): **$5.21\text{ B/key}$**.
 
 ---
 
@@ -400,6 +404,9 @@ assert sync_m[10] == 100
 See [docs/BINDINGS_PYTHON.md](docs/BINDINGS_PYTHON.md) for full Python documentation and benchmarks.
 
 ### 9. Java & Scala Quickstart (`io.github.orieg:expanse-java`)
+
+> **Not yet on Maven Central.** No `io.github.orieg` artifact is published (Maven Central returns 404 / `numFound:0`), and no release-workflow job currently builds or deploys the Java bindings. Build from `bindings/java` locally until first publish. The coordinates below are the planned ones.
+
 ```xml
 <dependency>
     <groupId>io.github.orieg</groupId>
@@ -427,6 +434,9 @@ try (ExpanseMap map = new ExpanseMap();
 See [docs/BINDINGS_JAVA.md](docs/BINDINGS_JAVA.md) for Panama FFM architecture, GC elimination benchmarks, and Spark/Flink off-heap integration patterns.
 
 ### 10. .NET & C# Quickstart (`Orieg.Expanse`)
+
+> **Not yet on NuGet.org.** The `Orieg.Expanse` package does not resolve yet (NuGet returns 404 / `totalHits:0`); the version badge above renders "not found" until first publish. The `release.yml` push step is wired (OIDC trusted publishing) but has not landed a package. Build from `bindings/dotnet` locally until then.
+
 ```bash
 dotnet add package Orieg.Expanse
 ```

@@ -232,7 +232,9 @@ Using.resource(new ExpanseMap()) { map =>
 
 ## 8. Artifact Coordinates & Native Packaging
 
-### Maven Central Dependency
+> **Not yet published to Maven Central.** No `io.github.orieg` artifact exists on Maven Central (returns 404 / `numFound:0`), and **no release-workflow job currently builds or deploys the Java bindings** — `release.yml` has no Maven/Gradle/Sonatype step. The coordinates and packaging layout below are the *planned* shape; build from `bindings/java` locally until first publish.
+
+### Maven Central Dependency *(planned)*
 ```xml
 <dependency>
     <groupId>io.github.orieg</groupId>
@@ -241,8 +243,8 @@ Using.resource(new ExpanseMap()) { map =>
 </dependency>
 ```
 
-### Precompiled Multi-Arch Native Artifacts
-The published JAR packages precompiled native binaries for:
+### Precompiled Multi-Arch Native Artifacts *(planned)*
+Once published, the JAR is intended to bundle precompiled native binaries for:
 - `linux-x86_64` (`libexpanse.so`, optimized with hardware vectorization)
 - `linux-aarch64` (`libexpanse.so`, ARM64 NEON)
 - `darwin-aarch64` (`libexpanse.dylib`, Apple Silicon M1/M2/M3/M4)

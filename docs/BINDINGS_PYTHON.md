@@ -9,10 +9,10 @@
 
 ## 1. Overview & Key Capabilities
 
-- **Zero-Overhead Memory Compaction**: Consumes as low as **0.07–0.36 bytes/key** on clustered integer sets, compared to 64+ bytes/key for Python's standard `set` and `dict`.
+- **Zero-Overhead Memory Compaction**: Consumes as low as **0.07–0.36 bytes/key** on clustered integer sets *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a — deterministic byte accounting)*, versus tens of bytes/key for Python's standard `set` and `dict`.
 - **Cache-Line Aligned Digital Tries**: $O(\text{depth})$ traversals (at most 8 digit steps for 64-bit keys) keeping branch and leaf evaluations within 64-byte L1 cache lines.
 - **Ordered Traversal & Range Scans**: Native sorted iteration, $O(\text{depth})$ `first()`, `last()`, `next_at_or_after()`, `prev_at_or_before()`, rank (`count_below`), and select (`by_count`) without maintaining secondary index trees.
-- **GIL-Free Optimistic Concurrency Control (OCC)**: `SyncExpanseSet` and `SyncExpanseMap` release the Python GIL (`py.detach`) during queries, enabling **linear multi-core CPU scaling** across Python `threading` and `ThreadPoolExecutor` workers with zero read locks.
+- **GIL-Free Optimistic Concurrency Control (OCC)**: `SyncExpanseSet` and `SyncExpanseMap` release the Python GIL (`py.detach`, pyo3 0.29's renamed `allow_threads`) during queries, so multiple Python `threading` / `ThreadPoolExecutor` workers execute reads concurrently across cores with zero read locks. (Multi-core throughput scaling figures are load-sensitive and pending a clean-host re-measurement.)
 - **Strict Typing & IDE Support**: Full PEP 561 compliance (`py.typed` and `__init__.pyi` stubs) for mypy, Pyright, and IDE autocompletion.
 
 ---
@@ -164,6 +164,34 @@ assert raw_key in bm
 assert bm[raw_key] == 8888
 ```
 
+### 3.5 `ExpanseBlobMap` (Large-Value / Off-Heap Blob Map)
+
+`ExpanseBlobMap` maps a 64-bit key to an arbitrary byte payload, packing small payloads inline in the value slot and bump-allocating larger ones in the arena (see [RFC_LARGE_VALUES.md](RFC_LARGE_VALUES.md); live arena ceiling is 16 MiB). `insert` takes an optional 32-bit **hot metadata** word stored alongside the locator for predicate filtering without dereferencing the payload:
+
+```python
+from expanse_trie import ExpanseBlobMap
+
+blob = ExpanseBlobMap()                 # optional: ExpanseBlobMap(chunk_size=...)
+
+# insert(key, data, hot_meta): hot_meta is a u32 (e.g. TTL / flags / tenant id)
+blob.insert(1, b"arbitrary payload bytes", 0x01)
+
+# get() returns (payload, hot_meta); get_bytes() / [] return just the payload
+payload, meta = blob.get(1)
+assert payload == b"arbitrary payload bytes" and meta == 0x01
+assert blob[1] == b"arbitrary payload bytes"
+
+# The dict-style setter stores with hot_meta = 0 (the inline-blob default contract):
+blob[2] = b"no metadata"
+assert blob.get(2) == (b"no metadata", 0)
+
+# Persistence: save_to_file() writes an image; load_from_file() reads it back
+# (full std::fs::read + index rebuild — not an mmap).
+n = blob.save_to_file("blob.img")
+reloaded = ExpanseBlobMap.load_from_file("blob.img")
+assert reloaded[1] == b"arbitrary payload bytes"
+```
+
 ---
 
 ## 4. Multithreaded GIL-Free Concurrency (`SyncExpanse*`)
@@ -174,7 +202,7 @@ In standard CPython, multithreaded CPU-bound data lookups often serialize on the
 
 1. **Lock-Free Reads**: Query operations (`contains`, `get`, `len`, `is_empty`) validate version seqlocks and read concurrently without holding mutexes or the Python GIL.
 2. **Serialized Writes**: Mutations (`insert`, `remove`) synchronize internally while allowing readers to proceed optimistically.
-3. **True Multi-Core Scaling**: Multiple Python threads saturate all CPU cores without lock contention.
+3. **Multi-Core Reads**: Multiple Python threads execute reads across CPU cores without GIL serialization or lock contention. (Absolute scaling factors are load-sensitive and pending a clean-host re-measurement.)
 
 ### Multithreaded Concurrency Example:
 
@@ -214,6 +242,8 @@ print(f"Total verified items across threads: {sum(results)}")
 | **Rank / Select (`count_below`)** | Not natively supported | Bit-count traversal | **$O(\text{depth})$ Direct Trie Rank** |
 | **Multithreaded GIL Release** | No (holds GIL) | Partial | **Yes (`SyncExpanseMap`/`Set`)** |
 | **Memory Safety** | C / Python runtime | C / Rust backend | **100% Pure Rust (#![no_std] core)** |
+
+> The `expanse-trie` memory figure (0.07–0.36 bytes/key) is deterministic byte accounting *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a)*; the `set`/`dict` and `roaring-bitmap` columns are approximate references. This table carries no timing measurements.
 
 ---
 

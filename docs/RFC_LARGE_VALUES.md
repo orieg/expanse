@@ -1,6 +1,6 @@
 # RFC: Large-Value Architectural Optimizations in Expanse
 
-**Status**: Proposed  
+**Status**: Partially Implemented — core shipped in #159 / #161  
 **Author**: Expanse Core Team  
 **Issue**: [#112](https://github.com/orieg/expanse/issues/112)  
 **Target Milestone**: Expanse v0.3.0  
@@ -24,6 +24,18 @@ This RFC introduces a unified, zero-copy, cache-conscious large-value architectu
 3. **Chunked Slab/Arena Backing (`BlobArena` / `ExpanseBlobMap`)**: Append-only 2 MiB/16 MiB chunk allocation with generation counters, ABA safety, and incremental in-place compaction.
 4. **Zero-Copy `mmap` / Shared-Memory IPC**: Base-relative offset encoding enabling cross-process multi-reader access with zero serialization overhead and zero memory duplication.
 5. **C ABI Drop-In Compatibility**: Seamless coexistence with classic `JudyL` functions (`JudyLGet`, `JudyLIns`) returning `*mut Word`.
+
+### Implementation status (as of commit 6c63826a)
+
+| Pillar | Status | Notes |
+|---|---|---|
+| Polymorphic `ValueSlot` (inline ≤7B + `ArenaShort` locator) | **Shipped** | `crates/expanse/src/slot.rs`, `blobmap.rs`. Inline and `ArenaShort` tags are live. |
+| Hot/cold columnar predicate filtering | **Shipped** | 32-bit hot metadata packed alongside the arena locator. |
+| Chunked slab/arena backing (`BlobArena` / `ExpanseBlobMap`) | **Shipped, 16 MiB ceiling** | The live arena is capped at **16 MiB** by the 24-bit `ARENA_OFFSET_MASK` (`0x00FF_FFFF`); `alloc_blob` returns `ArenaError::OffsetOverflow` past that. Per-payload bound is `chunk_size − 8`, not 4 GiB. |
+| `ArenaLong` (16-bit chunk id + 40-bit offset, >16 MiB) | **Reserved / not implemented** | Encoding + accessors (`new_arena_long`, `arena_long_loc`) exist with a round-trip test, but the blob map never produces or reads `ArenaLong` slots. `External = 0x12` is likewise reserved. |
+| Zero-copy `mmap` / shared-memory IPC (base-relative offsets) | **Not implemented** | No `RelOffset` / `shm_open` / position-independent layout exists; `ExpanseBlobMap::load_from_file` is a full `std::fs::read` + index rebuild, not an mmap. See `docs/DATABASE.md` §6 (roadmap). |
+
+Sections below that describe `ArenaLong` multi-chunk mode, ">16 MiB / petabyte-scale" arenas, "256 MiB at 16 B alignment" locators, or `mmap`/shared-memory zero-copy are **design targets**, not shipped behavior.
 
 ---
 
@@ -89,14 +101,14 @@ To resolve this bottleneck without widening the trie's 16-byte `Edge` or alterin
 | [63:32] (32 bits)                  | [31:8] (24 bits)             | [7:0]             |
 +------------------------------------+------------------------------+-------------------+
   - 32-bit Hot Metadata: directly filterable without payload dereference.
-  - 24-bit Arena Locator: 16 MiB direct offset (or 256 MiB at 16B alignment).
+  - 24-bit Arena Locator: 16 MiB direct byte offset. (The shipped locator is a raw byte offset; the "256 MiB at 16 B alignment" scheme is *not* implemented.)
 
-3. Arena Long Mode (> 16 MiB address space / Multi-Chunk):
+3. Arena Long Mode (> 16 MiB address space / Multi-Chunk) — **RESERVED, NOT IMPLEMENTED**:
 +-------------------------------------------------------------------+-------------------+
 | Arena Chunk ID (16 bits) | Chunk Byte Offset (40 bits)            | Tag (0x11)        |
 | [63:48]                  | [47:8]                                 | [7:0]             |
 +-------------------------------------------------------------------+-------------------+
-  - Supports petabyte-scale memory-mapped files and persistent stores.
+  - *(target)* Would support petabyte-scale memory-mapped files and persistent stores. The `ArenaLong` encoding and its accessors exist in `slot.rs`, but no blob-map code path produces or consumes them; the live ceiling is 16 MiB.
 
 4. Raw Scalar / Unmanaged Word (Classic JudyL Compatibility):
 +---------------------------------------------------------------------------------------+
@@ -482,7 +494,7 @@ $$\mathcal{R}_{\text{BW}}(\sigma) = \frac{\text{DRAM}_{\text{expanse}}}{\text{DR
 
 ### 6.1 Chunked Arena Architecture
 
-`BlobArena` allocates large, contiguous memory slabs (default: 2 MiB or 16 MiB chunks) using `mmap` or aligned system allocations:
+`BlobArena` allocates large, contiguous memory slabs as 16-byte-aligned system allocations (`std::alloc::alloc_zeroed` with an explicit `Layout` — *not* `mmap`; see `ArenaChunk::new` in `blobmap.rs`):
 
 ```
 +------------------------------------------------------------------------------------+
@@ -505,7 +517,9 @@ Every arena payload is prefixed with an 8-byte packed header:
 ```rust
 #[repr(C, packed)]
 pub struct BlobRecordHeader {
-    /// Payload length in bytes (up to 4 GB).
+    /// Payload length in bytes. The field is a `u32`, but the real limit is the
+    /// per-payload bound `chunk_size − 8` under the live 16 MiB arena ceiling —
+    /// not 4 GiB.
     pub len: u32,
     /// Generation counter for ABA protection and compaction validation.
     pub generation: u32,

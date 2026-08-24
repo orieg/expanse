@@ -54,6 +54,8 @@ The default RocksDB memtable implementation (`SkipListRep`) incurs significant p
 
 ![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](../../docs/assets/bench_rocksdb.svg)
 
+> **Provenance / re-measurement pending.** The throughput and latency figures in this section and in §1 are **not provenance-tagged** (no `(measured: host, commit)`) and predate the lock-free memtable rework in #234/#236. Throughput/latency numbers are load-sensitive and are **not** regenerated here (per `docs/BENCHMARKING.md`); the memory-footprint / B/entry column is deterministic byte accounting. A unified clean-host re-measurement on the reworked memtable is a deferred follow-up. Treat the ops/s and ×-multiplier figures as indicative pending that run.
+
 Measured on 100,000 keys (16-byte key, 64-byte value payload):
 
 | Benchmark Metric | ExpanseMemTable | RocksDB SkipListRep | VectorRep | Expanse Advantage |
@@ -160,7 +162,7 @@ Implements `rocksdb::MemTableRep` with full support for:
 ### `rocksdb::NewExpanseMemTableRepFactory(size_t leaf_capacity = 64, bool enable_prefix_trie = true)`
 Returns a `std::shared_ptr<rocksdb::MemTableRepFactory>` ready to be assigned to `rocksdb::Options::memtable_factory`.
 
-## Known limitation
+## Concurrent-read safety
 
-The lock-free reader protocol in `ExpanseMemTableRep` is not yet safe under concurrent writes. `SplitLeafBlock` nulls source entries before lowering the block count, so a reader with the stale count can dereference a `nullptr` in `Get`; `Insert`'s in-place shift leaves the leaf array transiently unsorted, so a racing binary search can return a spurious miss. All fields are `std::atomic`, so this is a protocol race that ThreadSanitizer does not flag. Until it is resolved, do not rely on `Get`/iterator reads that run concurrently with writes to the same memtable. Analysis and candidate fixes are tracked in [issue #229](https://github.com/orieg/expanse/issues/229).
+The lock-free reader protocol in `ExpanseMemTableRep` is safe under concurrent writes. The earlier race — `SplitLeafBlock` nulling source entries before lowering the block count (stale-count `nullptr` deref in `Get`), and `Insert`'s in-place shift leaving the leaf array transiently unsorted (spurious binary-search miss) — was resolved by a **per-leaf seqlock with publication ordering** (#234) and **release/acquire happens-before on the reader path** (#236): each `LeafBlock` carries a `version` counter and its `entries`/`count` are published with `memory_order_release` and read with `memory_order_acquire`, so a reader either observes a consistent snapshot or retries. This is exercised in CI by the RocksDB memtable matrix under ThreadSanitizer (`test-rocksdb-memtable`, `sanitizer: tsan`) and a differential test. Issue [#229](https://github.com/orieg/expanse/issues/229) is closed.
 
