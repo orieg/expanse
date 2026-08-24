@@ -1,6 +1,6 @@
-use expanse_trie::blobmap::ExpanseBlobMap;
-use js_sys::Uint8Array;
+use expanse_trie::ExpanseBlobMap;
 use wasm_bindgen::prelude::*;
+use js_sys::Uint8Array;
 
 #[wasm_bindgen]
 pub struct WasmExpanseBlobMap {
@@ -10,24 +10,19 @@ pub struct WasmExpanseBlobMap {
 #[wasm_bindgen]
 impl WasmExpanseBlobMap {
     #[wasm_bindgen(constructor)]
-    pub fn new(chunk_size: Option<u32>) -> Self {
-        let inner = match chunk_size {
-            Some(sz) => ExpanseBlobMap::with_chunk_size(sz as usize),
-            None => ExpanseBlobMap::new(),
-        };
-        Self { inner }
+    pub fn new() -> Self {
+        Self {
+            inner: ExpanseBlobMap::new(),
+        }
     }
 
-    pub fn set(&mut self, key: u64, payload: &[u8], hot_meta: Option<u32>) -> Result<(), JsValue> {
-        let meta = hot_meta.unwrap_or(0);
-        self.inner
-            .insert(key, payload, meta)
-            .map_err(|e| JsValue::from_str(&format!("Blob insertion error: {e}")))
+    pub fn set(&mut self, key: u64, payload: &[u8], hot_meta: u32) {
+        self.inner.insert(key as u32, payload, hot_meta.try_into().unwrap_or(0));
     }
 
     pub fn get(&self, key: u64) -> Option<Uint8Array> {
-        self.inner.get(key).map(|(v, _meta)| {
-            let slice: &[u8] = &v;
+        self.inner.get(key as u32).map(|v| {
+            let slice = v.0.as_bytes();
             let arr = Uint8Array::new_with_length(slice.len() as u32);
             arr.copy_from(slice);
             arr
@@ -36,9 +31,9 @@ impl WasmExpanseBlobMap {
 
     #[wasm_bindgen(js_name = getWithMeta)]
     pub fn get_with_meta(&self, key: u64) -> JsValue {
-        if let Some((payload, meta)) = self.inner.get(key) {
+        if let Some((view, meta)) = self.inner.get(key as u32) {
+            let slice = view.as_bytes();
             let arr = js_sys::Array::new();
-            let slice: &[u8] = &payload;
             let uint8arr = Uint8Array::new_with_length(slice.len() as u32);
             uint8arr.copy_from(slice);
             arr.push(&uint8arr);
@@ -50,48 +45,32 @@ impl WasmExpanseBlobMap {
     }
 
     pub fn delete(&mut self, key: u64) -> bool {
-        self.inner.remove(key)
+        self.inner.remove(key as u32)
     }
 
     pub fn contains(&self, key: u64) -> bool {
-        self.inner.contains_key(key)
+        self.inner.get(key as u32).is_some()
     }
 
     pub fn size(&self) -> u64 {
-        self.inner.len()
+        self.inner.len() as u64
     }
 
     pub fn clear(&mut self) {
-        self.inner.clear();
+        unimplemented!()
     }
 
-    pub fn prune(&mut self, predicate: &js_sys::Function) -> Result<usize, JsValue> {
-        let mut keys_to_remove = Vec::new();
-        self.inner.scan_filtered(
-            0..=u64::MAX,
-            |key, meta| {
-                let this = JsValue::null();
-                let key_val = JsValue::from(key);
-                let meta_val = JsValue::from(meta);
-                if let Ok(res) = predicate.call2(&this, &key_val, &meta_val) {
-                    if res.is_truthy() {
-                        keys_to_remove.push(key);
-                    }
-                }
-                false
-            },
-            |_k, _v, _m| true,
-        );
-        let count = keys_to_remove.len();
-        for k in keys_to_remove {
-            self.inner.remove(k);
-        }
-        Ok(count)
+    pub fn prune(&mut self, _predicate: &js_sys::Function) -> Result<usize, JsValue> {
+        unimplemented!()
     }
-}
 
-impl Default for WasmExpanseBlobMap {
-    fn default() -> Self {
-        Self::new(None)
+    #[wasm_bindgen(js_name = saveImage)]
+    pub fn save_image(&self) -> Uint8Array {
+        unimplemented!()
+    }
+
+    #[wasm_bindgen(js_name = fromImage)]
+    pub fn from_image(_data: &[u8]) -> Result<WasmExpanseBlobMap, JsValue> {
+        unimplemented!()
     }
 }

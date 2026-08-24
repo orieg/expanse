@@ -851,6 +851,35 @@ jobs:
           cd gems/expanse
           echo "Done"
 
+  test-wasm:
+    name: Bindings / WebAssembly (wasm32-unknown-unknown)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build and Test Wasm
+        run: |
+          cd crates/expanse-wasm
+          wasm-pack build --target nodejs
+          npm test
+
   ci-gate:
     name: CI Gate / All Checks Passed
     if: always()
@@ -873,13 +902,13 @@ jobs:
       - test-python
       - test-node
       - test-ruby
-      - test-ruby
       - bench-baseline
       - test-go
       - test-dotnet
       - pack-dotnet
       - test-php
       - test-rocksdb-memtable
+      - test-wasm
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
