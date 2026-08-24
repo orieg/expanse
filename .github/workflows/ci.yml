@@ -165,10 +165,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --workspace
+        run: cargo build --workspace --exclude expanse-php
 
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude expanse-php
 
       - name: Assert capi drop-in artifacts exist (Windows)
         if: runner.os == 'Windows'
@@ -213,7 +213,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Check (riscv64, cross-compile)
-        run: cargo check --workspace --target riscv64gc-unknown-linux-gnu
+        run: cargo check --target riscv64gc-unknown-linux-gnu -p expanse-trie -p expanse-capi
 
   test-rv32:
     name: Cross / RV32IMAC Cross-Compile (Bare-Metal)

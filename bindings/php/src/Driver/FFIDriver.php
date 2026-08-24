@@ -95,9 +95,9 @@ class FFIDriver
     typedef struct expanse_sync_map expanse_sync_map_t;
     expanse_sync_map_t *expanse_sync_map_new(void);
     void                expanse_sync_map_free(expanse_sync_map_t *map);
-    bool     expanse_sync_map_insert(expanse_sync_map_t *map, uint64_t key, uint64_t value);
+    bool     expanse_sync_map_insert(expanse_sync_map_t *map, uint64_t key, uint64_t value, uint64_t *old_out);
     bool     expanse_sync_map_get(const expanse_sync_map_t *map, uint64_t key, uint64_t *value_out);
-    bool     expanse_sync_map_remove(expanse_sync_map_t *map, uint64_t key);
+    bool     expanse_sync_map_remove(expanse_sync_map_t *map, uint64_t key, uint64_t *old_out);
     CDEF;
 
     public static function getFFI(): FFI

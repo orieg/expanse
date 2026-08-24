@@ -44,7 +44,7 @@ if (!class_exists(SyncMap::class)) {
             }
             if ($this->handle !== null) {
                 $ffi = FFIDriver::getFFI();
-                $ffi->expanse_sync_map_insert($this->handle, $key, $value);
+                $ffi->expanse_sync_map_insert($this->handle, $key, $value, null);
                 return;
             }
             $this->data[$key] = $value;
@@ -73,7 +73,7 @@ if (!class_exists(SyncMap::class)) {
             }
             if ($this->handle !== null) {
                 $ffi = FFIDriver::getFFI();
-                return (bool) $ffi->expanse_sync_map_remove($this->handle, $key);
+                return (bool) $ffi->expanse_sync_map_remove($this->handle, $key, null);
             }
             $res = isset($this->data[$key]);
             unset($this->data[$key]);
