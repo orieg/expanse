@@ -3,7 +3,7 @@
 > Canonical documentation for Expanse packaging, distribution channels, and automated release workflows.
 > Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · CI Pipeline: [CI.md](CI.md) · C ABI Parity: [COMPAT.md](COMPAT.md)
 
-Expanse is distributed across multiple ecosystems: as native Rust crates on [crates.io](https://crates.io), multi-arch dynamic libraries and `.deb` packages on Linux, drop-in DLLs and native NuGet/vcpkg packages on Windows, universal dynamic libraries on macOS, and upcoming Maven Central and PyPI bindings.
+Expanse targets multiple ecosystems: native Rust crates on [crates.io](https://crates.io), multi-arch dynamic libraries and `.deb`/`.rpm` packages on Linux, drop-in DLLs and vcpkg/NuGet packaging on Windows, and universal dynamic libraries on macOS. **Publication status varies by registry** — see the per-ecosystem sections below. As of this writing crates.io/npm/PyPI publishing is wired in the release workflow; the **.NET `Orieg.Expanse` NuGet package is wired but not yet landed** (nuget.org returns 404), and **Java/Maven Central is not yet built or published** (no release-workflow job exists for it).
 
 ---
 
@@ -45,7 +45,7 @@ graph TD
    git push origin main --tags
    ```
 4. **Automated Pipeline Execution**:
-   - GitHub Actions automatically executes `.github/workflows/release.yml`, publishing to crates.io, npm, NuGet.org, and creating the GitHub Release with all binary assets.
+   - GitHub Actions automatically executes `.github/workflows/release.yml`, which pushes to crates.io and npm, attempts the NuGet.org push (wired, not yet landed), and creates the GitHub Release with all binary assets. (PyPI is published by the separate `python.yml` workflow on tag; Java/Maven is not published by CI.)
 
 ---
 
@@ -158,7 +158,9 @@ Expanse is distributed on PyPI as `expanse-trie` with binary `abi3` wheels acros
 - **Full Guide**: See [docs/BINDINGS_PYTHON.md](BINDINGS_PYTHON.md).
 
 ### 2.8 Java & Scala Distribution (`io.github.orieg:expanse-java`) & Maven Central
-Expanse is distributed on Maven Central as `io.github.orieg:expanse-java` with bundled multi-arch native libraries loaded via Project Panama Foreign Function & Memory (FFM) API.
+> **Not yet published, and no CI publish path exists.** Maven Central has zero `io.github.orieg` artifacts, and `release.yml` contains no Maven/Gradle/Sonatype build or deploy job. The following describes the *planned* distribution.
+
+Expanse is *intended* to be distributed on Maven Central as `io.github.orieg:expanse-java` with bundled multi-arch native libraries loaded via Project Panama Foreign Function & Memory (FFM) API. Until then, build from `bindings/java` locally.
 
 - **Package Configuration**: `bindings/java/pom.xml` and `bindings/java/build.gradle`.
 - **Native Loader**: `io.github.orieg.expanse.internal.NativeLoader` extracts and loads precompiled native libraries across Linux, macOS, and Windows.
@@ -226,7 +228,9 @@ Expanse is distributed on the npm registry as [`@orieg/expanse`](https://www.npm
 ---
 
 ### 2.10 .NET / C# Distribution (`Orieg.Expanse`) via NuGet.org
-Expanse is distributed on [NuGet.org](https://www.nuget.org) as [`Orieg.Expanse`](https://www.nuget.org/packages/Orieg.Expanse), providing zero-GC off-heap collections and P/Invoke bindings wrapping `libexpanse` for .NET 8.0 and .NET 9.0+.
+> **Wired but not yet landed.** The `release.yml` NuGet push step exists (OIDC trusted publishing, below), but `Orieg.Expanse` does not yet resolve on nuget.org (404 / `totalHits:0`). Build from `bindings/dotnet` locally until first publish.
+
+Expanse is *intended* to be distributed on [NuGet.org](https://www.nuget.org) as [`Orieg.Expanse`](https://www.nuget.org/packages/Orieg.Expanse), providing zero-GC off-heap collections and P/Invoke bindings wrapping `libexpanse` for .NET 8.0 and .NET 9.0+.
 
 - **Package Configuration**: `bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj`.
 - **OIDC Trusted Publishing on NuGet.org**:
@@ -304,7 +308,7 @@ Expanse is distributed on [NuGet.org](https://www.nuget.org) as [`Orieg.Expanse`
 ---
 
 ### 2.11 Multi-Ecosystem Version Synchronization (`scripts/bump_version.py`)
-Expanse is distributed across 5 major software ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, and Java/Maven/Gradle) spanning 10 canonical manifests. To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
+Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, and Java/Maven/Gradle) spanning multiple canonical manifests. Publication status differs per registry (see the per-ecosystem sections: crates.io/npm/PyPI wired; NuGet wired-not-landed; Java/Maven not yet built or published). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
 
 #### Synchronized Manifests:
 | Manifest File | Section / Key | Description |

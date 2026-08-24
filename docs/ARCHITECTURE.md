@@ -194,9 +194,9 @@ For complete struct definitions, bit layouts, cache models, and implementation p
 ## 9. 57-Bit / 64-Bit Virtual Addressing & 5-Level Paging (PML5 / LA57 / ARMv8.2-LVA)
 
 On modern 64-bit server architectures, **48-bit virtual addressing is an obsolete assumption**:
-- **x86-64 5-Level Paging (PML5 / LA57)**: Current Intel (Ice Lake, Sapphire Rapids, Emerald Rapids, Granite Rapids) and AMD (Zen 4 Genoa, Zen 5 Turin) processors extend userspace virtual addresses from 48 bits (256 TB) to **57 bits (128 PB)**.
-- **ARM64 Large Virtual Addressing (ARMv8.2-A+ / LVA)**: Modern ARM architectures (AWS Graviton 3/4, Apple Silicon, Neoverse V2) extend userspace virtual addressing to **52 bits (4 PB)**.
-- **High-Memory Nodes & ASLR**: Modern Linux kernels (since v4.14 for x86 and v5.4 for ARM) dynamically allocate heap, `mmap`, and stack pages above `0x0000_7FFF_FFFF_FFFF` (bit 47), and aggressive Address Space Layout Randomization (ASLR) places memory regions across the full 57-bit space.
+- **x86-64 5-Level Paging (PML5 / LA57)**: Current Intel (Ice Lake, Sapphire Rapids, Emerald Rapids, Granite Rapids) and AMD (Zen 4 Genoa, Zen 5 Turin) processors widen the virtual address from 48 bits to **57 bits (128 PiB total address space)**. That space is split into a lower (user) half and an upper (kernel) half, so the Linux **userspace lower half grows from 47 bits (128 TiB) to 56 bits (64 PiB)**.
+- **ARM64 Large Virtual Addressing (ARMv8.2-A+ / LVA)**: Modern ARM architectures (AWS Graviton 3/4, Apple Silicon, Neoverse V2) extend virtual addressing to **52 bits (userspace lower half up to 4 PiB)**.
+- **High-Memory Nodes & ASLR**: On LA57 the Linux kernel's **default `mmap` window stays below bit 47** — this preserves compatibility with pointer-tagging schemes (LAM/TBI) and allocators that stash bits in the top of a pointer. Allocations move **above** bit 47 (`0x0000_7FFF_FFFF_FFFF`) only when a caller passes a high address hint (`mmap` with `MAP_FIXED`/hint) or exceeds the default window — as jemalloc, the Go runtime, and high-entropy ASLR do — at which point pointers legitimately occupy the full 57-bit range.
 
 ### The Classic Flaw (Upper-Bit Pointer Stealing)
 Older 2002-era C implementations (including classic `libjudy` and V8-style NaN-tagging) packed metadata by assuming bits 48–63 of pointers were unused zeros. On PML5/LVA hardware, allocating heap memory above 48 bits causes pointer corruption and non-canonical address `#GP` (General Protection Fault) segfaults when dereferenced.

@@ -1259,9 +1259,9 @@ $data = $cache-&gt;get('user:42:profile');</code></pre>
           <div class="doc-link-title">COMPAT.md &#8599;</div>
           <div class="doc-link-desc">C ABI contracts, drop-in parity gates, error handling, packaging specifications.</div>
         </a>
-        <a href="https://github.com/orieg/expanse/blob/main/docs/CI_CD_GUIDE.md" class="doc-link-card">
-          <div class="doc-link-title">CI_CD_GUIDE.md &#8599;</div>
-          <div class="doc-link-desc">CI/CD engineering standards, zero-regression gating, and multi-architecture matrices.</div>
+        <a href="https://github.com/orieg/expanse/blob/main/docs/CI.md" class="doc-link-card">
+          <div class="doc-link-title">CI.md &#8599;</div>
+          <div class="doc-link-desc">CI job catalog, the single rollup gate, zero-regression gating, and multi-architecture matrices.</div>
         </a>
         <a href="https://github.com/orieg/expanse/blob/main/docs/BENCHMARKING.md" class="doc-link-card">
           <div class="doc-link-title">BENCHMARKING.md &#8599;</div>
