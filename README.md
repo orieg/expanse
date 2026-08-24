@@ -3,7 +3,7 @@
 [![CI](https://github.com/orieg/expanse/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/orieg/expanse/actions/workflows/ci.yml?query=branch%3Amain)
 [![Crates.io Version](https://img.shields.io/crates/v/expanse-trie.svg?style=flat-square&logo=rust)](https://crates.io/crates/expanse-trie)
 [![npm Version](https://img.shields.io/npm/v/@orieg/expanse.svg?style=flat-square&logo=npm)](https://www.npmjs.com/package/@orieg/expanse)
-[![NuGet Version](https://img.shields.io/nuget/v/OriEg.Expanse.svg?style=flat-square&logo=nuget)](https://www.nuget.org/packages/OriEg.Expanse)
+[![NuGet Version](https://img.shields.io/nuget/v/Orieg.Expanse.svg?style=flat-square&logo=nuget)](https://www.nuget.org/packages/Orieg.Expanse)
 [![PyPI Version](https://img.shields.io/pypi/v/expanse-trie.svg?style=flat-square&logo=pypi)](https://pypi.org/project/expanse-trie/)
 [![APT Repository](https://img.shields.io/badge/apt-debian%20%7C%20ubuntu-orange.svg?style=flat-square&logo=debian)](https://orieg.github.io/expanse/apt/)
 [![RPM Repository](https://img.shields.io/badge/rpm-rhel%20%7C%20fedora%20%7C%20centos-red.svg?style=flat-square&logo=redhat)](https://orieg.github.io/expanse/rpm/)
@@ -426,9 +426,9 @@ try (ExpanseMap map = new ExpanseMap();
 ```
 See [docs/BINDINGS_JAVA.md](docs/BINDINGS_JAVA.md) for Panama FFM architecture, GC elimination benchmarks, and Spark/Flink off-heap integration patterns.
 
-### 10. .NET & C# Quickstart (`OriEg.Expanse`)
+### 10. .NET & C# Quickstart (`Orieg.Expanse`)
 ```bash
-dotnet add package OriEg.Expanse
+dotnet add package Orieg.Expanse
 ```
 
 ```csharp

@@ -26,7 +26,7 @@ graph TD
     
     F --> K[crates.io: expanse-trie & expanse-capi]
     G --> L[npm: @orieg/expanse]
-    H --> M[NuGet.org: OriEg.Expanse]
+    H --> M[NuGet.org: Orieg.Expanse]
     I --> N[GitHub Release: Binaries, DLLs, Tarballs, ZIPs]
     J --> N
     N --> O[SHA256SUMS & Release Notes]
@@ -225,8 +225,8 @@ Expanse is distributed on the npm registry as [`@orieg/expanse`](https://www.npm
 
 ---
 
-### 2.10 .NET / C# Distribution (`OriEg.Expanse`) via NuGet.org
-Expanse is distributed on [NuGet.org](https://www.nuget.org) as [`OriEg.Expanse`](https://www.nuget.org/packages/OriEg.Expanse), providing zero-GC off-heap collections and P/Invoke bindings wrapping `libexpanse` for .NET 8.0 and .NET 9.0+.
+### 2.10 .NET / C# Distribution (`Orieg.Expanse`) via NuGet.org
+Expanse is distributed on [NuGet.org](https://www.nuget.org) as [`Orieg.Expanse`](https://www.nuget.org/packages/Orieg.Expanse), providing zero-GC off-heap collections and P/Invoke bindings wrapping `libexpanse` for .NET 8.0 and .NET 9.0+.
 
 - **Package Configuration**: `bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj`.
 - **OIDC Trusted Publishing on NuGet.org**:
@@ -235,7 +235,7 @@ Expanse is distributed on [NuGet.org](https://www.nuget.org) as [`OriEg.Expanse`
     - **Policy Name**: `expanse-nuget-ci` (Active)
     - **Package Owner**: `orieg`
     - **Scopes**: Push new packages and package versions
-    - **Glob Patterns & Packages**: `*` (or `OriEg.*`)
+    - **Glob Patterns & Packages**: `*` (or `Orieg.*`)
     - **Publisher**: GitHubActions (Repository Owner: `orieg`, Repository: `expanse`, Workflow: `release.yml`)
   - **Workflow Authentication**:
     - Executed in `.github/workflows/release.yml` with `permissions: id-token: write, contents: read`.
@@ -260,10 +260,10 @@ Expanse is distributed on [NuGet.org](https://www.nuget.org) as [`OriEg.Expanse`
 - **Installation**:
   ```bash
   # .NET CLI
-  dotnet add package OriEg.Expanse
+  dotnet add package Orieg.Expanse
 
   # PackageReference (csproj)
-  <PackageReference Include="OriEg.Expanse" Version="0.3.0" />
+  <PackageReference Include="Orieg.Expanse" Version="0.3.0" />
   ```
 - **Quick Usage Snippet (C#)**:
   ```csharp
@@ -316,7 +316,7 @@ Expanse is distributed across 5 major software ecosystems (Cargo/Rust, C/C++ hea
 | `crates/expanse-node/Cargo.toml` | `[package] version`, `expanse-trie` dep | napi-rs Node.js native binding crate |
 | `crates/expanse-node/package.json` | `"version"` | npm package manifest (`@orieg/expanse`) |
 | `pyproject.toml` | `[project] version` | Python PyPI wheel manifest (`expanse-trie`) |
-| `bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj` | `<Version>`, `<PackageVersion>`, `<AssemblyVersion>` | .NET NuGet package manifest (`OriEg.Expanse`) |
+| `bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj` | `<Version>`, `<PackageVersion>`, `<AssemblyVersion>` | .NET NuGet package manifest (`Orieg.Expanse`) |
 | `bindings/java/pom.xml` | `<project><version>` | Maven Central POM manifest (`io.github.orieg:expanse-java`) |
 | `bindings/java/build.gradle` | `version = '...'` | Gradle build manifest |
 | `extra/vcpkg/vcpkg.json` *(extra)* | `"version"` | Microsoft vcpkg C/C++ port manifest |
