@@ -95,33 +95,9 @@ fn immed_find(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
 fn immed_find_fixed<const KB: usize>(im: ImmedType, payload: &[u8], key: Key) -> Option<usize> {
     let n = im.key_count() as usize;
     let needle = crate::mutate::key_low(key, KB as u8);
-    if n == 1 {
-        // SAFETY: payload holds at least 1 * KB readable bytes.
-        if unsafe { crate::mutate::read_packed_fixed::<KB>(payload.as_ptr(), 0) } == needle {
-            return Some(0);
-        }
-        return None;
-    }
-    if n == 2 {
-        // SAFETY: payload holds at least 2 * KB readable bytes.
-        unsafe {
-            if crate::mutate::read_packed_fixed::<KB>(payload.as_ptr(), 0) == needle {
-                return Some(0);
-            }
-            if crate::mutate::read_packed_fixed::<KB>(payload.as_ptr(), 1) == needle {
-                return Some(1);
-            }
-        }
-        return None;
-    }
-    let le = key.to_le_bytes();
-    let mut needle_bytes = [0u8; KB];
-    needle_bytes.copy_from_slice(&le[..KB]);
-    // SAFETY: `[u8; KB]` has alignment 1, and payload holds `n * KB` bytes.
-    let packed = unsafe { core::slice::from_raw_parts(payload.as_ptr().cast::<[u8; KB]>(), n) };
-    packed
-        .iter()
-        .position(|candidate| *candidate == needle_bytes)
+    let ptr = payload.as_ptr();
+    // SAFETY: payload holds at least n * KB readable bytes per ImmedType invariant and i < n.
+    (0..n).find(|&i| unsafe { crate::mutate::read_packed_fixed::<KB>(ptr, i) } == needle)
 }
 
 /// The shared descent; `MAP` selects map flavor (values) over set flavor.
