@@ -1,66 +1,130 @@
 #!/bin/bash
 set -euo pipefail
 
-VERSION=${1:-"1.0.0"}
-ARCH="amd64"
-DIST_DIR="dist"
+# Builds the three Debian packages (libexpanse1 / libexpanse-dev / libjudy-compat)
+# for one architecture from a staged dist/ tree.
+#
+# Usage: package_deb.sh <version> <deb_arch> <dist_dir>
+#   deb_arch: amd64 | arm64 | riscv64
+#   dist_dir: directory containing lib/ (and optionally lib/glibc-hwcaps/) + the
+#             C headers are read from crates/expanse-capi/include.
+
+VERSION=${1:-"0.3.0"}
+DEB_ARCH=${2:-"amd64"}
+DIST_DIR=${3:-"dist"}
 DEB_DIR="debian_build"
 
-echo "Packaging version ${VERSION} for ${ARCH}..."
+case "${DEB_ARCH}" in
+    amd64)   TRIPLE="x86_64-linux-gnu" ;;
+    arm64)   TRIPLE="aarch64-linux-gnu" ;;
+    riscv64) TRIPLE="riscv64-linux-gnu" ;;
+    *) echo "::error::package_deb.sh: unsupported deb arch '${DEB_ARCH}'" >&2; exit 1 ;;
+esac
+
+if [ ! -d "${DIST_DIR}/lib" ]; then
+    echo "::error::package_deb.sh: '${DIST_DIR}/lib' does not exist" >&2
+    exit 1
+fi
+
+echo "Packaging libexpanse ${VERSION} for ${DEB_ARCH} (${TRIPLE}) from ${DIST_DIR}..."
+
+rm -rf "${DEB_DIR}"
+
+# Normalize the runtime soname chain into a private staging dir so packaging is
+# correct whether dist/lib holds a full chain (from build_hwcaps.sh) or only the
+# unversioned libexpanse.so that `cargo build -p expanse-capi` emits.
+normalize_soname() {
+    # $1 = source lib dir, $2 = destination staging dir
+    local src="$1" dst="$2"
+    mkdir -p "$dst"
+    if [ -f "${src}/libexpanse.so.1.0.0" ]; then
+        cp "${src}/libexpanse.so.1.0.0" "${dst}/libexpanse.so.1.0.0"
+    elif [ -f "${src}/libexpanse.so" ] && [ ! -L "${src}/libexpanse.so" ]; then
+        cp "${src}/libexpanse.so" "${dst}/libexpanse.so.1.0.0"
+    else
+        return 1
+    fi
+    ln -sf libexpanse.so.1.0.0 "${dst}/libexpanse.so.1"
+    ln -sf libexpanse.so.1 "${dst}/libexpanse.so"
+    return 0
+}
+
+STAGE="${DEB_DIR}/_stage"
+if ! normalize_soname "${DIST_DIR}/lib" "${STAGE}/lib"; then
+    echo "::error::package_deb.sh: no libexpanse.so runtime library found in ${DIST_DIR}/lib" >&2
+    exit 1
+fi
+
+# Optional glibc-hwcaps variants (x86_64 only).
+HWCAPS=()
+if [ -d "${DIST_DIR}/lib/glibc-hwcaps" ]; then
+    for HWCAP in x86-64-v2 x86-64-v3 x86-64-v4; do
+        if [ -d "${DIST_DIR}/lib/glibc-hwcaps/${HWCAP}" ]; then
+            normalize_soname "${DIST_DIR}/lib/glibc-hwcaps/${HWCAP}" "${STAGE}/lib/glibc-hwcaps/${HWCAP}" \
+                && HWCAPS+=("${HWCAP}")
+        fi
+    done
+fi
 
 # Setup package directories
 mkdir -p "${DEB_DIR}/libexpanse1/DEBIAN"
 mkdir -p "${DEB_DIR}/libexpanse-dev/DEBIAN"
 mkdir -p "${DEB_DIR}/libjudy-compat/DEBIAN"
 
-# 1. libexpanse1 package
-mkdir -p "${DEB_DIR}/libexpanse1/usr/lib/x86_64-linux-gnu"
-cp -d "${DIST_DIR}/lib/libexpanse.so"* "${DEB_DIR}/libexpanse1/usr/lib/x86_64-linux-gnu/"
-rm -f "${DEB_DIR}/libexpanse1/usr/lib/x86_64-linux-gnu/libJudy.so.1" # Remove judy symlink for this package
+LIBDIR="usr/lib/${TRIPLE}"
 
-for HWCAP in x86-64-v2 x86-64-v3 x86-64-v4; do
-    mkdir -p "${DEB_DIR}/libexpanse1/usr/lib/x86_64-linux-gnu/glibc-hwcaps/${HWCAP}"
-    cp -d "${DIST_DIR}/lib/glibc-hwcaps/${HWCAP}/libexpanse.so"* "${DEB_DIR}/libexpanse1/usr/lib/x86_64-linux-gnu/glibc-hwcaps/${HWCAP}/"
-    rm -f "${DEB_DIR}/libexpanse1/usr/lib/x86_64-linux-gnu/glibc-hwcaps/${HWCAP}/libJudy.so.1"
+# 1. libexpanse1 package: versioned runtime library only (.so.1.0.0 + .so.1 soname link)
+mkdir -p "${DEB_DIR}/libexpanse1/${LIBDIR}"
+cp -d "${STAGE}/lib/libexpanse.so.1.0.0" "${STAGE}/lib/libexpanse.so.1" \
+    "${DEB_DIR}/libexpanse1/${LIBDIR}/"
+
+for HWCAP in "${HWCAPS[@]}"; do
+    mkdir -p "${DEB_DIR}/libexpanse1/${LIBDIR}/glibc-hwcaps/${HWCAP}"
+    cp -d "${STAGE}/lib/glibc-hwcaps/${HWCAP}/libexpanse.so.1.0.0" \
+          "${STAGE}/lib/glibc-hwcaps/${HWCAP}/libexpanse.so.1" \
+          "${DEB_DIR}/libexpanse1/${LIBDIR}/glibc-hwcaps/${HWCAP}/"
 done
 
 cat <<EOF > "${DEB_DIR}/libexpanse1/DEBIAN/control"
 Package: libexpanse1
 Version: ${VERSION}
-Architecture: ${ARCH}
-Maintainer: Expanse Maintainers <maintainers@expanse.local>
+Architecture: ${DEB_ARCH}
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine shared library with glibc-hwcaps support.
 EOF
 
-# 2. libexpanse-dev package
+# 2. libexpanse-dev package: headers, static library, and the unversioned .so dev symlink
 mkdir -p "${DEB_DIR}/libexpanse-dev/usr/include"
-mkdir -p "${DEB_DIR}/libexpanse-dev/usr/lib/x86_64-linux-gnu"
-cp crates/expanse-capi/include/*.h* "${DEB_DIR}/libexpanse-dev/usr/include/" || echo "No headers found, skipping"
-cp "${DIST_DIR}/lib/libexpanse.a" "${DEB_DIR}/libexpanse-dev/usr/lib/x86_64-linux-gnu/"
+mkdir -p "${DEB_DIR}/libexpanse-dev/${LIBDIR}"
+cp crates/expanse-capi/include/*.h* "${DEB_DIR}/libexpanse-dev/usr/include/"
+if [ -f "${DIST_DIR}/lib/libexpanse.a" ]; then
+    cp "${DIST_DIR}/lib/libexpanse.a" "${DEB_DIR}/libexpanse-dev/${LIBDIR}/"
+fi
+ln -sf libexpanse.so.1 "${DEB_DIR}/libexpanse-dev/${LIBDIR}/libexpanse.so"
 
 cat <<EOF > "${DEB_DIR}/libexpanse-dev/DEBIAN/control"
 Package: libexpanse-dev
 Version: ${VERSION}
-Architecture: ${ARCH}
-Maintainer: Expanse Maintainers <maintainers@expanse.local>
+Architecture: ${DEB_ARCH}
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Depends: libexpanse1 (= ${VERSION})
 Description: Expanse trie engine development files (headers, static library).
 EOF
 
-# 3. libjudy-compat package
-mkdir -p "${DEB_DIR}/libjudy-compat/usr/lib/x86_64-linux-gnu"
-ln -sf libexpanse.so.1 "${DEB_DIR}/libjudy-compat/usr/lib/x86_64-linux-gnu/libJudy.so.1"
+# 3. libjudy-compat package: drop-in libJudy.so.1 soname pointing at libexpanse.so.1
+mkdir -p "${DEB_DIR}/libjudy-compat/${LIBDIR}"
+ln -sf libexpanse.so.1 "${DEB_DIR}/libjudy-compat/${LIBDIR}/libJudy.so.1"
 
-for HWCAP in x86-64-v2 x86-64-v3 x86-64-v4; do
-    mkdir -p "${DEB_DIR}/libjudy-compat/usr/lib/x86_64-linux-gnu/glibc-hwcaps/${HWCAP}"
-    ln -sf libexpanse.so.1 "${DEB_DIR}/libjudy-compat/usr/lib/x86_64-linux-gnu/glibc-hwcaps/${HWCAP}/libJudy.so.1"
+for HWCAP in "${HWCAPS[@]}"; do
+    mkdir -p "${DEB_DIR}/libjudy-compat/${LIBDIR}/glibc-hwcaps/${HWCAP}"
+    ln -sf libexpanse.so.1 "${DEB_DIR}/libjudy-compat/${LIBDIR}/glibc-hwcaps/${HWCAP}/libJudy.so.1"
 done
 
 cat <<EOF > "${DEB_DIR}/libjudy-compat/DEBIAN/control"
 Package: libjudy-compat
 Version: ${VERSION}
-Architecture: ${ARCH}
-Maintainer: Expanse Maintainers <maintainers@expanse.local>
+Architecture: ${DEB_ARCH}
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Depends: libexpanse1 (= ${VERSION})
 Conflicts: libjudy
 Provides: libjudy
@@ -68,8 +132,8 @@ Description: Drop-in compatibility for libjudy applications.
 EOF
 
 # Build packages
-dpkg-deb --build "${DEB_DIR}/libexpanse1" "libexpanse1_${VERSION}_${ARCH}.deb"
-dpkg-deb --build "${DEB_DIR}/libexpanse-dev" "libexpanse-dev_${VERSION}_${ARCH}.deb"
-dpkg-deb --build "${DEB_DIR}/libjudy-compat" "libjudy-compat_${VERSION}_${ARCH}.deb"
+dpkg-deb --build "${DEB_DIR}/libexpanse1" "libexpanse1_${VERSION}_${DEB_ARCH}.deb"
+dpkg-deb --build "${DEB_DIR}/libexpanse-dev" "libexpanse-dev_${VERSION}_${DEB_ARCH}.deb"
+dpkg-deb --build "${DEB_DIR}/libjudy-compat" "libjudy-compat_${VERSION}_${DEB_ARCH}.deb"
 
-echo "Debian packaging completed successfully!"
+echo "Debian packaging completed successfully (${DEB_ARCH})!"

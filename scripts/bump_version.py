@@ -144,12 +144,20 @@ class PackageJsonHandler(ManifestHandler):
 
     def set_version(self, root: Path, new_version: str) -> str:
         text = self.get_path(root).read_text(encoding="utf-8")
-        return re.sub(
+        text = re.sub(
             r'("version"\s*:\s*)"[^"]+"',
             rf'\g<1>"{new_version}"',
             text,
             count=1,
         )
+        # Keep the napi platform optionalDependencies (@orieg/expanse-<platform>)
+        # in lockstep so the published main package pins the matching prebuilds.
+        text = re.sub(
+            r'("@orieg/expanse-[a-z0-9-]+"\s*:\s*)"[^"]+"',
+            rf'\g<1>"{new_version}"',
+            text,
+        )
+        return text
 
 
 class PyprojectHandler(ManifestHandler):

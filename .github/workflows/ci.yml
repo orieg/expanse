@@ -29,6 +29,7 @@ jobs:
       php: ${{ steps.filter.outputs.php }}
       wasm: ${{ steps.filter.outputs.wasm }}
       go: ${{ steps.filter.outputs.go }}
+      integrations: ${{ steps.filter.outputs.integrations }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -39,6 +40,8 @@ jobs:
               - 'crates/**'
               - 'include/**'
               - 'tests/cpp/**'
+              - 'fuzz/**'
+              - 'scripts/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain*'
@@ -46,8 +49,12 @@ jobs:
               - '.github/workflows/nightly.yml'
             python:
               - 'crates/expanse-py/**'
+              - 'crates/expanse/**'
+              - 'crates/expanse-capi/**'
               - 'tests/test_python_bindings.py'
               - 'pyproject.toml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
               - '.github/workflows/python.yml'
             node:
               - 'crates/expanse-node/**'
@@ -100,6 +107,13 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/ci.yml'
+            integrations:
+              - 'integrations/**'
+              - 'crates/expanse/**'
+              - 'crates/expanse-capi/**'
+              - 'include/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
 
   lint:
     name: Core / Linter & Formatting
@@ -449,11 +463,26 @@ jobs:
       - name: libexpanse vs stock libjudy (instructions)
         run: cargo bench --bench vs_stock -p expanse-capi | tee vs-stock.txt
 
-      - name: Generate and Emit Step Summary Report
+      - name: Generate Report and Enforce Regression Guard
         if: always()
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           if [ -f instruction-counts.txt ] && [ -f bytes-per-key.txt ] && [ -f vs-stock.txt ]; then
-            python3 scripts/perf_report.py --head instruction-counts.txt --bytes bytes-per-key.txt --bytes32 bytes-per-key-32.txt --vs-stock vs-stock.txt --v3 v3-counts.txt > pr-report.md || true
+            printf '%s' "$PR_BODY" > pr-body.txt
+            # No `|| true`: a perf_report.py crash or a real regression now fails the job.
+            # The regression guard only fires when a base-branch bench is supplied
+            # (`--base`, not produced here yet); the threshold is deliberately loose
+            # (shared CI runners are noisy) so wiring it in cannot flake.
+            python3 scripts/perf_report.py \
+              --head instruction-counts.txt \
+              --bytes bytes-per-key.txt \
+              --bytes32 bytes-per-key-32.txt \
+              --vs-stock vs-stock.txt \
+              --v3 v3-counts.txt \
+              --pr-body-file pr-body.txt \
+              --fail-on-regression \
+              --max-regression-pct 5.0 > pr-report.md
             if [ -f pr-report.md ]; then
               cat pr-report.md >> "$GITHUB_STEP_SUMMARY"
             fi
@@ -615,7 +644,7 @@ jobs:
   test-python:
     name: Bindings / Python Fast Smoke (Py3.12)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.python == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust == 'true' || needs.detect-changes.outputs.python == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -824,7 +853,7 @@ jobs:
   test-rocksdb-memtable:
     name: Integrations / RocksDB MemTable (${{ matrix.os }}, ${{ matrix.sanitizer }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || needs.detect-changes.outputs.c == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -979,17 +1008,38 @@ jobs:
       - fuzz-smoke
       - test-python
       - test-node
+      - test-php
       - test-dotnet
       - pack-dotnet
       - test-java
       - test-rocksdb-memtable
       - test-ruby
-      - test-php
       - test-wasm
       - test-go
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Gate Self-Check (every job is a required dependency)
+        shell: bash
+        run: |
+          # The branch ruleset requires only this single rollup context, so any job
+          # left out of ci-gate's `needs` would fail open (its result unobserved).
+          # Assert every job id (except ci-gate itself) is a dependency here.
+          python3 -c '
+          import sys, yaml
+          wf = yaml.safe_load(open(".github/workflows/ci.yml"))
+          jobs = set(wf["jobs"].keys())
+          needs = wf["jobs"]["ci-gate"].get("needs", [])
+          needs = {needs} if isinstance(needs, str) else set(needs)
+          missing = (jobs - {"ci-gate"}) - needs
+          if missing:
+              print("::error::ci-gate is missing required job(s) in needs: " + ", ".join(sorted(missing)))
+              sys.exit(1)
+          print("ci-gate depends on all %d other jobs (incl. test-ruby): OK" % (len(jobs) - 1))
+          '
+
       - name: Evaluate Dependency Statuses
         shell: bash
         run: |

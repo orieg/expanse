@@ -9,7 +9,7 @@ Expanse is a zero-allocation, high-performance, drop-in replacement for the 20-y
 
 ## 1. CI Pipeline Overview
 
-Every Pull Request and push to `main` executes a matrix of **13 required parallel checks** defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). In addition, scheduled **Nightly** workflows execute deep fuzzing and full-suite Miri validation.
+Every Pull Request and push to `main` executes a matrix of parallel checks defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The branch ruleset requires exactly **one** status context — **`CI Gate / All Checks Passed`** — a rollup that `needs:` every other job and fails if any of them failed or was cancelled. Because a job omitted from that rollup would fail open (its result unobserved), the gate also runs a **self-check** that parses `ci.yml` and asserts every job id is listed in its `needs`. In addition, scheduled **Nightly** workflows execute deep fuzzing and full-suite Miri validation.
 
 ```mermaid
 graph TD
@@ -20,7 +20,7 @@ graph TD
     PR --> T_MUSL[Test: Linux musl Static]
     PR --> MIRI[Miri: UB & Memory Safety]
     PR --> LOOM[Loom: Concurrency State Machine]
-    PR --> FUZZ[Fuzz Smoke: 4 Targets]
+    PR --> FUZZ[Fuzz Smoke: 5 Targets]
     PR --> MEM[Memory Budget: B/key Gate]
     PR --> ORACLE[Differential Oracle: stock libjudy]
     PR --> PHP_L[PHP Judy Compat: Linux]
@@ -32,7 +32,7 @@ graph TD
 
 ---
 
-## 2. Detailed Job Catalog (13 Required Checks)
+## 2. Detailed Job Catalog (rolled up by the CI Gate)
 
 | # | Job Name | Primary Tools / Flags | Purpose & Invariant Enforced | Typical Runtime |
 |---|---|---|---|---|
@@ -43,7 +43,7 @@ graph TD
 | 5 | **`test-musl`** | `x86_64-unknown-linux-musl` | Static-linked musl compilation and test execution to ensure zero glibc dependency leak. | ~35s |
 | 6 | **`miri`** | `cargo +nightly miri test` | Undefined Behavior (UB), pointer provenance, aliasing, and uninitialized memory check on core trie. | ~5s (fast-path) / ~2m |
 | 7 | **`loom`** | `RUSTFLAGS="--cfg loom"` | Permutation testing of the Optimistic Concurrency Control (OCC) seqlock and Epoch-Based Reclamation (EBR). | ~40s |
-| 8 | **`fuzz-smoke`** | `cargo +nightly fuzz run` (60s/target) | Smoke run of 4 libFuzzer targets (`set_ops`, `map_ops`, `bytesmap_ops`, `strmap_ops`). | ~4m 30s |
+| 8 | **`fuzz-smoke`** | `cargo +nightly fuzz run` (60s/target) | Smoke run of 5 libFuzzer targets (`set_ops`, `map_ops`, `bytesmap_ops`, `strmap_ops`, `blobmap_image_corrupt`). | ~4m 30s |
 | 9 | **`memory-budget`** | `examples/bytes_per_key.rs` | Deterministic allocator accounting. Fails if memory per key exceeds hard architectural ceilings. | ~25s |
 | 10 | **`differential-oracle`** | `libjudy-dev`, `dlopen` | Black-box behavioral equivalence testing comparing `libexpanse` against stock C `libjudy`. | ~35s |
 | 11 | **`php-judy-compat`** | PHP 8.x + `php-judy` C extension | Compiles legacy `php-judy` C extension linked against `libexpanse.so` and runs upstream test suite. | ~45s |
@@ -62,9 +62,11 @@ Standard wall-clock microbenchmarks on shared cloud runners suffer from 5–15% 
 * Dips or rises as small as **`0.1%`** represent real algorithmic or code generation changes.
 
 ### Automated Failure Thresholds
-[`scripts/perf_report.py`](../scripts/perf_report.py) evaluates PR branch instructions against the merge base:
-1. **Single-benchmark threshold**: Any benchmark showing **`> 1.5%`** instruction increase fails CI (`exit 1`).
+[`scripts/perf_report.py`](../scripts/perf_report.py) supports comparing PR branch instructions against a base bench (`--base`) and, with `--fail-on-regression`, turning regressions into a job failure:
+1. **Single-benchmark threshold**: Any benchmark showing **`> max-regression-pct`** instruction increase fails CI (`exit 1`).
 2. **Multi-benchmark threshold**: More than **1 benchmark** showing **`> 0.5%`** instruction increase fails CI (`exit 1`).
+
+The `instruction-counts` job wires `--fail-on-regression` with a deliberately loose `--max-regression-pct 5.0` (shared runners are noisy). The guard only fires once a base-branch bench file is supplied to `--base`; that base capture is not produced in this job yet, so the guard is presently latent — its purpose here is that a `perf_report.py` crash is no longer swallowed by `|| true`.
 
 ### Human Approval & Override Protocol
 If a regression is expected or represents an intentional architectural trade-off (e.g. adding safety validation or a complex feature), it must be documented and formally approved:
@@ -96,7 +98,7 @@ To keep turnaround times under 30 seconds for non-code and localized PRs while p
   - `fuzz-smoke` skips libFuzzer execution unless `crates/` or `fuzz/` targets changed.
   - `instruction-counts` only executes Callgrind profiling if `crates/` or `scripts/perf_report.py` changed.
 * **Format & Hygiene**: `lint` runs on all PRs to verify markdown hygiene and clean formatting.
-* All 13 required status checks satisfy GitHub branch protection and report `pass` in **~5 seconds** instead of ~5 minutes.
+* The single `CI Gate / All Checks Passed` rollup context satisfies GitHub branch protection and reports `pass` in **~5 seconds** once its dependencies conclude (jobs cleanly skipped by path filters count as passing).
 
 ---
 

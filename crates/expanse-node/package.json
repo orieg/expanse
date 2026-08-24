@@ -7,11 +7,16 @@
   "files": [
     "index.js",
     "index.d.ts",
-    "index.node",
     "README.md",
     "LICENSE-MIT",
     "LICENSE-APACHE"
   ],
+  "optionalDependencies": {
+    "@orieg/expanse-linux-x64-gnu": "0.3.0",
+    "@orieg/expanse-darwin-x64": "0.3.0",
+    "@orieg/expanse-darwin-arm64": "0.3.0",
+    "@orieg/expanse-win32-x64-msvc": "0.3.0"
+  },
   "scripts": {
     "test": "node test.js",
     "build": "cargo build --release -p expanse-node",

@@ -728,7 +728,33 @@ NAV_VIS_HTML = """  <header class="navbar">
     </div>
   </header>"""
 
-def build_pages(artifacts_dir: str, output_dir: str):
+def _count_packages(artifacts_dir: str) -> int:
+    """Counts .deb/.rpm package artifacts under artifacts_dir."""
+    n = 0
+    if os.path.isdir(artifacts_dir):
+        for _root, _dirs, files in os.walk(artifacts_dir):
+            for f in files:
+                if f.endswith(".deb") or f.endswith(".rpm"):
+                    n += 1
+    return n
+
+
+def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
+    # Fail loudly rather than force-replacing populated apt/rpm repos on gh-pages
+    # (peaceiris keep_files: false) with empty ones built from missing artifacts.
+    if not allow_empty:
+        if not os.path.isdir(artifacts_dir):
+            raise SystemExit(
+                f"::error::Pages build: artifacts directory '{artifacts_dir}' does not exist. "
+                f"Download the latest release .deb/.rpm assets first, or pass --allow-empty to bootstrap."
+            )
+        if _count_packages(artifacts_dir) == 0:
+            raise SystemExit(
+                f"::error::Pages build: no .deb/.rpm packages found under '{artifacts_dir}'. "
+                f"Refusing to publish empty apt/rpm repositories over the live ones. "
+                f"Pass --allow-empty to bootstrap intentionally."
+            )
+
     os.makedirs(output_dir, exist_ok=True)
 
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -1317,8 +1343,8 @@ $data = $cache-&gt;get('user:42:profile');</code></pre>
     # 4. APT & RPM repositories
     apt_out = os.path.join(output_dir, "apt")
     rpm_out = os.path.join(output_dir, "rpm")
-    build_apt_repo(artifacts_dir, apt_out)
-    build_rpm_repo(artifacts_dir, rpm_out)
+    build_apt_repo(artifacts_dir, apt_out, allow_empty=allow_empty)
+    build_rpm_repo(artifacts_dir, rpm_out, allow_empty=allow_empty)
 
     print(f"Complete GitHub Pages site generated in {output_dir}")
 
@@ -1353,8 +1379,13 @@ if __name__ == "__main__":
         default=None,
         help="Output directory for generated site",
     )
+    parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="Permit building the portal with empty apt/rpm repos (bootstrap only) instead of failing.",
+    )
     args = parser.parse_args()
 
     art_dir = args.artifacts_dir or args.artifacts_pos or "artifacts"
     out_dir = args.output_dir or args.output_pos or "pages-root"
-    build_pages(art_dir, out_dir)
+    build_pages(art_dir, out_dir, allow_empty=args.allow_empty)

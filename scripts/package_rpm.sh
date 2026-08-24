@@ -4,9 +4,18 @@ set -euo pipefail
 VERSION=${1:-"0.3.0"}
 ARCH=${2:-"x86_64"}
 DIST_DIR=${3:-"dist"}
-RPM_TOPDIR="rpm_build"
+RPM_TOPDIR="$(pwd)/rpm_build"
 
-echo "Building RPM packages for Expanse version ${VERSION} (${ARCH})..."
+# The RPM %install scriptlet runs with rpmbuild's own working directory, so a
+# relative dist path (e.g. "package") never resolves. Anchor it to an absolute
+# path up front and fail loudly if it is missing.
+if [ ! -d "${DIST_DIR}" ]; then
+    echo "::error::package_rpm.sh: dist directory '${DIST_DIR}' does not exist" >&2
+    exit 1
+fi
+DIST_DIR="$(cd "${DIST_DIR}" && pwd)"
+
+echo "Building RPM packages for Expanse version ${VERSION} (${ARCH}) from ${DIST_DIR}..."
 
 case "${ARCH}" in
     amd64|x86_64) RPM_ARCH="x86_64" ;;
@@ -60,24 +69,17 @@ mkdir -p %{buildroot}/usr/lib64
 mkdir -p %{buildroot}/usr/include
 mkdir -p %{buildroot}/usr/lib64/pkgconfig
 
-# Runtime libraries
-if [ -d "DIST_DIR_PLACEHOLDER/lib" ]; then
-    cp -P DIST_DIR_PLACEHOLDER/lib/libexpanse.so* %{buildroot}/usr/lib64/ 2>/dev/null || true
-    if [ -f "DIST_DIR_PLACEHOLDER/lib/libexpanse.a" ]; then
-        cp DIST_DIR_PLACEHOLDER/lib/libexpanse.a %{buildroot}/usr/lib64/
-    fi
-elif [ -d "package/lib" ]; then
-    cp -P package/lib/libexpanse.so* %{buildroot}/usr/lib64/ 2>/dev/null || true
-    if [ -f "package/lib/libexpanse.a" ]; then
-        cp package/lib/libexpanse.a %{buildroot}/usr/lib64/
-    fi
+# Runtime libraries (error swallowing removed: a missing runtime library must fail the build)
+cp -P DIST_DIR_PLACEHOLDER/lib/libexpanse.so* %{buildroot}/usr/lib64/
+if [ -f "DIST_DIR_PLACEHOLDER/lib/libexpanse.a" ]; then
+    cp DIST_DIR_PLACEHOLDER/lib/libexpanse.a %{buildroot}/usr/lib64/
 fi
 
-# glibc-hwcaps variants
+# glibc-hwcaps variants (optional; only present for x86_64 baseline builds)
 for HWCAP in x86-64-v2 x86-64-v3 x86-64-v4; do
     if [ -d "DIST_DIR_PLACEHOLDER/lib/glibc-hwcaps/${HWCAP}" ]; then
         mkdir -p "%{buildroot}/usr/lib64/glibc-hwcaps/${HWCAP}"
-        cp -P DIST_DIR_PLACEHOLDER/lib/glibc-hwcaps/${HWCAP}/libexpanse.so* "%{buildroot}/usr/lib64/glibc-hwcaps/${HWCAP}/" 2>/dev/null || true
+        cp -P DIST_DIR_PLACEHOLDER/lib/glibc-hwcaps/${HWCAP}/libexpanse.so* "%{buildroot}/usr/lib64/glibc-hwcaps/${HWCAP}/"
     fi
 done
 
@@ -132,10 +134,18 @@ sed -i.bak \
     "${SPEC_FILE}"
 rm -f "${SPEC_FILE}.bak"
 
-if command -v rpmbuild &>/dev/null; then
-    rpmbuild --define "_topdir $(pwd)/${RPM_TOPDIR}" --target "${RPM_ARCH}" -bb "${SPEC_FILE}"
-    find "${RPM_TOPDIR}/RPMS" -name "*.rpm" -exec cp {} . \;
-    echo "RPM packaging completed successfully!"
-else
-    echo "rpmbuild command not found, generated spec file at ${SPEC_FILE}"
+if ! command -v rpmbuild &>/dev/null; then
+    echo "::error::package_rpm.sh: rpmbuild not found; cannot build RPM packages" >&2
+    exit 1
 fi
+
+rpmbuild --define "_topdir ${RPM_TOPDIR}" --target "${RPM_ARCH}" -bb "${SPEC_FILE}"
+find "${RPM_TOPDIR}/RPMS" -name "*.rpm" -exec cp {} . \;
+
+# Assert at least one RPM landed in the working directory for upload.
+rpm_count=$(find . -maxdepth 1 -name "*.rpm" | wc -l | tr -d ' ')
+if [ "${rpm_count}" -eq 0 ]; then
+    echo "::error::package_rpm.sh: rpmbuild produced no *.rpm artifacts" >&2
+    exit 1
+fi
+echo "RPM packaging completed successfully (${rpm_count} package(s))."
