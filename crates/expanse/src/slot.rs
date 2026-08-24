@@ -17,11 +17,13 @@
 //!    - Bits `[31:8]`: 24-bit arena byte offset (up to 16 MiB).
 //!    - Bits `[7:0]`: `0x10` ([`SlotTag::ArenaShort`]).
 //!
-//! 3. **Arena Mode (Long)**:
+//! 3. **Arena Mode (Long)** — *reserved, not yet implemented*:
 //!    `[chunk_id (16 bits) | chunk_offset (40 bits) | tag (0x11)]`
 //!    - Bits `[63:48]`: 16-bit chunk ID.
 //!    - Bits `[47:8]`: 40-bit chunk byte offset.
 //!    - Bits `[7:0]`: `0x11` ([`SlotTag::ArenaLong`]).
+//!    - The blob map never produces or reads this encoding today; only
+//!      `ArenaShort` and inline slots are live.
 //!
 //! 4. **Raw Scalar / Unmanaged Word**:
 //!    Uninterpreted 64-bit machine word.
@@ -48,10 +50,19 @@ pub enum SlotTag {
     Inline7 = 0x07,
 
     /// Backed by BlobArena: 32-bit hot metadata + 24-bit arena locator.
+    /// This is the only arena encoding the blob map actually stores.
     ArenaShort = 0x10,
     /// Backed by Large/Multi-Chunk Arena: 16-bit chunk ID + 40-bit offset.
+    ///
+    /// **Reserved / not yet implemented.** The encoding and its accessors
+    /// ([`ValueSlot::new_arena_long`], [`ValueSlot::arena_long_loc`]) exist, but
+    /// the blob map never produces or reads `ArenaLong` slots; only
+    /// [`SlotTag::ArenaShort`] and inline slots are live. Would lift the 16 MiB
+    /// arena ceiling when implemented.
     ArenaLong = 0x11,
     /// Off-heap / External memory reference.
+    ///
+    /// **Reserved / not yet implemented.** No code path produces or consumes it.
     External = 0x12,
 
     /// Soft-deleted tombstone marker.

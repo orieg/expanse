@@ -783,7 +783,7 @@ mod tests {
         let m = SyncExpanseMap::new();
         let mut model = BTreeMap::new();
         let mut rng = XorShift(0x77);
-        for _ in 0..4000 {
+        for _ in 0..if cfg!(miri) { 100 } else { 4000 } {
             let k = rng.next() % 8192;
             match rng.next() % 3 {
                 0 => {

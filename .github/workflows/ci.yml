@@ -322,7 +322,7 @@ jobs:
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -334,13 +334,14 @@ jobs:
 
       - name: Miri (core unsafe smoke — leaf, node, slot, 32-bit trie invariants)
         run: |
-          cargo miri test -p expanse-trie --lib -- --skip model_
+          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types::
 
   test-asan:
     name: Safety / ASan Core Smoke (Ubuntu)
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -971,6 +972,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

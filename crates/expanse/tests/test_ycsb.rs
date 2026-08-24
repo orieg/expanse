@@ -189,6 +189,10 @@ fn test_ycsb_execution_across_all_targets() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "spawns concurrent threads over SyncExpanseMap; deliberate seqlock racy reads (see sync.rs docs)"
+)]
 fn test_concurrent_ycsb_execution() {
     let (r_ops, w_ops) = run_concurrent_ycsb(2, Workload::B, Duration::from_millis(100));
     assert!(
@@ -202,6 +206,10 @@ fn test_concurrent_ycsb_execution() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "runs the multithreaded SyncExpanseMap concurrency-scaling section; deliberate seqlock racy reads (see sync.rs docs)"
+)]
 fn test_ycsb_full_workload_suite_report() {
     let initial_keys = generate_initial_keys(POPULATION_N);
     let payload = generate_payload(0xFEED_FACE_CAFE_BEEF);

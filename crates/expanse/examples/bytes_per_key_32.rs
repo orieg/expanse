@@ -87,7 +87,10 @@ fn main() {
     let n_blocks = 1_000;
     let mut ota_map = ExpanseBlobMap32::new();
     for i in 0..n_blocks {
-        ota_map.insert(i as Key32, &[0xAA, 0xBB, 0xCC], (i % 500) as u16);
+        // Small 3-byte inline block checksums
+        ota_map
+            .insert(i as Key32, &[0xAA, 0xBB, 0xCC], (i % 500) as u16)
+            .unwrap();
     }
     println!(
         "5. OTA firmware inline checksums (N = {}): {} live records",

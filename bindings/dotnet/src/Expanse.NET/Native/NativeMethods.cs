@@ -278,6 +278,27 @@ public static class NativeMethods
     [return: MarshalAs(UnmanagedType.I1)]
     public static extern unsafe bool expanse_strmap_prev_before(SafeExpanseStrMapHandle map, byte* key, byte* key_out, nuint buf_len, out ulong value_out);
 
+    // Truncation-aware navigation (_ex): return an int status
+    // (0 = OK, 1 = NOT_FOUND, 2 = BUFFER_TOO_SMALL) and report the needed
+    // buffer size through required_len.
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_first_ex")]
+    public static extern unsafe int expanse_strmap_first_ex(SafeExpanseStrMapHandle map, byte* key_out, nuint buf_len, nuint* required_len, ulong* value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_last_ex")]
+    public static extern unsafe int expanse_strmap_last_ex(SafeExpanseStrMapHandle map, byte* key_out, nuint buf_len, nuint* required_len, ulong* value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_next_at_or_after_ex")]
+    public static extern unsafe int expanse_strmap_next_at_or_after_ex(SafeExpanseStrMapHandle map, byte* key, byte* key_out, nuint buf_len, nuint* required_len, ulong* value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_next_after_ex")]
+    public static extern unsafe int expanse_strmap_next_after_ex(SafeExpanseStrMapHandle map, byte* key, byte* key_out, nuint buf_len, nuint* required_len, ulong* value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_prev_at_or_before_ex")]
+    public static extern unsafe int expanse_strmap_prev_at_or_before_ex(SafeExpanseStrMapHandle map, byte* key, byte* key_out, nuint buf_len, nuint* required_len, ulong* value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_strmap_prev_before_ex")]
+    public static extern unsafe int expanse_strmap_prev_before_ex(SafeExpanseStrMapHandle map, byte* key, byte* key_out, nuint buf_len, nuint* required_len, ulong* value_out);
+
     #endregion
 
     #region ExpanseBlobMap

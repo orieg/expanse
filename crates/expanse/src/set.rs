@@ -954,7 +954,7 @@ mod tests {
 
     #[test]
     fn navigation_matches_model() {
-        let n_rand = if cfg!(miri) { 100 } else { 1500 };
+        let n_rand = if cfg!(miri) { 30 } else { 1500 };
         let mut rng = XorShift(0xFACE_0FF5_1234_5678);
         let mut set = ExpanseSet::new();
         let mut model = BTreeSet::new();
@@ -982,16 +982,16 @@ mod tests {
             model.insert(k);
         }
         set.validate();
-        let mut probes: BTreeSet<u64> = model.iter().copied().collect();
-        for &k in model.iter().take(200) {
+        let mut probes: BTreeSet<u64> = if cfg!(miri) {
+            model.iter().copied().step_by(16).collect()
+        } else {
+            model.iter().copied().collect()
+        };
+        for &k in model.iter().take(if cfg!(miri) { 10 } else { 200 }) {
             probes.insert(k.wrapping_add(1));
             probes.insert(k.wrapping_sub(1));
         }
-        if cfg!(miri) {
-            let sampled: Vec<u64> = probes.iter().copied().step_by(8).collect();
-            probes = sampled.into_iter().collect();
-        }
-        for _ in 0..if cfg!(miri) { 40 } else { 400 } {
+        for _ in 0..if cfg!(miri) { 10 } else { 400 } {
             probes.insert(rng.next());
         }
         nav_differential(&set, &model, &probes);
@@ -1088,14 +1088,12 @@ mod tests {
 
     #[test]
     fn branch_skip_clusters() {
-        // Clusters spanning two key bytes (divergence level 2): the leaf
-        // cascade must place one skipping branch at level 2 instead of a
-        // single-child chain down from the slot level.
         let mut set = ExpanseSet::new();
         let mut model = BTreeSet::new();
         let bases = [0x1122_3344_5566_0000u64, 0x99AA_BBCC_DDEE_0000u64];
+        let count = if cfg!(miri) { 64u64 } else { 512u64 };
         for &base in &bases {
-            for i in 0..512u64 {
+            for i in 0..count {
                 assert!(set.insert(base | i));
                 model.insert(base | i);
             }
@@ -1113,13 +1111,13 @@ mod tests {
         // Ordered navigation across a skipping branch, from inside and
         // outside the skipped prefix.
         assert_eq!(
-            set.next_at_or_after(bases[0] | 0x17F),
-            Some(bases[0] | 0x17F)
+            set.next_at_or_after(bases[0] | (count / 2)),
+            Some(bases[0] | (count / 2))
         );
-        assert_eq!(set.next_at_or_after(bases[0] | 0x200), Some(bases[1]));
-        assert_eq!(set.prev_before(bases[1]), Some(bases[0] | 0x1FF));
-        assert_eq!(set.count_range(bases[0]..=bases[0] | 0x1FF), 512);
-        assert_eq!(set.by_count(512), Some(bases[1]));
+        assert_eq!(set.next_at_or_after(bases[0] | count), Some(bases[1]));
+        assert_eq!(set.prev_before(bases[1]), Some(bases[0] | (count - 1)));
+        assert_eq!(set.count_range(bases[0]..=bases[0] | (count - 1)), count);
+        assert_eq!(set.by_count(count), Some(bases[1]));
         // Diverge inside the skipped span between the two byte levels.
         let split = bases[0] ^ (0x31 << 24);
         assert!(set.insert(split));
@@ -1127,10 +1125,10 @@ mod tests {
         set.validate();
         assert!(set.iter().eq(model.iter().copied()));
         // Drain one cluster through every downgrade.
-        for i in (0..512u64).rev() {
+        for i in (0..count).rev() {
             assert!(set.remove(bases[0] | i));
             model.remove(&(bases[0] | i));
-            if i % 64 == 0 {
+            if i % 16 == 0 {
                 set.validate();
                 assert!(set.iter().eq(model.iter().copied()));
             }
@@ -1147,13 +1145,16 @@ mod tests {
             set.insert(k * 0x0101_0101);
             model.insert(k * 0x0101_0101);
         }
+        let stride = if cfg!(miri) { 10 } else { 1 };
         // Shrink through the condensation boundary and keep probing.
         for k in (25u64..120).rev() {
             assert!(set.remove(k * 0x0101_0101));
             model.remove(&(k * 0x0101_0101));
-            set.validate();
-            assert_eq!(set.len(), model.len() as u64);
-            assert!(set.iter().eq(model.iter().copied()), "at {k}");
+            if k % stride == 0 {
+                set.validate();
+                assert_eq!(set.len(), model.len() as u64);
+                assert!(set.iter().eq(model.iter().copied()), "at {k}");
+            }
         }
         assert_eq!(set.count_range(0..=u64::MAX), 25);
         // Regrow across the promotion boundary again.

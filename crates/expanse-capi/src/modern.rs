@@ -937,6 +937,165 @@ pub unsafe extern "C" fn expanse_strmap_last(
 }
 
 // ---------------------------------------------------------------------
+// Truncation-aware string navigation (`_ex` variants)
+// ---------------------------------------------------------------------
+//
+// The plain expanse_strmap_first/last/next/prev entry points return `false`
+// for BOTH "no more keys" and "buffer too small", so a binding cannot tell a
+// missing key from a truncated one and may silently drop long keys. These
+// `_ex` variants disambiguate via an explicit status and report the buffer
+// size the key needs through `required_len`. The original symbols are
+// unchanged.
+
+/// Status returned by the truncation-aware `expanse_strmap_*_ex` navigation
+/// functions. ABI: a C `enum` (int).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ExpanseStrNavStatus {
+    /// A key was found and written to `key_out` (`*value_out` set if non-null).
+    Ok = 0,
+    /// No key matched; nothing was written.
+    NotFound = 1,
+    /// A key was found but `key_out`/`buf_len` was too small; `*required_len`
+    /// (if non-null) holds the byte length needed (key length + 1 for the NUL).
+    BufferTooSmall = 2,
+}
+
+/// Shared body for the `_ex` navigation entry points: reports the required
+/// buffer size and distinguishes not-found from buffer-too-small.
+///
+/// # Safety
+///
+/// `key_out` null or writable for `buf_len` bytes; `required_len`/`value_out`
+/// null or writable; `found`'s slot is valid until the next map mutation.
+unsafe fn strmap_nav_ex(
+    found: Option<(Vec<u8>, core::ptr::NonNull<u64>)>,
+    key_out: *mut c_char,
+    buf_len: usize,
+    required_len: *mut usize,
+    value_out: *mut u64,
+) -> ExpanseStrNavStatus {
+    let Some((found_k, slot)) = found else {
+        return ExpanseStrNavStatus::NotFound;
+    };
+    let needed = found_k.len() + 1; // payload bytes + terminating NUL
+    if !required_len.is_null() {
+        // SAFETY: caller-provided writable size_t per contract.
+        unsafe { *required_len = needed };
+    }
+    if key_out.is_null() || buf_len < needed {
+        return ExpanseStrNavStatus::BufferTooSmall;
+    }
+    // SAFETY: key_out is non-null and writable for buf_len >= needed bytes.
+    unsafe {
+        core::ptr::copy_nonoverlapping(found_k.as_ptr().cast::<c_char>(), key_out, found_k.len());
+        *key_out.add(found_k.len()) = 0;
+        // SAFETY: slot valid until next mutation; value_out null or writable.
+        put(value_out, *slot.as_ptr());
+    }
+    ExpanseStrNavStatus::Ok
+}
+
+/// Generates a truncation-aware string navigation entry point (by-key).
+macro_rules! strmap_nav_ex {
+    ($name:ident, $method:ident, $doc:literal) => {
+        #[doc = $doc]
+        ///
+        /// On success writes the key to `key_out` and the value to `value_out`;
+        /// on buffer-too-small sets `*required_len` to the needed size. See
+        /// [`ExpanseStrNavStatus`].
+        ///
+        /// # Safety
+        ///
+        /// `map` null or live; `key` a NUL-terminated C string; `key_out` null
+        /// or writable for `buf_len` bytes; `required_len`/`value_out` null or
+        /// writable.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $name(
+            map: *mut ExpanseStrMap,
+            key: *const c_char,
+            key_out: *mut c_char,
+            buf_len: usize,
+            required_len: *mut usize,
+            value_out: *mut u64,
+        ) -> ExpanseStrNavStatus {
+            // SAFETY: null or live handle + NUL-terminated key per contract.
+            let (Some(m), Some(k)) = (unsafe { map.as_mut() }, unsafe { cstr(key) }) else {
+                return ExpanseStrNavStatus::NotFound;
+            };
+            // SAFETY: out-pointers forwarded per contract.
+            unsafe { strmap_nav_ex(m.$method(k), key_out, buf_len, required_len, value_out) }
+        }
+    };
+}
+
+strmap_nav_ex!(
+    expanse_strmap_next_at_or_after_ex,
+    next_at_or_after,
+    "Smallest entry with key >= `key` (truncation-aware)."
+);
+strmap_nav_ex!(
+    expanse_strmap_next_after_ex,
+    next_after,
+    "Smallest entry with key > `key` (truncation-aware)."
+);
+strmap_nav_ex!(
+    expanse_strmap_prev_at_or_before_ex,
+    prev_at_or_before,
+    "Largest entry with key <= `key` (truncation-aware)."
+);
+strmap_nav_ex!(
+    expanse_strmap_prev_before_ex,
+    prev_before,
+    "Largest entry with key < `key` (truncation-aware)."
+);
+
+/// Smallest entry in the string map (truncation-aware; see
+/// [`ExpanseStrNavStatus`]).
+///
+/// # Safety
+///
+/// `map` null or live; `key_out` null or writable for `buf_len` bytes;
+/// `required_len`/`value_out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_strmap_first_ex(
+    map: *mut ExpanseStrMap,
+    key_out: *mut c_char,
+    buf_len: usize,
+    required_len: *mut usize,
+    value_out: *mut u64,
+) -> ExpanseStrNavStatus {
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_mut() }) else {
+        return ExpanseStrNavStatus::NotFound;
+    };
+    // SAFETY: out-pointers forwarded per contract.
+    unsafe { strmap_nav_ex(m.first(), key_out, buf_len, required_len, value_out) }
+}
+
+/// Largest entry in the string map (truncation-aware; see
+/// [`ExpanseStrNavStatus`]).
+///
+/// # Safety
+///
+/// Same contract as [`expanse_strmap_first_ex`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_strmap_last_ex(
+    map: *mut ExpanseStrMap,
+    key_out: *mut c_char,
+    buf_len: usize,
+    required_len: *mut usize,
+    value_out: *mut u64,
+) -> ExpanseStrNavStatus {
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_mut() }) else {
+        return ExpanseStrNavStatus::NotFound;
+    };
+    // SAFETY: out-pointers forwarded per contract.
+    unsafe { strmap_nav_ex(m.last(), key_out, buf_len, required_len, value_out) }
+}
+
+// ---------------------------------------------------------------------
 // Concurrent containers — one writer, lock-free readers
 // ---------------------------------------------------------------------
 
@@ -1430,6 +1589,52 @@ mod tests {
             expanse_strmap_clear(m);
             assert_eq!(expanse_strmap_len(m), 0);
             assert_eq!(expanse_strmap_mem_used(m), 0);
+            expanse_strmap_free(m);
+        }
+    }
+
+    #[test]
+    fn strmap_nav_ex_distinguishes_truncation() {
+        // SAFETY: handles managed per the C contract throughout.
+        unsafe {
+            let m = expanse_strmap_new();
+            assert!(expanse_strmap_insert(m, c"apple".as_ptr(), 1, null_mut()));
+            assert!(expanse_strmap_insert(m, c"banana".as_ptr(), 2, null_mut()));
+
+            let mut buf = [0 as c_char; 64];
+            let mut req = 0usize;
+            let mut val = 0u64;
+
+            // OK: key fits; required length reported (bytes + NUL).
+            assert_eq!(
+                expanse_strmap_first_ex(m, buf.as_mut_ptr(), buf.len(), &raw mut req, &raw mut val),
+                ExpanseStrNavStatus::Ok
+            );
+            assert_eq!(CStr::from_ptr(buf.as_ptr()).to_bytes(), b"apple");
+            assert_eq!(val, 1);
+            assert_eq!(req, 6);
+
+            // Buffer too small: distinct status + required length, not silent truncation.
+            let mut tiny = [0 as c_char; 3];
+            req = 0;
+            assert_eq!(
+                expanse_strmap_last_ex(m, tiny.as_mut_ptr(), tiny.len(), &raw mut req, null_mut()),
+                ExpanseStrNavStatus::BufferTooSmall
+            );
+            assert_eq!(req, 7);
+
+            // No more keys: distinct not-found status.
+            assert_eq!(
+                expanse_strmap_next_after_ex(
+                    m,
+                    c"zzz".as_ptr(),
+                    buf.as_mut_ptr(),
+                    buf.len(),
+                    &raw mut req,
+                    &raw mut val
+                ),
+                ExpanseStrNavStatus::NotFound
+            );
             expanse_strmap_free(m);
         }
     }

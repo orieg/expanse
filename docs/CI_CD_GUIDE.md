@@ -157,7 +157,7 @@ When an architectural change deliberately trades a minor instruction increase fo
 ```mermaid
 graph TD
     subgraph Tier 1: Pull Request CI [Fast Smoke: ~15s]
-        A[PR Touch Rust Code] --> B[Miri Core Unsafe Smoke <br/> cargo miri test -p expanse-trie --lib -- --skip model_]
+        A[PR Touch Rust Code] --> B[Miri Core Unsafe Smoke <br/> cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types::]
         B -->|Checks: Pointer tags, Stacked Borrows, Leaf alignment| C[Pass: Green PR Check]
         B -->|Fails: Retag / Provenance error| D[Block PR Before Merge]
     end
@@ -179,8 +179,8 @@ graph TD
 ```
 
 ### Tier 1: Pull Request Fast Miri Smoke (`ci.yml`)
-- **Command**: `cargo miri test -p expanse-trie --lib -- --skip model_`
-- **Execution Time**: $\le 15\text{ seconds}$ on Linux x86_64.
+- **Command**: `cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types::`
+- **Execution Time**: $\le 45\text{ seconds}$ on Linux x86_64.
 - **Coverage**: Validates 100% of raw pointer derivations in `get.rs`, `mutate.rs`, `mutate_map.rs`, `slot.rs`, `leaf.rs`, and `node.rs`. Catches Stacked Borrows / Tree Borrows invalidations *before* merging.
 
 ### Tier 2: CI Gate Rollup (`ci.yml`)
