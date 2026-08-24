@@ -250,6 +250,34 @@ impl Edge32 {
     pub const fn immed_map_key_byte(&self) -> u8 {
         self.aux[0]
     }
+
+    // -- Low-level part accessors used by the real 32-bit trie engine
+    //    (`trie32`). These treat the edge as an opaque 8-byte record:
+    //    `w0` is a child *handle* (arena index) or packed immediate
+    //    payload, `aux` carries per-kind metadata (leaf population, or
+    //    more immediate payload), and the tag byte is written raw by the
+    //    engine's own tag scheme rather than the [`Tag32`] enum.
+
+    /// Builds an edge from its raw parts.
+    #[inline(always)]
+    #[must_use]
+    pub(crate) const fn from_parts(w0: u32, aux: [u8; 3], tag: u8) -> Self {
+        Self { w0, aux, tag }
+    }
+
+    /// Raw word-0 value (child handle or low 4 immediate payload bytes).
+    #[inline(always)]
+    #[must_use]
+    pub(crate) const fn w0_raw(&self) -> u32 {
+        self.w0
+    }
+
+    /// Raw 3-byte aux field.
+    #[inline(always)]
+    #[must_use]
+    pub(crate) const fn aux_raw(&self) -> [u8; 3] {
+        self.aux
+    }
 }
 
 impl Default for Edge32 {

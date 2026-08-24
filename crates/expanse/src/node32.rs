@@ -127,6 +127,43 @@ impl BranchL6_32 {
     }
 }
 
+/// Uncompressed branch: a flat page of 256 child edges direct-indexed by
+/// digit (**2080 bytes** = 65x 32-byte cache lines). A 50% structural
+/// reduction versus the 64-bit `BranchU` (256 x 16B edges + 64B header =
+/// 4160 bytes), used only above the linear-branch fanout threshold.
+#[derive(Clone, Copy)]
+#[repr(C, align(32))]
+pub struct BranchU32 {
+    /// Total keys below this branch (subtree population).
+    pub count: u32,
+    /// Number of populated child edges (0..=256).
+    pub num_children: u16,
+    /// Tree level (2..=4).
+    pub level: u8,
+    /// Alignment padding to a 32-byte header.
+    pub _pad: [u8; 25],
+    /// One edge per possible digit; null tag marks an empty subexpanse.
+    pub edges: [Edge32; 256],
+}
+
+const _: () = assert!(core::mem::size_of::<BranchU32>() == 2080);
+const _: () = assert!(core::mem::align_of::<BranchU32>() == 32);
+
+impl BranchU32 {
+    /// Create an empty uncompressed branch at `level`.
+    #[inline(always)]
+    #[must_use]
+    pub fn new(level: u8) -> Self {
+        Self {
+            count: 0,
+            num_children: 0,
+            level,
+            _pad: [0; 25],
+            edges: [Edge32::null(); 256],
+        }
+    }
+}
+
 /// 256-Bit Bitmap Leaf for Level 1 (Judy1Set32 leaf).
 #[derive(Clone, Copy)]
 #[repr(C, align(32))]

@@ -73,6 +73,7 @@ pub mod map32;
 pub mod node32;
 pub mod set32;
 pub mod slot32;
+mod trie32;
 pub mod types32;
 
 #[cfg(target_pointer_width = "64")]
