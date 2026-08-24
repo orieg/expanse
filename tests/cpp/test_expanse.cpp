@@ -300,6 +300,59 @@ void test_str_map() {
     std::cout << "[PASS] test_str_map" << std::endl;
 }
 
+// Keys longer than the default 4096-byte scratch buffer must not be silently
+// dropped by navigation/iteration. The _ex-based retry loop must grow the buffer.
+void test_str_map_long_keys() {
+    std::cout << "[RUN] test_str_map_long_keys" << std::endl;
+    expanse::str_map<uint64_t> sm;
+
+    const std::string short_key = "aaa";
+    const std::string long_key(10000, 'b');   // ~10 KiB, far past the 4 KiB default
+    const std::string longer_key(20000, 'c');
+    sm.insert(short_key, 1);
+    sm.insert(long_key, 2);
+    sm.insert(longer_key, 3);
+    assert(sm.size() == 3);
+
+    // first()/last() must see the long keys ('a' < 'b' < 'c'), not report empty.
+    auto f = sm.first();
+    assert(f.has_value());
+    assert(f->first == short_key && f->second == 1);
+    auto l = sm.last();
+    assert(l.has_value());
+    assert(l->first == longer_key);
+    assert(l->first.size() == 20000);
+    assert(l->second == 3);
+
+    // Forward navigation must step INTO and OUT OF the 10 KiB key.
+    auto after_short = sm.next(short_key);
+    assert(after_short.has_value());
+    assert(after_short->first == long_key);
+    assert(after_short->first.size() == 10000);
+    assert(after_short->second == 2);
+    auto after_long = sm.next(long_key);
+    assert(after_long.has_value());
+    assert(after_long->first == longer_key);
+
+    // Reverse navigation likewise.
+    auto before_longer = sm.prev(longer_key);
+    assert(before_longer.has_value());
+    assert(before_longer->first == long_key);
+
+    // Full iteration must visit all three keys in order (the iterator uses _ex too).
+    std::vector<std::string> visited;
+    for (const auto& [k, v] : sm) {
+        (void)v;
+        visited.push_back(k);
+    }
+    assert(visited.size() == 3);
+    assert(visited[0] == short_key);
+    assert(visited[1] == long_key);
+    assert(visited[2] == longer_key);
+
+    std::cout << "[PASS] test_str_map_long_keys" << std::endl;
+}
+
 void test_bytes_map() {
     std::cout << "[RUN] test_bytes_map" << std::endl;
     expanse::bytes_map<uint64_t> bm;
@@ -590,6 +643,7 @@ int main() {
     test_set();
     test_map();
     test_str_map();
+    test_str_map_long_keys();
     test_bytes_map();
     test_blob_map();
     test_sync_set();

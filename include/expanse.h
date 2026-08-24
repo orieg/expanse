@@ -179,6 +179,48 @@ bool expanse_strmap_prev_at_or_before(expanse_strmap_t *map, const char *key,
 bool expanse_strmap_prev_before(expanse_strmap_t *map, const char *key,
                                 char *key_out, size_t buf_len, uint64_t *value_out);
 
+/*
+ * Truncation-aware string navigation (the `_ex` variants).
+ *
+ * The plain expanse_strmap_first/last/next/prev above return `false` for BOTH
+ * "no such key" and "key found but buf_len too small", so a caller cannot tell
+ * a missing key from a truncated one and may silently drop long keys. These
+ * variants disambiguate via an explicit status and report the needed buffer
+ * size through `required_len`. The original symbols are unchanged.
+ *
+ * On EXPANSE_STR_NAV_OK the NUL-terminated key is written to `key_out`, the
+ * value to `*value_out` (if non-NULL), and `*required_len` (if non-NULL) is set
+ * to the byte length needed (key length + 1 for the NUL). On
+ * EXPANSE_STR_NAV_BUFFER_TOO_SMALL nothing is written to `key_out` but
+ * `*required_len` (if non-NULL) is set so the caller can retry with a big
+ * enough buffer. On EXPANSE_STR_NAV_NOT_FOUND no key matched and nothing is
+ * written.
+ */
+typedef enum {
+    EXPANSE_STR_NAV_OK = 0,
+    EXPANSE_STR_NAV_NOT_FOUND = 1,
+    EXPANSE_STR_NAV_BUFFER_TOO_SMALL = 2
+} expanse_str_nav_status;
+
+expanse_str_nav_status expanse_strmap_first_ex(expanse_strmap_t *map,
+                                               char *key_out, size_t buf_len,
+                                               size_t *required_len, uint64_t *value_out);
+expanse_str_nav_status expanse_strmap_last_ex(expanse_strmap_t *map,
+                                              char *key_out, size_t buf_len,
+                                              size_t *required_len, uint64_t *value_out);
+expanse_str_nav_status expanse_strmap_next_at_or_after_ex(expanse_strmap_t *map, const char *key,
+                                                          char *key_out, size_t buf_len,
+                                                          size_t *required_len, uint64_t *value_out);
+expanse_str_nav_status expanse_strmap_next_after_ex(expanse_strmap_t *map, const char *key,
+                                                    char *key_out, size_t buf_len,
+                                                    size_t *required_len, uint64_t *value_out);
+expanse_str_nav_status expanse_strmap_prev_at_or_before_ex(expanse_strmap_t *map, const char *key,
+                                                           char *key_out, size_t buf_len,
+                                                           size_t *required_len, uint64_t *value_out);
+expanse_str_nav_status expanse_strmap_prev_before_ex(expanse_strmap_t *map, const char *key,
+                                                     char *key_out, size_t buf_len,
+                                                     size_t *required_len, uint64_t *value_out);
+
 /* ---- Concurrent types: one writer, lock-free readers ---------------- */
 
 /*
@@ -229,6 +271,18 @@ bool expanse_sync_map_reader_get(const expanse_sync_map_reader_t *reader, uint64
 
 typedef struct ExpanseBlobMap ExpanseBlobMap;
 
+/*
+ * A zero-copy view of a stored payload.
+ *
+ * INVALIDATION CONTRACT (same spirit as the JudyL value-slot contract):
+ * `ptr` borrows directly into the map's inline slot memory or arena slab and
+ * stays valid ONLY until the next structural mutation of that map. Any
+ * expanse_blob_map_insert / _remove / _clear / _compact / _free invalidates
+ * every previously returned ExpanseBlobView.ptr — reading through it afterwards
+ * is undefined behavior. Copy the bytes out before mutating if you need them to
+ * outlive the next mutation. Views delivered to a scan callback are valid only
+ * for the duration of that callback invocation.
+ */
 typedef struct {
     const uint8_t *ptr;
     size_t         len;
