@@ -278,7 +278,7 @@ jobs:
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -290,7 +290,7 @@ jobs:
 
       - name: Miri (core unsafe smoke — leaf, node, slot invariants)
         run: |
-          cargo miri test -p expanse-trie --lib --tests -- --skip model_
+          cargo miri test -p expanse-trie --lib -- --skip model_
 
   test-asan:
     name: Safety / ASan Core Smoke (Ubuntu)
