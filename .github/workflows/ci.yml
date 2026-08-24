@@ -290,7 +290,7 @@ jobs:
 
       - name: Miri (core unsafe smoke — leaf, node, slot invariants)
         run: |
-          cargo miri test -p expanse-trie --all-targets -- --skip model_
+          cargo miri test -p expanse-trie --lib --tests -- --skip model_
 
   test-asan:
     name: Safety / ASan Core Smoke (Ubuntu)
