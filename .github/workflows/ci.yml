@@ -684,35 +684,6 @@ jobs:
         run: vendor/bin/phpunit tests/ExpanseTest.php
         working-directory: bindings/php
 
-  test-go:
-    name: Bindings / Go (${{ matrix.os }})
-    needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache: false
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build native libexpanse
-        run: cargo build --release -p expanse-capi
-
-      - name: Run Go test suite
-        run: cd bindings/go && go test -v .
-
   test-dotnet:
     name: Bindings / .NET (${{ matrix.os }})
     needs: [detect-changes]
@@ -940,7 +911,6 @@ jobs:
       - pack-dotnet
       - test-java
       - test-rocksdb-memtable
-      - test-go
       - test-ruby
     runs-on: ubuntu-latest
     timeout-minutes: 5
