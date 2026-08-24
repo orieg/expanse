@@ -98,33 +98,33 @@
   <rect width="100%" height="100%" class="bg" rx="8"/>
   <rect width="100%" height="100%" class="border" rx="8"/>
 
-  <!-- ================= CHART 1: RANGE SCAN ================= -->
+  <!-- ================= CHART 1: COLD-BUILD INSERT ================= -->
   <g transform="translate(30, 20)">
-    <text x="0" y="0" class="t-chart-title">Ordered Range Scan</text>
-    <text x="0" y="13" class="t-chart-sub">100,000 keys sequential scan (higher is better)</text>
+    <text x="0" y="0" class="t-chart-title">Cold-Build Insert</text>
+    <text x="0" y="13" class="t-chart-sub">100,000 clustered keys, cold build (higher is better)</text>
     <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M keys / sec)</text>
 
     <!-- Y Axis: 0 to 100M -->
     <line x1="30" y1="45" x2="240" y2="45" class="grid"/>
     <text x="22" y="48" class="t-axis-label" text-anchor="end">100M</text>
-    
+
     <line x1="30" y1="120" x2="240" y2="120" class="grid"/>
     <text x="22" y="123" class="t-axis-label" text-anchor="end">50M</text>
-    
+
     <line x1="30" y1="195" x2="240" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <!-- Bar 1: ExpanseMap (88.4M -> height = 88.4 * 1.5 = 132.6, y = 195 - 132.6 = 62.4) -->
-    <rect x="55" y="62.4" width="65" height="132.6" class="b-expanse" rx="2"/>
-    <text x="87.5" y="54" class="t-val-accent">88.4 M/s</text>
-    <text x="87.5" y="214" class="t-bar-label" text-anchor="middle">ExpanseMap</text>
-    <text x="87.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">3.4&#215; speedup</text>
+    <!-- Bar 1: ExpanseSet (96.2M -> height = 144.3, y = 50.7) -->
+    <rect x="55" y="50.7" width="65" height="144.3" class="b-expanse" rx="2"/>
+    <text x="87.5" y="43" class="t-val-accent">96.2 M/s</text>
+    <text x="87.5" y="214" class="t-bar-label" text-anchor="middle">ExpanseSet</text>
+    <text x="87.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">4.4&#215; speedup</text>
 
-    <!-- Bar 2: BTreeMap (26.0M -> height = 39.0, y = 156.0) -->
-    <rect x="145" y="156.0" width="65" height="39.0" class="b-other" rx="2"/>
-    <text x="177.5" y="148" class="t-val-muted">26.0 M/s</text>
-    <text x="177.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
+    <!-- Bar 2: BTreeSet (21.8M -> height = 32.7, y = 162.3) -->
+    <rect x="145" y="162.3" width="65" height="32.7" class="b-other" rx="2"/>
+    <text x="177.5" y="154" class="t-val-muted">21.8 M/s</text>
+    <text x="177.5" y="214" class="t-bar-label" text-anchor="middle">BTreeSet</text>
     <text x="177.5" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
   </g>
 

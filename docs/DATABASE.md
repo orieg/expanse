@@ -246,8 +246,9 @@ impl MvccEngine {
 }
 ```
 
-**Measured Concurrency Benchmark**:
-- In high OLTP workloads (95% read / 5% write churn), `SyncExpanseSet` scales linearly across 16 CPU cores, sustaining **58.2M ops/s** with zero reader deadlocks and zero priority inversions during aggressive vacuum pruning.
+**Measured Concurrency Benchmark** *(measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/concurrency.rs`, 1M keys, 500 ms windows)*:
+- **Read-only** membership scales near-linearly: `SyncExpanseSet` sustains **284.9M ops/s at 16 threads (12.2×)** with zero reader deadlocks and zero priority inversions.
+- **Write-mixed** OLTP (95% read / 5% write churn) does **not** scale linearly on the current tree-level seqlock: combined throughput peaks at ~**36.0M ops/s around 4 threads** and settles to ~30.2M at 16 threads as readers retry against an active writer. Full multi-core write-mixed scaling awaits the per-node OCC refinement (`docs/ARCHITECTURE.md` §6). (The earlier "linear to 58.2M ops/s" figure was undermeasured and is corrected.)
 
 ---
 
@@ -385,7 +386,7 @@ Traditional B-Trees incur cache-line straddles and structural node split/merge r
 
 `ExpanseMap` accelerates range scans (`range()`, `iter_from()`) by skipping unpopulated subtrees:
 - When scanning from key $K_{\text{start}}$ to $K_{\text{end}}$, `BitmapBranch` nodes test active subexpanses using a single 256-bit bitmask.
-- Trailing zero counts (`TZCNT`) skip empty 32-bit digit spans in **a single CPU cycle**, outperforming `std::collections::BTreeMap` by **2.1×–3.4×** on sparse range queries.
+- Trailing zero counts (`TZCNT`) skip empty 32-bit digit spans in **a single CPU cycle** during descent; note that full ordered iteration is currently slower than `BTreeMap` (see §7.1†) — the trie's advantage is on **point and prefix lookups**, not bulk range iteration.
 
 ```rust
 use expanse_trie::map::ExpanseMap;
@@ -439,21 +440,21 @@ Expanse provides an official pluggable MemTable implementation for RocksDB (`int
 #include "expanse_memtable.h"
 
 rocksdb::Options options;
-// 8.8x-11.1x higher key density in RAM, fewer SSTable flushes, 19.6x faster range scans
+// 11.1x higher key density in RAM, fewer SSTable flushes, ~9.4x faster sequential scans
 options.memtable_factory = rocksdb::NewExpanseMemTableRepFactory(
     /*leaf_capacity=*/64,
     /*enable_prefix_trie=*/true
 );
 ```
 
-**Architectural Benefits in RocksDB LSM Storage**:
+**Architectural Benefits in RocksDB LSM Storage** *(throughput measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `integrations/rocksdb/benches/bench_memtable.cc`, 100k entries, 16B key / 64B value; memory density is deterministic accounting)*:
 
 ![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](./assets/bench_rocksdb.svg)
 
-1. **8.8×–11.1× Higher In-Memory Key Density**: Leaf blocks store entry pointers in contiguous 64-byte aligned spans, cutting indexing overhead from **146.7 B/entry (SkipList) to 13.2 B/entry**.
-2. **Fewer L0 SSTable Flushes**: With 25%–40% fewer flushes for the same memory budget, LSM-tree compaction write amplification on SSD/NVMe drives is significantly reduced.
-3. **19.6× Faster Sequential Range Scans**: Traverses contiguous 64-byte SIMD leaf blocks via intrusive sibling leaf chaining and SIMD prefetching at **215.3 Mops/s** vs 10.9 Mops/s in SkipList.
-4. **Zero-Copy Batch Scan Extraction**: `ScanBatch` extracts hundreds of thousands of keys and values at **98.4 Mops/s** with zero redundant varint re-parsing.
+1. **11.1× Higher In-Memory Key Density**: Leaf blocks store entry pointers in contiguous 64-byte aligned spans, cutting indexing overhead from **146.7 B/entry (SkipList) to 13.2 B/entry** (1.26 MB vs 14.0 MB for 100k entries).
+2. **Fewer L0 SSTable Flushes**: The higher density fits more user data per memtable budget, reducing flush frequency and LSM-tree compaction write amplification on SSD/NVMe drives.
+3. **~9.4× Faster Sequential Scans**: Traverses contiguous 64-byte leaf blocks via intrusive sibling leaf chaining at **151.4 Mops/s** vs 16.2 Mops/s in SkipList (`prefixscan`). Point lookups run at **276 ns/op vs 539 ns/op** (1.96×) and inserts at **4.65 vs 2.41 Mops/s** (1.93×). Note `VectorRep` (an unordered append vector) scans faster still (618 Mops/s) but cannot serve ordered seeks.
+4. **Zero-Copy Batch Scan Extraction**: `ScanBatch` extracts keys and values at **111.8 Mops/s** with zero redundant varint re-parsing.
 
 See [`integrations/rocksdb/README.md`](../integrations/rocksdb/README.md) for full benchmarks, configuration options, and build instructions.
 
@@ -487,7 +488,7 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 
 ## 7. Comparative Benchmark & Decision Matrix
 
-> **Timing figures below are load-sensitive and not currently provenance-tagged.** The latency (ns) and throughput (Mops/s) numbers in §7.1–§7.2 (and the §5 RocksDB figures) predate this sweep and lack a `(measured: host, commit)` tag; per `docs/BENCHMARKING.md` they are **not** regenerated here (the measuring host was under load). The memory-overhead (B/key) columns are deterministic byte accounting; the time columns await a unified clean-host re-measurement (deferred).
+> **Provenance.** The §7.2 YCSB throughput table and the §5.3 RocksDB figures are now measured on the dedicated quiet host *honeycomb* (24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d) and tagged inline. The §7.1 matrix below keeps **approximate latency ranges** for cross-engine orientation (not host-tagged point measurements); memory-overhead (B/key) columns are deterministic byte accounting. Where §7.1's qualitative ordering conflicts with a §7.2/§5.3 measurement, the measured section governs.
 
 ### 7.1 Expanse vs Industry Primitives Matrix
 
@@ -495,35 +496,39 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 |---|---:|---:|---|---|
 | **`ExpanseSet` (Judy1)** | **0.07–0.36 B/key** | **~4.2–11.8 ns** | $O(\text{depth})$ Skip-Scan | Lock-Free OCC (`SyncExpanseSet`) |
 | **Roaring Bitmap** | 0.125–0.65 B/key | ~16.4–24.2 ns | Container Iteration | External RWLock / Mutex |
-| **`ExpanseMap` (JudyL)** | **8.56–16.7 B/key** | **~11.8–26.8 ns** | **2.1×–3.4× vs BTreeMap** | Lock-Free OCC (`SyncExpanseMap`) |
+| **`ExpanseMap` (JudyL)** | **8.56–16.7 B/key** | **~8.5–38.6 ns** | $O(\text{depth})$ skip-scan† | Lock-Free OCC (`SyncExpanseMap`) |
 | **`ExpanseBlobMap`** | **171.4–192.4 B/key** (128B blob) | **~41–125 ns** | **Predicate Filter Scan** | Thread-Isolated / Partitioned |
 | **`std::collections::BTreeMap`** | ~32.0–48.0 B/key (192B blob) | ~34.0–62.0 ns | Standard Iteration | External RWLock / Mutex |
 | **`hashbrown::HashMap` (Swiss Table)**| ~18.0–24.0 B/key | ~9.5–18.0 ns | ❌ Unordered ($O(N \log N)$ sort) | Read-Locked / Sharded |
 | **ART (Adaptive Radix Tree)** | ~16.0–28.0 B/key | ~14.0–30.0 ns | Ordered Walk | Node Version Locks (Rowex) |
 | **SkipList (RocksDB MemTable)** | ~32.0–64.0 B/key (208B blob) | ~45.0–90.0 ns | Pointer Walk | Lock-Free CAS Linked List |
 
+† **Range-scan correction (measured):** full in-order iteration (`ExpanseMap::iter()`) is currently **slower** than `BTreeMap::iter()` on the comparative bench — 13×–44× on `honeycomb` (commit 695b98d, `benches/comparative.rs`), because trie traversal chases pointers across up to 8 levels while a B-tree walks contiguous node arrays. The engine's strength is **point lookup** (2.9×–14.5× faster than `BTreeMap` on random/sequential 1M — `benches/compare.rs`), not bulk iteration. The prior "2.1×–3.4× faster range scans than BTreeMap" claim is **not supported by measurement and is retracted**; a dedicated ordered-scan optimization is future work.
+
 ### 7.2 Standardized YCSB Workload Analysis ($N = 100,000$, $\theta = 0.99$, 128B Blobs)
 
-The Yahoo! Cloud Serving Benchmark evaluates engine behaviour under real-world access distributions:
+The Yahoo! Cloud Serving Benchmark evaluates engine behaviour under real-world access distributions. Throughput derived from criterion median time over 20,000 operations per iteration *(measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`)*:
 
 ```
 Workload Comparison (Throughput in Mops/sec):
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 Workload             ExpanseMap (u64)    ExpanseBlobMap (128B)    BTreeMap (128B)    SkipMap (RocksDB)
 ────────────────────────────────────────────────────────────────────────────────────────────────────
-A (50% Read, 50% Update)      6.41 Mops/s          3.78 Mops/s          4.49 Mops/s        2.97 Mops/s
-B (95% Read, 5% Update)      22.12 Mops/s         13.52 Mops/s         12.35 Mops/s        5.82 Mops/s
-C (100% Read)                22.29 Mops/s         14.93 Mops/s         12.79 Mops/s        4.95 Mops/s
-D (95% Read Latest, 5% Ins)  21.00 Mops/s         15.98 Mops/s          5.23 Mops/s        6.26 Mops/s
-E (95% Range Scan, 5% Ins)    9.22 Mops/s          5.44 Mops/s          6.25 Mops/s        4.58 Mops/s
-F (50% Read, 50% RMW)        18.29 Mops/s          9.13 Mops/s          8.04 Mops/s        2.61 Mops/s
+A (50% Read, 50% Update)     20.81 Mops/s         11.63 Mops/s          3.65 Mops/s        1.91 Mops/s
+B (95% Read, 5% Update)      23.40 Mops/s         19.86 Mops/s          3.78 Mops/s        2.61 Mops/s
+C (100% Read)                23.81 Mops/s         21.14 Mops/s          3.81 Mops/s        1.98 Mops/s
+D (95% Read Latest, 5% Ins)  23.20 Mops/s         21.04 Mops/s          3.67 Mops/s        1.91 Mops/s
+E (95% Range Scan, 5% Ins)   15.26 Mops/s         13.22 Mops/s          3.52 Mops/s        1.80 Mops/s
+F (50% Read, 50% RMW)        18.93 Mops/s         14.27 Mops/s          3.71 Mops/s        1.76 Mops/s
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 ```
 
+> Throughput only. The per-operation percentile latencies (p50/p95/p99/p99.9) and per-workload memory footprints in earlier revisions of this table were produced by a latency-recording runner that the shipped criterion harness does not invoke (`run_workload_*` is called with `record_latencies = false`); reproducing them is a follow-up (see `docs/BENCHMARKING.md`). The `LatencyStats` machinery exists in `benches/ycsb.rs` but is not wired to emit.
+
 **Key Architectural Insights for Database Engineers:**
-1. **MemTable Read-Latest Advantage (Workload D)**: `ExpanseBlobMap` achieves **3.05× higher throughput than `BTreeMap`** (15.98 M/s vs 5.23 M/s). In write-heavy ingestion where recent records are frequently read, digital trie leaf appending avoids page-split stalls.
-2. **Superiority over RocksDB SkipMap**: `ExpanseBlobMap` outperforms `crossbeam_skiplist::SkipMap` by **2.3× to 3.5× across Workloads B, C, D, and F** while consuming 16% less memory due to cache-line aligned slab arena chunking.
-3. **Lock-Free Concurrency Scaling**: `SyncExpanseMap` scales to **21.0 Mops/s** under active Workload B write-churn without reader blocking or read-lock bus contention.
+1. **MemTable Read-Latest Advantage (Workload D)**: `ExpanseBlobMap` achieves **~5.7× higher throughput than `BTreeMap`** (21.04 M/s vs 3.67 M/s). In write-heavy ingestion where recent records are frequently read, digital trie leaf appending avoids page-split stalls.
+2. **Advantage over RocksDB SkipMap**: `ExpanseBlobMap` outperforms `crossbeam_skiplist::SkipMap` by **~7.6× to ~11.0× across Workloads B, C, D, and F** on this 24-core host (the margin is host- and payload-dependent — the boxed-128B blob path is heavier for the skiplist here than on the earlier Apple-silicon run).
+3. **Lock-Free Concurrency Scaling**: under active write-churn `SyncExpanseMap` read-only scaling is near-linear (see §3.2 / the concurrency table); write-mixed throughput is currently seqlock-bound and does not scale past ~4 threads.
 
 ### 7.3 Architectural Selection Guide
 
@@ -552,7 +557,7 @@ F (50% Read, 50% RMW)        18.29 Mops/s          9.13 Mops/s          8.04 Mop
 
 Expanse provides modern database engines with a unified, high-performance family of digital trie data structures:
 - **Search & Inverted Indexes**: Sub-15ns boolean queries with 0.07–0.36 B/docID memory packing.
-- **MVCC Engine Visibility**: Zero-lock concurrent reader validation scaling linearly to 58M+ ops/s under heavy write churn.
+- **MVCC Engine Visibility**: Zero-lock concurrent reader validation scaling near-linearly to 265M+ read ops/s across 16 threads (write-mixed scaling is seqlock-bound pending the per-node OCC refinement — see §3.2).
 - **Columnar Symbol Dictionaries**: 70%+ memory reduction on shared-prefix strings via 8-byte big-endian cross-chunk path folding.
-- **MemTables & Secondary Indexes**: Rebalance-free $O(\text{depth})$ ordered key indexing with 2.1×–3.4× faster range scans than standard B-Trees.
+- **MemTables & Secondary Indexes**: Rebalance-free $O(\text{depth})$ ordered key indexing with fast point/prefix lookups (full ordered iteration is currently slower than a B-tree — see §7.1†).
 - **Shared Memory IPC**: Zero-deserialization analytical query sharing across multi-worker engine processes.
