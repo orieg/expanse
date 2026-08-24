@@ -523,7 +523,7 @@ F (50% Read, 50% RMW)        18.93 Mops/s         14.27 Mops/s          3.71 Mop
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 ```
 
-> Throughput only. The per-operation percentile latencies (p50/p95/p99/p99.9) and per-workload memory footprints in earlier revisions of this table were produced by a latency-recording runner that the shipped criterion harness does not invoke (`run_workload_*` is called with `record_latencies = false`); reproducing them is a follow-up (see `docs/BENCHMARKING.md`). The `LatencyStats` machinery exists in `benches/ycsb.rs` but is not wired to emit.
+> **Per-operation latency percentiles** (p50/p95/p99/p99.9) and per-workload resident memory are now measured on honeycomb via the `YCSB_LATENCY_REPORT=1` path of `benches/ycsb.rs` — the full table lives in `docs/BENCHMARKING.md` §7.2. The load-bearing result for engine selection: `ExpanseMap`/`BTreeMap` hold sub-160 ns tails on every workload, whereas **`ExpanseBlobMap` spikes to ~38–41 µs at p95–p99.9 on the write-heavy mixes (A, F)** from arena slab-chunk allocation stalls — the read-mostly and read-latest mixes (B, C, D) stay ≤ 800 ns at p99.9. `SkipMap` carries the highest steady-state latency (p50 ~200–330 ns). (Those percentiles include a calibrated ~26 ns/op measurement bracket; see the BENCHMARKING caveat — tail ordering is the trustworthy signal, not the sub-100 ns absolutes.)
 
 **Key Architectural Insights for Database Engineers:**
 1. **MemTable Read-Latest Advantage (Workload D)**: `ExpanseBlobMap` achieves **~5.7× higher throughput than `BTreeMap`** (21.04 M/s vs 3.67 M/s). In write-heavy ingestion where recent records are frequently read, digital trie leaf appending avoids page-split stalls.

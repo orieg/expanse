@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0",
-  "generated_at": "2026-08-22T21:30:00Z",
+  "version": "1.2.0",
+  "generated_at": "2026-08-24T20:30:00Z",
   "source_files": [
     "crates/expanse/src/types.rs",
     "crates/expanse/src/set.rs",
@@ -75,76 +75,76 @@
       "population_n": 100000,
       "zipfian_theta": 0.99,
       "blob_payload_bytes": 128,
-      "concurrency_workload": "Workload B (95% Read / 5% Update)"
+      "concurrency_workload": "benches/concurrency.rs 95% Read / 5% Write, 1M random keys, 500 ms windows (honeycomb)"
     },
     "workloads": [
       {
         "workload": "Workload A (Update Heavy)",
         "ratio_desc": "50% Read, 50% Update",
-        "expanse_blobmap": { "throughput_mops": 13.10, "p50_ns": 500, "p95_ns": 958, "p99_ns": 1667, "p999_ns": 2209, "mem_mb": 18.35, "bytes_per_key": 192.4 },
-        "btreemap": { "throughput_mops": 4.19, "p50_ns": 500, "p95_ns": 750, "p99_ns": 833, "p999_ns": 1542, "mem_mb": 18.31, "bytes_per_key": 192.0 },
-        "skipmap": { "throughput_mops": 1.76, "p50_ns": 2333, "p95_ns": 3584, "p99_ns": 4542, "p999_ns": 17541, "mem_mb": 19.84, "bytes_per_key": 208.0 },
-        "expanse_map_u64": { "throughput_mops": 18.50, "p50_ns": 208, "p95_ns": 334, "p99_ns": 375, "p999_ns": 417, "mem_mb": 2.35, "bytes_per_key": 24.6 },
-        "speedup_vs_btree": "3.13x",
-        "speedup_vs_skip": "7.44x"
+        "expanse_blobmap": { "throughput_mops": 11.63, "p50_ns": 140, "p95_ns": 37755, "p99_ns": 39205, "p999_ns": 40788, "mem_mb": 18.35, "bytes_per_key": 192.4 },
+        "btreemap": { "throughput_mops": 3.65, "p50_ns": 72, "p95_ns": 126, "p99_ns": 141, "p999_ns": 177, "mem_mb": 18.31, "bytes_per_key": 192.0 },
+        "skipmap": { "throughput_mops": 1.91, "p50_ns": 311, "p95_ns": 641, "p99_ns": 1148, "p999_ns": 2228, "mem_mb": 19.84, "bytes_per_key": 208.0 },
+        "expanse_map_u64": { "throughput_mops": 20.81, "p50_ns": 33, "p95_ns": 56, "p99_ns": 66, "p999_ns": 77, "mem_mb": 2.35, "bytes_per_key": 24.6 },
+        "speedup_vs_btree": "3.19x",
+        "speedup_vs_skip": "6.09x"
       },
       {
         "workload": "Workload B (Read Mostly)",
         "ratio_desc": "95% Read, 5% Update",
-        "expanse_blobmap": { "throughput_mops": 14.80, "p50_ns": 209, "p95_ns": 500, "p99_ns": 667, "p999_ns": 875, "mem_mb": 16.35, "bytes_per_key": 171.4 },
-        "btreemap": { "throughput_mops": 4.50, "p50_ns": 417, "p95_ns": 583, "p99_ns": 750, "p999_ns": 917, "mem_mb": 18.31, "bytes_per_key": 192.0 },
-        "skipmap": { "throughput_mops": 1.90, "p50_ns": 1333, "p95_ns": 2250, "p99_ns": 3292, "p999_ns": 4959, "mem_mb": 19.84, "bytes_per_key": 208.0 },
-        "expanse_map_u64": { "throughput_mops": 20.20, "p50_ns": 167, "p95_ns": 292, "p99_ns": 334, "p999_ns": 417, "mem_mb": 2.35, "bytes_per_key": 24.6 },
-        "speedup_vs_btree": "3.29x",
-        "speedup_vs_skip": "7.79x"
+        "expanse_blobmap": { "throughput_mops": 19.86, "p50_ns": 47, "p95_ns": 84, "p99_ns": 118, "p999_ns": 797, "mem_mb": 18.35, "bytes_per_key": 192.4 },
+        "btreemap": { "throughput_mops": 3.78, "p50_ns": 58, "p95_ns": 104, "p99_ns": 124, "p999_ns": 155, "mem_mb": 18.31, "bytes_per_key": 192.0 },
+        "skipmap": { "throughput_mops": 2.61, "p50_ns": 209, "p95_ns": 413, "p99_ns": 594, "p999_ns": 1733, "mem_mb": 19.84, "bytes_per_key": 208.0 },
+        "expanse_map_u64": { "throughput_mops": 23.4, "p50_ns": 28, "p95_ns": 51, "p99_ns": 62, "p999_ns": 74, "mem_mb": 2.35, "bytes_per_key": 24.6 },
+        "speedup_vs_btree": "5.25x",
+        "speedup_vs_skip": "7.61x"
       },
       {
         "workload": "Workload C (Read Only)",
         "ratio_desc": "100% Read",
-        "expanse_blobmap": { "throughput_mops": 15.60, "p50_ns": 209, "p95_ns": 375, "p99_ns": 459, "p999_ns": 542, "mem_mb": 16.35, "bytes_per_key": 171.4 },
-        "btreemap": { "throughput_mops": 4.80, "p50_ns": 417, "p95_ns": 667, "p99_ns": 792, "p999_ns": 1042, "mem_mb": 18.31, "bytes_per_key": 192.0 },
-        "skipmap": { "throughput_mops": 2.10, "p50_ns": 1333, "p95_ns": 1750, "p99_ns": 2125, "p999_ns": 2750, "mem_mb": 19.84, "bytes_per_key": 208.0 },
-        "expanse_map_u64": { "throughput_mops": 21.80, "p50_ns": 166, "p95_ns": 291, "p99_ns": 333, "p999_ns": 375, "mem_mb": 2.35, "bytes_per_key": 24.6 },
-        "speedup_vs_btree": "3.25x",
-        "speedup_vs_skip": "7.43x"
+        "expanse_blobmap": { "throughput_mops": 21.14, "p50_ns": 41, "p95_ns": 78, "p99_ns": 94, "p999_ns": 132, "mem_mb": 16.35, "bytes_per_key": 171.4 },
+        "btreemap": { "throughput_mops": 3.81, "p50_ns": 57, "p95_ns": 100, "p99_ns": 111, "p999_ns": 134, "mem_mb": 18.31, "bytes_per_key": 192.0 },
+        "skipmap": { "throughput_mops": 1.98, "p50_ns": 197, "p95_ns": 357, "p99_ns": 436, "p999_ns": 549, "mem_mb": 19.84, "bytes_per_key": 208.0 },
+        "expanse_map_u64": { "throughput_mops": 23.81, "p50_ns": 28, "p95_ns": 49, "p99_ns": 59, "p999_ns": 69, "mem_mb": 2.35, "bytes_per_key": 24.6 },
+        "speedup_vs_btree": "5.55x",
+        "speedup_vs_skip": "10.68x"
       },
       {
         "workload": "Workload D (Read Latest)",
         "ratio_desc": "95% Read, 5% Insert",
-        "expanse_blobmap": { "throughput_mops": 14.40, "p50_ns": 208, "p95_ns": 375, "p99_ns": 500, "p999_ns": 1083, "mem_mb": 16.36, "bytes_per_key": 171.5 },
-        "btreemap": { "throughput_mops": 4.20, "p50_ns": 500, "p95_ns": 708, "p99_ns": 875, "p999_ns": 1542, "mem_mb": 18.53, "bytes_per_key": 194.3 },
-        "skipmap": { "throughput_mops": 1.80, "p50_ns": 1292, "p95_ns": 1875, "p99_ns": 2292, "p999_ns": 3709, "mem_mb": 20.07, "bytes_per_key": 210.5 },
-        "expanse_map_u64": { "throughput_mops": 19.90, "p50_ns": 166, "p95_ns": 292, "p99_ns": 375, "p999_ns": 875, "mem_mb": 2.36, "bytes_per_key": 24.7 },
-        "speedup_vs_btree": "3.43x",
-        "speedup_vs_skip": "8.00x"
+        "expanse_blobmap": { "throughput_mops": 21.04, "p50_ns": 43, "p95_ns": 94, "p99_ns": 133, "p999_ns": 772, "mem_mb": 18.43, "bytes_per_key": 193.2 },
+        "btreemap": { "throughput_mops": 3.67, "p50_ns": 70, "p95_ns": 104, "p99_ns": 116, "p999_ns": 148, "mem_mb": 20.13, "bytes_per_key": 211.0 },
+        "skipmap": { "throughput_mops": 1.91, "p50_ns": 193, "p95_ns": 359, "p99_ns": 448, "p999_ns": 1163, "mem_mb": 21.8, "bytes_per_key": 228.6 },
+        "expanse_map_u64": { "throughput_mops": 23.2, "p50_ns": 27, "p95_ns": 50, "p99_ns": 61, "p999_ns": 125, "mem_mb": 2.43, "bytes_per_key": 25.5 },
+        "speedup_vs_btree": "5.73x",
+        "speedup_vs_skip": "11.02x"
       },
       {
         "workload": "Workload E (Short Range Scans)",
         "ratio_desc": "95% Scan (10..100 items), 5% Insert",
-        "expanse_blobmap": { "throughput_mops": 13.10, "p50_ns": 1000, "p95_ns": 1417, "p99_ns": 1584, "p999_ns": 3625, "mem_mb": 16.36, "bytes_per_key": 171.5 },
-        "btreemap": { "throughput_mops": 3.96, "p50_ns": 709, "p95_ns": 833, "p99_ns": 958, "p999_ns": 1459, "mem_mb": 18.53, "bytes_per_key": 194.3 },
-        "skipmap": { "throughput_mops": 1.81, "p50_ns": 1625, "p95_ns": 2042, "p99_ns": 2417, "p999_ns": 3042, "mem_mb": 20.07, "bytes_per_key": 210.5 },
-        "expanse_map_u64": { "throughput_mops": 16.20, "p50_ns": 916, "p95_ns": 1125, "p99_ns": 1209, "p999_ns": 1958, "mem_mb": 2.36, "bytes_per_key": 24.7 },
-        "speedup_vs_btree": "3.31x",
-        "speedup_vs_skip": "7.24x"
+        "expanse_blobmap": { "throughput_mops": 13.22, "p50_ns": 62, "p95_ns": 103, "p99_ns": 129, "p999_ns": 761, "mem_mb": 18.43, "bytes_per_key": 193.2 },
+        "btreemap": { "throughput_mops": 3.52, "p50_ns": 82, "p95_ns": 122, "p99_ns": 135, "p999_ns": 169, "mem_mb": 20.13, "bytes_per_key": 211.0 },
+        "skipmap": { "throughput_mops": 1.8, "p50_ns": 234, "p95_ns": 406, "p99_ns": 498, "p999_ns": 1136, "mem_mb": 21.8, "bytes_per_key": 228.6 },
+        "expanse_map_u64": { "throughput_mops": 15.26, "p50_ns": 50, "p95_ns": 83, "p99_ns": 101, "p999_ns": 127, "mem_mb": 2.43, "bytes_per_key": 25.5 },
+        "speedup_vs_btree": "3.76x",
+        "speedup_vs_skip": "7.34x"
       },
       {
         "workload": "Workload F (Read-Modify-Write)",
         "ratio_desc": "50% Read, 50% RMW",
-        "expanse_blobmap": { "throughput_mops": 14.20, "p50_ns": 458, "p95_ns": 958, "p99_ns": 1084, "p999_ns": 2500, "mem_mb": 18.35, "bytes_per_key": 192.4 },
-        "btreemap": { "throughput_mops": 4.19, "p50_ns": 458, "p95_ns": 666, "p99_ns": 709, "p999_ns": 792, "mem_mb": 18.31, "bytes_per_key": 192.0 },
-        "skipmap": { "throughput_mops": 1.76, "p50_ns": 3375, "p95_ns": 5375, "p99_ns": 8958, "p999_ns": 18834, "mem_mb": 19.84, "bytes_per_key": 208.0 },
-        "expanse_map_u64": { "throughput_mops": 17.80, "p50_ns": 250, "p95_ns": 542, "p99_ns": 625, "p999_ns": 750, "mem_mb": 2.35, "bytes_per_key": 24.6 },
-        "speedup_vs_btree": "3.39x",
-        "speedup_vs_skip": "8.07x"
+        "expanse_blobmap": { "throughput_mops": 14.27, "p50_ns": 134, "p95_ns": 38224, "p99_ns": 39688, "p999_ns": 40651, "mem_mb": 18.35, "bytes_per_key": 192.4 },
+        "btreemap": { "throughput_mops": 3.71, "p50_ns": 67, "p95_ns": 118, "p99_ns": 132, "p999_ns": 160, "mem_mb": 18.31, "bytes_per_key": 192.0 },
+        "skipmap": { "throughput_mops": 1.76, "p50_ns": 331, "p95_ns": 752, "p99_ns": 1433, "p999_ns": 2129, "mem_mb": 19.84, "bytes_per_key": 208.0 },
+        "expanse_map_u64": { "throughput_mops": 18.93, "p50_ns": 37, "p95_ns": 65, "p99_ns": 80, "p999_ns": 99, "mem_mb": 2.35, "bytes_per_key": 24.6 },
+        "speedup_vs_btree": "3.85x",
+        "speedup_vs_skip": "8.11x"
       }
     ],
     "concurrency_scaling": [
-      { "threads": 1, "read_mops": 2.31, "write_mops": 0.12, "total_mops": 2.43, "scaling": "1.00x" },
-      { "threads": 2, "read_mops": 4.28, "write_mops": 0.22, "total_mops": 4.50, "scaling": "1.85x" },
-      { "threads": 4, "read_mops": 4.89, "write_mops": 0.26, "total_mops": 5.15, "scaling": "2.12x" },
-      { "threads": 8, "read_mops": 4.39, "write_mops": 0.23, "total_mops": 4.62, "scaling": "1.90x" },
-      { "threads": 16, "read_mops": 3.77, "write_mops": 0.20, "total_mops": 3.97, "scaling": "1.63x" }
+      { "threads": 1, "read_mops": 18.65, "write_mops": 0.98, "total_mops": 19.63, "scaling": "1.00x" },
+      { "threads": 2, "read_mops": 26.54, "write_mops": 1.4, "total_mops": 27.94, "scaling": "1.42x" },
+      { "threads": 4, "read_mops": 33.84, "write_mops": 1.78, "total_mops": 35.62, "scaling": "1.81x" },
+      { "threads": 8, "read_mops": 32.27, "write_mops": 1.7, "total_mops": 33.97, "scaling": "1.73x" },
+      { "threads": 16, "read_mops": 27.39, "write_mops": 1.45, "total_mops": 28.84, "scaling": "1.47x" }
     ]
   },
   "large_value_benchmarks": {
@@ -155,11 +155,11 @@
       { "size": "7B Payload", "expanse_get_ns": 14.1, "btree_get_ns": 61.4, "get_speedup": "4.35x", "expanse_ins_ns": 41.2, "btree_ins_ns": 124.8, "ins_speedup": "3.03x", "heap_allocs": "0 vs 1" }
     ],
     "predicate_scan_selectivity": [
-      { "selectivity": "σ = 0.001 (0.1% matches)", "columnar_scan_ms": 0.42, "naive_deref_ms": 2.85, "speedup": "6.79x", "cold_dram_fetches": "Skipped (Evaluated in Leaf ValueSlot)" },
-      { "selectivity": "σ = 0.01 (1.0% matches)", "columnar_scan_ms": 0.49, "naive_deref_ms": 2.92, "speedup": "5.96x", "cold_dram_fetches": "99% cold DRAM lines bypassed" },
-      { "selectivity": "σ = 0.05 (5.0% matches)", "columnar_scan_ms": 0.78, "naive_deref_ms": 3.10, "speedup": "3.97x", "cold_dram_fetches": "95% cold DRAM lines bypassed" },
-      { "selectivity": "σ = 0.20 (20.0% matches)", "columnar_scan_ms": 1.45, "naive_deref_ms": 3.48, "speedup": "2.40x", "cold_dram_fetches": "80% cold DRAM lines bypassed" },
-      { "selectivity": "σ = 1.00 (100% matches)", "columnar_scan_ms": 3.20, "naive_deref_ms": 3.95, "speedup": "1.23x", "cold_dram_fetches": "All payloads dereferenced" }
+      { "selectivity": "\u03c3 = 0.001 (0.1% matches)", "columnar_scan_ms": 0.228, "naive_deref_ms": 0.324, "speedup": "1.42x", "cold_dram_fetches": "L3-resident (arena 14 MiB < 30 MiB L3); payload skip saves an L3 hit, not a DRAM fetch" },
+      { "selectivity": "\u03c3 = 0.01 (1.0% matches)", "columnar_scan_ms": 0.231, "naive_deref_ms": 0.326, "speedup": "1.41x", "cold_dram_fetches": "warm arena; traversal-floor bounded" },
+      { "selectivity": "\u03c3 = 0.05 (5.0% matches)", "columnar_scan_ms": 0.245, "naive_deref_ms": 0.324, "speedup": "1.32x", "cold_dram_fetches": "warm arena; below >10x target (16 MiB arena ceiling < LLC)" },
+      { "selectivity": "\u03c3 = 0.20 (20.0% matches)", "columnar_scan_ms": 0.293, "naive_deref_ms": 0.323, "speedup": "1.10x", "cold_dram_fetches": "warm arena" },
+      { "selectivity": "\u03c3 = 1.00 (100% matches)", "columnar_scan_ms": 0.323, "naive_deref_ms": 0.323, "speedup": "1.00x", "cold_dram_fetches": "all payloads touched" }
     ],
     "arena_gc_compaction": [
       { "keys": "5,000", "churn": "50% Deleted (2,500 active)", "pause_ms": 0.38, "space_recovered": "50.0%", "live_records_moved": 2500, "chunks_reduced": "2 → 1" },

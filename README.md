@@ -159,23 +159,23 @@ See [docs/BENCHMARKING.md](docs/BENCHMARKING.md) for detailed instruction counte
 
 ## Performance vs Stock libjudy
 
-Instructions retired and wall-clock latency through the identical C ABI on identical key streams, both libraries `dlopen`'d — measured via paired A/B rounds (*interleaved median of 5 rounds, main*). Ratios below are measured on the **standard portable baseline** (`x86-64-v1` on Linux, AArch64 on macOS) with runtime CPU feature detection. **Below 1.00 = libexpanse does less work / runs faster than original libjudy.**
+Instructions retired and wall-clock latency through the identical C ABI on identical key streams, both libraries `dlopen`'d — measured via paired A/B rounds (interleaved median of 5 rounds). **Below 1.00 = libexpanse does less work / runs faster than original libjudy.**
 
-> **Provenance (timing — re-measurement pending):** the instruction-retired columns (`M inst`, ratios) are deterministic and reproducible; the **wall-clock `ns` columns are load-sensitive and are not tagged to a specific host/commit** in this table. They are not regenerated here (the reference host was under load); the `B/k` memory columns are deterministic byte accounting. A clean-host re-measurement with full `(measured: host, commit)` tagging is a deferred follow-up (see `docs/BENCHMARKING.md`).
+> **Provenance.** Two column families with different bases. The **instruction-retired columns** (`M inst`, `.so / rlib` ratios) are deterministic Callgrind counts on the **standard portable baseline** (`x86-64-v1`, no runtime SIMD) and are reproducible. The **wall-clock `ns` rows** (the four 1M-population rows) are now measured on the dedicated quiet host *honeycomb* — 24-core x86_64 (i9-12900F), Ubuntu 22.04 / kernel 6.8, commit `43b46f38`; harness `crates/expanse-capi/examples/bench_vs_libjudy.rs`, interleaved A/B median of 5 rounds, load < 0.5 — with **native runtime feature detection active** (AVX2/BMI2), so their single ratio is the linked-`capi` surface vs stock libjudy, not a `.so`/`rlib` pair. The `B/k` memory columns are deterministic byte accounting. Honest reading of the refreshed ns rows: libexpanse wins on **sequential/clustered insert** (~1.75×/~1.1×) and **clustered lookup** (~1.2×), and is **~11% slower on random 1M lookup** — the earlier "0.55× / 45% faster" random-lookup figure was measured under load and is **retracted** (the quiet-host result agrees with the M-series development-laptop reading that random lookup is the engine's weak arm). See `docs/BENCHMARKING.md` for the full six-row honeycomb table.
 
 | Benchmark Workload | Wall-Clock Latency (Expanse vs Stock) | Ratio (.so / rlib) | Memory Overhead (Expanse vs Stock) | Status |
 |---|---|---:|---|---|
-| **Sequential 1,000,000 insert** | **15.8 ns** vs 32.3 ns | **0.55× / 0.51×** | **8.56 B/k** vs 8.32 B/k (1.03×) | 🟢 **2× faster than Judy** |
+| **Sequential 1,000,000 insert** | **13.4 ns** vs 23.6 ns | **0.57×** | **8.56 B/k** vs 8.32 B/k (1.03×) | 🟢 **~1.75× faster insert** |
 | **Sequential 100,000 insert** | **6.40M** vs 12.84M inst | **0.50× / 0.49×** | **8.57 B/k** vs 8.41 B/k (1.02×) | 🟢 **2× faster than Judy** |
 | **Sequential 30,000 lookup** | **4.37M** vs 5.07M inst | **0.86× / 0.85×** | **8.57 B/k** vs 8.41 B/k (1.02×) | 🟢 **14% faster than Judy** |
-| **Random 1,000,000 lookup** | **26.8 ns** vs 48.6 ns | **0.55× / 0.53×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **45% faster than Judy** |
+| **Random 1,000,000 lookup** | 35.8 ns vs **32.3 ns** | **1.11×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟡 **~11% slower lookup, 5% less memory** |
 | **Random 3,000,000 lookup** | **318.5M** vs 389.7M inst | **0.82× / 0.81×** | **16.80 B/k** vs 17.80 B/k (0.94×) | 🟢 **18% faster than Judy** |
 | **Random 30,000 lookup** | **4.53M** vs 5.09M inst | **0.89× / 0.88×** | **24.63 B/k** vs 24.81 B/k (0.99×) | 🟢 **11% faster than Judy** |
 | **Random 30,000 set test** | **3.78M** vs 3.83M inst | **0.988× / 0.98×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Faster than Judy** |
 | **Random 30,000 churn (del+ins)** | **38.14M** vs 50.78M inst | **0.751× / 0.75×** | **Dynamic exact accounting** | 🟢 **24.9% faster than Judy** |
 | **Clustered 100,000 set insert** | **7.54M** vs 10.38M inst | **0.727× / 0.72×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **27.3% faster than Judy** |
-| **Clustered 1,000,000 insert** | **31.6 ns** vs 34.1 ns | **0.92× / 0.89×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **8% less memory, faster insert** |
-| **Clustered 1,000,000 lookup** | **11.8 ns** vs 12.1 ns | **0.98× / 0.95×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **Faster than Judy** |
+| **Clustered 1,000,000 insert** | **19.9 ns** vs 21.6 ns | **0.92×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **~8% faster insert, 8% less memory** |
+| **Clustered 1,000,000 lookup** | **8.5 ns** vs 10.4 ns | **0.82×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **~18% faster lookup** |
 | **Clustered 30,000 lookup** | **3.71M** vs 3.97M inst | **0.94× / 0.92×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **6% faster than Judy** |
 | **Clustered 100,000 map insert** | **11.42M** vs 12.01M inst | **0.951× / 0.95×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **4.9% faster than Judy** |
 | **Random 100,000 set insert** | **15.10M** vs 15.69M inst | **0.962× / 0.96×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **3.8% faster than Judy** |
