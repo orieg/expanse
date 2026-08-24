@@ -5,6 +5,7 @@ import io.github.orieg.expanse.internal.ExpanseNative;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Optional;
@@ -19,6 +20,13 @@ public final class ExpanseStrMap implements AutoCloseable {
     private static final int DEFAULT_BUF_LEN = 1024;
     private static final ThreadLocal<MemorySegment> SCRATCH =
             ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(ValueLayout.JAVA_LONG, 2));
+
+    // expanse_str_nav_status values (see expanse.h): the truncation-aware _ex
+    // variants disambiguate "no such key" from "buffer too small" so a key longer
+    // than the scratch buffer is never mistaken for the end of the map.
+    private static final int NAV_OK = 0;
+    private static final int NAV_NOT_FOUND = 1;
+    private static final int NAV_BUFFER_TOO_SMALL = 2;
 
     private MemorySegment handle;
     private boolean closed = false;
@@ -280,18 +288,95 @@ public final class ExpanseStrMap implements AutoCloseable {
      * @return first entry or empty
      */
     public Optional<Entry> firstEntry() {
+        return navNoKey(ExpanseNative.MH_expanse_strmap_first_ex);
+    }
+
+    /**
+     * Grows a scratch buffer to hold a key whose native-reported length is {@code required}.
+     * The {@code _ex} navigation reports the exact byte length needed (including the NUL
+     * terminator); we honour it but reject keys that would exceed a Java array.
+     */
+    private static int growBuffer(int currentLen, long required) {
+        if (required > Integer.MAX_VALUE) {
+            throw new IllegalStateException(
+                    "String key of " + Long.toUnsignedString(required)
+                    + " bytes exceeds the maximum Java buffer size (" + Integer.MAX_VALUE + ")");
+        }
+        int needed = (int) required;
+        // required is exact; still grow at least geometrically to avoid pathological
+        // one-byte-at-a-time retries if the map mutates between calls.
+        return Math.max(needed, currentLen <= Integer.MAX_VALUE / 2 ? currentLen * 2 : Integer.MAX_VALUE);
+    }
+
+    /**
+     * Retry-loop driver for the key-less {@code _ex} nav functions (first/last).
+     * Grows the output buffer until the key fits, so long keys are never dropped.
+     */
+    private Optional<Entry> navNoKey(MethodHandle mh) {
         checkOpen();
         MemorySegment scratch = SCRATCH.get();
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment buf = arena.allocate(ValueLayout.JAVA_BYTE, DEFAULT_BUF_LEN);
-            boolean found = (boolean) ExpanseNative.MH_expanse_strmap_first.invokeExact(
-                    handle, buf, (long) DEFAULT_BUF_LEN, scratch);
-            if (found) {
-                String k = buf.getString(0, StandardCharsets.UTF_8);
-                long v = scratch.get(ValueLayout.JAVA_LONG, 0);
-                return Optional.of(new Entry(k, v));
+        int bufLen = DEFAULT_BUF_LEN;
+        try {
+            while (true) {
+                try (Arena arena = Arena.ofConfined()) {
+                    MemorySegment buf = arena.allocate(ValueLayout.JAVA_BYTE, bufLen);
+                    MemorySegment reqLen = arena.allocate(ValueLayout.JAVA_LONG);
+                    int status = (int) mh.invokeExact(handle, buf, (long) bufLen, reqLen, scratch);
+                    switch (status) {
+                        case NAV_OK -> {
+                            String k = buf.getString(0, StandardCharsets.UTF_8);
+                            long v = scratch.get(ValueLayout.JAVA_LONG, 0);
+                            return Optional.of(new Entry(k, v));
+                        }
+                        case NAV_NOT_FOUND -> {
+                            return Optional.empty();
+                        }
+                        case NAV_BUFFER_TOO_SMALL ->
+                            bufLen = growBuffer(bufLen, reqLen.get(ValueLayout.JAVA_LONG, 0));
+                        default -> throw new IllegalStateException("Unknown expanse_str_nav_status: " + status);
+                    }
+                }
             }
-            return Optional.empty();
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /**
+     * Retry-loop driver for the key-taking {@code _ex} nav functions (next/prev).
+     * Grows the output buffer until the key fits, so long keys are never dropped.
+     */
+    private Optional<Entry> navFromKey(MethodHandle mh, String key) {
+        Objects.requireNonNull(key, "key must not be null");
+        checkOpen();
+        MemorySegment scratch = SCRATCH.get();
+        int bufLen = DEFAULT_BUF_LEN;
+        try {
+            while (true) {
+                try (Arena arena = Arena.ofConfined()) {
+                    MemorySegment cstr = arena.allocateFrom(key, StandardCharsets.UTF_8);
+                    MemorySegment buf = arena.allocate(ValueLayout.JAVA_BYTE, bufLen);
+                    MemorySegment reqLen = arena.allocate(ValueLayout.JAVA_LONG);
+                    int status = (int) mh.invokeExact(handle, cstr, buf, (long) bufLen, reqLen, scratch);
+                    switch (status) {
+                        case NAV_OK -> {
+                            String k = buf.getString(0, StandardCharsets.UTF_8);
+                            long v = scratch.get(ValueLayout.JAVA_LONG, 0);
+                            return Optional.of(new Entry(k, v));
+                        }
+                        case NAV_NOT_FOUND -> {
+                            return Optional.empty();
+                        }
+                        case NAV_BUFFER_TOO_SMALL ->
+                            bufLen = growBuffer(bufLen, reqLen.get(ValueLayout.JAVA_LONG, 0));
+                        default -> throw new IllegalStateException("Unknown expanse_str_nav_status: " + status);
+                    }
+                }
+            }
+        } catch (RuntimeException | Error e) {
+            throw e;
         } catch (Throwable t) {
             throw new RuntimeException(t);
         }
@@ -303,21 +388,7 @@ public final class ExpanseStrMap implements AutoCloseable {
      * @return last entry or empty
      */
     public Optional<Entry> lastEntry() {
-        checkOpen();
-        MemorySegment scratch = SCRATCH.get();
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment buf = arena.allocate(ValueLayout.JAVA_BYTE, DEFAULT_BUF_LEN);
-            boolean found = (boolean) ExpanseNative.MH_expanse_strmap_last.invokeExact(
-                    handle, buf, (long) DEFAULT_BUF_LEN, scratch);
-            if (found) {
-                String k = buf.getString(0, StandardCharsets.UTF_8);
-                long v = scratch.get(ValueLayout.JAVA_LONG, 0);
-                return Optional.of(new Entry(k, v));
-            }
-            return Optional.empty();
-        } catch (Throwable t) {
-            throw new RuntimeException(t);
-        }
+        return navNoKey(ExpanseNative.MH_expanse_strmap_last_ex);
     }
 
     /**
@@ -327,23 +398,7 @@ public final class ExpanseStrMap implements AutoCloseable {
      * @return next entry or empty
      */
     public Optional<Entry> nextAfter(String key) {
-        Objects.requireNonNull(key, "key must not be null");
-        checkOpen();
-        MemorySegment scratch = SCRATCH.get();
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment cstr = arena.allocateFrom(key, StandardCharsets.UTF_8);
-            MemorySegment buf = arena.allocate(ValueLayout.JAVA_BYTE, DEFAULT_BUF_LEN);
-            boolean found = (boolean) ExpanseNative.MH_expanse_strmap_next_after.invokeExact(
-                    handle, cstr, buf, (long) DEFAULT_BUF_LEN, scratch);
-            if (found) {
-                String k = buf.getString(0, StandardCharsets.UTF_8);
-                long v = scratch.get(ValueLayout.JAVA_LONG, 0);
-                return Optional.of(new Entry(k, v));
-            }
-            return Optional.empty();
-        } catch (Throwable t) {
-            throw new RuntimeException(t);
-        }
+        return navFromKey(ExpanseNative.MH_expanse_strmap_next_after_ex, key);
     }
 
     /**
@@ -353,23 +408,7 @@ public final class ExpanseStrMap implements AutoCloseable {
      * @return prev entry or empty
      */
     public Optional<Entry> prevBefore(String key) {
-        Objects.requireNonNull(key, "key must not be null");
-        checkOpen();
-        MemorySegment scratch = SCRATCH.get();
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment cstr = arena.allocateFrom(key, StandardCharsets.UTF_8);
-            MemorySegment buf = arena.allocate(ValueLayout.JAVA_BYTE, DEFAULT_BUF_LEN);
-            boolean found = (boolean) ExpanseNative.MH_expanse_strmap_prev_before.invokeExact(
-                    handle, cstr, buf, (long) DEFAULT_BUF_LEN, scratch);
-            if (found) {
-                String k = buf.getString(0, StandardCharsets.UTF_8);
-                long v = scratch.get(ValueLayout.JAVA_LONG, 0);
-                return Optional.of(new Entry(k, v));
-            }
-            return Optional.empty();
-        } catch (Throwable t) {
-            throw new RuntimeException(t);
-        }
+        return navFromKey(ExpanseNative.MH_expanse_strmap_prev_before_ex, key);
     }
 
     /**

@@ -129,4 +129,82 @@ class ExpanseCollectionsTest {
             assertEquals(2, map.size());
         }
     }
+
+    // --- Unsigned 64-bit ordering across the 2^63 boundary ------------------
+    // The native trie orders keys as UNSIGNED u64. Keys >= 2^63 (whose signed
+    // representation is negative) must therefore sort ABOVE small positive keys.
+    // A signed wrapper would place -1L (== 2^64-1, the LARGEST key) first and
+    // wrongly exclude it from tailSet(0L)/tailMap(0L). These tests would have
+    // caught the pre-fix signed comparisons in ExpanseJavaNavigableSet/Map.
+
+    private static final long K_SMALL = 1L;                 // 1
+    private static final long K_MID = Long.MIN_VALUE;       // 2^63
+    private static final long K_MAX = -1L;                  // 2^64 - 1 (largest unsigned)
+
+    @Test
+    @DisplayName("ExpanseJavaNavigableSet orders keys as unsigned u64 across 2^63")
+    void unsignedOrderingSet() {
+        try (ExpanseSet rawSet = new ExpanseSet()) {
+            NavigableSet<Long> set = rawSet.asJavaSet();
+            set.add(K_MAX);
+            set.add(K_SMALL);
+            set.add(K_MID);
+
+            // Iteration order must be unsigned-ascending: 1, 2^63, 2^64-1.
+            Iterator<Long> it = set.iterator();
+            assertEquals(K_SMALL, it.next());
+            assertEquals(K_MID, it.next());
+            assertEquals(K_MAX, it.next());
+            assertFalse(it.hasNext());
+
+            assertEquals(K_SMALL, set.first());
+            assertEquals(K_MAX, set.last());
+
+            // Navigation across the signed/unsigned boundary.
+            assertEquals(K_MID, set.higher(K_SMALL));
+            assertEquals(K_MID, set.lower(K_MAX));
+            assertEquals(K_MID, set.ceiling(K_MID));
+            assertEquals(K_MID, set.floor(K_MID));
+            assertEquals(K_MAX, set.ceiling(K_MAX));
+
+            // tailSet(0, inclusive) must include EVERY key, including 2^64-1.
+            NavigableSet<Long> tail = set.tailSet(0L, true);
+            assertEquals(3, tail.size());
+            assertTrue(tail.contains(K_MAX), "tailSet(0) must contain 2^64-1 under unsigned order");
+            assertTrue(tail.contains(K_MID));
+
+            // headSet(2^63, exclusive) contains only the small key.
+            NavigableSet<Long> head = set.headSet(K_MID, false);
+            assertEquals(1, head.size());
+            assertTrue(head.contains(K_SMALL));
+
+            // comparator must be unsigned: 1 < 2^64-1 (signed would give the reverse).
+            assertTrue(set.comparator().compare(K_SMALL, K_MAX) < 0);
+        }
+    }
+
+    @Test
+    @DisplayName("ExpanseJavaNavigableMap orders keys as unsigned u64 across 2^63")
+    void unsignedOrderingMap() {
+        try (ExpanseMap rawMap = new ExpanseMap()) {
+            NavigableMap<Long, Long> map = rawMap.asJavaMap();
+            map.put(K_MAX, 300L);
+            map.put(K_SMALL, 100L);
+            map.put(K_MID, 200L);
+
+            assertEquals(K_SMALL, map.firstKey());
+            assertEquals(K_MAX, map.lastKey());
+            assertEquals(K_MID, map.higherKey(K_SMALL));
+            assertEquals(K_MID, map.lowerKey(K_MAX));
+            assertEquals(K_MID, map.ceilingKey(K_MID));
+            assertEquals(K_MID, map.floorKey(K_MID));
+
+            // tailMap(0, inclusive) must include the 2^64-1 key.
+            NavigableMap<Long, Long> tail = map.tailMap(0L, true);
+            assertEquals(3, tail.size());
+            assertEquals(300L, tail.get(K_MAX));
+
+            assertTrue(map.comparator().compare(K_SMALL, K_MAX) < 0);
+        }
+    }
 }

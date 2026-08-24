@@ -647,9 +647,13 @@ public final class ExpanseMap implements AutoCloseable {
      * @return LongStream of keys
      */
     public LongStream keyStream() {
+        // NOTE: keys are emitted in UNSIGNED 64-bit order. We must NOT advertise
+        // Spliterator.SORTED here: a primitive LongStream spliterator cannot carry a
+        // custom comparator, so SORTED implies natural (signed) order and would cause
+        // LongStream.sorted() to be wrongly elided, leaving keys >= 2^63 misordered.
         return StreamSupport.longStream(
                 Spliterators.spliterator(keyIterator(), size(),
-                        Spliterator.DISTINCT | Spliterator.ORDERED | Spliterator.SORTED | Spliterator.NONNULL),
+                        Spliterator.DISTINCT | Spliterator.ORDERED | Spliterator.NONNULL),
                 false);
     }
 
