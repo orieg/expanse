@@ -1,7 +1,17 @@
 package expanse
 
-// #cgo CFLAGS: -I../../include
-// #cgo LDFLAGS: -L../../target/release -L../../target/debug -lexpanse -lpthread -ldl -lm
-// #include <stdlib.h>
-// #include "expanse.h"
+/*
+#cgo CFLAGS: -I${SRCDIR}/../../include -I${SRCDIR}/../../crates/expanse-capi/include
+#cgo !windows LDFLAGS: ${SRCDIR}/../../target/release/libexpanse.a -lpthread -ldl -lm
+#cgo windows LDFLAGS: -L${SRCDIR}/../../target/release -lexpanse
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include "expanse.h"
+*/
 import "C"
+
+// Version returns the libexpanse build version.
+func Version() string {
+	return C.GoString(C.expanse_version())
+}

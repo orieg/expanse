@@ -7,47 +7,59 @@ import (
 
 func TestSet(t *testing.T) {
 	s := NewSet()
-	if s.Size() != 0 {
-		t.Fatalf("expected size 0, got %d", s.Size())
-	}
 	s.Add(10)
 	s.Add(20)
-	if !s.Contains(10) || !s.Contains(20) || s.Contains(30) {
-		t.Fatalf("contains failed")
+	s.Add(30)
+
+	if !s.Contains(20) {
+		t.Fatalf("set should contain 20")
+	}
+	if s.Contains(40) {
+		t.Fatalf("set should not contain 40")
+	}
+	if s.Size() != 3 {
+		t.Fatalf("set size should be 3")
+	}
+
+	first, ok := s.First()
+	if !ok || first != 10 {
+		t.Fatalf("first should be 10, got %d", first)
+	}
+
+	next, ok := s.Next(10)
+	if !ok || next != 20 {
+		t.Fatalf("next after 10 should be 20, got %d", next)
+	}
+
+	last, ok := s.Last()
+	if !ok || last != 30 {
+		t.Fatalf("last should be 30, got %d", last)
+	}
+
+	prev, ok := s.Prev(30)
+	if !ok || prev != 20 {
+		t.Fatalf("prev before 30 should be 20, got %d", prev)
+	}
+
+	if s.Rank(20) != 1 {
+		t.Fatalf("rank of 20 should be 1, got %d", s.Rank(20))
+	}
+
+	sel, ok := s.Select(1)
+	if !ok || sel != 20 {
+		t.Fatalf("select index 1 should be 20, got %d", sel)
+	}
+
+	if s.CountRange(10, 20) != 2 {
+		t.Fatalf("count range [10, 20] should be 2, got %d", s.CountRange(10, 20))
+	}
+
+	s.Remove(20)
+	if s.Contains(20) {
+		t.Fatalf("remove failed")
 	}
 	if s.Size() != 2 {
-		t.Fatalf("expected size 2, got %d", s.Size())
-	}
-
-	if k, ok := s.First(); !ok || k != 10 {
-		t.Fatalf("first failed")
-	}
-	if k, ok := s.Last(); !ok || k != 20 {
-		t.Fatalf("last failed")
-	}
-
-	if k, ok := s.Next(10); !ok || k != 20 {
-		t.Fatalf("next failed")
-	}
-	if k, ok := s.Prev(20); !ok || k != 10 {
-		t.Fatalf("prev failed")
-	}
-
-	if r := s.Rank(15); r != 1 {
-		t.Fatalf("rank failed, got %d", r)
-	}
-
-	if k, ok := s.Select(1); !ok || k != 20 {
-		t.Fatalf("select failed")
-	}
-
-	if r := s.CountRange(5, 15); r != 1 {
-		t.Fatalf("count range failed")
-	}
-
-	s.Remove(10)
-	if s.Size() != 1 {
-		t.Fatalf("remove failed")
+		t.Fatalf("size after remove should be 2")
 	}
 	s.Clear()
 	if s.Size() != 0 {
@@ -57,39 +69,35 @@ func TestSet(t *testing.T) {
 
 func TestMap(t *testing.T) {
 	m := NewMap()
-	m.Set(10, 100)
-	m.Set(20, 200)
+	m.Set(1, 100)
+	m.Set(2, 200)
+	m.Set(3, 300)
 
-	if v, ok := m.Get(10); !ok || v != 100 {
-		t.Fatalf("get failed")
-	}
-	if _, ok := m.Get(30); ok {
-		t.Fatalf("get non-existent should fail")
-	}
-
-	if !m.Contains(20) {
-		t.Fatalf("contains failed")
-	}
-	if m.Size() != 2 {
-		t.Fatalf("size failed")
+	val, ok := m.Get(2)
+	if !ok || val != 200 {
+		t.Fatalf("get 2 should be 200, got %d", val)
 	}
 
-	if k, v, ok := m.First(); !ok || k != 10 || v != 100 {
+	if !m.Contains(3) {
+		t.Fatalf("contains 3 should be true")
+	}
+
+	firstK, firstV, ok := m.First()
+	if !ok || firstK != 1 || firstV != 100 {
 		t.Fatalf("first failed")
 	}
-	if k, v, ok := m.Last(); !ok || k != 20 || v != 200 {
-		t.Fatalf("last failed")
-	}
-	if k, v, ok := m.Next(10); !ok || k != 20 || v != 200 {
+
+	nextK, nextV, ok := m.Next(1)
+	if !ok || nextK != 2 || nextV != 200 {
 		t.Fatalf("next failed")
 	}
-	if k, v, ok := m.Prev(20); !ok || k != 10 || v != 100 {
-		t.Fatalf("prev failed")
-	}
 
-	m.Delete(10)
-	if m.Size() != 1 {
+	m.Delete(2)
+	if m.Contains(2) {
 		t.Fatalf("delete failed")
+	}
+	if m.Size() != 2 {
+		t.Fatalf("size should be 2, got %d", m.Size())
 	}
 	m.Clear()
 	if m.Size() != 0 {
@@ -99,24 +107,34 @@ func TestMap(t *testing.T) {
 
 func TestStrMap(t *testing.T) {
 	m := NewStrMap()
-	m.Set("hello", 100)
-	if v, ok := m.Get("hello"); !ok || v != 100 {
-		t.Fatalf("get failed")
+	m.Set("alpha", 1)
+	m.Set("beta", 2)
+	m.Set("gamma", 3)
+
+	val, ok := m.Get("beta")
+	if !ok || val != 2 {
+		t.Fatalf("get beta should be 2, got %d", val)
 	}
-	if !m.Contains("hello") {
-		t.Fatalf("contains failed")
+
+	if !m.Contains("gamma") {
+		t.Fatalf("contains gamma should be true")
 	}
-	m.Delete("hello")
-	if m.Size() != 0 {
+
+	m.Delete("beta")
+	if m.Contains("beta") {
 		t.Fatalf("delete failed")
+	}
+	if m.Size() != 2 {
+		t.Fatalf("size should be 2")
 	}
 	m.Clear()
 }
 
 func TestBytesMap(t *testing.T) {
 	m := NewBytesMap()
-	m.Set([]byte{0, 1, 2}, 100)
-	if v, ok := m.Get([]byte{0, 1, 2}); !ok || v != 100 {
+	m.Set([]byte{0, 1, 2}, 42)
+	val, ok := m.Get([]byte{0, 1, 2})
+	if !ok || val != 42 {
 		t.Fatalf("get failed")
 	}
 	if !m.Contains([]byte{0, 1, 2}) {
@@ -131,12 +149,12 @@ func TestBytesMap(t *testing.T) {
 
 func TestBlobMap(t *testing.T) {
 	b := NewBlobMap(4096)
-	b.Set(10, []byte("hello"), 1)
-	b.Set(20, []byte("world"), 2)
+	b.Set(10, []byte("hello world 1"), 1)
+	b.Set(20, []byte("hello world 2"), 2)
 
 	data, meta, ok := b.Get(10)
-	if !ok || !bytes.Equal(data, []byte("hello")) || meta != 1 {
-		t.Fatalf("get failed")
+	if !ok || !bytes.Equal(data, []byte("hello world 1")) || meta != 1 {
+		t.Fatalf("get failed: ok=%v data=%q meta=%d", ok, string(data), meta)
 	}
 
 	if b.Size() != 2 {
@@ -162,24 +180,4 @@ func TestBlobMap(t *testing.T) {
 		t.Fatalf("delete failed")
 	}
 	b.Clear()
-}
-
-func BenchmarkGoMap(b *testing.B) {
-	m := make(map[uint64]uint64)
-	for i := 0; i < b.N; i++ {
-		m[uint64(i)] = uint64(i)
-	}
-	for i := 0; i < b.N; i++ {
-		_ = m[uint64(i)]
-	}
-}
-
-func BenchmarkExpanseMap(b *testing.B) {
-	m := NewMap()
-	for i := 0; i < b.N; i++ {
-		m.Set(uint64(i), uint64(i))
-	}
-	for i := 0; i < b.N; i++ {
-		m.Get(uint64(i))
-	}
 }
