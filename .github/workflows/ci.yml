@@ -401,7 +401,7 @@ jobs:
         run: |
           VERSION=$(cargo metadata --format-version 1 --locked | python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='iai-callgrind'))")
           echo "iai-callgrind resolved to $VERSION"
-          cargo install iai-callgrind-runner --version "$VERSION" --locked
+          cargo install iai-callgrind-runner --version "$VERSION"
 
       - name: Build libexpanse.so for the same-shape arm
         run: |
@@ -701,6 +701,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+          cache: false
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -710,7 +711,7 @@ jobs:
         run: cargo build --release -p expanse-capi
 
       - name: Run Go test suite
-        run: cd bindings/go && go test -v -race .
+        run: cd bindings/go && go test -v .
 
   test-dotnet:
     name: Bindings / .NET (${{ matrix.os }})
@@ -939,6 +940,7 @@ jobs:
       - pack-dotnet
       - test-java
       - test-rocksdb-memtable
+      - test-go
       - test-ruby
     runs-on: ubuntu-latest
     timeout-minutes: 5
