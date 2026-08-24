@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group};
 
 /// Seeded fast 64-bit XorShift pseudorandom number generator for deterministic benchmarks.
 #[derive(Clone, Debug)]
@@ -795,4 +795,197 @@ fn bench_ycsb_concurrency(c: &mut Criterion) {
 }
 
 criterion_group!(benches, bench_ycsb_workloads, bench_ycsb_concurrency);
-criterion_main!(benches);
+
+// ---------------------------------------------------------------------------
+// Latency-report mode (opt-in via `YCSB_LATENCY_REPORT=1`)
+// ---------------------------------------------------------------------------
+//
+// The criterion groups above call every `run_workload_*` with
+// `record_latencies = false` (criterion times whole batches, not individual
+// ops). Percentile latency columns therefore need a separate single-pass run
+// with per-op recording enabled. Setting `YCSB_LATENCY_REPORT` in the
+// environment runs each workload once per engine with `record_latencies =
+// true` and prints a tab-friendly table of p50/p90/p95/p99/p99.9 plus a clean
+// (untimed) throughput cross-check and the resident-memory footprint.
+//
+// Caveat printed with the report: every recorded latency includes the cost of
+// the `Instant::now()`/`elapsed()` bracket itself, which the report calibrates
+// and prints so the tail figures can be read honestly on any host.
+
+/// Operations in the latency-recording stream (large enough that p99.9 has
+/// several hundred tail samples).
+const LATENCY_OP_COUNT: usize = 200_000;
+/// Clean (untimed) passes whose median gives the throughput cross-check column.
+const THROUGHPUT_PASSES: usize = 7;
+/// Operations per clean throughput pass (matches the criterion group's stream).
+const THROUGHPUT_OP_COUNT: usize = 20_000;
+/// Deterministic operation-stream seed (identical to the criterion groups).
+const REPORT_SEED: u64 = 0x1234_5678_9ABC;
+
+/// Median of a slice of `f64` samples (sorts in place).
+fn median_f64(v: &mut [f64]) -> f64 {
+    v.sort_by(f64::total_cmp);
+    v[v.len() / 2]
+}
+
+/// Calibrates the per-op cost of the `Instant::now()`/`elapsed()` bracket so
+/// the report can state how much of each recorded latency is measurement.
+fn timer_bracket_overhead_ns() -> f64 {
+    let n = 2_000_000usize;
+    let mut acc = 0u64;
+    let t_all = Instant::now();
+    for _ in 0..n {
+        let t0 = Instant::now();
+        acc = acc.wrapping_add(t0.elapsed().as_nanos() as u64);
+    }
+    black_box(acc);
+    t_all.elapsed().as_nanos() as f64 / n as f64
+}
+
+/// Prints one formatted engine row of the latency report.
+fn emit_latency_row(wl: Workload, engine: &str, thr_mops: f64, s: &LatencyStats, mem: usize) {
+    let mem_mb = mem as f64 / (1024.0 * 1024.0);
+    let bytes_per_key = mem as f64 / POPULATION_N as f64;
+    println!(
+        "{:<11} {:<24} {:>9.2} {:>7} {:>7} {:>7} {:>7} {:>8} {:>8.2} {:>8.1}",
+        wl.tag(),
+        engine,
+        thr_mops,
+        s.p50_ns,
+        s.p90_ns,
+        s.p95_ns,
+        s.p99_ns,
+        s.p999_ns,
+        mem_mb,
+        bytes_per_key,
+    );
+}
+
+/// Runs the opt-in per-operation latency report across all workloads/engines.
+fn run_latency_report() {
+    let initial_keys = generate_initial_keys(POPULATION_N);
+    let payload = generate_payload(0xFEED_FACE_CAFE_BEEF);
+    let workloads = [
+        Workload::A,
+        Workload::B,
+        Workload::C,
+        Workload::D,
+        Workload::E,
+        Workload::F,
+    ];
+
+    let overhead = timer_bracket_overhead_ns();
+    println!("# YCSB per-operation latency report (record_latencies = true)");
+    println!(
+        "# population_n={POPULATION_N} theta={ZIPFIAN_THETA} payload={BLOB_PAYLOAD_SIZE}B seed={REPORT_SEED:#016x}"
+    );
+    println!(
+        "# latency_ops={LATENCY_OP_COUNT} throughput_ops={THROUGHPUT_OP_COUNT} throughput_passes={THROUGHPUT_PASSES} (median)"
+    );
+    println!(
+        "# Instant bracket overhead ~{overhead:.1} ns/op (included in every recorded latency below)"
+    );
+    println!("# latency columns are nanoseconds; thrpt is the untimed-pass cross-check (Mops/s)");
+    println!(
+        "{:<11} {:<24} {:>9} {:>7} {:>7} {:>7} {:>7} {:>8} {:>8} {:>8}",
+        "workload", "engine", "thrpt", "p50", "p90", "p95", "p99", "p99.9", "mem_MB", "B/key"
+    );
+
+    for &wl in &workloads {
+        let lat_ops = generate_operations(wl, &initial_keys, LATENCY_OP_COUNT, REPORT_SEED);
+        let thr_ops = generate_operations(wl, &initial_keys, THROUGHPUT_OP_COUNT, REPORT_SEED);
+
+        // 1. ExpanseMap (u64)
+        {
+            let build = || {
+                let mut m = ExpanseMap::new();
+                for &k in &initial_keys {
+                    m.insert(k, k ^ 0x5CA1_AB1E);
+                }
+                m
+            };
+            let mut mops = Vec::with_capacity(THROUGHPUT_PASSES);
+            for _ in 0..THROUGHPUT_PASSES {
+                let mut m = build();
+                let t = Instant::now();
+                let _ = run_workload_expanse_map(&mut m, &thr_ops, false);
+                mops.push(thr_ops.len() as f64 / t.elapsed().as_secs_f64() / 1e6);
+            }
+            let mut m = build();
+            let (s, mem) = run_workload_expanse_map(&mut m, &lat_ops, true);
+            emit_latency_row(wl, "ExpanseMap (u64)", median_f64(&mut mops), &s, mem);
+        }
+
+        // 2. ExpanseBlobMap (128B)
+        {
+            let build = || {
+                let mut m = ExpanseBlobMap::new();
+                for &k in &initial_keys {
+                    let _ = m.insert(k, &payload, (k & 0xFF) as u32);
+                }
+                m
+            };
+            let mut mops = Vec::with_capacity(THROUGHPUT_PASSES);
+            for _ in 0..THROUGHPUT_PASSES {
+                let mut m = build();
+                let t = Instant::now();
+                let _ = run_workload_expanse_blobmap(&mut m, &thr_ops, &payload, false);
+                mops.push(thr_ops.len() as f64 / t.elapsed().as_secs_f64() / 1e6);
+            }
+            let mut m = build();
+            let (s, mem) = run_workload_expanse_blobmap(&mut m, &lat_ops, &payload, true);
+            emit_latency_row(wl, "ExpanseBlobMap (128B)", median_f64(&mut mops), &s, mem);
+        }
+
+        // 3. std::collections::BTreeMap (128B)
+        {
+            let build = || {
+                let mut m = BTreeMap::new();
+                for &k in &initial_keys {
+                    m.insert(k, payload.to_vec().into_boxed_slice());
+                }
+                m
+            };
+            let mut mops = Vec::with_capacity(THROUGHPUT_PASSES);
+            for _ in 0..THROUGHPUT_PASSES {
+                let mut m = build();
+                let t = Instant::now();
+                let _ = run_workload_btreemap(&mut m, &thr_ops, &payload, false);
+                mops.push(thr_ops.len() as f64 / t.elapsed().as_secs_f64() / 1e6);
+            }
+            let mut m = build();
+            let (s, mem) = run_workload_btreemap(&mut m, &lat_ops, &payload, true);
+            emit_latency_row(wl, "BTreeMap (128B)", median_f64(&mut mops), &s, mem);
+        }
+
+        // 4. crossbeam_skiplist::SkipMap (RocksDB MemTable model, 128B)
+        {
+            let build = || {
+                let m = SkipMap::new();
+                for &k in &initial_keys {
+                    m.insert(k, payload.to_vec().into_boxed_slice());
+                }
+                m
+            };
+            let mut mops = Vec::with_capacity(THROUGHPUT_PASSES);
+            for _ in 0..THROUGHPUT_PASSES {
+                let m = build();
+                let t = Instant::now();
+                let _ = run_workload_skipmap(&m, &thr_ops, &payload, false);
+                mops.push(thr_ops.len() as f64 / t.elapsed().as_secs_f64() / 1e6);
+            }
+            let m = build();
+            let (s, mem) = run_workload_skipmap(&m, &lat_ops, &payload, true);
+            emit_latency_row(wl, "SkipMap (128B)", median_f64(&mut mops), &s, mem);
+        }
+    }
+}
+
+fn main() {
+    if std::env::var_os("YCSB_LATENCY_REPORT").is_some() {
+        run_latency_report();
+        return;
+    }
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}
