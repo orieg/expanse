@@ -62,8 +62,12 @@ Naming the project after the mechanism honors the algorithm itself without inher
 | **Modern C++20 Header** | [`include/expanse.hpp`](include/expanse.hpp) | Modern header-only C++20 STL-compatible RAII wrapper (`expanse::set`, `expanse::map`, `expanse::str_map`, `expanse::bytes_map`, `expanse::blob_map`, `expanse::sync_map`), `std::span` zero-copy access, `std::forward_iterator` ranges, and lock-free OCC readers |
 | **Java / Scala FFM API** | [`bindings/java`](bindings/java) (`io.github.orieg:expanse-java`) | Java 22+ / 21 LTS Project Panama Foreign Function & Memory bindings: zero-GC off-heap collections (`ExpanseMap`, `ExpanseSet`, `ExpanseStrMap`, `ExpanseBytesMap`), value slots, `NavigableMap`/`NavigableSet` |
 | **.NET / C# API** | [`bindings/dotnet`](bindings/dotnet) (`Expanse.NET`) | .NET 8.0/9.0+ C# bindings & NuGet package via P/Invoke: zero-GC off-heap collections (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `ExpanseSyncMap`) |
+| **Go API** | [`bindings/go`](bindings/go) (`github.com/orieg/expanse/bindings/go`) | Native Go bindings via CGO: zero-GC off-heap collections (`Set`, `Map`, `StrMap`, `BytesMap`, `BlobMap`) |
+| **PHP API** | [`bindings/php`](bindings/php) (`orieg/expanse`) | Native PHP bindings via FFI & PIE: `Expanse\Set`, `Expanse\Map`, `Expanse\StrMap`, `Expanse\BytesMap`, `Expanse\BlobMap`, `Expanse\SyncMap`, `Expanse\SyncSet` |
 | **Python API** | [`crates/expanse-py`](crates/expanse-py) (`pip install expanse-trie`) | High-performance Python extension via PyO3: `ExpanseSet`, `ExpanseMap`, `SyncExpanseMap`, GIL-released queries |
 | **Node.js / Bun / Deno API** | [`crates/expanse-node`](crates/expanse-node) (`@orieg/expanse`) | Native high-performance N-API bindings via `napi-rs`: `ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `SyncExpanseMap`, `SyncExpanseSet` |
+| **WebAssembly / Edge** | [`crates/expanse-wasm`](crates/expanse-wasm) (`@orieg/expanse-wasm`) | WebAssembly bindings for edge runtimes (Cloudflare Workers, Fastly) and browsers |
+| **Ruby API** | [`gems/expanse`](gems/expanse) (`gem install expanse`) | Native Ruby extension via magnus / C ABI: `Expanse::Set`, `Expanse::Map`, `Expanse::StrMap`, `Expanse::BytesMap`, `Expanse::BlobMap` |
 | **RocksDB Pluggable MemTable** | [`integrations/rocksdb`](integrations/rocksdb) (`rocksdb-expanse`) | Official RocksDB `MemTableRep` / `MemTableRepFactory` implementation delivering **8.8× higher key density in RAM** vs SkipLists, fewer L0 SSTable flushes, and **4.1× faster sequential range scans** |
 
 Legacy ↔ modern naming:
@@ -442,7 +446,28 @@ bool found = map.TryGet(42, out ulong value);
 ```
 See [bindings/dotnet/README.md](bindings/dotnet/README.md) for full .NET documentation and guides.
 
-### 11. Node.js, Bun & Deno Quickstart (`npm i @orieg/expanse`)
+See [bindings/go/README.md](bindings/go/README.md) for full Go documentation.
+
+### 11. PHP Quickstart (`orieg/expanse`)
+```bash
+composer require orieg/expanse
+```
+
+```php
+use Expanse\Set;
+use Expanse\Map;
+
+$set = new Set();
+$set->add(42);
+$rank = $set->rank(100);
+
+$map = new Map();
+$map->set(42, 1000);
+$val = $map->get(42);
+```
+See [bindings/php/README.md](bindings/php/README.md) for full PHP documentation.
+
+### 12. Node.js, Bun & Deno Quickstart (`npm i @orieg/expanse`)
 ```bash
 npm install @orieg/expanse
 # or bun add @orieg/expanse

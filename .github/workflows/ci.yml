@@ -25,6 +25,7 @@ jobs:
       dotnet: ${{ steps.filter.outputs.dotnet }}
       java: ${{ steps.filter.outputs.java }}
       docs: ${{ steps.filter.outputs.docs }}
+      ruby: ${{ steps.filter.outputs.ruby }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -70,6 +71,13 @@ jobs:
               - '*.md'
               - 'scripts/**'
               - 'website/**'
+            ruby:
+              - 'gems/expanse/**'
+              - 'include/**'
+              - 'crates/expanse-capi/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
 
   lint:
     name: Core / Linter & Formatting
@@ -393,7 +401,7 @@ jobs:
         run: |
           VERSION=$(cargo metadata --format-version 1 --locked | python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='iai-callgrind'))")
           echo "iai-callgrind resolved to $VERSION"
-          cargo install iai-callgrind-runner --version "$VERSION" --locked
+          cargo install iai-callgrind-runner --version "$VERSION"
 
       - name: Build libexpanse.so for the same-shape arm
         run: |
@@ -640,6 +648,42 @@ jobs:
       - name: Run Node test suite
         run: node crates/expanse-node/test.js
 
+  test-php:
+    name: Bindings / PHP (${{ matrix.os }}, PHP ${{ matrix.php-version }})
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        php-version: ['8.2', '8.3', '8.4']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: ffi
+          coverage: none
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build native addon
+        run: cargo build --release -p expanse-capi
+
+      - name: Install dependencies
+        run: composer install
+        working-directory: bindings/php
+
+      - name: Run tests
+        run: vendor/bin/phpunit tests/ExpanseTest.php
+        working-directory: bindings/php
+
   test-dotnet:
     name: Bindings / .NET (${{ matrix.os }})
     needs: [detect-changes]
@@ -822,6 +866,26 @@ jobs:
             target/release/libexpanse.a -lpthread -ldl -lm -o /tmp/test_memtable_tsan
           /tmp/test_memtable_tsan
 
+
+  test-ruby:
+    name: Bindings / Ruby (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - name: Build C API and Run Ruby Tests
+        run: |
+          cargo build --release -p expanse-capi
+          ruby -Igems/expanse/lib gems/expanse/test/test_expanse.rb
+
   ci-gate:
     name: CI Gate / All Checks Passed
     if: always()
@@ -847,6 +911,7 @@ jobs:
       - pack-dotnet
       - test-java
       - test-rocksdb-memtable
+      - test-ruby
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
