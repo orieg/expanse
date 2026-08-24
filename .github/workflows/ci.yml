@@ -629,6 +629,42 @@ jobs:
       - name: Run Node test suite
         run: node crates/expanse-node/test.js
 
+  test-php:
+    name: Bindings / PHP (${{ matrix.os }}, PHP ${{ matrix.php-version }})
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        php-version: ['8.2', '8.3', '8.4']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: ffi
+          coverage: none
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build native addon
+        run: cargo build --release -p expanse-capi
+
+      - name: Install dependencies
+        run: composer install
+        working-directory: bindings/php
+
+      - name: Run tests
+        run: vendor/bin/phpunit tests/ExpanseTest.php
+        working-directory: bindings/php
+
   test-dotnet:
     name: Bindings / .NET (${{ matrix.os }})
     needs: [detect-changes]
@@ -787,8 +823,11 @@ jobs:
       - fuzz-smoke
       - test-python
       - test-node
+      - test-ruby
+      - bench-baseline
       - test-dotnet
       - pack-dotnet
+      - test-php
       - test-rocksdb-memtable
     runs-on: ubuntu-latest
     timeout-minutes: 5

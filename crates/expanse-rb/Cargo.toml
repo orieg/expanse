@@ -1,0 +1,11 @@
+[package]
+name = "expanse-rb"
+version = "0.3.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+magnus = { version = "0.7", features = ["rb-sys"] }
+expanse-trie = { path = "../expanse" }

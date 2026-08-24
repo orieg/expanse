@@ -1,0 +1,17 @@
+[package]
+name = "expanse-wasm"
+version = "0.3.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+expanse-trie = { path = "../expanse" }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
