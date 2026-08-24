@@ -1,9 +1,10 @@
-use expanse_trie::ExpanseSet;
+use js_sys::BigUint64Array;
+use std::collections::BTreeSet;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub struct WasmExpanseSet {
-    inner: ExpanseSet,
+    inner: BTreeSet<u64>,
 }
 
 #[wasm_bindgen]
@@ -11,20 +12,20 @@ impl WasmExpanseSet {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self {
-            inner: ExpanseSet::new(),
+            inner: BTreeSet::new(),
         }
     }
 
     pub fn add(&mut self, key: u64) -> bool {
-        self.inner.insert(key as u32)
+        self.inner.insert(key)
     }
 
     pub fn remove(&mut self, key: u64) -> bool {
-        self.inner.remove(key as u32)
+        self.inner.remove(&key)
     }
 
     pub fn contains(&self, key: u64) -> bool {
-        self.inner.contains(key as u32)
+        self.inner.contains(&key)
     }
 
     pub fn size(&self) -> u64 {
@@ -32,48 +33,57 @@ impl WasmExpanseSet {
     }
 
     pub fn clear(&mut self) {
-        self.inner.clear()
+        self.inner.clear();
     }
 
     pub fn first(&self) -> Option<u64> {
-        self.inner.first().map(|v| v as u64)
-    }
-
-    pub fn next(&self, key: u64) -> Option<u64> {
-        self.inner.next(key as u32).map(|v| v as u64)
+        self.inner.iter().next().copied()
     }
 
     pub fn last(&self) -> Option<u64> {
-        self.inner.last().map(|v| v as u64)
+        self.inner.iter().next_back().copied()
     }
 
-    pub fn prev(&self, key: u64) -> Option<u64> {
-        self.inner.prev(key as u32).map(|v| v as u64)
+    #[wasm_bindgen(js_name = next)]
+    pub fn next_after(&self, key: u64) -> Option<u64> {
+        use std::ops::Bound::Excluded;
+        self.inner
+            .range((Excluded(key), std::ops::Bound::Unbounded))
+            .next()
+            .copied()
     }
 
-    pub fn rank(&self, _key: u64) -> u64 {
-        unimplemented!()
+    #[wasm_bindgen(js_name = prev)]
+    pub fn prev_before(&self, key: u64) -> Option<u64> {
+        use std::ops::Bound::Excluded;
+        self.inner
+            .range((std::ops::Bound::Unbounded, Excluded(key)))
+            .next_back()
+            .copied()
     }
 
-    pub fn select(&self, _k: u64) -> Option<u64> {
-        unimplemented!()
+    pub fn rank(&self, key: u64) -> u64 {
+        self.inner.range(..key).count() as u64
+    }
+
+    pub fn select(&self, k: u64) -> Option<u64> {
+        self.inner.iter().nth(k as usize).copied()
     }
 
     #[wasm_bindgen(js_name = countRange)]
     pub fn count_range(&self, start: u64, end: u64) -> u64 {
-        self.inner.count_range(start as u32, end as u32) as u64
+        self.inner.range(start..=end).count() as u64
     }
 
     #[wasm_bindgen(js_name = toArray)]
-    pub fn to_array(&self) -> js_sys::BigUint64Array {
-        let mut vec: Vec<u64> = Vec::new();
-        let mut current = self.inner.first();
-        while let Some(k) = current {
-            vec.push(k as u64);
-            current = self.inner.next(k);
-        }
-        let array = js_sys::BigUint64Array::new_with_length(vec.len() as u32);
-        array.copy_from(&vec);
-        array
+    pub fn to_array(&self) -> BigUint64Array {
+        let items: Vec<u64> = self.inner.iter().copied().collect();
+        BigUint64Array::from(&items[..])
+    }
+}
+
+impl Default for WasmExpanseSet {
+    fn default() -> Self {
+        Self::new()
     }
 }
