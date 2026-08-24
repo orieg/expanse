@@ -287,7 +287,7 @@ mod tests {
     }
 
     #[cfg(miri)]
-    const OPS: usize = 300;
+    const OPS: usize = 60;
     #[cfg(not(miri))]
     const OPS: usize = 6000;
 

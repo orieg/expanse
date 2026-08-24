@@ -2,6 +2,9 @@ package io.github.orieg.expanse;
 
 import io.github.orieg.expanse.internal.ExpanseNative;
 import java.lang.foreign.MemorySegment;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 import java.util.function.LongPredicate;
 
 /**
@@ -12,7 +15,14 @@ import java.util.function.LongPredicate;
 public final class SyncExpanseSet implements AutoCloseable, LongPredicate {
 
     private MemorySegment handle;
-    private boolean closed = false;
+    // volatile so a concurrent reader thread observes closure promptly and refuses.
+    private volatile boolean closed = false;
+
+    // Live readers borrow the set's native storage (the native reader is a
+    // 'static-transmuted borrow of the set), so a reader outliving the set is a
+    // use-after-free. We track every live reader and free them all — before the set
+    // itself — when the set closes. Guarded by synchronization on `this`.
+    private final Set<Reader> liveReaders = Collections.newSetFromMap(new IdentityHashMap<>());
 
     /**
      * A registered reader handle for a thread.
@@ -21,10 +31,28 @@ public final class SyncExpanseSet implements AutoCloseable, LongPredicate {
      */
     public final class Reader implements AutoCloseable, LongPredicate {
         private MemorySegment readerHandle;
-        private boolean readerClosed = false;
+        // volatile: set from the set's close() (another thread) as well as this reader's close().
+        private volatile boolean readerClosed = false;
 
         private Reader(MemorySegment readerHandle) {
             this.readerHandle = readerHandle;
+        }
+
+        /**
+         * Frees the native reader. Must be called while holding the lock on the owning
+         * {@link SyncExpanseSet} so it is ordered before the set's own free. Idempotent.
+         */
+        private void invalidate() {
+            if (!readerClosed && !readerHandle.equals(MemorySegment.NULL)) {
+                try {
+                    ExpanseNative.MH_expanse_sync_set_reader_free.invokeExact(readerHandle);
+                } catch (Throwable t) {
+                    throw new RuntimeException(t);
+                } finally {
+                    readerHandle = MemorySegment.NULL;
+                    readerClosed = true;
+                }
+            }
         }
 
         /**
@@ -52,15 +80,9 @@ public final class SyncExpanseSet implements AutoCloseable, LongPredicate {
 
         @Override
         public void close() {
-            if (!readerClosed && !readerHandle.equals(MemorySegment.NULL)) {
-                try {
-                    ExpanseNative.MH_expanse_sync_set_reader_free.invokeExact(readerHandle);
-                } catch (Throwable t) {
-                    throw new RuntimeException(t);
-                } finally {
-                    readerHandle = MemorySegment.NULL;
-                    readerClosed = true;
-                }
+            synchronized (SyncExpanseSet.this) {
+                liveReaders.remove(this);
+                invalidate();
             }
         }
     }
@@ -90,14 +112,16 @@ public final class SyncExpanseSet implements AutoCloseable, LongPredicate {
      *
      * @return new Reader instance
      */
-    public Reader reader() {
+    public synchronized Reader reader() {
         checkOpen();
         try {
             MemorySegment r = (MemorySegment) ExpanseNative.MH_expanse_sync_set_reader_new.invokeExact(handle);
             if (r.equals(MemorySegment.NULL)) {
                 throw new OutOfMemoryError("Failed allocating SyncExpanseSet reader");
             }
-            return new Reader(r);
+            Reader reader = new Reader(r);
+            liveReaders.add(reader);
+            return reader;
         } catch (Throwable t) {
             throw new RuntimeException(t);
         }
@@ -177,16 +201,23 @@ public final class SyncExpanseSet implements AutoCloseable, LongPredicate {
     }
 
     @Override
-    public void close() {
-        if (!closed && !handle.equals(MemorySegment.NULL)) {
-            try {
-                ExpanseNative.MH_expanse_sync_set_free.invokeExact(handle);
-            } catch (Throwable t) {
-                throw new RuntimeException("Failed to free SyncExpanseSet", t);
-            } finally {
-                handle = MemorySegment.NULL;
-                closed = true;
-            }
+    public synchronized void close() {
+        if (closed || handle.equals(MemorySegment.NULL)) {
+            return; // idempotent: a second close (or a close/close race) is a no-op.
+        }
+        // Free every live reader BEFORE the set: the native reader borrows the set,
+        // so using or freeing a reader after the set is gone would be a use-after-free.
+        for (Reader reader : liveReaders) {
+            reader.invalidate();
+        }
+        liveReaders.clear();
+        try {
+            ExpanseNative.MH_expanse_sync_set_free.invokeExact(handle);
+        } catch (Throwable t) {
+            throw new RuntimeException("Failed to free SyncExpanseSet", t);
+        } finally {
+            handle = MemorySegment.NULL;
+            closed = true;
         }
     }
 }

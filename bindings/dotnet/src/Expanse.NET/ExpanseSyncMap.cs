@@ -103,7 +103,10 @@ public sealed class ExpanseSyncMap : IDisposable
         {
             throw new OutOfMemoryException("Failed to allocate native ExpanseSyncMapReader");
         }
-        return new ExpanseSyncMapReader(readerHandle);
+        // The native reader is a borrow of the map's storage. Pin the map's SafeHandle
+        // for the reader's lifetime so the GC cannot finalize (free) the map while a
+        // reader still references it — that would be a use-after-free from safe C#.
+        return new ExpanseSyncMapReader(readerHandle, _handle);
     }
 
     /// <summary>
@@ -126,11 +129,18 @@ public sealed class ExpanseSyncMap : IDisposable
 public sealed class ExpanseSyncMapReader : IDisposable
 {
     private SafeExpanseSyncMapReaderHandle _handle;
+    // The owning map's handle, ref-counted up for this reader's lifetime so the map
+    // cannot be freed while the reader (a native borrow of it) is still alive.
+    private readonly SafeExpanseSyncMapHandle _mapHandle;
+    private bool _mapHandleRefAdded;
     private bool _disposed;
 
-    internal ExpanseSyncMapReader(SafeExpanseSyncMapReaderHandle handle)
+    internal ExpanseSyncMapReader(SafeExpanseSyncMapReaderHandle handle, SafeExpanseSyncMapHandle mapHandle)
     {
         _handle = handle;
+        _mapHandle = mapHandle;
+        // Keep the map alive for as long as this reader exists.
+        _mapHandle.DangerousAddRef(ref _mapHandleRefAdded);
     }
 
     private void ThrowIfDisposed()
@@ -160,7 +170,14 @@ public sealed class ExpanseSyncMapReader : IDisposable
     {
         if (!_disposed)
         {
+            // Free the reader first (it borrows the map), then release our ref-count
+            // on the map so it can be collected once nothing else references it.
             _handle.Dispose();
+            if (_mapHandleRefAdded)
+            {
+                _mapHandle.DangerousRelease();
+                _mapHandleRefAdded = false;
+            }
             _disposed = true;
         }
     }

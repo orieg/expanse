@@ -1,10 +1,17 @@
-//! Comparative Micro-benchmarks for 32-Bit Embedded Expanse vs Industry Primitives.
+//! Comparative micro-benchmarks for the real 32-bit Expanse digital trie
+//! vs. industry primitives.
 //!
-//! Evaluates `ExpanseSet32`, `ExpanseMap32`, and `ExpanseBlobMap32` against:
-//! - `std::collections::BTreeMap<u32, u32>`
+//! Exercises the actual `ExpanseSet32` / `ExpanseMap32` / `ExpanseBlobMap32`
+//! trie engine (see `crate::trie32`) — not a formula or a `BTree` wrapper —
+//! against:
+//! - `std::collections::{BTreeSet, BTreeMap}<u32, u32>`
 //! - `hashbrown::HashMap<u32, u32>`
 //!
-//! Across real embedded workloads (Sensor Buffers, CAN-bus dispatch, IPv4 routing, OTA chunks).
+//! across embedded-shaped workloads (sensor timestamp buffers, sparse
+//! CAN-bus dispatch, blob-map metadata scans). These are timing benches;
+//! measured memory density is reported separately by the
+//! `bytes_per_key_32` example. Per `docs/BENCHMARKING.md`, criterion ratios
+//! here are not publishable numbers.
 
 use std::collections::BTreeMap;
 use std::hint::black_box;
@@ -105,7 +112,9 @@ fn bench_blobmap32_predicate_scan(c: &mut Criterion) {
 
     let mut blob_map = ExpanseBlobMap32::new();
     for i in 0..n {
-        blob_map.insert(i as Key32, b"payload_bytes_sample", (i % 100) as u16);
+        blob_map
+            .insert(i as Key32, b"payload_bytes_sample", (i % 100) as u16)
+            .unwrap();
     }
 
     group.bench_function(BenchmarkId::new("columnar_hot_meta_scan", n), |b| {

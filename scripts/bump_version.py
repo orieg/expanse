@@ -144,12 +144,20 @@ class PackageJsonHandler(ManifestHandler):
 
     def set_version(self, root: Path, new_version: str) -> str:
         text = self.get_path(root).read_text(encoding="utf-8")
-        return re.sub(
+        text = re.sub(
             r'("version"\s*:\s*)"[^"]+"',
             rf'\g<1>"{new_version}"',
             text,
             count=1,
         )
+        # Keep the napi platform optionalDependencies (@orieg/expanse-<platform>)
+        # in lockstep so the published main package pins the matching prebuilds.
+        text = re.sub(
+            r'("@orieg/expanse-[a-z0-9-]+"\s*:\s*)"[^"]+"',
+            rf'\g<1>"{new_version}"',
+            text,
+        )
+        return text
 
 
 class PyprojectHandler(ManifestHandler):
@@ -302,7 +310,13 @@ def get_handlers(root: Path) -> List[ManifestHandler]:
             "crates/expanse-node/Cargo.toml",
             has_internal_dep=True,
         ),
+        CrateCargoHandler(
+            "crates/expanse-php/Cargo.toml",
+            "crates/expanse-php/Cargo.toml",
+            has_internal_dep=True,
+        ),
         PackageJsonHandler("crates/expanse-node/package.json", "crates/expanse-node/package.json"),
+        JsonVersionHandler("bindings/php/composer.json", "bindings/php/composer.json"),
         PyprojectHandler("pyproject.toml", "pyproject.toml"),
         CsprojHandler(
             dotnet_path,

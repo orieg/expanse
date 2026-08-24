@@ -110,6 +110,18 @@ test('ExpanseSet rank, select, countRange, range, toArray', () => {
   assert.strictEqual(set.size(), 7n);
 });
 
+test('ExpanseSet 64-Bit Boundary Value Test Vectors', () => {
+  const set = new ExpanseSet();
+  const keys = [0n, 1n, (1n << 53n) - 1n, 1n << 53n, 9223372036854775807n, 18446744073709551615n];
+  for (const k of keys) {
+    set.add(k);
+  }
+  for (const k of keys) {
+    assert.strictEqual(set.has(k), true);
+  }
+  assert.strictEqual(set.size(), BigInt(keys.length));
+});
+
 // 2. ExpanseMap Tests
 console.log('\n--- ExpanseMap Tests ---');
 
@@ -162,6 +174,21 @@ test('ExpanseMap navigation and queries (first, next, rank, select, countRange, 
   const entries = map.entries();
   assert.strictEqual(entries.length, 4);
   assert.deepStrictEqual(entries[0], { key: 10n, value: 1000n });
+});
+
+test('ExpanseMap 64-Bit Boundary Value Test Vectors', () => {
+  const map = new ExpanseMap();
+  const keys = [0n, 1n, (1n << 53n) - 1n, 1n << 53n, 9223372036854775807n, 18446744073709551615n];
+  for (const k of keys) {
+    const val = (k ^ 0x5555555555555555n) & 0xFFFFFFFFFFFFFFFFn;
+    map.set(k, val);
+  }
+  for (const k of keys) {
+    const expectedVal = (k ^ 0x5555555555555555n) & 0xFFFFFFFFFFFFFFFFn;
+    assert.strictEqual(map.has(k), true);
+    assert.strictEqual(map.get(k), expectedVal);
+  }
+  assert.strictEqual(map.size(), BigInt(keys.length));
 });
 
 // 3. ExpanseStrMap Tests
@@ -345,6 +372,54 @@ test('SyncExpanseSet concurrent set operations', () => {
 
   assert.strictEqual(syncSet.remove(20n), true);
   assert.strictEqual(syncSet.size(), 2n);
+});
+
+// 7. Key conversion correctness (BigInt lossless + Number precision)
+console.log('\n--- Key Conversion Tests ---');
+
+test('rejects a BigInt that does not fit in u64 instead of silently truncating', () => {
+  const map = new ExpanseMap();
+  // 2^64 + 1 previously wrapped to 1 (lossless flag ignored). Must throw now.
+  assert.throws(() => map.set(2n ** 64n + 1n, 5n), /unsigned 64-bit|out of u64 range/i);
+  assert.throws(() => map.set(2n ** 100n, 5n));
+  // The largest valid u64 key must still round-trip exactly.
+  const maxU64 = 2n ** 64n - 1n;
+  map.set(maxU64, 9n);
+  assert.strictEqual(map.get(maxU64), 9n);
+  // A distinct large key must not collide with maxU64.
+  map.set(maxU64 - 1n, 8n);
+  assert.strictEqual(map.get(maxU64), 9n);
+  assert.strictEqual(map.get(maxU64 - 1n), 8n);
+});
+
+test('rejects negative BigInt keys', () => {
+  const map = new ExpanseMap();
+  assert.throws(() => map.set(-1n, 5n), /negative/i);
+});
+
+test('rejects fractional and >2^53 Number keys', () => {
+  const map = new ExpanseMap();
+  assert.throws(() => map.set(1.5, 5n), /integer/i);
+  // 2^53 + 2 is not exactly representable as a distinct integer -> reject.
+  assert.throws(() => map.set(9007199254740994, 5n), /2\^53|precision/i);
+  // Values at or below 2^53 are fine.
+  map.set(9007199254740992, 7n); // 2^53 exactly
+  assert.strictEqual(map.get(9007199254740992n), 7n);
+});
+
+test('saveImage returns a BigInt byte count', () => {
+  const blobmap = new ExpanseBlobMap();
+  blobmap.set(1n, Buffer.from('hello'));
+  const tmpFile = path.join(os.tmpdir(), `expanse_saveimg_${Date.now()}.img`);
+  const bytesWritten = blobmap.saveImage(tmpFile);
+  assert.strictEqual(typeof bytesWritten, 'bigint');
+  assert(bytesWritten > 0n);
+  // openImage takes a single path argument (the former no-op mmap arg was removed).
+  const reloaded = ExpanseBlobMap.openImage(tmpFile);
+  assert.strictEqual(reloaded.get(1n).toString('utf8'), 'hello');
+  try {
+    fs.unlinkSync(tmpFile);
+  } catch (_) {}
 });
 
 console.log('\nAll 11 test suites passed successfully! 🎉');

@@ -728,7 +728,33 @@ NAV_VIS_HTML = """  <header class="navbar">
     </div>
   </header>"""
 
-def build_pages(artifacts_dir: str, output_dir: str):
+def _count_packages(artifacts_dir: str) -> int:
+    """Counts .deb/.rpm package artifacts under artifacts_dir."""
+    n = 0
+    if os.path.isdir(artifacts_dir):
+        for _root, _dirs, files in os.walk(artifacts_dir):
+            for f in files:
+                if f.endswith(".deb") or f.endswith(".rpm"):
+                    n += 1
+    return n
+
+
+def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
+    # Fail loudly rather than force-replacing populated apt/rpm repos on gh-pages
+    # (peaceiris keep_files: false) with empty ones built from missing artifacts.
+    if not allow_empty:
+        if not os.path.isdir(artifacts_dir):
+            raise SystemExit(
+                f"::error::Pages build: artifacts directory '{artifacts_dir}' does not exist. "
+                f"Download the latest release .deb/.rpm assets first, or pass --allow-empty to bootstrap."
+            )
+        if _count_packages(artifacts_dir) == 0:
+            raise SystemExit(
+                f"::error::Pages build: no .deb/.rpm packages found under '{artifacts_dir}'. "
+                f"Refusing to publish empty apt/rpm repositories over the live ones. "
+                f"Pass --allow-empty to bootstrap intentionally."
+            )
+
     os.makedirs(output_dir, exist_ok=True)
 
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -978,7 +1004,7 @@ def build_pages(artifacts_dir: str, output_dir: str):
           <button class="tab-btn" onclick="switchTab('tab-rpm')">RHEL / Fedora (RPM)</button>
           <button class="tab-btn" onclick="switchTab('tab-java')">Java / JVM (Maven)</button>
           <button class="tab-btn" onclick="switchTab('tab-rocksdb')">RocksDB MemTable</button>
-          <button class="tab-btn" onclick="switchTab('tab-php')">PHP Judy &amp; Cache</button>
+          <button class="tab-btn" onclick="switchTab('tab-php')">PHP (Composer &amp; PIE)</button>
         </div>
 
         <div id="tab-cargo" class="install-panel">
@@ -1180,21 +1206,29 @@ int main() {
         </div>
 
         <div id="tab-php" class="install-panel" style="display: none;">
-          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">PHP C extension (<code>ext-judy</code>), pure-PHP polyfill (<code>judy-polyfill</code>), and high-density PSR-16 cache (<code>judy-cache</code>):</p>
-          <pre><code># Install Judy polyfill &amp; high-density cache
-composer require orieg/judy-cache orieg/judy-polyfill</code></pre>
-          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in PHP:</p>
-          <pre><code>use Judy;
-use Orieg\\JudyCache\\JudySimpleCache;
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Unified Composer package (<code>orieg/expanse</code>) with native Zend extension (<code>pie install orieg/php-expanse</code>) and portable FFI fallback:</p>
+          <pre><code># Install via Composer (Packagist)
+composer require orieg/expanse
 
-// Core digital trie array
+# Or install native Zend extension via PIE
+pie install orieg/php-expanse</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in PHP (Sets, Maps, BlobMaps, and Judy compatibility):</p>
+          <pre><code>use Expanse\\Set;
+use Expanse\\Map;
+use Expanse\\BlobMap;
+use Judy;
+
+$set = new Set();
+$set-&gt;add(42);
+$rank = $set-&gt;rank(100); // O(depth) rank
+
+$map = new Map();
+$map-&gt;set(42, 1000);
+$val = $map-&gt;get(42);
+
+// 1:1 legacy php-judy drop-in compatibility
 $judy = new Judy(Judy::INT_TO_INT);
-$judy[42] = 100;
-
-// High-density PSR-16 cache with native TTL pruning &amp; compression
-$cache = new JudySimpleCache();
-$cache-&gt;set('user:42:profile', ['name' =&gt; 'Alice', 'role' =&gt; 'admin'], ttl: 3600);
-$data = $cache-&gt;get('user:42:profile');</code></pre>
+$judy[42] = 999;</code></pre>
         </div>
       </div>
     </div>
@@ -1225,6 +1259,10 @@ $data = $cache-&gt;get('user:42:profile');</code></pre>
           <div class="doc-link-title">BINDINGS_JAVA.md &#8599;</div>
           <div class="doc-link-desc">JVM Foreign Function &amp; Memory (FFM) bindings with zero-GC overhead.</div>
         </a>
+        <a href="https://github.com/orieg/expanse/blob/main/docs/BINDINGS_PHP.md" class="doc-link-card">
+          <div class="doc-link-title">BINDINGS_PHP.md &#8599;</div>
+          <div class="doc-link-desc">Dual-driver PHP bindings (Packagist orieg/expanse, PIE native Zend extension, and FFI fallback).</div>
+        </a>
         <a href="https://github.com/orieg/expanse/blob/main/docs/ALGORITHMS.md" class="doc-link-card">
           <div class="doc-link-title">ALGORITHMS.md &#8599;</div>
           <div class="doc-link-desc">Algorithmic specifications, search kernels, SIMD/SWAR vectorization.</div>
@@ -1233,9 +1271,9 @@ $data = $cache-&gt;get('user:42:profile');</code></pre>
           <div class="doc-link-title">COMPAT.md &#8599;</div>
           <div class="doc-link-desc">C ABI contracts, drop-in parity gates, error handling, packaging specifications.</div>
         </a>
-        <a href="https://github.com/orieg/expanse/blob/main/docs/CI_CD_GUIDE.md" class="doc-link-card">
-          <div class="doc-link-title">CI_CD_GUIDE.md &#8599;</div>
-          <div class="doc-link-desc">CI/CD engineering standards, zero-regression gating, and multi-architecture matrices.</div>
+        <a href="https://github.com/orieg/expanse/blob/main/docs/CI.md" class="doc-link-card">
+          <div class="doc-link-title">CI.md &#8599;</div>
+          <div class="doc-link-desc">CI job catalog, the single rollup gate, zero-regression gating, and multi-architecture matrices.</div>
         </a>
         <a href="https://github.com/orieg/expanse/blob/main/docs/BENCHMARKING.md" class="doc-link-card">
           <div class="doc-link-title">BENCHMARKING.md &#8599;</div>
@@ -1317,8 +1355,8 @@ $data = $cache-&gt;get('user:42:profile');</code></pre>
     # 4. APT & RPM repositories
     apt_out = os.path.join(output_dir, "apt")
     rpm_out = os.path.join(output_dir, "rpm")
-    build_apt_repo(artifacts_dir, apt_out)
-    build_rpm_repo(artifacts_dir, rpm_out)
+    build_apt_repo(artifacts_dir, apt_out, allow_empty=allow_empty)
+    build_rpm_repo(artifacts_dir, rpm_out, allow_empty=allow_empty)
 
     print(f"Complete GitHub Pages site generated in {output_dir}")
 
@@ -1353,8 +1391,13 @@ if __name__ == "__main__":
         default=None,
         help="Output directory for generated site",
     )
+    parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="Permit building the portal with empty apt/rpm repos (bootstrap only) instead of failing.",
+    )
     args = parser.parse_args()
 
     art_dir = args.artifacts_dir or args.artifacts_pos or "artifacts"
     out_dir = args.output_dir or args.output_pos or "pages-root"
-    build_pages(art_dir, out_dir)
+    build_pages(art_dir, out_dir, allow_empty=args.allow_empty)

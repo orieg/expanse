@@ -167,7 +167,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [set_ops, map_ops, bytesmap_ops, strmap_ops, blobmap_image_corrupt]
+        target: [set_ops, map_ops, bytesmap_ops, strmap_ops, blobmap_image_corrupt, set32_ops, map32_ops]
     steps:
       - uses: actions/checkout@v4
 

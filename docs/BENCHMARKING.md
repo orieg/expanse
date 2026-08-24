@@ -98,8 +98,8 @@ Performance claims are this project's reason to exist, so they follow the strict
 
 | Bench | Status | Notes |
 |---|---|---|
-| Lookup latency grid (hit/miss × distribution × population) | landed (`benches/compare.rs`) | vs `BTreeSet`/`BTreeMap`, `HashSet`/`HashMap`; timing numbers unpublished until a quiet-host run |
-| Insert throughput (cold build per distribution) | landed (`benches/compare.rs`) | same caveat |
+| Lookup latency grid (hit/miss × distribution × population) | landed (`benches/compare.rs`) | vs `BTreeSet`/`BTreeMap`, `HashSet`/`HashMap`; measured on honeycomb — see "vs stdlib" section below |
+| Insert throughput (cold build per distribution) | landed (`benches/compare.rs`) | measured on honeycomb — see "vs stdlib" section below |
 | bytes/key | landed (`examples/bytes_per_key.rs`) | deterministic allocator accounting — load-immune, results below; **gates CI** via the `memory-budget` job |
 | Instruction/cache counts | landed (`benches/instructions.rs`, iai-callgrind) | deterministic via callgrind — load-immune and resolves ~1% changes; **posted as a PR comment with head-vs-base deltas** by the `instruction-counts` job |
 | Lookup attribution | landed (`examples/lookup_profile.rs`) | sampling profile of a `get`-only loop — *where* time goes, not how long; sample distribution inside one process is far less load-sensitive than a cross-binary ratio |
@@ -223,16 +223,53 @@ The arms overlap; the pre-change branch produced both the worst and the best ran
 
 Method note: attribution is done inside a single process, so co-resident load shifts *how many* samples land, not *where* they land. A/B wall-clock ratios do not share that property and stay deferred (rule 2).
 
-### Concurrent read scaling, `SyncExpanseMap` (measured: M1 MacBook Pro 8-core, load ≈ 3.7 with two ~25% background processes — magnitudes far beyond that noise; commit with this section; 1M random keys, 500 ms windows)
+### Concurrent read scaling, `SyncExpanseMap` (measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; load ≈ 0.4 idle; 1M random keys, 500 ms windows; `examples/concurrent_scaling.rs`, median of 2 back-to-back runs)
 
-| readers | reads/s idle | scale | churn (tree-level, before) | churn (per-node, after) |
-|---|---|---|---|---|
-| 1 | 10.1 M | 1.0× | **3.4 K** | **2.4 M** |
-| 2 | 15.4 M | 1.5× | 3.4 M | 6.2 M |
-| 4 | 32.8 M | 3.2× | 10.0 M | 10.0 M |
-| 8 | 39.8 M | 3.9× | 21.3 M | 12.5 M† |
+| readers | reads/s idle | scale | reads/s churn (saturating writer) | writer op/s |
+|---|---:|---:|---:|---:|
+| 1 | 22.6 M | 1.0× | 7.7 M | 3.9 M |
+| 2 | 39.2 M | 1.74× | 15.9 M | 3.6 M |
+| 4 | 77.5 M | 3.43× | 24.8 M | 2.8 M |
+| 8 | 145.1 M | 6.43× | 34.4 M | 2.2 M |
 
-Before: with one tree-level seqlock, a full-speed writer (~2.5 M op/s) collapsed optimistic reads — the version changed faster than a walk completed, so nearly every validation failed into the mutex fallback (the 3.4 K/s cell). After the **per-node refinement** (writers bracket each node's in-place mutations with that node's version; readers validate hand-over-hand): single-reader churn throughput rose **~700×** to 2.4 M/s and writer throughput rose to ~3.3 M op/s (fewer mutex handoffs). The remaining churn-vs-idle gap is the walk-start gate (the tree version still brackets whole ops for the root snapshot); † higher reader counts under a saturating writer shift toward retry pressure along the written path — the next refinement target if a real workload needs it. Single-threaded trees skip the version brackets entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
+**Idle read scaling is near-linear to 8 threads (6.4×)** and continues to 12.0× / 265.8 M ops/s at 16 threads (see the `benches/concurrency.rs` table below). **With a saturating writer**, reads still climb (7.7 M → 34.4 M across 1–8 readers) but stay well below idle: a single tree-level seqlock still brackets whole operations for the root snapshot, so under an active writer the version changes faster than a walk completes and a fraction of readers retry or fall back to the mutex. The per-node version refinement (writers bracket each node's in-place mutations; readers validate hand-over-hand) is what keeps churn in the millions rather than collapsing — but closing the churn-vs-idle gap is the next refinement target (`docs/ARCHITECTURE.md` §6). Single-threaded trees skip the version brackets entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
+
+### vs stdlib & 3rd-party collections (measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/compare.rs` + `benches/comparative.rs`, criterion medians)
+
+**Point lookup, hit, 1,000,000 keys (ns/op)** — the engine's strongest arm:
+
+| dist | `ExpanseSet` | `BTreeSet` | `HashSet` | `ExpanseMap` | `BTreeMap` | `HashMap` |
+|---|---:|---:|---:|---:|---:|---:|
+| sequential | **6.75** | 97.8 | 12.0 | **11.9** | 108.9 | 12.1 |
+| random | 36.5 | 104.5 | **11.9** | 38.6 | 111.9 | **12.4** |
+| clustered | **8.19** | 101.6 | 12.0 | **12.9** | 110.2 | 12.4 |
+| sparse | **7.47** | 103.5 | 12.6 | **8.53** | 111.9 | 12.3 |
+
+- **vs `BTreeMap`/`BTreeSet`: Expanse wins every cell** — 2.9× (random) to ~14.5× (sequential/sparse) faster.
+- **vs `HashMap`/`HashSet` (Swiss table)**: near parity on sequential/clustered; **~3× slower on uniform-random 1M** (hash O(1) probe beats trie descent under cache misses); faster on sparse. Expanse buys ordering + prefix search for that.
+
+**Cold-build insert, 100,000 keys (`set_insert_build`)**:
+
+| dist | `ExpanseSet` | `BTreeSet` | `HashSet` |
+|---|---:|---:|---:|
+| sequential | **484 µs** | 4.46 ms | 1.81 ms |
+| random | 4.17 ms | 7.45 ms | **1.81 ms** |
+| clustered | **1.04 ms** | 4.59 ms | 1.81 ms |
+| sparse | 2.88 ms | 4.47 ms | **1.81 ms** |
+
+Expanse beats `BTreeSet` on every distribution (1.6×–9.2×); beats `HashSet` on sequential/clustered but is ~1.6×–2.3× slower on random/sparse cold builds.
+
+**`ExpanseSet` vs `RoaringBitmap` (`comparative.rs`, 100k)**:
+
+| op | sparse | clustered | dense |
+|---|---|---|---|
+| `contains` (ns) | 8.5 vs 19.0 → **2.2× faster** | 7.3 vs 17.9 → **2.4× faster** | 6.8 vs 3.5 → 1.9× slower |
+| `rank` (ns) | 336 vs 108 → 3.1× slower | 198 vs 51 → 3.9× slower | 218 vs 196 → ~parity |
+| `select` (ns) | 343 vs 235 → 1.5× slower | 217 vs 66 → 3.3× slower | 208 vs 376 → 1.8× faster |
+
+Expanse wins membership on sparse/clustered; Roaring's specialized rank index wins `rank`/`select`.
+
+**Full ordered iteration — a measured weakness.** `ExpanseMap::iter()` vs `BTreeMap::iter()` over the whole map (`comparative_map_scan`, 100k): sparse **3.77 ms vs 120 µs (31× slower)**, clustered 1.91 ms vs 125 µs (15× slower), dense 1.74 ms vs 127 µs (14× slower). Trie traversal chases pointers across up to 8 levels while a B-tree walks contiguous node arrays. This contradicts and **retracts** the earlier "2.1×–3.4× faster range scans than BTreeMap" claim carried in README/DATABASE; a dedicated ordered-scan optimization (e.g. leaf-chain fast path) is the follow-up. Point lookups and prefix seeks — where the trie skips empty expanses — remain the engine's advantage.
 
 ### Checkpoint B0 — first vs-stock baseline on the corrected harness (measured: GitHub `ubuntu-latest` runner, callgrind via the `instruction-counts` job, **the issue #1 items-1-3 branch, not `af21e02`**; deterministic)
 
@@ -483,9 +520,21 @@ promoting it out of a throwaway probe is tracked in issue #1.
 | random | 1M | 1.47× slower | 2.38× slower | **0.93 (smaller)** |
 | clustered | 1M | 1.55× slower | 2.48× slower | **0.92 (smaller)** |
 
-**This table is the reference, not the M1 one below.** A CI runner is not a quiet host either, but it is freshly booted, unshared with a desktop session, and reproducible — whereas the development laptop runs VMs, browsers and indexers mid-measurement (the "Reproducibility correction" note below is what that costs). Ratios, not absolute ns, are what transfers between machines: the paired interleaved arms normalize away machine speed. Absolute numbers for publication still require a dedicated host with the hardware named.
+**This CI table is the reproducible instruction-baseline reference** (`x86-64-v1`, no runtime SIMD); the **honeycomb quiet-host table below is the dedicated-host wall-clock reference** and supersedes both the CI and the laptop *absolute* numbers. A CI runner is not a quiet host either, but it is freshly booted, unshared with a desktop session, and reproducible — whereas the development laptop runs VMs, browsers and indexers mid-measurement (the "Reproducibility correction" note below is what that costs). Ratios, not absolute ns, are what transfers between machines: the paired interleaved arms normalize away machine speed. Absolute numbers for publication still require a dedicated host with the hardware named.
 
 Cross-machine sanity check: bytes/key columns are byte-identical to the local run (deterministic accounting), which is what makes the timing columns' disagreement attributable to hardware rather than to the build.
+
+### libexpanse vs stock libjudy, JudyL surface — dedicated quiet host *(measured: honeycomb — 24-core x86_64 (i9-12900F), Ubuntu 22.04 / kernel 6.8, commit `43b46f38`; harness `crates/expanse-capi/examples/bench_vs_libjudy.rs`, interleaved A/B median of 5 rounds, 6 repetitions, load < 0.5; **native runtime feature detection — AVX2/BMI2 paths active**; stock libjudy 1.0.5 built from the SourceForge release tarball and `dlopen`'d)*
+
+Wall-clock ns per operation, 1,000,000-key populations (the stable rows; `< 1.00` = libexpanse faster / smaller):
+
+| dist | insert ours / stock (ratio) | get ours / stock (ratio) | B/key ours / stock (ratio) |
+|---|---|---|---|
+| **sequential 1M** | **13.4 / 23.6 ns (0.57×)** | **7.5 / 11.1 ns (0.68×)** | 8.56 / 8.32 (1.03×) |
+| **random 1M** | **56.2 / 71.7 ns (0.78×)** | 35.8 / 32.3 ns (**1.11×**) | 16.70 / 17.67 (**0.95×**) |
+| **clustered 1M** | **19.9 / 21.6 ns (0.92×)** | **8.5 / 10.4 ns (0.82×)** | 8.61 / 9.32 (**0.92×**) |
+
+Honest reading (this reverses the older CI/laptop insert story, and the mechanism is the tier, not a regression): with the **native SIMD paths active** libexpanse *wins* insert across all three distributions (0.57×–0.92×) and wins sequential/clustered lookup (0.68× / 0.82×). It is **~11% slower on random 1M lookup** (1.11×) — random point access is memory-latency-bound where the trie's extra indirection costs and SIMD does not help; this agrees with the M-series NEON laptop reading below (random lookup 1.55× slower) and is the engine's weak arm. On the `x86-64-v1` CI runner above — *without* the SIMD leaf/branch kernels — the same operations are slower than stock; the swing between the two rows is the microarchitecture-tier gain (`x86-64-v3` § below: up to −42.6% instructions), not a code change. The 100k-population rows are cache-warmup-noisy on this desktop part and are omitted; bytes/key is deterministic allocator accounting (`JudyLMemUsed`) and reproduces byte-for-byte across runs.
 
 ### Earlier: same harness on the development laptop (measured: M1 MacBook Pro under load — a VM at ~226% CPU co-resident — commit with this section; interleaved A/B medians of 5 rounds, so the *ratios* are meaningful while absolute ns are contaminated; harness: `crates/expanse-capi/examples/bench_vs_libjudy.rs`)
 
@@ -601,52 +650,75 @@ The Yahoo! Cloud Serving Benchmark (YCSB) standardizes real-world database engin
 
 ### 2. Measured Comparative Results (`N = 100,000`, `θ = 0.99`, 128B Blobs)
 
-*(Measured: Apple M-Series Silicon, Release Profile, Seed: `0x1234_5678_9ABC`)*
+*(Measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`, throughput = 20,000 ops ÷ criterion median)*
 
-| Workload | Target Engine | Throughput | Median (p50) | p95 Latency | p99 Latency | p99.9 Latency | Memory (MB) | Bytes/Key |
-|---|---|---:|---:|---:|---:|---:|---:|---:|
-| **Workload A** (50R / 50U) | `ExpanseMap (u64)` | **6.41 Mops/s** | 83 ns | 333 ns | 417 ns | 583 ns | **2.35 MB** | **24.6 B/key** |
-| | `ExpanseBlobMap (128B)` | **3.78 Mops/s** | 125 ns | 542 ns | 1,083 ns | 2,750 ns | **18.35 MB** | **192.4 B/key** |
-| | `BTreeMap (128B)` | 4.49 Mops/s | 84 ns | 583 ns | 792 ns | 2,084 ns | 18.31 MB | 192.0 B/key |
-| | `SkipMap (128B)` (RocksDB MemTable) | 2.97 Mops/s | 250 ns | 542 ns | 834 ns | 5,417 ns | 19.84 MB | 208.0 B/key |
-| **Workload B** (95R / 5U) | `ExpanseMap (u64)` | **22.12 Mops/s** | < 42 ns | 42 ns | 83 ns | 125 ns | **2.35 MB** | **24.6 B/key** |
-| | `ExpanseBlobMap (128B)` | **13.52 Mops/s** | 42 ns | 166 ns | 209 ns | 667 ns | **16.35 MB** | **171.4 B/key** |
-| | `BTreeMap (128B)` | 12.35 Mops/s | 42 ns | 125 ns | 209 ns | 333 ns | 18.31 MB | 192.0 B/key |
-| | `SkipMap (128B)` (RocksDB MemTable) | 5.82 Mops/s | 125 ns | 292 ns | 500 ns | 875 ns | 19.84 MB | 208.0 B/key |
-| **Workload C** (100% Read) | `ExpanseMap (u64)` | **22.29 Mops/s** | < 42 ns | 42 ns | 83 ns | 167 ns | **2.35 MB** | **24.6 B/key** |
-| | `ExpanseBlobMap (128B)` | **14.93 Mops/s** | 41 ns | 125 ns | 208 ns | 291 ns | **16.35 MB** | **171.4 B/key** |
-| | `BTreeMap (128B)` | 12.79 Mops/s | 42 ns | 84 ns | 125 ns | 167 ns | 18.31 MB | 192.0 B/key |
-| | `SkipMap (128B)` (RocksDB MemTable) | 4.95 Mops/s | 125 ns | 542 ns | 1,000 ns | 1,625 ns | 19.84 MB | 208.0 B/key |
-| **Workload D** (95R Latest / 5I) | `ExpanseMap (u64)` | **21.00 Mops/s** | < 42 ns | 42 ns | 83 ns | 250 ns | **2.36 MB** | **24.7 B/key** |
-| | `ExpanseBlobMap (128B)` | **15.98 Mops/s** | 41 ns | 125 ns | 208 ns | 333 ns | **16.36 MB** | **171.5 B/key** |
-| | `BTreeMap (128B)` | 5.23 Mops/s | 125 ns | 334 ns | 458 ns | 667 ns | 18.53 MB | 194.3 B/key |
-| | `SkipMap (128B)` (RocksDB MemTable) | 6.26 Mops/s | 125 ns | 250 ns | 333 ns | 666 ns | 20.07 MB | 210.5 B/key |
-| **Workload E** (95% Scan / 5% I) | `ExpanseMap (u64)` | **9.22 Mops/s** | 42 ns | 209 ns | 333 ns | 500 ns | **2.36 MB** | **24.7 B/key** |
-| | `ExpanseBlobMap (128B)` | **5.44 Mops/s** | 84 ns | 458 ns | 583 ns | 792 ns | **16.36 MB** | **171.5 B/key** |
-| | `BTreeMap (128B)` | 6.25 Mops/s | 83 ns | 375 ns | 500 ns | 667 ns | 18.53 MB | 194.3 B/key |
-| | `SkipMap (128B)` (RocksDB MemTable) | 4.58 Mops/s | 167 ns | 458 ns | 584 ns | 875 ns | 20.07 MB | 210.5 B/key |
-| **Workload F** (50R / 50 RMW) | `ExpanseMap (u64)` | **18.29 Mops/s** | 41 ns | 83 ns | 125 ns | 209 ns | **2.35 MB** | **24.6 B/key** |
-| | `ExpanseBlobMap (128B)` | **9.13 Mops/s** | 42 ns | 250 ns | 334 ns | 1,333 ns | **18.35 MB** | **192.4 B/key** |
-| | `BTreeMap (128B)` | 8.04 Mops/s | 42 ns | 292 ns | 584 ns | 1,709 ns | 18.31 MB | 192.0 B/key |
-| | `SkipMap (128B)` (RocksDB MemTable) | 2.61 Mops/s | 291 ns | 709 ns | 958 ns | 3,708 ns | 19.84 MB | 208.0 B/key |
+Throughput (Mops/s) per workload × engine:
+
+| Workload | `ExpanseMap (u64)` | `ExpanseBlobMap (128B)` | `BTreeMap (128B)` | `SkipMap (128B)` (RocksDB) |
+|---|---:|---:|---:|---:|
+| **A** (50R / 50U) | **20.81** | **11.63** | 3.65 | 1.91 |
+| **B** (95R / 5U) | **23.40** | **19.86** | 3.78 | 2.61 |
+| **C** (100% Read) | **23.81** | **21.14** | 3.81 | 1.98 |
+| **D** (95R-Latest / 5I) | **23.20** | **21.04** | 3.67 | 1.91 |
+| **E** (95% Scan / 5I) | **15.26** | **13.22** | 3.52 | 1.80 |
+| **F** (50R / 50 RMW) | **18.93** | **14.27** | 3.71 | 1.76 |
+
+#### Per-operation latency percentiles *(measured: honeycomb — 24-core x86_64 (i9-12900F), Ubuntu 22.04 / kernel 6.8, commit `43b46f38`; `benches/ycsb.rs` run with `YCSB_LATENCY_REPORT=1`, seed `0x1234_5678_9ABC`, 200,000 recorded ops/workload)*
+
+The criterion groups above time whole op batches (`record_latencies = false`). The opt-in report path (`YCSB_LATENCY_REPORT=1`) instead times each op individually with `record_latencies = true` and emits the percentiles below plus resident memory.
+
+> **Read these as tail-shape, not absolute op cost.** Bracketing every op with `Instant::now()`/`elapsed()` adds a **calibrated ~26 ns/op** on this host (the report prints the figure each run), and that overhead is included in every number below. For the fast engines the true op latency is roughly the column minus ~26 ns — e.g. `ExpanseMap` read-only p50 of 28 ns is a sub-few-ns lookup plus the bracket, consistent with the "sub-15 ns point lookup" criterion figure elsewhere. The overhead is ~constant and additive, so cross-engine ordering and the *tail* percentiles (p99/p99.9), where real work dominates, are the trustworthy signal.
+
+| Workload | Engine | p50 | p95 | p99 | p99.9 | Mem (MB) |
+|---|---|---:|---:|---:|---:|---:|
+| **A** (50R / 50U) | `ExpanseMap (u64)` | 33 ns | 56 ns | 66 ns | 77 ns | 2.35 |
+| | `ExpanseBlobMap (128B)` | 140 ns | **37,755 ns** | **39,205 ns** | 40,788 ns | 18.35 |
+| | `BTreeMap (128B)` | 72 ns | 126 ns | 141 ns | 177 ns | 18.31 |
+| | `SkipMap (128B)` | 311 ns | 641 ns | 1,148 ns | 2,228 ns | 19.84 |
+| **B** (95R / 5U) | `ExpanseMap (u64)` | 28 ns | 51 ns | 62 ns | 74 ns | 2.35 |
+| | `ExpanseBlobMap (128B)` | 47 ns | 84 ns | 118 ns | 797 ns | 18.35 |
+| | `BTreeMap (128B)` | 58 ns | 104 ns | 124 ns | 155 ns | 18.31 |
+| | `SkipMap (128B)` | 209 ns | 413 ns | 594 ns | 1,733 ns | 19.84 |
+| **C** (100% Read) | `ExpanseMap (u64)` | 28 ns | 49 ns | 59 ns | 69 ns | 2.35 |
+| | `ExpanseBlobMap (128B)` | 41 ns | 78 ns | 94 ns | 132 ns | 16.35 |
+| | `BTreeMap (128B)` | 57 ns | 100 ns | 111 ns | 134 ns | 18.31 |
+| | `SkipMap (128B)` | 197 ns | 357 ns | 436 ns | 549 ns | 19.84 |
+| **D** (95R-Latest / 5I) | `ExpanseMap (u64)` | 27 ns | 50 ns | 61 ns | 125 ns | 2.43 |
+| | `ExpanseBlobMap (128B)` | 43 ns | 94 ns | 133 ns | 772 ns | 18.43 |
+| | `BTreeMap (128B)` | 70 ns | 104 ns | 116 ns | 148 ns | 20.13 |
+| | `SkipMap (128B)` | 193 ns | 359 ns | 448 ns | 1,163 ns | 21.80 |
+| **E** (95% Scan / 5I) | `ExpanseMap (u64)` | 50 ns | 83 ns | 101 ns | 127 ns | 2.43 |
+| | `ExpanseBlobMap (128B)` | 62 ns | 103 ns | 129 ns | 761 ns | 18.43 |
+| | `BTreeMap (128B)` | 82 ns | 122 ns | 135 ns | 169 ns | 20.13 |
+| | `SkipMap (128B)` | 234 ns | 406 ns | 498 ns | 1,136 ns | 21.80 |
+| **F** (50R / 50 RMW) | `ExpanseMap (u64)` | 37 ns | 65 ns | 80 ns | 99 ns | 2.35 |
+| | `ExpanseBlobMap (128B)` | 134 ns | **38,224 ns** | **39,688 ns** | 40,651 ns | 18.35 |
+| | `BTreeMap (128B)` | 67 ns | 118 ns | 132 ns | 160 ns | 18.31 |
+| | `SkipMap (128B)` | 331 ns | 752 ns | 1,433 ns | 2,129 ns | 19.84 |
+
+**Tail finding — `ExpanseBlobMap` under write-heavy workloads (A, F):** p50 stays low (~140 ns) but p95–p99.9 spike to **~38–41 µs**, ~300× the p50 and ~250× `BTreeMap`'s p99. The spikes are arena slab-chunk allocation / growth stalls on the 50%-write mixes (A, F); the read-mostly and read-latest mixes (B, C, D — ≤5% writes) do not show them (p99.9 ≤ 800 ns). `SkipMap` carries the highest steady-state latency across the board (p50 ~200–330 ns). This tail is the load-bearing signal in this table; the sub-100 ns figures for the fast engines are near the measurement floor described in the caveat above. Mem (MB) is `mem_used()` after the 200k-op stream, so the insert-bearing workloads (D, E) read slightly higher than the read-only steady state.
 
 ---
 
-### 3. Concurrent Concurrency Scaling: `SyncExpanseMap`
+### 3. Concurrent scaling under write churn: `SyncExpanseMap`
 
-Under concurrent OLTP read/write churn (Workload B: 95% Read / 5% Update with active Zipfian contention):
+The dedicated concurrency instrument is `benches/concurrency.rs` (uniform-random keys, not Zipfian-blob). Its 95%-read / 5%-write mix — the closest analogue to YCSB Workload B — measured on honeycomb (24-core x86_64, commit 695b98d, 1M keys, 500 ms windows):
 
-| Worker Threads | Read Throughput | Write Throughput | Combined Throughput | Concurrency Scalability |
+| Worker Threads | Read Throughput | Write Throughput | Combined | Scale |
 |---|---:|---:|---:|---:|
-| **1 Thread** | 14.39 Mops/s | 0.76 Mops/s | 15.15 Mops/s | 1.00× (Baseline) |
-| **2 Threads** | 19.95 Mops/s | 1.05 Mops/s | 21.00 Mops/s | **1.39×** |
-| **4 Threads** | 14.93 Mops/s | 0.78 Mops/s | 15.71 Mops/s | 1.04× |
-| **8 Threads** | 11.01 Mops/s | 0.58 Mops/s | 11.59 Mops/s | 0.76× |
+| **1 Thread** | 18.65 Mops/s | 0.98 Mops/s | 19.63 Mops/s | 1.00× |
+| **2 Threads** | 26.54 Mops/s | 1.40 Mops/s | 27.94 Mops/s | **1.42×** |
+| **4 Threads** | 33.84 Mops/s | 1.78 Mops/s | **35.62 Mops/s** | **1.81×** (peak) |
+| **8 Threads** | 32.27 Mops/s | 1.70 Mops/s | 33.97 Mops/s | 1.73× |
+| **16 Threads** | 27.39 Mops/s | 1.45 Mops/s | 28.84 Mops/s | 1.47× |
 
-**Architectural Takeaways:**
-1. **`ExpanseBlobMap` vs RocksDB MemTable (`SkipMap`)**: `ExpanseBlobMap` achieves **2.3× to 3.5× higher throughput** across Workloads B, C, D, and F while consuming 16% less memory due to 16-byte aligned slab chunking and immediate 64-bit value slot descriptors.
-2. **`ExpanseBlobMap` vs `BTreeMap` on Read-Latest (Workload D)**: `ExpanseBlobMap` delivers **3.05× higher throughput** (15.98 M/s vs 5.23 M/s) because digital trie appends do not trigger cascade rebalancing or B-Tree page splits.
-3. **Pure Word Trie (`ExpanseMap`)**: Delivers sustained **>22 Mops/s** on read-heavy workloads (Workloads B & C) with sub-42ns median latency and a compact 24.6 B/key memory footprint.
+Write-mixed throughput **peaks around 4 threads and then declines** as readers retry against the tree-level seqlock — the same seqlock-bound behaviour documented in the concurrent-read-scaling section above. (100%-read scales cleanly to 265.8 M ops/s / 12.0× at 16 threads.)
+
+**Architectural Takeaways (measured, honeycomb):**
+1. **`ExpanseBlobMap` vs RocksDB `SkipMap`**: **~7.6×–11.0× higher throughput** across Workloads B, C, D, F on this host (host- and payload-dependent — the boxed-blob path is heavier for the skiplist here than on the earlier Apple-silicon run).
+2. **`ExpanseBlobMap` vs `BTreeMap` on Read-Latest (Workload D)**: **~5.7× higher throughput** (21.04 vs 3.67 Mops/s) — digital-trie appends avoid B-tree page splits.
+3. **Pure Word Trie (`ExpanseMap`)**: sustained **>23 Mops/s** on read-heavy workloads (B & C) with a compact ~24.6 B/key footprint.
+4. **Range-heavy workloads (E)** are the trie's weakest YCSB profile — consistent with the measured full-`iter()` gap vs `BTreeMap` (see the comparative section below / `docs/DATABASE.md` §7.1).
 
 
 

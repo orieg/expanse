@@ -1,6 +1,6 @@
 # RFC: Large-Value Architectural Optimizations in Expanse
 
-**Status**: Proposed  
+**Status**: Partially Implemented — core shipped in #159 / #161  
 **Author**: Expanse Core Team  
 **Issue**: [#112](https://github.com/orieg/expanse/issues/112)  
 **Target Milestone**: Expanse v0.3.0  
@@ -20,10 +20,22 @@ When storing arbitrary-sized payloads (strings, JSON documents, protocol buffers
 
 This RFC introduces a unified, zero-copy, cache-conscious large-value architecture for Expanse across four complementary pillars:
 1. **Polymorphic 64-bit Value Slots (`ValueSlot`)**: Packing $\le 7$-byte values directly inline with zero heap allocation, and packing 32-bit hot metadata (TTL, flags, tenant ID) alongside a 24-bit arena locator into a single 64-bit word.
-2. **Hot/Cold Columnar Metadata-Predicate Range Filtering**: Executing predicate filters directly over contiguous leaf value arrays without dereferencing cold payload cache lines, reducing DRAM bus traffic by up to $82\%$ and accelerating selective scans by $>15\times$.
+2. **Hot/Cold Columnar Metadata-Predicate Range Filtering**: Executing predicate filters directly over contiguous leaf value arrays without dereferencing cold payload cache lines. The `$82\%$ DRAM-traffic reduction` / `$>15\times$ selective-scan` figures are **design targets gated on the wide-offset arena** — measured on the shipped 16 MiB-ceiling arena the columnar advantage is ~1.3–1.4× (the working set stays L3-resident, so payloads are never cache-cold); see §10.3.
 3. **Chunked Slab/Arena Backing (`BlobArena` / `ExpanseBlobMap`)**: Append-only 2 MiB/16 MiB chunk allocation with generation counters, ABA safety, and incremental in-place compaction.
 4. **Zero-Copy `mmap` / Shared-Memory IPC**: Base-relative offset encoding enabling cross-process multi-reader access with zero serialization overhead and zero memory duplication.
 5. **C ABI Drop-In Compatibility**: Seamless coexistence with classic `JudyL` functions (`JudyLGet`, `JudyLIns`) returning `*mut Word`.
+
+### Implementation status (as of commit 6c63826a)
+
+| Pillar | Status | Notes |
+|---|---|---|
+| Polymorphic `ValueSlot` (inline ≤7B + `ArenaShort` locator) | **Shipped** | `crates/expanse/src/slot.rs`, `blobmap.rs`. Inline and `ArenaShort` tags are live. |
+| Hot/cold columnar predicate filtering | **Shipped** | 32-bit hot metadata packed alongside the arena locator. |
+| Chunked slab/arena backing (`BlobArena` / `ExpanseBlobMap`) | **Shipped, 16 MiB ceiling** | The live arena is capped at **16 MiB** by the 24-bit `ARENA_OFFSET_MASK` (`0x00FF_FFFF`); `alloc_blob` returns `ArenaError::OffsetOverflow` past that. Per-payload bound is `chunk_size − 8`, not 4 GiB. |
+| `ArenaLong` (16-bit chunk id + 40-bit offset, >16 MiB) | **Reserved / not implemented** | Encoding + accessors (`new_arena_long`, `arena_long_loc`) exist with a round-trip test, but the blob map never produces or reads `ArenaLong` slots. `External = 0x12` is likewise reserved. |
+| Zero-copy `mmap` / shared-memory IPC (base-relative offsets) | **Not implemented** | No `RelOffset` / `shm_open` / position-independent layout exists; `ExpanseBlobMap::load_from_file` is a full `std::fs::read` + index rebuild, not an mmap. See `docs/DATABASE.md` §6 (roadmap). |
+
+Sections below that describe `ArenaLong` multi-chunk mode, ">16 MiB / petabyte-scale" arenas, "256 MiB at 16 B alignment" locators, or `mmap`/shared-memory zero-copy are **design targets**, not shipped behavior.
 
 ---
 
@@ -89,14 +101,14 @@ To resolve this bottleneck without widening the trie's 16-byte `Edge` or alterin
 | [63:32] (32 bits)                  | [31:8] (24 bits)             | [7:0]             |
 +------------------------------------+------------------------------+-------------------+
   - 32-bit Hot Metadata: directly filterable without payload dereference.
-  - 24-bit Arena Locator: 16 MiB direct offset (or 256 MiB at 16B alignment).
+  - 24-bit Arena Locator: 16 MiB direct byte offset. (The shipped locator is a raw byte offset; the "256 MiB at 16 B alignment" scheme is *not* implemented.)
 
-3. Arena Long Mode (> 16 MiB address space / Multi-Chunk):
+3. Arena Long Mode (> 16 MiB address space / Multi-Chunk) — **RESERVED, NOT IMPLEMENTED**:
 +-------------------------------------------------------------------+-------------------+
 | Arena Chunk ID (16 bits) | Chunk Byte Offset (40 bits)            | Tag (0x11)        |
 | [63:48]                  | [47:8]                                 | [7:0]             |
 +-------------------------------------------------------------------+-------------------+
-  - Supports petabyte-scale memory-mapped files and persistent stores.
+  - *(target)* Would support petabyte-scale memory-mapped files and persistent stores. The `ArenaLong` encoding and its accessors exist in `slot.rs`, but no blob-map code path produces or consumes them; the live ceiling is 16 MiB.
 
 4. Raw Scalar / Unmanaged Word (Classic JudyL Compatibility):
 +---------------------------------------------------------------------------------------+
@@ -482,7 +494,7 @@ $$\mathcal{R}_{\text{BW}}(\sigma) = \frac{\text{DRAM}_{\text{expanse}}}{\text{DR
 
 ### 6.1 Chunked Arena Architecture
 
-`BlobArena` allocates large, contiguous memory slabs (default: 2 MiB or 16 MiB chunks) using `mmap` or aligned system allocations:
+`BlobArena` allocates large, contiguous memory slabs as 16-byte-aligned system allocations (`std::alloc::alloc_zeroed` with an explicit `Layout` — *not* `mmap`; see `ArenaChunk::new` in `blobmap.rs`):
 
 ```
 +------------------------------------------------------------------------------------+
@@ -505,7 +517,9 @@ Every arena payload is prefixed with an 8-byte packed header:
 ```rust
 #[repr(C, packed)]
 pub struct BlobRecordHeader {
-    /// Payload length in bytes (up to 4 GB).
+    /// Payload length in bytes. The field is a `u32`, but the real limit is the
+    /// per-payload bound `chunk_size − 8` under the live 16 MiB arena ceiling —
+    /// not 4 GiB.
     pub len: u32,
     /// Generation counter for ABA protection and compaction validation.
     pub generation: u32,
@@ -795,7 +809,28 @@ Per Expanse development rules, development proceeds in strict sequential phases 
 ### 10.2 Benchmark Suite Additions (`benches/large_values.rs`)
 - `bench_inline_vs_heap_small_blobs`: Measure throughput (ops/sec) and allocations for 1–7 byte keys. Target: $0$ heap allocations, $>3\times$ insert throughput vs `BTreeMap<u64, Vec<u8>>`.
 - `bench_predicate_scan_selectivity_sweep`: Measure scan latency across $\sigma \in \{0.001, 0.01, 0.05, 0.20, 1.0\}$. Target: $>10\times$ speedup at $\sigma \le 0.05$.
+- `bench_predicate_scan_cold_dram_sweep`: the falsifiable variant of the above with a payload-*touching* baseline (both arms share the `scan_filtered` traversal, so the only difference is payload cache-line loads). Measures the speedup the columnar pushdown actually yields; see §10.3 for why the arena ceiling keeps it warm.
 - `bench_arena_compaction_churn`: Measure pause times and memory reclamation under heavy overwrite workloads.
+
+### 10.3 Measured status *(measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/large_values.rs`, criterion medians)*
+
+- **`inline_vs_heap_small_blobs`** — `ExpanseBlobMap` (inline value slots) vs `BTreeMap<u64, Vec<u8>>` (heap), 7-byte payload: **insert 199.5 µs vs 587.1 µs (2.9× faster)**, **get 56.8 µs vs 290.0 µs (5.1× faster)** (0-byte payload: 2.3× / 5.1×). Insert is just under the RFC's `>3×` target; get comfortably clears it. Zero-heap-allocation for ≤7-byte payloads is a structural property (inline slots), separately asserted by unit tests.
+- **`predicate_scan_selectivity_sweep`** (original, mismatched baseline) — target `>10× at σ≤0.05` is **not demonstrated by this bench**; the `columnar_filtered_scan` (`scan_filtered`) arm is **~2× slower** than the `naive_unfiltered_deref` arm at every selectivity (e.g. σ=0.001: 741 µs vs 367 µs). The baseline is the problem: it uses a raw `get()` loop (different, cheaper traversal than `scan_filtered`) and reads only the payload *length* on a match, so it never touches payload bytes — both arms avoid cold-payload loads and the pushdown has nothing to win, while the traversal-cost mismatch makes the columnar arm look slower.
+
+- **`predicate_scan_cold_dram_sweep`** (falsifiable variant, corrected baseline) — *(measured: honeycomb — 24-core x86_64 (i9-12900F), commit `43b46f38`; criterion medians)*. Both arms share the identical `scan_filtered` traversal (so the trie-walk cost cancels) and the naive arm touches **every** payload byte while the columnar arm touches only matches. With that fix the pushdown **is** faster, not slower — **but it does not reach `>10×`, and cannot on the current engine:**
+
+  | σ | columnar `scan_filtered` | naive full-deref | speedup |
+  |---|---:|---:|---:|
+  | 0.001 | 228.0 µs | 323.5 µs | **1.42×** |
+  | 0.01 | 230.7 µs | 325.5 µs | 1.41× |
+  | 0.05 | 244.7 µs | 323.8 µs | **1.32×** |
+  | 0.20 | 293.1 µs | 323.2 µs | 1.10× |
+  | 1.0 | 322.9 µs | 323.3 µs | 1.00× |
+
+  **Why it is capped at ~1.4×, and why the premise is unreachable here.** The RFC's `>10× / 82%-DRAM-traffic` argument requires the skipped payloads to be **cache-cold** — a real DRAM fetch (~80 ns), so avoiding it dwarfs the scan bookkeeping. That needs the arena working set to exceed the host LLC. But the 64-bit `ExpanseBlobMap` arena is **hard-capped at 16 MiB** by the 24-bit `ArenaShort` value-slot offset (`blobmap.rs` "Capacity limits"; the wider `ArenaLong`/`External` encodings that would lift it are **unimplemented**). 16 MiB < a typical server LLC (honeycomb's L3 is **30 MiB**), so the whole arena is forced L3-resident: a skipped payload saves an ~L3 hit (~7 ns here, measured), not a DRAM fetch. The columnar arm is then bounded by the traversal floor — full-scan cost 323 µs ÷ traversal-only floor 228 µs ≈ **1.42× maximum**, reached as σ→0. This is a derivable ceiling, not a tuning gap.
+
+  **Verdict (RFC §10.3 revised, target → measured):** the `>10× at σ≤0.05` speedup is **not achievable on the current `ExpanseBlobMap`** because its 16 MiB arena ceiling keeps the working set inside the LLC, so the cold-DRAM regime the claim depends on never occurs. With a correct payload-touching baseline the measured columnar advantage on a warm (L3-resident) arena is **~1.3–1.4× at σ ≤ 0.05**, traversal-floor bounded. Reaching the `>10×` / `82% traffic reduction` figures is **gated on implementing the wide-offset (`ArenaLong`/`External`) arena** so the payload store can exceed the LLC, *and* on an ordered-scan fast path to lower the traversal floor. Until then the `>10×` / `>15×` / `82%` numbers in this RFC's §Overview remain **targets, not measured results**, and are explicitly gated on that arena work.
+- **`arena_compaction_churn`** — compaction over 20k entries: ~475 µs after a 50%-delete churn, ~200 µs after 80%-delete (informational; no target).
 
 ---
 

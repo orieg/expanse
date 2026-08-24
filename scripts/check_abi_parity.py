@@ -127,6 +127,14 @@ PYTHON_FEATURE_MAPPING = {
     "expanse_strmap_prev_at_or_before": ("strmap.rs", ["prev_at_or_before", "prev"]),
     "expanse_strmap_prev_before": ("strmap.rs", ["prev_before", "prev"]),
 
+    # StrMap truncation-aware navigation (6 functions)
+    "expanse_strmap_first_ex": ("strmap.rs", ["first"]),
+    "expanse_strmap_last_ex": ("strmap.rs", ["last"]),
+    "expanse_strmap_next_at_or_after_ex": ("strmap.rs", ["next_at_or_after", "next"]),
+    "expanse_strmap_next_after_ex": ("strmap.rs", ["next_after", "next"]),
+    "expanse_strmap_prev_at_or_before_ex": ("strmap.rs", ["prev_at_or_before", "prev"]),
+    "expanse_strmap_prev_before_ex": ("strmap.rs", ["prev_before", "prev"]),
+
     # SyncSet (9 functions)
     "expanse_sync_set_new": ("sync.rs", ["new", "SyncExpanseSet"]),
     "expanse_sync_set_free": ("sync.rs", ["inner", "SyncExpanseSet"]),
@@ -237,6 +245,14 @@ NODE_FEATURE_MAPPING = {
     "expanse_strmap_next_after": ("strmap.rs", ["next"]),
     "expanse_strmap_prev_at_or_before": ("strmap.rs", ["prev"]),
     "expanse_strmap_prev_before": ("strmap.rs", ["prev"]),
+
+    # StrMap truncation-aware navigation (6 functions)
+    "expanse_strmap_first_ex": ("strmap.rs", ["first"]),
+    "expanse_strmap_last_ex": ("strmap.rs", ["last"]),
+    "expanse_strmap_next_at_or_after_ex": ("strmap.rs", ["next"]),
+    "expanse_strmap_next_after_ex": ("strmap.rs", ["next"]),
+    "expanse_strmap_prev_at_or_before_ex": ("strmap.rs", ["prev"]),
+    "expanse_strmap_prev_before_ex": ("strmap.rs", ["prev"]),
 
     # SyncSet (9 functions)
     "expanse_sync_set_new": ("sync.rs", ["new", "constructor"]),
@@ -541,7 +557,7 @@ def print_text_report(c_symbols: List[CSymbol], report: ParityReport, verbose: b
         if report.node_missing:
             print(f"  Node.js missing: {sorted(report.node_missing)}")
     else:
-        print("✓ All 92 libexpanse C ABI symbols are 100% covered across Java, .NET, Python, and Node.js!")
+        print(f"✓ All {report.total_c_symbols} libexpanse C ABI symbols are 100% covered across Java, .NET, Python, and Node.js!")
 
 
 def format_markdown_table(c_symbols: List[CSymbol], report: ParityReport) -> str:

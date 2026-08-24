@@ -41,15 +41,18 @@ public class ExpanseSetTests
     public void BoundaryKeys()
     {
         using var set = new ExpanseSet();
-        Assert.True(set.Add(0));
-        Assert.True(set.Add(ulong.MaxValue));
-        Assert.True(set.Add(ulong.MaxValue / 2));
+        ulong[] keys = { 0, 1, (1UL << 53) - 1, (1UL << 53), (ulong)long.MaxValue, ulong.MaxValue };
+        foreach (var k in keys)
+        {
+            Assert.True(set.Add(k));
+        }
 
-        Assert.True(set.Contains(0));
-        Assert.True(set.Contains(ulong.MaxValue));
-        Assert.True(set.Contains(ulong.MaxValue / 2));
-        Assert.False(set.Contains(1));
-
+        foreach (var k in keys)
+        {
+            Assert.True(set.Contains(k));
+        }
+        Assert.Equal(keys.Length, set.Count);
+        
         Assert.Equal(0UL, set.First());
         Assert.Equal(ulong.MaxValue, set.Last());
     }

@@ -264,7 +264,7 @@ fn test_mmap_and_binary_serialization() {
     let temp_file = std::env::temp_dir().join("test_blobmap_integ.bin");
     map.save_to_file(&temp_file).unwrap();
 
-    let loaded = ExpanseBlobMap::mmap_file(&temp_file).unwrap();
+    let loaded = ExpanseBlobMap::load_from_file(&temp_file).unwrap();
     assert_eq!(loaded.len(), 100);
 
     for i in 0..100u64 {

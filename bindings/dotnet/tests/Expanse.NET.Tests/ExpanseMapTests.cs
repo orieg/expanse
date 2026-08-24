@@ -56,13 +56,17 @@ public class ExpanseMapTests
     public void BoundaryKeys()
     {
         using var map = new ExpanseMap();
-        map[0] = 12345;
-        map[ulong.MaxValue] = 67890;
+        ulong[] keys = { 0, 1, (1UL << 53) - 1, (1UL << 53), (ulong)long.MaxValue, ulong.MaxValue };
+        foreach (var k in keys)
+        {
+            map[k] = k * 2;
+        }
 
-        Assert.True(map.ContainsKey(0));
-        Assert.True(map.ContainsKey(ulong.MaxValue));
-        Assert.Equal(12345UL, map[0]);
-        Assert.Equal(67890UL, map[ulong.MaxValue]);
+        foreach (var k in keys)
+        {
+            Assert.True(map.ContainsKey(k));
+            Assert.Equal(k * 2, map[k]);
+        }
     }
 
     [Fact]

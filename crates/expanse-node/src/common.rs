@@ -13,11 +13,19 @@ pub type BytesInput = Either3<Buffer, Uint8Array, String>;
 pub fn key_to_u64(key: KeyInput) -> Result<u64> {
     match key {
         Either::A(bi) => {
-            let (_, val, _) = bi.get_u64();
             if bi.sign_bit {
                 return Err(Error::new(
                     Status::InvalidArg,
                     "Key must be an unsigned 64-bit integer (received negative BigInt)",
+                ));
+            }
+            // `lossless` is false when the BigInt does not fit in a single u64 word;
+            // ignoring it silently truncates, e.g. 2n**64n + 1n would store 1.
+            let (_, val, lossless) = bi.get_u64();
+            if !lossless {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "Key BigInt does not fit in an unsigned 64-bit integer (value out of u64 range)",
                 ));
             }
             Ok(val)
@@ -29,10 +37,19 @@ pub fn key_to_u64(key: KeyInput) -> Result<u64> {
                     "Key must be a non-negative finite number",
                 ));
             }
-            if num > u64::MAX as f64 {
+            if num.fract() != 0.0 {
                 return Err(Error::new(
                     Status::InvalidArg,
-                    "Key number exceeds maximum 64-bit unsigned integer range",
+                    "Key number must be an integer (received a fractional value)",
+                ));
+            }
+            // A JS Number (f64) can only represent integers exactly up to 2^53; past
+            // that, distinct u64 keys collapse to the same value. Require a BigInt.
+            const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_992.0; // 2^53
+            if num > MAX_SAFE_INTEGER {
+                return Err(Error::new(
+                    Status::InvalidArg,
+                    "Key number exceeds 2^53 (JS integer-precision limit); pass a BigInt for larger keys",
                 ));
             }
             Ok(num as u64)

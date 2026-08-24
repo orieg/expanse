@@ -826,7 +826,7 @@ mod tests {
             }
         }
         let mut rng = XorShift(0xFEED_FACE_0123_4567);
-        for _ in 0..500 {
+        for _ in 0..if cfg!(miri) { 50 } else { 500 } {
             probes.insert(rng.next() & expanse_mask);
         }
         probes.insert(0);

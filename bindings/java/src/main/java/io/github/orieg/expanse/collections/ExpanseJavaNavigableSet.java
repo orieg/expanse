@@ -44,13 +44,18 @@ public class ExpanseJavaNavigableSet extends AbstractSet<Long> implements Naviga
     }
 
     private boolean inRange(long key) {
+        // Keys are ordered as unsigned 64-bit integers by the native trie, so all
+        // boundary comparisons must use Long.compareUnsigned. Signed < / > would
+        // misplace every key >= 2^63 (e.g. -1L is the LARGEST key, not the smallest).
         if (fromElement != null) {
-            if (fromInclusive ? key < fromElement : key <= fromElement) {
+            int c = Long.compareUnsigned(key, fromElement);
+            if (fromInclusive ? c < 0 : c <= 0) {
                 return false;
             }
         }
         if (toElement != null) {
-            if (toInclusive ? key > toElement : key >= toElement) {
+            int c = Long.compareUnsigned(key, toElement);
+            if (toInclusive ? c > 0 : c >= 0) {
                 return false;
             }
         }
@@ -118,7 +123,11 @@ public class ExpanseJavaNavigableSet extends AbstractSet<Long> implements Naviga
 
     @Override
     public Comparator<? super Long> comparator() {
-        return descending ? Comparator.reverseOrder() : null;
+        // Unsigned order: must NOT return null (null implies natural signed order,
+        // which is wrong for keys >= 2^63). Return the unsigned comparator, reversed
+        // for descending views.
+        Comparator<Long> cmp = Long::compareUnsigned;
+        return descending ? cmp.reversed() : cmp;
     }
 
     @Override

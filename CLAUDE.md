@@ -24,11 +24,17 @@ Clean-room, pure-Rust Judy arrays modernized for current hardware, plus `libexpa
 | C compat contract, surface, packaging, acceptance gates, doc-gap resolutions | `docs/COMPAT.md` |
 | Testing methodology, invariant validator, oracle rules | `docs/TESTING.md` |
 | Benchmark methodology, comparison targets, results policy | `docs/BENCHMARKING.md` |
+| CI pipeline, job catalog, rollup gate, regression gating | `docs/CI.md` |
+| Distribution & packaging across all ecosystems | `docs/PACKAGING.md` |
+| Database-engine subsystem patterns & integration blueprints | `docs/DATABASE.md` |
+| Large-value / blob-arena design RFC | `docs/RFC_LARGE_VALUES.md` |
+| 32-bit embedded architecture RFC | `docs/RFC_32BIT_EMBEDDED.md` |
+| Python / Java binding references | `docs/BINDINGS_PYTHON.md` · `docs/BINDINGS_JAVA.md` |
 | Status + platform tiers | `README.md` (Status section) |
 
 ## Rust conventions
 
-- Edition 2024, `rust-version` 1.85, 64-bit targets only (compile-time enforced).
+- Edition 2024, `rust-version` 1.85. Both 64-bit and 32-bit targets are supported: `lib.rs` carries a `compile_error!` that fires only on targets that are neither 64- nor 32-bit. The 64-bit engine modules are `#[cfg(target_pointer_width = "64")]`; a parallel real 32-bit trie (`trie32`/`set32`/`map32`/`blobmap32`, shipped in #230) compiles unconditionally, and on 32-bit targets the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, etc.).
 - CI runs `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --check` — keep both clean locally before committing.
 - Every `unsafe` block carries a `// SAFETY:` comment (clippy `undocumented_unsafe_blocks` is on).
 - Every SIMD/intrinsic path has a portable fallback plus a parity test (see docs/TESTING.md).
@@ -43,6 +49,6 @@ Clean-room, pure-Rust Judy arrays modernized for current hardware, plus `libexpa
 
 - `type(scope): description` commits (feat/fix/docs/refactor/chore/eval/poc), atomic.
 - Repo: `github.com/orieg/expanse` (**public** since 2026-08-19 — the first publishable milestone: all four COMPAT.md gates green, modern API shipped; renamed from judy-rs, old URL redirects). Commit/push only when Nicolas asks.
-- **`main` is protected** (ruleset `main-protection`, active since the repo went public 2026-08-19): PR required, 12 required status checks (every ci.yml job), no force-push, no deletion, **no bypass actors** — an admin bypass would have made it advisory for the only person who commits here. Workflow: branch → push → `gh pr create` → watch checks → `gh pr merge`. Verified: a direct push to `main` is rejected. Renaming a CI job means updating the ruleset's required-check list, or PRs hang on a check that will never report. The `php-judy-compat` check clones php-judy at a pinned SHA (see ci.yml); bump it deliberately.
+- **`main` is protected** (ruleset `main-protection`, active since the repo went public 2026-08-19): PR required, **a single required status check** — `CI Gate / All Checks Passed` (the `ci-gate` rollup job that `needs:` every other ci.yml job — 28 jobs total, 27 non-gate — and fails if any failed or was cancelled; a `lint` step plus the gate's own self-check parse `ci.yml` and assert no job id is missing from its `needs`) — no force-push, no deletion, **no bypass actors** — an admin bypass would have made it advisory for the only person who commits here. Workflow: branch → push → `gh pr create` → watch checks → `gh pr merge`. Verified: a direct push to `main` is rejected. Because the ruleset requires only the rollup context, renaming a *non-gate* CI job no longer requires editing the ruleset (the self-check guards completeness instead); only renaming `ci-gate` itself would. The `php-judy-compat` check clones php-judy at a pinned SHA (see ci.yml); bump it deliberately.
 - **CI concurrency**: one in-flight run per PR (`concurrency` group keyed on the PR number); a new commit cancels the previous run, so only the branch tip is fully verified. Pushes to `main` are keyed **per commit (`github.sha`)**, so main runs queue behind each other and never evict one another. `cancel-in-progress: false` alone does **not** achieve that: GitHub keeps only one *pending* run per group and cancels any previously pending one regardless of the flag. That was not a theoretical risk — three merges landing in quick succession cancelled the middle commit's run with zero jobs executed, so a commit reached the protected branch with no verification record. A commit on `main` with no run is invisible in a way a red check is not: nothing reports, so nothing looks wrong.
 - **Repo is public** — Actions minutes are free again. While private, the macOS (10x) and Windows (2x) multipliers exhausted the 2,000-minute free tier in a single day of heavy CI use; if it ever goes private again, move macOS/Windows and the heavy jobs (miri, fuzz, php-judy-windows, instruction-counts) to nightly-only first.

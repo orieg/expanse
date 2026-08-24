@@ -135,19 +135,26 @@ impl ExpanseBlobMap {
         })
     }
 
-    /// Saves the map to a relocatable binary image file. Returns the number of bytes written.
+    /// Saves the map to a relocatable binary image file. Returns the number of bytes
+    /// written as a BigInt (an image can exceed 4 GiB, so the count does not fit in u32).
     #[napi(js_name = "saveImage")]
-    pub fn save_image(&self, path: String) -> Result<u32> {
+    pub fn save_image(&self, path: String) -> Result<BigInt> {
         let written = self.inner.save_to_file(&path).map_err(|e| {
             Error::new(Status::GenericFailure, format!("Failed to save image: {e}"))
         })?;
-        Ok(written as u32)
+        Ok(BigInt::from(written as u64))
     }
 
     /// Loads a map from a relocatable binary image file.
+    ///
+    /// The whole file is read into memory and the index is rebuilt entry-by-entry;
+    /// the image is NOT memory-mapped. (There is therefore no lazy-fault SIGBUS hazard
+    /// from a file being truncated while mapped — the trade-off is that the full image
+    /// is resident after load. A previous `mmap` argument was accepted but never had
+    /// any effect, so it has been removed rather than left as a misleading no-op.)
     #[napi(factory, js_name = "openImage")]
-    pub fn open_image(path: String, _mmap: Option<bool>) -> Result<ExpanseBlobMap> {
-        let inner = InnerBlobMap::mmap_file(&path).map_err(|e| {
+    pub fn open_image(path: String) -> Result<ExpanseBlobMap> {
+        let inner = InnerBlobMap::load_from_file(&path).map_err(|e| {
             Error::new(Status::GenericFailure, format!("Failed to open image: {e}"))
         })?;
         Ok(Self { inner })

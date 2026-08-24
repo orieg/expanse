@@ -130,6 +130,16 @@ public final class ExpanseBlobMap implements AutoCloseable {
             if (len == 0 || ptr.equals(MemorySegment.NULL)) {
                 bytes = new byte[0];
             } else {
+                // A Java array cannot exceed Integer.MAX_VALUE elements. Guard
+                // explicitly: without this, `(int) len` for len >= 2^31 would either
+                // go negative (NegativeArraySizeException) or silently truncate the
+                // payload. Fail loud rather than corrupt.
+                if (len > Integer.MAX_VALUE) {
+                    throw new IllegalStateException(
+                            "Blob payload of " + Long.toUnsignedString(len)
+                            + " bytes exceeds the maximum Java array size ("
+                            + Integer.MAX_VALUE + "); use a streaming/segment API instead");
+                }
                 bytes = new byte[(int) len];
                 MemorySegment dataSeg = ptr.reinterpret(len);
                 MemorySegment.copy(dataSeg, ValueLayout.JAVA_BYTE, 0, bytes, 0, (int) len);

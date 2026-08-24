@@ -29,9 +29,30 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Download latest release packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts
+          if gh release download --repo "$GITHUB_REPOSITORY" \
+               --pattern '*.deb' --pattern '*.rpm' --dir artifacts; then
+            echo "Downloaded release packages:"
+            ls -la artifacts
+          else
+            echo "::warning::No release with .deb/.rpm assets found; portal will be built with empty apt/rpm repos (bootstrap)."
+          fi
+
       - name: Build static site
         run: |
-          python3 scripts/build_pages.py --output-dir ./pages-root
+          set -euo pipefail
+          # Refuse to overwrite the live apt/rpm repos with empty ones unless this
+          # is a genuine bootstrap (no release assets exist yet).
+          if ls artifacts/*.deb artifacts/*.rpm >/dev/null 2>&1; then
+            python3 scripts/build_pages.py --artifacts-dir artifacts --output-dir ./pages-root
+          else
+            python3 scripts/build_pages.py --artifacts-dir artifacts --output-dir ./pages-root --allow-empty
+          fi
 
       - name: Deploy to GitHub Pages (gh-pages branch)
         uses: peaceiris/actions-gh-pages@v4

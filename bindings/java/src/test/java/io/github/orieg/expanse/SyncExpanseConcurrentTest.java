@@ -130,4 +130,38 @@ class SyncExpanseConcurrentTest {
             assertEquals(numKeys + 500, map.size());
         }
     }
+
+    @Test
+    @DisplayName("SyncExpanseMap.close() invalidates live readers and is idempotent")
+    void mapCloseInvalidatesReaders() {
+        SyncExpanseMap map = new SyncExpanseMap();
+        map.insert(1L, 100L);
+        SyncExpanseMap.Reader reader = map.reader();
+        assertEquals(OptionalLong.of(100L), reader.get(1L));
+
+        // Closing the map must invalidate the still-live reader; a subsequent use is
+        // a use-after-free at the native level, so it must be refused, not executed.
+        map.close();
+        assertThrows(IllegalStateException.class, () -> reader.get(1L));
+
+        // close() is idempotent: a second close (double-close race) must be a no-op.
+        assertDoesNotThrow(map::close);
+        // Closing an already-invalidated reader must also be safe (no double-free).
+        assertDoesNotThrow(reader::close);
+    }
+
+    @Test
+    @DisplayName("SyncExpanseSet.close() invalidates live readers and is idempotent")
+    void setCloseInvalidatesReaders() {
+        SyncExpanseSet set = new SyncExpanseSet();
+        set.insert(7L);
+        SyncExpanseSet.Reader reader = set.reader();
+        assertTrue(reader.contains(7L));
+
+        set.close();
+        assertThrows(IllegalStateException.class, () -> reader.contains(7L));
+
+        assertDoesNotThrow(set::close);
+        assertDoesNotThrow(reader::close);
+    }
 }

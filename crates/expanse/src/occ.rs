@@ -564,47 +564,14 @@ mod loom_tests {
         });
     }
 
-    /// Model-checks concurrent reader retry behavior while a writer modifies
-    /// internal node versions and edge tables (`version_begin`/`version_end`).
-    #[test]
-    fn loom_node_split_retry_safety() {
-        loom::model(|| {
-            let version = Arc::new(loom::sync::atomic::AtomicU32::new(0));
-            let edge = Arc::new(loom::sync::atomic::AtomicUsize::new(100));
-
-            let v_w = Arc::clone(&version);
-            let e_w = Arc::clone(&edge);
-
-            let writer = loom::thread::spawn(move || {
-                let v = v_w.load(Ordering::Relaxed);
-                v_w.store(v + 1, Ordering::Release);
-                e_w.store(200, Ordering::Relaxed);
-                v_w.store(v + 2, Ordering::Release);
-            });
-
-            let mut read_val = 0;
-            let mut success = false;
-
-            let v = version.load(Ordering::Acquire);
-            if v % 2 == 0 {
-                let e = edge.load(Ordering::Relaxed);
-                loom::sync::atomic::fence(Ordering::Acquire);
-                let v2 = version.load(Ordering::Relaxed);
-                if v == v2 {
-                    read_val = e;
-                    success = true;
-                }
-            }
-
-            if success {
-                assert!(
-                    read_val == 100 || read_val == 200,
-                    "Torn read: {}",
-                    read_val
-                );
-            }
-
-            writer.join().unwrap();
-        });
-    }
+    // NOTE: a former `loom_node_split_retry_safety` model lived here but was
+    // deleted — it constructed two free-standing loom atomics with no link to
+    // any crate code and asserted a tautology (a value it had itself just
+    // stored), so it model-checked nothing about the engine. A genuine
+    // branch-split model must drive the ACTUAL SeqVersion publication path
+    // (`SeqVersion::begin`/`end` + `version_begin_if`/`version_end` around a
+    // real node mutation) against `walk_validated`'s per-node sample/validate,
+    // not stand-in atomics. The two remaining loom tests above
+    // (`loom_pin_blocks_second_advance`, `loom_seqlock_no_torn_reads`) exercise
+    // real `occ` machinery and stay.
 }

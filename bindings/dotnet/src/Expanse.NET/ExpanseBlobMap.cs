@@ -78,8 +78,23 @@ public sealed class ExpanseBlobMap : IDisposable
     }
 
     /// <summary>
-    /// Looks up a key, providing zero-copy span access to the payload and hot metadata.
+    /// Zero-copy lookup returning a span that points DIRECTLY into the native arena.
+    /// Prefer the copying <see cref="TryGetBytes(ulong, out byte[], out uint)"/> / <see cref="GetBytes"/>
+    /// unless you have measured a need for zero-copy and can honour the lifetime contract below.
     /// </summary>
+    /// <remarks>
+    /// <para><b>Lifetime / invalidation contract (read carefully):</b> the returned span aliases
+    /// unmanaged storage owned by this map. It is only valid until the NEXT operation that can
+    /// move or free that storage. The span is INVALIDATED — and must not be read afterwards — by any of:</para>
+    /// <list type="bullet">
+    ///   <item><description><see cref="Set(ulong, ReadOnlySpan{byte}, uint)"/> / <see cref="Prune"/> (may reallocate the slab arena);</description></item>
+    ///   <item><description><see cref="Remove"/> / <see cref="Clear"/> (frees the backing bytes);</description></item>
+    ///   <item><description><see cref="Compact"/> (MOVES live payloads — the pointer itself becomes stale);</description></item>
+    ///   <item><description><see cref="Dispose"/> (frees the whole arena).</description></item>
+    /// </list>
+    /// <para>Reading the span after any of these is a use-after-free. Copy out (<c>span.ToArray()</c> or
+    /// <see cref="TryGetBytes(ulong, out byte[], out uint)"/>) if the value must outlive the next mutation.</para>
+    /// </remarks>
     /// <param name="key">The 64-bit key.</param>
     /// <param name="payload">Output read-only span pointing directly to the blob payload.</param>
     /// <param name="hotMeta">Output 32-bit hot metadata word.</param>
@@ -96,6 +111,14 @@ public sealed class ExpanseBlobMap : IDisposable
             }
             else
             {
+                // A ReadOnlySpan is limited to int.MaxValue elements. Guard explicitly:
+                // (int)view.Len for Len >= 2^31 would go negative and corrupt the span.
+                if (view.Len > int.MaxValue)
+                {
+                    throw new InvalidOperationException(
+                        $"Blob payload of {view.Len} bytes exceeds the maximum span length ({int.MaxValue}); " +
+                        "use a streaming API to read payloads larger than 2 GiB.");
+                }
                 payload = new ReadOnlySpan<byte>((void*)view.Ptr, (int)view.Len);
             }
             return true;
@@ -107,12 +130,16 @@ public sealed class ExpanseBlobMap : IDisposable
     }
 
     /// <summary>
-    /// Looks up a key, providing zero-copy span access to the payload.
+    /// Zero-copy lookup returning a span that points DIRECTLY into the native arena.
+    /// See <see cref="TryGet(ulong, out ReadOnlySpan{byte}, out uint)"/> for the span lifetime /
+    /// invalidation contract; prefer <see cref="TryGetBytes(ulong, out byte[])"/> for a safe copy.
     /// </summary>
     public bool TryGet(ulong key, out ReadOnlySpan<byte> payload) => TryGet(key, out payload, out _);
 
     /// <summary>
     /// Looks up a key, copying the payload into a newly allocated managed byte array.
+    /// This is the RECOMMENDED, lifetime-safe lookup: the returned array is owned by the caller
+    /// and is unaffected by later map mutations (unlike the span from <see cref="TryGet(ulong, out ReadOnlySpan{byte}, out uint)"/>).
     /// </summary>
     /// <param name="key">The 64-bit key.</param>
     /// <param name="payload">Output managed byte array containing a copy of the payload.</param>
@@ -295,6 +322,12 @@ public sealed class ExpanseBlobMap : IDisposable
 
         NativeMethods.ExpanseScanCallback scanCb = (ulong key, NativeMethods.NativeBlobView view, IntPtr ctx) =>
         {
+            if (view.Len > int.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    $"Blob payload of {view.Len} bytes exceeds the maximum span length ({int.MaxValue}); " +
+                    "use a streaming API to read payloads larger than 2 GiB.");
+            }
             ReadOnlySpan<byte> span = view.Len == 0 || view.Ptr == IntPtr.Zero
                 ? ReadOnlySpan<byte>.Empty
                 : new ReadOnlySpan<byte>((void*)view.Ptr, (int)view.Len);

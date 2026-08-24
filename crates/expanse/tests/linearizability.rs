@@ -103,6 +103,10 @@ fn check_linearizability_for_key(events: &[Event]) -> bool {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "deliberate seqlock racy-read design; see sync.rs module docs"
+)]
 fn test_sync_map_linearizability() {
     let map = Arc::new(SyncExpanseMap::new());
     let history = Arc::new(Mutex::new(Vec::new()));
@@ -167,6 +171,78 @@ fn test_sync_map_linearizability() {
         assert!(
             check_linearizability_for_key(&events),
             "Linearizability violation for key {}",
+            key
+        );
+    }
+}
+
+/// Single-threaded, Miri-safe companion to [`test_sync_map_linearizability`].
+///
+/// The multi-threaded version above is `#[ignore]`d under Miri because the
+/// seqlock reader path performs deliberate racy plain loads that Miri's
+/// data-race detector (correctly) flags — see the `sync.rs` module docs.
+/// This variant drives a sequential interleaving of insert/remove/get
+/// through BOTH the writer API and a registered `reader()` handle, feeding
+/// the resulting history through the same Wing-Gong linearizability checker.
+/// No two operations overlap in real time, so the reader path, the reader
+/// handle, and the checker wiring are all exercised without any cross-thread
+/// race for Miri to reject. Every sequential history is trivially
+/// linearizable, so a failure here means a genuine reader/writer disagreement
+/// with the sequential specification, not a scheduling artifact.
+#[test]
+fn test_sync_map_linearizability_single_threaded() {
+    let map = SyncExpanseMap::new();
+    let reader = map.reader();
+
+    // Deterministic op stream over a tiny key space, so every key sees a
+    // mix of inserts, removes, and gets through both read paths.
+    let keys = [1u64, 2, 3];
+    let mut events: Vec<Event> = Vec::new();
+
+    for i in 0..90usize {
+        let key = keys[i % keys.len()];
+        let op = match i % 3 {
+            0 => Op::Insert(key, (i as u64) + 1),
+            1 => Op::Remove(key),
+            // Alternate the get between the one-shot API and the reader
+            // handle so both validated-read entry points are covered.
+            _ => Op::Get(key),
+        };
+
+        let start = Instant::now();
+        let ret = match &op {
+            Op::Insert(k, v) => Ret::Insert(map.insert(*k, *v)),
+            Op::Remove(k) => Ret::Remove(map.remove(*k)),
+            Op::Get(k) => {
+                // Route half the gets through the persistent reader handle
+                // and half through the one-shot API.
+                let v = if i % 2 == 0 {
+                    reader.get(*k)
+                } else {
+                    map.get(*k)
+                };
+                Ret::Get(v)
+            }
+        };
+        let end = Instant::now();
+
+        events.push(Event {
+            op,
+            ret,
+            start,
+            end,
+        });
+    }
+
+    let mut by_key: HashMap<u64, Vec<Event>> = HashMap::new();
+    for e in events {
+        by_key.entry(e.op.key()).or_default().push(e);
+    }
+
+    for (key, events) in by_key {
+        assert!(
+            check_linearizability_for_key(&events),
+            "Sequential linearizability violation for key {}",
             key
         );
     }

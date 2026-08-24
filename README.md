@@ -37,8 +37,8 @@ Naming the project after the mechanism honors the algorithm itself without inher
 - **Strictly Faster than Stock Judy**: Outperforms original `libjudy` across 100% of benchmark workloads (inserts, lookups, deletions, and churn).
 - **100% Drop-In C ABI Compatibility**: Swap `-lJudy` for `-lexpanse` with zero code changes (Judy1, JudyL, JudySL, JudyHS). Passes `php-judy` test suite (221/221) and differential oracle.
 - **Multi-Architecture Vectorization & Embedded**: Hardware-accelerated with dynamic `glibc-hwcaps` packaging (`x86-64-v1..v4`), ARM64 NEON, 64-bit RISC-V (`RV64GC`), and bare-metal 32-bit embedded (`RV32IMAC`, `Cortex-M4/M7`).
-- **Lock-Free OCC Concurrency**: Multi-core optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet`) scaling linearly up to **260.9M ops/s** on 16 cores with zero read locks.
-- **Ultra-Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on 64-bit sets and **0.51 bytes/key** on 32-bit embedded sets.
+- **Lock-Free OCC Concurrency**: Multi-core optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet`) with zero read locks, scaling read-only throughput to **265.8 M ops/s on 16 threads (12.0×)** *(measured: honeycomb — 24-core x86_64, commit 695b98d)*. Write-mixed workloads are currently seqlock-bound and do not scale past ~4 threads (see the concurrency scaling table below).
+- **Ultra-Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on 64-bit sets *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a)* and **~0.67 bytes/key** on clustered 32-bit embedded sets *(measured: `bytes_per_key_32`, commit 6c63826a)*.
 
 ---
 
@@ -62,9 +62,13 @@ Naming the project after the mechanism honors the algorithm itself without inher
 | **Modern C++20 Header** | [`include/expanse.hpp`](include/expanse.hpp) | Modern header-only C++20 STL-compatible RAII wrapper (`expanse::set`, `expanse::map`, `expanse::str_map`, `expanse::bytes_map`, `expanse::blob_map`, `expanse::sync_map`), `std::span` zero-copy access, `std::forward_iterator` ranges, and lock-free OCC readers |
 | **Java / Scala FFM API** | [`bindings/java`](bindings/java) (`io.github.orieg:expanse-java`) | Java 22+ / 21 LTS Project Panama Foreign Function & Memory bindings: zero-GC off-heap collections (`ExpanseMap`, `ExpanseSet`, `ExpanseStrMap`, `ExpanseBytesMap`), value slots, `NavigableMap`/`NavigableSet` |
 | **.NET / C# API** | [`bindings/dotnet`](bindings/dotnet) (`Expanse.NET`) | .NET 8.0/9.0+ C# bindings & NuGet package via P/Invoke: zero-GC off-heap collections (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `ExpanseSyncMap`) |
+| **Go API** | [`bindings/go`](bindings/go) (`github.com/orieg/expanse/bindings/go`) | Native Go bindings via CGO: zero-GC off-heap collections (`Set`, `Map`, `StrMap`, `BytesMap`, `BlobMap`) |
+| **PHP API** | [`bindings/php`](bindings/php) (`orieg/expanse`) | Native PHP bindings via FFI & PIE: `Expanse\Set`, `Expanse\Map`, `Expanse\StrMap`, `Expanse\BytesMap`, `Expanse\BlobMap`, `Expanse\SyncMap`, `Expanse\SyncSet` |
 | **Python API** | [`crates/expanse-py`](crates/expanse-py) (`pip install expanse-trie`) | High-performance Python extension via PyO3: `ExpanseSet`, `ExpanseMap`, `SyncExpanseMap`, GIL-released queries |
 | **Node.js / Bun / Deno API** | [`crates/expanse-node`](crates/expanse-node) (`@orieg/expanse`) | Native high-performance N-API bindings via `napi-rs`: `ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `SyncExpanseMap`, `SyncExpanseSet` |
-| **RocksDB Pluggable MemTable** | [`integrations/rocksdb`](integrations/rocksdb) (`rocksdb-expanse`) | Official RocksDB `MemTableRep` / `MemTableRepFactory` implementation delivering **8.8× higher key density in RAM** vs SkipLists, fewer L0 SSTable flushes, and **4.1× faster sequential range scans** |
+| **WebAssembly / Edge** | [`crates/expanse-wasm`](crates/expanse-wasm) (`@orieg/expanse-wasm`) | WebAssembly bindings for edge runtimes (Cloudflare Workers, Fastly) and browsers |
+| **Ruby API** | [`gems/expanse`](gems/expanse) (`gem install expanse`) | Native Ruby extension via magnus / C ABI: `Expanse::Set`, `Expanse::Map`, `Expanse::StrMap`, `Expanse::BytesMap`, `Expanse::BlobMap` |
+| **RocksDB Pluggable MemTable** | [`integrations/rocksdb`](integrations/rocksdb) (`rocksdb-expanse`) | Official RocksDB `MemTableRep` / `MemTableRepFactory` implementation delivering **11.1× higher key density in RAM** vs the reference SkipList, fewer L0 SSTable flushes, and **~9.4× faster sequential scans** *(measured: honeycomb, commit 695b98d; full table in [`integrations/rocksdb/README.md`](integrations/rocksdb/README.md))* |
 
 Legacy ↔ modern naming:
 
@@ -88,7 +92,7 @@ Legacy ↔ modern naming:
 | **Pointer layout** | Full 16-byte JP per edge | Tagged pointers exploiting 48-bit virtual addressing |
 | **Concurrency** | Single-threaded, external locks | Lock-free optimistic concurrency control (OCC) for reads |
 
-Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Embedded 32-Bit RFC: [docs/RFC_32BIT_EMBEDDED.md](docs/RFC_32BIT_EMBEDDED.md) · Large-Value RFC: [docs/RFC_LARGE_VALUES.md](docs/RFC_LARGE_VALUES.md) · Database engine patterns: [docs/DATABASE.md](docs/DATABASE.md) · CI/CD Standards: [docs/CI_CD_GUIDE.md](docs/CI_CD_GUIDE.md).
+Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Embedded 32-Bit RFC: [docs/RFC_32BIT_EMBEDDED.md](docs/RFC_32BIT_EMBEDDED.md) · Large-Value RFC: [docs/RFC_LARGE_VALUES.md](docs/RFC_LARGE_VALUES.md) · Database engine patterns: [docs/DATABASE.md](docs/DATABASE.md) · CI/CD: [docs/CI.md](docs/CI.md).
 
 ---
 
@@ -99,8 +103,8 @@ Expanse provides modern, hardware-vectorized digital trie primitives tailored fo
 - **Inverted Indexes & Posting Lists (`ExpanseSet`)**: Ultra-dense doc-ID tracking at **0.07–0.36 bytes/docID** on clustered/dense sets (outperforming Roaring Bitmaps) with bitwise set algebra directly over compressed trie edges and $O(\text{depth})$ skip-scan acceleration.
 - **MVCC Visibility Maps & Active Transaction Tracking (`SyncExpanseSet`)**: Lock-free active transaction (`xid`) tracking with zero reader-writer locks, single-digit nanosecond visibility checks, and safe epoch reclamation under continuous OLTP churn.
 - **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: High-cardinality string deduplication and symbol tables using 8-byte cross-chunk path folding, preserving lexicographical order with 70%+ memory reduction on shared URL/path prefixes.
-- **Secondary Indexes & MemTables (`ExpanseMap` / `ExpanseMemTableRep`)**: Rebalance-free ordered key indexing with contiguous 64-byte SIMD leaf scans, achieving **2.1×–3.4× faster range scans** than `std::collections::BTreeMap`, and official [RocksDB Pluggable MemTable (`integrations/rocksdb`)](integrations/rocksdb) integration.
-- **Zero-Copy Shared-Memory Analytics**: Position-independent base-relative layouts for cross-worker IPC and parallel query execution with zero serialization.
+- **Secondary Indexes & MemTables (`ExpanseMap` / `ExpanseMemTableRep`)**: Rebalance-free ordered key indexing with fast point/prefix lookups (**2.9×–14.5× faster point lookups** than `std::collections::BTreeMap` at 1M keys; full ordered `iter()` is currently slower than a B-tree — see [docs/DATABASE.md](docs/DATABASE.md) §7.1), and official [RocksDB Pluggable MemTable (`integrations/rocksdb`)](integrations/rocksdb) integration.
+- **Zero-Copy Shared-Memory Analytics** *(roadmap)*: Position-independent base-relative layouts for cross-worker IPC and parallel query execution with zero serialization — a design target; not yet implemented (see [docs/DATABASE.md](docs/DATABASE.md) §6).
 
 See [docs/DATABASE.md](docs/DATABASE.md) and [integrations/rocksdb/README.md](integrations/rocksdb/README.md) for full architectural specifications, integration blueprints, and code examples.
 
@@ -108,15 +112,15 @@ See [docs/DATABASE.md](docs/DATABASE.md) and [integrations/rocksdb/README.md](in
 
 ## Comparative Performance vs Industry Primitives
 
-Expanse is benchmarked against standard Rust and industry collections (`crates/expanse/benches/comparative.rs`):
+Expanse is benchmarked against standard Rust and industry collections (`crates/expanse/benches/comparative.rs`). *The speedup multipliers below are load-sensitive wall-clock figures not tagged to a specific host/commit; they await a clean-host re-measurement (deferred). Memory-footprint figures are deterministic.*
 
 ### 1. `ExpanseSet` vs `RoaringBitmap`
-- **Sparse (<0.1% density)**: Expanse point lookups (`contains`) and rank/select are **1.3×–1.8× faster** than Roaring Bitmaps due to direct tagged pointer immediate storage.
-- **Clustered / Dense (>50% density)**: `ExpanseSet` achieves **0.07–0.36 bytes/key** (deterministic memory budget), matching Roaring's run/bit container compression while providing $O(\text{depth})$ forward and backward iteration.
+- **Sparse / clustered (<0.1% density)**: Expanse point lookups (`contains`) are **~2.2×–2.8× faster** than Roaring Bitmaps due to direct tagged-pointer immediate storage *(measured: honeycomb, commit 695b98d, `benches/comparative.rs`)*. On **dense** sets Roaring's bit containers win `contains` (~1.4×–1.9×). Roaring's specialized rank index makes its **`rank`/`select` faster** than Expanse's `count_below`/`by_count` — use Expanse for membership, Roaring for heavy rank/select.
+- **Clustered / Dense (>50% density)**: `ExpanseSet` achieves **0.07–0.36 bytes/key** *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a — deterministic allocator accounting)*, matching Roaring's run/bit container compression while providing $O(\text{depth})$ forward and backward iteration.
 
 ### 2. `ExpanseMap` vs `hashbrown::HashMap` & `BTreeMap`
-- **Ordered Range Scans (`range()`, `iter_from()`)**: `ExpanseMap` traverses sorted integer ranges **2.1×–3.4× faster** than `std::collections::BTreeMap` by skipping empty branch expanses in cache lines.
-- **Random Lookups vs Swiss Tables**: `ExpanseMap` point lookups run within **1.1×** of `hashbrown::HashMap` (Swiss Table) on 64-bit integer keys while providing strict key ordering, $O(1)$ prefix search, and **40% lower memory footprint** on clustered integer sets.
+- **Point Lookups vs BTreeMap**: `ExpanseMap` point lookups are **2.9×–14.5× faster** than `std::collections::BTreeMap` at 1M keys (e.g. sequential 11.9 ns vs 108.9 ns, clustered 12.9 ns vs 110.2 ns) *(measured: honeycomb, commit 695b98d, `benches/compare.rs`)*. Full ordered `iter()`, however, is currently **slower** than `BTreeMap::iter()` (trie descent chases pointers across levels) — the prior "2.1×–3.4× faster range scans" claim is retracted; see [docs/DATABASE.md](docs/DATABASE.md) §7.1.
+- **Random Lookups vs Swiss Tables**: on uniform-random 64-bit keys `hashbrown::HashMap` (Swiss Table) is faster for raw membership (its $O(1)$ probe beats trie descent — measured ~1.7×–3.1× on 1M random keys); `ExpanseMap` trades that for **strict key ordering, ordered iteration, $O(1)$ prefix search, and a smaller memory footprint on clustered integer sets**. On **sequential** keys the two are near parity (11.9 ns vs 12.1 ns at 1M).
 
 ---
 
@@ -124,19 +128,23 @@ Expanse is benchmarked against standard Rust and industry collections (`crates/e
 
 Expanse provides lock-free optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet` in `benches/concurrency.rs`):
 
-| Workload Ratio | 1 Thread | 4 Threads | 8 Threads | 16 Threads | Scaling Efficiency |
-|---|---:|---:|---:|---:|---:|
-| **100% Read** (Pure uncontended) | 10.1 M ops/s | 32.8 M ops/s | 39.8 M ops/s | **78.4 M ops/s** | **7.8× linear scaling** |
-| **95% Read / 5% Write** (OLTP) | 8.4 M ops/s | 26.1 M ops/s | 31.4 M ops/s | **58.2 M ops/s** | **6.9× linear scaling** |
-| **50% Read / 50% Write** (Heavy churn) | 2.4 M ops/s | 6.2 M ops/s | 10.0 M ops/s | **12.5 M ops/s** | Zero reader deadlocks |
+Combined `SyncExpanseMap` throughput (read + write ops/s), 1,000,000 random keys, 500 ms windows *(measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/concurrency.rs`)*:
 
-- **Mechanism**: Fine-grained per-node version bracketing and epoch-based pointer reclamation allow concurrent readers to validate subtrees hand-over-hand without acquiring mutexes or stalling writers.
+| Workload Ratio | 1 Thread | 4 Threads | 8 Threads | 16 Threads | Scaling |
+|---|---:|---:|---:|---:|---:|
+| **100% Read** (uncontended) | 22.1 M ops/s | 83.7 M ops/s | 160.7 M ops/s | **265.8 M ops/s** | **12.0× at 16 threads** |
+| **95% Read / 5% Write** (OLTP) | 19.6 M ops/s | **35.6 M ops/s** | 34.0 M ops/s | 28.8 M ops/s | peaks ~4 threads (1.8×), then seqlock-bound |
+| **50% Read / 50% Write** (heavy churn) | 10.3 M ops/s | 5.7 M ops/s | 4.6 M ops/s | 4.0 M ops/s | write-dominated; declines under contention |
+
+- **Read-only scaling is near-linear** (12.0× at 16 threads, 265.8 M ops/s) — this is the reproducible measurement behind the "~260 M ops/s" headline (the earlier 78.4 M table figure was undermeasured and is retracted). `SyncExpanseSet` is marginally higher (284.9 M ops/s at 16 threads, 12.2×).
+- **Write-mixed workloads do not scale** on the current protocol: a single tree-level seqlock still brackets whole operations for the root snapshot, so under an active writer the version changes faster than a walk completes and readers fall back to the mutex. 95/5 peaks at ~4 threads and 50/50 declines monotonically — the measured go/no-go signal for the per-node OCC refinement tracked in `docs/ARCHITECTURE.md` §6. Prior docs claiming "6.9× linear scaling" / "58.2 M ops/s" on write-mixed workloads overstated this and are corrected.
+- **Mechanism**: Fine-grained per-node version bracketing and epoch-based pointer reclamation allow concurrent readers to validate subtrees hand-over-hand without acquiring mutexes; today only the read-only path realizes full scaling (see the divergence above).
 
 ---
 
 ## Microarchitecture Scaling: x86-64-v1 vs v2 vs v3 vs v4
 
-Expanse exploits hardware primitives via `glibc-hwcaps` and native CPU compilation:
+Expanse exploits hardware primitives via `glibc-hwcaps` and native CPU compilation (the instruction-reduction figures below are deterministic Callgrind instruction counts, not wall-clock; not tagged to a specific commit here):
 
 | Microarchitecture Tier | Hardware Primitives Exploited | Instruction Reduction vs Baseline |
 |---|---|---:|
@@ -151,21 +159,23 @@ See [docs/BENCHMARKING.md](docs/BENCHMARKING.md) for detailed instruction counte
 
 ## Performance vs Stock libjudy
 
-Instructions retired and wall-clock latency through the identical C ABI on identical key streams, both libraries `dlopen`'d — measured via paired A/B rounds (*interleaved median of 5 rounds, main*). Ratios below are measured on the **standard portable baseline** (`x86-64-v1` on Linux, AArch64 on macOS) with runtime CPU feature detection. **Below 1.00 = libexpanse does less work / runs faster than original libjudy.**
+Instructions retired and wall-clock latency through the identical C ABI on identical key streams, both libraries `dlopen`'d — measured via paired A/B rounds (interleaved median of 5 rounds). **Below 1.00 = libexpanse does less work / runs faster than original libjudy.**
+
+> **Provenance.** Two column families with different bases. The **instruction-retired columns** (`M inst`, `.so / rlib` ratios) are deterministic Callgrind counts on the **standard portable baseline** (`x86-64-v1`, no runtime SIMD) and are reproducible. The **wall-clock `ns` rows** (the four 1M-population rows) are now measured on the dedicated quiet host *honeycomb* — 24-core x86_64 (i9-12900F), Ubuntu 22.04 / kernel 6.8, commit `43b46f38`; harness `crates/expanse-capi/examples/bench_vs_libjudy.rs`, interleaved A/B median of 5 rounds, load < 0.5 — with **native runtime feature detection active** (AVX2/BMI2), so their single ratio is the linked-`capi` surface vs stock libjudy, not a `.so`/`rlib` pair. The `B/k` memory columns are deterministic byte accounting. Honest reading of the refreshed ns rows: libexpanse wins on **sequential/clustered insert** (~1.75×/~1.1×) and **clustered lookup** (~1.2×), and is **~11% slower on random 1M lookup** — the earlier "0.55× / 45% faster" random-lookup figure was measured under load and is **retracted** (the quiet-host result agrees with the M-series development-laptop reading that random lookup is the engine's weak arm). See `docs/BENCHMARKING.md` for the full six-row honeycomb table.
 
 | Benchmark Workload | Wall-Clock Latency (Expanse vs Stock) | Ratio (.so / rlib) | Memory Overhead (Expanse vs Stock) | Status |
 |---|---|---:|---|---|
-| **Sequential 1,000,000 insert** | **15.8 ns** vs 32.3 ns | **0.55× / 0.51×** | **8.56 B/k** vs 8.32 B/k (1.03×) | 🟢 **2× faster than Judy** |
+| **Sequential 1,000,000 insert** | **13.4 ns** vs 23.6 ns | **0.57×** | **8.56 B/k** vs 8.32 B/k (1.03×) | 🟢 **~1.75× faster insert** |
 | **Sequential 100,000 insert** | **6.40M** vs 12.84M inst | **0.50× / 0.49×** | **8.57 B/k** vs 8.41 B/k (1.02×) | 🟢 **2× faster than Judy** |
 | **Sequential 30,000 lookup** | **4.37M** vs 5.07M inst | **0.86× / 0.85×** | **8.57 B/k** vs 8.41 B/k (1.02×) | 🟢 **14% faster than Judy** |
-| **Random 1,000,000 lookup** | **26.8 ns** vs 48.6 ns | **0.55× / 0.53×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟢 **45% faster than Judy** |
+| **Random 1,000,000 lookup** | 35.8 ns vs **32.3 ns** | **1.11×** | **16.70 B/k** vs 17.67 B/k (0.95×) | 🟡 **~11% slower lookup, 5% less memory** |
 | **Random 3,000,000 lookup** | **318.5M** vs 389.7M inst | **0.82× / 0.81×** | **16.80 B/k** vs 17.80 B/k (0.94×) | 🟢 **18% faster than Judy** |
 | **Random 30,000 lookup** | **4.53M** vs 5.09M inst | **0.89× / 0.88×** | **24.63 B/k** vs 24.81 B/k (0.99×) | 🟢 **11% faster than Judy** |
 | **Random 30,000 set test** | **3.78M** vs 3.83M inst | **0.988× / 0.98×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **Faster than Judy** |
 | **Random 30,000 churn (del+ins)** | **38.14M** vs 50.78M inst | **0.751× / 0.75×** | **Dynamic exact accounting** | 🟢 **24.9% faster than Judy** |
 | **Clustered 100,000 set insert** | **7.54M** vs 10.38M inst | **0.727× / 0.72×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **27.3% faster than Judy** |
-| **Clustered 1,000,000 insert** | **31.6 ns** vs 34.1 ns | **0.92× / 0.89×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **8% less memory, faster insert** |
-| **Clustered 1,000,000 lookup** | **11.8 ns** vs 12.1 ns | **0.98× / 0.95×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **Faster than Judy** |
+| **Clustered 1,000,000 insert** | **19.9 ns** vs 21.6 ns | **0.92×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **~8% faster insert, 8% less memory** |
+| **Clustered 1,000,000 lookup** | **8.5 ns** vs 10.4 ns | **0.82×** | **8.61 B/k** vs 9.32 B/k (0.92×) | 🟢 **~18% faster lookup** |
 | **Clustered 30,000 lookup** | **3.71M** vs 3.97M inst | **0.94× / 0.92×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **6% faster than Judy** |
 | **Clustered 100,000 map insert** | **11.42M** vs 12.01M inst | **0.951× / 0.95×** | **8.63 B/k** vs 8.87 B/k (0.97×) | 🟢 **4.9% faster than Judy** |
 | **Random 100,000 set insert** | **15.10M** vs 15.69M inst | **0.962× / 0.96×** | **0.36 B/k** vs 0.36 B/k (1.00×) | 🟢 **3.8% faster than Judy** |
@@ -208,11 +218,11 @@ Expanse provides first-class support for 32-bit embedded microprocessors (`Expan
 - **Compact 8-Byte `Edge32`**: 50% structural SRAM reduction vs 64-bit descriptors (`[ptr (4B) | aux (3B) | tag (1B)]`), packing up to 7 immediate keys with zero heap allocations.
 - **32-Byte Cache Alignment**: Nodes are sized for embedded microarchitectures (`BranchL2_32` = 32B = 1 cache line on Cortex-M7/ESP32; `BranchL6_32` = 64B = 2 cache lines).
 - **Polymorphic `ValueSlot32`**: Payloads $\le 3\text{ bytes}$ (CAN-bus flags, status codes, checksums) fit inline with zero heap allocations.
-- **Microcontroller SRAM Footprint**:
-  - Clustered sensor timestamps: **$0.51\text{ B/key}$** ($97.9\%$ SRAM saved vs $24\text{ B/key}$ `BTreeSet`).
-  - Sparse 29-bit CAN IDs: **$0.63\text{ B/key}$** ($97.4\%$ SRAM saved vs $24\text{ B/key}$ `BTreeSet`).
-  - IPv4 subnet /24 routing: **$8.03\text{ B/key}$** ($74.9\%$ SRAM saved vs $32\text{ B/key}$ `BTreeMap`).
-  - OTA firmware chunk metadata: **$8.00\text{ B/key}$** ($83.3\%$ SRAM saved vs $48\text{ B/key}$ `BTreeMap`).
+- **Microcontroller SRAM Footprint** — real `mem_used()` byte accounting from `cargo run --release --example bytes_per_key_32` *(measured, commit 6c63826a; deterministic — host-independent for the fixed 8-byte `Edge32` layout)*:
+  - Clustered sensor timestamps (10k consecutive): **$0.67\text{ B/key}$**.
+  - Sparse 29-bit CAN IDs (500 IDs): **$12.61\text{ B/key}$** (genuinely sparse — a handful of keys spread across the 29-bit space).
+  - IPv4 subnet /24 routing map (2k routes): **$9.38\text{ B/key}$**.
+  - Dense consecutive map (10k, `u32→u32`): **$5.21\text{ B/key}$**.
 
 ---
 
@@ -396,6 +406,9 @@ assert sync_m[10] == 100
 See [docs/BINDINGS_PYTHON.md](docs/BINDINGS_PYTHON.md) for full Python documentation and benchmarks.
 
 ### 9. Java & Scala Quickstart (`io.github.orieg:expanse-java`)
+
+> **Not yet on Maven Central.** No `io.github.orieg` artifact is published (Maven Central returns 404 / `numFound:0`), and no release-workflow job currently builds or deploys the Java bindings. Build from `bindings/java` locally until first publish. The coordinates below are the planned ones.
+
 ```xml
 <dependency>
     <groupId>io.github.orieg</groupId>
@@ -423,6 +436,9 @@ try (ExpanseMap map = new ExpanseMap();
 See [docs/BINDINGS_JAVA.md](docs/BINDINGS_JAVA.md) for Panama FFM architecture, GC elimination benchmarks, and Spark/Flink off-heap integration patterns.
 
 ### 10. .NET & C# Quickstart (`Orieg.Expanse`)
+
+> **Not yet on NuGet.org.** The `Orieg.Expanse` package does not resolve yet (NuGet returns 404 / `totalHits:0`); the version badge above renders "not found" until first publish. The `release.yml` push step is wired (OIDC trusted publishing) but has not landed a package. Build from `bindings/dotnet` locally until then.
+
 ```bash
 dotnet add package Orieg.Expanse
 ```
@@ -442,7 +458,28 @@ bool found = map.TryGet(42, out ulong value);
 ```
 See [bindings/dotnet/README.md](bindings/dotnet/README.md) for full .NET documentation and guides.
 
-### 11. Node.js, Bun & Deno Quickstart (`npm i @orieg/expanse`)
+See [bindings/go/README.md](bindings/go/README.md) for full Go documentation.
+
+### 11. PHP Quickstart (`orieg/expanse`)
+```bash
+composer require orieg/expanse
+```
+
+```php
+use Expanse\Set;
+use Expanse\Map;
+
+$set = new Set();
+$set->add(42);
+$rank = $set->rank(100);
+
+$map = new Map();
+$map->set(42, 1000);
+$val = $map->get(42);
+```
+See [docs/BINDINGS_PHP.md](docs/BINDINGS_PHP.md) and [bindings/php/README.md](bindings/php/README.md) for full PHP documentation.
+
+### 12. Node.js, Bun & Deno Quickstart (`npm i @orieg/expanse`)
 ```bash
 npm install @orieg/expanse
 # or bun add @orieg/expanse

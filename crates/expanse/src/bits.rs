@@ -759,7 +759,8 @@ mod tests {
         for b in &bitmaps {
             let naive_count: u32 = (0u32..256).filter(|&i| b.test(i as u8)).count() as u32;
             assert_eq!(b.count(), naive_count);
-            for idx in 0..=255u8 {
+            let step = if cfg!(miri) { 16 } else { 1 };
+            for idx in (0..=255u8).step_by(step) {
                 let naive_rank = (0..idx).filter(|&i| b.test(i)).count() as u32;
                 assert_eq!(b.rank(idx), naive_rank, "rank({idx})");
                 let base = idx & !31;
@@ -838,7 +839,7 @@ mod tests {
             }
         }
         let mut rng = XorShift(0x9E37_79B9_7F4A_7C15);
-        for _ in 0..20_000 {
+        for _ in 0..if cfg!(miri) { 100 } else { 20_000 } {
             let mut hay16 = [0u8; 16];
             for b in &mut hay16 {
                 *b = rng.next() as u8;
@@ -900,10 +901,10 @@ mod tests {
     #[test]
     fn bitmap_rank_matches_naive_random() {
         let mut rng = XorShift(0xDEAD_BEEF_CAFE_F00D);
-        for _ in 0..200 {
+        for _ in 0..if cfg!(miri) { 5 } else { 200 } {
             let mut bm = Bitmap256::new();
             let mut naive = [false; 256];
-            for _ in 0..(rng.next() % 300) {
+            for _ in 0..(if cfg!(miri) { 30 } else { rng.next() % 300 }) {
                 let idx = rng.next() as u8;
                 bm.set(idx);
                 naive[idx as usize] = true;
@@ -940,10 +941,10 @@ mod tests {
     #[test]
     fn bitmap_subexpanse_rank_matches_naive() {
         let mut rng = XorShift(0x1234_5678_9ABC_DEF1);
-        for _ in 0..200 {
+        for _ in 0..if cfg!(miri) { 5 } else { 200 } {
             let mut bm = Bitmap256::new();
             let mut naive = [false; 256];
-            for _ in 0..(rng.next() % 300) {
+            for _ in 0..(if cfg!(miri) { 30 } else { rng.next() % 300 }) {
                 let idx = rng.next() as u8;
                 bm.set(idx);
                 naive[idx as usize] = true;
@@ -992,7 +993,7 @@ mod tests {
     #[test]
     fn simd_leaf_search_and_lower_bound_parity() {
         let mut rng = XorShift(0xCAFE_BABE_1234_5678);
-        for _ in 0..10_000 {
+        for _ in 0..if cfg!(miri) { 100 } else { 10_000 } {
             let mut buf = [0u8; 16];
             for b in &mut buf {
                 *b = rng.next() as u8;

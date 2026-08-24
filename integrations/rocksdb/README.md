@@ -38,13 +38,13 @@ The default RocksDB memtable implementation (`SkipListRep`) incurs significant p
  └──────────────────┘          └──────────────────┘          └──────────────────┘
 ```
 
-1. **2×–3× Higher Key Density in RAM**:
-   - Leaf blocks store entry pointers in contiguous 64-byte spans. Indexing overhead is reduced from **32–64 bytes/key (SkipList) to ~8–16 bytes/key (Expanse)**.
-   - More user data fits into the same memtable memory budget, directly reducing L0 SSTable flush frequency by **25%–40%**.
+1. **~11× Higher Key Density in RAM** (vs the reference SkipList):
+   - Leaf blocks store entry pointers in contiguous 64-byte spans. Indexing overhead is **13.2 bytes/entry (Expanse) vs 146.7 bytes/entry (reference SkipList)** for 100k entries — a deterministic accounting figure.
+   - More user data fits into the same memtable memory budget, reducing L0 SSTable flush frequency and downstream compaction pressure.
 2. **Reduced Compaction Write Amplification**:
    - Larger effective in-memory batching before flush leads to wider sorted runs and fewer overlapping L0 SSTables, lowering write amplification on NVMe/SSD storage.
-3. **20× Faster Sequential & Range Iteration**:
-   - Forward and reverse range scans traverse contiguous leaf blocks via intrusive sibling leaf chaining and SIMD prefetching at **215+ Mops/sec** (compared to ~10.9 Mops/sec for pointer-hopping SkipLists).
+3. **~9× Faster Sequential Iteration** (vs the reference SkipList):
+   - Forward range scans traverse contiguous leaf blocks via intrusive sibling leaf chaining at **151.4 Mops/sec** (vs 16.2 Mops/sec for the pointer-hopping SkipList). An unordered `VectorRep` append-vector scans faster still (618 Mops/sec) but cannot serve ordered seeks.
 4. **$O(\text{depth})$ Prefix Seeks**:
    - Prefix lookups skip non-matching branches in a single digit comparison without descending empty key spaces.
 
@@ -54,15 +54,18 @@ The default RocksDB memtable implementation (`SkipListRep`) incurs significant p
 
 ![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](../../docs/assets/bench_rocksdb.svg)
 
-Measured on 100,000 keys (16-byte key, 64-byte value payload):
+*(Measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/bench_memtable.cc`, on the reworked lock-free memtable from #234/#236; 100,000 keys, 16-byte key, 64-byte value payload. The memory-footprint / B-entry column is deterministic byte accounting; throughput columns are wall-clock on this host. `SkipListRep`/`VectorRep` are the in-file reference implementations, not stock RocksDB.)*
 
-| Benchmark Metric | ExpanseMemTable | RocksDB SkipListRep | VectorRep | Expanse Advantage |
+| Benchmark Metric | ExpanseMemTable | Reference SkipListRep | VectorRep | Expanse vs SkipList |
 |---|---:|---:|---:|---|
 | **Memory Footprint** (100K keys) | **1.26 MB** (13.2 B/entry) | 14.0 MB (146.7 B/entry) | 1.0 MB (10.5 B/entry) | **11.11× Higher Key Density** |
-| **Point Lookup Latency** (`readrandom`) | **999 ns/op** (1.00 Mops/s) | 1077 ns/op (0.93 Mops/s) | 1065 ns/op (0.94 Mops/s) | **1.08× Faster Lookups** |
-| **Range Seek** (`seekrandom`) | **0.46 Mops/s** | 1.02 Mops/s | 1.76 Mops/s | Rebalance-free bounds |
-| **Sequential Scan** (`prefixscan` Iterator) | **215.32 Mops/s** | 10.95 Mops/s | 464.58 Mops/s | **19.66× Faster Range Scans** |
-| **Batch Scan** (`ScanBatch` 1024-chunk) | **98.42 Mops/s** | N/A | N/A | **High-Throughput Batch Extraction** |
+| **Fill Random** (`fillrandom` insert) | **4.65 Mops/s** | 2.41 Mops/s | 205.92 Mops/s | **1.93× Faster Inserts** |
+| **Point Lookup** (`readrandom`) | **276 ns/op** (3.62 Mops/s) | 539 ns/op (1.85 Mops/s) | 548 ns/op (1.83 Mops/s) | **1.96× Faster Lookups** |
+| **Range Seek** (`seekrandom`) | **3.66 Mops/s** | 1.74 Mops/s | 3.89 Mops/s | **2.10× Faster Seeks** |
+| **Sequential Scan** (`prefixscan` Iterator) | **151.40 Mops/s** | 16.20 Mops/s | 618.41 Mops/s | **9.35× Faster Ordered Scans** |
+| **Batch Scan** (`ScanBatch` 1024-chunk) | **111.81 Mops/s** | N/A | N/A | **High-Throughput Batch Extraction** |
+
+> `VectorRep` (an unordered append-only vector) wins on insert and unordered scan by construction but cannot serve ordered range seeks — it is included as a throughput ceiling, not an ordered-index competitor.
 
 ---
 
@@ -159,4 +162,8 @@ Implements `rocksdb::MemTableRep` with full support for:
 
 ### `rocksdb::NewExpanseMemTableRepFactory(size_t leaf_capacity = 64, bool enable_prefix_trie = true)`
 Returns a `std::shared_ptr<rocksdb::MemTableRepFactory>` ready to be assigned to `rocksdb::Options::memtable_factory`.
+
+## Concurrent-read safety
+
+The lock-free reader protocol in `ExpanseMemTableRep` is safe under concurrent writes. The earlier race — `SplitLeafBlock` nulling source entries before lowering the block count (stale-count `nullptr` deref in `Get`), and `Insert`'s in-place shift leaving the leaf array transiently unsorted (spurious binary-search miss) — was resolved by a **per-leaf seqlock with publication ordering** (#234) and **release/acquire happens-before on the reader path** (#236): each `LeafBlock` carries a `version` counter and its `entries`/`count` are published with `memory_order_release` and read with `memory_order_acquire`, so a reader either observes a consistent snapshot or retries. This is exercised in CI by the RocksDB memtable matrix under ThreadSanitizer (`test-rocksdb-memtable`, `sanitizer: tsan`) and a differential test. Issue [#229](https://github.com/orieg/expanse/issues/229) is closed.
 

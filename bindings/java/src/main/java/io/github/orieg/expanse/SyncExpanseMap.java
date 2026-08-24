@@ -4,7 +4,10 @@ import io.github.orieg.expanse.internal.ExpanseNative;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.OptionalLong;
+import java.util.Set;
 
 /**
  * Multithreaded concurrent ordered map with lock-free readers (OCC).
@@ -17,17 +20,42 @@ public final class SyncExpanseMap implements AutoCloseable {
             ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(ValueLayout.JAVA_LONG, 2));
 
     private MemorySegment handle;
-    private boolean closed = false;
+    // volatile so a concurrent reader thread observes closure promptly and refuses.
+    private volatile boolean closed = false;
+
+    // Live readers borrow the map's native storage (the native reader is a
+    // 'static-transmuted borrow of the map), so a reader outliving the map is a
+    // use-after-free. We track every live reader and free them all — before the map
+    // itself — when the map closes. Guarded by synchronization on `this`.
+    private final Set<Reader> liveReaders = Collections.newSetFromMap(new IdentityHashMap<>());
 
     /**
      * A registered reader handle for a thread.
      */
     public final class Reader implements AutoCloseable {
         private MemorySegment readerHandle;
-        private boolean readerClosed = false;
+        // volatile: set from the map's close() (another thread) as well as this reader's close().
+        private volatile boolean readerClosed = false;
 
         private Reader(MemorySegment readerHandle) {
             this.readerHandle = readerHandle;
+        }
+
+        /**
+         * Frees the native reader. Must be called while holding the lock on the owning
+         * {@link SyncExpanseMap} so it is ordered before the map's own free. Idempotent.
+         */
+        private void invalidate() {
+            if (!readerClosed && !readerHandle.equals(MemorySegment.NULL)) {
+                try {
+                    ExpanseNative.MH_expanse_sync_map_reader_free.invokeExact(readerHandle);
+                } catch (Throwable t) {
+                    throw new RuntimeException(t);
+                } finally {
+                    readerHandle = MemorySegment.NULL;
+                    readerClosed = true;
+                }
+            }
         }
 
         /**
@@ -63,15 +91,9 @@ public final class SyncExpanseMap implements AutoCloseable {
 
         @Override
         public void close() {
-            if (!readerClosed && !readerHandle.equals(MemorySegment.NULL)) {
-                try {
-                    ExpanseNative.MH_expanse_sync_map_reader_free.invokeExact(readerHandle);
-                } catch (Throwable t) {
-                    throw new RuntimeException(t);
-                } finally {
-                    readerHandle = MemorySegment.NULL;
-                    readerClosed = true;
-                }
+            synchronized (SyncExpanseMap.this) {
+                liveReaders.remove(this);
+                invalidate();
             }
         }
     }
@@ -101,14 +123,16 @@ public final class SyncExpanseMap implements AutoCloseable {
      *
      * @return new Reader instance
      */
-    public Reader reader() {
+    public synchronized Reader reader() {
         checkOpen();
         try {
             MemorySegment r = (MemorySegment) ExpanseNative.MH_expanse_sync_map_reader_new.invokeExact(handle);
             if (r.equals(MemorySegment.NULL)) {
                 throw new OutOfMemoryError("Failed allocating SyncExpanseMap reader");
             }
-            return new Reader(r);
+            Reader reader = new Reader(r);
+            liveReaders.add(reader);
+            return reader;
         } catch (Throwable t) {
             throw new RuntimeException(t);
         }
@@ -209,16 +233,23 @@ public final class SyncExpanseMap implements AutoCloseable {
     }
 
     @Override
-    public void close() {
-        if (!closed && !handle.equals(MemorySegment.NULL)) {
-            try {
-                ExpanseNative.MH_expanse_sync_map_free.invokeExact(handle);
-            } catch (Throwable t) {
-                throw new RuntimeException("Failed to free SyncExpanseMap", t);
-            } finally {
-                handle = MemorySegment.NULL;
-                closed = true;
-            }
+    public synchronized void close() {
+        if (closed || handle.equals(MemorySegment.NULL)) {
+            return; // idempotent: a second close (or a close/close race) is a no-op.
+        }
+        // Free every live reader BEFORE the map: the native reader borrows the map,
+        // so using or freeing a reader after the map is gone would be a use-after-free.
+        for (Reader reader : liveReaders) {
+            reader.invalidate();
+        }
+        liveReaders.clear();
+        try {
+            ExpanseNative.MH_expanse_sync_map_free.invokeExact(handle);
+        } catch (Throwable t) {
+            throw new RuntimeException("Failed to free SyncExpanseMap", t);
+        } finally {
+            handle = MemorySegment.NULL;
+            closed = true;
         }
     }
 }

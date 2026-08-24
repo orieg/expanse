@@ -315,7 +315,9 @@ fn blobmap32_scan() -> usize {
     let mut blobmap = ExpanseBlobMap32::new();
     for i in 0..2_000 {
         let ip = (10 << 24) | ((i as Key32 / 256) << 16) | ((i as Key32 % 256) << 8);
-        blobmap.insert(ip, &[0xAA, 0xBB, 0xCC], (i % 16) as u16);
+        blobmap
+            .insert(ip, &[0xAA, 0xBB, 0xCC], (i % 16) as u16)
+            .unwrap();
     }
     let mut count = 0;
     blobmap.scan_filtered(

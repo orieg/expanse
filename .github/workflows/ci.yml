@@ -25,6 +25,11 @@ jobs:
       dotnet: ${{ steps.filter.outputs.dotnet }}
       java: ${{ steps.filter.outputs.java }}
       docs: ${{ steps.filter.outputs.docs }}
+      ruby: ${{ steps.filter.outputs.ruby }}
+      php: ${{ steps.filter.outputs.php }}
+      wasm: ${{ steps.filter.outputs.wasm }}
+      go: ${{ steps.filter.outputs.go }}
+      integrations: ${{ steps.filter.outputs.integrations }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -34,7 +39,10 @@ jobs:
             rust:
               - 'crates/**'
               - 'include/**'
+              - 'integrations/**'
               - 'tests/cpp/**'
+              - 'fuzz/**'
+              - 'scripts/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain*'
@@ -42,8 +50,12 @@ jobs:
               - '.github/workflows/nightly.yml'
             python:
               - 'crates/expanse-py/**'
+              - 'crates/expanse/**'
+              - 'crates/expanse-capi/**'
               - 'tests/test_python_bindings.py'
               - 'pyproject.toml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
               - '.github/workflows/python.yml'
             node:
               - 'crates/expanse-node/**'
@@ -70,6 +82,40 @@ jobs:
               - '*.md'
               - 'scripts/**'
               - 'website/**'
+            ruby:
+              - 'gems/expanse/**'
+              - 'include/**'
+              - 'crates/expanse-capi/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+            php:
+              - 'bindings/php/**'
+              - 'crates/expanse-php/**'
+              - 'include/**'
+              - 'crates/expanse-capi/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+            wasm:
+              - 'crates/expanse-wasm/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+            go:
+              - 'bindings/go/**'
+              - 'include/**'
+              - 'crates/expanse-capi/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+            integrations:
+              - 'integrations/**'
+              - 'crates/expanse/**'
+              - 'crates/expanse-capi/**'
+              - 'include/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
 
   lint:
     name: Core / Linter & Formatting
@@ -98,6 +144,9 @@ jobs:
       - name: Verify C ABI Symbol Parity Across All Bindings
         run: python3 scripts/check_abi_parity.py
 
+      - name: Verify CI Gate Completeness
+        run: python3 scripts/check_ci_gate.py
+
   test:
     name: Core / Workspace Tests (${{ matrix.os }})
     needs: [detect-changes]
@@ -116,10 +165,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --workspace
+        run: cargo build --workspace --exclude expanse-php
 
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude expanse-php
 
       - name: Assert capi drop-in artifacts exist (Windows)
         if: runner.os == 'Windows'
@@ -164,7 +213,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Check (riscv64, cross-compile)
-        run: cargo check --workspace --target riscv64gc-unknown-linux-gnu
+        run: cargo check --target riscv64gc-unknown-linux-gnu -p expanse-trie -p expanse-capi
 
   test-rv32:
     name: Cross / RV32IMAC Cross-Compile (Bare-Metal)
@@ -203,6 +252,35 @@ jobs:
 
       - name: Check Cortex-M4 Core
         run: cargo check -p expanse-trie --no-default-features --target thumbv7em-none-eabihf
+
+  test-i686:
+    name: Cross / i686 32-bit Test Execution (Linux)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu
+
+      - name: Install 32-bit toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Runs the real 32-bit trie engine with 32-bit `usize`/pointers — the
+      # only host-runnable 32-bit target — so the differential oracle and
+      # leak checks execute under the actual embedded word size. Scoped to
+      # `--lib`: the integration tests under `tests/` exercise the
+      # 64-bit-only engine modules (cfg'd out on 32-bit targets), so they do
+      # not compile here; the 32-bit engine's own tests live in the lib.
+      - name: Test expanse-trie (i686, 32-bit std)
+        run: cargo test -p expanse-trie --lib --target i686-unknown-linux-gnu
 
   test-musl:
     name: Cross / Musl Static C ABI (Linux)
@@ -245,7 +323,7 @@ jobs:
     needs: [detect-changes]
     if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -255,9 +333,26 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Miri (core unsafe smoke — leaf, node, slot invariants)
+      - name: Miri (core unsafe smoke — leaf, node, slot, 32-bit trie invariants)
         run: |
-          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot::
+          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types::
+
+  test-asan:
+    name: Safety / ASan Core Smoke (Ubuntu)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+      - name: Run expanse-trie unit tests under AddressSanitizer
+        run: cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie
+        env:
+          RUSTFLAGS: "-Zsanitizer=address"
 
   php-judy-compat:
     name: Compat / PHP-Judy Extension (Linux)
@@ -393,7 +488,7 @@ jobs:
         run: |
           VERSION=$(cargo metadata --format-version 1 --locked | python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='iai-callgrind'))")
           echo "iai-callgrind resolved to $VERSION"
-          cargo install iai-callgrind-runner --version "$VERSION" --locked
+          cargo install iai-callgrind-runner --version "$VERSION"
 
       - name: Build libexpanse.so for the same-shape arm
         run: |
@@ -419,11 +514,26 @@ jobs:
       - name: libexpanse vs stock libjudy (instructions)
         run: cargo bench --bench vs_stock -p expanse-capi | tee vs-stock.txt
 
-      - name: Generate and Emit Step Summary Report
+      - name: Generate Report and Enforce Regression Guard
         if: always()
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           if [ -f instruction-counts.txt ] && [ -f bytes-per-key.txt ] && [ -f vs-stock.txt ]; then
-            python3 scripts/perf_report.py --head instruction-counts.txt --bytes bytes-per-key.txt --bytes32 bytes-per-key-32.txt --vs-stock vs-stock.txt --v3 v3-counts.txt > pr-report.md || true
+            printf '%s' "$PR_BODY" > pr-body.txt
+            # No `|| true`: a perf_report.py crash or a real regression now fails the job.
+            # The regression guard only fires when a base-branch bench is supplied
+            # (`--base`, not produced here yet); the threshold is deliberately loose
+            # (shared CI runners are noisy) so wiring it in cannot flake.
+            python3 scripts/perf_report.py \
+              --head instruction-counts.txt \
+              --bytes bytes-per-key.txt \
+              --bytes32 bytes-per-key-32.txt \
+              --vs-stock vs-stock.txt \
+              --v3 v3-counts.txt \
+              --pr-body-file pr-body.txt \
+              --fail-on-regression \
+              --max-regression-pct 5.0 > pr-report.md
             if [ -f pr-report.md ]; then
               cat pr-report.md >> "$GITHUB_STEP_SUMMARY"
             fi
@@ -568,7 +678,7 @@ jobs:
 
       - name: Fuzz smoke (60s per target)
         run: |
-          for t in set_ops map_ops bytesmap_ops strmap_ops blobmap_image_corrupt; do
+          for t in set_ops map_ops bytesmap_ops strmap_ops blobmap_image_corrupt set32_ops map32_ops; do
             echo "::group::$t"
             cargo fuzz run "$t" -- -max_total_time=60 -print_final_stats=1
             echo "::endgroup::"
@@ -585,7 +695,7 @@ jobs:
   test-python:
     name: Bindings / Python Fast Smoke (Py3.12)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.python == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust == 'true' || needs.detect-changes.outputs.python == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -639,6 +749,38 @@ jobs:
 
       - name: Run Node test suite
         run: node crates/expanse-node/test.js
+
+  test-php:
+    name: Bindings / PHP (${{ matrix.os }}, PHP ${{ matrix.php-version }})
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        php-version: ['8.2', '8.3', '8.4']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: ffi
+          coverage: none
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build native addon
+        run: cargo build --release -p expanse-capi
+
+      - name: Run PHP test suite
+        run: php -d ffi.enable=1 tests/ExpanseTest.php
+        working-directory: bindings/php
 
   test-dotnet:
     name: Bindings / .NET (${{ matrix.os }})
@@ -762,7 +904,7 @@ jobs:
   test-rocksdb-memtable:
     name: Integrations / RocksDB MemTable (${{ matrix.os }}, ${{ matrix.sanitizer }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || needs.detect-changes.outputs.c == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -822,6 +964,81 @@ jobs:
             target/release/libexpanse.a -lpthread -ldl -lm -o /tmp/test_memtable_tsan
           /tmp/test_memtable_tsan
 
+
+  test-ruby:
+    name: Bindings / Ruby (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - name: Build C API and Run Ruby Tests
+        run: |
+          cargo build --release -p expanse-capi
+          ruby -Igems/expanse/lib gems/expanse/test/test_expanse.rb
+
+  test-wasm:
+    name: Bindings / WebAssembly (wasm32)
+    runs-on: ubuntu-latest
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check Wasm build
+        run: cargo check -p expanse-wasm --target wasm32-unknown-unknown
+
+      - name: Run Wasm crate unit tests
+        run: cargo test -p expanse-wasm
+
+  test-go:
+    name: Bindings / Go (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build native libexpanse
+        run: cargo build --release -p expanse-capi
+
+      - name: Run Go test suite
+        run: |
+          export LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="$PWD/target/release:$DYLD_LIBRARY_PATH"
+          export CGO_LDFLAGS_ALLOW=".*"
+          cd bindings/go && go test -v .
+
   ci-gate:
     name: CI Gate / All Checks Passed
     if: always()
@@ -833,7 +1050,9 @@ jobs:
       - test-riscv64
       - test-rv32
       - test-cortex-m
+      - test-i686
       - miri
+      - test-asan
       - php-judy-compat
       - php-judy-windows
       - instruction-counts
@@ -843,13 +1062,38 @@ jobs:
       - fuzz-smoke
       - test-python
       - test-node
+      - test-php
       - test-dotnet
       - pack-dotnet
       - test-java
       - test-rocksdb-memtable
+      - test-ruby
+      - test-wasm
+      - test-go
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Gate Self-Check (every job is a required dependency)
+        shell: bash
+        run: |
+          # The branch ruleset requires only this single rollup context, so any job
+          # left out of ci-gate's `needs` would fail open (its result unobserved).
+          # Assert every job id (except ci-gate itself) is a dependency here.
+          python3 -c '
+          import sys, yaml
+          wf = yaml.safe_load(open(".github/workflows/ci.yml"))
+          jobs = set(wf["jobs"].keys())
+          needs = wf["jobs"]["ci-gate"].get("needs", [])
+          needs = {needs} if isinstance(needs, str) else set(needs)
+          missing = (jobs - {"ci-gate"}) - needs
+          if missing:
+              print("::error::ci-gate is missing required job(s) in needs: " + ", ".join(sorted(missing)))
+              sys.exit(1)
+          print("ci-gate depends on all %d other jobs (incl. test-ruby): OK" % (len(jobs) - 1))
+          '
+
       - name: Evaluate Dependency Statuses
         shell: bash
         run: |

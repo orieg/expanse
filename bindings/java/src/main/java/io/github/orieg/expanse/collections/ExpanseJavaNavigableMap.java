@@ -52,12 +52,12 @@ public class ExpanseJavaNavigableMap extends AbstractMap<Long, Long> implements 
 
     private boolean inRange(long key) {
         if (fromKey != null) {
-            if (fromInclusive ? key < fromKey : key <= fromKey) {
+            if (fromInclusive ? Long.compareUnsigned(key, fromKey) < 0 : Long.compareUnsigned(key, fromKey) <= 0) {
                 return false;
             }
         }
         if (toKey != null) {
-            if (toInclusive ? key > toKey : key >= toKey) {
+            if (toInclusive ? Long.compareUnsigned(key, toKey) > 0 : Long.compareUnsigned(key, toKey) >= 0) {
                 return false;
             }
         }
@@ -142,7 +142,8 @@ public class ExpanseJavaNavigableMap extends AbstractMap<Long, Long> implements 
 
     @Override
     public Comparator<? super Long> comparator() {
-        return descending ? Comparator.reverseOrder() : null;
+        Comparator<Long> cmp = Long::compareUnsigned;
+        return descending ? cmp.reversed() : cmp;
     }
 
     @Override
