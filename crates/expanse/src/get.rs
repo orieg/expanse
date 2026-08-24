@@ -153,6 +153,17 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag_byte();
+
+        #[cfg(target_arch = "x86_64")]
+        if tag < 0x10 {
+            // SAFETY: _mm_prefetch does not fault on invalid pointers.
+            unsafe {
+                core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(
+                    edge.node_ptr() as *const i8,
+                );
+            }
+        }
+
         match tag {
             0x00 => return false, // EdgeType::Null
 
@@ -289,6 +300,17 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag_byte();
+
+        #[cfg(target_arch = "x86_64")]
+        if tag < 0x10 {
+            // SAFETY: _mm_prefetch does not fault on invalid pointers.
+            unsafe {
+                core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(
+                    edge.node_ptr() as *const i8,
+                );
+            }
+        }
+
         match tag {
             0x00 => return None,
 
@@ -665,6 +687,17 @@ unsafe fn locate_slot_impl(
         debug_assert!((1..=8).contains(&level));
         // SAFETY: live edge per contract.
         let tag = unsafe { (*edge).tag_byte() };
+
+        #[cfg(target_arch = "x86_64")]
+        if tag < 0x10 {
+            // SAFETY: _mm_prefetch does not fault on invalid pointers.
+            unsafe {
+                core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(
+                    (*edge).node_ptr() as *const i8,
+                );
+            }
+        }
+
         match tag {
             0x00 => return None, // Null
 
