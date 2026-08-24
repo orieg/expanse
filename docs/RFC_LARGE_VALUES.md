@@ -811,6 +811,12 @@ Per Expanse development rules, development proceeds in strict sequential phases 
 - `bench_predicate_scan_selectivity_sweep`: Measure scan latency across $\sigma \in \{0.001, 0.01, 0.05, 0.20, 1.0\}$. Target: $>10\times$ speedup at $\sigma \le 0.05$.
 - `bench_arena_compaction_churn`: Measure pause times and memory reclamation under heavy overwrite workloads.
 
+### 10.3 Measured status *(measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/large_values.rs`, criterion medians)*
+
+- **`inline_vs_heap_small_blobs`** — `ExpanseBlobMap` (inline value slots) vs `BTreeMap<u64, Vec<u8>>` (heap), 7-byte payload: **insert 199.5 µs vs 587.1 µs (2.9× faster)**, **get 56.8 µs vs 290.0 µs (5.1× faster)** (0-byte payload: 2.3× / 5.1×). Insert is just under the RFC's `>3×` target; get comfortably clears it. Zero-heap-allocation for ≤7-byte payloads is a structural property (inline slots), separately asserted by unit tests.
+- **`predicate_scan_selectivity_sweep`** — target `>10× at σ≤0.05` is **not demonstrated by this bench**; the `columnar_filtered_scan` (`scan_filtered`) arm is currently **~2× slower** than the `naive_unfiltered_deref` arm at every selectivity (e.g. σ=0.001: 741 µs vs 367 µs). Two reasons, both actionable: (1) `scan_filtered` currently pays the same trie range-traversal overhead measured for `iter()` (see `docs/BENCHMARKING.md` "vs stdlib" — ordered scans are the engine's weak arm today); and (2) the "naive" baseline does not actually model the RFC's DRAM-traffic premise — it calls `get()` and reads the payload length only on a match, so it too avoids cold-payload cache-line loads, neutralizing the columnar predicate-pushdown advantage the RFC's `>15× / 82% traffic reduction` argument depends on. A meaningful selectivity gate needs a baseline that unconditionally touches payload bytes **and** an ordered-scan fast path. Until then the selectivity-speedup claims in this RFC's §Overview are **targets, not measured results**.
+- **`arena_compaction_churn`** — compaction over 20k entries: ~475 µs after a 50%-delete churn, ~200 µs after 80%-delete (informational; no target).
+
 ---
 
 ## 11. References & Prior Art

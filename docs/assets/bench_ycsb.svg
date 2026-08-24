@@ -115,21 +115,21 @@
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <!-- Bar 1: ExpanseBlobMap (13.10M -> height = 13.10 * 10 = 131.0, y = 195 - 131.0 = 64.0) -->
-    <rect x="42" y="64.0" width="55" height="131.0" class="b-expanse" rx="2"/>
-    <text x="69.5" y="56" class="t-val-accent">13.1 M/s</text>
+    <!-- Bar 1: ExpanseBlobMap (13.22M -> height = 132.2, y = 62.8) -->
+    <rect x="42" y="62.8" width="55" height="132.2" class="b-expanse" rx="2"/>
+    <text x="69.5" y="55" class="t-val-accent">13.2 M/s</text>
     <text x="69.5" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="69.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">7.2&#215; speedup</text>
+    <text x="69.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">7.3&#215; speedup</text>
 
-    <!-- Bar 2: BTreeMap (3.96M -> height = 39.6, y = 155.4) -->
-    <rect x="114" y="155.4" width="55" height="39.6" class="b-btreemap" rx="2"/>
-    <text x="141.5" y="147" class="t-val-blue">3.96 M/s</text>
+    <!-- Bar 2: BTreeMap (3.52M -> height = 35.2, y = 159.8) -->
+    <rect x="114" y="159.8" width="55" height="35.2" class="b-btreemap" rx="2"/>
+    <text x="141.5" y="152" class="t-val-blue">3.52 M/s</text>
     <text x="141.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
-    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.2&#215;</text>
+    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.0&#215;</text>
 
-    <!-- Bar 3: SkipMap (1.81M -> height = 18.1, y = 176.9) -->
-    <rect x="186" y="176.9" width="55" height="18.1" class="b-skipmap" rx="2"/>
-    <text x="213.5" y="169" class="t-val-muted">1.81 M/s</text>
+    <!-- Bar 3: SkipMap (1.80M -> height = 18.0, y = 177.0) -->
+    <rect x="186" y="177.0" width="55" height="18.0" class="b-skipmap" rx="2"/>
+    <text x="213.5" y="169" class="t-val-muted">1.80 M/s</text>
     <text x="213.5" y="214" class="t-bar-label" text-anchor="middle">SkipMap</text>
     <text x="213.5" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
   </g>
@@ -154,17 +154,17 @@
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <!-- Bar 1: ExpanseBlobMap (14.20M -> height = 14.2 * 9.375 = 133.1, y = 61.9) -->
-    <rect x="42" y="61.9" width="55" height="133.1" class="b-expanse" rx="2"/>
-    <text x="69.5" y="54" class="t-val-accent">14.2 M/s</text>
+    <!-- Bar 1: ExpanseBlobMap (14.27M -> height = 133.8, y = 61.2) -->
+    <rect x="42" y="61.2" width="55" height="133.8" class="b-expanse" rx="2"/>
+    <text x="69.5" y="53" class="t-val-accent">14.3 M/s</text>
     <text x="69.5" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
     <text x="69.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">8.1&#215; speedup</text>
 
-    <!-- Bar 2: BTreeMap (4.19M -> height = 39.3, y = 155.7) -->
-    <rect x="114" y="155.7" width="55" height="39.3" class="b-btreemap" rx="2"/>
-    <text x="141.5" y="148" class="t-val-blue">4.19 M/s</text>
+    <!-- Bar 2: BTreeMap (3.71M -> height = 34.8, y = 160.2) -->
+    <rect x="114" y="160.2" width="55" height="34.8" class="b-btreemap" rx="2"/>
+    <text x="141.5" y="152" class="t-val-blue">3.71 M/s</text>
     <text x="141.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
-    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.4&#215;</text>
+    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.1&#215;</text>
 
     <!-- Bar 3: SkipMap (1.76M -> height = 16.5, y = 178.5) -->
     <rect x="186" y="178.5" width="55" height="16.5" class="b-skipmap" rx="2"/>
@@ -193,15 +193,15 @@
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <!-- Bar 1: Expanse (13.4ns -> height = 13.4 * 2.14 = 28.7, y = 195 - 28.7 = 166.3) -->
-    <rect x="55" y="166.3" width="70" height="28.7" class="b-expanse" rx="2"/>
-    <text x="90" y="158" class="t-val-accent">13.4 ns</text>
+    <!-- Bar 1: Expanse (5.7ns -> height = 5.7 * 2.14 = 12.2, y = 182.8) -->
+    <rect x="55" y="182.8" width="70" height="12.2" class="b-expanse" rx="2"/>
+    <text x="90" y="174" class="t-val-accent">5.7 ns</text>
     <text x="90" y="214" class="t-bar-label" text-anchor="middle">ExpanseBlobMap</text>
-    <text x="90" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">4.3&#215; faster (0 alloc)</text>
+    <text x="90" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">5.1&#215; faster (0 alloc)</text>
 
-    <!-- Bar 2: BTreeMap (58.2ns -> height = 58.2 * 2.14 = 124.5, y = 70.5) -->
-    <rect x="155" y="70.5" width="70" height="124.5" class="b-btreemap" rx="2"/>
-    <text x="190" y="62" class="t-val-blue">58.2 ns</text>
+    <!-- Bar 2: BTreeMap (29.0ns -> height = 29.0 * 2.14 = 62.1, y = 132.9) -->
+    <rect x="155" y="132.9" width="70" height="62.1" class="b-btreemap" rx="2"/>
+    <text x="190" y="124" class="t-val-blue">29.0 ns</text>
     <text x="190" y="214" class="t-bar-label" text-anchor="middle">BTreeMap (Heap)</text>
     <text x="190" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; (16B header)</text>
   </g>

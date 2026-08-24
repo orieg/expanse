@@ -84,7 +84,7 @@
 
   <g transform="translate(30, 20)">
     <text x="35" y="0" class="t-title">MULTITHREADED OCC CONCURRENCY SCALABILITY (SyncExpanseMap)</text>
-    <text x="35" y="14" class="t-sub">Concurrent read throughput across 1..16 threads (1,000,000 keys, 100% Read, Honeycomb 16-Core Server)</text>
+    <text x="35" y="14" class="t-sub">Concurrent read throughput across 1..16 threads (1,000,000 keys, 100% Read, honeycomb 24-core x86_64)</text>
 
     <!-- Legend -->
     <g transform="translate(600, 0)">
@@ -134,30 +134,30 @@
     <line x1="90" y1="174.8" x2="820" y2="63.2" class="line-linear"/>
 
     <!-- Data Line:
-         1 Thread:  21.8M  -> y = 174.8
-         2 Threads: 41.7M  -> y = 165.5
-         4 Threads: 82.9M  -> y = 146.3
-         8 Threads: 156.5M -> y = 112.0
-         16 Threads: 260.9M -> y = 63.2
+         1 Thread:  22.1M  -> y = 174.7
+         2 Threads: 42.7M  -> y = 165.1
+         4 Threads: 83.7M  -> y = 145.9
+         8 Threads: 160.7M -> y = 110.0
+         16 Threads: 265.8M -> y = 61.0
     -->
-    <polyline points="90,174.8 260,165.5 440,146.3 630,112.0 820,63.2" class="line-occ"/>
+    <polyline points="90,174.7 260,165.1 440,145.9 630,110.0 820,61.0" class="line-occ"/>
 
     <!-- Points and Labels -->
-    <circle cx="90" cy="174.8" r="4.5" class="dot-occ"/>
-    <text x="90" y="162" class="t-tag" text-anchor="middle">21.8 M/s</text>
+    <circle cx="90" cy="174.7" r="4.5" class="dot-occ"/>
+    <text x="90" y="162" class="t-tag" text-anchor="middle">22.1 M/s</text>
 
-    <circle cx="260" cy="165.5" r="4.5" class="dot-occ"/>
-    <text x="260" y="180" class="t-tag" text-anchor="middle">41.7 M/s (1.9&#215;)</text>
+    <circle cx="260" cy="165.1" r="4.5" class="dot-occ"/>
+    <text x="260" y="180" class="t-tag" text-anchor="middle">42.7 M/s (1.9&#215;)</text>
 
-    <circle cx="440" cy="146.3" r="4.5" class="dot-occ"/>
-    <text x="440" y="162" class="t-tag" text-anchor="middle">82.9 M/s (3.8&#215;)</text>
+    <circle cx="440" cy="145.9" r="4.5" class="dot-occ"/>
+    <text x="440" y="162" class="t-tag" text-anchor="middle">83.7 M/s (3.8&#215;)</text>
 
-    <circle cx="630" cy="112.0" r="4.5" class="dot-occ"/>
-    <text x="630" y="138" class="t-tag" text-anchor="middle">156.5 M/s (7.2&#215;)</text>
+    <circle cx="630" cy="110.0" r="4.5" class="dot-occ"/>
+    <text x="630" y="136" class="t-tag" text-anchor="middle">160.7 M/s (7.3&#215;)</text>
 
-    <circle cx="820" cy="63.2" r="4.5" class="dot-occ"/>
-    <text x="820" y="50" class="t-tag" text-anchor="middle">260.9 M/s (12.0&#215;)</text>
+    <circle cx="820" cy="61.0" r="4.5" class="dot-occ"/>
+    <text x="820" y="48" class="t-tag" text-anchor="middle">265.8 M/s (12.0&#215;)</text>
 
-    <text x="450" y="235" class="t-sub" text-anchor="middle">Measured on 16-core Intel i9-12900F &#8226; Lock-free optimistic concurrency reader scaling</text>
+    <text x="450" y="235" class="t-sub" text-anchor="middle">Measured on honeycomb (24-core x86_64, Ubuntu 22.04 / kernel 6.8), commit 695b98d &#8226; 100% read; write-mixed workloads are seqlock-bound</text>
   </g>
 </svg>
