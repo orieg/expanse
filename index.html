@@ -867,33 +867,33 @@
   <rect width="100%" height="100%" class="bg" rx="8"/>
   <rect width="100%" height="100%" class="border" rx="8"/>
 
-  <!-- ================= CHART 1: RANGE SCAN ================= -->
+  <!-- ================= CHART 1: COLD-BUILD INSERT ================= -->
   <g transform="translate(30, 20)">
-    <text x="0" y="0" class="t-chart-title">Ordered Range Scan</text>
-    <text x="0" y="13" class="t-chart-sub">100,000 keys sequential scan (higher is better)</text>
+    <text x="0" y="0" class="t-chart-title">Cold-Build Insert</text>
+    <text x="0" y="13" class="t-chart-sub">100,000 clustered keys, cold build (higher is better)</text>
     <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M keys / sec)</text>
 
     <!-- Y Axis: 0 to 100M -->
     <line x1="30" y1="45" x2="240" y2="45" class="grid"/>
     <text x="22" y="48" class="t-axis-label" text-anchor="end">100M</text>
-    
+
     <line x1="30" y1="120" x2="240" y2="120" class="grid"/>
     <text x="22" y="123" class="t-axis-label" text-anchor="end">50M</text>
-    
+
     <line x1="30" y1="195" x2="240" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <!-- Bar 1: ExpanseMap (88.4M -> height = 88.4 * 1.5 = 132.6, y = 195 - 132.6 = 62.4) -->
-    <rect x="55" y="62.4" width="65" height="132.6" class="b-expanse" rx="2"/>
-    <text x="87.5" y="54" class="t-val-accent">88.4 M/s</text>
-    <text x="87.5" y="214" class="t-bar-label" text-anchor="middle">ExpanseMap</text>
-    <text x="87.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">3.4&#215; speedup</text>
+    <!-- Bar 1: ExpanseSet (96.2M -> height = 144.3, y = 50.7) -->
+    <rect x="55" y="50.7" width="65" height="144.3" class="b-expanse" rx="2"/>
+    <text x="87.5" y="43" class="t-val-accent">96.2 M/s</text>
+    <text x="87.5" y="214" class="t-bar-label" text-anchor="middle">ExpanseSet</text>
+    <text x="87.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">4.4&#215; speedup</text>
 
-    <!-- Bar 2: BTreeMap (26.0M -> height = 39.0, y = 156.0) -->
-    <rect x="145" y="156.0" width="65" height="39.0" class="b-other" rx="2"/>
-    <text x="177.5" y="148" class="t-val-muted">26.0 M/s</text>
-    <text x="177.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
+    <!-- Bar 2: BTreeSet (21.8M -> height = 32.7, y = 162.3) -->
+    <rect x="145" y="162.3" width="65" height="32.7" class="b-other" rx="2"/>
+    <text x="177.5" y="154" class="t-val-muted">21.8 M/s</text>
+    <text x="177.5" y="214" class="t-bar-label" text-anchor="middle">BTreeSet</text>
     <text x="177.5" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
   </g>
 
@@ -1064,7 +1064,7 @@
 
   <g transform="translate(30, 20)">
     <text x="35" y="0" class="t-title">MULTITHREADED OCC CONCURRENCY SCALABILITY (SyncExpanseMap)</text>
-    <text x="35" y="14" class="t-sub">Concurrent read throughput across 1..16 threads (1,000,000 keys, 100% Read, Honeycomb 16-Core Server)</text>
+    <text x="35" y="14" class="t-sub">Concurrent read throughput across 1..16 threads (1,000,000 keys, 100% Read, honeycomb 24-core x86_64)</text>
 
     <!-- Legend -->
     <g transform="translate(600, 0)">
@@ -1114,31 +1114,31 @@
     <line x1="90" y1="174.8" x2="820" y2="63.2" class="line-linear"/>
 
     <!-- Data Line:
-         1 Thread:  21.8M  -> y = 174.8
-         2 Threads: 41.7M  -> y = 165.5
-         4 Threads: 82.9M  -> y = 146.3
-         8 Threads: 156.5M -> y = 112.0
-         16 Threads: 260.9M -> y = 63.2
+         1 Thread:  22.1M  -> y = 174.7
+         2 Threads: 42.7M  -> y = 165.1
+         4 Threads: 83.7M  -> y = 145.9
+         8 Threads: 160.7M -> y = 110.0
+         16 Threads: 265.8M -> y = 61.0
     -->
-    <polyline points="90,174.8 260,165.5 440,146.3 630,112.0 820,63.2" class="line-occ"/>
+    <polyline points="90,174.7 260,165.1 440,145.9 630,110.0 820,61.0" class="line-occ"/>
 
     <!-- Points and Labels -->
-    <circle cx="90" cy="174.8" r="4.5" class="dot-occ"/>
-    <text x="90" y="162" class="t-tag" text-anchor="middle">21.8 M/s</text>
+    <circle cx="90" cy="174.7" r="4.5" class="dot-occ"/>
+    <text x="90" y="162" class="t-tag" text-anchor="middle">22.1 M/s</text>
 
-    <circle cx="260" cy="165.5" r="4.5" class="dot-occ"/>
-    <text x="260" y="180" class="t-tag" text-anchor="middle">41.7 M/s (1.9&#215;)</text>
+    <circle cx="260" cy="165.1" r="4.5" class="dot-occ"/>
+    <text x="260" y="180" class="t-tag" text-anchor="middle">42.7 M/s (1.9&#215;)</text>
 
-    <circle cx="440" cy="146.3" r="4.5" class="dot-occ"/>
-    <text x="440" y="162" class="t-tag" text-anchor="middle">82.9 M/s (3.8&#215;)</text>
+    <circle cx="440" cy="145.9" r="4.5" class="dot-occ"/>
+    <text x="440" y="162" class="t-tag" text-anchor="middle">83.7 M/s (3.8&#215;)</text>
 
-    <circle cx="630" cy="112.0" r="4.5" class="dot-occ"/>
-    <text x="630" y="138" class="t-tag" text-anchor="middle">156.5 M/s (7.2&#215;)</text>
+    <circle cx="630" cy="110.0" r="4.5" class="dot-occ"/>
+    <text x="630" y="136" class="t-tag" text-anchor="middle">160.7 M/s (7.3&#215;)</text>
 
-    <circle cx="820" cy="63.2" r="4.5" class="dot-occ"/>
-    <text x="820" y="50" class="t-tag" text-anchor="middle">260.9 M/s (12.0&#215;)</text>
+    <circle cx="820" cy="61.0" r="4.5" class="dot-occ"/>
+    <text x="820" y="48" class="t-tag" text-anchor="middle">265.8 M/s (12.0&#215;)</text>
 
-    <text x="450" y="235" class="t-sub" text-anchor="middle">Measured on 16-core Intel i9-12900F &#8226; Lock-free optimistic concurrency reader scaling</text>
+    <text x="450" y="235" class="t-sub" text-anchor="middle">Measured on honeycomb (24-core x86_64, Ubuntu 22.04 / kernel 6.8), commit 695b98d &#8226; 100% read; write-mixed workloads are seqlock-bound</text>
   </g>
 </svg>
 
@@ -1261,21 +1261,21 @@
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <!-- Bar 1: ExpanseBlobMap (13.10M -> height = 13.10 * 10 = 131.0, y = 195 - 131.0 = 64.0) -->
-    <rect x="42" y="64.0" width="55" height="131.0" class="b-expanse" rx="2"/>
-    <text x="69.5" y="56" class="t-val-accent">13.1 M/s</text>
+    <!-- Bar 1: ExpanseBlobMap (13.22M -> height = 132.2, y = 62.8) -->
+    <rect x="42" y="62.8" width="55" height="132.2" class="b-expanse" rx="2"/>
+    <text x="69.5" y="55" class="t-val-accent">13.2 M/s</text>
     <text x="69.5" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="69.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">7.2&#215; speedup</text>
+    <text x="69.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">7.3&#215; speedup</text>
 
-    <!-- Bar 2: BTreeMap (3.96M -> height = 39.6, y = 155.4) -->
-    <rect x="114" y="155.4" width="55" height="39.6" class="b-btreemap" rx="2"/>
-    <text x="141.5" y="147" class="t-val-blue">3.96 M/s</text>
+    <!-- Bar 2: BTreeMap (3.52M -> height = 35.2, y = 159.8) -->
+    <rect x="114" y="159.8" width="55" height="35.2" class="b-btreemap" rx="2"/>
+    <text x="141.5" y="152" class="t-val-blue">3.52 M/s</text>
     <text x="141.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
-    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.2&#215;</text>
+    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.0&#215;</text>
 
-    <!-- Bar 3: SkipMap (1.81M -> height = 18.1, y = 176.9) -->
-    <rect x="186" y="176.9" width="55" height="18.1" class="b-skipmap" rx="2"/>
-    <text x="213.5" y="169" class="t-val-muted">1.81 M/s</text>
+    <!-- Bar 3: SkipMap (1.80M -> height = 18.0, y = 177.0) -->
+    <rect x="186" y="177.0" width="55" height="18.0" class="b-skipmap" rx="2"/>
+    <text x="213.5" y="169" class="t-val-muted">1.80 M/s</text>
     <text x="213.5" y="214" class="t-bar-label" text-anchor="middle">SkipMap</text>
     <text x="213.5" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
   </g>
@@ -1300,17 +1300,17 @@
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <!-- Bar 1: ExpanseBlobMap (14.20M -> height = 14.2 * 9.375 = 133.1, y = 61.9) -->
-    <rect x="42" y="61.9" width="55" height="133.1" class="b-expanse" rx="2"/>
-    <text x="69.5" y="54" class="t-val-accent">14.2 M/s</text>
+    <!-- Bar 1: ExpanseBlobMap (14.27M -> height = 133.8, y = 61.2) -->
+    <rect x="42" y="61.2" width="55" height="133.8" class="b-expanse" rx="2"/>
+    <text x="69.5" y="53" class="t-val-accent">14.3 M/s</text>
     <text x="69.5" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
     <text x="69.5" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">8.1&#215; speedup</text>
 
-    <!-- Bar 2: BTreeMap (4.19M -> height = 39.3, y = 155.7) -->
-    <rect x="114" y="155.7" width="55" height="39.3" class="b-btreemap" rx="2"/>
-    <text x="141.5" y="148" class="t-val-blue">4.19 M/s</text>
+    <!-- Bar 2: BTreeMap (3.71M -> height = 34.8, y = 160.2) -->
+    <rect x="114" y="160.2" width="55" height="34.8" class="b-btreemap" rx="2"/>
+    <text x="141.5" y="152" class="t-val-blue">3.71 M/s</text>
     <text x="141.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
-    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.4&#215;</text>
+    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.1&#215;</text>
 
     <!-- Bar 3: SkipMap (1.76M -> height = 16.5, y = 178.5) -->
     <rect x="186" y="178.5" width="55" height="16.5" class="b-skipmap" rx="2"/>
@@ -1339,15 +1339,15 @@
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <!-- Bar 1: Expanse (13.4ns -> height = 13.4 * 2.14 = 28.7, y = 195 - 28.7 = 166.3) -->
-    <rect x="55" y="166.3" width="70" height="28.7" class="b-expanse" rx="2"/>
-    <text x="90" y="158" class="t-val-accent">13.4 ns</text>
+    <!-- Bar 1: Expanse (5.7ns -> height = 5.7 * 2.14 = 12.2, y = 182.8) -->
+    <rect x="55" y="182.8" width="70" height="12.2" class="b-expanse" rx="2"/>
+    <text x="90" y="174" class="t-val-accent">5.7 ns</text>
     <text x="90" y="214" class="t-bar-label" text-anchor="middle">ExpanseBlobMap</text>
-    <text x="90" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">4.3&#215; faster (0 alloc)</text>
+    <text x="90" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">5.1&#215; faster (0 alloc)</text>
 
-    <!-- Bar 2: BTreeMap (58.2ns -> height = 58.2 * 2.14 = 124.5, y = 70.5) -->
-    <rect x="155" y="70.5" width="70" height="124.5" class="b-btreemap" rx="2"/>
-    <text x="190" y="62" class="t-val-blue">58.2 ns</text>
+    <!-- Bar 2: BTreeMap (29.0ns -> height = 29.0 * 2.14 = 62.1, y = 132.9) -->
+    <rect x="155" y="132.9" width="70" height="62.1" class="b-btreemap" rx="2"/>
+    <text x="190" y="124" class="t-val-blue">29.0 ns</text>
     <text x="190" y="214" class="t-bar-label" text-anchor="middle">BTreeMap (Heap)</text>
     <text x="190" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; (16B header)</text>
   </g>
@@ -1682,32 +1682,32 @@ int main() {
     <text x="0" y="13" class="t-chart-sub">100,000 keys prefixscan (higher is better)</text>
     <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M ops / sec)</text>
 
-    <!-- Y Axis: 0 to 500M -->
+    <!-- Y Axis: 0 to 700M -->
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">500M</text>
-    
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">700M</text>
+
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">250M</text>
-    
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">350M</text>
+
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <!-- Bar 1: ExpanseMemTable (215.32M -> height = 64.6, y = 130.4) -->
-    <rect x="45" y="130.4" width="50" height="64.6" class="b-expanse" rx="2"/>
-    <text x="70" y="122" class="t-val-accent">215.3 M/s</text>
+    <!-- Bar 1: ExpanseMemTable (151.40M -> height = 32.4, y = 162.6) -->
+    <rect x="45" y="162.6" width="50" height="32.4" class="b-expanse" rx="2"/>
+    <text x="70" y="154" class="t-val-accent">151.4 M/s</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">19.7&#215; speedup</text>
+    <text x="70" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">9.3&#215; speedup</text>
 
-    <!-- Bar 2: SkipList (10.95M -> height = 3.3, y = 191.7) -->
-    <rect x="115" y="191.7" width="50" height="3.3" class="b-rocksdb" rx="2"/>
-    <text x="140" y="183" class="t-val-blue">11.0 M/s</text>
+    <!-- Bar 2: SkipList (16.20M -> height = 3.5, y = 191.5) -->
+    <rect x="115" y="191.5" width="50" height="3.5" class="b-rocksdb" rx="2"/>
+    <text x="140" y="183" class="t-val-blue">16.2 M/s</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">SkipList</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
 
-    <!-- Bar 3: Vector (464.58M -> height = 139.4, y = 55.6) -->
-    <rect x="185" y="55.6" width="50" height="139.4" class="b-other" rx="2"/>
-    <text x="210" y="47" class="t-val-muted">464.6 M/s</text>
+    <!-- Bar 3: Vector (618.41M -> height = 132.5, y = 62.5) -->
+    <rect x="185" y="62.5" width="50" height="132.5" class="b-other" rx="2"/>
+    <text x="210" y="54" class="t-val-muted">618.4 M/s</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">read-only</text>
   </g>
@@ -1760,32 +1760,32 @@ int main() {
     <text x="0" y="13" class="t-chart-sub">readrandom single-key query (lower is better)</text>
     <text x="0" y="29" class="t-unit-header">&#9660; Query Latency (ns / op)</text>
 
-    <!-- Y Axis: 0 to 1400 ns -->
+    <!-- Y Axis: 0 to 600 ns -->
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">1400 ns</text>
-    
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">600 ns</text>
+
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">700 ns</text>
-    
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">300 ns</text>
+
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
 
-    <!-- Bar 1: Expanse (999 ns -> height = 107.0, y = 88.0) -->
-    <rect x="45" y="88.0" width="50" height="107.0" class="b-expanse" rx="2"/>
-    <text x="70" y="80" class="t-val-accent">999 ns</text>
+    <!-- Bar 1: Expanse (276 ns -> height = 69.0, y = 126.0) -->
+    <rect x="45" y="126.0" width="50" height="69.0" class="b-expanse" rx="2"/>
+    <text x="70" y="118" class="t-val-accent">276 ns</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">1.08&#215; faster</text>
+    <text x="70" y="228" class="t-chart-sub" text-anchor="middle" fill="#3fb950">1.96&#215; faster</text>
 
-    <!-- Bar 2: SkipList (1077 ns -> height = 115.4, y = 79.6) -->
-    <rect x="115" y="79.6" width="50" height="115.4" class="b-rocksdb" rx="2"/>
-    <text x="140" y="71" class="t-val-blue">1077 ns</text>
+    <!-- Bar 2: SkipList (539 ns -> height = 134.8, y = 60.2) -->
+    <rect x="115" y="60.2" width="50" height="134.8" class="b-rocksdb" rx="2"/>
+    <text x="140" y="52" class="t-val-blue">539 ns</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">SkipList</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
 
-    <!-- Bar 3: Vector (1065 ns -> height = 114.1, y = 80.9) -->
-    <rect x="185" y="80.9" width="50" height="114.1" class="b-other" rx="2"/>
-    <text x="210" y="72" class="t-val-muted">1065 ns</text>
+    <!-- Bar 3: Vector (548 ns -> height = 137.0, y = 58.0) -->
+    <rect x="185" y="58.0" width="50" height="137.0" class="b-other" rx="2"/>
+    <text x="210" y="50" class="t-val-muted">548 ns</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215;</text>
   </g>
@@ -1868,7 +1868,7 @@ $data = $cache-&gt;get('user:42:profile');</code></pre>
   <footer>
     <div class="container">
       <p style="margin-bottom: 0.75rem;">
-        <span class="badge" style="font-size: 0.78rem;">Release v0.3.0</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/695b98d"><code>695b98d</code></a> &bull; Built on 2026-08-24
+        <span class="badge" style="font-size: 0.78rem;">Release v0.3.0</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/39456af"><code>39456af</code></a> &bull; Built on 2026-08-24
       </p>
       <p>
         <strong>Expanse</strong> is open source software released under dual MIT / Apache-2.0 licenses.<br>
