@@ -80,7 +80,10 @@ public sealed class ExpanseSyncSet : IDisposable
         {
             throw new OutOfMemoryException("Failed to allocate native ExpanseSyncSetReader");
         }
-        return new ExpanseSyncSetReader(readerHandle);
+        // The native reader is a borrow of the set's storage. Pin the set's SafeHandle
+        // for the reader's lifetime so the GC cannot free the set while a reader still
+        // references it — that would be a use-after-free from safe C#.
+        return new ExpanseSyncSetReader(readerHandle, _handle);
     }
 
     /// <summary>
@@ -103,11 +106,18 @@ public sealed class ExpanseSyncSet : IDisposable
 public sealed class ExpanseSyncSetReader : IDisposable
 {
     private SafeExpanseSyncSetReaderHandle _handle;
+    // The owning set's handle, ref-counted up for this reader's lifetime so the set
+    // cannot be freed while the reader (a native borrow of it) is still alive.
+    private readonly SafeExpanseSyncSetHandle _setHandle;
+    private bool _setHandleRefAdded;
     private bool _disposed;
 
-    internal ExpanseSyncSetReader(SafeExpanseSyncSetReaderHandle handle)
+    internal ExpanseSyncSetReader(SafeExpanseSyncSetReaderHandle handle, SafeExpanseSyncSetHandle setHandle)
     {
         _handle = handle;
+        _setHandle = setHandle;
+        // Keep the set alive for as long as this reader exists.
+        _setHandle.DangerousAddRef(ref _setHandleRefAdded);
     }
 
     private void ThrowIfDisposed()
@@ -132,7 +142,14 @@ public sealed class ExpanseSyncSetReader : IDisposable
     {
         if (!_disposed)
         {
+            // Free the reader first (it borrows the set), then release our ref-count
+            // on the set so it can be collected once nothing else references it.
             _handle.Dispose();
+            if (_setHandleRefAdded)
+            {
+                _setHandle.DangerousRelease();
+                _setHandleRefAdded = false;
+            }
             _disposed = true;
         }
     }

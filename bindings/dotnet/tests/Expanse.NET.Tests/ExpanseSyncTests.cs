@@ -56,4 +56,53 @@ public class ExpanseSyncTests
             }
         });
     }
+
+    [Fact]
+    public void MapReaderKeepsMapAliveAcrossGarbageCollection()
+    {
+        // A reader borrows the map's native storage. Before the fix the reader held no
+        // reference to the map handle, so once the last managed reference to the map was
+        // dropped the GC could finalize (free) the map SafeHandle while the reader lived
+        // on — a use-after-free from safe C#. The reader now DangerousAddRef's the map
+        // handle for its lifetime; after dropping the map and forcing a full GC the
+        // reader must still read correctly.
+        ExpanseSyncMapReader reader = CreateOrphanReader();
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        Assert.True(reader.TryGet(42, out ulong value));
+        Assert.Equal(4242ul, value);
+        reader.Dispose();
+    }
+
+    // Creates a reader whose owning map has no remaining managed reference, so the map
+    // is eligible for collection except for the reader's ref-count on its handle.
+    private static ExpanseSyncMapReader CreateOrphanReader()
+    {
+        var map = new ExpanseSyncMap();
+        map.Set(42, 4242);
+        return map.CreateReader();
+    }
+
+    [Fact]
+    public void SetReaderKeepsSetAliveAcrossGarbageCollection()
+    {
+        ExpanseSyncSetReader reader = CreateOrphanSetReader();
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        Assert.True(reader.Contains(7));
+        reader.Dispose();
+    }
+
+    private static ExpanseSyncSetReader CreateOrphanSetReader()
+    {
+        var set = new ExpanseSyncSet();
+        set.Add(7);
+        return set.CreateReader();
+    }
 }

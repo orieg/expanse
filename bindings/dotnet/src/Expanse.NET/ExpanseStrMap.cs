@@ -18,6 +18,111 @@ public sealed class ExpanseStrMap : IDisposable, IEnumerable<KeyValuePair<string
     private bool _disposed;
     private const int InitialNavBufferLen = 4096;
 
+    // expanse_str_nav_status values (see expanse.h). The truncation-aware _ex nav
+    // functions disambiguate "no such key" from "buffer too small", so a key longer
+    // than the scratch buffer is never mistaken for the end of the map.
+    private const int NavOk = 0;
+    private const int NavNotFound = 1;
+    private const int NavBufferTooSmall = 2;
+
+    private unsafe delegate int NavNoKeyEx(
+        SafeExpanseStrMapHandle map, byte* keyOut, nuint bufLen, nuint* requiredLen, ulong* valueOut);
+
+    private unsafe delegate int NavFromKeyEx(
+        SafeExpanseStrMapHandle map, byte* key, byte* keyOut, nuint bufLen, nuint* requiredLen, ulong* valueOut);
+
+    private static int GrowNavBuffer(int currentLen, nuint required)
+    {
+        if (required > int.MaxValue)
+        {
+            throw new InvalidOperationException(
+                $"String key of {required} bytes exceeds the maximum buffer size ({int.MaxValue}).");
+        }
+        // required is the exact byte length (incl. NUL); grow at least geometrically to
+        // avoid pathological repeats if the map mutates between retries.
+        long grown = Math.Max((int)required, (long)currentLen * 2);
+        return (int)Math.Min(grown, int.MaxValue);
+    }
+
+    // Retry-loop driver for the key-less _ex nav functions (First/Last): grows the
+    // output buffer until the key fits so long keys are never silently dropped.
+    private unsafe KeyValuePair<string, ulong>? NavNoKey(NavNoKeyEx fn)
+    {
+        ThrowIfDisposed();
+        int bufLen = InitialNavBufferLen;
+        while (true)
+        {
+            byte[] buf = new byte[bufLen];
+            nuint required = 0;
+            ulong value = 0;
+            fixed (byte* pBuf = buf)
+            {
+                int status = fn(_handle, pBuf, (nuint)buf.Length, &required, &value);
+                switch (status)
+                {
+                    case NavOk:
+                        string key = Marshal.PtrToStringUTF8((IntPtr)pBuf) ?? string.Empty;
+                        return new KeyValuePair<string, ulong>(key, value);
+                    case NavNotFound:
+                        return null;
+                    case NavBufferTooSmall:
+                        break;
+                    default:
+                        throw new InvalidOperationException($"Unknown expanse_str_nav_status: {status}");
+                }
+            }
+            bufLen = GrowNavBuffer(bufLen, required);
+        }
+    }
+
+    // Retry-loop driver for the key-taking _ex nav functions (Next/Prev variants).
+    private unsafe KeyValuePair<string, ulong>? NavFromKey(NavFromKeyEx fn, ReadOnlySpan<char> key)
+    {
+        ThrowIfDisposed();
+        int maxBytes = Encoding.UTF8.GetMaxByteCount(key.Length) + 1;
+        byte[]? rented = null;
+        Span<byte> utf8Key = maxBytes <= 512 ? stackalloc byte[512] : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
+
+        try
+        {
+            int written = Encoding.UTF8.GetBytes(key, utf8Key);
+            utf8Key[written] = 0;
+
+            int bufLen = InitialNavBufferLen;
+            while (true)
+            {
+                byte[] outBuf = new byte[bufLen];
+                nuint required = 0;
+                ulong value = 0;
+                fixed (byte* pKey = utf8Key)
+                fixed (byte* pOut = outBuf)
+                {
+                    int status = fn(_handle, pKey, pOut, (nuint)outBuf.Length, &required, &value);
+                    switch (status)
+                    {
+                        case NavOk:
+                            string outKeyStr = Marshal.PtrToStringUTF8((IntPtr)pOut) ?? string.Empty;
+                            return new KeyValuePair<string, ulong>(outKeyStr, value);
+                        case NavNotFound:
+                            return null;
+                        case NavBufferTooSmall:
+                            break;
+                        default:
+                            throw new InvalidOperationException($"Unknown expanse_str_nav_status: {status}");
+                    }
+                }
+                bufLen = GrowNavBuffer(bufLen, required);
+            }
+        }
+        finally
+        {
+            if (rented != null)
+            {
+                ArrayPool<byte>.Shared.Return(rented);
+            }
+        }
+    }
+
     /// <summary>
     /// Creates a new empty off-heap <see cref="ExpanseStrMap"/>.
     /// </summary>
@@ -274,38 +379,12 @@ public sealed class ExpanseStrMap : IDisposable, IEnumerable<KeyValuePair<string
     /// <summary>
     /// Returns the lexicographically smallest entry in the map, or <c>null</c> if empty.
     /// </summary>
-    public unsafe KeyValuePair<string, ulong>? First()
-    {
-        ThrowIfDisposed();
-        byte[] buf = new byte[InitialNavBufferLen];
-        fixed (byte* pBuf = buf)
-        {
-            if (NativeMethods.expanse_strmap_first(_handle, pBuf, (nuint)buf.Length, out ulong value))
-            {
-                string key = Marshal.PtrToStringUTF8((IntPtr)pBuf) ?? string.Empty;
-                return new KeyValuePair<string, ulong>(key, value);
-            }
-        }
-        return null;
-    }
+    public unsafe KeyValuePair<string, ulong>? First() => NavNoKey(NativeMethods.expanse_strmap_first_ex);
 
     /// <summary>
     /// Returns the lexicographically largest entry in the map, or <c>null</c> if empty.
     /// </summary>
-    public unsafe KeyValuePair<string, ulong>? Last()
-    {
-        ThrowIfDisposed();
-        byte[] buf = new byte[InitialNavBufferLen];
-        fixed (byte* pBuf = buf)
-        {
-            if (NativeMethods.expanse_strmap_last(_handle, pBuf, (nuint)buf.Length, out ulong value))
-            {
-                string key = Marshal.PtrToStringUTF8((IntPtr)pBuf) ?? string.Empty;
-                return new KeyValuePair<string, ulong>(key, value);
-            }
-        }
-        return null;
-    }
+    public unsafe KeyValuePair<string, ulong>? Last() => NavNoKey(NativeMethods.expanse_strmap_last_ex);
 
     /// <summary>
     /// Returns the entry with the lexicographically smallest key strictly greater than <paramref name="key"/>.
@@ -319,38 +398,8 @@ public sealed class ExpanseStrMap : IDisposable, IEnumerable<KeyValuePair<string
     /// <summary>
     /// Returns the entry with the lexicographically smallest key strictly greater than <paramref name="key"/>.
     /// </summary>
-    public unsafe KeyValuePair<string, ulong>? Next(ReadOnlySpan<char> key)
-    {
-        ThrowIfDisposed();
-        int maxBytes = Encoding.UTF8.GetMaxByteCount(key.Length) + 1;
-        byte[]? rented = null;
-        Span<byte> utf8Key = maxBytes <= 512 ? stackalloc byte[512] : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
-
-        try
-        {
-            int written = Encoding.UTF8.GetBytes(key, utf8Key);
-            utf8Key[written] = 0;
-
-            byte[] outBuf = new byte[InitialNavBufferLen];
-            fixed (byte* pKey = utf8Key)
-            fixed (byte* pOut = outBuf)
-            {
-                if (NativeMethods.expanse_strmap_next_after(_handle, pKey, pOut, (nuint)outBuf.Length, out ulong value))
-                {
-                    string outKeyStr = Marshal.PtrToStringUTF8((IntPtr)pOut) ?? string.Empty;
-                    return new KeyValuePair<string, ulong>(outKeyStr, value);
-                }
-            }
-            return null;
-        }
-        finally
-        {
-            if (rented != null)
-            {
-                ArrayPool<byte>.Shared.Return(rented);
-            }
-        }
-    }
+    public unsafe KeyValuePair<string, ulong>? Next(ReadOnlySpan<char> key) =>
+        NavFromKey(NativeMethods.expanse_strmap_next_after_ex, key);
 
     /// <summary>
     /// Returns the entry with the lexicographically smallest key greater than or equal to <paramref name="key"/>.
@@ -364,38 +413,8 @@ public sealed class ExpanseStrMap : IDisposable, IEnumerable<KeyValuePair<string
     /// <summary>
     /// Returns the entry with the lexicographically smallest key greater than or equal to <paramref name="key"/>.
     /// </summary>
-    public unsafe KeyValuePair<string, ulong>? NextAtOrAfter(ReadOnlySpan<char> key)
-    {
-        ThrowIfDisposed();
-        int maxBytes = Encoding.UTF8.GetMaxByteCount(key.Length) + 1;
-        byte[]? rented = null;
-        Span<byte> utf8Key = maxBytes <= 512 ? stackalloc byte[512] : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
-
-        try
-        {
-            int written = Encoding.UTF8.GetBytes(key, utf8Key);
-            utf8Key[written] = 0;
-
-            byte[] outBuf = new byte[InitialNavBufferLen];
-            fixed (byte* pKey = utf8Key)
-            fixed (byte* pOut = outBuf)
-            {
-                if (NativeMethods.expanse_strmap_next_at_or_after(_handle, pKey, pOut, (nuint)outBuf.Length, out ulong value))
-                {
-                    string outKeyStr = Marshal.PtrToStringUTF8((IntPtr)pOut) ?? string.Empty;
-                    return new KeyValuePair<string, ulong>(outKeyStr, value);
-                }
-            }
-            return null;
-        }
-        finally
-        {
-            if (rented != null)
-            {
-                ArrayPool<byte>.Shared.Return(rented);
-            }
-        }
-    }
+    public unsafe KeyValuePair<string, ulong>? NextAtOrAfter(ReadOnlySpan<char> key) =>
+        NavFromKey(NativeMethods.expanse_strmap_next_at_or_after_ex, key);
 
     /// <summary>
     /// Returns the entry with the lexicographically largest key strictly less than <paramref name="key"/>.
@@ -409,38 +428,8 @@ public sealed class ExpanseStrMap : IDisposable, IEnumerable<KeyValuePair<string
     /// <summary>
     /// Returns the entry with the lexicographically largest key strictly less than <paramref name="key"/>.
     /// </summary>
-    public unsafe KeyValuePair<string, ulong>? Prev(ReadOnlySpan<char> key)
-    {
-        ThrowIfDisposed();
-        int maxBytes = Encoding.UTF8.GetMaxByteCount(key.Length) + 1;
-        byte[]? rented = null;
-        Span<byte> utf8Key = maxBytes <= 512 ? stackalloc byte[512] : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
-
-        try
-        {
-            int written = Encoding.UTF8.GetBytes(key, utf8Key);
-            utf8Key[written] = 0;
-
-            byte[] outBuf = new byte[InitialNavBufferLen];
-            fixed (byte* pKey = utf8Key)
-            fixed (byte* pOut = outBuf)
-            {
-                if (NativeMethods.expanse_strmap_prev_before(_handle, pKey, pOut, (nuint)outBuf.Length, out ulong value))
-                {
-                    string outKeyStr = Marshal.PtrToStringUTF8((IntPtr)pOut) ?? string.Empty;
-                    return new KeyValuePair<string, ulong>(outKeyStr, value);
-                }
-            }
-            return null;
-        }
-        finally
-        {
-            if (rented != null)
-            {
-                ArrayPool<byte>.Shared.Return(rented);
-            }
-        }
-    }
+    public unsafe KeyValuePair<string, ulong>? Prev(ReadOnlySpan<char> key) =>
+        NavFromKey(NativeMethods.expanse_strmap_prev_before_ex, key);
 
     /// <summary>
     /// Returns the entry with the lexicographically largest key less than or equal to <paramref name="key"/>.
@@ -454,38 +443,8 @@ public sealed class ExpanseStrMap : IDisposable, IEnumerable<KeyValuePair<string
     /// <summary>
     /// Returns the entry with the lexicographically largest key less than or equal to <paramref name="key"/>.
     /// </summary>
-    public unsafe KeyValuePair<string, ulong>? PrevAtOrBefore(ReadOnlySpan<char> key)
-    {
-        ThrowIfDisposed();
-        int maxBytes = Encoding.UTF8.GetMaxByteCount(key.Length) + 1;
-        byte[]? rented = null;
-        Span<byte> utf8Key = maxBytes <= 512 ? stackalloc byte[512] : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
-
-        try
-        {
-            int written = Encoding.UTF8.GetBytes(key, utf8Key);
-            utf8Key[written] = 0;
-
-            byte[] outBuf = new byte[InitialNavBufferLen];
-            fixed (byte* pKey = utf8Key)
-            fixed (byte* pOut = outBuf)
-            {
-                if (NativeMethods.expanse_strmap_prev_at_or_before(_handle, pKey, pOut, (nuint)outBuf.Length, out ulong value))
-                {
-                    string outKeyStr = Marshal.PtrToStringUTF8((IntPtr)pOut) ?? string.Empty;
-                    return new KeyValuePair<string, ulong>(outKeyStr, value);
-                }
-            }
-            return null;
-        }
-        finally
-        {
-            if (rented != null)
-            {
-                ArrayPool<byte>.Shared.Return(rented);
-            }
-        }
-    }
+    public unsafe KeyValuePair<string, ulong>? PrevAtOrBefore(ReadOnlySpan<char> key) =>
+        NavFromKey(NativeMethods.expanse_strmap_prev_at_or_before_ex, key);
 
     /// <summary>
     /// Returns an enumerator that iterates through the string map in lexicographical order.
