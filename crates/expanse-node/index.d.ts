@@ -462,14 +462,18 @@ export class ExpanseBlobMap {
   compact(): CompactionStatsResult;
 
   /**
-   * Saves the map to a relocatable binary image file. Returns bytes written.
+   * Saves the map to a relocatable binary image file. Returns the number of bytes
+   * written as a BigInt (an image can exceed 4 GiB, so it does not fit in a 32-bit number).
    */
-  saveImage(path: string): number;
+  saveImage(path: string): bigint;
 
   /**
    * Loads a map from a relocatable binary image file.
+   *
+   * The whole file is read into memory and the index is rebuilt; the image is NOT
+   * memory-mapped (no lazy-fault SIGBUS hazard, at the cost of the image being resident).
    */
-  static openImage(path: string, mmap?: boolean): ExpanseBlobMap;
+  static openImage(path: string): ExpanseBlobMap;
 }
 
 /**

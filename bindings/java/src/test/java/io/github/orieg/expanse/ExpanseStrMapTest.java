@@ -92,4 +92,48 @@ class ExpanseStrMapTest {
             assertEquals(List.of("apple", "banana", "cat", "dog"), keys);
         }
     }
+
+    @Test
+    @DisplayName("Navigation returns keys longer than the default scratch buffer (>1 KiB)")
+    void longKeysAreNotTruncated() {
+        // The pre-fix nav used a fixed 1024-byte buffer and treated the native
+        // 'false' (buffer-too-small) as 'no more keys', so a key >= 1024 bytes made
+        // the whole map look empty from first()/last()/next()/prev(). The _ex-based
+        // retry loop must grow the buffer and return the full key.
+        try (ExpanseStrMap map = new ExpanseStrMap()) {
+            String shortKey = "aaa";
+            String longKey = "b".repeat(4096);   // 4 KiB, far past the 1024 default
+            String longerKey = "c".repeat(8192);
+            map.put(shortKey, 1L);
+            map.put(longKey, 2L);
+            map.put(longerKey, 3L);
+
+            // firstEntry / lastEntry must see the long keys, not report empty.
+            Optional<ExpanseStrMap.Entry> first = map.firstEntry();
+            assertTrue(first.isPresent());
+            assertEquals(shortKey, first.get().key());   // 'a' < 'b' < 'c'
+            Optional<ExpanseStrMap.Entry> last = map.lastEntry();
+            assertTrue(last.isPresent());
+            assertEquals(longerKey, last.get().key());
+            assertEquals(8192, last.get().key().length());
+            assertEquals(3L, last.get().value());
+
+            // Forward navigation must step INTO and OUT OF the 4 KiB key.
+            Optional<ExpanseStrMap.Entry> afterShort = map.nextAfter(shortKey);
+            assertTrue(afterShort.isPresent());
+            assertEquals(longKey, afterShort.get().key());
+            assertEquals(4096, afterShort.get().key().length());
+            assertEquals(2L, afterShort.get().value());
+
+            assertEquals(longerKey, map.nextAfter(longKey).map(ExpanseStrMap.Entry::key).orElse(null));
+
+            // Reverse navigation likewise.
+            assertEquals(longKey, map.prevBefore(longerKey).map(ExpanseStrMap.Entry::key).orElse(null));
+
+            // Full iteration must visit all three keys in order.
+            List<String> keys = new ArrayList<>();
+            map.forEach((k, v) -> keys.add(k));
+            assertEquals(List.of(shortKey, longKey, longerKey), keys);
+        }
+    }
 }

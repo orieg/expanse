@@ -374,4 +374,52 @@ test('SyncExpanseSet concurrent set operations', () => {
   assert.strictEqual(syncSet.size(), 2n);
 });
 
+// 7. Key conversion correctness (BigInt lossless + Number precision)
+console.log('\n--- Key Conversion Tests ---');
+
+test('rejects a BigInt that does not fit in u64 instead of silently truncating', () => {
+  const map = new ExpanseMap();
+  // 2^64 + 1 previously wrapped to 1 (lossless flag ignored). Must throw now.
+  assert.throws(() => map.set(2n ** 64n + 1n, 5n), /unsigned 64-bit|out of u64 range/i);
+  assert.throws(() => map.set(2n ** 100n, 5n));
+  // The largest valid u64 key must still round-trip exactly.
+  const maxU64 = 2n ** 64n - 1n;
+  map.set(maxU64, 9n);
+  assert.strictEqual(map.get(maxU64), 9n);
+  // A distinct large key must not collide with maxU64.
+  map.set(maxU64 - 1n, 8n);
+  assert.strictEqual(map.get(maxU64), 9n);
+  assert.strictEqual(map.get(maxU64 - 1n), 8n);
+});
+
+test('rejects negative BigInt keys', () => {
+  const map = new ExpanseMap();
+  assert.throws(() => map.set(-1n, 5n), /negative/i);
+});
+
+test('rejects fractional and >2^53 Number keys', () => {
+  const map = new ExpanseMap();
+  assert.throws(() => map.set(1.5, 5n), /integer/i);
+  // 2^53 + 2 is not exactly representable as a distinct integer -> reject.
+  assert.throws(() => map.set(9007199254740994, 5n), /2\^53|precision/i);
+  // Values at or below 2^53 are fine.
+  map.set(9007199254740992, 7n); // 2^53 exactly
+  assert.strictEqual(map.get(9007199254740992n), 7n);
+});
+
+test('saveImage returns a BigInt byte count', () => {
+  const blobmap = new ExpanseBlobMap();
+  blobmap.set(1n, Buffer.from('hello'));
+  const tmpFile = path.join(os.tmpdir(), `expanse_saveimg_${Date.now()}.img`);
+  const bytesWritten = blobmap.saveImage(tmpFile);
+  assert.strictEqual(typeof bytesWritten, 'bigint');
+  assert(bytesWritten > 0n);
+  // openImage takes a single path argument (the former no-op mmap arg was removed).
+  const reloaded = ExpanseBlobMap.openImage(tmpFile);
+  assert.strictEqual(reloaded.get(1n).toString('utf8'), 'hello');
+  try {
+    fs.unlinkSync(tmpFile);
+  } catch (_) {}
+});
+
 console.log('\nAll 11 test suites passed successfully! 🎉');

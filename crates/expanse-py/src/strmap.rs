@@ -4,7 +4,17 @@ use crate::buffer::extract_str_key;
 use expanse_trie::strmap::ExpanseStrMap as InnerStrMap;
 use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
-use pyo3::types::PyDictMethods;
+use pyo3::types::{PyBytes, PyDictMethods, PyString};
+
+/// Converts a raw key byte string to a Python object: a `str` when the bytes are valid
+/// UTF-8, otherwise `bytes`. This keeps non-UTF-8 keys lossless on readback — a lossy
+/// UTF-8 decode would replace invalid bytes with U+FFFD and mangle the key.
+fn key_to_py(py: Python<'_>, bytes: &[u8]) -> Py<PyAny> {
+    match std::str::from_utf8(bytes) {
+        Ok(s) => PyString::new(py, s).into_any().unbind(),
+        Err(_) => PyBytes::new(py, bytes).into_any().unbind(),
+    }
+}
 
 /// A sorted map from NUL-free byte strings / UTF-8 strings to 64-bit unsigned integers (compat: JudySL).
 ///
@@ -123,30 +133,35 @@ impl ExpanseStrMap {
     }
 
     /// Smallest entry `(key, value)` in byte-lexicographical order.
-    pub fn first(&mut self) -> Option<(String, u64)> {
+    ///
+    /// The key is a `str` for UTF-8 keys, or `bytes` for non-UTF-8 keys.
+    pub fn first(&mut self, py: Python<'_>) -> Option<(Py<PyAny>, u64)> {
         let (bytes, slot) = self.inner.first()?;
         // SAFETY: `slot` is guaranteed non-null and points to a valid value by `ExpanseStrMap`.
         let val = unsafe { *slot.as_ptr() };
-        let s = String::from_utf8_lossy(&bytes).into_owned();
-        Some((s, val))
+        Some((key_to_py(py, &bytes), val))
     }
 
     /// Largest entry `(key, value)` in byte-lexicographical order.
-    pub fn last(&mut self) -> Option<(String, u64)> {
+    ///
+    /// The key is a `str` for UTF-8 keys, or `bytes` for non-UTF-8 keys.
+    pub fn last(&mut self, py: Python<'_>) -> Option<(Py<PyAny>, u64)> {
         let (bytes, slot) = self.inner.last()?;
         // SAFETY: `slot` is guaranteed non-null and points to a valid value by `ExpanseStrMap`.
         let val = unsafe { *slot.as_ptr() };
-        let s = String::from_utf8_lossy(&bytes).into_owned();
-        Some((s, val))
+        Some((key_to_py(py, &bytes), val))
     }
 
     /// Smallest entry with key `> key` (or `>= key` if `inclusive=True`).
+    ///
+    /// The key is a `str` for UTF-8 keys, or `bytes` for non-UTF-8 keys.
     #[pyo3(signature = (key, inclusive=false))]
     pub fn next(
         &mut self,
+        py: Python<'_>,
         key: &Bound<'_, PyAny>,
         inclusive: bool,
-    ) -> PyResult<Option<(String, u64)>> {
+    ) -> PyResult<Option<(Py<PyAny>, u64)>> {
         let k = extract_str_key(key)?;
         let entry = if inclusive {
             self.inner.next_at_or_after(&k)
@@ -156,27 +171,38 @@ impl ExpanseStrMap {
         Ok(entry.map(|(bytes, slot)| {
             // SAFETY: `slot` is guaranteed non-null and points to a valid value by `ExpanseStrMap`.
             let val = unsafe { *slot.as_ptr() };
-            (String::from_utf8_lossy(&bytes).into_owned(), val)
+            (key_to_py(py, &bytes), val)
         }))
     }
 
     /// Smallest entry with key `>= key`.
-    pub fn next_at_or_after(&mut self, key: &Bound<'_, PyAny>) -> PyResult<Option<(String, u64)>> {
-        self.next(key, true)
+    pub fn next_at_or_after(
+        &mut self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<(Py<PyAny>, u64)>> {
+        self.next(py, key, true)
     }
 
     /// Smallest entry with key `> key`.
-    pub fn next_after(&mut self, key: &Bound<'_, PyAny>) -> PyResult<Option<(String, u64)>> {
-        self.next(key, false)
+    pub fn next_after(
+        &mut self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<(Py<PyAny>, u64)>> {
+        self.next(py, key, false)
     }
 
     /// Largest entry with key `< key` (or `<= key` if `inclusive=True`).
+    ///
+    /// The key is a `str` for UTF-8 keys, or `bytes` for non-UTF-8 keys.
     #[pyo3(signature = (key, inclusive=false))]
     pub fn prev(
         &mut self,
+        py: Python<'_>,
         key: &Bound<'_, PyAny>,
         inclusive: bool,
-    ) -> PyResult<Option<(String, u64)>> {
+    ) -> PyResult<Option<(Py<PyAny>, u64)>> {
         let k = extract_str_key(key)?;
         let entry = if inclusive {
             self.inner.prev_at_or_before(&k)
@@ -186,21 +212,30 @@ impl ExpanseStrMap {
         Ok(entry.map(|(bytes, slot)| {
             // SAFETY: `slot` is guaranteed non-null and points to a valid value by `ExpanseStrMap`.
             let val = unsafe { *slot.as_ptr() };
-            (String::from_utf8_lossy(&bytes).into_owned(), val)
+            (key_to_py(py, &bytes), val)
         }))
     }
 
     /// Largest entry with key `<= key`.
-    pub fn prev_at_or_before(&mut self, key: &Bound<'_, PyAny>) -> PyResult<Option<(String, u64)>> {
-        self.prev(key, true)
+    pub fn prev_at_or_before(
+        &mut self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<(Py<PyAny>, u64)>> {
+        self.prev(py, key, true)
     }
 
     /// Largest entry with key `< key`.
-    pub fn prev_before(&mut self, key: &Bound<'_, PyAny>) -> PyResult<Option<(String, u64)>> {
-        self.prev(key, false)
+    pub fn prev_before(
+        &mut self,
+        py: Python<'_>,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<(Py<PyAny>, u64)>> {
+        self.prev(py, key, false)
     }
 
-    fn collect_entries(&mut self) -> Vec<(String, u64)> {
+    /// Collects every entry as `(raw_key_bytes, value)` in lexicographical order.
+    fn collect_entries(&mut self) -> Vec<(Vec<u8>, u64)> {
         let mut items = Vec::with_capacity(self.inner.len() as usize);
         let mut cur: Option<Vec<u8>> = None;
         loop {
@@ -213,7 +248,7 @@ impl ExpanseStrMap {
                     // SAFETY: `slot` is guaranteed non-null and points to a valid value by `ExpanseStrMap`.
                     let val = unsafe { *slot.as_ptr() };
                     cur = Some(bytes.clone());
-                    items.push((String::from_utf8_lossy(&bytes).into_owned(), val));
+                    items.push((bytes, val));
                 }
                 None => break,
             }
@@ -223,13 +258,16 @@ impl ExpanseStrMap {
 
     /// Key iterator for Python `for key in map:`.
     pub fn __iter__(&mut self) -> ExpanseStrMapKeyIter {
-        let keys: Vec<String> = self.collect_entries().into_iter().map(|(k, _)| k).collect();
+        let keys: Vec<Vec<u8>> = self.collect_entries().into_iter().map(|(k, _)| k).collect();
         ExpanseStrMapKeyIter { keys, index: 0 }
     }
 
-    /// Returns an iterator of all keys in lexicographical order.
-    pub fn keys(&mut self) -> Vec<String> {
-        self.collect_entries().into_iter().map(|(k, _)| k).collect()
+    /// Returns all keys in lexicographical order (`str` for UTF-8, `bytes` otherwise).
+    pub fn keys(&mut self, py: Python<'_>) -> Vec<Py<PyAny>> {
+        self.collect_entries()
+            .into_iter()
+            .map(|(k, _)| key_to_py(py, &k))
+            .collect()
     }
 
     /// Returns an iterator of all values in key order.
@@ -237,19 +275,25 @@ impl ExpanseStrMap {
         self.collect_entries().into_iter().map(|(_, v)| v).collect()
     }
 
-    /// Returns an iterator of `(key, value)` pairs in lexicographical order.
-    pub fn items(&mut self) -> Vec<(String, u64)> {
+    /// Returns all `(key, value)` pairs in lexicographical order (key `str` for UTF-8, `bytes` otherwise).
+    pub fn items(&mut self, py: Python<'_>) -> Vec<(Py<PyAny>, u64)> {
         self.collect_entries()
+            .into_iter()
+            .map(|(k, v)| (key_to_py(py, &k), v))
+            .collect()
     }
 
-    /// Range scan over string keys returning list of pairs.
+    /// Range scan over string keys returning a list of `(key, value)` pairs.
+    ///
+    /// Each key is a `str` for UTF-8 keys, or `bytes` for non-UTF-8 keys.
     #[pyo3(signature = (start=None, end=None, inclusive=true))]
     pub fn range(
         &mut self,
+        py: Python<'_>,
         start: Option<&Bound<'_, PyAny>>,
         end: Option<&Bound<'_, PyAny>>,
         inclusive: bool,
-    ) -> PyResult<Vec<(String, u64)>> {
+    ) -> PyResult<Vec<(Py<PyAny>, u64)>> {
         let start_bytes = start.map(extract_str_key).transpose()?;
         let end_bytes = end.map(extract_str_key).transpose()?;
 
@@ -271,8 +315,7 @@ impl ExpanseStrMap {
             }
             // SAFETY: `slot` is guaranteed non-null and points to a valid value by `ExpanseStrMap`.
             let val = unsafe { *slot.as_ptr() };
-            let key_str = String::from_utf8_lossy(&bytes).into_owned();
-            items.push((key_str, val));
+            items.push((key_to_py(py, &bytes), val));
             cur = self.inner.next_after(&bytes);
         }
 
@@ -312,9 +355,11 @@ impl Default for ExpanseStrMap {
 }
 
 /// Key iterator for [`ExpanseStrMap`].
+///
+/// Keys are stored as raw bytes and yielded as `str` (valid UTF-8) or `bytes` (otherwise).
 #[pyclass(unsendable, module = "expanse_trie._expanse")]
 pub struct ExpanseStrMapKeyIter {
-    pub(crate) keys: Vec<String>,
+    pub(crate) keys: Vec<Vec<u8>>,
     pub(crate) index: usize,
 }
 
@@ -325,10 +370,10 @@ impl ExpanseStrMapKeyIter {
         slf
     }
 
-    /// Returns next string key.
-    pub fn __next__(&mut self) -> Option<String> {
+    /// Returns next key (`str` for UTF-8 keys, `bytes` otherwise).
+    pub fn __next__(&mut self, py: Python<'_>) -> Option<Py<PyAny>> {
         if self.index < self.keys.len() {
-            let item = self.keys[self.index].clone();
+            let item = key_to_py(py, &self.keys[self.index]);
             self.index += 1;
             Some(item)
         } else {

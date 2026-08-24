@@ -12,7 +12,7 @@
 - **Zero-Overhead Memory Compaction**: Consumes as low as **0.07–0.36 bytes/key** on clustered integer sets, compared to 64+ bytes/key for Python's standard `set` and `dict`.
 - **Cache-Line Aligned Digital Tries**: $O(\text{depth})$ traversals (at most 8 digit steps for 64-bit keys) keeping branch and leaf evaluations within 64-byte L1 cache lines.
 - **Ordered Traversal & Range Scans**: Native sorted iteration, $O(\text{depth})$ `first()`, `last()`, `next_at_or_after()`, `prev_at_or_before()`, rank (`count_below`), and select (`by_count`) without maintaining secondary index trees.
-- **GIL-Free Optimistic Concurrency Control (OCC)**: `SyncExpanseSet` and `SyncExpanseMap` release the Python GIL (`py.allow_threads`) during queries, enabling **linear multi-core CPU scaling** across Python `threading` and `ThreadPoolExecutor` workers with zero read locks.
+- **GIL-Free Optimistic Concurrency Control (OCC)**: `SyncExpanseSet` and `SyncExpanseMap` release the Python GIL (`py.detach`) during queries, enabling **linear multi-core CPU scaling** across Python `threading` and `ThreadPoolExecutor` workers with zero read locks.
 - **Strict Typing & IDE Support**: Full PEP 561 compliance (`py.typed` and `__init__.pyi` stubs) for mypy, Pyright, and IDE autocompletion.
 
 ---
@@ -170,7 +170,7 @@ assert bm[raw_key] == 8888
 
 In standard CPython, multithreaded CPU-bound data lookups often serialize on the Global Interpreter Lock (GIL).
 
-`SyncExpanseSet` and `SyncExpanseMap` solve this by implementing **lock-free Optimistic Concurrency Control (OCC)** in Rust and wrapping calls with `py.allow_threads`:
+`SyncExpanseSet` and `SyncExpanseMap` solve this by implementing **lock-free Optimistic Concurrency Control (OCC)** in Rust and wrapping calls with `py.detach` (pyo3 0.29's renamed `allow_threads`):
 
 1. **Lock-Free Reads**: Query operations (`contains`, `get`, `len`, `is_empty`) validate version seqlocks and read concurrently without holding mutexes or the Python GIL.
 2. **Serialized Writes**: Mutations (`insert`, `remove`) synchronize internally while allowing readers to proceed optimistically.

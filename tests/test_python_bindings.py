@@ -18,6 +18,7 @@ from expanse_trie import (
     ExpanseMap,
     ExpanseStrMap,
     ExpanseBytesMap,
+    ExpanseBlobMap,
     SyncExpanseSet,
     SyncExpanseMap,
     __version__,
@@ -394,3 +395,164 @@ def test_sync_expanse_map_concurrent_read_write_scaling():
     assert total_reads > 0
     assert total_writes > 0
     print(f"\nCompleted {total_reads:,} concurrent reads and {total_writes:,} writes in {duration_seconds}s")
+
+
+# ============================================================================
+# 6. Correctness fixes (PR: fix(bindings))
+# ============================================================================
+
+def test_sync_range_inclusive_matches_nonsync():
+    """range() inclusive default is True across sync and non-sync (was False for sync)."""
+    keys = [10, 20, 30, 40, 50]
+
+    m = ExpanseMap()
+    sm = SyncExpanseMap()
+    for k in keys:
+        m[k] = k * 10
+        sm.insert(k, k * 10)
+
+    # Default (inclusive) must include the endpoint 40 for BOTH.
+    assert [k for k, _ in m.range(20, 40)] == [20, 30, 40]
+    assert [k for k, _ in sm.range(20, 40)] == [20, 30, 40]
+    # Explicit half-open agrees too.
+    assert [k for k, _ in sm.range(20, 40, inclusive=False)] == [20, 30]
+
+    s = ExpanseSet()
+    ss = SyncExpanseSet()
+    for k in keys:
+        s.add(k)
+        ss.add(k)
+    assert list(s.range(20, 40)) == [20, 30, 40]
+    assert list(ss.range(20, 40)) == [20, 30, 40]
+    assert list(ss.range(20, 40, inclusive=False)) == [20, 30]
+
+
+def test_sync_remove_returns_value_not_keyerror():
+    """SyncExpanseMap.remove -> Optional[int]; SyncExpanseSet.remove -> bool (mirror non-sync)."""
+    sm = SyncExpanseMap()
+    sm.insert(1, 100)
+    assert sm.remove(1) == 100
+    # Missing key returns None, does NOT raise (del/pop keep the KeyError semantics).
+    assert sm.remove(999) is None
+    with pytest.raises(KeyError):
+        del sm[7]
+
+    ss = SyncExpanseSet()
+    ss.add(5)
+    assert ss.remove(5) is True
+    assert ss.remove(5) is False  # already gone -> False, no KeyError
+
+
+def test_insert_many_rejects_bad_byte_buffers():
+    """insert_many raises on non-multiple-of-8 buffers and length mismatches (no silent truncation)."""
+    import struct
+
+    s = ExpanseSet()
+    good = struct.pack("<3Q", 1, 2, 3)  # 24 bytes = three u64
+    assert s.insert_many(good) == 3
+    assert sorted(s) == [1, 2, 3]
+
+    # bytes whose length is not a multiple of 8 must raise, not fall to per-byte.
+    with pytest.raises(ValueError):
+        ExpanseSet().insert_many(b"\x01\x02\x03")
+
+    # bytearray is treated as a packed u64 buffer, not iterated per byte.
+    s2 = ExpanseSet()
+    assert s2.insert_many(bytearray(struct.pack("<2Q", 7, 8))) == 2
+    assert sorted(s2) == [7, 8]
+
+    m = ExpanseMap()
+    # Mismatched key/value buffer lengths must raise.
+    with pytest.raises(ValueError):
+        m.insert_many(struct.pack("<2Q", 1, 2), struct.pack("<1Q", 10))
+    # Mismatched iterable lengths must raise too.
+    with pytest.raises(ValueError):
+        ExpanseMap().insert_many([1, 2, 3], [10, 20])
+
+
+def test_insert_many_native_endian_roundtrip():
+    """Packed byte keys are read in native endianness and round-trip through get()."""
+    import struct
+    import sys
+
+    m = ExpanseMap()
+    order = "<" if sys.byteorder == "little" else ">"
+    keys = [1, 1 << 40, (1 << 64) - 1]
+    vals = [100, 200, 300]
+    m.insert_many(
+        struct.pack(f"{order}{len(keys)}Q", *keys),
+        struct.pack(f"{order}{len(vals)}Q", *vals),
+    )
+    for k, v in zip(keys, vals):
+        assert m[k] == v
+
+
+def test_strmap_non_utf8_keys_roundtrip_as_bytes():
+    """Non-UTF-8 keys come back as bytes (not mangled by a lossy decode); UTF-8 keys as str."""
+    m = ExpanseStrMap()
+    utf8_key = "café"
+    bad_key = b"\xff\xfe\xfd"  # 0xff/0xfe/0xfd are never valid UTF-8 lead bytes
+    m[utf8_key] = 1
+    m[bad_key] = 2
+
+    # Readback via first/last/keys/items must preserve the exact bytes.
+    keys = m.keys()
+    assert utf8_key in keys
+    assert bad_key in keys
+    # The non-UTF-8 key is returned as bytes, and equals the original exactly.
+    got = [k for k in keys if isinstance(k, bytes)]
+    assert got == [bad_key]
+    # str keys stay str.
+    assert any(isinstance(k, str) and k == utf8_key for k in keys)
+
+    # Navigation returns the same typed keys.
+    for _, _ in m.items():
+        pass
+    first = m.first()
+    last = m.last()
+    assert {type(first[0]), type(last[0])} <= {str, bytes}
+
+
+def test_blobmap_is_exported_and_usable():
+    """ExpanseBlobMap is importable from the package (was missing from __init__)."""
+    import expanse_trie
+
+    assert "ExpanseBlobMap" in expanse_trie.__all__
+    assert expanse_trie.ExpanseBlobMap is ExpanseBlobMap
+
+    bm = ExpanseBlobMap()
+    bm.insert(1, b"hello")
+    bm.insert(2, b"a much larger arena-backed payload well over seven bytes")
+    assert bm.get_bytes(1) == b"hello"
+    assert bm[2].startswith(b"a much larger")
+    assert bm.remove(1) is True
+    assert len(bm) == 1
+
+
+def test_blobmap_scan_filtered_reraises_callback_error():
+    """A predicate/callback exception aborts the scan and is re-raised (not swallowed)."""
+    bm = ExpanseBlobMap()
+    for i in range(10):
+        bm.insert(i, bytes([i]) * 4, hot_meta=i)
+
+    # Callback that raises must propagate the error out of scan_filtered.
+    seen = []
+
+    def bad_callback(key, payload, meta):
+        seen.append(key)
+        if key == 3:
+            raise RuntimeError("boom in callback")
+        return True
+
+    with pytest.raises(RuntimeError, match="boom in callback"):
+        bm.scan_filtered(0, 9, None, bad_callback)
+    assert 3 in seen  # it did reach the offending key before aborting
+
+    # Predicate that raises must also propagate (was silently treated as "keep").
+    def bad_predicate(key, meta):
+        if key == 2:
+            raise ValueError("boom in predicate")
+        return True
+
+    with pytest.raises(ValueError, match="boom in predicate"):
+        bm.scan_filtered(0, 9, bad_predicate, None)

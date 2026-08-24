@@ -60,4 +60,42 @@ public class ExpanseStrMapTests
         Assert.Equal("cherry", items[2].Key);
         Assert.Equal("date", items[3].Key);
     }
+
+    [Fact]
+    public void NavigationReturnsKeysLongerThanTheScratchBuffer()
+    {
+        // The pre-fix nav used a fixed 4096-byte buffer and treated the native
+        // 'false' (buffer-too-small) as 'no more keys', so a key >= 4096 bytes made
+        // the whole map look empty from First()/Last()/Next()/Prev(). The _ex-based
+        // retry loop must grow the buffer and return the full key.
+        using var map = new ExpanseStrMap();
+        string shortKey = "aaa";
+        string longKey = new string('b', 10_000);    // ~10 KiB, far past the 4 KiB default
+        string longerKey = new string('c', 20_000);
+        map[shortKey] = 1;
+        map[longKey] = 2;
+        map[longerKey] = 3;
+
+        // First/Last must see the long keys, not report empty ('a' < 'b' < 'c').
+        Assert.Equal(new KeyValuePair<string, ulong>(shortKey, 1), map.First());
+        var last = map.Last();
+        Assert.NotNull(last);
+        Assert.Equal(longerKey, last!.Value.Key);
+        Assert.Equal(20_000, last.Value.Key.Length);
+        Assert.Equal(3ul, last.Value.Value);
+
+        // Forward navigation must step INTO and OUT OF the 10 KiB key.
+        var afterShort = map.Next(shortKey);
+        Assert.NotNull(afterShort);
+        Assert.Equal(longKey, afterShort!.Value.Key);
+        Assert.Equal(10_000, afterShort.Value.Key.Length);
+        Assert.Equal(longerKey, map.Next(longKey)!.Value.Key);
+
+        // Reverse navigation likewise.
+        Assert.Equal(longKey, map.Prev(longerKey)!.Value.Key);
+
+        // Full enumeration must visit all three keys in order.
+        var keys = map.Select(kv => kv.Key).ToList();
+        Assert.Equal(new[] { shortKey, longKey, longerKey }, keys);
+    }
 }

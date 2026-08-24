@@ -557,6 +557,41 @@ private:
 // expanse::str_map<Value> — ordered string trie (wrapping expanse_strmap_t)
 // ============================================================================
 
+namespace detail {
+
+// Drives a truncation-aware `expanse_strmap_*_ex` navigation call in a retry loop,
+// growing the output buffer until the key fits. `fn` is invoked as
+// `fn(char* key_out, size_t buf_len, size_t* required_len, uint64_t* value_out)`
+// and returns an `expanse_str_nav_status`. Returning `std::nullopt` means NOT_FOUND
+// (a genuinely empty result) — never a silently-truncated long key, which the plain
+// (non-`_ex`) navigation could not distinguish from end-of-map.
+template <typename Fn>
+[[nodiscard]] inline std::optional<std::pair<std::string, uint64_t>>
+strmap_nav_retry(Fn&& fn, std::size_t initial_buf_len) {
+    std::size_t buf_len = initial_buf_len == 0 ? 64 : initial_buf_len;
+    for (;;) {
+        std::string buf(buf_len, '\0');
+        std::size_t required = 0;
+        uint64_t v = 0;
+        const expanse_str_nav_status st = fn(buf.data(), buf.size(), &required, &v);
+        switch (st) {
+            case EXPANSE_STR_NAV_OK:
+                buf.resize(std::strlen(buf.c_str()));
+                return std::pair<std::string, uint64_t>{std::move(buf), v};
+            case EXPANSE_STR_NAV_NOT_FOUND:
+                return std::nullopt;
+            case EXPANSE_STR_NAV_BUFFER_TOO_SMALL:
+                // `required` includes the NUL terminator; grow at least geometrically.
+                buf_len = required > buf_len ? required : buf_len * 2;
+                break;
+            default:
+                return std::nullopt;
+        }
+    }
+}
+
+}  // namespace detail
+
 template <typename Value = uint64_t>
 class str_map {
     static_assert(sizeof(Value) <= sizeof(uint64_t), "Value must fit in uint64_t");
@@ -585,11 +620,17 @@ public:
 
         const_iterator& operator++() {
             if (!is_end_ && map_) {
-                std::string buf(4096, '\0');
-                uint64_t next_v = 0;
-                if (expanse_strmap_next_after(map_, current_.first.c_str(), buf.data(), buf.size(), &next_v)) {
-                    buf.resize(std::strlen(buf.c_str()));
-                    current_ = {std::move(buf), static_cast<Value>(next_v)};
+                // Use the truncation-aware _ex nav with a growing buffer so a key
+                // longer than the scratch buffer never ends iteration early.
+                std::string key = current_.first;
+                auto next = detail::strmap_nav_retry(
+                    [&](char* out, std::size_t buf_len, std::size_t* required, uint64_t* value_out) {
+                        return expanse_strmap_next_after_ex(
+                            map_, key.c_str(), out, buf_len, required, value_out);
+                    },
+                    4096);
+                if (next.has_value()) {
+                    current_ = {std::move(next->first), static_cast<Value>(next->second)};
                 } else {
                     is_end_  = true;
                     current_ = {};
@@ -739,67 +780,70 @@ public:
         std::swap(ptr_, other.ptr_);
     }
 
+    // The `max_buf_len` argument is the INITIAL scratch size; the truncation-aware
+    // _ex navigation grows it as needed, so a key longer than it is still returned
+    // (previously such a key was silently reported as "no entry").
     [[nodiscard]] std::optional<std::pair<std::string, Value>> first(size_t max_buf_len = 4096) const {
-        std::string buf(max_buf_len, '\0');
-        uint64_t v = 0;
-        if (expanse_strmap_first(ptr_, buf.data(), buf.size(), &v)) {
-            buf.resize(std::strlen(buf.c_str()));
-            return std::pair<std::string, Value>{std::move(buf), static_cast<Value>(v)};
-        }
+        auto r = detail::strmap_nav_retry(
+            [&](char* o, std::size_t bl, std::size_t* rl, uint64_t* vo) {
+                return expanse_strmap_first_ex(ptr_, o, bl, rl, vo);
+            },
+            max_buf_len);
+        if (r.has_value()) return std::pair<std::string, Value>{std::move(r->first), static_cast<Value>(r->second)};
         return std::nullopt;
     }
 
     [[nodiscard]] std::optional<std::pair<std::string, Value>> last(size_t max_buf_len = 4096) const {
-        std::string buf(max_buf_len, '\0');
-        uint64_t v = 0;
-        if (expanse_strmap_last(ptr_, buf.data(), buf.size(), &v)) {
-            buf.resize(std::strlen(buf.c_str()));
-            return std::pair<std::string, Value>{std::move(buf), static_cast<Value>(v)};
-        }
+        auto r = detail::strmap_nav_retry(
+            [&](char* o, std::size_t bl, std::size_t* rl, uint64_t* vo) {
+                return expanse_strmap_last_ex(ptr_, o, bl, rl, vo);
+            },
+            max_buf_len);
+        if (r.has_value()) return std::pair<std::string, Value>{std::move(r->first), static_cast<Value>(r->second)};
         return std::nullopt;
     }
 
     [[nodiscard]] std::optional<std::pair<std::string, Value>> next(std::string_view key, size_t max_buf_len = 4096) const {
         std::string k_str(key);
-        std::string buf(max_buf_len, '\0');
-        uint64_t v = 0;
-        if (expanse_strmap_next_after(ptr_, k_str.c_str(), buf.data(), buf.size(), &v)) {
-            buf.resize(std::strlen(buf.c_str()));
-            return std::pair<std::string, Value>{std::move(buf), static_cast<Value>(v)};
-        }
+        auto r = detail::strmap_nav_retry(
+            [&](char* o, std::size_t bl, std::size_t* rl, uint64_t* vo) {
+                return expanse_strmap_next_after_ex(ptr_, k_str.c_str(), o, bl, rl, vo);
+            },
+            max_buf_len);
+        if (r.has_value()) return std::pair<std::string, Value>{std::move(r->first), static_cast<Value>(r->second)};
         return std::nullopt;
     }
 
     [[nodiscard]] std::optional<std::pair<std::string, Value>> next_at_or_after(std::string_view key, size_t max_buf_len = 4096) const {
         std::string k_str(key);
-        std::string buf(max_buf_len, '\0');
-        uint64_t v = 0;
-        if (expanse_strmap_next_at_or_after(ptr_, k_str.c_str(), buf.data(), buf.size(), &v)) {
-            buf.resize(std::strlen(buf.c_str()));
-            return std::pair<std::string, Value>{std::move(buf), static_cast<Value>(v)};
-        }
+        auto r = detail::strmap_nav_retry(
+            [&](char* o, std::size_t bl, std::size_t* rl, uint64_t* vo) {
+                return expanse_strmap_next_at_or_after_ex(ptr_, k_str.c_str(), o, bl, rl, vo);
+            },
+            max_buf_len);
+        if (r.has_value()) return std::pair<std::string, Value>{std::move(r->first), static_cast<Value>(r->second)};
         return std::nullopt;
     }
 
     [[nodiscard]] std::optional<std::pair<std::string, Value>> prev(std::string_view key, size_t max_buf_len = 4096) const {
         std::string k_str(key);
-        std::string buf(max_buf_len, '\0');
-        uint64_t v = 0;
-        if (expanse_strmap_prev_before(ptr_, k_str.c_str(), buf.data(), buf.size(), &v)) {
-            buf.resize(std::strlen(buf.c_str()));
-            return std::pair<std::string, Value>{std::move(buf), static_cast<Value>(v)};
-        }
+        auto r = detail::strmap_nav_retry(
+            [&](char* o, std::size_t bl, std::size_t* rl, uint64_t* vo) {
+                return expanse_strmap_prev_before_ex(ptr_, k_str.c_str(), o, bl, rl, vo);
+            },
+            max_buf_len);
+        if (r.has_value()) return std::pair<std::string, Value>{std::move(r->first), static_cast<Value>(r->second)};
         return std::nullopt;
     }
 
     [[nodiscard]] std::optional<std::pair<std::string, Value>> prev_at_or_before(std::string_view key, size_t max_buf_len = 4096) const {
         std::string k_str(key);
-        std::string buf(max_buf_len, '\0');
-        uint64_t v = 0;
-        if (expanse_strmap_prev_at_or_before(ptr_, k_str.c_str(), buf.data(), buf.size(), &v)) {
-            buf.resize(std::strlen(buf.c_str()));
-            return std::pair<std::string, Value>{std::move(buf), static_cast<Value>(v)};
-        }
+        auto r = detail::strmap_nav_retry(
+            [&](char* o, std::size_t bl, std::size_t* rl, uint64_t* vo) {
+                return expanse_strmap_prev_at_or_before_ex(ptr_, k_str.c_str(), o, bl, rl, vo);
+            },
+            max_buf_len);
+        if (r.has_value()) return std::pair<std::string, Value>{std::move(r->first), static_cast<Value>(r->second)};
         return std::nullopt;
     }
 
@@ -980,6 +1024,18 @@ private:
 // expanse::blob_view & expanse::blob_map — off-heap large-value map
 // ============================================================================
 
+// A zero-copy view of a stored payload.
+//
+// INVALIDATION CONTRACT (mirrors the C ExpanseBlobView contract and the .NET
+// TryGet span contract): the bytes returned by data()/as_u8()/as_string_view()
+// alias memory owned by the blob_map — either an inline value slot or an arena
+// slab. They stay valid ONLY until the next structural mutation of that map.
+// Any insert / remove / clear / compact() — and destroying the map — invalidates
+// every previously obtained blob_view; compact() in particular MOVES live payloads,
+// so the pointer itself becomes stale. Reading a view after such a mutation is
+// undefined behavior. Copy the bytes out (e.g. into a std::string or std::vector)
+// before mutating if you need them to outlive the next mutation. A blob_view passed
+// to a scan_filtered callback is valid only for the duration of that callback.
 class blob_view {
 public:
     constexpr blob_view() noexcept : data_{}, hot_meta_{0}, is_inline_{false} {}
@@ -1064,6 +1120,10 @@ public:
         return erase(key);
     }
 
+    // Returns a zero-copy view into the map's storage. See the blob_view invalidation
+    // contract above: the returned view is only valid until the next mutation of this
+    // map (insert/remove/clear/compact/destruction); copy the bytes out if you need them
+    // to survive a mutation.
     [[nodiscard]] std::optional<blob_view> get(uint64_t key) const noexcept {
         ExpanseBlobView view{};
         if (expanse_blob_map_get(ptr_, key, &view)) {

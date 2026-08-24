@@ -309,8 +309,10 @@ fn test_sync_expanse_set_multithreaded_gil_free() {
     }
 
     Python::attach(|py| {
-        assert!(sync_set.remove(py, 500).is_ok());
+        // remove now returns a bool (mirrors ExpanseSet.remove), not a PyResult.
+        assert!(sync_set.remove(py, 500));
         assert!(!sync_set.__contains__(py, 500));
+        assert!(!sync_set.remove(py, 500)); // already gone -> false, no KeyError
         sync_set.clear(py);
         assert_eq!(sync_set.__len__(py), 0);
     });
@@ -335,17 +337,18 @@ fn test_expanse_str_map_lexicographical_and_nul_check() {
         assert!(strmap.__contains__(k2.as_any()).unwrap());
         assert_eq!(strmap.__getitem__(k2.as_any()).unwrap(), 200);
 
+        // Keys now come back as a Python object (str for UTF-8, bytes otherwise).
+        let key_str = |obj: &Py<PyAny>| obj.bind(py).extract::<String>().unwrap();
+
         // Lexicographical navigation
-        assert_eq!(strmap.first(), Some(("apple".to_string(), 100)));
-        assert_eq!(strmap.last(), Some(("cherry".to_string(), 300)));
-        assert_eq!(
-            strmap.next(k1.as_any(), false).unwrap(),
-            Some(("banana".to_string(), 200))
-        );
-        assert_eq!(
-            strmap.prev(k3.as_any(), false).unwrap(),
-            Some(("banana".to_string(), 200))
-        );
+        let first = strmap.first(py).unwrap();
+        assert_eq!((key_str(&first.0), first.1), ("apple".to_string(), 100));
+        let last = strmap.last(py).unwrap();
+        assert_eq!((key_str(&last.0), last.1), ("cherry".to_string(), 300));
+        let nxt = strmap.next(py, k1.as_any(), false).unwrap().unwrap();
+        assert_eq!((key_str(&nxt.0), nxt.1), ("banana".to_string(), 200));
+        let prv = strmap.prev(py, k3.as_any(), false).unwrap().unwrap();
+        assert_eq!((key_str(&prv.0), prv.1), ("banana".to_string(), 200));
 
         // NUL byte rejection
         let nul_key = PyString::new(py, "bad\0key");
@@ -354,14 +357,14 @@ fn test_expanse_str_map_lexicographical_and_nul_check() {
 
         // Range
         let r = strmap
-            .range(Some(k1.as_any()), Some(k3.as_any()), false)
+            .range(py, Some(k1.as_any()), Some(k3.as_any()), false)
             .unwrap();
         assert_eq!(r.len(), 2);
-        assert_eq!(r[0], ("apple".to_string(), 100));
-        assert_eq!(r[1], ("banana".to_string(), 200));
+        assert_eq!((key_str(&r[0].0), r[0].1), ("apple".to_string(), 100));
+        assert_eq!((key_str(&r[1].0), r[1].1), ("banana".to_string(), 200));
 
         // Iteration
-        let k_vec = strmap.keys();
+        let k_vec: Vec<String> = strmap.keys(py).iter().map(key_str).collect();
         assert_eq!(k_vec, vec!["apple", "banana", "cherry"]);
 
         // Removal and clear

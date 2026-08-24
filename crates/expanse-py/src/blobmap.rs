@@ -148,25 +148,47 @@ impl ExpanseBlobMap {
         callback: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Vec<(u64, Bound<'py, PyBytes>, u32)>> {
         let mut results = Vec::new();
+        // A Python predicate/callback can raise. The core `scan_filtered` closures
+        // return `bool`, so we cannot propagate a PyErr through them directly: instead
+        // we stash the first error here, stop the scan, and re-raise afterwards. The
+        // previous code silently swallowed these errors (treating a raised predicate as
+        // "keep" and a raised callback as "stop"), producing quietly wrong results.
+        let err_cell: std::cell::RefCell<Option<PyErr>> = std::cell::RefCell::new(None);
 
         self.inner.scan_filtered(
             start_key..=end_key,
             |key, meta| {
+                if err_cell.borrow().is_some() {
+                    return false; // already aborting: skip remaining keys (no Python calls)
+                }
                 if let Some(pred) = predicate {
-                    match pred.call1((key, meta)) {
-                        Ok(res) => res.is_truthy().unwrap_or(true),
-                        Err(_) => true,
+                    match pred.call1((key, meta)).and_then(|res| res.is_truthy()) {
+                        Ok(keep) => keep,
+                        Err(e) => {
+                            *err_cell.borrow_mut() = Some(e);
+                            // Return true so the callback runs next and breaks the scan.
+                            true
+                        }
                     }
                 } else {
                     true
                 }
             },
             |key, view, meta| {
+                if err_cell.borrow().is_some() {
+                    return false; // abort the scan as soon as an error is pending
+                }
                 let py_bytes = PyBytes::new(py, view.as_bytes());
                 if let Some(cb) = callback {
-                    match cb.call1((key, py_bytes.clone(), meta)) {
-                        Ok(res) => res.is_truthy().unwrap_or(true),
-                        Err(_) => false,
+                    match cb
+                        .call1((key, py_bytes.clone(), meta))
+                        .and_then(|res| res.is_truthy())
+                    {
+                        Ok(keep_going) => keep_going,
+                        Err(e) => {
+                            *err_cell.borrow_mut() = Some(e);
+                            false
+                        }
                     }
                 } else {
                     results.push((key, py_bytes, meta));
@@ -175,6 +197,9 @@ impl ExpanseBlobMap {
             },
         );
 
+        if let Some(e) = err_cell.into_inner() {
+            return Err(e);
+        }
         Ok(results)
     }
 
