@@ -1,0 +1,38 @@
+name: Subsplit Mirror (PHP)
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths:
+      - 'bindings/php/**'
+      - '.github/workflows/subsplit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  subsplit-php:
+    name: Mirror / bindings/php -> orieg/php-expanse
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout monorepo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Subsplit bindings/php
+        uses: danhilltech/monorepo-split-action@v2
+        with:
+          package-directory: 'bindings/php'
+          repository-organization: 'orieg'
+          repository-name: 'php-expanse'
+          user-name: 'github-actions[bot]'
+          user-email: 'github-actions[bot]@users.noreply.github.com'
+          branch: 'main'
+          tag: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.SUBSPLIT_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}

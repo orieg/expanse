@@ -1,0 +1,23 @@
+[package]
+name = "expanse-php"
+version = "0.3.0"
+description = "Native PHP Zend Engine extension for Expanse: modern Judy arrays in pure Rust"
+keywords = ["judy", "trie", "php", "ext-php-rs", "data-structures"]
+categories = ["api-bindings", "data-structures"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+name = "expanse_php"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ext-php-rs = "0.15"
+expanse-trie = { version = "0.3.0", path = "../expanse" }
+
+[lints]
+workspace = true

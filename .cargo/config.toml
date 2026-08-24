@@ -1,19 +1,2 @@
-[target.aarch64-apple-darwin]
-rustflags = [
-    "-C", "link-arg=-Wl,-rpath,/opt/homebrew/lib",
-    "-C", "link-arg=-Wl,-rpath,/opt/homebrew/opt/python@3.10/lib",
-    "-C", "link-arg=-Wl,-rpath,/opt/homebrew/opt/python@3.10/Frameworks/Python.framework/Versions/3.10/lib",
-    "-C", "link-arg=-Wl,-rpath,/opt/homebrew/opt/python@3.11/lib",
-    "-C", "link-arg=-Wl,-rpath,/opt/homebrew/opt/python@3.12/lib",
-    "-C", "link-arg=-Wl,-rpath,/opt/homebrew/opt/python@3.13/lib",
-    "-C", "link-arg=-Wl,-rpath,/Library/Frameworks/Python.framework/Versions/3.10/lib",
-    "-C", "link-arg=-Wl,-rpath,/Library/Frameworks/Python.framework/Versions/3.11/lib",
-    "-C", "link-arg=-Wl,-rpath,/Library/Frameworks/Python.framework/Versions/3.12/lib",
-]
-
-[target.x86_64-apple-darwin]
-rustflags = [
-    "-C", "link-arg=-Wl,-rpath,/usr/local/lib",
-    "-C", "link-arg=-Wl,-rpath,/usr/local/opt/python@3.10/lib",
-    "-C", "link-arg=-Wl,-rpath,/Library/Frameworks/Python.framework/Versions/3.10/lib",
-]
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "link-arg=-Wl,-undefined,dynamic_lookup"]

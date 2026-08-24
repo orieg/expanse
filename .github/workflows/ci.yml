@@ -91,6 +91,7 @@ jobs:
               - '.github/workflows/ci.yml'
             php:
               - 'bindings/php/**'
+              - 'crates/expanse-php/**'
               - 'include/**'
               - 'crates/expanse-capi/**'
               - 'Cargo.toml'
