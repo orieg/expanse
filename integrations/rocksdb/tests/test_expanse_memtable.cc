@@ -389,6 +389,82 @@ void TestMultiThreadedConcurrentOperations() {
     std::cout << "  -> PASSED (verified " << count << " concurrent entries)" << std::endl;
 }
 
+void TestHighConcurrencyLockFreeReaders() {
+    std::cout << "[RUN] TestHighConcurrencyLockFreeReaders" << std::endl;
+    TestBytewiseComparator cmp;
+    Arena arena;
+    ExpanseMemTableRep memtable(cmp, &arena, nullptr, nullptr, 32);
+
+    const int num_writers = 4;
+    const int num_readers = 4;
+    const int keys_per_writer = 5000;
+    std::vector<std::thread> writers;
+    std::vector<std::thread> readers;
+    std::mutex arena_mutex;
+
+    std::atomic<bool> writers_done{false};
+
+    // Pre-insert some keys to read
+    for (int w = 0; w < num_writers; ++w) {
+        for (int i = 0; i < 10; ++i) {
+            std::ostringstream ss;
+            ss << "user_" << std::setw(2) << std::setfill('0') << w
+               << "_key_" << std::setw(6) << std::setfill('0') << i;
+            std::string k = ss.str();
+            const char* entry = EncodeEntry(arena, k, 1000 + i, kTypeValue, "val_" + k);
+            memtable.InsertConcurrently(const_cast<char*>(entry));
+        }
+    }
+
+    // Concurrent writers
+    for (int w = 0; w < num_writers; ++w) {
+        writers.emplace_back([&, w]() {
+            for (int i = 10; i < keys_per_writer; ++i) {
+                std::ostringstream ss;
+                ss << "user_" << std::setw(2) << std::setfill('0') << w
+                   << "_key_" << std::setw(6) << std::setfill('0') << i;
+                std::string k = ss.str();
+                const char* entry;
+                {
+                    std::lock_guard<std::mutex> lock(arena_mutex);
+                    entry = EncodeEntry(arena, k, 1000 + i, kTypeValue, "val_" + k);
+                }
+                memtable.InsertConcurrently(const_cast<char*>(entry));
+                if (i % 50 == 0) std::this_thread::yield();
+            }
+        });
+    }
+
+    // Concurrent readers verifying existing keys
+    for (int r = 0; r < num_readers; ++r) {
+        readers.emplace_back([&, r]() {
+            while (!writers_done.load(std::memory_order_relaxed)) {
+                for (int w = 0; w < num_writers; ++w) {
+                    for (int i = 0; i < 10; ++i) {
+                        std::ostringstream ss;
+                        ss << "user_" << std::setw(2) << std::setfill('0') << w
+                           << "_key_" << std::setw(6) << std::setfill('0') << i;
+                        std::string k = ss.str();
+                        LookupKey lk(Slice(k), 2000);
+                        bool found = false;
+                        memtable.Get(lk, &found, [](void* arg, const char*) -> bool {
+                            *static_cast<bool*>(arg) = true;
+                            return false;
+                        });
+                        assert(found); // Must not miss known keys
+                    }
+                }
+            }
+        });
+    }
+
+    for (auto& t : writers) t.join();
+    writers_done.store(true);
+    for (auto& t : readers) t.join();
+
+    std::cout << "  -> PASSED" << std::endl;
+}
+
 void TestLargeVolumeRandomOperations() {
     std::cout << "[RUN] TestLargeVolumeRandomOperations (10,000 keys)" << std::endl;
     TestBytewiseComparator cmp;
@@ -633,6 +709,7 @@ int main() {
     TestPrefixSeeksAndSeekForPrev();
     TestSuggestCompactRange();
     TestMultiThreadedConcurrentOperations();
+    TestHighConcurrencyLockFreeReaders();
     TestLargeVolumeRandomOperations();
     TestBatchScanApi();
     TestIntrusiveLeafChainingAndPrefetch();
