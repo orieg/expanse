@@ -110,6 +110,18 @@ test('ExpanseSet rank, select, countRange, range, toArray', () => {
   assert.strictEqual(set.size(), 7n);
 });
 
+test('ExpanseSet 64-Bit Boundary Value Test Vectors', () => {
+  const set = new ExpanseSet();
+  const keys = [0n, 1n, (1n << 53n) - 1n, 1n << 53n, 9223372036854775807n, 18446744073709551615n];
+  for (const k of keys) {
+    set.add(k);
+  }
+  for (const k of keys) {
+    assert.strictEqual(set.has(k), true);
+  }
+  assert.strictEqual(set.size(), BigInt(keys.length));
+});
+
 // 2. ExpanseMap Tests
 console.log('\n--- ExpanseMap Tests ---');
 
@@ -162,6 +174,19 @@ test('ExpanseMap navigation and queries (first, next, rank, select, countRange, 
   const entries = map.entries();
   assert.strictEqual(entries.length, 4);
   assert.deepStrictEqual(entries[0], { key: 10n, value: 1000n });
+});
+
+test('ExpanseMap 64-Bit Boundary Value Test Vectors', () => {
+  const map = new ExpanseMap();
+  const keys = [0n, 1n, (1n << 53n) - 1n, 1n << 53n, 9223372036854775807n, 18446744073709551615n];
+  for (const k of keys) {
+    map.set(k, k * 2n);
+  }
+  for (const k of keys) {
+    assert.strictEqual(map.has(k), true);
+    assert.strictEqual(map.get(k), k * 2n);
+  }
+  assert.strictEqual(map.size(), BigInt(keys.length));
 });
 
 // 3. ExpanseStrMap Tests

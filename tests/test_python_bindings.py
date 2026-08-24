@@ -121,6 +121,17 @@ def test_expanse_set_navigation_and_rank_select():
     assert s.range(None, 30) == [10, 20, 30]
     assert s.range(80, None) == [80, 90, 100]
 
+def test_expanse_set_boundary_keys():
+    s = ExpanseSet()
+    MAX_U64 = (1 << 64) - 1
+    MAX_I64 = (1 << 63) - 1
+    keys = [0, 1, (1 << 53) - 1, 1 << 53, MAX_I64, MAX_U64]
+    for k in keys:
+        s.insert(k)
+    for k in keys:
+        assert k in s
+    assert len(s) == len(keys)
+
 
 # ============================================================================
 # 2. ExpanseMap Tests
@@ -208,6 +219,17 @@ def test_expanse_map_navigation_and_range():
     assert m.by_count(1) == (20, 200)
 
     assert m.range(20, 40) == [(20, 200), (30, 300), (40, 400)]
+
+def test_expanse_map_boundary_keys():
+    m = ExpanseMap()
+    MAX_U64 = (1 << 64) - 1
+    MAX_I64 = (1 << 63) - 1
+    keys = [0, 1, (1 << 53) - 1, 1 << 53, MAX_I64, MAX_U64]
+    for k in keys:
+        m[k] = k * 2
+    for k in keys:
+        assert m[k] == k * 2
+    assert len(m) == len(keys)
 
 
 # ============================================================================

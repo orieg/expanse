@@ -159,4 +159,20 @@ class ExpanseSetTest {
         assertThrows(IllegalStateException.class, () -> set.first());
         assertThrows(IllegalStateException.class, () -> set.size());
     }
+
+    @Test
+    @DisplayName("64-Bit Boundary Value Test Vectors")
+    void boundaryValues() {
+        try (ExpanseSet set = new ExpanseSet()) {
+            long[] keys = {0L, 1L, (1L << 53) - 1, 1L << 53, Long.MAX_VALUE, -1L /* 0xFFFF_FFFF_FFFF_FFFF */, -100L};
+            for (long k : keys) {
+                set.add(k);
+            }
+            
+            for (long k : keys) {
+                assertTrue(set.contains(k));
+            }
+            assertEquals(keys.length, set.size());
+        }
+    }
 }

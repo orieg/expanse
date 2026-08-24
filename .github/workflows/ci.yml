@@ -128,6 +128,9 @@ jobs:
       - name: Verify C ABI Symbol Parity Across All Bindings
         run: python3 scripts/check_abi_parity.py
 
+      - name: Verify CI Gate Completeness
+        run: python3 scripts/check_ci_gate.py
+
   test:
     name: Core / Workspace Tests (${{ matrix.os }})
     needs: [detect-changes]
@@ -287,7 +290,23 @@ jobs:
 
       - name: Miri (core unsafe smoke — leaf, node, slot invariants)
         run: |
-          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot::
+          cargo miri test -p expanse-trie --all-targets -- --skip model_
+
+  test-asan:
+    name: Safety / ASan Core Smoke (Ubuntu)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+      - name: Run expanse-trie unit tests under AddressSanitizer
+        run: cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie
+        env:
+          RUSTFLAGS: "-Zsanitizer=address"
 
   php-judy-compat:
     name: Compat / PHP-Judy Extension (Linux)
@@ -970,6 +989,7 @@ jobs:
       - test-rv32
       - test-cortex-m
       - miri
+      - test-asan
       - php-judy-compat
       - php-judy-windows
       - instruction-counts
