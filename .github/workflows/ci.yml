@@ -39,6 +39,7 @@ jobs:
             rust:
               - 'crates/**'
               - 'include/**'
+              - 'integrations/**'
               - 'tests/cpp/**'
               - 'fuzz/**'
               - 'scripts/**'

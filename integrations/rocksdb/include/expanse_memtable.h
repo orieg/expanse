@@ -21,6 +21,7 @@
 #include <shared_mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 // Include Expanse C and C++ APIs
@@ -337,6 +338,7 @@ inline char* EncodeVarint32(char* dst, uint32_t v) {
 }
 
 inline rocksdb::Slice GetLengthPrefixedSlice(const char* data) {
+    if (data == nullptr) return rocksdb::Slice();
     uint32_t len = 0;
     const char* p = GetVarint32Ptr(data, data + 5, &len);
     return rocksdb::Slice(p, len);
@@ -420,6 +422,7 @@ class ExpanseMemTableRep : public MemTableRep {
 public:
     struct alignas(64) LeafBlock {
         static constexpr size_t kMaxCapacity = 64; // 64 entries per cache-line block
+        std::atomic<uint32_t> version{0};
         std::atomic<uint32_t> count{0};
         std::atomic<LeafBlock*> prev{nullptr};
         std::atomic<LeafBlock*> next{nullptr};
@@ -435,12 +438,12 @@ public:
 
         const char* min_key() const {
             uint32_t c = count.load(std::memory_order_acquire);
-            return c > 0 ? entries[0].load(std::memory_order_relaxed) : nullptr;
+            return c > 0 ? entries[0].load(std::memory_order_acquire) : nullptr;
         }
 
         const char* max_key() const {
             uint32_t c = count.load(std::memory_order_acquire);
-            return c > 0 ? entries[c - 1].load(std::memory_order_relaxed) : nullptr;
+            return c > 0 ? entries[c - 1].load(std::memory_order_acquire) : nullptr;
         }
     };
 
@@ -467,6 +470,7 @@ public:
         size_t ScanBatch(size_t max_keys, Slice* out_keys, Slice* out_values = nullptr);
 
     private:
+        friend class ExpanseMemTableRep;
         struct CachedKeyInfo {
             const char* raw_entry{nullptr};
             Slice internal_key{};
