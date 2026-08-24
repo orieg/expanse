@@ -307,8 +307,31 @@ Expanse is *intended* to be distributed on [NuGet.org](https://www.nuget.org) as
 
 ---
 
-### 2.11 Multi-Ecosystem Version Synchronization (`scripts/bump_version.py`)
-Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, and Java/Maven/Gradle) spanning multiple canonical manifests. Publication status differs per registry (see the per-ecosystem sections: crates.io/npm/PyPI wired; NuGet wired-not-landed; Java/Maven not yet built or published). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
+### 2.11 PHP (Packagist & PIE Zend Extension)
+Expanse provides a unified dual-driver distribution for PHP 8.1–8.5+:
+- **Composer / Packagist**: Distributed as [`orieg/expanse`](https://packagist.org/packages/orieg/expanse) via automated Git subtree subsplit to [`github.com/orieg/php-expanse`](https://github.com/orieg/php-expanse).
+- **PHP Extension Installer (PIE)**: High-performance native Zend extension compiled via `ext-php-rs` (`pie install orieg/php-expanse`).
+- **Zero-Install FFI Fallback**: Automatically activates `\FFI` downcalls into `libexpanse` when native extension compilation is unavailable.
+- **Quickstart**:
+  ```bash
+  composer require orieg/expanse
+  ```
+  ```php
+  use Expanse\Set;
+  use Expanse\Map;
+
+  $set = new Set();
+  $set->add(42);
+
+  $map = new Map();
+  $map->set(42, 1000);
+  ```
+- **Full Guide**: See [docs/BINDINGS_PHP.md](BINDINGS_PHP.md).
+
+---
+
+### 2.12 Multi-Ecosystem Version Synchronization (`scripts/bump_version.py`)
+Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, Java/Maven/Gradle, and PHP/Composer/PIE) spanning 14 canonical manifests. Publication status differs per registry (see the per-ecosystem sections: crates.io/npm/PyPI wired; NuGet wired-not-landed; Java/Maven not yet built or published; PHP Packagist subsplit wired). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
 
 #### Synchronized Manifests:
 | Manifest File | Section / Key | Description |
@@ -318,7 +341,9 @@ Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C
 | `crates/expanse-capi/Cargo.toml` | `[package] version`, `expanse-trie` dep | C ABI `expanse-capi` crate |
 | `crates/expanse-py/Cargo.toml` | `[package] version`, `expanse-trie` dep | PyO3 Python native binding crate |
 | `crates/expanse-node/Cargo.toml` | `[package] version`, `expanse-trie` dep | napi-rs Node.js native binding crate |
+| `crates/expanse-php/Cargo.toml` | `[package] version`, `expanse-trie` dep | ext-php-rs PHP Zend extension crate |
 | `crates/expanse-node/package.json` | `"version"` | npm package manifest (`@orieg/expanse`) |
+| `bindings/php/composer.json` | `"version"` | PHP Composer package manifest (`orieg/expanse`) |
 | `pyproject.toml` | `[project] version` | Python PyPI wheel manifest (`expanse-trie`) |
 | `bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj` | `<Version>`, `<PackageVersion>`, `<AssemblyVersion>` | .NET NuGet package manifest (`Orieg.Expanse`) |
 | `bindings/java/pom.xml` | `<project><version>` | Maven Central POM manifest (`io.github.orieg:expanse-java`) |
