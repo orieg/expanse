@@ -1004,7 +1004,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
           <button class="tab-btn" onclick="switchTab('tab-rpm')">RHEL / Fedora (RPM)</button>
           <button class="tab-btn" onclick="switchTab('tab-java')">Java / JVM (Maven)</button>
           <button class="tab-btn" onclick="switchTab('tab-rocksdb')">RocksDB MemTable</button>
-          <button class="tab-btn" onclick="switchTab('tab-php')">PHP Judy &amp; Cache</button>
+          <button class="tab-btn" onclick="switchTab('tab-php')">PHP (Composer &amp; PIE)</button>
         </div>
 
         <div id="tab-cargo" class="install-panel">
@@ -1206,21 +1206,29 @@ int main() {
         </div>
 
         <div id="tab-php" class="install-panel" style="display: none;">
-          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">PHP C extension (<code>ext-judy</code>), pure-PHP polyfill (<code>judy-polyfill</code>), and high-density PSR-16 cache (<code>judy-cache</code>):</p>
-          <pre><code># Install Judy polyfill &amp; high-density cache
-composer require orieg/judy-cache orieg/judy-polyfill</code></pre>
-          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in PHP:</p>
-          <pre><code>use Judy;
-use Orieg\\JudyCache\\JudySimpleCache;
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Unified Composer package (<code>orieg/expanse</code>) with native Zend extension (<code>pie install orieg/php-expanse</code>) and portable FFI fallback:</p>
+          <pre><code># Install via Composer (Packagist)
+composer require orieg/expanse
 
-// Core digital trie array
+# Or install native Zend extension via PIE
+pie install orieg/php-expanse</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in PHP (Sets, Maps, BlobMaps, and Judy compatibility):</p>
+          <pre><code>use Expanse\\Set;
+use Expanse\\Map;
+use Expanse\\BlobMap;
+use Judy;
+
+$set = new Set();
+$set-&gt;add(42);
+$rank = $set-&gt;rank(100); // O(depth) rank
+
+$map = new Map();
+$map-&gt;set(42, 1000);
+$val = $map-&gt;get(42);
+
+// 1:1 legacy php-judy drop-in compatibility
 $judy = new Judy(Judy::INT_TO_INT);
-$judy[42] = 100;
-
-// High-density PSR-16 cache with native TTL pruning &amp; compression
-$cache = new JudySimpleCache();
-$cache-&gt;set('user:42:profile', ['name' =&gt; 'Alice', 'role' =&gt; 'admin'], ttl: 3600);
-$data = $cache-&gt;get('user:42:profile');</code></pre>
+$judy[42] = 999;</code></pre>
         </div>
       </div>
     </div>
@@ -1250,6 +1258,10 @@ $data = $cache-&gt;get('user:42:profile');</code></pre>
         <a href="https://github.com/orieg/expanse/blob/main/docs/BINDINGS_JAVA.md" class="doc-link-card">
           <div class="doc-link-title">BINDINGS_JAVA.md &#8599;</div>
           <div class="doc-link-desc">JVM Foreign Function &amp; Memory (FFM) bindings with zero-GC overhead.</div>
+        </a>
+        <a href="https://github.com/orieg/expanse/blob/main/docs/BINDINGS_PHP.md" class="doc-link-card">
+          <div class="doc-link-title">BINDINGS_PHP.md &#8599;</div>
+          <div class="doc-link-desc">Dual-driver PHP bindings (Packagist orieg/expanse, PIE native Zend extension, and FFI fallback).</div>
         </a>
         <a href="https://github.com/orieg/expanse/blob/main/docs/ALGORITHMS.md" class="doc-link-card">
           <div class="doc-link-title">ALGORITHMS.md &#8599;</div>

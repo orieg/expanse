@@ -475,7 +475,7 @@ $map = new Map();
 $map->set(42, 1000);
 $val = $map->get(42);
 ```
-See [bindings/php/README.md](bindings/php/README.md) for full PHP documentation.
+See [docs/BINDINGS_PHP.md](docs/BINDINGS_PHP.md) and [bindings/php/README.md](bindings/php/README.md) for full PHP documentation.
 
 ### 12. Node.js, Bun & Deno Quickstart (`npm i @orieg/expanse`)
 ```bash
