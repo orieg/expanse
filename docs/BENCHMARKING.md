@@ -215,7 +215,28 @@ tar xzf ./actions-runner-linux-x64-2.322.0.tar.gz
 ./run.sh
 ```
 
-### 2. Triggering via PR Comment
+### 2. Dual-Pass Baseline Drift Reporting Pipeline
+To eliminate `N/A` comparison columns and guarantee accurate, side-by-side regression detection on bare metal, the runner executes a **two-pass evaluation workflow**:
+
+1. **Pass 1 (Base Branch / Merge Base Baseline)**:
+   - Identifies the target base commit (via explicit `base_ref` or by calculating `git merge-base origin/main "$REF"`).
+   - Checks out the base ref and builds optimized release artifacts (`cargo build --release -p expanse-capi`).
+   - Executes instruction and vs-stock benchmark suites under Callgrind, saving baselines:
+     - `cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_base`
+     - `cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_base_vs_stock`
+2. **Pass 2 (Head Branch / Candidate Evaluation)**:
+   - Returns to the candidate commit (`git checkout "$REF"`).
+   - Re-compiles release artifacts and runs candidate benchmarks directly against the saved base baselines:
+     - `cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base`
+     - `cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock`
+   - Executes deterministic allocator accounting (`bytes_per_key` and `bytes_per_key_32`).
+   - Runs comparative baseline benchmarks against `hashbrown::HashMap` and `BTreeMap` (`scripts/bench_report.py`).
+3. **Drift Aggregation & Sticky PR Reporting**:
+   - `scripts/perf_report.py` synthesizes the dual-pass measurements into a structured GitHub Flavored Markdown report.
+   - Posts or updates a sticky comment on the PR thread tagged with the exact host hardware metadata (`Intel Core i9-12900F (24 threads, 30 MiB L3, Linux 6.8)`).
+   - Emits the formatted report directly to `$GITHUB_STEP_SUMMARY`.
+
+### 3. Triggering via PR Comment
 Maintainers and collaborators can trigger benchmarks directly on any pull request by commenting:
 - `/bench` (runs all suites: C ABI vs stock, instruction counters, and comparative)
 - `/benchmark vs_stock` (runs only the `vs_stock` suite)
@@ -225,10 +246,10 @@ Maintainers and collaborators can trigger benchmarks directly on any pull reques
 
 The self-hosted runner executes the suite natively on bare metal, verifies system load hygiene, and posts/updates a sticky comment on the PR thread.
 
-### 3. Triggering via `workflow_dispatch`
+### 4. Triggering via `workflow_dispatch`
 The `Bare-Metal Benchmarks` workflow can also be triggered manually via GitHub Actions UI (*Actions* tab $\rightarrow$ *Bare-Metal Benchmarks* $\rightarrow$ *Run workflow*). It accepts `ref`, `base_ref`, `pr_number`, and `benchmark_suite`.
 
-### 4. Running Locally over LAN
+### 5. Running Locally over LAN
 Developers can also execute the exact same sync, build, and benchmark suite from their local development machine across their LAN using `scripts/run_remote_bench.sh`:
 
 ```bash

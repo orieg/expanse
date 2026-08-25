@@ -101,7 +101,7 @@ jobs:
           echo "Top CPU consumers:"
           ps -A -o %cpu,%mem,command | sort -rn | head -n 8
 
-      - name: Run Native Bare-Metal Benchmarks
+      - name: Run Native Bare-Metal Benchmarks (Dual-Pass)
         id: bench
         run: |
           export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
@@ -109,42 +109,200 @@ jobs:
           export LIBRARY_PATH="$HOME/.local/lib:$LIBRARY_PATH"
           export C_INCLUDE_PATH="$HOME/.local/include:$C_INCLUDE_PATH"
 
-          # Pre-compile release C ABI
+          git config --global --add safe.directory "$PWD"
+
+          REF="${{ steps.vars.outputs.ref }}"
+          BASE_REF="${{ steps.vars.outputs.base_ref }}"
+          SUITE="${{ steps.vars.outputs.benchmark_suite }}"
+
+          echo "Configured Ref: $REF"
+          echo "Configured Base Ref: $BASE_REF"
+          echo "Configured Suite: $SUITE"
+
+          # Detect / resolve base_ref if not explicitly provided
+          if [ -z "$BASE_REF" ]; then
+            BASE_REF=$(git merge-base origin/main "$REF" 2>/dev/null || echo "")
+            if [ -z "$BASE_REF" ]; then
+              if git rev-parse --verify origin/main >/dev/null 2>&1; then
+                HEAD_SHA=$(git rev-parse "$REF" 2>/dev/null || git rev-parse HEAD)
+                MAIN_SHA=$(git rev-parse origin/main 2>/dev/null || echo "")
+                if [ -n "$MAIN_SHA" ] && [ "$HEAD_SHA" != "$MAIN_SHA" ]; then
+                  BASE_REF="origin/main"
+                fi
+              fi
+            fi
+          fi
+
+          # If BASE_REF resolves to the same commit as REF, don't run dual pass against self
+          if [ -n "$BASE_REF" ]; then
+            HEAD_SHA=$(git rev-parse "$REF" 2>/dev/null || git rev-parse HEAD)
+            BASE_SHA=$(git rev-parse "$BASE_REF" 2>/dev/null || echo "")
+            if [ "$HEAD_SHA" = "$BASE_SHA" ]; then
+              echo "Base ref $BASE_REF resolves to head commit $HEAD_SHA; skipping separate base pass."
+              BASE_REF=""
+            fi
+          fi
+
+          # ====================================================================
+          # PASS 1: Base Branch (Baseline)
+          # ====================================================================
+          if [ -n "$BASE_REF" ]; then
+            echo "=== [Pass 1] Benchmarking Base Ref: $BASE_REF ==="
+            if git checkout "$BASE_REF"; then
+              # Pre-compile release C ABI
+              cargo build --release -p expanse-capi
+              export EXPANSE_CDYLIB="$PWD/target/release/libexpanse.so"
+
+              if [ "$SUITE" = "all" ] || [ "$SUITE" = "instructions" ]; then
+                echo "Running base instructions benchmark..."
+                cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_base | tee base-instructions.txt || true
+              fi
+
+              if [ "$SUITE" = "all" ] || [ "$SUITE" = "vs_stock" ]; then
+                echo "Running base vs_stock benchmark..."
+                cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_base_vs_stock | tee base-vs-stock.txt || true
+              fi
+
+              git checkout "$REF"
+            else
+              echo "Warning: Failed to checkout $BASE_REF, continuing single pass."
+              BASE_REF=""
+            fi
+          fi
+
+          # ====================================================================
+          # PASS 2: Head Branch (Candidate)
+          # ====================================================================
+          echo "=== [Pass 2] Benchmarking Head Ref: $REF ==="
+          git checkout "$REF"
           cargo build --release -p expanse-capi
           export EXPANSE_CDYLIB="$PWD/target/release/libexpanse.so"
 
-          SUITE="${{ steps.vars.outputs.benchmark_suite }}"
           case "$SUITE" in
             "vs_stock")
-              cargo bench --bench vs_stock -p expanse-capi | tee bench_output.txt
+              if [ -f base-vs-stock.txt ]; then
+                cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
+              else
+                cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
+              fi
               ;;
             "instructions")
-              cargo bench --bench instructions -p expanse-trie | tee bench_output.txt
+              if [ -f base-instructions.txt ]; then
+                cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
+              else
+                cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_main | tee head-instructions.txt
+              fi
+              cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
+              cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
               ;;
             "comparative")
-              cargo bench --bench comparative -p expanse-trie | tee bench_output.txt
+              cargo bench --bench comparative -p expanse-trie | tee comparative.txt
+              python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
               ;;
             "ycsb")
-              cargo bench --bench ycsb -p expanse-trie | tee bench_output.txt
+              cargo bench --bench ycsb -p expanse-trie | tee ycsb.txt
               ;;
             "all"|*)
-              echo "=== 1. libexpanse vs Stock libjudy C ABI Parity ===" | tee bench_output.txt
-              cargo bench --bench vs_stock -p expanse-capi | tee -a bench_output.txt
-              echo -e "\n=== 2. Deterministic Callgrind Instruction Counters ===" | tee -a bench_output.txt
-              cargo bench --bench instructions -p expanse-trie | tee -a bench_output.txt
-              echo -e "\n=== 3. Comparative vs hashbrown & BTreeMap ===" | tee -a bench_output.txt
-              cargo bench --bench comparative -p expanse-trie | tee -a bench_output.txt
+              if [ -f base-instructions.txt ]; then
+                cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
+              else
+                cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_main | tee head-instructions.txt
+              fi
+
+              if [ -f base-vs-stock.txt ]; then
+                cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
+              else
+                cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
+              fi
+
+              cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
+              cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
+
+              cargo bench --bench comparative -p expanse-trie | tee comparative.txt
+              python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
               ;;
           esac
 
-          echo "BENCH_SUMMARY<<EOF" >> $GITHUB_ENV
-          cat bench_output.txt >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          # ====================================================================
+          # Report Generation Step
+          # ====================================================================
+          if [ -f head-instructions.txt ]; then
+            BASE_ARGS=""
+            if [ -f base-instructions.txt ]; then
+              BASE_ARGS="--base base-instructions.txt --base-ref $BASE_REF"
+            fi
+            HEAD_TO_HEAD_ARGS=""
+            if [ -f head-to-head.md ]; then
+              HEAD_TO_HEAD_ARGS="--head-to-head head-to-head.md"
+            fi
+            VS_STOCK_ARGS=""
+            if [ -f head-vs-stock.txt ]; then
+              VS_STOCK_ARGS="--vs-stock head-vs-stock.txt"
+            fi
+            BYTES_ARGS=""
+            if [ -f bytes-per-key.txt ]; then
+              BYTES_ARGS="--bytes bytes-per-key.txt"
+            fi
+            BYTES32_ARGS=""
+            if [ -f bytes-per-key-32.txt ]; then
+              BYTES32_ARGS="--bytes32 bytes-per-key-32.txt"
+            fi
 
-          echo "## Bare-Metal Benchmark Results" >> $GITHUB_STEP_SUMMARY
-          echo '```text' >> $GITHUB_STEP_SUMMARY
-          cat bench_output.txt >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+            python3 scripts/perf_report.py \
+              --head head-instructions.txt \
+              $BASE_ARGS \
+              $HEAD_TO_HEAD_ARGS \
+              $BYTES_ARGS \
+              $BYTES32_ARGS \
+              $VS_STOCK_ARGS \
+              > baremetal-report.md
+          fi
+
+          if [ -f baremetal-report.md ]; then
+            echo "BENCH_REPORT<<EOF" >> $GITHUB_ENV
+            cat baremetal-report.md >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+            cat baremetal-report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "BENCH_REPORT<<EOF" >> $GITHUB_ENV
+            if [ -f head-vs-stock.txt ]; then
+              echo '```text'
+              cat head-vs-stock.txt
+              echo '```'
+            elif [ -f comparative.txt ]; then
+              if [ -f head-to-head.md ]; then
+                cat head-to-head.md
+                echo ""
+              fi
+              echo '```text'
+              cat comparative.txt
+              echo '```'
+            elif [ -f ycsb.txt ]; then
+              echo '```text'
+              cat ycsb.txt
+              echo '```'
+            fi
+            echo "EOF" >> $GITHUB_ENV
+
+            echo "## Bare-Metal Benchmark Results ($SUITE)" >> "$GITHUB_STEP_SUMMARY"
+            if [ -f head-vs-stock.txt ]; then
+              echo '```text' >> "$GITHUB_STEP_SUMMARY"
+              cat head-vs-stock.txt >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            elif [ -f comparative.txt ]; then
+              if [ -f head-to-head.md ]; then
+                cat head-to-head.md >> "$GITHUB_STEP_SUMMARY"
+                echo "" >> "$GITHUB_STEP_SUMMARY"
+              fi
+              echo '```text' >> "$GITHUB_STEP_SUMMARY"
+              cat comparative.txt >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            elif [ -f ycsb.txt ]; then
+              echo '```text' >> "$GITHUB_STEP_SUMMARY"
+              cat ycsb.txt >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
 
       - name: Find Comment
         if: steps.vars.outputs.pr_number != ''
@@ -162,13 +320,13 @@ jobs:
           comment-id: ${{ steps.fc.outputs.comment-id }}
           issue-number: ${{ steps.vars.outputs.pr_number }}
           body: |
-            ## Bare-Metal Benchmark Results
+            ## 🚀 Bare-Metal Benchmark Results (`honeycomb`)
             
+            - **Host**: `Intel Core i9-12900F (24 threads, 30 MiB L3, Linux 6.8)`
             - **Suite**: `${{ steps.vars.outputs.benchmark_suite }}`
             - **Ref**: `${{ steps.vars.outputs.ref }}`
-            - **Runner**: `self-hosted (baremetal)`
+            - **Base Ref**: `${{ steps.vars.outputs.base_ref || 'main' }}`
+            - **Runner**: `self-hosted (baremetal / honeycomb)`
             
-            ```text
-            ${{ env.BENCH_SUMMARY }}
-            ```
+            ${{ env.BENCH_REPORT }}
           edit-mode: replace
