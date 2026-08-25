@@ -52,4 +52,4 @@ echo $judy[42]; // 999
 ```
 
 ## Documentation
-For complete API specifications and benchmarks, see [docs/BINDINGS_PHP.md](../../docs/BINDINGS_PHP.md).
+For complete API specifications and benchmarks, see [docs/bindings/php.md](../../docs/bindings/php.md).

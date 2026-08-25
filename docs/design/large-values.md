@@ -1,11 +1,11 @@
-# RFC: Large-Value Architectural Optimizations in Expanse
+# Design: Large-Value / Blob-Arena Storage
 
 **Status**: Partially Implemented — core shipped in #159 / #161  
 **Author**: Expanse Core Team  
 **Issue**: [#112](https://github.com/orieg/expanse/issues/112)  
 **Target Milestone**: Expanse v0.3.0  
 **Affected Crates**: `expanse-trie` (`crates/expanse`), `expanse-capi` (`crates/expanse-capi`)  
-**Canonical Documentation**: `docs/RFC_LARGE_VALUES.md` (Design context for `docs/ARCHITECTURE.md` and `docs/COMPAT.md`)
+**Canonical Documentation**: `docs/design/large-values.md` (Design context for `docs/ARCHITECTURE.md` and `docs/COMPAT.md`)
 
 ---
 
@@ -18,7 +18,7 @@ When storing arbitrary-sized payloads (strings, JSON documents, protocol buffers
 2. **Virtual Address Space Fragmentation**: Pointers scattered across non-contiguous heap pages degrade TLB reach.
 3. **Severe Cache Thrashing During Range Scans**: Evaluating simple filtering predicates (TTL expiration, soft-deletion tombstones, tenant partitioning) forces the CPU to chase pointers and load cold DRAM cache lines for every candidate entry.
 
-This RFC introduces a unified, zero-copy, cache-conscious large-value architecture for Expanse across four complementary pillars:
+This design introduces a unified, zero-copy, cache-conscious large-value architecture for Expanse across four complementary pillars:
 1. **Polymorphic 64-bit Value Slots (`ValueSlot`)**: Packing $\le 7$-byte values directly inline with zero heap allocation, and packing 32-bit hot metadata (TTL, flags, tenant ID) alongside a 24-bit arena locator into a single 64-bit word.
 2. **Hot/Cold Columnar Metadata-Predicate Range Filtering**: Executing predicate filters directly over contiguous leaf value arrays without dereferencing cold payload cache lines. The `$82\%$ DRAM-traffic reduction` / `$>15\times$ selective-scan` figures are **design targets gated on the wide-offset arena** — measured on the shipped 16 MiB-ceiling arena the columnar advantage is ~1.3–1.4× (the working set stays L3-resident, so payloads are never cache-cold); see §10.3.
 3. **Chunked Slab/Arena Backing (`BlobArena` / `ExpanseBlobMap`)**: Append-only 2 MiB/16 MiB chunk allocation with generation counters, ABA safety, and incremental in-place compaction.

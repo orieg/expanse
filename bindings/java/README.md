@@ -132,4 +132,4 @@ To supply an external custom build of `libexpanse`, specify `-Dexpanse.library.p
 
 ## Documentation
 
-See [docs/BINDINGS_JAVA.md](../../docs/BINDINGS_JAVA.md) for full architectural deep dive, Spark/Flink integration patterns, and GC benchmarking.
+See [docs/bindings/java.md](../../docs/bindings/java.md) for full architectural deep dive, Spark/Flink integration patterns, and GC benchmarking.

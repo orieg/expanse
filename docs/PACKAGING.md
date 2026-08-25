@@ -155,7 +155,7 @@ Expanse is distributed on PyPI as `expanse-trie` with binary `abi3` wheels acros
 - **Python Crate**: `crates/expanse-py` exporting `expanse_trie._expanse`.
 - **Type Stubs**: PEP 561 typed (`bindings/python/expanse_trie/py.typed` and `__init__.pyi`).
 - **CI / Distribution Workflow**: [`.github/workflows/python.yml`](../.github/workflows/python.yml) builds wheels, runs the `pytest` test suite, and publishes to PyPI with trusted publishing (OIDC).
-- **Full Guide**: See [docs/BINDINGS_PYTHON.md](BINDINGS_PYTHON.md).
+- **Full Guide**: See [docs/bindings/python.md](bindings/python.md).
 
 ### 2.8 Java & Scala Distribution (`io.github.orieg:expanse-java`) & Maven Central
 > **Not yet published, and no CI publish path exists.** Maven Central has zero `io.github.orieg` artifacts, and `release.yml` contains no Maven/Gradle/Sonatype build or deploy job. The following describes the *planned* distribution.
@@ -164,7 +164,7 @@ Expanse is *intended* to be distributed on Maven Central as `io.github.orieg:exp
 
 - **Package Configuration**: `bindings/java/pom.xml` and `bindings/java/build.gradle`.
 - **Native Loader**: `io.github.orieg.expanse.internal.NativeLoader` extracts and loads precompiled native libraries across Linux, macOS, and Windows.
-- **Full Guide**: See [docs/BINDINGS_JAVA.md](BINDINGS_JAVA.md).
+- **Full Guide**: See [docs/bindings/java.md](bindings/java.md).
 
 ---
 
@@ -326,7 +326,7 @@ Expanse provides a unified dual-driver distribution for PHP 8.1–8.5+:
   $map = new Map();
   $map->set(42, 1000);
   ```
-- **Full Guide**: See [docs/BINDINGS_PHP.md](BINDINGS_PHP.md).
+- **Full Guide**: See [docs/bindings/php.md](bindings/php.md).
 
 ---
 
@@ -347,7 +347,7 @@ Expanse is distributed for Ruby 3.0+ as the `expanse` gem under `bindings/ruby`:
   map = Expanse::Map.new
   map[42] = 1000
   ```
-- **Full Guide**: See [docs/BINDINGS_RUBY.md](BINDINGS_RUBY.md).
+- **Full Guide**: See [docs/bindings/ruby.md](bindings/ruby.md).
 
 ---
 

@@ -30,4 +30,4 @@ sync_m = SyncExpanseMap({1: 100, 2: 200})
 assert sync_m[1] == 100
 ```
 
-See [docs/BINDINGS_PYTHON.md](../../docs/BINDINGS_PYTHON.md) for complete documentation.
+See [docs/bindings/python.md](../../docs/bindings/python.md) for complete documentation.

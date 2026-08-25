@@ -3,7 +3,7 @@
 //! A real 256-ary digital trie mapping 32-bit keys (`u32`) to 32-bit values
 //! (`u32`), decoding one byte per level across four levels (`L4 -> L1`),
 //! specialised for embedded SRAM and microcontrollers per
-//! `docs/RFC_32BIT_EMBEDDED.md`. Small subexpanses pack a single key/value
+//! `docs/design/32-bit-embedded.md`. Small subexpanses pack a single key/value
 //! *immediately* inside the 8-byte edge (zero heap); denser ones use packed
 //! linear leaves (`[values: u32 * pop][keys: KB * pop]`) and
 //! linear/uncompressed branches (see [`crate::trie32`]).

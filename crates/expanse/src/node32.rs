@@ -1,7 +1,7 @@
 //! 32-Bit Digital Tree Node Geometries & Cache-Line Alignment.
 //!
 //! Sizes node layouts to exact multiples of 32-byte cache lines (Cortex-M7, ESP32 cache)
-//! per `docs/RFC_32BIT_EMBEDDED.md`.
+//! per `docs/design/32-bit-embedded.md`.
 
 use crate::types32::Edge32;
 use core::fmt;

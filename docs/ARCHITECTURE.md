@@ -1,46 +1,8 @@
 # Expanse Architecture
 
-> Canonical design doc. Compat contract: [COMPAT.md](COMPAT.md) · Testing: [TESTING.md](TESTING.md) · Benchmarks: [BENCHMARKING.md](BENCHMARKING.md) · Database Engines: [DATABASE.md](DATABASE.md) · 32-Bit & Embedded: [RFC_32BIT_EMBEDDED.md](RFC_32BIT_EMBEDDED.md) · Large Values: [RFC_LARGE_VALUES.md](RFC_LARGE_VALUES.md)
+> Canonical design doc. Compat contract: [COMPAT.md](COMPAT.md) · Testing: [TESTING.md](TESTING.md) · Benchmarks: [BENCHMARKING.md](BENCHMARKING.md) · Database Engines: [DATABASE.md](DATABASE.md) · 32-Bit & Embedded: [design/32-bit-embedded.md](design/32-bit-embedded.md) · Large Values: [design/large-values.md](design/large-values.md)
 
 Expanse is a clean-room reimplementation of the Judy array family (Judy1 bit set, JudyL word→word map, JudySL string→word map), redesigned for 2026 hardware and named for Judy's defining idea: partitioning keys by *expanse* rather than by population. Derived from published algorithm descriptions only; no libjudy source consulted (see COMPAT.md for the clean-room rules).
-
-## 7. 32-Bit Embedded Architecture & Node Geometries
-
-For 32-bit microcontrollers (ARM Cortex-M0+/M3/M4/M7, RISC-V RV32I/RV32A, Espressif ESP32/ESP32-C3), Expanse provides an optimized 32-bit trie engine (`ExpanseSet32`, `ExpanseMap32`, `ExpanseBlobMap32`) designed for severely constrained SRAM (64 KiB – 512 KiB) per [`RFC_32BIT_EMBEDDED.md`](RFC_32BIT_EMBEDDED.md):
-
-```
-========================================================================================
-64-Bit Server Architecture vs. 32-Bit Embedded Architecture
-========================================================================================
-
-           64-Bit Server (x86-64 / ARM64 / RV64)          32-Bit Embedded (RV32 / ESP32 / Cortex-M)
-           ------------------------------------          ----------------------------------------
-Key Type:  u64 (8 Bytes)                                 u32 (4 Bytes)
-Tree Depth:8 Levels (L8 -> L1)                           4 Levels (L4 -> L1, 48% lower latency)
-Edge Size: 16 Bytes                                      8 Bytes (-50% Structural RAM)
-Cache Line:64 Bytes / 128 Bytes                          32 Bytes (Cortex-M7, ESP32) / Flat SRAM
-Value Slot:64-bit (<=7B Inline, 32B Meta)                32-bit (<=3B Inline, 16B Meta)
-Atomics:   AtomicU64 SeqVersion                          AtomicU32 SeqVersion32 (Native RV32A)
-Max Heap:  Exabytes (Virtual Addressing)                 64 KiB - 16 MiB (Physical SRAM)
-```
-
-### 7.1 Compact 8-Byte `Edge32` Layout
-```
-offset 0: word 0     4 B   child node pointer, or immediate key/value payload
-offset 4: aux        3 B   level-split: pop0 count + narrow pointer decode bytes
-offset 7: tag        1 B   edge type discriminant tag
-```
-
-### 7.2 32-Byte Microcontroller Cache Line Alignment
-Embedded cores like ARM Cortex-M7 and ESP32 MMU caches feature **32-byte cache lines**:
-- **`BranchL2_32`**: 8B Header + 2B Digits + 6B Pad + 16B Child Edges = **32 Bytes** (exactly 1 cache line).
-- **`BranchL6_32`**: 8B Header + 6B Digits + 2B Pad + 48B Child Edges = **64 Bytes** (exactly 2 cache lines).
-- **`LeafBitmap1_32`**: 32B 256-bit bitmask + 4B pop0/header = **36 Bytes** with 32B alignment.
-
-### 7.3 Polymorphic 32-Bit Value Slots (`ValueSlot32`)
-- **Inline Mode ($\le 3\text{ B}$)**: Direct in-slot storage with zero heap allocation.
-- **Arena Mode**: 16-bit hot metadata (TTL, flags) + 12-bit slab offset (up to 4096 entries per chunk).
-- **Raw Word Mode (`0xFF`)**: Drop-in 32-bit `JudyL` C ABI compatibility (`uint32_t`).
 
 ## 1. The structure in one page
 
@@ -180,16 +142,52 @@ For detailed architecture, integration mechanics, algorithms, and code blueprint
 ---
  
 ## 8. 32-Bit Architecture & Embedded Microprocessor Support (RV32 / ESP32 / Cortex-M)
- 
-Expanse v0.4.0 introduces first-class support for 32-bit embedded platforms (RISC-V `RV32I`/`RV32EMAC`, Espressif `ESP32`/`ESP32-S3`/`ESP32-C3`, ARM `Cortex-M0+`/`M3`/`M4`/`M7`/`M33`):
- 
+
+For 32-bit microcontrollers (RISC-V `RV32I`/`RV32EMAC`, Espressif `ESP32`/`ESP32-S3`/`ESP32-C3`, ARM `Cortex-M0+`/`M3`/`M4`/`M7`/`M33`), Expanse ships a real 32-bit trie engine (`ExpanseSet32`, `ExpanseMap32`, `ExpanseBlobMap32`) designed for severely constrained SRAM (64 KiB – 512 KiB). This shipped in v0.3.0 (#230): `trie32`/`set32`/`map32`/`blobmap32` compile unconditionally, and on 32-bit targets the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, etc.).
+
 - **4-Level Digital Tree Hierarchy**: 32-bit keys (`Key = u32`, Levels 4 $\rightarrow$ 1) halve maximum trie descent depth from 8 to 4 hops.
-- **Compact 8-Byte `Edge32`**: 4-byte pointer/immediate + 3-byte level-split `pop0`/decode field + 1-byte tag discriminant, delivering an immediate **50% reduction in structural memory**.
+- **Compact 8-Byte `Edge32`**: 4-byte pointer/immediate + 3-byte level-split `pop0`/decode field + 1-byte tag discriminant, delivering an immediate **50% reduction in structural memory** (byte offsets in §8.1).
 - **Immediate In-Edge Storage**: Up to 7 1-byte keys, 3 2-byte keys, or 2 3-byte keys packed directly inside a single 8-byte edge without heap allocation.
-- **Polymorphic 32-Bit Value Slots (`ValueSlot32`)**: Inline mode ($\le 3$ bytes payload) with zero heap allocations, 16-bit hot metadata + 12-bit arena offset, and raw 32-bit machine word mode for 100% classic `JudyL` 32-bit C ABI drop-in compatibility.
+- **Polymorphic 32-Bit Value Slots (`ValueSlot32`)**: inline, arena, and raw-word modes for zero-allocation payloads and classic `JudyL` 32-bit C ABI drop-in compatibility (enumerated in §8.2).
 - **32-Byte Cache Alignment & Native Atomics**: Node geometries tailored for 32-byte cache lines (Cortex-M7, ESP32) and un-cached internal SRAM, with native 32-bit OCC reader validation (`SeqVersion32` via `AtomicU32`) on `RV32A` without 64-bit atomic dependencies.
- 
-For complete struct definitions, bit layouts, cache models, and implementation phase gates, see [RFC_32BIT_EMBEDDED.md](RFC_32BIT_EMBEDDED.md).
+
+### 8.1 Node Geometries
+
+```
+========================================================================================
+64-Bit Server Architecture vs. 32-Bit Embedded Architecture
+========================================================================================
+
+           64-Bit Server (x86-64 / ARM64 / RV64)          32-Bit Embedded (RV32 / ESP32 / Cortex-M)
+           ------------------------------------          ----------------------------------------
+Key Type:  u64 (8 Bytes)                                 u32 (4 Bytes)
+Tree Depth:8 Levels (L8 -> L1)                           4 Levels (L4 -> L1, 48% lower latency)
+Edge Size: 16 Bytes                                      8 Bytes (-50% Structural RAM)
+Cache Line:64 Bytes / 128 Bytes                          32 Bytes (Cortex-M7, ESP32) / Flat SRAM
+Value Slot:64-bit (<=7B Inline, 32B Meta)                32-bit (<=3B Inline, 16B Meta)
+Atomics:   AtomicU64 SeqVersion                          AtomicU32 SeqVersion32 (Native RV32A)
+Max Heap:  Exabytes (Virtual Addressing)                 64 KiB - 16 MiB (Physical SRAM)
+```
+
+**Compact 8-Byte `Edge32` layout:**
+```
+offset 0: word 0     4 B   child node pointer, or immediate key/value payload
+offset 4: aux        3 B   level-split: pop0 count + narrow pointer decode bytes
+offset 7: tag        1 B   edge type discriminant tag
+```
+
+**32-byte microcontroller cache-line alignment.** Embedded cores like ARM Cortex-M7 and ESP32 MMU caches feature **32-byte cache lines**:
+- **`BranchL2_32`**: 8B Header + 2B Digits + 6B Pad + 16B Child Edges = **32 Bytes** (exactly 1 cache line).
+- **`BranchL6_32`**: 8B Header + 6B Digits + 2B Pad + 48B Child Edges = **64 Bytes** (exactly 2 cache lines).
+- **`LeafBitmap1_32`**: 32B 256-bit bitmask + 4B pop0/header = **36 Bytes** with 32B alignment.
+
+### 8.2 Polymorphic 32-Bit Value Slots (`ValueSlot32`)
+
+- **Inline Mode ($\le 3\text{ B}$)**: Direct in-slot storage with zero heap allocation.
+- **Arena Mode**: 16-bit hot metadata (TTL, flags) + 12-bit slab offset (up to 4096 entries per chunk).
+- **Raw Word Mode (`0xFF`)**: Drop-in 32-bit `JudyL` C ABI compatibility (`uint32_t`).
+
+For complete struct definitions, bit layouts, cache models, and implementation phase gates, see [design/32-bit-embedded.md](design/32-bit-embedded.md).
 
 ---
 

@@ -2,7 +2,7 @@
 //!
 //! A real 256-ary digital trie over 32-bit keys (`u32`), decoding one byte
 //! per level across four levels (`L4 -> L1`), specialised for embedded SRAM
-//! and microcontrollers per `docs/RFC_32BIT_EMBEDDED.md`. Small subexpanses
+//! and microcontrollers per `docs/design/32-bit-embedded.md`. Small subexpanses
 //! are packed *immediately* inside the 8-byte edge (zero heap); denser ones
 //! use packed linear leaves, a 256-bit bitmap leaf, and linear/uncompressed
 //! branches (see [`crate::trie32`]).

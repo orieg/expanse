@@ -1,11 +1,11 @@
-# RFC: 32-Bit Architecture & Embedded Microprocessor Support (RV32 / ESP32 / Cortex-M)
+# Design: 32-Bit Embedded Architecture
 
 **Status**: Implemented (core trie engine) — 2026-08-23  
 **Author**: Expanse Core Architecture Team  
 **Issue**: [#109](https://github.com/orieg/expanse/issues/109)  
 **Target Milestone**: Expanse v0.4.0  
 **Affected Crates**: `expanse-trie` (`crates/expanse`), `expanse-capi` (`crates/expanse-capi`)  
-**Canonical Documentation**: `docs/RFC_32BIT_EMBEDDED.md` (Design context for `docs/ARCHITECTURE.md`, `docs/COMPAT.md`, and `docs/DATABASE.md`)
+**Canonical Documentation**: `docs/design/32-bit-embedded.md` (Design context for `docs/ARCHITECTURE.md`, `docs/COMPAT.md`, and `docs/DATABASE.md`)
 
 ---
 
@@ -54,7 +54,7 @@ Expanse is a clean-room, cache-line-optimized reimplementation of Judy arrays de
 
 In these embedded environments, system memory is severely constrained—often limited to 64 KiB – 512 KiB of internal static RAM (SRAM) and 2 MiB – 16 MiB of external SPI/QSPI PSRAM. Traditional B-trees and hash tables incur unacceptable memory fragmentation and pointer overhead (e.g. 24–32 bytes of allocator metadata and pointer overhead per key-value entry).
 
-This RFC establishes a unified 32-bit architecture for Expanse, scaling the digital trie from 64-bit servers down to embedded microcontrollers with **zero algorithmic compromises**:
+This design establishes a unified 32-bit architecture for Expanse, scaling the digital trie from 64-bit servers down to embedded microcontrollers with **zero algorithmic compromises**:
 
 1. **4-Level Digital Tree Hierarchy**: Keys shrink from 64-bit (`Key = u64`, Levels 8 $\rightarrow$ 1) to 32-bit (`Key = u32`, Levels 4 $\rightarrow$ 1), halving maximum descent depth from 8 hops to 4 hops and cutting lookup latency by up to $48\%$.
 2. **Compact 8-Byte `Edge` Descriptor (`Edge32`)**: Replacing 16-byte edges with an 8-byte tagged union (`4B Pointer/Imm` + `3B Level-Split Aux/Pop0/Decode` + `1B Tag`), achieving an immediate **$50\%$ reduction in structural memory**.
