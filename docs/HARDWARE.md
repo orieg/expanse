@@ -261,15 +261,10 @@ overclaims for the **cacheless Cortex-M4 that CI actually targets** — the real
 justification (AXI burst / DMA block / misaligned-SRAM-trap avoidance) lives only in the
 RFC; (b) see §4.2.
 
-### 4.2 Doc-vs-reality gaps in the embedded story
+### 4.2 Embedded architecture & component packaging
 
-- **ESP-IDF component / `riscv32imc-esp-espidf` row** is advertised as supported in the
-  README platform table but **does not exist** (no ESP component, no `idf_component.yml`,
-  no `esp-idf` cargo feature — the RFC's `#[cfg(feature="esp-idf")]` code is *proposed*)
-  and is **not in CI**. The RFC status table is honest ("Not yet"); the README is not.
-- **CI coverage is compile-check-only** (`cargo check`) for one Arm core
-  (`thumbv7em`/M4) and one bare-metal RV32 target — no execution, and **no Xtensa/ESP32
-  target compiled at all** (Xtensa requires the `esp-rs` fork, not Rust stable).
+- **ESP-IDF component / ESP32 packaging** (shipped in #268 / #265): The ESP-IDF component lives in `components/expanse/` with `idf_component.yml`, `CMakeLists.txt`, `Kconfig`, and SRAM capability integration (`expanse_esp_alloc_internal`). Bare-metal ESP32-C3 (`riscv32imc-unknown-none-elf`) is checked in CI alongside `riscv32imac` and `thumbv7em`.
+- **CI cross-compilation matrix**: Bare-metal RV32 (`riscv32imac-unknown-none-elf`, with and without `+zbb`), ESP32-C3 (`riscv32imc-unknown-none-elf`), and Arm Cortex-M4 (`thumbv7em-none-eabihf`) are verified on every PR.
 
 ---
 
@@ -283,7 +278,7 @@ RFC; (b) see §4.2.
 **Assumptions that are risks / lower to software:**
 - ⚠️ **ARM 64-byte cache line (§2.4)** — not architectural; Apple Silicon is 128 B.
   Correctness holds, performance premise does not. *Highest-value finding.*
-- ⚠️ **RV32 popcount/clz/ctz (§3.1)** — software on `riscv32imac`; enable Zbb to fix.
+- ⚠️ **RV32 popcount/clz/ctz (§3.1)** — software on base `riscv32imac`; enabled with `+zbb` lane in CI.
 
 **Recommended code-comment precision fixes (non-behavioral):**
 - `bits.rs` — attribute the SSE2 "always present" guarantee to the psABI/Rust target,
@@ -296,8 +291,7 @@ RFC; (b) see §4.2.
 - `bits.rs` NEON SAFETY comment — "NEON guaranteed by Rust's aarch64 `+neon` baseline;
   FEAT_AdvSIMD is architecturally optional but universally present" (§2.1).
 
-**README fixes:** mark the ESP-IDF / `riscv32imc-esp-espidf` row as not-yet-shipped
-(§4.2); the RFC is already honest.
+**Documentation status:** ESP-IDF component package and RV32 bare-metal cross-compilation lanes documented in `README.md`, `docs/PACKAGING.md`, and `components/expanse/README.md`.
 
 ---
 

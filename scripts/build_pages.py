@@ -854,7 +854,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
     <div class="hero">
       <div class="badge-bar">
         <span class="badge badge-green">Pure Rust &bull; #![no_std]</span>
-        <span class="badge">Rust &bull; Python &bull; Node.js &bull; .NET &bull; C++20 &bull; Java &bull; C ABI</span>
+        <span class="badge">Rust &bull; Python &bull; Node.js &bull; .NET &bull; C++20 &bull; Java &bull; C ABI &bull; ESP-IDF (ESP32)</span>
         <span class="badge">64-Bit &amp; 32-Bit Embedded</span>
         <span class="badge">RocksDB MemTable Plugin</span>
         <span class="badge">glibc-hwcaps (x86-64-v1..v4)</span>
@@ -1005,6 +1005,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
           <button class="tab-btn" onclick="switchTab('tab-java')">Java / JVM (Maven)</button>
           <button class="tab-btn" onclick="switchTab('tab-rocksdb')">RocksDB MemTable</button>
           <button class="tab-btn" onclick="switchTab('tab-php')">PHP (Composer &amp; PIE)</button>
+          <button class="tab-btn" onclick="switchTab('tab-espidf')">ESP-IDF (ESP32)</button>
         </div>
 
         <div id="tab-cargo" class="install-panel">
@@ -1229,6 +1230,29 @@ $val = $map-&gt;get(42);
 // 1:1 legacy php-judy drop-in compatibility
 $judy = new Judy(Judy::INT_TO_INT);
 $judy[42] = 999;</code></pre>
+        </div>
+
+        <div id="tab-espidf" class="install-panel" style="display: none;">
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Add Expanse to your ESP-IDF project's <code>main/idf_component.yml</code> (ESP-IDF v5.0+):</p>
+          <pre><code>dependencies:
+  expanse:
+    version: "^0.3.0"</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in ESP-IDF C/C++ (with internal fast DRAM placement):</p>
+          <pre><code>#include "expanse.h"
+#include "expanse_esp_idf.h"
+#include "esp_log.h"
+
+void app_main(void) {
+    // 32-bit digital map (compact 8-byte Edge32, 32-byte cache line aligned)
+    expanse_map_t *map = expanse_map_new();
+    expanse_map_insert(map, 0x18FF50E5 /* CAN ID */, 42 /* Sensor Value */);
+
+    uint32_t val = 0;
+    if (expanse_map_get(map, 0x18FF50E5, &amp;val)) {
+        ESP_LOGI("expanse", "Found CAN ID 0x18FF50E5 -&gt; %u", (unsigned int)val);
+    }
+    expanse_map_free(map);
+}</code></pre>
         </div>
       </div>
     </div>

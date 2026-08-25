@@ -207,7 +207,7 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 | **Windows x86-64** | `x86_64-pc-windows-msvc` | Precompiled `expanse.dll` / `expanse.lib` `.zip`, vcpkg, NuGet |
 | **RISC-V 32-Bit (RV32)** | `riscv32imac-unknown-none-elf` | `#![no_std]` staticlib / embedded crate ([design #109](docs/design/32-bit-embedded.md)) |
 | **ARM Cortex-M (M4/M7)** | `thumbv7em-none-eabihf` | `#![no_std]` staticlib / embedded crate ([design #109](docs/design/32-bit-embedded.md)) |
-| **Espressif ESP32 (RV32/Xtensa)** | `riscv32imc-esp-espidf` | **Roadmap** — ESP-IDF component not yet shipped; not in CI (design proposed in [#109](docs/design/32-bit-embedded.md)) |
+| **Espressif ESP32 (ESP-IDF / RV32)** | `riscv32imc-esp-espidf` / `riscv32imc-unknown-none-elf` | ESP-IDF Component (`components/expanse/`), `#![no_std]` ([docs](components/expanse/README.md)) |
 
 ---
 
@@ -504,8 +504,39 @@ const blobmap = new ExpanseBlobMap();
 blobmap.set(1n, Buffer.from('inline'), 10 /* 32-bit hot metadata */);
 const res = blobmap.getWithMeta(1n);
 console.log(res.isInline);               // true (0 heap allocations)
-```
 See [crates/expanse-node/README.md](crates/expanse-node/README.md) for full Node.js documentation.
+
+### 11. Espressif ESP-IDF Component (ESP32, ESP32-C3, ESP32-C6, ESP32-S3)
+
+Add `expanse` to your ESP-IDF project's `main/idf_component.yml`:
+```yaml
+dependencies:
+  expanse:
+    version: "^0.3.0"
+```
+Or clone directly into your project's `components/` directory:
+```bash
+git clone https://github.com/orieg/expanse.git components/expanse
+```
+
+```c
+#include "expanse.h"
+#include "expanse_esp_idf.h"
+#include "esp_log.h"
+
+void app_main(void) {
+    // 32-bit digital map (compact 8-byte Edge32, 32-byte cache line aligned)
+    expanse_map_t *map = expanse_map_new();
+    expanse_map_insert(map, 0x18FF50E5 /* CAN ID */, 42 /* Sensor Value */);
+
+    uint32_t val = 0;
+    if (expanse_map_get(map, 0x18FF50E5, &val)) {
+        ESP_LOGI("expanse", "Found CAN ID 0x18FF50E5 -> Value %u", (unsigned int)val);
+    }
+    expanse_map_free(map);
+}
+```
+See [components/expanse/README.md](components/expanse/README.md) for full ESP-IDF component documentation and `Kconfig` options.
 See [docs/PACKAGING.md](docs/PACKAGING.md) for full packaging instructions across all platforms.
 
 ---
