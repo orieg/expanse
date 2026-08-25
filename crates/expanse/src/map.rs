@@ -1116,9 +1116,28 @@ impl ExpanseMap {
     #[must_use]
     pub fn range(&self, range: core::ops::RangeInclusive<Key>) -> MapRange<'_> {
         let (start, end) = (*range.start(), *range.end());
+        if start > end {
+            return MapRange {
+                _map: core::marker::PhantomData,
+                raw: crate::iter::RawIter::new(),
+                end,
+            };
+        }
+        let raw = match &self.root {
+            Root::Empty => crate::iter::RawIter::new(),
+            Root::Leaf { ptr, pop } => {
+                let (keys, values) = Self::leaf_parts(*ptr, *pop);
+                // SAFETY: root leaf contains valid keys and values arrays of length pop.
+                unsafe {
+                    crate::iter::RawIter::from_root_leaf_range(keys.as_ptr(), values, *pop, start)
+                }
+            }
+            // SAFETY: tree maintained by map engine per invariants.
+            Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree_range(top, start) },
+        };
         MapRange {
-            map: self,
-            current: if start <= end { Some(start) } else { None },
+            _map: core::marker::PhantomData,
+            raw,
             end,
         }
     }
@@ -1176,26 +1195,20 @@ impl Iterator for MapIter<'_> {
 
 /// Ascending entry iterator over a key range in an [`ExpanseMap`].
 pub struct MapRange<'a> {
-    map: &'a ExpanseMap,
-    current: Option<Key>,
+    _map: core::marker::PhantomData<&'a ExpanseMap>,
+    raw: crate::iter::RawIter<true>,
     end: Key,
 }
 
 impl Iterator for MapRange<'_> {
     type Item = (Key, u64);
 
+    #[inline]
     fn next(&mut self) -> Option<(Key, u64)> {
-        let cur = self.current?;
-        if cur > self.end {
-            self.current = None;
-            return None;
-        }
-        let (k, v) = self.map.next_at_or_after(cur)?;
+        let (k, v) = self.raw.next()?;
         if k > self.end {
-            self.current = None;
             return None;
         }
-        self.current = k.checked_add(1);
         Some((k, v))
     }
 }
@@ -1825,6 +1838,86 @@ mod tests {
         extended.validate();
         for &(k, v) in &entries {
             assert_eq!(extended.get(k), Some(v));
+        }
+    }
+
+    #[test]
+    #[allow(clippy::reversed_empty_ranges)]
+    fn test_map_range_cursor_parity_with_btreemap() {
+        use std::collections::BTreeMap;
+        let mut expanse = ExpanseMap::new();
+        let mut btree = BTreeMap::new();
+
+        // 1. Root leaf population (small)
+        for i in [10u64, 25, 30, 42, 50, 75, 99, 120] {
+            expanse.insert(i, i * 2);
+            btree.insert(i, i * 2);
+        }
+
+        let queries = [
+            0..=0,
+            0..=10,
+            10..=10,
+            11..=24,
+            25..=50,
+            50..=120,
+            100..=200,
+            150..=200,
+            0..=u64::MAX,
+            50..=10, // inverted range
+        ];
+
+        for r in &queries {
+            let exp_res: Vec<_> = expanse.range(r.clone()).collect();
+            let bt_res: Vec<_> = if r.start() <= r.end() {
+                btree.range(r.clone()).map(|(&k, &v)| (k, v)).collect()
+            } else {
+                vec![]
+            };
+            assert_eq!(exp_res, bt_res, "Root leaf range mismatch for {:?}", r);
+        }
+
+        // 2. Large multi-level trie population across multiple key distributions
+        let mut large_exp = ExpanseMap::new();
+        let mut large_bt = BTreeMap::new();
+
+        // Dense cluster 1
+        for i in 1000..2000u64 {
+            large_exp.insert(i, i ^ 0xAA);
+            large_bt.insert(i, i ^ 0xAA);
+        }
+        // Sparse cluster 2
+        for i in (100_000..200_000u64).step_by(128) {
+            large_exp.insert(i, i ^ 0xBB);
+            large_bt.insert(i, i ^ 0xBB);
+        }
+        // Wide 64-bit keys
+        for i in 0..500u64 {
+            let k = (i + 1).wrapping_mul(0x0102_0304_0506_0708);
+            large_exp.insert(k, i);
+            large_bt.insert(k, i);
+        }
+
+        let trie_queries = [
+            0..=500,
+            1000..=1050,
+            1500..=2500,
+            99_000..=150_000,
+            150_000..=250_000,
+            0x0102_0304_0506_0708..=0x0502_0304_0506_0708,
+            0..=u64::MAX,
+            u64::MAX..=u64::MAX,
+            2000..=1000,
+        ];
+
+        for r in &trie_queries {
+            let exp_res: Vec<_> = large_exp.range(r.clone()).collect();
+            let bt_res: Vec<_> = if r.start() <= r.end() {
+                large_bt.range(r.clone()).map(|(&k, &v)| (k, v)).collect()
+            } else {
+                vec![]
+            };
+            assert_eq!(exp_res, bt_res, "Large trie range mismatch for {:?}", r);
         }
     }
 }

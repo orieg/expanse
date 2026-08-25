@@ -76,10 +76,9 @@ Point query hit/miss and dynamic growth throughput ported from `hashbrown/benche
 
 During benchmark profiling, two key performance characteristics were identified:
 
-1. **`MapRange` Iterator Cursor Reuse (Range Scan Performance):**
-   - **Observation:** `ExpanseMap::iter()` achieves **$26.1\text{ Mops/sec}$** full scan throughput, whereas `ExpanseMap::range()` achieved lower throughput on short range queries in Workload E.
-   - **Root Cause:** `MapRange::next()` currently invokes `self.map.next_at_or_after(cur)` on every step, restarting tree descent from the root for each item ($O(L \cdot 8)$ node descents for range length $L$). In contrast, `MapIter` maintains an internal stack cursor (`RawIter<true>`).
-   - **Optimization Item:** Refactor `MapRange` to initialize `RawIter` seeked to `start` and bounded at `end`. This will eliminate root restarts and raise range scan throughput by an estimated $10\times\text{–}20\times$.
+1. **`MapRange` & `SetRange` Iterator Cursor Seeking (Implemented):**
+   - **Optimization:** Refactored `MapRange` and `SetRange` to wrap `RawIter` with direct target descent seeking (`RawIter::from_tree_range`, `RawIter::from_root_leaf_range`).
+   - **Result:** Eliminates $O(L \cdot 8)$ root restarts, allowing bounded range scans to stream contiguous leaf elements in $O(1)$ amortized time per key without heap allocation.
 
 2. **Sparse Random Key Branch Allocation:**
    - **Observation:** On uniform random 64-bit keys, Expanse consumes $31.8\text{ B/key}$ vs SwissTable's $35.7\text{ B/key}$ under allocator churn.
