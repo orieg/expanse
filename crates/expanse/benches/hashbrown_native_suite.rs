@@ -19,7 +19,11 @@ use std::time::Instant;
 struct XorShift64(u64);
 impl XorShift64 {
     fn new(seed: u64) -> Self {
-        Self(if seed == 0 { 0xDEAD_BEEF_CAFE_BABE } else { seed })
+        Self(if seed == 0 {
+            0xDEAD_BEEF_CAFE_BABE
+        } else {
+            seed
+        })
     }
     fn next(&mut self) -> u64 {
         let mut x = self.0;
@@ -82,102 +86,168 @@ fn main() {
             base_btree.insert(k, k);
         }
 
-        let iters = if pop <= 10_000 { 100_000 } else if pop <= 100_000 { 50_000 } else { 10_000 };
+        let iters = if pop <= 10_000 {
+            100_000
+        } else if pop <= 100_000 {
+            50_000
+        } else {
+            10_000
+        };
 
         // 1. Lookup Hit
         let mut idx_e = 0;
-        let (ns_hit_exp, mops_hit_exp) = bench_op(|| {
-            idx_e = (idx_e + 1) % keys.len();
-            black_box(base_expanse.get(black_box(keys[idx_e])));
-        }, 5_000, iters);
+        let (ns_hit_exp, mops_hit_exp) = bench_op(
+            || {
+                idx_e = (idx_e + 1) % keys.len();
+                black_box(base_expanse.get(black_box(keys[idx_e])));
+            },
+            5_000,
+            iters,
+        );
 
         let mut idx_h = 0;
-        let (ns_hit_hb, mops_hit_hb) = bench_op(|| {
-            idx_h = (idx_h + 1) % keys.len();
-            black_box(base_hashbrown.get(&black_box(keys[idx_h])));
-        }, 5_000, iters);
+        let (ns_hit_hb, mops_hit_hb) = bench_op(
+            || {
+                idx_h = (idx_h + 1) % keys.len();
+                black_box(base_hashbrown.get(&black_box(keys[idx_h])));
+            },
+            5_000,
+            iters,
+        );
 
         let mut idx_b = 0;
-        let (ns_hit_bt, mops_hit_bt) = bench_op(|| {
-            idx_b = (idx_b + 1) % keys.len();
-            black_box(base_btree.get(&black_box(keys[idx_b])));
-        }, 5_000, iters);
+        let (ns_hit_bt, mops_hit_bt) = bench_op(
+            || {
+                idx_b = (idx_b + 1) % keys.len();
+                black_box(base_btree.get(&black_box(keys[idx_b])));
+            },
+            5_000,
+            iters,
+        );
 
         // 2. Lookup Miss
         let mut idx_me = 0;
-        let (ns_miss_exp, mops_miss_exp) = bench_op(|| {
-            idx_me = (idx_me + 1) % absent_keys.len();
-            black_box(base_expanse.get(black_box(absent_keys[idx_me])));
-        }, 5_000, iters);
+        let (ns_miss_exp, mops_miss_exp) = bench_op(
+            || {
+                idx_me = (idx_me + 1) % absent_keys.len();
+                black_box(base_expanse.get(black_box(absent_keys[idx_me])));
+            },
+            5_000,
+            iters,
+        );
 
         let mut idx_mh = 0;
-        let (ns_miss_hb, mops_miss_hb) = bench_op(|| {
-            idx_mh = (idx_mh + 1) % absent_keys.len();
-            black_box(base_hashbrown.get(&black_box(absent_keys[idx_mh])));
-        }, 5_000, iters);
+        let (ns_miss_hb, mops_miss_hb) = bench_op(
+            || {
+                idx_mh = (idx_mh + 1) % absent_keys.len();
+                black_box(base_hashbrown.get(&black_box(absent_keys[idx_mh])));
+            },
+            5_000,
+            iters,
+        );
 
         let mut idx_mb = 0;
-        let (ns_miss_bt, mops_miss_bt) = bench_op(|| {
-            idx_mb = (idx_mb + 1) % absent_keys.len();
-            black_box(base_btree.get(&black_box(absent_keys[idx_mb])));
-        }, 5_000, iters);
+        let (ns_miss_bt, mops_miss_bt) = bench_op(
+            || {
+                idx_mb = (idx_mb + 1) % absent_keys.len();
+                black_box(base_btree.get(&black_box(absent_keys[idx_mb])));
+            },
+            5_000,
+            iters,
+        );
 
         // 3. Iteration
-        let iter_reps = if pop <= 10_000 { 100 } else if pop <= 100_000 { 20 } else { 5 };
-        let (ns_iter_exp, _) = bench_op(|| {
-            let mut count = 0usize;
-            for (k, v) in base_expanse.iter() {
-                black_box((k, v));
-                count += 1;
-            }
-            black_box(count);
-        }, 2, iter_reps);
+        let iter_reps = if pop <= 10_000 {
+            100
+        } else if pop <= 100_000 {
+            20
+        } else {
+            5
+        };
+        let (ns_iter_exp, _) = bench_op(
+            || {
+                let mut count = 0usize;
+                for (k, v) in base_expanse.iter() {
+                    black_box((k, v));
+                    count += 1;
+                }
+                black_box(count);
+            },
+            2,
+            iter_reps,
+        );
 
-        let (ns_iter_hb, _) = bench_op(|| {
-            let mut count = 0usize;
-            for (k, v) in base_hashbrown.iter() {
-                black_box((k, v));
-                count += 1;
-            }
-            black_box(count);
-        }, 2, iter_reps);
+        let (ns_iter_hb, _) = bench_op(
+            || {
+                let mut count = 0usize;
+                for (k, v) in base_hashbrown.iter() {
+                    black_box((k, v));
+                    count += 1;
+                }
+                black_box(count);
+            },
+            2,
+            iter_reps,
+        );
 
-        let (ns_iter_bt, _) = bench_op(|| {
-            let mut count = 0usize;
-            for (k, v) in base_btree.iter() {
-                black_box((k, v));
-                count += 1;
-            }
-            black_box(count);
-        }, 2, iter_reps);
+        let (ns_iter_bt, _) = bench_op(
+            || {
+                let mut count = 0usize;
+                for (k, v) in base_btree.iter() {
+                    black_box((k, v));
+                    count += 1;
+                }
+                black_box(count);
+            },
+            2,
+            iter_reps,
+        );
 
         // 4. Insert Growing (from 0 to pop)
-        let build_reps = if pop <= 10_000 { 30 } else if pop <= 100_000 { 5 } else { 2 };
-        let (ns_grow_exp, _) = bench_op(|| {
-            let mut m = ExpanseMap::new();
-            for &k in &keys {
-                m.insert(black_box(k), black_box(k));
-            }
-            black_box(m);
-        }, 1, build_reps);
+        let build_reps = if pop <= 10_000 {
+            30
+        } else if pop <= 100_000 {
+            5
+        } else {
+            2
+        };
+        let (ns_grow_exp, _) = bench_op(
+            || {
+                let mut m = ExpanseMap::new();
+                for &k in &keys {
+                    m.insert(black_box(k), black_box(k));
+                }
+                black_box(m);
+            },
+            1,
+            build_reps,
+        );
         let mops_grow_exp = (pop as f64 / (ns_grow_exp * 1e-9)) / 1e6;
 
-        let (ns_grow_hb, _) = bench_op(|| {
-            let mut m = HashMap::new();
-            for &k in &keys {
-                m.insert(black_box(k), black_box(k));
-            }
-            black_box(m);
-        }, 1, build_reps);
+        let (ns_grow_hb, _) = bench_op(
+            || {
+                let mut m = HashMap::new();
+                for &k in &keys {
+                    m.insert(black_box(k), black_box(k));
+                }
+                black_box(m);
+            },
+            1,
+            build_reps,
+        );
         let mops_grow_hb = (pop as f64 / (ns_grow_hb * 1e-9)) / 1e6;
 
-        let (ns_grow_bt, _) = bench_op(|| {
-            let mut m = BTreeMap::new();
-            for &k in &keys {
-                m.insert(black_box(k), black_box(k));
-            }
-            black_box(m);
-        }, 1, build_reps);
+        let (ns_grow_bt, _) = bench_op(
+            || {
+                let mut m = BTreeMap::new();
+                for &k in &keys {
+                    m.insert(black_box(k), black_box(k));
+                }
+                black_box(m);
+            },
+            1,
+            build_reps,
+        );
         let mops_grow_bt = (pop as f64 / (ns_grow_bt * 1e-9)) / 1e6;
 
         results.push(serde_json::json!({

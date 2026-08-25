@@ -17,7 +17,11 @@ use std::time::Instant;
 struct XorShift64(u64);
 impl XorShift64 {
     fn new(seed: u64) -> Self {
-        Self(if seed == 0 { 0x89AB_CDEF_0123_4567 } else { seed })
+        Self(if seed == 0 {
+            0x89AB_CDEF_0123_4567
+        } else {
+            seed
+        })
     }
     fn next(&mut self) -> u64 {
         let mut x = self.0;
@@ -125,20 +129,23 @@ fn main() {
         }
         let mops_get_bt = (query_count as f64 / start_get_bt.elapsed().as_secs_f64()) / 1e6;
 
-        results.insert(dist.to_string(), serde_json::json!({
-            "distribution": dist,
-            "population": num_keys,
-            "insert_mops": {
-                "expanse": mops_ins_exp,
-                "hashbrown": mops_ins_hb,
-                "btree": mops_ins_bt
-            },
-            "lookup_mops": {
-                "expanse": mops_get_exp,
-                "hashbrown": mops_get_hb,
-                "btree": mops_get_bt
-            }
-        }));
+        results.insert(
+            dist.to_string(),
+            serde_json::json!({
+                "distribution": dist,
+                "population": num_keys,
+                "insert_mops": {
+                    "expanse": mops_ins_exp,
+                    "hashbrown": mops_ins_hb,
+                    "btree": mops_ins_bt
+                },
+                "lookup_mops": {
+                    "expanse": mops_get_exp,
+                    "hashbrown": mops_get_hb,
+                    "btree": mops_get_bt
+                }
+            }),
+        );
     }
 
     if json_mode {

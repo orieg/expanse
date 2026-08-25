@@ -13,7 +13,11 @@ use std::time::Instant;
 struct XorShift64(u64);
 impl XorShift64 {
     fn new(seed: u64) -> Self {
-        Self(if seed == 0 { 0x4D5E_6F70_8192_A3B4 } else { seed })
+        Self(if seed == 0 {
+            0x4D5E_6F70_8192_A3B4
+        } else {
+            seed
+        })
     }
     fn next(&mut self) -> u64 {
         let mut x = self.0;
@@ -25,10 +29,7 @@ impl XorShift64 {
     }
 }
 
-fn measure_growth_latency<F: FnMut(u64, u64)>(
-    mut insert_fn: F,
-    keys: &[u64],
-) -> Histogram<u64> {
+fn measure_growth_latency<F: FnMut(u64, u64)>(mut insert_fn: F, keys: &[u64]) -> Histogram<u64> {
     // 3 significant figures, tracking up to 10 seconds (10_000_000_000 ns)
     let mut hist = Histogram::<u64>::new_with_max(10_000_000_000, 3).unwrap();
 
@@ -36,7 +37,7 @@ fn measure_growth_latency<F: FnMut(u64, u64)>(
         let start = Instant::now();
         insert_fn(k, k);
         let elapsed_ns = start.elapsed().as_nanos() as u64;
-        let clamped = elapsed_ns.min(9_999_999_999).max(1);
+        let clamped = elapsed_ns.clamp(1, 9_999_999_999);
         hist.record(clamped).unwrap();
     }
     hist
@@ -69,21 +70,30 @@ fn main() {
 
     // 1. ExpanseMap Growth
     let mut expanse_map = ExpanseMap::new();
-    let hist_exp = measure_growth_latency(|k, v| {
-        expanse_map.insert(k, v);
-    }, &keys);
+    let hist_exp = measure_growth_latency(
+        |k, v| {
+            expanse_map.insert(k, v);
+        },
+        &keys,
+    );
 
     // 2. Hashbrown Growth
     let mut hashbrown_map = HashMap::new();
-    let hist_hb = measure_growth_latency(|k, v| {
-        hashbrown_map.insert(k, v);
-    }, &keys);
+    let hist_hb = measure_growth_latency(
+        |k, v| {
+            hashbrown_map.insert(k, v);
+        },
+        &keys,
+    );
 
     // 3. BTreeMap Growth
     let mut btree_map = BTreeMap::new();
-    let hist_bt = measure_growth_latency(|k, v| {
-        btree_map.insert(k, v);
-    }, &keys);
+    let hist_bt = measure_growth_latency(
+        |k, v| {
+            btree_map.insert(k, v);
+        },
+        &keys,
+    );
 
     let output = serde_json::json!({
         "total_inserts": num_keys,

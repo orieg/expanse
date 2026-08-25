@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct TrackingAlloc;
 static LIVE_BYTES: AtomicUsize = AtomicUsize::new(0);
 
+// SAFETY: Forwards all memory management operations directly to the standard System allocator while recording live allocated bytes.
 unsafe impl GlobalAlloc for TrackingAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         // SAFETY: Delegating directly to the System allocator

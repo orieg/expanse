@@ -19,7 +19,11 @@ use std::time::Instant;
 struct XorShift64(u64);
 impl XorShift64 {
     fn new(seed: u64) -> Self {
-        Self(if seed == 0 { 0x1A2B_3C4D_5E6F_7081 } else { seed })
+        Self(if seed == 0 {
+            0x1A2B_3C4D_5E6F_7081
+        } else {
+            seed
+        })
     }
     fn next(&mut self) -> u64 {
         let mut x = self.0;
@@ -208,7 +212,10 @@ fn main() {
 
         // Hashbrown Run (Disqualified for Workload E)
         let (mops_hb, hb_status) = if wl == 'E' {
-            (0.0, "DISQUALIFIED: cannot perform ordered range scans without full O(N log N) dump and sort")
+            (
+                0.0,
+                "DISQUALIFIED: cannot perform ordered range scans without full O(N log N) dump and sort",
+            )
         } else {
             let mut map_hb = populate_hashbrown(dataset_size);
             let start_hb = Instant::now();
