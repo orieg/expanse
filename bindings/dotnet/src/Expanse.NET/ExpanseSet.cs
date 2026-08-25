@@ -88,7 +88,7 @@ public sealed class ExpanseSet : IDisposable, IEnumerable<ulong>, IReadOnlyColle
     /// <param name="keys">The keys to check.</param>
     /// <param name="outPresent">Boolean array to store presence flags (length must be >= keys.Length).</param>
     /// <returns>The number of keys found.</returns>
-    public nuint ContainsBatch(ulong[] keys, bool[] outPresent)
+    public unsafe nuint ContainsBatch(ulong[] keys, bool[] outPresent)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(keys);
@@ -101,7 +101,11 @@ public sealed class ExpanseSet : IDisposable, IEnumerable<ulong>, IReadOnlyColle
         {
             return 0;
         }
-        return NativeMethods.expanse_set_contains_batch(_handle, keys, outPresent, (nuint)keys.Length);
+        fixed (ulong* kPtr = keys)
+        fixed (bool* outPtr = outPresent)
+        {
+            return NativeMethods.expanse_set_contains_batch(_handle, kPtr, (byte*)outPtr, (nuint)keys.Length);
+        }
     }
 
     /// <summary>

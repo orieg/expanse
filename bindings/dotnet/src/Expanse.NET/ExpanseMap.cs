@@ -106,7 +106,7 @@ public sealed class ExpanseMap : IDisposable, IEnumerable<KeyValuePair<ulong, ul
     /// <param name="outValues">Array to store found values (length must be >= keys.Length).</param>
     /// <param name="outFound">Optional boolean array to store presence flags (null or length >= keys.Length).</param>
     /// <returns>The number of keys found.</returns>
-    public nuint GetBatch(ulong[] keys, ulong[] outValues, bool[]? outFound = null)
+    public unsafe nuint GetBatch(ulong[] keys, ulong[] outValues, bool[]? outFound = null)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(keys);
@@ -123,7 +123,21 @@ public sealed class ExpanseMap : IDisposable, IEnumerable<KeyValuePair<ulong, ul
         {
             return 0;
         }
-        return NativeMethods.expanse_map_get_batch(_handle, keys, outValues, outFound, (nuint)keys.Length);
+        fixed (ulong* kPtr = keys)
+        fixed (ulong* vPtr = outValues)
+        {
+            if (outFound != null)
+            {
+                fixed (bool* fPtr = outFound)
+                {
+                    return NativeMethods.expanse_map_get_batch(_handle, kPtr, vPtr, (byte*)fPtr, (nuint)keys.Length);
+                }
+            }
+            else
+            {
+                return NativeMethods.expanse_map_get_batch(_handle, kPtr, vPtr, null, (nuint)keys.Length);
+            }
+        }
     }
 
     /// <summary>
