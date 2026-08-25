@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -34,6 +35,7 @@ def run_benchmark_harness(
     dist: str,
     rounds: int,
     root: Path,
+    target_cpu: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Executes the Rust benchmark harness and parses its JSON output."""
     cmd = [
@@ -54,6 +56,11 @@ def run_benchmark_harness(
         "--json",
     ]
 
+    env = dict(os.environ)
+    if target_cpu and target_cpu not in ("baseline", "none", "generic", "default"):
+        rustflags = env.get("RUSTFLAGS", "")
+        env["RUSTFLAGS"] = f"{rustflags} -C target-cpu={target_cpu}".strip()
+
     try:
         proc = subprocess.run(
             cmd,
@@ -61,6 +68,7 @@ def run_benchmark_harness(
             capture_output=True,
             text=True,
             check=True,
+            env=env,
         )
     except subprocess.CalledProcessError as exc:
         print(f"Error running benchmark harness:\n{exc.stderr}", file=sys.stderr)
@@ -78,7 +86,10 @@ def run_benchmark_harness(
 
     json_str = raw_out[json_start:]
     try:
-        return json.loads(json_str)
+        data = json.loads(json_str)
+        if target_cpu:
+            data["target_cpu"] = target_cpu
+        return data
     except json.JSONDecodeError as err:
         print(f"Error parsing harness JSON: {err}\nOutput was:\n{json_str}", file=sys.stderr)
         sys.exit(1)
@@ -240,6 +251,98 @@ def render_table(data: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def render_extended_pop_markdown(pop_reports: List[Dict[str, Any]]) -> str:
+    """Formats multi-population scaling comparison tables."""
+    lines: List[str] = [
+        "## 📈 Multi-Population Scaling Report ($N = 10\\text{k} \\rightarrow 100\\text{k} \\rightarrow 1\\text{M}$)",
+        "",
+        "> Evaluates cache-hierarchy scaling transitions from L2 residency ($N=10\\text{k}$) to LLC ($N=100\\text{k}$) and cold DRAM ($N=1\\text{M}$).",
+        "",
+    ]
+
+    dists = ["sequential", "random", "clustered"]
+
+    for dist in dists:
+        lines.extend([
+            f"### Distribution: `{dist}` Scaling Matrix",
+            "",
+            "| Population ($N$) | Container | Point Lookup (ns) | Lookup (Mops/s) | Cold Insert (Mops/s) | Full Iter (Mops/s) | Range Scan (Mops/s) | Memory (B/key) | vs libjudy | vs BTreeMap |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ])
+
+        for data in pop_reports:
+            pop = data.get("pop", 0)
+            res = data.get("results", {}).get(dist, {})
+            exp = res.get("expanse", {})
+            judy = res.get("libjudy", {})
+            btree = res.get("btree", {})
+
+            exp_lkp = exp.get("lookup_ns", 0.0)
+            judy_lkp = judy.get("lookup_ns", 0.0) if judy else 0.0
+            btree_lkp = btree.get("lookup_ns", 0.0) if btree else 0.0
+
+            ratio_judy = fmt_speedup(exp_lkp, judy_lkp, higher_is_better=False) if judy else "—"
+            ratio_btree = fmt_speedup(exp_lkp, btree_lkp, higher_is_better=False) if btree else "—"
+
+            pop_label = f"**{pop:,}**"
+            lines.append(
+                f"| {pop_label} | **`ExpanseMap`** | **{exp.get('lookup_ns', 0.0):.2f}** | **{exp.get('lookup_mops', 0.0):.2f}** | **{exp.get('insert_mops', 0.0):.2f}** | **{exp.get('iter_mops', 0.0):.2f}** | **{exp.get('range_mops', 0.0):.2f}** | **{exp.get('bytes_per_key', 0.0):.2f}** | {ratio_judy} | {ratio_btree} |"
+            )
+            if judy:
+                lines.append(
+                    f"| {pop_label} | `libjudy (JudyL)` | {judy.get('lookup_ns', 0.0):.2f} | {judy.get('lookup_mops', 0.0):.2f} | {judy.get('insert_mops', 0.0):.2f} | {judy.get('iter_mops', 0.0):.2f} | — | {judy.get('bytes_per_key', 0.0):.2f} | Baseline | — |"
+                )
+            if btree:
+                lines.append(
+                    f"| {pop_label} | `std::BTreeMap` | {btree.get('lookup_ns', 0.0):.2f} | {btree.get('lookup_mops', 0.0):.2f} | {btree.get('insert_mops', 0.0):.2f} | {btree.get('iter_mops', 0.0):.2f} | {btree.get('range_mops', 0.0):.2f} | {btree.get('bytes_per_key', 0.0):.2f} | — | Baseline |"
+                )
+
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def render_arch_sweep_markdown(arch_reports: List[Dict[str, Any]]) -> str:
+    """Formats target CPU microarchitecture scaling comparison tables."""
+    lines: List[str] = [
+        "## 🏎️ Target CPU Microarchitecture Scaling Matrix",
+        "",
+        "> Evaluates instruction set features: `baseline` (generic x86-64-v1) vs `x86-64-v2` (+POPCNT) vs `x86-64-v3` (+AVX2/BMI2) vs `native`.",
+        "",
+        "| Distribution | Target CPU | Expanse Lookup (ns) | Expanse Lookup (Mops) | Expanse Insert (Mops) | vs Baseline Lookup | vs Stock JudyL |",
+        "|---|---|---:|---:|---:|---:|---:|",
+    ]
+
+    dists = ["sequential", "random", "clustered"]
+
+    for dist in dists:
+        baseline_ns: Optional[float] = None
+
+        for data in arch_reports:
+            cpu = data.get("target_cpu", "baseline")
+            res = data.get("results", {}).get(dist, {})
+            exp = res.get("expanse", {})
+            judy = res.get("libjudy", {})
+
+            exp_lkp = exp.get("lookup_ns", 0.0)
+            judy_lkp = judy.get("lookup_ns", 0.0) if judy else 0.0
+
+            if baseline_ns is None:
+                baseline_ns = exp_lkp
+                vs_base = "Baseline"
+            else:
+                vs_base = fmt_speedup(exp_lkp, baseline_ns, higher_is_better=False)
+
+            vs_judy = fmt_speedup(exp_lkp, judy_lkp, higher_is_better=False) if judy else "—"
+
+            lines.append(
+                f"| `{dist}` | `{cpu}` | **{exp_lkp:.2f}** | **{exp.get('lookup_mops', 0.0):.2f}** | **{exp.get('insert_mops', 0.0):.2f}** | {vs_base} | {vs_judy} |"
+            )
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Automated Head-to-Head Benchmark Comparison Report Tool for Expanse."
@@ -250,10 +353,32 @@ def main() -> int:
         help="Fast smoke mode with N = 10,000 keys.",
     )
     parser.add_argument(
+        "--extended",
+        action="store_true",
+        help="Extended mode running multi-population sweeps (10k, 100k, 1M) and arch sweeps.",
+    )
+    parser.add_argument(
+        "--arch-sweep",
+        action="store_true",
+        help="Run microarchitecture target-cpu sweep (baseline, x86-64-v2, x86-64-v3, native).",
+    )
+    parser.add_argument(
+        "--target-cpu",
+        type=str,
+        default=None,
+        help="Specific target CPU architecture (e.g. x86-64-v3, native; default: generic baseline).",
+    )
+    parser.add_argument(
         "--pop",
         type=int,
         default=1_000_000,
         help="Target key population (default: 1,000,000; 10,000 in --quick mode).",
+    )
+    parser.add_argument(
+        "--pop-sweep",
+        type=str,
+        default=None,
+        help="Comma-separated populations to sweep (e.g. '10000,100000,1000000').",
     )
     parser.add_argument(
         "--dist",
@@ -289,25 +414,72 @@ def main() -> int:
     args = parser.parse_args()
     root = get_repo_root()
 
-    pop = 10_000 if args.quick and args.pop == 1_000_000 else args.pop
-
     if args.input:
         with open(args.input, "r", encoding="utf-8") as f:
             data = json.load(f)
+        rendered = render_markdown(data) if args.format == "markdown" else json.dumps(data, indent=2)
+    elif args.extended or args.pop_sweep:
+        pops = [int(p.strip()) for p in args.pop_sweep.split(",")] if args.pop_sweep else [10_000, 100_000, 1_000_000]
+        pop_reports = []
+        for p in pops:
+            print(f"Running population sweep N = {p:,}...", file=sys.stderr)
+            data = run_benchmark_harness(
+                pop=p,
+                dist=args.dist,
+                rounds=args.rounds,
+                root=root,
+                target_cpu=args.target_cpu,
+            )
+            pop_reports.append(data)
+
+        if args.arch_sweep:
+            is_x86 = platform.machine().lower() in ("x86_64", "amd64", "x86")
+            archs = ["baseline", "x86-64-v2", "x86-64-v3", "native"] if is_x86 else ["baseline", "native"]
+            arch_reports = []
+            for a in archs:
+                print(f"Running arch sweep target-cpu = {a} (N = 10,000)...", file=sys.stderr)
+                data = run_benchmark_harness(
+                    pop=10_000,
+                    dist=args.dist,
+                    rounds=args.rounds,
+                    root=root,
+                    target_cpu=a,
+                )
+                arch_reports.append(data)
+            rendered = render_extended_pop_markdown(pop_reports) + "\n\n" + render_arch_sweep_markdown(arch_reports)
+        else:
+            rendered = render_extended_pop_markdown(pop_reports)
+    elif args.arch_sweep:
+        is_x86 = platform.machine().lower() in ("x86_64", "amd64", "x86")
+        archs = ["baseline", "x86-64-v2", "x86-64-v3", "native"] if is_x86 else ["baseline", "native"]
+        arch_reports = []
+        pop = 10_000 if args.quick else args.pop
+        for a in archs:
+            print(f"Running arch sweep target-cpu = {a}...", file=sys.stderr)
+            data = run_benchmark_harness(
+                pop=pop,
+                dist=args.dist,
+                rounds=args.rounds,
+                root=root,
+                target_cpu=a,
+            )
+            arch_reports.append(data)
+        rendered = render_arch_sweep_markdown(arch_reports)
     else:
+        pop = 10_000 if args.quick and args.pop == 1_000_000 else args.pop
         data = run_benchmark_harness(
             pop=pop,
             dist=args.dist,
             rounds=args.rounds,
             root=root,
+            target_cpu=args.target_cpu,
         )
-
-    if args.format == "json":
-        rendered = json.dumps(data, indent=2) + "\n"
-    elif args.format == "table":
-        rendered = render_table(data)
-    else:
-        rendered = render_markdown(data)
+        if args.format == "json":
+            rendered = json.dumps(data, indent=2) + "\n"
+        elif args.format == "table":
+            rendered = render_table(data)
+        else:
+            rendered = render_markdown(data)
 
     if args.output:
         out_path = Path(args.output)

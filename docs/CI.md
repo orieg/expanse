@@ -84,7 +84,7 @@ graph TD
 | `instruction-counts` | Perf / Callgrind Deterministic Instructions | Valgrind/Callgrind instruction counting + `scripts/perf_report.py` regression guard. |
 | `callgrind-smoke` | Perf / Callgrind Fast Smoke (Ubuntu) | Fast scaled-down (<20s) Callgrind instruction regression smoke gate ($N = 10,000$). |
 | `memory-budget` | Perf / Memory Budget Invariants | Runs `examples/bytes_per_key.rs`; fails if deterministic B/key exceeds architectural ceilings. |
-| `bench-baremetal` | Perf / Remote Bare-Metal Benchmarks | Triggered via `workflow_dispatch` or `/bench` PR comments. SSH/rsync pipeline into a dedicated quiet remote host for deterministic Callgrind profiling and reporting. |
+| `bench-baremetal` | Perf / Remote Bare-Metal Benchmarks | Triggered via `workflow_dispatch` or `/bench` / `/bench extended` PR comments. Dual-pass baseline drift reporting, Callgrind profiling, and multi-arch / population sweeps on dedicated host (`honeycomb`). |
 
 ### Bindings
 | Job | Name | Role |

@@ -119,6 +119,15 @@ To generate instant head-to-head benchmark comparison tables ready for PR descri
 # Fast smoke run (< 2s, N = 10,000 keys)
 python3 scripts/bench_report.py --quick
 
+# Extended multi-population scaling sweep (N = 10k, 100k, 1M keys)
+python3 scripts/bench_report.py --extended
+
+# Microarchitecture target CPU scaling sweep (baseline generic vs x86-64-v2 vs x86-64-v3 vs native)
+python3 scripts/bench_report.py --arch-sweep
+
+# Target-specific microarchitecture compilation
+python3 scripts/bench_report.py --target-cpu x86-64-v3 --quick
+
 # Full population sweep (N = 1,000,000 keys, all distributions)
 python3 scripts/bench_report.py --pop 1000000 --dist all --format markdown
 
@@ -134,7 +143,11 @@ python3 scripts/bench_report.py --pop 100000 --format json --output bench_result
 | Flag | Description | Default |
 |---|---|---|
 | `--quick` | Fast smoke mode ($N = 10,000$ keys) | `false` |
+| `--extended` | Multi-population sweep ($N \in [10\text{k}, 100\text{k}, 1\text{M}]$) + arch sweep | `false` |
+| `--arch-sweep` | Target CPU microarchitecture sweep (baseline, v2, v3, native) | `false` |
+| `--target-cpu <cpu>` | Specific target CPU architecture (e.g. `x86-64-v3`, `native`) | `None` (generic baseline) |
 | `--pop <N>` | Target key population | `1,000,000` |
+| `--pop-sweep <list>` | Comma-separated populations to sweep (e.g. `10000,100000,1000000`) | `None` |
 | `--dist <dist>` | Key distribution (`sequential`, `random`, `clustered`, `sparse`, `all`) | `all` |
 | `--format <fmt>` | Output format (`markdown`, `json`, `table`) | `markdown` |
 | `--output <file>` | Output destination file path | `stdout` |
@@ -238,7 +251,8 @@ To eliminate `N/A` comparison columns and guarantee accurate, side-by-side regre
 
 ### 3. Triggering via PR Comment
 Maintainers and collaborators can trigger benchmarks directly on any pull request by commenting:
-- `/bench` (runs all suites: C ABI vs stock, instruction counters, and comparative)
+- `/bench` (runs standard dual-pass suites: C ABI vs stock, instruction counters, and fast comparative sweep)
+- `/bench extended` (or `/benchmark extended`): runs full multi-population sweeps ($N \in [10\text{k}, 100\text{k}, 1\text{M}]$) + microarchitecture target matrix (`baseline`, `x86-64-v2`, `x86-64-v3`, `native`) + Callgrind
 - `/benchmark vs_stock` (runs only the `vs_stock` suite)
 - `/benchmark instructions` (runs only the `instructions` suite)
 - `/benchmark comparative` (runs only the `comparative` suite)
