@@ -871,6 +871,9 @@ jobs:
       - name: Run Pytest suite
         run: pytest tests/test_python_bindings.py -v
 
+      - name: Run Python comparative benchmark smoke
+        run: python3 bindings/python/bench.py --quick
+
   test-node:
     name: Bindings / Node.js (${{ matrix.os }}, Node ${{ matrix.node-version }})
     needs: [detect-changes]
@@ -899,6 +902,10 @@ jobs:
 
       - name: Run Node test suite
         run: node crates/expanse-node/test.js
+
+      - name: Run Node comparative benchmark smoke
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        run: node crates/expanse-node/bench.js --quick
 
   test-php:
     name: Bindings / PHP (${{ matrix.os }}, PHP ${{ matrix.php-version }})
@@ -931,6 +938,11 @@ jobs:
       - name: Run PHP test suite
         run: php -d ffi.enable=1 tests/ExpanseTest.php
         working-directory: bindings/php
+
+      - name: Run PHP comparative benchmark smoke
+        if: matrix.os == 'ubuntu-latest' && matrix.php-version == '8.3'
+        working-directory: bindings/php
+        run: php -d ffi.enable=1 bench.php --quick
 
   test-dotnet:
     name: Bindings / .NET (${{ matrix.os }})
@@ -1136,6 +1148,11 @@ jobs:
         working-directory: bindings/ruby
         run: ruby -Ilib test/test_expanse.rb
 
+      - name: Run Ruby comparative benchmark smoke
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: bindings/ruby
+        run: ruby -Ilib bench.rb --quick
+
   test-wasm:
     name: Bindings / WebAssembly (wasm32)
     runs-on: ubuntu-latest
@@ -1183,12 +1200,12 @@ jobs:
       - name: Build native libexpanse
         run: cargo build --release -p expanse-capi
 
-      - name: Run Go test suite
+      - name: Run Go test suite and benchmarks
         run: |
           export LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH"
           export DYLD_LIBRARY_PATH="$PWD/target/release:$DYLD_LIBRARY_PATH"
           export CGO_LDFLAGS_ALLOW=".*"
-          cd bindings/go && go test -v .
+          cd bindings/go && go test -v -bench=. -benchtime=100ms .
 
   ci-gate:
     name: CI Gate / All Checks Passed
