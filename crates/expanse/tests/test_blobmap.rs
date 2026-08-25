@@ -199,7 +199,7 @@ fn test_slot_vectorized_filter_kernels() {
     // Create 32 slots with varied tags and metadata
     for i in 0..32u32 {
         let meta = i * 100;
-        let slot = ValueSlot::new_arena_short(meta, i * 16).unwrap();
+        let slot = ValueSlot::new_arena_meta(meta, i).unwrap();
         raw_slots.push(slot.to_raw());
     }
 
