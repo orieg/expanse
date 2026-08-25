@@ -189,26 +189,28 @@ fn bench_predicate_scan_selectivity_sweep(c: &mut Criterion) {
 ///     payload — every entry's payload is dereferenced before the predicate is
 ///     applied, so payload traffic is independent of σ.
 ///
-/// It **cannot** fix (a) on the current engine. The RFC premise needs the arena
-/// working set to exceed the host LLC so the skipped payloads are cache-*cold*
-/// (a real DRAM fetch, not an L3 hit). But the 64-bit `ExpanseBlobMap` arena is
-/// hard-capped at **16 MiB** by the 24-bit `ArenaShort` value-slot offset (see
-/// `blobmap.rs` "Capacity limits"; the wider `ArenaLong`/`External` encodings
-/// that would lift it are unimplemented). 16 MiB is *smaller* than a typical
-/// server LLC (the reference host's L3 is 30 MiB), so the entire arena is forced
-/// L3-resident and payload skips save an L3 hit, not a DRAM fetch. The
-/// `>10× at σ≤0.05` target is therefore not reachable on this structure until
-/// the wide-offset arena lands — this bench measures the *warm-arena* speedup
-/// that isolating the payload touch actually yields, near the ceiling.
+/// This bench is the **warm-arena** measurement: it deliberately keeps the
+/// arena small (~14.6 MiB) so the whole working set stays L3-resident (the
+/// reference host's L3 is 30 MiB), isolating the speedup that skipping a payload
+/// *touch* yields when the payload is only an L3 hit, not a cold-DRAM fetch. It
+/// therefore does not reach the RFC `>10× at σ≤0.05` target — with a warm
+/// working set a skipped payload saves ~7 ns (L3), not ~80 ns (DRAM), so the
+/// columnar arm is traversal-floor bounded near ~1.4×.
 ///
-/// `N × (PAYLOAD + 8-byte record header)`, 16-byte aligned, must stay under the
-/// 16 MiB ceiling; the defaults fill it to ~14.6 MiB.
+/// The **cold-DRAM** regime — a `>`LLC arena where skipped payloads are real
+/// DRAM fetches — is measured by [`bench_predicate_scan_cold_dram_large`]. That
+/// became possible once the `ArenaMeta` encoding (#287) lifted the former 16 MiB
+/// `ArenaShort` size ceiling, so an arena can exceed the LLC while every entry
+/// keeps its hot metadata. See §10.3 of `docs/design/large-values.md`.
+///
+/// `N × (PAYLOAD + 8-byte record header)`, 16-byte aligned; the defaults fill it
+/// to ~14.6 MiB — chosen to stay L3-resident, not by any encoding limit.
 fn bench_predicate_scan_cold_dram_sweep(c: &mut Criterion) {
     /// Payload bytes per entry (16 cache lines) — large enough that the payload
     /// fetch, not the slot/metadata read, dominates a matched entry's cost.
     const PAYLOAD: usize = 1024;
-    /// Key count sized so the arena fills close to (but under) the 16 MiB
-    /// `ArenaShort` ceiling: 14_000 × align16(1024 + 8) = ~14.6 MiB.
+    /// Key count sized so the arena stays L3-resident (warm): 14_000 ×
+    /// align16(1024 + 8) = ~14.6 MiB, comfortably under the 30 MiB reference L3.
     const N: u64 = 14_000;
     /// Metadata is drawn uniformly from `[0, META_RANGE)`; a `meta <= threshold`
     /// predicate then selects `threshold / META_RANGE` of the entries.
@@ -219,7 +221,7 @@ fn bench_predicate_scan_cold_dram_sweep(c: &mut Criterion) {
     let record = (PAYLOAD + 8).div_ceil(16) * 16; // 8-byte header, 16B aligned
     let arena_bytes = N as usize * record;
     eprintln!(
-        "cold_dram_sweep config: N={N} payload={PAYLOAD}B arena~{:.1} MiB (ArenaShort ceiling 16 MiB; ref LLC 30 MiB => arena/LLC ~{:.2}x, so payloads stay L3-resident — cold-DRAM regime is unreachable until wide-offset arena lands)",
+        "cold_dram_sweep config: N={N} payload={PAYLOAD}B arena~{:.1} MiB (warm: ref LLC 30 MiB => arena/LLC ~{:.2}x, payloads stay L3-resident; the >LLC cold-DRAM regime is measured by cold_dram_large)",
         arena_bytes as f64 / (1024.0 * 1024.0),
         arena_bytes as f64 / LLC_BYTES,
     );
