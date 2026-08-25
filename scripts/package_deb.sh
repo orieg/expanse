@@ -9,7 +9,7 @@ set -euo pipefail
 #   dist_dir: directory containing lib/ (and optionally lib/glibc-hwcaps/) + the
 #             C headers are read from crates/expanse-capi/include.
 
-VERSION=${1:-"0.3.0"}
+VERSION=${1:-"0.4.0"}
 DEB_ARCH=${2:-"amd64"}
 DIST_DIR=${3:-"dist"}
 DEB_DIR="debian_build"

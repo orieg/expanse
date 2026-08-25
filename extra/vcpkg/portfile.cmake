@@ -1,7 +1,7 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO orieg/expanse
-    REF v0.3.0
+    REF v0.4.0
     SHA512 0  # To be filled by vcpkg
     HEAD_REF main
 )

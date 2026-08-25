@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-VERSION=${1:-"0.3.0"}
+VERSION=${1:-"0.4.0"}
 ARCH=${2:-"x86_64"}
 DIST_DIR=${3:-"dist"}
 RPM_TOPDIR="$(pwd)/rpm_build"

@@ -39,7 +39,7 @@ def get_workspace_version(repo_root: str) -> str:
                         v = line.split("=", 1)[1].strip().strip('"\'')
                         if v and not v.endswith(".workspace"):
                             return v
-    return "0.3.0"
+    return "0.4.0"
 
 
 def get_git_metadata(repo_root: str, default_version: str) -> dict:
@@ -990,7 +990,7 @@ $judy[42] = 999;</code></pre>
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Add Expanse to your ESP-IDF project's <code>main/idf_component.yml</code> (ESP-IDF v5.0+):</p>
           <pre><code>dependencies:
   expanse:
-    version: "^0.3.0"</code></pre>
+    version: "^0.4.0"</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in ESP-IDF C/C++ (with internal fast DRAM placement):</p>
           <pre><code>#include "expanse.h"
 #include "expanse_esp_idf.h"

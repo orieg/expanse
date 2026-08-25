@@ -25,7 +25,7 @@
 
 namespace expanse {
 
-/// Returns the version string of the linked libexpanse build (e.g., "0.3.0").
+/// Returns the version string of the linked libexpanse build (e.g., "0.4.0").
 [[nodiscard]] inline std::string_view version() noexcept {
     return expanse_version();
 }

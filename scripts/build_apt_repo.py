@@ -143,7 +143,7 @@ def build_apt_repo(
     input_dir: str,
     output_dir: str,
     allow_empty: bool = False,
-    version: str = "0.3.0",
+    version: str = "0.4.0",
 ):
     deb_files = []
     if os.path.isdir(input_dir):
@@ -185,7 +185,7 @@ def build_apt_repo(
             "Package", filename.split("_")[0] if "_" in filename else "libexpanse"
         )
         version = control.get(
-            "Version", filename.split("_")[1] if "_" in filename else "0.3.0"
+            "Version", filename.split("_")[1] if "_" in filename else "0.4.0"
         )
         arch = control.get(
             "Architecture",
@@ -431,17 +431,17 @@ sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat</code></pre>
         html_content += """            <tr>
               <td><strong>libexpanse1</strong></td>
               <td><code>amd64</code></td>
-              <td><a href="pool/main/libexpanse1_0.3.0_amd64.deb">libexpanse1_0.3.0_amd64.deb</a></td>
+              <td><a href="pool/main/libexpanse1_0.4.0_amd64.deb">libexpanse1_0.4.0_amd64.deb</a></td>
             </tr>
             <tr>
               <td><strong>libexpanse-dev</strong></td>
               <td><code>amd64</code></td>
-              <td><a href="pool/main/libexpanse-dev_0.3.0_amd64.deb">libexpanse-dev_0.3.0_amd64.deb</a></td>
+              <td><a href="pool/main/libexpanse-dev_0.4.0_amd64.deb">libexpanse-dev_0.4.0_amd64.deb</a></td>
             </tr>
             <tr>
               <td><strong>libjudy-compat</strong></td>
               <td><code>amd64</code></td>
-              <td><a href="pool/main/libjudy-compat_0.3.0_amd64.deb">libjudy-compat_0.3.0_amd64.deb</a></td>
+              <td><a href="pool/main/libjudy-compat_0.4.0_amd64.deb">libjudy-compat_0.4.0_amd64.deb</a></td>
             </tr>
 """
 
