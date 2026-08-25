@@ -17,11 +17,17 @@ pub type Key = u64;
 /// A value: one native machine word (the map flavor maps `Key -> Value`).
 pub type Value = u64;
 
-/// Cache line size all node geometries are designed around.
+/// Node-packing granule (64 B) all node geometries are designed around.
 ///
-/// The original Judy IV assumed 16-word (128-byte) cache lines; every modern
-/// x86-64 and AArch64 core uses 64-byte lines, so nodes here are sized to
-/// exactly one (64 B) or two (128 B) lines.
+/// This is a **node-packing constant**, not a live hardware cache-line
+/// query: the original Judy IV assumed 16-word (128-byte) cache lines, and
+/// nodes here are sized to exactly one (64 B) or two (128 B) of these
+/// granules. It happens to match the 64-byte line of mainstream x86-64 and
+/// most Cortex-A / Neoverse parts, but the ARM cache-line size is
+/// IMPLEMENTATION DEFINED — read from `CTR_EL0`, and 128 B on Apple Silicon
+/// (M1–M4). So over-aligning to this constant stays correct everywhere while
+/// the "one node = one line" performance premise does not hold on 128-byte-
+/// line parts. See docs/HARDWARE.md §2.4.
 pub const CACHE_LINE: usize = 64;
 
 /// Alignment for **raw byte** allocations — packed linear leaves, edge

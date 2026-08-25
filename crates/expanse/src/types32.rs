@@ -14,7 +14,13 @@ pub type Value32 = u32;
 /// Maximum decode level for 32-bit architecture (Level 4 -> Level 1).
 pub const MAX_LEVEL_32: u8 = 4;
 
-/// Target cache line size on embedded microcontrollers (Cortex-M7, ESP32 MMU cache).
+/// 32-byte node-packing granule for embedded microcontrollers.
+///
+/// Matches the 32-byte cache line of cached cores (Cortex-M7, ESP32 MMU
+/// cache), but the CI-targeted Cortex-M4 is **cacheless** — there the real
+/// justification is AXI burst length / DMA block size / avoiding
+/// misaligned-SRAM-access traps, not a cache line. See the design rationale
+/// in docs/design/32-bit-embedded.md and docs/HARDWARE.md §4.1.
 pub const CACHE_LINE_32: usize = 32;
 
 /// Extract the decode digit for `key` at `level` (1..=4).

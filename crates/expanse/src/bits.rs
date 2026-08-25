@@ -17,8 +17,11 @@
 //! **x86-64 caveat**: `popcnt` is not in the base x86-64 target
 //! (`fxsr,sse,sse2`), so without `-C target-cpu=x86-64-v2` or
 //! `-C target-feature=+popcnt` the calls below lower to a SWAR sequence,
-//! not one instruction. AArch64 has `cnt`/`rbit` in its baseline. No
-//! target-cpu is set in this workspace today.
+//! not one instruction. On AArch64 `count_ones` lowers to the NEON
+//! `CNT`+`ADDV` path (per-byte popcount plus horizontal add), not a scalar
+//! instruction — base A64 has no scalar popcount (scalar `CNT` needs
+//! FEAT_CSSC, Armv8.9+; see docs/HARDWARE.md §2.2). No target-cpu is set in
+//! this workspace today.
 //!
 //! Scalar popcount/tzcnt/lzcnt need no wrappers: `u64::count_ones`,
 //! `trailing_zeros`, and `leading_zeros` already lower to the hardware
@@ -85,7 +88,10 @@ pub fn find_byte_16(hay: &[u8; 16], len: usize, needle: u8) -> Option<usize> {
 fn find_byte_16_sse2(hay: &[u8; 16], len: usize, needle: u8) -> Option<usize> {
     use core::arch::x86_64::{_mm_cmpeq_epi8, _mm_loadu_si128, _mm_movemask_epi8, _mm_set1_epi8};
     let len = len.min(16);
-    // SAFETY: SSE2 is part of the x86-64 baseline, and the unaligned load
+    // SAFETY: SSE2 is guaranteed present by the x86-64 psABI / Rust target
+    // spec (base `x86_64-*` enables `+fxsr,+sse,+sse2`; the SysV/MS calling
+    // conventions require SSE2), not by the CPU manuals — those present SSE2
+    // as CPUID-detectable. See docs/HARDWARE.md §1.1. The unaligned load
     // reads exactly 16 bytes from a `&[u8; 16]`.
     let eq = unsafe {
         let t = _mm_set1_epi8(needle as i8);
@@ -108,8 +114,11 @@ fn find_byte_16_neon(hay: &[u8; 16], len: usize, needle: u8) -> Option<usize> {
         vshrn_n_u16,
     };
     let len = len.min(16);
-    // SAFETY: NEON is part of the AArch64 baseline, and the load reads
-    // exactly 16 bytes from a `&[u8; 16]`.
+    // SAFETY: the unconditional NEON path is sound because Rust's `aarch64-*`
+    // targets baseline `+neon,+fp-armv8` and Advanced SIMD is universally
+    // present on OS-hosting AArch64 parts — FEAT_AdvSIMD is architecturally
+    // OPTIONAL from Armv8.0 (Arm ARM §A2.2), not mandatory. See
+    // docs/HARDWARE.md §2.1. The load reads exactly 16 bytes from a `&[u8; 16]`.
     let mask = unsafe {
         let t = vdupq_n_u8(needle);
         let h = vld1q_u8(hay.as_ptr());
@@ -153,7 +162,8 @@ pub fn find_byte_8(hay: &[u8; 8], len: usize, needle: u8) -> Option<usize> {
         use core::arch::x86_64::{
             _mm_cmpeq_epi8, _mm_loadl_epi64, _mm_movemask_epi8, _mm_set1_epi8,
         };
-        // SAFETY: SSE2 is baseline on x86-64; reads 8 bytes from hay.
+        // SAFETY: SSE2 is guaranteed by the x86-64 psABI / Rust target, not
+        // the CPU manual (docs/HARDWARE.md §1.1); reads 8 bytes from hay.
         let eq = unsafe {
             let t = _mm_set1_epi8(needle as i8);
             let h = _mm_loadl_epi64(hay.as_ptr().cast());
@@ -171,7 +181,9 @@ pub fn find_byte_8(hay: &[u8; 8], len: usize, needle: u8) -> Option<usize> {
         use core::arch::aarch64::{
             vceq_u8, vdup_n_u8, vget_lane_u64, vld1_u8, vreinterpret_u64_u8,
         };
-        // SAFETY: NEON is baseline on AArch64; reads 8 bytes from hay.
+        // SAFETY: NEON guaranteed by Rust's aarch64 `+neon` baseline —
+        // FEAT_AdvSIMD is architecturally optional but universally present
+        // (docs/HARDWARE.md §2.1); reads 8 bytes from hay.
         let mask = unsafe {
             let t = vdup_n_u8(needle);
             let h = vld1_u8(hay.as_ptr());
@@ -499,8 +511,11 @@ pub struct Bitmap256 {
 /// review: a function pointer per `count_ones` would cost more than the
 /// SWAR it replaces.
 ///
-/// Non-x86-64 targets (aarch64 `cnt` is baseline) compile the portable
-/// bodies directly with no dispatch.
+/// Non-x86-64 targets compile the portable bodies directly with no
+/// dispatch: on AArch64 `u64::count_ones` lowers to the NEON `CNT`+`ADDV`
+/// path (per-byte popcount plus horizontal add), not a scalar instruction —
+/// base A64 has no scalar popcount (scalar `CNT` needs FEAT_CSSC, Armv8.9+;
+/// see docs/HARDWARE.md §2.2).
 #[cfg(target_arch = "x86_64")]
 pub(crate) mod popcnt_rt {
     use core::sync::atomic::{AtomicU8, Ordering};

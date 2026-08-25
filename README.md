@@ -207,7 +207,7 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 | **Windows x86-64** | `x86_64-pc-windows-msvc` | Precompiled `expanse.dll` / `expanse.lib` `.zip`, vcpkg, NuGet |
 | **RISC-V 32-Bit (RV32)** | `riscv32imac-unknown-none-elf` | `#![no_std]` staticlib / embedded crate ([design #109](docs/design/32-bit-embedded.md)) |
 | **ARM Cortex-M (M4/M7)** | `thumbv7em-none-eabihf` | `#![no_std]` staticlib / embedded crate ([design #109](docs/design/32-bit-embedded.md)) |
-| **Espressif ESP32 (RV32/Xtensa)** | `riscv32imc-esp-espidf` | ESP-IDF component / `#![no_std]` ([design #109](docs/design/32-bit-embedded.md)) |
+| **Espressif ESP32 (RV32/Xtensa)** | `riscv32imc-esp-espidf` | **Roadmap** — ESP-IDF component not yet shipped; not in CI (design proposed in [#109](docs/design/32-bit-embedded.md)) |
 
 ---
 
