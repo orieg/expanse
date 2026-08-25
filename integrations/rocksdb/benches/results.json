@@ -1,0 +1,13 @@
+{
+  "meta": {
+    "commit": "7d87dff7",
+    "host": "reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8",
+    "keys": 100000,
+    "key_bytes": 16,
+    "value_bytes": 64,
+    "method": "benches/bench_memtable.cc built -O3 against release libexpanse.so; median of 3 back-to-back runs on an idle host (load < 0.4)"
+  },
+  "sequential_scan_mops": { "expanse": 160.8, "skiplist": 16.4, "vector": 599.0 },
+  "ram_bytes_per_key": { "expanse": 13.2, "skiplist": 146.7, "vector": 10.5 },
+  "readrandom_ns": { "expanse": 273, "skiplist": 541, "vector": 546 }
+}

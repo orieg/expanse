@@ -7,14 +7,14 @@
       .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
       .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
       .divider { stroke: #e2e8f0; stroke-width: 1px; }
-      
+
       .t-chart-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
       .t-chart-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
       .t-unit-header { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
       .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; fill: #475569; }
       .t-win { fill: #16a34a; font-weight: 600; }
       .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
-      
+
       .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #16a34a; text-anchor: middle; }
       .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #334155; text-anchor: middle; }
       .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; text-anchor: middle; }
@@ -72,38 +72,27 @@
     <text x="0" y="0" class="t-chart-title">Sequential Scan</text>
     <text x="0" y="13" class="t-chart-sub">100,000 keys prefixscan (higher is better)</text>
     <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M ops / sec)</text>
-
-    <!-- Y Axis: 0 to 700M -->
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
     <text x="22" y="48" class="t-axis-label" text-anchor="end">700M</text>
-
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
     <text x="22" y="123" class="t-axis-label" text-anchor="end">350M</text>
-
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-
-    <!-- Bar 1: ExpanseMemTable (151.40M -> height = 32.4, y = 162.6) -->
-    <rect x="45" y="162.6" width="50" height="32.4" class="b-expanse" rx="2"/>
-    <text x="70" y="154" class="t-val-accent">151.4 M/s</text>
+    <rect x="45" y="160.5" width="50" height="34.5" class="b-expanse" rx="2"/>
+    <text x="70" y="152.0" class="t-val-accent">160.8 M/s</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">9.3&#215; speedup</text>
-
-    <!-- Bar 2: SkipList (16.20M -> height = 3.5, y = 191.5) -->
+    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">9.8&#215; speedup</text>
     <rect x="115" y="191.5" width="50" height="3.5" class="b-rocksdb" rx="2"/>
-    <text x="140" y="183" class="t-val-blue">16.2 M/s</text>
+    <text x="140" y="183.0" class="t-val-blue">16.4 M/s</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">SkipList</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
-
-    <!-- Bar 3: Vector (618.41M -> height = 132.5, y = 62.5) -->
-    <rect x="185" y="62.5" width="50" height="132.5" class="b-other" rx="2"/>
-    <text x="210" y="54" class="t-val-muted">618.4 M/s</text>
+    <rect x="185" y="66.6" width="50" height="128.4" class="b-skipmap" rx="2"/>
+    <text x="210" y="58.1" class="t-val-muted">599.0 M/s</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">read-only</text>
   </g>
 
-  <!-- Divider 1 -->
   <line x1="310" y1="20" x2="310" y2="255" class="divider"/>
 
   <!-- ================= CHART 2: RAM FOOTPRINT ================= -->
@@ -111,38 +100,27 @@
     <text x="0" y="0" class="t-chart-title">RAM Footprint per Entry</text>
     <text x="0" y="13" class="t-chart-sub">100,000 keys (16B key / 64B val) (lower is better)</text>
     <text x="0" y="29" class="t-unit-header">&#9660; Indexing Overhead (Bytes / key)</text>
-
-    <!-- Y Axis: 0 to 160 B/key -->
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
     <text x="22" y="48" class="t-axis-label" text-anchor="end">160 B</text>
-    
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
     <text x="22" y="123" class="t-axis-label" text-anchor="end">80 B</text>
-    
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-
-    <!-- Bar 1: ExpanseMemTable (13.2 B -> height = 12.4, y = 182.6) -->
     <rect x="45" y="182.6" width="50" height="12.4" class="b-expanse" rx="2"/>
-    <text x="70" y="174" class="t-val-accent">13.2 B</text>
+    <text x="70" y="174.1" class="t-val-accent">13.2 B</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
     <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">-91.0% RAM</text>
-
-    <!-- Bar 2: SkipList (146.7 B -> height = 137.5, y = 57.5) -->
     <rect x="115" y="57.5" width="50" height="137.5" class="b-rocksdb" rx="2"/>
-    <text x="140" y="49" class="t-val-blue">146.7 B</text>
+    <text x="140" y="49.0" class="t-val-blue">146.7 B</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">SkipList</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">11.1&#215; memory</text>
-
-    <!-- Bar 3: Vector (10.5 B -> height = 9.8, y = 185.2) -->
-    <rect x="185" y="185.2" width="50" height="9.8" class="b-other" rx="2"/>
-    <text x="210" y="177" class="t-val-muted">10.5 B</text>
+    <rect x="185" y="185.2" width="50" height="9.8" class="b-skipmap" rx="2"/>
+    <text x="210" y="176.7" class="t-val-muted">10.5 B</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">read-only</text>
   </g>
 
-  <!-- Divider 2 -->
   <line x1="635" y1="20" x2="635" y2="255" class="divider"/>
 
   <!-- ================= CHART 3: POINT LOOKUP LATENCY ================= -->
@@ -150,33 +128,23 @@
     <text x="0" y="0" class="t-chart-title">Point Lookup Latency</text>
     <text x="0" y="13" class="t-chart-sub">readrandom single-key query (lower is better)</text>
     <text x="0" y="29" class="t-unit-header">&#9660; Query Latency (ns / op)</text>
-
-    <!-- Y Axis: 0 to 600 ns -->
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
     <text x="22" y="48" class="t-axis-label" text-anchor="end">600 ns</text>
-
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
     <text x="22" y="123" class="t-axis-label" text-anchor="end">300 ns</text>
-
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-
-    <!-- Bar 1: Expanse (276 ns -> height = 69.0, y = 126.0) -->
-    <rect x="45" y="126.0" width="50" height="69.0" class="b-expanse" rx="2"/>
-    <text x="70" y="118" class="t-val-accent">276 ns</text>
+    <rect x="45" y="126.8" width="50" height="68.2" class="b-expanse" rx="2"/>
+    <text x="70" y="118.3" class="t-val-accent">273 ns</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">1.96&#215; faster</text>
-
-    <!-- Bar 2: SkipList (539 ns -> height = 134.8, y = 60.2) -->
-    <rect x="115" y="60.2" width="50" height="134.8" class="b-rocksdb" rx="2"/>
-    <text x="140" y="52" class="t-val-blue">539 ns</text>
+    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">1.98&#215; faster</text>
+    <rect x="115" y="59.8" width="50" height="135.2" class="b-rocksdb" rx="2"/>
+    <text x="140" y="51.3" class="t-val-blue">541 ns</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">SkipList</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
-
-    <!-- Bar 3: Vector (548 ns -> height = 137.0, y = 58.0) -->
-    <rect x="185" y="58.0" width="50" height="137.0" class="b-other" rx="2"/>
-    <text x="210" y="50" class="t-val-muted">548 ns</text>
+    <rect x="185" y="58.5" width="50" height="136.5" class="b-skipmap" rx="2"/>
+    <text x="210" y="50.0" class="t-val-muted">546 ns</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215;</text>
   </g>
