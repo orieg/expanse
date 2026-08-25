@@ -195,7 +195,7 @@ fn bench_predicate_scan_selectivity_sweep(c: &mut Criterion) {
 /// hard-capped at **16 MiB** by the 24-bit `ArenaShort` value-slot offset (see
 /// `blobmap.rs` "Capacity limits"; the wider `ArenaLong`/`External` encodings
 /// that would lift it are unimplemented). 16 MiB is *smaller* than a typical
-/// server LLC (honeycomb's L3 is 30 MiB), so the entire arena is forced
+/// server LLC (the reference host's L3 is 30 MiB), so the entire arena is forced
 /// L3-resident and payload skips save an L3 hit, not a DRAM fetch. The
 /// `>10× at σ≤0.05` target is therefore not reachable on this structure until
 /// the wide-offset arena lands — this bench measures the *warm-arena* speedup
@@ -213,7 +213,7 @@ fn bench_predicate_scan_cold_dram_sweep(c: &mut Criterion) {
     /// Metadata is drawn uniformly from `[0, META_RANGE)`; a `meta <= threshold`
     /// predicate then selects `threshold / META_RANGE` of the entries.
     const META_RANGE: u32 = 10_000;
-    /// Reference LLC used only for the logged arena/LLC ratio (honeycomb L3).
+    /// Reference LLC used only for the logged arena/LLC ratio (reference host L3).
     const LLC_BYTES: f64 = 30.0 * 1024.0 * 1024.0;
 
     let record = (PAYLOAD + 8).div_ceil(16) * 16; // 8-byte header, 16B aligned

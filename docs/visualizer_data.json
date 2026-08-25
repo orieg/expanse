@@ -75,7 +75,7 @@
       "population_n": 100000,
       "zipfian_theta": 0.99,
       "blob_payload_bytes": 128,
-      "concurrency_workload": "benches/concurrency.rs 95% Read / 5% Write, 1M random keys, 500 ms windows (honeycomb)"
+      "concurrency_workload": "benches/concurrency.rs 95% Read / 5% Write, 1M random keys, 500 ms windows (reference host)"
     },
     "workloads": [
       {

@@ -246,7 +246,7 @@ impl MvccEngine {
 }
 ```
 
-**Measured Concurrency Benchmark** *(measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/concurrency.rs`, 1M keys, 500 ms windows)*:
+**Measured Concurrency Benchmark** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/concurrency.rs`, 1M keys, 500 ms windows)*:
 - **Read-only** membership scales near-linearly: `SyncExpanseSet` sustains **284.9M ops/s at 16 threads (12.2×)** with zero reader deadlocks and zero priority inversions.
 - **Write-mixed** OLTP (95% read / 5% write churn) does **not** scale linearly on the current tree-level seqlock: combined throughput peaks at ~**36.0M ops/s around 4 threads** and settles to ~30.2M at 16 threads as readers retry against an active writer. Full multi-core write-mixed scaling awaits the per-node OCC refinement (`docs/ARCHITECTURE.md` §6). (The earlier "linear to 58.2M ops/s" figure was undermeasured and is corrected.)
 
@@ -447,7 +447,7 @@ options.memtable_factory = rocksdb::NewExpanseMemTableRepFactory(
 );
 ```
 
-**Architectural Benefits in RocksDB LSM Storage** *(throughput measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `integrations/rocksdb/benches/bench_memtable.cc`, 100k entries, 16B key / 64B value; memory density is deterministic accounting)*:
+**Architectural Benefits in RocksDB LSM Storage** *(throughput measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `integrations/rocksdb/benches/bench_memtable.cc`, 100k entries, 16B key / 64B value; memory density is deterministic accounting)*:
 
 ![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](./assets/bench_rocksdb.svg)
 
@@ -488,7 +488,7 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 
 ## 7. Comparative Benchmark & Decision Matrix
 
-> **Provenance.** The §7.2 YCSB throughput table and the §5.3 RocksDB figures are now measured on the dedicated quiet host *honeycomb* (24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d) and tagged inline. The §7.1 matrix below keeps **approximate latency ranges** for cross-engine orientation (not host-tagged point measurements); memory-overhead (B/key) columns are deterministic byte accounting. Where §7.1's qualitative ordering conflicts with a §7.2/§5.3 measurement, the measured section governs.
+> **Provenance.** The §7.2 YCSB throughput table and the §5.3 RocksDB figures are now measured on the dedicated quiet host (Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d) and tagged inline. The §7.1 matrix below keeps **approximate latency ranges** for cross-engine orientation (not host-tagged point measurements); memory-overhead (B/key) columns are deterministic byte accounting. Where §7.1's qualitative ordering conflicts with a §7.2/§5.3 measurement, the measured section governs.
 
 ### 7.1 Expanse vs Industry Primitives Matrix
 
@@ -503,13 +503,13 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 | **ART (Adaptive Radix Tree)** | ~16.0–28.0 B/key | ~14.0–30.0 ns | Ordered Walk | Node Version Locks (Rowex) |
 | **SkipList (RocksDB MemTable)** | ~32.0–64.0 B/key (208B blob) | ~45.0–90.0 ns | Pointer Walk | Lock-Free CAS Linked List |
 
-† **Range-scan correction (measured):** full in-order iteration (`ExpanseMap::iter()`) is currently **slower** than `BTreeMap::iter()` on the comparative bench — 13×–44× on `honeycomb` (commit 695b98d, `benches/comparative.rs`), because trie traversal chases pointers across up to 8 levels while a B-tree walks contiguous node arrays. The engine's strength is **point lookup** (2.9×–14.5× faster than `BTreeMap` on random/sequential 1M — `benches/compare.rs`), not bulk iteration. The prior "2.1×–3.4× faster range scans than BTreeMap" claim is **not supported by measurement and is retracted**; a dedicated ordered-scan optimization is future work.
+† **Range-scan correction (measured):** full in-order iteration (`ExpanseMap::iter()`) is currently **slower** than `BTreeMap::iter()` on the comparative bench — 13×–44× on the reference host (commit 695b98d, `benches/comparative.rs`), because trie traversal chases pointers across up to 8 levels while a B-tree walks contiguous node arrays. The engine's strength is **point lookup** (2.9×–14.5× faster than `BTreeMap` on random/sequential 1M — `benches/compare.rs`), not bulk iteration. The prior "2.1×–3.4× faster range scans than BTreeMap" claim is **not supported by measurement and is retracted**; a dedicated ordered-scan optimization is future work.
 
-The `ExpanseMap` point-lookup range's 38.6 ns upper bound is the out-of-cache uniform-random 1M case, not a fixed gap versus hashbrown's single probe: random lookup is a working-set-vs-cache crossover — within ~1.1× of hashbrown while cache-resident (10k) and widening to ~2.9× at 1M as the ~5 trie descents miss to DRAM — verified stable, not a regression *(measured: honeycomb, commit 4a12f046)*.
+The `ExpanseMap` point-lookup range's 38.6 ns upper bound is the out-of-cache uniform-random 1M case, not a fixed gap versus hashbrown's single probe: random lookup is a working-set-vs-cache crossover — within ~1.1× of hashbrown while cache-resident (10k) and widening to ~2.9× at 1M as the ~5 trie descents miss to DRAM — verified stable, not a regression *(measured: reference host, commit 4a12f046)*.
 
 ### 7.2 Standardized YCSB Workload Analysis ($N = 100,000$, $\theta = 0.99$, 128B Blobs)
 
-The Yahoo! Cloud Serving Benchmark evaluates engine behaviour under real-world access distributions. Throughput derived from criterion median time over 20,000 operations per iteration *(measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`)*:
+The Yahoo! Cloud Serving Benchmark evaluates engine behaviour under real-world access distributions. Throughput derived from criterion median time over 20,000 operations per iteration *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`)*:
 
 ```
 Workload Comparison (Throughput in Mops/sec):
@@ -525,7 +525,7 @@ F (50% Read, 50% RMW)        18.93 Mops/s         14.27 Mops/s          3.71 Mop
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 ```
 
-> **Per-operation latency percentiles** (p50/p95/p99/p99.9) and per-workload resident memory are now measured on honeycomb via the `YCSB_LATENCY_REPORT=1` path of `benches/ycsb.rs` — the full table lives in `docs/BENCHMARKING.md` §7.2. The load-bearing result for engine selection: `ExpanseMap`/`BTreeMap` hold sub-160 ns tails on every workload, whereas **`ExpanseBlobMap` spikes to ~38–41 µs at p95–p99.9 on the write-heavy mixes (A, F)** from arena slab-chunk allocation stalls — the read-mostly and read-latest mixes (B, C, D) stay ≤ 800 ns at p99.9. `SkipMap` carries the highest steady-state latency (p50 ~200–330 ns). (Those percentiles include a calibrated ~26 ns/op measurement bracket; see the BENCHMARKING caveat — tail ordering is the trustworthy signal, not the sub-100 ns absolutes.)
+> **Per-operation latency percentiles** (p50/p95/p99/p99.9) and per-workload resident memory are now measured on the reference host via the `YCSB_LATENCY_REPORT=1` path of `benches/ycsb.rs` — the full table lives in `docs/BENCHMARKING.md` §7.2. The load-bearing result for engine selection: `ExpanseMap`/`BTreeMap` hold sub-160 ns tails on every workload, whereas **`ExpanseBlobMap` spikes to ~38–41 µs at p95–p99.9 on the write-heavy mixes (A, F)** from arena slab-chunk allocation stalls — the read-mostly and read-latest mixes (B, C, D) stay ≤ 800 ns at p99.9. `SkipMap` carries the highest steady-state latency (p50 ~200–330 ns). (Those percentiles include a calibrated ~26 ns/op measurement bracket; see the BENCHMARKING caveat — tail ordering is the trustworthy signal, not the sub-100 ns absolutes.)
 
 **Key Architectural Insights for Database Engineers:**
 1. **MemTable Read-Latest Advantage (Workload D)**: `ExpanseBlobMap` achieves **~5.7× higher throughput than `BTreeMap`** (21.04 M/s vs 3.67 M/s). In write-heavy ingestion where recent records are frequently read, digital trie leaf appending avoids page-split stalls.
