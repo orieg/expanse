@@ -19,6 +19,7 @@
   },
   "scripts": {
     "test": "node test.js",
+    "bench": "node bench.js",
     "build": "cargo build --release -p expanse-node",
     "build:debug": "cargo build -p expanse-node"
   },
