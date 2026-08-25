@@ -499,8 +499,25 @@ jobs:
           echo "EXPANSE_CDYLIB=$PWD/$SO" >> "$GITHUB_ENV"
           echo "using $PWD/$SO"
 
+      - name: Instruction and cache-miss counts (merge base)
+        if: github.event_name == 'pull_request'
+        run: |
+          git config --global --add safe.directory "$PWD"
+          MERGE_BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD 2>/dev/null || echo "")
+          if [ -n "$MERGE_BASE" ]; then
+            echo "Benchmarking merge base $MERGE_BASE against origin/${{ github.base_ref }}..."
+            git checkout "$MERGE_BASE"
+            cargo bench --bench instructions -p expanse-trie -- --save-baseline=main_base | tee base-counts.txt || true
+            git checkout -
+          fi
+
       - name: Instruction and cache-miss counts (this branch, baseline)
-        run: cargo bench --bench instructions -p expanse-trie | tee instruction-counts.txt
+        run: |
+          if [ -f base-counts.txt ]; then
+            cargo bench --bench instructions -p expanse-trie -- --baseline=main_base | tee instruction-counts.txt
+          else
+            cargo bench --bench instructions -p expanse-trie | tee instruction-counts.txt
+          fi
 
       - name: Instruction and cache-miss counts (this branch, x86-64-v3 modern)
         run: |
@@ -515,6 +532,10 @@ jobs:
       - name: libexpanse vs stock libjudy (instructions)
         run: cargo bench --bench vs_stock -p expanse-capi | tee vs-stock.txt
 
+      - name: Head-to-Head Comparative Benchmark (Expanse vs hashbrown vs BTreeMap)
+        run: |
+          python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
+
       - name: Generate Report and Enforce Regression Guard
         if: always()
         env:
@@ -522,12 +543,18 @@ jobs:
         run: |
           if [ -f instruction-counts.txt ] && [ -f bytes-per-key.txt ] && [ -f vs-stock.txt ]; then
             printf '%s' "$PR_BODY" > pr-body.txt
-            # No `|| true`: a perf_report.py crash or a real regression now fails the job.
-            # The regression guard only fires when a base-branch bench is supplied
-            # (`--base`, not produced here yet); the threshold is deliberately loose
-            # (shared CI runners are noisy) so wiring it in cannot flake.
+            BASE_ARGS=""
+            if [ -f base-counts.txt ]; then
+              BASE_ARGS="--base base-counts.txt --base-ref origin/${{ github.base_ref }}"
+            fi
+            HEAD_TO_HEAD_ARGS=""
+            if [ -f head-to-head.md ]; then
+              HEAD_TO_HEAD_ARGS="--head-to-head head-to-head.md"
+            fi
             python3 scripts/perf_report.py \
               --head instruction-counts.txt \
+              $BASE_ARGS \
+              $HEAD_TO_HEAD_ARGS \
               --bytes bytes-per-key.txt \
               --bytes32 bytes-per-key-32.txt \
               --vs-stock vs-stock.txt \
@@ -589,6 +616,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -615,8 +644,25 @@ jobs:
       - name: Build release artifacts
         run: cargo build --release -p expanse-trie -p expanse-capi
 
+      - name: Callgrind Fast Smoke (merge base)
+        if: github.event_name == 'pull_request'
+        run: |
+          git config --global --add safe.directory "$PWD"
+          MERGE_BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD 2>/dev/null || echo "")
+          if [ -n "$MERGE_BASE" ]; then
+            echo "Benchmarking smoke merge base $MERGE_BASE against origin/${{ github.base_ref }}..."
+            git checkout "$MERGE_BASE"
+            cargo bench --bench smoke_instructions -p expanse-trie -- --save-baseline=smoke_base | tee base-smoke-counts.txt || true
+            git checkout -
+          fi
+
       - name: Run Callgrind Fast Smoke Instructions Benchmark
-        run: cargo bench --bench smoke_instructions -p expanse-trie | tee smoke-instruction-counts.txt
+        run: |
+          if [ -f base-smoke-counts.txt ]; then
+            cargo bench --bench smoke_instructions -p expanse-trie -- --baseline=smoke_base | tee smoke-instruction-counts.txt
+          else
+            cargo bench --bench smoke_instructions -p expanse-trie | tee smoke-instruction-counts.txt
+          fi
 
       - name: Generate Report and Enforce Regression Guard
         if: always()
@@ -625,8 +671,13 @@ jobs:
         run: |
           if [ -f smoke-instruction-counts.txt ]; then
             printf '%s' "$PR_BODY" > pr-body.txt
+            BASE_ARGS=""
+            if [ -f base-smoke-counts.txt ]; then
+              BASE_ARGS="--base base-smoke-counts.txt --base-ref origin/${{ github.base_ref }}"
+            fi
             python3 scripts/perf_report.py \
               --head smoke-instruction-counts.txt \
+              $BASE_ARGS \
               --pr-body-file pr-body.txt \
               --fail-on-regression \
               --max-regression-pct 5.0 > smoke-report.md
