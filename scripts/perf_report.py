@@ -613,6 +613,7 @@ def render(
     bindings_status: str | None = None,
     is_smoke: bool = False,
     has_violation: bool = False,
+    is_allowed_override: bool = False,
 ) -> str:
     # 1. Parse memory density tables and verify compliance
     compliant_64, rows_64 = parse_bytes_64(bytes_table)
@@ -655,6 +656,9 @@ def render(
     elif has_violation:
         reg_chip = f"🔴 **{regressed} Regressions**"
         opt_chip = f"🚀 **{best:+.2f}% ins** (`{best_bench}`)" if improved else "—"
+    elif is_allowed_override and regressed > 0:
+        reg_chip = f"🟡 **{regressed} Regressed (Approved)**"
+        opt_chip = f"🚀 **{best:+.2f}% ins** (`{best_bench}`)" if improved else "—"
     elif regressed > 0:
         reg_chip = f"🟡 **{regressed} Regressed (< threshold)**"
         opt_chip = f"🚀 **{best:+.2f}% ins** (`{best_bench}`)" if improved else "—"
@@ -670,7 +674,7 @@ def render(
     if not bytes32_table:
         chip_32 = "—"
 
-    chip_bindings = bindings_status or "⚡ **0 Native Heap Allocs**"
+    chip_bindings = bindings_status or "⚪ **Not measured (see nightly)**"
 
     lines: list[str] = [
         "## 📊 Expanse CI Performance & Architecture Telemetry",
@@ -868,6 +872,7 @@ def main() -> int:
     )
 
     is_smoke = args.smoke or "smoke" in args.head.lower()
+    is_allowed_override = allowed and bool(reg_messages) and not has_violation
 
     rendered = render(
         head=head_parsed,
@@ -881,6 +886,7 @@ def main() -> int:
         bindings_status=args.bindings_status,
         is_smoke=is_smoke,
         has_violation=has_violation,
+        is_allowed_override=is_allowed_override,
     )
 
     if reg_messages:

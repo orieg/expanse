@@ -403,6 +403,61 @@ def test_full_rendered_report_structure():
     assert "Native / FFI Engine Core" in report
 
 
+def test_chip_regression_logic_consistency():
+    head = parse(SAMPLE_HEAD_TEXT)
+    base = parse(SAMPLE_BASE_TEXT)
+
+    # 1. No baseline
+    report_no_base = render(head=head, base=None, bytes_table=None, base_ref="origin/main")
+    assert "⚪ **No Baseline**" in report_no_base
+
+    # 2. Clean: 0 regressions
+    report_clean = render(head=head, base=base, bytes_table=None, base_ref="origin/main")
+    assert "🟢 **0 Regressions**" in report_clean
+
+    # 3. Sub-threshold regression (e.g. +0.4% which is <= 1.5% max_regression_pct)
+    head_sub = {k: dict(v) for k, v in head.items()}
+    head_sub["map_get/sequential"]["Instructions"] = int(base["map_get/sequential"]["Instructions"] * 1.004)
+    report_sub = render(head=head_sub, base=base, bytes_table=None, base_ref="origin/main", has_violation=False)
+    assert "🟡 **1 Regressed (< threshold)**" in report_sub
+
+    # 4. Unacceptable regression without override
+    head_viol = {k: dict(v) for k, v in head.items()}
+    head_viol["map_get/sequential"]["Instructions"] = int(base["map_get/sequential"]["Instructions"] * 1.10)
+    report_viol = render(head=head_viol, base=base, bytes_table=None, base_ref="origin/main", has_violation=True)
+    assert "🔴 **1 Regressions**" in report_viol
+
+    # 5. Unacceptable regression with approved override
+    report_ovr = render(
+        head=head_viol,
+        base=base,
+        bytes_table=None,
+        base_ref="origin/main",
+        has_violation=False,
+        is_allowed_override=True,
+    )
+    assert "🟡 **1 Regressed (Approved)**" in report_ovr
+
+
+def test_bindings_status_default_and_custom():
+    head = parse(SAMPLE_HEAD_TEXT)
+    base = parse(SAMPLE_BASE_TEXT)
+
+    # Honest default when not supplied by caller
+    report_default = render(head=head, base=base, bytes_table=None, base_ref="origin/main")
+    assert "⚪ **Not measured (see nightly)**" in report_default
+
+    # Custom caller-supplied status
+    report_custom = render(
+        head=head,
+        base=base,
+        bytes_table=None,
+        base_ref="origin/main",
+        bindings_status="⚡ **0 Native Heap Allocs**",
+    )
+    assert "⚡ **0 Native Heap Allocs**" in report_custom
+
+
 if __name__ == "__main__":
     test_parse_callgrind_output()
     test_bench_n_mapping_and_formatting()
@@ -412,5 +467,7 @@ if __name__ == "__main__":
     test_cache_simulation_table()
     test_check_regressions()
     test_rust_benchmark_sources_coverage()
+    test_chip_regression_logic_consistency()
+    test_bindings_status_default_and_custom()
     test_full_rendered_report_structure()
     print("All perf_report tests passed successfully!")

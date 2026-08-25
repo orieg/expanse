@@ -282,15 +282,8 @@ def main():
     md_report = format_markdown_report(all_results)
     print(md_report)
 
-    if args.output:
-        Path(args.output).write_text(md_report, encoding="utf-8")
-        print(f"\nSaved report to {args.output}")
-
-    if args.save_baseline:
-        Path(args.save_baseline).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.save_baseline).write_text(json.dumps(all_results, indent=2), encoding="utf-8")
-        print(f"\nSaved baseline to {args.save_baseline}")
-
+    comp_report = ""
+    has_reg = False
     if args.check_baseline:
         has_reg, comp_report = compare_against_baseline(
             all_results,
@@ -299,8 +292,21 @@ def main():
             max_memory_regression_pct=args.max_memory_regression_pct,
         )
         print("\n" + comp_report)
-        if has_reg:
-            sys.exit(1)
+
+    if args.output:
+        full_report = md_report
+        if comp_report:
+            full_report += "\n\n---\n\n" + comp_report
+        Path(args.output).write_text(full_report, encoding="utf-8")
+        print(f"\nSaved report to {args.output}")
+
+    if args.save_baseline:
+        Path(args.save_baseline).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.save_baseline).write_text(json.dumps(all_results, indent=2), encoding="utf-8")
+        print(f"\nSaved baseline to {args.save_baseline}")
+
+    if has_reg:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
