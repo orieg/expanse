@@ -4,7 +4,10 @@
 //! columnar hot metadata tagging (16-bit meta + 12-bit arena offset),
 //! and transparent raw 32-bit word drop-in C ABI compatibility.
 
+use core::convert::From;
+use core::default::Default;
 use core::fmt;
+use core::option::Option::{self, None, Some};
 
 /// Discriminant tag for 32-bit value slots.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

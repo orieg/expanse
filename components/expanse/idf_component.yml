@@ -1,0 +1,20 @@
+## IDF Component Manager Manifest
+description: "Expanse: Clean-room, high-performance Judy array & digital radix trie engine for ESP-IDF / ESP32"
+version: "0.3.0"
+url: "https://github.com/orieg/expanse"
+repository: "https://github.com/orieg/expanse.git"
+documentation: "https://orieg.github.io/expanse/"
+license: "MIT"
+maintainers:
+  - "Ori Eg <me@orieg.com>"
+tags:
+  - "data-structures"
+  - "radix-tree"
+  - "judy-arrays"
+  - "embedded"
+  - "sram-optimized"
+  - "storage"
+rules:
+  - if: "idf_version >= 5.0"
+dependencies:
+  idf: ">=5.0"

@@ -324,6 +324,25 @@ class NuspecHandler(ManifestHandler):
         )
 
 
+class YamlVersionHandler(ManifestHandler):
+    def get_versions(self, root: Path) -> Dict[str, str]:
+        text = self.get_path(root).read_text(encoding="utf-8")
+        match = re.search(r'^version\s*:\s*"([^"]+)"', text, re.MULTILINE)
+        if match:
+            return {"version": match.group(1)}
+        return {}
+
+    def set_version(self, root: Path, new_version: str) -> str:
+        text = self.get_path(root).read_text(encoding="utf-8")
+        return re.sub(
+            r'^(version\s*:\s*)"[^"]+"',
+            rf'\g<1>"{new_version}"',
+            text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+
+
 def get_handlers(root: Path) -> List[ManifestHandler]:
     """Returns the list of configured manifest handlers."""
     dotnet_path = "bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj"
@@ -364,6 +383,10 @@ def get_handlers(root: Path) -> List[ManifestHandler]:
         BuildGradleHandler("bindings/java/build.gradle", "bindings/java/build.gradle"),
         GemspecHandler("bindings/ruby/expanse.gemspec", "bindings/ruby/expanse.gemspec"),
         RubyVersionHandler("bindings/ruby/lib/expanse.rb", "bindings/ruby/lib/expanse.rb"),
+        YamlVersionHandler(
+            "components/expanse/idf_component.yml",
+            "components/expanse/idf_component.yml",
+        ),
     ]
 
     # Check for optional manifests
