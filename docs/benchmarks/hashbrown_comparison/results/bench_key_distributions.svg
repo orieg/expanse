@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 300" width="100%" height="100%">
+  <defs>
+    <style>
+      /* Light theme (default) */
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
+      .divider { stroke: #e2e8f0; stroke-width: 1px; }
+      
+      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
+      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-tick { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 500; fill: #475569; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
+
+      .b-expanse { fill: #16a34a; }
+      .b-hashbrown { fill: #2563eb; }
+      .b-btree { fill: #64748b; }
+      .b-disqualified { fill: #ef4444; stroke: #b91c1c; stroke-width: 1px; stroke-dasharray: 2,2; fill-opacity: 0.15; }
+
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 700; fill: #16a34a; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 600; fill: #2563eb; }
+      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 600; fill: #334155; }
+      .t-val-warn { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 700; fill: #b91c1c; }
+
+      .line-exp { fill: none; stroke: #16a34a; stroke-width: 2.5px; stroke-linecap: round; }
+      .line-hb { fill: none; stroke: #2563eb; stroke-width: 2.5px; stroke-linecap: round; }
+      .line-bt { fill: none; stroke: #64748b; stroke-width: 2px; stroke-dasharray: 4,4; }
+
+      /* Dark theme overrides */
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .divider { stroke: #21262d; }
+        .t-title { fill: #f0f6fc; }
+        .t-sub { fill: #94a3b8; }
+        .t-unit { fill: #94a3b8; }
+        .t-tick { fill: #94a3b8; }
+        .t-bar-label { fill: #f8fafc; }
+        .t-legend { fill: #f8fafc; }
+        
+        .b-expanse { fill: #22c55e; }
+        .b-hashbrown { fill: #3b82f6; }
+        .b-btree { fill: #475569; }
+        .b-disqualified { fill: #ef4444; stroke: #f87171; fill-opacity: 0.25; }
+
+        .t-val-accent { fill: #4ade80; }
+        .t-val-blue { fill: #38bdf8; }
+        .t-val-muted { fill: #e2e8f0; }
+        .t-val-warn { fill: #f87171; }
+
+        .line-exp { stroke: #22c55e; }
+        .line-hb { stroke: #38bdf8; }
+        .line-bt { stroke: #94a3b8; }
+      }
+
+      [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0d1117; }
+      [data-theme="dark"] .border, :root[data-theme="dark"] .border { stroke: #30363d; }
+      [data-theme="dark"] .grid, :root[data-theme="dark"] .grid { stroke: #21262d; }
+      [data-theme="dark"] .axis, :root[data-theme="dark"] .axis { stroke: #484f58; }
+      [data-theme="dark"] .divider, :root[data-theme="dark"] .divider { stroke: #21262d; }
+      [data-theme="dark"] .t-title, :root[data-theme="dark"] .t-title { fill: #f0f6fc; }
+      [data-theme="dark"] .t-sub, :root[data-theme="dark"] .t-sub { fill: #94a3b8; }
+      [data-theme="dark"] .t-unit, :root[data-theme="dark"] .t-unit { fill: #94a3b8; }
+      [data-theme="dark"] .t-tick, :root[data-theme="dark"] .t-tick { fill: #94a3b8; }
+      [data-theme="dark"] .t-bar-label, :root[data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      [data-theme="dark"] .t-legend, :root[data-theme="dark"] .t-legend { fill: #f8fafc; }
+      [data-theme="dark"] .b-expanse, :root[data-theme="dark"] .b-expanse { fill: #22c55e; }
+      [data-theme="dark"] .b-hashbrown, :root[data-theme="dark"] .b-hashbrown { fill: #3b82f6; }
+      [data-theme="dark"] .b-btree, :root[data-theme="dark"] .b-btree { fill: #475569; }
+      [data-theme="dark"] .t-val-accent, :root[data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      [data-theme="dark"] .t-val-blue, :root[data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      [data-theme="dark"] .t-val-muted, :root[data-theme="dark"] .t-val-muted { fill: #e2e8f0; }
+      [data-theme="dark"] .t-val-warn, :root[data-theme="dark"] .t-val-warn { fill: #f87171; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" rx="6" class="bg"/>
+  <rect width="100%" height="100%" rx="6" class="border"/>
+
+  <!-- Header -->
+  <text x="24" y="32" class="t-title">MARTIN ANKERL / TESSIL CONTAINER KEY DISTRIBUTIONS (LOOKUP MOPS/SEC)</text>
+  <text x="24" y="48" class="t-sub">50,000 Population • Point Query Throughput across Key Geometries</text>
+
+  <!-- Legend -->
+  <g transform="translate(560, 24)">
+    <rect x="0" y="0" width="14" height="14" rx="2" class="b-expanse"/>
+    <text x="20" y="11" class="t-legend">ExpanseMap</text>
+    <rect x="110" y="0" width="14" height="14" rx="2" class="b-hashbrown"/>
+    <text x="130" y="11" class="t-legend">hashbrown</text>
+    <rect x="220" y="0" width="14" height="14" rx="2" class="b-btree"/>
+    <text x="240" y="11" class="t-legend">BTreeMap</text>
+  </g>
+  <line x1="24" y1="60" x2="856" y2="60" class="divider"/>
+  <text x="24" y="103" class="t-bar-label">Dense Sequential (0..N)</text>
+  <rect x="280" y="85" width="278" height="8" rx="2" class="b-expanse"/>
+  <text x="563" y="92" class="t-val-accent">104.4M</text>
+
+  <rect x="280" y="95" width="618" height="8" rx="2" class="b-hashbrown"/>
+  <text x="903" y="102" class="t-val-blue">232.1M</text>
+
+  <rect x="280" y="105" width="70" height="8" rx="2" class="b-btree"/>
+  <text x="355" y="112" class="t-val-muted">26.3M</text>
+  <text x="24" y="151" class="t-bar-label">Sparse Clustered / Stride</text>
+  <rect x="280" y="133" width="438" height="8" rx="2" class="b-expanse"/>
+  <text x="723" y="140" class="t-val-accent">164.6M</text>
+
+  <rect x="280" y="143" width="582" height="8" rx="2" class="b-hashbrown"/>
+  <text x="867" y="150" class="t-val-blue">218.5M</text>
+
+  <rect x="280" y="153" width="61" height="8" rx="2" class="b-btree"/>
+  <text x="346" y="160" class="t-val-muted">23.0M</text>
+  <text x="24" y="199" class="t-bar-label">Zipfian Skewed (s=0.99)</text>
+  <rect x="280" y="181" width="274" height="8" rx="2" class="b-expanse"/>
+  <text x="559" y="188" class="t-val-accent">102.8M</text>
+
+  <rect x="280" y="191" width="825" height="8" rx="2" class="b-hashbrown"/>
+  <text x="1110" y="198" class="t-val-blue">309.6M</text>
+
+  <rect x="280" y="201" width="58" height="8" rx="2" class="b-btree"/>
+  <text x="343" y="208" class="t-val-muted">21.8M</text>
+  <text x="24" y="247" class="t-bar-label">Uniform Random 64-bit</text>
+  <rect x="280" y="229" width="70" height="8" rx="2" class="b-expanse"/>
+  <text x="355" y="236" class="t-val-accent">26.4M</text>
+
+  <rect x="280" y="239" width="205" height="8" rx="2" class="b-hashbrown"/>
+  <text x="490" y="246" class="t-val-blue">77.1M</text>
+
+  <rect x="280" y="249" width="24" height="8" rx="2" class="b-btree"/>
+  <text x="309" y="256" class="t-val-muted">9.1M</text>
+</svg>

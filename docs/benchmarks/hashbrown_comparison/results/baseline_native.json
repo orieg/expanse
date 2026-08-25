@@ -1,0 +1,114 @@
+[
+  {
+    "insert_growing": {
+      "btree": {
+        "mops": 13.409094718492817
+      },
+      "expanse": {
+        "mops": 12.577012189891752
+      },
+      "hashbrown": {
+        "mops": 62.442552851376725
+      }
+    },
+    "iter_all": {
+      "btree": {
+        "mops_items": 579.2064871126556,
+        "ns_per_scan": 17265.0
+      },
+      "expanse": {
+        "mops_items": 53.1040428214008,
+        "ns_per_scan": 188309.58
+      },
+      "hashbrown": {
+        "mops_items": 560.1716814169207,
+        "ns_per_scan": 17851.67
+      }
+    },
+    "lookup_hit": {
+      "btree": {
+        "mops": 16.757085105045977,
+        "ns_per_op": 59.67625
+      },
+      "expanse": {
+        "mops": 65.92683571625881,
+        "ns_per_op": 15.16833
+      },
+      "hashbrown": {
+        "mops": 217.31241049445092,
+        "ns_per_op": 4.60167
+      }
+    },
+    "lookup_miss": {
+      "btree": {
+        "mops": 16.586729687393223,
+        "ns_per_op": 60.28916
+      },
+      "expanse": {
+        "mops": 83.33618065283898,
+        "ns_per_op": 11.99959
+      },
+      "hashbrown": {
+        "mops": 167.21233625731972,
+        "ns_per_op": 5.98042
+      }
+    },
+    "population": 10000
+  },
+  {
+    "insert_growing": {
+      "btree": {
+        "mops": 10.370333313712662
+      },
+      "expanse": {
+        "mops": 16.00578359386694
+      },
+      "hashbrown": {
+        "mops": 69.14792469791
+      }
+    },
+    "iter_all": {
+      "btree": {
+        "mops_items": 429.8186702484889,
+        "ns_per_scan": 232656.25
+      },
+      "expanse": {
+        "mops_items": 81.20590772978734,
+        "ns_per_scan": 1231437.5
+      },
+      "hashbrown": {
+        "mops_items": 574.6025115301177,
+        "ns_per_scan": 174033.35
+      }
+    },
+    "lookup_hit": {
+      "btree": {
+        "mops": 12.003118890412486,
+        "ns_per_op": 83.31168
+      },
+      "expanse": {
+        "mops": 37.32967402982043,
+        "ns_per_op": 26.78834
+      },
+      "hashbrown": {
+        "mops": 172.9355814958928,
+        "ns_per_op": 5.7825
+      }
+    },
+    "lookup_miss": {
+      "btree": {
+        "mops": 11.572624817123598,
+        "ns_per_op": 86.41082
+      },
+      "expanse": {
+        "mops": 40.93887580209492,
+        "ns_per_op": 24.42666
+      },
+      "hashbrown": {
+        "mops": 71.45837978128019,
+        "ns_per_op": 13.99416
+      }
+    },
+    "population": 100000
+  }
+]

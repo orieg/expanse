@@ -24,22 +24,16 @@ std = []
 
 [dev-dependencies]
 criterion = "0.8"
-# Property tests with shrinking: a failure reduces to a minimal op
-# sequence (docs/TESTING.md layer 2).
 proptest = "1"
-# Deterministic instruction/cache-miss counts (docs/BENCHMARKING.md):
-# wall-clock cannot resolve the few-percent changes the perf work makes
-# (issue #1). Needs valgrind, so these run on Linux/CI only.
 iai-callgrind = "0.16"
-# Comparative benchmarks against industry primitives (issue #122).
 roaring = "0.10"
 hashbrown = "0.15"
 crossbeam-skiplist = "0.1"
 rand = "0.8"
 rand_distr = "0.4"
+hdrhistogram = "7.5"
+serde_json = "1.0"
 
-# Loom model-checks the OCC/EBR protocol (occ module) under
-# `RUSTFLAGS="--cfg loom" cargo test -p expanse-trie --release loom_`.
 [target.'cfg(loom)'.dependencies]
 loom = "0.7"
 
@@ -80,6 +74,31 @@ test = false
 
 [[bench]]
 name = "embedded"
+harness = false
+test = false
+
+[[bench]]
+name = "hashbrown_native_suite"
+harness = false
+test = false
+
+[[bench]]
+name = "hashbrown_ycsb"
+harness = false
+test = false
+
+[[bench]]
+name = "hashbrown_tail_latency"
+harness = false
+test = false
+
+[[bench]]
+name = "hashbrown_container_dists"
+harness = false
+test = false
+
+[[bench]]
+name = "hashbrown_memory_alloc"
 harness = false
 test = false
 
