@@ -112,8 +112,15 @@ def render(
     vs_stock: dict[str, dict[str, int]] | None = None,
     v3: dict[str, dict[str, int]] | None = None,
     bytes32_table: str | None = None,
+    head_to_head: str | None = None,
 ) -> str:
     lines: list[str] = ["## Performance", ""]
+
+    if head_to_head and head_to_head.strip():
+        lines += [
+            head_to_head.strip(),
+            "",
+        ]
 
     # The vs-stock table leads: "is this a viable replacement for
     # libjudy" is the project's central question, and a self-comparison
@@ -472,6 +479,7 @@ def main() -> int:
     ap.add_argument("--base-ref", default="main")
     ap.add_argument("--vs-stock", help="vs_stock bench output")
     ap.add_argument("--v3", help="bench output for x86-64-v3")
+    ap.add_argument("--head-to-head", help="head-to-head comparison markdown report (bench_report.py)")
     ap.add_argument("--fail-on-regression", action="store_true", help="fail if regressions exceed threshold")
     ap.add_argument("--max-regression-pct", type=float, default=1.5, help="maximum single-benchmark regression pct allowed")
     ap.add_argument("--allow-regression", action="store_true", help="override/approve intentional regressions")
@@ -519,6 +527,7 @@ def main() -> int:
         parse(stock_text) if stock_text else None,
         parse(v3_text) if v3_text else None,
         read(args.bytes32) if args.bytes32 else None,
+        read(args.head_to_head) if args.head_to_head else None,
     )
 
     if reg_messages:

@@ -144,24 +144,22 @@ python3 scripts/bench_report.py --pop 100000 --format json --output bench_result
 
 ## Reading perf results in a PR
 
-Every pull request gets a single updating comment from the
-`instruction-counts` job, with two comparisons that answer different
-questions — reading one as the other is the mistake the comment is
-designed to prevent:
+Every pull request gets a single updating comment from the `instruction-counts` job, featuring three distinct comparisons:
 
-1. **vs stock libjudy** (leads the comment): identical C ABI calls and
+1. **Head-to-Head Standard Baselines** (generated via `scripts/bench_report.py`):
+   Instant comparative breakdown of point lookup hit latency (ns/op), lookup throughput (Mops/s), and full iteration (Mops/s) against `hashbrown::HashMap` and `std::collections::BTreeMap` across sequential, random, and clustered distributions.
+2. **vs stock libjudy** (leads the instruction report): identical C ABI calls and
    key streams through libexpanse and through a `dlopen`'d stock
    libjudy, in instructions retired (`crates/expanse-capi/benches/vs_stock.rs`).
    This is the drop-in question — is the replacement competitive — and
    it is the project's headline claim. Ratio below 1.00 means we do
    less work.
-2. **vs the merge base**: the same engine measured against its own
-   previous commit (`crates/expanse/benches/instructions.rs`). This is
+3. **vs the merge base**: the same engine measured against its own
+   merge-base commit on the base branch (`crates/expanse/benches/instructions.rs` via `--save-baseline=main_base` and `--baseline=main_base`). This is
    the regression question — did this change make the engine do more
-   work — and it says nothing about stock.
+   work — and it gates CI with deterministic `<0.1%` sensitivity.
 
-Both are callgrind counts, plus collapsed sections for cache/RAM traffic
-and the bytes/key table.
+All three tables are paired with collapsed sections for cache line / RAM traffic breakdowns and the deterministic bytes/key allocator memory budget tables.
 
 ---
 
