@@ -129,6 +129,7 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag_byte();
+
         match tag {
             0x00 => return false, // EdgeType::Null
 
@@ -265,6 +266,7 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag_byte();
+
         match tag {
             0x00 => return None,
 
@@ -641,6 +643,7 @@ unsafe fn locate_slot_impl(
         debug_assert!((1..=8).contains(&level));
         // SAFETY: live edge per contract.
         let tag = unsafe { (*edge).tag_byte() };
+
         match tag {
             0x00 => return None, // Null
 
