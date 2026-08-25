@@ -1,49 +1,49 @@
 {
   "workload_a": {
-    "btree_mops": 3.198183431810732,
+    "btree_mops": 13.862515453239102,
     "description": "50% Read, 50% Update (Heavy Update)",
-    "expanse_mops": 12.561169756421334,
-    "hashbrown_mops": 41.262636682484015,
+    "expanse_mops": 41.16744281018845,
+    "hashbrown_mops": 164.1532074715974,
     "hashbrown_status": "COMPLETED",
     "workload": "Workload A"
   },
   "workload_b": {
-    "btree_mops": 4.043412829659953,
+    "btree_mops": 17.15988465125537,
     "description": "95% Read, 5% Update (Read Heavy)",
-    "expanse_mops": 13.078448325808212,
-    "hashbrown_mops": 26.474868598608428,
+    "expanse_mops": 111.95237098328887,
+    "hashbrown_mops": 218.95924292652165,
     "hashbrown_status": "COMPLETED",
     "workload": "Workload B"
   },
   "workload_c": {
-    "btree_mops": 3.401100255932794,
+    "btree_mops": 16.73880813994849,
     "description": "100% Read (Read Only)",
-    "expanse_mops": 12.651354479313264,
-    "hashbrown_mops": 17.64887665782517,
+    "expanse_mops": 117.68250202413903,
+    "hashbrown_mops": 202.68065433422447,
     "hashbrown_status": "COMPLETED",
     "workload": "Workload C"
   },
   "workload_d": {
-    "btree_mops": 3.6539023677287346,
+    "btree_mops": 15.362649159801357,
     "description": "95% Read, 5% Insert (Latest Insert)",
-    "expanse_mops": 19.00072164740817,
-    "hashbrown_mops": 11.190584152969018,
+    "expanse_mops": 108.57539312435465,
+    "hashbrown_mops": 206.755102715935,
     "hashbrown_status": "COMPLETED",
     "workload": "Workload D"
   },
   "workload_e": {
-    "btree_mops": 2.407436590888748,
+    "btree_mops": 10.050344184086928,
     "description": "95% Short Range Scan, 5% Insert (Scan)",
-    "expanse_mops": 1.9140435210622113,
+    "expanse_mops": 9.631445977652927,
     "hashbrown_mops": null,
     "hashbrown_status": "DISQUALIFIED: cannot perform ordered range scans without full O(N log N) dump and sort",
     "workload": "Workload E"
   },
   "workload_f": {
-    "btree_mops": 2.3149911721284138,
+    "btree_mops": 12.57146563929297,
     "description": "50% Read, 50% Read-Modify-Write (RMW)",
-    "expanse_mops": 21.73952269138769,
-    "hashbrown_mops": 57.588493358319056,
+    "expanse_mops": 60.641048653526155,
+    "hashbrown_mops": 154.29074857242486,
     "hashbrown_status": "COMPLETED",
     "workload": "Workload F"
   }

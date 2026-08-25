@@ -2,55 +2,55 @@
   {
     "insert_growing": {
       "btree": {
-        "mops": 7.283638074276016
+        "mops": 18.086046536724055
       },
       "expanse": {
-        "mops": 5.364786912094461
+        "mops": 14.807081496597133
       },
       "hashbrown": {
-        "mops": 27.79611549285987
+        "mops": 61.1957153207961
       }
     },
     "iter_all": {
       "btree": {
-        "mops_items": 204.8026214735548,
-        "ns_per_scan": 48827.5
+        "mops_items": 836.9755720309546,
+        "ns_per_scan": 11947.78
       },
       "expanse": {
-        "mops_items": 27.501143016256613,
-        "ns_per_scan": 363621.25
+        "mops_items": 134.09585600894255,
+        "ns_per_scan": 74573.52
       },
       "hashbrown": {
-        "mops_items": 555.9542983328597,
-        "ns_per_scan": 17987.09
+        "mops_items": 1766.928054223488,
+        "ns_per_scan": 5659.54
       }
     },
     "lookup_hit": {
       "btree": {
-        "mops": 7.735098255859105,
-        "ns_per_op": 129.28084
+        "mops": 7.732861195760165,
+        "ns_per_op": 129.31824
       },
       "expanse": {
-        "mops": 63.44340340868718,
-        "ns_per_op": 15.76208
+        "mops": 57.363329000489884,
+        "ns_per_op": 17.43274
       },
       "hashbrown": {
-        "mops": 131.011460882598,
-        "ns_per_op": 7.63292
+        "mops": 254.51704118849275,
+        "ns_per_op": 3.92901
       }
     },
     "lookup_miss": {
       "btree": {
-        "mops": 11.482265124812796,
-        "ns_per_op": 87.09083
+        "mops": 20.6134607135267,
+        "ns_per_op": 48.51199
       },
       "expanse": {
-        "mops": 40.153934121849524,
-        "ns_per_op": 24.90416
+        "mops": 68.33149521611202,
+        "ns_per_op": 14.63454
       },
       "hashbrown": {
-        "mops": 69.94435227333133,
-        "ns_per_op": 14.29708
+        "mops": 186.6629334079985,
+        "ns_per_op": 5.35725
       }
     },
     "population": 10000
@@ -58,55 +58,55 @@
   {
     "insert_growing": {
       "btree": {
-        "mops": 2.9738501800092334
+        "mops": 13.193510618757442
       },
       "expanse": {
-        "mops": 4.422269221116777
+        "mops": 19.669516714073477
       },
       "hashbrown": {
-        "mops": 19.8858219736901
+        "mops": 95.17064191265581
       }
     },
     "iter_all": {
       "btree": {
-        "mops_items": 258.36178219507525,
-        "ns_per_scan": 387054.15
+        "mops_items": 379.31525630616346,
+        "ns_per_scan": 263632.95
       },
       "expanse": {
-        "mops_items": 24.512319738698668,
-        "ns_per_scan": 4079581.25
+        "mops_items": 137.91454180582818,
+        "ns_per_scan": 725086.7
       },
       "hashbrown": {
-        "mops_items": 255.3042326505775,
-        "ns_per_scan": 391689.55
+        "mops_items": 1111.6397575736014,
+        "ns_per_scan": 89957.2
       }
     },
     "lookup_hit": {
       "btree": {
-        "mops": 3.722165091123813,
-        "ns_per_op": 268.66084
+        "mops": 13.82279290083473,
+        "ns_per_op": 72.34428
       },
       "expanse": {
-        "mops": 15.342129487572874,
-        "ns_per_op": 65.18
+        "mops": 39.616261048975204,
+        "ns_per_op": 25.24216
       },
       "hashbrown": {
-        "mops": 61.95786864931846,
-        "ns_per_op": 16.14
+        "mops": 197.10880800419446,
+        "ns_per_op": 5.07334
       }
     },
     "lookup_miss": {
       "btree": {
-        "mops": 6.28687013576999,
-        "ns_per_op": 159.06166
+        "mops": 13.271146510272398,
+        "ns_per_op": 75.35144
       },
       "expanse": {
-        "mops": 21.308331557639036,
-        "ns_per_op": 46.93
+        "mops": 48.32066365532291,
+        "ns_per_op": 20.695079999999997
       },
       "hashbrown": {
-        "mops": 28.487999430240013,
-        "ns_per_op": 35.1025
+        "mops": 138.40523946874532,
+        "ns_per_op": 7.22516
       }
     },
     "population": 100000
@@ -114,55 +114,55 @@
   {
     "insert_growing": {
       "btree": {
-        "mops": 1.4609421691141042
+        "mops": 10.248132918283948
       },
       "expanse": {
-        "mops": 2.686442465133335
+        "mops": 20.09306262700197
       },
       "hashbrown": {
-        "mops": 12.23820431079977
+        "mops": 57.36225630075628
       }
     },
     "iter_all": {
       "btree": {
-        "mops_items": 47.28013192594123,
-        "ns_per_scan": 10575266.6
+        "mops_items": 318.2213007664805,
+        "ns_per_scan": 1571233.6
       },
       "expanse": {
-        "mops_items": 121.64389363224386,
-        "ns_per_scan": 4110358.4
+        "mops_items": 325.8211148243133,
+        "ns_per_scan": 1534584.4
       },
       "hashbrown": {
-        "mops_items": 234.24233099977994,
-        "ns_per_scan": 2134541.6
+        "mops_items": 777.4768078668213,
+        "ns_per_scan": 643106.0
       }
     },
     "lookup_hit": {
       "btree": {
-        "mops": 2.449479485609308,
-        "ns_per_op": 408.25
+        "mops": 9.676972965440624,
+        "ns_per_op": 103.33810000000001
       },
       "expanse": {
-        "mops": 5.0022935515934055,
-        "ns_per_op": 199.9083
+        "mops": 20.88559082203597,
+        "ns_per_op": 47.8799
       },
       "hashbrown": {
-        "mops": 14.53577107904843,
-        "ns_per_op": 68.7958
+        "mops": 65.36289479188454,
+        "ns_per_op": 15.2992
       }
     },
     "lookup_miss": {
       "btree": {
-        "mops": 1.0369410239792614,
-        "ns_per_op": 964.375
+        "mops": 8.483088115532873,
+        "ns_per_op": 117.8816
       },
       "expanse": {
-        "mops": 9.111617312072894,
-        "ns_per_op": 109.75
+        "mops": 23.869481674205446,
+        "ns_per_op": 41.8945
       },
       "hashbrown": {
-        "mops": 68.5715853064807,
-        "ns_per_op": 14.5833
+        "mops": 154.2043824885503,
+        "ns_per_op": 6.4849
       }
     },
     "population": 500000

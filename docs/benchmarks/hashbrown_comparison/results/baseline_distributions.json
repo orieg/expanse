@@ -2,56 +2,56 @@
   "clustered": {
     "distribution": "clustered",
     "insert_mops": {
-      "btree": 15.936572441682104,
-      "expanse": 31.3814923757409,
-      "hashbrown": 32.563389359078904
+      "btree": 22.778764123574064,
+      "expanse": 50.17789569360252,
+      "hashbrown": 68.34098433433284
     },
     "lookup_mops": {
-      "btree": 19.694505914279823,
-      "expanse": 161.82973763839274,
-      "hashbrown": 63.12732782021337
+      "btree": 24.436666416435205,
+      "expanse": 170.0694733798757,
+      "hashbrown": 94.88877801662338
     },
     "population": 500000
   },
   "sequential": {
     "distribution": "sequential",
     "insert_mops": {
-      "btree": 13.122469594188152,
-      "expanse": 75.02062316930925,
-      "hashbrown": 30.389594602808003
+      "btree": 22.23576924110031,
+      "expanse": 80.36572189795547,
+      "hashbrown": 38.58748206646771
     },
     "lookup_mops": {
-      "btree": 19.07990297029824,
-      "expanse": 90.11918803332536,
-      "hashbrown": 24.564994480000088
+      "btree": 27.29555181315343,
+      "expanse": 135.53595524928045,
+      "hashbrown": 102.80615570362383
     },
     "population": 500000
   },
   "uniform": {
     "distribution": "uniform",
     "insert_mops": {
-      "btree": 3.7344774019378146,
-      "expanse": 5.106841507897092,
-      "hashbrown": 19.213894996986106
+      "btree": 10.227177103166813,
+      "expanse": 13.82535217872619,
+      "hashbrown": 35.170215048279914
     },
     "lookup_mops": {
-      "btree": 5.059414372583997,
-      "expanse": 18.487391913000994,
-      "hashbrown": 58.05683764405352
+      "btree": 10.029835148827107,
+      "expanse": 28.01536048597013,
+      "hashbrown": 89.35852552713935
     },
     "population": 500000
   },
   "zipfian": {
     "distribution": "zipfian",
     "insert_mops": {
-      "btree": 12.01231271663305,
-      "expanse": 33.18336223382961,
-      "hashbrown": 93.16118636671746
+      "btree": 20.320766551335478,
+      "expanse": 45.29844700616222,
+      "hashbrown": 143.60759511849065
     },
     "lookup_mops": {
-      "btree": 11.698414682315278,
-      "expanse": 41.777491908326475,
-      "hashbrown": 145.26788414711916
+      "btree": 19.7358288262621,
+      "expanse": 116.10477759549329,
+      "hashbrown": 197.70558712035088
     },
     "population": 500000
   }
