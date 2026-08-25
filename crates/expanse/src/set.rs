@@ -622,6 +622,41 @@ impl ExpanseSet {
             raw,
         }
     }
+
+    /// Returns an iterator over keys in the inclusive range `[start, end]`.
+    #[must_use]
+    pub fn range(&self, range: core::ops::RangeInclusive<Key>) -> SetRange<'_> {
+        let (start, end) = (*range.start(), *range.end());
+        if start > end {
+            return SetRange {
+                _set: core::marker::PhantomData,
+                raw: crate::iter::RawIter::new(),
+                end,
+            };
+        }
+        let raw = match &self.root {
+            Root::Empty => crate::iter::RawIter::new(),
+            Root::Leaf { pop, .. } => {
+                let keys_ptr = self.root_leaf_keys().as_ptr();
+                // SAFETY: root leaf contains valid keys array of length pop.
+                unsafe {
+                    crate::iter::RawIter::from_root_leaf_range(
+                        keys_ptr,
+                        core::ptr::null(),
+                        *pop,
+                        start,
+                    )
+                }
+            }
+            // SAFETY: tree maintained by set engine per invariants.
+            Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree_range(top, start) },
+        };
+        SetRange {
+            _set: core::marker::PhantomData,
+            raw,
+            end,
+        }
+    }
 }
 
 /// Ascending key iterator over an [`ExpanseSet`].
@@ -636,6 +671,26 @@ impl Iterator for SetIter<'_> {
     #[inline]
     fn next(&mut self) -> Option<u64> {
         self.raw.next().map(|(k, _)| k)
+    }
+}
+
+/// Ascending key iterator over a range in an [`ExpanseSet`].
+pub struct SetRange<'a> {
+    _set: core::marker::PhantomData<&'a ExpanseSet>,
+    raw: crate::iter::RawIter<false>,
+    end: Key,
+}
+
+impl Iterator for SetRange<'_> {
+    type Item = u64;
+
+    #[inline]
+    fn next(&mut self) -> Option<u64> {
+        let (k, _) = self.raw.next()?;
+        if k > self.end {
+            return None;
+        }
+        Some(k)
     }
 }
 
