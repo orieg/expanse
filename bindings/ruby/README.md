@@ -56,4 +56,4 @@ puts "#{val} (meta: #{meta})"
 
 ## Documentation
 
-For complete API specifications and benchmarks, see [docs/BINDINGS_RUBY.md](../../docs/BINDINGS_RUBY.md).
+For complete API specifications and benchmarks, see [docs/bindings/ruby.md](../../docs/bindings/ruby.md).

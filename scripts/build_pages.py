@@ -1251,16 +1251,16 @@ $judy[42] = 999;</code></pre>
           <div class="doc-link-title">DATABASE.md &#8599;</div>
           <div class="doc-link-desc">Database engine subsystems, MVCC visibility, string dictionaries, and RocksDB MemTable.</div>
         </a>
-        <a href="https://github.com/orieg/expanse/blob/main/docs/BINDINGS_PYTHON.md" class="doc-link-card">
-          <div class="doc-link-title">BINDINGS_PYTHON.md &#8599;</div>
+        <a href="https://github.com/orieg/expanse/blob/main/docs/bindings/python.md" class="doc-link-card">
+          <div class="doc-link-title">bindings/python.md &#8599;</div>
           <div class="doc-link-desc">Pythonic bindings (expanse-trie), zero-copy buffers, and dictionary encoders.</div>
         </a>
-        <a href="https://github.com/orieg/expanse/blob/main/docs/BINDINGS_JAVA.md" class="doc-link-card">
-          <div class="doc-link-title">BINDINGS_JAVA.md &#8599;</div>
+        <a href="https://github.com/orieg/expanse/blob/main/docs/bindings/java.md" class="doc-link-card">
+          <div class="doc-link-title">bindings/java.md &#8599;</div>
           <div class="doc-link-desc">JVM Foreign Function &amp; Memory (FFM) bindings with zero-GC overhead.</div>
         </a>
-        <a href="https://github.com/orieg/expanse/blob/main/docs/BINDINGS_PHP.md" class="doc-link-card">
-          <div class="doc-link-title">BINDINGS_PHP.md &#8599;</div>
+        <a href="https://github.com/orieg/expanse/blob/main/docs/bindings/php.md" class="doc-link-card">
+          <div class="doc-link-title">bindings/php.md &#8599;</div>
           <div class="doc-link-desc">Dual-driver PHP bindings (Packagist orieg/expanse, PIE native Zend extension, and FFI fallback).</div>
         </a>
         <a href="https://github.com/orieg/expanse/blob/main/docs/ALGORITHMS.md" class="doc-link-card">

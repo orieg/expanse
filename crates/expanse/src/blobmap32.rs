@@ -1,7 +1,7 @@
 //! 32-Bit Polymorphic Blob Map (`ExpanseBlobMap32`).
 //!
 //! Integrates `ValueSlot32` with embedded slab arenas for variable-length payload storage
-//! and columnar hot metadata range filtering on 32-bit targets per `docs/RFC_32BIT_EMBEDDED.md`.
+//! and columnar hot metadata range filtering on 32-bit targets per `docs/design/32-bit-embedded.md`.
 //!
 //! ## Current-implementation limits
 //!

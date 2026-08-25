@@ -1,7 +1,7 @@
 # Python Bindings & PyPI Distribution Guide (`expanse-trie`)
 
 > Canonical documentation for Expanse Python bindings, PyPI distribution, type stubs, and GIL-free concurrent architecture.  
-> Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Packaging: [PACKAGING.md](PACKAGING.md) · CI Pipeline: [CI.md](CI.md)
+> Architecture: [ARCHITECTURE.md](../ARCHITECTURE.md) · Packaging: [PACKAGING.md](../PACKAGING.md) · CI Pipeline: [CI.md](../CI.md)
 
 `expanse-trie` provides high-performance Python bindings for **Expanse**, the clean-room, pure-Rust reimplementation of Judy arrays and digital tries modernized for 64-bit hardware.
 
@@ -166,7 +166,7 @@ assert bm[raw_key] == 8888
 
 ### 3.5 `ExpanseBlobMap` (Large-Value / Off-Heap Blob Map)
 
-`ExpanseBlobMap` maps a 64-bit key to an arbitrary byte payload, packing small payloads inline in the value slot and bump-allocating larger ones in the arena (see [RFC_LARGE_VALUES.md](RFC_LARGE_VALUES.md); live arena ceiling is 16 MiB). `insert` takes an optional 32-bit **hot metadata** word stored alongside the locator for predicate filtering without dereferencing the payload:
+`ExpanseBlobMap` maps a 64-bit key to an arbitrary byte payload, packing small payloads inline in the value slot and bump-allocating larger ones in the arena (see [large-values.md](../design/large-values.md); live arena ceiling is 16 MiB). `insert` takes an optional 32-bit **hot metadata** word stored alongside the locator for predicate filtering without dereferencing the payload:
 
 ```python
 from expanse_trie import ExpanseBlobMap

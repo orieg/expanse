@@ -1,7 +1,7 @@
 # PHP Bindings & Distribution Guide (`orieg/expanse`)
 
 > Canonical documentation for Expanse PHP bindings, Composer / Packagist distribution, PIE Zend extension, and dual-driver runtime architecture.  
-> Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Packaging: [PACKAGING.md](PACKAGING.md) · CI Pipeline: [CI.md](CI.md)
+> Architecture: [ARCHITECTURE.md](../ARCHITECTURE.md) · Packaging: [PACKAGING.md](../PACKAGING.md) · CI Pipeline: [CI.md](../CI.md)
 
 `orieg/expanse` provides modernized, high-performance PHP bindings for **Expanse**, the clean-room, pure-Rust reimplementation of Judy arrays and digital trees modernized for modern 64-bit microarchitectures.
 
@@ -207,6 +207,6 @@ $next  = $judy->next(1); // 2
 
 ## 4. Git Subtree Subsplit & Packagist Distribution
 
-The PHP package source lives in `bindings/php` in the monorepo and is automatically mirrored to [`github.com/orieg/php-expanse`](https://github.com/orieg/php-expanse) on every push to `main` and release tag `v*` via [`.github/workflows/subsplit.yml`](../.github/workflows/subsplit.yml).
+The PHP package source lives in `bindings/php` in the monorepo and is automatically mirrored to [`github.com/orieg/php-expanse`](https://github.com/orieg/php-expanse) on every push to `main` and release tag `v*` via [`.github/workflows/subsplit.yml`](../../.github/workflows/subsplit.yml).
 
 Packagist.org tracks `orieg/php-expanse` to distribute the package under `orieg/expanse`.

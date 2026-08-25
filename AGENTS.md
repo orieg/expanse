@@ -39,9 +39,9 @@ Do not scatter architecture notes into arbitrary files. Update the canonical doc
 | CI job catalog, the single rollup gate, path filtering, Miri tiering, regression gating | `docs/CI.md` |
 | Distribution & packaging across all ecosystems | `docs/PACKAGING.md` |
 | Database-engine subsystem patterns & integration blueprints | `docs/DATABASE.md` |
-| Large-value / blob-arena design RFC | `docs/RFC_LARGE_VALUES.md` |
-| 32-bit embedded architecture RFC | `docs/RFC_32BIT_EMBEDDED.md` |
-| Python / Java binding references | `docs/BINDINGS_PYTHON.md` · `docs/BINDINGS_JAVA.md` |
+| Large-value / blob-arena storage design | `docs/design/large-values.md` |
+| 32-bit embedded architecture design | `docs/design/32-bit-embedded.md` |
+| Language binding references | `docs/bindings/python.md` · `docs/bindings/java.md` · `docs/bindings/php.md` · `docs/bindings/ruby.md` |
 | Status + platform tiers | `README.md` (Status section) |
 
 ---

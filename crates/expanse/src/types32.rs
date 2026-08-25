@@ -1,7 +1,7 @@
 //! 32-bit machine types, constants, and compact 8-byte `Edge32` descriptor.
 //!
 //! Implements the core 32-bit data structures for embedded targets (RV32, ESP32, Cortex-M)
-//! per `docs/RFC_32BIT_EMBEDDED.md`.
+//! per `docs/design/32-bit-embedded.md`.
 
 use core::fmt;
 

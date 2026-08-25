@@ -35,7 +35,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/orieg/expanse"
-Documentation = "https://github.com/orieg/expanse/blob/main/docs/BINDINGS_PYTHON.md"
+Documentation = "https://github.com/orieg/expanse/blob/main/docs/bindings/python.md"
 Repository = "https://github.com/orieg/expanse"
 Issues = "https://github.com/orieg/expanse/issues"
 Changelog = "https://github.com/orieg/expanse/blob/main/CHANGELOG.md"

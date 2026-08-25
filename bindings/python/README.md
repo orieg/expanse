@@ -41,4 +41,4 @@ assert sync_map.get(100) == 5000
 
 ## Documentation
 
-For full API specifications, type stubs, and concurrency architecture, see [docs/BINDINGS_PYTHON.md](../../docs/BINDINGS_PYTHON.md).
+For full API specifications, type stubs, and concurrency architecture, see [docs/bindings/python.md](../../docs/bindings/python.md).

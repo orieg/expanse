@@ -92,7 +92,7 @@ Legacy ↔ modern naming:
 | **Pointer layout** | Full 16-byte JP per edge | Tagged pointers exploiting 48-bit virtual addressing |
 | **Concurrency** | Single-threaded, external locks | Lock-free optimistic concurrency control (OCC) for reads |
 
-Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Embedded 32-Bit RFC: [docs/RFC_32BIT_EMBEDDED.md](docs/RFC_32BIT_EMBEDDED.md) · Large-Value RFC: [docs/RFC_LARGE_VALUES.md](docs/RFC_LARGE_VALUES.md) · Database engine patterns: [docs/DATABASE.md](docs/DATABASE.md) · CI/CD: [docs/CI.md](docs/CI.md).
+Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Embedded 32-Bit design: [docs/design/32-bit-embedded.md](docs/design/32-bit-embedded.md) · Large-Value design: [docs/design/large-values.md](docs/design/large-values.md) · Database engine patterns: [docs/DATABASE.md](docs/DATABASE.md) · CI/CD: [docs/CI.md](docs/CI.md).
 
 ---
 
@@ -205,9 +205,9 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 | **macOS Apple Silicon** | `aarch64-apple-darwin` | Universal / Native AArch64 `.tar.gz` |
 | **macOS Intel** | `x86_64-apple-darwin` | x86-64 `.tar.gz` |
 | **Windows x86-64** | `x86_64-pc-windows-msvc` | Precompiled `expanse.dll` / `expanse.lib` `.zip`, vcpkg, NuGet |
-| **RISC-V 32-Bit (RV32)** | `riscv32imac-unknown-none-elf` | `#![no_std]` staticlib / embedded crate ([RFC #109](docs/RFC_32BIT_EMBEDDED.md)) |
-| **ARM Cortex-M (M4/M7)** | `thumbv7em-none-eabihf` | `#![no_std]` staticlib / embedded crate ([RFC #109](docs/RFC_32BIT_EMBEDDED.md)) |
-| **Espressif ESP32 (RV32/Xtensa)** | `riscv32imc-esp-espidf` | ESP-IDF component / `#![no_std]` ([RFC #109](docs/RFC_32BIT_EMBEDDED.md)) |
+| **RISC-V 32-Bit (RV32)** | `riscv32imac-unknown-none-elf` | `#![no_std]` staticlib / embedded crate ([design #109](docs/design/32-bit-embedded.md)) |
+| **ARM Cortex-M (M4/M7)** | `thumbv7em-none-eabihf` | `#![no_std]` staticlib / embedded crate ([design #109](docs/design/32-bit-embedded.md)) |
+| **Espressif ESP32 (RV32/Xtensa)** | `riscv32imc-esp-espidf` | ESP-IDF component / `#![no_std]` ([design #109](docs/design/32-bit-embedded.md)) |
 
 ---
 
@@ -403,7 +403,7 @@ assert m.range(0, 50) == [(1, 100), (2, 200), (42, 1000)]
 sync_m = SyncExpanseMap({10: 100})
 assert sync_m[10] == 100
 ```
-See [docs/BINDINGS_PYTHON.md](docs/BINDINGS_PYTHON.md) for full Python documentation and benchmarks.
+See [docs/bindings/python.md](docs/bindings/python.md) for full Python documentation and benchmarks.
 
 ### 9. Java & Scala Quickstart (`io.github.orieg:expanse-java`)
 
@@ -433,7 +433,7 @@ try (ExpanseMap map = new ExpanseMap();
     long count = set.countRange(50L, 250L); // O(depth) rank
 }
 ```
-See [docs/BINDINGS_JAVA.md](docs/BINDINGS_JAVA.md) for Panama FFM architecture, GC elimination benchmarks, and Spark/Flink off-heap integration patterns.
+See [docs/bindings/java.md](docs/bindings/java.md) for Panama FFM architecture, GC elimination benchmarks, and Spark/Flink off-heap integration patterns.
 
 ### 10. .NET & C# Quickstart (`Orieg.Expanse`)
 
@@ -477,7 +477,7 @@ $map = new Map();
 $map->set(42, 1000);
 $val = $map->get(42);
 ```
-See [docs/BINDINGS_PHP.md](docs/BINDINGS_PHP.md) and [bindings/php/README.md](bindings/php/README.md) for full PHP documentation.
+See [docs/bindings/php.md](docs/bindings/php.md) and [bindings/php/README.md](bindings/php/README.md) for full PHP documentation.
 
 ### 12. Node.js, Bun & Deno Quickstart (`npm i @orieg/expanse`)
 ```bash

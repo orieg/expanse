@@ -1,7 +1,7 @@
 # Ruby Bindings & Distribution Guide (`expanse`)
 
 > Canonical documentation for Expanse Ruby bindings, RubyGems distribution, and Fiddle FFI runtime architecture.  
-> Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Packaging: [PACKAGING.md](PACKAGING.md) · CI Pipeline: [CI.md](CI.md)
+> Architecture: [ARCHITECTURE.md](../ARCHITECTURE.md) · Packaging: [PACKAGING.md](../PACKAGING.md) · CI Pipeline: [CI.md](../CI.md)
 
 `expanse` provides modernized, high-performance Ruby bindings for **Expanse**, the clean-room, pure-Rust reimplementation of Judy arrays and digital tries modernized for 64-bit microarchitectures.
 

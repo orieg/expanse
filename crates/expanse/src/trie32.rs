@@ -1,5 +1,5 @@
 //! Real 32-bit digital-trie engine shared by [`ExpanseSet32`] and
-//! [`ExpanseMap32`], per `docs/RFC_32BIT_EMBEDDED.md`.
+//! [`ExpanseMap32`], per `docs/design/32-bit-embedded.md`.
 //!
 //! This is a genuine 256-ary digital trie (not a `BTree` wrapper): 32-bit
 //! keys are decoded one byte ("digit") per level over four levels
