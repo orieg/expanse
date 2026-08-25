@@ -11,7 +11,7 @@ This directory contains the reproducible benchmark suite, raw measurements, meth
 | **Underlying Data Structure** | Flat 1-Byte Control Array + Buckets | Cache-Oblivious B-Tree | Expanse-Partitioned Digital Trie |
 | **Point Query Complexity** | $O(1)$ amortized expected | $O(\log N)$ | $O(k) \le 8$ digit steps |
 | **Ordered Traversal & Range Scans** | ❌ **Disqualified** ($O(N \log N)$) | ✅ Supported | ✅ Supported |
-| **Sequential Key Memory Density** | $22.28\text{ Bytes / Key}$ | $34.28\text{ Bytes / Key}$ | **$9.38\text{ Bytes / Key}$** ($2.4\times$ to $3.6\times$ smaller) |
+| **Sequential Key Memory Density** | $35.7\text{ Bytes / Key}$ | $34.3\text{ Bytes / Key}$ | **$8.7\text{ Bytes / Key}$** ($3.9\times\text{ to }4.1\times$ smaller) |
 | **Key Hashing Required** | ✅ Yes (SipHash / FoldHash) | ❌ No (Direct ordering) | ❌ No (Direct radix prefix slicing) |
 | **Dynamic Ingestion Growth Model** | Global Table Doubling (Rehash) | Node Splitting | Local Subexpanse Allocation |
 
@@ -25,21 +25,22 @@ Zipfian access distribution ($s = 0.99$, power-law skew) on 500,000 keys.
 ![YCSB Workloads A-F Throughput](results/bench_ycsb_workloads.svg)
 
 - **Workload E (Short Range Scans):** SwissTable is structurally disqualified because hash tables cannot perform ordered scans without allocating, dumping, and sorting the entire table. `ExpanseMap` and `BTreeMap` execute ordered range queries natively.
-- **Read & Update Heavy Workloads (A, B, C, D, F):** `ExpanseMap` delivers $48\text{–}105\text{ Mops/sec}$, outperforming `BTreeMap` ($13\text{–}20\text{ Mops/sec}$) by **$3\times\text{ to }5.8\times$**.
+- **Read & Update Heavy Workloads (A, B, C, D, F):** `ExpanseMap` delivers $15\text{–}36\text{ Mops/sec}$, consistently beating `BTreeMap` ($3\text{–}7\text{ Mops/sec}$) by **$2.5\times\text{ to }6.5\times$**.
+- **Workload D (Read Latest / Ingestion):** `ExpanseMap` reaches **$28.7\text{ Mops/sec}$**, outperforming `hashbrown` ($15.6\text{ Mops/sec}$) by **$1.84\times$**.
 
 ---
 
 ### Pillar 2: Memory Footprint (Live Heap Bytes / Key)
-Measured via custom `GlobalAlloc` hooks tracking heap allocations at steady state.
+Measured via custom `GlobalAlloc` hooks tracking heap allocations at steady state ($N = 100,000$).
 
 ![Memory Footprint Bytes Per Key](results/bench_memory_footprint.svg)
 
 | Key Pattern ($N = 100,000$) | `hashbrown` | `BTreeMap` | `ExpanseMap` | Expanse vs. Hashbrown |
 | :--- | :--- | :--- | :--- | :--- |
-| **Dense Sequential ($0 \dots N$)** | $22.28\text{ B/key}$ | $34.28\text{ B/key}$ | **$9.38\text{ B/key}$** | **$2.37\times$ more compact** |
-| **Uniform Random 64-bit** | $22.28\text{ B/key}$ | $27.24\text{ B/key}$ | $30.82\text{ B/key}$ | Comparable (trie branch expansion) |
+| **Dense Sequential ($0 \dots N$)** | $35.7\text{ B/key}$ | $34.3\text{ B/key}$ | **$8.7\text{ B/key}$** | **$4.1\times$ more compact** |
+| **Uniform Random 64-bit** | $35.7\text{ B/key}$ | $27.2\text{ B/key}$ | $31.8\text{ B/key}$ | Comparable (trie branch expansion) |
 
-Expanse's uncompressed bitmap-backed leaf nodes pack sequential and clustered integer keys with near-zero pointer overhead, dropping memory consumption to under 10 bytes per key.
+Expanse's uncompressed bitmap-backed leaf nodes pack sequential and clustered integer keys with near-zero pointer overhead, dropping memory consumption to under 9 bytes per key.
 
 ---
 
@@ -51,16 +52,21 @@ Dynamic table expansion from $0 \to 100,000$ keys without pre-allocating capacit
 ---
 
 ### Pillar 4: Martin Ankerl & Tessil Key Distributions
-Point lookup throughput (Mops/sec) evaluated across standard key geometries:
+Point lookup throughput (Mops/sec) evaluated across standard key geometries ($N = 500,000$):
 
 ![Key Distributions Throughput](results/bench_key_distributions.svg)
 
-- **Dense Sequential & Clustered:** Expanse reaches $46.5\text{–}47.8\text{ Mops/sec}$, matching hash table speeds on clustered data and exceeding B-Tree by $4\times\text{ to }5\times$.
+| Key Geometry ($N = 500,000$) | `hashbrown` | `BTreeMap` | `ExpanseMap` | Expanse Win |
+| :--- | :--- | :--- | :--- | :--- |
+| **Sparse Clustered / Stride** | $28.8\text{ Mops/s}$ | $15.5\text{ Mops/s}$ | **$96.2\text{ Mops/s}$** | **$3.3\times$ faster than Hashbrown, $6.2\times$ vs BTree** |
+| **Dense Sequential ($0 \dots N$)** | $46.5\text{ Mops/s}$ | $16.2\text{ Mops/s}$ | **$73.0\text{ Mops/s}$** | **$1.6\times$ faster than Hashbrown, $4.5\times$ vs BTree** |
+| **Zipfian Skewed ($s = 0.99$)** | $36.1\text{ Mops/s}$ | $4.1\text{ Mops/s}$ | **$18.3\text{ Mops/s}$** | **$4.5\times$ faster than BTree** |
+| **Uniform Random 64-bit** | $23.2\text{ Mops/s}$ | $3.4\text{ Mops/s}$ | **$6.7\text{ Mops/s}$** | **$2.0\times$ faster than BTree** |
 
 ---
 
 ### Pillar 5: Native Hashbrown Criterion Suite Port
-Point query hit/miss and dynamic growth throughput ported from `hashbrown/benches/bench.rs`:
+Point query hit/miss and dynamic growth throughput ported from `hashbrown/benches/bench.rs` ($N = 100,000$):
 
 ![Native Criterion Port Throughput](results/bench_native_throughput.svg)
 
@@ -76,7 +82,7 @@ During benchmark profiling, two key performance characteristics were identified:
    - **Optimization Item:** Refactor `MapRange` to initialize `RawIter` seeked to `start` and bounded at `end`. This will eliminate root restarts and raise range scan throughput by an estimated $10\times\text{–}20\times$.
 
 2. **Sparse Random Key Branch Allocation:**
-   - **Observation:** On uniform random 64-bit keys, Expanse consumes $30.8\text{ B/key}$ vs SwissTable's $22.3\text{ B/key}$.
+   - **Observation:** On uniform random 64-bit keys, Expanse consumes $31.8\text{ B/key}$ vs SwissTable's $35.7\text{ B/key}$ under allocator churn.
    - **Root Cause:** In high-entropy random distributions without shared prefixes, 64-bit keys create separate branch paths across levels 7 down to 0 with low occupancy per branch.
    - **Optimization Item:** Evaluate adaptive narrow pointer promotion / linear leaf inline key packing for sparse subexpanses.
 
