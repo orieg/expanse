@@ -25,7 +25,7 @@ Zipfian access distribution ($s = 0.99$, power-law skew) on 500,000 keys.
 ![YCSB Workloads A-F Throughput](results/bench_ycsb_workloads.svg)
 
 - **Workload E (Short Range Scans):** SwissTable is structurally disqualified because hash tables cannot perform ordered scans without allocating, dumping, and sorting the entire table. `ExpanseMap` and `BTreeMap` execute ordered range queries natively.
-- **Read & Update Heavy Workloads (A, B, D):** `ExpanseMap` delivers $48\text{–}57\text{ Mops/sec}$, outperforming `BTreeMap` ($7\text{–}15\text{ Mops/sec}$) by **$3\times\text{ to }7\times$**.
+- **Read & Update Heavy Workloads (A, B, C, D, F):** `ExpanseMap` delivers $48\text{–}105\text{ Mops/sec}$, outperforming `BTreeMap` ($13\text{–}20\text{ Mops/sec}$) by **$3\times\text{ to }5.8\times$**.
 
 ---
 
@@ -37,7 +37,7 @@ Measured via custom `GlobalAlloc` hooks tracking heap allocations at steady stat
 | Key Pattern ($N = 100,000$) | `hashbrown` | `BTreeMap` | `ExpanseMap` | Expanse vs. Hashbrown |
 | :--- | :--- | :--- | :--- | :--- |
 | **Dense Sequential ($0 \dots N$)** | $22.28\text{ B/key}$ | $34.28\text{ B/key}$ | **$9.38\text{ B/key}$** | **$2.37\times$ more compact** |
-| **Uniform Random 64-bit** | $22.28\text{ B/key}$ | $27.24\text{ B/key}$ | $30.82\text{ B/key}$ | Comparable |
+| **Uniform Random 64-bit** | $22.28\text{ B/key}$ | $27.24\text{ B/key}$ | $30.82\text{ B/key}$ | Comparable (trie branch expansion) |
 
 Expanse's uncompressed bitmap-backed leaf nodes pack sequential and clustered integer keys with near-zero pointer overhead, dropping memory consumption to under 10 bytes per key.
 
@@ -66,7 +66,23 @@ Point query hit/miss and dynamic growth throughput ported from `hashbrown/benche
 
 ---
 
-## 3. How to Reproduce
+## 3. Performance Investigation & Optimization Roadmap
+
+During benchmark profiling, two key performance characteristics were identified:
+
+1. **`MapRange` Iterator Cursor Reuse (Range Scan Performance):**
+   - **Observation:** `ExpanseMap::iter()` achieves **$26.1\text{ Mops/sec}$** full scan throughput, whereas `ExpanseMap::range()` achieved lower throughput on short range queries in Workload E.
+   - **Root Cause:** `MapRange::next()` currently invokes `self.map.next_at_or_after(cur)` on every step, restarting tree descent from the root for each item ($O(L \cdot 8)$ node descents for range length $L$). In contrast, `MapIter` maintains an internal stack cursor (`RawIter<true>`).
+   - **Optimization Item:** Refactor `MapRange` to initialize `RawIter` seeked to `start` and bounded at `end`. This will eliminate root restarts and raise range scan throughput by an estimated $10\times\text{–}20\times$.
+
+2. **Sparse Random Key Branch Allocation:**
+   - **Observation:** On uniform random 64-bit keys, Expanse consumes $30.8\text{ B/key}$ vs SwissTable's $22.3\text{ B/key}$.
+   - **Root Cause:** In high-entropy random distributions without shared prefixes, 64-bit keys create separate branch paths across levels 7 down to 0 with low occupancy per branch.
+   - **Optimization Item:** Evaluate adaptive narrow pointer promotion / linear leaf inline key packing for sparse subexpanses.
+
+---
+
+## 4. How to Reproduce
 
 All benchmarks can be reproduced with a single command:
 
@@ -86,6 +102,7 @@ docs/benchmarks/hashbrown_comparison/
 ├── METHODOLOGY.md                 # Rigor, isolation rules, and hardware setup
 ├── run.sh                         # 1-command reproduction runner
 ├── scripts/
+│   ├── theme.py                   # Shared dual-theme CSS and SVG template module
 │   ├── run_all.py                 # Master benchmark orchestrator
 │   └── generate_charts.py         # Dual-theme SVG visualizer
 └── results/                       # Raw JSON telemetry and generated SVGs

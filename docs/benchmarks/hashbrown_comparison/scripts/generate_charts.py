@@ -67,7 +67,6 @@ def generate_native_chart():
 
     for title, sub, m_exp, m_hb, m_bt, x_off in panels:
         max_measured = max(m_exp, m_hb, m_bt, 1.0)
-        # Round up max_y nicely
         max_y = math.ceil(max_measured * 1.25 / 10.0) * 10.0
 
         svg += f"""
@@ -101,17 +100,17 @@ def generate_native_chart():
         svg += f"""
     <!-- Bar 1: Expanse -->
     <rect x="45" y="{y_exp:.1f}" width="55" height="{h_exp:.1f}" class="b-expanse" rx="2"/>
-    <text x="72.5" y="{y_exp - 6:.1f}" class="t-val-accent">{m_exp:.1f}M</text>
+    <text x="72.5" y="{y_exp - 6:.1f}" class="t-val-accent" text-anchor="middle">{m_exp:.1f}M</text>
     <text x="72.5" y="202" class="t-bar-label" text-anchor="middle">Expanse</text>
 
     <!-- Bar 2: Hashbrown -->
     <rect x="120" y="{y_hb:.1f}" width="55" height="{h_hb:.1f}" class="b-hashbrown" rx="2"/>
-    <text x="147.5" y="{y_hb - 6:.1f}" class="t-val-blue">{m_hb:.1f}M</text>
+    <text x="147.5" y="{y_hb - 6:.1f}" class="t-val-blue" text-anchor="middle">{m_hb:.1f}M</text>
     <text x="147.5" y="202" class="t-bar-label" text-anchor="middle">hashbrown</text>
 
     <!-- Bar 3: BTreeMap -->
     <rect x="195" y="{y_bt:.1f}" width="55" height="{h_bt:.1f}" class="b-btree" rx="2"/>
-    <text x="222.5" y="{y_bt - 6:.1f}" class="t-val-muted">{m_bt:.1f}M</text>
+    <text x="222.5" y="{y_bt - 6:.1f}" class="t-val-muted" text-anchor="middle">{m_bt:.1f}M</text>
     <text x="222.5" y="202" class="t-bar-label" text-anchor="middle">BTreeMap</text>
   </g>
 """
@@ -133,7 +132,6 @@ def generate_ycsb_chart():
     with open(json_path) as f:
         data = json.load(f)
 
-    # Find highest value across all workloads to scale bars cleanly
     all_vals = []
     for wl_data in data.values():
         all_vals.append(wl_data.get("expanse_mops", 0.0))
@@ -175,23 +173,21 @@ def generate_ycsb_chart():
         m_hb = item.get("hashbrown_mops")
         m_bt = item.get("btree_mops", 0.0)
 
-        # Workload label
         svg += f"""  <text x="30" y="{y + 13}" class="t-bar-label">{label}</text>
   <text x="30" y="{y + 26}" class="t-sub">{desc}</text>
 """
-        # Bars starting at x=310
         w_exp = max(3.0, (m_exp / max_val) * bar_max_width)
         w_bt = max(3.0, (m_bt / max_val) * bar_max_width)
 
         # Expanse Bar
         svg += f"""  <rect x="310" y="{y}" width="{w_exp:.1f}" height="9" rx="2" class="b-expanse"/>
-  <text x="{318 + w_exp:.1f}" y="{y + 8}" class="t-val-accent" text-anchor="start">{m_exp:.1f}M</text>
+  <text x="{318 + w_exp:.1f}" y="{y + 8}" class="t-val-accent">{m_exp:.1f}M</text>
 """
         # Hashbrown Bar
         if m_hb is not None:
             w_hb = max(3.0, (m_hb / max_val) * bar_max_width)
             svg += f"""  <rect x="310" y="{y + 12}" width="{w_hb:.1f}" height="9" rx="2" class="b-hashbrown"/>
-  <text x="{318 + w_hb:.1f}" y="{y + 20}" class="t-val-blue" text-anchor="start">{m_hb:.1f}M</text>
+  <text x="{318 + w_hb:.1f}" y="{y + 20}" class="t-val-blue">{m_hb:.1f}M</text>
 """
         else:
             svg += f"""  <rect x="310" y="{y + 12}" width="160" height="9" rx="2" class="b-disqualified"/>
@@ -201,9 +197,9 @@ def generate_ycsb_chart():
 
         # BTreeMap Bar
         svg += f"""  <rect x="310" y="{y + 24}" width="{w_bt:.1f}" height="9" rx="2" class="b-btree"/>
-  <text x="{318 + w_bt:.1f}" y="{y + 32}" class="t-val-muted" text-anchor="start">{m_bt:.1f}M</text>
+  <text x="{318 + w_bt:.1f}" y="{y + 32}" class="t-val-muted">{m_bt:.1f}M</text>
 """
-        # Speedup Badge on right
+        # Speedup Badge
         if m_bt > 0:
             speedup = m_exp / m_bt
             badge_text = f"{speedup:.1f}x vs BTree"
@@ -224,7 +220,7 @@ def generate_memory_chart():
     with open(json_path) as f:
         data = json.load(f)
 
-    svg = svg_header(width=960, height=270, title="Memory Footprint: Bytes Per Key")
+    svg = svg_header(width=960, height=280, title="Memory Footprint: Bytes Per Key")
     svg += """
   <!-- Header -->
   <text x="30" y="30" class="t-title">MEMORY FOOTPRINT: BYTES PER KEY (LOWER IS BETTER)</text>
@@ -252,10 +248,17 @@ def generate_memory_chart():
         ("Uniform Random 64-bit Keys", "High entropy sparse distribution", rand_data, 500, False),
     ]
 
+    max_bpk_scale = 40.0
+    panel_bar_max_w = 200.0
+
     for title, sub, m_dict, x_off, is_seq in panels:
         exp_b = m_dict.get("expanse", 0.0)
         hb_b = m_dict.get("hashbrown", 0.0)
         bt_b = m_dict.get("btree", 0.0)
+
+        w_exp = min(panel_bar_max_w, max(3.0, (exp_b / max_bpk_scale) * panel_bar_max_w))
+        w_hb = min(panel_bar_max_w, max(3.0, (hb_b / max_bpk_scale) * panel_bar_max_w))
+        w_bt = min(panel_bar_max_w, max(3.0, (bt_b / max_bpk_scale) * panel_bar_max_w))
 
         svg += f"""
   <!-- Panel: {title} -->
@@ -265,34 +268,34 @@ def generate_memory_chart():
 
     <!-- Expanse Row -->
     <text x="0" y="44" class="t-bar-label">ExpanseMap</text>
-    <rect x="100" y="33" width="{exp_b * 7.0:.1f}" height="14" rx="2" class="b-expanse"/>
-    <text x="{108 + exp_b * 7.0:.1f}" y="44" class="t-val-accent" text-anchor="start">{exp_b:.1f} B/key</text>
+    <rect x="105" y="33" width="{w_exp:.1f}" height="14" rx="2" class="b-expanse"/>
+    <text x="{113 + w_exp:.1f}" y="44" class="t-val-accent">{exp_b:.1f} B/key</text>
 
     <!-- Hashbrown Row -->
     <text x="0" y="74" class="t-bar-label">hashbrown</text>
-    <rect x="100" y="63" width="{hb_b * 7.0:.1f}" height="14" rx="2" class="b-hashbrown"/>
-    <text x="{108 + hb_b * 7.0:.1f}" y="74" class="t-val-blue" text-anchor="start">{hb_b:.1f} B/key</text>
+    <rect x="105" y="63" width="{w_hb:.1f}" height="14" rx="2" class="b-hashbrown"/>
+    <text x="{113 + w_hb:.1f}" y="74" class="t-val-blue">{hb_b:.1f} B/key</text>
 
     <!-- BTreeMap Row -->
     <text x="0" y="104" class="t-bar-label">BTreeMap</text>
-    <rect x="100" y="93" width="{bt_b * 7.0:.1f}" height="14" rx="2" class="b-btree"/>
-    <text x="{108 + bt_b * 7.0:.1f}" y="104" class="t-val-muted" text-anchor="start">{bt_b:.1f} B/key</text>
+    <rect x="105" y="93" width="{w_bt:.1f}" height="14" rx="2" class="b-btree"/>
+    <text x="{113 + w_bt:.1f}" y="104" class="t-val-muted">{bt_b:.1f} B/key</text>
 """
         if is_seq:
             ratio = hb_b / exp_b if exp_b > 0 else 1.0
             svg += f"""
     <!-- Speedup Badge -->
-    <rect x="0" y="128" width="230" height="24" class="badge-win"/>
-    <text x="115" y="144" class="badge-win-text">&#10003; {ratio:.1f}x More Compact than Hashbrown</text>
+    <rect x="0" y="132" width="240" height="24" class="badge-win"/>
+    <text x="120" y="148" class="badge-win-text">&#10003; {ratio:.1f}x More Compact than Hashbrown</text>
 """
         else:
             svg += f"""
-    <text x="0" y="144" class="t-note">Dynamic Radix tree allocates branch nodes per 8-bit digit.</text>
+    <text x="0" y="148" class="t-note">Dynamic Radix tree allocates branch nodes per 8-bit digit.</text>
 """
 
         svg += "  </g>\n"
 
-    svg += """  <line x1="475" y1="70" x2="475" y2="245" class="divider"/>
+    svg += """  <line x1="475" y1="70" x2="475" y2="255" class="divider"/>
 </svg>
 """
     out_file = RESULTS_DIR / "bench_memory_footprint.svg"
@@ -307,7 +310,6 @@ def generate_key_distributions_chart():
     with open(json_path) as f:
         data = json.load(f)
 
-    # Calculate max across distributions for proportional bar sizing
     all_vals = []
     for d_data in data.values():
         lookups = d_data.get("lookup_mops", {})
@@ -365,15 +367,14 @@ def generate_key_distributions_chart():
 
         # Bars
         svg += f"""  <rect x="310" y="{y}" width="{w_exp:.1f}" height="9" rx="2" class="b-expanse"/>
-  <text x="{318 + w_exp:.1f}" y="{y + 8}" class="t-val-accent" text-anchor="start">{m_exp:.1f}M</text>
+  <text x="{318 + w_exp:.1f}" y="{y + 8}" class="t-val-accent">{m_exp:.1f}M</text>
 
   <rect x="310" y="{y + 13}" width="{w_hb:.1f}" height="9" rx="2" class="b-hashbrown"/>
-  <text x="{318 + w_hb:.1f}" y="{y + 21}" class="t-val-blue" text-anchor="start">{m_hb:.1f}M</text>
+  <text x="{318 + w_hb:.1f}" y="{y + 21}" class="t-val-blue">{m_hb:.1f}M</text>
 
   <rect x="310" y="{y + 26}" width="{w_bt:.1f}" height="9" rx="2" class="b-btree"/>
-  <text x="{318 + w_bt:.1f}" y="{y + 34}" class="t-val-muted" text-anchor="start">{m_bt:.1f}M</text>
+  <text x="{318 + w_bt:.1f}" y="{y + 34}" class="t-val-muted">{m_bt:.1f}M</text>
 """
-        # Badge
         if m_bt > 0:
             speedup = m_exp / m_bt
             svg += f"""  <rect x="815" y="{y + 12}" width="115" height="18" class="badge-win"/>
@@ -393,7 +394,7 @@ def generate_tail_latency_chart():
     with open(json_path) as f:
         data = json.load(f)
 
-    svg = svg_header(width=960, height=290, title="Ingestion Tail Latency Percentiles")
+    svg = svg_header(width=960, height=300, title="Ingestion Tail Latency Percentiles")
     svg += """
   <!-- Header -->
   <text x="30" y="30" class="t-title">INGESTION TAIL LATENCY: P50 TO P99.99 (NANOSECONDS)</text>
@@ -418,25 +419,24 @@ def generate_tail_latency_chart():
     quants = ["p50_ns", "p75_ns", "p90_ns", "p95_ns", "p99_ns", "p99_9_ns", "p99_99_ns"]
     q_labels = ["P50 (Median)", "P75", "P90", "P95", "P99", "P99.9", "P99.99 (Tail Cliff)"]
 
-    # Table headers
     y_hdr = 82
     svg += f"""  <text x="40" y="{y_hdr}" class="t-unit">Percentile</text>
-  <text x="240" y="{y_hdr}" class="t-val-accent" text-anchor="start">ExpanseMap</text>
-  <text x="460" y="{y_hdr}" class="t-val-blue" text-anchor="start">hashbrown</text>
-  <text x="680" y="{y_hdr}" class="t-val-muted" text-anchor="start">BTreeMap</text>
+  <text x="240" y="{y_hdr}" class="t-val-accent">ExpanseMap</text>
+  <text x="460" y="{y_hdr}" class="t-val-blue">hashbrown</text>
+  <text x="680" y="{y_hdr}" class="t-val-muted">BTreeMap</text>
   <line x1="30" y1="{y_hdr + 8}" x2="930" y2="{y_hdr + 8}" class="divider"/>
 """
 
     for i, (q, ql) in enumerate(zip(quants, q_labels)):
-        y = y_hdr + 22 + i * 22
+        y = y_hdr + 22 + i * 23
         e_v = exp.get(q, 0)
         h_v = hb.get(q, 0)
         b_v = bt.get(q, 0)
 
         svg += f"""  <text x="40" y="{y}" class="t-bar-label">{ql}</text>
-  <text x="240" y="{y}" class="t-val-accent" text-anchor="start">{e_v:,} ns</text>
-  <text x="460" y="{y}" class="t-val-blue" text-anchor="start">{h_v:,} ns</text>
-  <text x="680" y="{y}" class="t-val-muted" text-anchor="start">{b_v:,} ns</text>
+  <text x="240" y="{y}" class="t-val-accent">{e_v:,} ns</text>
+  <text x="460" y="{y}" class="t-val-blue">{h_v:,} ns</text>
+  <text x="680" y="{y}" class="t-val-muted">{b_v:,} ns</text>
   <line x1="30" y1="{y + 4}" x2="930" y2="{y + 4}" class="grid"/>
 """
 

@@ -2,27 +2,27 @@
   <title>YCSB Workloads A-F Throughput</title>
   <defs>
     <style>
-      /* Light theme (default with CSS var fallbacks) */
-      .bg { fill: var(--surface, #ffffff); }
-      .border { stroke: var(--line, #e2e8f0); stroke-width: 1px; fill: none; }
-      .grid { stroke: var(--line-soft, #f1f5f9); stroke-width: 1px; stroke-dasharray: 2,3; }
-      .axis { stroke: var(--line, #cbd5e1); stroke-width: 1.5px; }
-      .divider { stroke: var(--line, #e2e8f0); stroke-width: 1px; }
+      /* Light theme (default) */
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
+      .divider { stroke: #e2e8f0; stroke-width: 1px; }
       
-      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: var(--ink, #0f172a); text-transform: uppercase; }
-      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: var(--ink-soft, #475569); }
-      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: var(--ink-soft, #475569); }
-      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 500; fill: var(--ink-soft, #64748b); }
-      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: var(--ink, #0f172a); }
-      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: var(--ink, #0f172a); }
+      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #475569; }
+      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
       
-      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #15803d; text-anchor: middle; }
-      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; text-anchor: middle; }
-      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: var(--ink-soft, #475569); text-anchor: middle; }
-      .t-val-warn { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 700; fill: #b91c1c; }
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #15803d; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; }
+      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #475569; }
+      .t-val-warn { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; font-weight: 700; fill: #b91c1c; }
 
       .t-win { fill: #15803d; font-weight: 600; }
-      .t-note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: var(--ink-soft, #64748b); }
+      .t-note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: #64748b; }
 
       .b-expanse { fill: #16a34a; }
       .b-hashbrown { fill: #2563eb; }
@@ -30,65 +30,65 @@
       .b-disqualified { fill: #ef4444; stroke: #b91c1c; stroke-width: 1px; stroke-dasharray: 2,2; fill-opacity: 0.15; }
 
       .badge-win { fill: #dcfce7; stroke: #86efac; stroke-width: 1px; rx: 3px; }
-      .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
 
       .badge-disq { fill: #fee2e2; stroke: #fca5a5; stroke-width: 1px; rx: 3px; }
-      .badge-disq-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 700; fill: #991b1b; text-anchor: middle; }
+      .badge-disq-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #991b1b; text-anchor: middle; }
 
       /* Dark theme overrides */
       @media (prefers-color-scheme: dark) {
-        :root:not(:has(input.theme.light:checked)) .bg { fill: #0d1117; }
-        :root:not(:has(input.theme.light:checked)) .border { stroke: #30363d; }
-        :root:not(:has(input.theme.light:checked)) .grid { stroke: #21262d; }
-        :root:not(:has(input.theme.light:checked)) .axis { stroke: #484f58; }
-        :root:not(:has(input.theme.light:checked)) .divider { stroke: #21262d; }
-        :root:not(:has(input.theme.light:checked)) .t-title { fill: #f0f6fc; }
-        :root:not(:has(input.theme.light:checked)) .t-sub { fill: #94a3b8; }
-        :root:not(:has(input.theme.light:checked)) .t-unit { fill: #94a3b8; }
-        :root:not(:has(input.theme.light:checked)) .t-axis-label { fill: #94a3b8; }
-        :root:not(:has(input.theme.light:checked)) .t-bar-label { fill: #f8fafc; }
-        :root:not(:has(input.theme.light:checked)) .t-legend { fill: #f8fafc; }
-        :root:not(:has(input.theme.light:checked)) .t-val-accent { fill: #4ade80; }
-        :root:not(:has(input.theme.light:checked)) .t-val-blue { fill: #38bdf8; }
-        :root:not(:has(input.theme.light:checked)) .t-val-muted { fill: #cbd5e1; }
-        :root:not(:has(input.theme.light:checked)) .t-val-warn { fill: #f87171; }
-        :root:not(:has(input.theme.light:checked)) .t-win { fill: #4ade80; }
-        :root:not(:has(input.theme.light:checked)) .t-note { fill: #94a3b8; }
-        :root:not(:has(input.theme.light:checked)) .b-expanse { fill: #22c55e; }
-        :root:not(:has(input.theme.light:checked)) .b-hashbrown { fill: #3b82f6; }
-        :root:not(:has(input.theme.light:checked)) .b-btree { fill: #475569; }
-        :root:not(:has(input.theme.light:checked)) .b-disqualified { fill: #ef4444; stroke: #f87171; fill-opacity: 0.25; }
-        :root:not(:has(input.theme.light:checked)) .badge-win { fill: #064e3b; stroke: #059669; }
-        :root:not(:has(input.theme.light:checked)) .badge-win-text { fill: #6ee7b7; }
-        :root:not(:has(input.theme.light:checked)) .badge-disq { fill: #450a0a; stroke: #dc2626; }
-        :root:not(:has(input.theme.light:checked)) .badge-disq-text { fill: #fca5a5; }
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .divider { stroke: #21262d; }
+        .t-title { fill: #f0f6fc; }
+        .t-sub { fill: #94a3b8; }
+        .t-unit { fill: #94a3b8; }
+        .t-axis-label { fill: #94a3b8; }
+        .t-bar-label { fill: #f8fafc; }
+        .t-legend { fill: #f8fafc; }
+        .t-val-accent { fill: #4ade80; }
+        .t-val-blue { fill: #38bdf8; }
+        .t-val-muted { fill: #cbd5e1; }
+        .t-val-warn { fill: #f87171; }
+        .t-win { fill: #4ade80; }
+        .t-note { fill: #94a3b8; }
+        .b-expanse { fill: #22c55e; }
+        .b-hashbrown { fill: #3b82f6; }
+        .b-btree { fill: #475569; }
+        .b-disqualified { fill: #ef4444; stroke: #f87171; fill-opacity: 0.25; }
+        .badge-win { fill: #064e3b; stroke: #059669; }
+        .badge-win-text { fill: #6ee7b7; }
+        .badge-disq { fill: #450a0a; stroke: #dc2626; }
+        .badge-disq-text { fill: #fca5a5; }
       }
 
-      :root:has(input.theme.dark:checked) .bg, [data-theme="dark"] .bg { fill: #0d1117; }
-      :root:has(input.theme.dark:checked) .border, [data-theme="dark"] .border { stroke: #30363d; }
-      :root:has(input.theme.dark:checked) .grid, [data-theme="dark"] .grid { stroke: #21262d; }
-      :root:has(input.theme.dark:checked) .axis, [data-theme="dark"] .axis { stroke: #484f58; }
-      :root:has(input.theme.dark:checked) .divider, [data-theme="dark"] .divider { stroke: #21262d; }
-      :root:has(input.theme.dark:checked) .t-title, [data-theme="dark"] .t-title { fill: #f0f6fc; }
-      :root:has(input.theme.dark:checked) .t-sub, [data-theme="dark"] .t-sub { fill: #94a3b8; }
-      :root:has(input.theme.dark:checked) .t-unit, [data-theme="dark"] .t-unit { fill: #94a3b8; }
-      :root:has(input.theme.dark:checked) .t-axis-label, [data-theme="dark"] .t-axis-label { fill: #94a3b8; }
-      :root:has(input.theme.dark:checked) .t-bar-label, [data-theme="dark"] .t-bar-label { fill: #f8fafc; }
-      :root:has(input.theme.dark:checked) .t-legend, [data-theme="dark"] .t-legend { fill: #f8fafc; }
-      :root:has(input.theme.dark:checked) .t-val-accent, [data-theme="dark"] .t-val-accent { fill: #4ade80; }
-      :root:has(input.theme.dark:checked) .t-val-blue, [data-theme="dark"] .t-val-blue { fill: #38bdf8; }
-      :root:has(input.theme.dark:checked) .t-val-muted, [data-theme="dark"] .t-val-muted { fill: #cbd5e1; }
-      :root:has(input.theme.dark:checked) .t-val-warn, [data-theme="dark"] .t-val-warn { fill: #f87171; }
-      :root:has(input.theme.dark:checked) .t-win, [data-theme="dark"] .t-win { fill: #4ade80; }
-      :root:has(input.theme.dark:checked) .t-note, [data-theme="dark"] .t-note { fill: #94a3b8; }
-      :root:has(input.theme.dark:checked) .b-expanse, [data-theme="dark"] .b-expanse { fill: #22c55e; }
-      :root:has(input.theme.dark:checked) .b-hashbrown, [data-theme="dark"] .b-hashbrown { fill: #3b82f6; }
-      :root:has(input.theme.dark:checked) .b-btree, [data-theme="dark"] .b-btree { fill: #475569; }
-      :root:has(input.theme.dark:checked) .b-disqualified, [data-theme="dark"] .b-disqualified { fill: #ef4444; stroke: #f87171; fill-opacity: 0.25; }
-      :root:has(input.theme.dark:checked) .badge-win, [data-theme="dark"] .badge-win { fill: #064e3b; stroke: #059669; }
-      :root:has(input.theme.dark:checked) .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #6ee7b7; }
-      :root:has(input.theme.dark:checked) .badge-disq, [data-theme="dark"] .badge-disq { fill: #450a0a; stroke: #dc2626; }
-      :root:has(input.theme.dark:checked) .badge-disq-text, [data-theme="dark"] .badge-disq-text { fill: #fca5a5; }
+      :root[data-theme="dark"] .bg, [data-theme="dark"] .bg { fill: #0d1117; }
+      :root[data-theme="dark"] .border, [data-theme="dark"] .border { stroke: #30363d; }
+      :root[data-theme="dark"] .grid, [data-theme="dark"] .grid { stroke: #21262d; }
+      :root[data-theme="dark"] .axis, [data-theme="dark"] .axis { stroke: #484f58; }
+      :root[data-theme="dark"] .divider, [data-theme="dark"] .divider { stroke: #21262d; }
+      :root[data-theme="dark"] .t-title, [data-theme="dark"] .t-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-sub, [data-theme="dark"] .t-sub { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-unit, [data-theme="dark"] .t-unit { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-axis-label, [data-theme="dark"] .t-axis-label { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-bar-label, [data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-legend, [data-theme="dark"] .t-legend { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-val-accent, [data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      :root[data-theme="dark"] .t-val-muted, [data-theme="dark"] .t-val-muted { fill: #cbd5e1; }
+      :root[data-theme="dark"] .t-val-warn, [data-theme="dark"] .t-val-warn { fill: #f87171; }
+      :root[data-theme="dark"] .t-win, [data-theme="dark"] .t-win { fill: #4ade80; }
+      :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note { fill: #94a3b8; }
+      :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse { fill: #22c55e; }
+      :root[data-theme="dark"] .b-hashbrown, [data-theme="dark"] .b-hashbrown { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-btree, [data-theme="dark"] .b-btree { fill: #475569; }
+      :root[data-theme="dark"] .b-disqualified, [data-theme="dark"] .b-disqualified { fill: #ef4444; stroke: #f87171; fill-opacity: 0.25; }
+      :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #064e3b; stroke: #059669; }
+      :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #6ee7b7; }
+      :root[data-theme="dark"] .badge-disq, [data-theme="dark"] .badge-disq { fill: #450a0a; stroke: #dc2626; }
+      :root[data-theme="dark"] .badge-disq-text, [data-theme="dark"] .badge-disq-text { fill: #fca5a5; }
     </style>
   </defs>
   <rect width="100%" height="100%" class="bg" rx="8"/>
@@ -110,63 +110,63 @@
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
   <text x="30" y="95" class="t-bar-label">Workload A</text>
   <text x="30" y="108" class="t-sub">50% Read, 50% Update (Heavy Update)</text>
-  <rect x="310" y="82" width="60.6" height="9" rx="2" class="b-expanse"/>
-  <text x="378.6" y="90" class="t-val-accent" text-anchor="start">72.5M</text>
-  <rect x="310" y="94" width="153.7" height="9" rx="2" class="b-hashbrown"/>
-  <text x="471.7" y="102" class="t-val-blue" text-anchor="start">183.9M</text>
-  <rect x="310" y="106" width="14.6" height="9" rx="2" class="b-btree"/>
-  <text x="332.6" y="114" class="t-val-muted" text-anchor="start">17.5M</text>
+  <rect x="310" y="82" width="69.2" height="9" rx="2" class="b-expanse"/>
+  <text x="387.2" y="90" class="t-val-accent">15.0M</text>
+  <rect x="310" y="94" width="264.0" height="9" rx="2" class="b-hashbrown"/>
+  <text x="582.0" y="102" class="t-val-blue">57.1M</text>
+  <rect x="310" y="106" width="27.6" height="9" rx="2" class="b-btree"/>
+  <text x="345.6" y="114" class="t-val-muted">6.0M</text>
   <rect x="815" y="92" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="105" class="badge-win-text">4.1x vs BTree</text>
+  <text x="872.5" y="105" class="badge-win-text">2.5x vs BTree</text>
   <text x="30" y="143" class="t-bar-label">Workload B</text>
   <text x="30" y="156" class="t-sub">95% Read, 5% Update (Read Heavy)</text>
-  <rect x="310" y="130" width="88.1" height="9" rx="2" class="b-expanse"/>
-  <text x="406.1" y="138" class="t-val-accent" text-anchor="start">105.4M</text>
-  <rect x="310" y="142" width="240.4" height="9" rx="2" class="b-hashbrown"/>
-  <text x="558.4" y="150" class="t-val-blue" text-anchor="start">287.6M</text>
-  <rect x="310" y="154" width="16.6" height="9" rx="2" class="b-btree"/>
-  <text x="334.6" y="162" class="t-val-muted" text-anchor="start">19.9M</text>
+  <rect x="310" y="130" width="164.8" height="9" rx="2" class="b-expanse"/>
+  <text x="482.8" y="138" class="t-val-accent">35.7M</text>
+  <rect x="310" y="142" width="178.9" height="9" rx="2" class="b-hashbrown"/>
+  <text x="496.9" y="150" class="t-val-blue">38.7M</text>
+  <rect x="310" y="154" width="30.9" height="9" rx="2" class="b-btree"/>
+  <text x="348.9" y="162" class="t-val-muted">6.7M</text>
   <rect x="815" y="140" width="115" height="18" class="badge-win"/>
   <text x="872.5" y="153" class="badge-win-text">5.3x vs BTree</text>
   <text x="30" y="191" class="t-bar-label">Workload C</text>
   <text x="30" y="204" class="t-sub">100% Read (Read Only)</text>
-  <rect x="310" y="178" width="87.0" height="9" rx="2" class="b-expanse"/>
-  <text x="405.0" y="186" class="t-val-accent" text-anchor="start">104.1M</text>
-  <rect x="310" y="190" width="264.0" height="9" rx="2" class="b-hashbrown"/>
-  <text x="582.0" y="198" class="t-val-blue" text-anchor="start">315.8M</text>
-  <rect x="310" y="202" width="15.0" height="9" rx="2" class="b-btree"/>
-  <text x="333.0" y="210" class="t-val-muted" text-anchor="start">17.9M</text>
+  <rect x="310" y="178" width="82.3" height="9" rx="2" class="b-expanse"/>
+  <text x="400.3" y="186" class="t-val-accent">17.8M</text>
+  <rect x="310" y="190" width="104.8" height="9" rx="2" class="b-hashbrown"/>
+  <text x="422.8" y="198" class="t-val-blue">22.7M</text>
+  <rect x="310" y="202" width="28.4" height="9" rx="2" class="b-btree"/>
+  <text x="346.4" y="210" class="t-val-muted">6.2M</text>
   <rect x="815" y="188" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="201" class="badge-win-text">5.8x vs BTree</text>
+  <text x="872.5" y="201" class="badge-win-text">2.9x vs BTree</text>
   <text x="30" y="239" class="t-bar-label">Workload D</text>
   <text x="30" y="252" class="t-sub">95% Read, 5% Insert (Latest Insert)</text>
-  <rect x="310" y="226" width="82.2" height="9" rx="2" class="b-expanse"/>
-  <text x="400.2" y="234" class="t-val-accent" text-anchor="start">98.4M</text>
-  <rect x="310" y="238" width="219.6" height="9" rx="2" class="b-hashbrown"/>
-  <text x="537.6" y="246" class="t-val-blue" text-anchor="start">262.7M</text>
-  <rect x="310" y="250" width="16.3" height="9" rx="2" class="b-btree"/>
-  <text x="334.3" y="258" class="t-val-muted" text-anchor="start">19.5M</text>
+  <rect x="310" y="226" width="132.6" height="9" rx="2" class="b-expanse"/>
+  <text x="450.6" y="234" class="t-val-accent">28.7M</text>
+  <rect x="310" y="238" width="72.0" height="9" rx="2" class="b-hashbrown"/>
+  <text x="390.0" y="246" class="t-val-blue">15.6M</text>
+  <rect x="310" y="250" width="20.2" height="9" rx="2" class="b-btree"/>
+  <text x="338.2" y="258" class="t-val-muted">4.4M</text>
   <rect x="815" y="236" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="249" class="badge-win-text">5.0x vs BTree</text>
+  <text x="872.5" y="249" class="badge-win-text">6.6x vs BTree</text>
   <text x="30" y="287" class="t-bar-label">Workload E</text>
   <text x="30" y="300" class="t-sub">95% Short Range Scan, 5% Insert (Scan)</text>
   <rect x="310" y="274" width="3.0" height="9" rx="2" class="b-expanse"/>
-  <text x="321.0" y="282" class="t-val-accent" text-anchor="start">1.1M</text>
+  <text x="321.0" y="282" class="t-val-accent">0.4M</text>
   <rect x="310" y="286" width="160" height="9" rx="2" class="b-disqualified"/>
   <rect x="485" y="283" width="170" height="15" class="badge-disq"/>
   <text x="570" y="294" class="badge-disq-text">DISQUALIFIED (No Range Scan)</text>
-  <rect x="310" y="298" width="8.6" height="9" rx="2" class="b-btree"/>
-  <text x="326.6" y="306" class="t-val-muted" text-anchor="start">10.3M</text>
+  <rect x="310" y="298" width="20.2" height="9" rx="2" class="b-btree"/>
+  <text x="338.2" y="306" class="t-val-muted">4.4M</text>
   <rect x="815" y="284" width="115" height="18" class="badge-win"/>
   <text x="872.5" y="297" class="badge-win-text">0.1x vs BTree</text>
   <text x="30" y="335" class="t-bar-label">Workload F</text>
   <text x="30" y="348" class="t-sub">50% Read, 50% Read-Modify-Write (RMW)</text>
-  <rect x="310" y="322" width="45.3" height="9" rx="2" class="b-expanse"/>
-  <text x="363.3" y="330" class="t-val-accent" text-anchor="start">54.2M</text>
-  <rect x="310" y="334" width="148.6" height="9" rx="2" class="b-hashbrown"/>
-  <text x="466.6" y="342" class="t-val-blue" text-anchor="start">177.7M</text>
-  <rect x="310" y="346" width="11.2" height="9" rx="2" class="b-btree"/>
-  <text x="329.2" y="354" class="t-val-muted" text-anchor="start">13.4M</text>
+  <rect x="310" y="322" width="80.1" height="9" rx="2" class="b-expanse"/>
+  <text x="398.1" y="330" class="t-val-accent">17.3M</text>
+  <rect x="310" y="334" width="110.1" height="9" rx="2" class="b-hashbrown"/>
+  <text x="428.1" y="342" class="t-val-blue">23.8M</text>
+  <rect x="310" y="346" width="12.9" height="9" rx="2" class="b-btree"/>
+  <text x="330.9" y="354" class="t-val-muted">2.8M</text>
   <rect x="815" y="332" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="345" class="badge-win-text">4.1x vs BTree</text>
+  <text x="872.5" y="345" class="badge-win-text">6.2x vs BTree</text>
 </svg>

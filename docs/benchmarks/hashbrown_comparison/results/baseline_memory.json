@@ -37,5 +37,18 @@
       "expanse": 9.3758,
       "hashbrown": 22.28232
     }
+  },
+  {
+    "population": 500000,
+    "random_keys_bytes_per_key": {
+      "btree": 27.113664,
+      "expanse": 24.700624,
+      "hashbrown": 35.6516
+    },
+    "sequential_keys_bytes_per_key": {
+      "btree": 34.28448,
+      "expanse": 8.743896,
+      "hashbrown": 35.6516
+    }
   }
 ]
