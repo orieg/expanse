@@ -46,7 +46,34 @@ Do not scatter architecture notes into arbitrary files. Update the canonical doc
 
 ---
 
-## 2. Clean-Room Discipline (Strict & Non-Negotiable)
+## 2. Core Judy Philosophy & Architectural Integrity (Non-Negotiable)
+
+Expanse is fundamentally defined by the **Judy digital tree architecture**. Every proposal, feature, extension, optimization, and bug fix MUST strictly preserve this philosophy and must NEVER introduce architectural impedance mismatches.
+
+### 2.1 The Core Invariants
+1. **Partitioning by Key Expanse, Not Population**:
+   - Digital tree (radix trie) hierarchy: keys are decomposed into digits (1 byte per level) from MSB to LSB.
+   - Dynamic adaptive compression: nodes transition dynamically between Immediates (0 heap allocation), Linear leaves/branches, Bitmap nodes (POPCNT-indexed), and Uncompressed branches as population density shifts within each byte expanse.
+   - Memory consumption scales with populated key expanse, never wasting cache lines on sparse empty pointers or rigid page padding.
+2. **Compact Machine-Word Tagged Edges & Value Slots**:
+   - Every pointer/edge is a strictly packed, cache-dense descriptor (16 bytes on 64-bit; 8 bytes on 32-bit targets).
+   - `ValueSlot` in leaf arrays is strictly a single machine word (`u64` on 64-bit targets, `u32` on 32-bit targets), ensuring exactly 8 slots per 64-byte cache line and preserving JudyL C ABI `*mut Word` drop-in compatibility.
+3. **Zero Heap Allocation for Small Payloads & Sparse Keys**:
+   - Keys and values $\le$ immediate capacity are packed directly inside the edge or value slot without heap allocation.
+4. **Deterministic, Cache-Conscious Microarchitecture**:
+   - 64-byte/128-byte cache-line alignment, vector SIMD byte searches, SWAR/POPCNT rank operations, and branchless linear probing.
+
+### 2.2 Strictly Forbidden Architectural Anti-Patterns (Impedance Mismatches)
+Never propose or graft foreign data structures or complected models onto Expanse:
+- ❌ **Fat Slots / Multi-Word Leaf Arrays**: Never widen `ValueSlot` or `Edge` beyond a single machine word to pack domain attributes or secondary metadata. Doing so halves leaf cache-line density (4 vs 8 slots/line) and breaks JudyL C ABI drop-in compatibility.
+- ❌ **Complecting Index and Columnar Attributes**: If auxiliary metadata, zone maps, or column data are needed (e.g. for large-value blob filtering), they MUST be maintained in **decoupled columnar sidecars or chunk headers**—never squeezed into or complected with the core trie index words.
+- ❌ **B-Tree / Hash Table Hybrid Mutations**: Never mutate digital tree branches into page-based B-trees, skip-lists, or hash buckets. Expanse is an ordered digital trie; $O(k)$ key descent and span-based compaction are non-negotiable.
+- ❌ **Global Locking or Coarse Mutexes**: Concurrency must adhere strictly to lock-free Optimistic Concurrency Control (OCC seqlock version bracketing + Epoch-Based Reclamation), preserving single-threaded zero-overhead performance.
+- ❌ **Breaking Legacy C ABI Parity**: Modern `expanse_*` capabilities extend the engine, but must never distort or compromise the zero-overhead C ABI parity for legacy `Judy1*`, `JudyL*`, `JudySL*`, and `JudyHS*` symbols.
+
+---
+
+## 3. Clean-Room Discipline (Strict & Non-Negotiable)
 
 1. **Zero Exposure to LGPL Source**: The original `libjudy` is LGPL. **Never view, consult, decompile, or port original C source code** — not for inspiration, nor to resolve behavioral edge cases.
 2. **Contract & Black-Box Differential Validation**: Compatibility questions are answered strictly through:
@@ -56,7 +83,7 @@ Do not scatter architecture notes into arbitrary files. Update the canonical doc
 
 ---
 
-## 3. Naming Conventions & Core Invariants
+## 4. Naming Conventions & Core Invariants
 
 - **Rust Type Names** (legacy ↔ modern type map):
   - Judy1 → `ExpanseSet`
@@ -73,7 +100,7 @@ Do not scatter architecture notes into arbitrary files. Update the canonical doc
 
 ---
 
-## 4. Rust Standards & Quality Gates
+## 5. Rust Standards & Quality Gates
 
 ### Language & Edition
 - **Rust Edition 2024**, MSRV `1.85`.
@@ -105,7 +132,7 @@ cargo miri test -p expanse-trie -- --skip model_
 
 ---
 
-## 5. Performance Engineering & Fast Iteration Cycle
+## 6. Performance Engineering & Fast Iteration Cycle
 
 ### Fast Remote Benchmark Validation
 Before proposing or pushing performance-sensitive changes, run deterministic Callgrind profiling on a dedicated quiet benchmark host to ensure zero instruction regressions. Reference the host by an environment placeholder — never a personal hostname or home path:
@@ -130,7 +157,7 @@ ssh "$BENCH_HOST" "export PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH; \
 
 ---
 
-## 6. Git & Pull Request Protocol
+## 7. Git & Pull Request Protocol
 
 - **Branch Naming**: `perf/<feature>`, `feat/<feature>`, `fix/<issue>`, `refactor/<scope>`, `docs/<scope>`.
 - **Commit Format**: Conventional Commits: `type(scope): message` (types: `feat`, `fix`, `docs`, `refactor`, `chore`, `eval`, `poc`), atomic. Subject concise + factual; body states what + why.
