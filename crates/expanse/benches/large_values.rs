@@ -288,6 +288,143 @@ fn bench_predicate_scan_cold_dram_sweep(c: &mut Criterion) {
     g.finish();
 }
 
+/// Cold-DRAM predicate-scan sweep over a **> LLC** arena — the RFC §10.3
+/// re-benchmark unblocked by the wide-offset `ArenaLong` arena (#244/#276).
+///
+/// [`bench_predicate_scan_cold_dram_sweep`] above is capped at a ~14.6 MiB
+/// arena by the 16 MiB `ArenaShort` ceiling, so its working set stays
+/// L3-resident (reference host L3 = 30 MiB) and the skipped payloads are only
+/// ~L3 hits, not cold-DRAM fetches — bounding the columnar advantage to ~1.4×.
+/// `ArenaLong` lifts that size ceiling (up to a 1 GiB safety cap), so this
+/// bench sizes the arena to ~9× the LLC, making a skipped payload a real
+/// ~80 ns DRAM fetch. Keys are inserted in **shuffled** order so an ordered
+/// key-scan touches arena offsets in random order (defeating the hardware
+/// prefetcher that would otherwise stream a sequential arena and hide the
+/// DRAM latency).
+///
+/// **Critical caveat this bench measures:** `ArenaLong` slots carry **no** hot
+/// metadata — they report `hot_meta = 0` (all 56 non-tag bits address the
+/// chunk/offset; see `blobmap.rs` "Inline / ArenaLong metadata"). A > LLC
+/// arena is therefore mostly `ArenaLong`, so a `meta <= threshold` predicate
+/// matches every spilled entry regardless of σ. The bench logs the realized
+/// match-rate to expose this: if it is ~= the ArenaLong fraction rather than σ,
+/// the columnar pushdown has degenerated to "touch every payload" and cannot
+/// beat the naive arm — the >10× regime remains unreachable, now gated on a
+/// metadata-carrying wide encoding, not just the wide-offset arena.
+fn bench_predicate_scan_cold_dram_large(c: &mut Criterion) {
+    /// Payload bytes per entry (16 cache lines); the touched `view[0]` is one
+    /// cold cache line per matched entry.
+    const PAYLOAD: usize = 1024;
+    /// ~272 MiB arena (262_144 × align16(1032) = 260 MiB) ≈ 9× the 30 MiB LLC.
+    const N: u64 = 262_144;
+    /// `meta <= threshold` selects `threshold / META_RANGE` of entries — but
+    /// only among the `ArenaShort` minority that actually carries metadata.
+    const META_RANGE: u32 = 10_000;
+    /// Reference LLC, for the logged arena/LLC ratio (reference host L3).
+    const LLC_BYTES: f64 = 30.0 * 1024.0 * 1024.0;
+    /// Golden-ratio multiplier for a cheap deterministic per-key metadata.
+    const GOLDEN: u64 = 0x9E37_79B9_7F4A_7C15;
+
+    let record = (PAYLOAD + 8).div_ceil(16) * 16;
+    let arena_bytes = N as usize * record;
+
+    // Shuffled insertion order (Fisher-Yates) so key value is decorrelated from
+    // arena offset: an ascending-key scan then reads payloads in random order.
+    let mut order: Vec<u64> = (0..N).collect();
+    let mut rng = XorShift(0x0BAD_F00D_C0FF_EE11);
+    for i in (1..order.len()).rev() {
+        let j = (rng.next() % (i as u64 + 1)) as usize;
+        order.swap(i, j);
+    }
+
+    // 64 MiB chunks: global offset < 16 MiB → ArenaShort (meta kept); the rest
+    // spills to ArenaLong (meta lost). With shuffled insertion, the ~6% of keys
+    // landing in the first 16 MiB are a random subset.
+    let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024 * 1024);
+    for &k in &order {
+        let meta = (k.wrapping_mul(GOLDEN) % META_RANGE as u64) as u32;
+        let payload = vec![(k & 0xFF) as u8; PAYLOAD];
+        map.insert(k, &payload, meta).unwrap();
+    }
+
+    let selectivities = [
+        ("sigma_0.001", 10u32),
+        ("sigma_0.05", 500u32),
+        ("sigma_0.20", 2000u32),
+        ("sigma_1.0", 10000u32),
+    ];
+
+    // Expose the meta=0 degeneration: log realized match-rate vs the σ a working
+    // filter would yield. A rate ~= the ArenaLong fraction (not σ) is the finding.
+    eprintln!(
+        "cold_dram_large config: N={N} payload={PAYLOAD}B arena~{:.0} MiB (ref LLC 30 MiB => arena/LLC ~{:.1}x, cold-DRAM regime reachable)",
+        arena_bytes as f64 / (1024.0 * 1024.0),
+        arena_bytes as f64 / LLC_BYTES,
+    );
+    for (label, threshold) in selectivities {
+        let mut matches = 0usize;
+        map.scan_filtered(
+            0..=N,
+            |_k, meta| meta <= threshold,
+            |_k, _v, _m| {
+                matches += 1;
+                true
+            },
+        );
+        eprintln!(
+            "  {label}: columnar matches={matches} ({:.1}% of N) — a working hot-meta filter would match ~{:.1}%",
+            100.0 * matches as f64 / N as f64,
+            100.0 * threshold as f64 / META_RANGE as f64,
+        );
+    }
+
+    let mut g = c.benchmark_group("predicate_scan_cold_dram_large");
+    // Fewer samples: each iteration scans 262k × 1KiB cold payloads (~tens of ms).
+    g.sample_size(10);
+
+    for (label, threshold) in selectivities {
+        // Columnar hot-metadata pushdown: payload touched only on a match.
+        g.bench_function(BenchmarkId::new("columnar_hotmeta_filter", label), |b| {
+            b.iter(|| {
+                let mut matches = 0usize;
+                let mut byte_sum = 0u64;
+                map.scan_filtered(
+                    0..=N,
+                    |_key, meta| meta <= threshold,
+                    |_key, view, _meta| {
+                        byte_sum += view[0] as u64;
+                        matches += 1;
+                        true
+                    },
+                );
+                black_box((matches, byte_sum))
+            });
+        });
+
+        // Naive row store: every entry's payload cache line is loaded before the
+        // predicate is evaluated (payload traffic is independent of σ).
+        g.bench_function(BenchmarkId::new("naive_row_deref", label), |b| {
+            b.iter(|| {
+                let mut matches = 0usize;
+                let mut byte_sum = 0u64;
+                map.scan_filtered(
+                    0..=N,
+                    |_key, _meta| true,
+                    |_key, view, meta| {
+                        byte_sum += view[0] as u64;
+                        if meta <= threshold {
+                            matches += 1;
+                        }
+                        true
+                    },
+                );
+                black_box((matches, byte_sum))
+            });
+        });
+    }
+    g.finish();
+}
+
 /// Benchmark GC compaction pause times and memory recovery under overwrite / deletion churn.
 fn bench_arena_compaction_churn(c: &mut Criterion) {
     let mut g = c.benchmark_group("arena_compaction_churn");
@@ -354,6 +491,7 @@ criterion_group!(
     bench_inline_vs_heap_small_blobs,
     bench_predicate_scan_selectivity_sweep,
     bench_predicate_scan_cold_dram_sweep,
+    bench_predicate_scan_cold_dram_large,
     bench_arena_compaction_churn
 );
 criterion_main!(benches);
