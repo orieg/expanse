@@ -4,6 +4,51 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Expanse Architecture & Benchmark Visualizer</title>
+  <script>
+    (function() {
+      'use strict';
+      if (window.__expanseApplyTheme) { return; }
+      var KEY = 'expanse-theme';
+      var LABELS = {
+        system: 'Color theme: system (click to switch to light)',
+        light: 'Color theme: light (click to switch to dark)',
+        dark: 'Color theme: dark (click to switch to system)'
+      };
+      function stored() {
+        try {
+          var v = localStorage.getItem(KEY);
+          return (v === 'light' || v === 'dark') ? v : null;
+        } catch (e) { return null; }
+      }
+      function systemTheme() {
+        return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      }
+      function apply() {
+        var override = stored();
+        var theme = override || systemTheme();
+        var mode = override || 'system';
+        var root = document.documentElement;
+        root.setAttribute('data-theme', theme);
+        root.setAttribute('data-theme-mode', mode);
+        var buttons = document.querySelectorAll('.theme-toggle');
+        for (var i = 0; i < buttons.length; i++) {
+          buttons[i].setAttribute('aria-label', LABELS[mode]);
+          buttons[i].setAttribute('title', LABELS[mode]);
+        }
+        if (window.__expanseThemeChanged) { window.__expanseThemeChanged(theme); }
+      }
+      window.__expanseApplyTheme = apply;
+      apply();
+      if (window.matchMedia) {
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        if (mq.addEventListener) { mq.addEventListener('change', apply); }
+        else if (mq.addListener) { mq.addListener(apply); }
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', apply);
+      }
+    })();
+  </script>
   <style>
     :root {
       --bg: #0b0f19;
@@ -168,34 +213,6 @@
       border-color: #2563eb;
       box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
     }
-
-    /* Theme Toggle Button */
-    .theme-toggle-btn {
-      background: var(--card-inner);
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-    .theme-toggle-btn:hover {
-      color: var(--accent);
-      border-color: var(--accent);
-      transform: scale(1.05);
-    }
-    .theme-toggle-btn svg {
-      width: 18px;
-      height: 18px;
-    }
-    .icon-sun { display: none; }
-    .icon-moon { display: block; }
-    [data-theme="light"] .icon-sun { display: block; color: #d97706; }
-    [data-theme="light"] .icon-moon { display: none; }
 
     .layout {
       display: grid;
@@ -2945,29 +2962,20 @@
     return document.documentElement.getAttribute('data-theme') === 'light';
   }
 
-  function initTheme() {
-    const savedTheme = localStorage.getItem('expanse-theme');
-    if (savedTheme === 'light') {
-      document.documentElement.setAttribute('data-theme', 'light');
-    } else if (!savedTheme && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-      document.documentElement.setAttribute('data-theme', 'light');
+    function toggleTheme() {
+      var KEY = 'expanse-theme';
+      var v = null;
+      try { v = localStorage.getItem(KEY); } catch (e) {}
+      var mode = (v === 'light' || v === 'dark') ? v : 'system';
+      var next = mode === 'system' ? 'light' : (mode === 'light' ? 'dark' : 'system');
+      try {
+        if (next === 'system') { localStorage.removeItem(KEY); }
+        else { localStorage.setItem(KEY, next); }
+      } catch (e) {}
+      if (window.__expanseApplyTheme) { window.__expanseApplyTheme(); }
     }
-  }
 
-  function toggleTheme() {
-    const current = document.documentElement.getAttribute('data-theme');
-    const next = current === 'light' ? 'dark' : 'light';
-    if (next === 'dark') {
-      document.documentElement.removeAttribute('data-theme');
-      localStorage.setItem('expanse-theme', 'dark');
-    } else {
-      document.documentElement.setAttribute('data-theme', 'light');
-      localStorage.setItem('expanse-theme', 'light');
-    }
-    drawHierarchyConnections();
-  }
-
-  initTheme();
+  window.__expanseThemeChanged = function () { drawHierarchyConnections(); };
 
   function drawHierarchyConnections() {
     const hCanvas = document.getElementById('hierarchy-canvas');

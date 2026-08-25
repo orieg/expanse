@@ -8,6 +8,20 @@ import subprocess
 import sys
 from build_apt_repo import build_apt_repo
 from build_rpm_repo import build_rpm_repo
+from site_theme import (
+    BASE_CSS,
+    COPY_BTN_CSS,
+    NAV_CSS,
+    SITE_JS,
+    THEME_CSS_VARS,
+    THEME_HEAD_JS,
+    THEME_HEAD_JS_BODY,
+    THEME_TOGGLE_CSS,
+    THEME_TOGGLE_JS,
+    THEME_TOGGLE_JS_BODY,
+    VISUALIZER_NAV_BUNDLE_CSS,
+    make_nav,
+)
 
 
 def get_workspace_version(repo_root: str) -> str:
@@ -89,184 +103,6 @@ def get_git_metadata(repo_root: str, default_version: str) -> dict:
 
 
 MAIN_CSS = """
-    :root {
-      --bg: #090d16;
-      --card-bg: #111827;
-      --card-inner: #0b1120;
-      --border: #1f293d;
-      --border-accent: rgba(56, 189, 248, 0.4);
-      --text: #e2e8f0;
-      --text-muted: #94a3b8;
-      --heading: #f8fafc;
-      --accent: #38bdf8;
-      --accent-hover: #7dd3fc;
-      --accent-green: #10b981;
-      --code-bg: #030712;
-      --bench-bg: #0d1117;
-      --quote-bg: linear-gradient(180deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.8) 100%);
-      --navbar-bg: rgba(9, 13, 22, 0.85);
-      --nav-pill-bg: rgba(56, 189, 248, 0.1);
-      --nav-pill-border: rgba(56, 189, 248, 0.25);
-      --btn-secondary-bg: #111827;
-      --btn-secondary-hover: #1e293b;
-      --btn-secondary-border: #1f293d;
-      --btn-secondary-text: #f8fafc;
-      --badge-bg: #111827;
-      --badge-border: #1f293d;
-      --badge-text: #38bdf8;
-      --spotlight-bg: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
-      --spotlight-border: rgba(99, 102, 241, 0.4);
-      --tab-active-bg: rgba(56, 189, 248, 0.05);
-      --table-header-color: #f8fafc;
-      --table-row-border: #1f293d;
-      color-scheme: dark;
-    }
-
-    [data-theme="light"] {
-      --bg: #f8fafc;
-      --card-bg: #ffffff;
-      --card-inner: #f1f5f9;
-      --border: #e2e8f0;
-      --border-accent: rgba(2, 132, 199, 0.4);
-      --text: #334155;
-      --text-muted: #64748b;
-      --heading: #0f172a;
-      --accent: #0284c7;
-      --accent-hover: #0369a1;
-      --accent-green: #059669;
-      --code-bg: #0f172a;
-      --bench-bg: #ffffff;
-      --quote-bg: linear-gradient(180deg, rgba(241, 245, 249, 0.9) 0%, rgba(226, 232, 240, 0.7) 100%);
-      --navbar-bg: rgba(248, 250, 252, 0.88);
-      --nav-pill-bg: rgba(2, 132, 199, 0.08);
-      --nav-pill-border: rgba(2, 132, 199, 0.25);
-      --btn-secondary-bg: #ffffff;
-      --btn-secondary-hover: #f1f5f9;
-      --btn-secondary-border: #cbd5e1;
-      --btn-secondary-text: #0f172a;
-      --badge-bg: #ffffff;
-      --badge-border: #e2e8f0;
-      --badge-text: #0284c7;
-      --spotlight-bg: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 50%, #f0fdf4 100%);
-      --spotlight-border: rgba(99, 102, 241, 0.3);
-      --tab-active-bg: rgba(2, 132, 199, 0.08);
-      --table-header-color: #0f172a;
-      --table-row-border: #e2e8f0;
-      color-scheme: light;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      overflow-x: hidden;
-      -webkit-font-smoothing: antialiased;
-    }
-    .navbar {
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      background: var(--navbar-bg);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border);
-      padding: 0.75rem 2rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 1.5rem;
-    }
-    .nav-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
-    }
-    .nav-brand {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      font-weight: 700;
-      font-size: 1.2rem;
-      color: var(--heading);
-      text-decoration: none;
-      flex-shrink: 0;
-    }
-    .nav-logo {
-      width: 28px;
-      height: 28px;
-      background: linear-gradient(135deg, #38bdf8, #10b981);
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #090d16;
-      font-weight: 900;
-      font-size: 14px;
-    }
-    .nav-scroll {
-      display: flex;
-      align-items: center;
-      gap: 1.25rem;
-    }
-    .nav-links {
-      display: flex;
-      gap: 1.25rem;
-      align-items: center;
-      list-style: none;
-      margin: 0;
-      padding: 0;
-    }
-    .nav-links a {
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 0.9rem;
-      font-weight: 500;
-      transition: color 0.15s ease;
-      white-space: nowrap;
-    }
-    .nav-links a:hover, .nav-links a.active { color: var(--accent); }
-    .nav-pill {
-      padding: 0.35rem 0.75rem;
-      background: var(--nav-pill-bg);
-      border: 1px solid var(--nav-pill-border);
-      border-radius: 6px;
-      color: var(--accent) !important;
-      font-weight: 600 !important;
-    }
-    .theme-toggle {
-      background: var(--card-inner);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      width: 34px;
-      height: 34px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      color: var(--heading);
-      font-size: 16px;
-      flex-shrink: 0;
-      transition: all 0.15s ease;
-    }
-    .theme-toggle:hover { border-color: var(--accent); }
-    [data-theme="dark"] .theme-icon-sun { display: inline; }
-    [data-theme="dark"] .theme-icon-moon { display: none; }
-    [data-theme="light"] .theme-icon-sun { display: none; }
-    [data-theme="light"] .theme-icon-moon { display: inline; }
-    :root:not([data-theme]) .theme-icon-sun { display: inline; }
-    :root:not([data-theme]) .theme-icon-moon { display: none; }
-
-    .theme-toggle-mobile { display: flex; }
-    .theme-toggle-desktop { display: none; }
-
-    @media (min-width: 769px) {
-      .theme-toggle-mobile { display: none !important; }
-      .theme-toggle-desktop { display: flex !important; }
-    }
-
     .container {
       max-width: 1140px;
       margin: 0 auto;
@@ -557,6 +393,21 @@ MAIN_CSS = """
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
     }
+    @media (min-width: 769px) {
+      .install-nav { flex-wrap: wrap; }
+    }
+    @media (max-width: 768px) {
+      .install-nav {
+        scrollbar-width: none;
+        -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 32px), transparent 100%);
+        mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 32px), transparent 100%);
+      }
+      .install-nav::-webkit-scrollbar { display: none; }
+      .install-nav.at-end {
+        -webkit-mask-image: none;
+        mask-image: none;
+      }
+    }
     .tab-btn {
       padding: 0.85rem 1.5rem;
       background: none;
@@ -631,27 +482,6 @@ MAIN_CSS = """
     footer a:hover { text-decoration: underline; }
 
     @media (max-width: 768px) {
-      .navbar {
-        padding: 0.6rem 1rem;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.5rem;
-      }
-      .nav-top {
-        width: 100%;
-      }
-      .nav-scroll {
-        width: 100%;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: 0.2rem;
-        justify-content: flex-start;
-      }
-      .nav-links {
-        gap: 0.85rem;
-      }
-      .theme-toggle-mobile { display: flex !important; }
-      .theme-toggle-desktop { display: none !important; }
       .hero { padding: 3rem 0 2rem; }
       .hero h1 {
         font-size: 1.35rem !important; line-height: 1.3 !important; hyphens: none !important; -webkit-hyphens: none !important;
@@ -671,62 +501,6 @@ MAIN_CSS = """
       .install-panel { padding: 1rem; }
     }
 """
-
-NAV_HTML = """  <header class="navbar">
-    <div class="nav-top">
-      <a href="./" class="nav-brand">
-        <div class="nav-logo">E</div>
-        <span>Expanse</span>
-      </a>
-      <button class="theme-toggle theme-toggle-mobile" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
-        <span class="theme-icon-sun">&#9728;</span>
-        <span class="theme-icon-moon">&#9790;</span>
-      </button>
-    </div>
-    <div class="nav-scroll">
-      <ul class="nav-links">
-        <li><a href="./" class="active">Home</a></li>
-        <li><a href="./#benchmarks">Benchmarks</a></li>
-        <li><a href="./visualizer.html" class="">Visualizer</a></li>
-        <li><a href="./apt/" class="">APT (Debian)</a></li>
-        <li><a href="./rpm/" class="">RPM (RHEL)</a></li>
-        <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
-        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.3.0</a></li>
-      </ul>
-      <button class="theme-toggle theme-toggle-desktop" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
-        <span class="theme-icon-sun">&#9728;</span>
-        <span class="theme-icon-moon">&#9790;</span>
-      </button>
-    </div>
-  </header>"""
-
-NAV_VIS_HTML = """  <header class="navbar">
-    <div class="nav-top">
-      <a href="./" class="nav-brand">
-        <div class="nav-logo">E</div>
-        <span>Expanse</span>
-      </a>
-      <button class="theme-toggle theme-toggle-mobile" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
-        <span class="theme-icon-sun">&#9728;</span>
-        <span class="theme-icon-moon">&#9790;</span>
-      </button>
-    </div>
-    <div class="nav-scroll">
-      <ul class="nav-links">
-        <li><a href="./" class="">Home</a></li>
-        <li><a href="./#benchmarks">Benchmarks</a></li>
-        <li><a href="./visualizer.html" class="active">Visualizer</a></li>
-        <li><a href="./apt/" class="">APT (Debian)</a></li>
-        <li><a href="./rpm/" class="">RPM (RHEL)</a></li>
-        <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
-        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.3.0</a></li>
-      </ul>
-      <button class="theme-toggle theme-toggle-desktop" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
-        <span class="theme-icon-sun">&#9728;</span>
-        <span class="theme-icon-moon">&#9790;</span>
-      </button>
-    </div>
-  </header>"""
 
 def _count_packages(artifacts_dir: str) -> int:
     """Counts .deb/.rpm package artifacts under artifacts_dir."""
@@ -761,8 +535,8 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
     version = get_workspace_version(repo_root)
     git_meta = get_git_metadata(repo_root, version)
 
-    nav_html = NAV_HTML.replace("GitHub &bull; 0.3.0", f"GitHub &bull; {version}")
-    nav_vis_html = NAV_VIS_HTML.replace("GitHub &bull; 0.3.0", f"GitHub &bull; {version}")
+    nav_html = make_nav(version, "home")
+    nav_vis_html = make_nav(version, "visualizer")
 
     footer_meta = (
         f'      <p style="margin-bottom: 0.75rem;">\n'
@@ -818,33 +592,9 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Expanse — Modern Judy Arrays & Digital Tree Engine in Rust</title>
   <meta name="description" content="Clean-room, pure-Rust Judy arrays modernized for 64-bit microarchitectures with zero-allocation immediates, SWAR/SIMD vectorization, and lock-free OCC concurrency.">
-  <script>
-    (function() {
-      const saved = localStorage.getItem('expanse-theme');
-      if (saved) {
-        document.documentElement.setAttribute('data-theme', saved);
-      } else {
-        const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-      }
-
-      if (window.matchMedia) {
-        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-        const updateTheme = function(e) {
-          if (!localStorage.getItem('expanse-theme')) {
-            document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
-          }
-        };
-        if (mediaQuery.addEventListener) {
-          mediaQuery.addEventListener('change', updateTheme);
-        } else if (mediaQuery.addListener) {
-          mediaQuery.addListener(updateTheme);
-        }
-      }
-    })();
-  </script>
+  """ + THEME_HEAD_JS + """
   <style>
-""" + MAIN_CSS + """
+""" + THEME_CSS_VARS + BASE_CSS + NAV_CSS + THEME_TOGGLE_CSS + COPY_BTN_CSS + MAIN_CSS + """
   </style>
 </head>
 <body>
@@ -856,8 +606,6 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
         <span class="badge badge-green">Pure Rust &bull; #![no_std]</span>
         <span class="badge">Rust &bull; Python &bull; Node.js &bull; .NET &bull; C++20 &bull; Java &bull; C ABI &bull; ESP-IDF (ESP32)</span>
         <span class="badge">64-Bit &amp; 32-Bit Embedded</span>
-        <span class="badge">RocksDB MemTable Plugin</span>
-        <span class="badge">glibc-hwcaps (x86-64-v1..v4)</span>
       </div>
       <h1>Modern Judy Arrays &amp; High-Performance Digital Tree Engine</h1>
       <p>Clean-room pure-Rust implementation of digital trees modernized for modern 64-bit microarchitectures with zero-allocation immediates, SWAR/SIMD vectorization, and lock-free OCC reader concurrency.</p>
@@ -948,6 +696,12 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
           <h3 class="card-title">32-Bit Embedded (#![no_std])</h3>
           <p class="card-p">Compact 8-byte <code>Edge32</code> layout saving 50% structural SRAM on ARM Cortex-M and RISC-V RV32 microcontrollers, with 32-byte cache alignment and zero-alloc inlined payloads.</p>
         </div>
+
+        <div class="card">
+          <div class="card-icon">&#128451;</div>
+          <h3 class="card-title">Database Engine Subsystems</h3>
+          <p class="card-p">MVCC visibility scans, string interning dictionaries, and an <code>ExpanseBlobMap</code> slab arena for variable-length values &mdash; plus a RocksDB MemTable plugin.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -993,22 +747,22 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
       </div>
 
       <div class="install-box">
-        <div class="install-nav">
-          <button class="tab-btn active" onclick="switchTab('tab-cargo')">Rust (Cargo)</button>
-          <button class="tab-btn" onclick="switchTab('tab-python')">Python (PyPI)</button>
-          <button class="tab-btn" onclick="switchTab('tab-node')">Node.js / Bun (npm)</button>
-          <button class="tab-btn" onclick="switchTab('tab-dotnet')">.NET / C# (NuGet)</button>
-          <button class="tab-btn" onclick="switchTab('tab-cpp')">C++20 (Header-Only)</button>
-          <button class="tab-btn" onclick="switchTab('tab-c')">C ABI (expanse.h)</button>
-          <button class="tab-btn" onclick="switchTab('tab-apt')">Debian / Ubuntu (APT)</button>
-          <button class="tab-btn" onclick="switchTab('tab-rpm')">RHEL / Fedora (RPM)</button>
-          <button class="tab-btn" onclick="switchTab('tab-java')">Java / JVM (Maven)</button>
-          <button class="tab-btn" onclick="switchTab('tab-rocksdb')">RocksDB MemTable</button>
-          <button class="tab-btn" onclick="switchTab('tab-php')">PHP (Composer &amp; PIE)</button>
-          <button class="tab-btn" onclick="switchTab('tab-espidf')">ESP-IDF (ESP32)</button>
+        <div class="install-nav" role="tablist" aria-label="Installation targets">
+          <button class="tab-btn active" role="tab" data-tab="tab-cargo" aria-selected="true" onclick="switchTab('tab-cargo')">Rust (Cargo)</button>
+          <button class="tab-btn" role="tab" data-tab="tab-python" aria-selected="false" onclick="switchTab('tab-python')">Python (PyPI)</button>
+          <button class="tab-btn" role="tab" data-tab="tab-node" aria-selected="false" onclick="switchTab('tab-node')">Node.js / Bun (npm)</button>
+          <button class="tab-btn" role="tab" data-tab="tab-dotnet" aria-selected="false" onclick="switchTab('tab-dotnet')">.NET / C# (NuGet)</button>
+          <button class="tab-btn" role="tab" data-tab="tab-cpp" aria-selected="false" onclick="switchTab('tab-cpp')">C++20 (Header-Only)</button>
+          <button class="tab-btn" role="tab" data-tab="tab-c" aria-selected="false" onclick="switchTab('tab-c')">C ABI (expanse.h)</button>
+          <button class="tab-btn" role="tab" data-tab="tab-apt" aria-selected="false" onclick="switchTab('tab-apt')">Debian / Ubuntu (APT)</button>
+          <button class="tab-btn" role="tab" data-tab="tab-rpm" aria-selected="false" onclick="switchTab('tab-rpm')">RHEL / Fedora (RPM)</button>
+          <button class="tab-btn" role="tab" data-tab="tab-java" aria-selected="false" onclick="switchTab('tab-java')">Java / JVM (Maven)</button>
+          <button class="tab-btn" role="tab" data-tab="tab-rocksdb" aria-selected="false" onclick="switchTab('tab-rocksdb')">RocksDB MemTable</button>
+          <button class="tab-btn" role="tab" data-tab="tab-php" aria-selected="false" onclick="switchTab('tab-php')">PHP (Composer &amp; PIE)</button>
+          <button class="tab-btn" role="tab" data-tab="tab-espidf" aria-selected="false" onclick="switchTab('tab-espidf')">ESP-IDF (ESP32)</button>
         </div>
 
-        <div id="tab-cargo" class="install-panel">
+        <div id="tab-cargo" class="install-panel" role="tabpanel">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Add core Expanse engine to your <code>Cargo.toml</code>:</p>
           <pre><code>cargo add expanse-trie</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Rust (Maps, Sets, Off-Heap Blobs, Lock-Free OCC):</p>
@@ -1031,7 +785,7 @@ let reader = sync_map.reader();
 assert_eq!(reader.get(99), Some(500));</code></pre>
         </div>
 
-        <div id="tab-python" class="install-panel" style="display: none;">
+        <div id="tab-python" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install the official Python extension from PyPI (binary wheels for Linux, macOS, Windows):</p>
           <pre><code>pip install expanse-trie</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Python:</p>
@@ -1053,7 +807,7 @@ bm.insert(42, b"raw binary payload data", hot_meta=1750000000)
 print(bm.get(42))  # b'raw binary payload data'</code></pre>
         </div>
 
-        <div id="tab-node" class="install-panel" style="display: none;">
+        <div id="tab-node" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install native Node.js / Bun / Deno bindings via npm (napi-rs v8+ with zero-copy Buffer views):</p>
           <pre><code>npm install @orieg/expanse
 # or: bun add @orieg/expanse / pnpm add @orieg/expanse</code></pre>
@@ -1072,7 +826,7 @@ const entry = blobs.getWithMeta(1001n);
 console.log(entry?.payload.toString()); // "payload bytes"</code></pre>
         </div>
 
-        <div id="tab-dotnet" class="install-panel" style="display: none;">
+        <div id="tab-dotnet" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install the official .NET package from NuGet (multi-targeting .NET 8.0 &amp; 9.0 with SafeHandle zero-GC memory safety):</p>
           <pre><code>dotnet add package Orieg.Expanse</code></pre>
           <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in C#:</p>
@@ -1093,7 +847,7 @@ if (blobs.TryGet(1001, out var payload, out var meta)) {
 }</code></pre>
         </div>
 
-        <div id="tab-cpp" class="install-panel" style="display: none;">
+        <div id="tab-cpp" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Header-only modern C++20 RAII container wrapper (<code>include/expanse.hpp</code>):</p>
           <pre><code>// main.cpp - Header-only C++20 STL-compatible RAII wrapper
 #include &lt;expanse.hpp&gt;
@@ -1120,7 +874,7 @@ int main() {
           <pre><code>clang++ -std=c++20 -I/usr/include main.cpp -lexpanse -o main</code></pre>
         </div>
 
-        <div id="tab-c" class="install-panel" style="display: none;">
+        <div id="tab-c" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Compile with modern <code>expanse.h</code> or drop-in <code>Judy.h</code> via pkg-config:</p>
           <pre><code>// main.c - Using modern Expanse C API
 #include &lt;expanse.h&gt;
@@ -1141,7 +895,7 @@ int main() {
           <pre><code>gcc $(pkg-config --cflags expanse) main.c $(pkg-config --libs expanse) -o main</code></pre>
         </div>
 
-        <div id="tab-apt" class="install-panel" style="display: none;">
+        <div id="tab-apt" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Configure the official Expanse APT repository (<a href="./apt/">view APT repository page</a>):</p>
           <pre><code># 1. Add repository source
 echo "deb [trusted=yes] https://orieg.github.io/expanse/apt/ stable main" | sudo tee /etc/apt/sources.list.d/expanse.list
@@ -1151,7 +905,7 @@ sudo apt-get update
 sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat</code></pre>
         </div>
 
-        <div id="tab-rpm" class="install-panel" style="display: none;">
+        <div id="tab-rpm" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Configure the official Expanse YUM/DNF repository (<a href="./rpm/">view RPM repository page</a>):</p>
           <pre><code># 1. Add repository configuration
 sudo dnf config-manager --add-repo https://orieg.github.io/expanse/rpm/expanse.repo
@@ -1160,7 +914,7 @@ sudo dnf config-manager --add-repo https://orieg.github.io/expanse/rpm/expanse.r
 sudo dnf install -y libexpanse libexpanse-devel libjudy-compat</code></pre>
         </div>
 
-        <div id="tab-java" class="install-panel" style="display: none;">
+        <div id="tab-java" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Add Java / JVM bindings via Maven Central (Java 22+ Foreign Function &amp; Memory / JNI):</p>
           <pre><code>&lt;!-- Maven pom.xml --&gt;
 &lt;dependency&gt;
@@ -1177,7 +931,7 @@ try (var map = new ExpanseMap()) {
 }</code></pre>
         </div>
 
-        <div id="tab-rocksdb" class="install-panel" style="display: none;">
+        <div id="tab-rocksdb" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">RocksDB pluggable MemTable plugin (<code>ExpanseMemTableRepFactory</code> / <code>integrations/rocksdb</code>):</p>
           <pre><code>// RocksDB integration: 2x-3x higher key density in RAM, fewer SSTable flushes
 #include &lt;expanse_memtable.h&gt;
@@ -1206,7 +960,7 @@ int main() {
           </div>
         </div>
 
-        <div id="tab-php" class="install-panel" style="display: none;">
+        <div id="tab-php" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Unified Composer package (<code>orieg/expanse</code>) with native Zend extension (<code>pie install orieg/php-expanse</code>) and portable FFI fallback:</p>
           <pre><code># Install via Composer (Packagist)
 composer require orieg/expanse
@@ -1232,7 +986,7 @@ $judy = new Judy(Judy::INT_TO_INT);
 $judy[42] = 999;</code></pre>
         </div>
 
-        <div id="tab-espidf" class="install-panel" style="display: none;">
+        <div id="tab-espidf" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Add Expanse to your ESP-IDF project's <code>main/idf_component.yml</code> (ESP-IDF v5.0+):</p>
           <pre><code>dependencies:
   expanse:
@@ -1327,21 +1081,22 @@ void app_main(void) {
 
   <script>
     function switchTab(tabId) {
-      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-      document.querySelectorAll('.install-panel').forEach(panel => panel.style.display = 'none');
-      
-      event.target.classList.add('active');
+      document.querySelectorAll('.tab-btn').forEach(function(btn) {
+        var isActive = btn.getAttribute('data-tab') === tabId;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        if (isActive && btn.scrollIntoView) {
+          btn.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+      });
+      document.querySelectorAll('.install-panel').forEach(function(panel) {
+        panel.style.display = 'none';
+      });
       document.getElementById(tabId).style.display = 'block';
     }
-
-    function toggleTheme() {
-      const current = document.documentElement.getAttribute('data-theme') || 
-        (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-      const next = current === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      localStorage.setItem('expanse-theme', next);
-    }
   </script>
+  """ + THEME_TOGGLE_JS + """
+  """ + SITE_JS + """
 </body>
 </html>
 """
@@ -1363,28 +1118,37 @@ void app_main(void) {
         with open(visualizer_src, "r", encoding="utf-8") as f:
             v_content = f.read()
 
-        v_content = v_content.replace(
-            "localStorage.setItem('theme', theme);",
-            "localStorage.setItem('expanse-theme', theme); localStorage.setItem('theme', theme);",
-        )
-        v_content = v_content.replace(
-            "const savedTheme = localStorage.getItem('theme');",
-            "const savedTheme = localStorage.getItem('expanse-theme') || localStorage.getItem('theme');",
-        )
+        # The visualizer embeds its own copy of the canonical theme scripts so it
+        # works standalone from docs/. Fail the build if they drift from
+        # site_theme.py rather than shipping divergent theme behavior.
+        if THEME_HEAD_JS_BODY not in v_content:
+            raise SystemExit(
+                "::error::visualizer drift: docs/architecture_visualizer.html no longer "
+                "embeds the canonical THEME_HEAD_JS_BODY from scripts/site_theme.py."
+            )
+        if THEME_TOGGLE_JS_BODY not in v_content:
+            raise SystemExit(
+                "::error::visualizer drift: docs/architecture_visualizer.html no longer "
+                "embeds the canonical THEME_TOGGLE_JS_BODY from scripts/site_theme.py."
+            )
 
+        # Inject only the namespaced nav/toggle/copy-button bundle: the visualizer
+        # defines its own palette with overlapping variable names, so the full
+        # portal CSS must never be appended here (it would clobber --bg, .card, ...).
         nav_style = """<style>
-""" + MAIN_CSS + """
+""" + VISUALIZER_NAV_BUNDLE_CSS + """
 </style>"""
         v_content = v_content.replace("</head>", f"{nav_style}\n</head>", 1)
         v_content = v_content.replace("<body>", f"<body>\n{nav_vis_html}", 1)
+        v_content = v_content.replace("</body>", f"  {SITE_JS}\n</body>", 1)
         with open(os.path.join(output_dir, "visualizer.html"), "w", encoding="utf-8") as f:
             f.write(v_content)
 
     # 4. APT & RPM repositories
     apt_out = os.path.join(output_dir, "apt")
     rpm_out = os.path.join(output_dir, "rpm")
-    build_apt_repo(artifacts_dir, apt_out, allow_empty=allow_empty)
-    build_rpm_repo(artifacts_dir, rpm_out, allow_empty=allow_empty)
+    build_apt_repo(artifacts_dir, apt_out, allow_empty=allow_empty, version=version)
+    build_rpm_repo(artifacts_dir, rpm_out, allow_empty=allow_empty, version=version)
 
     print(f"Complete GitHub Pages site generated in {output_dir}")
 
