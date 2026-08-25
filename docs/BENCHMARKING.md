@@ -194,6 +194,35 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 
 ---
 
+## Remote Bare-Metal Benchmarks
+
+To ensure consistent performance measurements unaffected by shared cloud runner noise, Expanse supports automated remote bare-metal benchmarking.
+
+### Triggering via PR Comment
+Maintainers and collaborators can trigger benchmarks directly from a PR by commenting:
+- `/bench` (runs all suites)
+- `/benchmark vs_stock` (runs only the `vs_stock` suite)
+- `/benchmark instructions` (runs only the `instructions` suite)
+- `/benchmark comparative` (runs only the `comparative` suite)
+
+Results will be posted back as a sticky PR comment.
+
+### Triggering via `workflow_dispatch`
+The `Bare-Metal Benchmarks` workflow can also be triggered manually via the GitHub Actions UI. It accepts `ref`, `base_ref`, `pr_number`, and `benchmark_suite` as inputs.
+
+### Running Locally
+Developers can run the exact same remote sync, build, and benchmark execution locally using the standalone script `scripts/run_remote_bench.sh`:
+
+```bash
+export BENCH_HOST="user@bare-metal-host"
+export BENCH_REPO="/path/to/remote/dir"
+./scripts/run_remote_bench.sh all
+```
+
+**Privacy Reminder:** Per `AGENTS.md`, never commit private hostnames, LAN IPs, or personal paths. Always use environment variables like `$BENCH_HOST` and `$BENCH_REPO`.
+
+---
+
 ## Measured results
 
 ### bytes/key (measured: deterministic allocation accounting via `NodeAlloc`, commit with this section; machine-independent)
