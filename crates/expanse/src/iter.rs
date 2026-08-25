@@ -72,6 +72,11 @@ enum LeafCursor {
         rank: u16,
         prefix: u64,
     },
+    ImmedSingle {
+        key: u64,
+        value: u64,
+        done: bool,
+    },
     ImmedMulti {
         keys: [u64; 15],
         values: [u64; 15],
@@ -164,6 +169,36 @@ impl<const MAP: bool> RawIter<MAP> {
 
                 EdgeTag::Immed(im) => {
                     let n = im.key_count();
+                    // Single-key immediates dominate sparse-key tries (every
+                    // leaf holds one key). Decode the one key/value directly,
+                    // skipping the two 15-wide staging arrays and the wide
+                    // cursor copy the multi-key path pays per element.
+                    if n == 1 {
+                        let kb = im.key_bytes() as usize;
+                        let (low, value) = if MAP {
+                            // Map immediate: key in the low `kb` aux bytes,
+                            // value in word 0.
+                            let aux = cur_edge.aux_bytes();
+                            let mut kbuf = [0u8; 8];
+                            kbuf[..kb].copy_from_slice(&aux[..kb]);
+                            (
+                                u64::from_le_bytes(kbuf),
+                                u64::from_le_bytes(cur_edge.imm_bytes()),
+                            )
+                        } else {
+                            // Set immediate: key packed in word 0.
+                            let w0 = cur_edge.imm_bytes();
+                            let mut kbuf = [0u8; 8];
+                            kbuf[..kb].copy_from_slice(&w0[..kb]);
+                            (u64::from_le_bytes(kbuf), 0)
+                        };
+                        self.leaf = LeafCursor::ImmedSingle {
+                            key: cur_prefix | low,
+                            value,
+                            done: false,
+                        };
+                        return;
+                    }
                     let (keys_buf, vals_buf) = if MAP {
                         let k = crate::mutate::immed_map_keys(&cur_edge, im);
                         let mut v = [0u64; 15];
@@ -616,6 +651,13 @@ impl<const MAP: bool> RawIter<MAP> {
                     }
                 }
 
+                LeafCursor::ImmedSingle { key, value, done } => {
+                    if !*done {
+                        *done = true;
+                        return Some((*key, *value));
+                    }
+                }
+
                 LeafCursor::ImmedMulti {
                     keys,
                     values,
@@ -702,6 +744,40 @@ mod tests {
         assert_eq!(
             set.iter().collect::<Vec<_>>(),
             model.iter().copied().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_iter_sparse_single_key_immediates() {
+        // `keys(i) = i << 40` (benches/compare.rs "sparse"): bytes 0..4 are
+        // always zero, so every leaf is a single-key immediate. Exercises the
+        // ImmedSingle fast path for both set and map flavors against the
+        // ordered std baselines.
+        let n = 20_000u64;
+
+        let mut set = ExpanseSet::new();
+        let mut set_model = BTreeSet::new();
+        for i in 0..n {
+            let k = i << 40;
+            set.insert(k);
+            set_model.insert(k);
+        }
+        assert!(
+            set.iter().eq(set_model.iter().copied()),
+            "sparse set ordered iteration"
+        );
+
+        let mut map = ExpanseMap::new();
+        let mut map_model = BTreeMap::new();
+        for i in 0..n {
+            let k = i << 40;
+            let v = k.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            map.insert(k, v);
+            map_model.insert(k, v);
+        }
+        assert!(
+            map.iter().eq(map_model.iter().map(|(&k, &v)| (k, v))),
+            "sparse map ordered iteration"
         );
     }
 
