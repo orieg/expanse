@@ -14,16 +14,13 @@ on:
 permissions:
   contents: write
 
-env:
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
-
 jobs:
   subsplit-php:
     name: Mirror / bindings/php -> orieg/php-expanse
     runs-on: ubuntu-latest
     steps:
       - name: Checkout monorepo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

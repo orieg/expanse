@@ -22,8 +22,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
-
+  
 jobs:
   miri-full:
     # The per-push Miri job skips the heavy model-based suites to stay
@@ -32,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@nightly
         with:
@@ -45,7 +44,7 @@ jobs:
 
       - name: Report or Update Nightly Failure Issue
         if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const title = '🚨 [Nightly CI Failure] Full Miri Model Verification Failed on main';
@@ -89,7 +88,7 @@ jobs:
 
       - name: Auto-Close Resolved Nightly Issue on Success
         if: success() && github.event_name == 'schedule'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -118,7 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -156,7 +155,7 @@ jobs:
         run: cargo run --release -p expanse-trie --example concurrent_scaling | tee -a bench-report.txt
 
       - name: Upload report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bench-report
           path: bench-report.txt
@@ -170,7 +169,7 @@ jobs:
       matrix:
         target: [set_ops, map_ops, bytesmap_ops, strmap_ops, blobmap_image_corrupt, set32_ops, map32_ops]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@nightly
 
@@ -191,7 +190,7 @@ jobs:
 
       - name: Upload crash artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-artifacts-${{ matrix.target }}
           path: fuzz/artifacts/
