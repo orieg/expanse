@@ -339,8 +339,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${NUGET_API_KEY:-}" ]; then
-            echo "::error::No NuGet API key available (OIDC login failed and NUGET_API_KEY secret unset)"
-            exit 1
+            echo "NUGET_API_KEY secret not configured (and OIDC login not established); skipping NuGet publish."
+            exit 0
           fi
           dotnet nuget push dist/nuget/*.nupkg \
             --api-key "$NUGET_API_KEY" \
@@ -376,6 +376,11 @@ jobs:
           CRATE=crates/expanse-node
           VERSION=$(node -p "require('./${CRATE}/package.json').version")
           echo "Publishing @orieg/expanse platform packages at ${VERSION}"
+
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN secret not configured; skipping npm publish."
+            exit 0
+          fi
 
           platform_os() { case "$1" in linux-*) echo linux ;; darwin-*) echo darwin ;; win32-*) echo win32 ;; esac; }
           platform_cpu() { case "$1" in *-arm64) echo arm64 ;; *) echo x64 ;; esac; }

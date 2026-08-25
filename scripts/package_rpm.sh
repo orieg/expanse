@@ -84,10 +84,12 @@ for HWCAP in x86-64-v2 x86-64-v3 x86-64-v4; do
 done
 
 # Headers
-if [ -d "crates/expanse-capi/include" ]; then
-    cp crates/expanse-capi/include/*.h* %{buildroot}/usr/include/
-elif [ -d "package/include" ]; then
-    cp package/include/*.h* %{buildroot}/usr/include/
+if [ -d "REPO_ROOT_PLACEHOLDER/crates/expanse-capi/include" ]; then
+    cp REPO_ROOT_PLACEHOLDER/crates/expanse-capi/include/*.h* %{buildroot}/usr/include/
+elif [ -d "REPO_ROOT_PLACEHOLDER/package/include" ]; then
+    cp REPO_ROOT_PLACEHOLDER/package/include/*.h* %{buildroot}/usr/include/
+elif [ -d "DIST_DIR_PLACEHOLDER/include" ]; then
+    cp DIST_DIR_PLACEHOLDER/include/*.h* %{buildroot}/usr/include/
 fi
 
 # Compat symlink
@@ -99,19 +101,19 @@ for HWCAP in x86-64-v2 x86-64-v3 x86-64-v4; do
 done
 
 # Pkg-config files
-if [ -f "extra/pkgconfig/expanse.pc.in" ]; then
+if [ -f "REPO_ROOT_PLACEHOLDER/extra/pkgconfig/expanse.pc.in" ]; then
     sed -e "s|@PREFIX@|/usr|g" \
         -e "s|@LIBDIR@|/usr/lib64|g" \
         -e "s|@INCLUDEDIR@|/usr/include|g" \
         -e "s|@VERSION@|VERSION_PLACEHOLDER|g" \
-        extra/pkgconfig/expanse.pc.in > %{buildroot}/usr/lib64/pkgconfig/expanse.pc
+        REPO_ROOT_PLACEHOLDER/extra/pkgconfig/expanse.pc.in > %{buildroot}/usr/lib64/pkgconfig/expanse.pc
 fi
-if [ -f "extra/pkgconfig/judy.pc.in" ]; then
+if [ -f "REPO_ROOT_PLACEHOLDER/extra/pkgconfig/judy.pc.in" ]; then
     sed -e "s|@PREFIX@|/usr|g" \
         -e "s|@LIBDIR@|/usr/lib64|g" \
         -e "s|@INCLUDEDIR@|/usr/include|g" \
         -e "s|@VERSION@|VERSION_PLACEHOLDER|g" \
-        extra/pkgconfig/judy.pc.in > %{buildroot}/usr/lib64/pkgconfig/judy.pc
+        REPO_ROOT_PLACEHOLDER/extra/pkgconfig/judy.pc.in > %{buildroot}/usr/lib64/pkgconfig/judy.pc
 fi
 
 %files
@@ -127,10 +129,13 @@ fi
 
 SPECEOF
 
+REPO_ROOT="$(pwd)"
+
 sed -i.bak \
     -e "s|VERSION_PLACEHOLDER|${VERSION}|g" \
     -e "s|ARCH_PLACEHOLDER|${RPM_ARCH}|g" \
     -e "s|DIST_DIR_PLACEHOLDER|${DIST_DIR}|g" \
+    -e "s|REPO_ROOT_PLACEHOLDER|${REPO_ROOT}|g" \
     "${SPEC_FILE}"
 rm -f "${SPEC_FILE}.bak"
 
