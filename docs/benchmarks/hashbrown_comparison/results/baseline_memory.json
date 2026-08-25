@@ -1,0 +1,54 @@
+[
+  {
+    "population": 1000,
+    "random_keys_bytes_per_key": {
+      "btree": 28.896,
+      "expanse": 58.128,
+      "hashbrown": 34.824
+    },
+    "sequential_keys_bytes_per_key": {
+      "btree": 34.368,
+      "expanse": 77.868,
+      "hashbrown": 34.824
+    }
+  },
+  {
+    "population": 10000,
+    "random_keys_bytes_per_key": {
+      "btree": 27.0528,
+      "expanse": 35.3448,
+      "hashbrown": 27.8536
+    },
+    "sequential_keys_bytes_per_key": {
+      "btree": 34.272,
+      "expanse": 15.4412,
+      "hashbrown": 27.8536
+    }
+  },
+  {
+    "population": 100000,
+    "random_keys_bytes_per_key": {
+      "btree": 27.23616,
+      "expanse": 30.81664,
+      "hashbrown": 22.28232
+    },
+    "sequential_keys_bytes_per_key": {
+      "btree": 34.28352,
+      "expanse": 9.3758,
+      "hashbrown": 22.28232
+    }
+  },
+  {
+    "population": 500000,
+    "random_keys_bytes_per_key": {
+      "btree": 27.113664,
+      "expanse": 24.700624,
+      "hashbrown": 35.6516
+    },
+    "sequential_keys_bytes_per_key": {
+      "btree": 34.28448,
+      "expanse": 8.743896,
+      "hashbrown": 35.6516
+    }
+  }
+]

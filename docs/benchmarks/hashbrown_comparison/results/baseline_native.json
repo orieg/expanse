@@ -1,0 +1,170 @@
+[
+  {
+    "insert_growing": {
+      "btree": {
+        "mops": 8.448721036833803
+      },
+      "expanse": {
+        "mops": 4.626416840157297
+      },
+      "hashbrown": {
+        "mops": 29.49623092245234
+      }
+    },
+    "iter_all": {
+      "btree": {
+        "mops_items": 226.61179337627323,
+        "ns_per_scan": 44128.33
+      },
+      "expanse": {
+        "mops_items": 33.32578837484527,
+        "ns_per_scan": 300067.92
+      },
+      "hashbrown": {
+        "mops_items": 229.83000393928623,
+        "ns_per_scan": 43510.42
+      }
+    },
+    "lookup_hit": {
+      "btree": {
+        "mops": 11.714859842831096,
+        "ns_per_op": 85.36167
+      },
+      "expanse": {
+        "mops": 31.74435886870724,
+        "ns_per_op": 31.50166
+      },
+      "hashbrown": {
+        "mops": 95.67848965763366,
+        "ns_per_op": 10.45167
+      }
+    },
+    "lookup_miss": {
+      "btree": {
+        "mops": 11.098420683638297,
+        "ns_per_op": 90.10291
+      },
+      "expanse": {
+        "mops": 31.992751722169825,
+        "ns_per_op": 31.25708
+      },
+      "hashbrown": {
+        "mops": 67.62084182538405,
+        "ns_per_op": 14.78834
+      }
+    },
+    "population": 10000
+  },
+  {
+    "insert_growing": {
+      "btree": {
+        "mops": 3.2668261966792707
+      },
+      "expanse": {
+        "mops": 1.99209272260918
+      },
+      "hashbrown": {
+        "mops": 37.04870051682937
+      }
+    },
+    "iter_all": {
+      "btree": {
+        "mops_items": 22.26681770991346,
+        "ns_per_scan": 4490987.5
+      },
+      "expanse": {
+        "mops_items": 18.323624881353382,
+        "ns_per_scan": 5457435.45
+      },
+      "hashbrown": {
+        "mops_items": 253.3462607485318,
+        "ns_per_scan": 394716.69999999995
+      }
+    },
+    "lookup_hit": {
+      "btree": {
+        "mops": 3.607991701619086,
+        "ns_per_op": 277.1625
+      },
+      "expanse": {
+        "mops": 6.978854072161352,
+        "ns_per_op": 143.29
+      },
+      "hashbrown": {
+        "mops": 25.453388482341712,
+        "ns_per_op": 39.2875
+      }
+    },
+    "lookup_miss": {
+      "btree": {
+        "mops": 2.7390630990844573,
+        "ns_per_op": 365.08834
+      },
+      "expanse": {
+        "mops": 9.92022354628548,
+        "ns_per_op": 100.80418
+      },
+      "hashbrown": {
+        "mops": 32.9733740004946,
+        "ns_per_op": 30.3275
+      }
+    },
+    "population": 100000
+  },
+  {
+    "insert_growing": {
+      "btree": {
+        "mops": 2.426051429340223
+      },
+      "expanse": {
+        "mops": 3.389439378659904
+      },
+      "hashbrown": {
+        "mops": 24.917952036381006
+      }
+    },
+    "iter_all": {
+      "btree": {
+        "mops_items": 48.249275054642304,
+        "ns_per_scan": 10362850.0
+      },
+      "expanse": {
+        "mops_items": 85.35457811058629,
+        "ns_per_scan": 5857916.6
+      },
+      "hashbrown": {
+        "mops_items": 216.41821278723455,
+        "ns_per_scan": 2310341.6
+      }
+    },
+    "lookup_hit": {
+      "btree": {
+        "mops": 4.271527323038098,
+        "ns_per_op": 234.1083
+      },
+      "expanse": {
+        "mops": 3.6727020178926697,
+        "ns_per_op": 272.2791
+      },
+      "hashbrown": {
+        "mops": 39.10710654340107,
+        "ns_per_op": 25.5708
+      }
+    },
+    "lookup_miss": {
+      "btree": {
+        "mops": 2.734388351505623,
+        "ns_per_op": 365.7125
+      },
+      "expanse": {
+        "mops": 8.111122376558857,
+        "ns_per_op": 123.2875
+      },
+      "hashbrown": {
+        "mops": 93.1315483119907,
+        "ns_per_op": 10.7375
+      }
+    },
+    "population": 500000
+  }
+]

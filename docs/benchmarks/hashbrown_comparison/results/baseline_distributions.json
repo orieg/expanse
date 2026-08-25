@@ -1,0 +1,58 @@
+{
+  "clustered": {
+    "distribution": "clustered",
+    "insert_mops": {
+      "btree": 12.53795332506146,
+      "expanse": 24.986569718776156,
+      "hashbrown": 31.789932128494907
+    },
+    "lookup_mops": {
+      "btree": 15.490027164241036,
+      "expanse": 96.2239971486905,
+      "hashbrown": 28.842826382394843
+    },
+    "population": 500000
+  },
+  "sequential": {
+    "distribution": "sequential",
+    "insert_mops": {
+      "btree": 10.865480977574277,
+      "expanse": 25.498278432735056,
+      "hashbrown": 12.20757755101687
+    },
+    "lookup_mops": {
+      "btree": 16.24776727244084,
+      "expanse": 73.01623647447236,
+      "hashbrown": 46.53994584053422
+    },
+    "population": 500000
+  },
+  "uniform": {
+    "distribution": "uniform",
+    "insert_mops": {
+      "btree": 2.733285956376756,
+      "expanse": 3.726926847454968,
+      "hashbrown": 12.189510316896794
+    },
+    "lookup_mops": {
+      "btree": 3.3842131047655655,
+      "expanse": 6.669037820833738,
+      "hashbrown": 23.24306594262347
+    },
+    "population": 500000
+  },
+  "zipfian": {
+    "distribution": "zipfian",
+    "insert_mops": {
+      "btree": 6.7390704306855005,
+      "expanse": 13.070343385629869,
+      "hashbrown": 47.09557359064847
+    },
+    "lookup_mops": {
+      "btree": 4.083946900751098,
+      "expanse": 18.270763580886953,
+      "hashbrown": 36.146972723566684
+    },
+    "population": 500000
+  }
+}
