@@ -3,6 +3,7 @@
 //! Evaluates [`ExpanseMap`] and [`ExpanseSet`] directly against:
 //! - [`hashbrown::HashMap`] / [`hashbrown::HashSet`] (SwissTable SIMD hash map)
 //! - [`std::collections::BTreeMap`] / [`std::collections::BTreeSet`] (Standard B-tree)
+//! - Stock `libjudy` (JudyL / Judy1 C ABI, dynamically loaded when present)
 //!
 //! # Key Distributions
 //! - `sequential`: monotonic contiguous keys `0..N`
@@ -10,6 +11,7 @@
 //! - `clustered`: dense 256-key runs sharing random 56-bit prefixes
 //!
 //! # Metrics Measured
+//! - Cold insert latency (`ns/op`) and throughput (`Mops/s`)
 //! - Point lookup hit latency (`ns/op`) and throughput (`Mops/s`)
 //! - Point lookup miss latency (`ns/op`) and throughput (`Mops/s`)
 //! - Full iteration latency (`ms`) and throughput (`Mops/s`)
@@ -29,6 +31,148 @@ use hashbrown::{HashMap as HashBrownMap, HashSet as HashBrownSet};
 use std::collections::{BTreeMap, BTreeSet};
 use std::hint::black_box;
 use std::time::Instant;
+
+#[cfg(unix)]
+use core::ffi::{c_int, c_void};
+
+#[cfg(unix)]
+type Word = usize;
+#[cfg(unix)]
+type FIns = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> *mut c_void;
+#[cfg(unix)]
+type FGet = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> *mut c_void;
+#[cfg(unix)]
+type FFree = unsafe extern "C" fn(*mut *mut c_void, *mut c_void) -> Word;
+#[cfg(unix)]
+type FMem = unsafe extern "C" fn(*const c_void) -> Word;
+#[cfg(unix)]
+type FFirst = unsafe extern "C" fn(*const c_void, *mut Word, *mut c_void) -> *mut c_void;
+#[cfg(unix)]
+type FNext = unsafe extern "C" fn(*const c_void, *mut Word, *mut c_void) -> *mut c_void;
+
+#[cfg(unix)]
+type F1Set = unsafe extern "C" fn(*mut *mut c_void, Word, *mut c_void) -> c_int;
+#[cfg(unix)]
+type F1Test = unsafe extern "C" fn(*const c_void, Word, *mut c_void) -> c_int;
+#[cfg(unix)]
+type F1First = unsafe extern "C" fn(*const c_void, *mut Word, *mut c_void) -> c_int;
+#[cfg(unix)]
+type F1Next = unsafe extern "C" fn(*const c_void, *mut Word, *mut c_void) -> c_int;
+
+#[cfg(unix)]
+unsafe extern "C" {
+    fn dlopen(filename: *const u8, flags: c_int) -> *mut c_void;
+    fn dlsym(handle: *mut c_void, symbol: *const u8) -> *mut c_void;
+    fn dlclose(handle: *mut c_void) -> c_int;
+}
+
+#[cfg(unix)]
+struct StockJudy {
+    handle: *mut c_void,
+    ins: FIns,
+    get: FGet,
+    free: FFree,
+    mem: FMem,
+    first: FFirst,
+    next: FNext,
+    set1: F1Set,
+    test1: F1Test,
+    free1: FFree,
+    mem1: FMem,
+    first1: F1First,
+    next1: F1Next,
+}
+
+#[cfg(unix)]
+impl Drop for StockJudy {
+    fn drop(&mut self) {
+        if !self.handle.is_null() {
+            // SAFETY: valid handle loaded via dlopen.
+            unsafe {
+                dlclose(self.handle);
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+impl StockJudy {
+    fn load() -> Option<Self> {
+        let names: [&core::ffi::CStr; 4] = [
+            c"libJudy.so.1",
+            c"libJudy.so",
+            c"/opt/homebrew/opt/judy/lib/libJudy.dylib",
+            c"libJudy.dylib",
+        ];
+        let mut handle = core::ptr::null_mut();
+        for n in names {
+            // SAFETY: valid NUL-terminated library name.
+            handle = unsafe { dlopen(n.to_bytes_with_nul().as_ptr(), 2) };
+            if !handle.is_null() {
+                break;
+            }
+        }
+        if handle.is_null() {
+            return None;
+        }
+
+        let sym = |name: &core::ffi::CStr| -> *mut c_void {
+            // SAFETY: valid handle and NUL-terminated symbol name.
+            unsafe { dlsym(handle, name.to_bytes_with_nul().as_ptr()) }
+        };
+
+        let ins = sym(c"JudyLIns");
+        let get = sym(c"JudyLGet");
+        let free = sym(c"JudyLFreeArray");
+        let mem = sym(c"JudyLMemUsed");
+        let first = sym(c"JudyLFirst");
+        let next = sym(c"JudyLNext");
+
+        let set1 = sym(c"Judy1Set");
+        let test1 = sym(c"Judy1Test");
+        let free1 = sym(c"Judy1FreeArray");
+        let mem1 = sym(c"Judy1MemUsed");
+        let first1 = sym(c"Judy1First");
+        let next1 = sym(c"Judy1Next");
+
+        if ins.is_null()
+            || get.is_null()
+            || free.is_null()
+            || mem.is_null()
+            || first.is_null()
+            || next.is_null()
+            || set1.is_null()
+            || test1.is_null()
+            || free1.is_null()
+            || mem1.is_null()
+            || first1.is_null()
+            || next1.is_null()
+        {
+            // SAFETY: valid handle to close on failure.
+            unsafe { dlclose(handle) };
+            return None;
+        }
+
+        // SAFETY: fn-pointer transmutes of resolved symbols matching the C ABI signatures.
+        unsafe {
+            Some(Self {
+                handle,
+                ins: core::mem::transmute::<*mut c_void, FIns>(ins),
+                get: core::mem::transmute::<*mut c_void, FGet>(get),
+                free: core::mem::transmute::<*mut c_void, FFree>(free),
+                mem: core::mem::transmute::<*mut c_void, FMem>(mem),
+                first: core::mem::transmute::<*mut c_void, FFirst>(first),
+                next: core::mem::transmute::<*mut c_void, FNext>(next),
+                set1: core::mem::transmute::<*mut c_void, F1Set>(set1),
+                test1: core::mem::transmute::<*mut c_void, F1Test>(test1),
+                free1: core::mem::transmute::<*mut c_void, FFree>(free1),
+                mem1: core::mem::transmute::<*mut c_void, FMem>(mem1),
+                first1: core::mem::transmute::<*mut c_void, F1First>(first1),
+                next1: core::mem::transmute::<*mut c_void, F1Next>(next1),
+            })
+        }
+    }
+}
 
 /// Fast deterministic 64-bit XorShift pseudorandom number generator.
 #[derive(Clone, Copy, Debug)]
@@ -99,11 +243,6 @@ fn generate_probes(keys: &[u64], probe_count: usize, seed: u64) -> (Vec<u64>, Ve
 }
 
 /// Structural memory estimator for `hashbrown::HashMap<u64, u64>`.
-///
-/// HashBrown uses a SwissTable layout:
-/// - Control bytes array: `capacity + 16` bytes (Group size = 16)
-/// - Bucket array: `capacity * (size_of::<u64>() + size_of::<u64>())`
-/// - Base struct size: `size_of::<HashMap>()`
 fn estimate_hashbrown_map_mem<K, V>(map: &HashBrownMap<K, V>) -> usize {
     let cap = map.capacity();
     if cap == 0 {
@@ -126,11 +265,6 @@ fn estimate_hashbrown_set_mem<T>(set: &HashBrownSet<T>) -> usize {
 }
 
 /// Structural memory estimator for `std::collections::BTreeMap<u64, u64>`.
-///
-/// Rust standard library BTreeMap uses B=6 (max 11 elements per leaf/node).
-/// Average occupancy is ~70-75% (~8 entries per node).
-/// - Leaf node: header (16B) + 11 * (8B key + 8B val) = 192 bytes
-/// - Internal node: header (16B) + 11 * (8B key + 8B val) + 12 * 8B child ptrs = 288 bytes
 fn estimate_btreemap_mem(n: usize) -> usize {
     if n == 0 {
         return std::mem::size_of::<BTreeMap<u64, u64>>();
@@ -162,8 +296,6 @@ fn estimate_btreeset_mem(n: usize) -> usize {
         total_nodes += cur_level;
     }
     let internal_nodes = total_nodes - num_leaves;
-    // BTreeSet leaf: 16B header + 11 * 8B key = 104 bytes
-    // BTreeSet internal: 16B header + 11 * 8B key + 12 * 8B child ptrs = 200 bytes
     let heap_bytes = (num_leaves * 104.0 + internal_nodes * 200.0) as usize;
     std::mem::size_of::<BTreeSet<u64>>() + heap_bytes
 }
@@ -176,6 +308,8 @@ struct ContainerResult {
     hit_throughput_mops: f64,
     miss_latency_ns: f64,
     miss_throughput_mops: f64,
+    insert_latency_ns: f64,
+    insert_throughput_mops: f64,
     iter_latency_ms: f64,
     iter_throughput_mops: f64,
     bytes_per_key: f64,
@@ -184,10 +318,16 @@ struct ContainerResult {
 
 /// Benchmarks `ExpanseMap`.
 fn bench_expanse_map(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> ContainerResult {
+    // 0. Cold Insertion
+    let t_ins = Instant::now();
     let mut map = ExpanseMap::new();
     for &k in keys {
-        map.insert(k, !k);
+        map.insert(black_box(k), black_box(!k));
     }
+    let ins_elapsed = t_ins.elapsed();
+    let ins_ns = ins_elapsed.as_nanos() as f64 / keys.len().max(1) as f64;
+    let ins_mops = (keys.len() as f64 / ins_elapsed.as_secs_f64()) / 1_000_000.0;
+
     let mem_used = map.mem_used();
     let bytes_per_key = mem_used as f64 / map.len().max(1) as f64;
 
@@ -239,6 +379,8 @@ fn bench_expanse_map(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> C
         hit_throughput_mops: hit_mops,
         miss_latency_ns: miss_ns,
         miss_throughput_mops: miss_mops,
+        insert_latency_ns: ins_ns,
+        insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
         bytes_per_key,
@@ -248,10 +390,16 @@ fn bench_expanse_map(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> C
 
 /// Benchmarks `hashbrown::HashMap`.
 fn bench_hashbrown_map(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> ContainerResult {
+    // 0. Cold Insertion
+    let t_ins = Instant::now();
     let mut map = HashBrownMap::new();
     for &k in keys {
-        map.insert(k, !k);
+        map.insert(black_box(k), black_box(!k));
     }
+    let ins_elapsed = t_ins.elapsed();
+    let ins_ns = ins_elapsed.as_nanos() as f64 / keys.len().max(1) as f64;
+    let ins_mops = (keys.len() as f64 / ins_elapsed.as_secs_f64()) / 1_000_000.0;
+
     let total_bytes = estimate_hashbrown_map_mem(&map);
     let bytes_per_key = total_bytes as f64 / map.len().max(1) as f64;
 
@@ -303,6 +451,8 @@ fn bench_hashbrown_map(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) ->
         hit_throughput_mops: hit_mops,
         miss_latency_ns: miss_ns,
         miss_throughput_mops: miss_mops,
+        insert_latency_ns: ins_ns,
+        insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
         bytes_per_key,
@@ -312,10 +462,16 @@ fn bench_hashbrown_map(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) ->
 
 /// Benchmarks `std::collections::BTreeMap`.
 fn bench_btreemap(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> ContainerResult {
+    // 0. Cold Insertion
+    let t_ins = Instant::now();
     let mut map = BTreeMap::new();
     for &k in keys {
-        map.insert(k, !k);
+        map.insert(black_box(k), black_box(!k));
     }
+    let ins_elapsed = t_ins.elapsed();
+    let ins_ns = ins_elapsed.as_nanos() as f64 / keys.len().max(1) as f64;
+    let ins_mops = (keys.len() as f64 / ins_elapsed.as_secs_f64()) / 1_000_000.0;
+
     let total_bytes = estimate_btreemap_mem(map.len());
     let bytes_per_key = total_bytes as f64 / map.len().max(1) as f64;
 
@@ -367,6 +523,114 @@ fn bench_btreemap(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> Cont
         hit_throughput_mops: hit_mops,
         miss_latency_ns: miss_ns,
         miss_throughput_mops: miss_mops,
+        insert_latency_ns: ins_ns,
+        insert_throughput_mops: ins_mops,
+        iter_latency_ms: iter_ms,
+        iter_throughput_mops: iter_mops,
+        bytes_per_key,
+        is_ordered_iter: true,
+    }
+}
+
+/// Benchmarks stock `libjudy` (JudyL dynamic map).
+#[cfg(unix)]
+fn bench_judyl(
+    stock: &StockJudy,
+    keys: &[u64],
+    hit_probes: &[u64],
+    miss_probes: &[u64],
+) -> ContainerResult {
+    let mut array: *mut c_void = core::ptr::null_mut();
+
+    // 0. Cold Insertion
+    let t_ins = Instant::now();
+    for &k in keys {
+        // SAFETY: valid pointer to Judy array pointer; null error pointer.
+        unsafe {
+            let pval = (stock.ins)(&mut array, k as Word, core::ptr::null_mut());
+            if !pval.is_null() {
+                *(pval as *mut Word) = (!k) as Word;
+            }
+        }
+    }
+    let ins_elapsed = t_ins.elapsed();
+    let ins_ns = ins_elapsed.as_nanos() as f64 / keys.len().max(1) as f64;
+    let ins_mops = (keys.len() as f64 / ins_elapsed.as_secs_f64()) / 1_000_000.0;
+
+    // SAFETY: array pointer is a valid JudyL structure.
+    let mem_used = unsafe { (stock.mem)(array) };
+    let bytes_per_key = mem_used as f64 / keys.len().max(1) as f64;
+
+    // 1. Point lookup (hit)
+    let mut hit_sink = 0u64;
+    let t0 = Instant::now();
+    for &k in hit_probes {
+        // SAFETY: array pointer is a valid JudyL structure; null error pointer.
+        unsafe {
+            let pval = (stock.get)(array, black_box(k) as Word, core::ptr::null_mut());
+            if !pval.is_null() {
+                hit_sink = hit_sink.wrapping_add(black_box(*(pval as *mut Word) as u64));
+            }
+        }
+    }
+    let hit_elapsed = t0.elapsed();
+    black_box(hit_sink);
+
+    let hit_ns = hit_elapsed.as_nanos() as f64 / hit_probes.len() as f64;
+    let hit_mops = (hit_probes.len() as f64 / hit_elapsed.as_secs_f64()) / 1_000_000.0;
+
+    // 2. Point lookup (miss)
+    let mut miss_sink = 0u64;
+    let t0 = Instant::now();
+    for &k in miss_probes {
+        // SAFETY: array pointer is a valid JudyL structure; null error pointer.
+        unsafe {
+            let pval = (stock.get)(array, black_box(k) as Word, core::ptr::null_mut());
+            if !pval.is_null() {
+                miss_sink = miss_sink.wrapping_add(black_box(*(pval as *mut Word) as u64));
+            }
+        }
+    }
+    let miss_elapsed = t0.elapsed();
+    black_box(miss_sink);
+
+    let miss_ns = miss_elapsed.as_nanos() as f64 / miss_probes.len() as f64;
+    let miss_mops = (miss_probes.len() as f64 / miss_elapsed.as_secs_f64()) / 1_000_000.0;
+
+    // 3. Full ordered iteration
+    let mut iter_count = 0usize;
+    let mut iter_checksum = 0u64;
+    let t0 = Instant::now();
+    // SAFETY: array pointer is a valid JudyL structure; index initialized to 0.
+    unsafe {
+        let mut index: Word = 0;
+        let mut pval = (stock.first)(array, &mut index, core::ptr::null_mut());
+        while !pval.is_null() {
+            iter_checksum = iter_checksum
+                .wrapping_add(black_box(index as u64) ^ black_box(*(pval as *mut Word) as u64));
+            iter_count += 1;
+            pval = (stock.next)(array, &mut index, core::ptr::null_mut());
+        }
+    }
+    let iter_elapsed = t0.elapsed();
+    black_box((iter_count, iter_checksum));
+
+    let iter_ms = iter_elapsed.as_secs_f64() * 1000.0;
+    let iter_mops = (iter_count as f64 / iter_elapsed.as_secs_f64()) / 1_000_000.0;
+
+    // SAFETY: frees allocated JudyL tree memory.
+    unsafe {
+        (stock.free)(&mut array, core::ptr::null_mut());
+    }
+
+    ContainerResult {
+        name: "libjudy (stock JudyL)",
+        hit_latency_ns: hit_ns,
+        hit_throughput_mops: hit_mops,
+        miss_latency_ns: miss_ns,
+        miss_throughput_mops: miss_mops,
+        insert_latency_ns: ins_ns,
+        insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
         bytes_per_key,
@@ -376,10 +640,16 @@ fn bench_btreemap(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> Cont
 
 /// Benchmarks `ExpanseSet`.
 fn bench_expanse_set(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> ContainerResult {
+    // 0. Cold Insertion
+    let t_ins = Instant::now();
     let mut set = ExpanseSet::new();
     for &k in keys {
-        set.insert(k);
+        set.insert(black_box(k));
     }
+    let ins_elapsed = t_ins.elapsed();
+    let ins_ns = ins_elapsed.as_nanos() as f64 / keys.len().max(1) as f64;
+    let ins_mops = (keys.len() as f64 / ins_elapsed.as_secs_f64()) / 1_000_000.0;
+
     let mem_used = set.mem_used();
     let bytes_per_key = mem_used as f64 / set.len().max(1) as f64;
 
@@ -431,6 +701,8 @@ fn bench_expanse_set(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> C
         hit_throughput_mops: hit_mops,
         miss_latency_ns: miss_ns,
         miss_throughput_mops: miss_mops,
+        insert_latency_ns: ins_ns,
+        insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
         bytes_per_key,
@@ -440,10 +712,16 @@ fn bench_expanse_set(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> C
 
 /// Benchmarks `hashbrown::HashSet`.
 fn bench_hashbrown_set(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> ContainerResult {
+    // 0. Cold Insertion
+    let t_ins = Instant::now();
     let mut set = HashBrownSet::new();
     for &k in keys {
-        set.insert(k);
+        set.insert(black_box(k));
     }
+    let ins_elapsed = t_ins.elapsed();
+    let ins_ns = ins_elapsed.as_nanos() as f64 / keys.len().max(1) as f64;
+    let ins_mops = (keys.len() as f64 / ins_elapsed.as_secs_f64()) / 1_000_000.0;
+
     let total_bytes = estimate_hashbrown_set_mem(&set);
     let bytes_per_key = total_bytes as f64 / set.len().max(1) as f64;
 
@@ -495,6 +773,8 @@ fn bench_hashbrown_set(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) ->
         hit_throughput_mops: hit_mops,
         miss_latency_ns: miss_ns,
         miss_throughput_mops: miss_mops,
+        insert_latency_ns: ins_ns,
+        insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
         bytes_per_key,
@@ -504,10 +784,16 @@ fn bench_hashbrown_set(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) ->
 
 /// Benchmarks `std::collections::BTreeSet`.
 fn bench_btreeset(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> ContainerResult {
+    // 0. Cold Insertion
+    let t_ins = Instant::now();
     let mut set = BTreeSet::new();
     for &k in keys {
-        set.insert(k);
+        set.insert(black_box(k));
     }
+    let ins_elapsed = t_ins.elapsed();
+    let ins_ns = ins_elapsed.as_nanos() as f64 / keys.len().max(1) as f64;
+    let ins_mops = (keys.len() as f64 / ins_elapsed.as_secs_f64()) / 1_000_000.0;
+
     let total_bytes = estimate_btreeset_mem(set.len());
     let bytes_per_key = total_bytes as f64 / set.len().max(1) as f64;
 
@@ -559,6 +845,108 @@ fn bench_btreeset(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> Cont
         hit_throughput_mops: hit_mops,
         miss_latency_ns: miss_ns,
         miss_throughput_mops: miss_mops,
+        insert_latency_ns: ins_ns,
+        insert_throughput_mops: ins_mops,
+        iter_latency_ms: iter_ms,
+        iter_throughput_mops: iter_mops,
+        bytes_per_key,
+        is_ordered_iter: true,
+    }
+}
+
+/// Benchmarks stock `libjudy` (Judy1 dynamic bitset).
+#[cfg(unix)]
+fn bench_judy1(
+    stock: &StockJudy,
+    keys: &[u64],
+    hit_probes: &[u64],
+    miss_probes: &[u64],
+) -> ContainerResult {
+    let mut array: *mut c_void = core::ptr::null_mut();
+
+    // 0. Cold Insertion
+    let t_ins = Instant::now();
+    for &k in keys {
+        // SAFETY: valid pointer to Judy1 array pointer; null error pointer.
+        unsafe {
+            (stock.set1)(&mut array, k as Word, core::ptr::null_mut());
+        }
+    }
+    let ins_elapsed = t_ins.elapsed();
+    let ins_ns = ins_elapsed.as_nanos() as f64 / keys.len().max(1) as f64;
+    let ins_mops = (keys.len() as f64 / ins_elapsed.as_secs_f64()) / 1_000_000.0;
+
+    // SAFETY: array pointer is a valid Judy1 structure.
+    let mem_used = unsafe { (stock.mem1)(array) };
+    let bytes_per_key = mem_used as f64 / keys.len().max(1) as f64;
+
+    // 1. Point lookup (hit)
+    let mut hit_hits = 0usize;
+    let t0 = Instant::now();
+    for &k in hit_probes {
+        // SAFETY: array pointer is a valid Judy1 structure; null error pointer.
+        unsafe {
+            if (stock.test1)(array, black_box(k) as Word, core::ptr::null_mut()) != 0 {
+                hit_hits += 1;
+            }
+        }
+    }
+    let hit_elapsed = t0.elapsed();
+    black_box(hit_hits);
+
+    let hit_ns = hit_elapsed.as_nanos() as f64 / hit_probes.len() as f64;
+    let hit_mops = (hit_probes.len() as f64 / hit_elapsed.as_secs_f64()) / 1_000_000.0;
+
+    // 2. Point lookup (miss)
+    let mut miss_hits = 0usize;
+    let t0 = Instant::now();
+    for &k in miss_probes {
+        // SAFETY: array pointer is a valid Judy1 structure; null error pointer.
+        unsafe {
+            if (stock.test1)(array, black_box(k) as Word, core::ptr::null_mut()) != 0 {
+                miss_hits += 1;
+            }
+        }
+    }
+    let miss_elapsed = t0.elapsed();
+    black_box(miss_hits);
+
+    let miss_ns = miss_elapsed.as_nanos() as f64 / miss_probes.len() as f64;
+    let miss_mops = (miss_probes.len() as f64 / miss_elapsed.as_secs_f64()) / 1_000_000.0;
+
+    // 3. Full ordered iteration
+    let mut iter_count = 0usize;
+    let mut iter_checksum = 0u64;
+    let t0 = Instant::now();
+    // SAFETY: array pointer is a valid Judy1 structure; index initialized to 0.
+    unsafe {
+        let mut index: Word = 0;
+        let mut rc = (stock.first1)(array, &mut index, core::ptr::null_mut());
+        while rc != 0 {
+            iter_checksum = iter_checksum.wrapping_add(black_box(index as u64));
+            iter_count += 1;
+            rc = (stock.next1)(array, &mut index, core::ptr::null_mut());
+        }
+    }
+    let iter_elapsed = t0.elapsed();
+    black_box((iter_count, iter_checksum));
+
+    let iter_ms = iter_elapsed.as_secs_f64() * 1000.0;
+    let iter_mops = (iter_count as f64 / iter_elapsed.as_secs_f64()) / 1_000_000.0;
+
+    // SAFETY: frees allocated Judy1 tree memory.
+    unsafe {
+        (stock.free1)(&mut array, core::ptr::null_mut());
+    }
+
+    ContainerResult {
+        name: "libjudy (stock Judy1)",
+        hit_latency_ns: hit_ns,
+        hit_throughput_mops: hit_mops,
+        miss_latency_ns: miss_ns,
+        miss_throughput_mops: miss_mops,
+        insert_latency_ns: ins_ns,
+        insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
         bytes_per_key,
@@ -603,12 +991,11 @@ fn print_distribution_report(dist: &str, pop: usize, results: &[ContainerResult]
         dist, pop
     );
     println!(
-        "{:<20} | {:>11} | {:>12} | {:>12} | {:>12} | {:>12} | {:>12} | {:>14}",
+        "{:<24} | {:>12} | {:>11} | {:>12} | {:>12} | {:>12} | {:>14}",
         "Data Structure",
+        "Insert Tput",
         "Hit Latency",
         "Hit Tput",
-        "Miss Latency",
-        "Miss Tput",
         "Iter Latency",
         "Iter Tput",
         "Memory (B/key)"
@@ -622,12 +1009,11 @@ fn print_distribution_report(dist: &str, pop: usize, results: &[ContainerResult]
             " (unordered)"
         };
         println!(
-            "{:<20} | {:>8.2} ns | {:>7.1} Mops/s | {:>9.2} ns | {:>7.1} Mops/s | {:>9.2} ms | {:>7.1} Mops/s | {:>10.2} B/k{}",
+            "{:<24} | {:>7.1} Mops/s | {:>8.2} ns | {:>7.1} Mops/s | {:>9.2} ms | {:>7.1} Mops/s | {:>10.2} B/k{}",
             r.name,
+            r.insert_throughput_mops,
             r.hit_latency_ns,
             r.hit_throughput_mops,
-            r.miss_latency_ns,
-            r.miss_throughput_mops,
             r.iter_latency_ms,
             r.iter_throughput_mops,
             r.bytes_per_key,
@@ -645,17 +1031,25 @@ fn print_distribution_report(dist: &str, pop: usize, results: &[ContainerResult]
             expanse.name
         );
         println!(
+            "  • Cold Insertion:         {} than {}  |  {} than {}",
+            format_multiplier(
+                expanse.insert_throughput_mops,
+                hashbrown.insert_throughput_mops,
+                true
+            ),
+            hashbrown.name,
+            format_multiplier(
+                expanse.insert_throughput_mops,
+                btree.insert_throughput_mops,
+                true
+            ),
+            btree.name,
+        );
+        println!(
             "  • Point Lookup (Hit):     {} than {}  |  {} than {}",
             format_multiplier(expanse.hit_latency_ns, hashbrown.hit_latency_ns, false),
             hashbrown.name,
             format_multiplier(expanse.hit_latency_ns, btree.hit_latency_ns, false),
-            btree.name,
-        );
-        println!(
-            "  • Point Lookup (Miss):    {} than {}  |  {} than {}",
-            format_multiplier(expanse.miss_latency_ns, hashbrown.miss_latency_ns, false),
-            hashbrown.name,
-            format_multiplier(expanse.miss_latency_ns, btree.miss_latency_ns, false),
             btree.name,
         );
         println!(
@@ -736,7 +1130,9 @@ fn parse_args() -> Config {
         } else if arg == "--set" {
             is_set = true;
         } else if arg == "--help" || arg == "-h" {
-            println!("Instant Comparative Benchmark Harness (Expanse vs hashbrown vs BTreeMap)");
+            println!(
+                "Instant Comparative Benchmark Harness (Expanse vs hashbrown vs BTreeMap vs libjudy)"
+            );
             println!(
                 "\nUsage: cargo run --release -p expanse-trie --example bench_lookup_compare [OPTIONS]"
             );
@@ -800,11 +1196,12 @@ fn print_json(
             let key = match r_idx {
                 0 => "expanse",
                 1 => "hashbrown",
-                _ => "btree",
+                2 => "btree",
+                _ => "libjudy",
             };
             out.push_str(&format!(
-                "      \"{}\": {{\"name\": \"{}\", \"lookup_ns\": {:.2}, \"lookup_mops\": {:.2}, \"hit_latency_ns\": {:.2}, \"hit_throughput_mops\": {:.2}, \"miss_latency_ns\": {:.2}, \"miss_throughput_mops\": {:.2}, \"iter_latency_ms\": {:.2}, \"iter_mops\": {:.2}, \"iter_throughput_mops\": {:.2}, \"bytes_per_key\": {:.2}}}",
-                key, r.name, r.hit_latency_ns, r.hit_throughput_mops, r.hit_latency_ns, r.hit_throughput_mops, r.miss_latency_ns, r.miss_throughput_mops, r.iter_latency_ms, r.iter_throughput_mops, r.iter_throughput_mops, r.bytes_per_key
+                "      \"{}\": {{\"name\": \"{}\", \"lookup_ns\": {:.2}, \"lookup_mops\": {:.2}, \"hit_latency_ns\": {:.2}, \"hit_throughput_mops\": {:.2}, \"miss_latency_ns\": {:.2}, \"miss_throughput_mops\": {:.2}, \"insert_ns\": {:.2}, \"insert_mops\": {:.2}, \"iter_latency_ms\": {:.2}, \"iter_mops\": {:.2}, \"iter_throughput_mops\": {:.2}, \"bytes_per_key\": {:.2}}}",
+                key, r.name, r.hit_latency_ns, r.hit_throughput_mops, r.hit_latency_ns, r.hit_throughput_mops, r.miss_latency_ns, r.miss_throughput_mops, r.insert_latency_ns, r.insert_throughput_mops, r.iter_latency_ms, r.iter_throughput_mops, r.iter_throughput_mops, r.bytes_per_key
             ));
             if r_idx + 1 < res.len() {
                 out.push_str(",\n");
@@ -852,13 +1249,16 @@ fn main() {
         (config.pop * 10).clamp(10_000, 100_000)
     };
 
+    #[cfg(unix)]
+    let stock_opt = StockJudy::load();
+
     let mut summary_rows = Vec::new();
 
     for &dist in &config.dists {
         let keys = generate_keys(dist, config.pop, 0x0DDB_1A5E_5EED_0001);
         let (hit_probes, miss_probes) = generate_probes(&keys, probe_count, 0xBEEF_CAFE_1234_5678);
 
-        let results = if config.is_set {
+        let mut results = if config.is_set {
             vec![
                 bench_expanse_set(&keys, &hit_probes, &miss_probes),
                 bench_hashbrown_set(&keys, &hit_probes, &miss_probes),
@@ -871,6 +1271,15 @@ fn main() {
                 bench_btreemap(&keys, &hit_probes, &miss_probes),
             ]
         };
+
+        #[cfg(unix)]
+        if let Some(ref stock) = stock_opt {
+            if config.is_set {
+                results.push(bench_judy1(stock, &keys, &hit_probes, &miss_probes));
+            } else {
+                results.push(bench_judyl(stock, &keys, &hit_probes, &miss_probes));
+            }
+        }
 
         if !config.is_json {
             print_distribution_report(dist, config.pop, &results);
