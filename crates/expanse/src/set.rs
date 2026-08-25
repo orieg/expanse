@@ -178,6 +178,48 @@ impl ExpanseSet {
         }
     }
 
+    /// Performs batched membership queries for a slice of `keys`, writing boolean presence
+    /// flags into `out`. Returns the number of found keys.
+    ///
+    /// When the root is a multi-level digital trie, `contains_batch` interleaves key descents
+    /// across CPU Line Fill Buffers in chunks of 8 keys and issues software prefetch hints
+    /// on branch nodes to overlap DRAM memory latency.
+    #[inline]
+    pub fn contains_batch(&self, keys: &[Key], out: &mut [bool]) -> usize {
+        assert_eq!(
+            keys.len(),
+            out.len(),
+            "keys and out slices must have equal length"
+        );
+        if keys.is_empty() {
+            return 0;
+        }
+        match &self.root {
+            Root::Empty => {
+                out.fill(false);
+                0
+            }
+            Root::Leaf { .. } => {
+                let mut count = 0;
+                for (k, o) in keys.iter().zip(out.iter_mut()) {
+                    let hit = self.contains(*k);
+                    *o = hit;
+                    if hit {
+                        count += 1;
+                    }
+                }
+                count
+            }
+            Root::Tree { top, .. } => {
+                // SAFETY: tree satisfies lookup invariants.
+                unsafe {
+                    get::test_set_batch(top, keys, out, 8);
+                }
+                out.iter().filter(|&&b| b).count()
+            }
+        }
+    }
+
     /// Membership test returning `c_int` (1 or 0).
     #[inline(always)]
     #[must_use]
@@ -1362,5 +1404,54 @@ mod tests {
         assert!(set.remove(k1));
         assert!(set.remove(k2));
         assert!(set.is_empty());
+    }
+
+    #[test]
+    fn test_contains_batch_against_single_contains() {
+        let mut set = ExpanseSet::new();
+        let mut all_keys = Vec::new();
+
+        // 1. Empty set batch test
+        let mut out = [true; 8];
+        assert_eq!(set.contains_batch(&[1, 2, 3, 4, 5, 6, 7, 8], &mut out), 0);
+        assert_eq!(out, [false; 8]);
+
+        // 2. Populate diverse keys
+        for i in 0..10_000u64 {
+            let k = if i % 3 == 0 {
+                i
+            } else if i % 3 == 1 {
+                i * 1000
+            } else {
+                i.wrapping_mul(0x1122_3344_5566_7788)
+            };
+            set.insert(k);
+            all_keys.push(k);
+        }
+
+        let test_batch_sizes = [0, 1, 2, 7, 8, 9, 15, 16, 64, 100, 1000];
+        for &size in &test_batch_sizes {
+            if size > all_keys.len() {
+                continue;
+            }
+            let query_keys: Vec<u64> = all_keys[..size]
+                .iter()
+                .enumerate()
+                .map(|(idx, &k)| if idx % 3 == 0 { k + 1 } else { k })
+                .collect();
+
+            let mut batch_out = vec![false; size];
+            let found_count = set.contains_batch(&query_keys, &mut batch_out);
+
+            let mut expected_found = 0;
+            for (idx, &k) in query_keys.iter().enumerate() {
+                let single = set.contains(k);
+                assert_eq!(batch_out[idx], single, "Mismatch for set key {}", k);
+                if single {
+                    expected_found += 1;
+                }
+            }
+            assert_eq!(found_count, expected_found);
+        }
     }
 }

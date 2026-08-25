@@ -105,6 +105,38 @@ public final class ExpanseSet implements AutoCloseable, LongPredicate {
         }
     }
 
+    /**
+     * Checks membership for a batch of keys simultaneously with memory-level parallelism prefetching.
+     *
+     * @param keys the keys to check
+     * @param outPresent boolean array to store presence flags (must be at least keys.length)
+     * @return number of keys found
+     */
+    public long containsBatch(long[] keys, boolean[] outPresent) {
+        checkOpen();
+        Objects.requireNonNull(keys, "keys array cannot be null");
+        Objects.requireNonNull(outPresent, "outPresent array cannot be null");
+        if (outPresent.length < keys.length) {
+            throw new IllegalArgumentException("outPresent array length must be >= keys length");
+        }
+        if (keys.length == 0) {
+            return 0;
+        }
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment kSeg = arena.allocateFrom(ValueLayout.JAVA_LONG, keys);
+            MemorySegment pSeg = arena.allocate(ValueLayout.JAVA_BOOLEAN, keys.length);
+            long foundCount = (long) ExpanseNative.MH_expanse_set_contains_batch.invokeExact(
+                handle, kSeg, pSeg, (long) keys.length
+            );
+            for (int i = 0; i < keys.length; i++) {
+                outPresent[i] = pSeg.get(ValueLayout.JAVA_BOOLEAN, i);
+            }
+            return foundCount;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
     @Override
     public boolean test(long value) {
         return contains(value);

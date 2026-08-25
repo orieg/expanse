@@ -175,4 +175,25 @@ class ExpanseSetTest {
             assertEquals(keys.length, set.size());
         }
     }
+
+    @Test
+    @DisplayName("Batched membership query with prefetching")
+    void batchMembership() {
+        try (ExpanseSet set = new ExpanseSet()) {
+            for (int i = 0; i < 1000; i++) {
+                set.add(i * 10L);
+            }
+
+            long[] queries = {0L, 10L, 25L, 30L, 9999L};
+            boolean[] outPresent = new boolean[queries.length];
+
+            long found = set.containsBatch(queries, outPresent);
+            assertEquals(3, found);
+            assertTrue(outPresent[0]);
+            assertTrue(outPresent[1]);
+            assertFalse(outPresent[2]);
+            assertTrue(outPresent[3]);
+            assertFalse(outPresent[4]);
+        }
+    }
 }

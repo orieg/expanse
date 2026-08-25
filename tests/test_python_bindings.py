@@ -134,6 +134,13 @@ def test_expanse_set_boundary_keys():
     assert len(s) == len(keys)
 
 
+def test_expanse_set_batch():
+    keys = [10, 20, 30, 40, 50, 60, 70, 80]
+    s = ExpanseSet(keys)
+    res = s.contains_batch([10, 25, 30, 99, 80])
+    assert res == [True, False, True, False, True]
+
+
 # ============================================================================
 # 2. ExpanseMap Tests
 # ============================================================================
@@ -233,6 +240,12 @@ def test_expanse_map_boundary_keys():
         expected = (k ^ 0x5555555555555555) & 0xFFFFFFFFFFFFFFFF
         assert m[k] == expected
     assert len(m) == len(keys)
+
+
+def test_expanse_map_batch():
+    m = ExpanseMap({10: 100, 20: 200, 30: 300, 40: 400})
+    res = m.get_batch([10, 25, 30, 99])
+    assert res == [100, None, 300, None]
 
 
 # ============================================================================

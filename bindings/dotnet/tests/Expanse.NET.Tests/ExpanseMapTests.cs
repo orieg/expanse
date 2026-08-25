@@ -117,4 +117,29 @@ public class ExpanseMapTests
         Assert.Equal(30UL, entries[1].Key);
         Assert.Equal(50UL, entries[2].Key);
     }
+
+    [Fact]
+    public void BatchLookup()
+    {
+        using var map = new ExpanseMap();
+        for (ulong i = 0; i < 1000; i++)
+        {
+            map[i * 10] = i * 100;
+        }
+
+        ulong[] queries = { 0, 10, 25, 30, 9999 };
+        ulong[] outValues = new ulong[queries.Length];
+        bool[] outFound = new bool[queries.Length];
+
+        nuint found = map.GetBatch(queries, outValues, outFound);
+        Assert.Equal((nuint)3, found);
+        Assert.True(outFound[0]);
+        Assert.Equal(0UL, outValues[0]);
+        Assert.True(outFound[1]);
+        Assert.Equal(100UL, outValues[1]);
+        Assert.False(outFound[2]);
+        Assert.True(outFound[3]);
+        Assert.Equal(300UL, outValues[3]);
+        Assert.False(outFound[4]);
+    }
 }

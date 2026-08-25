@@ -59,6 +59,13 @@ impl ExpanseSet {
         self.inner.contains(key)
     }
 
+    /// Checks membership for a batch of keys, returning a list of bools.
+    pub fn contains_batch(&self, keys: Vec<u64>) -> Vec<bool> {
+        let mut out = vec![false; keys.len()];
+        self.inner.contains_batch(&keys, &mut out);
+        out
+    }
+
     /// Inserts `key` into the set; returns `True` if it was not present.
     pub fn insert(&mut self, key: u64) -> bool {
         self.inner.insert(key)

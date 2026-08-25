@@ -298,6 +298,37 @@ pub unsafe extern "C" fn expanse_set_by_count(
     true
 }
 
+/// Queries membership for a batch of `count` keys in `keys`, writing boolean presence
+/// into `out_present`. Returns the count of found keys.
+///
+/// # Safety
+///
+/// `set` must be null or a live handle.
+/// `keys` and `out_present` must point to valid arrays of at least `count` elements.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_set_contains_batch(
+    set: *const ExpanseSet,
+    keys: *const u64,
+    out_present: *mut bool,
+    count: usize,
+) -> usize {
+    if set.is_null() || keys.is_null() || out_present.is_null() || count == 0 {
+        if !out_present.is_null() && count > 0 {
+            // SAFETY: out_present is non-null and valid for count elements per contract.
+            unsafe {
+                core::ptr::write_bytes(out_present, 0, count);
+            }
+        }
+        return 0;
+    }
+    // SAFETY: caller guarantees `keys` is valid for `count` elements.
+    let k_slice = unsafe { core::slice::from_raw_parts(keys, count) };
+    // SAFETY: caller guarantees `out_present` is valid for `count` elements.
+    let out_slice = unsafe { core::slice::from_raw_parts_mut(out_present, count) };
+    // SAFETY: set is non-null and points to a live ExpanseSet per contract.
+    unsafe { (*set).contains_batch(k_slice, out_slice) }
+}
+
 // ---------------------------------------------------------------------
 // expanse_map_t — ordered u64 -> u64 map (cf. JudyL)
 // ---------------------------------------------------------------------
@@ -362,6 +393,45 @@ pub unsafe extern "C" fn expanse_map_get(
     // SAFETY: `value_out` null or writable per contract.
     unsafe { put(value_out, v) };
     true
+}
+
+/// Look up a batch of `count` keys in `keys`. For each key found, writes the value into `out_values`
+/// and true into `out_found` (when non-NULL). Returns the count of found keys.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle.
+/// `keys` and `out_values` must point to valid arrays of at least `count` elements.
+/// `out_found` must be null or point to a valid array of at least `count` booleans.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_map_get_batch(
+    map: *const ExpanseMap,
+    keys: *const u64,
+    out_values: *mut u64,
+    out_found: *mut bool,
+    count: usize,
+) -> usize {
+    if map.is_null() || keys.is_null() || out_values.is_null() || count == 0 {
+        if !out_found.is_null() && count > 0 {
+            // SAFETY: out_found is non-null and valid for count elements per contract.
+            unsafe {
+                core::ptr::write_bytes(out_found, 0, count);
+            }
+        }
+        return 0;
+    }
+    // SAFETY: caller guarantees `keys` is valid for `count` elements.
+    let k_slice = unsafe { core::slice::from_raw_parts(keys, count) };
+    // SAFETY: caller guarantees `out_values` is valid for `count` elements.
+    let v_slice = unsafe { core::slice::from_raw_parts_mut(out_values, count) };
+    let f_slice = if out_found.is_null() {
+        None
+    } else {
+        // SAFETY: caller guarantees `out_found` is valid for `count` elements when non-null.
+        Some(unsafe { core::slice::from_raw_parts_mut(out_found, count) })
+    };
+    // SAFETY: map is non-null and points to a live ExpanseMap per contract.
+    unsafe { (*map).get_batch_into(k_slice, v_slice, f_slice) }
 }
 
 /// Removes `key`, reporting its value through `old_out`; false if absent.

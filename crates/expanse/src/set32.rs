@@ -60,6 +60,25 @@ impl ExpanseSet32 {
         trie32::set_contains(&self.alloc, &self.root, 4, key)
     }
 
+    /// Query membership for a batch of 32-bit keys, writing boolean presence flags into `out`.
+    #[inline]
+    pub fn contains_batch(&self, keys: &[Key32], out: &mut [bool]) -> usize {
+        assert_eq!(
+            keys.len(),
+            out.len(),
+            "keys and out slices must have equal length"
+        );
+        let mut count = 0;
+        for (k, o) in keys.iter().zip(out.iter_mut()) {
+            let hit = self.contains(*k);
+            *o = hit;
+            if hit {
+                count += 1;
+            }
+        }
+        count
+    }
+
     /// Remove a 32-bit key from the set.
     ///
     /// Returns `true` if the key was present, `false` otherwise.

@@ -197,6 +197,88 @@ impl ExpanseMap {
         }
     }
 
+    /// Look up a batch of `keys` simultaneously, writing values into `out`.
+    ///
+    /// When the root is a multi-level digital trie, `get_batch` interleaves key descents
+    /// across CPU Line Fill Buffers in chunks of 8 keys and issues software prefetch hints
+    /// on branch nodes to overlap DRAM memory latency.
+    #[inline]
+    pub fn get_batch(&self, keys: &[Key], out: &mut [Option<u64>]) {
+        assert_eq!(
+            keys.len(),
+            out.len(),
+            "keys and out slices must have equal length"
+        );
+        if keys.is_empty() {
+            return;
+        }
+        match &self.root {
+            Root::Empty => {
+                out.fill(None);
+            }
+            Root::Leaf { .. } => {
+                for (k, o) in keys.iter().zip(out.iter_mut()) {
+                    *o = self.get(*k);
+                }
+            }
+            Root::Tree { top, .. } => {
+                // SAFETY: tree satisfies lookup invariants.
+                unsafe {
+                    get::get_map_batch(top, keys, out, 8);
+                }
+            }
+        }
+    }
+
+    /// Look up a batch of `keys`, writing found values into `out_values` and presence flags
+    /// into `out_found` (when `Some`). Returns the count of found keys.
+    #[inline]
+    pub fn get_batch_into(
+        &self,
+        keys: &[Key],
+        out_values: &mut [u64],
+        mut out_found: Option<&mut [bool]>,
+    ) -> usize {
+        assert_eq!(
+            keys.len(),
+            out_values.len(),
+            "keys and out_values must have equal length"
+        );
+        if let Some(ref found) = out_found {
+            assert_eq!(
+                keys.len(),
+                found.len(),
+                "keys and out_found must have equal length"
+            );
+        }
+        if keys.is_empty() {
+            return 0;
+        }
+
+        let mut found_count = 0;
+        let mut tmp_opts = [None; 8];
+        let mut offset = 0;
+
+        for (k_chunk, v_chunk) in keys.chunks(8).zip(out_values.chunks_mut(8)) {
+            let chunk_len = k_chunk.len();
+            let opt_sub = &mut tmp_opts[..chunk_len];
+            self.get_batch(k_chunk, opt_sub);
+            for (idx, opt) in opt_sub.iter().enumerate() {
+                let is_hit = opt.is_some();
+                if let Some(val) = *opt {
+                    v_chunk[idx] = val;
+                    found_count += 1;
+                }
+                if let Some(ref mut found_slice) = out_found {
+                    found_slice[offset + idx] = is_hit;
+                }
+            }
+            offset += chunk_len;
+        }
+
+        found_count
+    }
+
     /// Returns a pointer to `key`'s value slot in the leaf or root leaf, or `None`
     /// if absent.
     #[inline(always)]
@@ -1918,6 +2000,64 @@ mod tests {
                 vec![]
             };
             assert_eq!(exp_res, bt_res, "Large trie range mismatch for {:?}", r);
+        }
+    }
+
+    #[test]
+    fn test_get_batch_against_single_get() {
+        let mut map = ExpanseMap::new();
+        let mut all_keys = Vec::new();
+
+        // 1. Empty map batch test
+        let mut out = [Some(999); 8];
+        map.get_batch(&[1, 2, 3, 4, 5, 6, 7, 8], &mut out);
+        assert_eq!(out, [None; 8]);
+
+        // 2. Populate diverse keys: sequential, sparse, wide 64-bit
+        for i in 0..10_000u64 {
+            let k = if i % 3 == 0 {
+                i
+            } else if i % 3 == 1 {
+                i * 1000
+            } else {
+                i.wrapping_mul(0x1122_3344_5566_7788)
+            };
+            let v = k ^ 0xDEAD_BEEF;
+            map.insert(k, v);
+            all_keys.push(k);
+        }
+
+        // Test various batch sizes: 0, 1, 7, 8, 9, 16, 100, full
+        let test_batch_sizes = [0, 1, 2, 7, 8, 9, 15, 16, 64, 100, 1000];
+        for &size in &test_batch_sizes {
+            if size > all_keys.len() {
+                continue;
+            }
+            let query_keys: Vec<u64> = all_keys[..size]
+                .iter()
+                .enumerate()
+                .map(|(idx, &k)| if idx % 4 == 0 { k + 1 } else { k })
+                .collect();
+
+            let mut batch_out = vec![None; size];
+            map.get_batch(&query_keys, &mut batch_out);
+
+            let mut values_out = vec![0u64; size];
+            let mut found_out = vec![false; size];
+            let found_count =
+                map.get_batch_into(&query_keys, &mut values_out, Some(&mut found_out));
+
+            let mut expected_found = 0;
+            for (idx, &k) in query_keys.iter().enumerate() {
+                let single = map.get(k);
+                assert_eq!(batch_out[idx], single, "Mismatch for key {}", k);
+                assert_eq!(found_out[idx], single.is_some());
+                if let Some(val) = single {
+                    assert_eq!(values_out[idx], val);
+                    expected_found += 1;
+                }
+            }
+            assert_eq!(found_count, expected_found);
         }
     }
 }

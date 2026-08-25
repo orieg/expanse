@@ -37,12 +37,14 @@ public final class ExpanseNative {
     public static final MethodHandle MH_expanse_set_count_below;
     public static final MethodHandle MH_expanse_set_count_range;
     public static final MethodHandle MH_expanse_set_by_count;
+    public static final MethodHandle MH_expanse_set_contains_batch;
 
     // Map
     public static final MethodHandle MH_expanse_map_new;
     public static final MethodHandle MH_expanse_map_free;
     public static final MethodHandle MH_expanse_map_insert;
     public static final MethodHandle MH_expanse_map_get;
+    public static final MethodHandle MH_expanse_map_get_batch;
     public static final MethodHandle MH_expanse_map_remove;
     public static final MethodHandle MH_expanse_map_len;
     public static final MethodHandle MH_expanse_map_mem_used;
@@ -153,12 +155,14 @@ public final class ExpanseNative {
         MH_expanse_set_count_below = downcall("expanse_set_count_below", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
         MH_expanse_set_count_range = downcall("expanse_set_count_range", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG));
         MH_expanse_set_by_count = downcall("expanse_set_by_count", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_set_contains_batch = downcall("expanse_set_contains_batch", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
 
         // Map
         MH_expanse_map_new = downcall("expanse_map_new", FunctionDescriptor.of(ValueLayout.ADDRESS));
         MH_expanse_map_free = downcall("expanse_map_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
         MH_expanse_map_insert = downcall("expanse_map_insert", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_map_get = downcall("expanse_map_get", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        MH_expanse_map_get_batch = downcall("expanse_map_get_batch", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
         MH_expanse_map_remove = downcall("expanse_map_remove", FunctionDescriptor.of(ValueLayout.JAVA_BOOLEAN, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_map_len = downcall("expanse_map_len", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
         MH_expanse_map_mem_used = downcall("expanse_map_mem_used", FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));

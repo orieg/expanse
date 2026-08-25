@@ -130,4 +130,25 @@ public class ExpanseSetTests
 
         Assert.Equal(sorted, enumerated);
     }
+
+    [Fact]
+    public void BatchMembership()
+    {
+        using var set = new ExpanseSet();
+        for (ulong i = 0; i < 1000; i++)
+        {
+            set.Add(i * 10);
+        }
+
+        ulong[] queries = { 0, 10, 25, 30, 9999 };
+        bool[] outPresent = new bool[queries.Length];
+
+        nuint found = set.ContainsBatch(queries, outPresent);
+        Assert.Equal((nuint)3, found);
+        Assert.True(outPresent[0]);
+        Assert.True(outPresent[1]);
+        Assert.False(outPresent[2]);
+        Assert.True(outPresent[3]);
+        Assert.False(outPresent[4]);
+    }
 }

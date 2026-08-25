@@ -62,6 +62,19 @@ impl ExpanseMap32 {
         trie32::map_get(&self.alloc, &self.root, 4, key)
     }
 
+    /// Look up a batch of 32-bit keys simultaneously, writing results into `out`.
+    #[inline]
+    pub fn get_batch(&self, keys: &[Key32], out: &mut [Option<Value32>]) {
+        assert_eq!(
+            keys.len(),
+            out.len(),
+            "keys and out slices must have equal length"
+        );
+        for (k, o) in keys.iter().zip(out.iter_mut()) {
+            *o = self.get(*k);
+        }
+    }
+
     /// Check if a key exists in the map.
     #[inline]
     #[must_use]

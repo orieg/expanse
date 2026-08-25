@@ -14,6 +14,7 @@ describe('@orieg/expanse Node / Bun bindings', () => {
     expect(set.size()).toBe(0n);
     expect(set.add(42n)).toBe(true);
     expect(set.has(42n)).toBe(true);
+    expect(set.containsBatch([42n, 99n])).toEqual([true, false]);
     expect(set.remove(42n)).toBe(true);
     expect(set.size()).toBe(0n);
   });
@@ -23,6 +24,7 @@ describe('@orieg/expanse Node / Bun bindings', () => {
     map.set(1n, 100n);
     expect(map.get(1n)).toBe(100n);
     expect(map.has(1n)).toBe(true);
+    expect(map.getBatch([1n, 2n])).toEqual([100n, null]);
     expect(map.delete(1n)).toBe(true);
   });
 

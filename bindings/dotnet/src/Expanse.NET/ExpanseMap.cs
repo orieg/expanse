@@ -100,6 +100,33 @@ public sealed class ExpanseMap : IDisposable, IEnumerable<KeyValuePair<ulong, ul
     }
 
     /// <summary>
+    /// Look up a batch of keys simultaneously with memory-level parallelism prefetching.
+    /// </summary>
+    /// <param name="keys">The keys to look up.</param>
+    /// <param name="outValues">Array to store found values (length must be >= keys.Length).</param>
+    /// <param name="outFound">Optional boolean array to store presence flags (null or length >= keys.Length).</param>
+    /// <returns>The number of keys found.</returns>
+    public nuint GetBatch(ulong[] keys, ulong[] outValues, bool[]? outFound = null)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(keys);
+        ArgumentNullException.ThrowIfNull(outValues);
+        if (outValues.Length < keys.Length)
+        {
+            throw new ArgumentException("outValues array length must be >= keys length", nameof(outValues));
+        }
+        if (outFound != null && outFound.Length < keys.Length)
+        {
+            throw new ArgumentException("outFound array length must be >= keys length", nameof(outFound));
+        }
+        if (keys.Length == 0)
+        {
+            return 0;
+        }
+        return NativeMethods.expanse_map_get_batch(_handle, keys, outValues, outFound, (nuint)keys.Length);
+    }
+
+    /// <summary>
     /// Attempts to retrieve the value associated with the specified key (alias for <see cref="TryGet"/>).
     /// </summary>
     public bool TryGetValue(ulong key, out ulong value) => TryGet(key, out value);

@@ -75,12 +75,14 @@ PYTHON_FEATURE_MAPPING = {
     "expanse_set_count_below": ("set.rs", ["count_below", "rank"]),
     "expanse_set_count_range": ("set.rs", ["count_range"]),
     "expanse_set_by_count": ("set.rs", ["by_count", "select"]),
+    "expanse_set_contains_batch": ("set.rs", ["contains_batch"]),
 
-    # Map (19 functions)
+    # Map (20 functions)
     "expanse_map_new": ("map.rs", ["new", "__init__"]),
     "expanse_map_free": ("map.rs", ["inner", "ExpanseMap"]),
     "expanse_map_insert": ("map.rs", ["insert", "__setitem__"]),
     "expanse_map_get": ("map.rs", ["get", "__getitem__"]),
+    "expanse_map_get_batch": ("map.rs", ["get_batch"]),
     "expanse_map_remove": ("map.rs", ["remove", "__delitem__"]),
     "expanse_map_len": ("map.rs", ["__len__", "len"]),
     "expanse_map_mem_used": ("map.rs", ["mem_used"]),
@@ -194,12 +196,14 @@ NODE_FEATURE_MAPPING = {
     "expanse_set_count_below": ("set.rs", ["rank", "count_below"]),
     "expanse_set_count_range": ("set.rs", ["count_range", "countRange"]),
     "expanse_set_by_count": ("set.rs", ["select", "by_count"]),
+    "expanse_set_contains_batch": ("set.rs", ["contains_batch", "containsBatch"]),
 
-    # Map (19 functions)
+    # Map (20 functions)
     "expanse_map_new": ("map.rs", ["new", "constructor"]),
     "expanse_map_free": ("map.rs", ["inner", "ExpanseMap"]),
     "expanse_map_insert": ("map.rs", ["set", "insert"]),
     "expanse_map_get": ("map.rs", ["get"]),
+    "expanse_map_get_batch": ("map.rs", ["get_batch", "getBatch"]),
     "expanse_map_remove": ("map.rs", ["delete", "remove"]),
     "expanse_map_len": ("map.rs", ["size", "len"]),
     "expanse_map_mem_used": ("map.rs", ["mem_used", "memUsed"]),

@@ -555,6 +555,516 @@ unsafe fn get_map_popcnt(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     unsafe { walk_map_impl(edge, key, level) }
 }
 
+const BATCH_WIDTH: usize = 8;
+
+#[derive(Clone, Copy)]
+struct SetLane {
+    edge: *const Edge,
+    key: Key,
+    level: u8,
+    done: bool,
+    found: bool,
+}
+
+impl Default for SetLane {
+    #[inline(always)]
+    fn default() -> Self {
+        Self {
+            edge: core::ptr::null(),
+            key: 0,
+            level: 8,
+            done: true,
+            found: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct MapLane {
+    edge: *const Edge,
+    key: Key,
+    level: u8,
+    done: bool,
+    found: bool,
+    value: u64,
+}
+
+impl Default for MapLane {
+    #[inline(always)]
+    fn default() -> Self {
+        Self {
+            edge: core::ptr::null(),
+            key: 0,
+            level: 8,
+            done: true,
+            found: false,
+            value: 0,
+        }
+    }
+}
+
+#[inline(always)]
+fn prefetch_read(ptr: *const u8) {
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
+    // SAFETY: _mm_prefetch is a non-faulting hint instruction; reads nothing observable.
+    unsafe {
+        core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(ptr.cast::<i8>());
+    }
+    #[cfg(not(all(target_arch = "x86_64", not(miri))))]
+    {
+        let _ = ptr;
+    }
+}
+
+#[inline(always)]
+unsafe fn walk_set_batch_chunk(root_edge: &Edge, keys: &[Key], out: &mut [bool], level: u8) {
+    let count = keys.len();
+    debug_assert!(count <= BATCH_WIDTH);
+    debug_assert_eq!(count, out.len());
+    if count == 0 {
+        return;
+    }
+
+    let mut lanes = [SetLane::default(); BATCH_WIDTH];
+    let mut active = count;
+    for (i, &key) in keys.iter().enumerate() {
+        lanes[i].edge = root_edge as *const Edge;
+        lanes[i].key = key;
+        lanes[i].level = level;
+        lanes[i].done = false;
+        lanes[i].found = false;
+    }
+
+    while active > 0 {
+        for lane in lanes.iter_mut().take(count) {
+            if lane.done {
+                continue;
+            }
+            // SAFETY: lane.edge points to a live edge in the trie.
+            let edge = unsafe { &*lane.edge };
+            let tag = edge.tag_byte();
+            let key = lane.key;
+            let cur_level = lane.level;
+
+            match tag {
+                0x00 => {
+                    lane.done = true;
+                    lane.found = false;
+                    active -= 1;
+                }
+                0x01 => {
+                    // SAFETY: pointer-tagged edge -> live BranchL3.
+                    let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                    let bl = b.hdr.level;
+                    if bl < cur_level && !decode_matches(edge, key, bl, cur_level) {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    }
+                    let d = digit(key, bl);
+                    let num = b.hdr.num as usize;
+                    let slot = if b.hdr.digits[0] == d {
+                        0
+                    } else if num > 1 && b.hdr.digits[1] == d {
+                        1
+                    } else if num > 2 && b.hdr.digits[2] == d {
+                        2
+                    } else {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    };
+                    // SAFETY: slot < 3 accesses valid child edge pointer.
+                    let next_edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                    if next_edge.tag_byte() < 0x10 {
+                        prefetch_read(next_edge.node_ptr());
+                    }
+                    lane.edge = next_edge as *const Edge;
+                    lane.level = bl - 1;
+                }
+                0x02 => {
+                    // SAFETY: pointer-tagged edge -> live BranchL7.
+                    let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
+                    let bl = b.hdr.level;
+                    if bl < cur_level && !decode_matches(edge, key, bl, cur_level) {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    }
+                    let d = digit(key, bl);
+                    let Some(slot) = b.hdr.find(d) else {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    };
+                    // SAFETY: slot < 7 accesses valid child edge pointer.
+                    let next_edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                    if next_edge.tag_byte() < 0x10 {
+                        prefetch_read(next_edge.node_ptr());
+                    }
+                    lane.edge = next_edge as *const Edge;
+                    lane.level = bl - 1;
+                }
+                0x03 => {
+                    // SAFETY: pointer-tagged edge -> live BranchB.
+                    let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
+                    let bl = b.level;
+                    if bl < cur_level && !decode_matches(edge, key, bl, cur_level) {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    }
+                    let d = digit(key, bl);
+                    let Some((sub, slot)) = b.bitmap.test_and_subexpanse_rank_with_sub(d) else {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    };
+                    // SAFETY: sub < 8 accesses valid subarray pointer.
+                    let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
+                    // SAFETY: slot is verified rank inside the live subexpanse subarray.
+                    let next_edge = unsafe { &*sub_ptr.add(slot) };
+                    if next_edge.tag_byte() < 0x10 {
+                        prefetch_read(next_edge.node_ptr());
+                    }
+                    lane.edge = next_edge as *const Edge;
+                    lane.level = bl - 1;
+                }
+                0x04 => {
+                    // SAFETY: pointer-tagged edge -> live BranchU.
+                    let b_ptr = edge.node_ptr().cast::<BranchU>();
+                    let d = digit(key, cur_level);
+                    // SAFETY: BranchU has 256 edges.
+                    let next_edge = unsafe { &*(*b_ptr).edges.as_ptr().add(d as usize) };
+                    if next_edge.tag_byte() < 0x10 {
+                        prefetch_read(next_edge.node_ptr());
+                    }
+                    lane.edge = next_edge as *const Edge;
+                    lane.level = cur_level - 1;
+                }
+                0x0C => {
+                    if cur_level > 1 && !decode_matches(edge, key, 1, cur_level) {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    }
+                    let d = (key & 0xFF) as u8;
+                    // SAFETY: pointer-tagged edge -> live LeafBitmap1.
+                    let l = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
+                    lane.found = l.bitmap.test(d);
+                    lane.done = true;
+                    active -= 1;
+                }
+                0x05..=0x0B => {
+                    let lf = tag - 0x04;
+                    if cur_level > lf && !decode_matches(edge, key, lf, cur_level) {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    }
+                    let pop = edge.pop0(lf) as usize + 1;
+                    let base = edge.node_ptr();
+                    // SAFETY: set leaves are pop * lf readable key bytes.
+                    lane.found = unsafe { leaf::search(base, pop, lf, key) }.is_some();
+                    lane.done = true;
+                    active -= 1;
+                }
+                0x7F => {
+                    lane.found = true;
+                    lane.done = true;
+                    active -= 1;
+                }
+                0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
+                    let kb = (tag >> 4) as usize;
+                    lane.found = ((key ^ edge.word0()) & IMM_MASKS[kb]) == 0;
+                    lane.done = true;
+                    active -= 1;
+                }
+                _ => {
+                    if let Some(im) = ImmedType::from_u8(tag) {
+                        debug_assert_eq!(im.key_bytes(), cur_level);
+                        let payload = edge.imm_payload();
+                        lane.found = immed_find(im, &payload, key).is_some();
+                    } else {
+                        lane.found = false;
+                    }
+                    lane.done = true;
+                    active -= 1;
+                }
+            }
+        }
+    }
+
+    for (lane, o) in lanes.iter().take(count).zip(out.iter_mut()) {
+        *o = lane.found;
+    }
+}
+
+#[inline(always)]
+unsafe fn walk_map_batch_chunk(root_edge: &Edge, keys: &[Key], out: &mut [Option<u64>], level: u8) {
+    let count = keys.len();
+    debug_assert!(count <= BATCH_WIDTH);
+    debug_assert_eq!(count, out.len());
+    if count == 0 {
+        return;
+    }
+
+    let mut lanes = [MapLane::default(); BATCH_WIDTH];
+    let mut active = count;
+    for (i, &key) in keys.iter().enumerate() {
+        lanes[i].edge = root_edge as *const Edge;
+        lanes[i].key = key;
+        lanes[i].level = level;
+        lanes[i].done = false;
+        lanes[i].found = false;
+        lanes[i].value = 0;
+    }
+
+    while active > 0 {
+        for lane in lanes.iter_mut().take(count) {
+            if lane.done {
+                continue;
+            }
+            // SAFETY: lane.edge points to a live edge in the trie.
+            let edge = unsafe { &*lane.edge };
+            let tag = edge.tag_byte();
+            let key = lane.key;
+            let cur_level = lane.level;
+
+            match tag {
+                0x00 => {
+                    lane.done = true;
+                    lane.found = false;
+                    active -= 1;
+                }
+                0x01 => {
+                    // SAFETY: pointer-tagged edge -> live BranchL3.
+                    let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                    let bl = b.hdr.level;
+                    if bl < cur_level && !decode_matches(edge, key, bl, cur_level) {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    }
+                    let d = digit(key, bl);
+                    let num = b.hdr.num as usize;
+                    let slot = if b.hdr.digits[0] == d {
+                        0
+                    } else if num > 1 && b.hdr.digits[1] == d {
+                        1
+                    } else if num > 2 && b.hdr.digits[2] == d {
+                        2
+                    } else {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    };
+                    // SAFETY: slot < 3 accesses valid child edge pointer.
+                    let next_edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                    if next_edge.tag_byte() < 0x10 {
+                        prefetch_read(next_edge.node_ptr());
+                    }
+                    lane.edge = next_edge as *const Edge;
+                    lane.level = bl - 1;
+                }
+                0x02 => {
+                    // SAFETY: pointer-tagged edge -> live BranchL7.
+                    let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
+                    let bl = b.hdr.level;
+                    if bl < cur_level && !decode_matches(edge, key, bl, cur_level) {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    }
+                    let d = digit(key, bl);
+                    let Some(slot) = b.hdr.find(d) else {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    };
+                    // SAFETY: slot < 7 accesses valid child edge pointer.
+                    let next_edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                    if next_edge.tag_byte() < 0x10 {
+                        prefetch_read(next_edge.node_ptr());
+                    }
+                    lane.edge = next_edge as *const Edge;
+                    lane.level = bl - 1;
+                }
+                0x03 => {
+                    // SAFETY: pointer-tagged edge -> live BranchB.
+                    let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
+                    let bl = b.level;
+                    if bl < cur_level && !decode_matches(edge, key, bl, cur_level) {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    }
+                    let d = digit(key, bl);
+                    let Some((sub, slot)) = b.bitmap.test_and_subexpanse_rank_with_sub(d) else {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    };
+                    // SAFETY: sub < 8 accesses valid subarray pointer.
+                    let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
+                    // SAFETY: slot is verified rank inside the live subexpanse subarray.
+                    let next_edge = unsafe { &*sub_ptr.add(slot) };
+                    if next_edge.tag_byte() < 0x10 {
+                        prefetch_read(next_edge.node_ptr());
+                    }
+                    lane.edge = next_edge as *const Edge;
+                    lane.level = bl - 1;
+                }
+                0x04 => {
+                    // SAFETY: pointer-tagged edge -> live BranchU.
+                    let b_ptr = edge.node_ptr().cast::<BranchU>();
+                    let d = digit(key, cur_level);
+                    // SAFETY: BranchU has 256 edges.
+                    let next_edge = unsafe { &*(*b_ptr).edges.as_ptr().add(d as usize) };
+                    if next_edge.tag_byte() < 0x10 {
+                        prefetch_read(next_edge.node_ptr());
+                    }
+                    lane.edge = next_edge as *const Edge;
+                    lane.level = cur_level - 1;
+                }
+                0x0C => {
+                    if cur_level > 1 && !decode_matches(edge, key, 1, cur_level) {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    }
+                    let d = (key & 0xFF) as u8;
+                    // SAFETY: pointer-tagged edge -> live LeafBitmapL.
+                    let l = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
+                    if let Some((sub, slot)) = l.bitmap.test_and_subexpanse_rank_with_sub(d) {
+                        // SAFETY: sub < 8 accesses valid values subarray pointer.
+                        let vals = unsafe { *l.values.as_ptr().add(sub) };
+                        // SAFETY: bit is set, so slot is valid.
+                        lane.value = unsafe { *vals.add(slot) };
+                        lane.found = true;
+                    } else {
+                        lane.found = false;
+                    }
+                    lane.done = true;
+                    active -= 1;
+                }
+                0x05..=0x0B => {
+                    let lf = tag - 0x04;
+                    if cur_level > lf && !decode_matches(edge, key, lf, cur_level) {
+                        lane.done = true;
+                        lane.found = false;
+                        active -= 1;
+                        continue;
+                    }
+                    let pop = edge.pop0(lf) as usize + 1;
+                    let base = edge.node_ptr();
+                    // SAFETY: map leaves are one live allocation of pop values followed by packed keys.
+                    let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
+                    // SAFETY: keys_ptr spans pop * lf readable bytes.
+                    if let Some(slot) = unsafe { leaf::search(keys_ptr, pop, lf, key) } {
+                        // SAFETY: slot < pop values live at base.
+                        lane.value = unsafe { *base.cast::<u64>().add(slot) };
+                        lane.found = true;
+                    } else {
+                        lane.found = false;
+                    }
+                    lane.done = true;
+                    active -= 1;
+                }
+                0x7F => {
+                    unreachable!("full-expanse edges are set-flavor only");
+                }
+                0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
+                    let kb = (tag >> 4) as usize;
+                    if ((key ^ edge.aux_word()) & IMM_MASKS[kb]) == 0 {
+                        lane.value = edge.word0();
+                        lane.found = true;
+                    } else {
+                        lane.found = false;
+                    }
+                    lane.done = true;
+                    active -= 1;
+                }
+                _ => {
+                    if let Some(im) = ImmedType::from_u8(tag) {
+                        debug_assert_eq!(im.key_bytes(), cur_level);
+                        let kb_usize = im.key_bytes() as usize;
+                        let n = im.key_count() as usize;
+                        debug_assert!(kb_usize * n <= 7, "map immediates keep keys in aux");
+                        if let Some(slot) = immed_find(im, edge.aux_bytes(), key) {
+                            let vals = edge.node_ptr().cast::<u64>();
+                            // SAFETY: multi-key map immediates store pointer to live array in word 0.
+                            lane.value = unsafe { *vals.add(slot) };
+                            lane.found = true;
+                        } else {
+                            lane.found = false;
+                        }
+                    } else {
+                        lane.found = false;
+                    }
+                    lane.done = true;
+                    active -= 1;
+                }
+            }
+        }
+    }
+
+    for (lane, o) in lanes.iter().take(count).zip(out.iter_mut()) {
+        *o = if lane.found { Some(lane.value) } else { None };
+    }
+}
+
+/// Tests membership for a slice of `keys` in a set-flavor subtree rooted at `edge`.
+/// Interleaves traversal across CPU Line Fill Buffers and issues software prefetch hints
+/// on child branches.
+///
+/// # Safety
+///
+/// Same contract as [`test_set`].
+#[inline]
+pub unsafe fn test_set_batch(edge: &Edge, keys: &[Key], out: &mut [bool], level: u8) {
+    debug_assert_eq!(keys.len(), out.len());
+    for (k_chunk, o_chunk) in keys.chunks(BATCH_WIDTH).zip(out.chunks_mut(BATCH_WIDTH)) {
+        // SAFETY: forwarded caller contract.
+        unsafe {
+            walk_set_batch_chunk(edge, k_chunk, o_chunk, level);
+        }
+    }
+}
+
+/// Retrieves values for a slice of `keys` from a map-flavor subtree rooted at `edge`.
+/// Interleaves traversal across CPU Line Fill Buffers and issues software prefetch hints
+/// on child branches.
+///
+/// # Safety
+///
+/// Same contract as [`get_map`].
+#[inline]
+pub unsafe fn get_map_batch(edge: &Edge, keys: &[Key], out: &mut [Option<u64>], level: u8) {
+    debug_assert_eq!(keys.len(), out.len());
+    for (k_chunk, o_chunk) in keys.chunks(BATCH_WIDTH).zip(out.chunks_mut(BATCH_WIDTH)) {
+        // SAFETY: forwarded caller contract.
+        unsafe {
+            walk_map_batch_chunk(edge, k_chunk, o_chunk, level);
+        }
+    }
+}
+
 /// Locates the **writable value slot** of `key` in a map-flavor subtree —
 /// the pointer the compat layer's `JudyLIns`/`JudyLGet`/`JudyLFirst`
 /// family hands to C callers, valid until the next structural mutation
