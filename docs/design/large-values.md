@@ -20,7 +20,7 @@ When storing arbitrary-sized payloads (strings, JSON documents, protocol buffers
 
 This design introduces a unified, zero-copy, cache-conscious large-value architecture for Expanse across four complementary pillars:
 1. **Polymorphic 64-bit Value Slots (`ValueSlot`)**: Packing $\le 7$-byte values directly inline with zero heap allocation, and packing 32-bit hot metadata (TTL, flags, tenant ID) alongside a 24-bit arena locator into a single 64-bit word.
-2. **Hot/Cold Columnar Metadata-Predicate Range Filtering**: Executing predicate filters directly over contiguous leaf value arrays without dereferencing cold payload cache lines. The `$82\%$ DRAM-traffic reduction` / `$>15\times$ selective-scan` figures are **design targets gated on the wide-offset arena** — measured on the shipped 16 MiB-ceiling arena the columnar advantage is ~1.3–1.4× (the working set stays L3-resident, so payloads are never cache-cold); see §10.3.
+2. **Hot/Cold Columnar Metadata-Predicate Range Filtering**: Executing predicate filters directly over contiguous leaf value arrays without dereferencing cold payload cache lines. The `$82\%$ DRAM-traffic reduction` / `$\gt 15\times$ selective-scan` figures are **design targets gated on the wide-offset arena** — measured on the shipped 16 MiB-ceiling arena the columnar advantage is ~1.3–1.4× (the working set stays L3-resident, so payloads are never cache-cold); see §10.3.
 3. **Chunked Slab/Arena Backing (`BlobArena` / `ExpanseBlobMap`)**: Append-only 2 MiB/16 MiB chunk allocation with generation counters, ABA safety, and incremental in-place compaction.
 4. **Zero-Copy `mmap` / Shared-Memory IPC**: Base-relative offset encoding enabling cross-process multi-reader access with zero serialization overhead and zero memory duplication.
 5. **C ABI Drop-In Compatibility**: Seamless coexistence with classic `JudyL` functions (`JudyLGet`, `JudyLIns`) returning `*mut Word`.
@@ -65,7 +65,7 @@ Leaf Cache Line (64 B):  [ Ptr A | Ptr B | Ptr C | Ptr D | Ptr E | Ptr F | Ptr G
 ### 2.2 The Columnar Filter Bottleneck
 
 In production databases, search engines, and real-time caches, range queries frequently apply metadata predicates:
-$$\text{Scan}(K_{\text{start}} \le k \le K_{\text{end}}) \quad \text{WHERE} \quad \text{expiry} > T_{\text{now}} \ \land \ (\text{flags} \ \& \ \text{FLAG\_DELETED}) == 0$$
+$$\text{Scan}(K_{\text{start}} \le k \le K_{\text{end}}) \quad \text{WHERE} \quad \text{expiry} \gt T_{\text{now}} \ \land \ (\text{flags} \mathbin{\&} \text{FLAG\_DELETED}) = 0$$
 
 Under the conventional architecture, even if $95\%$ of keys are expired or deleted, the CPU **must load the payload cache line** from main memory for every single candidate key solely to inspect the header metadata.
 
@@ -910,8 +910,8 @@ Per Expanse development rules, development proceeds in strict sequential phases 
 4. **OCC Reader Safety**: Readers traversing `BlobArena` during compaction never read uninitialized memory; generational checks detect stale offsets.
 
 ### 10.2 Benchmark Suite Additions (`benches/large_values.rs`)
-- `bench_inline_vs_heap_small_blobs`: Measure throughput (ops/sec) and allocations for 1–7 byte keys. Target: $0$ heap allocations, $>3\times$ insert throughput vs `BTreeMap<u64, Vec<u8>>`.
-- `bench_predicate_scan_selectivity_sweep`: Measure scan latency across $\sigma \in \{0.001, 0.01, 0.05, 0.20, 1.0\}$. Target: $>10\times$ speedup at $\sigma \le 0.05$.
+- `bench_inline_vs_heap_small_blobs`: Measure throughput (ops/sec) and allocations for 1–7 byte keys. Target: $0$ heap allocations, $\gt 3\times$ insert throughput vs `BTreeMap<u64, Vec<u8>>`.
+- `bench_predicate_scan_selectivity_sweep`: Measure scan latency across $\sigma \in \{0.001, 0.01, 0.05, 0.20, 1.0\}$. Target: $\gt 10\times$ speedup at $\sigma \le 0.05$.
 - `bench_predicate_scan_cold_dram_sweep`: the falsifiable variant of the above with a payload-*touching* baseline (both arms share the `scan_filtered` traversal, so the only difference is payload cache-line loads). Measures the speedup the columnar pushdown actually yields; see §10.3 for why the arena ceiling keeps it warm.
 - `bench_arena_compaction_churn`: Measure pause times and memory reclamation under heavy overwrite workloads.
 
