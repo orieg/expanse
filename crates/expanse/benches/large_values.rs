@@ -289,36 +289,35 @@ fn bench_predicate_scan_cold_dram_sweep(c: &mut Criterion) {
 }
 
 /// Cold-DRAM predicate-scan sweep over a **> LLC** arena — the RFC §10.3
-/// re-benchmark unblocked by the wide-offset `ArenaLong` arena (#244/#276).
+/// re-benchmark, sized so a skipped payload is a real ~80 ns DRAM fetch.
 ///
-/// [`bench_predicate_scan_cold_dram_sweep`] above is capped at a ~14.6 MiB
-/// arena by the 16 MiB `ArenaShort` ceiling, so its working set stays
-/// L3-resident (reference host L3 = 30 MiB) and the skipped payloads are only
-/// ~L3 hits, not cold-DRAM fetches — bounding the columnar advantage to ~1.4×.
-/// `ArenaLong` lifts that size ceiling (up to a 1 GiB safety cap), so this
-/// bench sizes the arena to ~9× the LLC, making a skipped payload a real
-/// ~80 ns DRAM fetch. Keys are inserted in **shuffled** order so an ordered
-/// key-scan touches arena offsets in random order (defeating the hardware
-/// prefetcher that would otherwise stream a sequential arena and hide the
-/// DRAM latency).
+/// [`bench_predicate_scan_cold_dram_sweep`] above is capped at a ~14.6 MiB arena
+/// whose working set stays L3-resident (reference host L3 = 30 MiB), so skipped
+/// payloads are only ~L3 hits — bounding the columnar advantage to ~1.4×. This
+/// bench sizes the arena to ~9× the LLC. Keys are inserted in **shuffled** order
+/// so an ordered key-scan touches arena offsets in random order (defeating the
+/// hardware prefetcher that would otherwise stream a sequential arena and hide
+/// the DRAM latency).
 ///
-/// **Critical caveat this bench measures:** `ArenaLong` slots carry **no** hot
-/// metadata — they report `hot_meta = 0` (all 56 non-tag bits address the
-/// chunk/offset; see `blobmap.rs` "Inline / ArenaLong metadata"). A > LLC
-/// arena is therefore mostly `ArenaLong`, so a `meta <= threshold` predicate
-/// matches every spilled entry regardless of σ. The bench logs the realized
-/// match-rate to expose this: if it is ~= the ArenaLong fraction rather than σ,
-/// the columnar pushdown has degenerated to "touch every payload" and cannot
-/// beat the naive arm — the >10× regime remains unreachable, now gated on a
-/// metadata-carrying wide encoding, not just the wide-offset arena.
+/// **Metadata degeneration fixed in #285 Phase 1.** Before the uniform
+/// `ArenaMeta` encoding, arena payloads past 16 MiB spilled to a metadata-less
+/// `ArenaLong` slot (`hot_meta = 0`), so over a > LLC arena a `meta <= threshold`
+/// predicate matched ~94% of entries regardless of σ and the columnar pushdown
+/// degenerated to "touch every payload." `ArenaMeta` carries 24-bit metadata
+/// across the whole arena, so the filter now works: the logged match-rate should
+/// track σ (e.g. ~0.1% at σ=0.001), not the old ~94%. The bench keeps logging the
+/// realized match-rate so the fix stays visible; the columnar-vs-naive timing is
+/// the RFC §10.3 measurement (its ceiling is still traversal-bound; see the
+/// design doc for the BlobLeafVector work that targets ≥10×).
 fn bench_predicate_scan_cold_dram_large(c: &mut Criterion) {
     /// Payload bytes per entry (16 cache lines); the touched `view[0]` is one
     /// cold cache line per matched entry.
     const PAYLOAD: usize = 1024;
     /// ~272 MiB arena (262_144 × align16(1032) = 260 MiB) ≈ 9× the 30 MiB LLC.
     const N: u64 = 262_144;
-    /// `meta <= threshold` selects `threshold / META_RANGE` of entries — but
-    /// only among the `ArenaShort` minority that actually carries metadata.
+    /// `meta <= threshold` selects `threshold / META_RANGE` of entries. Under the
+    /// uniform `ArenaMeta` encoding every arena entry carries metadata, so the
+    /// realized selectivity tracks this ratio across the whole arena.
     const META_RANGE: u32 = 10_000;
     /// Reference LLC, for the logged arena/LLC ratio (reference host L3).
     const LLC_BYTES: f64 = 30.0 * 1024.0 * 1024.0;
@@ -337,9 +336,9 @@ fn bench_predicate_scan_cold_dram_large(c: &mut Criterion) {
         order.swap(i, j);
     }
 
-    // 64 MiB chunks: global offset < 16 MiB → ArenaShort (meta kept); the rest
-    // spills to ArenaLong (meta lost). With shuffled insertion, the ~6% of keys
-    // landing in the first 16 MiB are a random subset.
+    // 64 MiB chunks. Every arena entry uses the uniform `ArenaMeta` encoding, so
+    // all N keys carry 24-bit metadata regardless of where they land (the #285
+    // Phase 1 fix — previously entries past 16 MiB lost their metadata).
     let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024 * 1024);
     for &k in &order {
         let meta = (k.wrapping_mul(GOLDEN) % META_RANGE as u64) as u32;
@@ -354,8 +353,9 @@ fn bench_predicate_scan_cold_dram_large(c: &mut Criterion) {
         ("sigma_1.0", 10000u32),
     ];
 
-    // Expose the meta=0 degeneration: log realized match-rate vs the σ a working
-    // filter would yield. A rate ~= the ArenaLong fraction (not σ) is the finding.
+    // Log realized match-rate vs the σ a working filter yields. With the uniform
+    // ArenaMeta encoding these now agree (the filter works); a rate far above σ
+    // would signal a metadata regression.
     eprintln!(
         "cold_dram_large config: N={N} payload={PAYLOAD}B arena~{:.0} MiB (ref LLC 30 MiB => arena/LLC ~{:.1}x, cold-DRAM regime reachable)",
         arena_bytes as f64 / (1024.0 * 1024.0),

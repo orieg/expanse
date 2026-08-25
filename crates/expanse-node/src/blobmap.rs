@@ -103,8 +103,8 @@ impl ExpanseBlobMap {
         let mut to_remove = Vec::new();
         for (key, raw_slot) in self.inner.index().iter() {
             let slot = ValueSlot::from_raw(raw_slot);
-            let meta = if slot.tag() == expanse_trie::slot::SlotTag::ArenaShort {
-                slot.hot_meta()
+            let meta = if slot.tag() == expanse_trie::slot::SlotTag::ArenaMeta {
+                slot.arena_meta_meta()
             } else {
                 0
             };

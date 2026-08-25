@@ -2,8 +2,8 @@
 //!
 //! Expanse stores a 64-bit word per key in its map leaves. The [`ValueSlot`]
 //! abstraction allows packing small payloads (up to 7 bytes) directly inline
-//! with zero heap allocation, or packing 32-bit hot metadata (TTL, flags,
-//! timestamps) alongside a 24-bit arena locator into a single 64-bit word.
+//! with zero heap allocation, or packing 24-bit hot metadata (TTL, flags,
+//! timestamps) alongside a 32-bit arena locator into a single 64-bit word.
 //!
 //! # Bit Layouts
 //!
@@ -11,26 +11,19 @@
 //!    `[payload_byte_6 .. payload_byte_0 | tag (0x00..=0x07)]`
 //!    Bits `[7:0]` encode the payload length (0 to 7 bytes).
 //!
-//! 2. **Arena Mode (Short)**:
-//!    `[hot_meta (32 bits) | arena_offset (24 bits) | tag (0x10)]`
-//!    - Bits `[63:32]`: 32-bit hot metadata (filterable without cold DRAM fetches).
-//!    - Bits `[31:8]`: 24-bit arena byte offset (up to 16 MiB).
-//!    - Bits `[7:0]`: `0x10` ([`SlotTag::ArenaShort`]).
+//! 2. **Arena Mode**:
+//!    `[hot_meta (24 bits) | locator (32 bits) | tag (0x10)]`
+//!    - Bits `[63:40]`: 24-bit hot metadata (filterable without cold DRAM fetches).
+//!    - Bits `[39:8]`: 32-bit arena locator (address in 16-byte units, up to 64 GiB).
+//!    - Bits `[7:0]`: `0x10` ([`SlotTag::ArenaMeta`]).
+//!    - The sole arena encoding for [`crate::blobmap::ExpanseBlobMap`]
+//!      (`CompactInSlot` layout, #282/#285): a uniform encoding that keeps
+//!      24-bit hot metadata alongside the locator across the whole arena, so a
+//!      metadata predicate can be evaluated in-slot without a cold-DRAM payload
+//!      fetch. The locator resolves through the arena geometry (see
+//!      [`crate::blobmap::BlobArena`]).
 //!
-//! 3. **Arena Mode (Long)**:
-//!    `[chunk_id (16 bits) | chunk_offset (40 bits) | tag (0x11)]`
-//!    - Bits `[63:48]`: 16-bit chunk ID (arena chunk index).
-//!    - Bits `[47:8]`: 40-bit intra-chunk byte offset.
-//!    - Bits `[7:0]`: `0x11` ([`SlotTag::ArenaLong`]).
-//!    - Produced by [`crate::blobmap::BlobArena`] once a blob's global byte
-//!      offset would exceed the 24-bit `ArenaShort` range (16 MiB); it lifts
-//!      the arena ceiling to `65536 * chunk_size` (bounded by a shipped safety
-//!      cap, see [`crate::blobmap::MAX_ARENA_CAPACITY`]). Unlike `ArenaShort`,
-//!      this encoding has no room for the 32-bit hot-metadata word, so
-//!      `ArenaLong`-backed values carry no filterable hot metadata (reported
-//!      as `0`).
-//!
-//! 4. **Raw Scalar / Unmanaged Word**:
+//! 3. **Raw Scalar / Unmanaged Word**:
 //!    Uninterpreted 64-bit machine word.
 
 /// Discriminant tag indicating how a [`ValueSlot`] is formatted.
@@ -54,18 +47,18 @@ pub enum SlotTag {
     /// Inline payload of 7 bytes (in bits `[63:8]`).
     Inline7 = 0x07,
 
-    /// Backed by BlobArena: 32-bit hot metadata + 24-bit arena locator
-    /// (global byte offset). Addresses the first 16 MiB of arena.
-    ArenaShort = 0x10,
-    /// Backed by BlobArena beyond the 16 MiB `ArenaShort` range: 16-bit chunk
-    /// ID + 40-bit intra-chunk offset.
+    /// Backed by BlobArena with **both** 24-bit hot metadata **and** a 32-bit
+    /// arena locator addressing 16-byte-aligned payload units: `[hot_meta (24
+    /// bits) | locator (32 bits) | tag (0x10)]`.
     ///
-    /// The blob map produces this encoding (via [`ValueSlot::new_arena_long`],
-    /// read back via [`ValueSlot::arena_long_loc`]) once a blob's global offset
-    /// crosses the 24-bit `ArenaShort` ceiling, lifting the live arena beyond
-    /// 16 MiB. It has no hot-metadata field — all 56 non-tag bits address the
-    /// payload — so `ArenaLong`-backed values report hot metadata as `0`.
-    ArenaLong = 0x11,
+    /// The sole arena encoding for [`crate::blobmap::ExpanseBlobMap`]
+    /// (`CompactInSlot` layout, #282/#285): metadata is kept alongside the
+    /// locator across the whole arena, so a metadata predicate is evaluable
+    /// in-slot without a cold-DRAM payload fetch. The 32-bit locator addresses
+    /// `2^32` 16-byte units = **64 GiB** of arena; its chunk/offset resolution
+    /// is fixed by the arena geometry, not the slot. Metadata is capped at 24
+    /// bits (16,777,216 states). See [`ValueSlot::new_arena_meta`].
+    ArenaMeta = 0x10,
     /// Off-heap / External memory reference.
     ///
     /// **Reserved / not yet implemented.** No code path produces or consumes it.
@@ -91,8 +84,7 @@ impl SlotTag {
             0x05 => Self::Inline5,
             0x06 => Self::Inline6,
             0x07 => Self::Inline7,
-            0x10 => Self::ArenaShort,
-            0x11 => Self::ArenaLong,
+            0x10 => Self::ArenaMeta,
             0x12 => Self::External,
             0xFE => Self::Tombstone,
             _ => Self::RawWord,
@@ -126,12 +118,10 @@ pub struct ValueSlot(pub u64);
 impl ValueSlot {
     /// Mask for the 8-bit discriminant tag (`bits [7:0]`).
     pub const TAG_MASK: u64 = 0xFF;
-    /// Mask for 24-bit arena byte offset (`0x00FF_FFFF`).
-    pub const ARENA_OFFSET_MASK: u64 = 0x00FF_FFFF;
-    /// Mask for 40-bit chunk byte offset (`0x00FF_FFFF_FFFF`).
-    pub const ARENA_LONG_OFFSET_MASK: u64 = 0x00FF_FFFF_FFFF;
-    /// Mask for 32-bit hot metadata word (`bits [63:32]`).
-    pub const META_MASK: u64 = 0xFFFF_FFFF_0000_0000;
+    /// Mask for the 24-bit `ArenaMeta` hot metadata field (pre-shift, `0x00FF_FFFF`).
+    pub const ARENA_META_MASK: u64 = 0x00FF_FFFF;
+    /// Maximum `ArenaMeta` hot-metadata value (24-bit, `16_777_215`).
+    pub const ARENA_META_MAX: u32 = 0x00FF_FFFF;
 
     /// Creates an inline value slot from a byte slice (length `<= 7`).
     ///
@@ -150,32 +140,20 @@ impl ValueSlot {
         Some(Self(raw))
     }
 
-    /// Creates an arena-backed value slot with 32-bit hot metadata and a 24-bit offset.
+    /// Creates an `ArenaMeta` value slot carrying **both** 24-bit hot metadata
+    /// and a 32-bit arena locator: `[hot_meta (24) | locator (32) | tag (8)]`.
     ///
-    /// Returns `None` if `arena_offset > 0x00FF_FFFF`.
+    /// The `locator` is an arena address in 16-byte units (its chunk/offset
+    /// split is defined by the arena geometry, not the slot), spanning up to
+    /// `2^32 × 16 B = 64 GiB`. Returns `None` if `hot_meta` exceeds the 24-bit
+    /// field ([`Self::ARENA_META_MAX`]).
     #[inline(always)]
     #[must_use]
-    pub fn new_arena_short(hot_meta: u32, arena_offset: u32) -> Option<Self> {
-        if arena_offset > (Self::ARENA_OFFSET_MASK as u32) {
+    pub fn new_arena_meta(hot_meta: u32, locator: u32) -> Option<Self> {
+        if hot_meta > Self::ARENA_META_MAX {
             return None;
         }
-        let raw =
-            (SlotTag::ArenaShort as u64) | ((arena_offset as u64) << 8) | ((hot_meta as u64) << 32);
-        Some(Self(raw))
-    }
-
-    /// Creates a large/multi-chunk arena value slot with a 16-bit chunk ID and 40-bit offset.
-    ///
-    /// Returns `None` if `chunk_offset > 0x00FF_FFFF_FFFF`.
-    #[inline(always)]
-    #[must_use]
-    pub fn new_arena_long(chunk_id: u16, chunk_offset: u64) -> Option<Self> {
-        if chunk_offset > Self::ARENA_LONG_OFFSET_MASK {
-            return None;
-        }
-        let raw = (SlotTag::ArenaLong as u64)
-            | ((chunk_offset & Self::ARENA_LONG_OFFSET_MASK) << 8)
-            | ((chunk_id as u64) << 48);
+        let raw = (SlotTag::ArenaMeta as u64) | ((locator as u64) << 8) | ((hot_meta as u64) << 40);
         Some(Self(raw))
     }
 
@@ -200,48 +178,31 @@ impl ValueSlot {
         (buf, effective_len)
     }
 
-    /// Extracts the 32-bit hot metadata word (`bits [63:32]`).
+    /// Extracts the 24-bit hot metadata of an `ArenaMeta` slot (`bits [63:40]`).
     #[inline(always)]
     #[must_use]
-    pub const fn hot_meta(self) -> u32 {
-        (self.0 >> 32) as u32
+    pub const fn arena_meta_meta(self) -> u32 {
+        ((self.0 >> 40) & Self::ARENA_META_MASK) as u32
     }
 
-    /// Returns a new slot with updated 32-bit hot metadata.
+    /// Extracts the 32-bit arena locator of an `ArenaMeta` slot (`bits [39:8]`),
+    /// an address in 16-byte units resolved by the arena geometry.
     #[inline(always)]
     #[must_use]
-    pub const fn with_hot_meta(self, meta: u32) -> Self {
-        let raw = (self.0 & 0x0000_0000_FFFF_FFFF) | ((meta as u64) << 32);
-        Self(raw)
+    pub const fn arena_meta_locator(self) -> u32 {
+        (self.0 >> 8) as u32
     }
 
-    /// Extracts the 24-bit arena byte offset (`bits [31:8]`).
+    /// Returns a new `ArenaMeta` slot with updated 24-bit hot metadata, or `None`
+    /// if `meta` exceeds [`Self::ARENA_META_MAX`].
     #[inline(always)]
     #[must_use]
-    pub const fn arena_offset(self) -> u32 {
-        ((self.0 >> 8) & Self::ARENA_OFFSET_MASK) as u32
-    }
-
-    /// Returns a new slot with updated 24-bit arena offset.
-    ///
-    /// Returns `None` if `offset > 0x00FF_FFFF`.
-    #[inline(always)]
-    #[must_use]
-    pub const fn with_arena_offset(self, offset: u32) -> Option<Self> {
-        if offset > (Self::ARENA_OFFSET_MASK as u32) {
+    pub const fn with_arena_meta_meta(self, meta: u32) -> Option<Self> {
+        if meta > Self::ARENA_META_MAX {
             return None;
         }
-        let raw = (self.0 & !(Self::ARENA_OFFSET_MASK << 8)) | ((offset as u64) << 8);
+        let raw = (self.0 & !(Self::ARENA_META_MASK << 40)) | ((meta as u64) << 40);
         Some(Self(raw))
-    }
-
-    /// Extracts the 16-bit chunk ID and 40-bit chunk byte offset for an `ArenaLong` slot.
-    #[inline(always)]
-    #[must_use]
-    pub const fn arena_long_loc(self) -> (u16, u64) {
-        let chunk_id = (self.0 >> 48) as u16;
-        let chunk_offset = (self.0 >> 8) & Self::ARENA_LONG_OFFSET_MASK;
-        (chunk_id, chunk_offset)
     }
 
     /// Converts the slot to its raw 64-bit representation.
@@ -280,13 +241,16 @@ impl From<ValueSlot> for u64 {
 /// Filters a batch of raw 64-bit value slots (up to 32 slots) against a closed
 /// range `[min_meta, max_meta]`, returning a bitmask where bit `i` is set iff
 /// `slots[i]` has `min_meta <= hot_meta <= max_meta`.
+///
+/// Metadata is read from the `ArenaMeta` field (`bits [63:40]`, 24-bit);
+/// non-`ArenaMeta` slots (inline / raw) carry no metadata and read as `0`.
 #[inline]
 #[must_use]
 pub fn filter_slots_range(slots: &[u64], min_meta: u32, max_meta: u32) -> u32 {
     let count = slots.len().min(32);
     let mut mask = 0u32;
     for (i, &slot) in slots[..count].iter().enumerate() {
-        let meta = (slot >> 32) as u32;
+        let meta = ((slot >> 40) & ValueSlot::ARENA_META_MASK) as u32;
         if meta >= min_meta && meta <= max_meta {
             mask |= 1 << i;
         }
@@ -296,12 +260,14 @@ pub fn filter_slots_range(slots: &[u64], min_meta: u32, max_meta: u32) -> u32 {
 
 /// Filters a batch of raw 64-bit value slots (up to 32 slots) with a custom
 /// metadata predicate closure, returning a bitmask of matching slot indices.
+///
+/// Metadata is read from the `ArenaMeta` field (`bits [63:40]`, 24-bit).
 #[inline]
 pub fn filter_slots_predicate<P: FnMut(u32) -> bool>(slots: &[u64], mut predicate: P) -> u32 {
     let count = slots.len().min(32);
     let mut mask = 0u32;
     for (i, &slot) in slots[..count].iter().enumerate() {
-        let meta = (slot >> 32) as u32;
+        let meta = ((slot >> 40) & ValueSlot::ARENA_META_MASK) as u32;
         if predicate(meta) {
             mask |= 1 << i;
         }
@@ -332,41 +298,43 @@ mod tests {
     }
 
     #[test]
-    fn arena_short_roundtrip_and_mutations() {
-        let meta = 0xDEAD_BEEF;
-        let offset = 0x00A1_B2C3;
-        let slot = ValueSlot::new_arena_short(meta, offset).expect("valid short offset");
-        assert_eq!(slot.tag(), SlotTag::ArenaShort);
-        assert_eq!(slot.hot_meta(), meta);
-        assert_eq!(slot.arena_offset(), offset);
+    fn arena_meta_roundtrip_and_field_independence() {
+        let meta = 0x00AB_CDEF & ValueSlot::ARENA_META_MAX; // 24-bit
+        let locator = 0xDEAD_BEEFu32; // full 32-bit
+        let slot = ValueSlot::new_arena_meta(meta, locator).expect("valid 24-bit meta");
+        assert_eq!(slot.tag(), SlotTag::ArenaMeta);
+        assert_eq!(slot.arena_meta_meta(), meta);
+        assert_eq!(slot.arena_meta_locator(), locator);
 
-        // Update hot meta
-        let updated_meta = slot.with_hot_meta(0x1234_5678);
-        assert_eq!(updated_meta.hot_meta(), 0x1234_5678);
-        assert_eq!(updated_meta.arena_offset(), offset);
+        // Meta and locator occupy disjoint fields: changing one must not
+        // disturb the other (regression guard against bit-field overlap).
+        let updated = slot.with_arena_meta_meta(0x0012_3456).expect("valid meta");
+        assert_eq!(updated.arena_meta_meta(), 0x0012_3456);
+        assert_eq!(updated.arena_meta_locator(), locator);
+        assert_eq!(updated.tag(), SlotTag::ArenaMeta);
 
-        // Update offset
-        let updated_offset = slot.with_arena_offset(0x0011_2233).expect("valid offset");
-        assert_eq!(updated_offset.hot_meta(), meta);
-        assert_eq!(updated_offset.arena_offset(), 0x0011_2233);
+        // Full-range boundary values in every field.
+        let maxed = ValueSlot::new_arena_meta(ValueSlot::ARENA_META_MAX, u32::MAX).unwrap();
+        assert_eq!(maxed.arena_meta_meta(), ValueSlot::ARENA_META_MAX);
+        assert_eq!(maxed.arena_meta_locator(), u32::MAX);
+        assert_eq!(maxed.tag(), SlotTag::ArenaMeta);
 
-        // Offset overflow
-        assert!(ValueSlot::new_arena_short(meta, 0x0100_0000).is_none());
-        assert!(slot.with_arena_offset(0x0100_0000).is_none());
+        let zeroed = ValueSlot::new_arena_meta(0, 0).unwrap();
+        assert_eq!(zeroed.arena_meta_meta(), 0);
+        assert_eq!(zeroed.arena_meta_locator(), 0);
+        assert_eq!(zeroed.tag(), SlotTag::ArenaMeta);
+
+        // 24-bit metadata envelope: anything above the field must be rejected,
+        // never silently truncated.
+        assert!(ValueSlot::new_arena_meta(ValueSlot::ARENA_META_MAX + 1, locator).is_none());
+        assert!(ValueSlot::new_arena_meta(u32::MAX, 0).is_none());
+        assert!(slot.with_arena_meta_meta(0x0100_0000).is_none());
     }
 
     #[test]
-    fn arena_long_roundtrip() {
-        let chunk_id = 0x42AB;
-        let chunk_offset = 0x00AB_CDEF_1234;
-        let slot = ValueSlot::new_arena_long(chunk_id, chunk_offset).expect("valid long offset");
-        assert_eq!(slot.tag(), SlotTag::ArenaLong);
-        let (cid, coff) = slot.arena_long_loc();
-        assert_eq!(cid, chunk_id);
-        assert_eq!(coff, chunk_offset);
-
-        // Offset overflow (> 40 bits)
-        assert!(ValueSlot::new_arena_long(chunk_id, 0x0100_0000_0000).is_none());
+    fn arena_meta_tag_decodes() {
+        assert_eq!(SlotTag::from_u8(0x10), SlotTag::ArenaMeta);
+        assert!(!SlotTag::ArenaMeta.is_inline());
     }
 
     #[test]
@@ -384,7 +352,7 @@ mod tests {
         let mut slots = Vec::new();
         for i in 0..16 {
             let meta = i * 10;
-            let slot = ValueSlot::new_arena_short(meta, 100).unwrap();
+            let slot = ValueSlot::new_arena_meta(meta, 100).unwrap();
             slots.push(slot.to_raw());
         }
 

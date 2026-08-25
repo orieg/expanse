@@ -498,7 +498,7 @@ $$\mathcal{R}_{\text{BW}}(\sigma) = \frac{\text{DRAM}_{\text{expanse}}}{\text{DR
 
 ### 5.5 Configurable Metadata Layout — `CompactInSlot` (default) & `BlobLeafVector` — *proposed (#282)*
 
-**Status: proposed design, not implemented.** Tracked in #282 / #285; phasing and the first work item are in §5.5.10.
+**Status:** Phase 1 (`CompactInSlot` / `ArenaMeta`) **implemented (#287)**; `BlobLeafVector` proposed. Tracked in #282 / #285; phasing in §5.5.10.
 
 The `meta = 0` degeneration measured in §10.3 (any `hot_meta` predicate matches every `ArenaLong` record, since the wide locator leaves no metadata bits) and the traversal-floor ceiling above are two facets of one problem: metadata is stored **interleaved inside each 64-bit `ValueSlot`** (array-of-structs), so it is neither always present (wide locators evict it) nor densely scannable (it is strided across the value region).
 
@@ -553,20 +553,21 @@ So the defensible claim is **"approaches $\ge 10\times$ at high leaf occupancy, 
 
 #### 5.5.7 `CompactInSlot` (default layout)
 
-The simplest fix for the `meta = 0` degeneration is not a new leaf at all — it is a new quantized arena `ValueSlot` encoding (`ArenaMid`) that carries metadata *and* a wide-enough locator in the existing 64 bits. With an 8-bit tag, 56 bits remain for `meta + locator`; enforcing 16-byte payload alignment and bounded chunk geometry, a defensible split is:
+The simplest fix for the `meta = 0` degeneration is not a new leaf at all — it is the `ArenaMeta` `ValueSlot` encoding (tag `0x10`), which carries metadata *and* a wide-enough locator in the existing 64 bits. With an 8-bit tag, 56 bits remain for `meta + locator`; enforcing 16-byte payload alignment, the implemented split is:
 
 ```
-[ tag (8) | hot_meta (24) | locator (32) ]     locator addresses 16-byte units
-                                               -> 2^32 x 16 B = 64 GiB arena
+[ hot_meta (24) | locator (32) | tag (8) ]     locator = global_offset / 16
+  bits 63:40       bits 39:8      bits 7:0      -> 2^32 x 16 B = 64 GiB arena
 ```
 
-This reuses the current map-leaf machinery `[values: u64 x C][keys: L x C]` **unchanged** — the value word is still one `u64`, so there is **no new leaf type, no struct-of-arrays, and no extra per-entry footprint**. Metadata is read in-slot during the standard key-ordered walk, so the filter works, but the per-entry trie walk remains the floor → **~4–5× cold** (§5.5.6). Envelope: **≤ 24-bit metadata** (16.7 M states) and **≤ 64 GiB arena**. **Overflow policy is an open decision** (#282): when a `CompactInSlot` map exceeds 64 GiB or needs > 24-bit metadata, either error at insert, or spill to the metaless `ArenaLong` encoding (reintroducing `meta = 0` for the spilled tail — a silent correctness cliff), or require the map be created as `BlobLeafVector`. Erroring at the envelope boundary is the safe default.
+`ArenaMeta` is the **sole** arena encoding — it *replaces* the former `ArenaShort` (16 MiB + 32-bit meta) and `ArenaLong` (64 PiB, metadata-less) rather than sitting between them (there is no size spectrum, hence not "Mid"). It reuses the current map-leaf machinery `[values: u64 x C][keys: L x C]` **unchanged** — the value word is still one `u64`, so there is **no new leaf type, no struct-of-arrays, and no extra per-entry footprint**. Records are already 16-byte aligned and the chunk size is rounded up to a 16-multiple, so `global_offset / 16` is exact; the locator resolves to a chunk/offset arithmetically (`global = locator·16`), preserving `with_chunk_size` configurability. Metadata is read in-slot during the standard key-ordered walk, so the filter works, but the per-entry trie walk remains the floor → **~4–5× cold** (§5.5.6). Envelope: **≤ 24-bit metadata** (16.7 M states) and **≤ 64 GiB arena**. **Overflow policy (decided, #287): error at insert** — `hot_meta > 24-bit` → `ArenaError::MetaOverflow`, arena `≥ 64 GiB` → `OffsetOverflow`, validated *before* the arena allocation so a rejected insert leaves no orphan; **never silently truncated**. (Spilling to a metaless encoding was rejected — it reintroduces the `meta = 0` cliff.) The 1 GiB `MAX_ARENA_CAPACITY` safety cap keeps the arena well under the 64 GiB locator envelope, so an offset overflow cannot occur under the shipped cap.
 
 #### 5.5.8 Layout selection & C ABI
 
-- **Rust — zero-cost type marker.** Parameterize the map with a layout strategy: `ExpanseBlobMap<CompactInSlot>` (default) vs `ExpanseBlobMap<BlobLeafVector>`. Monomorphization specializes the leaf code with no runtime branch.
-- **Tag-directed leaf descent.** Both layouts share the branch/traversal logic; a leaf tag bit (`LEAF_BLOB_SCALAR` vs `LEAF_BLOB_VECTOR`) selects the leaf handler with a single branch at leaf resolution, so a tree can in principle carry both — though a given map fixes one layout at creation.
-- **C ABI is not generic.** `expanse_blob_*` cannot be monomorphized across a Rust type parameter, so the layout becomes a **runtime discriminant stored in the map handle**; the C entry points dispatch on it. This is the one place the "zero-cost" property does not reach the ABI boundary — a single predictable branch per blob call.
+> **Refinement (decided).** An earlier draft proposed *both* a zero-cost Rust type marker (`ExpanseBlobMap<L>`) *and* a runtime C-ABI discriminant — two dispatch mechanisms for one decision. Since the C ABI forces a runtime discriminant regardless, and blob ops are DRAM-bound (a predicted branch is free next to an ~80 ns fetch), the generic buys nothing but complexity. **The layout is a single runtime enum field on the map**, uniform across Rust and C. This is deferred to Phase 2 — Phase 1 ships one layout (`CompactInSlot`/`ArenaMeta`), so no enum or dispatch exists yet.
+
+- **Runtime layout enum.** A `BlobLayout { Compact, Vector }` field on the map; the encode/decode seam (centralized in Phase 1) dispatches on it — one predictable branch per blob operation, serving both the Rust API and the `expanse_blob_*` C entry points.
+- **Tag-directed leaf descent.** A leaf tag bit (`LEAF_BLOB_SCALAR` vs `LEAF_BLOB_VECTOR`) selects the leaf handler at leaf resolution; a given map fixes one layout at creation.
 
 #### 5.5.9 Cost of supporting both
 
@@ -581,7 +582,7 @@ So the "in-slot wins on point-lookup / footprint / write-churn / embedded" obser
 
 Measurement-gated, two phases (tracked in #285):
 
-- **Phase 1 — `CompactInSlot` (default).** Add the `ArenaMid` encoding + 24-bit-meta in-slot read; decide the 64 GiB / 24-bit overflow policy. This *fixes the correctness bug* (filter actually filters, vs today's ~1.06× degenerate scan) at ~4–5×, with no new leaf type. Load-bearing deliverable.
+- **Phase 1 — `CompactInSlot` (default). ✅ Implemented (#287).** The `ArenaMeta` encoding (sole arena encoding, tag `0x10`, replacing `ArenaShort`/`ArenaLong`) + 24-bit-meta in-slot read + error-at-insert overflow policy. This *fixes the correctness bug* — metadata now survives across the whole arena (a unit test asserts it is preserved for keys past the old 16 MiB ceiling), so the filter actually filters (vs the ~1.06× degenerate scan) at the ~4–5× ceiling, with no new leaf type. Load-bearing deliverable.
 - **Phase 2 — `BlobLeafVector` (opt-in).** Implement the SoA transpose + `scan_meta_range` SIMD path (portable SWAR fallback + parity test per `docs/TESTING.md`). Re-run `bench_predicate_scan_cold_dram_large` (§10.3) at $\sigma = 0.001$ over the $>$LLC arena; report the speedup **and its sensitivity to leaf occupancy** (sweep `pop`) — the go/no-go — plus the blob-map point-lookup regression (scalar maps untouched, per the zero-regression policy). Build only if the analytical speedup and a real workload justify the second leaf layout.
 
 **Acceptance framing (per the §10.3 gate discussion):** gate on **correctness + a measured cold-DRAM speedup**, keeping $\ge 10\times$ as a *labelled target* rather than a hard pass/fail. Phase 1 delivers correctness; Phase 2's $\ge 10\times$ is pursued only where occupancy and workload justify it.
