@@ -46,7 +46,7 @@ graph TD
 ### Change detection
 | Job | Name | Role |
 |---|---|---|
-| `detect-changes` | Subsystems / Change Detection | `dorny/paths-filter@v3` computes per-subsystem outputs (`rust`, `python`, `node`, `dotnet`, `java`, `docs`, `ruby`, `php`, `wasm`, `go`, `integrations`) that downstream jobs gate on. |
+| `detect-changes` | Subsystems / Change Detection | `dorny/paths-filter@v4` computes per-subsystem outputs (`rust`, `python`, `node`, `dotnet`, `java`, `docs`, `ruby`, `php`, `wasm`, `go`, `integrations`) that downstream jobs gate on. |
 
 ### Core
 | Job | Name | Role |
@@ -115,7 +115,7 @@ graph TD
 
 To keep turnaround low for non-code and localized PRs while preserving 100% required-check coverage:
 
-- A single lightweight `detect-changes` job (`dorny/paths-filter@v3`) computes per-subsystem booleans. Downstream jobs declare `needs: [detect-changes]` and `if: needs.detect-changes.outputs.<subsystem> == 'true' || github.event_name != 'pull_request'`.
+- A single lightweight `detect-changes` job (`dorny/paths-filter@v4`) computes per-subsystem booleans. Downstream jobs declare `needs: [detect-changes]` and `if: needs.detect-changes.outputs.<subsystem> == 'true' || github.event_name != 'pull_request'`.
 - **Docs & tooling PRs** (only `docs/**`, `*.md`, `LICENSE*`, `scripts/**`, etc.): heavy Rust jobs detect no crate diff and exit `0`; `fuzz-smoke` skips libFuzzer execution unless `crates/`/`fuzz/` changed; `instruction-counts` only runs Callgrind if `crates/` or `scripts/perf_report.py` changed.
 - **`lint` always runs** (markdown hygiene + formatting on every PR).
 - The `CI Gate / All Checks Passed` rollup satisfies branch protection once its dependencies conclude (skipped jobs count as passing), so PRs never deadlock in "Pending" behind a filtered-out check.
@@ -208,6 +208,41 @@ Nightly workflows run out of band with no human watching PR checks, so failures 
 
 ---
 
+## 12. GitHub Actions Update & Runtime Policy
+
+To ensure high supply-chain security, fast execution, and zero runner runtime deprecation warnings across the pipeline, Expanse enforces a strict **Actions Update & Runtime Policy**:
+
+### 12.1 Native Runtime Alignment (Node 24+)
+GitHub Actions runners periodically deprecate older Node.js action runtimes (e.g. Node 20 reached end-of-life and is deprecated on runners in favor of Node 24).
+- **Prohibited Workarounds**: Setting insecure stopgap flags like `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"` is strictly prohibited. Workarounds mask technical debt and create brittle pipelines before hard runner cutoffs.
+- **Mandatory Upgrades**: When runner runtimes evolve, all workflow actions MUST be promptly updated to their official major versions compiled against the active LTS runtime (Node 24+).
+
+### 12.2 Action Pinning Standards
+1. **Major Version Tags**: Pin all official and trusted community actions to their current major version tag (e.g., `actions/checkout@v7`, `dorny/paths-filter@v4`, `actions/setup-python@v7`).
+2. **Strictly Prohibit `@latest`**: GitHub Actions does not support `@latest` syntax; referencing `@latest` will fail workflow execution.
+3. **Canonical Action Catalog & Baseline**:
+   - `actions/checkout@v7` (repository checkout with modern ESM & secure git configs)
+   - `actions/github-script@v8` (Node 24 runtime with dual CommonJS / ESM compatibility)
+   - `actions/setup-node@v7` (Node.js SDK installation)
+   - `actions/setup-python@v7` (Python environment setup)
+   - `actions/setup-dotnet@v6` (.NET SDK setup)
+   - `actions/setup-java@v6` (JDK / Panama setup)
+   - `actions/upload-artifact@v7` / `actions/download-artifact@v8` (v4+ artifact storage)
+   - `actions/upload-pages-artifact@v5` / `actions/deploy-pages@v5` (GitHub Pages CD)
+   - `dorny/paths-filter@v4` (monorepo subsystem change detection)
+   - `peter-evans/find-comment@v4` / `peter-evans/create-or-update-comment@v5` (PR bot comment updates)
+   - `Swatinem/rust-cache@v2` (smart cargo build artifact caching)
+
+### 12.3 Automated Action Version Auditing
+To audit whether upstream actions have newer releases or runtime migrations available:
+```bash
+for action in "actions/checkout" "actions/setup-node" "actions/setup-python" "actions/setup-dotnet" "actions/setup-java" "actions/upload-artifact" "actions/download-artifact" "dorny/paths-filter"; do
+  echo "$action: $(gh api /repos/$action/releases/latest --jq .tag_name 2>/dev/null || echo 'manual check needed')"
+done
+```
+
+---
+
 ## Appendix A — Org-Wide CI/CD Standards & New-Project Checklist
 
 These conventions apply across Expanse and its sister repositories (`php-judy`, `judy-cache`, `judy-polyfill`, `yaml-workflows`, `gws-connectors`). They exist so a new repo inherits the same zero-regression discipline.
@@ -222,11 +257,12 @@ Merges to `main` use a unique key (`github.run_id` / `github.sha`) with `cancel-
 
 **New-project setup checklist:**
 - [ ] Define `concurrency` with `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`.
-- [ ] Create a `detect-changes` job with `dorny/paths-filter@v3`.
+- [ ] Create a `detect-changes` job with `dorny/paths-filter@v4`.
 - [ ] Gate downstream jobs on `needs: [detect-changes]` + `if: needs.detect-changes.outputs.<subsystem> == 'true'`.
 - [ ] Create a `ci-gate` rollup evaluating `${{ toJson(needs) }}`, with a completeness self-check.
 - [ ] Set up deterministic regression gating (Callgrind instructions or interleaved dual-arm ratios).
 - [ ] Set an explicit `timeout-minutes` on every job.
+- [ ] Pin actions to modern Node 24+ major releases (never use `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION`).
 - [ ] Configure branch protection to require **only** the `ci-gate` context.
 - [ ] Add automated nightly issue triage / self-healing to `nightly.yml`.
 
