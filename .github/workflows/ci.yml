@@ -235,6 +235,31 @@ jobs:
       - name: Check RV32IMAC Core
         run: cargo check -p expanse-trie --no-default-features --target riscv32imac-unknown-none-elf
 
+  test-rv32-zbb:
+    name: Cross / RV32IMAC + Zbb Cross-Compile (Bare-Metal)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Target
+        run: rustup target add riscv32imac-unknown-none-elf
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Zbb adds cpop/clz/ctz, so count_ones/leading_zeros/trailing_zeros in the
+      # hot trie32 leaf/bitmap path lower to single instructions instead of the
+      # base-ISA software sequences. See docs/HARDWARE.md §3.1 and
+      # docs/design/32-bit-embedded.md. Codegen-only; the software fallback stays.
+      - name: Check RV32IMAC + Zbb Core
+        run: cargo check -p expanse-trie --no-default-features --target riscv32imac-unknown-none-elf
+        env:
+          RUSTFLAGS: "-C target-feature=+zbb"
+
   test-cortex-m:
     name: Cross / ARM Cortex-M4 Cross-Compile (Bare-Metal)
     needs: [detect-changes]
@@ -1156,6 +1181,7 @@ jobs:
       - test-musl
       - test-riscv64
       - test-rv32
+      - test-rv32-zbb
       - test-cortex-m
       - test-i686
       - miri

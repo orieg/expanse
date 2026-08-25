@@ -118,6 +118,8 @@ On 32-bit architectures:
 
 Requiring `AtomicU64` forces LLVM to link `libatomic`, which fails in `#![no_std]` embedded firmware. A 32-bit optimized seqlock (`SeqVersion32`) backed by `AtomicU32` is mandatory.
 
+**Bit-manipulation (Zbb) & the hot `trie32` bit-count path.** Base RV32I/RV32IMAC has **no** hardware population-count or count-leading/trailing-zeros instruction; `u32::count_ones` / `leading_zeros` / `trailing_zeros` — used across the `trie32` leaf/bitmap kernels (`crates/expanse/src/bits.rs`, `trie32.rs`) — lower to a ~12-instruction SWAR sequence (popcount) or a software CLZ/CTZ loop. The **Zbb** extension (Bitmanip v1.0.0, ratified Nov 2021) adds single-instruction `cpop`, `clz`, and `ctz`, whose zero-input semantics (return XLEN) already match Rust's. On Zbb-capable RISC-V hardware, build with `-C target-feature=+zbb` so these sites emit one instruction apiece instead of the software fallback. The fallback stays intact and is the default for the shipped `riscv32imac-unknown-none-elf` config and for pre-Zbb embedded parts — `+zbb` is an additive build profile, not a requirement. See `docs/HARDWARE.md` §3.1 (spec citations) and §6 (missed-opportunity analysis); a `test-rv32-zbb` CI lane builds the core with `+zbb` to keep the profile compiling.
+
 ---
 
 ## 3. Digital Tree Hierarchy: 64-Bit vs. 32-Bit
@@ -722,5 +724,7 @@ Development proceeds in strict, sequential engineering phases with measurable ve
 | **ARM Cortex-M4/M7 (Hard Float)** | `armv7em-none-eabihf` | STM32F4/F7/H7, NXP i.MX RT | QEMU `qemu-system-arm -M netduinoplus2` |
 | **ARM Cortex-M0+ (Thumb-1)** | `thumbv6m-none-eabi` | RP2040, SAMD21, STM32G0 | QEMU `qemu-arm` emulation |
 | **Espressif ESP32-C3 (ESP-IDF)** | `riscv32imc-esp-espidf` | ESP32-C3 DevKit | Wokwi CLI / QEMU-ESP32 |
+
+A companion **`test-rv32-zbb`** lane cross-compiles the core against `riscv32imac-unknown-none-elf` with `RUSTFLAGS="-C target-feature=+zbb"`, keeping the Zbb bit-manipulation build profile (§2.3) green so the `cpop`/`clz`/`ctz` lowering does not silently regress.
 
 ---
