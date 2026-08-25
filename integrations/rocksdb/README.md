@@ -126,14 +126,22 @@ int main() {
 ### Build and Run Unit Tests
 
 ```bash
-# 1. Build libexpanse
-cargo build -p expanse-capi
+# 1. Build libexpanse (release: the Makefile links target/release by default —
+#    benchmarks must never measure a debug build)
+cargo build --release -p expanse-capi
 
 # 2. Build and run Expanse RocksDB MemTable tests
 make -C integrations/rocksdb test
 
 # 3. Run microbenchmarks
 make -C integrations/rocksdb bench
+```
+
+After a fresh benchmark run, update `benches/results.json` with the measured
+figures and regenerate the chart embedded above and in `docs/DATABASE.md`:
+
+```bash
+python3 integrations/rocksdb/scripts/generate_bench_svg.py  # rewrites docs/assets/bench_rocksdb.svg
 ```
 
 ### CMake Integration

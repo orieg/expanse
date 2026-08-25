@@ -5,7 +5,10 @@ CXXFLAGS ?= -std=c++20 -O3 -Wall -Wextra -pthread
 
 ROOT_DIR := ../..
 INCLUDE_DIRS := -I./include -I$(ROOT_DIR)/crates/expanse-capi/include -I$(ROOT_DIR)/include
-LIB_DIR := $(ROOT_DIR)/target/debug
+# Link the RELEASE libexpanse by default: tests and especially benchmarks must
+# never silently measure a debug build (docs/BENCHMARKING.md). Override with
+# `make LIB_DIR=... bench` if you really need a different build.
+LIB_DIR ?= $(ROOT_DIR)/target/release
 
 # Detect OS for dynamic library extension
 UNAME_S := $(shell uname -s)
@@ -31,7 +34,7 @@ BENCH_BIN := $(BUILD_DIR)/bench_memtable
 all: $(TARGET_LIB) $(TEST_BIN) $(TEST_DIFF_BIN) $(BENCH_BIN)
 
 build_cargo:
-	@cd $(ROOT_DIR) && cargo build -p expanse-capi
+	@cd $(ROOT_DIR) && cargo build --release -p expanse-capi
 
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
@@ -56,6 +59,12 @@ test: $(TEST_BIN) $(TEST_DIFF_BIN)
 	@$(TEST_BIN)
 	@echo "Running Differential Fuzz tests..."
 	@$(TEST_DIFF_BIN)
+
+# Benchmark methodology: docs/BENCHMARKING.md (idle host, snapshot load
+# before/between arms). Links release libexpanse via LIB_DIR above.
+bench: $(BENCH_BIN)
+	@echo "Running Expanse RocksDB MemTable benchmark (release libexpanse)..."
+	@$(BENCH_BIN)
 
 clean:
 	rm -rf $(BUILD_DIR)
