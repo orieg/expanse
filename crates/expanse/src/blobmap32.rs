@@ -20,13 +20,13 @@
 //!   pointed to is **never reclaimed** (the arena grows monotonically until the
 //!   map is dropped).
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 #[cfg(feature = "std")]
 use std::vec::Vec;
-#[cfg(not(feature = "std"))]
-extern crate alloc as alloc_crate;
-#[cfg(not(feature = "std"))]
-use alloc_crate::vec::Vec;
+
 use core::fmt;
+use core::option::Option::{self, None, Some};
 
 use crate::map32::ExpanseMap32;
 use crate::slot32::{SlotTag32, ValueSlot32};

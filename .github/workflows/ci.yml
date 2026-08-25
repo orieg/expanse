@@ -260,6 +260,25 @@ jobs:
         env:
           RUSTFLAGS: "-C target-feature=+zbb"
 
+  test-esp32c3:
+    name: Cross / ESP32-C3 Cross-Compile (Bare-Metal RV32IMC)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Target
+        run: rustup target add riscv32imc-unknown-none-elf
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check ESP32-C3 (RV32IMC) Core
+        run: cargo check -p expanse-trie --no-default-features --target riscv32imc-unknown-none-elf
+
   test-cortex-m:
     name: Cross / ARM Cortex-M4 Cross-Compile (Bare-Metal)
     needs: [detect-changes]
@@ -1182,6 +1201,7 @@ jobs:
       - test-riscv64
       - test-rv32
       - test-rv32-zbb
+      - test-esp32c3
       - test-cortex-m
       - test-i686
       - miri

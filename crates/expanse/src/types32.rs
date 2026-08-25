@@ -3,7 +3,10 @@
 //! Implements the core 32-bit data structures for embedded targets (RV32, ESP32, Cortex-M)
 //! per `docs/design/32-bit-embedded.md`.
 
+use core::convert::From;
+use core::default::Default;
 use core::fmt;
+use core::option::Option::{self, None, Some};
 
 /// 32-bit machine key index.
 pub type Key32 = u32;

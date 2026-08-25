@@ -371,6 +371,7 @@ Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C
 | `bindings/java/build.gradle` | `version = '...'` | Gradle build manifest |
 | `bindings/ruby/expanse.gemspec` | `spec.version` | Ruby gem specification (`expanse`) |
 | `bindings/ruby/lib/expanse.rb` | `VERSION = '...'` | Ruby module version constant |
+| `components/expanse/idf_component.yml` | `version: "..."` | Espressif ESP-IDF Component Manager manifest |
 | `extra/vcpkg/vcpkg.json` *(extra)* | `"version"` | Microsoft vcpkg C/C++ port manifest |
 | `extra/nuget/expanse.nuspec` *(extra)* | `<version>` | C++ native NuGet package specification |
 
@@ -396,6 +397,38 @@ Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C
    ```
    Exits with code `0` on success, or code `1` with descriptive mismatch reports if any manifest drifts out of sync.
 
+---
 
+### 2.12 Espressif ESP-IDF Component (`components/expanse`)
 
+Expanse is packaged as a first-class component for the **Espressif ESP-IDF framework** (v5.0+), providing both the modern `expanse_*` C API and the legacy `Judy1*` / `JudyL*` C ABI for 32-bit microcontrollers (ESP32, ESP32-C3, ESP32-C6, ESP32-S3).
 
+#### Component Structure
+```
+components/expanse/
+├── idf_component.yml      # Component Manager manifest for Espressif Registry
+├── CMakeLists.txt         # ESP-IDF CMake integration
+├── Kconfig                # Menuconfig configuration options
+├── README.md              # Component documentation and quickstart
+├── include/
+│   ├── expanse.h          # Modern C API header
+│   ├── Judy.h            # Legacy Judy C ABI compatibility header
+│   └── expanse_esp_idf.h  # Internal SRAM capability allocator helpers
+├── src/
+│   └── expanse_esp_idf.c  # ESP-IDF heap capability allocation routines
+└── test/
+    └── test_expanse.c     # Unity test suite for ESP-IDF
+```
+
+#### Consuming in ESP-IDF Projects
+Add the dependency to your project's `main/idf_component.yml`:
+```yaml
+dependencies:
+  expanse:
+    version: "^0.3.0"
+```
+Or clone the component directly into your project's `components/` directory.
+
+#### Internal SRAM vs PSRAM Configuration (`Kconfig`)
+ESP-IDF developers can configure memory placement via `idf.py menuconfig` under `Component config -> Expanse Embedded Digital Trie`:
+- `EXPANSE_SRAM_INTERNAL_ONLY`: Forces allocations into internal high-speed DRAM (`MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT`) to eliminate SPI bus arbitration delays and maximize cache line throughput.

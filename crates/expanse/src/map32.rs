@@ -12,7 +12,9 @@
 //! lock-free structure. The concurrent wrapper described in the RFC is not
 //! yet implemented for the 32-bit engine.
 
+use core::default::Default;
 use core::fmt;
+use core::option::Option;
 
 use crate::trie32::{self, Arena};
 use crate::types32::{Edge32, Key32, Value32};

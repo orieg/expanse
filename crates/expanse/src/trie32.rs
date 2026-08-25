@@ -34,9 +34,14 @@
 //! `cap_class_never_underallocates`.
 
 #[cfg(not(feature = "std"))]
-extern crate alloc as alloc_crate;
-#[cfg(not(feature = "std"))]
-use alloc_crate::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
+#[cfg(feature = "std")]
+use std::boxed::Box;
+#[cfg(feature = "std")]
+use std::vec::Vec;
+
+use core::ops::FnMut;
+use core::option::Option::{self, None, Some};
 
 use crate::node32::{BranchHeader32, BranchL2_32, BranchL6_32, BranchU32, LeafBitmap1_32};
 use crate::types32::Edge32;
