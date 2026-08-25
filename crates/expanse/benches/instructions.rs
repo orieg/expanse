@@ -378,16 +378,21 @@ library_benchmark_group!(
         map_churn,
         map_remove,
         map_iterate,
-        map_range,
-        set_range,
         map_nav,
         set32_insert,
         map32_get,
         blobmap32_scan
 );
 
+library_benchmark_group!(
+    name = range_cost;
+    benchmarks =
+        map_range,
+        set_range
+);
+
 #[cfg(target_os = "linux")]
-main!(library_benchmark_groups = cost);
+main!(library_benchmark_groups = cost, range_cost);
 
 #[cfg(not(target_os = "linux"))]
 fn main() {

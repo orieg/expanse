@@ -188,6 +188,7 @@ impl<const MAP: bool> RawIter<MAP> {
     ///
     /// # Safety
     /// `edge` must point to a live node / leaf at `level`.
+    #[inline(always)]
     unsafe fn descend(&mut self, edge: &Edge, level: u8, prefix: u64) {
         let mut cur_edge = *edge;
         let mut cur_level = level;
@@ -496,6 +497,7 @@ impl<const MAP: bool> RawIter<MAP> {
     ///
     /// # Safety
     /// `edge` must point to a live node / leaf at `level`.
+    #[inline(always)]
     unsafe fn descend_seek(&mut self, edge: &Edge, level: u8, prefix: u64, start: u64) {
         let mut cur_edge = *edge;
         let mut cur_level = level;
@@ -523,17 +525,41 @@ impl<const MAP: bool> RawIter<MAP> {
 
                 EdgeTag::Immed(im) => {
                     let n = im.key_count();
+                    if n == 1 {
+                        let kb = im.key_bytes() as usize;
+                        let (low, value) = if MAP {
+                            let aux = cur_edge.aux_bytes();
+                            let mut kbuf = [0u8; 8];
+                            kbuf[..kb].copy_from_slice(&aux[..kb]);
+                            (
+                                u64::from_le_bytes(kbuf),
+                                u64::from_le_bytes(cur_edge.imm_bytes()),
+                            )
+                        } else {
+                            let w0 = cur_edge.imm_bytes();
+                            let mut kbuf = [0u8; 8];
+                            kbuf[..kb].copy_from_slice(&w0[..kb]);
+                            (u64::from_le_bytes(kbuf), 0)
+                        };
+                        let full_k = cur_prefix | low;
+                        if full_k >= start {
+                            self.leaf = LeafCursor::ImmedSingle {
+                                key: full_k,
+                                value,
+                                done: false,
+                            };
+                        } else {
+                            self.leaf = LeafCursor::Empty;
+                        }
+                        return;
+                    }
                     let (keys_buf, vals_buf) = if MAP {
                         let k = crate::mutate::immed_map_keys(&cur_edge, im);
                         let mut v = [0u64; 15];
-                        if n == 1 {
-                            v[0] = u64::from_le_bytes(cur_edge.imm_bytes());
-                        } else {
-                            let v_ptr = cur_edge.node_ptr().cast::<u64>();
-                            for (i, val) in v.iter_mut().enumerate().take(n as usize) {
-                                // SAFETY: live value array for n entries.
-                                *val = unsafe { *v_ptr.add(i) };
-                            }
+                        let v_ptr = cur_edge.node_ptr().cast::<u64>();
+                        for (i, val) in v.iter_mut().enumerate().take(n as usize) {
+                            // SAFETY: live value array for n entries.
+                            *val = unsafe { *v_ptr.add(i) };
                         }
                         (k, v)
                     } else {
@@ -986,6 +1012,7 @@ impl<const MAP: bool> RawIter<MAP> {
     ///
     /// # Safety
     /// Stack must contain valid node pointers per tree invariants.
+    #[inline(always)]
     unsafe fn advance_leaf(&mut self) -> bool {
         while self.depth > 0 {
             let top = &mut self.stack[self.depth - 1];
