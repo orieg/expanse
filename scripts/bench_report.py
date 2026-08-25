@@ -181,10 +181,6 @@ def render_markdown(data: Dict[str, Any]) -> str:
             lines.append(
                 f"| `std::BTreeMap` | {btree.get('lookup_ns', 0.0):.2f} | {btree.get('lookup_mops', 0.0):.2f} | {btree.get('insert_mops', 0.0):.2f} | {btree.get('iter_mops', 0.0):.2f} | {btree.get('bytes_per_key', 0.0):.2f} | Baseline | — |"
             )
-            if judy is None:
-                lines.append(
-                    "| `libjudy (stock JudyL)` | *N/A (not installed)* | — | — | — | — | — | — |"
-                )
 
         lines.append("")
 
