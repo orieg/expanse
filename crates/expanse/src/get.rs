@@ -129,6 +129,23 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag_byte();
+
+        // Software-prefetch the next-level node while the tag is decoded and
+        // dispatched. Branch tags (< 0x10) carry a live node pointer to descend
+        // into; leaves/immediates (>= 0x10) do not, so gate on the tag to avoid
+        // prefetching non-pointer inline payloads. Measured ~7-8% win on random
+        // 1M lookups on x86 Alder Lake (issue #277). Pure hint — no logic change.
+        #[cfg(all(target_arch = "x86_64", not(miri)))]
+        if tag < 0x10 {
+            // SAFETY: _mm_prefetch is a hint that never faults, even on an
+            // invalid or dangling pointer; it reads nothing observable.
+            unsafe {
+                core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(
+                    edge.node_ptr() as *const i8,
+                );
+            }
+        }
+
         match tag {
             0x00 => return false, // EdgeType::Null
 
@@ -265,6 +282,19 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag_byte();
+
+        // Prefetch the next-level node during tag decode/dispatch (branch tags
+        // < 0x10 only; see walk_set_impl for rationale). Issue #277.
+        #[cfg(all(target_arch = "x86_64", not(miri)))]
+        if tag < 0x10 {
+            // SAFETY: _mm_prefetch is a non-faulting hint; reads nothing observable.
+            unsafe {
+                core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(
+                    edge.node_ptr() as *const i8,
+                );
+            }
+        }
+
         match tag {
             0x00 => return None,
 
@@ -641,6 +671,19 @@ unsafe fn locate_slot_impl(
         debug_assert!((1..=8).contains(&level));
         // SAFETY: live edge per contract.
         let tag = unsafe { (*edge).tag_byte() };
+
+        // Prefetch the next-level node during tag decode/dispatch (branch tags
+        // < 0x10 only; see walk_set_impl for rationale). Issue #277.
+        #[cfg(all(target_arch = "x86_64", not(miri)))]
+        if tag < 0x10 {
+            // SAFETY: _mm_prefetch is a non-faulting hint; reads nothing observable.
+            unsafe {
+                core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(
+                    (*edge).node_ptr() as *const i8,
+                );
+            }
+        }
+
         match tag {
             0x00 => return None, // Null
 
