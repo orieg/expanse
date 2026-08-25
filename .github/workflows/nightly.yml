@@ -154,6 +154,30 @@ jobs:
       - name: Concurrent read scaling
         run: cargo run --release -p expanse-trie --example concurrent_scaling | tee -a bench-report.txt
 
+      - name: Download historical bindings baseline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p bindings-baseline
+          gh run download --repo "${{ github.repository }}" --name bindings-baseline --dir bindings-baseline || true
+
+      - name: Cross-language bindings benchmark & baseline check
+        run: |
+          CHECK_FLAG=""
+          if [ -f bindings-baseline/bindings-baseline.json ]; then
+            CHECK_FLAG="--check-baseline bindings-baseline/bindings-baseline.json"
+          fi
+          python3 scripts/bench_bindings.py --quick $CHECK_FLAG --save-baseline bindings-baseline.json --output bindings-report.md
+          if [ -f bindings-report.md ]; then
+            cat bindings-report.md >> bench-report.txt
+          fi
+
+      - name: Upload new bindings baseline
+        uses: actions/upload-artifact@v7
+        with:
+          name: bindings-baseline
+          path: bindings-baseline.json
+
       - name: Upload report
         uses: actions/upload-artifact@v7
         with:

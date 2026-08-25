@@ -95,7 +95,12 @@ def run_benchmark_harness(
         sys.exit(1)
 
 
-def fmt_speedup(expanse_val: float, baseline_val: float, higher_is_better: bool = True) -> str:
+def fmt_speedup(
+    expanse_val: float,
+    baseline_val: float,
+    higher_is_better: bool = True,
+    noise_floor: float = 0.20,
+) -> str:
     """Computes and formats a speedup multiplier."""
     if expanse_val <= 0.0 or baseline_val <= 0.0:
         return "—"
@@ -104,9 +109,9 @@ def fmt_speedup(expanse_val: float, baseline_val: float, higher_is_better: bool 
     else:
         ratio = baseline_val / expanse_val
 
-    if ratio >= 1.05:
+    if ratio >= (1.0 + noise_floor):
         return f"**{ratio:.2f}x** 🟢"
-    elif ratio <= 0.95:
+    elif ratio <= (1.0 - noise_floor):
         return f"{ratio:.2f}x 🔴"
     else:
         return f"{ratio:.2f}x ⚪"
