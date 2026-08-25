@@ -4,22 +4,53 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Expanse — Official RPM Repository</title>
-  <script>
+<script>
     (function() {
-      const saved = localStorage.getItem('expanse-theme');
-      const attr = document.documentElement.getAttribute('data-theme');
-      if (saved) {
-        document.documentElement.setAttribute('data-theme', saved);
-      } else if (!attr) {
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-          document.documentElement.setAttribute('data-theme', 'light');
-        } else {
-          document.documentElement.setAttribute('data-theme', 'dark');
+      'use strict';
+      if (window.__expanseApplyTheme) { return; }
+      var KEY = 'expanse-theme';
+      var LABELS = {
+        system: 'Color theme: system (click to switch to light)',
+        light: 'Color theme: light (click to switch to dark)',
+        dark: 'Color theme: dark (click to switch to system)'
+      };
+      function stored() {
+        try {
+          var v = localStorage.getItem(KEY);
+          return (v === 'light' || v === 'dark') ? v : null;
+        } catch (e) { return null; }
+      }
+      function systemTheme() {
+        return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      }
+      function apply() {
+        var override = stored();
+        var theme = override || systemTheme();
+        var mode = override || 'system';
+        var root = document.documentElement;
+        root.setAttribute('data-theme', theme);
+        root.setAttribute('data-theme-mode', mode);
+        var buttons = document.querySelectorAll('.theme-toggle');
+        for (var i = 0; i < buttons.length; i++) {
+          buttons[i].setAttribute('aria-label', LABELS[mode]);
+          buttons[i].setAttribute('title', LABELS[mode]);
         }
+        if (window.__expanseThemeChanged) { window.__expanseThemeChanged(theme); }
+      }
+      window.__expanseApplyTheme = apply;
+      apply();
+      if (window.matchMedia) {
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+        if (mq.addEventListener) { mq.addEventListener('change', apply); }
+        else if (mq.addListener) { mq.addListener(apply); }
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', apply);
       }
     })();
   </script>
   <style>
+
     :root {
       --bg: #090d16;
       --card-bg: #111827;
@@ -33,12 +64,21 @@
       --accent-hover: #7dd3fc;
       --accent-green: #10b981;
       --code-bg: #030712;
+      --bench-bg: #0d1117;
+      --quote-bg: linear-gradient(180deg, rgba(30, 41, 59, 0.5) 0%, rgba(15, 23, 42, 0.8) 100%);
       --navbar-bg: rgba(9, 13, 22, 0.85);
       --nav-pill-bg: rgba(56, 189, 248, 0.1);
       --nav-pill-border: rgba(56, 189, 248, 0.25);
+      --btn-secondary-bg: #111827;
+      --btn-secondary-hover: #1e293b;
+      --btn-secondary-border: #1f293d;
+      --btn-secondary-text: #f8fafc;
       --badge-bg: #111827;
       --badge-border: #1f293d;
       --badge-text: #38bdf8;
+      --spotlight-bg: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+      --spotlight-border: rgba(99, 102, 241, 0.4);
+      --tab-active-bg: rgba(56, 189, 248, 0.05);
       --table-header-color: #f8fafc;
       --table-row-border: #1f293d;
       color-scheme: dark;
@@ -57,12 +97,21 @@
       --accent-hover: #0369a1;
       --accent-green: #059669;
       --code-bg: #0f172a;
+      --bench-bg: #ffffff;
+      --quote-bg: linear-gradient(180deg, rgba(241, 245, 249, 0.9) 0%, rgba(226, 232, 240, 0.7) 100%);
       --navbar-bg: rgba(248, 250, 252, 0.88);
       --nav-pill-bg: rgba(2, 132, 199, 0.08);
       --nav-pill-border: rgba(2, 132, 199, 0.25);
+      --btn-secondary-bg: #ffffff;
+      --btn-secondary-hover: #f1f5f9;
+      --btn-secondary-border: #cbd5e1;
+      --btn-secondary-text: #0f172a;
       --badge-bg: #ffffff;
       --badge-border: #e2e8f0;
       --badge-text: #0284c7;
+      --spotlight-bg: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 50%, #f0fdf4 100%);
+      --spotlight-border: rgba(99, 102, 241, 0.3);
+      --tab-active-bg: rgba(2, 132, 199, 0.08);
       --table-header-color: #0f172a;
       --table-row-border: #e2e8f0;
       color-scheme: light;
@@ -77,6 +126,7 @@
       overflow-x: hidden;
       -webkit-font-smoothing: antialiased;
     }
+
     .navbar {
       position: sticky;
       top: 0;
@@ -149,6 +199,32 @@
       color: var(--accent) !important;
       font-weight: 600 !important;
     }
+    @media (max-width: 768px) {
+      .navbar {
+        padding: 0.6rem 1rem;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+      }
+      .nav-top { width: 100%; }
+      .nav-scroll {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 0.2rem;
+        justify-content: flex-start;
+        scrollbar-width: none;
+        -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+        mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+      }
+      .nav-scroll::-webkit-scrollbar { display: none; }
+      .nav-scroll.at-end {
+        -webkit-mask-image: none;
+        mask-image: none;
+      }
+      .nav-links { gap: 0.85rem; }
+    }
+
     .theme-toggle {
       background: var(--card-inner);
       border: 1px solid var(--border);
@@ -165,16 +241,50 @@
       transition: all 0.15s ease;
     }
     .theme-toggle:hover { border-color: var(--accent); }
-    [data-theme="dark"] .theme-icon-sun { display: inline; }
-    [data-theme="dark"] .theme-icon-moon { display: none; }
-    [data-theme="light"] .theme-icon-sun { display: none; }
-    [data-theme="light"] .theme-icon-moon { display: inline; }
-    :root:not([data-theme]) .theme-icon-sun { display: inline; }
-    :root:not([data-theme]) .theme-icon-moon { display: none; }
+    .theme-icon-system, .theme-icon-sun, .theme-icon-moon { display: none; }
+    [data-theme-mode="system"] .theme-icon-system { display: inline; }
+    [data-theme-mode="light"] .theme-icon-sun { display: inline; }
+    [data-theme-mode="dark"] .theme-icon-moon { display: inline; }
+    :root:not([data-theme-mode]) .theme-icon-system { display: inline; }
+
+    .theme-toggle-mobile { display: flex; }
+    .theme-toggle-desktop { display: none; }
 
     @media (min-width: 769px) {
       .theme-toggle-mobile { display: none !important; }
       .theme-toggle-desktop { display: flex !important; }
+    }
+    @media (max-width: 768px) {
+      .theme-toggle-mobile { display: flex !important; }
+      .theme-toggle-desktop { display: none !important; }
+    }
+
+    .code-copy-wrap { position: relative; }
+    .code-copy-btn {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      padding: 0.3rem 0.6rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      font-family: inherit;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      color: var(--text-muted);
+      cursor: pointer;
+      opacity: 0.75;
+      transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .code-copy-btn:hover, .code-copy-btn:focus-visible {
+      opacity: 1;
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    .code-copy-btn.copied {
+      opacity: 1;
+      color: var(--accent-green);
+      border-color: var(--accent-green);
     }
 
     .container {
@@ -270,23 +380,6 @@
     }
 
     @media (max-width: 768px) {
-      .navbar {
-        padding: 0.6rem 1rem;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.5rem;
-      }
-      .nav-top { width: 100%; }
-      .nav-scroll {
-        width: 100%;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: 0.2rem;
-        justify-content: flex-start;
-      }
-      .nav-links { gap: 0.85rem; }
-      .theme-toggle-mobile { display: flex !important; }
-      .theme-toggle-desktop { display: none !important; }
       .container { padding: 0 1rem; margin: 1.5rem auto; }
       .card { padding: 1.15rem; }
       pre { padding: 0.9rem; font-size: 0.82rem; }
@@ -294,30 +387,32 @@
   </style>
 </head>
 <body>
-    <header class="navbar">
+  <header class="navbar">
     <div class="nav-top">
       <a href="../" class="nav-brand">
         <div class="nav-logo">E</div>
         <span>Expanse</span>
       </a>
-      <button class="theme-toggle theme-toggle-mobile" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
-        <span class="theme-icon-sun">&#9728;</span>
-        <span class="theme-icon-moon">&#9790;</span>
+      <button class="theme-toggle theme-toggle-mobile" type="button" onclick="toggleTheme()" aria-label="Toggle color theme" title="Toggle color theme">
+        <span class="theme-icon-system" aria-hidden="true">&#9681;</span>
+        <span class="theme-icon-sun" aria-hidden="true">&#9728;</span>
+        <span class="theme-icon-moon" aria-hidden="true">&#9790;</span>
       </button>
     </div>
     <div class="nav-scroll">
       <ul class="nav-links">
-        <li><a href="../" class="">Home</a></li>
+        <li><a href="../">Home</a></li>
         <li><a href="../#benchmarks">Benchmarks</a></li>
-        <li><a href="../visualizer.html" class="">Visualizer</a></li>
-        <li><a href="../apt/" class="">APT (Debian)</a></li>
-        <li><a href="./" class="active">RPM (RHEL)</a></li>
+        <li><a href="../visualizer.html">Visualizer</a></li>
+        <li><a href="../apt/">APT</a></li>
+        <li><a href="../rpm/" class="active">RPM</a></li>
         <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
         <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.3.0</a></li>
       </ul>
-      <button class="theme-toggle theme-toggle-desktop" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
-        <span class="theme-icon-sun">&#9728;</span>
-        <span class="theme-icon-moon">&#9790;</span>
+      <button class="theme-toggle theme-toggle-desktop" type="button" onclick="toggleTheme()" aria-label="Toggle color theme" title="Toggle color theme">
+        <span class="theme-icon-system" aria-hidden="true">&#9681;</span>
+        <span class="theme-icon-sun" aria-hidden="true">&#9728;</span>
+        <span class="theme-icon-moon" aria-hidden="true">&#9790;</span>
       </button>
     </div>
   </header>
@@ -396,12 +491,55 @@ sudo dnf install -y libexpanse libexpanse-devel libjudy-compat</code></pre>
 
   <script>
     function toggleTheme() {
-      const current = document.documentElement.getAttribute('data-theme') || 
-        (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-      const next = current === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      localStorage.setItem('expanse-theme', next);
+      var KEY = 'expanse-theme';
+      var v = null;
+      try { v = localStorage.getItem(KEY); } catch (e) {}
+      var mode = (v === 'light' || v === 'dark') ? v : 'system';
+      var next = mode === 'system' ? 'light' : (mode === 'light' ? 'dark' : 'system');
+      try {
+        if (next === 'system') { localStorage.removeItem(KEY); }
+        else { localStorage.setItem(KEY, next); }
+      } catch (e) {}
+      if (window.__expanseApplyTheme) { window.__expanseApplyTheme(); }
     }
+  </script>
+  <script>
+    (function() {
+      'use strict';
+      document.querySelectorAll('.nav-scroll, .install-nav').forEach(function(el) {
+        function update() {
+          el.classList.toggle('at-end', el.scrollLeft + el.clientWidth >= el.scrollWidth - 4);
+        }
+        el.addEventListener('scroll', update, { passive: true });
+        window.addEventListener('resize', update);
+        update();
+      });
+
+      if (!navigator.clipboard) { return; }
+      document.querySelectorAll('pre').forEach(function(pre) {
+        var wrap = document.createElement('div');
+        wrap.className = 'code-copy-wrap';
+        pre.parentNode.insertBefore(wrap, pre);
+        wrap.appendChild(pre);
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'code-copy-btn';
+        btn.textContent = 'Copy';
+        btn.setAttribute('aria-label', 'Copy code to clipboard');
+        btn.setAttribute('aria-live', 'polite');
+        btn.addEventListener('click', function() {
+          navigator.clipboard.writeText(pre.innerText.replace(/\n$/, '')).then(function() {
+            btn.textContent = 'Copied \u2713';
+            btn.classList.add('copied');
+            setTimeout(function() {
+              btn.textContent = 'Copy';
+              btn.classList.remove('copied');
+            }, 2000);
+          });
+        });
+        wrap.appendChild(btn);
+      });
+    })();
   </script>
 </body>
 </html>
