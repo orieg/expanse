@@ -1187,7 +1187,7 @@ pub struct MapIter<'a> {
 impl Iterator for MapIter<'_> {
     type Item = (u64, u64);
 
-    #[inline]
+    #[inline(always)]
     fn next(&mut self) -> Option<(u64, u64)> {
         self.raw.next()
     }
@@ -1203,7 +1203,7 @@ pub struct MapRange<'a> {
 impl Iterator for MapRange<'_> {
     type Item = (Key, u64);
 
-    #[inline]
+    #[inline(always)]
     fn next(&mut self) -> Option<(Key, u64)> {
         let (k, v) = self.raw.next()?;
         if k > self.end {

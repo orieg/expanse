@@ -312,6 +312,7 @@ struct ContainerResult {
     insert_throughput_mops: f64,
     iter_latency_ms: f64,
     iter_throughput_mops: f64,
+    range_throughput_mops: f64,
     bytes_per_key: f64,
     is_ordered_iter: bool,
 }
@@ -373,6 +374,25 @@ fn bench_expanse_map(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> C
     let iter_ms = iter_elapsed.as_secs_f64() * 1000.0;
     let iter_mops = (iter_count as f64 / iter_elapsed.as_secs_f64()) / 1_000_000.0;
 
+    // 4. Bounded range scans (500 windows of 100 keys)
+    let mut range_count = 0usize;
+    let mut range_sink = 0u64;
+    let t0 = Instant::now();
+    for &start in hit_probes.iter().take(500) {
+        let end = start.saturating_add(100);
+        for (k, v) in map.range(black_box(start..=end)) {
+            range_sink = range_sink.wrapping_add(black_box(k) ^ black_box(v));
+            range_count += 1;
+        }
+    }
+    let range_elapsed = t0.elapsed();
+    black_box((range_count, range_sink));
+    let range_mops = if range_elapsed.as_secs_f64() > 0.0 {
+        (range_count as f64 / range_elapsed.as_secs_f64()) / 1_000_000.0
+    } else {
+        0.0
+    };
+
     ContainerResult {
         name: "ExpanseMap",
         hit_latency_ns: hit_ns,
@@ -383,6 +403,7 @@ fn bench_expanse_map(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> C
         insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
+        range_throughput_mops: range_mops,
         bytes_per_key,
         is_ordered_iter: true,
     }
@@ -455,6 +476,7 @@ fn bench_hashbrown_map(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) ->
         insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
+        range_throughput_mops: 0.0,
         bytes_per_key,
         is_ordered_iter: false,
     }
@@ -517,6 +539,25 @@ fn bench_btreemap(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> Cont
     let iter_ms = iter_elapsed.as_secs_f64() * 1000.0;
     let iter_mops = (iter_count as f64 / iter_elapsed.as_secs_f64()) / 1_000_000.0;
 
+    // 4. Bounded range scans (500 windows of 100 keys)
+    let mut range_count = 0usize;
+    let mut range_sink = 0u64;
+    let t0 = Instant::now();
+    for &start in hit_probes.iter().take(500) {
+        let end = start.saturating_add(100);
+        for (&k, &v) in map.range(black_box(start..=end)) {
+            range_sink = range_sink.wrapping_add(black_box(k) ^ black_box(v));
+            range_count += 1;
+        }
+    }
+    let range_elapsed = t0.elapsed();
+    black_box((range_count, range_sink));
+    let range_mops = if range_elapsed.as_secs_f64() > 0.0 {
+        (range_count as f64 / range_elapsed.as_secs_f64()) / 1_000_000.0
+    } else {
+        0.0
+    };
+
     ContainerResult {
         name: "std::BTreeMap",
         hit_latency_ns: hit_ns,
@@ -527,6 +568,7 @@ fn bench_btreemap(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> Cont
         insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
+        range_throughput_mops: range_mops,
         bytes_per_key,
         is_ordered_iter: true,
     }
@@ -633,6 +675,7 @@ fn bench_judyl(
         insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
+        range_throughput_mops: 0.0,
         bytes_per_key,
         is_ordered_iter: true,
     }
@@ -695,6 +738,25 @@ fn bench_expanse_set(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> C
     let iter_ms = iter_elapsed.as_secs_f64() * 1000.0;
     let iter_mops = (iter_count as f64 / iter_elapsed.as_secs_f64()) / 1_000_000.0;
 
+    // 4. Bounded range scans (500 windows of 100 keys)
+    let mut range_count = 0usize;
+    let mut range_sink = 0u64;
+    let t0 = Instant::now();
+    for &start in hit_probes.iter().take(500) {
+        let end = start.saturating_add(100);
+        for k in set.range(black_box(start..=end)) {
+            range_sink = range_sink.wrapping_add(black_box(k));
+            range_count += 1;
+        }
+    }
+    let range_elapsed = t0.elapsed();
+    black_box((range_count, range_sink));
+    let range_mops = if range_elapsed.as_secs_f64() > 0.0 {
+        (range_count as f64 / range_elapsed.as_secs_f64()) / 1_000_000.0
+    } else {
+        0.0
+    };
+
     ContainerResult {
         name: "ExpanseSet",
         hit_latency_ns: hit_ns,
@@ -705,6 +767,7 @@ fn bench_expanse_set(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> C
         insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
+        range_throughput_mops: range_mops,
         bytes_per_key,
         is_ordered_iter: true,
     }
@@ -777,6 +840,7 @@ fn bench_hashbrown_set(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) ->
         insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
+        range_throughput_mops: 0.0,
         bytes_per_key,
         is_ordered_iter: false,
     }
@@ -839,6 +903,25 @@ fn bench_btreeset(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> Cont
     let iter_ms = iter_elapsed.as_secs_f64() * 1000.0;
     let iter_mops = (iter_count as f64 / iter_elapsed.as_secs_f64()) / 1_000_000.0;
 
+    // 4. Bounded range scans (500 windows of 100 keys)
+    let mut range_count = 0usize;
+    let mut range_sink = 0u64;
+    let t0 = Instant::now();
+    for &start in hit_probes.iter().take(500) {
+        let end = start.saturating_add(100);
+        for &k in set.range(black_box(start..=end)) {
+            range_sink = range_sink.wrapping_add(black_box(k));
+            range_count += 1;
+        }
+    }
+    let range_elapsed = t0.elapsed();
+    black_box((range_count, range_sink));
+    let range_mops = if range_elapsed.as_secs_f64() > 0.0 {
+        (range_count as f64 / range_elapsed.as_secs_f64()) / 1_000_000.0
+    } else {
+        0.0
+    };
+
     ContainerResult {
         name: "std::BTreeSet",
         hit_latency_ns: hit_ns,
@@ -849,6 +932,7 @@ fn bench_btreeset(keys: &[u64], hit_probes: &[u64], miss_probes: &[u64]) -> Cont
         insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
+        range_throughput_mops: range_mops,
         bytes_per_key,
         is_ordered_iter: true,
     }
@@ -949,6 +1033,7 @@ fn bench_judy1(
         insert_throughput_mops: ins_mops,
         iter_latency_ms: iter_ms,
         iter_throughput_mops: iter_mops,
+        range_throughput_mops: 0.0,
         bytes_per_key,
         is_ordered_iter: true,
     }
@@ -991,16 +1076,17 @@ fn print_distribution_report(dist: &str, pop: usize, results: &[ContainerResult]
         dist, pop
     );
     println!(
-        "{:<24} | {:>12} | {:>11} | {:>12} | {:>12} | {:>12} | {:>14}",
+        "{:<24} | {:>12} | {:>11} | {:>12} | {:>12} | {:>12} | {:>12} | {:>14}",
         "Data Structure",
         "Insert Tput",
         "Hit Latency",
         "Hit Tput",
         "Iter Latency",
         "Iter Tput",
+        "Range Tput",
         "Memory (B/key)"
     );
-    println!("{:-<123}", "");
+    println!("{:-<138}", "");
 
     for r in results {
         let iter_note = if r.is_ordered_iter {
@@ -1008,14 +1094,20 @@ fn print_distribution_report(dist: &str, pop: usize, results: &[ContainerResult]
         } else {
             " (unordered)"
         };
+        let range_str = if r.range_throughput_mops > 0.0 {
+            format!("{:>7.1} Mops/s", r.range_throughput_mops)
+        } else {
+            "        N/A".to_string()
+        };
         println!(
-            "{:<24} | {:>7.1} Mops/s | {:>8.2} ns | {:>7.1} Mops/s | {:>9.2} ms | {:>7.1} Mops/s | {:>10.2} B/k{}",
+            "{:<24} | {:>7.1} Mops/s | {:>8.2} ns | {:>7.1} Mops/s | {:>9.2} ms | {:>7.1} Mops/s | {} | {:>10.2} B/k{}",
             r.name,
             r.insert_throughput_mops,
             r.hit_latency_ns,
             r.hit_throughput_mops,
             r.iter_latency_ms,
             r.iter_throughput_mops,
+            range_str,
             r.bytes_per_key,
             iter_note
         );
@@ -1063,6 +1155,16 @@ fn print_distribution_report(dist: &str, pop: usize, results: &[ContainerResult]
             format_multiplier(
                 expanse.iter_throughput_mops,
                 btree.iter_throughput_mops,
+                true
+            ),
+            btree.name,
+        );
+        println!(
+            "  • Bounded Range Scans:    N/A (unsupported) vs {}   |  {} vs {}",
+            hashbrown.name,
+            format_multiplier(
+                expanse.range_throughput_mops,
+                btree.range_throughput_mops,
                 true
             ),
             btree.name,
@@ -1200,8 +1302,8 @@ fn print_json(
                 _ => "libjudy",
             };
             out.push_str(&format!(
-                "      \"{}\": {{\"name\": \"{}\", \"lookup_ns\": {:.2}, \"lookup_mops\": {:.2}, \"hit_latency_ns\": {:.2}, \"hit_throughput_mops\": {:.2}, \"miss_latency_ns\": {:.2}, \"miss_throughput_mops\": {:.2}, \"insert_ns\": {:.2}, \"insert_mops\": {:.2}, \"iter_latency_ms\": {:.2}, \"iter_mops\": {:.2}, \"iter_throughput_mops\": {:.2}, \"bytes_per_key\": {:.2}}}",
-                key, r.name, r.hit_latency_ns, r.hit_throughput_mops, r.hit_latency_ns, r.hit_throughput_mops, r.miss_latency_ns, r.miss_throughput_mops, r.insert_latency_ns, r.insert_throughput_mops, r.iter_latency_ms, r.iter_throughput_mops, r.iter_throughput_mops, r.bytes_per_key
+                "      \"{}\": {{\"name\": \"{}\", \"lookup_ns\": {:.2}, \"lookup_mops\": {:.2}, \"hit_latency_ns\": {:.2}, \"hit_throughput_mops\": {:.2}, \"miss_latency_ns\": {:.2}, \"miss_throughput_mops\": {:.2}, \"insert_ns\": {:.2}, \"insert_mops\": {:.2}, \"iter_latency_ms\": {:.2}, \"iter_mops\": {:.2}, \"iter_throughput_mops\": {:.2}, \"range_mops\": {:.2}, \"range_throughput_mops\": {:.2}, \"bytes_per_key\": {:.2}}}",
+                key, r.name, r.hit_latency_ns, r.hit_throughput_mops, r.hit_latency_ns, r.hit_throughput_mops, r.miss_latency_ns, r.miss_throughput_mops, r.insert_latency_ns, r.insert_throughput_mops, r.iter_latency_ms, r.iter_throughput_mops, r.iter_throughput_mops, r.range_throughput_mops, r.range_throughput_mops, r.bytes_per_key
             ));
             if r_idx + 1 < res.len() {
                 out.push_str(",\n");

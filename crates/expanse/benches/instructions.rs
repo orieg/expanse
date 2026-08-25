@@ -284,6 +284,44 @@ fn map_nav(built: (ExpanseMap, Vec<u64>)) -> u64 {
 }
 
 #[library_benchmark]
+#[bench::random(args = ("random",), setup = built_map)]
+#[bench::sequential(args = ("sequential",), setup = built_map)]
+#[bench::clustered(args = ("clustered",), setup = built_map)]
+fn map_range(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    // Bounded range scans across 100 windows of 100 elements
+    for &start in probes.iter().take(100) {
+        let end = start.saturating_add(100);
+        for (k, v) in map.range(black_box(start..=end)) {
+            sink ^= k ^ v;
+        }
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_set)]
+#[bench::sequential(args = ("sequential",), setup = built_set)]
+#[bench::clustered(args = ("clustered",), setup = built_set)]
+fn set_range(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (set, probes) = built;
+    let mut sink = 0u64;
+    // Bounded range scans across 100 windows of 100 elements
+    for &start in probes.iter().take(100) {
+        let end = start.saturating_add(100);
+        for k in set.range(black_box(start..=end)) {
+            sink ^= k;
+        }
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(set);
+    black_box(sink)
+}
+
+#[library_benchmark]
 #[bench::sensor_timestamps()]
 fn set32_insert() -> ExpanseSet32 {
     let mut set = ExpanseSet32::new();
@@ -346,8 +384,15 @@ library_benchmark_group!(
         blobmap32_scan
 );
 
+library_benchmark_group!(
+    name = range_cost;
+    benchmarks =
+        map_range,
+        set_range
+);
+
 #[cfg(target_os = "linux")]
-main!(library_benchmark_groups = cost);
+main!(library_benchmark_groups = cost, range_cost);
 
 #[cfg(not(target_os = "linux"))]
 fn main() {
