@@ -494,6 +494,67 @@ $$\mathcal{R}_{\text{BW}}(\sigma) = \frac{\text{DRAM}_{\text{expanse}}}{\text{DR
 | **$10.0\%$** ($100,000$ matches) | $72.0\text{ MB}$ | $14.40\text{ MB}$ | **$80.0\%$** | **$7.8\times$** |
 | **$50.0\%$** ($500,000$ matches) | $72.0\text{ MB}$ | $40.00\text{ MB}$ | **$44.4\%$** | **$1.8\times$** |
 
+> **Model scope.** The table above is a *pure DRAM-traffic* model: it assumes the only per-entry cost is bytes moved, so its speedups (up to $46\times$ at $\sigma=0.1\%$) are an **upper bound that ignores index traversal**. Measured reality (§10.3, PR #280/#282) is **traversal-floor bounded** — the key-ordered trie walk is paid for every entry regardless of $\sigma$ — so a *correct filter that still walks the trie per entry* lands around **~4–5× cold**, not $46\times$. Closing that gap is what §5.5 addresses.
+
+### 5.5 Leaf-Coupled Columnar Metadata (`BlobLeaf32`) — *proposed (#282)*
+
+**Status: proposed design, not implemented.** Tracked in #282; the first work item is the transpose-and-measure prototype (see §5.5.7).
+
+The `meta = 0` degeneration measured in §10.3 (any `hot_meta` predicate matches every `ArenaLong` record, since the wide locator leaves no metadata bits) and the traversal-floor ceiling above are two facets of one problem: metadata is stored **interleaved inside each 64-bit `ValueSlot`** (array-of-structs), so it is neither always present (wide locators evict it) nor densely scannable (it is strided across the value region). `BlobLeaf32` addresses both by **transposing the leaf value region into columns**, entirely within the trie leaf — no out-of-band sidecar, no change to the 64-bit `ValueSlot` public/JudyL contract.
+
+#### 5.5.1 Struct-of-arrays leaf layout
+
+A current map leaf is `[values: u64 × pop][keys: L × pop]` (see §*Linear leaves*), with each `u64` an interleaved `ValueSlot` `[hot_meta:32 | locator:24/56 | tag:8]`. `BlobLeaf32` (instantiated only by `ExpanseBlobMap`) splits the value region into two columns:
+
+```
+scalar blob leaf:  [ (meta|loc|tag) × pop ]              [ keys: L × pop ]
+                     ^ metadata strided across pop u64 words
+
+BlobLeaf32:        [ meta: u32 × pop ] [ loc: u64 × pop ] [ keys: L × pop ]
+                     ^ contiguous, cache-line aligned      ^ sorted, in-leaf
+                       SIMD-scannable (8×u32/AVX2, 4×u32/NEON)
+```
+
+The name denotes the **32-bit metadata column**, not an entry count; `pop` is the usual leaf occupancy. The `loc` column is full `u64`, so **full `ArenaLong` reach is retained** with **full 32-bit metadata precision** — no bit-stealing, no capacity cap, no `meta = 0`.
+
+#### 5.5.2 Free key recovery — the decisive advantage over an arena-chunk sidecar
+
+Because the keys already live **in the leaf**, sorted, a SIMD match maps directly to its key with **zero reverse index** and **zero change to `BlobRecordHeader`**. An arena-chunk columnar sidecar, by contrast, produces matches in physical slab order and must recover the key from the record header — which today stores only `len + generation` (`blobmap.rs`), forcing a `+8 B`/record format change. `BlobLeaf32` avoids that entirely and **preserves lexicographic key ordering**, so it can back the *ordered* `scan_filtered`, not only an unordered OLAP scan.
+
+#### 5.5.3 Scan path — SIMD inside key-ordered iteration
+
+Reusing the ordered leaf iterator, per blob leaf: (1) load the `meta` column (~1 cache line per 16 entries), SIMD-compare against the predicate bounds → movemask → selection bitmask; (2) for each set bit, read `loc[i]`, fetch the cold payload, invoke the callback with `key[i]` — **in key order**. Locators and payloads for non-matching lanes are never touched.
+
+#### 5.5.4 Vectorizable-predicate constraint
+
+The current `scan_filtered(predicate: FnMut(Key, u32) -> bool)` accepts an arbitrary closure, which cannot be vectorized. The fast path requires a **vectorizable predicate representation** — a range (`lo..=hi`), mask/equality, or set-membership — exposed as a distinct entry (e.g. `scan_meta_range(key_range, lo..=hi, callback)`). Arbitrary closures fall back to a scalar per-lane evaluation: still correct, but at the ~4–5× floor. The vectorized speedup applies only to the vectorizable form.
+
+#### 5.5.5 Point lookup, mutation, and GC
+
+- **Point `get()`** reconstructs a `ValueSlot` from `meta[i] + loc[i]`, touching the meta-column line plus the locator-column line (≈2 cache lines vs 1 for a scalar leaf) — a small, blob-map-only regression; the public `u64` `ValueSlot`/JudyL return contract is unchanged. Scalar `ExpanseMap`/JudyL keep 64-byte scalar leaves at maximum density and are unaffected.
+- **Insert/delete** rebuild the leaf SoA exactly as scalar leaves rebuild `[values][keys]` today.
+- **GC/compaction** updates `loc[i]` in place. Because metadata is *co-located with the leaf*, there is **no separate sidecar to synchronize** — GC is simpler than an arena-chunk sidecar. The metadata column inherits the standard OCC/seqlock reader discipline (invariant §10.1 #4).
+
+#### 5.5.6 Honest performance model — occupancy-sensitive, not a guaranteed $10\times$
+
+`BlobLeaf32` does **not** eliminate the trie walk; it iterates leaves in key order and performs $N/\text{pop}$ inter-leaf descents. Its ceiling is therefore **occupancy-sensitive**:
+
+- The payload-skip win (fetch only $\sigma N$ cold payloads) is the ~4–5× any correct filter yields.
+- The *additional* win — a dense one-line SIMD meta scan plus skipping locator reads for non-matches — pushes above that **only when leaf occupancy is high** ($\text{pop} \approx 16$), amortizing each ~tens-of-ns descent over 16 keys against the ~80 ns cold-payload fetch it saves per skipped lane. At low occupancy the per-key descent cost rises and the speedup decays toward the ~4–5× floor.
+
+So the defensible claim is **"approaches $\ge 10\times$ at high leaf occupancy, degrades toward ~4–5× as occupancy drops."** Only a fully-columnar arena scan (zero trie descents) is occupancy-independent, and it pays for that with the key-recovery + ordering-loss that `BlobLeaf32` avoids.
+
+#### 5.5.7 First work item — prototype the transpose, measure occupancy sensitivity
+
+Before committing to the full design, prototype and gate on measurement:
+
+1. Implement the AoS→SoA blob-leaf transpose plus a `scan_meta_range` SIMD path (portable SWAR fallback + parity test per `docs/TESTING.md`).
+2. Re-run `bench_predicate_scan_cold_dram_large` (§10.3) at $\sigma = 0.001$ over the $>$LLC arena; report the cold-DRAM speedup **and its sensitivity to leaf occupancy** (sweep `pop`). This is the go/no-go.
+3. Quantify the point-lookup regression for blob maps (scalar maps must be untouched, per the zero-regression policy).
+4. Only if a residual gap to the occupancy-independent arena-sidecar $\ge 10\times$ remains *and* a workload demonstrably needs it, build the unordered columnar path.
+
+**Acceptance framing (per the §10.3 gate discussion):** gate on **correctness + a measured cold-DRAM speedup**, keeping $\ge 10\times$ as a *labelled target* rather than a hard pass/fail — the correctness fix (a filter that actually filters, vs the current ~1.06× degenerate scan) is the load-bearing deliverable; the $\ge 10\times$ headline is pursued only where occupancy and workload justify it.
+
 ---
 
 ## 6. Slab / Arena Allocator (`BlobArena` & `ExpanseBlobMap`)
