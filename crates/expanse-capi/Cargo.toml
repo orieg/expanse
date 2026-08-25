@@ -38,3 +38,8 @@ iai-callgrind = "0.16"
 name = "vs_stock"
 harness = false
 test = false
+
+[[bench]]
+name = "smoke_instructions"
+harness = false
+test = false

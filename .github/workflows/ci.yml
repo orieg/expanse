@@ -581,6 +581,60 @@ jobs:
               });
             }
 
+  callgrind-smoke:
+    name: Perf / Callgrind Fast Smoke (Ubuntu)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install valgrind
+        timeout-minutes: 8
+        run: |
+          if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
+          for i in 1 2 3; do
+            timeout 120 sudo apt-get update || true
+            if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
+            echo "apt attempt $i failed; retrying in 15s"
+            sleep 15
+          done
+          exit 1
+
+      - name: Install iai-callgrind-runner
+        run: |
+          VERSION=$(cargo metadata --format-version 1 --locked | python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='iai-callgrind'))")
+          echo "iai-callgrind resolved to $VERSION"
+          cargo install iai-callgrind-runner --version "$VERSION"
+
+      - name: Build release artifacts
+        run: cargo build --release -p expanse-trie -p expanse-capi
+
+      - name: Run Callgrind Fast Smoke Instructions Benchmark
+        run: cargo bench --bench smoke_instructions -p expanse-trie | tee smoke-instruction-counts.txt
+
+      - name: Generate Report and Enforce Regression Guard
+        if: always()
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ -f smoke-instruction-counts.txt ]; then
+            printf '%s' "$PR_BODY" > pr-body.txt
+            python3 scripts/perf_report.py \
+              --head smoke-instruction-counts.txt \
+              --pr-body-file pr-body.txt \
+              --fail-on-regression \
+              --max-regression-pct 5.0 > smoke-report.md
+            if [ -f smoke-report.md ]; then
+              cat smoke-report.md >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
   differential-oracle:
     name: Compat / Stock libjudy Oracle (Linux)
     needs: [detect-changes]
@@ -1058,6 +1112,7 @@ jobs:
       - php-judy-compat
       - php-judy-windows
       - instruction-counts
+      - callgrind-smoke
       - differential-oracle
       - memory-budget
       - loom

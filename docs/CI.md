@@ -41,7 +41,7 @@ graph TD
 
 ## 2. Job Catalog (rolled up by the CI Gate)
 
-`ci.yml` defines **28 jobs** — 27 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while `main` pushes and non-PR events run everything.
+`ci.yml` defines **29 jobs** — 28 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while `main` pushes and non-PR events run everything.
 
 ### Change detection
 | Job | Name | Role |
@@ -82,6 +82,7 @@ graph TD
 | Job | Name | Role |
 |---|---|---|
 | `instruction-counts` | Perf / Callgrind Deterministic Instructions | Valgrind/Callgrind instruction counting + `scripts/perf_report.py` regression guard. |
+| `callgrind-smoke` | Perf / Callgrind Fast Smoke (Ubuntu) | Fast scaled-down (<20s) Callgrind instruction regression smoke gate ($N = 10,000$). |
 | `memory-budget` | Perf / Memory Budget Invariants | Runs `examples/bytes_per_key.rs`; fails if deterministic B/key exceeds architectural ceilings. |
 
 ### Bindings
@@ -105,7 +106,7 @@ graph TD
 ### Rollup gate
 | Job | Name | Role |
 |---|---|---|
-| `ci-gate` | CI Gate / All Checks Passed | Runs `if: always()`, `needs:` all 27 jobs, treats cleanly-skipped jobs as passing, and runs the completeness self-check. The **only** required branch-protection context. |
+| `ci-gate` | CI Gate / All Checks Passed | Runs `if: always()`, `needs:` all 28 jobs, treats cleanly-skipped jobs as passing, and runs the completeness self-check. The **only** required branch-protection context. |
 
 ---
 
