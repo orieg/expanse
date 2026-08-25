@@ -13,6 +13,28 @@ fuzz_target!(|data: &[u8]| {
         let _ = map.contains_key(0);
         let len = map.len();
 
+        // Resolve every stored slot through both the point-lookup and the
+        // range-scan paths. With the wide-offset arena, an index entry may carry
+        // an `ArenaShort` OR an `ArenaLong` locator; a crafted image can hold an
+        // `ArenaLong` slot with an out-of-range chunk id / offset. Every such
+        // slot must resolve to `None` (or valid bytes) with no panic or UB —
+        // this drives the `get_blob_slice_long` chunk/offset math on hostile
+        // input.
+        for (key, _raw) in map.index().iter() {
+            if let Some((view, _meta)) = map.get(key) {
+                // Force a read of the borrowed payload bytes.
+                let _ = view.as_bytes().iter().fold(0u8, |a, &b| a ^ b);
+            }
+        }
+        map.scan_filtered(
+            0..=u64::MAX,
+            |_key, _meta| true,
+            |_key, view, _meta| {
+                let _ = view.len();
+                true
+            },
+        );
+
         // Differential save -> load roundtrip: any image that parses must
         // re-serialize and re-parse to an identical map (same entry count, and
         // the same payload + hot_meta for every key, generation included).

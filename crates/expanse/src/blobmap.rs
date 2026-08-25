@@ -7,23 +7,36 @@
 //!
 //! # Capacity limits
 //!
-//! Arena payloads are located through the `ArenaShort` value slot, which packs
-//! a **24-bit** byte offset. The total live arena is therefore capped at
-//! **16 MiB** (`0x0100_0000`); `alloc_blob` returns [`ArenaError::OffsetOverflow`]
-//! once an allocation would cross that boundary. A single payload must also fit
-//! in one chunk, so its length is bounded by `chunk_size - 8` (each record
-//! carries an 8-byte [`BlobRecordHeader`]). The wider `ArenaLong`/`External`
-//! slot encodings reserved in [`crate::slot::SlotTag`] would lift the 16 MiB
-//! ceiling but are **not implemented**; only `ArenaShort` and inline slots are
-//! live. (The per-record `len` field is a `u32`, but the 16 MiB arena ceiling
-//! and the `chunk_size - 8` per-payload bound are the real limits, not 4 GiB.)
+//! Arena payloads are addressed by one of two value-slot encodings, chosen per
+//! blob by where it lands:
 //!
-//! # Inline metadata
+//! * **`ArenaShort`** packs a **24-bit** global byte offset alongside 32-bit
+//!   hot metadata. It addresses the first **16 MiB** (`0x0100_0000`) of arena.
+//! * **`ArenaLong`** packs a **16-bit chunk id** (the arena chunk index) plus a
+//!   **40-bit intra-chunk offset**. Once a blob's global offset would cross the
+//!   24-bit `ArenaShort` ceiling, [`BlobArena::alloc_blob`] emits an `ArenaLong`
+//!   locator instead, so the live arena can grow past 16 MiB.
 //!
-//! Inline payloads (`<= 7` bytes) do not have a separate 32-bit hot-metadata
-//! word — bits `63:32` of the slot hold payload bytes, not metadata — so
-//! `insert`'s `hot_meta` argument is ignored for them and `get`/`scan_filtered`
-//! report their metadata as `0`.
+//! The encoding ceiling is therefore `65536 * chunk_size` (16-bit chunk id ×
+//! `chunk_size`), e.g. 128 GiB at the default 2 MiB chunk. A shipped safety cap
+//! ([`MAX_ARENA_CAPACITY`], 1 GiB) bounds actual arena growth and the aggregate
+//! capacity a loaded image may declare; [`BlobArena::alloc_blob`] returns
+//! [`ArenaError::OffsetOverflow`] once growth would cross that cap or the 16-bit
+//! chunk-id space ([`MAX_ARENA_CHUNKS`]). A single payload must still fit in one
+//! chunk, so its length is bounded by `chunk_size - 8` (each record carries an
+//! 8-byte [`BlobRecordHeader`]). The `External` slot encoding remains reserved.
+//!
+//! # Inline / `ArenaLong` metadata
+//!
+//! Two slot encodings do not carry the 32-bit hot-metadata word, so `insert`'s
+//! `hot_meta` argument is ignored for them and `get`/`scan_filtered` report
+//! their metadata as `0`:
+//!
+//! * **Inline** payloads (`<= 7` bytes): bits `63:32` hold payload bytes.
+//! * **`ArenaLong`** payloads: all 56 non-tag bits address the chunk/offset,
+//!   leaving no room for metadata. A blob that resides in (or relocates into,
+//!   during compaction) an `ArenaLong` slot therefore loses any hot metadata it
+//!   would have carried as `ArenaShort`.
 
 use crate::map::ExpanseMap;
 use crate::slot::{SlotTag, ValueSlot};
@@ -153,7 +166,9 @@ impl<'a> PartialEq<BlobView<'a>> for [u8] {
 pub enum ArenaError {
     /// Arena memory allocation failed.
     AllocationFailed,
-    /// Arena byte offset exceeded 24-bit limit (16 MiB).
+    /// Arena growth would exceed the addressable/allowed ceiling: the shipped
+    /// safety cap ([`MAX_ARENA_CAPACITY`]) or the 16-bit chunk-id space
+    /// ([`MAX_ARENA_CHUNKS`]), or a locator could not be encoded.
     OffsetOverflow,
     /// Invalid arena offset was provided.
     InvalidOffset,
@@ -167,7 +182,9 @@ impl core::fmt::Display for ArenaError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::AllocationFailed => write!(f, "Arena memory allocation failed"),
-            Self::OffsetOverflow => write!(f, "Arena offset overflow (> 24-bit limit)"),
+            Self::OffsetOverflow => {
+                write!(f, "Arena growth exceeded the addressable/allowed ceiling")
+            }
             Self::InvalidOffset => write!(f, "Invalid arena offset"),
             Self::GenerationMismatch => write!(f, "Blob generation mismatch (ABA detected)"),
             Self::CorruptedHeader => write!(f, "Corrupted blob record header"),
@@ -373,6 +390,59 @@ unsafe impl Sync for ArenaChunk {}
 /// Default chunk capacity: 2 MiB.
 pub const DEFAULT_CHUNK_SIZE: usize = 2 * 1024 * 1024;
 
+/// Global-offset ceiling of the 24-bit `ArenaShort` locator (16 MiB). Blobs
+/// whose global byte offset is at or beyond this value are addressed with an
+/// `ArenaLong` slot ((chunk id, intra-chunk offset)) instead.
+pub const ARENA_SHORT_CEILING: usize = (ValueSlot::ARENA_OFFSET_MASK as usize) + 1;
+
+/// Maximum number of arena chunks addressable by a 16-bit `ArenaLong` chunk id
+/// (`2^16`). The encoding ceiling of the arena is `MAX_ARENA_CHUNKS *
+/// chunk_size`.
+pub const MAX_ARENA_CHUNKS: usize = 1 << 16;
+
+/// Shipped safety cap on total arena capacity (**1 GiB**).
+///
+/// The `ArenaLong` encoding could address `MAX_ARENA_CHUNKS * chunk_size`
+/// (128 GiB at the default 2 MiB chunk), but growth is bounded to this cap so a
+/// runaway workload — or a crafted image declaring a huge `chunk_count *
+/// chunk_size` — cannot drive an unbounded `alloc_zeroed`. 1 GiB is 64× the old
+/// 16 MiB `ArenaShort` ceiling and comfortably exceeds any single-socket
+/// last-level cache, which is what the RFC §10.3 cold-DRAM predicate-scan
+/// regime requires. Raise this constant to lift the shipped cap toward the
+/// encoding ceiling.
+pub const MAX_ARENA_CAPACITY: usize = 1 << 30;
+
+/// Where a freshly allocated blob landed, and therefore which value-slot
+/// encoding addresses it. Returned by [`BlobArena::alloc_blob`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlobLoc {
+    /// The global byte offset fits the 24-bit `ArenaShort` locator (< 16 MiB).
+    Short(u32),
+    /// Beyond 16 MiB: addressed by chunk id + intra-chunk byte offset via an
+    /// `ArenaLong` slot.
+    Long {
+        /// Arena chunk index (the 16-bit `ArenaLong` chunk id).
+        chunk_id: u16,
+        /// Byte offset of the record header within that chunk (40-bit field).
+        offset_in_chunk: u64,
+    },
+}
+
+/// Builds the arena-backed [`ValueSlot`] addressing `loc`, attaching `hot_meta`
+/// only to the `ArenaShort` encoding (`ArenaLong` has no metadata field).
+#[inline]
+fn slot_from_loc(loc: BlobLoc, hot_meta: u32) -> Result<ValueSlot, ArenaError> {
+    match loc {
+        BlobLoc::Short(offset) => {
+            ValueSlot::new_arena_short(hot_meta, offset).ok_or(ArenaError::OffsetOverflow)
+        }
+        BlobLoc::Long {
+            chunk_id,
+            offset_in_chunk,
+        } => ValueSlot::new_arena_long(chunk_id, offset_in_chunk).ok_or(ArenaError::OffsetOverflow),
+    }
+}
+
 /// Chunked slab allocator for variable-length payload storage.
 pub struct BlobArena {
     chunks: Vec<ArenaChunk>,
@@ -386,6 +456,11 @@ pub struct BlobArena {
     /// check in [`ArenaChunk::get_slice`] instead of resolving to unrelated
     /// bytes. Serialized per chunk so save/load preserves it.
     generation: u32,
+    /// Total-capacity ceiling in bytes. Allocating a new chunk fails with
+    /// [`ArenaError::OffsetOverflow`] once `total_allocated + chunk_size` would
+    /// cross it. Defaults to [`MAX_ARENA_CAPACITY`]; a compaction inherits the
+    /// source arena's cap. Not serialized (it is a growth policy, not data).
+    max_capacity: usize,
 }
 
 impl BlobArena {
@@ -403,6 +478,7 @@ impl BlobArena {
             total_allocated: 0,
             live_bytes: 0,
             generation: 1,
+            max_capacity: MAX_ARENA_CAPACITY,
         }
     }
 
@@ -413,8 +489,35 @@ impl BlobArena {
         self.generation
     }
 
-    /// Allocates a blob payload in the arena, returning its 24-bit global offset.
-    pub fn alloc_blob(&mut self, data: &[u8]) -> Result<u32, ArenaError> {
+    /// Classifies where a record at `(chunk index, intra-chunk offset)` sits and
+    /// picks the value-slot encoding: `ArenaShort` while its flat global offset
+    /// still fits the 24-bit locator, `ArenaLong` once it crosses 16 MiB.
+    ///
+    /// The flat global offset `idx * chunk_size + offset_in_chunk` is the same
+    /// address [`Self::get_blob_slice`] recovers by division, so the two paths
+    /// resolve to the identical chunk/offset regardless of which encoding a
+    /// given blob uses.
+    #[inline]
+    fn classify_loc(&self, idx: usize, offset_in_chunk: usize) -> BlobLoc {
+        let global = idx * self.chunk_size + offset_in_chunk;
+        if global <= (ValueSlot::ARENA_OFFSET_MASK as usize) {
+            BlobLoc::Short(global as u32)
+        } else {
+            BlobLoc::Long {
+                chunk_id: idx as u16,
+                offset_in_chunk: offset_in_chunk as u64,
+            }
+        }
+    }
+
+    /// Allocates a blob payload in the arena, returning its [`BlobLoc`] (the
+    /// caller turns it into an `ArenaShort` or `ArenaLong` [`ValueSlot`]).
+    ///
+    /// Fails with [`ArenaError::OffsetOverflow`] once growing the arena would
+    /// cross the 16-bit chunk-id space ([`MAX_ARENA_CHUNKS`]) or the shipped
+    /// [`MAX_ARENA_CAPACITY`] safety cap, and with [`ArenaError::AllocationFailed`]
+    /// if a single record cannot fit one chunk (`8 + data.len() > chunk_size`).
+    pub fn alloc_blob(&mut self, data: &[u8]) -> Result<BlobLoc, ArenaError> {
         let needed = 8 + data.len();
         if needed > self.chunk_size {
             return Err(ArenaError::AllocationFailed);
@@ -423,31 +526,35 @@ impl BlobArena {
         if let Some(idx) = self.active_chunk {
             if self.chunks[idx].can_fit(data.len()) {
                 let offset_in_chunk = self.chunks[idx].alloc(data)?;
-                let global_offset = (idx * self.chunk_size + offset_in_chunk) as u32;
-                if global_offset > 0x00FF_FFFF {
-                    return Err(ArenaError::OffsetOverflow);
-                }
                 self.live_bytes += needed;
-                return Ok(global_offset);
+                return Ok(self.classify_loc(idx, offset_in_chunk));
             }
+        }
+
+        // A new chunk is required — enforce the chunk-id space and the total
+        // capacity cap before allocating anything.
+        let idx = self.chunks.len();
+        if idx >= MAX_ARENA_CHUNKS {
+            return Err(ArenaError::OffsetOverflow);
+        }
+        if self.total_allocated.saturating_add(self.chunk_size) > self.max_capacity {
+            return Err(ArenaError::OffsetOverflow);
         }
 
         // Allocate a new chunk stamped with the arena's current generation.
         let mut new_chunk = ArenaChunk::new(self.chunk_size, self.generation)?;
         let offset_in_chunk = new_chunk.alloc(data)?;
-        let idx = self.chunks.len();
-        let global_offset = (idx * self.chunk_size + offset_in_chunk) as u32;
-        if global_offset > 0x00FF_FFFF {
-            return Err(ArenaError::OffsetOverflow);
-        }
         self.chunks.push(new_chunk);
         self.total_allocated += self.chunk_size;
         self.active_chunk = Some(idx);
         self.live_bytes += needed;
-        Ok(global_offset)
+        Ok(self.classify_loc(idx, offset_in_chunk))
     }
 
-    /// Returns a slice of the blob payload at the given 24-bit arena offset.
+    /// Returns a slice of the blob payload at the given 24-bit `ArenaShort`
+    /// global offset. The chunk is recovered by `offset / chunk_size`, so this
+    /// path is only valid for offsets that fit the `ArenaShort` locator; use
+    /// [`Self::get_blob_slice_long`] for `ArenaLong` locators.
     #[inline]
     #[must_use]
     pub fn get_blob_slice(&self, global_offset: u32) -> Option<&[u8]> {
@@ -461,7 +568,18 @@ impl BlobArena {
         }
     }
 
-    /// Records that a blob at `global_offset` has been deleted or overwritten.
+    /// Returns a slice of the blob payload addressed by an `ArenaLong` locator
+    /// `(chunk_id, offset_in_chunk)`. Returns `None` (never UB) for an
+    /// out-of-range chunk id or offset, so a crafted image resolves cleanly.
+    #[inline]
+    #[must_use]
+    pub fn get_blob_slice_long(&self, chunk_id: u16, offset_in_chunk: u64) -> Option<&[u8]> {
+        let idx = chunk_id as usize;
+        let offset = usize::try_from(offset_in_chunk).ok()?;
+        self.chunks.get(idx)?.get_slice(offset)
+    }
+
+    /// Records that an `ArenaShort` blob at `global_offset` was deleted/overwritten.
     pub fn record_deleted(&mut self, global_offset: u32) {
         let offset = global_offset as usize;
         let chunk_idx = offset / self.chunk_size;
@@ -471,6 +589,31 @@ impl BlobArena {
                 let needed = 8 + slice.len();
                 self.live_bytes = self.live_bytes.saturating_sub(needed);
             }
+        }
+    }
+
+    /// Records that an `ArenaLong` blob at `(chunk_id, offset_in_chunk)` was
+    /// deleted/overwritten.
+    pub fn record_deleted_long(&mut self, chunk_id: u16, offset_in_chunk: u64) {
+        // Resolve the length and drop the borrow before mutating `live_bytes`.
+        let len = self
+            .get_blob_slice_long(chunk_id, offset_in_chunk)
+            .map(<[u8]>::len);
+        if let Some(len) = len {
+            self.live_bytes = self.live_bytes.saturating_sub(8 + len);
+        }
+    }
+
+    /// Records deletion for whichever arena encoding `slot` uses (no-op for
+    /// inline / non-arena slots).
+    pub fn record_deleted_slot(&mut self, slot: ValueSlot) {
+        match slot.tag() {
+            SlotTag::ArenaShort => self.record_deleted(slot.arena_offset()),
+            SlotTag::ArenaLong => {
+                let (chunk_id, offset_in_chunk) = slot.arena_long_loc();
+                self.record_deleted_long(chunk_id, offset_in_chunk);
+            }
+            _ => {}
         }
     }
 
@@ -494,6 +637,9 @@ impl BlobArena {
         let chunks_before = self.chunks.len();
 
         let mut new_arena = BlobArena::new(self.chunk_size);
+        // Inherit the source arena's capacity cap so the compacted arena is held
+        // to the same ceiling.
+        new_arena.max_capacity = self.max_capacity;
         // Bump the generation for the compacted arena so stale offsets fail
         // the generation check instead of aliasing relocated records. Skip 0
         // so zero-initialized (unwritten) arena bytes never match a live gen.
@@ -502,27 +648,36 @@ impl BlobArena {
             if g == 0 { 1 } else { g }
         };
 
-        let live_entries: Vec<(Key, u32, u32)> = index
+        // Collect every arena-backed entry (both `ArenaShort` and `ArenaLong`).
+        let live_entries: Vec<(Key, ValueSlot)> = index
             .iter()
             .filter_map(|(key, raw_slot)| {
                 let slot = ValueSlot::from_raw(raw_slot);
-                if slot.tag() == SlotTag::ArenaShort {
-                    Some((key, slot.arena_offset(), slot.hot_meta()))
-                } else {
-                    None
-                }
+                matches!(slot.tag(), SlotTag::ArenaShort | SlotTag::ArenaLong)
+                    .then_some((key, slot))
             })
             .collect();
 
         // Phase 1: relocate every live payload into the new arena, collecting
         // the (key, new raw slot) rewrites. A failure here returns before any
-        // index slot is touched, so `self`/`index` stay consistent.
+        // index slot is touched, so `self`/`index` stay consistent. A blob's
+        // encoding is re-derived from its *new* location, so a record may switch
+        // between `ArenaShort` and `ArenaLong` across a compaction; hot metadata
+        // is preserved only on the `ArenaShort` side (`ArenaLong` has none).
         let mut rewrites: Vec<(Key, u64)> = Vec::with_capacity(live_entries.len());
-        for (key, old_offset, meta) in live_entries {
-            if let Some(payload) = self.get_blob_slice(old_offset) {
-                let new_offset = new_arena.alloc_blob(payload)?;
-                let new_slot = ValueSlot::new_arena_short(meta, new_offset)
-                    .ok_or(ArenaError::OffsetOverflow)?;
+        for (key, slot) in live_entries {
+            let (payload, meta) = match slot.tag() {
+                SlotTag::ArenaShort => (self.get_blob_slice(slot.arena_offset()), slot.hot_meta()),
+                SlotTag::ArenaLong => {
+                    let (chunk_id, offset_in_chunk) = slot.arena_long_loc();
+                    (self.get_blob_slice_long(chunk_id, offset_in_chunk), 0u32)
+                }
+                // filter above admits only the two arena tags.
+                _ => (None, 0u32),
+            };
+            if let Some(payload) = payload {
+                let loc = new_arena.alloc_blob(payload)?;
+                let new_slot = slot_from_loc(loc, meta)?;
                 rewrites.push((key, new_slot.to_raw()));
             }
         }
@@ -675,32 +830,24 @@ impl ExpanseBlobMap {
     /// Payloads `<= 7 bytes` are stored inline with zero heap allocation.
     /// Payloads `> 7 bytes` are allocated in the slab arena.
     ///
-    /// Note: inline (`<= 7` byte) payloads do not store `hot_meta` — the slot
-    /// bits that would hold it carry payload bytes — so `hot_meta` is ignored
-    /// for them and later reads report their metadata as `0`.
+    /// Note: inline (`<= 7` byte) payloads and `ArenaLong` payloads (those past
+    /// the 16 MiB `ArenaShort` range) do not store `hot_meta` — their slot bits
+    /// carry payload / locator instead — so `hot_meta` is ignored for them and
+    /// later reads report their metadata as `0`.
     pub fn insert(&mut self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
         let old_slot = self.index.get(key).map(ValueSlot::from_raw);
         if data.len() <= 7 {
             let slot = ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?;
             self.index.insert(key, slot.to_raw());
-            if let Some(old) = old_slot {
-                if old.tag() == SlotTag::ArenaShort {
-                    self.arena.record_deleted(old.arena_offset());
-                }
-            }
-            Ok(())
         } else {
-            let offset = self.arena.alloc_blob(data)?;
-            let slot =
-                ValueSlot::new_arena_short(hot_meta, offset).ok_or(ArenaError::OffsetOverflow)?;
+            let loc = self.arena.alloc_blob(data)?;
+            let slot = slot_from_loc(loc, hot_meta)?;
             self.index.insert(key, slot.to_raw());
-            if let Some(old) = old_slot {
-                if old.tag() == SlotTag::ArenaShort {
-                    self.arena.record_deleted(old.arena_offset());
-                }
-            }
-            Ok(())
         }
+        if let Some(old) = old_slot {
+            self.arena.record_deleted_slot(old);
+        }
+        Ok(())
     }
 
     /// Point lookup returning a zero-copy [`BlobView`] and the 32-bit hot metadata word.
@@ -738,6 +885,12 @@ impl ExpanseBlobMap {
                 let slice = self.arena.get_blob_slice(offset)?;
                 Some((BlobView::Arena(slice), meta))
             }
+            SlotTag::ArenaLong => {
+                let (chunk_id, offset_in_chunk) = slot.arena_long_loc();
+                let slice = self.arena.get_blob_slice_long(chunk_id, offset_in_chunk)?;
+                // `ArenaLong` carries no hot-metadata word; report 0.
+                Some((BlobView::Arena(slice), 0))
+            }
             _ => None,
         }
     }
@@ -745,10 +898,7 @@ impl ExpanseBlobMap {
     /// Removes a key from the map, returning `true` if the key was present.
     pub fn remove(&mut self, key: Key) -> bool {
         if let Some(raw_val) = self.index.remove(key) {
-            let slot = ValueSlot::from_raw(raw_val);
-            if slot.tag() == SlotTag::ArenaShort {
-                self.arena.record_deleted(slot.arena_offset());
-            }
+            self.arena.record_deleted_slot(ValueSlot::from_raw(raw_val));
             true
         } else {
             false
@@ -906,15 +1056,21 @@ impl ExpanseBlobMap {
             return Err(ArenaError::CorruptedHeader);
         }
 
-        // Bound the aggregate declared arena capacity to the 24-bit
-        // ArenaShort offset ceiling (16 MiB). A ~4 KiB crafted header could
-        // otherwise declare a multi-GiB arena and drive `alloc_zeroed` into an
+        // The 16-bit `ArenaLong` chunk id can address at most `MAX_ARENA_CHUNKS`
+        // chunks; a larger count is unrepresentable and rejected.
+        if header.chunk_count > MAX_ARENA_CHUNKS as u64 {
+            return Err(ArenaError::CorruptedHeader);
+        }
+
+        // Bound the aggregate declared arena capacity to the shipped safety cap
+        // (`MAX_ARENA_CAPACITY`). A small crafted header could otherwise declare
+        // a huge `chunk_count * chunk_size` and drive `alloc_zeroed` into an
         // OOM/DoS; a legitimately saved arena never crosses this ceiling.
         let declared_capacity = header
             .chunk_count
             .checked_mul(header.chunk_size)
             .ok_or(ArenaError::CorruptedHeader)?;
-        if declared_capacity > 0x0100_0000 {
+        if declared_capacity > MAX_ARENA_CAPACITY as u64 {
             return Err(ArenaError::CorruptedHeader);
         }
 
@@ -1000,13 +1156,23 @@ impl ExpanseBlobMap {
             idx_pos = idx_pos.checked_add(16).ok_or(ArenaError::CorruptedHeader)?;
             map.index.insert(key, raw_slot);
 
-            // Recompute live_bytes if ArenaShort
+            // Recompute live_bytes for arena-backed slots (both encodings).
             let slot = ValueSlot::from_raw(raw_slot);
-            if slot.tag() == SlotTag::ArenaShort {
-                let offset = slot.arena_offset();
-                if let Some(payload) = map.arena.get_blob_slice(offset) {
-                    map.arena.live_bytes += 8 + payload.len();
+            let payload_len = match slot.tag() {
+                SlotTag::ArenaShort => map
+                    .arena
+                    .get_blob_slice(slot.arena_offset())
+                    .map(<[u8]>::len),
+                SlotTag::ArenaLong => {
+                    let (chunk_id, offset_in_chunk) = slot.arena_long_loc();
+                    map.arena
+                        .get_blob_slice_long(chunk_id, offset_in_chunk)
+                        .map(<[u8]>::len)
                 }
+                _ => None,
+            };
+            if let Some(len) = payload_len {
+                map.arena.live_bytes += 8 + len;
             }
         }
 
@@ -1283,10 +1449,12 @@ mod tests {
 
     #[test]
     fn corrupted_image_huge_aggregate_capacity_rejected() {
-        // A ~512-byte file that declares chunk_count * chunk_size = 32 MiB,
-        // above the 16 MiB (24-bit) arena ceiling. chunk_count (16) passes the
-        // bytes.len()/24 bound, so the aggregate-capacity check is the one that
-        // fires — proving it guards the multi-GiB alloc_zeroed DoS.
+        // A ~512-byte file that declares chunk_count * chunk_size = 2 GiB, above
+        // the shipped MAX_ARENA_CAPACITY (1 GiB) safety cap. chunk_count (2)
+        // passes both the MAX_ARENA_CHUNKS and bytes.len()/24 bounds, and
+        // chunk_size (1 GiB) is exactly MAX_CHUNK_CAPACITY, so the
+        // aggregate-capacity check is the one that fires — proving it guards the
+        // multi-GiB alloc_zeroed DoS at the new ceiling.
         let mut buf = vec![0u8; 512];
         buf[0..8].copy_from_slice(&EXPANSE_MAGIC);
         buf[8..12].copy_from_slice(&EXPANSE_FORMAT_VERSION.to_le_bytes());
@@ -1294,8 +1462,8 @@ mod tests {
         buf[24..32].copy_from_slice(&64u64.to_le_bytes()); // index_offset
         buf[32..40].copy_from_slice(&64u64.to_le_bytes()); // arena_offset
         buf[40..48].copy_from_slice(&512u64.to_le_bytes()); // total_size
-        buf[48..56].copy_from_slice(&(2u64 * 1024 * 1024).to_le_bytes()); // chunk_size = 2 MiB
-        buf[56..64].copy_from_slice(&16u64.to_le_bytes()); // chunk_count = 16 -> 32 MiB
+        buf[48..56].copy_from_slice(&(1024u64 * 1024 * 1024).to_le_bytes()); // chunk_size = 1 GiB
+        buf[56..64].copy_from_slice(&2u64.to_le_bytes()); // chunk_count = 2 -> 2 GiB
         assert!(matches!(
             ExpanseBlobMap::from_bytes_slice(&buf),
             Err(ArenaError::CorruptedHeader)
@@ -1319,19 +1487,37 @@ mod tests {
 
     #[test]
     #[cfg(not(miri))]
-    fn arena_offset_overflow_beyond_16mib() {
+    fn arena_long_produced_at_16mib_boundary() {
+        // One record fills a 1 MiB chunk exactly, so blob k lands at the start
+        // of chunk k, global offset = k * 1 MiB. The 24-bit `ArenaShort` locator
+        // covers global < 16 MiB, i.e. chunks 0..=15; chunk 16 begins at exactly
+        // 16 MiB (0x0100_0000) and must switch to `ArenaLong`.
         let chunk = 1024 * 1024; // 1 MiB
         let mut map = ExpanseBlobMap::with_chunk_size(chunk);
-        let payload = vec![0xAA; chunk - 8]; // one record fills a chunk exactly
-        let mut hit = None;
-        for k in 0..64u64 {
-            if let Err(e) = map.insert(k, &payload, 0) {
-                hit = Some((k, e));
-                break;
-            }
+        for k in 0..20u64 {
+            // Distinct payload per key so read-back can't alias.
+            let payload = vec![(0xA0 + k) as u8; chunk - 8];
+            map.insert(k, &payload, k as u32)
+                .expect("insert past 16 MiB");
         }
-        // 16 x 1 MiB fills offsets 0..15 MiB; the 17th crosses the 24-bit ceiling.
-        assert_eq!(hit, Some((16, ArenaError::OffsetOverflow)));
+
+        for k in 0..20u64 {
+            let raw = map.index.get(k).expect("key present");
+            let tag = ValueSlot::from_raw(raw).tag();
+            if k < 16 {
+                assert_eq!(tag, SlotTag::ArenaShort, "k={k} should be ArenaShort");
+            } else {
+                assert_eq!(tag, SlotTag::ArenaLong, "k={k} should be ArenaLong");
+            }
+            let (view, meta) = map.get(k).expect("value present");
+            assert!(view.is_arena());
+            assert_eq!(view.as_bytes(), &vec![(0xA0 + k) as u8; chunk - 8][..]);
+            // ArenaLong carries no hot metadata (reported as 0); ArenaShort does.
+            let expected_meta = if k < 16 { k as u32 } else { 0 };
+            assert_eq!(meta, expected_meta, "k={k} meta");
+        }
+        // The arena grew past the old 16 MiB ceiling.
+        assert!(map.arena().mem_used() > ARENA_SHORT_CEILING);
     }
 
     #[test]
@@ -1339,12 +1525,16 @@ mod tests {
     fn failed_compaction_leaves_map_intact() {
         let chunk = 1024 * 1024;
         let mut map = ExpanseBlobMap::with_chunk_size(chunk);
+        // Pin the arena's capacity cap to 16 MiB so a 17th 1 MiB chunk overflows
+        // cheaply (the compacted arena inherits this cap), exercising the
+        // all-or-nothing failure path without allocating gigabytes.
+        map.arena.max_capacity = 16 * 1024 * 1024;
         let payload = vec![0x5A; chunk - 8];
         map.insert(0, &payload, 42).unwrap();
         let raw = map.index.get(0).expect("key 0 present");
         // 16 extra index entries aliasing the single arena record at offset 0.
         // Compaction copies each into its own record, overflowing the 16 MiB
-        // ceiling partway through phase 1 -> Err, with self left untouched.
+        // cap partway through phase 1 -> Err, with self left untouched.
         for k in 1..=16u64 {
             map.index.insert(k, raw);
         }
@@ -1427,5 +1617,165 @@ mod tests {
         for i in 0..2u64 {
             assert_eq!(map.get(i).unwrap().0.as_bytes(), &[i as u8; 4000][..]);
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // ArenaLong tests. Reaching global offset > 16 MiB by normal inserts
+    // requires a >16 MiB arena (too heavy for Miri), so the Miri-safe tests
+    // build a tiny multi-chunk arena and rewrite an index slot into the
+    // *equivalent* `ArenaLong` locator ((offset / chunk_size, offset %
+    // chunk_size)) pointing at the same physical record. `get` then dispatches
+    // on the tag and takes the multi-chunk `get_blob_slice_long` path, so the
+    // exact chunk/offset pointer math runs under Miri on kilobytes of arena.
+    // ---------------------------------------------------------------------
+
+    /// Rewrites key `k`'s `ArenaShort` slot into the equivalent `ArenaLong`
+    /// locator addressing the same physical record, and returns it.
+    fn rewrite_short_to_long(map: &mut ExpanseBlobMap, k: Key) -> (u16, u64) {
+        let raw = map.index.get(k).expect("key present");
+        let slot = ValueSlot::from_raw(raw);
+        assert_eq!(slot.tag(), SlotTag::ArenaShort, "precondition: short slot");
+        let off = slot.arena_offset() as usize;
+        let chunk_size = map.arena.chunk_size();
+        let chunk_id = (off / chunk_size) as u16;
+        let offset_in_chunk = (off % chunk_size) as u64;
+        let long = ValueSlot::new_arena_long(chunk_id, offset_in_chunk).expect("encodable");
+        map.index.insert(k, long.to_raw());
+        (chunk_id, offset_in_chunk)
+    }
+
+    #[test]
+    fn arena_long_read_resolves_on_small_arena() {
+        let mut map = ExpanseBlobMap::with_chunk_size(4096);
+        // ~2 KiB payloads -> two records per 4 KiB chunk, so keys spread across
+        // several chunks (chunk ids > 0 exist).
+        for k in 0..6u64 {
+            let payload = vec![0x11 * (k as u8 + 1); 2000];
+            map.insert(k, &payload, 700 + k as u32).unwrap();
+        }
+        let (cid, coff) = rewrite_short_to_long(&mut map, 5);
+        assert!(cid >= 1, "key 5 should live past the first chunk");
+
+        // Read via the ArenaLong path.
+        let (view, meta) = map.get(5).expect("value present via ArenaLong");
+        assert!(view.is_arena());
+        assert_eq!(view.as_bytes(), &vec![0x11 * 6u8; 2000][..]);
+        assert_eq!(meta, 0, "ArenaLong carries no hot metadata");
+
+        // The low-level resolver agrees.
+        assert_eq!(
+            map.arena().get_blob_slice_long(cid, coff),
+            Some(&vec![0x11 * 6u8; 2000][..])
+        );
+        // Other keys still resolve as ArenaShort with their metadata.
+        let (v0, m0) = map.get(0).unwrap();
+        assert_eq!(v0.as_bytes(), &vec![0x11u8; 2000][..]);
+        assert_eq!(m0, 700);
+    }
+
+    #[test]
+    fn arena_long_out_of_range_reads_none() {
+        let mut map = ExpanseBlobMap::with_chunk_size(4096);
+        for k in 0..4u64 {
+            map.insert(k, &vec![0x33; 2000], 0).unwrap();
+        }
+        // Out-of-range chunk id -> None (no chunk 9999).
+        assert!(map.arena().get_blob_slice_long(9999, 0).is_none());
+        // Valid chunk, offset past the cursor -> None.
+        assert!(map.arena().get_blob_slice_long(0, 1 << 20).is_none());
+
+        // A crafted index slot with a bad ArenaLong locator resolves to None via
+        // `get` (clean, no UB — Miri validates the pointer math).
+        let bad = ValueSlot::new_arena_long(9999, 4096).unwrap();
+        map.index.insert(0, bad.to_raw());
+        assert!(map.get(0).is_none());
+    }
+
+    #[test]
+    fn arena_long_save_load_roundtrip_small() {
+        let mut map = ExpanseBlobMap::with_chunk_size(4096);
+        for k in 0..6u64 {
+            let payload = vec![0x20 + k as u8; 2000];
+            map.insert(k, &payload, k as u32).unwrap();
+        }
+        // Turn two keys into ArenaLong locators.
+        rewrite_short_to_long(&mut map, 4);
+        rewrite_short_to_long(&mut map, 5);
+
+        let mut buf = Vec::new();
+        map.save_to_writer(&mut buf).unwrap();
+        let restored = ExpanseBlobMap::from_bytes_slice(&buf).unwrap();
+        assert_eq!(restored.len(), 6);
+
+        for k in 0..6u64 {
+            let (view, meta) = restored.get(k).expect("entry present after reload");
+            assert_eq!(view.as_bytes(), &vec![0x20 + k as u8; 2000][..]);
+            let raw = restored.index().get(k).unwrap();
+            if k >= 4 {
+                assert_eq!(ValueSlot::from_raw(raw).tag(), SlotTag::ArenaLong);
+                assert_eq!(meta, 0);
+            } else {
+                assert_eq!(ValueSlot::from_raw(raw).tag(), SlotTag::ArenaShort);
+                assert_eq!(meta, k as u32);
+            }
+        }
+    }
+
+    #[test]
+    fn arena_long_compaction_relocates() {
+        let mut map = ExpanseBlobMap::with_chunk_size(4096);
+        for k in 0..8u64 {
+            let payload = vec![0x40 + k as u8; 2000];
+            map.insert(k, &payload, k as u32).unwrap();
+        }
+        // Make keys 6 and 7 ArenaLong, then churn away the rest.
+        rewrite_short_to_long(&mut map, 6);
+        rewrite_short_to_long(&mut map, 7);
+        for k in 0..6u64 {
+            assert!(map.remove(k));
+        }
+        assert_eq!(map.len(), 2);
+
+        // Compaction must read the surviving ArenaLong records (via the Long
+        // path) and relocate them all-or-nothing.
+        let stats = map.compact().unwrap();
+        assert_eq!(stats.live_records_moved, 2);
+
+        for k in 6..8u64 {
+            let (view, _meta) = map.get(k).expect("ArenaLong entry survives compaction");
+            assert_eq!(view.as_bytes(), &vec![0x40 + k as u8; 2000][..]);
+        }
+    }
+
+    #[test]
+    #[cfg(not(miri))]
+    fn multi_chunk_over_16mib_save_load_roundtrip() {
+        // A genuinely >16 MiB arena with real `ArenaLong` slots produced by
+        // normal inserts, round-tripped through the image format.
+        let chunk = 1024 * 1024; // 1 MiB
+        let mut map = ExpanseBlobMap::with_chunk_size(chunk);
+        for k in 0..20u64 {
+            let payload = vec![0x50 + k as u8; chunk - 8];
+            map.insert(k, &payload, k as u32).unwrap();
+        }
+        assert!(map.arena().mem_used() > ARENA_SHORT_CEILING);
+
+        let mut buf = Vec::new();
+        let n = map.save_to_writer(&mut buf).unwrap();
+        assert_eq!(n, buf.len());
+        assert!(buf.len() > ARENA_SHORT_CEILING, "image exceeds 16 MiB");
+
+        let restored = ExpanseBlobMap::from_bytes_slice(&buf).unwrap();
+        assert_eq!(restored.len(), 20);
+
+        let mut saw_long = false;
+        for k in 0..20u64 {
+            let (view, _meta) = restored.get(k).expect("entry present after reload");
+            assert_eq!(view.as_bytes(), &vec![0x50 + k as u8; chunk - 8][..]);
+            if ValueSlot::from_raw(restored.index().get(k).unwrap()).tag() == SlotTag::ArenaLong {
+                saw_long = true;
+            }
+        }
+        assert!(saw_long, "a >16 MiB arena must contain ArenaLong slots");
     }
 }

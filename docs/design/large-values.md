@@ -30,12 +30,12 @@ This design introduces a unified, zero-copy, cache-conscious large-value archite
 | Pillar | Status | Notes |
 |---|---|---|
 | Polymorphic `ValueSlot` (inline ≤7B + `ArenaShort` locator) | **Shipped** | `crates/expanse/src/slot.rs`, `blobmap.rs`. Inline and `ArenaShort` tags are live. |
-| Hot/cold columnar predicate filtering | **Shipped** | 32-bit hot metadata packed alongside the arena locator. |
-| Chunked slab/arena backing (`BlobArena` / `ExpanseBlobMap`) | **Shipped, 16 MiB ceiling** | The live arena is capped at **16 MiB** by the 24-bit `ARENA_OFFSET_MASK` (`0x00FF_FFFF`); `alloc_blob` returns `ArenaError::OffsetOverflow` past that. Per-payload bound is `chunk_size − 8`, not 4 GiB. |
-| `ArenaLong` (16-bit chunk id + 40-bit offset, >16 MiB) | **Reserved / not implemented** | Encoding + accessors (`new_arena_long`, `arena_long_loc`) exist with a round-trip test, but the blob map never produces or reads `ArenaLong` slots. `External = 0x12` is likewise reserved. |
+| Hot/cold columnar predicate filtering | **Shipped** | 32-bit hot metadata packed alongside the `ArenaShort` locator. `ArenaLong`-backed values (past 16 MiB) have no metadata word and report `hot_meta = 0`. |
+| Chunked slab/arena backing (`BlobArena` / `ExpanseBlobMap`) | **Shipped, wide-offset (>16 MiB)** | `ArenaShort` addresses the first 16 MiB; past that, `alloc_blob` emits `ArenaLong` locators so the arena grows further. Per-payload bound is `chunk_size − 8`, not 4 GiB. |
+| `ArenaLong` (16-bit chunk id + 40-bit offset, >16 MiB) | **Shipped (#244)** | `alloc_blob` produces `ArenaLong` slots (chunk id = arena chunk index, 40-bit intra-chunk offset) once a blob's global offset crosses the 24-bit `ArenaShort` ceiling; `get`/`scan_filtered`/`compact`/save-load all resolve them. Encoding ceiling `65536 × chunk_size`, bounded by a shipped 1 GiB `MAX_ARENA_CAPACITY` safety cap. `External = 0x12` remains reserved. |
 | Zero-copy `mmap` / shared-memory IPC (base-relative offsets) | **Not implemented** | No `RelOffset` / `shm_open` / position-independent layout exists; `ExpanseBlobMap::load_from_file` is a full `std::fs::read` + index rebuild, not an mmap. See `docs/DATABASE.md` §6 (roadmap). |
 
-Sections below that describe `ArenaLong` multi-chunk mode, ">16 MiB / petabyte-scale" arenas, "256 MiB at 16 B alignment" locators, or `mmap`/shared-memory zero-copy are **design targets**, not shipped behavior.
+`ArenaLong` multi-chunk mode (>16 MiB) is **shipped** (#244); the arena's encoding ceiling is `65536 × chunk_size`, bounded by a 1 GiB `MAX_ARENA_CAPACITY` safety cap. Sections below that describe "petabyte-scale" arenas, "256 MiB at 16 B alignment" locators, or `mmap`/shared-memory zero-copy remain **design targets**, not shipped behavior.
 
 ---
 
@@ -103,12 +103,18 @@ To resolve this bottleneck without widening the trie's 16-byte `Edge` or alterin
   - 32-bit Hot Metadata: directly filterable without payload dereference.
   - 24-bit Arena Locator: 16 MiB direct byte offset. (The shipped locator is a raw byte offset; the "256 MiB at 16 B alignment" scheme is *not* implemented.)
 
-3. Arena Long Mode (> 16 MiB address space / Multi-Chunk) — **RESERVED, NOT IMPLEMENTED**:
+3. Arena Long Mode (> 16 MiB address space / Multi-Chunk) — **SHIPPED (#244)**:
 +-------------------------------------------------------------------+-------------------+
 | Arena Chunk ID (16 bits) | Chunk Byte Offset (40 bits)            | Tag (0x11)        |
 | [63:48]                  | [47:8]                                 | [7:0]             |
 +-------------------------------------------------------------------+-------------------+
-  - *(target)* Would support petabyte-scale memory-mapped files and persistent stores. The `ArenaLong` encoding and its accessors exist in `slot.rs`, but no blob-map code path produces or consumes them; the live ceiling is 16 MiB.
+  - Chunk ID = arena chunk index; Chunk Byte Offset = intra-chunk byte offset of
+    the record header. `alloc_blob` emits this locator once a blob's global
+    offset crosses the 24-bit `ArenaShort` ceiling. No metadata word fits
+    alongside it, so `ArenaLong`-backed values report `hot_meta = 0`. Encoding
+    ceiling `65536 × chunk_size`, bounded by the shipped 1 GiB
+    `MAX_ARENA_CAPACITY` safety cap. Petabyte-scale memory-mapped/persistent
+    stores remain a *(target)*.
 
 4. Raw Scalar / Unmanaged Word (Classic JudyL Compatibility):
 +---------------------------------------------------------------------------------------+
@@ -827,9 +833,11 @@ Per Expanse development rules, development proceeds in strict sequential phases 
   | 0.20 | 293.1 µs | 323.2 µs | 1.10× |
   | 1.0 | 322.9 µs | 323.3 µs | 1.00× |
 
-  **Why it is capped at ~1.4×, and why the premise is unreachable here.** The RFC's `>10× / 82%-DRAM-traffic` argument requires the skipped payloads to be **cache-cold** — a real DRAM fetch (~80 ns), so avoiding it dwarfs the scan bookkeeping. That needs the arena working set to exceed the host LLC. But the 64-bit `ExpanseBlobMap` arena is **hard-capped at 16 MiB** by the 24-bit `ArenaShort` value-slot offset (`blobmap.rs` "Capacity limits"; the wider `ArenaLong`/`External` encodings that would lift it are **unimplemented**). 16 MiB < a typical server LLC (the reference host's L3 is **30 MiB**), so the whole arena is forced L3-resident: a skipped payload saves an ~L3 hit (~7 ns here, measured), not a DRAM fetch. The columnar arm is then bounded by the traversal floor — full-scan cost 323 µs ÷ traversal-only floor 228 µs ≈ **1.42× maximum**, reached as σ→0. This is a derivable ceiling, not a tuning gap.
+  **Why it is capped at ~1.4×, and why the premise is unreachable here.** The RFC's `>10× / 82%-DRAM-traffic` argument requires the skipped payloads to be **cache-cold** — a real DRAM fetch (~80 ns), so avoiding it dwarfs the scan bookkeeping. That needs the arena working set to exceed the host LLC. But the 64-bit `ExpanseBlobMap` arena is **hard-capped at 16 MiB** by the 24-bit `ArenaShort` value-slot offset (`blobmap.rs` "Capacity limits"; the wider `ArenaLong`/`External` encodings that would lift it were **unimplemented** at this commit — `ArenaLong` has since shipped in #244; see the follow-up note after the verdict). 16 MiB < a typical server LLC (the reference host's L3 is **30 MiB**), so the whole arena is forced L3-resident: a skipped payload saves an ~L3 hit (~7 ns here, measured), not a DRAM fetch. The columnar arm is then bounded by the traversal floor — full-scan cost 323 µs ÷ traversal-only floor 228 µs ≈ **1.42× maximum**, reached as σ→0. This is a derivable ceiling, not a tuning gap.
 
   **Verdict (RFC §10.3 revised, target → measured):** the `>10× at σ≤0.05` speedup is **not achievable on the current `ExpanseBlobMap`** because its 16 MiB arena ceiling keeps the working set inside the LLC, so the cold-DRAM regime the claim depends on never occurs. With a correct payload-touching baseline the measured columnar advantage on a warm (L3-resident) arena is **~1.3–1.4× at σ ≤ 0.05**, traversal-floor bounded. Reaching the `>10×` / `82% traffic reduction` figures is **gated on implementing the wide-offset (`ArenaLong`/`External`) arena** so the payload store can exceed the LLC, *and* on an ordered-scan fast path to lower the traversal floor. Until then the `>10×` / `>15×` / `82%` numbers in this RFC's §Overview remain **targets, not measured results**, and are explicitly gated on that arena work.
+
+  **Follow-up — the arena blocker is now lifted (#244).** The wide-offset `ArenaLong` arena shipped in #244, so the 16 MiB ceiling no longer forces the payload store L3-resident: an arena can now be sized *beyond* the LLC (encoding ceiling `65536 × chunk_size`, bounded by the 1 GiB `MAX_ARENA_CAPACITY` safety cap — 1 GiB ≫ the reference host's 30 MiB L3). The cold-DRAM regime the `>10× at σ≤0.05` hypothesis depends on — architecturally unreachable while the cap held (see `docs/HARDWARE.md` / the #243 finding) — is therefore now **testable for the first time**. #244 is a correctness/capability change only and makes **no** performance claim for `ArenaLong`; the §10.3 re-benchmark on a >LLC arena is deferred to a **follow-up ticket** to be run on a quiet, dedicated bench host (interleaved A/B arms, load snapshots per `docs/BENCHMARKING.md`).
 - **`arena_compaction_churn`** — compaction over 20k entries: ~475 µs after a 50%-delete churn, ~200 µs after 80%-delete (informational; no target).
 
 ---
