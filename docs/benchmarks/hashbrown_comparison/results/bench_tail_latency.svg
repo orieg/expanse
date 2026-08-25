@@ -114,38 +114,38 @@
   <text x="680" y="82" class="t-val-muted" text-anchor="start">BTreeMap</text>
   <line x1="30" y1="90" x2="930" y2="90" class="divider"/>
   <text x="40" y="104" class="t-bar-label">P50 (Median)</text>
-  <text x="240" y="104" class="t-val-accent" text-anchor="start">334 ns</text>
+  <text x="240" y="104" class="t-val-accent" text-anchor="start">292 ns</text>
   <text x="460" y="104" class="t-val-blue" text-anchor="start">41 ns</text>
-  <text x="680" y="104" class="t-val-muted" text-anchor="start">375 ns</text>
+  <text x="680" y="104" class="t-val-muted" text-anchor="start">458 ns</text>
   <line x1="30" y1="108" x2="930" y2="108" class="grid"/>
   <text x="40" y="127" class="t-bar-label">P75</text>
-  <text x="240" y="127" class="t-val-accent" text-anchor="start">458 ns</text>
+  <text x="240" y="127" class="t-val-accent" text-anchor="start">459 ns</text>
   <text x="460" y="127" class="t-val-blue" text-anchor="start">42 ns</text>
-  <text x="680" y="127" class="t-val-muted" text-anchor="start">542 ns</text>
+  <text x="680" y="127" class="t-val-muted" text-anchor="start">667 ns</text>
   <line x1="30" y1="131" x2="930" y2="131" class="grid"/>
   <text x="40" y="150" class="t-bar-label">P90</text>
-  <text x="240" y="150" class="t-val-accent" text-anchor="start">584 ns</text>
-  <text x="460" y="150" class="t-val-blue" text-anchor="start">125 ns</text>
-  <text x="680" y="150" class="t-val-muted" text-anchor="start">750 ns</text>
+  <text x="240" y="150" class="t-val-accent" text-anchor="start">667 ns</text>
+  <text x="460" y="150" class="t-val-blue" text-anchor="start">84 ns</text>
+  <text x="680" y="150" class="t-val-muted" text-anchor="start">958 ns</text>
   <line x1="30" y1="154" x2="930" y2="154" class="grid"/>
   <text x="40" y="173" class="t-bar-label">P95</text>
-  <text x="240" y="173" class="t-val-accent" text-anchor="start">708 ns</text>
+  <text x="240" y="173" class="t-val-accent" text-anchor="start">833 ns</text>
   <text x="460" y="173" class="t-val-blue" text-anchor="start">167 ns</text>
-  <text x="680" y="173" class="t-val-muted" text-anchor="start">875 ns</text>
+  <text x="680" y="173" class="t-val-muted" text-anchor="start">1,167 ns</text>
   <line x1="30" y1="177" x2="930" y2="177" class="grid"/>
   <text x="40" y="196" class="t-bar-label">P99</text>
-  <text x="240" y="196" class="t-val-accent" text-anchor="start">1,083 ns</text>
-  <text x="460" y="196" class="t-val-blue" text-anchor="start">292 ns</text>
-  <text x="680" y="196" class="t-val-muted" text-anchor="start">1,375 ns</text>
+  <text x="240" y="196" class="t-val-accent" text-anchor="start">1,292 ns</text>
+  <text x="460" y="196" class="t-val-blue" text-anchor="start">416 ns</text>
+  <text x="680" y="196" class="t-val-muted" text-anchor="start">2,125 ns</text>
   <line x1="30" y1="200" x2="930" y2="200" class="grid"/>
   <text x="40" y="219" class="t-bar-label">P99.9</text>
-  <text x="240" y="219" class="t-val-accent" text-anchor="start">32,383 ns</text>
-  <text x="460" y="219" class="t-val-blue" text-anchor="start">1,791 ns</text>
-  <text x="680" y="219" class="t-val-muted" text-anchor="start">27,423 ns</text>
+  <text x="240" y="219" class="t-val-accent" text-anchor="start">20,463 ns</text>
+  <text x="460" y="219" class="t-val-blue" text-anchor="start">1,542 ns</text>
+  <text x="680" y="219" class="t-val-muted" text-anchor="start">62,239 ns</text>
   <line x1="30" y1="223" x2="930" y2="223" class="grid"/>
   <text x="40" y="242" class="t-bar-label">P99.99 (Tail Cliff)</text>
-  <text x="240" y="242" class="t-val-accent" text-anchor="start">328,191 ns</text>
-  <text x="460" y="242" class="t-val-blue" text-anchor="start">29,679 ns</text>
-  <text x="680" y="242" class="t-val-muted" text-anchor="start">100,287 ns</text>
+  <text x="240" y="242" class="t-val-accent" text-anchor="start">146,815 ns</text>
+  <text x="460" y="242" class="t-val-blue" text-anchor="start">9,335 ns</text>
+  <text x="680" y="242" class="t-val-muted" text-anchor="start">351,487 ns</text>
   <line x1="30" y1="246" x2="930" y2="246" class="grid"/>
 </svg>
