@@ -110,63 +110,63 @@
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
   <text x="30" y="95" class="t-bar-label">Workload A</text>
   <text x="30" y="108" class="t-sub">50% Read, 50% Update (Heavy Update)</text>
-  <rect x="310" y="82" width="57.6" height="9" rx="2" class="b-expanse"/>
-  <text x="375.6" y="90" class="t-val-accent" text-anchor="start">12.6M</text>
-  <rect x="310" y="94" width="189.2" height="9" rx="2" class="b-hashbrown"/>
-  <text x="507.2" y="102" class="t-val-blue" text-anchor="start">41.3M</text>
-  <rect x="310" y="106" width="14.7" height="9" rx="2" class="b-btree"/>
-  <text x="332.7" y="114" class="t-val-muted" text-anchor="start">3.2M</text>
+  <rect x="310" y="82" width="49.6" height="9" rx="2" class="b-expanse"/>
+  <text x="367.6" y="90" class="t-val-accent" text-anchor="start">41.2M</text>
+  <rect x="310" y="94" width="197.9" height="9" rx="2" class="b-hashbrown"/>
+  <text x="515.9" y="102" class="t-val-blue" text-anchor="start">164.2M</text>
+  <rect x="310" y="106" width="16.7" height="9" rx="2" class="b-btree"/>
+  <text x="334.7" y="114" class="t-val-muted" text-anchor="start">13.9M</text>
   <rect x="815" y="92" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="105" class="badge-win-text">3.9x vs BTree</text>
+  <text x="872.5" y="105" class="badge-win-text">3.0x vs BTree</text>
   <text x="30" y="143" class="t-bar-label">Workload B</text>
   <text x="30" y="156" class="t-sub">95% Read, 5% Update (Read Heavy)</text>
-  <rect x="310" y="130" width="60.0" height="9" rx="2" class="b-expanse"/>
-  <text x="378.0" y="138" class="t-val-accent" text-anchor="start">13.1M</text>
-  <rect x="310" y="142" width="121.4" height="9" rx="2" class="b-hashbrown"/>
-  <text x="439.4" y="150" class="t-val-blue" text-anchor="start">26.5M</text>
-  <rect x="310" y="154" width="18.5" height="9" rx="2" class="b-btree"/>
-  <text x="336.5" y="162" class="t-val-muted" text-anchor="start">4.0M</text>
+  <rect x="310" y="130" width="135.0" height="9" rx="2" class="b-expanse"/>
+  <text x="453.0" y="138" class="t-val-accent" text-anchor="start">112.0M</text>
+  <rect x="310" y="142" width="264.0" height="9" rx="2" class="b-hashbrown"/>
+  <text x="582.0" y="150" class="t-val-blue" text-anchor="start">219.0M</text>
+  <rect x="310" y="154" width="20.7" height="9" rx="2" class="b-btree"/>
+  <text x="338.7" y="162" class="t-val-muted" text-anchor="start">17.2M</text>
   <rect x="815" y="140" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="153" class="badge-win-text">3.2x vs BTree</text>
+  <text x="872.5" y="153" class="badge-win-text">6.5x vs BTree</text>
   <text x="30" y="191" class="t-bar-label">Workload C</text>
   <text x="30" y="204" class="t-sub">100% Read (Read Only)</text>
-  <rect x="310" y="178" width="58.0" height="9" rx="2" class="b-expanse"/>
-  <text x="376.0" y="186" class="t-val-accent" text-anchor="start">12.7M</text>
-  <rect x="310" y="190" width="80.9" height="9" rx="2" class="b-hashbrown"/>
-  <text x="398.9" y="198" class="t-val-blue" text-anchor="start">17.6M</text>
-  <rect x="310" y="202" width="15.6" height="9" rx="2" class="b-btree"/>
-  <text x="333.6" y="210" class="t-val-muted" text-anchor="start">3.4M</text>
+  <rect x="310" y="178" width="141.9" height="9" rx="2" class="b-expanse"/>
+  <text x="459.9" y="186" class="t-val-accent" text-anchor="start">117.7M</text>
+  <rect x="310" y="190" width="244.4" height="9" rx="2" class="b-hashbrown"/>
+  <text x="562.4" y="198" class="t-val-blue" text-anchor="start">202.7M</text>
+  <rect x="310" y="202" width="20.2" height="9" rx="2" class="b-btree"/>
+  <text x="338.2" y="210" class="t-val-muted" text-anchor="start">16.7M</text>
   <rect x="815" y="188" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="201" class="badge-win-text">3.7x vs BTree</text>
+  <text x="872.5" y="201" class="badge-win-text">7.0x vs BTree</text>
   <text x="30" y="239" class="t-bar-label">Workload D</text>
   <text x="30" y="252" class="t-sub">95% Read, 5% Insert (Latest Insert)</text>
-  <rect x="310" y="226" width="87.1" height="9" rx="2" class="b-expanse"/>
-  <text x="405.1" y="234" class="t-val-accent" text-anchor="start">19.0M</text>
-  <rect x="310" y="238" width="51.3" height="9" rx="2" class="b-hashbrown"/>
-  <text x="369.3" y="246" class="t-val-blue" text-anchor="start">11.2M</text>
-  <rect x="310" y="250" width="16.8" height="9" rx="2" class="b-btree"/>
-  <text x="334.8" y="258" class="t-val-muted" text-anchor="start">3.7M</text>
+  <rect x="310" y="226" width="130.9" height="9" rx="2" class="b-expanse"/>
+  <text x="448.9" y="234" class="t-val-accent" text-anchor="start">108.6M</text>
+  <rect x="310" y="238" width="249.3" height="9" rx="2" class="b-hashbrown"/>
+  <text x="567.3" y="246" class="t-val-blue" text-anchor="start">206.8M</text>
+  <rect x="310" y="250" width="18.5" height="9" rx="2" class="b-btree"/>
+  <text x="336.5" y="258" class="t-val-muted" text-anchor="start">15.4M</text>
   <rect x="815" y="236" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="249" class="badge-win-text">5.2x vs BTree</text>
+  <text x="872.5" y="249" class="badge-win-text">7.1x vs BTree</text>
   <text x="30" y="287" class="t-bar-label">Workload E</text>
   <text x="30" y="300" class="t-sub">95% Short Range Scan, 5% Insert (Scan)</text>
-  <rect x="310" y="274" width="8.8" height="9" rx="2" class="b-expanse"/>
-  <text x="326.8" y="282" class="t-val-accent" text-anchor="start">1.9M</text>
+  <rect x="310" y="274" width="11.6" height="9" rx="2" class="b-expanse"/>
+  <text x="329.6" y="282" class="t-val-accent" text-anchor="start">9.6M</text>
   <rect x="310" y="286" width="160" height="9" rx="2" class="b-disqualified"/>
   <rect x="485" y="283" width="170" height="15" class="badge-disq"/>
   <text x="570" y="294" class="badge-disq-text">DISQUALIFIED (No Range Scan)</text>
-  <rect x="310" y="298" width="11.0" height="9" rx="2" class="b-btree"/>
-  <text x="329.0" y="306" class="t-val-muted" text-anchor="start">2.4M</text>
+  <rect x="310" y="298" width="12.1" height="9" rx="2" class="b-btree"/>
+  <text x="330.1" y="306" class="t-val-muted" text-anchor="start">10.1M</text>
   <rect x="815" y="284" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="297" class="badge-win-text">0.8x vs BTree</text>
+  <text x="872.5" y="297" class="badge-win-text">1.0x vs BTree</text>
   <text x="30" y="335" class="t-bar-label">Workload F</text>
   <text x="30" y="348" class="t-sub">50% Read, 50% Read-Modify-Write (RMW)</text>
-  <rect x="310" y="322" width="99.7" height="9" rx="2" class="b-expanse"/>
-  <text x="417.7" y="330" class="t-val-accent" text-anchor="start">21.7M</text>
-  <rect x="310" y="334" width="264.0" height="9" rx="2" class="b-hashbrown"/>
-  <text x="582.0" y="342" class="t-val-blue" text-anchor="start">57.6M</text>
-  <rect x="310" y="346" width="10.6" height="9" rx="2" class="b-btree"/>
-  <text x="328.6" y="354" class="t-val-muted" text-anchor="start">2.3M</text>
+  <rect x="310" y="322" width="73.1" height="9" rx="2" class="b-expanse"/>
+  <text x="391.1" y="330" class="t-val-accent" text-anchor="start">60.6M</text>
+  <rect x="310" y="334" width="186.0" height="9" rx="2" class="b-hashbrown"/>
+  <text x="504.0" y="342" class="t-val-blue" text-anchor="start">154.3M</text>
+  <rect x="310" y="346" width="15.2" height="9" rx="2" class="b-btree"/>
+  <text x="333.2" y="354" class="t-val-muted" text-anchor="start">12.6M</text>
   <rect x="815" y="332" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="345" class="badge-win-text">9.4x vs BTree</text>
+  <text x="872.5" y="345" class="badge-win-text">4.8x vs BTree</text>
 </svg>
