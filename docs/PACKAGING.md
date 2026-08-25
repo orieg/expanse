@@ -40,8 +40,8 @@ graph TD
    - Record release highlights, performance deltas, and bug fixes in `CHANGELOG.md`.
 3. **Commit & Tag**:
    ```bash
-   git commit -am "chore(release): prepare v0.3.0"
-   git tag -a v0.3.0 -m "Release v0.3.0"
+   git commit -am "chore(release): prepare v0.4.0"
+   git tag -a v0.4.0 -m "Release v0.4.0"
    git push origin main --tags
    ```
 4. **Automated Pipeline Execution**:
@@ -267,7 +267,7 @@ Expanse is *intended* to be distributed on [NuGet.org](https://www.nuget.org) as
   dotnet add package Orieg.Expanse
 
   # PackageReference (csproj)
-  <PackageReference Include="Orieg.Expanse" Version="0.3.0" />
+  <PackageReference Include="Orieg.Expanse" Version="0.4.0" />
   ```
 - **Quick Usage Snippet (C#)**:
   ```csharp

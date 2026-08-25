@@ -372,7 +372,18 @@ def get_handlers(root: Path) -> List[ManifestHandler]:
             "crates/expanse-php/Cargo.toml",
             has_internal_dep=True,
         ),
+        CrateCargoHandler(
+            "crates/expanse-rb/Cargo.toml",
+            "crates/expanse-rb/Cargo.toml",
+            has_internal_dep=False,
+        ),
+        CrateCargoHandler(
+            "crates/expanse-wasm/Cargo.toml",
+            "crates/expanse-wasm/Cargo.toml",
+            has_internal_dep=False,
+        ),
         PackageJsonHandler("crates/expanse-node/package.json", "crates/expanse-node/package.json"),
+        PackageJsonHandler("crates/expanse-wasm/package.json", "crates/expanse-wasm/package.json"),
         JsonVersionHandler("bindings/php/composer.json", "bindings/php/composer.json"),
         PyprojectHandler("pyproject.toml", "pyproject.toml"),
         CsprojHandler(
