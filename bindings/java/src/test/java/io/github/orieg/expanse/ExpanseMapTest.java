@@ -204,4 +204,29 @@ class ExpanseMapTest {
             assertEquals(keys.length, map.size());
         }
     }
+
+    @Test
+    @DisplayName("Batched lookup with prefetching")
+    void batchLookup() {
+        try (ExpanseMap map = new ExpanseMap()) {
+            for (int i = 0; i < 1000; i++) {
+                map.put(i * 10L, i * 100L);
+            }
+
+            long[] queries = {0L, 10L, 25L, 30L, 9999L};
+            long[] outValues = new long[queries.length];
+            boolean[] outFound = new boolean[queries.length];
+
+            long found = map.getBatch(queries, outValues, outFound);
+            assertEquals(3, found);
+            assertTrue(outFound[0]);
+            assertEquals(0L, outValues[0]);
+            assertTrue(outFound[1]);
+            assertEquals(100L, outValues[1]);
+            assertFalse(outFound[2]);
+            assertTrue(outFound[3]);
+            assertEquals(300L, outValues[3]);
+            assertFalse(outFound[4]);
+        }
+    }
 }

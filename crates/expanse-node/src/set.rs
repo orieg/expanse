@@ -48,6 +48,18 @@ impl ExpanseSet {
         Ok(self.inner.contains(k))
     }
 
+    /// Checks membership for a batch of keys, returning an array of booleans.
+    #[napi]
+    pub fn contains_batch(&self, keys: Vec<KeyInput>) -> Result<Vec<bool>> {
+        let mut u_keys = Vec::with_capacity(keys.len());
+        for k in keys {
+            u_keys.push(key_to_u64(k)?);
+        }
+        let mut out = vec![false; u_keys.len()];
+        self.inner.contains_batch(&u_keys, &mut out);
+        Ok(out)
+    }
+
     /// Inserts `key` into the set. Returns `true` if newly inserted, `false` if already present.
     #[napi]
     pub fn add(&mut self, key: KeyInput) -> Result<bool> {

@@ -98,6 +98,13 @@ impl ExpanseMap {
         self.inner.get(key).or(default)
     }
 
+    /// Looks up a batch of keys, returning a list of values (or None for absent keys).
+    pub fn get_batch(&self, keys: Vec<u64>) -> Vec<Option<u64>> {
+        let mut out = vec![None; keys.len()];
+        self.inner.get_batch(&keys, &mut out);
+        out
+    }
+
     /// Inserts `key -> val`; returns the previous value, if any.
     pub fn insert(&mut self, key: u64, val: u64) -> Option<u64> {
         self.inner.insert(key, val)

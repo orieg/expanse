@@ -58,6 +58,18 @@ impl ExpanseMap {
         Ok(self.inner.get(k).map(BigInt::from))
     }
 
+    /// Gets values for a batch of keys, returning an array with BigInt values or null.
+    #[napi]
+    pub fn get_batch(&self, keys: Vec<KeyInput>) -> Result<Vec<Option<BigInt>>> {
+        let mut u_keys = Vec::with_capacity(keys.len());
+        for k in keys {
+            u_keys.push(key_to_u64(k)?);
+        }
+        let mut out = vec![None; u_keys.len()];
+        self.inner.get_batch(&u_keys, &mut out);
+        Ok(out.into_iter().map(|opt| opt.map(BigInt::from)).collect())
+    }
+
     /// Deletes `key` from the map. Returns `true` if it was present, `false` otherwise.
     #[napi]
     pub fn delete(&mut self, key: KeyInput) -> Result<bool> {

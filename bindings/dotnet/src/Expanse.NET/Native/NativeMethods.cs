@@ -85,6 +85,9 @@ public static class NativeMethods
     [return: MarshalAs(UnmanagedType.I1)]
     public static extern bool expanse_set_by_count(SafeExpanseSetHandle set, ulong n, out ulong key_out);
 
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_set_contains_batch")]
+    public static extern unsafe nuint expanse_set_contains_batch(SafeExpanseSetHandle set, ulong* keys, byte* out_present, nuint count);
+
     #endregion
 
     #region ExpanseMap
@@ -106,6 +109,9 @@ public static class NativeMethods
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_get")]
     [return: MarshalAs(UnmanagedType.I1)]
     public static extern bool expanse_map_get(SafeExpanseMapHandle map, ulong key, out ulong value_out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_get_batch")]
+    public static extern unsafe nuint expanse_map_get_batch(SafeExpanseMapHandle map, ulong* keys, ulong* out_values, byte* out_found, nuint count);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_map_remove")]
     [return: MarshalAs(UnmanagedType.I1)]

@@ -83,6 +83,32 @@ public sealed class ExpanseSet : IDisposable, IEnumerable<ulong>, IReadOnlyColle
     }
 
     /// <summary>
+    /// Checks membership for a batch of keys simultaneously with memory-level parallelism prefetching.
+    /// </summary>
+    /// <param name="keys">The keys to check.</param>
+    /// <param name="outPresent">Boolean array to store presence flags (length must be >= keys.Length).</param>
+    /// <returns>The number of keys found.</returns>
+    public unsafe nuint ContainsBatch(ulong[] keys, bool[] outPresent)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(keys);
+        ArgumentNullException.ThrowIfNull(outPresent);
+        if (outPresent.Length < keys.Length)
+        {
+            throw new ArgumentException("outPresent array length must be >= keys length", nameof(outPresent));
+        }
+        if (keys.Length == 0)
+        {
+            return 0;
+        }
+        fixed (ulong* kPtr = keys)
+        fixed (bool* outPtr = outPresent)
+        {
+            return NativeMethods.expanse_set_contains_batch(_handle, kPtr, (byte*)outPtr, (nuint)keys.Length);
+        }
+    }
+
+    /// <summary>
     /// Gets the total number of keys in the set (capped at <see cref="int.MaxValue"/>).
     /// </summary>
     public int Count

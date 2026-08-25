@@ -130,6 +130,46 @@ public final class ExpanseMap implements AutoCloseable {
     }
 
     /**
+     * Look up a batch of keys simultaneously with memory-level parallelism prefetching.
+     *
+     * @param keys the keys to look up
+     * @param outValues array to store found values (must be at least keys.length)
+     * @param outFound boolean array to store presence flags (nullable, or at least keys.length)
+     * @return number of keys found
+     */
+    public long getBatch(long[] keys, long[] outValues, boolean[] outFound) {
+        checkOpen();
+        Objects.requireNonNull(keys, "keys array cannot be null");
+        Objects.requireNonNull(outValues, "outValues array cannot be null");
+        if (outValues.length < keys.length) {
+            throw new IllegalArgumentException("outValues array length must be >= keys length");
+        }
+        if (outFound != null && outFound.length < keys.length) {
+            throw new IllegalArgumentException("outFound array length must be >= keys length");
+        }
+        if (keys.length == 0) {
+            return 0;
+        }
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment kSeg = arena.allocateFrom(ValueLayout.JAVA_LONG, keys);
+            MemorySegment vSeg = arena.allocate(ValueLayout.JAVA_LONG, keys.length);
+            MemorySegment fSeg = outFound != null ? arena.allocate(ValueLayout.JAVA_BOOLEAN, keys.length) : MemorySegment.NULL;
+            long foundCount = (long) ExpanseNative.MH_expanse_map_get_batch.invokeExact(
+                handle, kSeg, vSeg, fSeg, (long) keys.length
+            );
+            MemorySegment.copy(vSeg, ValueLayout.JAVA_LONG, 0, outValues, 0, keys.length);
+            if (outFound != null) {
+                for (int i = 0; i < keys.length; i++) {
+                    outFound[i] = fSeg.get(ValueLayout.JAVA_BOOLEAN, i);
+                }
+            }
+            return foundCount;
+        } catch (Throwable t) {
+            throw new RuntimeException(t);
+        }
+    }
+
+    /**
      * Retrieves the 64-bit value associated with key, or returns defaultValue if absent.
      *
      * @param key the search key
