@@ -177,5 +177,46 @@ fn bench_insert(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, bench_set_lookup, bench_map_lookup, bench_insert);
+fn bench_iter(c: &mut Criterion) {
+    for dist in DISTS {
+        for pop in [10_000, 1_000_000] {
+            let ks = keys(dist, pop);
+            let mut expanse = ExpanseMap::new();
+            let mut btree = BTreeMap::new();
+            for &k in &ks {
+                expanse.insert(k, !k);
+                btree.insert(k, !k);
+            }
+            let mut g = c.benchmark_group(format!("map_iter/{dist}/{pop}"));
+            g.sample_size(10);
+            g.bench_function("expanse", |b| {
+                b.iter(|| {
+                    let mut sum = 0u64;
+                    for (k, v) in expanse.iter() {
+                        sum = sum.wrapping_add(k ^ v);
+                    }
+                    black_box(sum)
+                })
+            });
+            g.bench_function("btree", |b| {
+                b.iter(|| {
+                    let mut sum = 0u64;
+                    for (&k, &v) in btree.iter() {
+                        sum = sum.wrapping_add(k ^ v);
+                    }
+                    black_box(sum)
+                })
+            });
+            g.finish();
+        }
+    }
+}
+
+criterion_group!(
+    benches,
+    bench_set_lookup,
+    bench_map_lookup,
+    bench_insert,
+    bench_iter
+);
 criterion_main!(benches);
