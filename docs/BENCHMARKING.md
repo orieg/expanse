@@ -251,7 +251,8 @@ To eliminate `N/A` comparison columns and guarantee accurate, side-by-side regre
 
 ### 3. Triggering via PR Comment
 Maintainers and collaborators can trigger benchmarks directly on any pull request by commenting:
-- `/bench` (runs all suites: C ABI vs stock, instruction counters, and comparative)
+- `/bench` (runs standard dual-pass suites: C ABI vs stock, instruction counters, and fast comparative sweep)
+- `/bench extended` (or `/benchmark extended`): runs full multi-population sweeps ($N \in [10\text{k}, 100\text{k}, 1\text{M}]$) + microarchitecture target matrix (`baseline`, `x86-64-v2`, `x86-64-v3`, `native`) + Callgrind
 - `/benchmark vs_stock` (runs only the `vs_stock` suite)
 - `/benchmark instructions` (runs only the `instructions` suite)
 - `/benchmark comparative` (runs only the `comparative` suite)

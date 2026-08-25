@@ -149,6 +149,13 @@ ssh "$BENCH_HOST" "export PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH; \
   cargo bench --bench vs_stock -p expanse-capi"
 ```
 
+### Automated Bare-Metal CI Triggers (`/bench` & `/bench extended`)
+On pull requests, maintainers and authorized collaborators can trigger automated bare-metal benchmarks on the dedicated benchmark host (`honeycomb`) via PR comments:
+- `/bench`: Runs standard dual-pass Callgrind (`vs_stock`, `instructions`) and fast comparative sweep ($N = 10,000$).
+- `/bench extended` (or `/benchmark extended`): Runs full multi-population scaling sweeps ($N \in [10\text{k}, 100\text{k}, 1\text{M}]$) + microarchitectural target CPU scaling matrix (`baseline`, `x86-64-v2`, `x86-64-v3`, `native`) + Callgrind.
+- `/benchmark <suite>`: Targeted suite runs (`vs_stock`, `instructions`, `comparative`, `ycsb`).
+See `docs/BENCHMARKING.md` §2–3 and `docs/CI.md` for details.
+
 ### Zero-Regression Policy
 - **Fewer instructions is always better.**
 - Any instruction count regression $>0.1\%$ vs baseline main in deterministic Callgrind is considered a blocker.
