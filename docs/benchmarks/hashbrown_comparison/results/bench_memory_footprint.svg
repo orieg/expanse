@@ -112,7 +112,7 @@
   <!-- Panel: Dense Sequential Keys (0..N) -->
   <g transform="translate(30, 75)">
     <text x="0" y="0" class="t-title">Dense Sequential Keys (0..N)</text>
-    <text x="0" y="14" class="t-sub">Bitmap & Uncompressed Leaf Packing</text>
+    <text x="0" y="14" class="t-sub">Bitmap &amp; Uncompressed Leaf Packing</text>
 
     <!-- Expanse Row -->
     <text x="0" y="44" class="t-bar-label">ExpanseMap</text>

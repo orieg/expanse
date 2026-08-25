@@ -111,49 +111,49 @@
   <text x="30" y="96" class="t-bar-label">Dense Sequential (0..N)</text>
   <text x="30" y="110" class="t-sub">Linear consecutive keys</text>
   <rect x="310" y="82" width="200.3" height="9" rx="2" class="b-expanse"/>
-  <text x="518.3" y="90" class="t-val-accent">73.0M</text>
+  <text x="518.3" y="90" class="t-val-accent" text-anchor="start">73.0M</text>
 
   <rect x="310" y="95" width="127.7" height="9" rx="2" class="b-hashbrown"/>
-  <text x="445.7" y="103" class="t-val-blue">46.5M</text>
+  <text x="445.7" y="103" class="t-val-blue" text-anchor="start">46.5M</text>
 
   <rect x="310" y="108" width="44.6" height="9" rx="2" class="b-btree"/>
-  <text x="362.6" y="116" class="t-val-muted">16.2M</text>
+  <text x="362.6" y="116" class="t-val-muted" text-anchor="start">16.2M</text>
   <rect x="815" y="94" width="115" height="18" class="badge-win"/>
   <text x="872.5" y="107" class="badge-win-text">4.5x vs BTree</text>
   <text x="30" y="154" class="t-bar-label">Sparse Clustered / Stride</text>
   <text x="30" y="168" class="t-sub">Bursts of 256 keys with sparse strides</text>
   <rect x="310" y="140" width="264.0" height="9" rx="2" class="b-expanse"/>
-  <text x="582.0" y="148" class="t-val-accent">96.2M</text>
+  <text x="582.0" y="148" class="t-val-accent" text-anchor="start">96.2M</text>
 
   <rect x="310" y="153" width="79.1" height="9" rx="2" class="b-hashbrown"/>
-  <text x="397.1" y="161" class="t-val-blue">28.8M</text>
+  <text x="397.1" y="161" class="t-val-blue" text-anchor="start">28.8M</text>
 
   <rect x="310" y="166" width="42.5" height="9" rx="2" class="b-btree"/>
-  <text x="360.5" y="174" class="t-val-muted">15.5M</text>
+  <text x="360.5" y="174" class="t-val-muted" text-anchor="start">15.5M</text>
   <rect x="815" y="152" width="115" height="18" class="badge-win"/>
   <text x="872.5" y="165" class="badge-win-text">6.2x vs BTree</text>
   <text x="30" y="212" class="t-bar-label">Zipfian Skewed (s=0.99)</text>
   <text x="30" y="226" class="t-sub">Power-law hot key access</text>
   <rect x="310" y="198" width="50.1" height="9" rx="2" class="b-expanse"/>
-  <text x="368.1" y="206" class="t-val-accent">18.3M</text>
+  <text x="368.1" y="206" class="t-val-accent" text-anchor="start">18.3M</text>
 
   <rect x="310" y="211" width="99.2" height="9" rx="2" class="b-hashbrown"/>
-  <text x="417.2" y="219" class="t-val-blue">36.1M</text>
+  <text x="417.2" y="219" class="t-val-blue" text-anchor="start">36.1M</text>
 
   <rect x="310" y="224" width="11.2" height="9" rx="2" class="b-btree"/>
-  <text x="329.2" y="232" class="t-val-muted">4.1M</text>
+  <text x="329.2" y="232" class="t-val-muted" text-anchor="start">4.1M</text>
   <rect x="815" y="210" width="115" height="18" class="badge-win"/>
   <text x="872.5" y="223" class="badge-win-text">4.5x vs BTree</text>
   <text x="30" y="270" class="t-bar-label">Uniform Random 64-bit</text>
   <text x="30" y="284" class="t-sub">High entropy pseudo-random keys</text>
   <rect x="310" y="256" width="18.3" height="9" rx="2" class="b-expanse"/>
-  <text x="336.3" y="264" class="t-val-accent">6.7M</text>
+  <text x="336.3" y="264" class="t-val-accent" text-anchor="start">6.7M</text>
 
   <rect x="310" y="269" width="63.8" height="9" rx="2" class="b-hashbrown"/>
-  <text x="381.8" y="277" class="t-val-blue">23.2M</text>
+  <text x="381.8" y="277" class="t-val-blue" text-anchor="start">23.2M</text>
 
   <rect x="310" y="282" width="9.3" height="9" rx="2" class="b-btree"/>
-  <text x="327.3" y="290" class="t-val-muted">3.4M</text>
+  <text x="327.3" y="290" class="t-val-muted" text-anchor="start">3.4M</text>
   <rect x="815" y="268" width="115" height="18" class="badge-win"/>
   <text x="872.5" y="281" class="badge-win-text">2.0x vs BTree</text>
 </svg>

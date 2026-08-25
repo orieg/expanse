@@ -12,11 +12,24 @@ Publication-ready, dual-theme SVG chart generator with dynamic scaling and zero 
 
 import json
 import math
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from theme import svg_header
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RESULTS_DIR = BASE_DIR / "results"
+
+def save_and_validate_svg(filepath: Path, content: str):
+    """Validates XML syntax before writing to ensure zero parse errors."""
+    try:
+        ET.fromstring(content)
+    except ET.ParseError as err:
+        print(f"XML Validation Error in {filepath.name}: {err}")
+        raise err
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"Generated & Validated: {filepath}")
 
 def generate_native_chart():
     json_path = RESULTS_DIR / "baseline_native.json"
@@ -62,7 +75,7 @@ def generate_native_chart():
     panels = [
         ("Point Lookup Hit", "100,000 keys random query", hit_exp, hit_hb, hit_bt, 30),
         ("Point Lookup Miss", "100,000 absent keys query", miss_exp, miss_hb, miss_bt, 345),
-        ("Dynamic Ingestion", "Growth 0 -> 100k keys", grow_exp, grow_hb, grow_bt, 660),
+        ("Dynamic Ingestion", "Growth 0 -&gt; 100k keys", grow_exp, grow_hb, grow_bt, 660),
     ]
 
     for title, sub, m_exp, m_hb, m_bt, x_off in panels:
@@ -120,10 +133,7 @@ def generate_native_chart():
   <line x1="635" y1="20" x2="635" y2="260" class="divider"/>
 </svg>
 """
-    out_file = RESULTS_DIR / "bench_native_throughput.svg"
-    with open(out_file, "w") as f:
-        f.write(svg)
-    print(f"Generated {out_file}")
+    save_and_validate_svg(RESULTS_DIR / "bench_native_throughput.svg", svg)
 
 def generate_ycsb_chart():
     json_path = RESULTS_DIR / "baseline_ycsb.json"
@@ -181,13 +191,13 @@ def generate_ycsb_chart():
 
         # Expanse Bar
         svg += f"""  <rect x="310" y="{y}" width="{w_exp:.1f}" height="9" rx="2" class="b-expanse"/>
-  <text x="{318 + w_exp:.1f}" y="{y + 8}" class="t-val-accent">{m_exp:.1f}M</text>
+  <text x="{318 + w_exp:.1f}" y="{y + 8}" class="t-val-accent" text-anchor="start">{m_exp:.1f}M</text>
 """
         # Hashbrown Bar
         if m_hb is not None:
             w_hb = max(3.0, (m_hb / max_val) * bar_max_width)
             svg += f"""  <rect x="310" y="{y + 12}" width="{w_hb:.1f}" height="9" rx="2" class="b-hashbrown"/>
-  <text x="{318 + w_hb:.1f}" y="{y + 20}" class="t-val-blue">{m_hb:.1f}M</text>
+  <text x="{318 + w_hb:.1f}" y="{y + 20}" class="t-val-blue" text-anchor="start">{m_hb:.1f}M</text>
 """
         else:
             svg += f"""  <rect x="310" y="{y + 12}" width="160" height="9" rx="2" class="b-disqualified"/>
@@ -197,7 +207,7 @@ def generate_ycsb_chart():
 
         # BTreeMap Bar
         svg += f"""  <rect x="310" y="{y + 24}" width="{w_bt:.1f}" height="9" rx="2" class="b-btree"/>
-  <text x="{318 + w_bt:.1f}" y="{y + 32}" class="t-val-muted">{m_bt:.1f}M</text>
+  <text x="{318 + w_bt:.1f}" y="{y + 32}" class="t-val-muted" text-anchor="start">{m_bt:.1f}M</text>
 """
         # Speedup Badge
         if m_bt > 0:
@@ -208,10 +218,7 @@ def generate_ycsb_chart():
 """
 
     svg += "</svg>\n"
-    out_file = RESULTS_DIR / "bench_ycsb_workloads.svg"
-    with open(out_file, "w") as f:
-        f.write(svg)
-    print(f"Generated {out_file}")
+    save_and_validate_svg(RESULTS_DIR / "bench_ycsb_workloads.svg", svg)
 
 def generate_memory_chart():
     json_path = RESULTS_DIR / "baseline_memory.json"
@@ -244,7 +251,7 @@ def generate_memory_chart():
     seq_data = last_item.get("sequential_keys_bytes_per_key", {})
 
     panels = [
-        ("Dense Sequential Keys (0..N)", "Bitmap & Uncompressed Leaf Packing", seq_data, 30, True),
+        ("Dense Sequential Keys (0..N)", "Bitmap &amp; Uncompressed Leaf Packing", seq_data, 30, True),
         ("Uniform Random 64-bit Keys", "High entropy sparse distribution", rand_data, 500, False),
     ]
 
@@ -298,10 +305,7 @@ def generate_memory_chart():
     svg += """  <line x1="475" y1="70" x2="475" y2="255" class="divider"/>
 </svg>
 """
-    out_file = RESULTS_DIR / "bench_memory_footprint.svg"
-    with open(out_file, "w") as f:
-        f.write(svg)
-    print(f"Generated {out_file}")
+    save_and_validate_svg(RESULTS_DIR / "bench_memory_footprint.svg", svg)
 
 def generate_key_distributions_chart():
     json_path = RESULTS_DIR / "baseline_distributions.json"
@@ -367,13 +371,13 @@ def generate_key_distributions_chart():
 
         # Bars
         svg += f"""  <rect x="310" y="{y}" width="{w_exp:.1f}" height="9" rx="2" class="b-expanse"/>
-  <text x="{318 + w_exp:.1f}" y="{y + 8}" class="t-val-accent">{m_exp:.1f}M</text>
+  <text x="{318 + w_exp:.1f}" y="{y + 8}" class="t-val-accent" text-anchor="start">{m_exp:.1f}M</text>
 
   <rect x="310" y="{y + 13}" width="{w_hb:.1f}" height="9" rx="2" class="b-hashbrown"/>
-  <text x="{318 + w_hb:.1f}" y="{y + 21}" class="t-val-blue">{m_hb:.1f}M</text>
+  <text x="{318 + w_hb:.1f}" y="{y + 21}" class="t-val-blue" text-anchor="start">{m_hb:.1f}M</text>
 
   <rect x="310" y="{y + 26}" width="{w_bt:.1f}" height="9" rx="2" class="b-btree"/>
-  <text x="{318 + w_bt:.1f}" y="{y + 34}" class="t-val-muted">{m_bt:.1f}M</text>
+  <text x="{318 + w_bt:.1f}" y="{y + 34}" class="t-val-muted" text-anchor="start">{m_bt:.1f}M</text>
 """
         if m_bt > 0:
             speedup = m_exp / m_bt
@@ -382,10 +386,7 @@ def generate_key_distributions_chart():
 """
 
     svg += "</svg>\n"
-    out_file = RESULTS_DIR / "bench_key_distributions.svg"
-    with open(out_file, "w") as f:
-        f.write(svg)
-    print(f"Generated {out_file}")
+    save_and_validate_svg(RESULTS_DIR / "bench_key_distributions.svg", svg)
 
 def generate_tail_latency_chart():
     json_path = RESULTS_DIR / "baseline_tail_latency.json"
@@ -421,9 +422,9 @@ def generate_tail_latency_chart():
 
     y_hdr = 82
     svg += f"""  <text x="40" y="{y_hdr}" class="t-unit">Percentile</text>
-  <text x="240" y="{y_hdr}" class="t-val-accent">ExpanseMap</text>
-  <text x="460" y="{y_hdr}" class="t-val-blue">hashbrown</text>
-  <text x="680" y="{y_hdr}" class="t-val-muted">BTreeMap</text>
+  <text x="240" y="{y_hdr}" class="t-val-accent" text-anchor="start">ExpanseMap</text>
+  <text x="460" y="{y_hdr}" class="t-val-blue" text-anchor="start">hashbrown</text>
+  <text x="680" y="{y_hdr}" class="t-val-muted" text-anchor="start">BTreeMap</text>
   <line x1="30" y1="{y_hdr + 8}" x2="930" y2="{y_hdr + 8}" class="divider"/>
 """
 
@@ -434,17 +435,14 @@ def generate_tail_latency_chart():
         b_v = bt.get(q, 0)
 
         svg += f"""  <text x="40" y="{y}" class="t-bar-label">{ql}</text>
-  <text x="240" y="{y}" class="t-val-accent">{e_v:,} ns</text>
-  <text x="460" y="{y}" class="t-val-blue">{h_v:,} ns</text>
-  <text x="680" y="{y}" class="t-val-muted">{b_v:,} ns</text>
+  <text x="240" y="{y}" class="t-val-accent" text-anchor="start">{e_v:,} ns</text>
+  <text x="460" y="{y}" class="t-val-blue" text-anchor="start">{h_v:,} ns</text>
+  <text x="680" y="{y}" class="t-val-muted" text-anchor="start">{b_v:,} ns</text>
   <line x1="30" y1="{y + 4}" x2="930" y2="{y + 4}" class="grid"/>
 """
 
     svg += "</svg>\n"
-    out_file = RESULTS_DIR / "bench_tail_latency.svg"
-    with open(out_file, "w") as f:
-        f.write(svg)
-    print(f"Generated {out_file}")
+    save_and_validate_svg(RESULTS_DIR / "bench_tail_latency.svg", svg)
 
 def main():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)

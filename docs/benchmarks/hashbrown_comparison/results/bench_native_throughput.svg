@@ -173,7 +173,7 @@
   <!-- Panel: Dynamic Ingestion -->
   <g transform="translate(660, 20)">
     <text x="0" y="0" class="t-title">Dynamic Ingestion</text>
-    <text x="0" y="13" class="t-sub">Growth 0 -> 100k keys</text>
+    <text x="0" y="13" class="t-sub">Growth 0 -&gt; 100k keys</text>
     <text x="0" y="27" class="t-unit">&#9650; Throughput (M ops / sec)</text>
 
     <!-- Grid lines -->
