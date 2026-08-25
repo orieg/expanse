@@ -1267,6 +1267,10 @@ $judy[42] = 999;</code></pre>
           <div class="doc-link-title">ALGORITHMS.md &#8599;</div>
           <div class="doc-link-desc">Algorithmic specifications, search kernels, SIMD/SWAR vectorization.</div>
         </a>
+        <a href="https://github.com/orieg/expanse/blob/main/docs/HARDWARE.md" class="doc-link-card">
+          <div class="doc-link-title">HARDWARE.md &#8599;</div>
+          <div class="doc-link-desc">Hardware capability reference: ISA primary-source citations, assumption validation, and missed-opportunity analysis.</div>
+        </a>
         <a href="https://github.com/orieg/expanse/blob/main/docs/COMPAT.md" class="doc-link-card">
           <div class="doc-link-title">COMPAT.md &#8599;</div>
           <div class="doc-link-desc">C ABI contracts, drop-in parity gates, error handling, packaging specifications.</div>

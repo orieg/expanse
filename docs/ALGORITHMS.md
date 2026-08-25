@@ -98,6 +98,8 @@ When compiled with `x86-64-v3` (AVX2, BMI2, POPCNT), Expanse replaces runtime di
   - `map_churn/random`: **-30.70% instructions (-24.62% cycles)**.
   - `map_get/random`: **-12.11% instructions (-13.25% cycles)**.
 
+> Hardware ISA guarantees and per-architecture codegen for these kernels (SSE2/NEON/POPCNT/Zbb) are cited against primary sources in [`docs/HARDWARE.md`](HARDWARE.md).
+
 ---
 
 ## 5. Benchmark Arm Mapping Reference

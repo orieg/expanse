@@ -74,6 +74,8 @@ Two further compressions: **narrow pointers** (a JP records skipped common bytes
 | Edge representation | 16 B hybrid pointer stealing | Dual-word 16 B Edge: Word 0 holds raw unmasked 64-bit pointer / immediate; Word 1 holds aux + tag | Full 57-bit (PML5/LA57) & 52-bit (ARM64-LVA) virtual address safety with zero upper-bit pointer stealing |
 | Concurrency | None (external mutex) | Per-node version counters, optimistic lock-coupling readers | Lock-free reads, linear read scaling |
 
+> The 64-byte cache-line assumption behind the node layouts above is validated against primary sources in [`docs/HARDWARE.md` §1.4](HARDWARE.md#14-64-byte-cache-line--validated-correct-on-x86) (x86) and [§2.4](HARDWARE.md#24-64-byte-cache-line---portability--perf-risk-on-arm) (⚠️ ARM portability note: Apple Silicon uses 128-byte lines).
+
 ## 3. Core layouts
 
 ### 3.1 Edge (16 B)
@@ -215,5 +217,7 @@ Older 2002-era C implementations (including classic `libjudy` and V8-style NaN-t
    - In `ExpanseBlobMap`, chunks and slabs are indexed via 32-bit chunk indices and relative offsets from a base arena pointer, allowing unlimited virtual memory expansion across terabytes on PML5 systems without tag collisions.
 
 Expanse functions transparently on 48-bit legacy systems, 52-bit ARM64, and 57-bit x86-64 PML5/LA57 hardware without address truncation, bit masking, or `#GP` faults.
+
+> **Primary-source citation.** The 57-bit VA / LA57 assumption is validated against the Intel SDM in [`docs/HARDWARE.md` §1.6](HARDWARE.md#16-la57--5-level-paging--57-bit-va--validated-intel-side); the ARM64 52-bit LVA and low-bit alignment guarantees are covered in [`docs/HARDWARE.md` §2](HARDWARE.md#2-aarch64-arm--apple-silicon).
 
 

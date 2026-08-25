@@ -32,6 +32,7 @@ Do not scatter architecture notes into arbitrary files. Update the canonical doc
 |---|---|
 | Design / node layouts / roadmap / phase gates | `docs/ARCHITECTURE.md` |
 | Algorithms, search kernels, SIMD/SWAR vectorization & visualizer reference | `docs/ALGORITHMS.md` · `docs/architecture_visualizer.html` |
+| Hardware capability reference: ISA primary-source citations, assumption validation, and missed-opportunity analysis | `docs/HARDWARE.md` |
 | C ABI contract, drop-in parity gates, surface, packaging, doc-gap resolutions | `docs/COMPAT.md` |
 | Test methodology, differential testing, invariants validator, fuzzing | `docs/TESTING.md` |
 | Benchmark methodology, instruction counting, hardware counters, profiling | `docs/BENCHMARKING.md` |
