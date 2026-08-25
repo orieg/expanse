@@ -17,7 +17,6 @@ permissions:
 jobs:
   subsplit-php:
     name: Mirror / bindings/php -> orieg/php-expanse
-    if: ${{ secrets.SUBSPLIT_ACCESS_TOKEN != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout monorepo
@@ -26,6 +25,7 @@ jobs:
           fetch-depth: 0
 
       - name: Subsplit bindings/php
+        if: ${{ env.GITHUB_TOKEN != '' }}
         uses: danharrin/monorepo-split-github-action@v2.4.5
         with:
           package_directory: 'bindings/php'
@@ -35,5 +35,11 @@ jobs:
           user_email: 'github-actions[bot]@users.noreply.github.com'
           branch: 'main'
           tag: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.SUBSPLIT_ACCESS_TOKEN }}
+
+      - name: Skip notification
+        if: ${{ env.GITHUB_TOKEN == '' }}
+        run: echo "SUBSPLIT_ACCESS_TOKEN secret not configured; skipping external repository mirror."
         env:
           GITHUB_TOKEN: ${{ secrets.SUBSPLIT_ACCESS_TOKEN }}
