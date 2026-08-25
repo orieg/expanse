@@ -304,14 +304,16 @@ Expanse wins membership on sparse/clustered; Roaring's specialized rank index wi
 
 **Full ordered iteration — now faster than `BTreeMap` for dense keys (post-#245).** [#245](https://github.com/orieg/expanse/pull/245) replaced the per-step allocating descent with a stack-based zero-allocation iterator, flipping the earlier result. Full ordered `map.iter()` vs `BTreeMap::iter()` over 1M keys, as a ratio of Expanse's time to `BTreeMap::iter()`'s (< 1 means Expanse is faster):
 
-| key distribution | pre-#245 | post-#245 |
-|---|---|---|
-| sequential | 6.8× slower | **0.7× (faster)** |
-| clustered | 6.4× slower | **0.8× (faster)** |
-| random | 2.1× slower | **0.5× (2× faster)** |
-| sparse | 10.4× slower | **4.7× slower** |
+| key distribution | pre-#245 | post-#245 | post-#270 |
+|---|---|---|---|
+| sequential | 6.8× slower | **0.7× (faster)** | **0.7× (faster)** |
+| clustered | 6.4× slower | **0.8× (faster)** | **0.8× (faster)** |
+| random | 2.1× slower | **0.5× (2× faster)** | **0.5× (2× faster)** |
+| sparse | 10.4× slower | 4.7× slower | **2.4× slower** |
 
-*(measured: reference host — Intel i9-12900F, 24 threads, commit 46529f19, `benches/compare.rs`, criterion mean; ratios are Expanse's `map.iter()` time over `BTreeMap::iter()`'s, so < 1 means Expanse is faster)*. Across the four distributions #245 delivered a **2.2×–9.4× speedup**. Dense (sequential/clustered/random) iteration now beats `BTreeMap::iter()`; **sparse-key iteration remains ~4.7× slower** — the trie chases pointers across up to 8 levels where a B-tree walks contiguous node arrays. That residual is tracked in [#270](https://github.com/orieg/expanse/issues/270). Point lookups and prefix seeks — where the trie skips empty expanses — remain the engine's other advantage. This supersedes the pre-#245 "iteration is a measured weakness" reading and the earlier retracted "2.1×–3.4× faster range scans" claim alike.
+*(post-#245 measured: reference host — Intel i9-12900F, 24 threads, commit 46529f19; post-#270 measured: same host, commit 1feefadf; `benches/compare.rs`, criterion mean of the 1M-key `map_iter` grid; ratios are Expanse's `map.iter()` time over `BTreeMap::iter()`'s, so < 1 means Expanse is faster)*. Across the four distributions #245 delivered a **2.2×–9.4× speedup**. Dense (sequential/clustered/random) iteration beats `BTreeMap::iter()` and is unchanged by #270.
+
+**Sparse-key iteration ([#270](https://github.com/orieg/expanse/issues/270)):** the `sparse` distribution `keys(i) = i << 40` puts all variation in bytes 5–7 with bytes 0–4 always zero, so at 1M keys the trie is a three-level dense `BranchU` spine over **1,000,000 single-key immediate leaves** (one 16-byte edge per isolated key — the structural floor; immediates absorb the zero remainders, so there is no separate leaf allocation or pointer chain to remove). [#270](https://github.com/orieg/expanse/issues/270) added a single-key-immediate fast path to the stack iterator: the post-#245 iterator decoded every immediate through the general multi-key path, zeroing two `[u64; 15]` staging arrays and copying a 240-byte cursor to carry one 16-byte key/value. Decoding single-key immediates directly cut the Expanse arm from **14.34 ms → 7.09 ms** (~2.0× faster; criterion CIs [14.18, 14.42] vs [7.09, 7.10] separate cleanly), narrowing the gap from ~4.7× to ~2.4× slower than `BTreeMap`. The residual ~2.4× is the remaining structural floor: the trie still visits ≈3,900 branch nodes (~16 MB of `BranchU` pages) and re-descends per key, where a B-tree walks contiguous 11-wide leaf arrays. Point lookups and prefix seeks — where the trie skips empty expanses — remain the engine's other advantage. This supersedes the pre-#245 "iteration is a measured weakness" reading and the earlier retracted "2.1×–3.4× faster range scans" claim alike.
 
 ### Checkpoint B0 — first vs-stock baseline on the corrected harness (measured: GitHub `ubuntu-latest` runner, callgrind via the `instruction-counts` job, **the issue #1 items-1-3 branch, not `af21e02`**; deterministic)
 
