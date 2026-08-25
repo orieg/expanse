@@ -14,7 +14,7 @@ on:
         description: 'PR number to post results to'
         required: false
       benchmark_suite:
-        description: 'Benchmark suite to run (all, vs_stock, instructions, comparative)'
+        description: 'Benchmark suite to run (all, vs_stock, instructions, comparative, ycsb)'
         required: true
         default: 'all'
         type: choice
@@ -23,16 +23,17 @@ on:
           - vs_stock
           - instructions
           - comparative
+          - ycsb
   issue_comment:
     types: [created]
 
 jobs:
   bench-baremetal:
-    name: Run Remote Bare-Metal Benchmarks
+    name: Run Bare-Metal Benchmarks
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/bench') || startsWith(github.event.comment.body, '/benchmark')))
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Check permissions
         if: github.event_name == 'issue_comment'
@@ -68,6 +69,7 @@ jobs:
             if (comment.includes('vs_stock')) suite = 'vs_stock';
             else if (comment.includes('instructions')) suite = 'instructions';
             else if (comment.includes('comparative')) suite = 'comparative';
+            else if (comment.includes('ycsb')) suite = 'ycsb';
             core.setOutput('benchmark_suite', suite);
 
       - name: Set input variables
@@ -91,30 +93,54 @@ jobs:
           ref: ${{ steps.vars.outputs.ref }}
           fetch-depth: 0
 
-      - name: Setup SSH
+      - name: System Load Hygiene Check
         run: |
-          if [ -z "${{ secrets.BENCH_SSH_HOST }}" ] || [ -z "${{ secrets.BENCH_SSH_USER }}" ] || [ -z "${{ secrets.BENCH_SSH_KEY }}" ] || [ -z "${{ secrets.BENCH_REMOTE_DIR }}" ]; then
-            echo "Error: Benchmark secrets (BENCH_SSH_HOST, BENCH_SSH_USER, BENCH_SSH_KEY, BENCH_REMOTE_DIR) are not configured."
-            echo "Please configure these secrets in the repository settings."
-            exit 1
-          fi
-          mkdir -p ~/.ssh
-          echo "${{ secrets.BENCH_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "${{ secrets.BENCH_SSH_HOST }}" >> ~/.ssh/known_hosts
+          echo "=== System Load & Host Snapshot ==="
+          uname -a
+          uptime
+          echo "Top CPU consumers:"
+          ps -A -o %cpu,%mem,command | sort -rn | head -n 8
 
-      - name: Run remote benchmark script
+      - name: Run Native Bare-Metal Benchmarks
         id: bench
-        env:
-          BENCH_HOST: ${{ secrets.BENCH_SSH_USER }}@${{ secrets.BENCH_SSH_HOST }}
-          BENCH_REPO: ${{ secrets.BENCH_REMOTE_DIR }}
         run: |
-          bash scripts/run_remote_bench.sh "${{ steps.vars.outputs.benchmark_suite }}" > bench_output.txt 2>&1
-          cat bench_output.txt
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          export LD_LIBRARY_PATH="$HOME/.local/lib:$LD_LIBRARY_PATH"
+          export LIBRARY_PATH="$HOME/.local/lib:$LIBRARY_PATH"
+          export C_INCLUDE_PATH="$HOME/.local/include:$C_INCLUDE_PATH"
+
+          # Pre-compile release C ABI
+          cargo build --release -p expanse-capi
+          export EXPANSE_CDYLIB="$PWD/target/release/libexpanse.so"
+
+          SUITE="${{ steps.vars.outputs.benchmark_suite }}"
+          case "$SUITE" in
+            "vs_stock")
+              cargo bench --bench vs_stock -p expanse-capi | tee bench_output.txt
+              ;;
+            "instructions")
+              cargo bench --bench instructions -p expanse-trie | tee bench_output.txt
+              ;;
+            "comparative")
+              cargo bench --bench comparative -p expanse-trie | tee bench_output.txt
+              ;;
+            "ycsb")
+              cargo bench --bench ycsb -p expanse-trie | tee bench_output.txt
+              ;;
+            "all"|*)
+              echo "=== 1. libexpanse vs Stock libjudy C ABI Parity ===" | tee bench_output.txt
+              cargo bench --bench vs_stock -p expanse-capi | tee -a bench_output.txt
+              echo -e "\n=== 2. Deterministic Callgrind Instruction Counters ===" | tee -a bench_output.txt
+              cargo bench --bench instructions -p expanse-trie | tee -a bench_output.txt
+              echo -e "\n=== 3. Comparative vs hashbrown & BTreeMap ===" | tee -a bench_output.txt
+              cargo bench --bench comparative -p expanse-trie | tee -a bench_output.txt
+              ;;
+          esac
+
           echo "BENCH_SUMMARY<<EOF" >> $GITHUB_ENV
           cat bench_output.txt >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
-          
+
           echo "## Bare-Metal Benchmark Results" >> $GITHUB_STEP_SUMMARY
           echo '```text' >> $GITHUB_STEP_SUMMARY
           cat bench_output.txt >> $GITHUB_STEP_SUMMARY
@@ -138,8 +164,9 @@ jobs:
           body: |
             ## Bare-Metal Benchmark Results
             
-            Suite: `${{ steps.vars.outputs.benchmark_suite }}`
-            Ref: `${{ steps.vars.outputs.ref }}`
+            - **Suite**: `${{ steps.vars.outputs.benchmark_suite }}`
+            - **Ref**: `${{ steps.vars.outputs.ref }}`
+            - **Runner**: `self-hosted (baremetal)`
             
             ```text
             ${{ env.BENCH_SUMMARY }}

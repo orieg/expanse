@@ -194,24 +194,42 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 
 ---
 
-## Remote Bare-Metal Benchmarks
+## Bare-Metal Hardware Benchmarks
 
-To ensure consistent performance measurements unaffected by shared cloud runner noise, Expanse supports automated remote bare-metal benchmarking.
+To ensure consistent performance measurements unaffected by shared cloud runner noise, Expanse supports automated bare-metal benchmarking on dedicated hardware (`honeycomb`).
 
-### Triggering via PR Comment
-Maintainers and collaborators can trigger benchmarks directly from a PR by commenting:
-- `/bench` (runs all suites)
+### 1. Automated Execution via Self-Hosted GitHub Actions Runner
+For dedicated benchmark rigs residing on private LANs (without inbound WAN access), a self-hosted GitHub Actions runner daemon (`runs-on: [self-hosted, linux]`) connects to GitHub via outbound-only HTTPS polling.
+
+#### Setting Up the Runner on the Benchmark Machine
+```bash
+# Create directory and download the runner package
+mkdir -p ~/actions-runner && cd ~/actions-runner
+curl -o actions-runner-linux-x64-2.322.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.322.0/actions-runner-linux-x64-2.322.0.tar.gz
+tar xzf ./actions-runner-linux-x64-2.322.0.tar.gz
+
+# Configure runner with repository registration token
+./config.sh --url https://github.com/orieg/expanse --token <RUNNER_REGISTRATION_TOKEN> --labels baremetal,honeycomb --unattended
+
+# Run the worker (or install as systemd service: sudo ./svc.sh install && sudo ./svc.sh start)
+./run.sh
+```
+
+### 2. Triggering via PR Comment
+Maintainers and collaborators can trigger benchmarks directly on any pull request by commenting:
+- `/bench` (runs all suites: C ABI vs stock, instruction counters, and comparative)
 - `/benchmark vs_stock` (runs only the `vs_stock` suite)
 - `/benchmark instructions` (runs only the `instructions` suite)
 - `/benchmark comparative` (runs only the `comparative` suite)
+- `/benchmark ycsb` (runs only the `ycsb` suite)
 
-Results will be posted back as a sticky PR comment.
+The self-hosted runner executes the suite natively on bare metal, verifies system load hygiene, and posts/updates a sticky comment on the PR thread.
 
-### Triggering via `workflow_dispatch`
-The `Bare-Metal Benchmarks` workflow can also be triggered manually via the GitHub Actions UI. It accepts `ref`, `base_ref`, `pr_number`, and `benchmark_suite` as inputs.
+### 3. Triggering via `workflow_dispatch`
+The `Bare-Metal Benchmarks` workflow can also be triggered manually via GitHub Actions UI (*Actions* tab $\rightarrow$ *Bare-Metal Benchmarks* $\rightarrow$ *Run workflow*). It accepts `ref`, `base_ref`, `pr_number`, and `benchmark_suite`.
 
-### Running Locally
-Developers can run the exact same remote sync, build, and benchmark execution locally using the standalone script `scripts/run_remote_bench.sh`:
+### 4. Running Locally over LAN
+Developers can also execute the exact same sync, build, and benchmark suite from their local development machine across their LAN using `scripts/run_remote_bench.sh`:
 
 ```bash
 export BENCH_HOST="user@bare-metal-host"
