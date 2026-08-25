@@ -1082,7 +1082,7 @@ impl<const MAP: bool> RawIter<MAP> {
     }
 
     /// Yields the next element in ascending key order.
-    #[inline]
+    #[inline(always)]
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<(Key, u64)> {
         loop {

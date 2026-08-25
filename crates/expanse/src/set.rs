@@ -668,7 +668,7 @@ pub struct SetIter<'a> {
 impl Iterator for SetIter<'_> {
     type Item = u64;
 
-    #[inline]
+    #[inline(always)]
     fn next(&mut self) -> Option<u64> {
         self.raw.next().map(|(k, _)| k)
     }
@@ -684,7 +684,7 @@ pub struct SetRange<'a> {
 impl Iterator for SetRange<'_> {
     type Item = u64;
 
-    #[inline]
+    #[inline(always)]
     fn next(&mut self) -> Option<u64> {
         let (k, _) = self.raw.next()?;
         if k > self.end {
