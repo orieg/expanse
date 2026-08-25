@@ -667,6 +667,25 @@ impl Bitmap256 {
         }
     }
 
+    /// Tests if `idx` is present, and if so returns its `(subexpanse_index, subexpanse_rank)` tuple.
+    /// Fuses subexpanse index calculation, bit testing, and rank computation.
+    #[inline(always)]
+    #[must_use]
+    pub const fn test_and_subexpanse_rank_with_sub(&self, idx: u8) -> Option<(usize, usize)> {
+        let sub = (idx >> 5) as usize;
+        let bit = (idx & 31) as u32;
+        // SAFETY: `self.words` contains 4 `u64`s (32 bytes), aligned to 8 bytes.
+        // `sub < 8` accesses a valid `u32` within the 8 contiguous `u32` subwords.
+        let sub_word = unsafe { *self.words.as_ptr().cast::<u32>().add(sub) };
+        let bit_mask = 1u32 << bit;
+        if (sub_word & bit_mask) == 0 {
+            None
+        } else {
+            let below = bit_mask - 1;
+            Some((sub, (sub_word & below).count_ones() as usize))
+        }
+    }
+
     /// Number of members inside one 32-digit subexpanse (`sub` in 0..8) —
     /// the length of that subexpanse's packed child/value array.
     #[inline(always)]

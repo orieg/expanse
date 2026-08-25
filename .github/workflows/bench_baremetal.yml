@@ -14,12 +14,13 @@ on:
         description: 'PR number to post results to'
         required: false
       benchmark_suite:
-        description: 'Benchmark suite to run (all, vs_stock, instructions, comparative, ycsb)'
+        description: 'Benchmark suite to run (all, extended, vs_stock, instructions, comparative, ycsb)'
         required: true
         default: 'all'
         type: choice
         options:
           - all
+          - extended
           - vs_stock
           - instructions
           - comparative
@@ -66,7 +67,8 @@ jobs:
             
             const comment = context.payload.comment.body;
             let suite = 'all';
-            if (comment.includes('vs_stock')) suite = 'vs_stock';
+            if (comment.includes('extended') || comment.includes('full')) suite = 'extended';
+            else if (comment.includes('vs_stock')) suite = 'vs_stock';
             else if (comment.includes('instructions')) suite = 'instructions';
             else if (comment.includes('comparative')) suite = 'comparative';
             else if (comment.includes('ycsb')) suite = 'ycsb';
@@ -153,12 +155,12 @@ jobs:
               cargo build --release -p expanse-capi
               export EXPANSE_CDYLIB="$PWD/target/release/libexpanse.so"
 
-              if [ "$SUITE" = "all" ] || [ "$SUITE" = "instructions" ]; then
+              if [ "$SUITE" = "all" ] || [ "$SUITE" = "extended" ] || [ "$SUITE" = "instructions" ]; then
                 echo "Running base instructions benchmark..."
                 cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_base | tee base-instructions.txt || true
               fi
 
-              if [ "$SUITE" = "all" ] || [ "$SUITE" = "vs_stock" ]; then
+              if [ "$SUITE" = "all" ] || [ "$SUITE" = "extended" ] || [ "$SUITE" = "vs_stock" ]; then
                 echo "Running base vs_stock benchmark..."
                 cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_base_vs_stock | tee base-vs-stock.txt || true
               fi
@@ -198,6 +200,25 @@ jobs:
             "comparative")
               cargo bench --bench comparative -p expanse-trie | tee comparative.txt
               python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
+              ;;
+            "extended")
+              if [ -f base-instructions.txt ]; then
+                cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
+              else
+                cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_main | tee head-instructions.txt
+              fi
+
+              if [ -f base-vs-stock.txt ]; then
+                cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
+              else
+                cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
+              fi
+
+              cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
+              cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
+
+              cargo bench --bench comparative -p expanse-trie | tee comparative.txt
+              python3 scripts/bench_report.py --extended --arch-sweep --format markdown | tee head-to-head.md
               ;;
             "ycsb")
               cargo bench --bench ycsb -p expanse-trie | tee ycsb.txt

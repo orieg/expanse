@@ -142,7 +142,7 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 }
                 let d = digit(key, bl);
                 let num = b.hdr.num as usize;
-                let slot = if num > 0 && b.hdr.digits[0] == d {
+                let slot = if b.hdr.digits[0] == d {
                     0
                 } else if num > 1 && b.hdr.digits[1] == d {
                     1
@@ -181,10 +181,9 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                     return false;
                 }
                 let d = digit(key, bl);
-                let Some(slot) = b.bitmap.test_and_subexpanse_rank(d) else {
+                let Some((sub, slot)) = b.bitmap.test_and_subexpanse_rank_with_sub(d) else {
                     return false;
                 };
-                let sub = (d >> 5) as usize;
                 // SAFETY: `sub < 8` accesses a valid subarray pointer; the bit is set,
                 // so the subexpanse subarray is non-null and holds at least `subexpanse_rank + 1` edges.
                 let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
@@ -279,7 +278,7 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 }
                 let d = digit(key, bl);
                 let num = b.hdr.num as usize;
-                let slot = if num > 0 && b.hdr.digits[0] == d {
+                let slot = if b.hdr.digits[0] == d {
                     0
                 } else if num > 1 && b.hdr.digits[1] == d {
                     1
@@ -316,8 +315,7 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                     return None;
                 }
                 let d = digit(key, bl);
-                let slot = b.bitmap.test_and_subexpanse_rank(d)?;
-                let sub = (d >> 5) as usize;
+                let (sub, slot) = b.bitmap.test_and_subexpanse_rank_with_sub(d)?;
                 // SAFETY: `sub < 8` accesses a valid subarray pointer.
                 let sub_ptr = unsafe { *b.subarrays.as_ptr().add(sub) };
                 // SAFETY: slot is the verified rank inside the live subexpanse subarray.
@@ -349,8 +347,7 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 let d = (key & 0xFF) as u8;
                 // SAFETY: pointer-tagged edge → live LeafBitmapL.
                 let l = unsafe { &*edge.node_ptr().cast::<LeafBitmapL>() };
-                let sub = (d >> 5) as usize;
-                let slot = l.bitmap.test_and_subexpanse_rank(d)?;
+                let (sub, slot) = l.bitmap.test_and_subexpanse_rank_with_sub(d)?;
                 // SAFETY: `sub < 8` accesses a valid values subarray pointer.
                 let vals = unsafe { *l.values.as_ptr().add(sub) };
                 // SAFETY: the bit is set, so the value subarray is non-null and holds at least `slot + 1` values.
@@ -689,8 +686,7 @@ unsafe fn locate_slot_impl(
                         return None;
                     }
                     let d = digit(key, bl);
-                    let rank = (*b).bitmap.test_and_subexpanse_rank(d)?;
-                    let sub = (d >> 5) as usize;
+                    let (sub, rank) = (*b).bitmap.test_and_subexpanse_rank_with_sub(d)?;
                     let sub_ptr = *(*b).subarrays.as_ptr().add(sub);
                     edge = sub_ptr.add(rank);
                     level = bl - 1;
@@ -725,9 +721,8 @@ unsafe fn locate_slot_impl(
                         return None;
                     }
                     let d = (key & 0xFF) as u8;
-                    let sub = (d >> 5) as usize;
                     let node = (*edge).node_ptr().cast::<LeafBitmapL>();
-                    let rank = (*node).bitmap.test_and_subexpanse_rank(d)?;
+                    let (sub, rank) = (*node).bitmap.test_and_subexpanse_rank_with_sub(d)?;
                     let vals = *(*node).values.as_ptr().add(sub);
                     return core::ptr::NonNull::new(vals.add(rank));
                 }
