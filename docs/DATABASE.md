@@ -505,6 +505,8 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 
 † **Range-scan correction (measured):** full in-order iteration (`ExpanseMap::iter()`) is currently **slower** than `BTreeMap::iter()` on the comparative bench — 13×–44× on `honeycomb` (commit 695b98d, `benches/comparative.rs`), because trie traversal chases pointers across up to 8 levels while a B-tree walks contiguous node arrays. The engine's strength is **point lookup** (2.9×–14.5× faster than `BTreeMap` on random/sequential 1M — `benches/compare.rs`), not bulk iteration. The prior "2.1×–3.4× faster range scans than BTreeMap" claim is **not supported by measurement and is retracted**; a dedicated ordered-scan optimization is future work.
 
+The `ExpanseMap` point-lookup range's 38.6 ns upper bound is the out-of-cache uniform-random 1M case, not a fixed gap versus hashbrown's single probe: random lookup is a working-set-vs-cache crossover — within ~1.1× of hashbrown while cache-resident (10k) and widening to ~2.9× at 1M as the ~5 trie descents miss to DRAM — verified stable, not a regression *(measured: honeycomb, commit 4a12f046)*.
+
 ### 7.2 Standardized YCSB Workload Analysis ($N = 100,000$, $\theta = 0.99$, 128B Blobs)
 
 The Yahoo! Cloud Serving Benchmark evaluates engine behaviour under real-world access distributions. Throughput derived from criterion median time over 20,000 operations per iteration *(measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`)*:
