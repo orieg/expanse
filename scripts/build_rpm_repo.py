@@ -10,6 +10,18 @@ import subprocess
 import sys
 
 
+from site_theme import (
+    BASE_CSS,
+    COPY_BTN_CSS,
+    NAV_CSS,
+    SITE_JS,
+    THEME_CSS_VARS,
+    THEME_HEAD_JS,
+    THEME_TOGGLE_CSS,
+    THEME_TOGGLE_JS,
+    make_nav,
+)
+
 def sha256_file(filepath: str) -> str:
     h = hashlib.sha256()
     with open(filepath, "rb") as f:
@@ -18,7 +30,12 @@ def sha256_file(filepath: str) -> str:
     return h.hexdigest()
 
 
-def build_rpm_repo(input_dir: str, output_dir: str, allow_empty: bool = False):
+def build_rpm_repo(
+    input_dir: str,
+    output_dir: str,
+    allow_empty: bool = False,
+    version: str = "0.3.0",
+):
     rpm_files = []
     if os.path.isdir(input_dir):
         for root, _, files in os.walk(input_dir):
@@ -182,179 +199,9 @@ repo_gpgcheck=0
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Expanse — Official RPM Repository</title>
-  <script>
-    (function() {
-      const saved = localStorage.getItem('expanse-theme');
-      const attr = document.documentElement.getAttribute('data-theme');
-      if (saved) {
-        document.documentElement.setAttribute('data-theme', saved);
-      } else if (!attr) {
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-          document.documentElement.setAttribute('data-theme', 'light');
-        } else {
-          document.documentElement.setAttribute('data-theme', 'dark');
-        }
-      }
-    })();
-  </script>
+""" + THEME_HEAD_JS + """
   <style>
-    :root {
-      --bg: #090d16;
-      --card-bg: #111827;
-      --card-inner: #0b1120;
-      --border: #1f293d;
-      --border-accent: rgba(56, 189, 248, 0.4);
-      --text: #e2e8f0;
-      --text-muted: #94a3b8;
-      --heading: #f8fafc;
-      --accent: #38bdf8;
-      --accent-hover: #7dd3fc;
-      --accent-green: #10b981;
-      --code-bg: #030712;
-      --navbar-bg: rgba(9, 13, 22, 0.85);
-      --nav-pill-bg: rgba(56, 189, 248, 0.1);
-      --nav-pill-border: rgba(56, 189, 248, 0.25);
-      --badge-bg: #111827;
-      --badge-border: #1f293d;
-      --badge-text: #38bdf8;
-      --table-header-color: #f8fafc;
-      --table-row-border: #1f293d;
-      color-scheme: dark;
-    }
-
-    [data-theme="light"] {
-      --bg: #f8fafc;
-      --card-bg: #ffffff;
-      --card-inner: #f1f5f9;
-      --border: #e2e8f0;
-      --border-accent: rgba(2, 132, 199, 0.4);
-      --text: #334155;
-      --text-muted: #64748b;
-      --heading: #0f172a;
-      --accent: #0284c7;
-      --accent-hover: #0369a1;
-      --accent-green: #059669;
-      --code-bg: #0f172a;
-      --navbar-bg: rgba(248, 250, 252, 0.88);
-      --nav-pill-bg: rgba(2, 132, 199, 0.08);
-      --nav-pill-border: rgba(2, 132, 199, 0.25);
-      --badge-bg: #ffffff;
-      --badge-border: #e2e8f0;
-      --badge-text: #0284c7;
-      --table-header-color: #0f172a;
-      --table-row-border: #e2e8f0;
-      color-scheme: light;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      overflow-x: hidden;
-      -webkit-font-smoothing: antialiased;
-    }
-    .navbar {
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      background: var(--navbar-bg);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border);
-      padding: 0.75rem 2rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 1.5rem;
-    }
-    .nav-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
-    }
-    .nav-brand {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      font-weight: 700;
-      font-size: 1.2rem;
-      color: var(--heading);
-      text-decoration: none;
-      flex-shrink: 0;
-    }
-    .nav-logo {
-      width: 28px;
-      height: 28px;
-      background: linear-gradient(135deg, #38bdf8, #10b981);
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #090d16;
-      font-weight: 900;
-      font-size: 14px;
-    }
-    .nav-scroll {
-      display: flex;
-      align-items: center;
-      gap: 1.25rem;
-    }
-    .nav-links {
-      display: flex;
-      gap: 1.25rem;
-      align-items: center;
-      list-style: none;
-      margin: 0;
-      padding: 0;
-    }
-    .nav-links a {
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 0.9rem;
-      font-weight: 500;
-      transition: color 0.15s ease;
-      white-space: nowrap;
-    }
-    .nav-links a:hover, .nav-links a.active { color: var(--accent); }
-    .nav-pill {
-      padding: 0.35rem 0.75rem;
-      background: var(--nav-pill-bg);
-      border: 1px solid var(--nav-pill-border);
-      border-radius: 6px;
-      color: var(--accent) !important;
-      font-weight: 600 !important;
-    }
-    .theme-toggle {
-      background: var(--card-inner);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      width: 34px;
-      height: 34px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      color: var(--heading);
-      font-size: 16px;
-      flex-shrink: 0;
-      transition: all 0.15s ease;
-    }
-    .theme-toggle:hover { border-color: var(--accent); }
-    [data-theme="dark"] .theme-icon-sun { display: inline; }
-    [data-theme="dark"] .theme-icon-moon { display: none; }
-    [data-theme="light"] .theme-icon-sun { display: none; }
-    [data-theme="light"] .theme-icon-moon { display: inline; }
-    :root:not([data-theme]) .theme-icon-sun { display: inline; }
-    :root:not([data-theme]) .theme-icon-moon { display: none; }
-
-    @media (min-width: 769px) {
-      .theme-toggle-mobile { display: none !important; }
-      .theme-toggle-desktop { display: flex !important; }
-    }
-
+""" + THEME_CSS_VARS + BASE_CSS + NAV_CSS + THEME_TOGGLE_CSS + COPY_BTN_CSS + """
     .container {
       max-width: 900px;
       margin: 2rem auto;
@@ -448,23 +295,6 @@ repo_gpgcheck=0
     }
 
     @media (max-width: 768px) {
-      .navbar {
-        padding: 0.6rem 1rem;
-        flex-direction: column;
-        align-items: stretch;
-        gap: 0.5rem;
-      }
-      .nav-top { width: 100%; }
-      .nav-scroll {
-        width: 100%;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: 0.2rem;
-        justify-content: flex-start;
-      }
-      .nav-links { gap: 0.85rem; }
-      .theme-toggle-mobile { display: flex !important; }
-      .theme-toggle-desktop { display: none !important; }
       .container { padding: 0 1rem; margin: 1.5rem auto; }
       .card { padding: 1.15rem; }
       pre { padding: 0.9rem; font-size: 0.82rem; }
@@ -472,36 +302,10 @@ repo_gpgcheck=0
   </style>
 </head>
 <body>
-    <header class="navbar">
-    <div class="nav-top">
-      <a href="../" class="nav-brand">
-        <div class="nav-logo">E</div>
-        <span>Expanse</span>
-      </a>
-      <button class="theme-toggle theme-toggle-mobile" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
-        <span class="theme-icon-sun">&#9728;</span>
-        <span class="theme-icon-moon">&#9790;</span>
-      </button>
-    </div>
-    <div class="nav-scroll">
-      <ul class="nav-links">
-        <li><a href="../" class="">Home</a></li>
-        <li><a href="../#benchmarks">Benchmarks</a></li>
-        <li><a href="../visualizer.html" class="">Visualizer</a></li>
-        <li><a href="../apt/" class="">APT (Debian)</a></li>
-        <li><a href="./" class="active">RPM (RHEL)</a></li>
-        <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
-        <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; 0.3.0</a></li>
-      </ul>
-      <button class="theme-toggle theme-toggle-desktop" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme">
-        <span class="theme-icon-sun">&#9728;</span>
-        <span class="theme-icon-moon">&#9790;</span>
-      </button>
-    </div>
-  </header>
+""" + make_nav(version, "rpm", base="../") + """
 
   <div class="container">
-    <h1>Expanse RPM Repository <span class="badge">v0.3.0</span></h1>
+    <h1>Expanse RPM Repository <span class="badge">v""" + version + """</span></h1>
     <p style="color: var(--text-muted);">Official YUM / DNF repository for <strong><a href="https://github.com/orieg/expanse">Expanse</a></strong> across Enterprise Linux: RHEL 8/9/10, CentOS Stream, Fedora, Rocky Linux, AlmaLinux, and Amazon Linux 2023.</p>
 
     <div class="card">
@@ -588,15 +392,8 @@ sudo dnf install -y libexpanse libexpanse-devel libjudy-compat</code></pre>
     </footer>
   </div>
 
-  <script>
-    function toggleTheme() {
-      const current = document.documentElement.getAttribute('data-theme') || 
-        (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-      const next = current === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      localStorage.setItem('expanse-theme', next);
-    }
-  </script>
+  """ + THEME_TOGGLE_JS + """
+  """ + SITE_JS + """
 </body>
 </html>
 """
