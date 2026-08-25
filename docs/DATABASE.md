@@ -386,7 +386,7 @@ Traditional B-Trees incur cache-line straddles and structural node split/merge r
 
 `ExpanseMap` accelerates range scans (`range()`, `iter_from()`) by skipping unpopulated subtrees:
 - When scanning from key $K_{\text{start}}$ to $K_{\text{end}}$, `BitmapBranch` nodes test active subexpanses using a single 256-bit bitmask.
-- Trailing zero counts (`TZCNT`) skip empty 32-bit digit spans in **a single CPU cycle** during descent; note that full ordered iteration is currently slower than `BTreeMap` (see §7.1†) — the trie's advantage is on **point and prefix lookups**, not bulk range iteration.
+- Trailing zero counts (`TZCNT`) skip empty 32-bit digit spans in **a single CPU cycle** during descent; full ordered iteration is now faster than `BTreeMap::iter()` for dense keys but still slower on sparse keys (see §7.1†) — the trie's most durable advantage remains **point and prefix lookups**.
 
 ```rust
 use expanse_trie::map::ExpanseMap;
@@ -503,7 +503,7 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 | **ART (Adaptive Radix Tree)** | ~16.0–28.0 B/key | ~14.0–30.0 ns | Ordered Walk | Node Version Locks (Rowex) |
 | **SkipList (RocksDB MemTable)** | ~32.0–64.0 B/key (208B blob) | ~45.0–90.0 ns | Pointer Walk | Lock-Free CAS Linked List |
 
-† **Range-scan correction (measured):** full in-order iteration (`ExpanseMap::iter()`) is currently **slower** than `BTreeMap::iter()` on the comparative bench — 13×–44× on the reference host (commit 695b98d, `benches/comparative.rs`), because trie traversal chases pointers across up to 8 levels while a B-tree walks contiguous node arrays. The engine's strength is **point lookup** (2.9×–14.5× faster than `BTreeMap` on random/sequential 1M — `benches/compare.rs`), not bulk iteration. The prior "2.1×–3.4× faster range scans than BTreeMap" claim is **not supported by measurement and is retracted**; a dedicated ordered-scan optimization is future work.
+† **Range-scan update (measured):** full in-order iteration (`ExpanseMap::iter()`) is now **faster than `BTreeMap::iter()` for dense key distributions** at 1M keys — sequential **0.7×**, clustered **0.8×**, random **0.5×** (2× faster) the time of `BTreeMap::iter()` — after [#245](https://github.com/orieg/expanse/pull/245) replaced the per-step allocating descent with a stack-based zero-allocation iterator (a 2.2×–9.4× speedup over the pre-#245 6.8×/6.4×/2.1×-slower readings). **Sparse-key iteration remains ~4.7× slower** (was 10.4×), a structural residual — the trie chases pointers across up to 8 levels where a B-tree walks contiguous node arrays — tracked in [#270](https://github.com/orieg/expanse/issues/270) *(measured: reference host — Intel i9-12900F, 24 threads, commit 46529f19, `benches/compare.rs`)*. Point lookup (2.9×–14.5× faster than `BTreeMap` on random/sequential 1M — `benches/compare.rs`) remains the engine's other advantage.
 
 The `ExpanseMap` point-lookup range's 38.6 ns upper bound is the out-of-cache uniform-random 1M case, not a fixed gap versus hashbrown's single probe: random lookup is a working-set-vs-cache crossover — within ~1.1× of hashbrown while cache-resident (10k) and widening to ~2.9× at 1M as the ~5 trie descents miss to DRAM — verified stable, not a regression *(measured: reference host, commit 4a12f046)*.
 
@@ -561,5 +561,5 @@ Expanse provides modern database engines with a unified, high-performance family
 - **Search & Inverted Indexes**: Sub-15ns boolean queries with 0.07–0.36 B/docID memory packing.
 - **MVCC Engine Visibility**: Zero-lock concurrent reader validation scaling near-linearly to 265M+ read ops/s across 16 threads (write-mixed scaling is seqlock-bound pending the per-node OCC refinement — see §3.2).
 - **Columnar Symbol Dictionaries**: 70%+ memory reduction on shared-prefix strings via 8-byte big-endian cross-chunk path folding.
-- **MemTables & Secondary Indexes**: Rebalance-free $O(\text{depth})$ ordered key indexing with fast point/prefix lookups (full ordered iteration is currently slower than a B-tree — see §7.1†).
+- **MemTables & Secondary Indexes**: Rebalance-free $O(\text{depth})$ ordered key indexing with fast point/prefix lookups (full ordered iteration is now faster than a B-tree for dense keys, still slower on sparse keys — see §7.1†).
 - **Shared Memory IPC**: Zero-deserialization analytical query sharing across multi-worker engine processes.

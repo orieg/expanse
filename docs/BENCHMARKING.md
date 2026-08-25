@@ -302,7 +302,16 @@ Expanse beats `BTreeSet` on every distribution (1.6×–9.2×); beats `HashSet` 
 
 Expanse wins membership on sparse/clustered; Roaring's specialized rank index wins `rank`/`select`.
 
-**Full ordered iteration — a measured weakness.** `ExpanseMap::iter()` vs `BTreeMap::iter()` over the whole map (`comparative_map_scan`, 100k): sparse **3.77 ms vs 120 µs (31× slower)**, clustered 1.91 ms vs 125 µs (15× slower), dense 1.74 ms vs 127 µs (14× slower). Trie traversal chases pointers across up to 8 levels while a B-tree walks contiguous node arrays. This contradicts and **retracts** the earlier "2.1×–3.4× faster range scans than BTreeMap" claim carried in README/DATABASE; a dedicated ordered-scan optimization (e.g. leaf-chain fast path) is the follow-up. Point lookups and prefix seeks — where the trie skips empty expanses — remain the engine's advantage.
+**Full ordered iteration — now faster than `BTreeMap` for dense keys (post-#245).** [#245](https://github.com/orieg/expanse/pull/245) replaced the per-step allocating descent with a stack-based zero-allocation iterator, flipping the earlier result. Full ordered `map.iter()` vs `BTreeMap::iter()` over 1M keys, as a ratio of Expanse's time to `BTreeMap::iter()`'s (< 1 means Expanse is faster):
+
+| key distribution | pre-#245 | post-#245 |
+|---|---|---|
+| sequential | 6.8× slower | **0.7× (faster)** |
+| clustered | 6.4× slower | **0.8× (faster)** |
+| random | 2.1× slower | **0.5× (2× faster)** |
+| sparse | 10.4× slower | **4.7× slower** |
+
+*(measured: reference host — Intel i9-12900F, 24 threads, commit 46529f19, `benches/compare.rs`, criterion mean; ratios are Expanse's `map.iter()` time over `BTreeMap::iter()`'s, so < 1 means Expanse is faster)*. Across the four distributions #245 delivered a **2.2×–9.4× speedup**. Dense (sequential/clustered/random) iteration now beats `BTreeMap::iter()`; **sparse-key iteration remains ~4.7× slower** — the trie chases pointers across up to 8 levels where a B-tree walks contiguous node arrays. That residual is tracked in [#270](https://github.com/orieg/expanse/issues/270). Point lookups and prefix seeks — where the trie skips empty expanses — remain the engine's other advantage. This supersedes the pre-#245 "iteration is a measured weakness" reading and the earlier retracted "2.1×–3.4× faster range scans" claim alike.
 
 ### Checkpoint B0 — first vs-stock baseline on the corrected harness (measured: GitHub `ubuntu-latest` runner, callgrind via the `instruction-counts` job, **the issue #1 items-1-3 branch, not `af21e02`**; deterministic)
 
