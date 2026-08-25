@@ -393,7 +393,7 @@ Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C
    ```
    Or verify against a specific expected version:
    ```bash
-   python3 scripts/bump_version.py 0.3.0 --check
+   python3 scripts/bump_version.py 0.4.0 --check
    ```
    Exits with code `0` on success, or code `1` with descriptive mismatch reports if any manifest drifts out of sync.
 
@@ -425,7 +425,7 @@ Add the dependency to your project's `main/idf_component.yml`:
 ```yaml
 dependencies:
   expanse:
-    version: "^0.3.0"
+    version: "^0.4.0"
 ```
 Or clone the component directly into your project's `components/` directory.
 

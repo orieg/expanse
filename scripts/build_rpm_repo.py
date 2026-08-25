@@ -34,7 +34,7 @@ def build_rpm_repo(
     input_dir: str,
     output_dir: str,
     allow_empty: bool = False,
-    version: str = "0.3.0",
+    version: str = "0.4.0",
 ):
     rpm_files = []
     if os.path.isdir(input_dir):
@@ -83,7 +83,7 @@ def build_rpm_repo(
         size = os.path.getsize(dest_path)
         sha256 = sha256_file(dest_path)
         pkg_name = filename.split("-")[0]
-        version = "0.3.0"
+        version = "0.4.0"
 
         entry = {
             "name": pkg_name,
@@ -350,17 +350,17 @@ sudo dnf install -y libexpanse libexpanse-devel libjudy-compat</code></pre>
         html_content += """            <tr>
               <td><strong>libexpanse</strong></td>
               <td><code>x86_64</code></td>
-              <td><a href="Packages/x86_64/libexpanse-0.3.0-1.x86_64.rpm">libexpanse-0.3.0-1.x86_64.rpm</a></td>
+              <td><a href="Packages/x86_64/libexpanse-0.4.0-1.x86_64.rpm">libexpanse-0.4.0-1.x86_64.rpm</a></td>
             </tr>
             <tr>
               <td><strong>libexpanse-devel</strong></td>
               <td><code>x86_64</code></td>
-              <td><a href="Packages/x86_64/libexpanse-devel-0.3.0-1.x86_64.rpm">libexpanse-devel-0.3.0-1.x86_64.rpm</a></td>
+              <td><a href="Packages/x86_64/libexpanse-devel-0.4.0-1.x86_64.rpm">libexpanse-devel-0.4.0-1.x86_64.rpm</a></td>
             </tr>
             <tr>
               <td><strong>libjudy-compat</strong></td>
               <td><code>x86_64</code></td>
-              <td><a href="Packages/x86_64/libjudy-compat-0.3.0-1.x86_64.rpm">libjudy-compat-0.3.0-1.x86_64.rpm</a></td>
+              <td><a href="Packages/x86_64/libjudy-compat-0.4.0-1.x86_64.rpm">libjudy-compat-0.4.0-1.x86_64.rpm</a></td>
             </tr>
 """
 

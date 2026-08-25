@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(rocksdb_expanse VERSION 0.3.0 LANGUAGES CXX C)
+project(rocksdb_expanse VERSION 0.4.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
