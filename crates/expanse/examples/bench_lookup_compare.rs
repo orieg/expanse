@@ -688,6 +688,7 @@ struct Config {
     pop: usize,
     dists: Vec<&'static str>,
     is_set: bool,
+    is_json: bool,
 }
 
 /// Parses command-line arguments.
@@ -697,6 +698,7 @@ fn parse_args() -> Config {
     let mut custom_pop = false;
     let mut dists = Vec::new();
     let mut is_set = false;
+    let mut is_json = false;
 
     let args: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -704,6 +706,8 @@ fn parse_args() -> Config {
         let arg = &args[i];
         if arg == "--quick" || arg == "-q" {
             quick = true;
+        } else if arg == "--json" {
+            is_json = true;
         } else if arg == "--pop" || arg == "-n" {
             if i + 1 < args.len() {
                 i += 1;
@@ -743,6 +747,7 @@ fn parse_args() -> Config {
                 "  --dist <D>, -d <D>     Target distribution (sequential, random, clustered, sparse, all)"
             );
             println!("  --set                  Run ExpanseSet comparison instead of ExpanseMap");
+            println!("  --json                 Output machine-readable JSON");
             println!("  --help, -h             Print help information");
             std::process::exit(0);
         }
@@ -757,7 +762,65 @@ fn parse_args() -> Config {
         dists = vec!["sequential", "random", "clustered"];
     }
 
-    Config { pop, dists, is_set }
+    Config {
+        pop,
+        dists,
+        is_set,
+        is_json,
+    }
+}
+
+fn print_json(
+    pop: usize,
+    dists: &[&str],
+    summary_rows: &[(&str, Vec<ContainerResult>)],
+    is_set: bool,
+) {
+    let mut out = String::new();
+    out.push_str("{\n");
+    out.push_str("  \"system\": {\n");
+    out.push_str(&format!("    \"os\": \"{}\",\n", std::env::consts::OS));
+    out.push_str(&format!("    \"arch\": \"{}\",\n", std::env::consts::ARCH));
+    out.push_str(&format!("    \"pointer_width\": {}\n", usize::BITS));
+    out.push_str("  },\n");
+    out.push_str(&format!("  \"pop\": {pop},\n"));
+    out.push_str(&format!("  \"is_set\": {is_set},\n"));
+    out.push_str("  \"distributions\": [");
+    for (i, d) in dists.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&format!("\"{d}\""));
+    }
+    out.push_str("],\n");
+    out.push_str("  \"results\": {\n");
+    for (d_idx, (dist, res)) in summary_rows.iter().enumerate() {
+        out.push_str(&format!("    \"{dist}\": {{\n"));
+        for (r_idx, r) in res.iter().enumerate() {
+            let key = match r_idx {
+                0 => "expanse",
+                1 => "hashbrown",
+                _ => "btree",
+            };
+            out.push_str(&format!(
+                "      \"{}\": {{\"name\": \"{}\", \"lookup_ns\": {:.2}, \"lookup_mops\": {:.2}, \"hit_latency_ns\": {:.2}, \"hit_throughput_mops\": {:.2}, \"miss_latency_ns\": {:.2}, \"miss_throughput_mops\": {:.2}, \"iter_latency_ms\": {:.2}, \"iter_mops\": {:.2}, \"iter_throughput_mops\": {:.2}, \"bytes_per_key\": {:.2}}}",
+                key, r.name, r.hit_latency_ns, r.hit_throughput_mops, r.hit_latency_ns, r.hit_throughput_mops, r.miss_latency_ns, r.miss_throughput_mops, r.iter_latency_ms, r.iter_throughput_mops, r.iter_throughput_mops, r.bytes_per_key
+            ));
+            if r_idx + 1 < res.len() {
+                out.push_str(",\n");
+            } else {
+                out.push('\n');
+            }
+        }
+        if d_idx + 1 < summary_rows.len() {
+            out.push_str("    },\n");
+        } else {
+            out.push_str("    }\n");
+        }
+    }
+    out.push_str("  }\n");
+    out.push_str("}\n");
+    println!("{out}");
 }
 
 fn main() {
@@ -768,17 +831,19 @@ fn main() {
         "ExpanseMap vs hashbrown::HashMap vs std::BTreeMap"
     };
 
-    println!(
-        "============================================================================================================"
-    );
-    println!(" Instant Comparative Benchmark Harness: {headline}");
-    println!(
-        " Population: N = {} keys | Zero statistical warmup overhead (<2s target)",
-        config.pop
-    );
-    println!(
-        "============================================================================================================"
-    );
+    if !config.is_json {
+        println!(
+            "============================================================================================================"
+        );
+        println!(" Instant Comparative Benchmark Harness: {headline}");
+        println!(
+            " Population: N = {} keys | Zero statistical warmup overhead (<2s target)",
+            config.pop
+        );
+        println!(
+            "============================================================================================================"
+        );
+    }
 
     let start_total = Instant::now();
     let probe_count = if config.pop >= 100_000 {
@@ -807,8 +872,15 @@ fn main() {
             ]
         };
 
-        print_distribution_report(dist, config.pop, &results);
+        if !config.is_json {
+            print_distribution_report(dist, config.pop, &results);
+        }
         summary_rows.push((dist, results));
+    }
+
+    if config.is_json {
+        print_json(config.pop, &config.dists, &summary_rows, config.is_set);
+        return;
     }
 
     // Summary matrix across all tested distributions

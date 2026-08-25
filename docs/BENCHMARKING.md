@@ -105,8 +105,42 @@ Performance claims are this project's reason to exist, so they follow the strict
 | Lookup attribution | landed (`examples/lookup_profile.rs`) | sampling profile of a `get`-only loop — *where* time goes, not how long; sample distribution inside one process is far less load-sensitive than a cross-binary ratio |
 | Concurrent read scaling (1..N threads) | landed (`benches/concurrency.rs`) | Read-only and write-churn mixes; the per-node-OCC go/no-go instrument — superseded examples |
 | Comparative benchmarks vs 3rd-party | landed (`benches/comparative.rs`) | `RoaringBitmap`, `hashbrown::HashMap` across lookups, insertions, ranges, and sparse/clustered/dense distributions |
+| Automated Comparative Report Tool | landed (`scripts/bench_report.py`, `examples/bench_lookup_compare.rs`) | Standalone fast head-to-head comparison generator vs `hashbrown`, `BTreeMap`, and `libjudy` with GFM output |
 | Standardized YCSB Suite (Workloads A-F) | landed (`benches/ycsb.rs`) | vs `BTreeMap`, `crossbeam_skiplist::SkipMap` (RocksDB MemTable); Zipfian $\theta=0.99, N=100\text{k}$, 128B blobs |
 | Full libjudy + ART comparison | Phase 8 remainder | Headline table, dedicated-host runs, driven through the capi surface |
+
+## Automated Benchmark Comparison Report Tool (`scripts/bench_report.py`)
+
+To generate instant head-to-head benchmark comparison tables ready for PR descriptions and documentation, use `scripts/bench_report.py`. The tool executes a fast standalone Rust harness (`crates/expanse/examples/bench_lookup_compare.rs`) comparing `ExpanseMap`, `hashbrown::HashMap`, `std::collections::BTreeMap`, and stock `libjudy` across key distributions.
+
+### Usage
+
+```bash
+# Fast smoke run (< 2s, N = 10,000 keys)
+python3 scripts/bench_report.py --quick
+
+# Full population sweep (N = 1,000,000 keys, all distributions)
+python3 scripts/bench_report.py --pop 1000000 --dist all --format markdown
+
+# Single distribution in terminal table format
+python3 scripts/bench_report.py --dist random --format table
+
+# Export raw JSON for artifact logging
+python3 scripts/bench_report.py --pop 100000 --format json --output bench_results.json
+```
+
+### CLI Flags
+
+| Flag | Description | Default |
+|---|---|---|
+| `--quick` | Fast smoke mode ($N = 10,000$ keys) | `false` |
+| `--pop <N>` | Target key population | `1,000,000` |
+| `--dist <dist>` | Key distribution (`sequential`, `random`, `clustered`, `sparse`, `all`) | `all` |
+| `--format <fmt>` | Output format (`markdown`, `json`, `table`) | `markdown` |
+| `--output <file>` | Output destination file path | `stdout` |
+| `--rounds <N>` | Interleaved benchmark rounds (median reported) | `3` |
+| `--input <file>` | Render tables from precomputed JSON artifact | `None` |
+
 
 ## Reading perf results in a PR
 
