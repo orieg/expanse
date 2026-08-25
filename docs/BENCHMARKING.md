@@ -98,8 +98,8 @@ Performance claims are this project's reason to exist, so they follow the strict
 
 | Bench | Status | Notes |
 |---|---|---|
-| Lookup latency grid (hit/miss × distribution × population) | landed (`benches/compare.rs`) | vs `BTreeSet`/`BTreeMap`, `HashSet`/`HashMap`; measured on honeycomb — see "vs stdlib" section below |
-| Insert throughput (cold build per distribution) | landed (`benches/compare.rs`) | measured on honeycomb — see "vs stdlib" section below |
+| Lookup latency grid (hit/miss × distribution × population) | landed (`benches/compare.rs`) | vs `BTreeSet`/`BTreeMap`, `HashSet`/`HashMap`; measured on the reference host — see "vs stdlib" section below |
+| Insert throughput (cold build per distribution) | landed (`benches/compare.rs`) | measured on the reference host — see "vs stdlib" section below |
 | bytes/key | landed (`examples/bytes_per_key.rs`) | deterministic allocator accounting — load-immune, results below; **gates CI** via the `memory-budget` job |
 | Instruction/cache counts | landed (`benches/instructions.rs`, iai-callgrind) | deterministic via callgrind — load-immune and resolves ~1% changes; **posted as a PR comment with head-vs-base deltas** by the `instruction-counts` job |
 | Lookup attribution | landed (`examples/lookup_profile.rs`) | sampling profile of a `get`-only loop — *where* time goes, not how long; sample distribution inside one process is far less load-sensitive than a cross-binary ratio |
@@ -223,7 +223,7 @@ The arms overlap; the pre-change branch produced both the worst and the best ran
 
 Method note: attribution is done inside a single process, so co-resident load shifts *how many* samples land, not *where* they land. A/B wall-clock ratios do not share that property and stay deferred (rule 2).
 
-### Concurrent read scaling, `SyncExpanseMap` (measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; load ≈ 0.4 idle; 1M random keys, 500 ms windows; `examples/concurrent_scaling.rs`, median of 2 back-to-back runs)
+### Concurrent read scaling, `SyncExpanseMap` (measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; load ≈ 0.4 idle; 1M random keys, 500 ms windows; `examples/concurrent_scaling.rs`, median of 2 back-to-back runs)
 
 | readers | reads/s idle | scale | reads/s churn (saturating writer) | writer op/s |
 |---|---:|---:|---:|---:|
@@ -234,7 +234,7 @@ Method note: attribution is done inside a single process, so co-resident load sh
 
 **Idle read scaling is near-linear to 8 threads (6.4×)** and continues to 12.0× / 265.8 M ops/s at 16 threads (see the `benches/concurrency.rs` table below). **With a saturating writer**, reads still climb (7.7 M → 34.4 M across 1–8 readers) but stay well below idle: a single tree-level seqlock still brackets whole operations for the root snapshot, so under an active writer the version changes faster than a walk completes and a fraction of readers retry or fall back to the mutex. The per-node version refinement (writers bracket each node's in-place mutations; readers validate hand-over-hand) is what keeps churn in the millions rather than collapsing — but closing the churn-vs-idle gap is the next refinement target (`docs/ARCHITECTURE.md` §6). Single-threaded trees skip the version brackets entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
 
-### vs stdlib & 3rd-party collections (measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/compare.rs` + `benches/comparative.rs`, criterion medians)
+### vs stdlib & 3rd-party collections (measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/compare.rs` + `benches/comparative.rs`, criterion medians)
 
 **Point lookup, hit, 1,000,000 keys (ns/op)** — the engine's strongest arm:
 
@@ -247,7 +247,7 @@ Method note: attribution is done inside a single process, so co-resident load sh
 
 - **vs `BTreeMap`/`BTreeSet`: Expanse wins every cell** — 2.9× (random) to ~14.5× (sequential/sparse) faster.
 - **vs `HashMap`/`HashSet` (Swiss table)**: near parity on sequential/clustered; **~3× slower on uniform-random 1M** (hash O(1) probe beats trie descent under cache misses); faster on sparse. Expanse buys ordering + prefix search for that.
-- **Random lookup is a working-set-vs-cache crossover** — `benches/compare.rs` measures it at both 10k (cache-resident: ~1.1× hashbrown, 10.0 ns vs 8.9 ns) and 1M (out-of-cache: ~2.9×, cache-miss-bound trie descent vs single hash probe) *(measured: honeycomb, commit 4a12f046)*. Never quote a single random-key ratio without its population: the widening from ~1.1× to ~2.9× is a scale/cache effect (verified stable, not a regression), not a fixed weakness.
+- **Random lookup is a working-set-vs-cache crossover** — `benches/compare.rs` measures it at both 10k (cache-resident: ~1.1× hashbrown, 10.0 ns vs 8.9 ns) and 1M (out-of-cache: ~2.9×, cache-miss-bound trie descent vs single hash probe) *(measured: reference host, commit 4a12f046)*. Never quote a single random-key ratio without its population: the widening from ~1.1× to ~2.9× is a scale/cache effect (verified stable, not a regression), not a fixed weakness.
 
 **Cold-build insert, 100,000 keys (`set_insert_build`)**:
 
@@ -521,11 +521,11 @@ promoting it out of a throwaway probe is tracked in issue #1.
 | random | 1M | 1.47× slower | 2.38× slower | **0.93 (smaller)** |
 | clustered | 1M | 1.55× slower | 2.48× slower | **0.92 (smaller)** |
 
-**This CI table is the reproducible instruction-baseline reference** (`x86-64-v1`, no runtime SIMD); the **honeycomb quiet-host table below is the dedicated-host wall-clock reference** and supersedes both the CI and the laptop *absolute* numbers. A CI runner is not a quiet host either, but it is freshly booted, unshared with a desktop session, and reproducible — whereas the development laptop runs VMs, browsers and indexers mid-measurement (the "Reproducibility correction" note below is what that costs). Ratios, not absolute ns, are what transfers between machines: the paired interleaved arms normalize away machine speed. Absolute numbers for publication still require a dedicated host with the hardware named.
+**This CI table is the reproducible instruction-baseline reference** (`x86-64-v1`, no runtime SIMD); the **reference-host quiet-host table below is the dedicated-host wall-clock reference** and supersedes both the CI and the laptop *absolute* numbers. A CI runner is not a quiet host either, but it is freshly booted, unshared with a desktop session, and reproducible — whereas the development laptop runs VMs, browsers and indexers mid-measurement (the "Reproducibility correction" note below is what that costs). Ratios, not absolute ns, are what transfers between machines: the paired interleaved arms normalize away machine speed. Absolute numbers for publication still require a dedicated host with the hardware named.
 
 Cross-machine sanity check: bytes/key columns are byte-identical to the local run (deterministic accounting), which is what makes the timing columns' disagreement attributable to hardware rather than to the build.
 
-### libexpanse vs stock libjudy, JudyL surface — dedicated quiet host *(measured: honeycomb — 24-core x86_64 (i9-12900F), Ubuntu 22.04 / kernel 6.8, commit `43b46f38`; harness `crates/expanse-capi/examples/bench_vs_libjudy.rs`, interleaved A/B median of 5 rounds, 6 repetitions, load < 0.5; **native runtime feature detection — AVX2/BMI2 paths active**; stock libjudy 1.0.5 built from the SourceForge release tarball and `dlopen`'d)*
+### libexpanse vs stock libjudy, JudyL surface — dedicated quiet host *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit `43b46f38`; harness `crates/expanse-capi/examples/bench_vs_libjudy.rs`, interleaved A/B median of 5 rounds, 6 repetitions, load < 0.5; **native runtime feature detection — AVX2/BMI2 paths active**; stock libjudy 1.0.5 built from the SourceForge release tarball and `dlopen`'d)*
 
 Wall-clock ns per operation, 1,000,000-key populations (the stable rows; `< 1.00` = libexpanse faster / smaller):
 
@@ -651,7 +651,7 @@ The Yahoo! Cloud Serving Benchmark (YCSB) standardizes real-world database engin
 
 ### 2. Measured Comparative Results (`N = 100,000`, `θ = 0.99`, 128B Blobs)
 
-*(Measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`, throughput = 20,000 ops ÷ criterion median)*
+*(Measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`, throughput = 20,000 ops ÷ criterion median)*
 
 Throughput (Mops/s) per workload × engine:
 
@@ -664,7 +664,7 @@ Throughput (Mops/s) per workload × engine:
 | **E** (95% Scan / 5I) | **15.26** | **13.22** | 3.52 | 1.80 |
 | **F** (50R / 50 RMW) | **18.93** | **14.27** | 3.71 | 1.76 |
 
-#### Per-operation latency percentiles *(measured: honeycomb — 24-core x86_64 (i9-12900F), Ubuntu 22.04 / kernel 6.8, commit `43b46f38`; `benches/ycsb.rs` run with `YCSB_LATENCY_REPORT=1`, seed `0x1234_5678_9ABC`, 200,000 recorded ops/workload)*
+#### Per-operation latency percentiles *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit `43b46f38`; `benches/ycsb.rs` run with `YCSB_LATENCY_REPORT=1`, seed `0x1234_5678_9ABC`, 200,000 recorded ops/workload)*
 
 The criterion groups above time whole op batches (`record_latencies = false`). The opt-in report path (`YCSB_LATENCY_REPORT=1`) instead times each op individually with `record_latencies = true` and emits the percentiles below plus resident memory.
 
@@ -703,7 +703,7 @@ The criterion groups above time whole op batches (`record_latencies = false`). T
 
 ### 3. Concurrent scaling under write churn: `SyncExpanseMap`
 
-The dedicated concurrency instrument is `benches/concurrency.rs` (uniform-random keys, not Zipfian-blob). Its 95%-read / 5%-write mix — the closest analogue to YCSB Workload B — measured on honeycomb (24-core x86_64, commit 695b98d, 1M keys, 500 ms windows):
+The dedicated concurrency instrument is `benches/concurrency.rs` (uniform-random keys, not Zipfian-blob). Its 95%-read / 5%-write mix — the closest analogue to YCSB Workload B — measured on the reference host (Intel i9-12900F, 24 threads, 30 MiB L3, commit 695b98d, 1M keys, 500 ms windows):
 
 | Worker Threads | Read Throughput | Write Throughput | Combined | Scale |
 |---|---:|---:|---:|---:|
@@ -715,7 +715,7 @@ The dedicated concurrency instrument is `benches/concurrency.rs` (uniform-random
 
 Write-mixed throughput **peaks around 4 threads and then declines** as readers retry against the tree-level seqlock — the same seqlock-bound behaviour documented in the concurrent-read-scaling section above. (100%-read scales cleanly to 265.8 M ops/s / 12.0× at 16 threads.)
 
-**Architectural Takeaways (measured, honeycomb):**
+**Architectural Takeaways (measured, reference host):**
 1. **`ExpanseBlobMap` vs RocksDB `SkipMap`**: **~7.6×–11.0× higher throughput** across Workloads B, C, D, F on this host (host- and payload-dependent — the boxed-blob path is heavier for the skiplist here than on the earlier Apple-silicon run).
 2. **`ExpanseBlobMap` vs `BTreeMap` on Read-Latest (Workload D)**: **~5.7× higher throughput** (21.04 vs 3.67 Mops/s) — digital-trie appends avoid B-tree page splits.
 3. **Pure Word Trie (`ExpanseMap`)**: sustained **>23 Mops/s** on read-heavy workloads (B & C) with a compact ~24.6 B/key footprint.

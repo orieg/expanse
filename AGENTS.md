@@ -1,27 +1,47 @@
 # AGENTS.md — Multi-Agent Engineering & Quality Guide for Expanse
 
-Welcome to **Expanse**. This document establishes mandatory engineering, architectural, and safety standards for all autonomous AI coding agents (Claude, Antigravity, Cursor, Copilot, Cline, OpenAI, Devin, Aider, etc.) interacting with this repository.
+Welcome to **Expanse**. This document establishes mandatory engineering, architectural, and safety standards for all autonomous AI coding agents (Claude, Gemini, Antigravity, Cursor, Copilot, Cline, OpenAI, Devin, Aider, etc.) interacting with this repository.
+
+> **Canonical source.** `AGENTS.md` is the single canonical agent guide for this repo. `CLAUDE.md` and `GEMINI.md` are **symlinks** to this file, and `.github/copilot-instructions.md` is a thin pointer back here. **Make every edit in `AGENTS.md` only** — editing a symlink target elsewhere would fork the guidance and reintroduce the drift this consolidation removed.
 
 ---
 
 ## 1. Project Mission & Identity
 
-**Expanse** is a clean-room, pure-Rust implementation of Judy arrays modernized for modern 64-bit microarchitectures, accompanied by `libexpanse` — a high-performance, drop-in C ABI replacement for `libjudy`.
+**Expanse** is a clean-room, pure-Rust implementation of Judy arrays modernized for current hardware, accompanied by `libexpanse` — a high-performance, drop-in C ABI replacement for `libjudy`.
 
 Named for Judy's defining structural invariant: **partitioning digital trees by key *expanse*, rather than population**.
+
+**Both 64-bit and 32-bit targets are supported.** The 64-bit engine is the primary surface; a parallel real 32-bit trie (`trie32`/`set32`/`map32`/`blobmap32`, shipped in #230) compiles unconditionally, and on 32-bit targets the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, etc.). `lib.rs` carries a `compile_error!` that fires only on targets that are **neither** 64- nor 32-bit.
 
 ### Workspace Structure
 - **`crates/expanse`** (`package: expanse-trie`): Core algorithmic engine `#![no_std]` (with `extern crate alloc`).
 - **`crates/expanse-capi`** (`package: expanse-capi`): C ABI shared (`libexpanse.so` / `expanse.dll` / `libexpanse.dylib`) and static (`libexpanse.a` / `expanse.lib`) libraries providing both modern `expanse_*` and legacy `Judy*` symbols.
+- **`crates/expanse-py`**: PyO3 native Python extension.
+- **`crates/expanse-node`**: napi native Node.js addon.
+- **`crates/expanse-rb`**: magnus native Ruby extension.
+- **`crates/expanse-wasm`**: WebAssembly (wasm-bindgen) surface.
+- **`crates/expanse-php`**: PHP native extension.
+- **`bindings/`**: language SDK packages that wrap the native surfaces — `bindings/java` (Panama FFM), `bindings/dotnet` (P/Invoke .NET), plus `bindings/go`, `bindings/python`, `bindings/ruby`, `bindings/php` packaging.
+- **`include/expanse.hpp`**: header-only C++20 wrapper over the C ABI.
 
 ### Canonical Documentation Hierarchy
-Do not scatter architecture notes into arbitrary files. Use and maintain the canonical documentation:
-- **`docs/ARCHITECTURE.md`**: Trie node layouts, memory packing, pointer tagging, concurrency design.
-- **`docs/ALGORITHMS.md`**: Algorithmic specifications, search kernels, SIMD/SWAR vectorization.
-- **`docs/COMPAT.md`**: C ABI contracts, drop-in parity gates, error handling, packaging specifications.
-- **`docs/TESTING.md`**: Test methodology, differential testing, invariants validator, fuzzing.
-- **`docs/BENCHMARKING.md`**: Benchmarking methodology, instruction counting, hardware counters, profiling.
-- **`docs/CI.md`**: CI job catalog, the single rollup gate, path filtering, Miri tiering, regression gating, and org-wide CI/CD standards.
+Do not scatter architecture notes into arbitrary files. Update the canonical documents; do not create new `.md` files.
+
+| Content | Home |
+|---|---|
+| Design / node layouts / roadmap / phase gates | `docs/ARCHITECTURE.md` |
+| Algorithms, search kernels, SIMD/SWAR vectorization & visualizer reference | `docs/ALGORITHMS.md` · `docs/architecture_visualizer.html` |
+| C ABI contract, drop-in parity gates, surface, packaging, doc-gap resolutions | `docs/COMPAT.md` |
+| Test methodology, differential testing, invariants validator, fuzzing | `docs/TESTING.md` |
+| Benchmark methodology, instruction counting, hardware counters, profiling | `docs/BENCHMARKING.md` |
+| CI job catalog, the single rollup gate, path filtering, Miri tiering, regression gating | `docs/CI.md` |
+| Distribution & packaging across all ecosystems | `docs/PACKAGING.md` |
+| Database-engine subsystem patterns & integration blueprints | `docs/DATABASE.md` |
+| Large-value / blob-arena design RFC | `docs/RFC_LARGE_VALUES.md` |
+| 32-bit embedded architecture RFC | `docs/RFC_32BIT_EMBEDDED.md` |
+| Python / Java binding references | `docs/BINDINGS_PYTHON.md` · `docs/BINDINGS_JAVA.md` |
+| Status + platform tiers | `README.md` (Status section) |
 
 ---
 
@@ -30,25 +50,25 @@ Do not scatter architecture notes into arbitrary files. Use and maintain the can
 1. **Zero Exposure to LGPL Source**: The original `libjudy` is LGPL. **Never view, consult, decompile, or port original C source code** — not for inspiration, nor to resolve behavioral edge cases.
 2. **Contract & Black-Box Differential Validation**: Compatibility questions are answered strictly through:
    - Official published documentation and man pages.
-   - Black-box differential testing against compiled stock binaries (`stock-oracle`).
+   - Black-box differential testing against compiled stock binaries (`stock-oracle`). Record doc-gap resolutions in `docs/COMPAT.md`.
 3. **References**: The `references/` directory holds algorithm papers and Shop Manuals. These are for design context only, are gitignored, and must never be checked into git.
 
 ---
 
 ## 3. Naming Conventions & Core Invariants
 
-- **Rust Type Names**:
-  - Judy1 $\rightarrow$ `ExpanseSet`
-  - JudyL $\rightarrow$ `ExpanseMap`
-  - JudySL $\rightarrow$ `ExpanseStrMap`
-  - JudyHS $\rightarrow$ `ExpanseBytesMap`
+- **Rust Type Names** (legacy ↔ modern type map):
+  - Judy1 → `ExpanseSet`
+  - JudyL → `ExpanseMap`
+  - JudySL → `ExpanseStrMap`
+  - JudyHS → `ExpanseBytesMap`
 - **Core Identifiers**:
   - Core trie types in `expanse-trie` **never use Judy terminology**.
   - Use `Edge` (not `JudyPointer`/`JP`), `EdgeType`/`EdgeTag` (not `JpType`).
-  - Judy symbols belong exclusively in `expanse-capi` and `COMPAT.md`.
+  - Judy symbols belong exclusively in `expanse-capi` and `docs/COMPAT.md`. Published-doc terminology ("Judy Pointer"/JP, Judy1/JudyL) may appear in core comments strictly as literature/compat references.
 - **C ABI Prefixes**:
-  - Modern API functions use `expanse_` prefix (e.g. `expanse_map_get`).
-  - Compat symbols retain exact `Judy1*`, `JudyL*`, `JudySL*`, `JudyHS*` signatures.
+  - Modern API functions use the `expanse_` prefix (e.g. `expanse_map_get`); new C capabilities always use it.
+  - Compat symbols retain exact `Judy1*`, `JudyL*`, `JudySL*`, `JudyHS*` signatures and **never change semantics**.
 
 ---
 
@@ -56,7 +76,7 @@ Do not scatter architecture notes into arbitrary files. Use and maintain the can
 
 ### Language & Edition
 - **Rust Edition 2024**, MSRV `1.85`.
-- **64-bit architectures only** (`target_pointer_width = "64"` compile-time assertion).
+- **64-bit and 32-bit targets supported** — a `compile_error!` in `lib.rs` fires only on targets that are neither 64- nor 32-bit.
 
 ### Mandatory Local Gates (Must Pass 100% Before Committing)
 ```bash
@@ -78,23 +98,24 @@ cargo miri test -p expanse-trie -- --skip model_
 
 ### Unsafe Code & Undocumented Unsafe Blocks
 - Expanse operates on low-level tagged pointer representations and raw memory layouts.
-- **Every `unsafe` block MUST be preceded by an explicit `// SAFETY:` rationale comment** explaining pointer validity, lifetime guarantees, alignment, and bounds preservation.
+- **Every `unsafe` block MUST be preceded by an explicit `// SAFETY:` rationale comment** explaining pointer validity, lifetime guarantees, alignment, and bounds preservation (clippy `undocumented_unsafe_blocks` is on).
 - **Stacked Borrows / Tree Borrows Hygiene**: Avoid creating temporary unique references (`&mut *ptr`) from raw pointers where ancestor/subfield borrows exist. Prefer `&raw mut` / `core::ptr::addr_of_mut!` and raw pointer manipulation to avoid invalidating pointer tags in the borrow stack.
+- Every SIMD/intrinsic path has a portable fallback plus a parity test (see `docs/TESTING.md`). Public items are documented (`missing_docs` warns).
 
 ---
 
 ## 5. Performance Engineering & Fast Iteration Cycle
 
-### Fast Remote Benchmark Validation (`honeycomb`)
-Before proposing or pushing performance-sensitive changes, run deterministic Callgrind profiling on `honeycomb` to ensure zero instruction regressions:
+### Fast Remote Benchmark Validation
+Before proposing or pushing performance-sensitive changes, run deterministic Callgrind profiling on a dedicated quiet benchmark host to ensure zero instruction regressions. Reference the host by an environment placeholder — never a personal hostname or home path:
 
 ```bash
-rsync -az --exclude 'target' --exclude '.git' ./ honeycomb:/home/nicolas/expanse/ && \
-ssh honeycomb "export PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH; \
+rsync -az --exclude 'target' --exclude '.git' ./ "$BENCH_HOST:$BENCH_REPO/" && \
+ssh "$BENCH_HOST" "export PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH; \
   export LD_LIBRARY_PATH=\$HOME/.local/lib:\$LD_LIBRARY_PATH; \
   export LIBRARY_PATH=\$HOME/.local/lib:\$LIBRARY_PATH; \
   export C_INCLUDE_PATH=\$HOME/.local/include:\$C_INCLUDE_PATH; \
-  cd /home/nicolas/expanse && cargo test --workspace && \
+  cd \"$BENCH_REPO\" && cargo test --workspace && \
   cargo build --release -p expanse-capi && \
   export EXPANSE_CDYLIB=\$PWD/target/release/libexpanse.so && \
   cargo bench --bench vs_stock -p expanse-capi"
@@ -103,14 +124,23 @@ ssh honeycomb "export PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH; \
 ### Zero-Regression Policy
 - **Fewer instructions is always better.**
 - Any instruction count regression $>0.1\%$ vs baseline main in deterministic Callgrind is considered a blocker.
+- Numbers in docs are tagged `(measured: host, commit)` or `(target)`; follow `docs/BENCHMARKING.md` (interleaved A/B arms, system-load snapshots before/between comparison runs, CI ratios ≠ publishable numbers).
 - No time estimates in pull requests, comments, or documentation.
 
 ---
 
 ## 6. Git & Pull Request Protocol
 
-- **Branch Naming**: `perf/<feature>`, `feat/<feature>`, `fix/<issue>`, `refactor/<scope>`.
-- **Commit Format**: Conventional Commits: `type(scope): message` (e.g., `perf(mutate): eliminate recursion in single-threaded mutation`).
-- **Protected `main` Branch**: Direct pushes to `main` are rejected. All merges require:
-  - An approved Pull Request (`gh pr create`).
-  - 13-of-13 green status checks on GitHub Actions CI.
+- **Branch Naming**: `perf/<feature>`, `feat/<feature>`, `fix/<issue>`, `refactor/<scope>`, `docs/<scope>`.
+- **Commit Format**: Conventional Commits: `type(scope): message` (types: `feat`, `fix`, `docs`, `refactor`, `chore`, `eval`, `poc`), atomic. Subject concise + factual; body states what + why.
+- **Commit/push only when the maintainer asks.** The repo (`github.com/orieg/expanse`) is public; if on `main`, branch first.
+- **Protected `main` Branch** (ruleset `main-protection`): direct pushes to `main` are rejected. All merges require:
+  - An approved Pull Request (`gh pr create --base main`).
+  - **A single required status check — `CI Gate / All Checks Passed`** (the `ci-gate` rollup job that `needs:` every other `ci.yml` job and fails if any failed or was cancelled; a `lint` step plus the gate's own self-check parse `ci.yml` and assert no job id is missing from its `needs`). Because the ruleset requires only the rollup context, renaming a *non-gate* CI job does not require editing the ruleset; only renaming `ci-gate` itself would.
+  - No force-push, no deletion, no bypass actors.
+  - Workflow: branch → push → `gh pr create` → watch checks → `gh pr merge`.
+- **Impersonal GitHub prose.** Issue/PR/review text is published from the maintainer's own account: state what changed, where (commit SHA / file path / issue ref), and status — no external-collaboration framing, no self-attribution, no `@`-mentioning or thanking the maintainer.
+
+### Privacy & Local Infrastructure
+
+**No PII or local-infrastructure identifiers.** Never put personally-identifying or private-infrastructure information into commit messages, PR titles/bodies, code comments, or docs: private/personal hostnames, LAN IP addresses, internal domains, home-directory paths, or OS usernames. Benchmark and test results MUST reference the host by an anonymized hardware description (CPU model, core/thread count, cache, OS) — never a personal hostname. Benchmark commands in this repo use environment placeholders (`$BENCH_HOST`, `$BENCH_REPO`) rather than concrete hostnames/paths. (The package-author email in manifest files — `Cargo.toml` / `pom.xml` / `.gemspec` / `.csproj` / etc. — is intentional public package metadata and is exempt.)

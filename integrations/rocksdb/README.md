@@ -54,7 +54,7 @@ The default RocksDB memtable implementation (`SkipListRep`) incurs significant p
 
 ![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](../../docs/assets/bench_rocksdb.svg)
 
-*(Measured: honeycomb — 24-core x86_64, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/bench_memtable.cc`, on the reworked lock-free memtable from #234/#236; 100,000 keys, 16-byte key, 64-byte value payload. The memory-footprint / B-entry column is deterministic byte accounting; throughput columns are wall-clock on this host. `SkipListRep`/`VectorRep` are the in-file reference implementations, not stock RocksDB.)*
+*(Measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/bench_memtable.cc`, on the reworked lock-free memtable from #234/#236; 100,000 keys, 16-byte key, 64-byte value payload. The memory-footprint / B-entry column is deterministic byte accounting; throughput columns are wall-clock on this host. `SkipListRep`/`VectorRep` are the in-file reference implementations, not stock RocksDB.)*
 
 | Benchmark Metric | ExpanseMemTable | Reference SkipListRep | VectorRep | Expanse vs SkipList |
 |---|---:|---:|---:|---|
