@@ -49,6 +49,7 @@ jobs:
               - '.github/workflows/ci.yml'
               - '.github/workflows/nightly.yml'
             python:
+              - 'bindings/python/**'
               - 'crates/expanse-py/**'
               - 'crates/expanse/**'
               - 'crates/expanse-capi/**'
@@ -83,7 +84,7 @@ jobs:
               - 'scripts/**'
               - 'website/**'
             ruby:
-              - 'gems/expanse/**'
+              - 'bindings/ruby/**'
               - 'include/**'
               - 'crates/expanse-capi/**'
               - 'Cargo.toml'
@@ -980,10 +981,11 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
-      - name: Build C API and Run Ruby Tests
-        run: |
-          cargo build --release -p expanse-capi
-          ruby -Igems/expanse/lib gems/expanse/test/test_expanse.rb
+      - name: Build native libexpanse
+        run: cargo build --release -p expanse-capi
+      - name: Run Ruby test suite
+        working-directory: bindings/ruby
+        run: ruby -Ilib test/test_expanse.rb
 
   test-wasm:
     name: Bindings / WebAssembly (wasm32)

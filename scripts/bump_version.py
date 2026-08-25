@@ -2,7 +2,7 @@
 """
 scripts/bump_version.py — Multi-Ecosystem Version Synchronizer for Expanse.
 
-Synchronizes and validates version strings across all 10 package manifests:
+Synchronizes and validates version strings across all 12 package manifests:
   1. Cargo.toml (workspace [workspace.package] version)
   2. crates/expanse/Cargo.toml ([package] version)
   3. crates/expanse-capi/Cargo.toml ([package] version & expanse-trie dependency)
@@ -13,6 +13,8 @@ Synchronizes and validates version strings across all 10 package manifests:
   8. bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj (<Version>, <PackageVersion>, <AssemblyVersion>)
   9. bindings/java/pom.xml (<version>)
  10. bindings/java/build.gradle (version = '...')
+ 11. bindings/ruby/expanse.gemspec (spec.version = '...')
+ 12. bindings/ruby/lib/expanse.rb (VERSION = '...')
  (And extra manifests: extra/vcpkg/vcpkg.json, extra/nuget/expanse.nuspec)
 
 Usage:
@@ -268,6 +270,42 @@ class JsonVersionHandler(ManifestHandler):
         )
 
 
+class GemspecHandler(ManifestHandler):
+    def get_versions(self, root: Path) -> Dict[str, str]:
+        text = self.get_path(root).read_text(encoding="utf-8")
+        match = re.search(r'spec\.version\s*=\s*"([^"]+)"', text)
+        if match:
+            return {"spec.version": match.group(1)}
+        return {}
+
+    def set_version(self, root: Path, new_version: str) -> str:
+        text = self.get_path(root).read_text(encoding="utf-8")
+        return re.sub(
+            r'(spec\.version\s*=\s*)"[^"]+"',
+            rf'\g<1>"{new_version}"',
+            text,
+            count=1,
+        )
+
+
+class RubyVersionHandler(ManifestHandler):
+    def get_versions(self, root: Path) -> Dict[str, str]:
+        text = self.get_path(root).read_text(encoding="utf-8")
+        match = re.search(r'VERSION\s*=\s*"([^"]+)"', text)
+        if match:
+            return {"VERSION": match.group(1)}
+        return {}
+
+    def set_version(self, root: Path, new_version: str) -> str:
+        text = self.get_path(root).read_text(encoding="utf-8")
+        return re.sub(
+            r'(VERSION\s*=\s*)"[^"]+"',
+            rf'\g<1>"{new_version}"',
+            text,
+            count=1,
+        )
+
+
 class NuspecHandler(ManifestHandler):
     def get_versions(self, root: Path) -> Dict[str, str]:
         text = self.get_path(root).read_text(encoding="utf-8")
@@ -324,6 +362,8 @@ def get_handlers(root: Path) -> List[ManifestHandler]:
         ),
         PomXmlHandler("bindings/java/pom.xml", "bindings/java/pom.xml"),
         BuildGradleHandler("bindings/java/build.gradle", "bindings/java/build.gradle"),
+        GemspecHandler("bindings/ruby/expanse.gemspec", "bindings/ruby/expanse.gemspec"),
+        RubyVersionHandler("bindings/ruby/lib/expanse.rb", "bindings/ruby/lib/expanse.rb"),
     ]
 
     # Check for optional manifests

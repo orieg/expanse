@@ -247,7 +247,9 @@ print(f"Total verified items across threads: {sum(results)}")
 
 ---
 
-## 6. Architecture & Typing Summary
+## 6. Architecture & Packaging Layout
 
-- **Wheel Architecture**: Compiled with stable `PyO3` targeting Python `abi3-py38` for cross-version binary compatibility.
+- **Packaging Taxonomy**: Python package metadata and PEP 561 typed source files live in `bindings/python/expanse_trie/` (`py.typed` and `__init__.pyi`), configured via `pyproject.toml` with `python-source = "bindings/python"`.
+- **PyO3 Extension**: Native compiled extension module built from `crates/expanse-py` into `expanse_trie._expanse`.
+- **Wheel Architecture**: Compiled with stable `PyO3` targeting Python `abi3-py38` for cross-version binary compatibility across Python 3.8 through 3.13+.
 - **Type Stubs**: Packaged with `py.typed` and `__init__.pyi` providing comprehensive annotations for modern Python type checkers (`mypy --strict`, Pyright, IDE linting).
