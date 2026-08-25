@@ -211,6 +211,8 @@ def test_bench_n_mapping_and_formatting():
     assert format_ins_per_op(7_000_213, 50_000) == "140.0 (50k)"
     assert format_ins_per_op(79_864, 10_000, bold=True) == "**8.0** (10k)"
     assert format_ins_per_op(460_715, 500) == "921.4 (500)"
+    assert format_ins_per_op(2_592_075, 2_000) == "1,296.0 (2k)"
+    assert format_ins_per_op(13_663_172, 10_000) == "1,366.3 (10k)"
 
 
 def test_categorization_and_uncategorized_fallback():
@@ -248,6 +250,16 @@ def test_parse_bytes_64():
     all_pass, rows = parse_bytes_64(SAMPLE_BYTES_64)
     assert all_pass is True
     assert len(rows) == 5
+
+    # Check canonical distribution order
+    dist_order = [r["dist"] for r in rows]
+    assert dist_order == [
+        "**Sequential**",
+        "**Clustered**",
+        "**Clustered-Wide**",
+        "**Random (Uniform)**",
+        "**Sparse (High 24-bit)**",
+    ]
 
     seq = next(r for r in rows if "Sequential" in r["dist"])
     assert seq["pop"] == "1,000,000"

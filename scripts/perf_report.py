@@ -196,8 +196,8 @@ def format_ins_per_op(ins: int, n: int, bold: bool = False) -> str:
     ins_per_op = ins / n if n > 0 else float(ins)
     n_str = format_n(n)
     if bold:
-        return f"**{ins_per_op:.1f}** ({n_str})"
-    return f"{ins_per_op:.1f} ({n_str})"
+        return f"**{ins_per_op:,.1f}** ({n_str})"
+    return f"{ins_per_op:,.1f} ({n_str})"
 
 
 def categorize_benchmarks(
@@ -236,8 +236,8 @@ def parse_bytes_64(text: str | None) -> tuple[bool, list[dict[str, Any]]]:
     if not text:
         return True, []
 
-    rows: list[dict[str, Any]] = []
     all_compliant = "MEMORY BUDGET EXCEEDED" not in text
+    rows_dict: dict[str, dict[str, Any]] = {}
 
     # Parse 1,000,000 population rows
     # Line pattern: dist pop set_bpk map_bpk
@@ -261,16 +261,23 @@ def parse_bytes_64(text: str | None) -> tuple[bool, list[dict[str, Any]]]:
                     passed = set_bpk <= set_max and map_bpk <= map_max
                     if not passed:
                         all_compliant = False
-                    rows.append({
+                    rows_dict[dist] = {
                         "dist": label,
                         "pop": "1,000,000",
                         "set_bpk": f"**{set_bpk:.2f} B**",
                         "map_bpk": f"**{map_bpk:.2f} B**",
                         "ceiling": ceiling_str,
                         "status": "🟢 Pass" if passed else "🔴 Fail",
-                    })
+                    }
                 except ValueError:
                     pass
+
+    canonical_order = ["sequential", "clustered", "clustered-wide", "random", "sparse"]
+    rows = [rows_dict[k] for k in canonical_order if k in rows_dict]
+    # Append any remaining parsed rows not in canonical list
+    for k, v in rows_dict.items():
+        if k not in canonical_order:
+            rows.append(v)
 
     return all_compliant, rows
 
