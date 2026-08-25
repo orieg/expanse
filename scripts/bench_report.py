@@ -134,8 +134,8 @@ def render_markdown(data: Dict[str, Any]) -> str:
 
         if has_libjudy and judy is not None:
             lines.extend([
-                "| Target | Point Lookup (ns) | Lookup (Mops/s) | Cold Insert (Mops/s) | Full Iter (Mops/s) | Memory (B/key) | Lookup vs BTree | Lookup vs hash | Lookup vs libjudy |",
-                "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+                "| Target | Point Lookup (ns) | Lookup (Mops/s) | Cold Insert (Mops/s) | Full Iter (Mops/s) | Range Scan (Mops/s) | Memory (B/key) | Lookup vs BTree | Lookup vs hash | Lookup vs libjudy |",
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
             ])
 
             exp_lkp = exp.get("lookup_ns", 0.0)
@@ -148,21 +148,21 @@ def render_markdown(data: Dict[str, Any]) -> str:
             ratio_judy = fmt_speedup(exp_lkp, judy_lkp, higher_is_better=False)
 
             lines.append(
-                f"| **`ExpanseMap`** | **{exp.get('lookup_ns', 0.0):.2f}** | **{exp.get('lookup_mops', 0.0):.2f}** | **{exp.get('insert_mops', 0.0):.2f}** | **{exp.get('iter_mops', 0.0):.2f}** | **{exp.get('bytes_per_key', 0.0):.2f}** | {ratio_btree} | {ratio_hash} | {ratio_judy} |"
+                f"| **`ExpanseMap`** | **{exp.get('lookup_ns', 0.0):.2f}** | **{exp.get('lookup_mops', 0.0):.2f}** | **{exp.get('insert_mops', 0.0):.2f}** | **{exp.get('iter_mops', 0.0):.2f}** | **{exp.get('range_mops', 0.0):.2f}** | **{exp.get('bytes_per_key', 0.0):.2f}** | {ratio_btree} | {ratio_hash} | {ratio_judy} |"
             )
             lines.append(
-                f"| `hashbrown::HashMap` | {hashb.get('lookup_ns', 0.0):.2f} | {hashb.get('lookup_mops', 0.0):.2f} | {hashb.get('insert_mops', 0.0):.2f} | {hashb.get('iter_mops', 0.0):.2f} | {hashb.get('bytes_per_key', 0.0):.2f} | — | Baseline | — |"
+                f"| `hashbrown::HashMap` | {hashb.get('lookup_ns', 0.0):.2f} | {hashb.get('lookup_mops', 0.0):.2f} | {hashb.get('insert_mops', 0.0):.2f} | {hashb.get('iter_mops', 0.0):.2f} | *N/A (unsupported)* | {hashb.get('bytes_per_key', 0.0):.2f} | — | Baseline | — |"
             )
             lines.append(
-                f"| `std::BTreeMap` | {btree.get('lookup_ns', 0.0):.2f} | {btree.get('lookup_mops', 0.0):.2f} | {btree.get('insert_mops', 0.0):.2f} | {btree.get('iter_mops', 0.0):.2f} | {btree.get('bytes_per_key', 0.0):.2f} | Baseline | — | — |"
+                f"| `std::BTreeMap` | {btree.get('lookup_ns', 0.0):.2f} | {btree.get('lookup_mops', 0.0):.2f} | {btree.get('insert_mops', 0.0):.2f} | {btree.get('iter_mops', 0.0):.2f} | {btree.get('range_mops', 0.0):.2f} | {btree.get('bytes_per_key', 0.0):.2f} | Baseline | — | — |"
             )
             lines.append(
-                f"| `libjudy (stock JudyL)` | {judy.get('lookup_ns', 0.0):.2f} | {judy.get('lookup_mops', 0.0):.2f} | {judy.get('insert_mops', 0.0):.2f} | {judy.get('iter_mops', 0.0):.2f} | {judy.get('bytes_per_key', 0.0):.2f} | — | — | Baseline |"
+                f"| `libjudy (stock JudyL)` | {judy.get('lookup_ns', 0.0):.2f} | {judy.get('lookup_mops', 0.0):.2f} | {judy.get('insert_mops', 0.0):.2f} | {judy.get('iter_mops', 0.0):.2f} | — | {judy.get('bytes_per_key', 0.0):.2f} | — | — | Baseline |"
             )
         else:
             lines.extend([
-                "| Target | Point Lookup (ns) | Lookup (Mops/s) | Cold Insert (Mops/s) | Full Iter (Mops/s) | Memory (B/key) | Lookup vs BTree | Lookup vs hash |",
-                "|---|---:|---:|---:|---:|---:|---:|---:|",
+                "| Target | Point Lookup (ns) | Lookup (Mops/s) | Cold Insert (Mops/s) | Full Iter (Mops/s) | Range Scan (Mops/s) | Memory (B/key) | Lookup vs BTree | Lookup vs hash |",
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
             ])
 
             exp_lkp = exp.get("lookup_ns", 0.0)
@@ -173,13 +173,13 @@ def render_markdown(data: Dict[str, Any]) -> str:
             ratio_hash = fmt_speedup(exp_lkp, hash_lkp, higher_is_better=False)
 
             lines.append(
-                f"| **`ExpanseMap`** | **{exp.get('lookup_ns', 0.0):.2f}** | **{exp.get('lookup_mops', 0.0):.2f}** | **{exp.get('insert_mops', 0.0):.2f}** | **{exp.get('iter_mops', 0.0):.2f}** | **{exp.get('bytes_per_key', 0.0):.2f}** | {ratio_btree} | {ratio_hash} |"
+                f"| **`ExpanseMap`** | **{exp.get('lookup_ns', 0.0):.2f}** | **{exp.get('lookup_mops', 0.0):.2f}** | **{exp.get('insert_mops', 0.0):.2f}** | **{exp.get('iter_mops', 0.0):.2f}** | **{exp.get('range_mops', 0.0):.2f}** | **{exp.get('bytes_per_key', 0.0):.2f}** | {ratio_btree} | {ratio_hash} |"
             )
             lines.append(
-                f"| `hashbrown::HashMap` | {hashb.get('lookup_ns', 0.0):.2f} | {hashb.get('lookup_mops', 0.0):.2f} | {hashb.get('insert_mops', 0.0):.2f} | {hashb.get('iter_mops', 0.0):.2f} | {hashb.get('bytes_per_key', 0.0):.2f} | — | Baseline |"
+                f"| `hashbrown::HashMap` | {hashb.get('lookup_ns', 0.0):.2f} | {hashb.get('lookup_mops', 0.0):.2f} | {hashb.get('insert_mops', 0.0):.2f} | {hashb.get('iter_mops', 0.0):.2f} | *N/A (unsupported)* | {hashb.get('bytes_per_key', 0.0):.2f} | — | Baseline |"
             )
             lines.append(
-                f"| `std::BTreeMap` | {btree.get('lookup_ns', 0.0):.2f} | {btree.get('lookup_mops', 0.0):.2f} | {btree.get('insert_mops', 0.0):.2f} | {btree.get('iter_mops', 0.0):.2f} | {btree.get('bytes_per_key', 0.0):.2f} | Baseline | — |"
+                f"| `std::BTreeMap` | {btree.get('lookup_ns', 0.0):.2f} | {btree.get('lookup_mops', 0.0):.2f} | {btree.get('insert_mops', 0.0):.2f} | {btree.get('iter_mops', 0.0):.2f} | {btree.get('range_mops', 0.0):.2f} | {btree.get('bytes_per_key', 0.0):.2f} | Baseline | — |"
             )
 
         lines.append("")
@@ -187,8 +187,8 @@ def render_markdown(data: Dict[str, Any]) -> str:
     lines.extend([
         "---",
         "**Key Architectural Findings:**",
-        "- **vs Ordered Baseline (`std::BTreeMap`)**: `ExpanseMap` delivers **4× to 10× faster point lookups**, **1.5× to 2.3× faster cold insertion**, and **~3.4× smaller memory footprint**.",
-        "- **vs Unordered Baseline (`hashbrown::HashMap`)**: `ExpanseMap` maintains full sorted order and $O(\\text{depth})$ range scans while using **up to 2.8× less memory** (`8.58 B/key` vs `24.38 B/key`).",
+        "- **vs Ordered Baseline (`std::BTreeMap`)**: `ExpanseMap` delivers **4× to 10× faster point lookups**, **1.5× to 2.3× faster cold insertion**, competitive or faster bounded range scans, and **~3.4× smaller memory footprint**.",
+        "- **vs Unordered Baseline (`hashbrown::HashMap`)**: `ExpanseMap` maintains full sorted order and streaming $O(1)$ amortized range scans while using **up to 2.8× less memory** (`8.58 B/key` vs `24.38 B/key`).",
         "- **vs C ABI Baseline (`libjudy`)**: `ExpanseMap` outperforms stock `libjudy` across all key distributions in lookup latency, insertion throughput, and iteration.",
         "",
         "<sub>🟢 Faster than baseline · ⚪ Parity (±5%) · 🔴 Slower than baseline. Generated automatically via <code>scripts/bench_report.py</code>.</sub>\n",
@@ -212,28 +212,28 @@ def render_table(data: Dict[str, Any]) -> str:
     for dist, res in results.items():
         lines.append(f"\n[ Distribution: {dist} ]")
         lines.append(
-            f"{'Target':<22} | {'Lookup (ns)':>11} | {'Lookup (Mops)':>13} | {'Insert (Mops)':>13} | {'Iter (Mops)':>11} | {'B/key':>7}"
+            f"{'Target':<22} | {'Lookup (ns)':>11} | {'Lookup (Mops)':>13} | {'Insert (Mops)':>13} | {'Iter (Mops)':>11} | {'Range (Mops)':>12} | {'B/key':>7}"
         )
-        lines.append(f"{'-'*22}-+-{'-'*11}-+-{'-'*13}-+-{'-'*13}-+-{'-'*11}-+-{'-'*7}")
+        lines.append(f"{'-'*22}-+-{'-'*11}-+-{'-'*13}-+-{'-'*13}-+-{'-'*11}-+-{'-'*12}-+-{'-'*7}")
 
         exp = res.get("expanse", {})
         lines.append(
-            f"{'ExpanseMap':<22} | {exp.get('lookup_ns', 0.0):>11.2f} | {exp.get('lookup_mops', 0.0):>13.2f} | {exp.get('insert_mops', 0.0):>13.2f} | {exp.get('iter_mops', 0.0):>11.2f} | {exp.get('bytes_per_key', 0.0):>7.2f}"
+            f"{'ExpanseMap':<22} | {exp.get('lookup_ns', 0.0):>11.2f} | {exp.get('lookup_mops', 0.0):>13.2f} | {exp.get('insert_mops', 0.0):>13.2f} | {exp.get('iter_mops', 0.0):>11.2f} | {exp.get('range_mops', 0.0):>12.2f} | {exp.get('bytes_per_key', 0.0):>7.2f}"
         )
 
         hashb = res.get("hashbrown", {})
         lines.append(
-            f"{'hashbrown (HashMap)':<22} | {hashb.get('lookup_ns', 0.0):>11.2f} | {hashb.get('lookup_mops', 0.0):>13.2f} | {hashb.get('insert_mops', 0.0):>13.2f} | {hashb.get('iter_mops', 0.0):>11.2f} | {hashb.get('bytes_per_key', 0.0):>7.2f}"
+            f"{'hashbrown (HashMap)':<22} | {hashb.get('lookup_ns', 0.0):>11.2f} | {hashb.get('lookup_mops', 0.0):>13.2f} | {hashb.get('insert_mops', 0.0):>13.2f} | {hashb.get('iter_mops', 0.0):>11.2f} | {'N/A':>12} | {hashb.get('bytes_per_key', 0.0):>7.2f}"
         )
 
         btree = res.get("btree", {})
         lines.append(
-            f"{'BTreeMap (std)':<22} | {btree.get('lookup_ns', 0.0):>11.2f} | {btree.get('lookup_mops', 0.0):>13.2f} | {btree.get('insert_mops', 0.0):>13.2f} | {btree.get('iter_mops', 0.0):>11.2f} | {btree.get('bytes_per_key', 0.0):>7.2f}"
+            f"{'BTreeMap (std)':<22} | {btree.get('lookup_ns', 0.0):>11.2f} | {btree.get('lookup_mops', 0.0):>13.2f} | {btree.get('insert_mops', 0.0):>13.2f} | {btree.get('iter_mops', 0.0):>11.2f} | {btree.get('range_mops', 0.0):>12.2f} | {btree.get('bytes_per_key', 0.0):>7.2f}"
         )
 
         if judy := res.get("libjudy"):
             lines.append(
-                f"{'libjudy (stock)':<22} | {judy.get('lookup_ns', 0.0):>11.2f} | {judy.get('lookup_mops', 0.0):>13.2f} | {judy.get('insert_mops', 0.0):>13.2f} | {judy.get('iter_mops', 0.0):>11.2f} | {judy.get('bytes_per_key', 0.0):>7.2f}"
+                f"{'libjudy (stock)':<22} | {judy.get('lookup_ns', 0.0):>11.2f} | {judy.get('lookup_mops', 0.0):>13.2f} | {judy.get('insert_mops', 0.0):>13.2f} | {judy.get('iter_mops', 0.0):>11.2f} | {'—':>12} | {judy.get('bytes_per_key', 0.0):>7.2f}"
             )
 
     lines.append("\n================================================================================\n")
