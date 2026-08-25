@@ -17,13 +17,18 @@
 //!    - Bits `[31:8]`: 24-bit arena byte offset (up to 16 MiB).
 //!    - Bits `[7:0]`: `0x10` ([`SlotTag::ArenaShort`]).
 //!
-//! 3. **Arena Mode (Long)** — *reserved, not yet implemented*:
+//! 3. **Arena Mode (Long)**:
 //!    `[chunk_id (16 bits) | chunk_offset (40 bits) | tag (0x11)]`
-//!    - Bits `[63:48]`: 16-bit chunk ID.
-//!    - Bits `[47:8]`: 40-bit chunk byte offset.
+//!    - Bits `[63:48]`: 16-bit chunk ID (arena chunk index).
+//!    - Bits `[47:8]`: 40-bit intra-chunk byte offset.
 //!    - Bits `[7:0]`: `0x11` ([`SlotTag::ArenaLong`]).
-//!    - The blob map never produces or reads this encoding today; only
-//!      `ArenaShort` and inline slots are live.
+//!    - Produced by [`crate::blobmap::BlobArena`] once a blob's global byte
+//!      offset would exceed the 24-bit `ArenaShort` range (16 MiB); it lifts
+//!      the arena ceiling to `65536 * chunk_size` (bounded by a shipped safety
+//!      cap, see [`crate::blobmap::MAX_ARENA_CAPACITY`]). Unlike `ArenaShort`,
+//!      this encoding has no room for the 32-bit hot-metadata word, so
+//!      `ArenaLong`-backed values carry no filterable hot metadata (reported
+//!      as `0`).
 //!
 //! 4. **Raw Scalar / Unmanaged Word**:
 //!    Uninterpreted 64-bit machine word.
@@ -49,16 +54,17 @@ pub enum SlotTag {
     /// Inline payload of 7 bytes (in bits `[63:8]`).
     Inline7 = 0x07,
 
-    /// Backed by BlobArena: 32-bit hot metadata + 24-bit arena locator.
-    /// This is the only arena encoding the blob map actually stores.
+    /// Backed by BlobArena: 32-bit hot metadata + 24-bit arena locator
+    /// (global byte offset). Addresses the first 16 MiB of arena.
     ArenaShort = 0x10,
-    /// Backed by Large/Multi-Chunk Arena: 16-bit chunk ID + 40-bit offset.
+    /// Backed by BlobArena beyond the 16 MiB `ArenaShort` range: 16-bit chunk
+    /// ID + 40-bit intra-chunk offset.
     ///
-    /// **Reserved / not yet implemented.** The encoding and its accessors
-    /// ([`ValueSlot::new_arena_long`], [`ValueSlot::arena_long_loc`]) exist, but
-    /// the blob map never produces or reads `ArenaLong` slots; only
-    /// [`SlotTag::ArenaShort`] and inline slots are live. Would lift the 16 MiB
-    /// arena ceiling when implemented.
+    /// The blob map produces this encoding (via [`ValueSlot::new_arena_long`],
+    /// read back via [`ValueSlot::arena_long_loc`]) once a blob's global offset
+    /// crosses the 24-bit `ArenaShort` ceiling, lifting the live arena beyond
+    /// 16 MiB. It has no hot-metadata field — all 56 non-tag bits address the
+    /// payload — so `ArenaLong`-backed values report hot metadata as `0`.
     ArenaLong = 0x11,
     /// Off-heap / External memory reference.
     ///
