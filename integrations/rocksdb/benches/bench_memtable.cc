@@ -27,14 +27,29 @@ public:
     }
 };
 
-// Simple Reference SkipList MemTable implementation for benchmarking comparison
+// Simple Reference SkipList MemTable implementation for benchmarking comparison.
+//
+// Node layout note (#372): an earlier revision embedded the full
+// `Node* next[kMaxHeight]` tower (16 pointers, 144 bytes) in every node
+// regardless of its drawn height, *and* added `(height - 1) * sizeof(Node*)`
+// on top — a strawman that inflated the skiplist's memory footprint to
+// ~146.7 B/entry and with it the published "11.1× higher key density"
+// headline. Real skiplists (RocksDB's `InlineSkipList`, LevelDB's `SkipList`)
+// allocate variable-height nodes whose tower occupies exactly `height`
+// pointer slots. This node mirrors that: per-node memory is the key pointer
+// (8 B) plus `height` next-pointers (8 B each); with the geometric height
+// distribution used here (P(grow) = 1/4, E[height] = 4/3) the expected
+// overhead is ~18.7 B/entry. Any density or throughput figure derived from
+// the old layout is invalid; results must be re-measured with this baseline.
 class ReferenceSkipListRep : public MemTableRep {
 public:
     static constexpr int kMaxHeight = 16;
     struct Node {
         const char* key;
-        Node* next[kMaxHeight];
-        int height;
+        // Variable-height tower: allocated with `height` slots (>= 1); slots
+        // beyond index 0 live in the over-allocation past the struct end,
+        // exactly like InlineSkipList's trailing atomic pointer array.
+        Node* next[1];
     };
 
     explicit ReferenceSkipListRep(const MemTableRep::KeyComparator& cmp, Allocator* alloc)
@@ -54,10 +69,11 @@ public:
     }
 
     Node* AllocateNode(const char* key, size_t /*size*/, int height) {
-        size_t bytes = sizeof(Node) + (height - 1) * sizeof(Node*);
+        // Key pointer + `height` tower pointers — the fair, InlineSkipList-like
+        // per-node cost (no statically embedded kMaxHeight array).
+        size_t bytes = sizeof(const char*) + static_cast<size_t>(height) * sizeof(Node*);
         Node* node = reinterpret_cast<Node*>(allocator_->AllocateAligned(bytes));
         node->key = key;
-        node->height = height;
         allocated_bytes_ += bytes;
         return node;
     }

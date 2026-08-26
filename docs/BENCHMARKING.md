@@ -137,8 +137,8 @@ refuted says so in its README.
 | Suite | Directory | Benches | Competitor(s) | Outcome at last measurement |
 |---|---|---|---|---|
 | Hash-map comparison | [`hashbrown_comparison/`](benchmarks/hashbrown_comparison/README.md) | `hashbrown_native_suite`, `hashbrown_ycsb`, `hashbrown_tail_latency`, `hashbrown_container_dists`, `hashbrown_memory_alloc` | `hashbrown::HashMap` (SwissTable), `std::BTreeMap` | see suite README (point/insert/YCSB/tail-latency/memory cells) |
-| Search inverted index | [`search_inverted_index/`](benchmarks/search_inverted_index/README.md) | `search_boolean`, `search_wand`, `search_memory`, `search_instructions` | `roaring` 0.10 (`RoaringTreemap`) | Boolean pillar: Roaring wins every cell (`ExpanseSet` composes AND/OR/AND-NOT from navigation primitives — no native kernel; follow-up #339); WAND: Roaring's stateful cursor wins 2–4× (follow-up #340); memory: Expanse wins shard-clustered 1e5, ties dense 1e6 |
-| Redis ZSET engine | [`redis_zset_engine/`](benchmarks/redis_zset_engine/README.md) | `zset_zadd`, `zset_range`, `zset_rank`, `zset_memory` | `crossbeam_skiplist` + hash dict (Redis/Valkey ZSET design) | Expanse dual-trie wins 9 of 13 cells (forward range ~5.5×); pre-registered losses on reverse range (no reverse iterator — follow-up #341) and a rank-select dead heat |
+| Search inverted index | [`search_inverted_index/`](benchmarks/search_inverted_index/README.md) | `search_boolean`, `search_wand`, `search_memory`, `search_instructions` | `roaring` 0.10 (`RoaringTreemap`) | Boolean pillar mixed (native kernels #339/#347, materialization #348, re-measured at commit `9c0026c8`): native cardinality within 3.84× of Roaring and **faster on 15 of 48 symmetric cells**; materialization v2 is 7×–225× faster than the v1 insert path but still loses the dense/clustered/sparse symmetric cells to Roaring; WAND: the #340 stateful cursor (re-measured at commit `5bd7bdda`) **beats or ties Roaring on all 6 dense cells** and clustered shallow/medium (down to 0.53× — 1.9× faster), within 1.2× in 14/18 cells, only sparse deep-skip trails (1.40×–1.64×); memory: Expanse wins shard-clustered 1e5, ties dense 1e6 |
+| Redis ZSET engine | [`redis_zset_engine/`](benchmarks/redis_zset_engine/README.md) | `zset_zadd`, `zset_range`, `zset_rank`, `zset_memory` | `crossbeam_skiplist` + hash dict (Redis/Valkey ZSET design) | Expanse dual-trie wins 9 of 13 cells at the pre-#341 baseline (forward range ~5.5×); the #341 `range_rev` reverse iterator (re-measured at commit `ad540acc`) **flipped both pre-registered reverse-range losses into wins** (2.70× / 1.63× over the skip list; reverse now within 1.2× of forward); remaining loss: a rank-select dead heat |
 | LLM inference & speculative decoding | [`llm_inference/`](benchmarks/llm_inference/README.md) | `bench_draft_quality`, `bench_llm_datastore`, `bench_grammar_masks`, `bench_prefix_lru` | HuggingFace PromptLookup (adaptive/fixed), Static Sorted Window Index, Dense Bitmask (`[u64]`), `roaring::Bitmap`, `collections.OrderedDict` | Draft quality: Expanse LSM yields modest +2.6% tok/s gain on Code (below 5% gate; lookup drafting accepts ~1 tok/step), dead heat on Summary, +8.8% on small-N JSON; Dynamic datastore: Expanse wins streaming updates whenever batch B < 73k; Grammar masks: Roaring wins 2.66x lower RAM; Prefix LRU: 9.5x lower RAM (cross-accounting; see suite caveat) + 1.98M-2.16M/s rank-eviction (baseline twin pending) |
 
 Feature work that a suite gates (#339, #340, #341) re-runs the suite's `run.sh`
@@ -384,16 +384,44 @@ The arms overlap; the pre-change branch produced both the worst and the best ran
 
 Method note: attribution is done inside a single process, so co-resident load shifts *how many* samples land, not *where* they land. A/B wall-clock ratios do not share that property and stay deferred (rule 2).
 
-### Concurrent read scaling, `SyncExpanseMap` (measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; load ≈ 0.4 idle; 1M random keys, 500 ms windows; `examples/concurrent_scaling.rs`, median of 2 back-to-back runs)
+### Concurrent read scaling (`SyncExpanseStrMap` / `SyncExpanseBytesMap`; word-key arms retracted)
 
-| readers | reads/s idle | scale | reads/s churn (saturating writer) | writer op/s |
+> **Retraction (2026-08-26, [#372](https://github.com/orieg/expanse/issues/372)).**
+> The previously published `SyncExpanseMap` read-scaling numbers — the
+> idle/churn table from `examples/concurrent_scaling.rs` (22.6 M → 145.1 M
+> reads/s at 1→8 readers) and the "265.8 M ops/s / 12.0× at 16 threads"
+> headline from `benches/concurrency.rs` — are **retracted**. Both word-key
+> harness arms probe unbounded random `u64` keys against a 1 M-key structure
+> (hit rate ≈ 5×10⁻¹⁴), so those figures measured ~100%-miss descent walks,
+> not useful lookups. The bounded-keyspace fix already used by the same
+> file's blob/str/bytes arms (~50% hits) is tracked for the map/set arms in
+> [#375](https://github.com/orieg/expanse/issues/375); map/set scaling will
+> be re-measured via `/benchmark concurrency` after it lands.
+
+The string/bytes arms of `benches/concurrency.rs` use bounded ~50%-hit
+keyspaces and payload-dereferencing reads, so they are valid and stand as the
+honest read-scaling measurement *(measured: reference host — Intel i9-12900F,
+24 threads, 30 MiB L3, run [33016450539](https://github.com/orieg/expanse/actions/runs/33016450539), commit `698bf70c`; `benches/concurrency.rs`, 100%-read arms, dual-pass)*:
+
+| arm (100% read) | 1 thread | 4 threads | 16 threads | scale @ 16T |
 |---|---:|---:|---:|---:|
-| 1 | 22.6 M | 1.0× | 7.7 M | 3.9 M |
-| 2 | 39.2 M | 1.74× | 15.9 M | 3.6 M |
-| 4 | 77.5 M | 3.43× | 24.8 M | 2.8 M |
-| 8 | 145.1 M | 6.43× | 34.4 M | 2.2 M |
+| `SyncExpanseStrMap` | 7.04 M ops/s | 26.8 M ops/s | **82.7 M ops/s** | **11.76×** |
+| `SyncExpanseBytesMap` | 11.73 M ops/s | 42.3 M ops/s | **135.1 M ops/s** | **11.52×** |
+| `Mutex<ExpanseStrMap>` baseline | 9.16 M ops/s | 5.9 M ops/s | 3.1 M ops/s | 0.34× |
+| `Mutex<ExpanseBytesMap>` baseline | 12.37 M ops/s | 5.7 M ops/s | 3.7 M ops/s | 0.30× |
 
-**Idle read scaling is near-linear to 8 threads (6.4×)** and continues to 12.0× / 265.8 M ops/s at 16 threads (see the `benches/concurrency.rs` table below). **With a saturating writer**, reads still climb (7.7 M → 34.4 M across 1–8 readers) but stay well below idle: a single tree-level seqlock still brackets whole operations for the root snapshot, so under an active writer the version changes faster than a walk completes and a fraction of readers retry or fall back to the mutex. The per-node version refinement (writers bracket each node's in-place mutations; readers validate hand-over-hand) is what keeps churn in the millions rather than collapsing — but closing the churn-vs-idle gap is the next refinement target (`docs/ARCHITECTURE.md` §6). Single-threaded trees skip the version brackets entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
+**Read-only OCC scaling on hit-bearing workloads is near-linear (11.5–11.8×
+at 16 threads)** while the coarse-mutex baselines collapse below their own
+single-thread throughput (0.30–0.34×). On the write-mixed side the
+architectural picture is unchanged: a single tree-level seqlock still
+brackets whole operations for the root snapshot, so under an active writer
+the version changes faster than a walk completes and a fraction of readers
+retry or fall back to the mutex; the per-node version refinement (writers
+bracket each node's in-place mutations; readers validate hand-over-hand) is
+the next refinement target (`docs/ARCHITECTURE.md` §6). Quantified
+write-churn scaling awaits the #375 re-measurement. Single-threaded trees
+skip the version brackets entirely (`NodeAlloc::occ_enabled`), so the
+classic engine pays nothing.
 
 ### vs stdlib & 3rd-party collections (measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/compare.rs` + `benches/comparative.rs`, criterion medians)
 
@@ -707,7 +735,7 @@ Wall-clock ns per operation, 1,000,000-key populations (the stable rows; `< 1.00
 | **random 1M** | **56.2 / 71.7 ns (0.78×)** | 35.8 / 32.3 ns (**1.11×**) | 16.70 / 17.67 (**0.95×**) |
 | **clustered 1M** | **19.9 / 21.6 ns (0.92×)** | **8.5 / 10.4 ns (0.82×)** | 8.61 / 9.32 (**0.92×**) |
 
-Honest reading (this reverses the older CI/laptop insert story, and the mechanism is the tier, not a regression): with the **native SIMD paths active** libexpanse *wins* insert across all three distributions (0.57×–0.92×) and wins sequential/clustered lookup (0.68× / 0.82×). It is **~11% slower on random 1M lookup** (1.11×) — random point access is memory-latency-bound where the trie's extra indirection costs and SIMD does not help; this agrees with the M-series NEON laptop reading below (random lookup 1.55× slower) and is the engine's weak arm. On the `x86-64-v1` CI runner above — *without* the SIMD leaf/branch kernels — the same operations are slower than stock; the swing between the two rows is the microarchitecture-tier gain (`x86-64-v3` § below: up to −42.6% instructions), not a code change. The 100k-population rows are cache-warmup-noisy on this desktop part and are omitted; bytes/key is deterministic allocator accounting (`JudyLMemUsed`) and reproduces byte-for-byte across runs.
+Honest reading (this reverses the older CI/laptop insert story, and the mechanism is the tier, not a regression): with the **native SIMD paths active** libexpanse *wins* insert across all three distributions (0.57×–0.92×) and wins sequential/clustered lookup (0.68× / 0.82×). It is **~11% slower on random 1M lookup** (1.11×) — random point access is memory-latency-bound where the trie's extra indirection costs and SIMD does not help; this agrees with the M-series NEON laptop reading below (random lookup 1.55× slower) and is the engine's weak arm. On the `x86-64-v1` CI runner above — *without* the SIMD leaf/branch kernels — the same operations are slower than stock; the swing between the two rows is the microarchitecture-tier gain (real per-routine v1→v3 instruction deltas span −1.9% to −42.6% — [`docs/visualizer_data.json`](visualizer_data.json)), not a code change. The 100k-population rows are cache-warmup-noisy on this desktop part and are omitted; bytes/key is deterministic allocator accounting (`JudyLMemUsed`) and reproduces byte-for-byte across runs.
 
 ### Earlier: same harness on the development laptop (measured: M1 MacBook Pro under load — a VM at ~226% CPU co-resident — commit with this section; interleaved A/B medians of 5 rounds, so the *ratios* are meaningful while absolute ns are contaminated; harness: `crates/expanse-capi/examples/bench_vs_libjudy.rs`)
 
@@ -739,53 +767,30 @@ Timing numbers here are working baselines, not publishable claims; headline numb
 
 ## Microarchitecture Scaling: x86-64-v1 vs v2 vs v3 vs v4
 
-Expanse is designed from first principles to leverage hardware vectorization and bit-manipulation primitives available in modern 64-bit microarchitectures.
-
-Through `glibc-hwcaps` packaging on Linux ([COMPAT.md](COMPAT.md) §3) and native compiler targets, Expanse automatically loads or compiles architecture-specific dynamic libraries matching the host CPU:
-
-### Microarchitectural Capability Matrix
-
-| Tier | Instruction Set Extensions | Target CPUs | Key Primitives Exploited by Expanse |
-|---|---|---|---|
-| **`x86-64-v1`** | Baseline 64-bit x86 (SSE, SSE2) | Legacy (pre-2008) | 64-bit word pointers, 64-byte node alignments, SWAR 12-instruction bit counting |
-| **`x86-64-v2`** | POPCNT, SSE3, SSSE3, SSE4.1, SSE4.2 | Intel Nehalem+ (2008+), AMD Bulldozer+ (2011+) | Hardware `POPCNT` instruction (eliminates SWAR bitmap rank emulation) |
-| **`x86-64-v3`** | AVX, AVX2, BMI1, BMI2, LZCNT, FMA | Intel Haswell+ (2013+), AMD Zen+ (2017+) | 256-bit SIMD (`_mm256_cmpeq_epi8`), BMI2 bitfield extract (`PEXT`/`PDEP`/`BZHI`), hardware `TZCNT`/`LZCNT` |
-| **`x86-64-v4`** | AVX-512 (F, BW, CD, DQ, VL) | Intel Skylake-X+ (2017+), AMD Zen 4+ (2022+) | 512-bit vector bitmask comparisons (`_mm512_cmpeq_epi8_mask`), single-cycle 32/64-byte linear leaf scans |
-
----
-
-### Comparative Performance & Instruction Scaling (Measured: Callgrind on x86-64 Linux)
-
-| Benchmark / Operation | `x86-64-v1` (Baseline) | `x86-64-v2` (+POPCNT) | `x86-64-v3` (AVX2/BMI2) | `x86-64-v4` (AVX-512) | Peak Win vs Baseline |
-|---|---:|---:|---:|---:|---:|
-| **`map_get/sequential` (30k keys)** | 4.37 M inst | 4.02 M inst (-8.0%) | **3.65 M inst** (-16.5%) | **3.51 M inst** (-19.7%) | 🟢 **-19.7% instructions** |
-| **`map_get/random` (30k keys)** | 4.53 M inst | 4.21 M inst (-7.1%) | **3.89 M inst** (-14.1%) | **3.74 M inst** (-17.4%) | 🟢 **-17.4% instructions** |
-| **`map_get/clustered` (30k keys)** | 3.71 M inst | 3.42 M inst (-7.8%) | **3.11 M inst** (-16.2%) | **2.98 M inst** (-19.7%) | 🟢 **-19.7% instructions** |
-| **`set_test/random` (30k keys)** | 3.78 M inst | 3.39 M inst (-10.3%) | **3.02 M inst** (-20.1%) | **2.88 M inst** (-23.8%) | 🟢 **-23.8% instructions** |
-| **`map_insert/random` (100k keys)** | 17.52 M inst | 16.48 M inst (-5.9%) | **14.89 M inst** (-15.0%) | **14.21 M inst** (-18.9%) | 🟢 **-18.9% instructions** |
-| **`set_insert/clustered` (100k keys)**| 7.54 M inst | 6.86 M inst (-9.0%) | **5.96 M inst** (-21.0%) | **5.58 M inst** (-26.0%) | 🟢 **-26.0% instructions** |
-| **`churn/random_del_ins` (30k keys)** | 38.14 M inst | 33.18 M inst (-13.0%) | **21.89 M inst** (-42.6%) | **20.12 M inst** (-47.2%) | 🟢 **-47.2% instructions** |
-
----
-
-### Architectural Gains by Extension Tier
-
-1. **`x86-64-v2` (`+POPCNT` / `+SSE4.2`)**:
-   - **Mechanism**: Every bitmap branch and bitmap leaf rank operation (`bitmap::rank_subexpanse`) relies on counting set bits below the query key digit.
-   - **Gain**: Replaces a 12-instruction serially dependent SWAR multiplication/shift chain with a single 3-cycle hardware `POPCNT` instruction, reducing instruction counts by **6% to 13%**.
-
-2. **`x86-64-v3` (`+AVX2` / `+BMI2` / `+LZCNT`)**:
-   - **Mechanism**:
-     - Folds runtime feature probes (`is_x86_feature_detected!`) directly into static compile-time instructions.
-     - Emits fused 256-bit SIMD vector searches (`_mm256_cmpeq_epi8`) in `leaf::search_fixed` and `bits::find_byte_16`.
-     - Direct hardware bitfield manipulation (`BZHI` for key masking, `PEXT` for bitmap compression, `TZCNT` for trailing zeros).
-   - **Gain**: Delivers **15% to 42.6% fewer instructions** across all benchmark operations.
-
-3. **`x86-64-v4` (`+AVX-512` / `+AVX-512BW` / `+AVX-512VL`)**:
-   - **Mechanism**:
-     - Vector bitmask comparisons (`_mm512_cmpeq_epi8_mask`) produce a native 64-bit integer mask directly into a general-purpose register without intermediate SSE/AVX pack/move instructions (`_mm256_movemask_epi8`).
-     - Scans full 32-byte and 64-byte linear leaf key arrays in a single instruction.
-   - **Gain**: Delivers an additional **5% to 12% instruction reduction** over `x86-64-v3` (up to **-47.2% vs baseline v1**).
+> **Retraction (2026-08-26, [#372](https://github.com/orieg/expanse/issues/372)).**
+> This section previously published a "Microarchitectural Capability Matrix", a
+> per-benchmark v1/v2/v3/v4 instruction-scaling table, and derived
+> "Architectural Gains by Extension Tier" percentages. That content is
+> **retracted in full**: the table cited benchmark arms that do not exist in
+> the harness (`set_test/random`, `churn/random_del_ins`), populations the
+> harness cannot produce (30k/100k vs its fixed sizes), and an `x86-64-v4`
+> column whose stated mechanism (`_mm512_cmpeq_epi8_mask`) has zero matches in
+> the tree — no AVX-512 kernel is implemented and no CI job compiles v4. Its
+> per-cell numbers also contradicted the committed `x86-64-v3` measurements in
+> [`docs/visualizer_data.json`](visualizer_data.json) in every overlapping
+> cell, and it was introduced by a docs-only commit with no artifact and no
+> host/commit tag. The derived tier-percentage summary in the root `README.md`
+> is retracted with it.
+>
+> Real, committed per-tier data lives in
+> [`docs/visualizer_data.json`](visualizer_data.json): deterministic Callgrind
+> instruction counts for the portable baseline (`x86-64-v1`) and `x86-64-v3`
+> for every instruction-benchmark routine (v1→v3 deltas span −1.9% to −42.6%,
+> the largest on `map_remove/random`). The instrument for regenerating a
+> measured tier table is the `/bench extended` microarchitecture arch sweep
+> (`scripts/bench_report.py --arch-sweep`) on the benchmark host; regeneration
+> from such a run is queued, and a measured table will be restored from its
+> artifact.
 
 ---
 
@@ -875,17 +880,18 @@ The criterion groups above time whole op batches (`record_latencies = false`). T
 
 ### 3. Concurrent scaling under write churn: `SyncExpanseMap`
 
-The dedicated concurrency instrument is `benches/concurrency.rs` (uniform-random keys, not Zipfian-blob). Its 95%-read / 5%-write mix — the closest analogue to YCSB Workload B — measured on the reference host (Intel i9-12900F, 24 threads, 30 MiB L3, commit 695b98d, 1M keys, 500 ms windows):
-
-| Worker Threads | Read Throughput | Write Throughput | Combined | Scale |
-|---|---:|---:|---:|---:|
-| **1 Thread** | 18.65 Mops/s | 0.98 Mops/s | 19.63 Mops/s | 1.00× |
-| **2 Threads** | 26.54 Mops/s | 1.40 Mops/s | 27.94 Mops/s | **1.42×** |
-| **4 Threads** | 33.84 Mops/s | 1.78 Mops/s | **35.62 Mops/s** | **1.81×** (peak) |
-| **8 Threads** | 32.27 Mops/s | 1.70 Mops/s | 33.97 Mops/s | 1.73× |
-| **16 Threads** | 27.39 Mops/s | 1.45 Mops/s | 28.84 Mops/s | 1.47× |
-
-Write-mixed throughput **peaks around 4 threads and then declines** as readers retry against the tree-level seqlock — the same seqlock-bound behaviour documented in the concurrent-read-scaling section above. (100%-read scales cleanly to 265.8 M ops/s / 12.0× at 16 threads.)
+> **Retracted (2026-08-26, [#372](https://github.com/orieg/expanse/issues/372)) — pending re-measurement.**
+> A 95%-read / 5%-write `SyncExpanseMap` scaling table previously published
+> here (19.63 → 35.62 → 28.84 Mops/s across 1→4→16 threads, peak ~4 threads)
+> came from the same `benches/concurrency.rs` word-key arms whose reads probe
+> unbounded random `u64` keys (~100% miss) — see the retraction in the
+> concurrent-read-scaling section above. The qualitative claim that
+> write-mixed throughput is bound by the tree-level seqlock is an
+> architectural statement, not a measured curve; honest write-mixed numbers
+> for the map/set arms will come from `/benchmark concurrency` after the
+> bounded-keyspace fix ([#375](https://github.com/orieg/expanse/issues/375))
+> lands. The str/bytes arms' valid 100%-read scaling (11.5–11.8× at 16
+> threads, run 33016450539, commit `698bf70c`) is tabulated in that section.
 
 **Architectural Takeaways (measured, reference host):**
 1. **`ExpanseBlobMap` vs RocksDB `SkipMap`**: **~7.6×–11.0× higher throughput** across Workloads B, C, D, F on this host (host- and payload-dependent — the boxed-blob path is heavier for the skiplist here than on the earlier Apple-silicon run).

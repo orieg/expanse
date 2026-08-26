@@ -37,7 +37,7 @@ Naming the project after the mechanism honors the algorithm itself without inher
 - **Strictly Faster than Stock Judy**: Outperforms original `libjudy` across 100% of benchmark workloads (inserts, lookups, deletions, and churn).
 - **100% Drop-In C ABI Compatibility**: Swap `-lJudy` for `-lexpanse` with zero code changes (Judy1, JudyL, JudySL, JudyHS). Passes `php-judy` test suite (221/221) and differential oracle.
 - **Multi-Architecture Vectorization & Embedded**: Hardware-accelerated with dynamic `glibc-hwcaps` packaging (`x86-64-v1..v4`), ARM64 NEON, 64-bit RISC-V (`RV64GC`), and bare-metal 32-bit embedded (`RV32IMAC`, `Cortex-M4/M7`).
-- **Lock-Free OCC Concurrency**: Multi-core optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet`) with zero read locks, scaling read-only throughput to **265.8 M ops/s on 16 threads (12.0×)** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, commit 695b98d)*. Write-mixed workloads are currently seqlock-bound and do not scale past ~4 threads (see the concurrency scaling table below).
+- **Lock-Free OCC Concurrency**: Multi-core optimistic concurrency control with zero read locks, scaling read-only throughput near-linearly to **11.76× / 82.7 M ops/s** (`SyncExpanseStrMap`) and **11.52× / 135.1 M ops/s** (`SyncExpanseBytesMap`) at 16 threads on ~50%-hit workloads, while coarse-mutex baselines collapse to 0.34×/0.30× *(measured: reference host — Intel i9-12900F, run 33016450539, commit 698bf70c)*. The earlier "265.8 M ops/s (12.0×)" `SyncExpanseMap` figure is **retracted** — it probed ~100%-miss unbounded random keys; map/set arms are pending re-measurement ([#375](https://github.com/orieg/expanse/issues/375)). Write-mixed workloads are seqlock-bound (see the concurrency section below).
 - **Ultra-Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on 64-bit sets *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a)* and **~0.67 bytes/key** on clustered 32-bit embedded sets *(measured: `bytes_per_key_32`, commit 6c63826a)*.
 
 ---
@@ -68,7 +68,7 @@ Naming the project after the mechanism honors the algorithm itself without inher
 | **Node.js / Bun / Deno API** | [`crates/expanse-node`](crates/expanse-node) (`@orieg/expanse`) | Native high-performance N-API bindings via `napi-rs`: `ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `SyncExpanseMap`, `SyncExpanseSet` |
 | **WebAssembly / Edge** | [`crates/expanse-wasm`](crates/expanse-wasm) (`@orieg/expanse-wasm`) | WebAssembly bindings for edge runtimes (Cloudflare Workers, Fastly) and browsers |
 | **Ruby API** | [`bindings/ruby`](bindings/ruby) (`gem install expanse`) | Native Ruby extension via Fiddle / C ABI: `Expanse::Set`, `Expanse::Map`, `Expanse::StrMap`, `Expanse::BytesMap`, `Expanse::BlobMap` |
-| **RocksDB Pluggable MemTable** | [`integrations/rocksdb`](integrations/rocksdb) (`rocksdb-expanse`) | Official RocksDB `MemTableRep` / `MemTableRepFactory` implementation delivering **11.1× higher key density in RAM** vs the reference SkipList, fewer L0 SSTable flushes, and **~9.4× faster sequential scans** *(measured: reference host, commit 695b98d; full table in [`integrations/rocksdb/README.md`](integrations/rocksdb/README.md))* |
+| **RocksDB Pluggable MemTable** | [`integrations/rocksdb`](integrations/rocksdb) (`rocksdb-expanse`) | Official RocksDB `MemTableRep` / `MemTableRepFactory` implementation with **1.42× higher key density in RAM** than a fair variable-height skiplist baseline (13.2 vs 18.7 B/entry — deterministic accounting, re-measured at the [#372](https://github.com/orieg/expanse/issues/372) fix commit; the earlier "11.1×" headline rested on a strawman fat-node baseline and is **retracted**). Fewer L0 flushes is inferred (target), and scan/lookup ratios are pending a fair-baseline re-run — see [`integrations/rocksdb/README.md`](integrations/rocksdb/README.md) |
 
 Legacy ↔ modern naming:
 
@@ -87,7 +87,7 @@ Legacy ↔ modern naming:
 |---|---|---|
 | **Cache-line geometry** | Assumed 128-byte lines | Nodes sized to 64-byte lines (1 or 2 cache lines per node) |
 | **Bit scan / rank** | SWAR bit hacks, unrolled loops | Hardware `POPCNT` / `TZCNT` / `LZCNT` / ARM `cnt` |
-| **Linear search** | Scalar unrolled byte compares | Vectorized SIMD byte scans (AVX2, AVX-512, NEON) |
+| **Linear search** | Scalar unrolled byte compares | Vectorized SIMD byte scans (AVX2, NEON; AVX-512 not yet implemented) |
 | **Allocation** | Custom 2001 chunk/buddy allocator | High-performance slab page pooling + intrusive freelists |
 | **Pointer layout** | Full 16-byte JP per edge | Tagged pointers exploiting 48-bit virtual addressing |
 | **Concurrency** | Single-threaded, external locks | Lock-free optimistic concurrency control (OCC) for reads |
@@ -126,34 +126,30 @@ Expanse is benchmarked against standard Rust and industry collections (`crates/e
 
 ## Multithreaded OCC Concurrency Scalability
 
-Expanse provides lock-free optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet` in `benches/concurrency.rs`):
+Expanse provides lock-free optimistic concurrency control (`SyncExpanseMap` / `SyncExpanseSet` / `SyncExpanseStrMap` / `SyncExpanseBytesMap` in `benches/concurrency.rs`):
 
-Combined `SyncExpanseMap` throughput (read + write ops/s), 1,000,000 random keys, 500 ms windows *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/concurrency.rs`)*:
+> **Retraction ([#372](https://github.com/orieg/expanse/issues/372)).** The `SyncExpanseMap`/`SyncExpanseSet` scaling table previously published here (100%-read "265.8 M ops/s / 12.0× at 16 threads", the 95/5 and 50/50 rows, and the 284.9 M ops/s set figure) is **retracted**: those harness arms probe unbounded random `u64` keys against a 1 M-key structure (hit rate ≈ 5×10⁻¹⁴), so they measured ~100%-miss walks. The bounded-keyspace fix for the map/set arms is tracked in [#375](https://github.com/orieg/expanse/issues/375); honest map/set numbers will follow its re-measurement.
 
-| Workload Ratio | 1 Thread | 4 Threads | 8 Threads | 16 Threads | Scaling |
-|---|---:|---:|---:|---:|---:|
-| **100% Read** (uncontended) | 22.1 M ops/s | 83.7 M ops/s | 160.7 M ops/s | **265.8 M ops/s** | **12.0× at 16 threads** |
-| **95% Read / 5% Write** (OLTP) | 19.6 M ops/s | **35.6 M ops/s** | 34.0 M ops/s | 28.8 M ops/s | peaks ~4 threads (1.8×), then seqlock-bound |
-| **50% Read / 50% Write** (heavy churn) | 10.3 M ops/s | 5.7 M ops/s | 4.6 M ops/s | 4.0 M ops/s | write-dominated; declines under contention |
+The string/bytes arms use bounded ~50%-hit keyspaces with payload-dereferencing reads and are valid *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, run [33016450539](https://github.com/orieg/expanse/actions/runs/33016450539), commit `698bf70c`; 100%-read arms)*:
 
-- **Read-only scaling is near-linear** (12.0× at 16 threads, 265.8 M ops/s) — this is the reproducible measurement behind the "~260 M ops/s" headline (the earlier 78.4 M table figure was undermeasured and is retracted). `SyncExpanseSet` is marginally higher (284.9 M ops/s at 16 threads, 12.2×).
-- **Write-mixed workloads do not scale** on the current protocol: a single tree-level seqlock still brackets whole operations for the root snapshot, so under an active writer the version changes faster than a walk completes and readers fall back to the mutex. 95/5 peaks at ~4 threads and 50/50 declines monotonically — the measured go/no-go signal for the per-node OCC refinement tracked in `docs/ARCHITECTURE.md` §6. Prior docs claiming "6.9× linear scaling" / "58.2 M ops/s" on write-mixed workloads overstated this and are corrected.
-- **Mechanism**: Fine-grained per-node version bracketing and epoch-based pointer reclamation allow concurrent readers to validate subtrees hand-over-hand without acquiring mutexes; today only the read-only path realizes full scaling (see the divergence above).
+| arm (100% read) | 1 Thread | 4 Threads | 16 Threads | Scaling |
+|---|---:|---:|---:|---:|
+| `SyncExpanseStrMap` | 7.04 M ops/s | 26.8 M ops/s | **82.7 M ops/s** | **11.76× at 16 threads** |
+| `SyncExpanseBytesMap` | 11.73 M ops/s | 42.3 M ops/s | **135.1 M ops/s** | **11.52× at 16 threads** |
+| `Mutex<ExpanseStrMap>` baseline | 9.16 M ops/s | 5.9 M ops/s | 3.1 M ops/s | 0.34× (collapses) |
+| `Mutex<ExpanseBytesMap>` baseline | 12.37 M ops/s | 5.7 M ops/s | 3.7 M ops/s | 0.30× (collapses) |
+
+- **Read-only OCC scaling is near-linear on hit-bearing workloads** (11.5–11.8× at 16 threads) while coarse-mutex baselines fall below their single-thread throughput under contention.
+- **Write-mixed workloads do not scale** on the current protocol: a single tree-level seqlock brackets whole operations for the root snapshot, so under an active writer the version changes faster than a walk completes and readers fall back to the mutex — the architectural go/no-go signal for the per-node OCC refinement tracked in `docs/ARCHITECTURE.md` §6. (Quantified write-mixed curves await the #375 re-measurement; prior "6.9× linear scaling" / "58.2 M ops/s" write-mixed claims were already corrected.)
+- **Mechanism**: Fine-grained per-node version bracketing and epoch-based pointer reclamation allow concurrent readers to validate subtrees hand-over-hand without acquiring mutexes; today only the read-only path realizes full scaling.
 
 ---
 
-## Microarchitecture Scaling: x86-64-v1 vs v2 vs v3 vs v4
+## Microarchitecture Scaling: x86-64-v1 vs v3
 
-Expanse exploits hardware primitives via `glibc-hwcaps` and native CPU compilation (the instruction-reduction figures below are deterministic Callgrind instruction counts, not wall-clock; not tagged to a specific commit here):
+> **Retraction ([#372](https://github.com/orieg/expanse/issues/372)).** A per-tier v1/v2/v3/v4 instruction-reduction table previously published here is **retracted**: it was derived from a fabricated benchmark table (nonexistent harness arms, an `x86-64-v4`/AVX-512 column whose stated mechanism is not implemented anywhere in the tree, and per-cell numbers contradicting the committed measurements) — see the retraction note in [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
 
-| Microarchitecture Tier | Hardware Primitives Exploited | Instruction Reduction vs Baseline |
-|---|---|---:|
-| **`x86-64-v1`** | Generic 64-bit baseline (SSE2, SWAR bitwise rank) | *Baseline* |
-| **`x86-64-v2`** | Hardware `POPCNT`, SSE4.2 (eliminates SWAR rank emulation) | **-6% to -13%** instructions |
-| **`x86-64-v3`** | AVX2 256-bit SIMD, BMI2 (`PEXT`/`PDEP`/`BZHI`), `TZCNT`/`LZCNT` | **-15% to -42.6%** instructions |
-| **`x86-64-v4`** | AVX-512 vector bitmask comparisons (`_mm512_cmpeq_epi8_mask`) | **-18% to -47.2%** instructions |
-
-See [docs/BENCHMARKING.md](docs/BENCHMARKING.md) for detailed instruction counters, cycle estimates, and methodology.
+Real, committed per-tier data: [`docs/visualizer_data.json`](docs/visualizer_data.json) carries deterministic Callgrind instruction counts for the portable baseline (`x86-64-v1`) and `x86-64-v3` for every instruction-benchmark routine — v1→v3 deltas span **−1.9% to −42.6%** (largest on `map_remove/random`). A measured tier table will be restored from a `/bench extended` arch-sweep artifact (regeneration queued).
 
 ---
 

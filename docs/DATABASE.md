@@ -246,9 +246,9 @@ impl MvccEngine {
 }
 ```
 
-**Measured Concurrency Benchmark** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/concurrency.rs`, 1M keys, 500 ms windows)*:
-- **Read-only** membership scales near-linearly: `SyncExpanseSet` sustains **284.9M ops/s at 16 threads (12.2×)** with zero reader deadlocks and zero priority inversions.
-- **Write-mixed** OLTP (95% read / 5% write churn) does **not** scale linearly on the current tree-level seqlock: combined throughput peaks at ~**36.0M ops/s around 4 threads** and settles to ~30.2M at 16 threads as readers retry against an active writer. Full multi-core write-mixed scaling awaits the per-node OCC refinement (`docs/ARCHITECTURE.md` §6). (The earlier "linear to 58.2M ops/s" figure was undermeasured and is corrected.)
+**Measured Concurrency Benchmark** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, run 33016450539, commit `698bf70c`; `benches/concurrency.rs`, 100%-read arms)*:
+- **Read-only** OCC access scales near-linearly on hit-bearing (~50%-hit, payload-dereferencing) workloads: `SyncExpanseStrMap` **82.7 M ops/s (11.76×)** and `SyncExpanseBytesMap` **135.1 M ops/s (11.52×)** at 16 threads, with zero reader deadlocks and zero priority inversions; coarse-mutex baselines collapse to 0.34×/0.30×. *(The earlier `SyncExpanseSet` "284.9 M ops/s (12.2×)" figure is retracted ([#372](https://github.com/orieg/expanse/issues/372)): the set/map harness arms probed ~100%-miss unbounded random keys; re-measurement is tracked in [#375](https://github.com/orieg/expanse/issues/375).)*
+- **Write-mixed** OLTP does **not** scale linearly on the current tree-level seqlock: readers retry against an active writer, and full multi-core write-mixed scaling awaits the per-node OCC refinement (`docs/ARCHITECTURE.md` §6). Quantified write-mixed map/set curves are also pending the #375 re-measurement (the earlier "peaks ~36.0 M ops/s at 4 threads" and "linear to 58.2 M ops/s" figures came from the miss-probing arms).
 
 ---
 
@@ -440,21 +440,22 @@ Expanse provides an official pluggable MemTable implementation for RocksDB (`int
 #include "expanse_memtable.h"
 
 rocksdb::Options options;
-// 11.1x higher key density in RAM, fewer SSTable flushes, ~9.4x faster sequential scans
+// 1.42x higher key density in RAM vs a fair skiplist baseline (measured);
+// fewer SSTable flushes is inferred (target), scan-speed ratio pending re-run
 options.memtable_factory = rocksdb::NewExpanseMemTableRepFactory(
     /*leaf_capacity=*/64,
     /*enable_prefix_trie=*/true
 );
 ```
 
-**Architectural Benefits in RocksDB LSM Storage** *(throughput measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `integrations/rocksdb/benches/bench_memtable.cc`, 100k entries, 16B key / 64B value; memory density is deterministic accounting)*:
+**Architectural Benefits in RocksDB LSM Storage** *(memory density: deterministic seeded byte accounting, re-measured with the fair variable-height skiplist baseline at the [#372](https://github.com/orieg/expanse/issues/372) fix commit — Apple M1, 8 cores, Apple clang 21, `-O3`, load-immune, reproduced twice. Throughput cells: reference host — Intel i9-12900F, commit 7d87dff7 — but measured against the retracted strawman skiplist baseline and therefore pending re-run)*:
 
 ![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](./assets/bench_rocksdb.svg)
 
-1. **11.1× Higher In-Memory Key Density**: Leaf blocks store entry pointers in contiguous 64-byte aligned spans, cutting indexing overhead from **146.7 B/entry (SkipList) to 13.2 B/entry** (1.26 MB vs 14.0 MB for 100k entries).
-2. **Fewer L0 SSTable Flushes**: The higher density fits more user data per memtable budget, reducing flush frequency and LSM-tree compaction write amplification on SSD/NVMe drives.
-3. **~9.4× Faster Sequential Scans**: Traverses contiguous 64-byte leaf blocks via intrusive sibling leaf chaining at **151.4 Mops/s** vs 16.2 Mops/s in SkipList (`prefixscan`). Point lookups run at **276 ns/op vs 539 ns/op** (1.96×) and inserts at **4.65 vs 2.41 Mops/s** (1.93×). Note `VectorRep` (an unordered append vector) scans faster still (618 Mops/s) but cannot serve ordered seeks.
-4. **Zero-Copy Batch Scan Extraction**: `ScanBatch` extracts keys and values at **111.8 Mops/s** with zero redundant varint re-parsing.
+1. **1.42× Higher In-Memory Key Density** — *the earlier "11.1×" headline is retracted ([#372](https://github.com/orieg/expanse/issues/372))*: leaf blocks store entry pointers in contiguous 64-byte aligned spans at **13.2 B/entry vs 18.7 B/entry** for a fair variable-height skiplist (1.26 MB vs 1.8 MB for 100k entries). The retracted 146.7 B/entry baseline came from a strawman node embedding all 16 tower pointers statically; a real `InlineSkipList`-style node costs 8 B (key ptr) + height×8 B. **Honest framing:** `VectorRep` (unordered append vector) measures *denser than Expanse* — 10.5 vs 13.2 B/entry — in the same table; the Expanse edge is specifically over the ordered skiplist.
+2. **Fewer L0 SSTable Flushes** *(inferred (target) — not measured; no `db_bench` artifact)*: higher density should fit more user data per memtable budget and reduce flush frequency, but the effect scales with the honest 1.42× density edge and has not been measured.
+3. **Faster Sequential Scans** *(ratio pending re-run)*: intrusive sibling leaf chaining measured **151.4 Mops/s vs 16.2 Mops/s** (`prefixscan`), point lookups **276 ns/op vs 539 ns/op**, inserts **4.65 vs 2.41 Mops/s** on the reference host — but the SkipList arm ran the retracted fat-node layout, which degrades its cache locality, so the vs-SkipList ratios await a quiet-host re-run with the fair baseline. `VectorRep` scans faster still (618 Mops/s) but cannot serve ordered seeks.
+4. **Zero-Copy Batch Scan Extraction**: `ScanBatch` extracts keys and values at **111.8 Mops/s** with zero redundant varint re-parsing *(measured: reference host, commit 7d87dff7; no skiplist comparison involved)*.
 
 See [`integrations/rocksdb/README.md`](../integrations/rocksdb/README.md) for full benchmarks, configuration options, and build instructions.
 
@@ -559,7 +560,7 @@ F (50% Read, 50% RMW)        18.93 Mops/s         14.27 Mops/s          3.71 Mop
 
 Expanse provides modern database engines with a unified, high-performance family of digital trie data structures:
 - **Search & Inverted Indexes**: Sub-15ns boolean queries with 0.07–0.36 B/docID memory packing.
-- **MVCC Engine Visibility**: Zero-lock concurrent reader validation scaling near-linearly to 265M+ read ops/s across 16 threads (write-mixed scaling is seqlock-bound pending the per-node OCC refinement — see §3.2).
+- **MVCC Engine Visibility**: Zero-lock concurrent reader validation scaling near-linearly on hit-bearing read workloads — 11.76× / 82.7 M ops/s (`SyncExpanseStrMap`) and 11.52× / 135.1 M ops/s (`SyncExpanseBytesMap`) at 16 threads, vs coarse-mutex baselines collapsing to 0.34×/0.30× *(measured: reference host — Intel i9-12900F, run 33016450539, commit 698bf70c)*. The earlier "265M+ ops/s across 16 threads" map figure is **retracted** — it was measured against ~100%-miss unbounded-`u64` probes; map/set arms will be re-measured after the keyspace fix ([#375](https://github.com/orieg/expanse/issues/375)). Write-mixed scaling remains seqlock-bound pending the per-node OCC refinement — see §3.2.
 - **Columnar Symbol Dictionaries**: 70%+ memory reduction on shared-prefix strings via 8-byte big-endian cross-chunk path folding.
 - **MemTables & Secondary Indexes**: Rebalance-free $O(\text{depth})$ ordered key indexing with fast point/prefix lookups (full ordered iteration is now faster than a B-tree for dense keys, still slower on sparse keys — see §7.1†).
 - **Shared Memory IPC**: Zero-deserialization analytical query sharing across multi-worker engine processes.

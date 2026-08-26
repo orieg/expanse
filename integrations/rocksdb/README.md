@@ -11,7 +11,7 @@ In LSM-tree storage engines like RocksDB, the **MemTable** buffers concurrent wr
 The default RocksDB memtable implementation (`SkipListRep`) incurs significant performance and memory overheads:
 - **High Pointer Overhead**: SkipLists allocate randomized height towers (1 to 32 forward pointers per node), consuming 32–64 bytes of indexing metadata per key.
 - **CPU Cache Misses**: Traversing a SkipList causes pointer chasing across scattered heap allocations, thrashing L1/L2 CPU caches.
-- **Premature SSTable Flushes**: Because SkipList metadata consumes up to 40%–50% of the allocated `write_buffer_size`, fewer user keys fit in RAM, triggering frequent L0 flushes and cascading compaction write amplification.
+- **Premature SSTable Flushes**: SkipList tower metadata is memory that does not hold user data, so fewer user keys fit per `write_buffer_size`, triggering earlier L0 flushes and compaction write amplification. *(The size of this effect depends on entry size; it has not been measured here — see the (target) note in §2.)*
 
 ### The Expanse MemTable Advantage
 
@@ -38,13 +38,14 @@ The default RocksDB memtable implementation (`SkipListRep`) incurs significant p
  └──────────────────┘          └──────────────────┘          └──────────────────┘
 ```
 
-1. **~11× Higher Key Density in RAM** (vs the reference SkipList):
-   - Leaf blocks store entry pointers in contiguous 64-byte spans. Indexing overhead is **13.2 bytes/entry (Expanse) vs 146.7 bytes/entry (reference SkipList)** for 100k entries — a deterministic accounting figure.
-   - More user data fits into the same memtable memory budget, reducing L0 SSTable flush frequency and downstream compaction pressure.
-2. **Reduced Compaction Write Amplification**:
-   - Larger effective in-memory batching before flush leads to wider sorted runs and fewer overlapping L0 SSTables, lowering write amplification on NVMe/SSD storage.
-3. **~10× Faster Sequential Iteration** (vs the reference SkipList):
-   - Forward range scans traverse contiguous leaf blocks via intrusive sibling leaf chaining at **160.8 Mops/sec** (vs 16.4 Mops/sec for the pointer-hopping SkipList). An unordered `VectorRep` append-vector scans faster still (599 Mops/sec) but cannot serve ordered seeks.
+1. **1.42× Higher Key Density in RAM** (vs a fair reference SkipList) — *the earlier "~11×" headline is retracted*:
+   - Leaf blocks store entry pointers in contiguous 64-byte spans. Indexing overhead is **13.2 bytes/entry (Expanse) vs 18.7 bytes/entry (fair reference SkipList)** for 100k entries — deterministic seeded byte accounting *(measured: Apple M1, 8 cores, Apple clang 21, `-O3`, at the #372 fix commit; load-immune, reproduced twice; the Expanse and VectorRep cells reproduce the commit-`7d87dff7` reference-host values byte-for-byte)*.
+   - **Retraction ([#372](https://github.com/orieg/expanse/issues/372))**: the previously published **146.7 B/entry SkipList baseline (11.1× headline)** came from a strawman whose `Node` statically embedded all 16 tower pointers (144 B) in every node *and* added the per-height pointers on top. A real skiplist (RocksDB `InlineSkipList`, LevelDB `SkipList`) allocates variable-height nodes — the fixed baseline costs 8 B (key ptr) + height×8 B (tower), E[height] = 4/3 → ~18.7 B/entry, which the re-measurement confirms exactly.
+   - **Honest framing**: `VectorRep` (unordered append vector) is *denser than Expanse* — **10.5 vs 13.2 B/entry** — in the same measured table; Expanse's density advantage is specifically over the *ordered* skiplist baseline, and it is 1.42×, not 11×.
+2. **Reduced Compaction Write Amplification** *(inferred (target) — not measured; no `db_bench` artifact exists)*:
+   - Higher density *should* fit more user data per memtable budget, reduce L0 SSTable flush frequency, and lower write amplification — but with a 1.42× (not 11×) density edge the effect is proportionally modest, and no flush/stall measurement has been run.
+3. **Faster Sequential Iteration** (vs the reference SkipList) — *ratio pending re-measurement*:
+   - Forward range scans traverse contiguous leaf blocks via intrusive sibling leaf chaining; the commit-`7d87dff7` reference-host run measured **160.8 Mops/sec vs 16.4 Mops/sec** — but the SkipList arm ran with the retracted fat-node layout (worse cache locality than a fair skiplist), so the ~10× ratio is **pending a quiet-host re-run with the fair variable-height baseline**. An unordered `VectorRep` append-vector scans faster still (599 Mops/sec) but cannot serve ordered seeks.
 4. **$O(\text{depth})$ Prefix Seeks**:
    - Prefix lookups skip non-matching branches in a single digit comparison without descending empty key spaces.
 
@@ -54,18 +55,20 @@ The default RocksDB memtable implementation (`SkipListRep`) incurs significant p
 
 ![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](../../docs/assets/bench_rocksdb.svg)
 
-*(Measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 7d87dff7; `benches/bench_memtable.cc` built `-O3` against release `libexpanse.so`; 100,000 keys, 16-byte key, 64-byte value payload; median of 3 back-to-back runs on an idle host (load < 0.4). The memory-footprint / B-entry column is deterministic byte accounting; throughput columns are wall-clock on this host. `SkipListRep`/`VectorRep` are the in-file reference implementations, not stock RocksDB.)*
+> **Baseline retraction ([#372](https://github.com/orieg/expanse/issues/372)).** All "vs SkipList" cells below were measured against a strawman skiplist whose nodes statically embedded the full 16-pointer tower (~146.7 B/entry — the layout is fixed in `benches/bench_memtable.cc`). The **memory row is re-measured with the fair variable-height baseline** (deterministic byte accounting, load-immune): the honest density edge is **1.42×**, not 11.11×. The **throughput rows are retained as the record of the commit-`7d87dff7` run but their vs-SkipList ratios are pending a quiet-host re-run** with the fair baseline (the fat-node layout degrades the skiplist's cache locality, inflating Expanse's ratios).
+
+*(Throughput rows measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 7d87dff7; `benches/bench_memtable.cc` built `-O3` against release `libexpanse.so`; 100,000 keys, 16-byte key, 64-byte value payload; median of 3 back-to-back runs on an idle host (load < 0.4); **SkipList arm = retracted strawman baseline, pending re-run**. Memory row: deterministic seeded byte accounting, re-measured with the fair variable-height baseline at the #372 fix commit (Apple M1, 8 cores, Apple clang 21, `-O3`; reproduced twice; Expanse/VectorRep cells reproduce the reference-host values byte-for-byte). `SkipListRep`/`VectorRep` are the in-file reference implementations, not stock RocksDB.)*
 
 | Benchmark Metric | ExpanseMemTable | Reference SkipListRep | VectorRep | Expanse vs SkipList |
 |---|---:|---:|---:|---|
-| **Memory Footprint** (100K keys) | **1.26 MB** (13.2 B/entry) | 14.0 MB (146.7 B/entry) | 1.0 MB (10.5 B/entry) | **11.11× Higher Key Density** |
-| **Fill Random** (`fillrandom` insert) | **4.65 Mops/s** | 2.43 Mops/s | 204.81 Mops/s | **1.91× Faster Inserts** |
-| **Point Lookup** (`readrandom`) | **273 ns/op** (3.66 Mops/s) | 541 ns/op (1.85 Mops/s) | 546 ns/op (1.83 Mops/s) | **1.98× Faster Lookups** |
-| **Range Seek** (`seekrandom`) | **3.68 Mops/s** | 1.73 Mops/s | 3.90 Mops/s | **2.13× Faster Seeks** |
-| **Sequential Scan** (`prefixscan` Iterator) | **160.84 Mops/s** | 16.40 Mops/s | 598.95 Mops/s | **9.81× Faster Ordered Scans** |
-| **Batch Scan** (`ScanBatch` 1024-chunk) | **114.92 Mops/s** | N/A | N/A | **High-Throughput Batch Extraction** |
+| **Memory Footprint** (100K keys) | **1.26 MB** (13.2 B/entry) | 1.8 MB (18.7 B/entry, fair baseline) | **1.0 MB (10.5 B/entry)** | **1.42× Higher Key Density** (VectorRep is denser than both) |
+| **Fill Random** (`fillrandom` insert) | 4.65 Mops/s | 2.43 Mops/s *(strawman baseline)* | 204.81 Mops/s | pending fair-baseline re-run |
+| **Point Lookup** (`readrandom`) | 273 ns/op (3.66 Mops/s) | 541 ns/op *(strawman baseline)* | 546 ns/op | pending fair-baseline re-run |
+| **Range Seek** (`seekrandom`) | 3.68 Mops/s | 1.73 Mops/s *(strawman baseline)* | 3.90 Mops/s | pending fair-baseline re-run |
+| **Sequential Scan** (`prefixscan` Iterator) | 160.84 Mops/s | 16.40 Mops/s *(strawman baseline)* | 598.95 Mops/s | pending fair-baseline re-run |
+| **Batch Scan** (`ScanBatch` 1024-chunk) | **114.92 Mops/s** | N/A | N/A | High-Throughput Batch Extraction |
 
-> `VectorRep` (an unordered append-only vector) wins on insert and unordered scan by construction but cannot serve ordered range seeks — it is included as a throughput ceiling, not an ordered-index competitor.
+> `VectorRep` (an unordered append-only vector) wins on insert and unordered scan by construction — and on raw memory density (10.5 B/entry) — but cannot serve ordered range seeks; it is included as a throughput/density ceiling, not an ordered-index competitor.
 
 ---
 
