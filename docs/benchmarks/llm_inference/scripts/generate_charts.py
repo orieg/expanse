@@ -3,7 +3,7 @@
 Dual-theme SVG chart generator for the LLM inference benchmark suite (#342).
 
 Produces four charts:
-  1. bench_draft_quality_alpha.svg   (Pillar A, reference-continuation acceptance alpha)
+  1. bench_draft_quality_alpha.svg   (Pillar A, macro reference-continuation acceptance alpha)
   2. bench_llm_datastore_scaling.svg (Pillar B, streaming ingestion throughput)
   3. bench_grammar_masks_memory.svg  (Pillar D, DFA mask cache memory)
   4. bench_prefix_lru_throughput.svg (Pillar E, KV-block table RAM)
@@ -42,9 +42,9 @@ def render_draft_quality_chart():
         data = json.load(f)
 
     workloads = [
-        ("humaneval_code", "HumanEval Code", "OpenAI HumanEval/0..39 (MIT)"),
-        ("summarization", "Document Summarization", "Wikipedia Computer Science Corpus"),
-        ("json_schemas", "JSON Schemas", "SchemaStore JSON Schemas & Payloads"),
+        ("humaneval_code", "HumanEval Code (N=40)", "OpenAI HumanEval/0..39 (MIT)"),
+        ("summarization", "Document Summarization (N=9)", "Wikipedia Computer Science Corpus"),
+        ("json_schemas", "JSON Schemas (N=5)", "SchemaStore JSON Schemas & Payloads"),
     ]
 
     max_val = 4.0
@@ -56,7 +56,7 @@ def render_draft_quality_chart():
     svg = svg_header(width=960, height=height, title="PILLAR A — REFERENCE-CONTINUATION ACCEPTANCE ALPHA")
     svg += f"""
   <text x="30" y="34" class="t-title">PILLAR A — REFERENCE-CONTINUATION ACCEPTANCE ALPHA</text>
-  <text x="30" y="50" class="t-sub">Mean acceptance length &#945; &#183; tokens/step &#183; higher is better (vs HuggingFace Adaptive Lookup)</text>
+  <text x="30" y="50" class="t-sub">Macro mean acceptance length &#945; &#183; tokens/step &#183; higher is better (vs HuggingFace Adaptive Lookup)</text>
   <g transform="translate(620, 24)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
     <text x="18" y="10" class="t-legend">Expanse Variable LSM</text>
@@ -70,19 +70,24 @@ def render_draft_quality_chart():
         if key not in data:
             continue
         y = top + i * row_h
-        base_val = data[key]["hf_adaptive_lookup"]["mean_acceptance_length_alpha"]
-        exp_val = data[key]["expanse_longest_suffix"]["mean_acceptance_length_alpha"]
+        base_val = data[key]["hf_adaptive_lookup"]["macro_acceptance_length_alpha"]
+        exp_val = data[key]["expanse_longest_suffix"]["macro_acceptance_length_alpha"]
+        ceil_info = data[key].get("_speculative_ceiling", {})
+        gain_pct = ceil_info.get("tok_per_sec_ceiling_gain_pct", 0.0)
+        delta_a = ceil_info.get("paired_delta_alpha", exp_val - base_val)
 
         w_exp = max(2.0, (exp_val / max_val) * bar_max)
         w_base = max(2.0, (base_val / max_val) * bar_max)
-        diff_pct = ((exp_val - base_val) / (1.0 + base_val)) * 100.0
 
-        if diff_pct >= 0:
-            badge = f"""  <rect x="780" y="{y + 2}" width="150" height="18" rx="3" class="badge-win"/>
-  <text x="855" y="{y + 15}" class="badge-win-text">Expanse {diff_pct:+.1f}% &#945;</text>"""
+        if abs(gain_pct) < 0.5:
+            badge = f"""  <rect x="760" y="{y + 2}" width="170" height="18" rx="3" class="badge-loss"/>
+  <text x="845" y="{y + 15}" class="badge-loss-text">Dead heat (&#916;&#945; = {delta_a:+.2f})</text>"""
+        elif gain_pct > 0:
+            badge = f"""  <rect x="760" y="{y + 2}" width="170" height="18" rx="3" class="badge-win"/>
+  <text x="845" y="{y + 15}" class="badge-win-text">+{gain_pct:.1f}% tok/s (&#916;&#945; = {delta_a:+.2f})</text>"""
         else:
-            badge = f"""  <rect x="780" y="{y + 2}" width="150" height="18" rx="3" class="badge-loss"/>
-  <text x="855" y="{y + 15}" class="badge-loss-text">HF Adaptive {abs(diff_pct):.1f}% higher</text>"""
+            badge = f"""  <rect x="760" y="{y + 2}" width="170" height="18" rx="3" class="badge-loss"/>
+  <text x="845" y="{y + 15}" class="badge-loss-text">HF Adaptive {abs(gain_pct):.1f}% higher</text>"""
 
         svg += f"""  <text x="30" y="{y + 8}" class="t-bar-label">{esc(label)}</text>
   <text x="30" y="{y + 22}" class="t-sub">{esc(sub)}</text>
@@ -120,11 +125,11 @@ def render_datastore_chart():
     svg += f"""
   <text x="30" y="34" class="t-title">PILLAR B — DYNAMIC DATASTORE INGESTION THROUGHPUT</text>
   <text x="30" y="50" class="t-sub">Streaming insertion throughput &#183; k tok/s &#183; higher is better (Expanse trades 6.9x RAM for O(depth) updates)</text>
-  <g transform="translate(600, 24)">
+  <g transform="translate(580, 24)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
     <text x="18" y="10" class="t-legend">ExpanseStrMap (Streaming)</text>
     <rect x="0" y="18" width="12" height="12" rx="2" class="b-baseline"/>
-    <text x="18" y="28" class="t-legend">Suffix Array (Rebuild/token)</text>
+    <text x="18" y="28" class="t-legend">Static Window Index (Rebuild/tok)</text>
   </g>
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
 """
@@ -134,20 +139,21 @@ def render_datastore_chart():
             continue
         y = top + i * row_h
         exp_tps = data[pop]["expanse_strmap"]["streaming_insert_tps"] / 1000.0
-        sa_rebuild_ms = data[pop]["suffix_array"]["rebuild_time_ms"]
-        sa_single_tok_tps = (1000.0 / max(1e-6, sa_rebuild_ms)) / 1000.0
+        static_info = data[pop].get("sorted_window_index", data[pop].get("suffix_array", {}))
+        static_rebuild_ms = static_info.get("rebuild_time_ms", 100.0)
+        static_single_tok_tps = (1000.0 / max(1e-6, static_rebuild_ms)) / 1000.0
         crossover = data[pop]["expanse_strmap"]["crossover_batch_size_tokens"]
-        speedup = exp_tps / max(1e-6, sa_single_tok_tps)
+        speedup = exp_tps / max(1e-6, static_single_tok_tps)
 
         w_exp = max(2.0, (exp_tps / max_val) * bar_max)
-        w_sa = max(2.0, (sa_single_tok_tps / max_val) * bar_max)
+        w_static = max(2.0, (static_single_tok_tps / max_val) * bar_max)
 
         svg += f"""  <text x="30" y="{y + 8}" class="t-bar-label">{esc(label)}</text>
   <text x="30" y="{y + 22}" class="t-sub">{esc(sub)}</text>
   <rect x="250" y="{y - 4}" width="{w_exp:.1f}" height="13" rx="2" class="b-expanse"/>
   <text x="{258 + w_exp:.1f}" y="{y + 6}" class="t-val-blue">{exp_tps:.1f}k tok/s</text>
-  <rect x="250" y="{y + 12}" width="{w_sa:.1f}" height="13" rx="2" class="b-baseline"/>
-  <text x="{258 + w_sa:.1f}" y="{y + 22}" class="t-val-gray">{sa_single_tok_tps:.2f}k tok/s</text>
+  <rect x="250" y="{y + 12}" width="{w_static:.1f}" height="13" rx="2" class="b-baseline"/>
+  <text x="{258 + w_static:.1f}" y="{y + 22}" class="t-val-gray">{static_single_tok_tps:.2f}k tok/s</text>
   <rect x="760" y="{y + 2}" width="170" height="18" rx="3" class="badge-win"/>
   <text x="845" y="{y + 15}" class="badge-win-text">Expanse {speedup:.0f}x (B &lt; {crossover:,})</text>
 """
@@ -174,7 +180,7 @@ def render_grammar_masks_chart():
         ("Roaring Bitmap", "Container array (Compressed)", roaring_mb, "roaring", dense_mb / max(0.01, roaring_mb)),
     ]
 
-    max_val = max(dense_mb, 1.0) * 1.25
+    max_val = max(dense_mb, expanse_mb, roaring_mb, 1.0) * 1.15
     bar_max = 380.0
     row_h = 56
     top = 96
@@ -198,8 +204,12 @@ def render_grammar_masks_chart():
         elif kind == "expanse":
             bar_cls = "b-expanse"
             val_cls = "t-val-blue"
-            badge = f"""  <rect x="790" y="{y + 2}" width="140" height="18" rx="3" class="badge-win"/>
+            if ratio >= 1.0:
+                badge = f"""  <rect x="790" y="{y + 2}" width="140" height="18" rx="3" class="badge-win"/>
   <text x="860" y="{y + 15}" class="badge-win-text">Expanse {ratio:.1f}x lower</text>"""
+            else:
+                badge = f"""  <rect x="790" y="{y + 2}" width="140" height="18" rx="3" class="badge-loss"/>
+  <text x="860" y="{y + 15}" class="badge-loss-text">Expanse {1.0 / max(0.01, ratio):.1f}x higher</text>"""
         else:
             bar_cls = "b-highlight"
             val_cls = "t-val-accent"

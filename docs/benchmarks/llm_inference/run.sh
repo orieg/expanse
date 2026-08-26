@@ -35,10 +35,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+log_system_load() {
+    echo "--- System Load Snapshot ---"
+    if command -v uptime >/dev/null 2>&1; then
+        uptime
+    fi
+    echo "----------------------------"
+}
+
 echo "========================================================================"
 echo " Running Expanse LLM Inference Benchmark Suite"
 echo " Repo Root: ${REPO_ROOT}"
 echo "========================================================================"
+log_system_load
 
 # Step 0: Math derivation & ceiling unit tests
 echo "==> [0/5] Verifying Step 0 Speedup Ceiling Model..."
@@ -52,10 +61,12 @@ python3 "${SCRIPT_DIR}/scripts/record_streams.py"
 
 # Step 2: Pillar A (Speculative Draft Quality & Alpha)
 echo "==> [2/5] Running Pillar A: Reference-Continuation Draft Quality..."
+log_system_load
 python3 "${SCRIPT_DIR}/benches/bench_draft_quality.py" ${QUICK_FLAG}
 
-# Step 3: Pillar B (Native Rust Dynamic Datastore vs Suffix Array)
-echo "==> [3/5] Running Pillar B: Native Rust Dynamic Datastore vs Suffix Array..."
+# Step 3: Pillar B (Native Rust Dynamic Datastore vs Static Sorted Window Index)
+echo "==> [3/5] Running Pillar B: Native Rust Dynamic Datastore vs Static Window Index..."
+log_system_load
 (
     cd "${REPO_ROOT}"
     cargo bench --bench bench_llm_datastore -p expanse-trie -- ${QUICK_FLAG}
@@ -63,6 +74,7 @@ echo "==> [3/5] Running Pillar B: Native Rust Dynamic Datastore vs Suffix Array.
 
 # Step 4: Pillar D (Native Rust Grammar Masks vs Roaring / Dense)
 echo "==> [4/5] Running Pillar D: Native Rust Grammar Mask Cache & Set Algebra..."
+log_system_load
 (
     cd "${REPO_ROOT}"
     cargo bench --bench bench_grammar_masks -p expanse-trie -- ${QUICK_FLAG}
@@ -70,12 +82,14 @@ echo "==> [4/5] Running Pillar D: Native Rust Grammar Mask Cache & Set Algebra..
 
 # Step 5: Pillar E (KV-Block Index Appendix)
 echo "==> [5/5] Running Pillar E: Prefix-Cache KV-Block Table..."
+log_system_load
 python3 "${SCRIPT_DIR}/benches/bench_prefix_lru.py" ${QUICK_FLAG}
 
 # Step 6: Generate Dual-Theme SVGs
 echo "==> Generating Dual-Theme SVG Comparison Charts..."
 python3 "${SCRIPT_DIR}/scripts/generate_charts.py"
 
+log_system_load
 echo "========================================================================"
 echo " All LLM Inference benchmarks completed successfully!"
 echo " Results written to: ${RESULTS_DIR}"

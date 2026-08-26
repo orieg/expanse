@@ -86,20 +86,20 @@
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="104" class="t-bar-label">Dense Bitmask</text>
   <text x="30" y="118" class="t-sub">[u64] Array (Full vocab)</text>
-  <rect x="250" y="92" width="304.0" height="20" rx="3" class="b-baseline"/>
-  <text x="562.0" y="107" class="t-val-gray">30.52 MB</text>
+  <rect x="250" y="92" width="79.2" height="20" rx="3" class="b-baseline"/>
+  <text x="337.2" y="107" class="t-val-gray">30.61 MB</text>
   <rect x="790" y="98" width="140" height="18" rx="3" class="badge-loss"/>
   <text x="860" y="111" class="badge-loss-text">Dense Baseline</text>
   <text x="30" y="160" class="t-bar-label">ExpanseSet</text>
   <text x="30" y="174" class="t-sub">Judy digital trie (Compressed)</text>
-  <rect x="250" y="148" width="211.5" height="20" rx="3" class="b-expanse"/>
-  <text x="469.5" y="163" class="t-val-blue">21.23 MB</text>
-  <rect x="790" y="154" width="140" height="18" rx="3" class="badge-win"/>
-  <text x="860" y="167" class="badge-win-text">Expanse 1.4x lower</text>
+  <rect x="250" y="148" width="330.4" height="20" rx="3" class="b-expanse"/>
+  <text x="588.4" y="163" class="t-val-blue">127.64 MB</text>
+  <rect x="790" y="154" width="140" height="18" rx="3" class="badge-loss"/>
+  <text x="860" y="167" class="badge-loss-text">Expanse 4.2x higher</text>
   <text x="30" y="216" class="t-bar-label">Roaring Bitmap</text>
   <text x="30" y="230" class="t-sub">Container array (Compressed)</text>
-  <rect x="250" y="204" width="101.4" height="20" rx="3" class="b-highlight"/>
-  <text x="359.4" y="219" class="t-val-accent">10.18 MB</text>
+  <rect x="250" y="204" width="29.8" height="20" rx="3" class="b-highlight"/>
+  <text x="287.8" y="219" class="t-val-accent">11.50 MB</text>
   <rect x="790" y="210" width="140" height="18" rx="3" class="badge-win"/>
-  <text x="860" y="223" class="badge-win-text">Roaring 3.0x lower</text>
+  <text x="860" y="223" class="badge-win-text">Roaring 2.7x lower</text>
 </svg>

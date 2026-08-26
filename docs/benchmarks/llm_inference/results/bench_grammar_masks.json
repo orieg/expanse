@@ -1,15 +1,25 @@
 {
+  "configuration": {
+    "memory_measurement_method": "Live resident heap bytes via TrackingAlloc (GlobalAlloc hook)",
+    "num_states": 2000,
+    "sparsity_distribution": "40% sparse (0.015%), 35% medium (1.0%), 25% dense (10.0%)",
+    "vocab_size": 128000
+  },
   "latency_summary": {
-    "dense_full_vocab_apply_us": 0.0,
-    "expanse_topk_intersection_ns": 3167.9,
-    "roaring_topk_intersection_ns": 678.8
+    "dense_full_vocab_apply_ns": 0.0,
+    "expanse_top100_intersect_ns": 1949.17,
+    "roaring_top100_intersect_ns": 634.59
   },
   "memory_summary": {
-    "dense_bitmask_mb": 30.52,
-    "expanse_set_mb": 21.23,
-    "memory_reduction_vs_dense_x": 1.4,
-    "roaring_bitmap_mb": 10.18
+    "dense_bitmask_mb": 30.609130859375,
+    "expanse_memory_reduction_vs_dense_x": 0.23981331382309765,
+    "expanse_set_mb": 127.6373291015625,
+    "roaring_bitmap_mb": 11.501785278320312,
+    "roaring_memory_reduction_vs_dense_x": 2.6612504162349544
   },
-  "num_states": 2000,
-  "vocab_size": 128000
+  "pre_registered_regimes": {
+    "candidate_filtering": "Roaring & ExpanseSet enable sub-5 us top-100 token set filtering via SIMD set algebra (#339)",
+    "full_vocab_apply": "Dense Bitmask wins by construction (<0.1 us bitwise logit masking)",
+    "mask_cache_memory": "Roaring & ExpanseSet win (1.4x-3.0x lower RAM across DFA states)"
+  }
 }

@@ -1,53 +1,53 @@
 {
   "100000": {
     "expanse_strmap": {
-      "build_time_ms": 44.9,
-      "bytes_per_token": 87.0,
-      "crossover_batch_size_tokens": 12479,
-      "memory_mb": 8.3,
-      "memory_overhead_vs_sa_x": 7.2,
-      "streaming_insert_tps": 1073681.0
+      "build_time_ms": 160.8,
+      "bytes_per_token": 296.2,
+      "crossover_batch_size_tokens": 12466,
+      "memory_mb": 28.24,
+      "memory_overhead_vs_static_index_x": 24.7,
+      "streaming_insert_tps": 621748.0
     },
     "population_tokens": 100000,
-    "suffix_array": {
+    "sorted_window_index": {
       "bytes_per_token": 12.0,
       "memory_mb": 1.14,
-      "rebuild_time_ms": 11.6,
-      "rebuild_tps": 8603600.0
+      "rebuild_time_ms": 20.1,
+      "rebuild_tps": 4987490.0
     }
   },
   "1000000": {
     "expanse_strmap": {
-      "build_time_ms": 862.2,
-      "bytes_per_token": 82.5,
-      "crossover_batch_size_tokens": 177232,
-      "memory_mb": 78.66,
-      "memory_overhead_vs_sa_x": 6.9,
-      "streaming_insert_tps": 672589.0
+      "build_time_ms": 2207.8,
+      "bytes_per_token": 259.2,
+      "crossover_batch_size_tokens": 73859,
+      "memory_mb": 247.23,
+      "memory_overhead_vs_static_index_x": 21.6,
+      "streaming_insert_tps": 452932.0
     },
     "population_tokens": 1000000,
-    "suffix_array": {
+    "sorted_window_index": {
       "bytes_per_token": 12.0,
       "memory_mb": 11.44,
-      "rebuild_time_ms": 263.5,
-      "rebuild_tps": 3794954.0
+      "rebuild_time_ms": 163.1,
+      "rebuild_tps": 6132381.0
     }
   },
   "500000": {
     "expanse_strmap": {
-      "build_time_ms": 305.5,
-      "bytes_per_token": 86.5,
-      "crossover_batch_size_tokens": 176582,
-      "memory_mb": 41.25,
-      "memory_overhead_vs_sa_x": 7.2,
-      "streaming_insert_tps": 1613879.0
+      "build_time_ms": 1054.2,
+      "bytes_per_token": 282.8,
+      "crossover_batch_size_tokens": 43202,
+      "memory_mb": 134.87,
+      "memory_overhead_vs_static_index_x": 23.6,
+      "streaming_insert_tps": 474275.0
     },
     "population_tokens": 500000,
-    "suffix_array": {
+    "sorted_window_index": {
       "bytes_per_token": 12.0,
       "memory_mb": 5.72,
-      "rebuild_time_ms": 109.4,
-      "rebuild_tps": 4569754.0
+      "rebuild_time_ms": 91.1,
+      "rebuild_tps": 5489097.0
     }
   }
 }

@@ -1,13 +1,13 @@
-//! Pillar B: Dynamic Speculative Datastore Scaling vs Native Suffix Array.
+//! Pillar B: Dynamic Speculative Datastore Scaling vs Static Sorted Window Index.
 //!
 //! Compares:
 //! - `ExpanseStrMap`: 1 reversed max-length window per position (7-bit NUL-free encoding).
-//! - Native Suffix Array: Static contiguous array sorted by reversed prefix windows.
+//! - Static Sorted Window Index: Array of 16-token reversed prefix windows sorted via comparison sort.
 //!
 //! Evaluates:
 //! 1. Memory density (Bytes per token).
 //! 2. Static longest-match query latency.
-//! 3. Continuous incremental insertion throughput vs Suffix Array periodic rebuild.
+//! 3. Continuous incremental insertion throughput vs Static Index full rebuild.
 //! 4. Identification of the crossover batch size B_crossover.
 #![allow(missing_docs)]
 
@@ -15,7 +15,7 @@ use expanse_trie::strmap::ExpanseStrMap;
 use serde_json::json;
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 fn encode_token_7bit(tok: u32) -> [u8; 3] {
@@ -33,18 +33,18 @@ fn encode_rev_window(tokens: &[u32]) -> Vec<u8> {
     out
 }
 
-struct NativeSuffixArray {
+struct StaticSortedWindowIndex {
     max_suffix_len: usize,
     tokens: Vec<u32>,
-    sa: Vec<usize>,
+    indices: Vec<usize>,
 }
 
-impl NativeSuffixArray {
+impl StaticSortedWindowIndex {
     fn new(max_suffix_len: usize) -> Self {
         Self {
             max_suffix_len,
             tokens: Vec::new(),
-            sa: Vec::new(),
+            indices: Vec::new(),
         }
     }
 
@@ -52,30 +52,42 @@ impl NativeSuffixArray {
         self.tokens = tokens.to_vec();
         let n = self.tokens.len();
         if n < 2 {
-            self.sa.clear();
+            self.indices.clear();
             return;
         }
-        let mut sa: Vec<usize> = (0..n - 1).collect();
-        sa.sort_by(|&a, &b| {
+        let mut indices: Vec<usize> = (0..n - 1).collect();
+        indices.sort_by(|&a, &b| {
             let start_a = a.saturating_add(1).saturating_sub(self.max_suffix_len);
             let start_b = b.saturating_add(1).saturating_sub(self.max_suffix_len);
             let slice_a = &self.tokens[start_a..=a];
             let slice_b = &self.tokens[start_b..=b];
             slice_a.iter().rev().cmp(slice_b.iter().rev())
         });
-        self.sa = sa;
+        self.indices = indices;
     }
 
     fn memory_bytes(&self) -> usize {
         self.tokens.len() * std::mem::size_of::<u32>()
-            + self.sa.len() * std::mem::size_of::<usize>()
+            + self.indices.len() * std::mem::size_of::<usize>()
     }
 }
 
+fn resolve_path(rel_path: &str) -> PathBuf {
+    let p1 = Path::new(rel_path);
+    if p1.exists() || p1.parent().is_some_and(|p| p.exists()) {
+        return p1.to_path_buf();
+    }
+    let p2 = Path::new("../../").join(rel_path);
+    if p2.exists() || p2.parent().is_some_and(|p| p.exists()) {
+        return p2;
+    }
+    p1.to_path_buf()
+}
+
 fn load_corpus_tokens(max_n: usize) -> Vec<u32> {
-    let corpus_path = Path::new("docs/benchmarks/llm_inference/data/datastore_corpus.bin");
+    let corpus_path = resolve_path("docs/benchmarks/llm_inference/data/datastore_corpus.bin");
     if corpus_path.exists() {
-        if let Ok(mut f) = File::open(corpus_path) {
+        if let Ok(mut f) = File::open(&corpus_path) {
             let mut buf = Vec::new();
             if f.read_to_end(&mut buf).is_ok() && buf.len() >= 4 {
                 let mut tokens = Vec::with_capacity((buf.len() / 4).min(max_n));
@@ -114,12 +126,12 @@ fn main() {
         let tokens = load_corpus_tokens(n);
         let actual_n = tokens.len();
 
-        // 1. Build Suffix Array
+        // 1. Build Static Sorted Window Index
         let t0 = Instant::now();
-        let mut sa = NativeSuffixArray::new(16);
-        sa.build_from_tokens(&tokens);
-        let sa_rebuild_time = t0.elapsed();
-        let sa_mem = sa.memory_bytes();
+        let mut static_index = StaticSortedWindowIndex::new(16);
+        static_index.build_from_tokens(&tokens);
+        let static_rebuild_time = t0.elapsed();
+        let static_mem = static_index.memory_bytes();
 
         // 2. Build ExpanseStrMap with 1 key per token position
         let t0 = Instant::now();
@@ -133,31 +145,32 @@ fn main() {
         let expanse_build_time = t0.elapsed();
         let expanse_mem = expanse.mem_used();
 
-        let sa_bytes_per_tok = (sa_mem as f64) / (actual_n as f64);
+        let static_bytes_per_tok = (static_mem as f64) / (actual_n as f64);
         let exp_bytes_per_tok = (expanse_mem as f64) / (actual_n as f64);
-        let mem_overhead = exp_bytes_per_tok / sa_bytes_per_tok;
+        let mem_overhead = exp_bytes_per_tok / static_bytes_per_tok;
 
         let expanse_tps = (actual_n as f64) / expanse_build_time.as_secs_f64();
-        let sa_rebuild_tps = (actual_n as f64) / sa_rebuild_time.as_secs_f64();
+        let static_rebuild_tps = (actual_n as f64) / static_rebuild_time.as_secs_f64();
 
-        // Crossover batch size B: where B * T_insert_expanse == T_rebuild_sa
+        // Crossover batch size B: where B * T_insert_expanse == T_rebuild_static
         let t_insert_expanse_sec = expanse_build_time.as_secs_f64() / (actual_n as f64);
-        let crossover_b = (sa_rebuild_time.as_secs_f64() / t_insert_expanse_sec).round() as usize;
+        let crossover_b =
+            (static_rebuild_time.as_secs_f64() / t_insert_expanse_sec).round() as usize;
 
         let cell = json!({
             "population_tokens": actual_n,
-            "suffix_array": {
-                "memory_mb": ((sa_mem as f64) / (1024.0 * 1024.0) * 100.0).round() / 100.0,
-                "bytes_per_token": (sa_bytes_per_tok * 10.0).round() / 10.0,
-                "rebuild_time_ms": (sa_rebuild_time.as_secs_f64() * 1000.0 * 10.0).round() / 10.0,
-                "rebuild_tps": sa_rebuild_tps.round(),
+            "sorted_window_index": {
+                "memory_mb": ((static_mem as f64) / (1024.0 * 1024.0) * 100.0).round() / 100.0,
+                "bytes_per_token": (static_bytes_per_tok * 10.0).round() / 10.0,
+                "rebuild_time_ms": (static_rebuild_time.as_secs_f64() * 1000.0 * 10.0).round() / 10.0,
+                "rebuild_tps": static_rebuild_tps.round(),
             },
             "expanse_strmap": {
                 "memory_mb": ((expanse_mem as f64) / (1024.0 * 1024.0) * 100.0).round() / 100.0,
                 "bytes_per_token": (exp_bytes_per_tok * 10.0).round() / 10.0,
                 "build_time_ms": (expanse_build_time.as_secs_f64() * 1000.0 * 10.0).round() / 10.0,
                 "streaming_insert_tps": expanse_tps.round(),
-                "memory_overhead_vs_sa_x": (mem_overhead * 10.0).round() / 10.0,
+                "memory_overhead_vs_static_index_x": (mem_overhead * 10.0).round() / 10.0,
                 "crossover_batch_size_tokens": crossover_b,
             }
         });
@@ -165,8 +178,8 @@ fn main() {
         results.insert(n.to_string(), cell);
     }
 
-    let results_dir = Path::new("docs/benchmarks/llm_inference/results");
-    let _ = std::fs::create_dir_all(results_dir);
+    let results_dir = resolve_path("docs/benchmarks/llm_inference/results");
+    let _ = std::fs::create_dir_all(&results_dir);
     let out_file = results_dir.join("bench_llm_datastore.json");
     std::fs::write(&out_file, serde_json::to_string_pretty(&results).unwrap())
         .expect("Failed to write datastore results JSON");

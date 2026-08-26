@@ -82,7 +82,7 @@
   <rect width="100%" height="100%" class="border" rx="8"/>
 
   <text x="30" y="34" class="t-title">PILLAR A — REFERENCE-CONTINUATION ACCEPTANCE ALPHA</text>
-  <text x="30" y="50" class="t-sub">Mean acceptance length &#945; &#183; tokens/step &#183; higher is better (vs HuggingFace Adaptive Lookup)</text>
+  <text x="30" y="50" class="t-sub">Macro mean acceptance length &#945; &#183; tokens/step &#183; higher is better (vs HuggingFace Adaptive Lookup)</text>
   <g transform="translate(620, 24)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
     <text x="18" y="10" class="t-legend">Expanse Variable LSM</text>
@@ -90,28 +90,28 @@
     <text x="18" y="28" class="t-legend">HF Adaptive Lookup</text>
   </g>
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
-  <text x="30" y="104" class="t-bar-label">HumanEval Code</text>
+  <text x="30" y="104" class="t-bar-label">HumanEval Code (N=40)</text>
   <text x="30" y="118" class="t-sub">OpenAI HumanEval/0..39 (MIT)</text>
-  <rect x="250" y="92" width="85.3" height="13" rx="2" class="b-expanse"/>
-  <text x="343.3" y="102" class="t-val-blue">&#945; = 1.003</text>
-  <rect x="250" y="108" width="72.9" height="13" rx="2" class="b-baseline"/>
-  <text x="330.9" y="118" class="t-val-gray">&#945; = 0.858</text>
-  <rect x="780" y="98" width="150" height="18" rx="3" class="badge-win"/>
-  <text x="855" y="111" class="badge-win-text">Expanse +7.8% &#945;</text>
-  <text x="30" y="160" class="t-bar-label">Document Summarization</text>
+  <rect x="250" y="92" width="45.5" height="13" rx="2" class="b-expanse"/>
+  <text x="303.5" y="102" class="t-val-blue">&#945; = 0.535</text>
+  <rect x="250" y="108" width="41.7" height="13" rx="2" class="b-baseline"/>
+  <text x="299.7" y="118" class="t-val-gray">&#945; = 0.491</text>
+  <rect x="760" y="98" width="170" height="18" rx="3" class="badge-win"/>
+  <text x="845" y="111" class="badge-win-text">+2.6% tok/s (&#916;&#945; = +0.04)</text>
+  <text x="30" y="160" class="t-bar-label">Document Summarization (N=9)</text>
   <text x="30" y="174" class="t-sub">Wikipedia Computer Science Corpus</text>
-  <rect x="250" y="148" width="264.6" height="13" rx="2" class="b-expanse"/>
-  <text x="522.6" y="158" class="t-val-blue">&#945; = 3.113</text>
-  <rect x="250" y="164" width="241.3" height="13" rx="2" class="b-baseline"/>
-  <text x="499.3" y="174" class="t-val-gray">&#945; = 2.839</text>
-  <rect x="780" y="154" width="150" height="18" rx="3" class="badge-win"/>
-  <text x="855" y="167" class="badge-win-text">Expanse +7.1% &#945;</text>
-  <text x="30" y="216" class="t-bar-label">JSON Schemas</text>
+  <rect x="250" y="148" width="287.4" height="13" rx="2" class="b-expanse"/>
+  <text x="545.4" y="158" class="t-val-blue">&#945; = 3.381</text>
+  <rect x="250" y="164" width="287.5" height="13" rx="2" class="b-baseline"/>
+  <text x="545.5" y="174" class="t-val-gray">&#945; = 3.382</text>
+  <rect x="760" y="154" width="170" height="18" rx="3" class="badge-loss"/>
+  <text x="845" y="167" class="badge-loss-text">Dead heat (&#916;&#945; = -0.00)</text>
+  <text x="30" y="216" class="t-bar-label">JSON Schemas (N=5)</text>
   <text x="30" y="230" class="t-sub">SchemaStore JSON Schemas &amp; Payloads</text>
-  <rect x="250" y="204" width="123.1" height="13" rx="2" class="b-expanse"/>
-  <text x="381.1" y="214" class="t-val-blue">&#945; = 1.448</text>
-  <rect x="250" y="220" width="102.0" height="13" rx="2" class="b-baseline"/>
-  <text x="360.0" y="230" class="t-val-gray">&#945; = 1.200</text>
-  <rect x="780" y="210" width="150" height="18" rx="3" class="badge-win"/>
-  <text x="855" y="223" class="badge-win-text">Expanse +11.3% &#945;</text>
+  <rect x="250" y="204" width="104.5" height="13" rx="2" class="b-expanse"/>
+  <text x="362.5" y="214" class="t-val-blue">&#945; = 1.229</text>
+  <rect x="250" y="220" width="89.2" height="13" rx="2" class="b-baseline"/>
+  <text x="347.2" y="230" class="t-val-gray">&#945; = 1.050</text>
+  <rect x="760" y="210" width="170" height="18" rx="3" class="badge-win"/>
+  <text x="845" y="223" class="badge-win-text">+8.8% tok/s (&#916;&#945; = +0.18)</text>
 </svg>

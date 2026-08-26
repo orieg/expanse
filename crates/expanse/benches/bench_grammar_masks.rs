@@ -222,8 +222,13 @@ fn main() {
         }
     });
 
-    let results_dir = std::path::Path::new("docs/benchmarks/llm_inference/results");
-    let _ = std::fs::create_dir_all(results_dir);
+    let p1 = std::path::Path::new("docs/benchmarks/llm_inference/results");
+    let results_dir = if p1.exists() || p1.parent().is_some_and(|p| p.exists()) {
+        p1.to_path_buf()
+    } else {
+        std::path::Path::new("../../docs/benchmarks/llm_inference/results").to_path_buf()
+    };
+    let _ = std::fs::create_dir_all(&results_dir);
     let out_file = results_dir.join("bench_grammar_masks.json");
     std::fs::write(&out_file, serde_json::to_string_pretty(&output).unwrap())
         .expect("Failed to write results JSON");
