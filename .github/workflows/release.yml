@@ -360,7 +360,6 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
       - name: Upgrade npm CLI (OIDC provenance support)
         run: npm install -g npm@latest
       - name: Download platform addons
@@ -369,13 +368,11 @@ jobs:
           pattern: npm-*
           path: npm-staging
       - name: Assemble and publish platform packages + main package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           CRATE=crates/expanse-node
           VERSION=$(node -p "require('./${CRATE}/package.json').version")
-          echo "Publishing @orieg/expanse platform packages at ${VERSION} via npm OIDC / token..."
+          echo "Publishing @orieg/expanse platform packages at ${VERSION} via npm OIDC..."
 
           platform_os() { case "$1" in linux-*) echo linux ;; darwin-*) echo darwin ;; win32-*) echo win32 ;; esac; }
           platform_cpu() { case "$1" in *-arm64) echo arm64 ;; *) echo x64 ;; esac; }
