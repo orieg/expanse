@@ -1,16 +1,23 @@
 //! Concurrency scalability benchmark for SyncExpanseSet, SyncExpanseMap,
-//! SyncExpanseBlobMap and SyncExpanseStrMap (issue #219: the blob arm
-//! compares the OCC wrapper against a `Mutex<ExpanseBlobMap>` baseline, an
-//! `RwLock<BTreeMap>` and `crossbeam_skiplist`; the string arm against
-//! `Mutex<ExpanseStrMap>` and `DashMap` — `ExpanseStrMap`, like the other
-//! single-threaded structures, is deliberately `!Sync`, so an
-//! `RwLock<ExpanseStrMap>` cannot legally be shared).
+//! SyncExpanseBlobMap, SyncExpanseStrMap and SyncExpanseBytesMap (issue
+//! #219: the blob arm compares the OCC wrapper against a
+//! `Mutex<ExpanseBlobMap>` baseline, an `RwLock<BTreeMap>` and
+//! `crossbeam_skiplist`; the string arm against `Mutex<ExpanseStrMap>` and
+//! `DashMap` — `ExpanseStrMap`, like the other single-threaded structures,
+//! is deliberately `!Sync`, so an `RwLock<ExpanseStrMap>` cannot legally be
+//! shared). The bytes arm (issue #362) runs the *identical* workload as the
+//! string and `DashMap` arms — same keys, same distribution — so the
+//! unordered hash-keyed wrapper is directly comparable to `DashMap` and to
+//! the ordered cascade it sidesteps.
 
 use crossbeam_skiplist::SkipMap;
 use dashmap::DashMap;
 use expanse_trie::ExpanseBlobMap;
+use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::strmap::ExpanseStrMap;
-use expanse_trie::sync::{SyncExpanseBlobMap, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap};
+use expanse_trie::sync::{
+    SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap,
+};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -400,6 +407,78 @@ fn bench_str_mutex(ratio_read: u32, readers: usize) -> (f64, f64) {
     })
 }
 
+/// Bytes arm (issue #362): the same workload as the string and DashMap
+/// arms — identical keys, distribution, and op mix — over the unordered
+/// hash-keyed wrapper.
+fn bench_bytes_sync(ratio_read: u32, readers: usize) -> (f64, f64) {
+    let keys = str_keys();
+    let m = Arc::new(SyncExpanseBytesMap::new());
+    let mut rng = XorShift(0x5CA1_AB1E);
+    for _ in 0..STR_POP {
+        let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
+        m.insert(k, rng.next());
+    }
+    run_window(readers, move |i, stop| {
+        let rd = m.reader();
+        let mut rng = XorShift(0x1000 + i as u64);
+        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut sink = 0u64;
+        while !stop.load(Ordering::Relaxed) {
+            let r = (rng.next() % 100) as u32;
+            let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
+            if r < ratio_read {
+                sink ^= rd.get(k).unwrap_or(0);
+                read_ops += 1;
+            } else {
+                if rng.next() & 1 == 0 {
+                    m.insert(k, rng.next());
+                } else {
+                    m.remove(k);
+                }
+                write_ops += 1;
+            }
+        }
+        std::hint::black_box(sink);
+        (read_ops, write_ops)
+    })
+}
+
+fn bench_bytes_mutex(ratio_read: u32, readers: usize) -> (f64, f64) {
+    let keys = str_keys();
+    let m = Arc::new(std::sync::Mutex::new(ExpanseBytesMap::new()));
+    let mut rng = XorShift(0x5CA1_AB1E);
+    {
+        let mut g = m.lock().expect("lock");
+        for _ in 0..STR_POP {
+            let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
+            g.insert(k, rng.next());
+        }
+    }
+    run_window(readers, move |i, stop| {
+        let mut rng = XorShift(0x1000 + i as u64);
+        let (mut read_ops, mut write_ops) = (0u64, 0u64);
+        let mut sink = 0u64;
+        while !stop.load(Ordering::Relaxed) {
+            let r = (rng.next() % 100) as u32;
+            let k = &keys[(rng.next() as usize) % STR_KEYSPACE];
+            let mut g = m.lock().expect("lock");
+            if r < ratio_read {
+                sink ^= g.get(k).unwrap_or(0);
+                read_ops += 1;
+            } else {
+                if rng.next() & 1 == 0 {
+                    g.insert(k, rng.next());
+                } else {
+                    g.remove(k);
+                }
+                write_ops += 1;
+            }
+        }
+        std::hint::black_box(sink);
+        (read_ops, write_ops)
+    })
+}
+
 fn bench_str_dashmap(ratio_read: u32, readers: usize) -> (f64, f64) {
     let keys = str_keys();
     let m: Arc<DashMap<Vec<u8>, u64>> = Arc::new(DashMap::new());
@@ -491,9 +570,11 @@ fn main() {
         ),
         ("SkipMap<u64, Vec<u8>>", bench_blob_skiplist),
     ];
-    let str_engines: [(&str, EngineBench); 3] = [
+    let str_engines: [(&str, EngineBench); 5] = [
         ("SyncExpanseStrMap", bench_str_sync),
         ("Mutex<ExpanseStrMap>", bench_str_mutex),
+        ("SyncExpanseBytesMap", bench_bytes_sync),
+        ("Mutex<ExpanseBytesMap>", bench_bytes_mutex),
         ("DashMap<Vec<u8>, u64>", bench_str_dashmap),
     ];
     for (name, bench) in blob_engines.into_iter().chain(str_engines) {

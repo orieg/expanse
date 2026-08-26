@@ -380,7 +380,7 @@ jobs:
 
       - name: Miri (core unsafe smoke — leaf, node, slot, 32-bit trie invariants, deferred-dispose round trips)
         run: |
-          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: blobmap::tests::deferred strmap::tests::deferred
+          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred
 
   test-asan:
     name: Safety / ASan Core Smoke (Ubuntu)
