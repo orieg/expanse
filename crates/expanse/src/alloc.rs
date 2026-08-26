@@ -469,7 +469,28 @@ impl NodeAlloc {
     /// permanently (Phase 7 concurrent wrappers call this once at
     /// construction). Idempotent for the same collector; a second call
     /// with a different collector is a bug and panics.
+    ///
+    /// Must be called **before this handle has slab-carved memory** — i.e.
+    /// on a freshly created tree, before any allocation. A non-OCC
+    /// allocator serves ≤ 256-byte blocks out of intrusive slab pages;
+    /// those blocks are freed wholesale with their page and must never be
+    /// `dealloc`ed individually, but deferred mode retires every free to
+    /// the collector, which frees blocks individually after the grace
+    /// period. Migrating a slab-using allocator therefore aborts in the
+    /// allocator later; wrap populated structures by **rebuilding** them
+    /// through a pre-deferred allocator instead (see the `sync` wrappers'
+    /// `From` impls).
     pub fn defer_to(&self, collector: Arc<Collector>) {
+        // Hard assert (not debug): the failure mode this guards is silent
+        // heap corruption in release builds, and this is a cold once-per-
+        // structure call.
+        assert!(
+            self.slab_pages.load(Ordering::Relaxed).is_null(),
+            "defer_to on an allocator that already slab-carved memory: retired \
+             slab-carved blocks would later be dealloc'ed individually (heap \
+             corruption). Rebuild the structure through a pre-deferred \
+             allocator instead."
+        );
         let stored = self.deferred.get_or_init(|| Arc::clone(&collector));
         assert!(
             Arc::ptr_eq(stored, &collector),

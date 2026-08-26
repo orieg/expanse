@@ -1229,6 +1229,23 @@ impl ExpanseBlobMap {
         &self.index
     }
 
+    /// Phase 7 (issue #219): replaces the index with a copy rebuilt through
+    /// an allocator deferred to `collector` **before any node is
+    /// allocated**. Sharing a populated map requires this because a
+    /// single-threaded index holds slab-carved node memory, which must
+    /// never be retired to the collector (see `NodeAlloc::defer_to`); the
+    /// old index (and its slab pages, wholesale) is freed here. Arena
+    /// payloads are untouched — the raw `ValueSlot` words carry over.
+    pub(crate) fn rebuild_index_deferred(&mut self, collector: &Arc<Collector>) {
+        let fresh = ExpanseMap::new();
+        fresh.occ_root().1.defer_to(Arc::clone(collector));
+        let mut fresh = fresh;
+        for (key, raw_slot) in self.index.iter() {
+            fresh.insert(key, raw_slot);
+        }
+        self.index = fresh;
+    }
+
     /// Serializes the blob map to a writer in relocatable binary image format.
     pub fn save_to_writer<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
         let entry_count = self.index.len();

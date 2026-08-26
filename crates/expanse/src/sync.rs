@@ -40,6 +40,7 @@ use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafB
 use crate::occ::{Collector, Pin, Reader, SeqVersion};
 use crate::set::ExpanseSet;
 use crate::slot::{SlotTag, ValueSlot};
+use crate::strmap::ExpanseStrMap;
 use crate::types::{EdgeTag, EdgeType, Key, digit};
 use core::cell::UnsafeCell;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -68,7 +69,7 @@ pub(crate) enum RootSnapshot {
 }
 
 /// A validated read failed because the version moved; restart.
-struct Retry;
+pub(crate) struct Retry;
 
 /// Bounded optimistic restarts before falling back to the writer lock.
 const MAX_RETRIES: usize = 64;
@@ -108,7 +109,7 @@ impl Cover<'_> {
 /// `NodeAlloc` switched to deferred reclamation, and the caller must hold
 /// an epoch pin for the whole call: every pointer loaded under a
 /// still-valid cover then references EBR-live memory.
-unsafe fn walk_validated<const MAP: bool>(
+pub(crate) unsafe fn walk_validated<const MAP: bool>(
     root: RootSnapshot,
     key: Key,
     ver: &SeqVersion,
@@ -481,6 +482,14 @@ impl<T> Shared<T> {
     fn new(inner: T, attach: impl FnOnce(&T, &Arc<Collector>)) -> Self {
         let collector = Arc::new(Collector::new());
         attach(&inner, &collector);
+        Self::with_collector(inner, collector)
+    }
+
+    /// Wraps `inner` around an existing collector — for construction paths
+    /// that must defer allocators *while building* `inner` (a populated
+    /// structure is shared by rebuilding it through pre-deferred
+    /// allocators; see `NodeAlloc::defer_to`).
+    fn with_collector(inner: T, collector: Arc<Collector>) -> Self {
         Self {
             inner: UnsafeCell::new(inner),
             version: SeqVersion::new(),
@@ -780,12 +789,17 @@ impl SyncExpanseBlobMap {
         Self::from_map(ExpanseBlobMap::with_chunk_size(chunk_size))
     }
 
-    fn from_map(map: ExpanseBlobMap) -> Self {
+    fn from_map(mut map: ExpanseBlobMap) -> Self {
+        let collector = Arc::new(Collector::new());
+        // A populated single-threaded index holds slab-carved node memory
+        // that must never be retired to the collector (see
+        // `NodeAlloc::defer_to`): rebuild the index through a pre-deferred
+        // allocator (a no-op-cheap copy for an empty map). Arena chunks are
+        // whole allocations and defer in place.
+        map.rebuild_index_deferred(&collector);
+        map.arena().defer_to(Arc::clone(&collector));
         Self {
-            shared: Shared::new(map, |m, c| {
-                m.index().occ_root().1.defer_to(Arc::clone(c));
-                m.arena().defer_to(Arc::clone(c));
-            }),
+            shared: Shared::with_collector(map, collector),
         }
     }
 
@@ -1161,6 +1175,178 @@ impl<'g> PartialEq<SyncBlobView<'g>> for [u8] {
     }
 }
 
+/// A string map shareable across threads (issue #219 Phase 2): one writer
+/// at a time (internally serialized), lock-free validated readers for
+/// point lookups. See the module docs for the protocol and its trade-offs.
+///
+/// On top of the [`SyncExpanseMap`] protocol, a lookup cascades across the
+/// meta-trie's sub-maps (one hop per 8 key bytes): every hop's walk
+/// validates hand-over-hand against the one shared tree version, so the
+/// whole multi-hop path is consistent with a single snapshot, and every
+/// node/suffix free routes through the epoch [`Collector`]
+/// (`ExpanseStrMap::defer_to`), so a pinned reader never dereferences
+/// freed memory. Long keys mean more hops per attempt; the bounded-retry
+/// fallback to the writer lock caps starvation under write storms.
+///
+/// Ordered navigation and prefix scans take `&mut ExpanseStrMap` in the
+/// single-threaded API (they return writable slots), so they are reachable
+/// only through [`Self::with_locked_mut`].
+pub struct SyncExpanseStrMap {
+    shared: Shared<ExpanseStrMap>,
+}
+
+impl Default for SyncExpanseStrMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SyncExpanseStrMap {
+    /// Creates an empty concurrent string map.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::from_map(ExpanseStrMap::new())
+    }
+
+    fn from_map(mut src: ExpanseStrMap) -> Self {
+        let collector = Arc::new(Collector::new());
+        let mut map = ExpanseStrMap::new();
+        map.defer_to(Arc::clone(&collector));
+        // A populated map's sub-trie allocators hold slab-carved node
+        // memory that must never be retired to the collector (see
+        // `NodeAlloc::defer_to`): rebuild entry-by-entry through the
+        // pre-deferred map (a no-op for the `new()` path). The sweep is
+        // O(n · depth) with one key allocation per entry — a wrap-once
+        // construction cost, acceptable for its startup use case.
+        let mut cursor = src.first();
+        while let Some((key, slot)) = cursor {
+            // SAFETY: the slot is valid until `src`'s next mutation; only
+            // navigation happens between here and the next hop.
+            map.insert(&key, unsafe { *slot.as_ptr() });
+            cursor = src.next_after(&key);
+        }
+        Self {
+            shared: Shared::with_collector(map, collector),
+        }
+    }
+
+    /// Inserts `key → val`; returns the replaced value, if any. Serializes
+    /// with other writers. Keys are NUL-free byte strings.
+    pub fn insert(&self, key: &[u8], val: u64) -> Option<u64> {
+        self.shared.write(|m| m.insert(key, val))
+    }
+
+    /// Removes `key`; returns its value, if present.
+    pub fn remove(&self, key: &[u8]) -> Option<u64> {
+        self.shared.write(|m| m.remove(key))
+    }
+
+    /// Removes every entry; returns the heap bytes released.
+    pub fn clear(&self) -> u64 {
+        self.shared.write(ExpanseStrMap::clear)
+    }
+
+    /// Registers a reader handle for this thread's lookups.
+    #[must_use]
+    pub fn reader(&self) -> StrReader<'_> {
+        StrReader {
+            map: self,
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// One-shot lookup (registers a throwaway reader; use [`Self::reader`]
+    /// in hot loops).
+    #[must_use]
+    pub fn get(&self, key: &[u8]) -> Option<u64> {
+        self.reader().get(key)
+    }
+
+    /// One-shot membership test (registers a throwaway reader; use
+    /// [`Self::reader`] in hot loops).
+    #[must_use]
+    pub fn contains_key(&self, key: &[u8]) -> bool {
+        self.get(key).is_some()
+    }
+
+    /// Number of keys (validated read).
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        for _ in 0..MAX_RETRIES {
+            let snap = self.shared.version.sample();
+            // SAFETY: single-word racy copy; validated before use.
+            let pop = unsafe { (*self.shared.inner.get()).len() };
+            if self.shared.version.validate(snap) {
+                return pop;
+            }
+        }
+        self.shared.read_locked(ExpanseStrMap::len)
+    }
+
+    /// True when no keys are present.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Runs `f` over the map with all writers excluded — the escape hatch
+    /// to the single-threaded `&self` read API.
+    pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseStrMap) -> R) -> R {
+        self.shared.read_locked(f)
+    }
+
+    /// Runs `f` with exclusive access under the writer lock and version
+    /// bracket — the escape hatch to ordered navigation and prefix scans
+    /// (`next_at_or_after`, `prev_at_or_before`, `first`/`last`, …), which
+    /// take `&mut self` because they return writable value slots. Slots
+    /// obtained inside must not escape `f`.
+    pub fn with_locked_mut<R>(&self, f: impl FnOnce(&mut ExpanseStrMap) -> R) -> R {
+        self.shared.write(f)
+    }
+}
+
+/// Wraps an already-populated single-threaded string map for concurrent
+/// sharing (every existing sub-trie is switched to deferred reclamation).
+impl From<ExpanseStrMap> for SyncExpanseStrMap {
+    fn from(map: ExpanseStrMap) -> Self {
+        Self::from_map(map)
+    }
+}
+
+/// A per-thread reader handle for [`SyncExpanseStrMap`].
+pub struct StrReader<'a> {
+    map: &'a SyncExpanseStrMap,
+    reader: Reader,
+}
+
+impl StrReader<'_> {
+    /// Lock-free lookup: a bounded, validated cascade across the sub-tries
+    /// (one hop per 8 key bytes), falling back to the writer lock after
+    /// bounded retries.
+    #[must_use]
+    pub fn get(&self, key: &[u8]) -> Option<u64> {
+        let shared = &self.map.shared;
+        for _ in 0..MAX_RETRIES {
+            let _pin = self.reader.pin();
+            let snap = shared.version.sample();
+            // SAFETY: pinned + freshly sampled version; every hop of the
+            // cascade validates its loads (see `ExpanseStrMap::get_validated`).
+            let attempt =
+                unsafe { (*shared.inner.get()).get_validated(key, &shared.version, snap) };
+            if let Ok(r) = attempt {
+                return r;
+            }
+        }
+        shared.read_locked(|m| m.get(key))
+    }
+
+    /// Lock-free membership test.
+    #[must_use]
+    pub fn contains(&self, key: &[u8]) -> bool {
+        self.get(key).is_some()
+    }
+}
+
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
@@ -1346,6 +1532,277 @@ mod tests {
             r.join().expect("reader panicked");
         }
         s.with_locked(|inner| inner.validate());
+    }
+
+    /// Deterministic NUL-free key for index `idx`: prefix classes exercise
+    /// shared-prefix routing, every 8th key carries a 96-byte chain so the
+    /// cascade runs many hops, and the tail bytes are a keyed PRNG stream.
+    fn str_key_of(idx: u64) -> Vec<u8> {
+        const PREFIXES: [&[u8]; 4] = [
+            b"",
+            b"user:profile:",
+            b"a/very/long/shared/api/path/v2/tenants/",
+            b"k",
+        ];
+        let mut k = PREFIXES[(idx % 4) as usize].to_vec();
+        if idx % 8 == 0 {
+            k.extend_from_slice(&[b'd'; 96]);
+        }
+        let mut x = idx | 1;
+        for _ in 0..(idx % 24) {
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            k.push(((x >> 56) as u8).max(1));
+        }
+        k
+    }
+
+    /// FNV-1a over the full key: a misresolved, truncated, or torn key
+    /// lookup cannot accidentally return the right value.
+    fn str_val_of(key: &[u8]) -> u64 {
+        let mut h = 0xcbf2_9ce4_8422_2325u64;
+        for &b in key {
+            h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+        }
+        h
+    }
+
+    #[test]
+    fn sync_str_single_thread_agrees_with_model() {
+        let m = SyncExpanseStrMap::new();
+        let mut model: BTreeMap<Vec<u8>, u64> = BTreeMap::new();
+        let mut rng = XorShift(0x99);
+        for i in 0..4000u64 {
+            let k = str_key_of(rng.next() % 512);
+            match rng.next() % 3 {
+                0 => {
+                    let v = str_val_of(&k);
+                    assert_eq!(m.insert(&k, v), model.insert(k.clone(), v), "ins {k:?}");
+                }
+                1 => assert_eq!(m.remove(&k), model.remove(&k), "rm {k:?}"),
+                _ => assert_eq!(m.get(&k), model.get(&k).copied(), "get {k:?}"),
+            }
+            if i % 1000 == 999 {
+                m.clear();
+                model.clear();
+            }
+            assert_eq!(m.len(), model.len() as u64);
+        }
+        // Navigation still works through the locked escape hatch.
+        m.with_locked_mut(|inner| {
+            let mut cursor = inner.first();
+            for (mk, mv) in &model {
+                let (k, slot) = cursor.expect("sweep entry");
+                assert_eq!(&k, mk);
+                // SAFETY: slot valid until the next mutation; none happens.
+                assert_eq!(unsafe { *slot.as_ptr() }, *mv);
+                cursor = inner.next_after(&k);
+            }
+            assert!(cursor.is_none());
+        });
+    }
+
+    /// Phase-2 gate (issue #219): readers hammer the multi-hop cascade
+    /// while the writer churns inserts/removes — suffix splits, in-place
+    /// value updates, node pruning — and periodically clears the whole
+    /// tree (retiring entire subtrees under active readers). Every
+    /// observed value must be the key's full-key hash.
+    #[test]
+    fn concurrent_str_readers_under_churn() {
+        let m = Arc::new(SyncExpanseStrMap::new());
+        let stop = Arc::new(AtomicBool::new(false));
+
+        let readers: Vec<_> = (0..3)
+            .map(|i| {
+                let m = Arc::clone(&m);
+                let stop = Arc::clone(&stop);
+                std::thread::spawn(move || {
+                    let rd = m.reader();
+                    let mut rng = XorShift(0x5000 + i);
+                    let mut hits = 0u64;
+                    while !stop.load(Ordering::Relaxed) {
+                        let k = str_key_of(rng.next() % 512);
+                        if let Some(v) = rd.get(&k) {
+                            assert_eq!(v, str_val_of(&k), "torn value for {k:?}");
+                            hits += 1;
+                        }
+                    }
+                    hits
+                })
+            })
+            .collect();
+
+        let mut rng = XorShift(0xC0FE);
+        let mut model = BTreeMap::new();
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_millis(300) {
+            for _ in 0..2000 {
+                let k = str_key_of(rng.next() % 512);
+                if rng.next() % 2 == 0 {
+                    m.insert(&k, str_val_of(&k));
+                    model.insert(k, ());
+                } else {
+                    m.remove(&k);
+                    model.remove(&k);
+                }
+            }
+            // Tear the whole tree down under the readers, then rebuild
+            // some of it — the dispose_tree/EBR path under fire.
+            m.clear();
+            model.clear();
+            for idx in 0..64 {
+                let k = str_key_of(idx);
+                m.insert(&k, str_val_of(&k));
+                model.insert(k, ());
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        let mut total_hits = 0;
+        for r in readers {
+            total_hits += r.join().expect("reader panicked");
+        }
+        assert!(total_hits > 0, "readers observed nothing");
+
+        let rd = m.reader();
+        for k in model.keys() {
+            assert_eq!(rd.get(k), Some(str_val_of(k)), "model key {k:?}");
+        }
+        assert_eq!(m.len(), model.len() as u64);
+    }
+
+    /// A reader must observe one of the values a key actually held while
+    /// the writer flips it via the in-place suffix value update, across a
+    /// suffix split forced mid-run.
+    #[test]
+    fn concurrent_str_overwrite_is_atomic() {
+        let m = Arc::new(SyncExpanseStrMap::new());
+        let key = b"tenant:0000000042:routing-table-entry".to_vec();
+        // Diverges after a shared 24-byte prefix: inserting it forces the
+        // suffix split path (publish child + retire old suffix).
+        let sibling = b"tenant:0000000042:quota-counters".to_vec();
+        let (a, b) = (0x1111_2222_3333_4444u64, 0xAAAA_BBBB_CCCC_DDDDu64);
+        m.insert(&key, a);
+        let stop = Arc::new(AtomicBool::new(false));
+        let readers: Vec<_> = (0..3)
+            .map(|_| {
+                let m = Arc::clone(&m);
+                let stop = Arc::clone(&stop);
+                let key = key.clone();
+                std::thread::spawn(move || {
+                    let rd = m.reader();
+                    while !stop.load(Ordering::Relaxed) {
+                        let v = rd.get(&key).expect("key always present");
+                        assert!(v == a || v == b, "torn overwrite state: {v:#x}");
+                    }
+                })
+            })
+            .collect();
+
+        let start = std::time::Instant::now();
+        let mut flip = false;
+        let mut sibling_in = false;
+        while start.elapsed() < std::time::Duration::from_millis(250) {
+            for _ in 0..500 {
+                flip = !flip;
+                m.insert(&key, if flip { b } else { a });
+            }
+            sibling_in = !sibling_in;
+            if sibling_in {
+                m.insert(&sibling, 7);
+            } else {
+                m.remove(&sibling);
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        for r in readers {
+            r.join().expect("reader panicked");
+        }
+    }
+
+    /// Deep keys through the concurrent wrapper: the deferred teardown
+    /// (`dispose_tree`) must stay iterative — run on a small stack so a
+    /// regression to recursion fails loudly.
+    #[test]
+    fn sync_str_deep_keys_dispose_iteratively() {
+        let handle = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(|| {
+                let m = SyncExpanseStrMap::new();
+                let key = vec![b'k'; 64 * 1024];
+                let mut sibling = key.clone();
+                *sibling.last_mut().expect("non-empty") = b'z';
+                assert_eq!(m.insert(&key, 1), None);
+                assert_eq!(m.insert(&sibling, 2), None);
+                assert_eq!(m.get(&key), Some(1));
+                assert_eq!(m.get(&sibling), Some(2));
+                m.clear(); // deferred subtree disposal, 8k+ nodes deep
+                assert!(m.is_empty());
+                drop(m); // collector drains the retired chain
+            })
+            .expect("spawn");
+        handle
+            .join()
+            .expect("deferred deep-key disposal overflowed the stack");
+    }
+
+    /// Regression guard for the slab-migration hazard: wrapping a
+    /// **populated** single-threaded blob map must rebuild its index
+    /// through a pre-deferred allocator — attaching the original
+    /// (slab-carved) allocator to the collector corrupts the heap when
+    /// retired blocks are later freed individually.
+    #[test]
+    fn sync_blob_wraps_populated_map() {
+        let mut plain = ExpanseBlobMap::with_chunk_size(4096);
+        for k in 0..300u64 {
+            plain
+                .insert(k, &blob_payload_of(k), blob_meta_of(k))
+                .unwrap();
+        }
+        let m = SyncExpanseBlobMap::from(plain);
+        let mut rd = m.reader();
+        for k in 0..300u64 {
+            let guard = rd.pin();
+            let (view, meta) = guard.get(k).expect("wrapped key present");
+            assert_eq!(view.as_bytes(), &blob_payload_of(k)[..]);
+            assert_eq!(meta, blob_expected_meta(k));
+        }
+        // Mutations, compaction and teardown run against the rebuilt,
+        // fully deferred structure.
+        for k in 0..150u64 {
+            m.remove(k);
+        }
+        m.compact().unwrap();
+        m.insert(1000, &blob_payload_of(1000), blob_meta_of(1000))
+            .unwrap();
+        assert_eq!(m.len(), 151);
+        m.clear();
+        drop(m);
+    }
+
+    /// The string-map twin of `sync_blob_wraps_populated_map`.
+    #[test]
+    fn sync_str_wraps_populated_map() {
+        let mut plain = ExpanseStrMap::new();
+        for idx in 0..300u64 {
+            let k = str_key_of(idx);
+            plain.insert(&k, str_val_of(&k));
+        }
+        let expected = plain.len();
+        let m = SyncExpanseStrMap::from(plain);
+        assert_eq!(m.len(), expected);
+        let rd = m.reader();
+        for idx in 0..300u64 {
+            let k = str_key_of(idx);
+            assert_eq!(rd.get(&k), Some(str_val_of(&k)), "wrapped key {k:?}");
+        }
+        for idx in 0..150u64 {
+            m.remove(&str_key_of(idx));
+        }
+        m.insert(b"post-wrap", 7);
+        assert_eq!(m.get(b"post-wrap"), Some(7));
+        m.clear();
+        drop(m);
     }
 
     /// Deterministic payload derived from a key: lengths sweep the inline
