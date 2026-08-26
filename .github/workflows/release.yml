@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - 'v*'
+  # Canary: exercise the full release DAG (gate, builds, packaging, page
+  # generation) while skipping every outward publish step (GitHub Release,
+  # crates.io, npm, NuGet, Pages deploy). Run this before tagging a release.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: skip all outward publish steps'
+        type: boolean
+        default: true
 
 # Minimal default; each job elevates only what it needs.
 permissions:
@@ -31,25 +40,44 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          echo "Checking CI Gate check-run for ${GITHUB_SHA}..."
-          # One conclusion per line (robust to pagination; no array wrapping).
-          mapfile -t conclusions < <(gh api --paginate \
-            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs" \
-            --jq '.check_runs[] | select(.name=="CI Gate / All Checks Passed") | .conclusion')
-          if [ "${#conclusions[@]}" -eq 0 ]; then
-            echo "::error::No 'CI Gate / All Checks Passed' check-run found for ${GITHUB_SHA}. Tag a commit that passed CI on main."
-            exit 1
-          fi
-          for c in "${conclusions[@]}"; do
-            echo "CI Gate conclusion: ${c}"
-            if [ "${c}" != "success" ]; then
-              echo "::error::The CI Gate rollup did not conclude success for ${GITHUB_SHA} (found: ${c})"
+          # Poll for the CI Gate check-run instead of insta-failing: a tag
+          # pushed moments after its commit lands on main races the
+          # still-running CI (the v0.4.0 incident, #313). Assert on the MOST
+          # RECENT check-run only — re-runs accumulate multiple check-runs per
+          # commit, and a stale failed one must not poison the commit forever.
+          deadline=$(( $(date +%s) + 1800 ))  # wait up to 30 minutes
+          while :; do
+            # One "started_at|status|conclusion" row per matching check-run
+            # (robust to pagination; jq runs per page, sorting happens below).
+            mapfile -t rows < <(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs" \
+              --jq '.check_runs[] | select(.name=="CI Gate / All Checks Passed") | "\(.started_at)|\(.status)|\(.conclusion // "pending")"')
+            if [ "${#rows[@]}" -eq 0 ]; then
+              status="absent"; conclusion="absent"
+            else
+              latest=$(printf '%s\n' "${rows[@]}" | sort | tail -1)
+              status=$(echo "${latest}" | cut -d'|' -f2)
+              conclusion=$(echo "${latest}" | cut -d'|' -f3)
+            fi
+            echo "CI Gate check-run for ${GITHUB_SHA}: status=${status} conclusion=${conclusion}"
+            if [ "${status}" = "completed" ]; then
+              if [ "${conclusion}" = "success" ]; then
+                echo "CI Gate rollup concluded success for ${GITHUB_SHA}."
+                break
+              fi
+              echo "::error::The latest CI Gate rollup for ${GITHUB_SHA} concluded '${conclusion}'. Fix CI (or re-run it to success) before releasing."
               exit 1
             fi
+            if [ "$(date +%s)" -ge "${deadline}" ]; then
+              echo "::error::Timed out waiting for the CI Gate rollup on ${GITHUB_SHA} (last status=${status}). Ensure CI runs and passes on this commit."
+              exit 1
+            fi
+            echo "CI Gate not concluded yet; retrying in 30s..."
+            sleep 30
           done
-          echo "CI Gate rollup concluded success for ${GITHUB_SHA}."
 
       - name: Assert manifests are in version lockstep with the tag
+        if: github.event_name == 'push'  # no tag to compare on a canary dispatch
         run: |
           set -euo pipefail
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
@@ -58,7 +86,10 @@ jobs:
 
   publish-crates:
     name: Publish to Crates.io
-    needs: [release-gate]
+    # Anchor-first (#313): every registry publish waits for the canonical
+    # GitHub Release, so a registry can never carry a version the release
+    # page does not.
+    needs: [release-gate, github-release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -70,6 +101,7 @@ jobs:
         with:
           toolchain: stable
       - name: Publish crates (idempotent on already-published versions)
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
@@ -286,7 +318,7 @@ jobs:
 
   package-nuget:
     name: Package & Publish .NET NuGet
-    needs: [release-gate, build-release-artifacts]
+    needs: [release-gate, build-release-artifacts, github-release] # anchor-first (#313)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -334,6 +366,7 @@ jobs:
         with:
           user: orieg
       - name: Publish to NuGet.org
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         env:
           NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY || secrets.NUGET_API_KEY }}
         run: |
@@ -349,7 +382,7 @@ jobs:
 
   publish-npm:
     name: Publish Node.js (npm)
-    needs: [release-gate, build-npm]
+    needs: [release-gate, build-npm, github-release] # anchor-first (#313)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -368,6 +401,7 @@ jobs:
           pattern: npm-*
           path: npm-staging
       - name: Assemble and publish platform packages + main package
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         run: |
           set -euo pipefail
           CRATE=crates/expanse-node
@@ -410,7 +444,9 @@ jobs:
 
   github-release:
     name: Create GitHub Release
-    needs: [build-release-artifacts]
+    # The PRIMARY ANCHOR (#313): depends only on the gate and the core
+    # artifacts. Downstream registries depend on THIS job — never the reverse.
+    needs: [release-gate, build-release-artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the release and upload assets
@@ -427,6 +463,7 @@ jobs:
           cd artifacts
           sha256sum ./* > SHA256SUMS
       - name: Create Release
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         uses: softprops/action-gh-release@62c96d0c4e8a889135c1f3a25910db8dbe0e85f7 # v2.3.4
         with:
           files: artifacts/*
@@ -434,7 +471,7 @@ jobs:
 
   publish-pages:
     name: Publish Portal & Repositories (GitHub Pages)
-    needs: [build-release-artifacts]
+    needs: [build-release-artifacts, github-release] # anchor-first (#313)
     runs-on: ubuntu-latest
     permissions:
       contents: write # push to the gh-pages branch
@@ -458,6 +495,7 @@ jobs:
         run: |
           python3 scripts/build_pages.py --artifacts-dir artifacts --output-dir pages-root
       - name: Deploy to GitHub Pages
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

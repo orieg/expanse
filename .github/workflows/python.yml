@@ -5,6 +5,11 @@ on:
     branches: [main]
     tags:
       - 'v*'
+  # Single-anchor releases (#313): PyPI publishes only after the canonical
+  # GitHub Release exists — never straight off a tag push. A tag push still
+  # builds wheels/sdist as artifacts (pre-validation), but does not publish.
+  release:
+    types: [published]
   workflow_dispatch:
 
 concurrency:
@@ -127,7 +132,10 @@ jobs:
     name: Publish to PyPI
     needs: [test, wheels, sdist]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Anchor-first (#313): only the GitHub Release publication event may
+    # trigger a PyPI publish (the release event's ref is the release tag, so
+    # the wheels/sdist jobs above rebuild at exactly that tag).
+    if: github.event_name == 'release'
     permissions:
       id-token: write # Required for OIDC trusted publishing
       contents: read
