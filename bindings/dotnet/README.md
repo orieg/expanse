@@ -3,7 +3,7 @@
 High-performance, **zero-GC**, off-heap associative trie collections for **.NET 8.0 / 9.0+** and C# powered by native `libexpanse` via modern P/Invoke and `SafeHandle`.
 
 [![NuGet](https://img.shields.io/nuget/v/Orieg.Expanse.svg?style=flat-square)](https://www.nuget.org/packages/Orieg.Expanse)
-[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg?style=flat-square)](../../LICENSE-MIT)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg?style=flat-square)](https://github.com/orieg/expanse/blob/main/LICENSE-MIT)
 
 ---
 

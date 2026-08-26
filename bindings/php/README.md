@@ -9,7 +9,7 @@ High-performance, modernized PHP bindings for **Expanse** with dual-driver runti
 composer require orieg/expanse
 ```
 
-### 2. Native Zend Extension (PIE / PECL)
+### 2. Native Zend Extension (PIE)
 For maximum throughput and zero opcode overhead:
 ```bash
 pie install orieg/expanse-extension
