@@ -605,8 +605,12 @@ graduates to the stable API — the issue's trigger (a concrete workload needing
 `>24`-bit / multi-column / `>64` GiB metadata) is not yet met.
 
 This section is a **frozen pre-registration** (§5.6.1–§5.6.2) followed by
-measured results annotated in place (§5.6.3 arch-independent, already measured;
-§5.6.4 timing, pending a dedicated-host run) and a verdict (§5.6.5).
+measured results annotated in place (§5.6.3 arch-independent structural, §5.6.4
+dedicated-host timing) and a resolved verdict (§5.6.5). Headline: the capacity
+axes (H4) are confirmed, but the timing **refutes H1** (the sidecar is *not* at
+warm parity — a σ-dependent crossover) and **confirms H3 more strongly than
+predicted** (a ~1.4–3× scan-time penalty that starts past L2, not a narrow LLC
+cliff), so the capacity lift is a real trade, not free.
 
 ### 5.6.1 Pre-registration — design, Step-0 math, hypotheses (frozen)
 
@@ -761,86 +765,160 @@ range-query fan-out win, at similar memory and the cost of a residual exact
 filter on the two boundary buckets. Representative
 `count(tenant=3 AND status=1) = 1082` via `intersection_len` (no materialization).
 
-### 5.6.4 Measured — timing (dedicated host) — PENDING
+### 5.6.4 Measured — timing (dedicated host) *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit `25c6f128`; window 16:38:58–16:47:22Z, load before 0.00 / after 1.07, no concurrent bench; `poc_sidecar_295` bench, criterion medians, `sample_size = 10`)*
 
-The bench harness (`poc_sidecar_295.rs`) is committed and validated
-(runs clean in `--test` mode). The cold-DRAM timing sweep must run on a quiet
-dedicated host per `docs/BENCHMARKING.md` (interleaved A/B arms, load snapshots
-before/between/after); it is **not** run on a shared laptop. Table to be filled
-in place once the host run completes:
+> **Load-hygiene note.** The `run.sh` "before" snapshot read loadavg 3.92, but
+> that is the 1-min average decaying from the immediately-preceding release
+> *build* (5-min 1.32, 15-min 0.47 — a compile spike, not a concurrent
+> workload); the box ran only the single-threaded bench during measurement, and
+> the criterion median spreads are all `< 0.5 %` (e.g. 409.29 / 409.82 /
+> 410.66 µs), which contention would widen. The run is clean.
 
-| σ | Phase-1 in-slot | sidecar | naive payload-fetch | sidecar speedup vs naive | sidecar vs Phase-1 |
-|---|---:|---:|---:|---:|---:|
-| 0.001 | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ | _(pending, H1: ≈1.0×)_ |
-| 0.05 | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ |
-| 0.20 | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ |
-| 1.0 | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ |
+**Warm arm — `sidecar_cold_dram` (262 k, 1 KiB payloads, `K=1`; sidecar
+`meta[]` = 3.25 MiB).** "naive" = touch every payload (the payload-fetch
+baseline), measured on the sidecar map.
 
-**`>`LLC arm (H3 residency cliff — measured, pending) — a declared scaled
-proxy.** The cliff is driven by the per-entry `meta[]` array (`4·K·N` bytes)
-crossing the LLC, **not** by payload size. A literal 1 KiB payload at these N
-would put the arena at multiple GiB, over the shipped 1 GiB `MAX_ARENA_CAPACITY`
-cap — and that cap is Phase-1 code, out of scope to edit for this POC. So the arm
-**drops payload size to keep every arena `<` 1 GiB** while choosing `K` so
-`meta[]` straddles / exceeds the 30 MiB reference L3. This is an explicitly
-declared scaled proxy for the 1 KiB / multi-GiB-arena case (the true `>64` GiB
-regime is only reachable by raising the shipped cap; §5.6.1 axis *c* covers the
-*encoding*, this arm covers the *residency* effect). Three cells, σ ∈ {0.001,
-0.05}, same three arms, arena sizes are the `alloc`-rounded totals the sizing
-guard `xllc_6m_128b_fits_under_arena_cap` confirms fit under the cap:
+| σ | Phase-1 in-slot | sidecar | naive (payload-fetch) | Phase-1 vs naive | sidecar vs naive | **sidecar / Phase-1** |
+|---|---:|---:|---:|---:|---:|---:|
+| 0.001 | 409.8 µs | 561.7 µs | 5.232 ms | 12.8× | 9.3× | **1.37× slower** |
+| 0.05 | 871.7 µs | 908.4 µs | 5.221 ms | 6.0× | 5.7× | **1.04× (≈ parity)** |
+| 0.20 | 1.644 ms | 1.390 ms | 5.297 ms | 3.2× | 3.8× | **0.85× (faster)** |
+| 1.0 | 9.568 ms | 5.310 ms | 5.401 ms | 0.56× | 1.02× | **0.55× (faster)** |
 
-| N | K | payload | sidecar `meta[]` | ×L3 | payload arena | expected |
-|---:|---:|---:|---:|---:|---:|---|
-| 1 000 000 | 3 | 256 B | ≈ 12 MiB | 0.4× | ≈ 272 MiB (> L3) | boundary — sidecar ≈ Phase-1 |
-| 3 000 000 | 3 | 256 B | ≈ 36 MiB | 1.2× | ≈ 816 MiB (> L3) | straddling — partial cliff |
-| 6 000 000 | 4 | 128 B | ≈ 96 MiB | 3.2× | ≈ 896 MiB (> L3) | **spilled — sidecar loses** (2nd cold stream) |
+**H1 (warm parity) is REFUTED — replaced by a σ-dependent crossover.** At low σ
+(scan-bound) the sidecar is *slower* (1.37× at σ=0.001): its extra permuted
+`meta[]` + `offsets[]` reads cost more than Phase-1's metadata, which rides *free*
+in the trie leaf the walk already touches. At high σ (fetch-bound) the sidecar is
+*faster* (0.55× at σ=1.0) — because the shipped `ExpanseBlobMap::scan_filtered`
+re-descends the trie via `get(key)` on **every match** to fetch the payload (a
+redundant O(k) lookup — it already holds the slot from the range walk), whereas
+the sidecar resolves the payload directly from `offsets[rid]`. The crossover sits
+near σ ≈ 0.05–0.2. (At σ=1.0 Phase-1's redundant re-lookup makes it 9.57 ms —
+*slower than touching every payload naively*, 5.40 ms; see the bonus finding
+in §5.6.5.)
 
-(The 6M/K=4 cell pushes `meta[]` to 3.2× the L3 to make the cliff unambiguous,
-where the 3M/1.2× cell only straddles it.)
+**H2 (≥10× vs payload-fetch at σ≤0.05):** the Phase-1 arm's *absolute* times
+reproduce §10.3 (~410 µs / ~872 µs), and it clears ≥10× at σ=0.001 (12.8×) but
+not at σ=0.05 (6.0×); the sidecar arm is 9.3× / 5.7×. The ratios are below
+§10.3's headline 22× / 10.3× **because the payload-fetch baseline here is faster
+/ tougher**: this bench's naive uses the sidecar's re-lookup-free full-deref
+(5.2 ms), whereas §10.3's naive used Phase-1's `get(key)`-per-entry full-deref
+(~8.9 ms, paying the redundant re-lookup on *all* entries). Against §10.3's
+baseline the Phase-1 arm still lands ~10×/~22×; the tougher baseline is the
+honest one, and it shows the "10×" is baseline-sensitive.
 
-Also pending: `sidecar_compaction` (sidecar vs Phase-1 at 50 %-delete churn,
-H5), `sidecar_write_path` (H6), and `inverted_index` query latency
-(`intersection` / `intersection_len`, ts range exact vs bucketed).
+**`>`LLC arm — `sidecar_cold_dram_xllc` (H3 residency cliff; declared scaled
+proxy).** The cliff is driven by the per-entry `meta[]` array (`4·K·N` bytes),
+not payload size; a literal 1 KiB payload at these N would exceed the shipped
+1 GiB `MAX_ARENA_CAPACITY` cap (Phase-1 code, out of scope), so payload size is
+dropped to keep every arena `<` 1 GiB while `K` sizes `meta[]` across the 30 MiB
+L3 (encoding reach for the true `>64` GiB regime is covered by §5.6.1 axis *c*;
+this arm measures the *residency* effect). Sizes are the harness's logged
+`alloc`-rounded totals; the guard `xllc_6m_128b_fits_under_arena_cap` confirms
+they fit the cap.
 
-### 5.6.5 Verdict & recommendation *(preliminary — structural axes RESOLVED; timing pending §5.6.4)*
+| N | K | payload | `meta[]` | ×L3 | σ | Phase-1 | sidecar | naive | **sidecar / Phase-1** | Phase-1 vs naive |
+|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|
+| 1 M | 3 | 256 B | 11.4 MiB | 0.38× | 0.001 | 1.815 ms | 4.898 ms | 31.96 ms | **2.70× slower** | 17.6× |
+| 1 M | 3 | 256 B | 11.4 MiB | 0.38× | 0.05 | 4.608 ms | 8.956 ms | 32.09 ms | **1.94× slower** | 7.0× |
+| 3 M | 3 | 256 B | 34.3 MiB | 1.14× | 0.001 | 11.12 ms | 33.27 ms | 123.4 ms | **2.99× slower** | 11.1× |
+| 3 M | 3 | 256 B | 34.3 MiB | 1.14× | 0.05 | 24.10 ms | 46.64 ms | 124.0 ms | **1.94× slower** | 5.1× |
+| 6 M | 4 | 128 B | 91.6 MiB | 3.05× | 0.001 | 25.66 ms | 74.91 ms | 258.9 ms | **2.92× slower** | 10.1× |
+| 6 M | 4 | 128 B | 91.6 MiB | 3.05× | 0.05 | 49.94 ms | 102.6 ms | 259.9 ms | **2.05× slower** | 5.2× |
 
-- **Correctness / capacity (H4): CONFIRMED.** The scalar sidecar serves all
-  three axes — full-32-bit metadata, multi-column predicates, and `> 64` GiB
-  addressing — with **key-ordered** output equal to a `BTreeMap` reference, and
-  keeps `ValueSlot` a single machine word (§2.2-compliant). It is the faithful
-  home for the capacity axes, as #295/§5.5 anticipated.
-- **Space cost (structural): +13 B/record (`K=1`), +21 B/record (`K=3`)** — the
-  price of moving metadata out of the free-riding slot; ≈ 1–2 % of a 1 KiB
-  payload arena.
-- **Compaction (H5): sidecar avoids `N_live` random trie writes** (131 072 at
-  262 k / 50 %-delete) — a structural win; magnitude pending timing.
-- **Residency cliff (H3): the load-bearing limitation.** The sidecar's warm-read
-  advantage holds only while the sidecar is LLC-resident (≈ ≤ 1 M `K=3` records
-  on a 30 MiB L3). Beyond that, with insert-ordered handles a key-ordered scan
-  turns `meta[]` into a second cold-DRAM stream and the sidecar is expected to
-  **lose** to Phase-1 in-slot metadata — mitigable only by key-correlating
-  handles at compaction (which reintroduces trie rewrites, trading H5 away).
-- **Inverted index (H7): a complement, not a replacement.** Ship-worthy shape for
-  low-cardinality discrete equality/intersection (tenant/status → 64/4 posting
-  lists, native set-algebra queries); unsuitable for continuous/high-cardinality
-  fields without bucketing (503× list-count blow-up otherwise).
+**H3 is CONFIRMED — and stronger / earlier than predicted.** The sidecar's
+scan penalty is **not a sharp LLC cliff** but a *monotone degradation that
+saturates*: at σ=0.001 the sidecar/Phase-1 ratio grows 1.37× (262 k, 3.25 MiB) →
+2.70× (1 M, 11.4 MiB) → 2.99× (3 M, 34.3 MiB) → 2.92× (6 M, 91.6 MiB). Crucially
+it is already 2.70× at **1 M, where `meta[]` (11.4 MiB) is well *inside* the
+30 MiB L3** — because permuted access to an array larger than **L2** (1.25 MiB)
+already costs L3/DRAM latency, while Phase-1's in-leaf metadata stays free. The
+penalty saturates near ~3× once `meta[]` is DRAM-bound (by 6 M, Phase-1's trie is
+cold too). So the true limitation is broader than "the sidecar must fit the LLC":
+**on scan-bound (low-σ) workloads past ~L2, the sidecar loses ~2–3× to Phase-1
+in-slot metadata.** At σ=0.05 the gap narrows (1.94–2.05×) as the on-match savings
+begin to offset, but the sidecar still loses across every `>`LLC cell.
+
+**Compaction — `sidecar_compaction` (H5): CONFIRMED, ~1.4× faster.**
+
+| N (50 %-delete) | Phase-1 | sidecar | sidecar speedup |
+|---:|---:|---:|---:|
+| 20 000 | 412.9 µs | 290.2 µs | **1.42×** |
+| 100 000 | 2.492 ms | 1.809 ms | **1.38×** |
+
+Sidecar compaction rewrites the dense `offsets[]` and skips the per-record
+random-access trie value-slot rewrite Phase-1 performs — a measured ~1.4× win.
+
+**Write path — `sidecar_write_path` (H6): CONFIRMED, ≈ parity.** 50 k inserts:
+Phase-1 1.518 ms vs sidecar 1.582 ms (**sidecar 1.04× slower** — the extra dense
+`Vec` pushes; negligible).
+
+**Inverted index — `inverted_index` (H7): CONFIRMED.** 262 k corpus:
+
+| query | median |
+|---|---:|
+| `intersection` materialize (tenant=3 ∩ status=1, ~1082 keys) | 40.5 µs |
+| `intersection_len` (count only) | 16.0 µs |
+| ts range exact (100 k-wide, ~many lists) | 949.8 µs |
+| ts range bucketed (`2^12`) | 596.5 µs |
+
+Native set intersection answers a 2-attribute query in tens of µs;
+`intersection_len` is **2.5× faster** than materializing (no result set built);
+bucketed ts-range is **1.6× faster** than exact (fewer posting lists to union,
+even with the residual boundary filter).
+
+### 5.6.5 Verdict & recommendation *(RESOLVED — structural + timing both measured)*
+
+- **Correctness / capacity (H4): CONFIRMED.** The scalar sidecar serves all three
+  axes — full-32-bit metadata, multi-column predicates, `> 64` GiB addressing —
+  with **key-ordered** output equal to a `BTreeMap` reference, keeping `ValueSlot`
+  a single machine word (§2.2-compliant). Phase-1 simply *cannot* express any of
+  the three; the sidecar is the faithful home for them.
+- **Scan cost (H1 REFUTED, H3 CONFIRMED — the load-bearing result): the capacity
+  lift is NOT free.** The sidecar adds a permuted metadata stream that Phase-1
+  gets free from the trie leaf, so on **scan-bound (low-σ)** workloads it is
+  **1.4× slower at 262 k and ~2.7–3.0× slower at 1 M–6 M** — the penalty starts
+  as soon as `meta[]` exceeds **L2** (not the LLC) and saturates near ~3×. It is
+  *not* a narrow `>`LLC cliff; it is a broad scan-time tax that grows with N.
+- **But the sidecar WINS on fetch-bound and compaction workloads.** At high σ its
+  handle resolves payloads directly and **beats Phase-1** (0.55× at σ=1.0),
+  because Phase-1's `scan_filtered` re-descends the trie per match; and compaction
+  is **~1.4× faster** (H5). Write path is parity (H6, 1.04× slower).
+- **Inverted index (H7): a complement, not a replacement.** Native set
+  intersection at tens of µs for low-cardinality discrete attributes
+  (tenant/status → 64/4 posting lists); `intersection_len` 2.5× faster than
+  materialize; unsuitable for continuous/high-cardinality fields without bucketing
+  (503× list-count blow-up, mitigated to 1.6× faster range queries when bucketed).
+- **Bonus finding (Phase-1, independent of the sidecar):** the shipped
+  `ExpanseBlobMap::scan_filtered` re-looks-up each matching key via `get(key)`
+  though it already holds the slot from the range walk — a redundant O(k) trie
+  descent per match. It is pathological at high σ (σ=1.0: 9.57 ms, *slower than
+  the touch-every-payload baseline* at 5.40 ms). Resolving the payload directly
+  from the range-walk slot would remove it. Worth its own Phase-1 optimization
+  ticket, orthogonal to the capacity question.
 
 **Recommendation.**
 
-1. **Which §2.2-compliant sidecar covers which axis:** the **scalar metadata
-   sidecar** is the default answer for wide (`>24`-bit) / multi-column / `>64`
-   GiB metadata **with key order preserved**; the **inverted index** complements
-   it for low-cardinality discrete attributes; a **columnar-SIMD sidecar** remains
-   reserved for a proven compute-bound *warm* analytical scan (not demonstrated).
-2. **Graduation:** nothing graduates from POC to shipped now — consistent with
-   #295's parked status. The POC lands feature-gated (`poc-meta-sidecar`,
-   non-default, out of the public API) so the design, tests, and bench harness
-   are preserved and re-runnable the moment a workload trips the trigger. The
-   first workload that needs it should also decide the residency-cliff mitigation
-   (key-correlated handles vs accept the `>`LLC regression) against its own N.
-3. **Before any graduation:** run the §5.6.4 host timing sweep to confirm H1/H2
-   parity in the warm regime and quantify H5, and add a large-N (`>`LLC) cell to
-   measure the H3 cliff directly.
+1. **Which §2.2-compliant shape covers which axis:** the **scalar metadata
+   sidecar** is the correct home for wide (`>24`-bit) / multi-column / `>64` GiB
+   metadata **with key order preserved** — but it trades a measured **~1.4–3×
+   scan-time penalty** (low-σ, growing with N past L2) for that capacity, plus
+   wins at high σ and on compaction. The **inverted index** complements it for
+   low-cardinality discrete attributes; a **columnar-SIMD sidecar** stays reserved
+   for a proven compute-bound *warm* analytical scan (still not demonstrated).
+2. **Graduation:** nothing graduates now — consistent with #295's parked status,
+   and the timing sharpens *why*: the sidecar is not a free parity swap, so it
+   should be adopted only when a workload **needs** the capacity (Phase-1 can't
+   serve it) **or** is fetch-bound / compaction-heavy enough to profit. For
+   scan-bound low-σ analytics inside Phase-1's 24-bit / 64 GiB envelope, Phase-1
+   in-slot metadata is faster — keep it. The POC stays feature-gated
+   (`poc-meta-sidecar`, non-default, out of the public API), re-runnable when a
+   workload trips the trigger; that workload weighs the scan penalty against its N
+   and σ, and picks a residency mitigation (key-correlated handles — which trades
+   H5 away — vs accept the penalty).
+3. **Actionable now (independent of graduation):** file the Phase-1
+   `scan_filtered` redundant-re-lookup optimization (the bonus finding) as its own
+   ticket — it speeds the shipped engine at high σ regardless of the sidecar.
 
 ---
 
