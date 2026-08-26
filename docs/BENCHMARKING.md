@@ -106,6 +106,51 @@ Performance claims are this project's reason to exist, so they follow the strict
    "$TMPDIR/expanse-bench.lock/owner"`) and are otherwise subject to rule 2's
    load-snapshot requirement.
 
+9. **Fail-loud harness execution (zero silent fallbacks).** If a benchmark
+   dependency, runtime, or native extension (`libexpanse.so`, Node addon, Python
+   wheel) is missing or fails to build, the benchmark harness MUST exit non-zero
+   immediately (`panic!`, `sys.exit(1)`, `b.Fatalf`). Never catch a compilation
+   or runtime failure to substitute placeholder numbers or fake loops. In CI
+   workflows where a failure is intentionally non-fatal (e.g. historical
+   unbuildable base commit), the degradation must surface prominently (`⚠️ NO
+   BASELINE — gate did not run`) and must never render as success.
+10. **Dynamic report derivation (zero hardcoded findings).** Reporting scripts
+    (`bench_report.py`, `perf_report.py`, `generate_charts.py`) must never
+    stamp hardcoded summary constants (e.g. `"4× to 10× faster"`). All published
+    tables, speedup ratios, badges, and findings statements must be computed
+    dynamically from the parsed results of that specific run.
+11. **Symmetric substitution-twin discipline.** Baselines must represent
+    production-grade configurations (e.g. variable-height skiplist nodes with
+    20–25 B/entry overhead, not static 16-pointer strawmen). Workload predicates
+    must be identical across arms (e.g. matching 50% filter selectivity in YCSB
+    Workload E), PRNG algorithms and seeds must match across all languages (e.g.
+    XorShift64), and memory accounting must measure live heap via allocator
+    hooks (`TrackingAlloc`/`GlobalAlloc`) symmetrically across arms.
+12. **Metric-scoped statistical gating (CI lower bound $\ge$ floor).** Continuous
+    and wall-clock sampling distributions pass iff the **BCa 95% bootstrap CI
+    lower bound $\ge$ floor** (≥1,000 resamples), NOT iff point estimate $\ge$
+    floor. Point estimates and CIs must use identical definitions (macro-mean
+    with macro-CI). Overlapping intervals must be labeled `BOUNDARY_RESULT` or
+    `INTERMEDIATE_floor_within_ci`. Exact Callgrind instruction counts (zero
+    sampling variance) are evaluated against the deterministic threshold
+    contract.
+13. **In-repo scratch path isolation.** Quick or developmental sweeps
+    (`--quick`) must write strictly to gitignored scratch paths (e.g.
+    `results/quick/` or `scratch/`) and must never overwrite canonical committed
+    `results/baseline_*.json` or committed SVGs.
+14. **Workload realism & DCE prevention.** Inner loops must consume every
+    returned value via `std::hint::black_box`, `b.Fatalf`, or an accumulator
+    sink to prevent Dead-Code Elimination. Read workloads must test realistic
+    hit rates (e.g. 50% hit / 50% miss), never probing unbounded 64-bit random
+    keys against sparse structures (~0% hit rate) unless explicitly evaluating
+    the miss path.
+15. **Provenance and pre-registration integrity.** Every published number must
+    carry a provenance tag: `(measured: host, commit)` resolving to a committed
+    JSON artifact or cited CI run. Pre-registration sections, hypotheses,
+    claims ceilings, and expected loss matrices must never be backfilled or
+    reconciled in place with observed results; unexpected outcomes must be
+    published honestly under their strict pre-registered verdict label.
+
 ## Bench matrix
 
 | Bench | Status | Notes |

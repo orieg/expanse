@@ -179,3 +179,46 @@ See `docs/BENCHMARKING.md` §2–3 and `docs/CI.md` for details.
 ### Privacy & Local Infrastructure
 
 **No PII or local-infrastructure identifiers.** Never put personally-identifying or private-infrastructure information into commit messages, PR titles/bodies, code comments, or docs: private/personal hostnames, LAN IP addresses, internal domains, home-directory paths, or OS usernames. Benchmark and test results MUST reference the host by an anonymized hardware description (CPU model, core/thread count, cache, OS) — never a personal hostname. Benchmark commands in this repo use environment placeholders (`$BENCH_HOST`, `$BENCH_REPO`) rather than concrete hostnames/paths. (The package-author email in manifest files — `Cargo.toml` / `pom.xml` / `.gemspec` / `.csproj` / etc. — is intentional public package metadata and is exempt.)
+
+---
+
+## 8. Benchmark & Research Integrity Discipline (Anti-Fabrication Standards)
+
+Expanse is an empirical performance project. Autonomous agents interacting with this repo must adhere strictly to these non-negotiable research standards to prevent simulated, mocked, or fabricated performance claims.
+
+### 8.1 Zero Silent Fallbacks & Fail-Loud Error Visibility
+- **Never swallow errors with fake outputs**: If a benchmark dependency, language runtime, or native extension (`libexpanse.so`, Node addon, Python wheel) is missing or fails to compile, the harness MUST fail immediately and loudly with a non-zero exit code (`panic!`, `sys.exit(1)`, `b.Fatalf`).
+- **Never substitute placeholder estimates or mocked loops**: Returning hardcoded strings, estimated numbers, or fake loops in place of an unrun benchmark is a critical methodology violation.
+- **Explicit Non-Fatal Degradations**: In CI workflows where a failure is intentionally non-fatal (e.g. checking out an unbuildable historical base commit), the degradation must surface prominently (`⚠️ NO BASELINE — gate did not run`) and must **never** render as success or "0 Regressions".
+
+### 8.2 Dynamic Data Derivation (Zero Hardcoded Report Prose)
+- **No Stamped Narrative Constants**: Benchmark reporting scripts (`bench_report.py`, `perf_report.py`, `generate_charts.py`) must never stamp hardcoded summary constants (e.g. `"4× to 10× faster point lookups"`, `"outperforms stock across all distributions"`).
+- **100% Derived Outputs**: Every table cell, speedup ratio, status badge, and finding statement in generated markdown reports must be computed dynamically from the parsed JSON/Criterion artifacts of that specific run.
+
+### 8.3 Symmetrical & Competitive Substitution-Twins (Rule 1.2 / B-11)
+- **Production-Grade Baselines**: Competitor baselines must represent realistic production configurations (e.g. variable-height skiplist towers with 20–25 B/entry overhead, NOT static 16-pointer strawmen with 146.7 B/entry).
+- **Symmetric Selectivity & Workload Predicates**: Multi-structure comparisons must evaluate identical filter selectivity across all arms (e.g. matching 50% predicate pass rates across Expanse and competitors in YCSB Workload E).
+- **Symmetric PRNGs**: Cross-language comparisons must use identical PRNG algorithms and seeds (e.g. matching XorShift64 algorithms and seeds across Rust, Python, Go, Node, PHP, Java, and .NET).
+- **Symmetric Memory Accounting**: When measuring memory, report live resident heap via allocator instrumentation (`TrackingAlloc`/`GlobalAlloc`) across all arms, or explicitly disclose any platform-level asymmetry.
+
+### 8.4 Metric-Scoped Statistical Gating (Rule 1.1 / B-9)
+- **Continuous / Sampling Metrics**: Claims over wall-clock execution or continuous sampling distributions pass iff the **BCa 95% bootstrap CI lower bound $\ge$ floor** (≥1,000 resamples), NOT iff point estimate $\ge$ floor. Point estimates and CIs must use identical definitions (e.g. macro-mean with macro-CI) so the point estimate is always enclosed within the interval. Overlapping intervals must be labeled `BOUNDARY_RESULT` or `INTERMEDIATE_floor_within_ci`.
+- **Deterministic Instruction Counters**: Exact Callgrind instruction counts (the primary regression instrument) are exact integers with zero variance, evaluated strictly against the deterministic threshold contract.
+
+### 8.5 In-Repo Gitignored Scratch Path Isolation
+- **No Baseline Pollution**: Quick, smoke, or developmental sweeps (`--quick`) must write strictly to gitignored scratch paths (e.g. `results/quick/` or `scratch/`) and must **never** overwrite canonical committed `results/baseline_*.json` or committed SVGs.
+
+### 8.6 Realistic Workloads & Dead-Code Elimination (DCE) Sinks
+- **Consume Every Output**: Every timed inner loop must consume its output via `std::hint::black_box`, `b.Fatalf`, or an accumulator sink to prevent compiler Dead-Code Elimination.
+- **Realistic Keyspaces & Hit Rates**: Read benchmarks must specify and test realistic hit rates (e.g. 50% hit / 50% miss), never probing unbounded 64-bit random keys against sparse sets where hit rate is ~0% unless explicitly benchmarking the miss path.
+
+### 8.7 Provenance & Pre-Registration Integrity (Rule 18)
+- **Provenance Tags Required**: Every published number in documentation must carry a provenance tag: `(measured: host, commit)` resolving to a committed JSON artifact or cited CI run.
+- **No In-Place Backfilling**: Pre-registration sections, hypotheses, claims ceilings, and expected loss matrices must **never be reconciled in place** with observed outcomes. When an empirical result refutes a pre-registered hypothesis or reveals an unexpected loss, report the outcome honestly with its strict verdict label.
+
+### 8.8 The 3-Commit Cadence for Research Spikes
+Separate research and benchmark spikes into three distinct commits:
+1. **Commit 1 (Math-First)**: Bound functions in committed Python/Rust with reference-pinned unit tests (zero pilot code).
+2. **Commit 2 (Pre-Registration)**: Locked hypothesis, expected losses matrix, and gate taxonomy in markdown/YAML (zero main data).
+3. **Commit 3 (Empirical Data)**: Benchmark scripts, raw JSON, paired CIs, and strict verdict matching pre-registration.
+
