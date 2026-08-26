@@ -29,9 +29,21 @@ is asymmetric:
 
 ### 2.1 The load-bearing honesty caveat: ExpanseSet has no native set algebra
 
+> **Update (#339, superseding this pre-registration).** The native kernel this
+> section says does *not* exist has since landed: `ExpanseSet::intersection_len`
+> / `union_len` / `difference_len` (+ `&` `|` `-` `^`), a structural lockstep
+> descent (`crates/expanse/src/algebra.rs`). Pillar 1 now measures **composed
+> vs native vs roaring** per cell. The pre-registered expectation below —
+> "Roaring wins every symmetric cell, often by 1–3 orders of magnitude" — held
+> for the **composed** arm (4×–1406×) and is **refuted for the native arm**,
+> which is within 3.70× on every symmetric cell, faster than Roaring on 7 of 16,
+> and faster on the dense/zipfian skewed AND (see README §Pillar 1). The text
+> below is preserved as the original pre-registration.
+
 The issue motivating this suite describes "direct bitwise algebra (AND, OR,
-AND NOT, XOR) executed directly over compressed trie edges." **That kernel does
-not exist in the code today.** `crates/expanse/src/set.rs` exposes point ops
+AND NOT, XOR) executed directly over compressed trie edges." **That kernel did
+not exist in the code when this suite was first written (#337); it landed in
+#339.** `crates/expanse/src/set.rs` exposes point ops
 (`contains`/`insert`/`remove`), ordered navigation (`next_at_or_after`,
 `prev_at_or_before`, `first`/`last`, `by_count`, `count_range`), and iteration
 (`iter`/`range`) — but **no** `intersection`/`union`/`difference` method, and no

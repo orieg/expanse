@@ -7,13 +7,24 @@ search-engine inverted index: Boolean posting-list algebra, WAND dynamic
 skip-scan, and memory footprint.
 
 > **Read [`METHODOLOGY.md`](METHODOLOGY.md) first — especially Step 0.** The
-> headline caveat is load-bearing: **`ExpanseSet` has no native set-algebra
-> kernel.** The Boolean results below are the cost of *composing* AND/OR/AND-NOT
-> from the set's navigation primitives (merge, leapfrog, `contains`), which is
-> what an engine using `ExpanseSet` as a posting-list backend must do today —
-> not a native-kernel-vs-native-kernel comparison. Roaring is expected to win
-> the Boolean pillar, often by orders of magnitude, and it does. This suite
-> publishes those losses.
+> Boolean pillar now reports **two Expanse arms** side by side:
+>
+> - **composed** — the original path this suite measured (#337): AND/OR/AND-NOT
+>   built from the set's navigation primitives (merge, leapfrog, `contains`),
+>   per element. This is what `ExpanseSet` forced on a posting-list backend
+>   *before* it had a set-algebra kernel, and it loses every cell to Roaring by
+>   4×–1406×.
+> - **native** — the structural set-algebra kernel added in **#339**
+>   (`ExpanseSet::intersection_len` / `union_len` / `difference_len`): descend
+>   both tries in lockstep, skip whole absent subtrees, count full expanses from
+>   `pop0` in O(1), and `AND` bitmap leaves word-parallel with `popcnt`.
+>
+> The native kernel closes the composed gap from up to **1406×** to **≤ 3.70×**
+> on every symmetric cell, **beats** Roaring on the small-N and all zipfian
+> large-N symmetric cells and on the dense/zipfian skewed-size AND, and still
+> loses the **sparse skewed** cells (17×–23×), where Roaring's flat tiny-array
+> container beats pointer-chasing a sparse trie. Every cell — wins and losses —
+> is published below.
 
 ---
 
@@ -22,7 +33,7 @@ skip-scan, and memory footprint.
 | Capability / property | `roaring::RoaringTreemap` | `expanse::ExpanseSet` |
 | :--- | :--- | :--- |
 | **Underlying structure** | 32-bit-keyed map of 2^16 containers (array / bitmap) | Expanse-partitioned digital trie, SIMD/SWAR bitmap leaves |
-| **Native Boolean algebra** | ✅ `intersection_len` / `union_len` / `difference_len`, `&` `\|` `-` `^` | ❌ **none** — composed from navigation primitives |
+| **Native Boolean algebra** | ✅ `intersection_len` / `union_len` / `difference_len`, `&` `\|` `-` `^` | ✅ **native structural kernel** (#339) — `intersection_len` / `union_len` / `difference_len`, `&` `\|` `-` `^` (was composed from navigation primitives) |
 | **Skip-scan / advance-to-target** | ✅ `iter().advance_to(n)` (stateful cursor) | ✅ `next_at_or_after(n)` (stateless O(depth) re-descent) |
 | **Ordered iteration / range** | ✅ | ✅ `iter` / `range` |
 | **Rank / select** | ✅ `rank` / `select` | ✅ `count_below` / `by_count` |
@@ -34,7 +45,7 @@ skip-scan, and memory footprint.
 
 ## 2. Key findings
 
-*(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 29f86ddc; full non-quick suite via `run.sh`, host idle. Deterministic instruction counts (`search_instructions`, iai-callgrind) require valgrind and run in the `instruction-counts` CI job, not on this host.)*
+*(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8. **Pillar 1 (Boolean)** re-measured at commit `c129836d` with the native set-algebra kernel arm (#339) in the window 2026-08-26T08:13:34Z → 08:15:28Z, host idle (load 0.00 before → 0.90 after — a single thread; no concurrent bench process during the window). **Pillars 2–3 (WAND, memory)** are unchanged from the #337 baseline (commit `29f86ddc`, measured on the same host in the 08:05Z–08:07Z window, also idle) — the set-algebra kernel does not touch skip-scan or footprint. Full non-quick suite via `run.sh`. The Boolean harness is `median_ns_per_op` (custom: 5 batches each grown to ≥ 60 ms), not criterion, identical to #337's config — the composed / native / roaring cells are same-methodology comparable. Deterministic instruction counts (`search_instructions`, iai-callgrind) require valgrind and run in the `instruction-counts` CI job, not on this host.)*
 
 <!-- RESULTS:START -->
 
@@ -42,7 +53,7 @@ skip-scan, and memory footprint.
 
 | Pillar | Winner | Margin | Notes |
 |---|---|---|---|
-| **1. Boolean AND / OR / AND-NOT** | **Roaring** | 4× – 1406× | Every cell. `ExpanseSet` has no native algebra kernel; per-element composition cannot match word-parallel containers. Zipfian is the closest distribution. |
+| **1. Boolean AND / OR / AND-NOT** | **Mixed** (native kernel, #339) | composed 4×–1406× slower; **native ≤ 3.70× slower, wins 7/16 symmetric cells** | The native structural kernel replaces per-element composition. Symmetric: within 3.70× everywhere, faster than Roaring at small N and on all zipfian large-N. Skewed AND: **faster** on dense/zipfian, loses only sparse (17×–23×). |
 | **2. WAND skip-scan** | **Roaring** | 2× – 4× | Every cell. Expanse's `next_at_or_after` cost is notably *flat* (~13.6 ns dense, independent of stride/size) — a real O(depth) property — but the warm cursor still wins. |
 | **3. Memory (bits/docID)** | **Mixed** | see below | Roaring wins most cells; **Expanse wins `shard` @ 10^5 (1.4× more compact)** and **ties dense/shard @ 10^6** (within ~4%). Small-N and sparse are Expanse losses. |
 
@@ -50,54 +61,71 @@ skip-scan, and memory footprint.
 
 ![Boolean AND latency](results/bench_boolean_and.svg)
 
-Roaring wins **every** Boolean cell — the expected result (METHODOLOGY §2.1):
-`ExpanseSet` exposes no `intersection`/`union`/`difference`, so AND is an
-adaptive iterator-merge/leapfrog, OR an iterator merge, and AND-NOT a `contains`
-probe — all per-element, against Roaring's word-parallel containers. The gap
-widens with size (more elements to walk one-at-a-time) and is smallest on
-`zipfian`, where heavy skew forces Roaring through many small array containers
-too.
+Two Expanse arms are reported per cell: **composed** (the pre-#339 path — AND as
+adaptive iterator-merge/leapfrog, OR as iterator merge, AND-NOT as a `contains`
+probe, all per-element) and **native** (the #339 structural kernel —
+`intersection_len` and its `union_len`/`difference_len` derivations, descending
+both tries in lockstep, skipping absent subtrees, counting full expanses from
+`pop0` in O(1), and `AND`-ing bitmap leaves word-parallel with `popcnt`). The
+native kernel turns a uniform 4×–1406× loss into a contest: **≤ 3.70× slower on
+every symmetric cell, faster than Roaring on 7 of 16**, and faster on the
+dense/zipfian skewed-size AND. It still loses the sparse cells, where Roaring's
+flat containers beat a sparse trie's pointer-chasing.
 
-**AND (symmetric, |A| = |B|):**
+**AND (symmetric, |A| = |B|)** — `composed` / `native` / `roaring`, and the
+native-vs-Roaring ratio (the composed-vs-Roaring ratio is the last column):
 
-| Distribution | Size | Expanse | Roaring | Expanse vs Roaring |
-|---|--:|--:|--:|---|
-| dense | 10,000 | 9.41 µs | 523 ns | 18× slower |
-| dense | 100,000 | 90.65 µs | 1.02 µs | 89× slower |
-| dense | 1,000,000 | 900.24 µs | 4.57 µs | 197× slower |
-| dense | 10,000,000 | 9.04 ms | 38.91 µs | 232× slower |
-| clustered | 1,000,000 | 1.79 ms | 15.62 µs | 115× slower |
-| clustered | 10,000,000 | 18.11 ms | 154.26 µs | 117× slower |
-| sparse | 1,000,000 | 8.06 ms | 15.58 µs | 517× slower |
-| sparse | 10,000,000 | 80.18 ms | 153.71 µs | 522× slower |
-| zipfian | 10,000 | 13.55 µs | 3.77 µs | **4× slower** (closest) |
-| zipfian | 1,000,000 | 2.75 ms | 267.18 µs | 10× slower |
-| zipfian | 10,000,000 | 25.17 ms | 3.06 ms | 8× slower |
+| Distribution | Size | Composed | Native | Roaring | Native vs Roaring | Composed vs Roaring |
+|---|--:|--:|--:|--:|---|--:|
+| dense | 10,000 | 9.45 µs | 0.25 µs | 0.52 µs | **2.08× faster** | 18× |
+| dense | 100,000 | 91.43 µs | 1.09 µs | 1.02 µs | 1.07× slower | 90× |
+| dense | 1,000,000 | 909.85 µs | 6.21 µs | 4.57 µs | 1.36× slower | 199× |
+| dense | 10,000,000 | 9.13 ms | 56.49 µs | 38.93 µs | 1.45× slower | 235× |
+| clustered | 10,000 | 17.59 µs | 0.38 µs | 0.51 µs | **1.37× faster** | 34× |
+| clustered | 100,000 | 175.93 µs | 2.99 µs | 2.77 µs | 1.08× slower | 63× |
+| clustered | 1,000,000 | 1.79 ms | 47.63 µs | 15.62 µs | 3.05× slower | 115× |
+| clustered | 10,000,000 | 18.12 ms | 572.17 µs | 154.51 µs | 3.70× slower | 117× |
+| sparse | 10,000 | 63.57 µs | 0.75 µs | 0.51 µs | 1.46× slower | 123× |
+| sparse | 100,000 | 802.22 µs | 5.33 µs | 3.03 µs | 1.76× slower | 264× |
+| sparse | 1,000,000 | 8.20 ms | 50.17 µs | 15.58 µs | 3.22× slower | 526× |
+| sparse | 10,000,000 | 82.04 ms | 502.34 µs | 153.64 µs | 3.27× slower | 534× |
+| zipfian | 10,000 | 13.64 µs | 1.73 µs | 3.86 µs | **2.23× faster** | 4× |
+| zipfian | 100,000 | 294.04 µs | 15.65 µs | 5.62 µs | 2.78× slower | 52× |
+| zipfian | 1,000,000 | 2.80 ms | 212.37 µs | 265.87 µs | **1.25× faster** | 11× |
+| zipfian | 10,000,000 | 25.71 ms | 2.23 ms | 3.08 ms | **1.38× faster** | 8× |
 
-**OR** and **AND-NOT** follow the same shape and are the largest losses
-(materializing the union/difference cardinality walks even more elements): OR
-ranges from 8× (zipfian 10^4) to **798× slower** (dense 10^7); AND-NOT from 8×
-(zipfian 10^4) to **1406× slower** (dense 10^7). Full per-size tables are in
+**OR** and **AND-NOT** track AND almost exactly for the native kernel — both
+derive from the same `intersection_len` walk plus O(1) populations, so their
+native cost equals AND's to within noise (native worst is **3.70× slower**,
+clustered 10^7, for all three ops; native is faster than Roaring on the same 7
+cells). For the composed path they are the largest losses (OR to 803×, AND-NOT
+to **1406×** at dense 10^7). Full per-size, per-op data (all 54 cells) is in
 [`results/baseline_boolean.json`](results/baseline_boolean.json).
 
-**Skewed-size AND (|B| = |A|/1000)** — the cell where per-element leapfrog was
-hypothesised to be competitive (METHODOLOGY §2.3). It is the **closest cell in
-the whole Boolean pillar** on `zipfian` (2× slower), but on `dense`/`sparse`
-Roaring's tiny-B container intersection is still 80×–386× faster:
+**Skewed-size AND (|B| = |A|/1000)** — the subtree-skipping case (METHODOLOGY
+§2.3): a tiny B intersected into a huge A. The native kernel drives the
+recursion from B's few present children, so absent A-subtrees are never walked —
+it is **faster than Roaring on dense and zipfian**, and loses only `sparse`,
+where B's ~1000 scattered keys each cost a cache-missing descent into A while
+Roaring answers from a flat 1-key array container:
 
-| Distribution | \|A\| | \|B\| | Expanse | Roaring | Expanse vs Roaring |
-|---|--:|--:|--:|--:|---|
-| dense | 1,000,000 | 1,000 | 31.06 µs | 306 ns | 101× slower |
-| zipfian | 266,218 | 733 | 60.77 µs | 30.31 µs | **2× slower** (closest) |
-| sparse | 786,944 | 999 | 102.86 µs | 1.29 µs | 80× slower |
-| dense | 10,000,000 | 10,000 | 299.12 µs | 775 ns | 386× slower |
-| zipfian | 2,415,102 | 6,491 | 375.78 µs | 232.17 µs | **2× slower** |
-| sparse | 7,867,812 | 9,997 | 2.58 ms | 9.27 µs | 279× slower |
+| Distribution | \|A\| | \|B\| | Composed | Native | Roaring | Native vs Roaring |
+|---|--:|--:|--:|--:|--:|---|
+| dense | 1,000,000 | 1,000 | 32.35 µs | 0.07 µs | 0.29 µs | **4.08× faster** |
+| sparse | 786,944 | 999 | 58.04 µs | 9.50 µs | 0.41 µs | 23.05× slower |
+| zipfian | 266,218 | 733 | 41.22 µs | 4.15 µs | 21.68 µs | **5.22× faster** |
+| dense | 10,000,000 | 10,000 | 274.84 µs | 0.26 µs | 0.74 µs | **2.83× faster** |
+| sparse | 7,867,812 | 9,997 | 598.55 µs | 120.85 µs | 6.92 µs | 17.46× slower |
+| zipfian | 2,415,102 | 6,491 | 353.14 µs | 39.10 µs | 221.41 µs | **5.66× faster** |
 
-> **Verdict:** as a posting-list Boolean backend today, `ExpanseSet` is not
-> competitive with Roaring. Closing this requires the native trie-edge algebra
-> kernel the motivating issue describes — the numbers above are the size of
-> that gap.
+> **Verdict:** with the #339 native kernel, `ExpanseSet` is a viable
+> posting-list Boolean backend — within 3.70× of Roaring on every symmetric
+> cell and faster on 7 of 16, and faster on the dense/zipfian skewed AND where
+> subtree skipping pays off. The remaining losses are the **sparse** cells
+> (uniform-random keys over a wide universe): the trie has no shared structure
+> to skip, so each probe is a cache-missing descent, which Roaring's flat
+> containers beat. A `croaring` run-container arm and a sparse-probe fast path
+> are future work.
 
 ### Pillar 2 — WAND dynamic skip-scan
 
@@ -156,13 +184,14 @@ Full per-size data (including 10^4/10^5 rows for every distribution) is in
 
 <!-- RESULTS:END -->disclosure
 
-* **Pillar 1 is not a native-kernel comparison.** `ExpanseSet` has no
-  `intersection`/`union`/`difference` method. The measured cost is
-  application-level composition (adaptive merge/leapfrog for AND, iterator merge
-  for OR, `contains` probe for AND-NOT). A native trie-edge algebra kernel — the
-  feature the motivating issue describes but that does **not** exist in the code
-  — is what would be needed to close the gap. The numbers quantify how large
-  that gap is today.
+* **Pillar 1 now IS a native-kernel comparison (#339).** `ExpanseSet` gained a
+  native structural set-algebra kernel (`intersection_len` / `union_len` /
+  `difference_len`, `&` `|` `-` `^`), reported as the **native** arm. The
+  **composed** arm (adaptive merge/leapfrog for AND, iterator merge for OR,
+  `contains` probe for AND-NOT) is retained as a second arm so the before/after
+  is in one table. Both arms measure set-operation *cardinality* (no result set
+  is built), isolating algebra compute from allocation, and are timed with the
+  same `median_ns_per_op` harness config on the same host.
 * **Baseline is `roaring-rs` 0.10, not CRoaring.** `roaring-rs` has only array
   and bitmap containers (no run containers). CRoaring's run containers would
   compress dense/contiguous data further; this suite makes **no** claim about

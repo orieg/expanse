@@ -81,7 +81,10 @@ fn main() {
             // Native kernels must agree with the composed path and Roaring.
             debug_assert_eq!(expanse_native_and_count(&ea, &eb), and_card);
             debug_assert_eq!(expanse_native_or_count(&ea, &eb), ra.union_len(&rb));
-            debug_assert_eq!(expanse_native_andnot_count(&ea, &eb), ra.difference_len(&rb));
+            debug_assert_eq!(
+                expanse_native_andnot_count(&ea, &eb),
+                ra.difference_len(&rb)
+            );
 
             let e_and = median_ns_per_op(|| expanse_and_count(&ea, &eb), batches, min_batch);
             let n_and = median_ns_per_op(|| expanse_native_and_count(&ea, &eb), batches, min_batch);
@@ -97,7 +100,13 @@ fn main() {
             for (op, e_ns, n_ns, r_ns, card) in [
                 ("and", e_and, n_and, r_and, and_card),
                 ("or", e_or, n_or, r_or, expanse_or_count(&ea, &eb)),
-                ("andnot", e_andnot, n_andnot, r_andnot, expanse_andnot_count(&ea, &eb)),
+                (
+                    "andnot",
+                    e_andnot,
+                    n_andnot,
+                    r_andnot,
+                    expanse_andnot_count(&ea, &eb),
+                ),
             ] {
                 results.push(json!({
                     "cell": "symmetric",

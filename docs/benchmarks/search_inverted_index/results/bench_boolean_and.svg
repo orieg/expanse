@@ -86,7 +86,7 @@
   <rect width="100%" height="100%" class="border" rx="8"/>
 
   <text x="30" y="30" class="t-title">BOOLEAN AND: INTERSECTION LATENCY (LOG SCALE, LOWER IS BETTER)</text>
-  <text x="30" y="46" class="t-sub">Cardinality of A ∩ B • top size N=10,000,000 per list • ExpanseSet (merge/leapfrog) vs Roaring (native intersection_len)</text>
+  <text x="30" y="46" class="t-sub">Cardinality of A ∩ B • top size N=10,000,000 per list • ExpanseSet native kernel #339 (intersection_len) vs Roaring (intersection_len)</text>
   <g transform="translate(680, 20)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
     <text x="18" y="10" class="t-legend">ExpanseSet</text>
@@ -96,82 +96,82 @@
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
   <text x="30" y="91" class="t-bar-label">Dense</text>
   <text x="30" y="105" class="t-sub">symmetric |A|=|B|=10,000,000</text>
-  <rect x="360" y="78" width="246.7" height="11" rx="2" class="b-expanse"/>
-  <text x="612.7" y="87" class="t-val-accent">9.04 ms</text>
-  <rect x="360" y="93" width="120.4" height="11" rx="2" class="b-roaring"/>
-  <text x="486.4" y="102" class="t-val-blue">38.91 µs</text>
+  <rect x="360" y="78" width="189.2" height="11" rx="2" class="b-expanse"/>
+  <text x="555.2" y="87" class="t-val-accent">56.49 µs</text>
+  <rect x="360" y="93" width="179.2" height="11" rx="2" class="b-roaring"/>
+  <text x="545.2" y="102" class="t-val-blue">38.93 µs</text>
   <rect x="775" y="82" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="95" class="badge-loss-text">232.5x slower</text>
+  <text x="852" y="95" class="badge-loss-text">1.5x slower</text>
   <text x="30" y="137" class="t-bar-label">Clustered</text>
   <text x="30" y="151" class="t-sub">symmetric |A|=|B|=7,883,008</text>
-  <rect x="360" y="124" width="262.8" height="11" rx="2" class="b-expanse"/>
-  <text x="628.8" y="133" class="t-val-accent">18.11 ms</text>
-  <rect x="360" y="139" width="152.3" height="11" rx="2" class="b-roaring"/>
-  <text x="518.3" y="148" class="t-val-blue">154.26 µs</text>
+  <rect x="360" y="124" width="251.5" height="11" rx="2" class="b-expanse"/>
+  <text x="617.5" y="133" class="t-val-accent">572.17 µs</text>
+  <rect x="360" y="139" width="216.3" height="11" rx="2" class="b-roaring"/>
+  <text x="582.3" y="148" class="t-val-blue">154.51 µs</text>
   <rect x="775" y="128" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="141" class="badge-loss-text">117.4x slower</text>
+  <text x="852" y="141" class="badge-loss-text">3.7x slower</text>
   <text x="30" y="183" class="t-bar-label">Sparse</text>
   <text x="30" y="197" class="t-sub">symmetric |A|=|B|=7,867,812</text>
-  <rect x="360" y="170" width="297.3" height="11" rx="2" class="b-expanse"/>
-  <text x="663.3" y="179" class="t-val-accent">80.18 ms</text>
-  <rect x="360" y="185" width="152.2" height="11" rx="2" class="b-roaring"/>
-  <text x="518.2" y="194" class="t-val-blue">153.71 µs</text>
+  <rect x="360" y="170" width="248.0" height="11" rx="2" class="b-expanse"/>
+  <text x="614.0" y="179" class="t-val-accent">502.34 µs</text>
+  <rect x="360" y="185" width="216.2" height="11" rx="2" class="b-roaring"/>
+  <text x="582.2" y="194" class="t-val-blue">153.64 µs</text>
   <rect x="775" y="174" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="187" class="badge-loss-text">521.6x slower</text>
+  <text x="852" y="187" class="badge-loss-text">3.3x slower</text>
   <text x="30" y="229" class="t-bar-label">Zipfian</text>
   <text x="30" y="243" class="t-sub">symmetric |A|=|B|=2,415,102</text>
-  <rect x="360" y="216" width="270.5" height="11" rx="2" class="b-expanse"/>
-  <text x="636.5" y="225" class="t-val-accent">25.17 ms</text>
-  <rect x="360" y="231" width="221.6" height="11" rx="2" class="b-roaring"/>
-  <text x="587.6" y="240" class="t-val-blue">3.06 ms</text>
-  <rect x="775" y="220" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="233" class="badge-loss-text">8.2x slower</text>
+  <rect x="360" y="216" width="288.2" height="11" rx="2" class="b-expanse"/>
+  <text x="654.2" y="225" class="t-val-accent">2.23 ms</text>
+  <rect x="360" y="231" width="296.9" height="11" rx="2" class="b-roaring"/>
+  <text x="662.9" y="240" class="t-val-blue">3.08 ms</text>
+  <rect x="775" y="220" width="155" height="18" class="badge-win"/>
+  <text x="852" y="233" class="badge-win-text">Expanse 1.4x faster</text>
   <text x="30" y="275" class="t-bar-label">Skewed dense</text>
   <text x="30" y="289" class="t-sub">|A|=1,000,000  |B|=1,000</text>
-  <rect x="360" y="262" width="115.1" height="11" rx="2" class="b-expanse"/>
-  <text x="481.1" y="271" class="t-val-accent">31.06 µs</text>
-  <rect x="360" y="277" width="8.0" height="11" rx="2" class="b-roaring"/>
-  <text x="374.0" y="286" class="t-val-blue">306 ns</text>
-  <rect x="775" y="266" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="279" class="badge-loss-text">101.4x slower</text>
+  <rect x="360" y="262" width="9.3" height="11" rx="2" class="b-expanse"/>
+  <text x="375.3" y="271" class="t-val-accent">71 ns</text>
+  <rect x="360" y="277" width="47.1" height="11" rx="2" class="b-roaring"/>
+  <text x="413.1" y="286" class="t-val-blue">288 ns</text>
+  <rect x="775" y="266" width="155" height="18" class="badge-win"/>
+  <text x="852" y="279" class="badge-win-text">Expanse 4.1x faster</text>
   <text x="30" y="321" class="t-bar-label">Skewed zipfian</text>
   <text x="30" y="335" class="t-sub">|A|=266,218  |B|=733</text>
-  <rect x="360" y="308" width="130.7" height="11" rx="2" class="b-expanse"/>
-  <text x="496.7" y="317" class="t-val-accent">60.77 µs</text>
-  <rect x="360" y="323" width="114.6" height="11" rx="2" class="b-roaring"/>
-  <text x="480.6" y="332" class="t-val-blue">30.31 µs</text>
-  <rect x="775" y="312" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="325" class="badge-loss-text">2.0x slower</text>
+  <rect x="360" y="308" width="119.0" height="11" rx="2" class="b-expanse"/>
+  <text x="485.0" y="317" class="t-val-accent">4.15 µs</text>
+  <rect x="360" y="323" width="163.4" height="11" rx="2" class="b-roaring"/>
+  <text x="529.4" y="332" class="t-val-blue">21.68 µs</text>
+  <rect x="775" y="312" width="155" height="18" class="badge-win"/>
+  <text x="852" y="325" class="badge-win-text">Expanse 5.2x faster</text>
   <text x="30" y="367" class="t-bar-label">Skewed sparse</text>
   <text x="30" y="381" class="t-sub">|A|=786,944  |B|=999</text>
-  <rect x="360" y="354" width="142.9" height="11" rx="2" class="b-expanse"/>
-  <text x="508.9" y="363" class="t-val-accent">102.86 µs</text>
-  <rect x="360" y="369" width="41.4" height="11" rx="2" class="b-roaring"/>
-  <text x="407.4" y="378" class="t-val-blue">1.29 µs</text>
+  <rect x="360" y="354" width="141.2" height="11" rx="2" class="b-expanse"/>
+  <text x="507.2" y="363" class="t-val-accent">9.50 µs</text>
+  <rect x="360" y="369" width="56.7" height="11" rx="2" class="b-roaring"/>
+  <text x="422.7" y="378" class="t-val-blue">412 ns</text>
   <rect x="775" y="358" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="371" class="badge-loss-text">79.6x slower</text>
+  <text x="852" y="371" class="badge-loss-text">23.0x slower</text>
   <text x="30" y="413" class="t-bar-label">Skewed dense</text>
   <text x="30" y="427" class="t-sub">|A|=10,000,000  |B|=10,000</text>
-  <rect x="360" y="400" width="167.7" height="11" rx="2" class="b-expanse"/>
-  <text x="533.7" y="409" class="t-val-accent">299.12 µs</text>
-  <rect x="360" y="415" width="29.5" height="11" rx="2" class="b-roaring"/>
-  <text x="395.5" y="424" class="t-val-blue">775 ns</text>
-  <rect x="775" y="404" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="417" class="badge-loss-text">385.7x slower</text>
+  <rect x="360" y="400" width="44.4" height="11" rx="2" class="b-expanse"/>
+  <text x="410.4" y="409" class="t-val-accent">260 ns</text>
+  <rect x="360" y="415" width="72.4" height="11" rx="2" class="b-roaring"/>
+  <text x="438.4" y="424" class="t-val-blue">737 ns</text>
+  <rect x="775" y="404" width="155" height="18" class="badge-win"/>
+  <text x="852" y="417" class="badge-win-text">Expanse 2.8x faster</text>
   <text x="30" y="459" class="t-bar-label">Skewed zipfian</text>
   <text x="30" y="473" class="t-sub">|A|=2,415,102  |B|=6,491</text>
-  <rect x="360" y="446" width="172.9" height="11" rx="2" class="b-expanse"/>
-  <text x="538.9" y="455" class="t-val-accent">375.78 µs</text>
-  <rect x="360" y="461" width="161.8" height="11" rx="2" class="b-roaring"/>
-  <text x="527.8" y="470" class="t-val-blue">232.17 µs</text>
-  <rect x="775" y="450" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="463" class="badge-loss-text">1.6x slower</text>
+  <rect x="360" y="446" width="179.3" height="11" rx="2" class="b-expanse"/>
+  <text x="545.3" y="455" class="t-val-accent">39.10 µs</text>
+  <rect x="360" y="461" width="226.0" height="11" rx="2" class="b-roaring"/>
+  <text x="592.0" y="470" class="t-val-blue">221.41 µs</text>
+  <rect x="775" y="450" width="155" height="18" class="badge-win"/>
+  <text x="852" y="463" class="badge-win-text">Expanse 5.7x faster</text>
   <text x="30" y="505" class="t-bar-label">Skewed sparse</text>
   <text x="30" y="519" class="t-sub">|A|=7,867,812  |B|=9,997</text>
-  <rect x="360" y="492" width="217.7" height="11" rx="2" class="b-expanse"/>
-  <text x="583.7" y="501" class="t-val-accent">2.58 ms</text>
-  <rect x="360" y="507" width="87.1" height="11" rx="2" class="b-roaring"/>
-  <text x="453.1" y="516" class="t-val-blue">9.27 µs</text>
+  <rect x="360" y="492" width="209.7" height="11" rx="2" class="b-expanse"/>
+  <text x="575.7" y="501" class="t-val-accent">120.85 µs</text>
+  <rect x="360" y="507" width="132.7" height="11" rx="2" class="b-roaring"/>
+  <text x="498.7" y="516" class="t-val-blue">6.92 µs</text>
   <rect x="775" y="496" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="509" class="badge-loss-text">278.8x slower</text>
+  <text x="852" y="509" class="badge-loss-text">17.5x slower</text>
 </svg>
