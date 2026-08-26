@@ -938,8 +938,11 @@ even with the residual boundary filter).
   though it already holds the slot from the range walk — a redundant O(k) trie
   descent per match. It is pathological at high σ (σ=1.0: 9.57 ms, *slower than
   the touch-every-payload baseline* at 5.40 ms). Resolving the payload directly
-  from the range-walk slot would remove it. Worth its own Phase-1 optimization
-  ticket, orthogonal to the capacity question.
+  from the range-walk slot would remove it. Filed as its own Phase-1 optimization
+  ([#355](https://github.com/orieg/expanse/issues/355)), orthogonal to the
+  capacity question; **the H1 crossover above (sidecar "wins" at σ ≥ 0.20) should
+  be re-read once #355 lands** — that apparent advantage is an artifact of this
+  re-descent, not a genuine sidecar edge.
 
 **Recommendation.**
 
@@ -960,9 +963,11 @@ even with the residual boundary filter).
    workload trips the trigger; that workload weighs the scan penalty against its N
    and σ, and picks a residency mitigation (key-correlated handles — which trades
    H5 away — vs accept the penalty).
-3. **Actionable now (independent of graduation):** file the Phase-1
-   `scan_filtered` redundant-re-lookup optimization (the bonus finding) as its own
-   ticket — it speeds the shipped engine at high σ regardless of the sidecar.
+3. **Actionable now (independent of graduation):** the Phase-1 `scan_filtered`
+   redundant-re-descent optimization is filed as
+   [#355](https://github.com/orieg/expanse/issues/355) — it speeds the shipped
+   engine at high σ regardless of the sidecar, and its fix invalidates the H1
+   σ ≥ 0.20 crossover measured here (which is an artifact of the re-descent).
 
 ---
 
