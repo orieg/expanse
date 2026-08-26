@@ -11,26 +11,32 @@ Expanse targets multiple ecosystems: native Rust crates on [crates.io](https://c
 
 The entire release process is automated via [`.github/workflows/release.yml`](../.github/workflows/release.yml) upon pushing a version tag.
 
+The pipeline is **anchor-first** (#313): the **GitHub Release is the canonical anchor**, created as soon as the gate and core artifacts succeed; every registry publish depends on it and runs afterwards, independently and re-runnably. A registry can therefore never carry a version the release page does not.
+
 ```mermaid
 graph TD
     A[1. Synchronize Versions via scripts/bump_version.py] --> B[2. Update CHANGELOG.md]
     B --> C[3. Commit & Create Git Tag 'vX.Y.Z']
     C --> D[4. Push Tag to GitHub: git push origin vX.Y.Z]
-    D --> E[GitHub Actions Release Pipeline]
-    
-    E --> F[Job 1: Crates.io Trusted Publishing]
-    E --> G[Job 2: Node.js npm OIDC Trusted Publishing]
-    E --> H[Job 3: .NET NuGet.org OIDC Trusted Publishing]
-    E --> I[Job 4: Multi-Platform Binary Matrix]
-    E --> J[Job 5: Multi-Arch glibc-hwcaps & .deb / .rpm Packaging]
-    
-    F --> K[crates.io: expanse-trie & expanse-capi]
-    G --> L[npm: @orieg/expanse]
-    H --> M[NuGet.org: Orieg.Expanse]
-    I --> N[GitHub Release: Binaries, DLLs, Tarballs, ZIPs]
-    J --> N
-    N --> O[SHA256SUMS & Release Notes]
+    D --> E[Phase 1: release-gate - polls CI Gate rollup + version lockstep]
+
+    E --> F[build-release-artifacts: multi-arch C ABI + .deb/.rpm]
+    E --> G[build-npm: platform addons]
+    F --> H[Phase 2: github-release - THE CANONICAL ANCHOR - assets + SHA256SUMS]
+
+    H --> I[Phase 3: publish-crates - crates.io]
+    H --> J[Phase 3: publish-npm - npm OIDC]
+    H --> K[Phase 3: package-nuget - NuGet.org OIDC]
+    H --> L[Phase 3: publish-pages - apt/rpm portal]
+    H --> M[Phase 3: publish-pypi - via python.yml on the release-published event]
+    G --> J
 ```
+
+**Release policies** (post-v0.4.0 incident, #313):
+- **Single anchor**: no workflow publishes straight off a tag push; PyPI (`python.yml`) triggers on the GitHub Release **published** event, all other channels `needs: github-release`.
+- **Forward-only versions**: once *any* registry publish succeeds, that version is spent — registries are immutable. Never re-push or move a tag; fix forward (`vX.Y.Z+1`).
+- **Independent recovery**: a failed Phase-3 channel is re-run individually; the anchor and sibling channels are unaffected.
+- **Canary first**: run the release workflow via `workflow_dispatch` (`dry_run: true`) to exercise the gate, builds, packaging, and page generation with every outward publish skipped — before pushing a real tag.
 
 ### Release Steps:
 1. **Multi-Ecosystem Version Bump**:
@@ -45,7 +51,7 @@ graph TD
    git push origin main --tags
    ```
 4. **Automated Pipeline Execution**:
-   - GitHub Actions automatically executes `.github/workflows/release.yml`, which pushes to crates.io and npm, attempts the NuGet.org push (wired, not yet landed), and creates the GitHub Release with all binary assets. (PyPI is published by the separate `python.yml` workflow on tag; Java/Maven is not published by CI.)
+   - GitHub Actions executes `.github/workflows/release.yml`: the gate polls the tagged commit's CI rollup, core artifacts build, the **GitHub Release is created first** (the anchor), and only then do crates.io, npm, NuGet.org, and the Pages repos publish — each independently re-runnable. PyPI publishes from `python.yml` when the GitHub Release is **published**. (Java/Maven is not published by CI.)
 
 ---
 

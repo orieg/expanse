@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - 'v*'
+  # Canary: exercise the full release DAG (gate, builds, packaging, page
+  # generation) while skipping every outward publish step (GitHub Release,
+  # crates.io, npm, NuGet, Pages deploy). Run this before tagging a release.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: skip all outward publish steps'
+        type: boolean
+        default: true
 
 # Minimal default; each job elevates only what it needs.
 permissions:
@@ -31,25 +40,44 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          echo "Checking CI Gate check-run for ${GITHUB_SHA}..."
-          # One conclusion per line (robust to pagination; no array wrapping).
-          mapfile -t conclusions < <(gh api --paginate \
-            "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs" \
-            --jq '.check_runs[] | select(.name=="CI Gate / All Checks Passed") | .conclusion')
-          if [ "${#conclusions[@]}" -eq 0 ]; then
-            echo "::error::No 'CI Gate / All Checks Passed' check-run found for ${GITHUB_SHA}. Tag a commit that passed CI on main."
-            exit 1
-          fi
-          for c in "${conclusions[@]}"; do
-            echo "CI Gate conclusion: ${c}"
-            if [ "${c}" != "success" ]; then
-              echo "::error::The CI Gate rollup did not conclude success for ${GITHUB_SHA} (found: ${c})"
+          # Poll for the CI Gate check-run instead of insta-failing: a tag
+          # pushed moments after its commit lands on main races the
+          # still-running CI (the v0.4.0 incident, #313). Assert on the MOST
+          # RECENT check-run only — re-runs accumulate multiple check-runs per
+          # commit, and a stale failed one must not poison the commit forever.
+          deadline=$(( $(date +%s) + 1800 ))  # wait up to 30 minutes
+          while :; do
+            # One "started_at|status|conclusion" row per matching check-run
+            # (robust to pagination; jq runs per page, sorting happens below).
+            mapfile -t rows < <(gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs" \
+              --jq '.check_runs[] | select(.name=="CI Gate / All Checks Passed") | "\(.started_at)|\(.status)|\(.conclusion // "pending")"')
+            if [ "${#rows[@]}" -eq 0 ]; then
+              status="absent"; conclusion="absent"
+            else
+              latest=$(printf '%s\n' "${rows[@]}" | sort | tail -1)
+              status=$(echo "${latest}" | cut -d'|' -f2)
+              conclusion=$(echo "${latest}" | cut -d'|' -f3)
+            fi
+            echo "CI Gate check-run for ${GITHUB_SHA}: status=${status} conclusion=${conclusion}"
+            if [ "${status}" = "completed" ]; then
+              if [ "${conclusion}" = "success" ]; then
+                echo "CI Gate rollup concluded success for ${GITHUB_SHA}."
+                break
+              fi
+              echo "::error::The latest CI Gate rollup for ${GITHUB_SHA} concluded '${conclusion}'. Fix CI (or re-run it to success) before releasing."
               exit 1
             fi
+            if [ "$(date +%s)" -ge "${deadline}" ]; then
+              echo "::error::Timed out waiting for the CI Gate rollup on ${GITHUB_SHA} (last status=${status}). Ensure CI runs and passes on this commit."
+              exit 1
+            fi
+            echo "CI Gate not concluded yet; retrying in 30s..."
+            sleep 30
           done
-          echo "CI Gate rollup concluded success for ${GITHUB_SHA}."
 
       - name: Assert manifests are in version lockstep with the tag
+        if: github.event_name == 'push'  # no tag to compare on a canary dispatch
         run: |
           set -euo pipefail
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
@@ -58,7 +86,10 @@ jobs:
 
   publish-crates:
     name: Publish to Crates.io
-    needs: [release-gate]
+    # Anchor-first (#313): every registry publish waits for the canonical
+    # GitHub Release, so a registry can never carry a version the release
+    # page does not.
+    needs: [release-gate, github-release]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -70,6 +101,7 @@ jobs:
         with:
           toolchain: stable
       - name: Publish crates (idempotent on already-published versions)
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
@@ -215,14 +247,14 @@ jobs:
 
       - name: Upload native library artifact (NuGet)
         if: matrix.dotnet_rid
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-${{ matrix.dotnet_rid }}
           path: native/${{ matrix.dotnet_rid }}/*
           if-no-files-found: error
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-artifacts-${{ matrix.target }}
           path: |
@@ -261,7 +293,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
       - name: Install Rust
@@ -278,7 +310,7 @@ jobs:
           mkdir -p out
           cp "target/${{ matrix.target }}/release/${{ matrix.libfile }}" "out/expanse.${{ matrix.platform }}.node"
       - name: Upload platform addon artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-${{ matrix.platform }}
           path: out/expanse.${{ matrix.platform }}.node
@@ -286,10 +318,10 @@ jobs:
 
   package-nuget:
     name: Package & Publish .NET NuGet
-    needs: [release-gate, build-release-artifacts]
+    needs: [release-gate, build-release-artifacts, github-release] # anchor-first (#313)
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write # attach the nupkg to the GitHub Release
       id-token: write # NuGet.org OIDC trusted publishing
     steps:
       - uses: actions/checkout@v7
@@ -298,7 +330,7 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - name: Download native libraries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: native-*
           path: native-staging
@@ -323,7 +355,7 @@ jobs:
           mkdir -p dist/nuget
           dotnet pack bindings/dotnet/src/Expanse.NET/Expanse.NET.csproj -c Release -o dist/nuget
       - name: Upload NuGet artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-artifacts-nuget
           path: dist/nuget/*.nupkg
@@ -334,6 +366,7 @@ jobs:
         with:
           user: orieg
       - name: Publish to NuGet.org
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         env:
           NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY || secrets.NUGET_API_KEY }}
         run: |
@@ -346,10 +379,18 @@ jobs:
             --api-key "$NUGET_API_KEY" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
+      # Under anchor-first ordering this job runs AFTER github-release, so the
+      # nupkg can no longer ride the release-artifacts-* download there —
+      # attach it to the existing release explicitly (idempotent via --clobber).
+      - name: Attach nupkg to the GitHub Release
+        if: github.event_name == 'push' # the release exists only on tag pushes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" dist/nuget/*.nupkg dist/nuget/*.snupkg --clobber
 
   publish-npm:
     name: Publish Node.js (npm)
-    needs: [release-gate, build-npm]
+    needs: [release-gate, build-npm, github-release] # anchor-first (#313)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -357,17 +398,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
       - name: Upgrade npm CLI (OIDC provenance support)
         run: npm install -g npm@latest
       - name: Download platform addons
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: npm-*
           path: npm-staging
       - name: Assemble and publish platform packages + main package
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         run: |
           set -euo pipefail
           CRATE=crates/expanse-node
@@ -401,23 +443,36 @@ jobs:
               };
               fs.writeFileSync(`${process.env.PKGDIR}/package.json`, JSON.stringify(pkg, null, 2));
             ' "$plat" "$VERSION" "$(platform_os "$plat")" "$(platform_cpu "$plat")"
-            echo "Publishing @orieg/expanse-${plat}..."
-            npm publish "${pkgdir}" --access public --provenance || echo "::warning::Publishing @orieg/expanse-${plat} returned status $?; continuing."
+            if npm view "@orieg/expanse-${plat}@${VERSION}" version >/dev/null 2>&1; then
+              echo "@orieg/expanse-${plat}@${VERSION} already on the registry; skipping (idempotent re-run)."
+            else
+              echo "Publishing @orieg/expanse-${plat}..."
+              npm publish "./${pkgdir}" --access public --provenance
+            fi
           done
 
-          echo "Publishing main package @orieg/expanse..."
-          npm publish "${CRATE}" --access public --provenance || echo "::warning::Publishing main package @orieg/expanse returned status $?; continuing."
+          if npm view "@orieg/expanse@${VERSION}" version >/dev/null 2>&1; then
+            echo "@orieg/expanse@${VERSION} already on the registry; skipping (idempotent re-run)."
+          else
+            echo "Publishing main package @orieg/expanse..."
+            # The "./" prefix is load-bearing: a bare "crates/expanse-node"
+            # parses as a github:owner/repo spec (EALLOWGIT — how the v0.4.0
+            # main-package publish failed while the warning-swallow hid it).
+            npm publish "./${CRATE}" --access public --provenance
+          fi
 
   github-release:
     name: Create GitHub Release
-    needs: [build-release-artifacts]
+    # The PRIMARY ANCHOR (#313): depends only on the gate and the core
+    # artifacts. Downstream registries depend on THIS job — never the reverse.
+    needs: [release-gate, build-release-artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the release and upload assets
     steps:
       - uses: actions/checkout@v7
       - name: Download artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: release-artifacts-*
           merge-multiple: true
@@ -427,14 +482,15 @@ jobs:
           cd artifacts
           sha256sum ./* > SHA256SUMS
       - name: Create Release
-        uses: softprops/action-gh-release@62c96d0c4e8a889135c1f3a25910db8dbe0e85f7 # v2.3.4
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: artifacts/*
           generate_release_notes: true
 
   publish-pages:
     name: Publish Portal & Repositories (GitHub Pages)
-    needs: [build-release-artifacts]
+    needs: [build-release-artifacts, github-release] # anchor-first (#313)
     runs-on: ubuntu-latest
     permissions:
       contents: write # push to the gh-pages branch
@@ -449,7 +505,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y createrepo-c dpkg-dev
       - name: Download all release packages
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: release-artifacts-*
           merge-multiple: true
@@ -458,7 +514,8 @@ jobs:
         run: |
           python3 scripts/build_pages.py --artifacts-dir artifacts --output-dir pages-root
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./pages-root
