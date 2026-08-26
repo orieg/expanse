@@ -10,7 +10,22 @@ on:
   # builds wheels/sdist as artifacts (pre-validation), but does not publish.
   release:
     types: [published]
+  # A release created by release.yml with GITHUB_TOKEN does NOT emit a
+  # `release` event to other workflows (GitHub suppresses token-caused events,
+  # except workflow_dispatch/repository_dispatch — the v0.4.1 lesson). The
+  # github-release job therefore dispatches this workflow explicitly with the
+  # release tag; the `release:` trigger above still serves manually-published
+  # releases.
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to PyPI (only for a real release dispatch)'
+        type: boolean
+        default: false
+      release_tag:
+        description: 'Release tag to build and publish (e.g. v0.4.1); empty = current ref'
+        type: string
+        default: ''
 
 concurrency:
   group: python-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -35,6 +50,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v7
@@ -82,6 +99,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -109,6 +128,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -132,10 +153,12 @@ jobs:
     name: Publish to PyPI
     needs: [test, wheels, sdist]
     runs-on: ubuntu-latest
-    # Anchor-first (#313): only the GitHub Release publication event may
-    # trigger a PyPI publish (the release event's ref is the release tag, so
-    # the wheels/sdist jobs above rebuild at exactly that tag).
-    if: github.event_name == 'release'
+    # Anchor-first (#313): publish only for a GitHub Release — either the
+    # `release` event (manual releases) or the explicit dispatch from
+    # release.yml's github-release job (the pipeline's path, since
+    # GITHUB_TOKEN-created releases emit no event). Wheels/sdist above are
+    # built from the dispatched release_tag.
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
     permissions:
       id-token: write # Required for OIDC trusted publishing
       contents: read

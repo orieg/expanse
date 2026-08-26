@@ -382,8 +382,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${NUGET_API_KEY:-}" ]; then
-            echo "NUGET_API_KEY secret not configured (and OIDC login not established); skipping NuGet publish."
-            exit 0
+            # Hard failure, not a silent skip: a green job that published
+            # nothing is the failure class #313 exists to eliminate.
+            echo "::error::No NuGet credential available (OIDC login yielded no key and NUGET_API_KEY is unset); refusing to report success without publishing."
+            exit 1
           fi
           dotnet nuget push dist/nuget/*.nupkg \
             --api-key "$NUGET_API_KEY" \
@@ -479,6 +481,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the release and upload assets
+      actions: write # dispatch python.yml for the PyPI publish
     steps:
       - uses: actions/checkout@v7
       - name: Download artifacts
@@ -503,6 +506,16 @@ jobs:
         if: github.event_name == 'push' # tag releases only
         run: |
           git push -f origin "${GITHUB_SHA}:refs/tags/bindings/go/${GITHUB_REF_NAME}"
+      # PyPI (#313): a release created with GITHUB_TOKEN emits no `release`
+      # event to other workflows (GitHub suppresses token-caused events except
+      # workflow_dispatch/repository_dispatch), so python.yml is dispatched
+      # explicitly — v0.4.1 shipped without PyPI because of this.
+      - name: Dispatch PyPI publish (python.yml)
+        if: github.event_name == 'push' # tag releases only
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run python.yml --ref main -f publish=true -f release_tag="${GITHUB_REF_NAME}"
 
   publish-pages:
     name: Publish Portal & Repositories (GitHub Pages)
