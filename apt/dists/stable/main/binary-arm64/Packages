@@ -1,9 +1,27 @@
-Package: libexpanse
-Version: 0.3.0
+Package: libexpanse1
+Version: 0.4.0
 Architecture: arm64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine: modern Judy replacement
-Filename: pool/main/libexpanse_0.3.0_arm64.deb
-Size: 5333028
-SHA256: 28f04152ec2a6ca113cb22908e16f5eae3ad00756e4e3f1581fcc2bcdef6eec5
+Filename: pool/main/libexpanse1_0.4.0_arm64.deb
+Size: 345062
+SHA256: 57757e638294a0bf8e75ca7fa68a617cc078949f3ec0e1a3be86e4ac0decbb91
+
+Package: libexpanse-dev
+Version: 0.4.0
+Architecture: arm64
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
+Description: Expanse trie engine: modern Judy replacement
+Filename: pool/main/libexpanse-dev_0.4.0_arm64.deb
+Size: 5287456
+SHA256: beef91dc68eb99781b1e808193bcc5778e5a3aedb434c197589f5803242ca6c2
+
+Package: libjudy-compat
+Version: 0.4.0
+Architecture: arm64
+Maintainer: Nicolas Brousse <nicolas@brousse.info>
+Description: Expanse trie engine: modern Judy replacement
+Filename: pool/main/libjudy-compat_0.4.0_arm64.deb
+Size: 626
+SHA256: e0249deeef3301c1666996cfa590af1d449bddbcc78fb9596736a73e18485e91
 
