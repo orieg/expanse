@@ -889,6 +889,16 @@ unsafe fn complement(a: &NodeAlloc, edge: &Edge, level: u8) -> Option<Edge> {
     if edge.tag_byte() == EdgeType::FullExpanse as u8 {
         return None;
     }
+    // Today `complement` is only ever entered at level 1: nothing constructs a
+    // level ≥ 2 `FullExpanse` (insert and the builder promote to full only at
+    // level 1, and materialize never produces a level ≥ 2 full from level-1-only
+    // inputs), so `materialize`'s full arms fire only at level 1. The `level > 1`
+    // branch below is dead-but-correct — it becomes live if an upward full
+    // canonicalization or the level-2 bitmap leaf lands.
+    debug_assert!(
+        level == 1,
+        "level>=2 FullExpanse is currently unreachable; complement's level>1 branch is dead"
+    );
     if level == 1 {
         // SAFETY: at level 1 every non-full form reduces to a final-byte bitmap.
         let (_dv, bm) = unsafe { as_level1_bitmap(edge, 1) }.expect("level-1 bitmap");
@@ -928,9 +938,11 @@ unsafe fn child_at_top(edge: &Edge, level: u8, d: u8) -> Edge {
         return unsafe { child_by_digit(edge, level, d) };
     }
     // A terminal reached via a skip shares one top digit (its decode byte for
-    // `level`); it covers digit d only when d equals that byte, viewed one
-    // level shallower.
-    let shared = edge.decode_bytes(level)[0];
+    // `level`, stored at `aux[level - 1]` = `decode_bytes(level - 1)[0]`); it
+    // covers digit d only when d equals that byte, viewed one level shallower.
+    // (`decode_bytes(level)` would be `aux[level..]`, empty at level 7, and
+    // would disagree with the `clear_aux_byte(level - 1)` below.)
+    let shared = edge.decode_bytes(level - 1)[0];
     if d == shared {
         // Re-host the same terminal one level down by dropping this decode byte.
         let mut c = *edge;
@@ -977,6 +989,10 @@ pub(crate) unsafe fn materialize(
         };
     }
 
+    // A `FullExpanse` operand only ever occurs at level 1 today (nothing
+    // constructs a level ≥ 2 full — see `complement`), so this block fires at
+    // level 1 in practice; the arms are written for any `level` so they stay
+    // correct (dead-but-plausible above level 1) if that ever changes.
     let fa = ea.tag_byte() == EdgeType::FullExpanse as u8;
     let fb = eb.tag_byte() == EdgeType::FullExpanse as u8;
     if fa || fb {

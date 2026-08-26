@@ -1574,6 +1574,65 @@ mod tests {
         check(&big, &big, "tree-self");
     }
 
+    /// Materialization with real `FullExpanse` operands. The builder emits a
+    /// level-1 `FullExpanse` for a fully-populated final byte under a branch, so
+    /// `from_sorted_iter` over contiguous blocks yields operands with actual
+    /// `FullExpanse` edges — the only way to reach `algebra_build::complement`
+    /// (the `full \ B` / `A △ full` arms). Each op is checked against `BTreeSet`
+    /// and the result is invariant-validated.
+    #[test]
+    fn materialize_full_expanse_operands() {
+        // 0..512 = two full level-1 expanses under a level-2 branch → level-1
+        // FullExpanse edges (verified: builder emits FullExpanse only at level 1
+        // under a branch). Also mix a partial block so not every child is full.
+        let a_keys: Vec<u64> = (0..512u64).chain(1024..1100).collect();
+        let a = ExpanseSet::from_sorted_iter(a_keys.iter().copied());
+        a.validate_defensive().unwrap();
+        // Confirm the operand actually contains FullExpanse edges (else this test
+        // would not exercise the intended path).
+        assert!(
+            a.stats().node_counts.full_expanse >= 2,
+            "operand should carry level-1 FullExpanse edges: {:?}",
+            a.stats().node_counts
+        );
+
+        let others: &[(&str, Vec<u64>)] = &[
+            ("overlap-block", (100..300).chain(1050..1060).collect()),
+            ("full-vs-full", (0..512).collect()),
+            ("sparse", vec![5, 200, 511, 1024, 1099, 999_999]),
+            ("empty", vec![]),
+            ("superset", (0..2000).collect()),
+        ];
+        let ma: BTreeSet<u64> = a_keys.iter().copied().collect();
+        for (label, b_keys) in others {
+            let b = ExpanseSet::from_sorted_iter(b_keys.iter().copied());
+            let mb: BTreeSet<u64> = b_keys.iter().copied().collect();
+            let cases: &[(ExpanseSet, Vec<u64>, &str)] = &[
+                (
+                    a.intersection(&b),
+                    ma.intersection(&mb).copied().collect(),
+                    "and",
+                ),
+                (a.union(&b), ma.union(&mb).copied().collect(), "or"),
+                (
+                    a.difference(&b),
+                    ma.difference(&mb).copied().collect(),
+                    "diff",
+                ),
+                (
+                    a.symmetric_difference(&b),
+                    ma.symmetric_difference(&mb).copied().collect(),
+                    "xor",
+                ),
+            ];
+            for (got, want, op) in cases {
+                got.validate_defensive()
+                    .unwrap_or_else(|e| panic!("{label}/{op}: invalid: {e}"));
+                assert_eq!(got.iter().collect::<Vec<_>>(), *want, "{label}/{op}");
+            }
+        }
+    }
+
     /// Unsorted / duplicate input is corrected, not trusted.
     #[test]
     fn from_sorted_iter_tolerates_unsorted() {
