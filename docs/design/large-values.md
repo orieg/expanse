@@ -845,6 +845,7 @@ Phase-1's `get()`-per-entry full-deref — measured ~8.9 ms, ≈ this run's Phas
 fix is one line (resolve the payload from the `raw_slot` already in hand instead
 of calling `get(key)`), and it would speed the shipped engine at high match rates
 independently of the sidecar — filed as its own Phase-1 optimization (see §5.6.5).
+**Confirmed by #355** *(measured: reference host, commit `4f2f3a18`)*: with the re-descent removed, `predicate_scan_cold_dram_large`'s `naive_row_deref` arm (the `scan_filtered` full-deref that measured ~8.9 ms here) drops to ~4.05 ms — the honest touch-all floor — and the columnar arm at σ=1.0 falls from 8.86 ms to 4.07 ms, confirming the ~8.9 ms was the redundant descent, not the payload fetch. The H1 σ ≥ 0.20 crossover where the sidecar appeared to "win" was this artifact; see the re-measured §10.3 row.
 
 **H2 (≥10× vs payload-fetch at σ≤0.05) — and why this arm reads 12.8× / 6.0×
 where #287 published ~22× / ~10.3×.** This is **not** a lower re-measurement of
@@ -955,6 +956,7 @@ even with the residual boundary filter).
   capacity question; **the H1 crossover above (sidecar "wins" at σ ≥ 0.20) should
   be re-read once #355 lands** — that apparent advantage is an artifact of this
   re-descent, not a genuine sidecar edge.
+  - **#355 landed** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit `4f2f3a18`)*: `scan_filtered` now resolves each match from the slot the range walk already holds. High-σ pathology gone — the shipped scan at σ=1.0 drops from **8.86 ms → 4.07 ms** (cold-DRAM `predicate_scan_cold_dram_large`) and from **467.7 µs → 133.9 µs** (warm `predicate_scan_selectivity_sweep`, now 3.16× faster than the naive `get()` loop rather than 0.91× slower); no low-σ regression. This also re-baselines §10.3: the naive control there carried the same descent, so the honest cold-DRAM columnar-vs-naive speedup is ~10.7× @ σ=0.001 / ~6.37× @ σ=0.05 (was 22× / 10.3×) — see the re-measured §10.3 row. The H1 σ ≥ 0.20 "sidecar wins" crossover was indeed an artifact of this re-descent.
 
 **Recommendation.**
 
@@ -1340,7 +1342,7 @@ Per Expanse development rules, development proceeds in strict sequential phases 
 
   **Verdict (RFC §10.3, second revision):** #276 removed the *size* ceiling but exposed a *metadata* ceiling. The metadata-bearing slots (`ArenaShort`) are exactly the 16 MiB warm ones; the size-unbounded cold slots (`ArenaLong`) have none — the two requirements for `>10×` (arena > LLC **and** a selective hot-meta filter) are in direct tension in the current encoding. Reaching `>10×` is now gated on a **metadata-carrying wide encoding** (a columnar hot-meta sidecar indexed parallel to the arena, decoupled from the 64-bit value-slot word) — tracked separately and in progress — **and** still on the ordered-scan fast path to lower the traversal floor. The `>10×` / `>15×` / `82%` figures in this RFC's §Overview remain **targets, not measured results**. The re-benchmark harness (`bench_predicate_scan_cold_dram_large`) is committed and ready; the definitive cold-DRAM *timing* sweep is deferred until the metadata-carrying encoding lands, then run on a quiet dedicated host (interleaved A/B arms, load snapshots per `docs/BENCHMARKING.md`).
 
-  **Verdict (RFC §10.3, RESOLVED — `>10×` target MET by `ArenaMeta` alone)** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu; commit `c6f234cc`; `bench_predicate_scan_cold_dram_large`, 260 MiB / 8.7× LLC arena; 3 interleaved reps, loads 0.13–0.81, naive control stable ~8.9 ms)*. Phase 1 (`ArenaMeta`, #287) made metadata available across the whole `>`LLC arena — the match-rate now tracks σ exactly (0.1% at σ=0.001, was 93.9%), so the columnar arm skips cold payloads for non-matches. Measured columnar-vs-naive cold-DRAM speedup:
+  **Verdict (RFC §10.3, RESOLVED — `>10×` target MET by `ArenaMeta` alone) — pre-#355 row; re-measured below after #355** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu; commit `c6f234cc`; `bench_predicate_scan_cold_dram_large`, 260 MiB / 8.7× LLC arena; 3 interleaved reps, loads 0.13–0.81, naive control stable ~8.9 ms)*. Phase 1 (`ArenaMeta`, #287) made metadata available across the whole `>`LLC arena — the match-rate now tracks σ exactly (0.1% at σ=0.001, was 93.9%), so the columnar arm skips cold payloads for non-matches. Measured columnar-vs-naive cold-DRAM speedup:
 
   | σ | columnar | naive | speedup |
   |---|---:|---:|---:|
@@ -1350,6 +1352,17 @@ Per Expanse development rules, development proceeds in strict sequential phases 
   | 1.0 | ~9.33 ms | ~8.92 ms | ~1.0× |
 
   **The `>10× at σ≤0.05` target is achieved by the wide-offset metadata-carrying `ArenaMeta` arena alone** — 10.3× at σ=0.05, 22× at σ=0.001. Both prior verdicts (and this document's earlier `~4–5×` / "traversal-floor bounded" predictions) were **wrong**: they extrapolated the *warm*-arena 1.4× ceiling into the cold regime, assuming the key-ordered trie walk was the floor. It is not — in the cold regime the in-slot-meta trie walk costs ~1.5 ns/entry while a cold payload fetch is ~34 ns, so skipping 99.9% of payloads yields ~22× **with no SIMD and no columnar sidecar/leaf**. The "second requirement" (an ordered-scan fast path / `BlobLeafVector`) is **not needed** to reach the target — see §5.5.10. The `82%`-DRAM-traffic figure was not measured directly (this bench times the scan; it does not count DRAM bytes) but is consistent with the timing — the columnar arm avoids the cold payload fetches that dominate the naive arm's ~8.9 ms at low σ. Only the higher-σ regime (σ ≥ 0.2, where most rows match and most payloads must be touched anyway) stays below 10×, as expected. Single bench, 3 reps; a full multi-seed traffic-counter study is out of scope for the go/no-go.
+
+  **Verdict (RFC §10.3, re-measured after #355 — the naive control in the row above was inflated by a redundant per-entry trie descent)** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit `4f2f3a18`; `bench_predicate_scan_cold_dram_large`, 260 MiB / 8.7× LLC arena; interleaved A/B, 3 rounds, load ~1.0 throughout; round-to-round spread sub-percent)*. Both arms of this bench call `scan_filtered`, so the naive control (`naive_row_deref`) itself paid the #355 redundant `get()` re-descent per entry — its ~8.9 ms above is **not** an honest touch-all floor. With #355 landed (payload resolved from the slot the range walk already holds, no per-match re-descent) the naive touch-all floor drops to **~4.05 ms**, and the columnar arm drops correspondingly:
+
+  | σ | columnar (post-#355) | naive touch-all (post-#355) | honest speedup | pre-#355 speedup |
+  |---|---:|---:|---:|---:|
+  | 0.001 | 378.2 µs | 4.051 ms | **10.7×** | 22× |
+  | 0.05  | 634.7 µs | 4.045 ms | **6.37×** | 10.3× |
+  | 0.20  | 964.2 µs | 4.040 ms | 4.19× | 5.4× |
+  | 1.0   | 4.068 ms | 4.199 ms | 1.03× | 1.0× |
+
+  **The honest cold-DRAM columnar-vs-naive speedup is lower than the pre-#355 row reported, because that row's denominator double-counted the descent that the fix removes from both arms.** The `>10× at σ≤0.05` target is cleared at **σ=0.001 (10.7×)** but the honest advantage at **σ=0.05 is ~6.4×**, not 10.3× — the pushdown genuinely skips ~95% of cold payloads there, but against an honest touch-all baseline that is ~6.4×, and the extra headroom in the old number was the shared re-descent overhead inflating the denominator. Absolute columnar scan time also improved once matches no longer re-descend (σ=1.0: **8.86 ms → 4.07 ms**; at σ=1.0 the columnar arm now equals the naive touch-all floor within noise, 4.068 vs 4.199 ms). No get/insert path was touched (CI Callgrind zero-regression clean); the `naive_unfiltered_deref` `get()`-loop arm of `predicate_scan_selectivity_sweep` is unchanged A vs B (1.00×), confirming the change is localized to `scan_filtered`. See §5.6.5 / #355.
 - **`arena_compaction_churn`** — compaction over 20k entries: ~475 µs after a 50%-delete churn, ~200 µs after 80%-delete (informational; no target).
 
 ---
