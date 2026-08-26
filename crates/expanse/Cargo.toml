@@ -19,6 +19,9 @@ name = "expanse_trie"
 [features]
 default = ["std"]
 std = []
+# Experimental research POC (#295): scalar metadata sidecar + inverted index.
+# Non-default; not part of the stable public API. Requires std.
+poc-meta-sidecar = ["std"]
 
 [dependencies]
 
@@ -66,6 +69,12 @@ test = false
 name = "large_values"
 harness = false
 test = false
+
+[[bench]]
+name = "poc_sidecar_295"
+harness = false
+test = false
+required-features = ["poc-meta-sidecar"]
 
 [[bench]]
 name = "ycsb"

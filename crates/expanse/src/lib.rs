@@ -77,6 +77,11 @@ pub mod types;
 #[cfg(target_pointer_width = "64")]
 pub mod validate;
 
+/// Experimental research POC (#295), non-default `poc-meta-sidecar` feature.
+/// Not part of the stable public API.
+#[cfg(all(target_pointer_width = "64", feature = "poc-meta-sidecar"))]
+pub mod poc_sidecar;
+
 pub mod blobmap32;
 pub mod cursor32;
 pub mod map32;

@@ -593,6 +593,235 @@ Measurement-gated, two phases (tracked in #285):
 
 ---
 
+## 5.6 Scalar metadata sidecar POC (#295)
+
+**Status:** research POC, executed under #295. Code lives behind the non-default
+`poc-meta-sidecar` feature in `crates/expanse/src/poc_sidecar.rs`
+(`SidecarBlobMap<K>` + `InvertedIndex`), with a feature-gated bench harness at
+`crates/expanse/benches/poc_sidecar_295.rs`. The shipped Phase-1
+`ExpanseBlobMap` / `ArenaMeta` in-slot encoding (§5.5.7) is **untouched**; the
+POC only adds decoupled parallel structures beside the same engine. Nothing here
+graduates to the stable API — the issue's trigger (a concrete workload needing
+`>24`-bit / multi-column / `>64` GiB metadata) is not yet met.
+
+This section is a **frozen pre-registration** (§5.6.1–§5.6.2) followed by
+measured results annotated in place (§5.6.3 arch-independent, already measured;
+§5.6.4 timing, pending a dedicated-host run) and a verdict (§5.6.5).
+
+### 5.6.1 Pre-registration — design, Step-0 math, hypotheses (frozen)
+
+**The three capacity axes Phase 1 cannot serve** (from #295): (a) metadata
+`> 24` bits (full-32-bit timestamps); (b) multi-column predicates
+(`ts BETWEEN … AND tenant = … AND status = …`); (c) arena `> 64` GiB (the
+shipped 32-bit `ArenaMeta` locator caps at `2^32 × 16 =` **64 GiB**,
+`ARENA_META_CEILING`).
+
+**Design (§2.2-compliant).** Move metadata **out of the 64-bit value word** into
+decoupled parallel arrays keyed by a dense record handle:
+
+- The trie value word holds only a compact dense `RecordId` (a `u32` handle) —
+  *not* an arena address, *not* metadata — so `ValueSlot` never widens (no Fat
+  Slot; leaf density stays 8 slots / 64 B line).
+- `offsets[rid]: u64` — the arena address (a `u64` sidecar entry, so it lifts the
+  64 GiB ceiling; axis *c*).
+- `meta[rid]: [u32; K]` — `K` full-32-bit metadata columns (axes *a*, *b*).
+
+During a key-ordered range scan the predicate reads `meta[rid]` (a warm dense
+array) before any cold payload fetch, preserving Phase-1 key order and its
+cold-payload-skip. This is exactly the "decoupled columnar sidecar" `AGENTS.md`
+§2.2 prescribes. (An alternative *production* shape keeps a wide **56-bit
+locator** in the slot instead of a dense handle — `pack_wide_locator`,
+addressing `2^56 × 16 = 2^60` B = **1 EiB** in 16-byte units, well beyond the
+issue's stated 64 PiB — still evicting metadata to the sidecar. The POC uses the
+dense-handle form because it makes *both* address and metadata sidecars and
+keeps the trie word narrowest.)
+
+**Step-0 math (derivable before any run; code-pinned in
+`poc_sidecar::tests::sidecar_bytes_per_record_math`).**
+
+1. **Sidecar bytes per record** = `size_of::<u64>()` (offset) +
+   `size_of::<[u32; K]>()` (meta) + 1 (live flag):
+   - `K = 1`: 8 + 4 + 1 = **13 B/record**.
+   - `K = 3`: 8 + 12 + 1 = **21 B/record**.
+   (Handle recycling via a free list keeps allocated slots ≈ live count, so this
+   is also the steady-state footprint per live record.)
+
+2. **Sidecar residency vs the metadata-read regime** *(projected from the
+   bytes/record above; reference host L2 = 1.25 MiB/core, L3 = 30 MiB)*:
+
+   | records | sidecar `K=1` | sidecar `K=3` | regime |
+   |---:|---:|---:|---|
+   | 262 144 | 3.25 MiB | 5.25 MiB | **≪ L3 → warm** (both) |
+   | 1 000 000 | 12.4 MiB | 20.0 MiB | < L3 → warm |
+   | 3 000 000 | 37.2 MiB | 60.1 MiB | **> L3 → sidecar spills** |
+   | 10 000 000 | 124 MiB | 200 MiB | ≫ L3 → sidecar cold |
+
+   This is the **load-bearing pre-registered loss** (H3 below): the sidecar read
+   is warm only while the *sidecar itself* is LLC-resident. Because handles are
+   assigned in **insert** order, a **key-ordered** scan reads `meta[rid]` in a
+   permuted order; once the sidecar exceeds the LLC that becomes a *second*
+   cold-DRAM random stream — a cost Phase-1 in-slot metadata does not pay
+   (its metadata rides in the trie leaf the walk already touches). The #295
+   cold-DRAM harness (262 k records) is deliberately in the **warm regime**, so
+   it tests the mechanism at parity; the `>`LLC-sidecar regime is a separate,
+   named limitation.
+
+3. **56-bit locator ceiling** (axis *c*): `2^56 × 16 B = 2^60 B = 1 EiB`
+   (`WIDE_LOCATOR_CEILING`); the sidecar's `u64` `offsets` column already
+   addresses the full `usize` arena, both far beyond the shipped 64 GiB
+   `ArenaMeta` ceiling. Pinned in `axis_c_wide_locator_encodes_beyond_64gib`.
+
+4. **Compaction sync-cost model.** Both engines copy every live payload into a
+   fresh arena (identical payload-copy cost). They differ only in **writeback**:
+   Phase-1 rewrites one trie value slot **per live record** via a random-access
+   `get_value_slot(key)` descent (`compact_with_index`); the sidecar rewrites the
+   **dense `offsets[rid]` array sequentially and never touches the trie** (handles
+   are stable across compaction). Predicted sidecar advantage ≈ the cost of
+   `N_live` random trie-slot writes. Predicted sidecar *disadvantage*: the arena
+   is not renumbered, so dead handles leave holes until reused (bounded by the
+   free list).
+
+**Hypotheses & expected losses (pre-registered):**
+
+- **H1 (parity, warm regime).** On the 262 k-record cold-DRAM harness, sidecar
+  cold-scan latency **≈ Phase-1 in-slot** at every σ (both read warm metadata;
+  the sidecar's one extra warm array access per entry is small against the cold
+  payload fetch). *Expected loss:* a slight sidecar regression at high σ, where
+  per-entry bookkeeping dominates because most payloads are touched anyway.
+- **H2 (payload-skip preserved).** Both sidecar and Phase-1 clear the RFC
+  cold-DRAM regime (~10× at σ=0.05, ~22× at σ=0.001) over the payload-fetch
+  baseline — the payload skip, not the metadata mechanism, is the source of the
+  speedup.
+- **H3 (residency cliff — expected loss).** Beyond ~2–3 M records the sidecar
+  exceeds the LLC and, with insert-ordered handles, adds a second cold stream, so
+  the sidecar is expected to **lose** to Phase-1 in-slot at very large N. Not
+  exercised by the 262 k harness; documented as a scope limit.
+- **H4 (capacity).** The sidecar serves all three axes with **key-ordered**
+  output equal to a `BTreeMap` reference (32-bit ts; 3-attribute predicate; `u64`
+  offsets / 56-bit locator `> 64` GiB) — verified by differential tests.
+- **H5 (compaction).** Sidecar compaction is **faster** than Phase-1 by ≈ the
+  `N_live` random trie-slot writes it avoids.
+- **H6 (write path).** Sidecar insert ≈ Phase-1 insert (parity); the extra dense
+  `Vec` pushes are amortized-cheap.
+- **H7 (inverted index).** For low-cardinality discrete attributes, native
+  `ExpanseSet` intersection answers multi-attribute equality; the
+  high-cardinality/continuous (ts) case degenerates to ~one posting list per
+  distinct value, mitigated ~500× by bucketing at the cost of a residual filter.
+
+### 5.6.2 Implementation & tests
+
+`SidecarBlobMap<const K: usize>` and `InvertedIndex` in `poc_sidecar.rs`, reusing
+the shipped `BlobArena` and `ExpanseMap` unchanged. Correctness is covered by 11
+differential tests (all green): point lookup / metadata round-trip; **axis a**
+(full-32-bit ts range scan, key-ordered, `== BTreeMap`); **axis b** (3-attribute
+predicate, `== BTreeMap`); **axis c** (56-bit locator encodes `>` 64 GiB where
+the shipped 32-bit locator overflows); overwrite handle reuse; remove→recycle→
+compaction data preservation; an 8 000-op randomized differential vs `BTreeMap`
+across a compaction; inverted-index intersection vs a brute-force reference; ts
+range exact-vs-bucketed agreement; and the bucketing list-count collapse. All
+mandatory gates pass with the feature on (`fmt`, `clippy -D warnings`, workspace
+tests, `PROPTEST_CASES=500`); default builds are unaffected (feature-gated,
+non-default).
+
+### 5.6.3 Measured — arch-independent (structural) *(measured: this engine on branch `poc/meta-sidecar-295`, reproducible via `poc_sidecar::characterize::characterize_poc_295`; counts/bytes are deterministic and host-independent, so no timing host is needed — same basis as the §10.3 match-rate table)*
+
+Harvested by `poc_sidecar::characterize::characterize_poc_295` (N = 262 144,
+1 KiB payloads, matching the cold-DRAM harness).
+
+**Sidecar footprint (the space cost of the capacity lift):**
+
+| | `K=1` | `K=3` |
+|---|---:|---:|
+| sidecar bytes / record | 13 B | 21 B |
+| sidecar arrays @262 k | 3.25 MiB | 5.25 MiB |
+| total `mem_used` (incl. 260 MiB arena + trie) | 325.4 MiB | 327.4 MiB |
+
+The sidecar adds **13–21 B/record** over Phase-1 (whose metadata rides free in
+the slot) — ≈ 1–2 % of the payload arena at 1 KiB payloads. Both sidecars are
+LLC-resident at 262 k (warm regime; H1).
+
+**Compaction work (H5, structural):** at N = 262 144 with 50 % deleted, the
+sidecar relocates **131 072** live records → **131 072 dense `offsets[]`
+writes** and **131 072 random-access trie value-slot writes AVOIDED** vs
+Phase-1. (Timing in §5.6.4.)
+
+**Inverted index (H7, structural):** at N = 262 144:
+
+| column | distinct values | posting lists | postings | set memory |
+|---|---:|---:|---:|---:|
+| tenant | 64 | 64 | 262 144 | 1.03 MiB |
+| status | 4 | 4 | 262 144 | 0.31 MiB |
+| ts (exact) | ~245 856 | **245 856** | 262 144 | 3.76 MiB |
+| ts (bucketed, `2^12`) | — | **489** | 262 144 | 3.80 MiB |
+
+The exact-ts column degenerates to ≈ one posting list per key (245 856 lists for
+262 144 near-unique timestamps) — the pre-registered high-cardinality weak point.
+Bucketing at `2^12` collapses it to 489 lists (**503× fewer**) for a
+range-query fan-out win, at similar memory and the cost of a residual exact
+filter on the two boundary buckets. Representative
+`count(tenant=3 AND status=1) = 1082` via `intersection_len` (no materialization).
+
+### 5.6.4 Measured — timing (dedicated host) — PENDING
+
+The bench harness (`poc_sidecar_295.rs`) is committed and validated
+(runs clean in `--test` mode). The cold-DRAM timing sweep must run on a quiet
+dedicated host per `docs/BENCHMARKING.md` (interleaved A/B arms, load snapshots
+before/between/after); it is **not** run on a shared laptop. Table to be filled
+in place once the host run completes:
+
+| σ | Phase-1 in-slot | sidecar | naive payload-fetch | sidecar speedup vs naive | sidecar vs Phase-1 |
+|---|---:|---:|---:|---:|---:|
+| 0.001 | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ | _(pending, H1: ≈1.0×)_ |
+| 0.05 | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ |
+| 0.20 | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ |
+| 1.0 | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ |
+
+Also pending: `sidecar_compaction` (sidecar vs Phase-1 at 50 %-delete churn,
+H5), `sidecar_write_path` (H6), and `inverted_index` query latency
+(`intersection` / `intersection_len`, ts range exact vs bucketed).
+
+### 5.6.5 Verdict & recommendation *(preliminary — structural axes RESOLVED; timing pending §5.6.4)*
+
+- **Correctness / capacity (H4): CONFIRMED.** The scalar sidecar serves all
+  three axes — full-32-bit metadata, multi-column predicates, and `> 64` GiB
+  addressing — with **key-ordered** output equal to a `BTreeMap` reference, and
+  keeps `ValueSlot` a single machine word (§2.2-compliant). It is the faithful
+  home for the capacity axes, as #295/§5.5 anticipated.
+- **Space cost (structural): +13 B/record (`K=1`), +21 B/record (`K=3`)** — the
+  price of moving metadata out of the free-riding slot; ≈ 1–2 % of a 1 KiB
+  payload arena.
+- **Compaction (H5): sidecar avoids `N_live` random trie writes** (131 072 at
+  262 k / 50 %-delete) — a structural win; magnitude pending timing.
+- **Residency cliff (H3): the load-bearing limitation.** The sidecar's warm-read
+  advantage holds only while the sidecar is LLC-resident (≈ ≤ 1 M `K=3` records
+  on a 30 MiB L3). Beyond that, with insert-ordered handles a key-ordered scan
+  turns `meta[]` into a second cold-DRAM stream and the sidecar is expected to
+  **lose** to Phase-1 in-slot metadata — mitigable only by key-correlating
+  handles at compaction (which reintroduces trie rewrites, trading H5 away).
+- **Inverted index (H7): a complement, not a replacement.** Ship-worthy shape for
+  low-cardinality discrete equality/intersection (tenant/status → 64/4 posting
+  lists, native set-algebra queries); unsuitable for continuous/high-cardinality
+  fields without bucketing (503× list-count blow-up otherwise).
+
+**Recommendation.**
+
+1. **Which §2.2-compliant sidecar covers which axis:** the **scalar metadata
+   sidecar** is the default answer for wide (`>24`-bit) / multi-column / `>64`
+   GiB metadata **with key order preserved**; the **inverted index** complements
+   it for low-cardinality discrete attributes; a **columnar-SIMD sidecar** remains
+   reserved for a proven compute-bound *warm* analytical scan (not demonstrated).
+2. **Graduation:** nothing graduates from POC to shipped now — consistent with
+   #295's parked status. The POC lands feature-gated (`poc-meta-sidecar`,
+   non-default, out of the public API) so the design, tests, and bench harness
+   are preserved and re-runnable the moment a workload trips the trigger. The
+   first workload that needs it should also decide the residency-cliff mitigation
+   (key-correlated handles vs accept the `>`LLC regression) against its own N.
+3. **Before any graduation:** run the §5.6.4 host timing sweep to confirm H1/H2
+   parity in the warm regime and quantify H5, and add a large-N (`>`LLC) cell to
+   measure the H3 cliff directly.
+
+---
+
 ## 6. Slab / Arena Allocator (`BlobArena` & `ExpanseBlobMap`)
 
 ### 6.1 Chunked Arena Architecture
