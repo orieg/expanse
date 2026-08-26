@@ -1,0 +1,12 @@
+{
+  "source": "Python Standard Library Source Modules (PSFL)",
+  "license": "Python Software Foundation License (PSFL)",
+  "tokenizer": "tiktoken/cl100k_base",
+  "vocab_size": 100277,
+  "token_count": 1000000,
+  "file_size_mb": 3.81,
+  "sha256": "4689cf744fd89d668b0d19eabef046b77b54aff0057202e10bcca2219e558132",
+  "files_included_count": 267,
+  "tiling_multiplier": 1,
+  "description": "Sequential non-tiled BPE token stream across standard library modules"
+}

@@ -1,0 +1,278 @@
+{
+  "humaneval_code": {
+    "hf_adaptive_lookup": {
+      "macro_acceptance_length_alpha": 0.491,
+      "bca_95_ci": [
+        0.41,
+        0.593
+      ],
+      "micro_stream_alpha": 0.858,
+      "num_tasks_evaluated": 40,
+      "speculation_steps": 3433,
+      "total_accepted_tokens": 6378,
+      "total_drafted_tokens": 12471,
+      "acceptance_rate": 0.5114,
+      "candidate_lookup_latency_us": 3.605
+    },
+    "hf_fixed_3gram": {
+      "macro_acceptance_length_alpha": 0.27,
+      "bca_95_ci": [
+        0.204,
+        0.37
+      ],
+      "micro_stream_alpha": 0.616,
+      "num_tasks_evaluated": 40,
+      "speculation_steps": 3947,
+      "total_accepted_tokens": 6378,
+      "total_drafted_tokens": 6994,
+      "acceptance_rate": 0.9119,
+      "candidate_lookup_latency_us": 1.761
+    },
+    "hf_fixed_2gram": {
+      "macro_acceptance_length_alpha": 0.335,
+      "bca_95_ci": [
+        0.265,
+        0.428
+      ],
+      "micro_stream_alpha": 0.667,
+      "num_tasks_evaluated": 40,
+      "speculation_steps": 3826,
+      "total_accepted_tokens": 6378,
+      "total_drafted_tokens": 10080,
+      "acceptance_rate": 0.6327,
+      "candidate_lookup_latency_us": 1.763
+    },
+    "expanse_longest_suffix": {
+      "macro_acceptance_length_alpha": 0.535,
+      "bca_95_ci": [
+        0.448,
+        0.653
+      ],
+      "micro_stream_alpha": 1.003,
+      "num_tasks_evaluated": 40,
+      "speculation_steps": 3185,
+      "total_accepted_tokens": 6378,
+      "total_drafted_tokens": 11452,
+      "acceptance_rate": 0.5569,
+      "candidate_lookup_latency_us": 34.542
+    },
+    "sorted_window_index": {
+      "macro_acceptance_length_alpha": 0.512,
+      "bca_95_ci": [
+        0.43,
+        0.628
+      ],
+      "micro_stream_alpha": 0.962,
+      "num_tasks_evaluated": 40,
+      "speculation_steps": 3250,
+      "total_accepted_tokens": 6378,
+      "total_drafted_tokens": 11736,
+      "acceptance_rate": 0.5435,
+      "candidate_lookup_latency_us": 29.879
+    },
+    "_speculative_ceiling": {
+      "baseline_arm": "hf_adaptive_lookup",
+      "baseline_macro_alpha": 0.491,
+      "expanse_macro_alpha": 0.535,
+      "sorted_window_macro_alpha": 0.512,
+      "paired_delta_alpha": 0.043,
+      "paired_delta_alpha_bca_95_ci": [
+        0.028,
+        0.062
+      ],
+      "tok_per_sec_ceiling_gain_pct": 2.63,
+      "paired_ceiling_gain_bca_95_ci": [
+        1.69,
+        3.69
+      ],
+      "theoretical_tok_per_sec_ceiling": 1.03,
+      "gate_floor_pct": 5.0,
+      "verdict": "BOUNDARY_RESULT_gain_below_5pct_gate",
+      "verdict_rationale": "Paired gain (+2.63%, CI [+1.69%, +3.69%]) is below 5.0% gate (Speedup ceiling: 1.030x)"
+    }
+  },
+  "summarization": {
+    "hf_adaptive_lookup": {
+      "macro_acceptance_length_alpha": 3.382,
+      "bca_95_ci": [
+        3.243,
+        3.513
+      ],
+      "micro_stream_alpha": 2.839,
+      "num_tasks_evaluated": 9,
+      "speculation_steps": 180,
+      "total_accepted_tokens": 691,
+      "total_drafted_tokens": 720,
+      "acceptance_rate": 0.9597,
+      "candidate_lookup_latency_us": 6.394
+    },
+    "hf_fixed_3gram": {
+      "macro_acceptance_length_alpha": 2.895,
+      "bca_95_ci": [
+        2.804,
+        3.001
+      ],
+      "micro_stream_alpha": 2.562,
+      "num_tasks_evaluated": 9,
+      "speculation_steps": 194,
+      "total_accepted_tokens": 691,
+      "total_drafted_tokens": 660,
+      "acceptance_rate": 1.047,
+      "candidate_lookup_latency_us": 3.684
+    },
+    "hf_fixed_2gram": {
+      "macro_acceptance_length_alpha": 3.097,
+      "bca_95_ci": [
+        2.927,
+        3.255
+      ],
+      "micro_stream_alpha": 2.141,
+      "num_tasks_evaluated": 9,
+      "speculation_steps": 220,
+      "total_accepted_tokens": 691,
+      "total_drafted_tokens": 852,
+      "acceptance_rate": 0.811,
+      "candidate_lookup_latency_us": 8.884
+    },
+    "expanse_longest_suffix": {
+      "macro_acceptance_length_alpha": 3.381,
+      "bca_95_ci": [
+        3.238,
+        3.52
+      ],
+      "micro_stream_alpha": 3.113,
+      "num_tasks_evaluated": 9,
+      "speculation_steps": 168,
+      "total_accepted_tokens": 691,
+      "total_drafted_tokens": 672,
+      "acceptance_rate": 1.0283,
+      "candidate_lookup_latency_us": 61.02
+    },
+    "sorted_window_index": {
+      "macro_acceptance_length_alpha": 3.398,
+      "bca_95_ci": [
+        3.282,
+        3.527
+      ],
+      "micro_stream_alpha": 3.239,
+      "num_tasks_evaluated": 9,
+      "speculation_steps": 163,
+      "total_accepted_tokens": 691,
+      "total_drafted_tokens": 652,
+      "acceptance_rate": 1.0598,
+      "candidate_lookup_latency_us": 33.188
+    },
+    "_speculative_ceiling": {
+      "baseline_arm": "hf_adaptive_lookup",
+      "baseline_macro_alpha": 3.382,
+      "expanse_macro_alpha": 3.381,
+      "sorted_window_macro_alpha": 3.398,
+      "paired_delta_alpha": -0.002,
+      "paired_delta_alpha_bca_95_ci": [
+        -0.053,
+        0.032
+      ],
+      "tok_per_sec_ceiling_gain_pct": -0.03,
+      "paired_ceiling_gain_bca_95_ci": [
+        -1.28,
+        1.19
+      ],
+      "theoretical_tok_per_sec_ceiling": 1.0,
+      "gate_floor_pct": 5.0,
+      "verdict": "BOUNDARY_RESULT_no_detectable_gain",
+      "verdict_rationale": "Paired gain 95% CI [-1.28%, +1.19%] overlaps zero (dead heat with HF Adaptive)"
+    }
+  },
+  "json_schemas": {
+    "hf_adaptive_lookup": {
+      "macro_acceptance_length_alpha": 1.05,
+      "bca_95_ci": [
+        0.901,
+        1.206
+      ],
+      "micro_stream_alpha": 1.2,
+      "num_tasks_evaluated": 5,
+      "speculation_steps": 31196,
+      "total_accepted_tokens": 68639,
+      "total_drafted_tokens": 117902,
+      "acceptance_rate": 0.5822,
+      "candidate_lookup_latency_us": 4.527
+    },
+    "hf_fixed_3gram": {
+      "macro_acceptance_length_alpha": 0.782,
+      "bca_95_ci": [
+        0.643,
+        0.931
+      ],
+      "micro_stream_alpha": 0.947,
+      "num_tasks_evaluated": 5,
+      "speculation_steps": 35245,
+      "total_accepted_tokens": 68639,
+      "total_drafted_tokens": 74607,
+      "acceptance_rate": 0.92,
+      "candidate_lookup_latency_us": 2.533
+    },
+    "hf_fixed_2gram": {
+      "macro_acceptance_length_alpha": 0.881,
+      "bca_95_ci": [
+        0.756,
+        1.006
+      ],
+      "micro_stream_alpha": 0.959,
+      "num_tasks_evaluated": 5,
+      "speculation_steps": 35042,
+      "total_accepted_tokens": 68639,
+      "total_drafted_tokens": 101688,
+      "acceptance_rate": 0.675,
+      "candidate_lookup_latency_us": 2.457
+    },
+    "expanse_longest_suffix": {
+      "macro_acceptance_length_alpha": 1.229,
+      "bca_95_ci": [
+        1.089,
+        1.448
+      ],
+      "micro_stream_alpha": 1.448,
+      "num_tasks_evaluated": 5,
+      "speculation_steps": 28040,
+      "total_accepted_tokens": 68639,
+      "total_drafted_tokens": 105263,
+      "acceptance_rate": 0.6521,
+      "candidate_lookup_latency_us": 42.472
+    },
+    "sorted_window_index": {
+      "macro_acceptance_length_alpha": 1.144,
+      "bca_95_ci": [
+        1.002,
+        1.359
+      ],
+      "micro_stream_alpha": 1.378,
+      "num_tasks_evaluated": 5,
+      "speculation_steps": 28867,
+      "total_accepted_tokens": 68639,
+      "total_drafted_tokens": 108586,
+      "acceptance_rate": 0.6321,
+      "candidate_lookup_latency_us": 30.733
+    },
+    "_speculative_ceiling": {
+      "baseline_arm": "hf_adaptive_lookup",
+      "baseline_macro_alpha": 1.05,
+      "expanse_macro_alpha": 1.229,
+      "sorted_window_macro_alpha": 1.144,
+      "paired_delta_alpha": 0.18,
+      "paired_delta_alpha_bca_95_ci": [
+        0.117,
+        0.242
+      ],
+      "tok_per_sec_ceiling_gain_pct": 8.82,
+      "paired_ceiling_gain_bca_95_ci": [
+        5.85,
+        11.79
+      ],
+      "theoretical_tok_per_sec_ceiling": 1.087,
+      "gate_floor_pct": 5.0,
+      "verdict": "PASS",
+      "verdict_rationale": "CI lower bound (+5.85%) clears 5.0% floor (tok/s ceiling: 1.087x)"
+    }
+  }
+}
