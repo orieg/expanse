@@ -108,6 +108,29 @@ Performance claims are this project's reason to exist, so they follow the strict
 | Automated Comparative Report Tool | landed (`scripts/bench_report.py`, `examples/bench_lookup_compare.rs`) | Standalone fast head-to-head comparison generator vs `hashbrown`, `BTreeMap`, and `libjudy` with GFM output |
 | Standardized YCSB Suite (Workloads A-F) | landed (`benches/ycsb.rs`) | vs `BTreeMap`, `crossbeam_skiplist::SkipMap` (RocksDB MemTable); Zipfian $\theta=0.99, N=100\text{k}$, 128B blobs |
 | Full libjudy + ART comparison | Phase 8 remainder | Headline table, dedicated-host runs, driven through the capi surface |
+| Domain comparative suites (search, sorted-set, hash-map) | landed (`docs/benchmarks/*`) | self-contained reproducible suites with pre-registered hypotheses — see "Comparative benchmark suites" below |
+
+## Comparative benchmark suites (`docs/benchmarks/`)
+
+Each domain suite is a self-contained directory with the same shape: `README.md`
+(results), `METHODOLOGY.md` (Step-0 pre-registered hypotheses, claims ceiling,
+expected losses), `run.sh` (one-command reproduction on the reference host),
+`scripts/` (JSON → tables/SVG), and `results/` (raw criterion/JSON output and
+dual-theme charts). The criterion benches live under `crates/expanse/benches/`
+and are registered in `crates/expanse/Cargo.toml`. All methodology rules above
+apply; every losing cell is published, and a suite whose Step-0 hypothesis was
+refuted says so in its README.
+
+| Suite | Directory | Benches | Competitor(s) | Outcome at last measurement |
+|---|---|---|---|---|
+| Hash-map comparison | [`hashbrown_comparison/`](benchmarks/hashbrown_comparison/README.md) | `hashbrown_native_suite`, `hashbrown_ycsb`, `hashbrown_tail_latency`, `hashbrown_container_dists`, `hashbrown_memory_alloc` | `hashbrown::HashMap` (SwissTable), `std::BTreeMap` | see suite README (point/insert/YCSB/tail-latency/memory cells) |
+| Search inverted index | [`search_inverted_index/`](benchmarks/search_inverted_index/README.md) | `search_boolean`, `search_wand`, `search_memory`, `search_instructions` | `roaring` 0.10 (`RoaringTreemap`) | Boolean pillar: Roaring wins every cell (`ExpanseSet` composes AND/OR/AND-NOT from navigation primitives — no native kernel; follow-up #339); WAND: Roaring's stateful cursor wins 2–4× (follow-up #340); memory: Expanse wins shard-clustered 1e5, ties dense 1e6 |
+| Redis ZSET engine | [`redis_zset_engine/`](benchmarks/redis_zset_engine/README.md) | `zset_zadd`, `zset_range`, `zset_rank`, `zset_memory` | `crossbeam_skiplist` + hash dict (Redis/Valkey ZSET design) | Expanse dual-trie wins 9 of 13 cells (forward range ~5.5×); pre-registered losses on reverse range (no reverse iterator — follow-up #341) and a rank-select dead heat |
+
+Feature work that a suite gates (#339, #340, #341) re-runs the suite's `run.sh`
+on the reference host at the feature commit and refreshes that suite's
+`results/` and README in the same PR; the "Outcome" column here is updated
+only from those re-measured tables.
 
 ## Automated Benchmark Comparison Report Tool (`scripts/bench_report.py`)
 
