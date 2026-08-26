@@ -196,8 +196,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          [ -z "$VERSION" ] && VERSION="0.4.0"
+          # Tag pushes carry the version in the ref; a canary dispatch has no
+          # tag (GITHUB_REF=refs/heads/main — the old stripping produced
+          # "refs/heads/main" and broke every Unix packaging step), so fall
+          # back to the manifest version.
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="$(grep -m1 '^version' crates/expanse-capi/Cargo.toml | cut -d'"' -f2)"
+          fi
           T="${{ matrix.target }}"
 
           mkdir -p dist/include dist/lib
@@ -235,7 +242,10 @@ jobs:
           Copy-Item target\${{ matrix.target }}\release\expanse.lib package\
           Copy-Item crates\expanse-capi\include\*.h package\
           Set-Content -Path package\README_MSVC.txt -Value "MSVC Build Instructions: Add expanse.lib to your linker input, and include Judy.h/expanse.h"
-          Compress-Archive -Path package\* -DestinationPath "expanse-$($env:GITHUB_REF_NAME)-${{ matrix.target }}.zip"
+          # Same derivation as the Unix step: tag ref on releases, manifest
+          # version on a canary dispatch (GITHUB_REF_NAME would be "main").
+          $VERSION = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF -replace '^refs/tags/v', '' } else { (Select-String -Path crates/expanse-capi/Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value }
+          Compress-Archive -Path package\* -DestinationPath "expanse-v$VERSION-${{ matrix.target }}.zip"
 
       - name: Stage native library for NuGet
         if: matrix.dotnet_rid
