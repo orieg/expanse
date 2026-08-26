@@ -32,13 +32,32 @@ enum Root {
     },
 }
 
+/// The map engine core: root organization plus every walk and mutation,
+/// with **no owned allocator and no owned insert-path cache** — both are
+/// passed in per call (issue #363 Step A).
+///
+/// [`ExpanseMap`] wraps one core with its own [`NodeAlloc`] and path
+/// cache, forwarding through `#[inline(always)]` shims so the compiled
+/// public paths are identical to the pre-split layout. `ExpanseStrMap`
+/// embeds a bare core per sub-trie node and passes the **one allocator
+/// shared across the whole string map**, which is what shrinks a
+/// `StrNode` from ~700 bytes (embedded allocator + path cache) to the
+/// size of this struct.
+///
+/// A core frees nothing on drop — it cannot, without its allocator — so
+/// every owner must route teardown through [`Self::clear`] (or the
+/// pathless twin) with the allocator that produced the core's nodes.
+pub(crate) struct MapCore {
+    root: Root,
+}
+
 /// A sparse, dynamic map from `u64` keys to `u64` values (compat: JudyL).
 ///
 /// Adaptive expanse-partitioned trie: memory stays near-proportional to
 /// population across sequential, random, clustered, and sparse key
 /// distributions, and lookups run in at most eight digit steps.
 pub struct ExpanseMap {
-    root: Root,
+    core: MapCore,
     alloc: NodeAlloc,
     path: core::cell::UnsafeCell<crate::mutate_map::InsertPathMap>,
 }
@@ -71,28 +90,16 @@ pub(crate) fn leaf_values_offset(pop: usize) -> usize {
     8 * crate::leaf::cap_class(pop)
 }
 
-impl ExpanseMap {
-    /// Creates an empty map.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            root: Root::Empty,
-            alloc: NodeAlloc::new(),
-            path: core::cell::UnsafeCell::new(crate::mutate_map::InsertPathMap::empty()),
-        }
-    }
-
-    #[inline(always)]
-    fn flush_path(&self) {
-        // SAFETY: path is an internal cursor whose state is flushed through UnsafeCell.
-        unsafe {
-            (*self.path.get()).flush();
-        }
+impl MapCore {
+    /// An empty core.
+    pub(crate) const fn new() -> Self {
+        Self { root: Root::Empty }
     }
 
     /// Number of keys in the map.
+    #[inline(always)]
     #[must_use]
-    pub fn len(&self) -> u64 {
+    pub(crate) fn len(&self) -> u64 {
         match &self.root {
             Root::Empty => 0,
             Root::Leaf { pop, .. } => *pop as u64,
@@ -101,24 +108,10 @@ impl ExpanseMap {
     }
 
     /// True when no keys are present.
+    #[inline(always)]
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    /// Heap bytes currently used by the map's nodes and leaves.
-    #[must_use]
-    pub fn mem_used(&self) -> usize {
-        self.alloc.bytes_in_use()
-    }
-
-    /// Cumulative node/leaf allocations made by this container since it
-    /// was created (diagnostics; see `tests/no_heap_churn.rs`, which
-    /// subtracts these from the process-wide count to isolate
-    /// incidental scratch allocation).
-    #[must_use]
-    pub fn total_node_allocs(&self) -> usize {
-        self.alloc.total_allocs()
     }
 
     fn leaf_parts(ptr: NonNull<u8>, pop: usize) -> (&'static [u64], *mut u64) {
@@ -137,7 +130,7 @@ impl ExpanseMap {
     /// Returns the value stored for `key`.
     #[inline(always)]
     #[must_use]
-    pub fn get(&self, key: Key) -> Option<u64> {
+    pub(crate) fn get(&self, key: Key) -> Option<u64> {
         match &self.root {
             Root::Empty => None,
             Root::Leaf { ptr, pop } => {
@@ -203,7 +196,7 @@ impl ExpanseMap {
     /// across CPU Line Fill Buffers in chunks of 8 keys and issues software prefetch hints
     /// on branch nodes to overlap DRAM memory latency.
     #[inline]
-    pub fn get_batch(&self, keys: &[Key], out: &mut [Option<u64>]) {
+    pub(crate) fn get_batch(&self, keys: &[Key], out: &mut [Option<u64>]) {
         assert_eq!(
             keys.len(),
             out.len(),
@@ -233,7 +226,7 @@ impl ExpanseMap {
     /// Look up a batch of `keys`, writing found values into `out_values` and presence flags
     /// into `out_found` (when `Some`). Returns the count of found keys.
     #[inline]
-    pub fn get_batch_into(
+    pub(crate) fn get_batch_into(
         &self,
         keys: &[Key],
         out_values: &mut [u64],
@@ -283,7 +276,7 @@ impl ExpanseMap {
     /// if absent.
     #[inline(always)]
     #[must_use]
-    pub fn get_slot_ptr(&self, key: Key) -> Option<core::ptr::NonNull<u64>> {
+    pub(crate) fn get_slot_ptr(&self, key: Key) -> Option<core::ptr::NonNull<u64>> {
         match &self.root {
             Root::Empty => None,
             Root::Leaf { ptr, pop } => {
@@ -351,7 +344,11 @@ impl ExpanseMap {
     /// writing through it after an `insert`/`remove`/`clear` is undefined.
     #[inline(always)]
     #[must_use]
-    pub fn get_value_slot(&mut self, key: Key) -> Option<core::ptr::NonNull<u64>> {
+    pub(crate) fn get_value_slot(
+        &mut self,
+        key: Key,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<core::ptr::NonNull<u64>> {
         match &mut self.root {
             Root::Empty => None,
             Root::Leaf { ptr, pop } => {
@@ -409,7 +406,6 @@ impl ExpanseMap {
             // raw walk derives the slot from node pointers only.
             Root::Tree { top, .. } => {
                 let prefix = key >> 8;
-                let path = self.path.get_mut();
                 if path.prefix == prefix {
                     if !path.leaf.is_null() {
                         let d = (key & 0xFF) as u8;
@@ -451,11 +447,15 @@ impl ExpanseMap {
     /// the compat `JudyLIns` contract, in one tree walk. The pointer stays
     /// valid until the next structural mutation.
     #[inline(always)]
-    pub fn ins_slot(&mut self, key: Key) -> core::ptr::NonNull<u64> {
+    pub(crate) fn ins_slot(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> core::ptr::NonNull<u64> {
         match &mut self.root {
             Root::Tree { top, pop } => {
                 let prefix = key >> 8;
-                let path = self.path.get_mut();
                 if path.prefix == prefix {
                     if !path.leaf.is_null() {
                         let d = (key & 0xFF) as u8;
@@ -480,8 +480,7 @@ impl ExpanseMap {
                                 arr.add(rank).write(0);
                             }
                         } else {
-                            let new = self
-                                .alloc
+                            let new = alloc
                                 .alloc_bytes(crate::mutate::sub_vals_size(old_n + 1))
                                 .cast::<u64>();
                             // SAFETY: copy old_n values around the inserted rank.
@@ -492,7 +491,7 @@ impl ExpanseMap {
                                     new.as_ptr()
                                         .add(rank + 1)
                                         .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                                    self.alloc.free_bytes(
+                                    alloc.free_bytes(
                                         core::ptr::NonNull::new(old.cast()).expect("values"),
                                         crate::mutate::sub_vals_size(old_n),
                                     );
@@ -548,9 +547,8 @@ impl ExpanseMap {
                 }
                 path.clear();
                 // SAFETY: trie maintained/owned by this map's engine.
-                let (prev, slot) = unsafe {
-                    mutate_map::map_insert_path_dyn::<true>(&self.alloc, top, key, 0, 8, path)
-                };
+                let (prev, slot) =
+                    unsafe { mutate_map::map_insert_path_dyn::<true>(alloc, top, key, 0, 8, path) };
                 if prev.is_none() {
                     *pop += 1;
                 }
@@ -558,7 +556,7 @@ impl ExpanseMap {
                 unsafe { core::ptr::NonNull::new_unchecked(slot) }
             }
             Root::Empty => {
-                let ptr = self.alloc.alloc_bytes(leaf_size(1));
+                let ptr = alloc.alloc_bytes(leaf_size(1));
                 // SAFETY: fresh allocation: key slot then value slot.
                 unsafe {
                     ptr.as_ptr().cast::<u64>().write(key);
@@ -640,7 +638,7 @@ impl ExpanseMap {
                             core::ptr::NonNull::new(slot).expect("slot")
                         }
                     } else {
-                        let new = self.alloc.alloc_bytes(leaf_size(pop_val + 1));
+                        let new = alloc.alloc_bytes(leaf_size(pop_val + 1));
                         // SAFETY: copy keys and values around insertion point into new leaf.
                         unsafe {
                             let nk = new.as_ptr().cast::<u64>();
@@ -657,7 +655,7 @@ impl ExpanseMap {
                             slot.write(0);
                             nv.add(at + 1)
                                 .copy_from_nonoverlapping(vals.add(at), pop_val - at);
-                            self.alloc.free_bytes(ptr_val, leaf_size(pop_val));
+                            alloc.free_bytes(ptr_val, leaf_size(pop_val));
                             self.root = Root::Leaf {
                                 ptr: new,
                                 pop: pop_val + 1,
@@ -666,39 +664,47 @@ impl ExpanseMap {
                         }
                     }
                 } else {
-                    self.insert(key, 0);
-                    self.get_value_slot(key).expect("just-ensured key")
+                    self.insert(alloc, key, 0, path);
+                    self.get_value_slot(key, path).expect("just-ensured key")
                 }
             }
         }
     }
 
-    /// Phase 7 (occ): by-value root snapshot + allocation handle for
-    /// the validated concurrent read walk (see `ExpanseSet::occ_root`).
-    pub(crate) fn occ_root(&self) -> (RootSnapshot, &NodeAlloc) {
-        let snap = match self.root {
+    /// Phase 7 (occ): by-value root snapshot for the validated concurrent
+    /// read walk (see `ExpanseSet::occ_root`).
+    #[inline(always)]
+    pub(crate) fn occ_snapshot(&self) -> RootSnapshot {
+        match self.root {
             Root::Empty => RootSnapshot::Empty,
             Root::Leaf { ptr, pop } => RootSnapshot::Leaf {
                 ptr: ptr.as_ptr(),
                 pop,
             },
             Root::Tree { top, pop } => RootSnapshot::Tree { top, pop },
-        };
-        (snap, &self.alloc)
+        }
     }
 
     /// Membership test.
+    #[inline(always)]
     #[must_use]
-    pub fn contains_key(&self, key: Key) -> bool {
+    pub(crate) fn contains_key(&self, key: Key) -> bool {
         self.get(key).is_some()
     }
 
     /// Inserts `key → val`; returns the replaced value if the key was
     /// already present.
-    pub fn insert(&mut self, key: Key, val: u64) -> Option<u64> {
+    #[inline(always)]
+    pub(crate) fn insert(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        val: u64,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<u64> {
         match &mut self.root {
             Root::Empty => {
-                let ptr = self.alloc.alloc_bytes(leaf_size(1));
+                let ptr = alloc.alloc_bytes(leaf_size(1));
                 // SAFETY: fresh allocation: key slot then value slot.
                 unsafe {
                     ptr.as_ptr().cast::<u64>().write(key);
@@ -752,7 +758,7 @@ impl ExpanseMap {
                         self.root = Root::Leaf { ptr, pop: pop + 1 };
                         return None;
                     }
-                    let new = self.alloc.alloc_bytes(leaf_size(pop + 1));
+                    let new = alloc.alloc_bytes(leaf_size(pop + 1));
                     // SAFETY: copy keys and values around the insertion
                     // point into the fresh (pop + 1)-entry leaf.
                     unsafe {
@@ -766,7 +772,7 @@ impl ExpanseMap {
                         nv.add(at).write(val);
                         nv.add(at + 1)
                             .copy_from_nonoverlapping(vals.add(at), pop - at);
-                        self.alloc.free_bytes(ptr, leaf_size(pop));
+                        alloc.free_bytes(ptr, leaf_size(pop));
                     }
                     self.root = Root::Leaf {
                         ptr: new,
@@ -777,11 +783,11 @@ impl ExpanseMap {
                     // Root leaf overflow: build the level-8 trie.
                     let mut top = Edge::NULL;
                     for (at, &k) in keys.iter().enumerate() {
-                        // SAFETY: trie built and owned by self.alloc;
+                        // SAFETY: trie built and owned by `alloc`;
                         // values read in-bounds.
                         let prev = unsafe {
                             mutate_map::map_insert_dyn::<false>(
-                                &self.alloc,
+                                alloc,
                                 &mut top,
                                 k,
                                 *vals.add(at),
@@ -792,18 +798,11 @@ impl ExpanseMap {
                     }
                     // SAFETY: same trie; populate path for subsequent sequential/clustered inserts.
                     let prev = unsafe {
-                        mutate_map::map_insert_path_dyn::<false>(
-                            &self.alloc,
-                            &mut top,
-                            key,
-                            val,
-                            8,
-                            self.path.get_mut(),
-                        )
+                        mutate_map::map_insert_path_dyn::<false>(alloc, &mut top, key, val, 8, path)
                     };
                     debug_assert!(prev.0.is_none());
                     // SAFETY: old root leaf no longer referenced.
-                    unsafe { self.alloc.free_bytes(ptr, leaf_size(pop)) };
+                    unsafe { alloc.free_bytes(ptr, leaf_size(pop)) };
                     self.root = Root::Tree {
                         top,
                         pop: pop as u64 + 1,
@@ -813,7 +812,6 @@ impl ExpanseMap {
             }
             Root::Tree { top, pop } => {
                 let prefix = key >> 8;
-                let path = self.path.get_mut();
                 if path.prefix == prefix {
                     if !path.leaf.is_null() {
                         let d = (key & 0xFF) as u8;
@@ -842,8 +840,7 @@ impl ExpanseMap {
                                 arr.add(rank).write(val);
                             }
                         } else {
-                            let new = self
-                                .alloc
+                            let new = alloc
                                 .alloc_bytes(crate::mutate::sub_vals_size(old_n + 1))
                                 .cast::<u64>();
                             // SAFETY: copy old_n values around the inserted rank.
@@ -854,7 +851,7 @@ impl ExpanseMap {
                                     new.as_ptr()
                                         .add(rank + 1)
                                         .copy_from_nonoverlapping(old.add(rank), old_n - rank);
-                                    self.alloc.free_bytes(
+                                    alloc.free_bytes(
                                         core::ptr::NonNull::new(old.cast()).expect("values"),
                                         crate::mutate::sub_vals_size(old_n),
                                     );
@@ -912,7 +909,7 @@ impl ExpanseMap {
                 path.clear();
                 // SAFETY: trie maintained/owned by this map's engine.
                 let prev = unsafe {
-                    mutate_map::map_insert_path_dyn::<false>(&self.alloc, top, key, val, 8, path)
+                    mutate_map::map_insert_path_dyn::<false>(alloc, top, key, val, 8, path)
                 }
                 .0;
                 if prev.is_none() {
@@ -924,8 +921,14 @@ impl ExpanseMap {
     }
 
     /// Removes `key`; returns its value if it was present.
-    pub fn remove(&mut self, key: Key) -> Option<u64> {
-        self.path.get_mut().clear();
+    #[inline(always)]
+    pub(crate) fn remove(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) -> Option<u64> {
+        path.clear();
         match &mut self.root {
             Root::Empty => None,
             Root::Leaf { ptr, pop } => {
@@ -936,7 +939,7 @@ impl ExpanseMap {
                 let old = unsafe { *vals.add(at) };
                 if pop == 1 {
                     // SAFETY: last entry removed; free the leaf.
-                    unsafe { self.alloc.free_bytes(ptr, leaf_size(1)) };
+                    unsafe { alloc.free_bytes(ptr, leaf_size(1)) };
                     self.root = Root::Empty;
                 } else if crate::leaf::cap_class(pop - 1) == crate::leaf::cap_class(pop) {
                     // Fast path: capacity class unchanged — shift surviving entries in-place.
@@ -948,7 +951,7 @@ impl ExpanseMap {
                     }
                     self.root = Root::Leaf { ptr, pop: pop - 1 };
                 } else {
-                    let new = self.alloc.alloc_bytes(leaf_size(pop - 1));
+                    let new = alloc.alloc_bytes(leaf_size(pop - 1));
                     // SAFETY: copy the surviving keys/values into the
                     // smaller leaf.
                     unsafe {
@@ -960,7 +963,7 @@ impl ExpanseMap {
                         nv.copy_from_nonoverlapping(vals, at);
                         nv.add(at)
                             .copy_from_nonoverlapping(vals.add(at + 1), pop - 1 - at);
-                        self.alloc.free_bytes(ptr, leaf_size(pop));
+                        alloc.free_bytes(ptr, leaf_size(pop));
                     }
                     self.root = Root::Leaf {
                         ptr: new,
@@ -971,7 +974,7 @@ impl ExpanseMap {
             }
             Root::Tree { top, pop } => {
                 // SAFETY: trie maintained/owned by this map's engine.
-                let old = unsafe { mutate_map::map_remove_dyn(&self.alloc, top, key, 8) };
+                let old = unsafe { mutate_map::map_remove_dyn(alloc, top, key, 8) };
                 if old.is_some() {
                     *pop -= 1;
                     if *pop == 0 {
@@ -979,7 +982,7 @@ impl ExpanseMap {
                         self.root = Root::Empty;
                     } else if *pop < ROOT_LEAF_CAP as u64 {
                         // Hysteresis twin of the root-leaf promotion.
-                        self.condense_to_root_leaf();
+                        self.condense_to_root_leaf(alloc, path);
                     }
                 }
                 old
@@ -987,37 +990,37 @@ impl ExpanseMap {
         }
     }
 
-    /// Removes every entry.
-    pub fn clear(&mut self) {
-        self.path.get_mut().clear();
+    /// Removes every entry (frees through `alloc`, which must be the
+    /// allocator that produced this core's nodes).
+    ///
+    /// The caller's accounting invariant (`bytes_in_use == 0` after a
+    /// lone map clears) lives with the allocator's owner — a shared
+    /// allocator still carries its other cores' bytes here.
+    #[inline(always)]
+    pub(crate) fn clear(&mut self, alloc: &NodeAlloc, path: &mut crate::mutate_map::InsertPathMap) {
+        path.clear();
         match &mut self.root {
             Root::Empty => {}
             Root::Leaf { ptr, pop } => {
                 // SAFETY: freeing the root leaf exactly once.
-                unsafe { self.alloc.free_bytes(*ptr, leaf_size(*pop)) };
+                unsafe { alloc.free_bytes(*ptr, leaf_size(*pop)) };
             }
             Root::Tree { top, .. } => {
                 // SAFETY: freeing the whole owned trie exactly once.
-                unsafe { mutate::free_subtree::<true>(&self.alloc, top) };
+                unsafe { mutate::free_subtree::<true>(alloc, top) };
             }
         }
         self.root = Root::Empty;
-        debug_assert_eq!(self.alloc.bytes_in_use(), 0);
-    }
-
-    /// Walks the whole structure, panicking on any violated invariant
-    /// (`docs/TESTING.md`, "Structural invariant validator").
-    pub fn validate(&self) {
-        if let Err(err) = self.validate_defensive() {
-            panic!("{err}");
-        }
     }
 
     /// Defensive trie structure validator that does not panic.
     ///
+    /// The owner must flush its insert-path cache first (pending
+    /// population deltas would otherwise disagree with the tree).
+    ///
     /// Returns `Ok(())` if the trie invariants are fully met, or `Err(reason)`
     /// indicating what structural corruption was detected.
-    pub fn validate_defensive(&self) -> Result<(), String> {
+    pub(crate) fn validate_defensive(&self) -> Result<(), String> {
         match &self.root {
             Root::Empty => Ok(()),
             Root::Leaf { ptr, pop } => {
@@ -1034,7 +1037,6 @@ impl ExpanseMap {
                 if top.is_null() {
                     return Err("tree root with null top".into());
                 }
-                self.flush_path();
                 let mut stats = ExpanseStats::default();
                 let counted =
                     crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0)?;
@@ -1048,9 +1050,9 @@ impl ExpanseMap {
         }
     }
 
-    /// Gathers structural statistics of the trie.
+    /// Gathers structural statistics of the trie (owner flushes first).
     #[must_use]
-    pub fn stats(&self) -> ExpanseStats {
+    pub(crate) fn stats(&self) -> ExpanseStats {
         let mut stats = ExpanseStats::default();
         match &self.root {
             Root::Empty => {}
@@ -1060,7 +1062,6 @@ impl ExpanseMap {
                 stats.node_counts.leaf_linear = 1;
             }
             Root::Tree { top, .. } => {
-                self.flush_path();
                 let _ = crate::validate::expanse_validate_and_stats::<true>(top, 8, &mut stats, 0);
             }
         }
@@ -1068,7 +1069,7 @@ impl ExpanseMap {
     }
 }
 
-impl ExpanseMap {
+impl MapCore {
     fn leaf_entry(&self, at: usize) -> (u64, u64) {
         let Root::Leaf { ptr, pop } = &self.root else {
             unreachable!("leaf_entry outside root-leaf state")
@@ -1079,20 +1080,23 @@ impl ExpanseMap {
     }
 
     /// Smallest entry in the map.
+    #[inline(always)]
     #[must_use]
-    pub fn first(&self) -> Option<(u64, u64)> {
+    pub(crate) fn first(&self) -> Option<(u64, u64)> {
         self.next_at_or_after(0)
     }
 
     /// Largest entry in the map.
+    #[inline(always)]
     #[must_use]
-    pub fn last(&self) -> Option<(u64, u64)> {
+    pub(crate) fn last(&self) -> Option<(u64, u64)> {
         self.prev_at_or_before(u64::MAX)
     }
 
     /// Smallest entry with key `>= key` (compat: `JudyLFirst`).
+    #[inline(always)]
     #[must_use]
-    pub fn next_at_or_after(&self, key: Key) -> Option<(u64, u64)> {
+    pub(crate) fn next_at_or_after(&self, key: Key) -> Option<(u64, u64)> {
         match &self.root {
             Root::Empty => None,
             Root::Leaf { ptr, pop } => {
@@ -1106,14 +1110,16 @@ impl ExpanseMap {
     }
 
     /// Smallest entry with key `> key` (compat: `JudyLNext`).
+    #[inline(always)]
     #[must_use]
-    pub fn next_after(&self, key: Key) -> Option<(u64, u64)> {
+    pub(crate) fn next_after(&self, key: Key) -> Option<(u64, u64)> {
         self.next_at_or_after(key.checked_add(1)?)
     }
 
     /// Largest entry with key `<= key` (compat: `JudyLLast`).
+    #[inline(always)]
     #[must_use]
-    pub fn prev_at_or_before(&self, key: Key) -> Option<(u64, u64)> {
+    pub(crate) fn prev_at_or_before(&self, key: Key) -> Option<(u64, u64)> {
         match &self.root {
             Root::Empty => None,
             Root::Leaf { ptr, pop } => {
@@ -1127,15 +1133,16 @@ impl ExpanseMap {
     }
 
     /// Largest entry with key `< key` (compat: `JudyLPrev`).
+    #[inline(always)]
     #[must_use]
-    pub fn prev_before(&self, key: Key) -> Option<(u64, u64)> {
+    pub(crate) fn prev_before(&self, key: Key) -> Option<(u64, u64)> {
         self.prev_at_or_before(key.checked_sub(1)?)
     }
 
-    /// Number of keys strictly below `key` (rank).
+    /// Number of keys strictly below `key` (rank; owner flushes first).
+    #[inline(always)]
     #[must_use]
-    pub fn count_below(&self, key: Key) -> u64 {
-        self.flush_path();
+    pub(crate) fn count_below(&self, key: Key) -> u64 {
         match &self.root {
             Root::Empty => 0,
             Root::Leaf { ptr, pop } => {
@@ -1147,9 +1154,11 @@ impl ExpanseMap {
         }
     }
 
-    /// Number of keys in the inclusive range (compat: `JudyLCount`).
+    /// Number of keys in the inclusive range (compat: `JudyLCount`;
+    /// owner flushes first).
+    #[inline(always)]
     #[must_use]
-    pub fn count_range(&self, range: core::ops::RangeInclusive<u64>) -> u64 {
+    pub(crate) fn count_range(&self, range: core::ops::RangeInclusive<u64>) -> u64 {
         let (a, b) = (*range.start(), *range.end());
         if a > b {
             return 0;
@@ -1158,13 +1167,13 @@ impl ExpanseMap {
     }
 
     /// The entry with `n` keys below it — 0-based select (compat:
-    /// `JudyLByCount`, which is 1-based).
+    /// `JudyLByCount`, which is 1-based; owner flushes first).
+    #[inline(always)]
     #[must_use]
-    pub fn by_count(&self, n: u64) -> Option<(u64, u64)> {
+    pub(crate) fn by_count(&self, n: u64) -> Option<(u64, u64)> {
         if n >= self.len() {
             return None;
         }
-        self.flush_path();
         match &self.root {
             Root::Empty => None,
             Root::Leaf { .. } => Some(self.leaf_entry(n as usize)),
@@ -1222,21 +1231,24 @@ impl ExpanseMap {
     /// re-descends from the root on every call, the cursor keeps its descent
     /// path and re-descends only from the deepest ancestor whose expanse still
     /// covers the next target (issue #340; docs/ALGORITHMS.md §3.5).
+    #[inline(always)]
     #[must_use]
-    pub fn cursor(&self) -> crate::cursor::MapCursor<'_> {
+    pub(crate) fn cursor(&self) -> crate::cursor::MapCursor<'_> {
         crate::cursor::MapCursor::new(self.iter_fwd_raw(), self.cursor_top())
     }
 
     /// Creates a [`MapCursor`](crate::cursor::MapCursor) positioned at the
     /// smallest key `>= start`.
+    #[inline(always)]
     #[must_use]
-    pub fn cursor_from(&self, start: Key) -> crate::cursor::MapCursor<'_> {
+    pub(crate) fn cursor_from(&self, start: Key) -> crate::cursor::MapCursor<'_> {
         crate::cursor::MapCursor::new(self.range_fwd_raw(start), self.cursor_top())
     }
 
     /// Ascending iterator over `(key, value)` entries.
+    #[inline(always)]
     #[must_use]
-    pub fn iter(&self) -> MapIter<'_> {
+    pub(crate) fn iter(&self) -> MapIter<'_> {
         MapIter {
             _map: core::marker::PhantomData,
             raw: self.iter_fwd_raw(),
@@ -1244,8 +1256,9 @@ impl ExpanseMap {
     }
 
     /// Returns an iterator over entries in the inclusive range `[start, end]`.
+    #[inline(always)]
     #[must_use]
-    pub fn range(&self, range: core::ops::RangeInclusive<Key>) -> MapRange<'_> {
+    pub(crate) fn range(&self, range: core::ops::RangeInclusive<Key>) -> MapRange<'_> {
         let (start, end) = (*range.start(), *range.end());
         let raw = if start > end {
             crate::iter::RawIter::new()
@@ -1293,8 +1306,9 @@ impl ExpanseMap {
     }
 
     /// Descending (double-ended) iterator over `(key, value)` entries.
+    #[inline(always)]
     #[must_use]
-    pub fn iter_rev(&self) -> MapIterRev<'_> {
+    pub(crate) fn iter_rev(&self) -> MapIterRev<'_> {
         MapIterRev {
             map: self,
             raw: self.iter_rev_raw(),
@@ -1307,8 +1321,9 @@ impl ExpanseMap {
 
     /// Returns a descending (double-ended) iterator over entries in the
     /// inclusive range `[start, end]`.
+    #[inline(always)]
     #[must_use]
-    pub fn range_rev(&self, range: core::ops::RangeInclusive<Key>) -> MapRangeRev<'_> {
+    pub(crate) fn range_rev(&self, range: core::ops::RangeInclusive<Key>) -> MapRangeRev<'_> {
         let (start, end) = (*range.start(), *range.end());
         let (raw, done) = if start > end {
             (crate::iter::RawIter::new(), true)
@@ -1327,7 +1342,8 @@ impl ExpanseMap {
 
     /// Returns an iterator over entries in `range` where the hot metadata word
     /// (bits 63..32 of the 64-bit value slot) satisfies the predicate.
-    pub fn range_filtered<'a, P>(
+    #[inline(always)]
+    pub(crate) fn range_filtered<'a, P>(
         &'a self,
         range: core::ops::RangeInclusive<Key>,
         mut predicate: P,
@@ -1343,7 +1359,8 @@ impl ExpanseMap {
 
     /// Scans entries in `range`, evaluating `predicate(key, hot_meta)` directly on
     /// the raw value slot before invoking `callback(key, raw_val)`.
-    pub fn scan_filtered<P, F>(
+    #[inline(always)]
+    pub(crate) fn scan_filtered<P, F>(
         &self,
         range: core::ops::RangeInclusive<Key>,
         mut predicate: P,
@@ -1368,7 +1385,7 @@ impl ExpanseMap {
 /// reverse iteration lives on the dedicated [`MapIterRev`] / [`MapRangeRev`]
 /// types (`iter_rev` / `range_rev`), which are themselves double-ended.
 pub struct MapIter<'a> {
-    _map: core::marker::PhantomData<&'a ExpanseMap>,
+    _map: core::marker::PhantomData<&'a MapCore>,
     raw: crate::iter::RawIter<true>,
 }
 
@@ -1383,7 +1400,7 @@ impl Iterator for MapIter<'_> {
 
 /// Ascending entry iterator over a key range in an [`ExpanseMap`].
 pub struct MapRange<'a> {
-    _map: core::marker::PhantomData<&'a ExpanseMap>,
+    _map: core::marker::PhantomData<&'a MapCore>,
     raw: crate::iter::RawIter<true>,
     end: Key,
 }
@@ -1409,7 +1426,7 @@ impl Iterator for MapRange<'_> {
 /// raises `lo`, and each stops once the window closes. The ascending cursor is
 /// built lazily, so a pure-descending walk never pays for it.
 pub struct MapIterRev<'a> {
-    map: &'a ExpanseMap,
+    map: &'a MapCore,
     raw: crate::iter::RawIter<true>,
     front: Option<crate::iter::RawIter<true>>,
     lo: Key,
@@ -1465,7 +1482,7 @@ impl DoubleEndedIterator for MapIterRev<'_> {
 /// Double-ended entry iterator over a key range in an [`ExpanseMap`],
 /// descending by default. See [`MapIterRev`] for the shared-window discipline.
 pub struct MapRangeRev<'a> {
-    map: &'a ExpanseMap,
+    map: &'a MapCore,
     raw: crate::iter::RawIter<true>,
     front: Option<crate::iter::RawIter<true>>,
     lo: Key,
@@ -1544,16 +1561,21 @@ impl Extend<(Key, u64)> for ExpanseMap {
     }
 }
 
-impl ExpanseMap {
+impl MapCore {
     /// Rebuilds the flat root leaf (parallel key/value arrays) from a
     /// small tree — the shrink twin of the promotion.
-    fn condense_to_root_leaf(&mut self) {
+    #[inline(always)]
+    fn condense_to_root_leaf(
+        &mut self,
+        alloc: &NodeAlloc,
+        path: &mut crate::mutate_map::InsertPathMap,
+    ) {
         let Root::Tree { top, pop } = &mut self.root else {
             unreachable!("condense outside tree state")
         };
         let n = *pop as usize;
         debug_assert!((1..ROOT_LEAF_CAP).contains(&n));
-        let new = self.alloc.alloc_bytes(leaf_size(n));
+        let new = alloc.alloc_bytes(leaf_size(n));
         let mut written = 0usize;
         let mut from = Some(0u64);
         // SAFETY: engine-maintained trie per this type's invariants.
@@ -1572,10 +1594,342 @@ impl ExpanseMap {
             from = k.checked_add(1);
         }
         debug_assert_eq!(written, n);
-        self.path.get_mut().clear();
+        path.clear();
         // SAFETY: whole trie owned by this map; freed exactly once.
-        unsafe { mutate::free_subtree::<true>(&self.alloc, top) };
+        unsafe { mutate::free_subtree::<true>(alloc, top) };
         self.root = Root::Leaf { ptr: new, pop: n };
+    }
+}
+
+/// Pathless twins for owners without a persistent insert-path cache
+/// (`ExpanseStrMap`'s sub-tries, issue #363 Step A). Each hands the
+/// engine a fresh empty path: the sequential-bypass check can never hit
+/// (`prefix == u64::MAX` matches no `key >> 8`), so after inlining the
+/// bypass bookkeeping is dead and folds away.
+impl MapCore {
+    #[inline(always)]
+    pub(crate) fn insert_pathless(&mut self, alloc: &NodeAlloc, key: Key, val: u64) -> Option<u64> {
+        self.insert(
+            alloc,
+            key,
+            val,
+            &mut crate::mutate_map::InsertPathMap::empty(),
+        )
+    }
+
+    #[inline(always)]
+    pub(crate) fn remove_pathless(&mut self, alloc: &NodeAlloc, key: Key) -> Option<u64> {
+        self.remove(alloc, key, &mut crate::mutate_map::InsertPathMap::empty())
+    }
+
+    #[inline(always)]
+    pub(crate) fn ins_slot_pathless(
+        &mut self,
+        alloc: &NodeAlloc,
+        key: Key,
+    ) -> core::ptr::NonNull<u64> {
+        self.ins_slot(alloc, key, &mut crate::mutate_map::InsertPathMap::empty())
+    }
+
+    #[inline(always)]
+    pub(crate) fn value_slot_pathless(&mut self, key: Key) -> Option<core::ptr::NonNull<u64>> {
+        self.get_value_slot(key, &mut crate::mutate_map::InsertPathMap::empty())
+    }
+
+    #[inline(always)]
+    pub(crate) fn clear_pathless(&mut self, alloc: &NodeAlloc) {
+        self.clear(alloc, &mut crate::mutate_map::InsertPathMap::empty());
+    }
+}
+
+/// The public surface: forwards to `MapCore` with this map's own
+/// allocator and insert-path cache. The core's hot entry points are
+/// `#[inline(always)]`, so each forwarder compiles to exactly the
+/// pre-split method body (issue #363 Step A's zero-regression
+/// requirement on the single-threaded `JudyL*` paths).
+impl ExpanseMap {
+    /// Creates an empty map.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            core: MapCore::new(),
+            alloc: NodeAlloc::new(),
+            path: core::cell::UnsafeCell::new(crate::mutate_map::InsertPathMap::empty()),
+        }
+    }
+
+    #[inline(always)]
+    fn flush_path(&self) {
+        // SAFETY: path is an internal cursor whose state is flushed through UnsafeCell.
+        unsafe {
+            (*self.path.get()).flush();
+        }
+    }
+
+    /// Number of keys in the map.
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        self.core.len()
+    }
+
+    /// True when no keys are present.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.core.is_empty()
+    }
+
+    /// Heap bytes currently used by the map's nodes and leaves.
+    #[must_use]
+    pub fn mem_used(&self) -> usize {
+        self.alloc.bytes_in_use()
+    }
+
+    /// Cumulative node/leaf allocations made by this container since it
+    /// was created (diagnostics; see `tests/no_heap_churn.rs`, which
+    /// subtracts these from the process-wide count to isolate
+    /// incidental scratch allocation).
+    #[must_use]
+    pub fn total_node_allocs(&self) -> usize {
+        self.alloc.total_allocs()
+    }
+
+    /// Returns the value stored for `key`.
+    #[inline(always)]
+    #[must_use]
+    pub fn get(&self, key: Key) -> Option<u64> {
+        self.core.get(key)
+    }
+
+    /// Look up a batch of `keys` simultaneously, writing values into `out`.
+    ///
+    /// When the root is a multi-level digital trie, `get_batch` interleaves key descents
+    /// across CPU Line Fill Buffers in chunks of 8 keys and issues software prefetch hints
+    /// on branch nodes to overlap DRAM memory latency.
+    #[inline]
+    pub fn get_batch(&self, keys: &[Key], out: &mut [Option<u64>]) {
+        self.core.get_batch(keys, out);
+    }
+
+    /// Look up a batch of `keys`, writing found values into `out_values` and presence flags
+    /// into `out_found` (when `Some`). Returns the count of found keys.
+    #[inline]
+    pub fn get_batch_into(
+        &self,
+        keys: &[Key],
+        out_values: &mut [u64],
+        out_found: Option<&mut [bool]>,
+    ) -> usize {
+        self.core.get_batch_into(keys, out_values, out_found)
+    }
+
+    /// Returns a pointer to `key`'s value slot in the leaf or root leaf, or `None`
+    /// if absent.
+    #[inline(always)]
+    #[must_use]
+    pub fn get_slot_ptr(&self, key: Key) -> Option<core::ptr::NonNull<u64>> {
+        self.core.get_slot_ptr(key)
+    }
+
+    /// Returns a **writable pointer to `key`'s value slot**, or `None` if
+    /// the key is absent — the compat layer's `JudyLGet`/`JudyLIns` return
+    /// convention. The pointer stays valid until the next structural
+    /// mutation of the map (the classic JudyL contract); reading or
+    /// writing through it after an `insert`/`remove`/`clear` is undefined.
+    #[inline(always)]
+    #[must_use]
+    pub fn get_value_slot(&mut self, key: Key) -> Option<core::ptr::NonNull<u64>> {
+        self.core.get_value_slot(key, self.path.get_mut())
+    }
+
+    /// Inserts `key` with value 0 if absent — the existing value is kept
+    /// untouched — and returns a **writable pointer to its value slot**:
+    /// the compat `JudyLIns` contract, in one tree walk. The pointer stays
+    /// valid until the next structural mutation.
+    #[inline(always)]
+    pub fn ins_slot(&mut self, key: Key) -> core::ptr::NonNull<u64> {
+        self.core.ins_slot(&self.alloc, key, self.path.get_mut())
+    }
+
+    /// Phase 7 (occ): by-value root snapshot + allocation handle for
+    /// the validated concurrent read walk (see `ExpanseSet::occ_root`).
+    pub(crate) fn occ_root(&self) -> (RootSnapshot, &NodeAlloc) {
+        (self.core.occ_snapshot(), &self.alloc)
+    }
+
+    /// Membership test.
+    #[must_use]
+    pub fn contains_key(&self, key: Key) -> bool {
+        self.core.contains_key(key)
+    }
+
+    /// Inserts `key → val`; returns the replaced value if the key was
+    /// already present.
+    pub fn insert(&mut self, key: Key, val: u64) -> Option<u64> {
+        self.core.insert(&self.alloc, key, val, self.path.get_mut())
+    }
+
+    /// Removes `key`; returns its value if it was present.
+    pub fn remove(&mut self, key: Key) -> Option<u64> {
+        self.core.remove(&self.alloc, key, self.path.get_mut())
+    }
+
+    /// Removes every entry.
+    pub fn clear(&mut self) {
+        self.core.clear(&self.alloc, self.path.get_mut());
+        debug_assert_eq!(self.alloc.bytes_in_use(), 0);
+    }
+
+    /// Walks the whole structure, panicking on any violated invariant
+    /// (`docs/TESTING.md`, "Structural invariant validator").
+    pub fn validate(&self) {
+        if let Err(err) = self.validate_defensive() {
+            panic!("{err}");
+        }
+    }
+
+    /// Defensive trie structure validator that does not panic.
+    ///
+    /// Returns `Ok(())` if the trie invariants are fully met, or `Err(reason)`
+    /// indicating what structural corruption was detected.
+    pub fn validate_defensive(&self) -> Result<(), String> {
+        self.flush_path();
+        self.core.validate_defensive()
+    }
+
+    /// Gathers structural statistics of the trie.
+    #[must_use]
+    pub fn stats(&self) -> ExpanseStats {
+        self.flush_path();
+        self.core.stats()
+    }
+
+    /// Smallest entry in the map.
+    #[must_use]
+    pub fn first(&self) -> Option<(u64, u64)> {
+        self.core.first()
+    }
+
+    /// Largest entry in the map.
+    #[must_use]
+    pub fn last(&self) -> Option<(u64, u64)> {
+        self.core.last()
+    }
+
+    /// Smallest entry with key `>= key` (compat: `JudyLFirst`).
+    #[must_use]
+    pub fn next_at_or_after(&self, key: Key) -> Option<(u64, u64)> {
+        self.core.next_at_or_after(key)
+    }
+
+    /// Smallest entry with key `> key` (compat: `JudyLNext`).
+    #[must_use]
+    pub fn next_after(&self, key: Key) -> Option<(u64, u64)> {
+        self.core.next_after(key)
+    }
+
+    /// Largest entry with key `<= key` (compat: `JudyLLast`).
+    #[must_use]
+    pub fn prev_at_or_before(&self, key: Key) -> Option<(u64, u64)> {
+        self.core.prev_at_or_before(key)
+    }
+
+    /// Largest entry with key `< key` (compat: `JudyLPrev`).
+    #[must_use]
+    pub fn prev_before(&self, key: Key) -> Option<(u64, u64)> {
+        self.core.prev_before(key)
+    }
+
+    /// Number of keys strictly below `key` (rank).
+    #[must_use]
+    pub fn count_below(&self, key: Key) -> u64 {
+        self.flush_path();
+        self.core.count_below(key)
+    }
+
+    /// Number of keys in the inclusive range (compat: `JudyLCount`).
+    #[must_use]
+    pub fn count_range(&self, range: core::ops::RangeInclusive<u64>) -> u64 {
+        self.flush_path();
+        self.core.count_range(range)
+    }
+
+    /// The entry with `n` keys below it — 0-based select (compat:
+    /// `JudyLByCount`, which is 1-based).
+    #[must_use]
+    pub fn by_count(&self, n: u64) -> Option<(u64, u64)> {
+        self.flush_path();
+        self.core.by_count(n)
+    }
+
+    /// Creates a stateful forward [`MapCursor`](crate::cursor::MapCursor) for
+    /// monotone skip-scans, positioned before the first entry.
+    ///
+    /// Unlike the stateless [`next_at_or_after`](Self::next_at_or_after), which
+    /// re-descends from the root on every call, the cursor keeps its descent
+    /// path and re-descends only from the deepest ancestor whose expanse still
+    /// covers the next target (issue #340; docs/ALGORITHMS.md §3.5).
+    #[must_use]
+    pub fn cursor(&self) -> crate::cursor::MapCursor<'_> {
+        self.core.cursor()
+    }
+
+    /// Creates a [`MapCursor`](crate::cursor::MapCursor) positioned at the
+    /// smallest key `>= start`.
+    #[must_use]
+    pub fn cursor_from(&self, start: Key) -> crate::cursor::MapCursor<'_> {
+        self.core.cursor_from(start)
+    }
+
+    /// Ascending iterator over `(key, value)` entries.
+    #[must_use]
+    pub fn iter(&self) -> MapIter<'_> {
+        self.core.iter()
+    }
+
+    /// Returns an iterator over entries in the inclusive range `[start, end]`.
+    #[must_use]
+    pub fn range(&self, range: core::ops::RangeInclusive<Key>) -> MapRange<'_> {
+        self.core.range(range)
+    }
+
+    /// Descending (double-ended) iterator over `(key, value)` entries.
+    #[must_use]
+    pub fn iter_rev(&self) -> MapIterRev<'_> {
+        self.core.iter_rev()
+    }
+
+    /// Returns a descending (double-ended) iterator over entries in the
+    /// inclusive range `[start, end]`.
+    #[must_use]
+    pub fn range_rev(&self, range: core::ops::RangeInclusive<Key>) -> MapRangeRev<'_> {
+        self.core.range_rev(range)
+    }
+
+    /// Returns an iterator over entries in `range` where the hot metadata word
+    /// (bits 63..32 of the 64-bit value slot) satisfies the predicate.
+    pub fn range_filtered<'a, P>(
+        &'a self,
+        range: core::ops::RangeInclusive<Key>,
+        predicate: P,
+    ) -> impl Iterator<Item = (Key, u64)> + 'a
+    where
+        P: FnMut(Key, u32) -> bool + 'a,
+    {
+        self.core.range_filtered(range, predicate)
+    }
+
+    /// Scans entries in `range`, evaluating `predicate(key, hot_meta)` directly on
+    /// the raw value slot before invoking `callback(key, raw_val)`.
+    pub fn scan_filtered<P, F>(
+        &self,
+        range: core::ops::RangeInclusive<Key>,
+        predicate: P,
+        callback: F,
+    ) where
+        P: FnMut(Key, u32) -> bool,
+        F: FnMut(Key, u64) -> bool,
+    {
+        self.core.scan_filtered(range, predicate, callback);
     }
 }
 
@@ -2073,7 +2427,7 @@ mod tests {
         for k in 0u64..200 {
             map.insert(k * 977, k);
         }
-        let Root::Tree { top, .. } = &mut map.root else {
+        let Root::Tree { top, .. } = &mut map.core.root else {
             panic!("expected a tree root");
         };
         // SAFETY: the top is a live BranchL3 (one distinct top digit in

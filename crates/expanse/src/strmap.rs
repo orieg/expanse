@@ -4,10 +4,14 @@
 //! Structure (clean-room, designed against the documented JudySL
 //! *semantics* only): a meta-trie of word-map nodes with cross-chunk
 //! path compression ([Issue #84 Item 1](https://github.com/orieg/expanse/issues/84)).
-//! Each branch node is an [`ExpanseMap`] keyed by the string's next
+//! Each branch node is a word-map engine core (`MapCore`, the engine
+//! behind [`crate::map::ExpanseMap`]) keyed by the string's next
 //! **8-byte chunk, packed big-endian**, so the word maps' numeric order
 //! *is* byte-lexicographic order and all ordered navigation falls out of
-//! the word engine.
+//! the word engine. All sub-tries allocate through the string map's
+//! **single shared [`NodeAlloc`]** (issue #363 Step A), which keeps a
+//! trie node at the size of one map root instead of ~700 bytes of
+//! embedded allocator state and makes descent chains cache-resident.
 //!
 //! Keys are NUL-free byte strings (the C surface hands over
 //! NUL-terminated strings, so this is the natural domain). A chunk that
@@ -21,7 +25,8 @@
 //! - Tag `1`: Pointer to `StrSuffix` leaf, which stores the remaining
 //!   NUL-free key bytes and the user value in a single allocation.
 
-use crate::map::ExpanseMap;
+use crate::alloc::NodeAlloc;
+use crate::map::MapCore;
 use crate::occ::Collector;
 use core::ptr::NonNull;
 use std::sync::{Arc, OnceLock};
@@ -62,20 +67,17 @@ fn pack_child(p: *mut StrNode) -> u64 {
     p as u64
 }
 
-/// One trie level: word map over the next 8-byte chunk.
+/// One trie level: a word-map core over the next 8-byte chunk.
+///
+/// Deliberately just the engine core (issue #363 Step A): the backing
+/// allocator is the string map's **single shared [`NodeAlloc`]**, passed
+/// in per call, and there is no per-node insert-path cache — which is
+/// what shrinks a node from ~700 bytes (embedded allocator + path cache)
+/// to the bare root word, so a descent chain stays cache-resident.
+/// `StrNode` has no `Drop`: teardown must route through
+/// [`dispose_node`]/[`dispose_tree`] with the shared allocator.
 struct StrNode {
-    map: ExpanseMap,
-}
-
-/// Phase 7 (issue #219 Phase 2): hooks a freshly created sub-trie node's
-/// allocator to the epoch collector when the map is concurrently shared
-/// (no-op otherwise). Called before the node is published, so every
-/// mutation a reader could race is bracketed and every free it could
-/// observe is deferred.
-fn attach_node(node: &StrNode, defer: Option<&Arc<Collector>>) {
-    if let Some(c) = defer {
-        node.map.occ_root().1.defer_to(Arc::clone(c));
-    }
+    map: MapCore,
 }
 
 /// Disposes an unlinked suffix: dropped immediately when not shared,
@@ -122,23 +124,30 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: Option<&Arc<Collector>>) {
 /// [`dispose_tree`] queues/disposes each node's children itself before
 /// calling this (the map's continuation entries are plain words; nothing
 /// here follows them).
-fn dispose_node(ptr: *mut StrNode, defer: Option<&Arc<Collector>>) {
+///
+/// The node's sub-map interior is cleared through the **shared**
+/// allocator first (`StrNode` has no `Drop` since the allocator moved
+/// out of the node, #363 Step A): when shared, those frees route through
+/// the deferred `NodeAlloc` and retire to the collector, so pinned
+/// readers keep their memory; the shell then frees (or retires) exactly
+/// once with the layout it was allocated with.
+fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: Option<&Arc<Collector>>) {
+    // SAFETY: caller unlinked `ptr` and is the exclusive writer; the map
+    // interior is cleared exactly once here and never touched again (in
+    // deferred mode the shell memory stays mapped for pinned readers,
+    // whose validation rejects whatever they read from it).
+    unsafe { (*ptr).map.clear_pathless(alloc) };
     match defer {
         None => {
-            // SAFETY: caller unlinked `ptr`; this is the last reference.
+            // SAFETY: last reference; the owning `Box` (created by
+            // `Box::into_raw` at publication) frees the shell with its
+            // original provenance and layout.
             drop(unsafe { Box::from_raw(ptr) });
         }
         Some(c) => {
-            // Drop the interior map in place — its frees route through its
-            // deferred `NodeAlloc`, so retired trie nodes stay mapped for
-            // pinned readers — then retire the shell raw without running
-            // `StrNode::drop` (the map field is already dropped, and any
-            // continuation words it held are the caller's to dispose).
-            // SAFETY: unlinked, writer-exclusive; the map field is dropped
-            // exactly once here and never touched again (the shell memory
-            // stays mapped for pinned readers, whose validation rejects
-            // whatever they read from it).
-            unsafe { core::ptr::drop_in_place(&raw mut (*ptr).map) };
+            // Retire the shell raw — no `Drop` to run: the map interior
+            // was cleared above, and any continuation words it held are
+            // the caller's to dispose.
             c.retire(
                 NonNull::new(ptr.cast::<u8>()).expect("non-null node"),
                 size_of::<StrNode>(),
@@ -150,34 +159,27 @@ fn dispose_node(ptr: *mut StrNode, defer: Option<&Arc<Collector>>) {
 
 /// Disposes a whole unlinked subtree. Iterative like every other walk in
 /// this module — one frame per 8 key bytes would overflow the stack on
-/// exactly the deep chains the iterative `Drop` exists to survive.
-fn dispose_tree(root: *mut StrNode, defer: Option<&Arc<Collector>>) {
-    match defer {
-        None => {
-            // SAFETY: unlinked subtree; `StrNode::drop` tears it down
-            // iteratively.
-            drop(unsafe { Box::from_raw(root) });
-        }
-        Some(_) => {
-            let mut stack: Vec<*mut StrNode> = vec![root];
-            while let Some(p) = stack.pop() {
-                // Queue children and dispose suffixes while iterating (the
-                // continuation words are plain values in the map — neither
-                // disposal touches the map being iterated, and dropping the
-                // map below does not follow them).
-                // SAFETY: unlinked subtree, writer-exclusive.
-                for (k, v) in unsafe { (*p).map.iter() } {
-                    if !is_terminal(k) {
-                        if is_suffix_ptr(v) {
-                            dispose_suffix(unpack_suffix(v), defer);
-                        } else {
-                            stack.push(unpack_child(v));
-                        }
-                    }
+/// exactly the deep chains this module's teardown exists to survive
+/// (`StrNode` has no `Drop`, so both the immediate and the deferred
+/// arm run this same explicit worklist).
+fn dispose_tree(root: *mut StrNode, alloc: &NodeAlloc, defer: Option<&Arc<Collector>>) {
+    let mut stack: Vec<*mut StrNode> = vec![root];
+    while let Some(p) = stack.pop() {
+        // Queue children and dispose suffixes while iterating (the
+        // continuation words are plain values in the map — neither
+        // disposal touches the map being iterated, and clearing the
+        // map inside `dispose_node` below does not follow them).
+        // SAFETY: unlinked subtree, writer-exclusive.
+        for (k, v) in unsafe { (*p).map.iter() } {
+            if !is_terminal(k) {
+                if is_suffix_ptr(v) {
+                    dispose_suffix(unpack_suffix(v), defer);
+                } else {
+                    stack.push(unpack_child(v));
                 }
-                dispose_node(p, defer);
             }
         }
+        dispose_node(p, alloc, defer);
     }
 }
 
@@ -204,7 +206,7 @@ fn is_terminal(chunk: u64) -> bool {
 impl StrNode {
     fn new() -> Self {
         Self {
-            map: ExpanseMap::new(),
+            map: MapCore::new(),
         }
     }
 
@@ -242,7 +244,7 @@ impl StrNode {
             };
             if is_terminal(chunk) {
                 out.extend(terminal_bytes(chunk));
-                return n.map.get_value_slot(chunk).expect("present chunk");
+                return n.map.value_slot_pathless(chunk).expect("present chunk");
             }
             out.extend_from_slice(&chunk.to_be_bytes());
             if is_suffix_ptr(v) {
@@ -268,7 +270,7 @@ impl StrNode {
         let (chunk, v) = cursor?;
         if is_terminal(chunk) {
             out.extend(terminal_bytes(chunk));
-            Some(self.map.get_value_slot(chunk).expect("present chunk"))
+            Some(self.map.value_slot_pathless(chunk).expect("present chunk"))
         } else if is_suffix_ptr(v) {
             // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
             let suffix = unsafe { &mut *unpack_suffix(v) };
@@ -441,7 +443,13 @@ impl StrNode {
     /// Iterative: descend recording the path, then prune emptied nodes on
     /// the way back out. Recursing costs a frame per 8 key bytes, which a
     /// long key turns into a stack overflow.
-    fn remove(&mut self, key: &[u8], off: usize, defer: Option<&Arc<Collector>>) -> Option<u64> {
+    fn remove(
+        &mut self,
+        key: &[u8],
+        off: usize,
+        alloc: &NodeAlloc,
+        defer: Option<&Arc<Collector>>,
+    ) -> Option<u64> {
         let mut path: Vec<(*mut StrNode, u64)> = Vec::new();
         let mut node: *mut StrNode = &raw mut *self;
         let mut off = off;
@@ -452,7 +460,7 @@ impl StrNode {
             // because the descent never revisits a node.
             let n = unsafe { &mut *node };
             if terminal {
-                break n.map.remove(chunk)?;
+                break n.map.remove_pathless(alloc, chunk)?;
             }
             let v = n.map.get(chunk)?;
             if is_suffix_ptr(v) {
@@ -460,7 +468,7 @@ impl StrNode {
                 let suffix = unsafe { &*unpack_suffix(v) };
                 let rem = &key[off + CHUNK..];
                 if rem == &suffix.suffix[..] {
-                    n.map.remove(chunk);
+                    n.map.remove_pathless(alloc, chunk);
                     let removed_val = suffix.value;
                     // Unlinked above; retired when shared.
                     dispose_suffix(unpack_suffix(v), defer);
@@ -486,26 +494,30 @@ impl StrNode {
                 if !empty {
                     break;
                 }
-                parent.map.remove(chunk);
+                parent.map.remove_pathless(alloc, chunk);
                 // Unlinked above; retired when shared.
-                dispose_node(unpack_child(child_v), defer);
+                dispose_node(unpack_child(child_v), alloc, defer);
             }
         }
         Some(removed)
     }
 
-    /// Heap bytes used by this subtree (read-only accounting walk).
+    /// Heap bytes of this subtree's node shells and suffix leaves — the
+    /// allocations **outside** the shared `NodeAlloc` (whose
+    /// `bytes_in_use` covers every sub-map's interior byte-exactly, all
+    /// sub-tries at once, since #363 Step A). `ExpanseStrMap::mem_used`
+    /// is the sum of both.
     ///
-    /// Iterative for the same reason as `Drop`: `clear()` calls this, so
-    /// recursing would overflow the stack on exactly the deep chains the
-    /// iterative destructor exists to survive.
-    fn subtree_bytes(&self) -> u64 {
+    /// Iterative: `clear()` calls this, so recursing would overflow the
+    /// stack on exactly the deep chains the iterative teardown exists to
+    /// survive.
+    fn shell_bytes(&self) -> u64 {
         let mut bytes = 0u64;
         let mut stack: Vec<*const StrNode> = vec![core::ptr::from_ref(self)];
         while let Some(p) = stack.pop() {
             // SAFETY: `self` plus continuation values, all live nodes.
             let node = unsafe { &*p };
-            bytes += node.map.mem_used() as u64 + size_of::<Self>() as u64;
+            bytes += size_of::<Self>() as u64;
             for (k, v) in node.map.iter() {
                 if !is_terminal(k) {
                     if is_suffix_ptr(v) {
@@ -522,66 +534,32 @@ impl StrNode {
     }
 }
 
-impl StrNode {
-    /// Moves this node's continuation children onto `stack`, leaving the
-    /// node childless. Terminal entries (values) are left alone.
-    ///
-    /// Clearing as we go is what makes the iterative teardown correct: a
-    /// node whose children have been taken has nothing left for its own
-    /// `Drop` to descend into.
-    fn take_children(&mut self, stack: &mut Vec<*mut StrNode>) {
-        let mut chunks = Vec::new();
-        for (k, v) in self.map.iter() {
-            if !is_terminal(k) {
-                chunks.push((k, v));
-            }
-        }
-        for (k, v) in chunks {
-            self.map.remove(k);
-            if is_suffix_ptr(v) {
-                // SAFETY: unlinked from map, unique ownership reclaimed.
-                drop(unsafe { Box::from_raw(unpack_suffix(v)) });
-            } else {
-                stack.push(unpack_child(v));
-            }
-        }
-    }
-}
-
-impl Drop for StrNode {
-    fn drop(&mut self) {
-        // Iterative, with an explicit worklist. Recursing here costs one
-        // stack frame per 8 bytes of key depth, so a long key (this map
-        // imposes no length limit, matching the original) can overflow
-        // the stack **while freeing** — and a stack overflow aborts the
-        // process with no recovery path. Cleanup is the worst possible
-        // place to have that failure mode.
-        let mut stack: Vec<*mut StrNode> = Vec::new();
-        self.take_children(&mut stack);
-        while let Some(p) = stack.pop() {
-            // SAFETY: sole owner at drop time; each pointer reaches the
-            // stack exactly once, because taking a node's children also
-            // unlinks them from its map.
-            let mut node = unsafe { Box::from_raw(p) };
-            node.take_children(&mut stack);
-            // No continuation entries left, so this recurses no further.
-            drop(node);
-        }
-    }
-}
-
 /// A sorted map from NUL-free byte strings to `u64` values (compat:
 /// JudySL). Iteration order is byte-lexicographic.
 pub struct ExpanseStrMap {
     root: Option<Box<StrNode>>,
     pop: u64,
+    /// The **one** allocator behind every sub-trie's word map (issue #363
+    /// Step A). Nodes store no pointer to it — every operation passes a
+    /// short-lived `&self.alloc` borrow down the walk — so the map moves
+    /// freely with no self-reference to invalidate, and no boxing or
+    /// pinning is needed for address stability.
+    alloc: NodeAlloc,
     /// Phase 7 (issue #219 Phase 2): when set, unlinked nodes/suffixes are
     /// retired through the collector instead of freed (concurrent readers
-    /// may still hold pointers into them), and every sub-trie's `NodeAlloc`
-    /// is deferred at creation so its interior frees and mutation brackets
-    /// participate too.
+    /// may still hold pointers into them); the shared `alloc` is deferred
+    /// to the same collector, so sub-map interior frees and mutation
+    /// brackets participate too.
     deferred: OnceLock<Arc<Collector>>,
 }
+
+// SAFETY: the map exclusively owns every reachable allocation — node
+// shells, suffix leaves, and the shared `NodeAlloc`'s sub-map interiors;
+// the raw pointers inside are owning edges, never aliased borrows.
+// Not `Sync`: shared access goes through `sync::SyncExpanseStrMap`.
+// (Before #363 this was derived from `ExpanseMap: Send`; the bare
+// `MapCore` sub-trie field makes it explicit.)
+unsafe impl Send for ExpanseStrMap {}
 
 impl ExpanseStrMap {
     /// Creates an empty map.
@@ -590,6 +568,7 @@ impl ExpanseStrMap {
         Self {
             root: None,
             pop: 0,
+            alloc: NodeAlloc::new(),
             deferred: OnceLock::new(),
         }
     }
@@ -600,10 +579,12 @@ impl ExpanseStrMap {
     /// creation, before it is published. Idempotent for the same
     /// collector; a second call with a different collector panics.
     ///
-    /// Requires an **empty** map: a populated map's sub-trie allocators
-    /// hold slab-carved node memory, which must never be retired to the
-    /// collector (see `NodeAlloc::defer_to`). The `sync` wrapper shares a
-    /// populated map by rebuilding it through a pre-deferred one.
+    /// Requires an **empty, never-populated** map: the shared allocator
+    /// of a map that has held entries retains slab-carved node memory,
+    /// which must never be retired to the collector —
+    /// `NodeAlloc::defer_to` hard-asserts that no slab pages exist. The
+    /// `sync` wrapper shares a populated map by rebuilding it through a
+    /// fresh pre-deferred one.
     ///
     /// `pub(crate)` deliberately — only the `sync` wrapper drives a
     /// collector's epochs (see `BlobArena::defer_to` for the rationale).
@@ -613,6 +594,9 @@ impl ExpanseStrMap {
             "ExpanseStrMap::defer_to requires an empty map; rebuild a \
              populated map through a pre-deferred one instead"
         );
+        // One call covers every sub-trie (#363 Step A): the sub-maps all
+        // allocate through this shared handle.
+        self.alloc.defer_to(Arc::clone(&collector));
         let stored = self.deferred.get_or_init(|| Arc::clone(&collector));
         assert!(
             Arc::ptr_eq(stored, &collector),
@@ -632,12 +616,12 @@ impl ExpanseStrMap {
         self.pop == 0
     }
 
-    /// Heap bytes used by the map (read-only accounting walk).
+    /// Heap bytes used by the map: the shared allocator's byte-exact
+    /// `bytes_in_use` (every sub-map interior) plus a read-only walk over
+    /// the node shells and suffix leaves.
     #[must_use]
     pub fn mem_used(&self) -> usize {
-        self.root
-            .as_deref()
-            .map_or(0, |r| r.subtree_bytes() as usize)
+        self.alloc.bytes_in_use() + self.root.as_deref().map_or(0, |r| r.shell_bytes() as usize)
     }
 
     fn assert_key(key: &[u8]) {
@@ -658,10 +642,10 @@ impl ExpanseStrMap {
         node: &mut StrNode,
         chunk: u64,
         old: *mut StrSuffix,
+        alloc: &NodeAlloc,
         defer: Option<&Arc<Collector>>,
     ) -> *mut StrNode {
         let mut child = Box::new(StrNode::new());
-        attach_node(&child, defer);
         // SAFETY: `old` is the live suffix being split; every borrow here
         // ends before the disposal below.
         let (c1, t1, value) = unsafe {
@@ -670,7 +654,7 @@ impl ExpanseStrMap {
             (c1, t1, s.value)
         };
         if t1 {
-            child.map.insert(c1, value);
+            child.map.insert_pathless(alloc, c1, value);
         } else {
             // SAFETY: as above — the continuation bytes are copied out
             // before the old suffix is disposed of.
@@ -679,10 +663,11 @@ impl ExpanseStrMap {
                 suffix: rem1,
                 value,
             }));
-            child.map.insert(c1, pack_suffix(s1));
+            child.map.insert_pathless(alloc, c1, pack_suffix(s1));
         }
         let child_raw = Box::into_raw(child);
-        node.map.insert(chunk, pack_child(child_raw));
+        node.map
+            .insert_pathless(alloc, chunk, pack_child(child_raw));
         dispose_suffix(old, defer);
         child_raw
     }
@@ -692,18 +677,18 @@ impl ExpanseStrMap {
         Self::assert_key(key);
         let defer = self.deferred.get().cloned();
         // Field-level borrows on purpose: `node` must borrow only
-        // `self.root` so `self.pop` stays reachable in the loop.
+        // `self.root` so `self.pop` and `self.alloc` stay reachable in
+        // the loop.
         if self.root.is_none() {
-            let node = Box::new(StrNode::new());
-            attach_node(&node, defer.as_ref());
-            self.root = Some(node);
+            self.root = Some(Box::new(StrNode::new()));
         }
+        let alloc = &self.alloc;
         let mut node: &mut StrNode = self.root.as_deref_mut().expect("root just ensured");
         let mut off = 0;
         loop {
             let (chunk, terminal) = chunk_at(key, off);
             if terminal {
-                let prev = node.map.insert(chunk, val);
+                let prev = node.map.insert_pathless(alloc, chunk, val);
                 if prev.is_none() {
                     self.pop += 1;
                 }
@@ -716,7 +701,7 @@ impl ExpanseStrMap {
                         suffix: rem.into(),
                         value: val,
                     }));
-                    node.map.insert(chunk, pack_suffix(suffix));
+                    node.map.insert_pathless(alloc, chunk, pack_suffix(suffix));
                     self.pop += 1;
                     return None;
                 }
@@ -734,7 +719,7 @@ impl ExpanseStrMap {
                         // is discarded unless its snapshot validates.
                         return Some(unsafe { core::ptr::replace(&raw mut (*sfx).value, val) });
                     }
-                    let child_raw = Self::split_suffix(node, chunk, sfx, defer.as_ref());
+                    let child_raw = Self::split_suffix(node, chunk, sfx, alloc, defer.as_ref());
                     // SAFETY: freshly allocated Box<StrNode> above.
                     node = unsafe { &mut *child_raw };
                     off += CHUNK;
@@ -755,12 +740,12 @@ impl ExpanseStrMap {
         Self::assert_key(key);
         let defer = self.deferred.get().cloned();
         // Field-level borrows on purpose: `node` must borrow only
-        // `self.root` so `self.pop` stays reachable in the loop.
+        // `self.root` so `self.pop` and `self.alloc` stay reachable in
+        // the loop.
         if self.root.is_none() {
-            let node = Box::new(StrNode::new());
-            attach_node(&node, defer.as_ref());
-            self.root = Some(node);
+            self.root = Some(Box::new(StrNode::new()));
         }
+        let alloc = &self.alloc;
         let mut node: &mut StrNode = self.root.as_deref_mut().expect("root just ensured");
         let mut off = 0;
         loop {
@@ -769,7 +754,7 @@ impl ExpanseStrMap {
                 if !node.map.contains_key(chunk) {
                     self.pop += 1;
                 }
-                return node.map.ins_slot(chunk);
+                return node.map.ins_slot_pathless(alloc, chunk);
             }
             match node.map.get(chunk) {
                 None => {
@@ -778,7 +763,7 @@ impl ExpanseStrMap {
                         suffix: rem.into(),
                         value: 0,
                     }));
-                    node.map.insert(chunk, pack_suffix(suffix));
+                    node.map.insert_pathless(alloc, chunk, pack_suffix(suffix));
                     self.pop += 1;
                     // SAFETY: suffix is a live, uniquely owned pointer allocated above.
                     return unsafe { NonNull::new_unchecked(&raw mut (*suffix).value) };
@@ -795,7 +780,7 @@ impl ExpanseStrMap {
                     }
                     // Divergence: publish a child over the suffix entry,
                     // then dispose of the old suffix (see `split_suffix`).
-                    let child_raw = Self::split_suffix(node, chunk, sfx, defer.as_ref());
+                    let child_raw = Self::split_suffix(node, chunk, sfx, alloc, defer.as_ref());
                     // SAFETY: freshly allocated Box<StrNode> above.
                     node = unsafe { &mut *child_raw };
                     off += CHUNK;
@@ -889,7 +874,7 @@ impl ExpanseStrMap {
             // first check below; children by the previous hop's validated
             // walk) and is EBR-live under the caller's pin. The possibly
             // racy root-snapshot copy is validated before use.
-            let msnap = unsafe { (*node).map.occ_root().0 };
+            let msnap = unsafe { (*node).map.occ_snapshot() };
             // SAFETY: the caller's pin + snapshot contract carries through.
             let found = unsafe { crate::sync::walk_validated::<true>(msnap, chunk, ver, snap) }?;
             if terminal {
@@ -928,7 +913,7 @@ impl ExpanseStrMap {
         loop {
             let (chunk, terminal) = chunk_at(key, off);
             if terminal {
-                return node.map.get_value_slot(chunk);
+                return node.map.value_slot_pathless(chunk);
             }
             let v = node.map.get(chunk)?;
             if is_suffix_ptr(v) {
@@ -950,13 +935,14 @@ impl ExpanseStrMap {
     pub fn remove(&mut self, key: &[u8]) -> Option<u64> {
         Self::assert_key(key);
         let defer = self.deferred.get().cloned();
+        let alloc = &self.alloc;
         let root = self.root.as_deref_mut()?;
-        let removed = root.remove(key, 0, defer.as_ref())?;
+        let removed = root.remove(key, 0, alloc, defer.as_ref())?;
         self.pop -= 1;
         if root.map.is_empty() {
             let root_box = self.root.take().expect("root present");
             // Unlinked (the root slot is cleared); retired when shared.
-            dispose_node(Box::into_raw(root_box), defer.as_ref());
+            dispose_node(Box::into_raw(root_box), alloc, defer.as_ref());
         }
         Some(removed)
     }
@@ -1016,10 +1002,14 @@ impl ExpanseStrMap {
     pub fn clear(&mut self) -> u64 {
         let bytes = match self.root.take() {
             Some(root) => {
-                // Count with a read-only walk, then dispose of the subtree
-                // (retired through the collector when shared).
-                let bytes = root.subtree_bytes();
-                dispose_tree(Box::into_raw(root), self.deferred.get());
+                // Count first — the shared allocator's byte-exact
+                // `bytes_in_use` (all sub-map interiors, all of which are
+                // about to be freed) plus a read-only walk over shells and
+                // suffixes — then dispose of the subtree (retired through
+                // the collector when shared).
+                let bytes = self.alloc.bytes_in_use() as u64 + root.shell_bytes();
+                dispose_tree(Box::into_raw(root), &self.alloc, self.deferred.get());
+                debug_assert_eq!(self.alloc.bytes_in_use(), 0);
                 bytes
             }
             None => 0,
@@ -1213,6 +1203,36 @@ mod tests {
         collector.try_advance();
         drop(m);
         drop(collector);
+    }
+
+    /// #363 Step A regression guard: a sub-trie node is exactly the map
+    /// engine core — no embedded allocator, no per-node insert-path
+    /// cache. Re-embedding either (the pre-#363 layout was ~700 bytes)
+    /// fails here before it shows up as a descent-locality regression.
+    #[test]
+    fn str_node_is_just_the_map_core() {
+        assert_eq!(size_of::<StrNode>(), size_of::<crate::map::MapCore>());
+        assert!(
+            size_of::<StrNode>() <= 64,
+            "StrNode grew: {}",
+            size_of::<StrNode>()
+        );
+    }
+
+    /// #363 Step A: `mem_used` (shared-allocator bytes + shell walk) and
+    /// the `clear()` return value agree byte-exactly, and both go to zero.
+    #[test]
+    fn mem_used_matches_clear_accounting() {
+        let mut m = ExpanseStrMap::new();
+        let n = if cfg!(miri) { 60 } else { 500 };
+        for i in 0..n {
+            let k = format!("/api/v2/tenants/{:04}/resources/item-{:06}", i % 37, i);
+            m.insert(k.as_bytes(), i);
+        }
+        let used = m.mem_used() as u64;
+        assert!(used > 0);
+        assert_eq!(m.clear(), used, "clear() must release exactly mem_used()");
+        assert_eq!(m.mem_used(), 0);
     }
 
     #[test]
