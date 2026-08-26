@@ -22,7 +22,9 @@
 //!   NUL-free key bytes and the user value in a single allocation.
 
 use crate::map::ExpanseMap;
+use crate::occ::Collector;
 use core::ptr::NonNull;
+use std::sync::{Arc, OnceLock};
 
 const CHUNK: usize = 8;
 const TAG_SUFFIX: u64 = 1;
@@ -63,6 +65,120 @@ fn pack_child(p: *mut StrNode) -> u64 {
 /// One trie level: word map over the next 8-byte chunk.
 struct StrNode {
     map: ExpanseMap,
+}
+
+/// Phase 7 (issue #219 Phase 2): hooks a freshly created sub-trie node's
+/// allocator to the epoch collector when the map is concurrently shared
+/// (no-op otherwise). Called before the node is published, so every
+/// mutation a reader could race is bracketed and every free it could
+/// observe is deferred.
+fn attach_node(node: &StrNode, defer: Option<&Arc<Collector>>) {
+    if let Some(c) = defer {
+        node.map.occ_root().1.defer_to(Arc::clone(c));
+    }
+}
+
+/// Disposes an unlinked suffix: dropped immediately when not shared,
+/// retired through the epoch collector when it is — a reader that
+/// validated the tagged pointer at an earlier snapshot may still be
+/// reading the (write-once) shell and byte buffer under its pin.
+fn dispose_suffix(ptr: *mut StrSuffix, defer: Option<&Arc<Collector>>) {
+    match defer {
+        None => {
+            // SAFETY: caller unlinked `ptr`; this is the last reference.
+            drop(unsafe { Box::from_raw(ptr) });
+        }
+        Some(c) => {
+            // Retire the byte buffer and the shell raw (no `Drop` runs; the
+            // collector frees plain memory after the grace period). The
+            // buffer's owning `Box` is moved out **by value** so its
+            // original provenance travels to the collector — a pointer
+            // merely borrowed out of the shell would not carry deallocation
+            // rights (Miri rejects the `dealloc`). An empty suffix's
+            // `Box<[u8]>` owns no allocation — nothing to retire for it.
+            // SAFETY: unlinked; this is the last owner. The shell's
+            // `suffix` field is never read again — the shell itself is
+            // retired below without running `Drop` (concurrent readers
+            // still see the write-once bytes until the grace period ends).
+            let boxed: Box<[u8]> = unsafe { core::ptr::read(&raw const (*ptr).suffix) };
+            let len = boxed.len();
+            if len > 0 {
+                let buf = Box::into_raw(boxed).cast::<u8>();
+                c.retire(NonNull::new(buf).expect("non-null suffix buffer"), len, 1);
+            } else {
+                core::mem::forget(boxed);
+            }
+            c.retire(
+                NonNull::new(ptr.cast::<u8>()).expect("non-null suffix"),
+                size_of::<StrSuffix>(),
+                align_of::<StrSuffix>(),
+            );
+        }
+    }
+}
+
+/// Disposes one unlinked node whose continuation children the caller
+/// handles separately — pruning disposes an already-empty child, while
+/// [`dispose_tree`] queues/disposes each node's children itself before
+/// calling this (the map's continuation entries are plain words; nothing
+/// here follows them).
+fn dispose_node(ptr: *mut StrNode, defer: Option<&Arc<Collector>>) {
+    match defer {
+        None => {
+            // SAFETY: caller unlinked `ptr`; this is the last reference.
+            drop(unsafe { Box::from_raw(ptr) });
+        }
+        Some(c) => {
+            // Drop the interior map in place — its frees route through its
+            // deferred `NodeAlloc`, so retired trie nodes stay mapped for
+            // pinned readers — then retire the shell raw without running
+            // `StrNode::drop` (the map field is already dropped, and any
+            // continuation words it held are the caller's to dispose).
+            // SAFETY: unlinked, writer-exclusive; the map field is dropped
+            // exactly once here and never touched again (the shell memory
+            // stays mapped for pinned readers, whose validation rejects
+            // whatever they read from it).
+            unsafe { core::ptr::drop_in_place(&raw mut (*ptr).map) };
+            c.retire(
+                NonNull::new(ptr.cast::<u8>()).expect("non-null node"),
+                size_of::<StrNode>(),
+                align_of::<StrNode>(),
+            );
+        }
+    }
+}
+
+/// Disposes a whole unlinked subtree. Iterative like every other walk in
+/// this module — one frame per 8 key bytes would overflow the stack on
+/// exactly the deep chains the iterative `Drop` exists to survive.
+fn dispose_tree(root: *mut StrNode, defer: Option<&Arc<Collector>>) {
+    match defer {
+        None => {
+            // SAFETY: unlinked subtree; `StrNode::drop` tears it down
+            // iteratively.
+            drop(unsafe { Box::from_raw(root) });
+        }
+        Some(_) => {
+            let mut stack: Vec<*mut StrNode> = vec![root];
+            while let Some(p) = stack.pop() {
+                // Queue children and dispose suffixes while iterating (the
+                // continuation words are plain values in the map — neither
+                // disposal touches the map being iterated, and dropping the
+                // map below does not follow them).
+                // SAFETY: unlinked subtree, writer-exclusive.
+                for (k, v) in unsafe { (*p).map.iter() } {
+                    if !is_terminal(k) {
+                        if is_suffix_ptr(v) {
+                            dispose_suffix(unpack_suffix(v), defer);
+                        } else {
+                            stack.push(unpack_child(v));
+                        }
+                    }
+                }
+                dispose_node(p, defer);
+            }
+        }
+    }
 }
 
 /// Packs `key[off..]`'s next chunk big-endian; `true` when the chunk
@@ -320,11 +436,12 @@ impl StrNode {
     }
 
     /// Removes `key[off..]`; returns the removed value. Empty child nodes
-    /// are pruned on the way out.
+    /// are pruned on the way out (disposal routed through `defer` — see
+    /// [`dispose_suffix`]/[`dispose_node`]).
     /// Iterative: descend recording the path, then prune emptied nodes on
     /// the way back out. Recursing costs a frame per 8 key bytes, which a
     /// long key turns into a stack overflow.
-    fn remove(&mut self, key: &[u8], off: usize) -> Option<u64> {
+    fn remove(&mut self, key: &[u8], off: usize, defer: Option<&Arc<Collector>>) -> Option<u64> {
         let mut path: Vec<(*mut StrNode, u64)> = Vec::new();
         let mut node: *mut StrNode = &raw mut *self;
         let mut off = off;
@@ -345,8 +462,8 @@ impl StrNode {
                 if rem == &suffix.suffix[..] {
                     n.map.remove(chunk);
                     let removed_val = suffix.value;
-                    // SAFETY: unlinked above, so this is the last reference.
-                    drop(unsafe { Box::from_raw(unpack_suffix(v)) });
+                    // Unlinked above; retired when shared.
+                    dispose_suffix(unpack_suffix(v), defer);
                     break removed_val;
                 }
                 return None;
@@ -370,8 +487,8 @@ impl StrNode {
                     break;
                 }
                 parent.map.remove(chunk);
-                // SAFETY: unlinked above, so this is the last reference.
-                drop(unsafe { Box::from_raw(unpack_child(child_v)) });
+                // Unlinked above; retired when shared.
+                dispose_node(unpack_child(child_v), defer);
             }
         }
         Some(removed)
@@ -458,13 +575,49 @@ impl Drop for StrNode {
 pub struct ExpanseStrMap {
     root: Option<Box<StrNode>>,
     pop: u64,
+    /// Phase 7 (issue #219 Phase 2): when set, unlinked nodes/suffixes are
+    /// retired through the collector instead of freed (concurrent readers
+    /// may still hold pointers into them), and every sub-trie's `NodeAlloc`
+    /// is deferred at creation so its interior frees and mutation brackets
+    /// participate too.
+    deferred: OnceLock<Arc<Collector>>,
 }
 
 impl ExpanseStrMap {
     /// Creates an empty map.
     #[must_use]
     pub fn new() -> Self {
-        Self { root: None, pop: 0 }
+        Self {
+            root: None,
+            pop: 0,
+            deferred: OnceLock::new(),
+        }
+    }
+
+    /// Switches this map to deferred reclamation through `collector`,
+    /// permanently (the Phase 7 `sync` wrapper calls this once at
+    /// construction): every sub-trie created from here on is attached at
+    /// creation, before it is published. Idempotent for the same
+    /// collector; a second call with a different collector panics.
+    ///
+    /// Requires an **empty** map: a populated map's sub-trie allocators
+    /// hold slab-carved node memory, which must never be retired to the
+    /// collector (see `NodeAlloc::defer_to`). The `sync` wrapper shares a
+    /// populated map by rebuilding it through a pre-deferred one.
+    ///
+    /// `pub(crate)` deliberately — only the `sync` wrapper drives a
+    /// collector's epochs (see `BlobArena::defer_to` for the rationale).
+    pub(crate) fn defer_to(&self, collector: Arc<Collector>) {
+        assert!(
+            self.root.is_none(),
+            "ExpanseStrMap::defer_to requires an empty map; rebuild a \
+             populated map through a pre-deferred one instead"
+        );
+        let stored = self.deferred.get_or_init(|| Arc::clone(&collector));
+        assert!(
+            Arc::ptr_eq(stored, &collector),
+            "ExpanseStrMap already deferred to a different collector"
+        );
     }
 
     /// Number of strings stored.
@@ -491,10 +644,61 @@ impl ExpanseStrMap {
         debug_assert!(!key.contains(&0), "keys are NUL-free byte strings");
     }
 
+    /// Splits a suffix entry that diverges from the key being inserted:
+    /// builds a child node holding the existing suffix's continuation,
+    /// publishes it over the suffix's map entry, and disposes of the old
+    /// suffix (retired when shared — a concurrent reader may still hold
+    /// it). Returns the raw child for the caller to descend into.
+    ///
+    /// Reads `old` only through short-lived internal borrows: a borrow
+    /// passed in as a parameter would be *protected* for the whole call
+    /// and conflict with the disposal's move-out of the byte buffer
+    /// (Miri rejects it).
+    fn split_suffix(
+        node: &mut StrNode,
+        chunk: u64,
+        old: *mut StrSuffix,
+        defer: Option<&Arc<Collector>>,
+    ) -> *mut StrNode {
+        let mut child = Box::new(StrNode::new());
+        attach_node(&child, defer);
+        // SAFETY: `old` is the live suffix being split; every borrow here
+        // ends before the disposal below.
+        let (c1, t1, value) = unsafe {
+            let s = &*old;
+            let (c1, t1) = chunk_at(&s.suffix, 0);
+            (c1, t1, s.value)
+        };
+        if t1 {
+            child.map.insert(c1, value);
+        } else {
+            // SAFETY: as above — the continuation bytes are copied out
+            // before the old suffix is disposed of.
+            let rem1: Box<[u8]> = unsafe { (&(*old).suffix)[CHUNK..].into() };
+            let s1 = Box::into_raw(Box::new(StrSuffix {
+                suffix: rem1,
+                value,
+            }));
+            child.map.insert(c1, pack_suffix(s1));
+        }
+        let child_raw = Box::into_raw(child);
+        node.map.insert(chunk, pack_child(child_raw));
+        dispose_suffix(old, defer);
+        child_raw
+    }
+
     /// Inserts `key → val`; returns the replaced value if present.
     pub fn insert(&mut self, key: &[u8], val: u64) -> Option<u64> {
         Self::assert_key(key);
-        let mut node: &mut StrNode = self.root.get_or_insert_with(|| Box::new(StrNode::new()));
+        let defer = self.deferred.get().cloned();
+        // Field-level borrows on purpose: `node` must borrow only
+        // `self.root` so `self.pop` stays reachable in the loop.
+        if self.root.is_none() {
+            let node = Box::new(StrNode::new());
+            attach_node(&node, defer.as_ref());
+            self.root = Some(node);
+        }
+        let mut node: &mut StrNode = self.root.as_deref_mut().expect("root just ensured");
         let mut off = 0;
         loop {
             let (chunk, terminal) = chunk_at(key, off);
@@ -517,33 +721,20 @@ impl ExpanseStrMap {
                     return None;
                 }
                 Some(v) if is_suffix_ptr(v) => {
-                    // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
-                    let existing = unsafe { Box::from_raw(unpack_suffix(v)) };
+                    let sfx = unpack_suffix(v);
                     let rem = &key[off + CHUNK..];
-                    if rem == &existing.suffix[..] {
-                        let old_val = existing.value;
-                        let new_suffix = Box::into_raw(Box::new(StrSuffix {
-                            suffix: existing.suffix,
-                            value: val,
-                        }));
-                        node.map.insert(chunk, pack_suffix(new_suffix));
-                        return Some(old_val);
+                    // SAFETY: tagged pointer encodes a live Box<StrSuffix>;
+                    // short-lived shared borrow of the write-once bytes.
+                    if unsafe { rem == &(&(*sfx).suffix)[..] } {
+                        // In-place value update, field-precise (no `&mut`
+                        // over the shell whose write-once fields concurrent
+                        // readers load): only the value word mutates, under
+                        // the version bracket when shared.
+                        // SAFETY: exclusive writer; a racing reader's load
+                        // is discarded unless its snapshot validates.
+                        return Some(unsafe { core::ptr::replace(&raw mut (*sfx).value, val) });
                     }
-                    // Divergence: create a new child StrNode and insert existing suffix into it
-                    let mut child = Box::new(StrNode::new());
-                    let (c1, t1) = chunk_at(&existing.suffix, 0);
-                    if t1 {
-                        child.map.insert(c1, existing.value);
-                    } else {
-                        let rem1 = &existing.suffix[CHUNK..];
-                        let s1 = Box::into_raw(Box::new(StrSuffix {
-                            suffix: rem1.into(),
-                            value: existing.value,
-                        }));
-                        child.map.insert(c1, pack_suffix(s1));
-                    }
-                    let child_raw = Box::into_raw(child);
-                    node.map.insert(chunk, pack_child(child_raw));
+                    let child_raw = Self::split_suffix(node, chunk, sfx, defer.as_ref());
                     // SAFETY: freshly allocated Box<StrNode> above.
                     node = unsafe { &mut *child_raw };
                     off += CHUNK;
@@ -562,7 +753,15 @@ impl ExpanseStrMap {
     /// `JudySLIns` contract. Valid until the next structural mutation.
     pub fn ins_slot(&mut self, key: &[u8]) -> NonNull<u64> {
         Self::assert_key(key);
-        let mut node: &mut StrNode = self.root.get_or_insert_with(|| Box::new(StrNode::new()));
+        let defer = self.deferred.get().cloned();
+        // Field-level borrows on purpose: `node` must borrow only
+        // `self.root` so `self.pop` stays reachable in the loop.
+        if self.root.is_none() {
+            let node = Box::new(StrNode::new());
+            attach_node(&node, defer.as_ref());
+            self.root = Some(node);
+        }
+        let mut node: &mut StrNode = self.root.as_deref_mut().expect("root just ensured");
         let mut off = 0;
         loop {
             let (chunk, terminal) = chunk_at(key, off);
@@ -585,29 +784,18 @@ impl ExpanseStrMap {
                     return unsafe { NonNull::new_unchecked(&raw mut (*suffix).value) };
                 }
                 Some(v) if is_suffix_ptr(v) => {
-                    // SAFETY: tagged pointer encodes a live Box<StrSuffix>.
-                    let existing = unsafe { &mut *unpack_suffix(v) };
+                    let sfx = unpack_suffix(v);
                     let rem = &key[off + CHUNK..];
-                    if rem == &existing.suffix[..] {
-                        return NonNull::new(&raw mut existing.value).expect("non-null value slot");
+                    // SAFETY: tagged pointer encodes a live Box<StrSuffix>;
+                    // short-lived shared borrow of the write-once bytes.
+                    if unsafe { rem == &(&(*sfx).suffix)[..] } {
+                        // SAFETY: field-precise pointer to the value word.
+                        return NonNull::new(unsafe { &raw mut (*sfx).value })
+                            .expect("non-null value slot");
                     }
-                    // Divergence: convert existing suffix to child StrNode
-                    // SAFETY: taking ownership of existing suffix for split.
-                    let existing_box = unsafe { Box::from_raw(unpack_suffix(v)) };
-                    let mut child = Box::new(StrNode::new());
-                    let (c1, t1) = chunk_at(&existing_box.suffix, 0);
-                    if t1 {
-                        child.map.insert(c1, existing_box.value);
-                    } else {
-                        let rem1 = &existing_box.suffix[CHUNK..];
-                        let s1 = Box::into_raw(Box::new(StrSuffix {
-                            suffix: rem1.into(),
-                            value: existing_box.value,
-                        }));
-                        child.map.insert(c1, pack_suffix(s1));
-                    }
-                    let child_raw = Box::into_raw(child);
-                    node.map.insert(chunk, pack_child(child_raw));
+                    // Divergence: publish a child over the suffix entry,
+                    // then dispose of the old suffix (see `split_suffix`).
+                    let child_raw = Self::split_suffix(node, chunk, sfx, defer.as_ref());
                     // SAFETY: freshly allocated Box<StrNode> above.
                     node = unsafe { &mut *child_raw };
                     off += CHUNK;
@@ -648,6 +836,88 @@ impl ExpanseStrMap {
         }
     }
 
+    /// Phase 7 (issue #219 Phase 2): one bounded, validated lock-free
+    /// lookup across the cascading sub-tries — the concurrent analogue of
+    /// [`Self::get`].
+    ///
+    /// Every hop's sub-map walk (`sync::walk_validated`) starts by
+    /// validating the shared tree version, so the multi-hop **path
+    /// prefix** is consistent with the map state at `snap`; the terminal
+    /// hop's value itself is covered hand-over-hand by per-node versions
+    /// (exactly [`crate::sync::SyncExpanseMap`]'s read semantics — the
+    /// result is a value the key held during the call, linearizable
+    /// because sub-tries are never re-parented and unlink always precedes
+    /// retirement). A hop that races a writer fails validation and
+    /// surfaces as `Retry`. Suffix leaves carry no per-node version, so
+    /// that arm re-validates the tree version before returning; their fat
+    /// pointer and byte buffer are write-once after publication (splits
+    /// publish a replacement and retire the old suffix; only the value
+    /// word mutates in place).
+    ///
+    /// # Safety
+    ///
+    /// Same contract as `sync::walk_validated`: `snap` must be an even
+    /// version sampled from `ver` after this map switched to deferred
+    /// reclamation ([`Self::defer_to`]), and the caller must hold an epoch
+    /// pin for the whole call — every pointer read under a still-valid
+    /// cover then references EBR-live memory.
+    pub(crate) unsafe fn get_validated(
+        &self,
+        key: &[u8],
+        ver: &crate::occ::SeqVersion,
+        snap: u64,
+    ) -> Result<Option<u64>, crate::sync::Retry> {
+        use crate::sync::Retry;
+        Self::assert_key(key);
+        // Racy single-word copy of the root pointer; the first sub-map
+        // walk's validation covers it before anything read through it is
+        // used (and a stale-but-retired root stays EBR-live under the pin).
+        let mut node: *const StrNode = match self.root.as_deref() {
+            Some(r) => core::ptr::from_ref(r),
+            None => {
+                return if ver.validate(snap) {
+                    Ok(None)
+                } else {
+                    Err(Retry)
+                };
+            }
+        };
+        let mut off = 0usize;
+        loop {
+            let (chunk, terminal) = chunk_at(key, off);
+            // SAFETY: `node` was validated at `snap` (the root by the walk's
+            // first check below; children by the previous hop's validated
+            // walk) and is EBR-live under the caller's pin. The possibly
+            // racy root-snapshot copy is validated before use.
+            let msnap = unsafe { (*node).map.occ_root().0 };
+            // SAFETY: the caller's pin + snapshot contract carries through.
+            let found = unsafe { crate::sync::walk_validated::<true>(msnap, chunk, ver, snap) }?;
+            if terminal {
+                return Ok(found);
+            }
+            let Some(v) = found else { return Ok(None) };
+            if is_suffix_ptr(v) {
+                let sfx: *const StrSuffix = unpack_suffix(v);
+                // SAFETY: `v` was validated at `snap`, so `sfx` was the
+                // published suffix then; EBR keeps it (and its buffer)
+                // mapped under the pin. Fat pointer and bytes are
+                // write-once; the value word may race and is validated
+                // below before use.
+                let (bytes, value) = unsafe {
+                    let s = &*sfx;
+                    (&s.suffix[..], s.value)
+                };
+                let matched = bytes == &key[off + CHUNK..];
+                if !ver.validate(snap) {
+                    return Err(Retry);
+                }
+                return Ok(matched.then_some(value));
+            }
+            node = unpack_child(v);
+            off += CHUNK;
+        }
+    }
+
     /// Returns a writable pointer to `key`'s value slot (compat:
     /// `JudySLGet`), or `None` if absent.
     #[must_use]
@@ -679,11 +949,14 @@ impl ExpanseStrMap {
     /// Removes `key`; returns its value if it was present.
     pub fn remove(&mut self, key: &[u8]) -> Option<u64> {
         Self::assert_key(key);
+        let defer = self.deferred.get().cloned();
         let root = self.root.as_deref_mut()?;
-        let removed = root.remove(key, 0)?;
+        let removed = root.remove(key, 0, defer.as_ref())?;
         self.pop -= 1;
         if root.map.is_empty() {
-            self.root = None;
+            let root_box = self.root.take().expect("root present");
+            // Unlinked (the root slot is cleared); retired when shared.
+            dispose_node(Box::into_raw(root_box), defer.as_ref());
         }
         Some(removed)
     }
@@ -742,8 +1015,13 @@ impl ExpanseStrMap {
     /// `JudySLFreeArray` return value).
     pub fn clear(&mut self) -> u64 {
         let bytes = match self.root.take() {
-            // Count with a read-only walk, then let ownership drop it.
-            Some(root) => root.subtree_bytes(),
+            Some(root) => {
+                // Count with a read-only walk, then dispose of the subtree
+                // (retired through the collector when shared).
+                let bytes = root.subtree_bytes();
+                dispose_tree(Box::into_raw(root), self.deferred.get());
+                bytes
+            }
             None => 0,
         };
         self.pop = 0;
@@ -883,6 +1161,58 @@ mod tests {
             k.push((rng.next() % 255 + 1) as u8); // 1..=255: NUL-free
         }
         k
+    }
+
+    /// Phase 7 (issue #219 Phase 2): deferred-mode round trip —
+    /// single-threaded and Miri-clean. Every disposal path (suffix split,
+    /// suffix removal, empty-node pruning, root removal, whole-tree clear)
+    /// routes unlinked allocations through the epoch collector, and
+    /// everything drains without leaks or double frees.
+    #[test]
+    fn deferred_strmap_dispose_round_trip() {
+        use crate::occ::Collector;
+        use std::sync::Arc;
+
+        let collector = Arc::new(Collector::new());
+        let mut m = ExpanseStrMap::new();
+        // Deferral must precede every allocation (`defer_to` requires an
+        // empty map — slab-carved memory must never reach the collector).
+        m.defer_to(Arc::clone(&collector));
+        m.insert(b"pre-existing:alpha", 1);
+        m.insert(b"pre-existing:beta", 2);
+
+        // Suffix creation, then a split (disposes the old suffix).
+        m.insert(b"shared-prefix-01:aaaa", 10);
+        m.insert(b"shared-prefix-01:bbbb", 11);
+        // In-place value update on a suffix leaf (no disposal).
+        assert_eq!(m.insert(b"shared-prefix-01:aaaa", 12), Some(10));
+        assert_eq!(m.get(b"shared-prefix-01:aaaa"), Some(12));
+        // ins_slot split path.
+        let slot = m.ins_slot(b"shared-prefix-01:aaXX");
+        // SAFETY: slot valid until next mutation.
+        unsafe { slot.as_ptr().write(13) };
+        assert_eq!(m.get(b"shared-prefix-01:aaXX"), Some(13));
+
+        // Suffix removal + emptied-node pruning back up the chain.
+        assert_eq!(m.remove(b"shared-prefix-01:aaXX"), Some(13));
+        assert_eq!(m.remove(b"shared-prefix-01:bbbb"), Some(11));
+        assert_eq!(m.remove(b"shared-prefix-01:aaaa"), Some(12));
+        assert_eq!(m.get(b"pre-existing:alpha"), Some(1));
+
+        // Whole-tree disposal (dispose_tree), then root removal via the
+        // last-key path.
+        assert_eq!(m.len(), 2);
+        assert!(m.clear() > 0);
+        m.insert(b"solo", 42);
+        assert_eq!(m.remove(b"solo"), Some(42));
+        assert!(m.is_empty());
+
+        // Grace-period advances free the retired chain; drop drains the rest.
+        collector.try_advance();
+        collector.try_advance();
+        collector.try_advance();
+        drop(m);
+        drop(collector);
     }
 
     #[test]

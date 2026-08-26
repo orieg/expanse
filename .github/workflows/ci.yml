@@ -378,9 +378,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Miri (core unsafe smoke — leaf, node, slot, 32-bit trie invariants)
+      - name: Miri (core unsafe smoke — leaf, node, slot, 32-bit trie invariants, deferred-dispose round trips)
         run: |
-          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types::
+          cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: blobmap::tests::deferred strmap::tests::deferred
 
   test-asan:
     name: Safety / ASan Core Smoke (Ubuntu)
