@@ -22,11 +22,13 @@ use alloc::vec::Vec;
 // ===========================================================================
 // Bulk builder — direct-emission construction of a canonical subtree from a
 // sorted, distinct key set (issue #348). The forms it emits mirror the
-// mutation ladder's convergent shapes exactly (immediate ≤ `max_count`,
-// linear leaf ≤ cap, bitmap leaf / full-expanse / branch by population and
-// divergence), so a tree built here is byte-for-byte a tree the insert path
-// would converge to, and the invariants validator, Miri, and the fuzzers
-// certify one construction path, not two.
+// mutation ladder's convergent shapes (immediate ≤ `max_count`, linear leaf ≤
+// cap, bitmap leaf / full-expanse / branch by population and divergence), so a
+// tree built here is content-equivalent to the insert path's, canonical, and
+// never less compact — it may pick the more-compact `FullExpanse` where an
+// ascending insert leaves a full bitmap leaf. All node construction reuses the
+// mutation engine's constructors, so the invariants validator, Miri, and the
+// fuzzers certify one construction path, not two.
 // ===========================================================================
 
 /// A `FullExpanse` edge covering a `level`-byte expanse (`256^level` keys).

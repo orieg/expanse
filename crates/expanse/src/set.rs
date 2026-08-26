@@ -998,7 +998,9 @@ impl ExpanseSet {
     /// speed only when the input is already sorted (e.g. a posting list, an
     /// image key stream, or the output of a set-algebra merge).
     ///
-    /// The result is byte-for-byte the tree the insert path converges to, so it
+    /// The result is content-equivalent to the insert path's tree, canonical,
+    /// and never less compact (the builder may pick the more-compact
+    /// `FullExpanse` where an ascending insert leaves a full bitmap leaf), so it
     /// composes with every later `insert`/`remove`/query unchanged.
     #[must_use]
     pub fn from_sorted_iter<I: IntoIterator<Item = Key>>(iter: I) -> Self {
@@ -1369,9 +1371,11 @@ mod tests {
     #[cfg(not(miri))]
     const OPS: usize = 6000;
 
-    /// `from_sorted_iter` must produce the byte-for-byte same tree the insert
-    /// path converges to: identical `stats()` (form-for-form) and identical
-    /// contents, and it must pass the invariants validator.
+    /// `from_sorted_iter` must produce a tree content-equivalent to the insert
+    /// path's — identical contents, canonical, and never less compact
+    /// (`mem_used() <=` insert; the builder may pick the more-compact
+    /// `FullExpanse` where ascending insert leaves a full bitmap leaf) — and it
+    /// must pass the invariants validator.
     #[test]
     fn from_sorted_iter_matches_insert() {
         type Gen = fn(&mut XorShift, usize) -> Vec<u64>;
