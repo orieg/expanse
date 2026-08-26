@@ -120,7 +120,7 @@ fi
 /usr/lib64/libexpanse.so*
 
 %files devel
-/usr/include/*.h
+/usr/include/*
 /usr/lib64/libexpanse.a
 /usr/lib64/pkgconfig/*.pc
 
