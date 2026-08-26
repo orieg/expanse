@@ -1,0 +1,36 @@
+# Categorizes auto-generated GitHub Release notes (generate_release_notes: true
+# in release.yml). Grouping is LABEL-based: label PRs for correct placement;
+# unlabeled PRs land in "Other Changes". docs/PACKAGING.md §1 documents this.
+changelog:
+  exclude:
+    labels:
+      - dependencies
+      - skip-changelog
+  categories:
+    - title: 🚀 Features
+      labels:
+        - enhancement
+        - feature
+    - title: 🐛 Fixes
+      labels:
+        - bug
+        - fix
+    - title: ⚡ Performance
+      labels:
+        - performance
+        - benchmark
+    - title: 📦 Packaging & Distribution
+      labels:
+        - packaging
+        - release
+    - title: 🔧 CI & Tooling
+      labels:
+        - ci
+        - tooling
+    - title: 📚 Documentation
+      labels:
+        - documentation
+        - docs
+    - title: Other Changes
+      labels:
+        - "*"

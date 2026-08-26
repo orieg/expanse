@@ -2,7 +2,7 @@
 
 High-performance, **zero-GC**, off-heap associative trie collections for **.NET 8.0 / 9.0+** and C# powered by native `libexpanse` via modern P/Invoke and `SafeHandle`.
 
-[![NuGet](https://img.shields.io/nuget/v/Expanse.NET.svg?style=flat-square)](https://www.nuget.org/packages/Expanse.NET)
+[![NuGet](https://img.shields.io/nuget/v/Orieg.Expanse.svg?style=flat-square)](https://www.nuget.org/packages/Orieg.Expanse)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg?style=flat-square)](../../LICENSE-MIT)
 
 ---
@@ -26,7 +26,7 @@ High-performance, **zero-GC**, off-heap associative trie collections for **.NET 
 Install via the .NET CLI:
 
 ```bash
-dotnet add package Expanse.NET
+dotnet add package Orieg.Expanse
 ```
 
 Or via Package Manager Console in Visual Studio:
