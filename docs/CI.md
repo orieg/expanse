@@ -84,7 +84,7 @@ graph TD
 | `instruction-counts` | Perf / Callgrind Deterministic Instructions | Valgrind/Callgrind instruction counting + `scripts/perf_report.py` regression guard. |
 | `callgrind-smoke` | Perf / Callgrind Fast Smoke (Ubuntu) | Fast scaled-down (<20s) Callgrind instruction regression smoke gate ($N = 10,000$). |
 | `memory-budget` | Perf / Memory Budget Invariants | Runs `examples/bytes_per_key.rs`; fails if deterministic B/key exceeds architectural ceilings. |
-| `bench-baremetal` | Perf / Remote Bare-Metal Benchmarks | Triggered via `workflow_dispatch` or `/bench` / `/bench extended` PR comments. Dual-pass baseline drift reporting, Callgrind profiling, and multi-arch / population sweeps on dedicated host (`honeycomb`). |
+| `bench-baremetal` | Perf / Remote Bare-Metal Benchmarks | Triggered via `workflow_dispatch` or `/bench` / `/bench extended` / `/benchmark <suite>` PR comments (suites: `vs_stock`, `instructions`, `comparative`, `ycsb`, `concurrency`). Dual-pass baseline drift reporting, Callgrind profiling, and multi-arch / population sweeps on dedicated host (`honeycomb`). |
 
 ### Bindings
 | Job | Name | Role |
@@ -143,6 +143,9 @@ An intentional trade-off (safety hardening, new feature, metadata tagging) is ap
 
 ### 4.5 Memory density assertions (deterministic)
 `memory-budget` runs `examples/bytes_per_key.rs`: total heap bytes ÷ key count against strict per-distribution ceilings. These are deterministic allocator-accounting numbers (unaffected by machine load), so unlike timing tables they can hard-gate a build. Raise a ceiling only deliberately, updating the `BENCHMARKING.md` row in the same commit.
+
+### 4.6 Concurrency scaling-ratio guard (nightly, warn-only)
+The instruction gates above are single-threaded and deterministic by design; they cannot catch a change that serializes concurrent readers or silently degrades a lock-free path to the mutex fallback (Callgrind serializes threads; raw wall-clock ops/s is too noisy to threshold tightly). The nightly `bench-report` job therefore runs `benches/concurrency.rs` (all `Sync*` types + baselines, reduced sweep via `EXPANSE_BENCH_THREADS` / `EXPANSE_BENCH_WORKLOADS`) and gates on **scaling ratios** — total ops/s at max threads ÷ 1 thread per (engine, workload) — via `scripts/bench_concurrency_check.py` against the previous nightly's `concurrency-baseline` artifact (the same upload/download round-trip as the `bindings-baseline`). Ratios are robust to host-load drift, so a generous 30% relative-drop threshold flags real scaling collapses while tolerating scheduler noise. Currently **warn-only** (no `--fail-on-regression`); promotion to failing is gated on the baseline staying quiet across several consecutive unmodified nightlies (#360). `/benchmark concurrency` runs the same instrument report-only on the bare-metal host. See `docs/BENCHMARKING.md` §2–3 for the suite and knob details.
 
 ---
 

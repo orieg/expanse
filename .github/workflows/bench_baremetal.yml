@@ -14,7 +14,7 @@ on:
         description: 'PR number to post results to'
         required: false
       benchmark_suite:
-        description: 'Benchmark suite to run (all, extended, vs_stock, instructions, comparative, ycsb)'
+        description: 'Benchmark suite to run (all, extended, vs_stock, instructions, comparative, ycsb, concurrency)'
         required: true
         default: 'all'
         type: choice
@@ -25,6 +25,7 @@ on:
           - instructions
           - comparative
           - ycsb
+          - concurrency
   issue_comment:
     types: [created]
 
@@ -72,6 +73,7 @@ jobs:
             else if (comment.includes('instructions')) suite = 'instructions';
             else if (comment.includes('comparative')) suite = 'comparative';
             else if (comment.includes('ycsb')) suite = 'ycsb';
+            else if (comment.includes('concurrency')) suite = 'concurrency';
             core.setOutput('benchmark_suite', suite);
 
       - name: Set input variables
@@ -223,6 +225,13 @@ jobs:
             "ycsb")
               cargo bench --bench ycsb -p expanse-trie | tee ycsb.txt
               ;;
+            "concurrency")
+              # Wall-clock Sync* scaling instrument (benches/concurrency.rs,
+              # harness = false; configured via env, not CLI args). Reduced
+              # sweep to stay within the job window; report-only.
+              EXPANSE_BENCH_THREADS="1,4,16" EXPANSE_BENCH_WORKLOADS="100,50" \
+                cargo bench --bench concurrency -p expanse-trie | tee concurrency.txt
+              ;;
             "all"|*)
               if [ -f base-instructions.txt ]; then
                 cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
@@ -302,6 +311,10 @@ jobs:
               echo '```text'
               cat ycsb.txt
               echo '```'
+            elif [ -f concurrency.txt ]; then
+              echo '```text'
+              cat concurrency.txt
+              echo '```'
             fi
             echo "EOF" >> $GITHUB_ENV
 
@@ -321,6 +334,10 @@ jobs:
             elif [ -f ycsb.txt ]; then
               echo '```text' >> "$GITHUB_STEP_SUMMARY"
               cat ycsb.txt >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            elif [ -f concurrency.txt ]; then
+              echo '```text' >> "$GITHUB_STEP_SUMMARY"
+              cat concurrency.txt >> "$GITHUB_STEP_SUMMARY"
               echo '```' >> "$GITHUB_STEP_SUMMARY"
             fi
           fi

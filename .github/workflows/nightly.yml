@@ -179,8 +179,49 @@ jobs:
       - name: bytes/key (deterministic)
         run: cargo run --release -p expanse-trie --example bytes_per_key | tee -a bench-report.txt
 
-      - name: Concurrent read scaling
-        run: cargo run --release -p expanse-trie --example concurrent_scaling | tee -a bench-report.txt
+      # Full Sync* coverage (map, set, blob map, str map, bytes map + their
+      # baselines) via the dedicated instrument benches/concurrency.rs,
+      # replacing the SyncExpanseMap-only concurrent_scaling example. Reduced
+      # sweep via env knobs: the hosted runner has ~4 vCPUs, so 1→4 threads is
+      # the meaningful scaling span here.
+      - name: Concurrent scaling (all Sync* types, reduced sweep)
+        env:
+          EXPANSE_BENCH_THREADS: "1,4"
+          EXPANSE_BENCH_WORKLOADS: "95,50"
+        run: |
+          cargo bench --bench concurrency -p expanse-trie | tee concurrency-report.txt
+          cat concurrency-report.txt >> bench-report.txt
+
+      - name: Concurrency ratio-check self-test
+        run: python3 scripts/bench_concurrency_check.py --self-test
+
+      - name: Download historical concurrency baseline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p concurrency-baseline
+          gh run download --repo "${{ github.repository }}" --name concurrency-baseline --dir concurrency-baseline || true
+
+      # Collapse-proof gate on scaling ratios (max-threads ÷ 1-thread total
+      # ops/s per engine/workload), not absolute ops/s. Warn-only for now
+      # (no --fail-on-regression): promote once the baseline proves stable
+      # across several consecutive unmodified nightlies (#360).
+      - name: Concurrency scaling-ratio baseline check (warn-only)
+        run: |
+          CHECK_FLAG=""
+          if [ -f concurrency-baseline/concurrency-baseline.json ]; then
+            CHECK_FLAG="--check-baseline concurrency-baseline/concurrency-baseline.json"
+          fi
+          python3 scripts/bench_concurrency_check.py \
+            --input concurrency-report.txt \
+            $CHECK_FLAG \
+            --save-baseline concurrency-baseline.json | tee -a bench-report.txt
+
+      - name: Upload new concurrency baseline
+        uses: actions/upload-artifact@v7
+        with:
+          name: concurrency-baseline
+          path: concurrency-baseline.json
 
       - name: Download historical bindings baseline
         env:
