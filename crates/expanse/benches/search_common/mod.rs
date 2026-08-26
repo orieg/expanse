@@ -253,6 +253,29 @@ pub fn expanse_skipscan(set: &ExpanseSet, targets: &[u64]) -> u64 {
     sink
 }
 
+/// WAND skip-scan over an [`ExpanseSet`] using the stateful `advance_to`
+/// cursor (issue #340): a single held descent path advanced per target,
+/// re-descending only from the deepest ancestor whose expanse still covers the
+/// target.
+///
+/// This is the direct stateful replacement for [`expanse_skipscan`] — the same
+/// "smallest key `>= target`" query per target, so it yields a **bit-identical
+/// sink** — the difference being only *how* each query is served (held path vs
+/// root re-descent). It therefore peeks with `advance_to` rather than consuming
+/// with `next`; consuming would diverge from the stateless baseline exactly
+/// when a gap maps two consecutive targets to the same key (the cursor would
+/// have stepped past it), which is a different reduction, not a faster one.
+pub fn expanse_cursor_skipscan(set: &ExpanseSet, targets: &[u64]) -> u64 {
+    let mut cur = set.cursor();
+    let mut sink = 0u64;
+    for &t in targets {
+        if let Some(k) = cur.advance_to(t) {
+            sink = sink.wrapping_add(k);
+        }
+    }
+    sink
+}
+
 /// WAND skip-scan over a [`RoaringTreemap`]: stateful cursor advance per target.
 pub fn roaring_skipscan(tree: &RoaringTreemap, targets: &[u64]) -> u64 {
     let mut it = tree.iter();

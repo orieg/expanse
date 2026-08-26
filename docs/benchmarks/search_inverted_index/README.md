@@ -34,7 +34,7 @@ skip-scan, and memory footprint.
 | :--- | :--- | :--- |
 | **Underlying structure** | 32-bit-keyed map of 2^16 containers (array / bitmap) | Expanse-partitioned digital trie, SIMD/SWAR bitmap leaves |
 | **Native Boolean algebra** | ✅ `intersection_len` / `union_len` / `difference_len`, `&` `\|` `-` `^` | ✅ **native structural kernel** (#339) — `intersection_len` / `union_len` / `difference_len`, `&` `\|` `-` `^` (was composed from navigation primitives) |
-| **Skip-scan / advance-to-target** | ✅ `iter().advance_to(n)` (stateful cursor) | ✅ `next_at_or_after(n)` (stateless O(depth) re-descent) |
+| **Skip-scan / advance-to-target** | ✅ `iter().advance_to(n)` (stateful cursor) | ✅ `next_at_or_after(n)` (stateless O(depth) re-descent) **and `cursor().advance_to(n)` (stateful path-reuse cursor, #340)** |
 | **Ordered iteration / range** | ✅ | ✅ `iter` / `range` |
 | **Rank / select** | ✅ `rank` / `select` | ✅ `count_below` / `by_count` |
 | **Run containers (dense RLE)** | ❌ not in `roaring-rs` 0.10 (CRoaring only) | n/a (trie compresses runs structurally) |
@@ -45,7 +45,7 @@ skip-scan, and memory footprint.
 
 ## 2. Key findings
 
-*(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8. **Pillar 1 (Boolean)** re-measured at commit `c129836d` with the native set-algebra kernel arm (#339) in the window 2026-08-26T08:13:34Z → 08:15:28Z, host idle (load 0.00 before → 0.90 after — a single thread; no concurrent bench process during the window). **Pillars 2–3 (WAND, memory)** are unchanged from the #337 baseline (commit `29f86ddc`, measured on the same host in the 08:05Z–08:07Z window, also idle) — the set-algebra kernel does not touch skip-scan or footprint. Full non-quick suite via `run.sh`. The Boolean harness is `median_ns_per_op` (custom: 5 batches each grown to ≥ 60 ms), not criterion, identical to #337's config — the composed / native / roaring cells are same-methodology comparable. Deterministic instruction counts (`search_instructions`, iai-callgrind) require valgrind and run in the `instruction-counts` CI job, not on this host.)*
+*(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8. **Pillar 1 (Boolean)** re-measured at commit `c129836d` with the native set-algebra kernel arm (#339) in the window 2026-08-26T08:13:34Z → 08:15:28Z, host idle (load 0.00 before → 0.90 after — a single thread; no concurrent bench process during the window). **Pillar 2 (WAND)** was re-measured at commit `5bd7bdda` with the stateful `advance_to` cursor arm (#340) in the window 2026-08-26T09:28:47Z → 09:31:30Z, host idle (load 0.01 before → 1.01 after — a single thread; max load 1.03 across the run, no concurrent bench process; host-wide lock held). **Pillar 3 (memory)** is unchanged from the #337 baseline (commit `29f86ddc`, measured on the same host in the 08:05Z–08:07Z window, also idle) — the cursor does not touch footprint. Full non-quick suite via `run.sh`. The Boolean harness is `median_ns_per_op` (custom: 5 batches each grown to ≥ 60 ms), not criterion, identical to #337's config — the composed / native / roaring cells are same-methodology comparable. Deterministic instruction counts (`search_instructions`, iai-callgrind) require valgrind and run in the `instruction-counts` CI job, not on this host.)*
 
 <!-- RESULTS:START -->
 
@@ -54,7 +54,7 @@ skip-scan, and memory footprint.
 | Pillar | Winner | Margin | Notes |
 |---|---|---|---|
 | **1. Boolean AND / OR / AND-NOT** | **Mixed** (native kernel, #339) | composed 4×–1406× slower; **native ≤ 3.70× slower, wins 7/16 symmetric cells** | The native structural kernel replaces per-element composition. Symmetric: within 3.70× everywhere, faster than Roaring at small N and on all zipfian large-N. Skewed AND: **faster** on dense/zipfian, loses only sparse (17×–23×). |
-| **2. WAND skip-scan** | **Roaring** | 2× – 4× | Every cell. Expanse's `next_at_or_after` cost is notably *flat* (~13.6 ns dense, independent of stride/size) — a real O(depth) property — but the warm cursor still wins. |
+| **2. WAND skip-scan** | **Mixed** (stateful cursor, #340) | stateless 2×–4× slower; **cursor 0.53×–1.64× vs Roaring** | The stateless `next_at_or_after` re-descends per call and loses every cell (the refuted Step-0 hypothesis). The #340 cursor reuses its descent path: it **beats or ties Roaring on all 6 dense cells and on clustered shallow/medium (down to 0.53× — 1.9× faster)**, is within 1.2× in 14/18 cells, and meets the near-skip target (dense 10^6 shallow **6.60 ns ≤ 8 ns**, faster than Roaring). Only the sparse deep-skip cells trail (1.40×–1.64×); sparse/10^6/deep at 1.64× is the sole cell past the 1.5× goal. |
 | **3. Memory (bits/docID)** | **Mixed** | see below | Roaring wins most cells; **Expanse wins `shard` @ 10^5 (1.4× more compact)** and **ties dense/shard @ 10^6** (within ~4%). Small-N and sparse are Expanse losses. |
 
 ### Pillar 1 — Boolean posting-list algebra
@@ -131,28 +131,56 @@ Roaring answers from a flat 1-key array container:
 
 ![WAND skip-scan ns per skip](results/bench_wand_skipscan.svg)
 
-A genuine contest — Expanse's `next_at_or_after` is a real O(depth) skip — but
-Roaring's stateful `advance_to` cursor wins every regime by **2× – 4×**. The
-Step 0 hypothesis that deep, long-range skips over a large list would favour the
-fixed-depth re-descent is **refuted**: Roaring skips whole containers via its
-outer map just as cheaply. The one architectural point in Expanse's favour is
-**stride-independence** — dense skip cost is a flat ~13.6 ns whether advancing
-by 1 or by 5,000 — whereas Roaring's cursor cost grows slightly with stride.
+Three arms now: the **stateless** `next_at_or_after` (re-descends from the root
+every call), the **#340 cursor** `cursor().advance_to` (keeps its descent path,
+re-descending only from the deepest ancestor whose expanse still covers the next
+target — leaf-local for near skips), and Roaring's **`advance_to`** cursor. All
+three answer the same "smallest docID `≥ target`" query; the stateless and cursor
+sinks are bit-identical (asserted every run), so the difference is purely *how*
+the query is served.
 
-| List dist | Size | Regime | skips | Expanse | Roaring | Expanse vs Roaring |
-|---|--:|---|--:|--:|--:|---|
-| dense | 1,000,000 | shallow | 666,641 | 13.6 ns | 7.0 ns | 2× slower |
-| dense | 1,000,000 | deep | 1,967 | 13.8 ns | 7.3 ns | 2× slower |
-| dense | 10,000,000 | shallow | 6,666,150 | 13.7 ns | 6.9 ns | 2× slower |
-| dense | 10,000,000 | deep | 2,047 | 14.5 ns | 8.9 ns | 2× slower |
-| clustered | 10,000,000 | shallow | 13,332,173 | 20.9 ns | 6.0 ns | 3× slower |
-| clustered | 10,000,000 | deep | 2,005 | 34.2 ns | 16.1 ns | 2× slower |
-| sparse | 10,000,000 | shallow | 13,332,249 | 17.1 ns | 6.2 ns | 3× slower |
-| sparse | 10,000,000 | deep | 2,005 | 18.2 ns | 10.1 ns | 2× slower |
+The Step-0 hypothesis — that a fixed-depth re-descent would beat the warm cursor
+on deep skips — was **refuted for the stateless arm** (it loses every cell 2×–4×,
+its cost notably *flat* at ~14 ns dense regardless of stride). #340 resolves it:
+the stateful cursor **beats or ties Roaring across all six dense cells and on
+clustered shallow/medium** (down to 3.27 ns on clustered shallow — **1.9× faster
+than Roaring** and **6.7× faster than the stateless re-descent**), meets the
+near-skip target (dense 10^6 shallow **6.60 ns ≤ 8 ns**), and stays within 1.2×
+of Roaring in 14 of 18 cells. Where it still trails is the **sparse deep-skip**
+regime — few long-range skips over uniform-random 64-bit docIDs, where
+consecutive far targets rarely share an ancestor so the cursor pays near-full
+re-descents while Roaring's outer map skips containers directly (sparse/10^6/deep
+1.64×, the sole cell past the 1.5× goal; sparse/10^7/deep 1.40×). Published in
+full below; every cell, including the losses.
 
-Deterministic retired-instruction counts for the same skip-scan
-(`search_instructions`, iai-callgrind) are the noise-free cross-check; they
-require valgrind and run in the `instruction-counts` CI job.
+ns per advance — **stateless / cursor #340 / Roaring** (lower is better); the
+last column is cursor ÷ Roaring (< 1 = cursor faster):
+
+| List dist | Size | Regime | skips | Stateless | Cursor #340 | Roaring | Cursor vs Roaring |
+|---|--:|---|--:|--:|--:|--:|---|
+| dense | 1,000,000 | shallow | 666,641 | 14.31 ns | **6.60 ns** | 7.01 ns | **0.94× (faster)** |
+| dense | 1,000,000 | medium | 15,464 | 14.48 ns | **5.87 ns** | 8.44 ns | **0.70× (faster)** |
+| dense | 1,000,000 | deep | 1,967 | 14.57 ns | 7.50 ns | 7.25 ns | 1.03× |
+| dense | 10,000,000 | shallow | 6,666,150 | 14.23 ns | **6.67 ns** | 6.79 ns | **0.98× (faster)** |
+| dense | 10,000,000 | medium | 155,499 | 14.20 ns | **6.07 ns** | 8.46 ns | **0.72× (faster)** |
+| dense | 10,000,000 | deep | 2,047 | 14.52 ns | **8.05 ns** | 9.16 ns | **0.88× (faster)** |
+| clustered | 1,000,000 | shallow | 1,333,713 | 21.94 ns | **3.27 ns** | 6.15 ns | **0.53× (1.9× faster)** |
+| clustered | 1,000,000 | medium | 31,061 | 26.83 ns | **8.90 ns** | 10.24 ns | **0.87× (faster)** |
+| clustered | 1,000,000 | deep | 1,969 | 32.33 ns | 15.13 ns | 12.60 ns | 1.20× |
+| clustered | 10,000,000 | shallow | 13,332,173 | 20.85 ns | **3.30 ns** | 5.95 ns | **0.55× (1.8× faster)** |
+| clustered | 10,000,000 | medium | 310,615 | 25.96 ns | **9.08 ns** | 10.46 ns | **0.87× (faster)** |
+| clustered | 10,000,000 | deep | 2,005 | 33.99 ns | 17.60 ns | 16.04 ns | 1.10× |
+| sparse | 1,000,000 | shallow | 1,333,794 | 15.24 ns | 6.83 ns | 6.29 ns | 1.09× |
+| sparse | 1,000,000 | medium | 31,065 | 15.54 ns | 9.65 ns | 8.64 ns | 1.12× |
+| sparse | 1,000,000 | deep | 1,969 | 16.59 ns | 12.45 ns | 7.59 ns | 1.64× |
+| sparse | 10,000,000 | shallow | 13,332,249 | 17.47 ns | 6.84 ns | 6.08 ns | 1.13× |
+| sparse | 10,000,000 | medium | 310,616 | 17.72 ns | 9.82 ns | 8.79 ns | 1.12× |
+| sparse | 10,000,000 | deep | 2,005 | 18.28 ns | 13.98 ns | 10.01 ns | 1.40× |
+
+Across the board the cursor is **1.3×–6.7× faster than the stateless
+re-descent** it replaces. Deterministic retired-instruction counts for the same
+skip-scan (`search_instructions`, iai-callgrind) are the noise-free cross-check;
+they require valgrind and run in the `instruction-counts` CI job.
 
 ### Pillar 3 — Memory footprint (live-heap bits per docID)
 

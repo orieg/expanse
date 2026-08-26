@@ -1205,6 +1205,35 @@ impl ExpanseMap {
         }
     }
 
+    /// The trie root edge for cursor seeks, or `Edge::NULL` when the root is a
+    /// flat leaf / empty (cursor seeks then stay leaf-local).
+    #[inline]
+    fn cursor_top(&self) -> Edge {
+        match &self.root {
+            Root::Tree { top, .. } => *top,
+            _ => Edge::NULL,
+        }
+    }
+
+    /// Creates a stateful forward [`MapCursor`](crate::cursor::MapCursor) for
+    /// monotone skip-scans, positioned before the first entry.
+    ///
+    /// Unlike the stateless [`next_at_or_after`](Self::next_at_or_after), which
+    /// re-descends from the root on every call, the cursor keeps its descent
+    /// path and re-descends only from the deepest ancestor whose expanse still
+    /// covers the next target (issue #340; docs/ALGORITHMS.md §3.5).
+    #[must_use]
+    pub fn cursor(&self) -> crate::cursor::MapCursor<'_> {
+        crate::cursor::MapCursor::new(self.iter_fwd_raw(), self.cursor_top())
+    }
+
+    /// Creates a [`MapCursor`](crate::cursor::MapCursor) positioned at the
+    /// smallest key `>= start`.
+    #[must_use]
+    pub fn cursor_from(&self, start: Key) -> crate::cursor::MapCursor<'_> {
+        crate::cursor::MapCursor::new(self.range_fwd_raw(start), self.cursor_top())
+    }
+
     /// Ascending iterator over `(key, value)` entries.
     #[must_use]
     pub fn iter(&self) -> MapIter<'_> {

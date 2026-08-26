@@ -293,4 +293,71 @@ proptest! {
             "symmetric_difference"
         );
     }
+
+    /// The stateful `advance_to` cursor (issue #340) matches a `BTreeSet`
+    /// reference across an arbitrary interleaving of `advance_to` / `next`
+    /// against a generated target stream — including non-monotone targets,
+    /// which must never rewind the cursor. Driven for both set and map.
+    #[test]
+    fn cursor_advance_to_matches_model(
+        keys in prop::collection::vec(key_strategy(), 0..300),
+        targets in prop::collection::vec(key_strategy(), 0..200),
+        start in prop::option::of(key_strategy()),
+        next_mask in any::<u64>(),
+    ) {
+        let val_of = |k: u64| !k ^ 0x5EED;
+        let mut set = ExpanseSet::new();
+        let mut map = ExpanseMap::new();
+        let mut model = BTreeSet::new();
+        for &k in &keys {
+            set.insert(k);
+            map.insert(k, val_of(k));
+            model.insert(k);
+        }
+        let sorted: Vec<u64> = model.iter().copied().collect();
+
+        // Reference: `idx` is the current position, peeked one step ahead.
+        let ref_idx = |from: Option<u64>| -> usize {
+            match from {
+                Some(s) => sorted.partition_point(|&k| k < s),
+                None => 0,
+            }
+        };
+        let mut idx = ref_idx(start);
+        let (mut sc, mut mc) = match start {
+            Some(s) => (set.cursor_from(s), map.cursor_from(s)),
+            None => (set.cursor(), map.cursor()),
+        };
+        prop_assert_eq!(sc.current(), sorted.get(idx).copied(), "initial current");
+        prop_assert_eq!(mc.current().map(|(k, _)| k), sorted.get(idx).copied());
+
+        for (i, &t) in targets.iter().enumerate() {
+            // Reference advance_to with never-rewind semantics.
+            let expect = match sorted.get(idx).copied() {
+                Some(k) if k >= t => Some(k),
+                Some(_) => {
+                    idx = sorted.partition_point(|&k| k < t);
+                    sorted.get(idx).copied()
+                }
+                None => None,
+            };
+            prop_assert_eq!(sc.advance_to(t), expect, "advance_to {:#x} @ {}", t, i);
+            let gm = mc.advance_to(t);
+            prop_assert_eq!(gm.map(|(k, _)| k), expect, "map advance_to {:#x} @ {}", t, i);
+            if let Some((k, v)) = gm {
+                prop_assert_eq!(v, val_of(k), "value for {:#x}", k);
+            }
+            prop_assert_eq!(sc.current(), sorted.get(idx).copied(), "current @ {}", i);
+
+            // Occasionally consume with `next`, tracked by a deterministic mask.
+            if (next_mask >> (i % 64)) & 1 == 1 {
+                let e = sorted.get(idx).copied();
+                if e.is_some() {
+                    idx += 1;
+                }
+                prop_assert_eq!(sc.next(), e, "next @ {}", i);
+                prop_assert_eq!(mc.next().map(|(k, _)| k), e, "map next @ {}", i);
+            }
+        }
+    }
 }

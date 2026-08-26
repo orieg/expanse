@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 530" width="100%" height="100%">
-  <title>WAND SKIP-SCAN: NANOSECONDS PER next_at_or_after (LOWER IS BETTER)</title>
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 642" width="100%" height="100%">
+  <title>WAND SKIP-SCAN: NANOSECONDS PER ADVANCE (LOWER IS BETTER)</title>
   <defs>
     <style>
       /* Light theme (default) */
@@ -18,6 +18,7 @@
 
       .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #15803d; }
       .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; }
+      .t-val-amber { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #b45309; }
       .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #475569; }
       .t-val-warn { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; font-weight: 700; fill: #b91c1c; }
 
@@ -25,6 +26,7 @@
 
       .b-expanse { fill: #16a34a; }
       .b-roaring { fill: #2563eb; }
+      .b-cursor { fill: #d97706; }
 
       .badge-win { fill: #dcfce7; stroke: #86efac; stroke-width: 1px; rx: 3px; }
       .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
@@ -47,11 +49,13 @@
         .t-legend { fill: #f8fafc; }
         .t-val-accent { fill: #4ade80; }
         .t-val-blue { fill: #38bdf8; }
+        .t-val-amber { fill: #fbbf24; }
         .t-val-muted { fill: #cbd5e1; }
         .t-val-warn { fill: #f87171; }
         .t-note { fill: #94a3b8; }
         .b-expanse { fill: #22c55e; }
         .b-roaring { fill: #3b82f6; }
+        .b-cursor { fill: #fbbf24; }
         .badge-win { fill: #064e3b; stroke: #059669; }
         .badge-win-text { fill: #6ee7b7; }
         .badge-loss { fill: #450a0a; stroke: #dc2626; }
@@ -71,11 +75,13 @@
       :root[data-theme="dark"] .t-legend, [data-theme="dark"] .t-legend { fill: #f8fafc; }
       :root[data-theme="dark"] .t-val-accent, [data-theme="dark"] .t-val-accent { fill: #4ade80; }
       :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      :root[data-theme="dark"] .t-val-amber, [data-theme="dark"] .t-val-amber { fill: #fbbf24; }
       :root[data-theme="dark"] .t-val-muted, [data-theme="dark"] .t-val-muted { fill: #cbd5e1; }
       :root[data-theme="dark"] .t-val-warn, [data-theme="dark"] .t-val-warn { fill: #f87171; }
       :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note { fill: #94a3b8; }
       :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse { fill: #22c55e; }
       :root[data-theme="dark"] .b-roaring, [data-theme="dark"] .b-roaring { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-cursor, [data-theme="dark"] .b-cursor { fill: #fbbf24; }
       :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #064e3b; stroke: #059669; }
       :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #6ee7b7; }
       :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss { fill: #450a0a; stroke: #dc2626; }
@@ -85,85 +91,105 @@
   <rect width="100%" height="100%" class="bg" rx="8"/>
   <rect width="100%" height="100%" class="border" rx="8"/>
 
-  <text x="30" y="30" class="t-title">WAND SKIP-SCAN: NANOSECONDS PER next_at_or_after (LOWER IS BETTER)</text>
-  <text x="30" y="46" class="t-sub">Monotonic target advance • top size N=10,000,000 • ExpanseSet re-descent vs Roaring cursor advance_to</text>
-  <g transform="translate(680, 20)">
+  <text x="30" y="30" class="t-title">WAND SKIP-SCAN: NANOSECONDS PER ADVANCE (LOWER IS BETTER)</text>
+  <text x="30" y="46" class="t-sub">Monotonic target advance • top size N=10,000,000 • stateless next_at_or_after vs #340 cursor advance_to vs Roaring advance_to</text>
+  <g transform="translate(560, 20)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
-    <text x="18" y="10" class="t-legend">ExpanseSet</text>
-    <rect x="120" y="0" width="12" height="12" rx="2" class="b-roaring"/>
-    <text x="138" y="10" class="t-legend">Roaring</text>
+    <text x="18" y="10" class="t-legend">Stateless</text>
+    <rect x="110" y="0" width="12" height="12" rx="2" class="b-cursor"/>
+    <text x="128" y="10" class="t-legend">Cursor #340</text>
+    <rect x="250" y="0" width="12" height="12" rx="2" class="b-roaring"/>
+    <text x="268" y="10" class="t-legend">Roaring</text>
   </g>
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
-  <text x="30" y="91" class="t-bar-label">Dense / shallow</text>
-  <text x="30" y="105" class="t-sub">6,666,150 skips • stride~1</text>
-  <rect x="360" y="78" width="159.5" height="11" rx="2" class="b-expanse"/>
-  <text x="525.5" y="87" class="t-val-accent">13.7 ns</text>
-  <rect x="360" y="93" width="66.1" height="11" rx="2" class="b-roaring"/>
-  <text x="432.1" y="102" class="t-val-blue">6.9 ns</text>
-  <rect x="775" y="82" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="95" class="badge-loss-text">2.0x slower</text>
-  <text x="30" y="137" class="t-bar-label">Dense / medium</text>
-  <text x="30" y="151" class="t-sub">155,499 skips • stride~64</text>
-  <rect x="360" y="124" width="159.5" height="11" rx="2" class="b-expanse"/>
-  <text x="525.5" y="133" class="t-val-accent">13.7 ns</text>
-  <rect x="360" y="139" width="92.4" height="11" rx="2" class="b-roaring"/>
-  <text x="458.4" y="148" class="t-val-blue">8.3 ns</text>
-  <rect x="775" y="128" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="141" class="badge-loss-text">1.6x slower</text>
-  <text x="30" y="183" class="t-bar-label">Dense / deep</text>
-  <text x="30" y="197" class="t-sub">2,047 skips • stride~4,999</text>
-  <rect x="360" y="170" width="167.3" height="11" rx="2" class="b-expanse"/>
-  <text x="533.3" y="179" class="t-val-accent">14.5 ns</text>
-  <rect x="360" y="185" width="100.9" height="11" rx="2" class="b-roaring"/>
-  <text x="466.9" y="194" class="t-val-blue">8.9 ns</text>
-  <rect x="775" y="174" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="187" class="badge-loss-text">1.6x slower</text>
-  <text x="30" y="229" class="t-bar-label">Clustered / shallow</text>
-  <text x="30" y="243" class="t-sub">13,332,173 skips • stride~1</text>
-  <rect x="360" y="216" width="217.4" height="11" rx="2" class="b-expanse"/>
-  <text x="583.4" y="225" class="t-val-accent">20.9 ns</text>
-  <rect x="360" y="231" width="47.0" height="11" rx="2" class="b-roaring"/>
-  <text x="413.0" y="240" class="t-val-blue">6.0 ns</text>
-  <rect x="775" y="220" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="233" class="badge-loss-text">3.5x slower</text>
-  <text x="30" y="275" class="t-bar-label">Clustered / medium</text>
-  <text x="30" y="289" class="t-sub">310,615 skips • stride~64</text>
-  <rect x="360" y="262" width="245.6" height="11" rx="2" class="b-expanse"/>
-  <text x="611.6" y="271" class="t-val-accent">25.7 ns</text>
-  <rect x="360" y="277" width="122.7" height="11" rx="2" class="b-roaring"/>
-  <text x="488.7" y="286" class="t-val-blue">10.4 ns</text>
-  <rect x="775" y="266" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="279" class="badge-loss-text">2.5x slower</text>
-  <text x="30" y="321" class="t-bar-label">Clustered / deep</text>
-  <text x="30" y="335" class="t-sub">2,005 skips • stride~9,999</text>
-  <rect x="360" y="308" width="284.3" height="11" rx="2" class="b-expanse"/>
-  <text x="650.3" y="317" class="t-val-accent">34.2 ns</text>
-  <rect x="360" y="323" width="182.2" height="11" rx="2" class="b-roaring"/>
-  <text x="548.2" y="332" class="t-val-blue">16.1 ns</text>
-  <rect x="775" y="312" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="325" class="badge-loss-text">2.1x slower</text>
-  <text x="30" y="367" class="t-bar-label">Sparse / shallow</text>
-  <text x="30" y="381" class="t-sub">13,332,249 skips • stride~1</text>
-  <rect x="360" y="354" width="190.2" height="11" rx="2" class="b-expanse"/>
-  <text x="556.2" y="363" class="t-val-accent">17.1 ns</text>
-  <rect x="360" y="369" width="51.4" height="11" rx="2" class="b-roaring"/>
-  <text x="417.4" y="378" class="t-val-blue">6.2 ns</text>
-  <rect x="775" y="358" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="371" class="badge-loss-text">2.8x slower</text>
-  <text x="30" y="413" class="t-bar-label">Sparse / medium</text>
-  <text x="30" y="427" class="t-sub">310,616 skips • stride~64</text>
-  <rect x="360" y="400" width="190.2" height="11" rx="2" class="b-expanse"/>
-  <text x="556.2" y="409" class="t-val-accent">17.1 ns</text>
-  <rect x="360" y="415" width="98.4" height="11" rx="2" class="b-roaring"/>
-  <text x="464.4" y="424" class="t-val-blue">8.7 ns</text>
-  <rect x="775" y="404" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="417" class="badge-loss-text">2.0x slower</text>
-  <text x="30" y="459" class="t-bar-label">Sparse / deep</text>
-  <text x="30" y="473" class="t-sub">2,005 skips • stride~9,999</text>
-  <rect x="360" y="446" width="198.6" height="11" rx="2" class="b-expanse"/>
-  <text x="564.6" y="455" class="t-val-accent">18.2 ns</text>
-  <rect x="360" y="461" width="117.9" height="11" rx="2" class="b-roaring"/>
-  <text x="483.9" y="470" class="t-val-blue">10.1 ns</text>
-  <rect x="775" y="450" width="155" height="18" class="badge-loss"/>
-  <text x="852" y="463" class="badge-loss-text">1.8x slower</text>
+  <text x="30" y="96" class="t-bar-label">Dense / shallow</text>
+  <text x="30" y="110" class="t-sub">6,666,150 skips • stride~1</text>
+  <rect x="360" y="80" width="194.1" height="11" rx="2" class="b-expanse"/>
+  <text x="560.1" y="89" class="t-val-accent">14.2 ns</text>
+  <rect x="360" y="95" width="112.7" height="11" rx="2" class="b-cursor"/>
+  <text x="478.7" y="104" class="t-val-amber">6.7 ns</text>
+  <rect x="360" y="110" width="114.7" height="11" rx="2" class="b-roaring"/>
+  <text x="480.7" y="119" class="t-val-blue">6.8 ns</text>
+  <rect x="775" y="92" width="155" height="18" class="badge-win"/>
+  <text x="852" y="105" class="badge-win-text">Expanse 1.0x faster</text>
+  <text x="30" y="154" class="t-bar-label">Dense / medium</text>
+  <text x="30" y="168" class="t-sub">155,499 skips • stride~64</text>
+  <rect x="360" y="138" width="193.9" height="11" rx="2" class="b-expanse"/>
+  <text x="559.9" y="147" class="t-val-accent">14.2 ns</text>
+  <rect x="360" y="153" width="102.5" height="11" rx="2" class="b-cursor"/>
+  <text x="468.5" y="162" class="t-val-amber">6.1 ns</text>
+  <rect x="360" y="168" width="138.2" height="11" rx="2" class="b-roaring"/>
+  <text x="504.2" y="177" class="t-val-blue">8.5 ns</text>
+  <rect x="775" y="150" width="155" height="18" class="badge-win"/>
+  <text x="852" y="163" class="badge-win-text">Expanse 1.4x faster</text>
+  <text x="30" y="212" class="t-bar-label">Dense / deep</text>
+  <text x="30" y="226" class="t-sub">2,047 skips • stride~4,999</text>
+  <rect x="360" y="196" width="196.3" height="11" rx="2" class="b-expanse"/>
+  <text x="562.3" y="205" class="t-val-accent">14.5 ns</text>
+  <rect x="360" y="211" width="132.9" height="11" rx="2" class="b-cursor"/>
+  <text x="498.9" y="220" class="t-val-amber">8.1 ns</text>
+  <rect x="360" y="226" width="146.8" height="11" rx="2" class="b-roaring"/>
+  <text x="512.8" y="235" class="t-val-blue">9.2 ns</text>
+  <rect x="775" y="208" width="155" height="18" class="badge-win"/>
+  <text x="852" y="221" class="badge-win-text">Expanse 1.1x faster</text>
+  <text x="30" y="270" class="t-bar-label">Clustered / shallow</text>
+  <text x="30" y="284" class="t-sub">13,332,173 skips • stride~1</text>
+  <rect x="360" y="254" width="235.1" height="11" rx="2" class="b-expanse"/>
+  <text x="601.1" y="263" class="t-val-accent">20.8 ns</text>
+  <rect x="360" y="269" width="37.1" height="11" rx="2" class="b-cursor"/>
+  <text x="403.1" y="278" class="t-val-amber">3.3 ns</text>
+  <rect x="360" y="284" width="100.4" height="11" rx="2" class="b-roaring"/>
+  <text x="466.4" y="293" class="t-val-blue">5.9 ns</text>
+  <rect x="775" y="266" width="155" height="18" class="badge-win"/>
+  <text x="852" y="279" class="badge-win-text">Expanse 1.8x faster</text>
+  <text x="30" y="328" class="t-bar-label">Clustered / medium</text>
+  <text x="30" y="342" class="t-sub">310,615 skips • stride~64</text>
+  <rect x="360" y="312" width="258.7" height="11" rx="2" class="b-expanse"/>
+  <text x="624.7" y="321" class="t-val-accent">26.0 ns</text>
+  <rect x="360" y="327" width="145.8" height="11" rx="2" class="b-cursor"/>
+  <text x="511.8" y="336" class="t-val-amber">9.1 ns</text>
+  <rect x="360" y="342" width="161.0" height="11" rx="2" class="b-roaring"/>
+  <text x="527.0" y="351" class="t-val-blue">10.5 ns</text>
+  <rect x="775" y="324" width="155" height="18" class="badge-win"/>
+  <text x="852" y="337" class="badge-win-text">Expanse 1.2x faster</text>
+  <text x="30" y="386" class="t-bar-label">Clustered / deep</text>
+  <text x="30" y="400" class="t-sub">2,005 skips • stride~9,999</text>
+  <rect x="360" y="370" width="287.6" height="11" rx="2" class="b-expanse"/>
+  <text x="653.6" y="379" class="t-val-accent">34.0 ns</text>
+  <rect x="360" y="385" width="216.9" height="11" rx="2" class="b-cursor"/>
+  <text x="582.9" y="394" class="t-val-amber">17.6 ns</text>
+  <rect x="360" y="400" width="207.0" height="11" rx="2" class="b-roaring"/>
+  <text x="573.0" y="409" class="t-val-blue">16.0 ns</text>
+  <rect x="775" y="382" width="155" height="18" class="badge-loss"/>
+  <text x="852" y="395" class="badge-loss-text">1.1x slower</text>
+  <text x="30" y="444" class="t-bar-label">Sparse / shallow</text>
+  <text x="30" y="458" class="t-sub">13,332,249 skips • stride~1</text>
+  <rect x="360" y="428" width="216.2" height="11" rx="2" class="b-expanse"/>
+  <text x="582.2" y="437" class="t-val-accent">17.5 ns</text>
+  <rect x="360" y="443" width="115.5" height="11" rx="2" class="b-cursor"/>
+  <text x="481.5" y="452" class="t-val-amber">6.8 ns</text>
+  <rect x="360" y="458" width="102.8" height="11" rx="2" class="b-roaring"/>
+  <text x="468.8" y="467" class="t-val-blue">6.1 ns</text>
+  <rect x="775" y="440" width="155" height="18" class="badge-loss"/>
+  <text x="852" y="453" class="badge-loss-text">1.1x slower</text>
+  <text x="30" y="502" class="t-bar-label">Sparse / medium</text>
+  <text x="30" y="516" class="t-sub">310,616 skips • stride~64</text>
+  <rect x="360" y="486" width="217.7" height="11" rx="2" class="b-expanse"/>
+  <text x="583.7" y="495" class="t-val-accent">17.7 ns</text>
+  <rect x="360" y="501" width="154.3" height="11" rx="2" class="b-cursor"/>
+  <text x="520.3" y="510" class="t-val-amber">9.8 ns</text>
+  <rect x="360" y="516" width="142.4" height="11" rx="2" class="b-roaring"/>
+  <text x="508.4" y="525" class="t-val-blue">8.8 ns</text>
+  <rect x="775" y="498" width="155" height="18" class="badge-loss"/>
+  <text x="852" y="511" class="badge-loss-text">1.1x slower</text>
+  <text x="30" y="560" class="t-bar-label">Sparse / deep</text>
+  <text x="30" y="574" class="t-sub">2,005 skips • stride~9,999</text>
+  <rect x="360" y="544" width="221.0" height="11" rx="2" class="b-expanse"/>
+  <text x="587.0" y="553" class="t-val-accent">18.3 ns</text>
+  <rect x="360" y="559" width="192.2" height="11" rx="2" class="b-cursor"/>
+  <text x="558.2" y="568" class="t-val-amber">14.0 ns</text>
+  <rect x="360" y="574" width="156.4" height="11" rx="2" class="b-roaring"/>
+  <text x="522.4" y="583" class="t-val-blue">10.0 ns</text>
+  <rect x="775" y="556" width="155" height="18" class="badge-loss"/>
+  <text x="852" y="569" class="badge-loss-text">1.4x slower</text>
 </svg>

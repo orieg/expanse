@@ -141,6 +141,70 @@ The kernel operates only on the existing `Edge`/branch/leaf geometry — no new 
 
 ---
 
+### 3.5 Stateful Skip-Scan Cursor (`advance_to`)
+
+A **cursor** (`crate::cursor::{SetCursor, MapCursor}`, via `ExpanseSet::cursor` /
+`cursor_from`, same for the map) is a forward-only ordered position with one extra
+operation over the iterators: `advance_to(target)` returns the smallest key `≥ target`
+that is `≥` the cursor's current position. It is the primitive WAND / block-max
+skip-scans and sorted merge-joins want, where the stateless
+`ExpanseSet::next_at_or_after` (compat `Judy1First`) re-descends from the root on
+**every** call and so pays the full $O(\text{depth})$ path even when the target lies in
+the current leaf or a near sibling (issue #340; `docs/benchmarks/search_inverted_index/`
+Pillar 2).
+
+**Path reuse.** The cursor wraps the same zero-allocation forward `RawIter` — the
+`[StackFrame; 8]` edge stack plus the `LeafCursor` (§3.3) — and keeps it live across
+calls. `RawIter::seek_forward(top, target)` repositions it by the *tightest* re-descent
+that reaches `target`:
+
+1. **Leaf-local (near skip).** If `target` lies inside the current leaf's expanse, it is
+   a single in-leaf search — `leaf::locate` (SIMD/SWAR) for linear leaves, a masked
+   `next_set` for bitmap leaves, a slot advance for immediates/`FullExpanse` — with no
+   stack movement. This is the common WAND case and the roaring `advance_to` parity
+   target.
+2. **Ancestor re-descent (mid skip).** Otherwise it ascends the edge stack, popping each
+   frame whose expanse (`target >> 8·level == prefix >> 8·level`) no longer covers
+   `target`, and re-dispatches the **deepest** frame that still does: it picks that
+   branch's first child with digit `≥ target`'s digit at that level (linear
+   `partition_point`, bitmap `next_set`, uncompressed scan) and `descend_seek`s into it.
+   Cost is $O(\text{levels crossed})$, never a full root descent.
+3. **Root re-descent (far skip / cross-expanse).** Only when the whole current path is
+   left behind — every stack frame popped — does it fall back to a `descend_seek` from
+   the root edge, identical to constructing a fresh `range` iterator.
+
+When the deepest covering frame's target digit equals the digit of the child the cursor
+just descended through, the re-dispatch re-descends that *same* child. This stays correct
+because `descend_seek` positions by value (`target`), landing past every consumed key
+rather than by cursor offset — but it is a redundant one-level descent and a candidate
+micro-optimization (descend straight into the retained child) if this path ever shows up
+hot.
+
+Each step allocates nothing and, like the iterators, carries a `// SAFETY:` note on every
+raw-pointer deref. The cursor peeks one element ahead (`current`), so a `target` at or
+below the current key is a no-op that never rewinds — targets are expected
+non-decreasing (monotone skip-scan). A flat root-leaf container needs no stack: the seek
+is a `partition_point` over the sorted key array.
+
+**Concurrency.** No `SyncExpanseSet` reader variant is offered. The OCC readers validate
+under a per-operation seqlock bracket and hold no state between calls; a cursor's whole
+value is holding raw node pointers *across* calls, which a concurrent writer's mutation
+would invalidate. A seqlock-bracketed cursor would have to re-descend and re-validate on
+every `advance_to`, which is exactly the stateless `next_at_or_after` it exists to beat —
+so the cursor is a single-threaded (`&self`) reader only.
+
+**32-bit twins.** `ExpanseSet32`/`ExpanseMap32` expose the same
+`cursor`/`cursor_from`/`advance_to` surface (`crate::cursor32`) for source parity, but the
+32-bit trie has no stack iterator to reuse, so each forward advance re-descends from the
+root via the stateless `first`/`next` primitives (the monotone no-op short-circuit still
+applies). They gain the API, not the path-reuse speedup, until `trie32` grows a stack
+iterator — at which point they can adopt this engine unchanged. On 32-bit
+targets the unsuffixed `expanse::SetCursor` / `MapCursor` re-export the `*32`
+cursor types, mirroring the `ExpanseSet` / `ExpanseMap` re-point, so downstream
+code names the same types on either width.
+
+---
+
 ## 4. Microarchitecture Acceleration (`x86-64-v3` vs `v1`)
 
 When compiled with `x86-64-v3` (AVX2, BMI2, POPCNT), Expanse replaces runtime dispatch branches with native single-instruction primitives:

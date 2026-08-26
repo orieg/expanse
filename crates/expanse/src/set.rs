@@ -681,6 +681,36 @@ impl ExpanseSet {
         }
     }
 
+    /// The trie root edge for cursor seeks, or `Edge::NULL` when the root is a
+    /// flat leaf / empty (cursor seeks then stay leaf-local).
+    #[inline]
+    fn cursor_top(&self) -> Edge {
+        match &self.root {
+            Root::Tree { top, .. } => *top,
+            _ => Edge::NULL,
+        }
+    }
+
+    /// Creates a stateful forward [`SetCursor`](crate::cursor::SetCursor) for
+    /// monotone skip-scans (WAND / block-max, merge-joins), positioned before
+    /// the first key.
+    ///
+    /// Unlike the stateless [`next_at_or_after`](Self::next_at_or_after), which
+    /// re-descends from the root on every call, the cursor keeps its descent
+    /// path and re-descends only from the deepest ancestor whose expanse still
+    /// covers the next target (issue #340; docs/ALGORITHMS.md §3.5).
+    #[must_use]
+    pub fn cursor(&self) -> crate::cursor::SetCursor<'_> {
+        crate::cursor::SetCursor::new(self.iter_fwd_raw(), self.cursor_top())
+    }
+
+    /// Creates a [`SetCursor`](crate::cursor::SetCursor) positioned at the
+    /// smallest key `>= start`.
+    #[must_use]
+    pub fn cursor_from(&self, start: Key) -> crate::cursor::SetCursor<'_> {
+        crate::cursor::SetCursor::new(self.range_fwd_raw(start), self.cursor_top())
+    }
+
     /// Ascending iterator over the keys.
     #[must_use]
     pub fn iter(&self) -> SetIter<'_> {

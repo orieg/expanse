@@ -7,6 +7,10 @@
 //!
 //!   * **`ExpanseSet::next_at_or_after(target)`** — a stateless O(depth)
 //!     re-descent from the trie root on every call.
+//!   * **`ExpanseSet::cursor().advance_to(target)`** — the stateful #340
+//!     cursor: one held descent path, re-descending only from the deepest
+//!     ancestor whose expanse still covers the target (leaf-local for near
+//!     skips).
 //!   * **`RoaringTreemap::iter().advance_to(target)`** — a stateful cursor
 //!     that advances forward from its current position.
 //!
@@ -27,7 +31,8 @@ use std::time::Duration;
 #[path = "search_common/mod.rs"]
 mod common;
 use common::{
-    build_list, expanse_skipscan, median_ns_per_op, roaring_skipscan, to_expanse, to_roaring,
+    build_list, expanse_cursor_skipscan, expanse_skipscan, median_ns_per_op, roaring_skipscan,
+    to_expanse, to_roaring,
 };
 
 /// A monotonically increasing target sequence with mean stride `avg_stride`,
@@ -82,14 +87,26 @@ fn main() {
 
             for (regime, avg_stride) in regimes {
                 let targets = make_targets(lo, hi, avg_stride, n as u64);
-                // sanity: identical results from both cursors.
-                debug_assert_eq!(
-                    expanse_skipscan(&set, &targets),
-                    roaring_skipscan(&tree, &targets)
+                // The stateful cursor answers the *same* per-target query as the
+                // stateless baseline, so their sinks must be bit-identical —
+                // asserted every run. Roaring's native cursor consumes as it
+                // advances (a different reduction when a gap maps two targets to
+                // one key), so it is only sanity-checked in debug.
+                let stateless_sink = expanse_skipscan(&set, &targets);
+                assert_eq!(
+                    stateless_sink,
+                    expanse_cursor_skipscan(&set, &targets),
+                    "cursor arm disagrees with stateless ({dist}/{n}/{regime})"
                 );
+                debug_assert_eq!(stateless_sink, roaring_skipscan(&tree, &targets));
                 let t = targets.len().max(1) as f64;
                 let e = median_ns_per_op(
                     || black_box(expanse_skipscan(&set, &targets)),
+                    batches,
+                    min_batch,
+                ) / t;
+                let c = median_ns_per_op(
+                    || black_box(expanse_cursor_skipscan(&set, &targets)),
                     batches,
                     min_batch,
                 ) / t;
@@ -106,11 +123,12 @@ fn main() {
                     "avg_stride": avg_stride,
                     "skips": targets.len(),
                     "expanse_ns_per_skip": e,
+                    "expanse_cursor_ns_per_skip": c,
                     "roaring_ns_per_skip": r,
                 }));
                 if !json_mode {
                     eprintln!(
-                        "  {dist:<10} n={n:>9} {regime:<8} skips={:>9}  exp={e:>8.2}ns roar={r:>8.2}ns",
+                        "  {dist:<10} n={n:>9} {regime:<8} skips={:>9}  stateless={e:>8.2}ns cursor={c:>8.2}ns roar={r:>8.2}ns",
                         targets.len()
                     );
                 }

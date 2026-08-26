@@ -33,6 +33,7 @@ def svg_header(width: int = 960, height: int = 300, title: str = "Benchmark Char
 
       .t-val-accent {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #15803d; }}
       .t-val-blue {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; }}
+      .t-val-amber {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #b45309; }}
       .t-val-muted {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #475569; }}
       .t-val-warn {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; font-weight: 700; fill: #b91c1c; }}
 
@@ -40,6 +41,7 @@ def svg_header(width: int = 960, height: int = 300, title: str = "Benchmark Char
 
       .b-expanse {{ fill: #16a34a; }}
       .b-roaring {{ fill: #2563eb; }}
+      .b-cursor {{ fill: #d97706; }}
 
       .badge-win {{ fill: #dcfce7; stroke: #86efac; stroke-width: 1px; rx: 3px; }}
       .badge-win-text {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }}
@@ -62,11 +64,13 @@ def svg_header(width: int = 960, height: int = 300, title: str = "Benchmark Char
         .t-legend {{ fill: #f8fafc; }}
         .t-val-accent {{ fill: #4ade80; }}
         .t-val-blue {{ fill: #38bdf8; }}
+        .t-val-amber {{ fill: #fbbf24; }}
         .t-val-muted {{ fill: #cbd5e1; }}
         .t-val-warn {{ fill: #f87171; }}
         .t-note {{ fill: #94a3b8; }}
         .b-expanse {{ fill: #22c55e; }}
         .b-roaring {{ fill: #3b82f6; }}
+        .b-cursor {{ fill: #fbbf24; }}
         .badge-win {{ fill: #064e3b; stroke: #059669; }}
         .badge-win-text {{ fill: #6ee7b7; }}
         .badge-loss {{ fill: #450a0a; stroke: #dc2626; }}
@@ -86,11 +90,13 @@ def svg_header(width: int = 960, height: int = 300, title: str = "Benchmark Char
       :root[data-theme="dark"] .t-legend, [data-theme="dark"] .t-legend {{ fill: #f8fafc; }}
       :root[data-theme="dark"] .t-val-accent, [data-theme="dark"] .t-val-accent {{ fill: #4ade80; }}
       :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue {{ fill: #38bdf8; }}
+      :root[data-theme="dark"] .t-val-amber, [data-theme="dark"] .t-val-amber {{ fill: #fbbf24; }}
       :root[data-theme="dark"] .t-val-muted, [data-theme="dark"] .t-val-muted {{ fill: #cbd5e1; }}
       :root[data-theme="dark"] .t-val-warn, [data-theme="dark"] .t-val-warn {{ fill: #f87171; }}
       :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note {{ fill: #94a3b8; }}
       :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse {{ fill: #22c55e; }}
       :root[data-theme="dark"] .b-roaring, [data-theme="dark"] .b-roaring {{ fill: #3b82f6; }}
+      :root[data-theme="dark"] .b-cursor, [data-theme="dark"] .b-cursor {{ fill: #fbbf24; }}
       :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win {{ fill: #064e3b; stroke: #059669; }}
       :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text {{ fill: #6ee7b7; }}
       :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss {{ fill: #450a0a; stroke: #dc2626; }}
