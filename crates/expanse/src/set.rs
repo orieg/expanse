@@ -998,7 +998,9 @@ impl ExpanseSet {
     /// speed only when the input is already sorted (e.g. a posting list, an
     /// image key stream, or the output of a set-algebra merge).
     ///
-    /// The result is byte-for-byte the tree the insert path converges to, so it
+    /// The result is content-equivalent to the insert path's tree, canonical,
+    /// and never less compact (the builder may pick the more-compact
+    /// `FullExpanse` where an ascending insert leaves a full bitmap leaf), so it
     /// composes with every later `insert`/`remove`/query unchanged.
     #[must_use]
     pub fn from_sorted_iter<I: IntoIterator<Item = Key>>(iter: I) -> Self {
@@ -1040,7 +1042,7 @@ impl ExpanseSet {
             return out;
         }
         // SAFETY: `keys` is sorted/distinct; `out.alloc` owns the built trie.
-        let top = unsafe { crate::algebra::build_subtree(&out.alloc, &keys, 8) };
+        let top = unsafe { crate::algebra_build::build_subtree(&out.alloc, &keys, 8) };
         out.root = Root::Tree { top, pop: n as u64 };
         out
     }
@@ -1166,35 +1168,35 @@ impl ExpanseSet {
     /// The set of keys present in **both** sets (`A ∩ B`).
     #[must_use]
     pub fn intersection(&self, other: &ExpanseSet) -> ExpanseSet {
-        self.materialize_op(other, crate::algebra::Op::And)
+        self.materialize_op(other, crate::algebra_build::Op::And)
     }
 
     /// The set of keys present in **either** set (`A ∪ B`).
     #[must_use]
     pub fn union(&self, other: &ExpanseSet) -> ExpanseSet {
-        self.materialize_op(other, crate::algebra::Op::Or)
+        self.materialize_op(other, crate::algebra_build::Op::Or)
     }
 
     /// The set of keys in `self` but not `other` (`A \ B`).
     #[must_use]
     pub fn difference(&self, other: &ExpanseSet) -> ExpanseSet {
-        self.materialize_op(other, crate::algebra::Op::Diff)
+        self.materialize_op(other, crate::algebra_build::Op::Diff)
     }
 
     /// The set of keys in exactly one of the two sets (`A △ B`).
     #[must_use]
     pub fn symmetric_difference(&self, other: &ExpanseSet) -> ExpanseSet {
-        self.materialize_op(other, crate::algebra::Op::Xor)
+        self.materialize_op(other, crate::algebra_build::Op::Xor)
     }
 
     /// Direct-emission set algebra (issue #348): when both operands are level-8
     /// tries the result is emitted structurally by the lockstep walk
-    /// ([`crate::algebra::materialize`]) — bitmap leaves combined word-parallel,
+    /// ([`crate::algebra_build::materialize`]) — bitmap leaves combined word-parallel,
     /// full expanses resolved without enumeration, branches assembled
     /// bottom-up — instead of re-inserting each surviving key. Any other root
     /// combination (empty / small root leaf) merges the two ordered streams and
     /// bulk-builds the result, which is already cheap.
-    fn materialize_op(&self, other: &ExpanseSet, op: crate::algebra::Op) -> ExpanseSet {
+    fn materialize_op(&self, other: &ExpanseSet, op: crate::algebra_build::Op) -> ExpanseSet {
         if let (Root::Tree { top: ta, .. }, Root::Tree { top: tb, .. }) = (&self.root, &other.root)
         {
             // Deferred ancestor pops must be settled before the walk reads
@@ -1204,12 +1206,12 @@ impl ExpanseSet {
             let mut out = ExpanseSet::new();
             // SAFETY: both tries are live, engine-maintained, rooted at level 8;
             // the result is built in `out.alloc`.
-            let built = unsafe { crate::algebra::materialize(&out.alloc, ta, tb, 8, op) };
+            let built = unsafe { crate::algebra_build::materialize(&out.alloc, ta, tb, 8, op) };
             let Some(top) = built else {
                 return out;
             };
             // SAFETY: `top` is a live level-8 branch built just now.
-            let pop = unsafe { crate::algebra::tree_pop(&top) };
+            let pop = unsafe { crate::algebra_build::tree_pop(&top) };
             if pop as usize <= ROOT_LEAF_CAP {
                 // A tiny result belongs in a root leaf, not a trie: drain the
                 // built subtree in order, then free it.
@@ -1257,8 +1259,8 @@ impl ExpanseSet {
 
 /// Merges the two sets' ordered key streams under `op` into a sorted, distinct
 /// key vector (the root-leaf / empty-operand materialization path).
-fn merge_sorted(a: &ExpanseSet, b: &ExpanseSet, op: crate::algebra::Op) -> Vec<u64> {
-    use crate::algebra::Op;
+fn merge_sorted(a: &ExpanseSet, b: &ExpanseSet, op: crate::algebra_build::Op) -> Vec<u64> {
+    use crate::algebra_build::Op;
     let mut out = Vec::new();
     let (mut ia, mut ib) = (a.iter(), b.iter());
     let (mut x, mut y) = (ia.next(), ib.next());
@@ -1369,9 +1371,11 @@ mod tests {
     #[cfg(not(miri))]
     const OPS: usize = 6000;
 
-    /// `from_sorted_iter` must produce the byte-for-byte same tree the insert
-    /// path converges to: identical `stats()` (form-for-form) and identical
-    /// contents, and it must pass the invariants validator.
+    /// `from_sorted_iter` must produce a tree content-equivalent to the insert
+    /// path's — identical contents, canonical, and never less compact
+    /// (`mem_used() <=` insert; the builder may pick the more-compact
+    /// `FullExpanse` where ascending insert leaves a full bitmap leaf) — and it
+    /// must pass the invariants validator.
     #[test]
     fn from_sorted_iter_matches_insert() {
         type Gen = fn(&mut XorShift, usize) -> Vec<u64>;
@@ -1572,6 +1576,65 @@ mod tests {
         check(&[42], &big, "single-tree");
         check(&[1, 2, 3], &[3, 4, 5], "leaf-leaf");
         check(&big, &big, "tree-self");
+    }
+
+    /// Materialization with real `FullExpanse` operands. The builder emits a
+    /// level-1 `FullExpanse` for a fully-populated final byte under a branch, so
+    /// `from_sorted_iter` over contiguous blocks yields operands with actual
+    /// `FullExpanse` edges — the only way to reach `algebra_build::complement`
+    /// (the `full \ B` / `A △ full` arms). Each op is checked against `BTreeSet`
+    /// and the result is invariant-validated.
+    #[test]
+    fn materialize_full_expanse_operands() {
+        // 0..512 = two full level-1 expanses under a level-2 branch → level-1
+        // FullExpanse edges (verified: builder emits FullExpanse only at level 1
+        // under a branch). Also mix a partial block so not every child is full.
+        let a_keys: Vec<u64> = (0..512u64).chain(1024..1100).collect();
+        let a = ExpanseSet::from_sorted_iter(a_keys.iter().copied());
+        a.validate_defensive().unwrap();
+        // Confirm the operand actually contains FullExpanse edges (else this test
+        // would not exercise the intended path).
+        assert!(
+            a.stats().node_counts.full_expanse >= 2,
+            "operand should carry level-1 FullExpanse edges: {:?}",
+            a.stats().node_counts
+        );
+
+        let others: &[(&str, Vec<u64>)] = &[
+            ("overlap-block", (100..300).chain(1050..1060).collect()),
+            ("full-vs-full", (0..512).collect()),
+            ("sparse", vec![5, 200, 511, 1024, 1099, 999_999]),
+            ("empty", vec![]),
+            ("superset", (0..2000).collect()),
+        ];
+        let ma: BTreeSet<u64> = a_keys.iter().copied().collect();
+        for (label, b_keys) in others {
+            let b = ExpanseSet::from_sorted_iter(b_keys.iter().copied());
+            let mb: BTreeSet<u64> = b_keys.iter().copied().collect();
+            let cases: &[(ExpanseSet, Vec<u64>, &str)] = &[
+                (
+                    a.intersection(&b),
+                    ma.intersection(&mb).copied().collect(),
+                    "and",
+                ),
+                (a.union(&b), ma.union(&mb).copied().collect(), "or"),
+                (
+                    a.difference(&b),
+                    ma.difference(&mb).copied().collect(),
+                    "diff",
+                ),
+                (
+                    a.symmetric_difference(&b),
+                    ma.symmetric_difference(&mb).copied().collect(),
+                    "xor",
+                ),
+            ];
+            for (got, want, op) in cases {
+                got.validate_defensive()
+                    .unwrap_or_else(|e| panic!("{label}/{op}: invalid: {e}"));
+                assert_eq!(got.iter().collect::<Vec<_>>(), *want, "{label}/{op}");
+            }
+        }
     }
 
     /// Unsorted / duplicate input is corrected, not trusted.
