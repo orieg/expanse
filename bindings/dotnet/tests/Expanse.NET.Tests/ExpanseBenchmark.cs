@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -8,6 +9,11 @@ namespace Expanse.Tests;
 
 public class ExpanseBenchmark
 {
+    // Marker line prefix so scripts/bench_bindings.py can pull the single JSON
+    // result line out of `dotnet test` output (which interleaves xunit/VSTest
+    // logging on stdout) without depending on log verbosity or formatting.
+    private const string JsonMarker = "##EXPANSE_BENCH_JSON##";
+
     private readonly ITestOutputHelper _output;
 
     public ExpanseBenchmark(ITestOutputHelper output)
@@ -71,12 +77,22 @@ public class ExpanseBenchmark
     [Fact]
     public void RunComparativeBenchmark()
     {
-        int pop = 20_000;
+        // EXPANSE_BENCH_QUICK / EXPANSE_BENCH_JSON let scripts/bench_bindings.py drive this
+        // xunit Fact the same way the other bindings' bench.{py,php,rb} CLI scripts accept
+        // --quick/--json: `dotnet test` has no first-class way to pass argv into a test method,
+        // so environment variables are the equivalent knob here.
+        bool quick = Environment.GetEnvironmentVariable("EXPANSE_BENCH_QUICK") == "1";
+        bool jsonMode = Environment.GetEnvironmentVariable("EXPANSE_BENCH_JSON") == "1";
+        int pop = quick ? 10_000 : 20_000;
         string[] dists = { "random", "sequential", "clustered" };
+        var jsonResults = new List<string>();
 
-        _output.WriteLine("\n================================================================================");
-        _output.WriteLine("  Expanse .NET (C#) Comparative Performance Report");
-        _output.WriteLine("================================================================================");
+        if (!jsonMode)
+        {
+            _output.WriteLine("\n================================================================================");
+            _output.WriteLine("  Expanse .NET (C#) Comparative Performance Report");
+            _output.WriteLine("================================================================================");
+        }
 
         foreach (var dist in dists)
         {
@@ -155,13 +171,38 @@ public class ExpanseBenchmark
             });
 
             double toMops = pop / 1e6;
-            _output.WriteLine($"\n[ Distribution: {dist} | Population: {pop:N0} ]");
-            _output.WriteLine($"{"Target",-20} | {"Lookup (ns)",11} | {"Lookup (Mops)",13} | {"Insert (Mops)",13} | {"B/key",8}");
-            _output.WriteLine($"{new string('-', 20)}-+-{new string('-', 11)}-+-{new string('-', 13)}-+-{new string('-', 13)}-+-{new string('-', 8)}");
-            _output.WriteLine($"{"ExpanseMap (.NET)",-20} | {(expLookupS * 1e9 / pop),11:F2} | {(toMops / expLookupS),13:F2} | {(toMops / expInsertS),13:F2} | {expBytesPerKey,8:F2}");
-            _output.WriteLine($"{"Dictionary<u64,u64>",-20} | {(dictLookupS * 1e9 / pop),11:F2} | {(toMops / dictLookupS),13:F2} | {(toMops / dictInsertS),13:F2} | {32.0,8:F2}");
-            _output.WriteLine($"{"ExpanseSet (.NET)",-20} | {(expSetLookupS * 1e9 / pop),11:F2} | {(toMops / expSetLookupS),13:F2} | {(toMops / expSetInsertS),13:F2} | {"—",8}");
-            _output.WriteLine($"{"HashSet<ulong>",-20} | {(setLookupS * 1e9 / pop),11:F2} | {(toMops / setLookupS),13:F2} | {(toMops / setInsertS),13:F2} | {"—",8}");
+
+            if (jsonMode)
+            {
+                double expLookupNs = expLookupS * 1e9 / pop;
+                double expInsertMops = toMops / expInsertS;
+                double expLookupMops = toMops / expLookupS;
+                double dictInsertMops = toMops / dictInsertS;
+                double dictLookupMops = toMops / dictLookupS;
+                double dictLookupNs = dictLookupS * 1e9 / pop;
+
+                jsonResults.Add(string.Format(CultureInfo.InvariantCulture,
+                    "{{\"dist\": \"{0}\", \"pop\": {1}, \"expanse_map\": {{\"insert_mops\": {2:F2}, \"lookup_mops\": {3:F2}, \"lookup_ns\": {4:F2}, \"bytes_per_key\": {5:F2}}}, \"dotnet_dictionary\": {{\"insert_mops\": {6:F2}, \"lookup_mops\": {7:F2}, \"lookup_ns\": {8:F2}, \"bytes_per_key\": 32.0}}}}",
+                    dist, pop, expInsertMops, expLookupMops, expLookupNs, expBytesPerKey, dictInsertMops, dictLookupMops, dictLookupNs));
+            }
+            else
+            {
+                _output.WriteLine($"\n[ Distribution: {dist} | Population: {pop:N0} ]");
+                _output.WriteLine($"{"Target",-20} | {"Lookup (ns)",11} | {"Lookup (Mops)",13} | {"Insert (Mops)",13} | {"B/key",8}");
+                _output.WriteLine($"{new string('-', 20)}-+-{new string('-', 11)}-+-{new string('-', 13)}-+-{new string('-', 13)}-+-{new string('-', 8)}");
+                _output.WriteLine($"{"ExpanseMap (.NET)",-20} | {(expLookupS * 1e9 / pop),11:F2} | {(toMops / expLookupS),13:F2} | {(toMops / expInsertS),13:F2} | {expBytesPerKey,8:F2}");
+                _output.WriteLine($"{"Dictionary<u64,u64>",-20} | {(dictLookupS * 1e9 / pop),11:F2} | {(toMops / dictLookupS),13:F2} | {(toMops / dictInsertS),13:F2} | {32.0,8:F2}");
+                _output.WriteLine($"{"ExpanseSet (.NET)",-20} | {(expSetLookupS * 1e9 / pop),11:F2} | {(toMops / expSetLookupS),13:F2} | {(toMops / expSetInsertS),13:F2} | {"—",8}");
+                _output.WriteLine($"{"HashSet<ulong>",-20} | {(setLookupS * 1e9 / pop),11:F2} | {(toMops / setLookupS),13:F2} | {(toMops / setInsertS),13:F2} | {"—",8}");
+            }
+        }
+
+        if (jsonMode)
+        {
+            // Emitted via Console (not ITestOutputHelper) + a unique marker prefix so it
+            // survives `dotnet test`'s VSTest logging/interleaving and is trivially
+            // greppable by scripts/bench_bindings.py regardless of --logger verbosity.
+            Console.WriteLine(JsonMarker + "{\"runtime\": \"dotnet\", \"results\": [" + string.Join(",", jsonResults) + "]}");
         }
     }
 }
