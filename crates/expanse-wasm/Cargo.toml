@@ -2,6 +2,9 @@
 name = "expanse-wasm"
 version = "0.4.0"
 edition = "2024"
+description = "WebAssembly bindings for Expanse: clean-room, pure-Rust Judy arrays for browser and edge runtimes"
+repository = "https://github.com/orieg/expanse"
+license = "MIT OR Apache-2.0"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
