@@ -224,6 +224,55 @@ def generate_boolean_chart():
     )
 
 
+def generate_boolean_materialize_chart():
+    """AND materialization latency (#348): build the result set, not just its
+    cardinality. Direct-emission ExpanseSet vs Roaring bitmap `&`. The v1
+    ordered-merge + insert path is reported in the README table."""
+    data = load("baseline_boolean.json")
+    if not data:
+        return
+    # Only present once the materialization arm has been measured.
+    if not any("expanse_materialize_ns" in d for d in data):
+        return
+    sizes = sorted({d["size"] for d in data if d["cell"] == "symmetric"})
+    if not sizes:
+        return
+    top = sizes[-1]
+    dist_order = ["dense", "clustered", "sparse", "zipfian"]
+    rows = []
+    for dist in dist_order:
+        rec = next(
+            (
+                d
+                for d in data
+                if d["cell"] == "symmetric"
+                and d["op"] == "and"
+                and d["size"] == top
+                and d["distribution"] == dist
+                and "expanse_materialize_ns" in d
+            ),
+            None,
+        )
+        if rec:
+            rows.append(
+                (
+                    dist.capitalize(),
+                    f"symmetric |A|=|B|={rec['na']:,}",
+                    rec["expanse_materialize_ns"],
+                    rec["roaring_materialize_ns"],
+                )
+            )
+    if not rows:
+        return
+    log_bars_chart(
+        RESULTS_DIR / "bench_boolean_and_materialize.svg",
+        "BOOLEAN AND: MATERIALIZATION LATENCY (LOG SCALE, LOWER IS BETTER)",
+        f"Result set A ∩ B built • top size N={top:,} per list • ExpanseSet direct emission #348 (intersection) vs Roaring bitmap AND",
+        rows,
+        fmt_ns,
+    )
+
+
 def generate_wand_chart():
     data = load("baseline_wand.json")
     if not data:
@@ -290,6 +339,7 @@ def generate_memory_chart():
 def main():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     generate_boolean_chart()
+    generate_boolean_materialize_chart()
     generate_wand_chart()
     generate_memory_chart()
 

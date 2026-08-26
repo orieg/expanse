@@ -39,6 +39,36 @@ is asymmetric:
 > which is within 3.70× on every symmetric cell, faster than Roaring on 7 of 16,
 > and faster on the dense/zipfian skewed AND (see README §Pillar 1). The text
 > below is preserved as the original pre-registration.
+>
+> **Update (#348, second resolution — materialization).** #339 measured
+> *cardinality* only; its materializing ops still merged the two iterators and
+> re-inserted each key. #348 makes materialization structural (direct emission
+> from the lockstep walk). Pillar 1 now carries a materializing arm measured in
+> three ways (v2 direct emission, v1 ordered-merge + insert, roaring bitmap); the
+> cardinality cells are unchanged (this pillar's kernel did not change in #348).
+>
+> Pre-registered targets for #348 *(target, not measured)* were: dense 1e7
+> ≤ 1.2× roaring, clustered 1e7 ≤ 1.5×, no symmetric cell > 2×, each materialized
+> cell within 2× of the corresponding cardinality cell. **Measured outcome: all
+> four targets are MISSED.** v2 materialization at N=10⁷ vs roaring is dense AND
+> 2.6×, clustered AND 7.2×, sparse AND 11.7×, zipfian AND 1.4×; v2/cardinality is
+> 1.6×–4.6× (building the result tree costs more than counting it). The honest
+> result: **v2 direct emission is 7×–215× faster than the v1 insert-based path it
+> replaces** — that is the #348 deliverable ("materializing ops are not
+> structural" → now they are) — but it does not reach roaring on the symmetric
+> cells, which need the level-2 65,536-key bitmap leaf that #348 explicitly left
+> out of scope (a new node form with its own density-crossover design note). The
+> gap is dispatch granularity + dependent loads, identical to the cardinality
+> pillar's.
+>
+> **Frozen negative result (#348).** A prefetch + SIMD `BranchU × BranchU`
+> presence-mask step was implemented and parity-tested but **dropped**: it caused
+> a controlled +61 % dense-cardinality regression at N=10⁷ (native AND
+> 56.5 µs → 90.9 µs; reference host, `4d720b0c` vs `c129836d`, composed/roaring
+> controls identical to 4 s.f.), because `BranchU × BranchU` is by definition the
+> high-overlap regime (both ≥ 192/256 populated) where a presence-mask skip has
+> nothing to skip. Prefetch rode the same commit and was not isolated. Details in
+> `ALGORITHMS.md` §3.4.
 
 The issue motivating this suite describes "direct bitwise algebra (AND, OR,
 AND NOT, XOR) executed directly over compressed trie edges." **That kernel did
@@ -106,7 +136,10 @@ table is the pre-registration, not the conclusion.
 
 ### Pillar 1 — Boolean posting-list algebra (`search_boolean`)
 * **Operations:** `AND` (∩), `OR` (∪), `AND NOT` (∖), measured as **cardinality**
-  (no result materialization), so the number is algebra compute, not allocation.
+  (no result materialization), so the number is algebra compute, not allocation,
+  **and** — since #348 — as **materialization** (the result set built: v2 direct
+  emission vs v1 ordered-merge + insert vs roaring bitmap), so the cost of
+  producing the result is measured too.
 * **ExpanseSet strategy:** adaptive — lockstep iterator **merge** when the two
   lists are within 32× in size, **leapfrog** `next_at_or_after` when one is
   ≥32× smaller (a query planner's choice). OR is an iterator merge; AND-NOT

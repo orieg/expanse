@@ -6,22 +6,25 @@
 //!   * **`roaring::RoaringTreemap`** — native container-level kernels
 //!     (`intersection_len` / `union_len` / `difference_len`) that operate
 //!     word-parallel over bitmap containers and gallop over array containers.
-//!   * **`expanse_trie::ExpanseSet`** — which has **no native set-algebra
-//!     kernel**. The Boolean result is composed at the application level from
-//!     the primitives the type does expose: leapfrog `next_at_or_after` for
-//!     AND, a dual-iterator merge for OR, and `contains` probing for AND-NOT.
-//!     This is exactly what an engine using `ExpanseSet` as a posting-list
-//!     backend must do today.
+//!   * **`expanse_trie::ExpanseSet`** — native structural set-algebra kernels
+//!     (issue #339 cardinality, #348 materialization): a lockstep walk of both
+//!     tries that skips absent subtrees, `AND`s bitmap leaves word-parallel,
+//!     and — for the materializing ops — emits the result tree directly.
 //!
-//! Both sides compute a **cardinality** (no result materialization), so the
-//! measured quantity is the algebra compute, not allocation.
+//! Two quantities are measured per cell:
 //!
-//! Honesty note (see METHODOLOGY.md, Step 0): this is not a native-vs-native
-//! kernel comparison. Roaring is expected to win the dense and symmetric
-//! cells decisively because it moves 64 docIDs per word while `ExpanseSet`
-//! walks per element. The one cell where per-element leapfrog is plausibly
-//! competitive is the **skewed-size AND** (a tiny list probed into a huge
-//! one), included explicitly below.
+//!   * **Cardinality** (`*_count`): the Boolean population, no result built —
+//!     `ExpanseSet::intersection_len` etc. vs roaring's `*_len`.
+//!   * **Materialization** (`*_materialize`, #348): the result *set* built —
+//!     `ExpanseSet::intersection` (v2 direct emission) and the pre-#348
+//!     ordered-merge + per-key `insert` path (v1) vs roaring `&`/`|`/`-`
+//!     returning a bitmap.
+//!
+//! Honesty note (see METHODOLOGY.md, Step 0): roaring moves 64 docIDs per word
+//! and owns the dense and symmetric cells; `ExpanseSet`'s 256-key bitmap leaf
+//! pays more edge decodes per op. The cells where the structural walk is
+//! plausibly competitive are the **skewed-size AND** (a tiny list probed into a
+//! huge one) and the **skewed-dense / Zipfian** shapes.
 #![allow(missing_docs)]
 
 use serde_json::json;
@@ -30,9 +33,12 @@ use std::time::Duration;
 #[path = "search_common/mod.rs"]
 mod common;
 use common::{
-    build_list, expanse_and_count, expanse_andnot_count, expanse_native_and_count,
-    expanse_native_andnot_count, expanse_native_or_count, expanse_or_count, median_ns_per_op,
-    to_expanse, to_roaring,
+    build_list, expanse_and_count, expanse_and_materialize, expanse_and_materialize_v1,
+    expanse_andnot_count, expanse_andnot_materialize, expanse_andnot_materialize_v1,
+    expanse_native_and_count, expanse_native_andnot_count, expanse_native_or_count,
+    expanse_or_count, expanse_or_materialize, expanse_or_materialize_v1, median_ns_per_op,
+    roaring_and_materialize, roaring_andnot_materialize, roaring_or_materialize, to_expanse,
+    to_roaring,
 };
 
 fn universe_for(dist: &str, n: usize) -> u64 {
@@ -97,15 +103,60 @@ fn main() {
                 median_ns_per_op(|| expanse_native_andnot_count(&ea, &eb), batches, min_batch);
             let r_andnot = median_ns_per_op(|| ra.difference_len(&rb), batches, min_batch);
 
-            for (op, e_ns, n_ns, r_ns, card) in [
-                ("and", e_and, n_and, r_and, and_card),
-                ("or", e_or, n_or, r_or, expanse_or_count(&ea, &eb)),
+            // --- Materializing arm (#348): build the result set, not the
+            // cardinality. v2 = native direct emission; v1 = the pre-#348
+            // ordered-merge + per-key insert; roaring returns a bitmap. Every
+            // arm must produce the same cardinality as the AND/OR/AND-NOT
+            // cardinality cells.
+            debug_assert_eq!(expanse_and_materialize(&ea, &eb), and_card);
+            debug_assert_eq!(expanse_and_materialize_v1(&ea, &eb), and_card);
+            debug_assert_eq!(roaring_and_materialize(&ra, &rb), and_card);
+            debug_assert_eq!(expanse_or_materialize(&ea, &eb), expanse_or_count(&ea, &eb));
+            debug_assert_eq!(
+                expanse_andnot_materialize(&ea, &eb),
+                expanse_andnot_count(&ea, &eb)
+            );
+            let m_and = median_ns_per_op(|| expanse_and_materialize(&ea, &eb), batches, min_batch);
+            let m_and_v1 =
+                median_ns_per_op(|| expanse_and_materialize_v1(&ea, &eb), batches, min_batch);
+            let rm_and = median_ns_per_op(|| roaring_and_materialize(&ra, &rb), batches, min_batch);
+            let m_or = median_ns_per_op(|| expanse_or_materialize(&ea, &eb), batches, min_batch);
+            let m_or_v1 =
+                median_ns_per_op(|| expanse_or_materialize_v1(&ea, &eb), batches, min_batch);
+            let rm_or = median_ns_per_op(|| roaring_or_materialize(&ra, &rb), batches, min_batch);
+            let m_andnot =
+                median_ns_per_op(|| expanse_andnot_materialize(&ea, &eb), batches, min_batch);
+            let m_andnot_v1 = median_ns_per_op(
+                || expanse_andnot_materialize_v1(&ea, &eb),
+                batches,
+                min_batch,
+            );
+            let rm_andnot =
+                median_ns_per_op(|| roaring_andnot_materialize(&ra, &rb), batches, min_batch);
+
+            for (op, e_ns, n_ns, r_ns, card, mat_ns, mat_v1_ns, rmat_ns) in [
+                (
+                    "and", e_and, n_and, r_and, and_card, m_and, m_and_v1, rm_and,
+                ),
+                (
+                    "or",
+                    e_or,
+                    n_or,
+                    r_or,
+                    expanse_or_count(&ea, &eb),
+                    m_or,
+                    m_or_v1,
+                    rm_or,
+                ),
                 (
                     "andnot",
                     e_andnot,
                     n_andnot,
                     r_andnot,
                     expanse_andnot_count(&ea, &eb),
+                    m_andnot,
+                    m_andnot_v1,
+                    rm_andnot,
                 ),
             ] {
                 results.push(json!({
@@ -119,11 +170,14 @@ fn main() {
                     "expanse_ns": e_ns,
                     "expanse_native_ns": n_ns,
                     "roaring_ns": r_ns,
+                    "expanse_materialize_ns": mat_ns,
+                    "expanse_materialize_v1_ns": mat_v1_ns,
+                    "roaring_materialize_ns": rmat_ns,
                 }));
             }
             if !json_mode {
                 eprintln!(
-                    "  {dist:<10} n={n:>9}  AND composed={e_and:>12.0}ns native={n_and:>12.0}ns roar={r_and:>12.0}ns"
+                    "  {dist:<10} n={n:>9}  AND card: native={n_and:>11.0}ns roar={r_and:>11.0}ns  |  AND mat: v2={m_and:>11.0}ns v1={m_and_v1:>11.0}ns roar={rm_and:>11.0}ns"
                 );
             }
         }
