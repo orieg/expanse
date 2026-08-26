@@ -233,6 +233,18 @@ Expanse is distributed on the npm registry as [`@orieg/expanse`](https://www.npm
 
 ---
 
+#### WebAssembly: `@orieg/expanse-wasm`
+
+The wasm-bindgen surface (`crates/expanse-wasm`) is published to npm as [`@orieg/expanse-wasm`](https://www.npmjs.com/package/@orieg/expanse-wasm) for browser/edge runtimes (Cloudflare Workers, Deno Deploy, and similar):
+
+```bash
+npm i @orieg/expanse-wasm
+```
+
+The `publish-wasm` release job (Phase 3, anchor-first per #313) builds with `wasm-pack build --release --target web --scope orieg` and publishes the generated `pkg/` via npm OIDC trusted publishing, idempotent on already-published versions.
+
+---
+
 ### 2.10 .NET / C# Distribution (`Orieg.Expanse`) via NuGet.org
 > **Wired but not yet landed.** The `release.yml` NuGet push step exists (OIDC trusted publishing, below), but `Orieg.Expanse` does not yet resolve on nuget.org (404 / `totalHits:0`). Build from `bindings/dotnet` locally until first publish.
 
@@ -353,12 +365,25 @@ Expanse is distributed for Ruby 3.0+ as the `expanse` gem under `bindings/ruby`:
   map = Expanse::Map.new
   map[42] = 1000
   ```
+- **Publishing**: the `publish-gem` release job (Phase 3, anchor-first per #313) pushes to rubygems.org via **OIDC trusted publishing** (`rubygems/configure-rubygems-credentials`), idempotent on already-published versions. The gem is pure Ruby — at runtime it needs `libexpanse` from the apt/rpm repositories, a GitHub Release archive, or a system install.
 - **Full Guide**: See [docs/bindings/ruby.md](bindings/ruby.md).
 
 ---
 
-### 2.13 Multi-Ecosystem Version Synchronization (`scripts/bump_version.py`)
-Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, Java/Maven/Gradle, PHP/Composer/PIE, and Ruby/Gems) spanning 16 canonical manifests. Publication status differs per registry (see the per-ecosystem sections: crates.io/npm/PyPI wired; NuGet wired-not-landed; Java/Maven not yet built or published; PHP Packagist subsplit wired). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
+### 2.13 Go Module (`github.com/orieg/expanse/bindings/go`)
+
+The Go binding is consumed directly from the monorepo as a **nested Go module**:
+
+```bash
+go get github.com/orieg/expanse/bindings/go@v0.4.1
+```
+
+Pinned versions resolve via **`bindings/go/vX.Y.Z` tags** (Go's subdirectory-module convention), pushed automatically by the `github-release` job on every release tag. The module wraps `libexpanse` via CGO; build with `cargo build --release -p expanse-capi` available on the library path (see `bindings/go/README.md`).
+
+---
+
+### 2.14 Multi-Ecosystem Version Synchronization (`scripts/bump_version.py`)
+Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, Java/Maven/Gradle, PHP/Composer/PIE, and Ruby/Gems) spanning 16 canonical manifests. Publication status differs per registry (see the per-ecosystem sections: crates.io / npm (+wasm) / PyPI / NuGet / RubyGems / PHP-Packagist all wired into the anchor-first release DAG; Go pinned via nested-module tags; Java/Maven not yet built or published). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
 
 #### Synchronized Manifests:
 | Manifest File | Section / Key | Description |
