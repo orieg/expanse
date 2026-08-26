@@ -7,7 +7,7 @@ dark-mode overrides via both `@media (prefers-color-scheme: dark)` and
 `[data-theme="dark"]` (GitHub renders the latter).
 
 Palette:
-  - Expanse (single-trie ZSET): #16a34a (light) / #22c55e (dark)
+  - Expanse (dual-trie ZSET): #16a34a (light) / #22c55e (dark)
   - SkipList + Dict (Redis reference): #2563eb (light) / #3b82f6 (dark)
   - Win badge (Expanse ahead): green
   - Loss badge (Expanse behind — published honestly): #d97706 amber

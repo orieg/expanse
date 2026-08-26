@@ -52,7 +52,7 @@ def grouped_bar_chart(out_name, title, sub, unit, rows, fmt="{:.1f}"):
   <text x="30" y="50" class="t-sub">{esc(sub)} &#183; {esc(unit)} &#183; higher is better</text>
   <g transform="translate(600, 24)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
-    <text x="18" y="10" class="t-legend">Expanse (single-trie ZSET)</text>
+    <text x="18" y="10" class="t-legend">Expanse (dual-trie ZSET)</text>
     <rect x="0" y="18" width="12" height="12" rx="2" class="b-skiplist"/>
     <text x="18" y="28" class="t-legend">SkipList + Dict (Redis)</text>
   </g>

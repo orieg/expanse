@@ -1,4 +1,4 @@
-# Redis ZSET Engine: Expanse single-trie design vs SkipList + Dict
+# Redis ZSET Engine: Expanse dual-trie sorted set vs SkipList + Dict
 
 A head-to-head benchmark of an **Expanse** sorted-set engine against Redis's
 actual ZSET design — a **skip list** (score ordering + rank) plus a **hash
