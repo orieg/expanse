@@ -29,7 +29,7 @@ BENCHES = [
 ]
 
 
-def run_bench(bench_name: str, out_file: str, quick: bool) -> None:
+def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool) -> None:
     print(f"==> Running {bench_name} (quick={quick})...")
     cmd = ["cargo", "bench", "-p", "expanse-trie", "--bench", bench_name, "--"]
     if quick:
@@ -49,20 +49,32 @@ def run_bench(bench_name: str, out_file: str, quick: bool) -> None:
         sys.exit(1)
     payload = json.loads(stdout[min(starts):])
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    with open(RESULTS_DIR / out_file, "w", encoding="utf-8") as f:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with open(out_dir / out_file, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
-    print(f"    Saved {RESULTS_DIR / out_file}")
+    print(f"    Saved {out_dir / out_file}")
 
 
 def main() -> None:
     quick = "--quick" in sys.argv or "-q" in sys.argv
     print(f"Redis ZSET engine benchmark suite (quick={quick})\n")
+    # A --quick run produces reduced-sweep smoke data. Route it to the
+    # gitignored results/quick/ scratch dir so it can never overwrite the
+    # committed results/baseline_*.json — the corruption class fixed for the
+    # llm_inference suite in #352.
+    out_dir = RESULTS_DIR / "quick" if quick else RESULTS_DIR
     for bench_name, out_file in BENCHES:
-        run_bench(bench_name, out_file, quick)
-    print("\n==> Generating SVG charts...")
-    subprocess.run([sys.executable, str(SCRIPTS_DIR / "generate_charts.py")], check=True)
-    print("Done.")
+        run_bench(bench_name, out_file, out_dir, quick)
+    if quick:
+        print("\n==> Skipping chart regeneration (--quick).")
+        print(f"    Quick smoke results were written to {out_dir} (gitignored);")
+        print("    the committed results/baseline_*.json and SVG charts were")
+        print("    not touched. Regenerating the committed charts from")
+        print("    reduced-sweep data would ship blank/mislabeled SVGs.")
+    else:
+        print("\n==> Generating SVG charts...")
+        subprocess.run([sys.executable, str(SCRIPTS_DIR / "generate_charts.py")], check=True)
+        print("Done.")
 
 
 if __name__ == "__main__":

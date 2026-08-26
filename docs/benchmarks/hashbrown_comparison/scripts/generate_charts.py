@@ -38,8 +38,9 @@ def generate_native_chart():
     with open(json_path) as f:
         data = json.load(f)
 
-    # Use the 100k population entry
+    # Use the last (largest) population entry
     item = data[-1]
+    pop = item.get("population", 0)
     hit = item.get("lookup_hit", {})
     miss = item.get("lookup_miss", {})
     grow = item.get("insert_growing", {})
@@ -73,9 +74,9 @@ def generate_native_chart():
 """
 
     panels = [
-        ("Point Lookup Hit", "100,000 keys random query", hit_exp, hit_hb, hit_bt, 30),
-        ("Point Lookup Miss", "100,000 absent keys query", miss_exp, miss_hb, miss_bt, 345),
-        ("Dynamic Ingestion", "Growth 0 -&gt; 100k keys", grow_exp, grow_hb, grow_bt, 660),
+        ("Point Lookup Hit", f"{pop:,} keys random query", hit_exp, hit_hb, hit_bt, 30),
+        ("Point Lookup Miss", f"{pop:,} absent keys query", miss_exp, miss_hb, miss_bt, 345),
+        ("Dynamic Ingestion", f"Growth 0 -&gt; {pop:,} keys", grow_exp, grow_hb, grow_bt, 660),
     ]
 
     for title, sub, m_exp, m_hb, m_bt, x_off in panels:
@@ -227,11 +228,16 @@ def generate_memory_chart():
     with open(json_path) as f:
         data = json.load(f)
 
+    last_item = data[-1]
+    pop = last_item.get("population", 0)
+    rand_data = last_item.get("random_keys_bytes_per_key", {})
+    seq_data = last_item.get("sequential_keys_bytes_per_key", {})
+
     svg = svg_header(width=960, height=280, title="Memory Footprint: Bytes Per Key")
-    svg += """
+    svg += f"""
   <!-- Header -->
   <text x="30" y="30" class="t-title">MEMORY FOOTPRINT: BYTES PER KEY (LOWER IS BETTER)</text>
-  <text x="30" y="46" class="t-sub">Measured via GlobalAlloc Live Heap Tracker • N = 100,000 Keys</text>
+  <text x="30" y="46" class="t-sub">Measured via GlobalAlloc Live Heap Tracker • N = {pop:,} Keys</text>
 
   <!-- Legend -->
   <g transform="translate(630, 20)">
@@ -244,11 +250,6 @@ def generate_memory_chart():
   </g>
   <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
 """
-
-    last_item = data[-1]
-    pop = last_item.get("population", 100000)
-    rand_data = last_item.get("random_keys_bytes_per_key", {})
-    seq_data = last_item.get("sequential_keys_bytes_per_key", {})
 
     panels = [
         ("Dense Sequential Keys (0..N)", "Bitmap &amp; Uncompressed Leaf Packing", seq_data, 30, True),
@@ -395,11 +396,12 @@ def generate_tail_latency_chart():
     with open(json_path) as f:
         data = json.load(f)
 
+    total_inserts = data.get("total_inserts", 0)
     svg = svg_header(width=960, height=300, title="Ingestion Tail Latency Percentiles")
-    svg += """
+    svg += f"""
   <!-- Header -->
   <text x="30" y="30" class="t-title">INGESTION TAIL LATENCY: P50 TO P99.99 (NANOSECONDS)</text>
-  <text x="30" y="46" class="t-sub">Dynamic Ingestion without Pre-allocation • 100,000 Inserts • Lower is better</text>
+  <text x="30" y="46" class="t-sub">Dynamic Ingestion without Pre-allocation • {total_inserts:,} Inserts • Lower is better</text>
 
   <!-- Legend -->
   <g transform="translate(630, 20)">

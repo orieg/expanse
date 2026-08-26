@@ -38,9 +38,11 @@ What that dual buys over Redis's dual is the real thesis, and it holds up:
    was verified, not assumed.
 
 **Bottom line:** "single structure" is **refuted**; "a better-shaped dual, with
-native rank and a large memory win" is **supported** — with named, published
-losses on `ZSCORE` of random members and rank-select. (Reverse range was a
-pre-registered loss under the emulated `prev_at_or_before` re-descent; the
+native rank and a large memory win" is **supported** — with the rank-select cell
+published as a loss (0.5% behind, effectively a dead heat) and `ZSCORE` of
+random members carried as a **(target) pre-registered expected loss, not yet
+measured** — no ZSCORE cell exists in the committed artifacts. (Reverse range
+was a pre-registered loss under the emulated `prev_at_or_before` re-descent; the
 `range_rev` reverse ordered iterator (#341) turns it into a win — see Pillar 2.)
 
 <!-- RESULTS_START -->
@@ -51,14 +53,19 @@ pre-registered loss under the emulated `prev_at_or_before` re-descent; the
 load 1.1–1.4 throughout; interleaved Expanse-then-SkipList arms, median of 5
 rounds. Run with `run.sh`.)*
 
-**Scorecard.** Expanse wins 9 of 13 measured cells; the 4 losses were all
-pre-registered in [METHODOLOGY.md](METHODOLOGY.md) §4 before measuring.
+**Scorecard.** Expanse wins 14 of the 15 measured cells (4 ZADD + 4 range +
+2 of 3 rank + 4 memory, counted from `results/baseline_*.json`). The one loss —
+ZRANGE-by-rank (select), 0.5% behind, effectively a dead heat — was
+pre-registered in [METHODOLOGY.md](METHODOLOGY.md) §4 before measuring. The two
+reverse-range cells, pre-registered as losses, are wins since the `range_rev`
+iterator (#341). `ZSCORE` remains a **(target)** pre-registered expected loss
+(§4) with no measured cell in any pillar, so it is not counted here.
 
 | Pillar | Expanse wins | Expanse loses |
 |---|---|---|
 | ZADD churn | fresh insert, score update, ZINCRBY, mixed churn | — |
-| Range | forward small + large | reverse small + large |
-| Rank / count | ZRANK, ZCOUNT | ZRANGE-by-rank (select), a dead heat |
+| Range | forward small + large, reverse small + large (post-#341) | — |
+| Rank / count | ZRANK, ZCOUNT | ZRANGE-by-rank (select) — 0.5%, a dead heat |
 | Memory | all populations & score patterns | — |
 
 ### Pillar 1 — ZADD churn throughput (M ops/sec)
@@ -153,10 +160,15 @@ real Redis ZSET is materially larger than this baseline. At 1M random scores the
 
 * **Design claim:** "single structure" is **refuted** (§ Design verdict). Expanse
   is a dual-trie engine; the supported claim is a better-shaped dual.
-* **Losing cells are published:** select (a dead heat) — pre-registered. Reverse
-  range was a pre-registered loss (1.45–2.68× behind under emulated
-  re-descent); the `range_rev` iterator (#341) now wins it (2.70× / 1.63×), and
-  the emulated arm is retained in the suite for the comparison.
+* **Losing cells are published:** select (0.5% behind — a dead heat) —
+  pre-registered. Reverse range was a pre-registered loss (1.45–2.68× behind
+  under emulated re-descent); the `range_rev` iterator (#341) now wins it
+  (2.70× / 1.63×), and the emulated arm is retained in the suite for the
+  comparison.
+* **`ZSCORE` is unmeasured:** the pre-registered expected loss on `ZSCORE` of
+  random members (METHODOLOGY §4) remains a **(target)** claim — no pillar
+  measures ZSCORE and no ZSCORE cell exists in `results/`, so it is excluded
+  from the measured-cell scorecard above.
 * **Churn magnitude is optimistic** for Expanse because the reference skip list
   double-allocates per node (disclosed above); the range/rank/count/memory wins
   do not depend on the allocation model (those paths allocate nothing, and the

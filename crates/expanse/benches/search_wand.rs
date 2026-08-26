@@ -50,6 +50,43 @@ fn make_targets(lo: u64, hi: u64, avg_stride: u64, seed: u64) -> Vec<u64> {
     out
 }
 
+/// Startup verification of the roaring arm (#374): non-timed, hard-asserting,
+/// run once per cell before the timed rounds. Returns the number of targets
+/// that fall past exhaustion (0 = the whole cell was verified).
+///
+/// Roaring's cursor answers a *consuming* reduction: `advance_to(t)` is
+/// forward-only and `next()` eats the key it yields, so a gap that maps
+/// several consecutive targets into one region consumes one fresh key per
+/// target — and once the last key is eaten the iterator is exhausted even
+/// though targets `<= hi` remain. Every pre-exhaustion step is well-defined
+/// and is asserted here against a forward-consuming reference model computed
+/// from the sorted source list. Post-exhaustion steps are NOT asserted:
+/// roaring-rs 0.10's `advance_to` on an exhausted iterator observably wraps
+/// around and yields keys from the start of the set again (verified against
+/// 0.10.12 by brute-force differential testing), so those steps are
+/// library-version-specific; their count is returned so each run can disclose
+/// how much of the timed roaring loop executes past exhaustion.
+fn verify_roaring_arm(tree: &RoaringTreemap, list: &[u64], targets: &[u64]) -> usize {
+    let mut it = tree.iter();
+    let mut idx = 0usize;
+    for (step, &t) in targets.iter().enumerate() {
+        while idx < list.len() && list[idx] < t {
+            idx += 1;
+        }
+        if idx == list.len() {
+            return targets.len() - step;
+        }
+        it.advance_to(t);
+        assert_eq!(
+            it.next(),
+            Some(list[idx]),
+            "roaring arm disagrees with the consuming reference model at step {step} (target {t})"
+        );
+        idx += 1;
+    }
+    0
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let quick = args.iter().any(|a| a == "--quick");
@@ -87,18 +124,32 @@ fn main() {
 
             for (regime, avg_stride) in regimes {
                 let targets = make_targets(lo, hi, avg_stride, n as u64);
-                // The stateful cursor answers the *same* per-target query as the
-                // stateless baseline, so their sinks must be bit-identical —
-                // asserted every run. Roaring's native cursor consumes as it
-                // advances (a different reduction when a gap maps two targets to
-                // one key), so it is only sanity-checked in debug.
+                // Startup verification pass (non-timed, before any timed
+                // round). The stateful cursor answers the *same* per-target
+                // query as the stateless baseline, so their sinks must be
+                // bit-identical. Roaring's native cursor consumes as it
+                // advances — a legitimately different reduction when a gap
+                // maps several consecutive targets to one region — so it is
+                // verified per step against a reference model of that
+                // consuming semantics (see `verify_roaring_arm`). All hard
+                // asserts (#374): a debug_assert would never run in the
+                // release builds that produce the published numbers.
                 let stateless_sink = expanse_skipscan(&set, &targets);
                 assert_eq!(
                     stateless_sink,
                     expanse_cursor_skipscan(&set, &targets),
                     "cursor arm disagrees with stateless ({dist}/{n}/{regime})"
                 );
-                debug_assert_eq!(stateless_sink, roaring_skipscan(&tree, &targets));
+                let unverified = verify_roaring_arm(&tree, &list, &targets);
+                if unverified > 0 {
+                    eprintln!(
+                        "  note: {dist}/{n}/{regime}: the consuming roaring cursor exhausts the \
+                         list early; {unverified} of {} targets fall past exhaustion, where \
+                         roaring-rs advance_to wraps around (not asserted; the expanse arms keep \
+                         answering real queries there)",
+                        targets.len()
+                    );
+                }
                 let t = targets.len().max(1) as f64;
                 let e = median_ns_per_op(
                     || black_box(expanse_skipscan(&set, &targets)),

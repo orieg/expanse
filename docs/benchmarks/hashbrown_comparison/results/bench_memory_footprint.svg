@@ -96,7 +96,7 @@
 
   <!-- Header -->
   <text x="30" y="30" class="t-title">MEMORY FOOTPRINT: BYTES PER KEY (LOWER IS BETTER)</text>
-  <text x="30" y="46" class="t-sub">Measured via GlobalAlloc Live Heap Tracker • N = 100,000 Keys</text>
+  <text x="30" y="46" class="t-sub">Measured via GlobalAlloc Live Heap Tracker • N = 500,000 Keys</text>
 
   <!-- Legend -->
   <g transform="translate(630, 20)">

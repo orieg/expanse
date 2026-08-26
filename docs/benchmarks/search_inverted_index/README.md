@@ -13,13 +13,13 @@ skip-scan, and memory footprint.
 >   built from the set's navigation primitives (merge, leapfrog, `contains`),
 >   per element. This is what `ExpanseSet` forced on a posting-list backend
 >   *before* it had a set-algebra kernel, and it loses every cell to Roaring by
->   4×–1406×.
+>   4×–1413×.
 > - **native** — the structural set-algebra kernel added in **#339**
 >   (`ExpanseSet::intersection_len` / `union_len` / `difference_len`): descend
 >   both tries in lockstep, skip whole absent subtrees, count full expanses from
 >   `pop0` in O(1), and `AND` bitmap leaves word-parallel with `popcnt`.
 >
-> The native kernel closes the composed gap from up to **1406×** to **≤ 3.84×**
+> The native kernel closes the composed gap from up to **1413×** to **≤ 3.84×**
 > on every symmetric cell, **beats** Roaring on the small-N and all zipfian
 > large-N symmetric cells and on the dense/zipfian skewed-size AND, and still
 > loses the **sparse skewed** cells (17×–24×), where Roaring's flat tiny-array
@@ -33,8 +33,9 @@ skip-scan, and memory footprint.
 > bottom-up — instead of re-inserting each key. The Boolean harness now measures
 > materialization in three arms — **v2** (direct emission), **v1** (the pre-#348
 > ordered-merge + per-key `insert`), and **roaring** (`&`/`|`/`-` returning a
-> bitmap) — alongside the unchanged cardinality cells. **v2 is 7×–215× faster
-> than v1**; it loses to roaring on the dense/clustered/sparse symmetric cells
+> bitmap) — alongside the unchanged cardinality cells. **v2 is 7×–225× faster
+> than v1 at N=10⁷** (floor 3.2× across the full 10⁴–10⁷ sweep, zipfian AND at
+> 10⁴); it loses to roaring on the dense/clustered/sparse symmetric cells
 > (1.4×–11.7×) for the same reason the cardinality pillar does — a 256-key bitmap
 > leaf vs roaring's 65,536-key container — and the pre-registered targets (§2)
 > are **not** met; every cell is published in §Pillar 1. The cardinality cells
@@ -69,7 +70,7 @@ skip-scan, and memory footprint.
 
 | Pillar | Winner | Margin | Notes |
 |---|---|---|---|
-| **1. Boolean AND / OR / AND-NOT** | **Mixed** (native kernel #339, materialization #348) | cardinality: **native ≤ 3.84× slower, wins 15/48**; materialization: **v2 7×–225× faster than v1 insert; 1.4×–11.7× vs roaring** | #348 makes materialization structural — direct emission is **7×–225× faster than the pre-#348 per-key insert path**. Cardinality is unchanged from #339 (native within 3.84× of roaring, faster at small N and all zipfian large-N; skewed AND faster on dense/zipfian, loses sparse). Neither cardinality nor materialization reaches roaring on dense/clustered/sparse symmetric cells, and the **#348 vs-roaring targets are not met** — gap = the deferred L2 65,536-key bitmap leaf. A prefetch + SIMD `BranchU` step was **dropped** (+61% dense regression). |
+| **1. Boolean AND / OR / AND-NOT** | **Mixed** (native kernel #339, materialization #348) | cardinality: **native ≤ 3.84× slower, wins 15/48**; materialization: **v2 7×–225× faster than v1 insert at N=10⁷; 1.4×–11.7× vs roaring** | #348 makes materialization structural — direct emission is **7×–225× faster than the pre-#348 per-key insert path at N=10⁷** (3.2× floor across the full sweep). Cardinality is unchanged from #339 (native within 3.84× of roaring, faster at small N and all zipfian large-N; skewed AND faster on dense/zipfian, loses sparse). Neither cardinality nor materialization reaches roaring on dense/clustered/sparse symmetric cells, and the **#348 vs-roaring targets are not met** — gap = the deferred L2 65,536-key bitmap leaf. A prefetch + SIMD `BranchU` step was **dropped** (+61% dense regression). |
 | **2. WAND skip-scan** | **Mixed** (stateful cursor, #340) | stateless 2×–4× slower; **cursor 0.53×–1.64× vs Roaring** | The stateless `next_at_or_after` re-descends per call and loses every cell (the refuted Step-0 hypothesis). The #340 cursor reuses its descent path: it **beats or ties Roaring on all 6 dense cells and on clustered shallow/medium (down to 0.53× — 1.9× faster)**, is within 1.2× in 14/18 cells, and meets the near-skip target (dense 10^6 shallow **6.60 ns ≤ 8 ns**, faster than Roaring). Only the sparse deep-skip cells trail (1.40×–1.64×); sparse/10^6/deep at 1.64× is the sole cell past the 1.5× goal. |
 | **3. Memory (bits/docID)** | **Mixed** | see below | Roaring wins most cells; **Expanse wins `shard` @ 10^5 (1.4× more compact)** and **ties dense/shard @ 10^6** (within ~4%). Small-N and sparse are Expanse losses. |
 
@@ -83,7 +84,7 @@ a `contains` probe, all per-element) and **native** (the #339 structural kernel 
 `intersection_len` and its `union_len`/`difference_len` derivations, descending
 both tries in lockstep, skipping absent subtrees, counting full expanses from
 `pop0` in O(1), and `AND`-ing bitmap leaves word-parallel with `popcnt`). The
-native kernel turns a uniform 4×–1406× loss into a contest: **≤ 3.84× slower on
+native kernel turns a uniform 4×–1413× loss into a contest: **≤ 3.84× slower on
 every symmetric cell, faster than Roaring on 15 of 48**, and faster on the
 dense/zipfian skewed-size AND. It still loses the sparse cells, where Roaring's
 flat containers beat a sparse trie's pointer-chasing. #348 adds a **materialization**
@@ -118,7 +119,7 @@ within the run-to-run band — see §2 sanity gate)*:
 `intersection_len` walk plus O(1) populations); native worst symmetric cell is
 **3.84× slower** (sparse 10⁷), and native beats Roaring on **15 of 48** symmetric
 cells (small-N across distributions and all large-N zipfian). Composed is the
-largest loss (to **1406×**, AND-NOT dense 10⁷). All 54 cells are in
+largest loss (to **1413×**, AND-NOT dense 10⁷). All 54 cells are in
 [`results/baseline_boolean.json`](results/baseline_boolean.json).
 
 **Materialization (#348) — the result set built, at N=10⁷** — `v2` direct
@@ -142,7 +143,8 @@ emission / `v1` pre-#348 ordered-merge + `insert` / `roaring` bitmap:
 | zipfian | andnot | 8.26 ms | 57.14 ms | 3.18 ms | **7×** | 2.60× slower | 3.7× |
 
 Direct emission is **7×–225× faster than the pre-#348 per-key `insert` path** it
-replaces — that is the #348 deliverable. Against Roaring it is closest on
+replaces at N=10⁷ (the table above); across the full 10⁴–10⁷ sweep the floor is
+3.2× (zipfian AND at 10⁴) — that is the #348 deliverable. Against Roaring it is closest on
 dense-AND-NOT (1.45×) and all zipfian (1.4×–2.6×), and loses the dense/clustered/
 sparse cells (2.6×–11.7×) for the same reason the cardinality pillar does: an
 Expanse bitmap leaf covers 256 keys where a Roaring container covers 65,536, so
@@ -167,7 +169,8 @@ A-subtrees are never walked. Faster than Roaring on dense/zipfian, loses only
 | sparse | 7,867,812 | 9,997 | 600.63 µs | 121.29 µs | 7.27 µs | 16.68× slower |
 
 > **Verdict:** #348's win is materialization — direct emission is **7×–225×
-> faster than the pre-#348 insert path**, making the materializing ops structural
+> faster than the pre-#348 insert path at N=10⁷** (3.2× floor across the full
+> sweep), making the materializing ops structural
 > as #339 intended. `ExpanseSet` stays a viable posting-list Boolean backend
 > (cardinality within 3.84× of Roaring on every symmetric cell, faster on 15/48
 > and on the dense/zipfian skewed AND), but neither cardinality nor
@@ -185,10 +188,14 @@ A-subtrees are never walked. Faster than Roaring on dense/zipfian, loses only
 Three arms now: the **stateless** `next_at_or_after` (re-descends from the root
 every call), the **#340 cursor** `cursor().advance_to` (keeps its descent path,
 re-descending only from the deepest ancestor whose expanse still covers the next
-target — leaf-local for near skips), and Roaring's **`advance_to`** cursor. All
-three answer the same "smallest docID `≥ target`" query; the stateless and cursor
-sinks are bit-identical (asserted every run), so the difference is purely *how*
-the query is served.
+target — leaf-local for near skips), and Roaring's **`advance_to`** cursor. The
+stateless and cursor arms answer the same "smallest docID `≥ target`" query per
+target and their sinks are bit-identical (hard-asserted every run), so between
+those two the difference is purely *how* the query is served. The roaring
+cursor *consumes* the key it yields — a startup verification pass (#374)
+hard-asserts every well-defined step of it against a consuming reference model;
+see the §3 disclosure for the two shallow cells where that consuming semantics
+diverges.
 
 The Step-0 hypothesis — that a fixed-depth re-descent would beat the warm cursor
 on deep skips — was **refuted for the stateless arm** (it loses every cell 2×–4×,
@@ -261,7 +268,9 @@ half the tracked heap — e.g. 0.52 bits/docID on dense 10^6.
 Full per-size data (including 10^4/10^5 rows for every distribution) is in
 [`results/baseline_memory.json`](results/baseline_memory.json).
 
-<!-- RESULTS:END -->disclosure
+<!-- RESULTS:END -->
+
+## 3. Honest disclosure
 
 * **Pillar 1 now IS a native-kernel comparison (#339).** `ExpanseSet` gained a
   native structural set-algebra kernel (`intersection_len` / `union_len` /
@@ -281,6 +290,22 @@ Full per-size data (including 10^4/10^5 rows for every distribution) is in
   emission, v1 ordered-merge + `insert`, and roaring bitmap `&`/`|`/`-` — so the
   cost of producing (not just counting) the Boolean result is measured, not
   inferred. Every arm asserts the same cardinality as the count cells.
+* **WAND roaring-arm consuming semantics (#374).** Roaring's `advance_to`
+  cursor consumes the key it yields (one key per target), so in the two shallow
+  cells where targets outnumber keys — clustered and sparse (1,333,713 /
+  1,333,794 targets vs 10⁶ keys; 13,332,173 / 13,332,249 vs 10⁷, per the
+  committed `skips` counts) — the roaring arm exhausts the set before the
+  target stream ends. At least 25% of its timed advances there
+  ($\geq (\text{skips} - N)/\text{skips}$) run past exhaustion, where
+  `roaring-rs` 0.10's `advance_to` observably wraps around and yields keys from
+  the start of the set again, while the Expanse arms keep answering real
+  queries. The published roaring numbers for those two cells therefore time a
+  partially different reduction. The harness now runs a non-timed startup
+  verification pass that hard-asserts every pre-exhaustion roaring answer
+  against a consuming reference model (previously a `debug_assert`, which never
+  ran in the release builds that produced these numbers) and prints the
+  unverified tail count each run; re-measuring the shallow cells with an
+  exhaustion-free target stream is follow-up work.
 * **Wall-clock numbers are single-host, idle.** Load was snapshotted before and
   between arms (see the run log). The deterministic instruction-count arm is the
   noise-free cross-check and lives in CI.
@@ -318,6 +343,7 @@ docs/benchmarks/search_inverted_index/
     ├── baseline_wand.json
     ├── baseline_memory.json
     ├── bench_boolean_and.svg
+    ├── bench_boolean_and_materialize.svg
     ├── bench_wand_skipscan.svg
     └── bench_memory_bits.svg
 ```
