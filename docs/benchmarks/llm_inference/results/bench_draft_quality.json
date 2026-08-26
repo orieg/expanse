@@ -1,0 +1,152 @@
+{
+  "code_humaneval": {
+    "hf_fixed_3gram": {
+      "speculation_steps": 504,
+      "total_accepted_tokens": 2300,
+      "total_drafted_tokens": 2008,
+      "mean_acceptance_length_alpha": 4.563,
+      "acceptance_rate": 0.8944,
+      "candidate_lookup_latency_us": 0.625
+    },
+    "hf_fixed_2gram": {
+      "speculation_steps": 650,
+      "total_accepted_tokens": 2300,
+      "total_drafted_tokens": 2450,
+      "mean_acceptance_length_alpha": 3.538,
+      "acceptance_rate": 0.6735,
+      "candidate_lookup_latency_us": 0.5
+    },
+    "expanse_fixed_3gram": {
+      "speculation_steps": 504,
+      "total_accepted_tokens": 2300,
+      "total_drafted_tokens": 2008,
+      "mean_acceptance_length_alpha": 4.563,
+      "acceptance_rate": 0.8944,
+      "candidate_lookup_latency_us": 0.667
+    },
+    "expanse_longest_suffix": {
+      "speculation_steps": 500,
+      "total_accepted_tokens": 2300,
+      "total_drafted_tokens": 2000,
+      "mean_acceptance_length_alpha": 4.6,
+      "acceptance_rate": 0.9,
+      "candidate_lookup_latency_us": 10.792
+    },
+    "dict_multimap_tree": {
+      "speculation_steps": 1162,
+      "total_accepted_tokens": 2300,
+      "total_drafted_tokens": 1434,
+      "mean_acceptance_length_alpha": 1.979,
+      "acceptance_rate": 0.7936,
+      "candidate_lookup_latency_us": 0.75
+    },
+    "expanse_draft_tree": {
+      "speculation_steps": 500,
+      "total_accepted_tokens": 2300,
+      "total_drafted_tokens": 2000,
+      "mean_acceptance_length_alpha": 4.6,
+      "acceptance_rate": 0.9,
+      "candidate_lookup_latency_us": 6.667
+    }
+  },
+  "summarization_cnndm": {
+    "hf_fixed_3gram": {
+      "speculation_steps": 62,
+      "total_accepted_tokens": 200,
+      "total_drafted_tokens": 156,
+      "mean_acceptance_length_alpha": 3.226,
+      "acceptance_rate": 0.8846,
+      "candidate_lookup_latency_us": 0.5
+    },
+    "hf_fixed_2gram": {
+      "speculation_steps": 55,
+      "total_accepted_tokens": 200,
+      "total_drafted_tokens": 160,
+      "mean_acceptance_length_alpha": 3.636,
+      "acceptance_rate": 0.9062,
+      "candidate_lookup_latency_us": 0.458
+    },
+    "expanse_fixed_3gram": {
+      "speculation_steps": 62,
+      "total_accepted_tokens": 200,
+      "total_drafted_tokens": 156,
+      "mean_acceptance_length_alpha": 3.226,
+      "acceptance_rate": 0.8846,
+      "candidate_lookup_latency_us": 0.542
+    },
+    "expanse_longest_suffix": {
+      "speculation_steps": 55,
+      "total_accepted_tokens": 200,
+      "total_drafted_tokens": 160,
+      "mean_acceptance_length_alpha": 3.636,
+      "acceptance_rate": 0.9062,
+      "candidate_lookup_latency_us": 10.958
+    },
+    "dict_multimap_tree": {
+      "speculation_steps": 112,
+      "total_accepted_tokens": 200,
+      "total_drafted_tokens": 89,
+      "mean_acceptance_length_alpha": 1.786,
+      "acceptance_rate": 0.9888,
+      "candidate_lookup_latency_us": 0.75
+    },
+    "expanse_draft_tree": {
+      "speculation_steps": 55,
+      "total_accepted_tokens": 200,
+      "total_drafted_tokens": 160,
+      "mean_acceptance_length_alpha": 3.636,
+      "acceptance_rate": 0.9062,
+      "candidate_lookup_latency_us": 6.5
+    }
+  },
+  "structured_json": {
+    "hf_fixed_3gram": {
+      "speculation_steps": 401,
+      "total_accepted_tokens": 1280,
+      "total_drafted_tokens": 1124,
+      "mean_acceptance_length_alpha": 3.192,
+      "acceptance_rate": 0.782,
+      "candidate_lookup_latency_us": 0.459
+    },
+    "hf_fixed_2gram": {
+      "speculation_steps": 401,
+      "total_accepted_tokens": 1280,
+      "total_drafted_tokens": 1284,
+      "mean_acceptance_length_alpha": 3.192,
+      "acceptance_rate": 0.6846,
+      "candidate_lookup_latency_us": 0.459
+    },
+    "expanse_fixed_3gram": {
+      "speculation_steps": 401,
+      "total_accepted_tokens": 1280,
+      "total_drafted_tokens": 1124,
+      "mean_acceptance_length_alpha": 3.192,
+      "acceptance_rate": 0.782,
+      "candidate_lookup_latency_us": 0.542
+    },
+    "expanse_longest_suffix": {
+      "speculation_steps": 341,
+      "total_accepted_tokens": 1280,
+      "total_drafted_tokens": 1044,
+      "mean_acceptance_length_alpha": 3.754,
+      "acceptance_rate": 0.8994,
+      "candidate_lookup_latency_us": 9.166
+    },
+    "dict_multimap_tree": {
+      "speculation_steps": 720,
+      "total_accepted_tokens": 1280,
+      "total_drafted_tokens": 717,
+      "mean_acceptance_length_alpha": 1.778,
+      "acceptance_rate": 0.781,
+      "candidate_lookup_latency_us": 0.708
+    },
+    "expanse_draft_tree": {
+      "speculation_steps": 359,
+      "total_accepted_tokens": 1280,
+      "total_drafted_tokens": 1116,
+      "mean_acceptance_length_alpha": 3.565,
+      "acceptance_rate": 0.8253,
+      "candidate_lookup_latency_us": 6.541
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "100000": {
+    "num_blocks": 100000,
+    "ordered_dict_lru": {
+      "memory_mb": 23.39,
+      "touch_throughput_tps": 11190896.0,
+      "eviction_throughput_tps": 8582142.0,
+      "rank_eviction_supported": false
+    },
+    "expanse_ordered_table": {
+      "memory_mb": 1.56,
+      "touch_throughput_tps": 1795735.0,
+      "eviction_throughput_tps": 2331793.0,
+      "rank_eviction_tps": 2492992.0,
+      "rank_eviction_supported": true,
+      "memory_reduction_vs_od_x": 15.03
+    }
+  },
+  "500000": {
+    "num_blocks": 500000,
+    "ordered_dict_lru": {
+      "memory_mb": 109.9,
+      "touch_throughput_tps": 15805080.0,
+      "eviction_throughput_tps": 8477556.0,
+      "rank_eviction_supported": false
+    },
+    "expanse_ordered_table": {
+      "memory_mb": 7.78,
+      "touch_throughput_tps": 2165069.0,
+      "eviction_throughput_tps": 3696853.0,
+      "rank_eviction_tps": 2210765.0,
+      "rank_eviction_supported": true,
+      "memory_reduction_vs_od_x": 14.13
+    }
+  },
+  "1000000": {
+    "num_blocks": 1000000,
+    "ordered_dict_lru": {
+      "memory_mb": 219.92,
+      "touch_throughput_tps": 16338775.0,
+      "eviction_throughput_tps": 7977398.0,
+      "rank_eviction_supported": false
+    },
+    "expanse_ordered_table": {
+      "memory_mb": 15.56,
+      "touch_throughput_tps": 2293819.0,
+      "eviction_throughput_tps": 3671690.0,
+      "rank_eviction_tps": 1962545.0,
+      "rank_eviction_supported": true,
+      "memory_reduction_vs_od_x": 14.13
+    }
+  }
+}

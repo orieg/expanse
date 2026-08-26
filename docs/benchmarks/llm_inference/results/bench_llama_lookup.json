@@ -1,0 +1,44 @@
+{
+  "4000": {
+    "context_tokens": 4000,
+    "stock_llama_cache": {
+      "update_latency_ns": 659.8,
+      "draft_latency_us": 0.40,
+      "total_drafted": 4000
+    },
+    "expanse_llama_cache": {
+      "update_latency_ns": 5047.0,
+      "draft_latency_us": 8.08,
+      "memory_mb": 3.04,
+      "total_drafted": 4000
+    }
+  },
+  "32000": {
+    "context_tokens": 32000,
+    "stock_llama_cache": {
+      "update_latency_ns": 1319.3,
+      "draft_latency_us": 0.57,
+      "total_drafted": 4000
+    },
+    "expanse_llama_cache": {
+      "update_latency_ns": 4480.5,
+      "draft_latency_us": 8.99,
+      "memory_mb": 24.39,
+      "total_drafted": 4000
+    }
+  },
+  "128000": {
+    "context_tokens": 128000,
+    "stock_llama_cache": {
+      "update_latency_ns": 1806.7,
+      "draft_latency_us": 0.81,
+      "total_drafted": 4000
+    },
+    "expanse_llama_cache": {
+      "update_latency_ns": 5010.8,
+      "draft_latency_us": 19.82,
+      "memory_mb": 97.04,
+      "total_drafted": 4000
+    }
+  }
+}

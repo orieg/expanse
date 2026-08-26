@@ -1,0 +1,32 @@
+--- a/common/ngram-cache.cpp
++++ b/common/ngram-cache.cpp
+@@ -1,5 +1,6 @@
+ #include "ngram-cache.h"
+ #include "llama.h"
++#include "expanse.hpp"
+ 
+ #include <algorithm>
+ #include <cstdint>
+@@ -10,13 +11,18 @@
+ #include <unordered_map>
+ #include <vector>
+ 
+-// Expanse-accelerated N-Gram Lookup Cache using expanse::str_map
++// Encodes 1..4 tokens into 7-bit NUL-free byte sequences
++static inline std::string encode_tokens_7bit(const llama_token* tokens, size_t n) {
++    std::string s;
++    s.reserve(n * 3);
++    for (size_t i = 0; i < n; ++i) {
++        uint32_t tok = static_cast<uint32_t>(tokens[i]);
++        s.push_back(static_cast<char>(((tok >> 14) & 0x7F) + 1));
++        s.push_back(static_cast<char>(((tok >> 7) & 0x7F) + 1));
++        s.push_back(static_cast<char>((tok & 0x7F) + 1));
++    }
++    return s;
++}
++
++struct llama_ngram_cache_expanse {
++    expanse::str_map<uint64_t> map;
++    int32_t ngram_min = 1;
++    int32_t ngram_max = 4;
++};
