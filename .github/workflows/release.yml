@@ -410,7 +410,7 @@ jobs:
 
   github-release:
     name: Create GitHub Release
-    needs: [build-release-artifacts, package-nuget, publish-npm]
+    needs: [build-release-artifacts]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the release and upload assets
