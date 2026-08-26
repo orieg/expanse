@@ -102,5 +102,25 @@ name = "hashbrown_memory_alloc"
 harness = false
 test = false
 
+[[bench]]
+name = "zset_zadd"
+harness = false
+test = false
+
+[[bench]]
+name = "zset_range"
+harness = false
+test = false
+
+[[bench]]
+name = "zset_rank"
+harness = false
+test = false
+
+[[bench]]
+name = "zset_memory"
+harness = false
+test = false
+
 [lints]
 workspace = true
