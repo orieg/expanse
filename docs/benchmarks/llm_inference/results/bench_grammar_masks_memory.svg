@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 420" width="100%" height="100%">
   <style>
     .bg { fill: #ffffff; }
     .text-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700; fill: #1e293b; }
     .text-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; fill: #64748b; }
-    .text-axis { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; fill: #475569; }
+    .text-axis { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 500; fill: #475569; }
     .text-val { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 600; fill: #1e293b; }
     .grid-line { stroke: #e2e8f0; stroke-width: 1; stroke-dasharray: 4 4; }
     .axis-line { stroke: #cbd5e1; stroke-width: 1.5; }
@@ -25,16 +25,16 @@
       .legend-text { fill: #e2e8f0; }
     }
   </style>
-  <rect width="800" height="400" class="bg" rx="8" />
-  <text x="40" y="40" class="text-title">Pillar D: Grammar-Constrained Decoding Mask Cache Memory</text>
-<text x="40" y="62" class="text-sub">Total memory footprint across DFA states (lower is better)</text>
-<text x="40" y="135" class="text-axis">Dense Bitmask (Array)</text>
-<rect x="220" y="120" width="460.0" height="26" rx="3" class="bar-baseline" />
-<text x="690.0" y="138" class="text-val">30.52 MB</text>
-<text x="40" y="185" class="text-axis">Roaring Bitmap</text>
-<rect x="220" y="170" width="153.4" height="26" rx="3" class="bar-highlight" />
-<text x="383.4338138925295" y="188" class="text-val">10.18 MB</text>
-<text x="40" y="235" class="text-axis">ExpanseSet</text>
-<rect x="220" y="220" width="320.0" height="26" rx="3" class="bar-expanse" />
-<text x="549.9803407601573" y="238" class="text-val">21.23 MB (1.4x lower RAM)</text>
+  <rect width="920" height="420" class="bg" rx="8" />
+  <text x="40" y="36" class="text-title">Pillar D: Grammar-Constrained Decoding Mask Cache Memory</text>
+  <text x="40" y="58" class="text-sub">Total memory footprint across 2,000 DFA states (128k vocab; lower is better)</text>
+<text x="40" y="125" class="text-axis">Dense Bitmask ([u64] Array)</text>
+<rect x="240" y="105" width="420.0" height="26" rx="3" class="bar-baseline" />
+<text x="672.0" y="123" class="text-val">30.52 MB (Baseline)</text>
+<text x="40" y="185" class="text-axis">ExpanseSet (Digital Trie)</text>
+<rect x="240" y="165" width="292.2" height="26" rx="3" class="bar-expanse" />
+<text x="544.1559633027523" y="183" class="text-val">21.23 MB (1.4x lower RAM)</text>
+<text x="40" y="245" class="text-axis">Roaring Bitmap (Compressed)</text>
+<rect x="240" y="225" width="140.1" height="26" rx="3" class="bar-highlight" />
+<text x="392.0917431192661" y="243" class="text-val">10.18 MB (3.0x lower RAM)</text>
 </svg>

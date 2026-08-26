@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 440" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 450" width="100%" height="100%">
   <style>
     .bg { fill: #ffffff; }
     .text-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700; fill: #1e293b; }
     .text-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; fill: #64748b; }
-    .text-axis { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; fill: #475569; }
+    .text-axis { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 500; fill: #475569; }
     .text-val { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 600; fill: #1e293b; }
     .grid-line { stroke: #e2e8f0; stroke-width: 1; stroke-dasharray: 4 4; }
     .axis-line { stroke: #cbd5e1; stroke-width: 1.5; }
@@ -25,26 +25,26 @@
       .legend-text { fill: #e2e8f0; }
     }
   </style>
-  <rect width="800" height="440" class="bg" rx="8" />
-  <text x="40" y="40" class="text-title">Pillar E: Prefix-Cache KV-Block Table (Memory & Rank Eviction)</text>
-<text x="40" y="62" class="text-sub">Expanse achieves 9.5x lower RAM and enables native timestamp rank eviction</text>
-<rect x="420" y="32" width="14" height="14" rx="2" class="bar-baseline" />
-<text x="440" y="44" class="legend-text">OrderedDict (vLLM)</text>
-<rect x="580" y="32" width="14" height="14" rx="2" class="bar-expanse" />
-<text x="600" y="44" class="legend-text">ExpanseMap Table</text>
-<text x="40" y="142" class="text-axis">100,000 Blocks</text>
-<rect x="200" y="120" width="43.0" height="20" rx="3" class="bar-baseline" />
-<text x="253.0376" y="135" class="text-val">23.39 MB</text>
-<rect x="200" y="146" width="4.3" height="20" rx="3" class="bar-expanse" />
-<text x="214.2688" y="161" class="text-val">2.32 MB (10.1x lower)</text>
-<text x="40" y="232" class="text-axis">500,000 Blocks</text>
-<rect x="200" y="210" width="202.2" height="20" rx="3" class="bar-baseline" />
-<text x="412.216" y="225" class="text-val">109.90 MB</text>
-<rect x="200" y="236" width="21.3" height="20" rx="3" class="bar-expanse" />
-<text x="231.3256" y="251" class="text-val">11.59 MB (9.5x lower)</text>
-<text x="40" y="322" class="text-axis">1,000,000 Blocks</text>
-<rect x="200" y="300" width="404.7" height="20" rx="3" class="bar-baseline" />
-<text x="614.6528000000001" y="315" class="text-val">219.92 MB</text>
-<rect x="200" y="326" width="42.7" height="20" rx="3" class="bar-expanse" />
-<text x="252.6696" y="341" class="text-val">23.19 MB (9.5x lower)</text>
+  <rect width="920" height="450" class="bg" rx="8" />
+  <text x="40" y="36" class="text-title">Pillar E (Appendix): Prefix-Cache KV-Block Table Memory</text>
+  <text x="40" y="58" class="text-sub">Expanse achieves 9.5x lower RAM and enables native timestamp rank eviction</text>
+<rect x="40" y="80" width="14" height="14" rx="2" class="bar-baseline" />
+<text x="60" y="92" class="legend-text">OrderedDict (vLLM / SGLang baseline)</text>
+<rect x="340" y="80" width="14" height="14" rx="2" class="bar-expanse" />
+<text x="360" y="92" class="legend-text">ExpanseMap Table (all-inclusive)</text>
+<text x="40" y="159" class="text-axis">100,000 Blocks</text>
+<rect x="220" y="135" width="37.4" height="20" rx="3" class="bar-baseline" />
+<text x="269.424" y="150" class="text-val">23.39 MB</text>
+<rect x="220" y="161" width="3.7" height="20" rx="3" class="bar-expanse" />
+<text x="235.712" y="176" class="text-val">2.32 MB (10.1x lower)</text>
+<text x="40" y="254" class="text-axis">500,000 Blocks</text>
+<rect x="220" y="230" width="175.8" height="20" rx="3" class="bar-baseline" />
+<text x="407.84000000000003" y="245" class="text-val">109.90 MB</text>
+<rect x="220" y="256" width="18.5" height="20" rx="3" class="bar-expanse" />
+<text x="250.544" y="271" class="text-val">11.59 MB (9.5x lower)</text>
+<text x="40" y="349" class="text-axis">1,000,000 Blocks</text>
+<rect x="220" y="325" width="351.9" height="20" rx="3" class="bar-baseline" />
+<text x="583.8720000000001" y="340" class="text-val">219.92 MB</text>
+<rect x="220" y="351" width="37.1" height="20" rx="3" class="bar-expanse" />
+<text x="269.104" y="366" class="text-val">23.19 MB (9.5x lower)</text>
 </svg>

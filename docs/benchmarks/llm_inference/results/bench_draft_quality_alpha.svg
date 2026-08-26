@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 440" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 450" width="100%" height="100%">
   <style>
     .bg { fill: #ffffff; }
     .text-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700; fill: #1e293b; }
     .text-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; fill: #64748b; }
-    .text-axis { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; fill: #475569; }
+    .text-axis { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 500; fill: #475569; }
     .text-val { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 600; fill: #1e293b; }
     .grid-line { stroke: #e2e8f0; stroke-width: 1; stroke-dasharray: 4 4; }
     .axis-line { stroke: #cbd5e1; stroke-width: 1.5; }
@@ -25,26 +25,26 @@
       .legend-text { fill: #e2e8f0; }
     }
   </style>
-  <rect width="800" height="440" class="bg" rx="8" />
-  <text x="40" y="40" class="text-title">Pillar A: Speculative Draft Quality (Mean Acceptance Length α)</text>
-<text x="40" y="62" class="text-sub">Higher α delivers greater end-to-end inference speedup (verified via Replay Verifier)</text>
-<rect x="420" y="32" width="14" height="14" rx="2" class="bar-baseline" />
-<text x="440" y="44" class="legend-text">HF Fixed 3-gram</text>
-<rect x="580" y="32" width="14" height="14" rx="2" class="bar-expanse" />
-<text x="600" y="44" class="legend-text">Expanse Variable LSM</text>
-<text x="40" y="142" class="text-axis">HumanEval Code</text>
-<rect x="200" y="120" width="362.4" height="20" rx="3" class="bar-baseline" />
-<text x="572.388" y="135" class="text-val">α = 3.939</text>
-<rect x="200" y="146" width="413.8" height="20" rx="3" class="bar-expanse" />
-<text x="623.816" y="161" class="text-val">α = 4.498 (+14.2%)</text>
-<text x="40" y="232" class="text-axis">Summarization</text>
-<rect x="200" y="210" width="299.8" height="20" rx="3" class="bar-baseline" />
-<text x="509.828" y="225" class="text-val">α = 3.259</text>
-<rect x="200" y="236" width="368.0" height="20" rx="3" class="bar-expanse" />
-<text x="578.0" y="251" class="text-val">α = 4.000 (+22.7%)</text>
-<text x="40" y="322" class="text-axis">JSON Schemas</text>
-<rect x="200" y="300" width="293.6" height="20" rx="3" class="bar-baseline" />
-<text x="503.572" y="315" class="text-val">α = 3.191</text>
-<rect x="200" y="326" width="342.3" height="20" rx="3" class="bar-expanse" />
-<text x="552.332" y="341" class="text-val">α = 3.721 (+16.6%)</text>
+  <rect width="920" height="450" class="bg" rx="8" />
+  <text x="40" y="36" class="text-title">Pillar A: Speculative Draft Quality (Mean Acceptance Length α)</text>
+  <text x="40" y="58" class="text-sub">Higher α delivers greater end-to-end inference speedup (verified via Replay Verifier on real model output)</text>
+<rect x="40" y="80" width="14" height="14" rx="2" class="bar-baseline" />
+<text x="60" y="92" class="legend-text">HF Fixed 3-gram</text>
+<rect x="220" y="80" width="14" height="14" rx="2" class="bar-expanse" />
+<text x="240" y="92" class="legend-text">Expanse Variable LSM (1 key/token)</text>
+<text x="40" y="159" class="text-axis">HumanEval Code</text>
+<rect x="220" y="135" width="315.1" height="20" rx="3" class="bar-baseline" />
+<text x="547.12" y="150" class="text-val">α = 3.939</text>
+<rect x="220" y="161" width="359.8" height="20" rx="3" class="bar-expanse" />
+<text x="591.84" y="176" class="text-val">α = 4.498 (+14.2%)</text>
+<text x="40" y="254" class="text-axis">Summarization</text>
+<rect x="220" y="230" width="260.7" height="20" rx="3" class="bar-baseline" />
+<text x="492.71999999999997" y="245" class="text-val">α = 3.259</text>
+<rect x="220" y="256" width="320.0" height="20" rx="3" class="bar-expanse" />
+<text x="552.0" y="271" class="text-val">α = 4.000 (+22.7%)</text>
+<text x="40" y="349" class="text-axis">JSON Schemas</text>
+<rect x="220" y="325" width="255.3" height="20" rx="3" class="bar-baseline" />
+<text x="487.28" y="340" class="text-val">α = 3.191</text>
+<rect x="220" y="351" width="297.7" height="20" rx="3" class="bar-expanse" />
+<text x="529.6800000000001" y="366" class="text-val">α = 3.721 (+16.6%)</text>
 </svg>
