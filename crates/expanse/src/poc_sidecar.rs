@@ -995,29 +995,29 @@ mod characterize {
         eprintln!("=== end characterization ===\n");
     }
 
-    /// Guards the `>`LLC bench arm's sizing: 3M × 256 B payloads must fit under
-    /// the shipped 1 GiB `MAX_ARENA_CAPACITY` cap for both maps, so the host run
-    /// cannot fail with `OffsetOverflow` after a long setup. (Ignored: builds
-    /// ~1.7 GiB of maps; run explicitly.)
+    /// Guards the largest `>`LLC bench cell's sizing: 6M × 128 B payloads (K=4)
+    /// must fit under the shipped 1 GiB `MAX_ARENA_CAPACITY` cap for both maps,
+    /// so the host run cannot fail with `OffsetOverflow` after a long setup.
+    /// (Ignored: builds ~2 GiB of maps; run explicitly.)
     #[test]
     #[ignore = "large-memory sizing guard for the >LLC bench arm; run explicitly"]
-    fn xllc_3m_256b_fits_under_arena_cap() {
+    fn xllc_6m_128b_fits_under_arena_cap() {
         use crate::blobmap::ExpanseBlobMap;
-        const N: u64 = 3_000_000;
-        let mut sidecar = SidecarBlobMap::<3>::with_chunk_size(64 * 1024 * 1024);
+        const N: u64 = 6_000_000;
+        let mut sidecar = SidecarBlobMap::<4>::with_chunk_size(64 * 1024 * 1024);
         let mut phase1 = ExpanseBlobMap::with_chunk_size(64 * 1024 * 1024);
-        let payload = [0xABu8; 256];
+        let payload = [0xABu8; 128];
         for k in 0..N {
             sidecar
-                .insert(k, &payload, [(k % 10_000) as u32, 0, 0])
-                .expect("sidecar 3M x 256B must fit under the 1 GiB cap");
+                .insert(k, &payload, [(k % 10_000) as u32, 0, 0, 0])
+                .expect("sidecar 6M x 128B (K=4) must fit under the 1 GiB cap");
             phase1
                 .insert(k, &payload, (k % 10_000) as u32)
-                .expect("phase1 3M x 256B must fit under the 1 GiB cap");
+                .expect("phase1 6M x 128B must fit under the 1 GiB cap");
         }
         assert_eq!(sidecar.len(), N);
         assert_eq!(phase1.len(), N);
-        // Arena stayed under the shipped cap.
+        // Both arenas stayed under the shipped cap.
         assert!(sidecar.arena().mem_used() <= crate::blobmap::MAX_ARENA_CAPACITY);
     }
 }

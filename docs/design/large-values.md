@@ -776,21 +776,27 @@ in place once the host run completes:
 | 0.20 | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ |
 | 1.0 | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ |
 
-**`>`LLC arm (H3 residency cliff — measured, pending):** to cross the 30 MiB
-reference L3 with the per-entry `meta` array while keeping the payload arena
-under the shipped 1 GiB `MAX_ARENA_CAPACITY` cap (so no Phase-1 code is touched),
-this arm uses **`K = 3` (12 B/entry `meta`)** and **256 B payloads**, at
-N ∈ {1M, 3M}, σ ∈ {0.001, 0.05}, same three arms:
+**`>`LLC arm (H3 residency cliff — measured, pending) — a declared scaled
+proxy.** The cliff is driven by the per-entry `meta[]` array (`4·K·N` bytes)
+crossing the LLC, **not** by payload size. A literal 1 KiB payload at these N
+would put the arena at multiple GiB, over the shipped 1 GiB `MAX_ARENA_CAPACITY`
+cap — and that cap is Phase-1 code, out of scope to edit for this POC. So the arm
+**drops payload size to keep every arena `<` 1 GiB** while choosing `K` so
+`meta[]` straddles / exceeds the 30 MiB reference L3. This is an explicitly
+declared scaled proxy for the 1 KiB / multi-GiB-arena case (the true `>64` GiB
+regime is only reachable by raising the shipped cap; §5.6.1 axis *c* covers the
+*encoding*, this arm covers the *residency* effect). Three cells, σ ∈ {0.001,
+0.05}, same three arms, arena sizes are the `alloc`-rounded totals the sizing
+guard `xllc_6m_128b_fits_under_arena_cap` confirms fit under the cap:
 
-| N | sidecar `meta[]` | payload arena | expected |
-|---:|---:|---:|---|
-| 1 000 000 | ≈ 12 MiB (< 30 MiB L3) | ≈ 272 MiB (> L3) | boundary — sidecar ≈ Phase-1 |
-| 3 000 000 | ≈ 36 MiB (**> 30 MiB L3**) | ≈ 816 MiB (> L3) | **cliff — sidecar loses** (2nd cold stream) |
+| N | K | payload | sidecar `meta[]` | ×L3 | payload arena | expected |
+|---:|---:|---:|---:|---:|---:|---|
+| 1 000 000 | 3 | 256 B | ≈ 12 MiB | 0.4× | ≈ 272 MiB (> L3) | boundary — sidecar ≈ Phase-1 |
+| 3 000 000 | 3 | 256 B | ≈ 36 MiB | 1.2× | ≈ 816 MiB (> L3) | straddling — partial cliff |
+| 6 000 000 | 4 | 128 B | ≈ 96 MiB | 3.2× | ≈ 896 MiB (> L3) | **spilled — sidecar loses** (2nd cold stream) |
 
-(256 B payloads, not 1 KiB, so the 3M arena stays under the 1 GiB cap without a
-shipped-code change; the cliff is driven by the `meta[]` array size, not the
-payload size. At 3M the `meta[]` array is only modestly over the 30 MiB L3, so a
-partial cliff is expected; a larger N or K would sharpen it.)
+(The 6M/K=4 cell pushes `meta[]` to 3.2× the L3 to make the cliff unambiguous,
+where the 3M/1.2× cell only straddles it.)
 
 Also pending: `sidecar_compaction` (sidecar vs Phase-1 at 50 %-delete churn,
 H5), `sidecar_write_path` (H6), and `inverted_index` query latency
