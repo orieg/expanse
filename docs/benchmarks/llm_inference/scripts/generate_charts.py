@@ -4,7 +4,7 @@ Dual-theme SVG chart generator for the LLM inference benchmark suite (#342).
 
 Produces four charts:
   1. bench_draft_quality_alpha.svg   (Pillar A, mean acceptance length alpha)
-  2. bench_llm_datastore_scaling.svg (Pillar B, memory & crossover batch size)
+  2. bench_llm_datastore_scaling.svg (Pillar B, streaming ingestion throughput)
   3. bench_grammar_masks_memory.svg  (Pillar D, DFA mask cache memory)
   4. bench_prefix_lru_throughput.svg (Pillar E, KV-block table RAM)
 """
@@ -47,7 +47,7 @@ def render_draft_quality_chart():
         ("json_schemas", "JSON Schemas", "Structured extraction"),
     ]
 
-    max_val = 5.2
+    max_val = 4.0
     bar_max = 340.0
     row_h = 56
     top = 96
@@ -99,26 +99,26 @@ def render_datastore_chart():
         data = json.load(f)
 
     keys = [
-        ("100000", "100k Tokens", "Incremental update vs periodic rebuild"),
-        ("500000", "500k Tokens", "Incremental update vs periodic rebuild"),
-        ("1000000", "1M Tokens", "Incremental update vs periodic rebuild"),
+        ("100000", "100k Tokens", "Continuous streaming vs per-token rebuild"),
+        ("500000", "500k Tokens", "Continuous streaming vs per-token rebuild"),
+        ("1000000", "1M Tokens", "Continuous streaming vs per-token rebuild"),
     ]
 
-    max_val = 110.0
+    max_val = 2000.0  # k tokens/sec
     bar_max = 340.0
     row_h = 56
     top = 96
     height = top + len(keys) * row_h + 24
 
-    svg = svg_header(width=960, height=height, title="PILLAR B — DYNAMIC DATASTORE VS SUFFIX ARRAY")
+    svg = svg_header(width=960, height=height, title="PILLAR B — DYNAMIC DATASTORE INGESTION THROUGHPUT")
     svg += f"""
-  <text x="30" y="34" class="t-title">PILLAR B — DYNAMIC DATASTORE VS SUFFIX ARRAY</text>
-  <text x="30" y="50" class="t-sub">Memory footprint &#183; Bytes/token &#183; lower is better (Expanse wins dynamic updates)</text>
+  <text x="30" y="34" class="t-title">PILLAR B — DYNAMIC DATASTORE INGESTION THROUGHPUT</text>
+  <text x="30" y="50" class="t-sub">Streaming insertion throughput &#183; k tok/s &#183; higher is better (Expanse trades 6.9x RAM for O(depth) updates)</text>
   <g transform="translate(600, 24)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
-    <text x="18" y="10" class="t-legend">ExpanseStrMap (Dynamic)</text>
+    <text x="18" y="10" class="t-legend">ExpanseStrMap (Streaming)</text>
     <rect x="0" y="18" width="12" height="12" rx="2" class="b-baseline"/>
-    <text x="18" y="28" class="t-legend">Suffix Array (Static Native)</text>
+    <text x="18" y="28" class="t-legend">Suffix Array (Rebuild/token)</text>
   </g>
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
 """
@@ -127,21 +127,24 @@ def render_datastore_chart():
         if pop not in data:
             continue
         y = top + i * row_h
-        sa_b = data[pop]["suffix_array"]["bytes_per_token"]
-        exp_b = data[pop]["expanse_strmap"]["bytes_per_token"]
+        exp_tps = data[pop]["expanse_strmap"]["streaming_insert_tps"] / 1000.0
+        # Suffix Array per-token insertion rate: 1 token / rebuild_time_secs
+        sa_rebuild_ms = data[pop]["suffix_array"]["rebuild_time_ms"]
+        sa_single_tok_tps = (1000.0 / max(1e-6, sa_rebuild_ms)) / 1000.0
         crossover = data[pop]["expanse_strmap"]["crossover_batch_size_tokens"]
+        speedup = exp_tps / max(1e-6, sa_single_tok_tps)
 
-        w_exp = max(2.0, (exp_b / max_val) * bar_max)
-        w_sa = max(2.0, (sa_b / max_val) * bar_max)
+        w_exp = max(2.0, (exp_tps / max_val) * bar_max)
+        w_sa = max(2.0, (sa_single_tok_tps / max_val) * bar_max)
 
         svg += f"""  <text x="30" y="{y + 8}" class="t-bar-label">{esc(label)}</text>
   <text x="30" y="{y + 22}" class="t-sub">{esc(sub)}</text>
   <rect x="250" y="{y - 4}" width="{w_exp:.1f}" height="13" rx="2" class="b-expanse"/>
-  <text x="{258 + w_exp:.1f}" y="{y + 6}" class="t-val-blue">{exp_b:.1f} B/tok</text>
+  <text x="{258 + w_exp:.1f}" y="{y + 6}" class="t-val-blue">{exp_tps:.1f}k tok/s</text>
   <rect x="250" y="{y + 12}" width="{w_sa:.1f}" height="13" rx="2" class="b-baseline"/>
-  <text x="{258 + w_sa:.1f}" y="{y + 22}" class="t-val-gray">{sa_b:.1f} B/tok</text>
+  <text x="{258 + w_sa:.1f}" y="{y + 22}" class="t-val-gray">{sa_single_tok_tps:.2f}k tok/s</text>
   <rect x="760" y="{y + 2}" width="170" height="18" rx="3" class="badge-win"/>
-  <text x="845" y="{y + 15}" class="badge-win-text">Expanse Win: B &lt; {crossover:,}</text>
+  <text x="845" y="{y + 15}" class="badge-win-text">Expanse {speedup:.0f}x (B &lt; {crossover:,})</text>
 """
 
     svg += "</svg>\n"
