@@ -83,11 +83,11 @@ fn main() {
             let rb = to_roaring(&b_v);
 
             let and_card = expanse_and_count(&ea, &eb);
-            debug_assert_eq!(and_card, ra.intersection_len(&rb));
+            assert_eq!(and_card, ra.intersection_len(&rb));
             // Native kernels must agree with the composed path and Roaring.
-            debug_assert_eq!(expanse_native_and_count(&ea, &eb), and_card);
-            debug_assert_eq!(expanse_native_or_count(&ea, &eb), ra.union_len(&rb));
-            debug_assert_eq!(
+            assert_eq!(expanse_native_and_count(&ea, &eb), and_card);
+            assert_eq!(expanse_native_or_count(&ea, &eb), ra.union_len(&rb));
+            assert_eq!(
                 expanse_native_andnot_count(&ea, &eb),
                 ra.difference_len(&rb)
             );
@@ -108,11 +108,11 @@ fn main() {
             // ordered-merge + per-key insert; roaring returns a bitmap. Every
             // arm must produce the same cardinality as the AND/OR/AND-NOT
             // cardinality cells.
-            debug_assert_eq!(expanse_and_materialize(&ea, &eb), and_card);
-            debug_assert_eq!(expanse_and_materialize_v1(&ea, &eb), and_card);
-            debug_assert_eq!(roaring_and_materialize(&ra, &rb), and_card);
-            debug_assert_eq!(expanse_or_materialize(&ea, &eb), expanse_or_count(&ea, &eb));
-            debug_assert_eq!(
+            assert_eq!(expanse_and_materialize(&ea, &eb), and_card);
+            assert_eq!(expanse_and_materialize_v1(&ea, &eb), and_card);
+            assert_eq!(roaring_and_materialize(&ra, &rb), and_card);
+            assert_eq!(expanse_or_materialize(&ea, &eb), expanse_or_count(&ea, &eb));
+            assert_eq!(
                 expanse_andnot_materialize(&ea, &eb),
                 expanse_andnot_count(&ea, &eb)
             );
@@ -203,8 +203,8 @@ fn main() {
             let rb = to_roaring(&b_v);
 
             let card = expanse_and_count(&ea, &eb);
-            debug_assert_eq!(card, ra.intersection_len(&rb));
-            debug_assert_eq!(expanse_native_and_count(&ea, &eb), card);
+            assert_eq!(card, ra.intersection_len(&rb));
+            assert_eq!(expanse_native_and_count(&ea, &eb), card);
             let e_and = median_ns_per_op(|| expanse_and_count(&ea, &eb), batches, min_batch);
             let n_and = median_ns_per_op(|| expanse_native_and_count(&ea, &eb), batches, min_batch);
             let r_and = median_ns_per_op(|| ra.intersection_len(&rb), batches, min_batch);
