@@ -1,4 +1,10 @@
-name: Subsplit Mirror (PHP)
+name: Subsplit Mirrors (PHP)
+
+# Two-package PHP distribution (#317, MongoDB model):
+#   bindings/php        -> github.com/orieg/expanse-php-library  (Packagist: orieg/expanse, type library)
+#   crates/expanse-php  -> github.com/orieg/php-expanse          (Packagist: orieg/expanse-extension, type php-ext)
+# Each mirror repo's Packagist entry is registered/repointed manually once;
+# thereafter tags flowing through these subsplits publish new versions.
 
 on:
   push:
@@ -8,6 +14,7 @@ on:
       - 'v*'
     paths:
       - 'bindings/php/**'
+      - 'crates/expanse-php/**'
       - '.github/workflows/subsplit.yml'
   workflow_dispatch:
 
@@ -15,12 +22,57 @@ permissions:
   contents: write
 
 jobs:
-  subsplit-php:
-    name: Mirror / bindings/php -> orieg/php-expanse
+  subsplit-php-library:
+    name: Mirror / bindings/php -> orieg/expanse-php-library
     runs-on: ubuntu-latest
     steps:
       - name: Checkout monorepo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup SSH Deploy Key
+        if: ${{ env.SSH_KEY != '' }}
+        uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.PHP_LIBRARY_SUBSPLIT_SSH_KEY }}
+        env:
+          SSH_KEY: ${{ secrets.PHP_LIBRARY_SUBSPLIT_SSH_KEY }}
+
+      - name: Configure Git Author
+        if: ${{ env.SSH_KEY != '' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+        env:
+          SSH_KEY: ${{ secrets.PHP_LIBRARY_SUBSPLIT_SSH_KEY }}
+
+      - name: Push bindings/php subtree to orieg/expanse-php-library
+        if: ${{ env.SSH_KEY != '' }}
+        run: |
+          SPLIT_BRANCH="php-library-split"
+          git subtree split --prefix=bindings/php -b "${SPLIT_BRANCH}"
+          git push -f git@github.com:orieg/expanse-php-library.git "${SPLIT_BRANCH}:main"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+            git tag -f "${TAG_NAME}" "${SPLIT_BRANCH}"
+            git push -f git@github.com:orieg/expanse-php-library.git "${TAG_NAME}"
+          fi
+        env:
+          SSH_KEY: ${{ secrets.PHP_LIBRARY_SUBSPLIT_SSH_KEY }}
+
+      - name: Skip notification
+        if: ${{ env.SSH_KEY == '' }}
+        run: echo "PHP_LIBRARY_SUBSPLIT_SSH_KEY secret not configured; skipping the library mirror."
+        env:
+          SSH_KEY: ${{ secrets.PHP_LIBRARY_SUBSPLIT_SSH_KEY }}
+
+  subsplit-php-extension:
+    name: Mirror / crates/expanse-php -> orieg/php-expanse
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout monorepo
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -40,11 +92,11 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.PHP_SUBSPLIT_SSH_KEY }}
 
-      - name: Push bindings/php subtree to orieg/php-expanse
+      - name: Push crates/expanse-php subtree to orieg/php-expanse
         if: ${{ env.SSH_KEY != '' }}
         run: |
-          SPLIT_BRANCH="php-split"
-          git subtree split --prefix=bindings/php -b "${SPLIT_BRANCH}"
+          SPLIT_BRANCH="php-extension-split"
+          git subtree split --prefix=crates/expanse-php -b "${SPLIT_BRANCH}"
           git push -f git@github.com:orieg/php-expanse.git "${SPLIT_BRANCH}:main"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             TAG_NAME="${GITHUB_REF#refs/tags/}"
@@ -56,6 +108,6 @@ jobs:
 
       - name: Skip notification
         if: ${{ env.SSH_KEY == '' }}
-        run: echo "PHP_SUBSPLIT_SSH_KEY secret not configured; skipping external repository mirror."
+        run: echo "PHP_SUBSPLIT_SSH_KEY secret not configured; skipping the extension mirror."
         env:
           SSH_KEY: ${{ secrets.PHP_SUBSPLIT_SSH_KEY }}

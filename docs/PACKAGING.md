@@ -315,8 +315,8 @@ Expanse is *intended* to be distributed on [NuGet.org](https://www.nuget.org) as
 
 ### 2.11 PHP (Packagist & PIE Zend Extension)
 Expanse provides a unified dual-driver distribution for PHP 8.1–8.5+:
-- **Composer / Packagist**: Distributed as [`orieg/expanse`](https://packagist.org/packages/orieg/expanse) via automated Git subtree subsplit to [`github.com/orieg/php-expanse`](https://github.com/orieg/php-expanse).
-- **PHP Extension Installer (PIE)**: High-performance native Zend extension compiled via `ext-php-rs` (`pie install orieg/php-expanse`).
+- **Composer / Packagist (library)**: [`orieg/expanse`](https://packagist.org/packages/orieg/expanse) — pure-PHP userland package, subsplit from `bindings/php` to [`github.com/orieg/expanse-php-library`](https://github.com/orieg/expanse-php-library).
+- **PIE (extension)**: `pie install orieg/expanse-extension` — native Zend extension compiled locally from Rust (`ext-php-rs`), subsplit from `crates/expanse-php` to [`github.com/orieg/php-expanse`](https://github.com/orieg/php-expanse). Follows the MongoDB two-package convention (library = bare name, extension = `-extension`).
 - **Zero-Install FFI Fallback**: Automatically activates `\FFI` downcalls into `libexpanse` when native extension compilation is unavailable.
 - **Quickstart**:
   ```bash

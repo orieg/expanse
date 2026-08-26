@@ -15,7 +15,7 @@ Expanse provides a **unified dual-driver architecture** for PHP 8.1–8.5+:
 flowchart TD
     subgraph Distribution["Distribution Channels"]
         Packagist["Packagist.org (orieg/expanse)"]
-        PIE_PECL["PIE / PECL / OS (pie install orieg/php-expanse)"]
+        PIE_PECL["PIE (pie install orieg/expanse-extension)"]
     end
 
     subgraph Consumer["Application Layer"]
@@ -60,13 +60,19 @@ composer require orieg/expanse
 For maximum performance, install the native Zend extension via PIE (PHP Installer for Extensions) or PECL:
 
 ```bash
-# Via PIE
-pie install orieg/php-expanse
+# Via PIE (compiles the Rust extension locally; requires the Rust toolchain)
+pie install orieg/expanse-extension
 
 # Or compile from source in monorepo
 cargo build --release -p expanse-php
 # Add to php.ini: extension=expanse.so (or libexpanse_php.dylib / expanse_php.dll)
 ```
+
+Neither package ships prebuilt binaries: `pie install` compiles the Zend
+extension from Rust source on your machine (it statically embeds the expanse
+core), while the pure-PHP Composer package needs either that extension or —
+as a zero-toolchain fallback — a `libexpanse` shared library from the apt/rpm
+repositories or a GitHub Release archive, loaded via `\FFI`.
 
 ---
 
@@ -205,8 +211,19 @@ $next  = $judy->next(1); // 2
 
 ---
 
-## 4. Git Subtree Subsplit & Packagist Distribution
+## 4. Git Subtree Subsplits & Packagist Distribution
 
-The PHP package source lives in `bindings/php` in the monorepo and is automatically mirrored to [`github.com/orieg/php-expanse`](https://github.com/orieg/php-expanse) on every push to `main` and release tag `v*` via [`.github/workflows/subsplit.yml`](../../.github/workflows/subsplit.yml).
+PHP follows the ecosystem's two-package convention (as `mongodb/mongodb` +
+`mongodb/mongodb-extension`): the **library owns the bare Packagist name, the
+extension takes `-extension`**. Both packages are mirrored out of the monorepo
+on every push to `main` and release tag `v*` via
+[`.github/workflows/subsplit.yml`](../../.github/workflows/subsplit.yml):
 
-Packagist.org tracks `orieg/php-expanse` to distribute the package under `orieg/expanse`.
+| Package | Monorepo source | Mirror repo | Packagist | Install |
+|---|---|---|---|---|
+| Userland library (pure PHP, FFI fallback) | `bindings/php` | [`orieg/expanse-php-library`](https://github.com/orieg/expanse-php-library) | `orieg/expanse` (`library`) | `composer require orieg/expanse` |
+| Native Zend extension (Rust, ext-php-rs) | `crates/expanse-php` | [`orieg/php-expanse`](https://github.com/orieg/php-expanse) | `orieg/expanse-extension` (`php-ext`) | `pie install orieg/expanse-extension` |
+
+(Ext-only sibling projects keep the bare name — e.g. `orieg/judy` from
+[`orieg/php-judy`](https://github.com/orieg/php-judy) — per the same
+convention: the bare name goes to the package users install.)
