@@ -241,6 +241,126 @@ pub fn expanse_native_andnot_count(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
     a.difference_len(b)
 }
 
+// ------------------------------------------------------------------------
+// Materializing arm (#348): build the *result set*, not just its cardinality.
+// The sink is the result population so the closure returns a `u64` like the
+// cardinality arms, and dead-code elimination cannot drop the build.
+// ------------------------------------------------------------------------
+
+/// AND result via the native direct-emission kernel (`ExpanseSet::intersection`).
+pub fn expanse_and_materialize(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
+    a.intersection(b).len()
+}
+
+/// OR result via the native direct-emission kernel.
+pub fn expanse_or_materialize(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
+    a.union(b).len()
+}
+
+/// AND-NOT result via the native direct-emission kernel.
+pub fn expanse_andnot_materialize(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
+    a.difference(b).len()
+}
+
+/// AND result via the pre-#348 path: ordered-merge the two iterators and
+/// `insert` each surviving key into a fresh set. Kept as a before/after arm.
+pub fn expanse_and_materialize_v1(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
+    let mut out = ExpanseSet::new();
+    let (mut ia, mut ib) = (a.iter(), b.iter());
+    let (mut x, mut y) = (ia.next(), ib.next());
+    while let (Some(xv), Some(yv)) = (x, y) {
+        match xv.cmp(&yv) {
+            std::cmp::Ordering::Equal => {
+                out.insert(xv);
+                x = ia.next();
+                y = ib.next();
+            }
+            std::cmp::Ordering::Less => x = ia.next(),
+            std::cmp::Ordering::Greater => y = ib.next(),
+        }
+    }
+    out.len()
+}
+
+/// OR result via the pre-#348 ordered-merge + `insert` path.
+pub fn expanse_or_materialize_v1(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
+    let mut out = ExpanseSet::new();
+    let (mut ia, mut ib) = (a.iter(), b.iter());
+    let (mut x, mut y) = (ia.next(), ib.next());
+    loop {
+        match (x, y) {
+            (Some(xv), Some(yv)) => match xv.cmp(&yv) {
+                std::cmp::Ordering::Less => {
+                    out.insert(xv);
+                    x = ia.next();
+                }
+                std::cmp::Ordering::Greater => {
+                    out.insert(yv);
+                    y = ib.next();
+                }
+                std::cmp::Ordering::Equal => {
+                    out.insert(xv);
+                    x = ia.next();
+                    y = ib.next();
+                }
+            },
+            (Some(xv), None) => {
+                out.insert(xv);
+                x = ia.next();
+            }
+            (None, Some(yv)) => {
+                out.insert(yv);
+                y = ib.next();
+            }
+            (None, None) => break,
+        }
+    }
+    out.len()
+}
+
+/// AND-NOT result via the pre-#348 ordered-merge + `insert` path.
+pub fn expanse_andnot_materialize_v1(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
+    let mut out = ExpanseSet::new();
+    let (mut ia, mut ib) = (a.iter(), b.iter());
+    let (mut x, mut y) = (ia.next(), ib.next());
+    loop {
+        match (x, y) {
+            (Some(xv), Some(yv)) => match xv.cmp(&yv) {
+                std::cmp::Ordering::Less => {
+                    out.insert(xv);
+                    x = ia.next();
+                }
+                std::cmp::Ordering::Greater => y = ib.next(),
+                std::cmp::Ordering::Equal => {
+                    x = ia.next();
+                    y = ib.next();
+                }
+            },
+            (Some(xv), None) => {
+                out.insert(xv);
+                x = ia.next();
+            }
+            (None, _) => break,
+        }
+    }
+    out.len()
+}
+
+/// AND result materialized as a [`RoaringTreemap`] (`a & b`), sink is its len.
+pub fn roaring_and_materialize(a: &RoaringTreemap, b: &RoaringTreemap) -> u64 {
+    (a & b).len()
+}
+
+/// OR result materialized as a [`RoaringTreemap`] (`a | b`).
+pub fn roaring_or_materialize(a: &RoaringTreemap, b: &RoaringTreemap) -> u64 {
+    (a | b).len()
+}
+
+/// AND-NOT result materialized as a [`RoaringTreemap`] (`a - b`).
+pub fn roaring_andnot_materialize(a: &RoaringTreemap, b: &RoaringTreemap) -> u64 {
+    (a - b).len()
+}
+
 /// WAND skip-scan over an [`ExpanseSet`]: stateless O(depth) re-descent per
 /// target.
 pub fn expanse_skipscan(set: &ExpanseSet, targets: &[u64]) -> u64 {
