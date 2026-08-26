@@ -34,6 +34,7 @@
 //! planned contention refinement, not a correctness requirement.
 
 use crate::blobmap::{ArenaError, CompactionStats, ExpanseBlobMap};
+use crate::bytesmap::ExpanseBytesMap;
 use crate::leaf;
 use crate::map::ExpanseMap;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
@@ -43,6 +44,7 @@ use crate::slot::{SlotTag, ValueSlot};
 use crate::strmap::ExpanseStrMap;
 use crate::types::{EdgeTag, EdgeType, Key, digit};
 use core::cell::UnsafeCell;
+use std::hash::{BuildHasher, RandomState};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// By-value snapshot of a tree's root state (possibly torn — the reader
@@ -1347,6 +1349,192 @@ impl StrReader<'_> {
     }
 }
 
+/// An **unordered** byte-string map shareable across threads (issue
+/// #362 — the JudyHS member completing the Sync* family): one writer at
+/// a time (internally serialized), lock-free validated readers. See the
+/// module docs for the protocol and its trade-offs.
+///
+/// A lookup is one 64-bit hash, a single validated hand-over-hand walk
+/// over the hash trie, and one byte-exact comparison against the
+/// collision bucket — the flat competitor class for unordered point
+/// lookups (`DashMap` et al.), unlike the multi-hop ordered
+/// [`SyncExpanseStrMap`]. Collision buckets are write-once after
+/// publication: structural changes publish a replacement bucket and
+/// retire the old one (shell, entry buffer, and key buffers) through
+/// the epoch [`Collector`]; only value words mutate in place, covered
+/// by the reader's final tree-version validation.
+///
+/// The hasher is shared untouched between the writer and every reader
+/// (hashing goes through `&self` concurrently), hence the `Sync` bound.
+pub struct SyncExpanseBytesMap<S: BuildHasher + Send + Sync = RandomState> {
+    shared: Shared<ExpanseBytesMap<S>>,
+}
+
+impl Default for SyncExpanseBytesMap<RandomState> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SyncExpanseBytesMap<RandomState> {
+    /// Creates an empty concurrent map with a freshly seeded hasher.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::with_hasher(RandomState::new())
+    }
+}
+
+impl<S: BuildHasher + Send + Sync> SyncExpanseBytesMap<S> {
+    /// Creates an empty concurrent map using `hasher`.
+    #[must_use]
+    pub fn with_hasher(hasher: S) -> Self {
+        let collector = Arc::new(Collector::new());
+        let map = ExpanseBytesMap::with_hasher(hasher);
+        // Fresh map: deferral precedes every allocation.
+        map.defer_to(Arc::clone(&collector));
+        Self {
+            shared: Shared::with_collector(map, collector),
+        }
+    }
+
+    /// Inserts `key → val`; returns the replaced value, if any.
+    /// Serializes with other writers.
+    pub fn insert(&self, key: &[u8], val: u64) -> Option<u64> {
+        self.shared.write(|m| m.insert(key, val))
+    }
+
+    /// Removes `key`; returns its value, if present.
+    pub fn remove(&self, key: &[u8]) -> Option<u64> {
+        self.shared.write(|m| m.remove(key))
+    }
+
+    /// Removes every key and releases all memory.
+    pub fn clear(&self) {
+        self.shared.write(ExpanseBytesMap::clear)
+    }
+
+    /// Registers a reader handle for this thread's lookups.
+    #[must_use]
+    pub fn reader(&self) -> BytesReader<'_, S> {
+        BytesReader {
+            map: self,
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// One-shot lookup (registers a throwaway reader; use
+    /// [`Self::reader`] in hot loops).
+    #[must_use]
+    pub fn get(&self, key: &[u8]) -> Option<u64> {
+        self.reader().get(key)
+    }
+
+    /// One-shot membership test (registers a throwaway reader; use
+    /// [`Self::reader`] in hot loops).
+    #[must_use]
+    pub fn contains_key(&self, key: &[u8]) -> bool {
+        self.get(key).is_some()
+    }
+
+    /// Number of keys (validated read; the entry count, not the bucket
+    /// count).
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        for _ in 0..MAX_RETRIES {
+            let snap = self.shared.version.sample();
+            // SAFETY: single-word racy copy; validated before use.
+            let pop = unsafe { (*self.shared.inner.get()).len() };
+            if self.shared.version.validate(snap) {
+                return pop;
+            }
+        }
+        self.shared.read_locked(ExpanseBytesMap::len)
+    }
+
+    /// True when no keys are present.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Heap bytes used (consistent read under the writer lock).
+    #[must_use]
+    pub fn mem_used(&self) -> usize {
+        self.shared.read_locked(ExpanseBytesMap::mem_used)
+    }
+
+    /// Runs `f` over the map with all writers excluded — the escape
+    /// hatch to the single-threaded `&self` read API ([`ExpanseBytesMap::for_each`], …).
+    pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseBytesMap<S>) -> R) -> R {
+        self.shared.read_locked(f)
+    }
+
+    /// Runs `f` with exclusive access under the writer lock and version
+    /// bracket — the escape hatch to the compat slot API
+    /// ([`ExpanseBytesMap::ins_slot`] / [`ExpanseBytesMap::get_value_slot`],
+    /// which take `&mut self` because they return writable value slots).
+    /// Slots obtained inside must not escape `f`.
+    pub fn with_locked_mut<R>(&self, f: impl FnOnce(&mut ExpanseBytesMap<S>) -> R) -> R {
+        self.shared.write(f)
+    }
+}
+
+/// Wraps an already-populated single-threaded map for concurrent
+/// sharing. The entries are rebuilt through a pre-deferred map with a
+/// fresh `S::default()` hasher (hash values are internal, so reseeding
+/// is invisible): a populated map's hash trie holds slab-carved node
+/// memory that must never be retired to the collector (see
+/// `NodeAlloc::defer_to`).
+impl<S: BuildHasher + Send + Sync + Default> From<ExpanseBytesMap<S>> for SyncExpanseBytesMap<S> {
+    fn from(src: ExpanseBytesMap<S>) -> Self {
+        let collector = Arc::new(Collector::new());
+        let mut map = ExpanseBytesMap::with_hasher(S::default());
+        map.defer_to(Arc::clone(&collector));
+        // Entry-by-entry sweep: O(n) with one rehash per entry — a
+        // wrap-once construction cost (see `SyncExpanseStrMap`).
+        src.for_each(|key, val| {
+            map.insert(key, val);
+        });
+        Self {
+            shared: Shared::with_collector(map, collector),
+        }
+    }
+}
+
+/// A per-thread reader handle for [`SyncExpanseBytesMap`].
+pub struct BytesReader<'a, S: BuildHasher + Send + Sync = RandomState> {
+    map: &'a SyncExpanseBytesMap<S>,
+    reader: Reader,
+}
+
+impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
+    /// Lock-free lookup: one bounded, validated hash-trie walk plus a
+    /// byte-exact bucket comparison, falling back to the writer lock
+    /// after bounded retries.
+    #[must_use]
+    pub fn get(&self, key: &[u8]) -> Option<u64> {
+        let shared = &self.map.shared;
+        for _ in 0..MAX_RETRIES {
+            let _pin = self.reader.pin();
+            let snap = shared.version.sample();
+            // SAFETY: pinned + freshly sampled version; every load is
+            // validated (see `ExpanseBytesMap::get_validated`).
+            let attempt =
+                unsafe { (*shared.inner.get()).get_validated(key, &shared.version, snap) };
+            if let Ok(r) = attempt {
+                return r;
+            }
+        }
+        shared.read_locked(|m| m.get(key))
+    }
+
+    /// Lock-free membership test.
+    #[must_use]
+    pub fn contains(&self, key: &[u8]) -> bool {
+        self.get(key).is_some()
+    }
+}
+
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
@@ -2037,5 +2225,217 @@ mod tests {
         for r in readers {
             r.join().expect("reader panicked");
         }
+    }
+
+    /// Every key hashes identically, so the whole map is one collision
+    /// bucket: the concurrent bucket-replacement paths (append, remove,
+    /// removed-key retirement) all run on it.
+    #[derive(Default)]
+    struct Degenerate;
+    impl std::hash::Hasher for Degenerate {
+        fn finish(&self) -> u64 {
+            0x42
+        }
+        fn write(&mut self, _: &[u8]) {}
+    }
+    impl BuildHasher for Degenerate {
+        type Hasher = Degenerate;
+        fn build_hasher(&self) -> Degenerate {
+            Degenerate
+        }
+    }
+
+    #[test]
+    fn sync_bytes_single_thread_agrees_with_model() {
+        let m = SyncExpanseBytesMap::new();
+        let mut model: std::collections::HashMap<Vec<u8>, u64> = std::collections::HashMap::new();
+        let mut rng = XorShift(0xB17E);
+        for i in 0..4000u64 {
+            let k = str_key_of(rng.next() % 512);
+            match rng.next() % 3 {
+                0 => {
+                    let v = str_val_of(&k);
+                    assert_eq!(m.insert(&k, v), model.insert(k.clone(), v), "ins {k:?}");
+                }
+                1 => assert_eq!(m.remove(&k), model.remove(&k), "rm {k:?}"),
+                _ => assert_eq!(m.get(&k), model.get(&k).copied(), "get {k:?}"),
+            }
+            if i % 1000 == 999 {
+                m.clear();
+                model.clear();
+            }
+            assert_eq!(m.len(), model.len() as u64);
+        }
+        // Unordered iteration through the locked escape hatch.
+        let mut seen = 0u64;
+        m.with_locked(|inner| {
+            inner.for_each(|k, v| {
+                assert_eq!(model.get(k).copied(), Some(v), "iter {k:?}");
+                seen += 1;
+            });
+        });
+        assert_eq!(seen, model.len() as u64);
+        // The compat slot API through the exclusive escape hatch.
+        m.with_locked_mut(|inner| {
+            let slot = inner.ins_slot(b"slot-key");
+            // SAFETY: slot valid until the next mutation; none happens.
+            unsafe { slot.as_ptr().write(77) };
+        });
+        assert_eq!(m.get(b"slot-key"), Some(77));
+    }
+
+    /// The issue #362 gate: readers hammer lock-free point lookups while
+    /// the writer churns inserts/removes and periodically clears the
+    /// whole map (retiring every bucket under active readers). Every
+    /// observed value must be the key's full-key FNV-1a hash — a
+    /// misresolved bucket, torn word, or stale key comparison cannot
+    /// accidentally pass.
+    #[test]
+    fn concurrent_bytes_readers_under_churn() {
+        let m = Arc::new(SyncExpanseBytesMap::new());
+        let stop = Arc::new(AtomicBool::new(false));
+
+        let readers: Vec<_> = (0..3)
+            .map(|i| {
+                let m = Arc::clone(&m);
+                let stop = Arc::clone(&stop);
+                std::thread::spawn(move || {
+                    let rd = m.reader();
+                    let mut rng = XorShift(0x7000 + i);
+                    let mut hits = 0u64;
+                    while !stop.load(Ordering::Relaxed) {
+                        let k = str_key_of(rng.next() % 512);
+                        if let Some(v) = rd.get(&k) {
+                            assert_eq!(v, str_val_of(&k), "torn value for {k:?}");
+                            hits += 1;
+                        }
+                    }
+                    hits
+                })
+            })
+            .collect();
+
+        let mut rng = XorShift(0xFACE);
+        let mut model = BTreeMap::new();
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_millis(300) {
+            for _ in 0..2000 {
+                let k = str_key_of(rng.next() % 512);
+                if rng.next() % 2 == 0 {
+                    m.insert(&k, str_val_of(&k));
+                    model.insert(k, ());
+                } else {
+                    m.remove(&k);
+                    model.remove(&k);
+                }
+            }
+            // Retire every bucket + the whole trie under the readers,
+            // then rebuild some of it.
+            m.clear();
+            model.clear();
+            for idx in 0..64 {
+                let k = str_key_of(idx);
+                m.insert(&k, str_val_of(&k));
+                model.insert(k, ());
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        let mut total_hits = 0;
+        for r in readers {
+            total_hits += r.join().expect("reader panicked");
+        }
+        assert!(total_hits > 0, "readers observed nothing");
+
+        let rd = m.reader();
+        for k in model.keys() {
+            assert_eq!(rd.get(k), Some(str_val_of(k)), "model key {k:?}");
+        }
+        assert_eq!(m.len(), model.len() as u64);
+    }
+
+    /// Overwrite atomicity on the collision-bucket paths: with the
+    /// degenerate hasher every key shares one bucket, so the writer's
+    /// same-key value flips (in-place word updates) race the structural
+    /// bucket replacements caused by churning a third key in and out.
+    /// Readers must only ever observe complete states: the flipped key
+    /// holds one of its two values, and a stable sibling entry in the
+    /// same bucket never tears.
+    #[test]
+    fn concurrent_bytes_overwrite_is_atomic() {
+        let m = Arc::new(SyncExpanseBytesMap::with_hasher(Degenerate));
+        let key = b"flipping-key".to_vec();
+        let stable = b"stable-sibling".to_vec();
+        let churn = b"churn-key".to_vec();
+        let (a, b) = (0x1111_2222_3333_4444u64, 0xAAAA_BBBB_CCCC_DDDDu64);
+        let stable_val = 0x5757_5757_5757_5757u64;
+        m.insert(&key, a);
+        m.insert(&stable, stable_val);
+        let stop = Arc::new(AtomicBool::new(false));
+        let readers: Vec<_> = (0..3)
+            .map(|_| {
+                let m = Arc::clone(&m);
+                let stop = Arc::clone(&stop);
+                let (key, stable) = (key.clone(), stable.clone());
+                std::thread::spawn(move || {
+                    let rd = m.reader();
+                    while !stop.load(Ordering::Relaxed) {
+                        let v = rd.get(&key).expect("flipped key always present");
+                        assert!(v == a || v == b, "torn overwrite state: {v:#x}");
+                        let s = rd.get(&stable).expect("stable key always present");
+                        assert_eq!(s, stable_val, "stable sibling torn: {s:#x}");
+                    }
+                })
+            })
+            .collect();
+
+        let start = std::time::Instant::now();
+        let mut flip = false;
+        let mut churn_in = false;
+        while start.elapsed() < std::time::Duration::from_millis(250) {
+            for _ in 0..500 {
+                flip = !flip;
+                m.insert(&key, if flip { b } else { a });
+            }
+            // Structural bucket replacement under the readers.
+            churn_in = !churn_in;
+            if churn_in {
+                m.insert(&churn, 7);
+            } else {
+                m.remove(&churn);
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        for r in readers {
+            r.join().expect("reader panicked");
+        }
+    }
+
+    /// The bytes-map twin of `sync_{blob,str}_wraps_populated_map`:
+    /// wrapping a populated single-threaded map must rebuild it through
+    /// a pre-deferred one — attaching the original (slab-carved) hash
+    /// trie to the collector corrupts the heap when retired blocks are
+    /// later freed individually.
+    #[test]
+    fn sync_bytes_wraps_populated_map() {
+        let mut plain = ExpanseBytesMap::new();
+        for idx in 0..300u64 {
+            let k = str_key_of(idx);
+            plain.insert(&k, str_val_of(&k));
+        }
+        let expected = plain.len();
+        let m = SyncExpanseBytesMap::from(plain);
+        assert_eq!(m.len(), expected);
+        let rd = m.reader();
+        for idx in 0..300u64 {
+            let k = str_key_of(idx);
+            assert_eq!(rd.get(&k), Some(str_val_of(&k)), "wrapped key {k:?}");
+        }
+        for idx in 0..150u64 {
+            m.remove(&str_key_of(idx));
+        }
+        m.insert(b"post-wrap", 7);
+        assert_eq!(m.get(b"post-wrap"), Some(7));
+        m.clear();
+        drop(m);
     }
 }
