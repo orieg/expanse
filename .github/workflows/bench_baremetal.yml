@@ -50,6 +50,23 @@ jobs:
               core.setFailed('User does not have permission to trigger benchmarks.');
             }
 
+      - name: React to trigger comment
+        if: github.event_name == 'issue_comment'
+        continue-on-error: true
+        uses: actions/github-script@v8
+        with:
+          script: |
+            try {
+              await github.rest.reactions.createForIssueComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: context.payload.comment.id,
+                content: 'rocket',
+              });
+            } catch (e) {
+              core.warning(`Failed to add reaction to trigger comment: ${e.message}`);
+            }
+
       - name: Resolve PR info
         id: pr-info
         if: github.event_name == 'issue_comment'
@@ -88,6 +105,27 @@ jobs:
             echo "pr_number=${{ steps.pr-info.outputs.pr_number }}" >> $GITHUB_OUTPUT
             echo "benchmark_suite=${{ steps.pr-info.outputs.benchmark_suite }}" >> $GITHUB_OUTPUT
           fi
+
+      - name: Find comment for start acknowledgment
+        id: fc-start
+        if: steps.vars.outputs.pr_number != ''
+        continue-on-error: true
+        uses: peter-evans/find-comment@v4
+        with:
+          issue-number: ${{ steps.vars.outputs.pr_number }}
+          comment-author: 'github-actions[bot]'
+          body-includes: Bare-Metal Benchmark Results
+
+      - name: Post start acknowledgment
+        if: steps.vars.outputs.pr_number != ''
+        continue-on-error: true
+        uses: peter-evans/create-or-update-comment@v5
+        with:
+          comment-id: ${{ steps.fc-start.outputs.comment-id }}
+          issue-number: ${{ steps.vars.outputs.pr_number }}
+          body: |
+            ⏳ Bare-Metal Benchmark Results pending — suite `${{ steps.vars.outputs.benchmark_suite }}` running on `honeycomb`: [view run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          edit-mode: replace
 
       - name: Checkout code
         uses: actions/checkout@v7
