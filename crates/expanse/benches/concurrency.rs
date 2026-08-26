@@ -511,41 +511,71 @@ fn bench_str_dashmap(ratio_read: u32, readers: usize) -> (f64, f64) {
     })
 }
 
+/// Parses a comma-separated list from the environment variable `name`,
+/// falling back to `default` when unset. CI uses these knobs
+/// (`EXPANSE_BENCH_THREADS`, `EXPANSE_BENCH_WORKLOADS`) to bound the sweep;
+/// local runs with the variables unset keep the full default sweep.
+fn env_csv<T>(name: &str, default: &[T]) -> Vec<T>
+where
+    T: Copy + std::str::FromStr,
+{
+    match std::env::var(name) {
+        Ok(s) => {
+            let parsed: Vec<T> = s
+                .split(',')
+                .map(|p| {
+                    p.trim()
+                        .parse::<T>()
+                        .unwrap_or_else(|_| panic!("invalid {name} entry: {p:?}"))
+                })
+                .collect();
+            assert!(!parsed.is_empty(), "{name} must not be empty");
+            parsed
+        }
+        Err(_) => default.to_vec(),
+    }
+}
+
 fn main() {
     let max_threads = std::thread::available_parallelism()
         .map_or(16, usize::from)
         .min(16);
-    let threads_list = [1, 2, 4, 8, 16];
-
-    let workloads = [
-        (100, 0, "100% Read / 0% Write"),
-        (95, 5, "95% Read / 5% Write"),
-        (50, 50, "50% Read / 50% Write"),
-    ];
+    // Thread counts and workload read-percentages; overridable for CI via
+    // EXPANSE_BENCH_THREADS="1,4,16" / EXPANSE_BENCH_WORKLOADS="100,50".
+    let threads_list = env_csv("EXPANSE_BENCH_THREADS", &[1usize, 2, 4, 8, 16]);
+    let read_pcts = env_csv("EXPANSE_BENCH_WORKLOADS", &[100u32, 95, 50]);
+    let workloads: Vec<(u32, u32, String)> = read_pcts
+        .iter()
+        .map(|&rr| {
+            assert!(
+                rr <= 100,
+                "EXPANSE_BENCH_WORKLOADS entries are read percentages (0-100)"
+            );
+            (rr, 100 - rr, format!("{rr}% Read / {}% Write", 100 - rr))
+        })
+        .collect();
 
     for (name, is_map) in [("SyncExpanseMap", true), ("SyncExpanseSet", false)] {
-        for (rr, rw, wname) in workloads {
+        for (rr, rw, wname) in &workloads {
             println!("\n=== {} ({}) ===", name, wname);
             println!(
                 "{:>8} {:>16} {:>16} {:>10}",
                 "threads", "read ops/sec", "write ops/sec", "scale"
             );
 
-            let mut base = 0.0;
+            let mut base: Option<f64> = None;
             for &t in &threads_list {
                 if t > max_threads && t != 1 {
                     continue;
                 }
                 let (rops, wops) = if is_map {
-                    bench_map(rr, rw, t)
+                    bench_map(*rr, *rw, t)
                 } else {
-                    bench_set(rr, rw, t)
+                    bench_set(*rr, *rw, t)
                 };
 
                 let total = rops + wops;
-                if t == 1 {
-                    base = total;
-                }
+                let base = *base.get_or_insert(total);
 
                 println!(
                     "{:>8} {:>16.0} {:>16.0} {:>9.2}x",
@@ -578,22 +608,20 @@ fn main() {
         ("DashMap<Vec<u8>, u64>", bench_str_dashmap),
     ];
     for (name, bench) in blob_engines.into_iter().chain(str_engines) {
-        for (rr, _rw, wname) in workloads {
+        for (rr, _rw, wname) in &workloads {
             println!("\n=== {} ({}) ===", name, wname);
             println!(
                 "{:>8} {:>16} {:>16} {:>10}",
                 "threads", "read ops/sec", "write ops/sec", "scale"
             );
-            let mut base = 0.0;
+            let mut base: Option<f64> = None;
             for &t in &threads_list {
                 if t > max_threads && t != 1 {
                     continue;
                 }
-                let (rops, wops) = bench(rr, t);
+                let (rops, wops) = bench(*rr, t);
                 let total = rops + wops;
-                if t == 1 {
-                    base = total;
-                }
+                let base = *base.get_or_insert(total);
                 println!(
                     "{:>8} {:>16.0} {:>16.0} {:>9.2}x",
                     t,
