@@ -1062,6 +1062,44 @@ pub struct ArenaChunk {
 }
 ```
 
+### 6.4 Concurrent Access: `SyncExpanseBlobMap` (issue #219 Phase 1, shipped)
+
+The Phase 7 OCC protocol (`occ` + `sync`) extends to the blob map. The single
+writer serializes on the wrapper mutex and brackets every operation with the
+tree-level `SeqVersion`; the index trie's `NodeAlloc` and the `BlobArena` are
+both handed to one epoch `Collector` at construction (`BlobArena::defer_to`).
+
+- **Reader chunk resolution — RCU chunk table.** Lock-free readers must never
+  touch `BlobArena`'s `Vec<ArenaChunk>` (the global allocator frees its buffer
+  on growth with no grace period). Instead the arena publishes an immutable
+  snapshot table — one allocation: `{len, chunk_size}` header + per-chunk
+  `{ptr, capacity, generation}` entries — through an atomic pointer,
+  republished on every chunk-set change (`alloc_blob` growth, `push_chunk`,
+  `clear`, compaction). Publication always precedes retirement, so a block is
+  unreachable before it enters the grace period; superseded tables retire
+  through the collector like any node.
+- **Read path.** The validated hand-over-hand index walk yields the 64-bit
+  `ValueSlot`. Inline (≤ 7 B) payloads decode **by value** from the validated
+  word — zero slab reads, exactly the §5 hot-metadata promise. `ArenaMeta`
+  slots resolve `locator → (chunk, offset)` against the pinned table with
+  capacity bounds + record-generation checks (unwritten chunk bytes are
+  zeroed; generation 0 is never live), then re-validate the tree version
+  before the borrow is handed out. Bounded retries fall back to an owned copy
+  under the writer lock.
+- **Zero-copy guards.** `BlobReader::pin()` returns an epoch-pinned
+  `BlobReadGuard` (the issue's `SyncBlobReaderGuard`); its `SyncBlobView`
+  arena borrows stay byte-stable for the guard's lifetime because arena
+  records are never rewritten in place and retired chunks stay mapped while
+  pinned — including across a full compaction
+  (`sync::tests::sync_blob_guard_view_survives_compaction`,
+  `blobmap::tests::deferred_arena_retires_chunks_and_tables` (Miri-clean)).
+- **Compaction under concurrency.** `compact_with_index` installs the
+  compacted chunk set piecewise, republishes the table, then retires the old
+  chunks — never `*self = new_arena` (which would free them immediately).
+- Hot-metadata-only lookups (`get_meta`) answer from the validated slot word
+  without touching payload cache lines; multi-field reads (`scan_filtered`,
+  `mem_used`, persistence) go through `with_locked`.
+
 ---
 
 ## 7. Zero-Copy `mmap` & Shared-Memory IPC

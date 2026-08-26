@@ -387,6 +387,13 @@ pub struct Reader {
 impl Reader {
     /// Pins the current epoch for the duration of the returned guard:
     /// nothing retired from here on is freed while the guard lives.
+    ///
+    /// Pins from one `Reader` must never overlap: the reader has a single
+    /// epoch slot, so dropping *any* [`Pin`] unpins the reader entirely —
+    /// an outstanding sibling pin would silently lose its protection.
+    /// Wrappers that expose long-lived guards must rule the overlap out
+    /// statically (`sync::BlobReader::pin` takes `&mut self` for exactly
+    /// this reason); for overlapping pins, register a second reader.
     #[must_use]
     pub fn pin(&self) -> Pin<'_> {
         // Loop until the epoch is stable across the pin store, with a

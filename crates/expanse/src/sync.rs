@@ -1,7 +1,7 @@
 //! Phase 7: concurrent wrappers — one writer, many lock-free readers.
 //!
-//! [`SyncExpanseSet`] / [`SyncExpanseMap`] wrap the single-threaded trees
-//! with the `occ` protocol:
+//! [`SyncExpanseSet`] / [`SyncExpanseMap`] / [`SyncExpanseBlobMap`] wrap the
+//! single-threaded structures with the `occ` protocol:
 //!
 //! - **Writers** serialize on a mutex; the tree-level [`SeqVersion`]
 //!   brackets each operation (covering the root state), and the engine
@@ -33,12 +33,13 @@
 //! The per-node version slots reserved in the node headers are the
 //! planned contention refinement, not a correctness requirement.
 
-use crate::alloc::NodeAlloc;
+use crate::blobmap::{ArenaError, CompactionStats, ExpanseBlobMap};
 use crate::leaf;
 use crate::map::ExpanseMap;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
-use crate::occ::{Collector, Reader, SeqVersion};
+use crate::occ::{Collector, Pin, Reader, SeqVersion};
 use crate::set::ExpanseSet;
+use crate::slot::{SlotTag, ValueSlot};
 use crate::types::{EdgeTag, EdgeType, Key, digit};
 use core::cell::UnsafeCell;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -475,9 +476,11 @@ unsafe impl<T: Send> Send for Shared<T> {}
 unsafe impl<T: Send> Sync for Shared<T> {}
 
 impl<T> Shared<T> {
-    fn new(inner: T, alloc_of: impl FnOnce(&T) -> &NodeAlloc) -> Self {
+    /// Wraps `inner`, handing every allocation source `attach` names over to
+    /// a fresh epoch collector (deferred reclamation).
+    fn new(inner: T, attach: impl FnOnce(&T, &Arc<Collector>)) -> Self {
         let collector = Arc::new(Collector::new());
-        alloc_of(&inner).defer_to(Arc::clone(&collector));
+        attach(&inner, &collector);
         Self {
             inner: UnsafeCell::new(inner),
             version: SeqVersion::new(),
@@ -503,6 +506,31 @@ impl<T> Shared<T> {
         // SAFETY: the writer mutex excludes all mutation.
         f(unsafe { &*self.inner.get() })
     }
+
+    /// Validated population read: samples the version, copies the root
+    /// snapshot by value (no heap dereference, so no pin is needed), and
+    /// retries until the snapshot validates — one shared definition for
+    /// every wrapper's `len()`. Falls back to `locked` after bounded
+    /// retries.
+    fn validated_len(
+        &self,
+        root_of: impl Fn(&T) -> RootSnapshot,
+        locked: impl FnOnce(&T) -> u64,
+    ) -> u64 {
+        for _ in 0..MAX_RETRIES {
+            let snap = self.version.sample();
+            // SAFETY: by-value snapshot; validated before use.
+            let root = root_of(unsafe { &*self.inner.get() });
+            if self.version.validate(snap) {
+                return match root {
+                    RootSnapshot::Empty => 0,
+                    RootSnapshot::Leaf { pop, .. } => pop as u64,
+                    RootSnapshot::Tree { pop, .. } => pop,
+                };
+            }
+        }
+        self.read_locked(locked)
+    }
 }
 
 /// A set shareable across threads: one writer at a time (internally
@@ -523,7 +551,9 @@ impl SyncExpanseSet {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            shared: Shared::new(ExpanseSet::new(), |s| s.occ_root().1),
+            shared: Shared::new(ExpanseSet::new(), |s, c| {
+                s.occ_root().1.defer_to(Arc::clone(c))
+            }),
         }
     }
 
@@ -562,19 +592,8 @@ impl SyncExpanseSet {
     /// Number of keys (validated read).
     #[must_use]
     pub fn len(&self) -> u64 {
-        for _ in 0..MAX_RETRIES {
-            let snap = self.shared.version.sample();
-            // SAFETY: by-value snapshot; validated before use.
-            let (root, _) = unsafe { (*self.shared.inner.get()).occ_root() };
-            if self.shared.version.validate(snap) {
-                return match root {
-                    RootSnapshot::Empty => 0,
-                    RootSnapshot::Leaf { pop, .. } => pop as u64,
-                    RootSnapshot::Tree { pop, .. } => pop,
-                };
-            }
-        }
-        self.shared.read_locked(super::set::ExpanseSet::len)
+        self.shared
+            .validated_len(|s| s.occ_root().0, ExpanseSet::len)
     }
 
     /// True when no keys are present.
@@ -634,7 +653,9 @@ impl SyncExpanseMap {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            shared: Shared::new(ExpanseMap::new(), |m| m.occ_root().1),
+            shared: Shared::new(ExpanseMap::new(), |m, c| {
+                m.occ_root().1.defer_to(Arc::clone(c))
+            }),
         }
     }
 
@@ -672,19 +693,8 @@ impl SyncExpanseMap {
     /// Number of keys (validated read).
     #[must_use]
     pub fn len(&self) -> u64 {
-        for _ in 0..MAX_RETRIES {
-            let snap = self.shared.version.sample();
-            // SAFETY: by-value snapshot; validated before use.
-            let (root, _) = unsafe { (*self.shared.inner.get()).occ_root() };
-            if self.shared.version.validate(snap) {
-                return match root {
-                    RootSnapshot::Empty => 0,
-                    RootSnapshot::Leaf { pop, .. } => pop as u64,
-                    RootSnapshot::Tree { pop, .. } => pop,
-                };
-            }
-        }
-        self.shared.read_locked(super::map::ExpanseMap::len)
+        self.shared
+            .validated_len(|m| m.occ_root().0, ExpanseMap::len)
     }
 
     /// True when no keys are present.
@@ -723,6 +733,431 @@ impl MapReader<'_> {
             }
         }
         shared.read_locked(|m| m.get(key))
+    }
+}
+
+/// A blob map shareable across threads (issue #219 Phase 1): one writer at a
+/// time (internally serialized), lock-free validated readers with epoch-pinned
+/// zero-copy payload borrows. See the module docs for the protocol and its
+/// trade-offs.
+///
+/// On top of the [`SyncExpanseMap`] protocol over the index trie, the blob
+/// map's arena participates in reclamation:
+///
+/// - The index walk yields a validated 64-bit [`ValueSlot`]. **Inline**
+///   payloads (≤ 7 bytes) decode by value from that word — zero slab reads,
+///   covered entirely by the trie validation.
+/// - **Arena** payloads resolve through an RCU-published chunk table
+///   (readers never touch the arena's internal chunk vector): the reader
+///   bounds-checks against the pinned table, re-validates the tree version,
+///   and only then hands out a zero-copy borrow. Arena records are never
+///   rewritten in place, and compaction retires dead chunks through the
+///   epoch [`Collector`], so a validated borrow stays byte-stable for the
+///   life of the guard's pin.
+/// - Structural reads that need multi-field consistency (`mem_used`,
+///   `scan_filtered`, iteration) go through [`Self::with_locked`].
+pub struct SyncExpanseBlobMap {
+    shared: Shared<ExpanseBlobMap>,
+}
+
+impl Default for SyncExpanseBlobMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SyncExpanseBlobMap {
+    /// Creates an empty concurrent blob map with default arena chunk slabs.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::from_map(ExpanseBlobMap::new())
+    }
+
+    /// Creates an empty concurrent blob map with a custom arena chunk size
+    /// (clamped as by [`ExpanseBlobMap::with_chunk_size`]).
+    #[must_use]
+    pub fn with_chunk_size(chunk_size: usize) -> Self {
+        Self::from_map(ExpanseBlobMap::with_chunk_size(chunk_size))
+    }
+
+    fn from_map(map: ExpanseBlobMap) -> Self {
+        Self {
+            shared: Shared::new(map, |m, c| {
+                m.index().occ_root().1.defer_to(Arc::clone(c));
+                m.arena().defer_to(Arc::clone(c));
+            }),
+        }
+    }
+
+    /// Inserts `key → data` with 24-bit hot metadata; serializes with other
+    /// writers. Semantics as [`ExpanseBlobMap::insert`] (inline payloads
+    /// ignore `hot_meta`).
+    pub fn insert(&self, key: Key, data: &[u8], hot_meta: u32) -> Result<(), ArenaError> {
+        self.shared.write(|m| m.insert(key, data, hot_meta))
+    }
+
+    /// Removes `key`; returns `true` if it was present.
+    pub fn remove(&self, key: Key) -> bool {
+        self.shared.write(|m| m.remove(key))
+    }
+
+    /// Runs arena garbage collection and compaction. Dead chunks are retired
+    /// through the epoch collector, so concurrent pinned readers keep reading
+    /// their (relocated-from) payload bytes safely.
+    pub fn compact(&self) -> Result<CompactionStats, ArenaError> {
+        self.shared.write(ExpanseBlobMap::compact)
+    }
+
+    /// Removes every entry and retires all arena chunks.
+    pub fn clear(&self) {
+        self.shared.write(ExpanseBlobMap::clear);
+    }
+
+    /// Registers a reader handle for this thread's lookups.
+    #[must_use]
+    pub fn reader(&self) -> BlobReader<'_> {
+        BlobReader {
+            map: self,
+            reader: self.shared.collector.register(),
+        }
+    }
+
+    /// One-shot owned-copy lookup (registers a throwaway reader; use
+    /// [`Self::reader`] + [`BlobReader::pin`] in hot loops for zero-copy).
+    #[must_use]
+    pub fn get(&self, key: Key) -> Option<(Vec<u8>, u32)> {
+        self.reader().get(key)
+    }
+
+    /// One-shot metadata lookup — never touches payload memory (registers a
+    /// throwaway reader; use [`Self::reader`] in hot loops).
+    #[must_use]
+    pub fn get_meta(&self, key: Key) -> Option<u32> {
+        self.reader().get_meta(key)
+    }
+
+    /// One-shot membership test (registers a throwaway reader; use
+    /// [`Self::reader`] in hot loops).
+    #[must_use]
+    pub fn contains_key(&self, key: Key) -> bool {
+        self.reader().contains(key)
+    }
+
+    /// Number of entries (validated read).
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        self.shared
+            .validated_len(|m| m.index().occ_root().0, ExpanseBlobMap::len)
+    }
+
+    /// True when no entries are present.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Total heap memory used by the index and arena (consistent read under
+    /// the writer lock).
+    ///
+    /// Counts what the structure currently owns: chunks already retired to
+    /// the epoch collector (by a compaction or [`Self::clear`]) but not yet
+    /// reclaimed — e.g. while a reader guard pins the epoch — are no longer
+    /// included even though their allocations are still resident.
+    #[must_use]
+    pub fn mem_used(&self) -> usize {
+        self.shared.read_locked(ExpanseBlobMap::mem_used)
+    }
+
+    /// Runs `f` over the map with all writers excluded — the escape hatch to
+    /// the full single-threaded read API (`scan_filtered`, iteration over
+    /// [`ExpanseBlobMap::index`], persistence, …).
+    pub fn with_locked<R>(&self, f: impl FnOnce(&ExpanseBlobMap) -> R) -> R {
+        self.shared.read_locked(f)
+    }
+}
+
+/// Wraps an already-populated single-threaded blob map (e.g. one loaded via
+/// [`ExpanseBlobMap::load_from_file`]) for concurrent sharing.
+///
+/// # Panics
+///
+/// Panics if the map's index or arena was already deferred to a different
+/// collector (i.e. the map was previously shared).
+impl From<ExpanseBlobMap> for SyncExpanseBlobMap {
+    fn from(map: ExpanseBlobMap) -> Self {
+        Self::from_map(map)
+    }
+}
+
+/// A per-thread reader handle for [`SyncExpanseBlobMap`].
+pub struct BlobReader<'a> {
+    map: &'a SyncExpanseBlobMap,
+    reader: Reader,
+}
+
+/// The blob map's hot-metadata semantics, applied to a validated slot word:
+/// `ArenaMeta` slots report their 24-bit field, inline slots report `0`, and
+/// non-payload tags read as absent. Reads nothing but the word — both
+/// `get_meta` paths (lock-free and locked fallback) share it so they cannot
+/// disagree.
+fn blob_slot_meta(raw: u64) -> Option<u32> {
+    let slot = ValueSlot::from_raw(raw);
+    let tag = slot.tag();
+    if tag == SlotTag::ArenaMeta {
+        Some(slot.arena_meta_meta())
+    } else {
+        tag.is_inline().then_some(0)
+    }
+}
+
+impl BlobReader<'_> {
+    /// Pins the current epoch: payload borrows obtained through the returned
+    /// guard stay valid (and byte-stable) until the guard drops. Keep guards
+    /// short-lived — a pinned epoch defers all reclamation (retired nodes and
+    /// arena chunks accumulate until the pin is released).
+    ///
+    /// Takes `&mut self` because a reader holds a single epoch slot: pins
+    /// from one reader must never overlap (dropping any of them would unpin
+    /// the others — see [`Reader::pin`]), and the exclusive borrow makes an
+    /// overlap a compile error. Register a second reader for overlapping
+    /// guards.
+    #[must_use]
+    pub fn pin(&mut self) -> BlobReadGuard<'_> {
+        BlobReadGuard {
+            map: self.map,
+            _pin: self.reader.pin(),
+        }
+    }
+
+    /// Lock-free owned-copy lookup (pins only for the duration of the call).
+    #[must_use]
+    pub fn get(&mut self, key: Key) -> Option<(Vec<u8>, u32)> {
+        let guard = self.pin();
+        guard
+            .get(key)
+            .map(|(view, meta)| (view.as_bytes().to_vec(), meta))
+    }
+
+    /// Bounded lock-free validated slot-word lookup shared by the word-level
+    /// reads; `Err(Retry)` after retry exhaustion (the caller then falls
+    /// back under the writer lock).
+    fn lookup_slot(&mut self, key: Key) -> Result<Option<u64>, Retry> {
+        let shared = &self.map.shared;
+        for _ in 0..MAX_RETRIES {
+            let _pin = self.reader.pin();
+            let snap = shared.version.sample();
+            // SAFETY: pinned + freshly sampled version; the walk validates
+            // every load (see `walk_validated`).
+            let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
+            // SAFETY: same pin + snapshot contract as the line above.
+            if let Ok(found) = unsafe { walk_validated::<true>(root, key, &shared.version, snap) } {
+                return Ok(found);
+            }
+        }
+        Err(Retry)
+    }
+
+    /// Lock-free metadata lookup: the validated slot word alone answers it —
+    /// no payload cache line is touched (inline payloads report `0`, as in
+    /// [`ExpanseBlobMap::get`]; non-payload slots return `None`). Because
+    /// the payload is never resolved, a dangling arena locator (possible
+    /// only in a corrupted image) still reports its stored metadata.
+    #[must_use]
+    pub fn get_meta(&mut self, key: Key) -> Option<u32> {
+        match self.lookup_slot(key) {
+            Ok(found) => found.and_then(blob_slot_meta),
+            Err(Retry) => self
+                .map
+                .shared
+                .read_locked(|m| m.index().get(key).and_then(blob_slot_meta)),
+        }
+    }
+
+    /// Lock-free membership test.
+    #[must_use]
+    pub fn contains(&mut self, key: Key) -> bool {
+        match self.lookup_slot(key) {
+            Ok(found) => found.is_some(),
+            Err(Retry) => self.map.shared.read_locked(|m| m.contains_key(key)),
+        }
+    }
+}
+
+/// An epoch-pinned read guard for [`SyncExpanseBlobMap`] — the
+/// `SyncBlobReaderGuard` of issue #219: while it lives, nothing the arena or
+/// index retires is freed, so the [`SyncBlobView`] borrows it hands out stay
+/// valid across concurrent writes and compactions.
+pub struct BlobReadGuard<'g> {
+    map: &'g SyncExpanseBlobMap,
+    _pin: Pin<'g>,
+}
+
+impl BlobReadGuard<'_> {
+    /// Lock-free validated lookup. Inline payloads are decoded by value from
+    /// the validated slot word; arena payloads are zero-copy borrows of
+    /// epoch-pinned slab bytes. Falls back to an owned copy under the writer
+    /// lock after bounded retries.
+    #[must_use]
+    pub fn get(&self, key: Key) -> Option<(SyncBlobView<'_>, u32)> {
+        let shared = &self.map.shared;
+        for _ in 0..MAX_RETRIES {
+            let snap = shared.version.sample();
+            // SAFETY: the guard's pin predates this sample; the walk
+            // validates every load (see `walk_validated`).
+            let root = unsafe { (*shared.inner.get()).index().occ_root().0 };
+            // SAFETY: same pin + snapshot contract as the line above.
+            let Ok(found) = (unsafe { walk_validated::<true>(root, key, &shared.version, snap) })
+            else {
+                continue;
+            };
+            // The walk validated this result: absent stays absent, and a
+            // present slot word is the value the key held at `snap`.
+            let raw = found?;
+            let slot = ValueSlot::from_raw(raw);
+            let tag = slot.tag();
+            if tag.is_inline() {
+                let (buf, len) = slot.inline_payload();
+                return Some((
+                    SyncBlobView::Inline {
+                        buf,
+                        len: len as u8,
+                    },
+                    0,
+                ));
+            }
+            if tag != SlotTag::ArenaMeta {
+                // Mirrors `ExpanseBlobMap::get`: non-payload tags read as
+                // absent (already validated by the walk).
+                return None;
+            }
+            let meta = slot.arena_meta_meta();
+            // SAFETY: single atomic load of the published table pointer; the
+            // racy `&` borrow of the arena struct is confined to that load
+            // (documented module-level seqlock caveat).
+            let table = unsafe { (*shared.inner.get()).arena().reader_table() };
+            // SAFETY: the guard's pin predates the table load, so the table
+            // and every chunk it references are EBR-live.
+            let resolved =
+                unsafe { crate::blobmap::resolve_meta_in_table(table, slot.arena_meta_locator()) };
+            match resolved {
+                Some((ptr, len)) => {
+                    if shared.version.validate(snap) {
+                        // No writer overlapped: the resolution used the
+                        // table consistent with `snap`, so `ptr..ptr+len` is
+                        // the record's live payload. Arena records are never
+                        // rewritten in place and retired chunks stay mapped
+                        // under this guard's pin, so the borrow is
+                        // byte-stable for the guard's lifetime.
+                        // SAFETY: in-bounds of an EBR-live chunk (see
+                        // `resolve_meta_in_table`), immutable while pinned.
+                        let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
+                        return Some((SyncBlobView::Arena(bytes), meta));
+                    }
+                }
+                None => {
+                    if shared.version.validate(snap) {
+                        // Validated dangling locator — mirrors the
+                        // single-threaded `get` returning `None`.
+                        return None;
+                    }
+                }
+            }
+        }
+        shared.read_locked(|m| {
+            m.get(key)
+                .map(|(view, meta)| (SyncBlobView::Owned(view.as_bytes().to_vec()), meta))
+        })
+    }
+}
+
+/// A validated payload view obtained through a [`BlobReadGuard`].
+///
+/// `Inline` payloads are decoded **by value** from the validated slot word
+/// (they are at most 7 bytes; copying beats exposing racy leaf-slot memory).
+/// `Arena` payloads borrow the epoch-pinned slab bytes zero-copy. `Owned` is
+/// the bounded-retry fallback, copied under the writer lock.
+#[derive(Clone, Debug)]
+pub enum SyncBlobView<'g> {
+    /// Inline payload decoded from the value-slot word.
+    Inline {
+        /// Payload bytes; only the first `len` are meaningful.
+        buf: [u8; 7],
+        /// Meaningful prefix length of `buf` (≤ 7).
+        len: u8,
+    },
+    /// Zero-copy borrow of an epoch-pinned arena record.
+    Arena(&'g [u8]),
+    /// Owned copy taken under the writer lock (bounded-retry fallback).
+    Owned(Vec<u8>),
+}
+
+impl SyncBlobView<'_> {
+    /// The payload bytes.
+    #[inline]
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            SyncBlobView::Inline { buf, len } => &buf[..*len as usize],
+            SyncBlobView::Arena(bytes) => bytes,
+            SyncBlobView::Owned(bytes) => bytes,
+        }
+    }
+
+    /// Payload length in bytes.
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.as_bytes().len()
+    }
+
+    /// True for a zero-length payload.
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.as_bytes().is_empty()
+    }
+
+    /// True when the payload was stored inline in the value slot.
+    #[inline]
+    #[must_use]
+    pub fn is_inline(&self) -> bool {
+        matches!(self, SyncBlobView::Inline { .. })
+    }
+
+    /// True when the payload is a zero-copy arena borrow.
+    #[inline]
+    #[must_use]
+    pub fn is_arena(&self) -> bool {
+        matches!(self, SyncBlobView::Arena(_))
+    }
+}
+
+impl core::ops::Deref for SyncBlobView<'_> {
+    type Target = [u8];
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.as_bytes()
+    }
+}
+
+impl AsRef<[u8]> for SyncBlobView<'_> {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+impl PartialEq<[u8]> for SyncBlobView<'_> {
+    #[inline]
+    fn eq(&self, other: &[u8]) -> bool {
+        self.as_bytes() == other
+    }
+}
+
+impl<'g> PartialEq<SyncBlobView<'g>> for [u8] {
+    #[inline]
+    fn eq(&self, other: &SyncBlobView<'g>) -> bool {
+        self == other.as_bytes()
     }
 }
 
@@ -911,5 +1346,239 @@ mod tests {
             r.join().expect("reader panicked");
         }
         s.with_locked(|inner| inner.validate());
+    }
+
+    /// Deterministic payload derived from a key: lengths sweep the inline
+    /// (< 8 bytes) and arena regimes, and the bytes are a keyed PRNG stream
+    /// so a torn or misresolved read cannot accidentally match.
+    fn blob_payload_of(k: u64) -> Vec<u8> {
+        let len = (k.wrapping_mul(7919) % 160) as usize;
+        let mut v = Vec::with_capacity(len);
+        let mut x = k ^ 0xD1B5_4A32_D192_ED03;
+        for _ in 0..len {
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            v.push((x >> 56) as u8);
+        }
+        v
+    }
+
+    fn blob_meta_of(k: u64) -> u32 {
+        (k as u32).wrapping_mul(0x9E37_79B9) & ValueSlot::ARENA_META_MAX
+    }
+
+    /// Inline payloads carry no metadata field and read back as 0.
+    fn blob_expected_meta(k: u64) -> u32 {
+        if blob_payload_of(k).len() <= 7 {
+            0
+        } else {
+            blob_meta_of(k)
+        }
+    }
+
+    #[test]
+    fn sync_blob_single_thread_agrees_with_model() {
+        let m = SyncExpanseBlobMap::with_chunk_size(4096);
+        let mut model: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
+        let mut rng = XorShift(0x88);
+        for i in 0..4000u64 {
+            let k = rng.next() % 2048;
+            match rng.next() % 3 {
+                0 => {
+                    m.insert(k, &blob_payload_of(k), blob_meta_of(k)).unwrap();
+                    model.insert(k, blob_payload_of(k));
+                }
+                1 => assert_eq!(m.remove(k), model.remove(&k).is_some()),
+                _ => {
+                    let got = m.get(k);
+                    let want = model.get(&k);
+                    match (&got, want) {
+                        (None, None) => {}
+                        (Some((bytes, meta)), Some(want)) => {
+                            assert_eq!(bytes, want);
+                            assert_eq!(*meta, blob_expected_meta(k));
+                            assert_eq!(m.get_meta(k), Some(blob_expected_meta(k)));
+                            assert!(m.contains_key(k));
+                        }
+                        _ => panic!("mismatch for {k}: {got:?} vs {want:?}"),
+                    }
+                }
+            }
+            if i % 500 == 499 {
+                m.compact().unwrap();
+            }
+            assert_eq!(m.len(), model.len() as u64);
+        }
+        m.with_locked(|inner| inner.index().validate());
+    }
+
+    /// The issue #219 gate for epoch-pinned chunk retirement: a payload view
+    /// taken before a compaction must keep reading the original (retired but
+    /// EBR-live, never rewritten) bytes after the compaction relocated the
+    /// record and dropped its chunk.
+    #[test]
+    fn sync_blob_guard_view_survives_compaction() {
+        let m = SyncExpanseBlobMap::with_chunk_size(4096);
+        let payload: Vec<u8> = (0..200u32).map(|i| (i * 31) as u8).collect();
+        m.insert(1, &payload, 42).unwrap();
+        // Garbage records so the compaction genuinely relocates into fresh
+        // chunks and retires several old ones.
+        for k in 2..40 {
+            m.insert(k, &[0xEE; 300], 0).unwrap();
+        }
+        for k in 2..40 {
+            assert!(m.remove(k));
+        }
+        let mut rd = m.reader();
+        let guard = rd.pin();
+        let (view, meta) = guard.get(1).expect("present");
+        assert!(view.is_arena());
+        assert_eq!(meta, 42);
+        let stats = m.compact().unwrap();
+        assert!(stats.live_records_moved >= 1);
+        assert!(stats.chunks_before > stats.chunks_after);
+        // The pinned borrow still reads the retired chunk's bytes.
+        assert_eq!(view.as_bytes(), &payload[..]);
+        drop(guard);
+        // A fresh read resolves the relocated record through the new table.
+        let guard = rd.pin();
+        let (view, meta) = guard.get(1).expect("present after compact");
+        assert!(view.is_arena());
+        assert_eq!(view.as_bytes(), &payload[..]);
+        assert_eq!(meta, 42);
+    }
+
+    /// Phase-1 gate for `SyncExpanseBlobMap` (issue #219): readers hammer
+    /// pinned zero-copy lookups while the writer churns inserts/removes and
+    /// periodically compacts the arena (retiring chunks). Every observed
+    /// payload must be exactly the key's derived payload — a torn read, a
+    /// stale chunk table, or a misresolved locator produces a mismatch.
+    #[test]
+    fn concurrent_blob_readers_under_churn() {
+        let m = Arc::new(SyncExpanseBlobMap::with_chunk_size(4096));
+        let stop = Arc::new(AtomicBool::new(false));
+        let key_of = |r: &mut XorShift| {
+            let base = [0u64, 0x11_2233_4400, 0xFFFF_FF00_0000][(r.next() % 3) as usize];
+            base + r.next() % 512
+        };
+
+        let readers: Vec<_> = (0..3)
+            .map(|i| {
+                let m = Arc::clone(&m);
+                let stop = Arc::clone(&stop);
+                std::thread::spawn(move || {
+                    let mut rd = m.reader();
+                    let mut rng = XorShift(0x3000 + i);
+                    let mut hits = 0u64;
+                    while !stop.load(Ordering::Relaxed) {
+                        let k = key_of(&mut rng);
+                        let guard = rd.pin();
+                        if let Some((view, meta)) = guard.get(k) {
+                            assert_eq!(
+                                view.as_bytes(),
+                                &blob_payload_of(k)[..],
+                                "torn payload for {k:#x}"
+                            );
+                            assert_eq!(meta, blob_expected_meta(k), "torn metadata for {k:#x}");
+                            hits += 1;
+                        }
+                    }
+                    hits
+                })
+            })
+            .collect();
+
+        let mut rng = XorShift(0xACE1);
+        let mut model = BTreeMap::new();
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_millis(300) {
+            for _ in 0..2000 {
+                let k = key_of(&mut rng);
+                if rng.next() % 2 == 0 {
+                    m.insert(k, &blob_payload_of(k), blob_meta_of(k)).unwrap();
+                    model.insert(k, ());
+                } else {
+                    m.remove(k);
+                    model.remove(&k);
+                }
+            }
+            m.compact().expect("compaction under churn");
+        }
+        stop.store(true, Ordering::Relaxed);
+        let mut total_hits = 0;
+        for r in readers {
+            total_hits += r.join().expect("reader panicked");
+        }
+        assert!(total_hits > 0, "readers observed nothing");
+
+        // Final state agrees with the model through the pinned read path.
+        let mut rd = m.reader();
+        let guard = rd.pin();
+        for &k in model.keys() {
+            let (view, meta) = guard.get(k).expect("model key present");
+            assert_eq!(view.as_bytes(), &blob_payload_of(k)[..]);
+            assert_eq!(meta, blob_expected_meta(k));
+        }
+        drop(guard);
+        m.with_locked(|inner| {
+            inner.index().validate();
+            assert_eq!(inner.len(), model.len() as u64);
+        });
+    }
+
+    /// A reader must observe one of the payload states a key actually held —
+    /// never a mix — while the writer flips it between two arena payloads and
+    /// an inline one (the slot word alternates between inline-encoded and
+    /// arena-locator forms) and compacts in between.
+    #[test]
+    fn concurrent_blob_overwrite_is_atomic() {
+        let m = Arc::new(SyncExpanseBlobMap::with_chunk_size(4096));
+        let a = vec![0xAAu8; 96];
+        let b = vec![0xBBu8; 160];
+        let c = vec![0xCCu8; 5]; // inline: metadata reads as 0
+        let key = 0x1234_5678u64;
+        m.insert(key, &a, 1).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let readers: Vec<_> = (0..3)
+            .map(|_| {
+                let m = Arc::clone(&m);
+                let stop = Arc::clone(&stop);
+                let (a, b, c) = (a.clone(), b.clone(), c.clone());
+                std::thread::spawn(move || {
+                    let mut rd = m.reader();
+                    while !stop.load(Ordering::Relaxed) {
+                        let guard = rd.pin();
+                        let (view, meta) = guard.get(key).expect("key always present");
+                        let bytes = view.as_bytes();
+                        assert!(
+                            (bytes == &a[..] && meta == 1)
+                                || (bytes == &b[..] && meta == 2)
+                                || (bytes == &c[..] && meta == 0),
+                            "mixed/torn overwrite state: len={} meta={meta}",
+                            bytes.len()
+                        );
+                    }
+                })
+            })
+            .collect();
+
+        let start = std::time::Instant::now();
+        let mut state = 0u8;
+        while start.elapsed() < std::time::Duration::from_millis(250) {
+            for _ in 0..500 {
+                state = (state + 1) % 3;
+                match state {
+                    0 => m.insert(key, &a, 1).unwrap(),
+                    1 => m.insert(key, &b, 2).unwrap(),
+                    _ => m.insert(key, &c, 3).unwrap(),
+                }
+            }
+            m.compact().unwrap();
+        }
+        stop.store(true, Ordering::Relaxed);
+        for r in readers {
+            r.join().expect("reader panicked");
+        }
     }
 }

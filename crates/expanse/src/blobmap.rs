@@ -33,9 +33,12 @@
 //! so a metadata predicate never needs a cold-DRAM fetch for them regardless.
 
 use crate::map::ExpanseMap;
+use crate::occ::Collector;
 use crate::slot::{SlotTag, ValueSlot};
 use crate::types::Key;
 use core::ptr::NonNull;
+use core::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::{Arc, OnceLock};
 
 /// Packed 8-byte record header preceding every arena payload.
 #[repr(C, packed)]
@@ -46,6 +49,46 @@ pub struct BlobRecordHeader {
     pub len: u32,
     /// Generation counter for ABA protection and compaction validation.
     pub generation: u32,
+}
+
+/// Parses the record at `off` within a chunk whose first `bound` bytes are
+/// readable, expecting records stamped `generation`; returns the payload's
+/// base pointer and length, or `None` when anything fails to check out
+/// (offset past `bound`, generation mismatch, length past `bound`).
+///
+/// **The one definition of the record wire format on the read side.** The
+/// single-threaded path ([`ArenaChunk::get_slice`]) calls it with
+/// `bound = cursor`; the lock-free path ([`resolve_meta_in_table`]) calls it
+/// with `bound = capacity`, relying on zeroed unwritten bytes failing the
+/// generation check (generation 0 is never live).
+///
+/// # Safety
+///
+/// `base .. base + bound` must be readable bytes of one live allocation.
+#[inline(always)]
+unsafe fn read_record(
+    base: *const u8,
+    off: usize,
+    bound: usize,
+    generation: u32,
+) -> Option<(*const u8, usize)> {
+    if off.checked_add(8)? > bound {
+        return None;
+    }
+    // SAFETY: `off + 8 <= bound`, readable per this function's contract. The
+    // loaded bytes may be torn/stale on the lock-free path — every use is
+    // range-checked here and discarded by that caller unless its seqlock
+    // snapshot validates.
+    let header = unsafe { core::ptr::read_unaligned(base.add(off).cast::<BlobRecordHeader>()) };
+    if header.generation != generation {
+        return None;
+    }
+    let len = header.len as usize;
+    if off.checked_add(8)?.checked_add(len)? > bound {
+        return None;
+    }
+    // SAFETY: `off + 8 + len <= bound` — in-bounds of the allocation.
+    Some((unsafe { base.add(off + 8) }, len))
 }
 
 /// Magic identifier for Expanse binary image files ("EXPANSE\0").
@@ -299,22 +342,18 @@ impl ArenaChunk {
     /// Reads payload slice from offset within chunk.
     #[must_use]
     pub fn get_slice(&self, offset_in_chunk: usize) -> Option<&[u8]> {
-        if offset_in_chunk.checked_add(8)? > self.cursor {
-            return None;
-        }
-        // SAFETY: offset_in_chunk + 8 <= cursor <= capacity, valid allocated memory.
-        unsafe {
-            let base = self.ptr.as_ptr().add(offset_in_chunk);
-            let header = core::ptr::read_unaligned(base.cast::<BlobRecordHeader>());
-            if header.generation != self.generation {
-                return None;
-            }
-            let len = header.len as usize;
-            if offset_in_chunk.checked_add(8)?.checked_add(len)? > self.cursor {
-                return None;
-            }
-            Some(core::slice::from_raw_parts(base.add(8), len))
-        }
+        // SAFETY: `ptr .. ptr + cursor` is the initialized prefix of this
+        // chunk's live allocation (`cursor <= capacity`).
+        let (payload, len) = unsafe {
+            read_record(
+                self.ptr.as_ptr(),
+                offset_in_chunk,
+                self.cursor,
+                self.generation,
+            )
+        }?;
+        // SAFETY: `read_record` bounds the payload within the allocation.
+        Some(unsafe { core::slice::from_raw_parts(payload, len) })
     }
 
     /// Returns the generation counter.
@@ -368,6 +407,17 @@ impl ArenaChunk {
         }
         chunk.cursor = cursor;
         Ok(chunk)
+    }
+
+    /// Phase 7 (issue #219): hands this chunk's allocation to the epoch
+    /// collector for deferred freeing instead of dropping it — pinned readers
+    /// may still hold pointers into it. Consumes the chunk without running its
+    /// `Drop` (the collector frees the memory after the grace period).
+    pub(crate) fn retire_into(self, collector: &Collector) {
+        let ptr = self.ptr;
+        let capacity = self.capacity;
+        core::mem::forget(self);
+        collector.retire(ptr, capacity, 16);
     }
 }
 
@@ -436,10 +486,114 @@ fn slot_from_global(global_offset: u64, hot_meta: u32) -> Result<ValueSlot, Aren
     ValueSlot::new_arena_meta(hot_meta, locator).ok_or(ArenaError::MetaOverflow)
 }
 
+/// Phase 7 (issue #219): one entry of the RCU-published chunk table — the raw
+/// geometry a lock-free reader needs to resolve a record inside one chunk.
+/// Entries are immutable once published.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ChunkRef {
+    /// Base of the chunk allocation.
+    ptr: *const u8,
+    /// Chunk capacity in bytes (reader bound; the cursor moves under the
+    /// writer, so readers bound by capacity and rely on the record
+    /// generation check — unwritten chunk bytes are zeroed and generation 0
+    /// is never a live generation).
+    capacity: usize,
+    /// Generation stamped on the chunk's records.
+    generation: u32,
+}
+
+/// Phase 7 (issue #219): header of the RCU-published chunk table. `len`
+/// [`ChunkRef`] entries trail this header in the same allocation, so a single
+/// pointer publishes a self-describing, immutable snapshot — readers never
+/// touch the arena's `Vec<ArenaChunk>`, whose buffer the global allocator
+/// frees on growth (no grace period). Superseded tables are retired through
+/// the epoch collector.
+#[repr(C)]
+pub(crate) struct ChunkTable {
+    /// Number of trailing [`ChunkRef`] entries.
+    len: usize,
+    /// The arena's fixed chunk size (immutable after construction), so a
+    /// reader can split a global offset without touching the arena struct.
+    chunk_size: usize,
+}
+
+/// Allocation size of a chunk table with `len` entries.
+#[inline]
+fn table_bytes(len: usize) -> usize {
+    core::mem::size_of::<ChunkTable>() + len * core::mem::size_of::<ChunkRef>()
+}
+
+/// Allocation layout of a chunk table with `len` entries. The alignment
+/// (8) deliberately matches no collector size class ([`crate::alloc::RAW_ALIGN`]
+/// is 16), so retired tables always go through a plain deferred `dealloc`.
+#[inline]
+fn table_layout(len: usize) -> std::alloc::Layout {
+    std::alloc::Layout::from_size_align(table_bytes(len), core::mem::align_of::<ChunkTable>())
+        .expect("valid chunk table layout")
+}
+
+/// Resolves an `ArenaMeta` `locator` (`global / 16` in 16-byte units) through
+/// a published chunk table to the payload's base pointer and length.
+///
+/// Returns `None` for anything that does not resolve cleanly — a null table,
+/// an out-of-range chunk or offset, a generation mismatch, or a length beyond
+/// the chunk. The loaded bytes may be torn or stale (this is the optimistic
+/// read path): the caller MUST validate its seqlock snapshot before using the
+/// result, which disambiguates a genuinely dangling locator (validated `None`)
+/// from a racing writer (validation fails → retry).
+///
+/// # Safety
+///
+/// `table` must be null or a table published by a [`BlobArena`] in deferred
+/// mode, and the caller must hold an epoch pin taken before loading it: the
+/// table and every chunk it references are then EBR-live, so all reads stay
+/// within live allocations even when the table has been superseded.
+pub(crate) unsafe fn resolve_meta_in_table(
+    table: *const ChunkTable,
+    locator: u32,
+) -> Option<(*const u8, usize)> {
+    if table.is_null() {
+        return None;
+    }
+    // SAFETY: non-null published table, EBR-live under the caller's pin.
+    let (len, chunk_size) = unsafe { ((*table).len, (*table).chunk_size) };
+    let offset = usize::try_from((locator as u64) * (ARENA_ALIGN as u64)).ok()?;
+    let idx = offset / chunk_size;
+    let off = offset % chunk_size;
+    if idx >= len {
+        return None;
+    }
+    // SAFETY: `idx < len` entries trail the header in the same allocation.
+    let entry = unsafe {
+        *table
+            .cast::<u8>()
+            .add(core::mem::size_of::<ChunkTable>())
+            .cast::<ChunkRef>()
+            .add(idx)
+    };
+    // SAFETY: `entry.ptr .. entry.ptr + capacity` is one chunk allocation,
+    // EBR-live under the caller's pin; the shared parser range-checks every
+    // access against `capacity`, and the caller discards the result unless
+    // its seqlock snapshot validates.
+    unsafe { read_record(entry.ptr, off, entry.capacity, entry.generation) }
+}
+
 /// Chunked slab allocator for variable-length payload storage.
 pub struct BlobArena {
+    /// The chunk set. **Invariant (Phase 7):** any mutation of this set must
+    /// call [`Self::republish_table`] before any dropped chunk is disposed —
+    /// readers resolve through the published table, and a block must be
+    /// unreachable before it enters the collector's grace period. Current
+    /// mutation sites: `alloc_blob` (growth), `push_chunk`, `clear`,
+    /// `compact_with_index`.
     chunks: Vec<ArenaChunk>,
     active_chunk: Option<usize>,
+    /// Fixed record-addressing granularity:
+    /// `global_offset = idx * chunk_size + offset_in_chunk`.
+    /// **Immutable after construction** — every published chunk table and
+    /// every `ArenaMeta` locator in an index bakes this split in, so
+    /// mutating it on a live arena would misresolve them all.
     chunk_size: usize,
     total_allocated: usize,
     live_bytes: usize,
@@ -454,6 +608,16 @@ pub struct BlobArena {
     /// cross it. Defaults to [`MAX_ARENA_CAPACITY`]; a compaction inherits the
     /// source arena's cap. Not serialized (it is a growth policy, not data).
     max_capacity: usize,
+    /// Phase 7 (issue #219): when set, dead chunks and superseded chunk
+    /// tables are retired to the collector instead of freed — concurrent
+    /// readers may still hold pointers into them. Mirrors
+    /// [`crate::alloc::NodeAlloc`]'s deferred mode.
+    deferred: OnceLock<Arc<Collector>>,
+    /// RCU-published [`ChunkTable`] for lock-free readers; null unless
+    /// deferred mode has published one. Republished whole on every
+    /// chunk-set change, always *before* the chunks it dropped are retired
+    /// (a block must be unreachable before it enters the grace period).
+    reader_table: AtomicPtr<ChunkTable>,
 }
 
 impl BlobArena {
@@ -478,7 +642,101 @@ impl BlobArena {
             live_bytes: 0,
             generation: 1,
             max_capacity: MAX_ARENA_CAPACITY,
+            deferred: OnceLock::new(),
+            reader_table: AtomicPtr::new(core::ptr::null_mut()),
         }
+    }
+
+    /// Switches this arena to deferred reclamation through `collector`,
+    /// permanently (Phase 7 concurrent wrappers call this once at
+    /// construction, alongside the index's `NodeAlloc::defer_to`): dead
+    /// chunks and superseded chunk tables then wait out the epoch grace
+    /// period instead of being freed, and a [`ChunkTable`] snapshot is
+    /// published for lock-free readers. Idempotent for the same collector;
+    /// a second call with a different collector is a bug and panics.
+    ///
+    /// `pub(crate)` deliberately: only the `sync` wrappers drive a
+    /// collector's epochs. A caller deferring a standalone arena through
+    /// the public [`ExpanseBlobMap::arena`] accessor would retire whole
+    /// chunks into bins nothing ever advances (unbounded growth), and the
+    /// different-collector panic would be reachable from safe code.
+    pub(crate) fn defer_to(&self, collector: Arc<Collector>) {
+        let stored = self.deferred.get_or_init(|| Arc::clone(&collector));
+        assert!(
+            Arc::ptr_eq(stored, &collector),
+            "BlobArena already deferred to a different collector"
+        );
+        self.republish_table();
+    }
+
+    /// Current published chunk table (null when not in deferred mode or
+    /// when the arena has no chunks). Readers must hold an epoch pin taken
+    /// before this load — see [`resolve_meta_in_table`].
+    pub(crate) fn reader_table(&self) -> *const ChunkTable {
+        self.reader_table.load(Ordering::Acquire)
+    }
+
+    /// Rebuilds and publishes the reader chunk table from the current chunk
+    /// set, retiring the superseded table through the collector. No-op
+    /// unless deferred mode is on. Publishing an empty chunk set stores
+    /// null. Must run *before* any chunk dropped by the change is retired.
+    fn republish_table(&self) {
+        let Some(collector) = self.deferred.get() else {
+            return;
+        };
+        let new_table: *mut ChunkTable = if self.chunks.is_empty() {
+            core::ptr::null_mut()
+        } else {
+            let len = self.chunks.len();
+            let layout = table_layout(len);
+            // SAFETY: non-zero-size layout; every byte is initialized below.
+            let raw = unsafe { std::alloc::alloc(layout) };
+            let Some(table) = NonNull::new(raw.cast::<ChunkTable>()) else {
+                std::alloc::handle_alloc_error(layout)
+            };
+            // SAFETY: fresh allocation of `table_bytes(len)` bytes: header
+            // first, then `len` ChunkRef entries.
+            unsafe {
+                table.as_ptr().write(ChunkTable {
+                    len,
+                    chunk_size: self.chunk_size,
+                });
+                let entries = table
+                    .as_ptr()
+                    .cast::<u8>()
+                    .add(core::mem::size_of::<ChunkTable>())
+                    .cast::<ChunkRef>();
+                for (i, chunk) in self.chunks.iter().enumerate() {
+                    entries.add(i).write(ChunkRef {
+                        ptr: chunk.ptr.as_ptr(),
+                        capacity: chunk.capacity,
+                        generation: chunk.generation,
+                    });
+                }
+            }
+            table.as_ptr()
+        };
+        let old = self.reader_table.swap(new_table, Ordering::AcqRel);
+        if let Some(old) = NonNull::new(old) {
+            // SAFETY: `old` was published by this arena; its `len` header
+            // field is immutable, giving back the exact allocation size.
+            let bytes = table_bytes(unsafe { (*old.as_ptr()).len });
+            collector.retire(old.cast::<u8>(), bytes, core::mem::align_of::<ChunkTable>());
+        }
+    }
+
+    /// Disposes of chunks no longer referenced by the arena: retired
+    /// through the collector in deferred mode (pinned readers may still
+    /// hold pointers into them), dropped (freed immediately) otherwise.
+    /// In deferred mode the caller must have republished the reader table
+    /// first, so no new reader can reach these chunks.
+    fn dispose_chunks(&self, chunks: Vec<ArenaChunk>) {
+        if let Some(collector) = self.deferred.get() {
+            for chunk in chunks {
+                chunk.retire_into(collector);
+            }
+        }
+        // Not deferred: dropping the Vec frees each chunk immediately.
     }
 
     /// Returns the arena's current generation counter.
@@ -535,6 +793,10 @@ impl BlobArena {
         self.total_allocated += self.chunk_size;
         self.active_chunk = Some(idx);
         self.live_bytes += needed;
+        // Phase 7: lock-free readers resolve through the published table, so
+        // the grown chunk set must be republished for the record to become
+        // reachable (readers on the old table simply retry).
+        self.republish_table();
         Ok(self.global_offset(idx, offset_in_chunk))
     }
 
@@ -649,7 +911,21 @@ impl BlobArena {
         let total_allocated_after = new_arena.total_allocated;
         let chunks_after = new_arena.chunks.len();
 
-        *self = new_arena;
+        // Install the compacted chunk set piecewise (not `*self = new_arena`:
+        // that would drop the old chunks immediately and discard the deferred
+        // handle). In deferred mode the new reader table must be published —
+        // making the old chunks unreachable to new readers — BEFORE those
+        // chunks enter the collector's grace period; pinned readers holding
+        // pre-compaction payload borrows keep reading the retired bytes,
+        // which are never rewritten.
+        let old_chunks =
+            core::mem::replace(&mut self.chunks, core::mem::take(&mut new_arena.chunks));
+        self.active_chunk = new_arena.active_chunk;
+        self.total_allocated = new_arena.total_allocated;
+        self.live_bytes = new_arena.live_bytes;
+        self.generation = new_arena.generation;
+        self.republish_table();
+        self.dispose_chunks(old_chunks);
 
         Ok(CompactionStats {
             live_bytes_before,
@@ -702,14 +978,38 @@ impl BlobArena {
         self.total_allocated += chunk.capacity();
         self.chunks.push(chunk);
         self.active_chunk = Some(self.chunks.len() - 1);
+        self.republish_table();
     }
 
-    /// Resets and frees all arena chunks.
+    /// Resets and frees all arena chunks (retired through the collector in
+    /// deferred mode — pinned readers may still hold payload borrows).
     pub fn clear(&mut self) {
-        self.chunks.clear();
+        let old_chunks = core::mem::take(&mut self.chunks);
         self.active_chunk = None;
         self.total_allocated = 0;
         self.live_bytes = 0;
+        // Unpublish (null table) before the chunks enter the grace period.
+        self.republish_table();
+        self.dispose_chunks(old_chunks);
+    }
+}
+
+impl Drop for BlobArena {
+    fn drop(&mut self) {
+        // Dropping the arena proves exclusive ownership (concurrent wrappers
+        // hand out readers only for the arena's lifetime), so the published
+        // table is freed directly; chunks still owned by `self.chunks` free
+        // via `ArenaChunk::drop`, and already-retired ones drain with the
+        // collector.
+        let table = *self.reader_table.get_mut();
+        if let Some(table) = NonNull::new(table) {
+            // SAFETY: `table` was allocated by `republish_table` with
+            // `table_layout(len)`; its `len` header field is immutable.
+            unsafe {
+                let layout = table_layout((*table.as_ptr()).len);
+                std::alloc::dealloc(table.cast::<u8>().as_ptr(), layout);
+            }
+        }
     }
 }
 
@@ -1069,11 +1369,16 @@ impl ExpanseBlobMap {
             // Every chunk in a valid image has `cap == chunk_size`;
             // `get_blob_slice` maps a global offset to a chunk via
             // `offset / chunk_size`, so a non-uniform `cap` would silently
-            // point at the wrong chunk. Reject it.
+            // point at the wrong chunk. Reject it. Generation 0 is likewise
+            // never written by a live arena (`BlobArena::new` starts at 1
+            // and compaction skips 0) and the read paths rely on "generation
+            // 0 is never live" to reject zeroed unwritten bytes — a crafted
+            // image declaring it must not load.
             if cap == 0
                 || cap > ArenaChunk::MAX_CHUNK_CAPACITY
                 || cap != header.chunk_size as usize
                 || cur > cap
+                || generation == 0
             {
                 return Err(ArenaError::CorruptedHeader);
             }
@@ -1154,6 +1459,71 @@ impl Default for ExpanseBlobMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Phase 7 (issue #219): deferred-mode round trip — single-threaded and
+    /// Miri-clean. Chunks dropped by compaction and `clear` are retired
+    /// through the epoch collector (a pinned reader keeps reading the old
+    /// bytes), the RCU chunk table tracks every chunk-set change, and
+    /// everything drains without leaks or double frees.
+    #[test]
+    fn deferred_arena_retires_chunks_and_tables() {
+        let collector = Arc::new(Collector::new());
+        let mut arena = BlobArena::new(4096);
+        arena.defer_to(Arc::clone(&collector));
+        assert!(arena.reader_table().is_null(), "no chunks, no table");
+
+        let payload = [7u8; 100];
+        let global = arena.alloc_blob(&payload).unwrap();
+        let locator = (global / ARENA_ALIGN as u64) as u32;
+
+        // Contract order: the pin must be taken BEFORE the table pointer is
+        // loaded (see `resolve_meta_in_table`'s safety section).
+        let reader = collector.register();
+        let pin = reader.pin();
+        let table = arena.reader_table();
+        assert!(!table.is_null(), "first chunk publishes a table");
+        // SAFETY: pinned, freshly published table.
+        let (ptr, len) = unsafe { resolve_meta_in_table(table, locator) }.expect("resolves");
+        // SAFETY: in-bounds of the live chunk (per resolve contract).
+        let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
+        assert_eq!(bytes, &payload[..]);
+
+        // Compact with an index referencing the record: the old chunk is
+        // retired, not freed — the pinned pointer stays readable.
+        let mut index = ExpanseMap::new();
+        let slot = slot_from_global(global, 5).unwrap();
+        index.insert(42, slot.to_raw());
+        let stats = arena.compact_with_index(&mut index).unwrap();
+        assert_eq!(stats.live_records_moved, 1);
+        // SAFETY: the pin taken before the compaction keeps the retired
+        // chunk EBR-live; retired chunk bytes are never rewritten.
+        let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
+        assert_eq!(bytes, &payload[..]);
+
+        // The relocated record resolves through the republished table with
+        // its hot metadata intact.
+        let new_slot = ValueSlot::from_raw(index.get(42).unwrap());
+        assert_eq!(new_slot.arena_meta_meta(), 5);
+        // SAFETY: pinned, freshly published table.
+        let (p2, l2) =
+            unsafe { resolve_meta_in_table(arena.reader_table(), new_slot.arena_meta_locator()) }
+                .expect("relocated record resolves");
+        // SAFETY: in-bounds of the live compacted chunk.
+        let bytes = unsafe { core::slice::from_raw_parts(p2, l2) };
+        assert_eq!(bytes, &payload[..]);
+
+        drop(pin);
+        collector.try_advance();
+        collector.try_advance();
+        collector.try_advance(); // frees the retired chunk + superseded tables
+
+        // `clear` retires the remaining chunks and unpublishes the table.
+        arena.clear();
+        assert!(arena.reader_table().is_null());
+        drop(arena);
+        drop(reader);
+        drop(collector); // drains anything still queued
+    }
 
     #[test]
     fn small_inline_and_arena_blobs() {
@@ -1390,6 +1760,29 @@ mod tests {
         let arena_off = u64::from_le_bytes(buf[32..40].try_into().unwrap()) as usize;
         let bad_cap = (64u64 * 1024) + 16;
         buf[arena_off..arena_off + 8].copy_from_slice(&bad_cap.to_le_bytes());
+        assert!(matches!(
+            ExpanseBlobMap::from_bytes_slice(&buf),
+            Err(ArenaError::CorruptedHeader)
+        ));
+    }
+
+    /// A live arena never stamps generation 0 (`BlobArena::new` starts at 1;
+    /// compaction skips 0), and both read paths treat "generation 0" as
+    /// never-live to reject zeroed unwritten bytes — the lock-free resolver
+    /// bounds by capacity and depends on it. A crafted image declaring
+    /// generation 0 must therefore be rejected at load.
+    #[test]
+    fn corrupted_image_generation_zero_rejected() {
+        let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
+        map.insert(1, &[0xCD; 1000], 7).unwrap();
+        let mut buf = Vec::new();
+        map.save_to_writer(&mut buf).unwrap();
+        assert!(ExpanseBlobMap::from_bytes_slice(&buf).is_ok());
+
+        // The first chunk header at arena_offset is cap(8) | cursor(8) |
+        // generation(4) | pad(4); zero the generation.
+        let arena_off = u64::from_le_bytes(buf[32..40].try_into().unwrap()) as usize;
+        buf[arena_off + 16..arena_off + 20].copy_from_slice(&0u32.to_le_bytes());
         assert!(matches!(
             ExpanseBlobMap::from_bytes_slice(&buf),
             Err(ArenaError::CorruptedHeader)
