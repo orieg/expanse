@@ -1,149 +1,218 @@
 {
   "humaneval_code": {
     "hf_adaptive_lookup": {
-      "speculation_steps": 962,
-      "total_accepted_tokens": 1815,
-      "total_drafted_tokens": 3346,
-      "mean_acceptance_length_alpha": 1.887,
-      "acceptance_rate": 0.2549,
-      "candidate_lookup_latency_us": 0.958
+      "speculation_steps": 3433,
+      "total_accepted_tokens": 6378,
+      "total_drafted_tokens": 12471,
+      "mean_acceptance_length_alpha": 0.858,
+      "bca_95_ci": [
+        0.408,
+        0.592
+      ],
+      "acceptance_rate": 0.5114,
+      "candidate_lookup_latency_us": 7.811
     },
     "hf_fixed_3gram": {
-      "speculation_steps": 1132,
-      "total_accepted_tokens": 1815,
-      "total_drafted_tokens": 1684,
-      "mean_acceptance_length_alpha": 1.603,
-      "acceptance_rate": 0.4056,
-      "candidate_lookup_latency_us": 0.5
+      "speculation_steps": 3947,
+      "total_accepted_tokens": 6378,
+      "total_drafted_tokens": 6994,
+      "mean_acceptance_length_alpha": 0.616,
+      "bca_95_ci": [
+        0.2,
+        0.369
+      ],
+      "acceptance_rate": 0.9119,
+      "candidate_lookup_latency_us": 3.902
     },
     "hf_fixed_2gram": {
-      "speculation_steps": 1054,
-      "total_accepted_tokens": 1815,
-      "total_drafted_tokens": 2418,
-      "mean_acceptance_length_alpha": 1.722,
-      "acceptance_rate": 0.3147,
-      "candidate_lookup_latency_us": 0.5
+      "speculation_steps": 3826,
+      "total_accepted_tokens": 6378,
+      "total_drafted_tokens": 10080,
+      "mean_acceptance_length_alpha": 0.667,
+      "bca_95_ci": [
+        0.261,
+        0.427
+      ],
+      "acceptance_rate": 0.6327,
+      "candidate_lookup_latency_us": 1.991
     },
     "expanse_longest_suffix": {
-      "speculation_steps": 999,
-      "total_accepted_tokens": 1815,
-      "total_drafted_tokens": 2191,
-      "mean_acceptance_length_alpha": 1.817,
-      "acceptance_rate": 0.3724,
-      "candidate_lookup_latency_us": 8.541
+      "speculation_steps": 3185,
+      "total_accepted_tokens": 6378,
+      "total_drafted_tokens": 11452,
+      "mean_acceptance_length_alpha": 1.003,
+      "bca_95_ci": [
+        0.438,
+        0.641
+      ],
+      "acceptance_rate": 0.5569,
+      "candidate_lookup_latency_us": 45.459
     },
     "suffix_array_baseline": {
-      "speculation_steps": 1022,
-      "total_accepted_tokens": 1815,
-      "total_drafted_tokens": 2284,
-      "mean_acceptance_length_alpha": 1.776,
-      "acceptance_rate": 0.3472,
-      "candidate_lookup_latency_us": 2045.833
+      "speculation_steps": 3250,
+      "total_accepted_tokens": 6378,
+      "total_drafted_tokens": 11736,
+      "mean_acceptance_length_alpha": 0.962,
+      "bca_95_ci": [
+        0.418,
+        0.629
+      ],
+      "acceptance_rate": 0.5435,
+      "candidate_lookup_latency_us": 29.039
     },
     "_speculative_ceiling": {
-      "baseline_alpha": 1.603,
-      "expanse_alpha": 1.817,
-      "alpha_gain_pct": 8.22,
-      "theoretical_tok_per_sec_ceiling": 1.082,
-      "passes_pillar_c_gate": true
+      "baseline_arm": "hf_adaptive_lookup",
+      "baseline_alpha": 0.858,
+      "expanse_alpha": 1.003,
+      "suffix_array_alpha": 0.962,
+      "alpha_gain_pct_vs_adaptive": 7.8,
+      "theoretical_tok_per_sec_ceiling": 1.078,
+      "passes_pillar_c_gate": true,
+      "boundary_result": "PASS: Expanse wins by +7.8% alpha over HF Adaptive (Speedup ceiling: 1.078x)"
     }
   },
   "summarization": {
     "hf_adaptive_lookup": {
-      "speculation_steps": 87,
-      "total_accepted_tokens": 214,
-      "total_drafted_tokens": 260,
-      "mean_acceptance_length_alpha": 2.46,
-      "acceptance_rate": 0.4885,
-      "candidate_lookup_latency_us": 0.834
+      "speculation_steps": 180,
+      "total_accepted_tokens": 691,
+      "total_drafted_tokens": 720,
+      "mean_acceptance_length_alpha": 2.839,
+      "bca_95_ci": [
+        3.246,
+        3.52
+      ],
+      "acceptance_rate": 0.9597,
+      "candidate_lookup_latency_us": 7.166
     },
     "hf_fixed_3gram": {
-      "speculation_steps": 104,
-      "total_accepted_tokens": 214,
-      "total_drafted_tokens": 144,
-      "mean_acceptance_length_alpha": 2.058,
-      "acceptance_rate": 0.7639,
-      "candidate_lookup_latency_us": 0.542
+      "speculation_steps": 194,
+      "total_accepted_tokens": 691,
+      "total_drafted_tokens": 660,
+      "mean_acceptance_length_alpha": 2.562,
+      "bca_95_ci": [
+        2.8,
+        2.986
+      ],
+      "acceptance_rate": 1.047,
+      "candidate_lookup_latency_us": 11.896
     },
     "hf_fixed_2gram": {
-      "speculation_steps": 98,
-      "total_accepted_tokens": 214,
-      "total_drafted_tokens": 180,
-      "mean_acceptance_length_alpha": 2.184,
-      "acceptance_rate": 0.6444,
-      "candidate_lookup_latency_us": 0.542
+      "speculation_steps": 220,
+      "total_accepted_tokens": 691,
+      "total_drafted_tokens": 852,
+      "mean_acceptance_length_alpha": 2.141,
+      "bca_95_ci": [
+        2.929,
+        3.248
+      ],
+      "acceptance_rate": 0.811,
+      "candidate_lookup_latency_us": 4.838
     },
     "expanse_longest_suffix": {
-      "speculation_steps": 95,
-      "total_accepted_tokens": 214,
-      "total_drafted_tokens": 168,
-      "mean_acceptance_length_alpha": 2.253,
-      "acceptance_rate": 0.7083,
-      "candidate_lookup_latency_us": 8.208
+      "speculation_steps": 168,
+      "total_accepted_tokens": 691,
+      "total_drafted_tokens": 672,
+      "mean_acceptance_length_alpha": 3.113,
+      "bca_95_ci": [
+        3.227,
+        3.509
+      ],
+      "acceptance_rate": 1.0283,
+      "candidate_lookup_latency_us": 106.422
     },
     "suffix_array_baseline": {
-      "speculation_steps": 96,
-      "total_accepted_tokens": 214,
-      "total_drafted_tokens": 172,
-      "mean_acceptance_length_alpha": 2.229,
-      "acceptance_rate": 0.686,
-      "candidate_lookup_latency_us": 945.833
+      "speculation_steps": 163,
+      "total_accepted_tokens": 691,
+      "total_drafted_tokens": 652,
+      "mean_acceptance_length_alpha": 3.239,
+      "bca_95_ci": [
+        3.286,
+        3.525
+      ],
+      "acceptance_rate": 1.0598,
+      "candidate_lookup_latency_us": 66.103
     },
     "_speculative_ceiling": {
-      "baseline_alpha": 2.058,
-      "expanse_alpha": 2.253,
-      "alpha_gain_pct": 6.38,
-      "theoretical_tok_per_sec_ceiling": 1.064,
-      "passes_pillar_c_gate": true
+      "baseline_arm": "hf_adaptive_lookup",
+      "baseline_alpha": 2.839,
+      "expanse_alpha": 3.113,
+      "suffix_array_alpha": 3.239,
+      "alpha_gain_pct_vs_adaptive": 7.14,
+      "theoretical_tok_per_sec_ceiling": 1.071,
+      "passes_pillar_c_gate": true,
+      "boundary_result": "PASS: Expanse wins by +7.1% alpha over HF Adaptive (Speedup ceiling: 1.071x)"
     }
   },
   "json_schemas": {
     "hf_adaptive_lookup": {
-      "speculation_steps": 327,
-      "total_accepted_tokens": 925,
-      "total_drafted_tokens": 1084,
-      "mean_acceptance_length_alpha": 2.829,
-      "acceptance_rate": 0.5517,
-      "candidate_lookup_latency_us": 0.75
+      "speculation_steps": 31196,
+      "total_accepted_tokens": 68639,
+      "total_drafted_tokens": 117902,
+      "mean_acceptance_length_alpha": 1.2,
+      "bca_95_ci": [
+        0.912,
+        1.206
+      ],
+      "acceptance_rate": 0.5822,
+      "candidate_lookup_latency_us": 4.776
     },
     "hf_fixed_3gram": {
-      "speculation_steps": 367,
-      "total_accepted_tokens": 925,
-      "total_drafted_tokens": 900,
-      "mean_acceptance_length_alpha": 2.52,
-      "acceptance_rate": 0.62,
-      "candidate_lookup_latency_us": 0.542
+      "speculation_steps": 35245,
+      "total_accepted_tokens": 68639,
+      "total_drafted_tokens": 74607,
+      "mean_acceptance_length_alpha": 0.947,
+      "bca_95_ci": [
+        0.643,
+        0.947
+      ],
+      "acceptance_rate": 0.92,
+      "candidate_lookup_latency_us": 2.535
     },
     "hf_fixed_2gram": {
-      "speculation_steps": 393,
-      "total_accepted_tokens": 925,
-      "total_drafted_tokens": 1172,
-      "mean_acceptance_length_alpha": 2.354,
-      "acceptance_rate": 0.4539,
-      "candidate_lookup_latency_us": 0.5
+      "speculation_steps": 35042,
+      "total_accepted_tokens": 68639,
+      "total_drafted_tokens": 101688,
+      "mean_acceptance_length_alpha": 0.959,
+      "bca_95_ci": [
+        0.756,
+        1.003
+      ],
+      "acceptance_rate": 0.675,
+      "candidate_lookup_latency_us": 2.295
     },
     "expanse_longest_suffix": {
-      "speculation_steps": 299,
-      "total_accepted_tokens": 925,
-      "total_drafted_tokens": 796,
-      "mean_acceptance_length_alpha": 3.094,
-      "acceptance_rate": 0.7864,
-      "candidate_lookup_latency_us": 10.75
+      "speculation_steps": 28040,
+      "total_accepted_tokens": 68639,
+      "total_drafted_tokens": 105263,
+      "mean_acceptance_length_alpha": 1.448,
+      "bca_95_ci": [
+        1.097,
+        1.432
+      ],
+      "acceptance_rate": 0.6521,
+      "candidate_lookup_latency_us": 52.463
     },
     "suffix_array_baseline": {
-      "speculation_steps": 295,
-      "total_accepted_tokens": 925,
-      "total_drafted_tokens": 780,
-      "mean_acceptance_length_alpha": 3.136,
-      "acceptance_rate": 0.8077,
-      "candidate_lookup_latency_us": 925.208
+      "speculation_steps": 28867,
+      "total_accepted_tokens": 68639,
+      "total_drafted_tokens": 108586,
+      "mean_acceptance_length_alpha": 1.378,
+      "bca_95_ci": [
+        0.998,
+        1.359
+      ],
+      "acceptance_rate": 0.6321,
+      "candidate_lookup_latency_us": 33.177
     },
     "_speculative_ceiling": {
-      "baseline_alpha": 2.52,
-      "expanse_alpha": 3.094,
-      "alpha_gain_pct": 16.31,
-      "theoretical_tok_per_sec_ceiling": 1.163,
-      "passes_pillar_c_gate": true
+      "baseline_arm": "hf_adaptive_lookup",
+      "baseline_alpha": 1.2,
+      "expanse_alpha": 1.448,
+      "suffix_array_alpha": 1.378,
+      "alpha_gain_pct_vs_adaptive": 11.27,
+      "theoretical_tok_per_sec_ceiling": 1.113,
+      "passes_pillar_c_gate": true,
+      "boundary_result": "PASS: Expanse wins by +11.3% alpha over HF Adaptive (Speedup ceiling: 1.113x)"
     }
   }
 }

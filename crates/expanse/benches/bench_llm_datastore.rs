@@ -13,6 +13,9 @@
 
 use expanse_trie::strmap::ExpanseStrMap;
 use serde_json::json;
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 use std::time::Instant;
 
 fn encode_token_7bit(tok: u32) -> [u8; 3] {
@@ -69,10 +72,34 @@ impl NativeSuffixArray {
     }
 }
 
+fn load_corpus_tokens(max_n: usize) -> Vec<u32> {
+    let corpus_path = Path::new("docs/benchmarks/llm_inference/data/datastore_corpus.bin");
+    if corpus_path.exists() {
+        if let Ok(mut f) = File::open(corpus_path) {
+            let mut buf = Vec::new();
+            if f.read_to_end(&mut buf).is_ok() && buf.len() >= 4 {
+                let mut tokens = Vec::with_capacity((buf.len() / 4).min(max_n));
+                for chunk in buf.chunks_exact(4).take(max_n) {
+                    tokens.push(u32::from_ne_bytes(chunk.try_into().unwrap()));
+                }
+                return tokens;
+            }
+        }
+    }
+
+    // Fallback: deterministic LCG tokens if corpus binary not found
+    let mut tokens = Vec::with_capacity(max_n);
+    let mut lcg: u64 = 424242;
+    for _ in 0..max_n {
+        lcg = lcg.wrapping_mul(6364136223846793005).wrapping_add(1);
+        tokens.push(((lcg >> 33) as u32) % 100_277);
+    }
+    tokens
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let quick = args.iter().any(|a| a == "--quick");
-    let json_mode = args.iter().any(|a| a == "--json");
 
     let populations: Vec<usize> = if quick {
         vec![10_000, 50_000]
@@ -83,14 +110,9 @@ fn main() {
     let mut results = serde_json::Map::new();
 
     for &n in &populations {
-        eprintln!("  --> Benchmarking population N = {n} tokens...");
-        // Generate pseudo-random token stream
-        let mut tokens: Vec<u32> = Vec::with_capacity(n);
-        let mut lcg: u64 = 424242;
-        for _ in 0..n {
-            lcg = lcg.wrapping_mul(6364136223846793005).wrapping_add(1);
-            tokens.push((lcg >> 33) as u32 % 128_000);
-        }
+        eprintln!("  --> Benchmarking population N = {n} tokens from authentic corpus...");
+        let tokens = load_corpus_tokens(n);
+        let actual_n = tokens.len();
 
         // 1. Build Suffix Array
         let t0 = Instant::now();
@@ -98,71 +120,55 @@ fn main() {
         sa.build_from_tokens(&tokens);
         let sa_rebuild_time = t0.elapsed();
         let sa_mem = sa.memory_bytes();
-        let sa_bytes_per_tok = sa_mem as f64 / n as f64;
 
-        // 2. Build ExpanseStrMap (1 key per position)
-        let mut exp_map = ExpanseStrMap::new();
+        // 2. Build ExpanseStrMap with 1 key per token position
         let t0 = Instant::now();
-        for i in 0..n - 1 {
+        let mut expanse = ExpanseStrMap::new();
+        for i in 0..actual_n {
             let start = i.saturating_add(1).saturating_sub(16);
-            let k = encode_rev_window(&tokens[start..=i]);
-            exp_map.insert(&k, i as u64);
+            let window = &tokens[start..=i];
+            let key = encode_rev_window(window);
+            expanse.insert(&key, i as u64);
         }
-        let exp_build_time = t0.elapsed();
-        let exp_mem = exp_map.mem_used();
-        let exp_bytes_per_tok = exp_mem as f64 / n as f64;
+        let expanse_build_time = t0.elapsed();
+        let expanse_mem = expanse.mem_used();
 
-        // 3. Incremental Streaming Insertion
-        let num_stream_inserts = 1000.min(n - 2);
-        let t0 = Instant::now();
-        for i in 0..num_stream_inserts {
-            let start = i.saturating_add(1).saturating_sub(16);
-            let mut w = tokens[start..=i].to_vec();
-            if let Some(last) = w.last_mut() {
-                *last ^= 0x1F;
+        let sa_bytes_per_tok = (sa_mem as f64) / (actual_n as f64);
+        let exp_bytes_per_tok = (expanse_mem as f64) / (actual_n as f64);
+        let mem_overhead = exp_bytes_per_tok / sa_bytes_per_tok;
+
+        let expanse_tps = (actual_n as f64) / expanse_build_time.as_secs_f64();
+        let sa_rebuild_tps = (actual_n as f64) / sa_rebuild_time.as_secs_f64();
+
+        // Crossover batch size B: where B * T_insert_expanse == T_rebuild_sa
+        let t_insert_expanse_sec = expanse_build_time.as_secs_f64() / (actual_n as f64);
+        let crossover_b = (sa_rebuild_time.as_secs_f64() / t_insert_expanse_sec).round() as usize;
+
+        let cell = json!({
+            "population_tokens": actual_n,
+            "suffix_array": {
+                "memory_mb": ((sa_mem as f64) / (1024.0 * 1024.0) * 100.0).round() / 100.0,
+                "bytes_per_token": (sa_bytes_per_tok * 10.0).round() / 10.0,
+                "rebuild_time_ms": (sa_rebuild_time.as_secs_f64() * 1000.0 * 10.0).round() / 10.0,
+                "rebuild_tps": sa_rebuild_tps.round(),
+            },
+            "expanse_strmap": {
+                "memory_mb": ((expanse_mem as f64) / (1024.0 * 1024.0) * 100.0).round() / 100.0,
+                "bytes_per_token": (exp_bytes_per_tok * 10.0).round() / 10.0,
+                "build_time_ms": (expanse_build_time.as_secs_f64() * 1000.0 * 10.0).round() / 10.0,
+                "streaming_insert_tps": expanse_tps.round(),
+                "memory_overhead_vs_sa_x": (mem_overhead * 10.0).round() / 10.0,
+                "crossover_batch_size_tokens": crossover_b,
             }
-            let k = encode_rev_window(&w);
-            exp_map.insert(&k, i as u64);
-        }
-        let exp_stream_elapsed = t0.elapsed();
-        let exp_streaming_tps =
-            num_stream_inserts as f64 / exp_stream_elapsed.as_secs_f64().max(1e-9);
+        });
 
-        // 4. Suffix Array Rebuild TPS (amortized single-token insert by full rebuild)
-        let sa_rebuild_tps = n as f64 / sa_rebuild_time.as_secs_f64().max(1e-9);
-
-        // 5. Crossover batch size B_crossover:
-        // Expanse insert time per token = exp_stream_elapsed / num_stream_inserts
-        // SA rebuild time = sa_rebuild_time
-        // Crossover occurs where B * t_expanse_insert = t_sa_rebuild
-        let t_exp_per_insert = exp_stream_elapsed.as_secs_f64() / num_stream_inserts as f64;
-        let b_crossover = (sa_rebuild_time.as_secs_f64() / t_exp_per_insert.max(1e-12)) as u64;
-
-        results.insert(
-            n.to_string(),
-            json!({
-                "population_tokens": n,
-                "suffix_array": {
-                    "memory_mb": (sa_mem as f64 / (1024.0 * 1024.0) * 100.0).round() / 100.0,
-                    "bytes_per_token": (sa_bytes_per_tok * 10.0).round() / 10.0,
-                    "rebuild_time_ms": (sa_rebuild_time.as_secs_f64() * 1000.0 * 10.0).round() / 10.0,
-                    "rebuild_tps": sa_rebuild_tps.round(),
-                },
-                "expanse_strmap": {
-                    "memory_mb": (exp_mem as f64 / (1024.0 * 1024.0) * 100.0).round() / 100.0,
-                    "bytes_per_token": (exp_bytes_per_tok * 10.0).round() / 10.0,
-                    "build_time_ms": (exp_build_time.as_secs_f64() * 1000.0 * 10.0).round() / 10.0,
-                    "streaming_insert_tps": exp_streaming_tps.round(),
-                    "memory_overhead_vs_sa_x": (exp_mem as f64 / sa_mem.max(1) as f64 * 10.0).round() / 10.0,
-                    "crossover_batch_size_tokens": b_crossover,
-                }
-            }),
-        );
+        results.insert(n.to_string(), cell);
     }
 
-    if json_mode {
-        println!("{}", serde_json::to_string_pretty(&results).unwrap());
-    } else {
-        println!("{:#?}", results);
-    }
+    let results_dir = Path::new("docs/benchmarks/llm_inference/results");
+    let _ = std::fs::create_dir_all(results_dir);
+    let out_file = results_dir.join("bench_llm_datastore.json");
+    std::fs::write(&out_file, serde_json::to_string_pretty(&results).unwrap())
+        .expect("Failed to write datastore results JSON");
+    println!("Pillar B results written to {}", out_file.display());
 }

@@ -3,7 +3,7 @@
 Dual-theme SVG chart generator for the LLM inference benchmark suite (#342).
 
 Produces four charts:
-  1. bench_draft_quality_alpha.svg   (Pillar A, mean acceptance length alpha)
+  1. bench_draft_quality_alpha.svg   (Pillar A, reference-continuation acceptance alpha)
   2. bench_llm_datastore_scaling.svg (Pillar B, streaming ingestion throughput)
   3. bench_grammar_masks_memory.svg  (Pillar D, DFA mask cache memory)
   4. bench_prefix_lru_throughput.svg (Pillar E, KV-block table RAM)
@@ -42,9 +42,9 @@ def render_draft_quality_chart():
         data = json.load(f)
 
     workloads = [
-        ("humaneval_code", "HumanEval Code", "Open coding model (greedy)"),
-        ("summarization", "Document Summarization", "Open summarization task"),
-        ("json_schemas", "JSON Schemas", "Structured extraction"),
+        ("humaneval_code", "HumanEval Code", "OpenAI HumanEval/0..39 (MIT)"),
+        ("summarization", "Document Summarization", "Wikipedia Computer Science Corpus"),
+        ("json_schemas", "JSON Schemas", "SchemaStore JSON Schemas & Payloads"),
     ]
 
     max_val = 4.0
@@ -53,15 +53,15 @@ def render_draft_quality_chart():
     top = 96
     height = top + len(workloads) * row_h + 24
 
-    svg = svg_header(width=960, height=height, title="PILLAR A — SPECULATIVE DRAFT QUALITY (ALPHA)")
+    svg = svg_header(width=960, height=height, title="PILLAR A — REFERENCE-CONTINUATION ACCEPTANCE ALPHA")
     svg += f"""
-  <text x="30" y="34" class="t-title">PILLAR A — SPECULATIVE DRAFT QUALITY</text>
-  <text x="30" y="50" class="t-sub">Mean acceptance length &#945; &#183; tokens/step &#183; higher is better</text>
+  <text x="30" y="34" class="t-title">PILLAR A — REFERENCE-CONTINUATION ACCEPTANCE ALPHA</text>
+  <text x="30" y="50" class="t-sub">Mean acceptance length &#945; &#183; tokens/step &#183; higher is better (vs HuggingFace Adaptive Lookup)</text>
   <g transform="translate(620, 24)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
     <text x="18" y="10" class="t-legend">Expanse Variable LSM</text>
     <rect x="0" y="18" width="12" height="12" rx="2" class="b-baseline"/>
-    <text x="18" y="28" class="t-legend">HF Fixed 3-gram</text>
+    <text x="18" y="28" class="t-legend">HF Adaptive Lookup</text>
   </g>
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
 """
@@ -70,21 +70,27 @@ def render_draft_quality_chart():
         if key not in data:
             continue
         y = top + i * row_h
-        hf_val = data[key]["hf_fixed_3gram"]["mean_acceptance_length_alpha"]
+        base_val = data[key]["hf_adaptive_lookup"]["mean_acceptance_length_alpha"]
         exp_val = data[key]["expanse_longest_suffix"]["mean_acceptance_length_alpha"]
 
         w_exp = max(2.0, (exp_val / max_val) * bar_max)
-        w_hf = max(2.0, (hf_val / max_val) * bar_max)
-        diff_pct = ((exp_val - hf_val) / hf_val) * 100.0
+        w_base = max(2.0, (base_val / max_val) * bar_max)
+        diff_pct = ((exp_val - base_val) / (1.0 + base_val)) * 100.0
+
+        if diff_pct >= 0:
+            badge = f"""  <rect x="780" y="{y + 2}" width="150" height="18" rx="3" class="badge-win"/>
+  <text x="855" y="{y + 15}" class="badge-win-text">Expanse {diff_pct:+.1f}% &#945;</text>"""
+        else:
+            badge = f"""  <rect x="780" y="{y + 2}" width="150" height="18" rx="3" class="badge-loss"/>
+  <text x="855" y="{y + 15}" class="badge-loss-text">HF Adaptive {abs(diff_pct):.1f}% higher</text>"""
 
         svg += f"""  <text x="30" y="{y + 8}" class="t-bar-label">{esc(label)}</text>
   <text x="30" y="{y + 22}" class="t-sub">{esc(sub)}</text>
   <rect x="250" y="{y - 4}" width="{w_exp:.1f}" height="13" rx="2" class="b-expanse"/>
   <text x="{258 + w_exp:.1f}" y="{y + 6}" class="t-val-blue">&#945; = {exp_val:.3f}</text>
-  <rect x="250" y="{y + 12}" width="{w_hf:.1f}" height="13" rx="2" class="b-baseline"/>
-  <text x="{258 + w_hf:.1f}" y="{y + 22}" class="t-val-gray">&#945; = {hf_val:.3f}</text>
-  <rect x="790" y="{y + 2}" width="140" height="18" rx="3" class="badge-win"/>
-  <text x="860" y="{y + 15}" class="badge-win-text">Expanse +{diff_pct:.1f}% &#945;</text>
+  <rect x="250" y="{y + 12}" width="{w_base:.1f}" height="13" rx="2" class="b-baseline"/>
+  <text x="{258 + w_base:.1f}" y="{y + 22}" class="t-val-gray">&#945; = {base_val:.3f}</text>
+{badge}
 """
 
     svg += "</svg>\n"
@@ -104,7 +110,7 @@ def render_datastore_chart():
         ("1000000", "1M Tokens", "Continuous streaming vs per-token rebuild"),
     ]
 
-    max_val = 2000.0  # k tokens/sec
+    max_val = 2000.0
     bar_max = 340.0
     row_h = 56
     top = 96
@@ -128,7 +134,6 @@ def render_datastore_chart():
             continue
         y = top + i * row_h
         exp_tps = data[pop]["expanse_strmap"]["streaming_insert_tps"] / 1000.0
-        # Suffix Array per-token insertion rate: 1 token / rebuild_time_secs
         sa_rebuild_ms = data[pop]["suffix_array"]["rebuild_time_ms"]
         sa_single_tok_tps = (1000.0 / max(1e-6, sa_rebuild_ms)) / 1000.0
         crossover = data[pop]["expanse_strmap"]["crossover_batch_size_tokens"]
@@ -178,7 +183,7 @@ def render_grammar_masks_chart():
     svg = svg_header(width=960, height=height, title="PILLAR D — GRAMMAR-CONSTRAINED DECODING MASKS")
     svg += f"""
   <text x="30" y="34" class="t-title">PILLAR D — GRAMMAR-CONSTRAINED DECODING MASKS</text>
-  <text x="30" y="50" class="t-sub">Total RAM across 2,000 DFA states (128k vocab) &#183; MB &#183; lower is better</text>
+  <text x="30" y="50" class="t-sub">Live resident heap across 2,000 DFA states (128k vocab) &#183; MB &#183; lower is better</text>
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
 """
 

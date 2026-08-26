@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 288" width="100%" height="100%">
-  <title>PILLAR A — SPECULATIVE DRAFT QUALITY (ALPHA)</title>
+  <title>PILLAR A — REFERENCE-CONTINUATION ACCEPTANCE ALPHA</title>
   <defs>
     <style>
       .bg { fill: #ffffff; }
@@ -81,37 +81,37 @@
   <rect width="100%" height="100%" class="bg" rx="8"/>
   <rect width="100%" height="100%" class="border" rx="8"/>
 
-  <text x="30" y="34" class="t-title">PILLAR A — SPECULATIVE DRAFT QUALITY</text>
-  <text x="30" y="50" class="t-sub">Mean acceptance length &#945; &#183; tokens/step &#183; higher is better</text>
+  <text x="30" y="34" class="t-title">PILLAR A — REFERENCE-CONTINUATION ACCEPTANCE ALPHA</text>
+  <text x="30" y="50" class="t-sub">Mean acceptance length &#945; &#183; tokens/step &#183; higher is better (vs HuggingFace Adaptive Lookup)</text>
   <g transform="translate(620, 24)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
     <text x="18" y="10" class="t-legend">Expanse Variable LSM</text>
     <rect x="0" y="18" width="12" height="12" rx="2" class="b-baseline"/>
-    <text x="18" y="28" class="t-legend">HF Fixed 3-gram</text>
+    <text x="18" y="28" class="t-legend">HF Adaptive Lookup</text>
   </g>
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="104" class="t-bar-label">HumanEval Code</text>
-  <text x="30" y="118" class="t-sub">Open coding model (greedy)</text>
-  <rect x="250" y="92" width="154.4" height="13" rx="2" class="b-expanse"/>
-  <text x="412.4" y="102" class="t-val-blue">&#945; = 1.817</text>
-  <rect x="250" y="108" width="136.3" height="13" rx="2" class="b-baseline"/>
-  <text x="394.3" y="118" class="t-val-gray">&#945; = 1.603</text>
-  <rect x="790" y="98" width="140" height="18" rx="3" class="badge-win"/>
-  <text x="860" y="111" class="badge-win-text">Expanse +13.3% &#945;</text>
+  <text x="30" y="118" class="t-sub">OpenAI HumanEval/0..39 (MIT)</text>
+  <rect x="250" y="92" width="85.3" height="13" rx="2" class="b-expanse"/>
+  <text x="343.3" y="102" class="t-val-blue">&#945; = 1.003</text>
+  <rect x="250" y="108" width="72.9" height="13" rx="2" class="b-baseline"/>
+  <text x="330.9" y="118" class="t-val-gray">&#945; = 0.858</text>
+  <rect x="780" y="98" width="150" height="18" rx="3" class="badge-win"/>
+  <text x="855" y="111" class="badge-win-text">Expanse +7.8% &#945;</text>
   <text x="30" y="160" class="t-bar-label">Document Summarization</text>
-  <text x="30" y="174" class="t-sub">Open summarization task</text>
-  <rect x="250" y="148" width="191.5" height="13" rx="2" class="b-expanse"/>
-  <text x="449.5" y="158" class="t-val-blue">&#945; = 2.253</text>
-  <rect x="250" y="164" width="174.9" height="13" rx="2" class="b-baseline"/>
-  <text x="432.9" y="174" class="t-val-gray">&#945; = 2.058</text>
-  <rect x="790" y="154" width="140" height="18" rx="3" class="badge-win"/>
-  <text x="860" y="167" class="badge-win-text">Expanse +9.5% &#945;</text>
+  <text x="30" y="174" class="t-sub">Wikipedia Computer Science Corpus</text>
+  <rect x="250" y="148" width="264.6" height="13" rx="2" class="b-expanse"/>
+  <text x="522.6" y="158" class="t-val-blue">&#945; = 3.113</text>
+  <rect x="250" y="164" width="241.3" height="13" rx="2" class="b-baseline"/>
+  <text x="499.3" y="174" class="t-val-gray">&#945; = 2.839</text>
+  <rect x="780" y="154" width="150" height="18" rx="3" class="badge-win"/>
+  <text x="855" y="167" class="badge-win-text">Expanse +7.1% &#945;</text>
   <text x="30" y="216" class="t-bar-label">JSON Schemas</text>
-  <text x="30" y="230" class="t-sub">Structured extraction</text>
-  <rect x="250" y="204" width="263.0" height="13" rx="2" class="b-expanse"/>
-  <text x="521.0" y="214" class="t-val-blue">&#945; = 3.094</text>
-  <rect x="250" y="220" width="214.2" height="13" rx="2" class="b-baseline"/>
-  <text x="472.2" y="230" class="t-val-gray">&#945; = 2.520</text>
-  <rect x="790" y="210" width="140" height="18" rx="3" class="badge-win"/>
-  <text x="860" y="223" class="badge-win-text">Expanse +22.8% &#945;</text>
+  <text x="30" y="230" class="t-sub">SchemaStore JSON Schemas &amp; Payloads</text>
+  <rect x="250" y="204" width="123.1" height="13" rx="2" class="b-expanse"/>
+  <text x="381.1" y="214" class="t-val-blue">&#945; = 1.448</text>
+  <rect x="250" y="220" width="102.0" height="13" rx="2" class="b-baseline"/>
+  <text x="360.0" y="230" class="t-val-gray">&#945; = 1.200</text>
+  <rect x="780" y="210" width="150" height="18" rx="3" class="badge-win"/>
+  <text x="855" y="223" class="badge-win-text">Expanse +11.3% &#945;</text>
 </svg>

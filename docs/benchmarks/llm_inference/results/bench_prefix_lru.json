@@ -3,15 +3,15 @@
     "num_blocks": 100000,
     "ordered_dict_lru": {
       "memory_mb": 23.39,
-      "touch_throughput_tps": 15215877.0,
-      "eviction_throughput_tps": 6770082.0,
+      "touch_throughput_tps": 4651433.0,
+      "eviction_throughput_tps": 5858654.0,
       "rank_eviction_supported": false
     },
     "expanse_ordered_table": {
       "memory_mb": 2.32,
-      "touch_throughput_tps": 1745188.0,
-      "eviction_throughput_tps": 3596577.0,
-      "rank_eviction_tps": 1007177.0,
+      "touch_throughput_tps": 1607588.0,
+      "eviction_throughput_tps": 3545048.0,
+      "rank_eviction_tps": 1366120.0,
       "rank_eviction_supported": true,
       "memory_reduction_vs_od_x": 10.09
     }
@@ -20,15 +20,15 @@
     "num_blocks": 500000,
     "ordered_dict_lru": {
       "memory_mb": 109.9,
-      "touch_throughput_tps": 8562562.0,
-      "eviction_throughput_tps": 2900476.0,
+      "touch_throughput_tps": 7418167.0,
+      "eviction_throughput_tps": 7310408.0,
       "rank_eviction_supported": false
     },
     "expanse_ordered_table": {
       "memory_mb": 11.59,
-      "touch_throughput_tps": 1909581.0,
-      "eviction_throughput_tps": 2972320.0,
-      "rank_eviction_tps": 1839219.0,
+      "touch_throughput_tps": 2108797.0,
+      "eviction_throughput_tps": 3662448.0,
+      "rank_eviction_tps": 2191985.0,
       "rank_eviction_supported": true,
       "memory_reduction_vs_od_x": 9.48
     }
@@ -37,15 +37,15 @@
     "num_blocks": 1000000,
     "ordered_dict_lru": {
       "memory_mb": 219.92,
-      "touch_throughput_tps": 6875613.0,
-      "eviction_throughput_tps": 4632760.0,
+      "touch_throughput_tps": 5562121.0,
+      "eviction_throughput_tps": 6512006.0,
       "rank_eviction_supported": false
     },
     "expanse_ordered_table": {
       "memory_mb": 23.19,
-      "touch_throughput_tps": 1931947.0,
-      "eviction_throughput_tps": 3710574.0,
-      "rank_eviction_tps": 2346500.0,
+      "touch_throughput_tps": 1177215.0,
+      "eviction_throughput_tps": 2194487.0,
+      "rank_eviction_tps": 1475559.0,
       "rank_eviction_supported": true,
       "memory_reduction_vs_od_x": 9.48
     }

@@ -82,7 +82,7 @@
   <rect width="100%" height="100%" class="border" rx="8"/>
 
   <text x="30" y="34" class="t-title">PILLAR D — GRAMMAR-CONSTRAINED DECODING MASKS</text>
-  <text x="30" y="50" class="t-sub">Total RAM across 2,000 DFA states (128k vocab) &#183; MB &#183; lower is better</text>
+  <text x="30" y="50" class="t-sub">Live resident heap across 2,000 DFA states (128k vocab) &#183; MB &#183; lower is better</text>
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="104" class="t-bar-label">Dense Bitmask</text>
   <text x="30" y="118" class="t-sub">[u64] Array (Full vocab)</text>
