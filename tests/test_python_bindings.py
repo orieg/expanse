@@ -26,7 +26,12 @@ from expanse_trie import (
 
 
 def test_version():
-    assert __version__ == "0.4.0"
+    # The module's __version__ must equal the installed distribution's version
+    # (from pyproject.toml, kept in lockstep by scripts/bump_version.py). Never
+    # a literal: a hardcoded "0.4.0" here broke the v0.4.1 release bump.
+    from importlib.metadata import version as dist_version
+
+    assert __version__ == dist_version("expanse-trie")
 
 
 # ============================================================================

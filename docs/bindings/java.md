@@ -239,7 +239,7 @@ Using.resource(new ExpanseMap()) { map =>
 <dependency>
     <groupId>io.github.orieg</groupId>
     <artifactId>expanse-java</artifactId>
-    <version>0.4.0</version>
+    <version>0.4.1</version>
 </dependency>
 ```
 
