@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use Expanse, please cite it using the metadata in this file. Once the project has a Zenodo record, cite its concept DOI (all versions) or the version DOI of the release you used."
+title: "Expanse: clean-room, pure-Rust Judy arrays with a drop-in libjudy-compatible C ABI"
+type: software
+abstract: "Expanse is a clean-room, pure-Rust implementation of Judy arrays — sparse, dynamic associative structures built as 256-ary digital tries partitioned by key range (expanse) rather than by population — modernized for current 64-bit and 32-bit embedded microarchitectures. It ships libexpanse, a high-performance drop-in C ABI replacement for libjudy, plus Go, Node.js, .NET and Python bindings."
+authors:
+  - family-names: "Brousse"
+    given-names: "Nicolas"
+    orcid: "https://orcid.org/0000-0001-7649-1668"
+license:
+  - MIT
+  - Apache-2.0
+repository-code: "https://github.com/orieg/expanse"
+url: "https://github.com/orieg/expanse"
+keywords:
+  - judy-array
+  - radix-tree
+  - trie
+  - data-structures
+  - rust
+  - libjudy
+  - associative-array
+# Add once the Zenodo integration has minted them (first Release after enabling):
+# doi: "10.5281/zenodo.XXXXXXX"          # concept DOI (all versions)
+# identifiers:
+#   - type: doi
+#     value: "10.5281/zenodo.XXXXXXX"
+#     description: "Concept DOI (all versions)"
