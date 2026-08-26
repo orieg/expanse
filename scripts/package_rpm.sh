@@ -36,7 +36,6 @@ Release:        1%{?dist}
 Summary:        Modern Judy arrays and high-performance digital tree engine
 License:        MIT OR Apache-2.0
 URL:            https://github.com/orieg/expanse
-BuildArch:      ARCH_PLACEHOLDER
 
 %description
 Expanse is a clean-room, pure-Rust implementation of Judy arrays modernized
@@ -133,7 +132,6 @@ REPO_ROOT="$(pwd)"
 
 sed -i.bak \
     -e "s|VERSION_PLACEHOLDER|${VERSION}|g" \
-    -e "s|ARCH_PLACEHOLDER|${RPM_ARCH}|g" \
     -e "s|DIST_DIR_PLACEHOLDER|${DIST_DIR}|g" \
     -e "s|REPO_ROOT_PLACEHOLDER|${REPO_ROOT}|g" \
     "${SPEC_FILE}"
