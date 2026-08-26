@@ -5,8 +5,10 @@
 
 #![allow(missing_docs)]
 
+use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
+use expanse_trie::strmap::ExpanseStrMap;
 #[cfg(target_os = "linux")]
 use iai_callgrind::main;
 use iai_callgrind::{library_benchmark, library_benchmark_group};
@@ -161,6 +163,132 @@ fn map_churn(built: (ExpanseMap, Vec<u64>)) -> u64 {
     black_box(sink)
 }
 
+/// Deterministic hasher for the JudyHS cells — `RandomState`'s per-process
+/// seed would make bucket placement (and instruction counts) depend on the
+/// run, defeating callgrind's exact-reproducibility contract.
+type DetHasher = std::hash::BuildHasherDefault<std::collections::hash_map::DefaultHasher>;
+
+/// Route-shaped string keys (~40 bytes, long shared prefixes): the
+/// JudySL working shape — prefix chains, suffix leaves, splits — and a
+/// realistic JudyHS byte-key distribution.
+fn str_keys(_dist: &str) -> Vec<Vec<u8>> {
+    (0..POP)
+        .map(|i| format!("/api/v2/tenants/{:06}/resources/{:04}", i / 16, i % 16).into_bytes())
+        .collect()
+}
+
+/// Prebuilt string map plus shuffled probe order so only lookup is measured.
+fn built_strmap(dist: &str) -> (ExpanseStrMap, Vec<Vec<u8>>) {
+    let ks = str_keys(dist);
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(k, i as u64);
+    }
+    let mut probes = ks;
+    let mut rng = XorShift(0x9E37_79B9);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+    (map, probes)
+}
+
+/// Prebuilt byte-string map plus shuffled probe order.
+fn built_bytesmap(dist: &str) -> (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>) {
+    let ks = str_keys(dist);
+    let mut map = ExpanseBytesMap::with_hasher(DetHasher::default());
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(k, i as u64);
+    }
+    let mut probes = ks;
+    let mut rng = XorShift(0x9E37_79B9);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+    (map, probes)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = str_keys)]
+fn strmap_insert(ks: Vec<Vec<u8>>) -> u64 {
+    let mut map = ExpanseStrMap::new();
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(black_box(k), black_box(i as u64));
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_strmap)]
+fn strmap_get(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map.get(black_box(k)).unwrap_or(0);
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// Same-key reinsert (in-place suffix value update), remove (suffix
+// disposal + emptied-node pruning), reinsert — the mutation ladder the
+// concurrency work routes through disposal helpers.
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_strmap)]
+fn strmap_churn(built: (ExpanseStrMap, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map.insert(black_box(k), black_box(7)).unwrap_or(0);
+        sink ^= map.remove(black_box(k)).unwrap_or(0);
+        map.insert(black_box(k), black_box(9));
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = str_keys)]
+fn bytesmap_insert(ks: Vec<Vec<u8>>) -> u64 {
+    let mut map = ExpanseBytesMap::with_hasher(DetHasher::default());
+    for (i, k) in ks.iter().enumerate() {
+        map.insert(black_box(k), black_box(i as u64));
+    }
+    let n = map.len();
+    core::mem::forget(map);
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_bytesmap)]
+fn bytesmap_get(built: (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map.get(black_box(k)).unwrap_or(0);
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// Same-key reinsert (in-place value update), remove (bucket
+// replacement/removal), reinsert (fresh bucket) — the paths #364
+// restructured to publish-replacement-then-dispose.
+#[library_benchmark]
+#[bench::routes(args = ("routes",), setup = built_bytesmap)]
+fn bytesmap_churn(built: (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut sink = 0u64;
+    for k in &probes {
+        sink ^= map.insert(black_box(k), black_box(7)).unwrap_or(0);
+        sink ^= map.remove(black_box(k)).unwrap_or(0);
+        map.insert(black_box(k), black_box(9));
+    }
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 library_benchmark_group!(
     name = smoke_cost;
     benchmarks =
@@ -169,7 +297,13 @@ library_benchmark_group!(
         set_insert,
         set_contains,
         map_ins_slot,
-        map_churn
+        map_churn,
+        strmap_insert,
+        strmap_get,
+        strmap_churn,
+        bytesmap_insert,
+        bytesmap_get,
+        bytesmap_churn
 );
 
 #[cfg(target_os = "linux")]
