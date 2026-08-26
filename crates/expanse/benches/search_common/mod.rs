@@ -219,6 +219,28 @@ pub fn expanse_andnot_count(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
     count
 }
 
+// ------------------------------------------------------------------------
+// Native set-algebra kernels (issue #339): the second arm. These call the
+// structural cardinality kernels that descend both tries in lockstep and AND
+// bitmap leaves word-parallel, instead of composing the Boolean result from
+// navigation primitives element by element.
+// ------------------------------------------------------------------------
+
+/// Intersection cardinality via the native structural kernel.
+pub fn expanse_native_and_count(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
+    a.intersection_len(b)
+}
+
+/// Union cardinality via the native structural kernel.
+pub fn expanse_native_or_count(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
+    a.union_len(b)
+}
+
+/// Difference cardinality (|a \ b|) via the native structural kernel.
+pub fn expanse_native_andnot_count(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
+    a.difference_len(b)
+}
+
 /// WAND skip-scan over an [`ExpanseSet`]: stateless O(depth) re-descent per
 /// target.
 pub fn expanse_skipscan(set: &ExpanseSet, targets: &[u64]) -> u64 {
