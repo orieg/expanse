@@ -27,12 +27,12 @@ graph TD
     H --> J[Phase 3: publish-npm - npm OIDC]
     H --> K[Phase 3: package-nuget - NuGet.org OIDC]
     H --> L[Phase 3: publish-pages - apt/rpm portal]
-    H --> M[Phase 3: publish-pypi - via python.yml on the release-published event]
+    H --> M[Phase 3: publish-pypi - python.yml dispatched by github-release]
     G --> J
 ```
 
 **Release policies** (post-v0.4.0 incident, #313):
-- **Single anchor**: no workflow publishes straight off a tag push; PyPI (`python.yml`) triggers on the GitHub Release **published** event, all other channels `needs: github-release`.
+- **Single anchor**: no workflow publishes straight off a tag push; all channels `needs: github-release`, and PyPI (`python.yml`) is **dispatched by `github-release`** with the release tag (a `GITHUB_TOKEN`-created release emits no `release` event to other workflows, so an event trigger alone can never fire from the pipeline).
 - **Forward-only versions**: once *any* registry publish succeeds, that version is spent — registries are immutable. Never re-push or move a tag; fix forward (`vX.Y.Z+1`).
 - **Independent recovery**: a failed Phase-3 channel is re-run individually; the anchor and sibling channels are unaffected.
 - **Canary first**: run the release workflow via `workflow_dispatch` (`dry_run: true`) to exercise the gate, builds, packaging, and page generation with every outward publish skipped — before pushing a real tag.
