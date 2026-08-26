@@ -25,15 +25,24 @@ This benchmark suite measures head-to-head lookup latency, insertion throughput,
 ## Running Benchmarks
 
 ### 1. Unified Cross-Language Runner
-Run all locally available binding benchmarks and generate a unified report:
+Run all locally available binding benchmarks and generate a unified report. The
+orchestrator discovers each ecosystem's toolchain (`go`, `mvn`, `dotnet`, `node`,
+`python3`, `php`, `ruby`) and the release-built `libexpanse` C ABI artifact
+(`cargo build --release -p expanse-capi`) independently, so any subset of the 8
+runtimes present on the host runs; the rest are skipped with a `[WARN]`:
 ```bash
+cargo build --release -p expanse-capi   # required by go, java, dotnet
+
 python3 scripts/bench_bindings.py
 
-# Quick mode (N = 20,000 for fast feedback):
+# Quick mode (N = 10,000-20,000 depending on runtime, for fast feedback):
 python3 scripts/bench_bindings.py --quick
 
 # Emit machine-readable JSON:
 python3 scripts/bench_bindings.py --json
+
+# Only specific runtimes:
+python3 scripts/bench_bindings.py --runtimes go java dotnet
 ```
 
 ### 2. Individual Binding Harnesses
@@ -55,8 +64,12 @@ node tests/bench.js --quick
 #### Go:
 ```bash
 cd bindings/go
-go test -v -bench=. -benchmem -benchtime=500ms .
+export LD_LIBRARY_PATH="$PWD/../../target/release:$LD_LIBRARY_PATH"   # DYLD_LIBRARY_PATH on macOS
+export CGO_LDFLAGS_ALLOW=".*"
+go test -run '^$' -bench . -benchmem -benchtime=500ms .
 ```
+`scripts/bench_bindings.py` parses `ns/op`/`B/op`/`allocs/op` directly from this text
+output (no `--json` flag exists for `go test`); see `_parse_go_bench_output()`.
 
 #### Python:
 ```bash
@@ -79,14 +92,28 @@ ruby -Ilib bench.rb --quick --json
 #### Java 22+ Panama:
 ```bash
 cd bindings/java
-mvn test-compile exec:java -Dexec.mainClass="io.github.orieg.expanse.ExpanseBenchmark"
+mvn -q test-compile exec:java \
+  -Dexec.mainClass="io.github.orieg.expanse.ExpanseBenchmark" \
+  -Dexec.classpathScope=test \
+  -Dexec.args="--quick --json" \
+  -Dexpanse.library.path="$PWD/../../target/release/libexpanse.dylib"  # .so on Linux, expanse.dll on Windows
 ```
+`ExpanseBenchmark.main()` already accepts `--quick`/`--pop N`/`--json` and prints a
+single JSON line (run unforked via `exec:java`, not `mvn test`'s Surefire harness, so
+stdout isn't wrapped in a test report).
 
 #### .NET 8/9:
 ```bash
 cd bindings/dotnet
-dotnet test --filter "FullyQualifiedName~ExpanseBenchmark" --logger "console;verbosity=normal"
+export EXPANSE_LIB_DIR="$PWD/../../target/release"
+EXPANSE_BENCH_JSON=1 EXPANSE_BENCH_QUICK=1 dotnet test tests/Expanse.NET.Tests/Expanse.NET.Tests.csproj \
+  -c Release -f net9.0 --filter "FullyQualifiedName~ExpanseBenchmark" --logger "console;verbosity=normal"
 ```
+`RunComparativeBenchmark` is an xUnit `[Fact]`, which `dotnet test` gives no CLI-arg
+passthrough into — `EXPANSE_BENCH_QUICK`/`EXPANSE_BENCH_JSON` are the equivalent knobs.
+In JSON mode the result line is written via `Console.WriteLine` with an
+`##EXPANSE_BENCH_JSON##` marker prefix so it survives VSTest's console logger
+interleaving unrelated xUnit diagnostic lines with stdout.
 
 ---
 
