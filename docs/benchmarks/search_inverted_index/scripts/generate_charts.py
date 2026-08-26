@@ -114,6 +114,69 @@ def log_bars_chart(filepath, title, sub, rows, unit_fmt):
     save_and_validate_svg(filepath, svg)
 
 
+def log_bars_chart3(filepath, title, sub, rows, unit_fmt):
+    """Horizontal triple log-scale bars: stateless / cursor / Roaring.
+
+    rows: list of (label, sublabel, stateless_val, cursor_val, roaring_val) —
+    lower is better. The win/loss badge compares the #340 cursor against
+    Roaring (the parity target); the stateless re-descent is the baseline
+    being improved.
+    """
+    vals = [v for _, _, s, c, r in rows for v in (s, c, r) if v > 0]
+    if not vals:
+        return
+    lo = min(vals)
+    hi = max(vals)
+    lo_log = math.log10(lo) - 0.15
+    hi_log = math.log10(hi) + 0.05
+    span = max(hi_log - lo_log, 0.5)
+    bar_max = 300.0
+    x0 = 360
+
+    def width(v):
+        if v <= 0:
+            return 3.0
+        return max(3.0, (math.log10(v) - lo_log) / span * bar_max)
+
+    row_h = 58
+    height = 100 + len(rows) * row_h + 20
+    svg = svg_header(width=960, height=height, title=title)
+    svg += f"""
+  <text x="30" y="30" class="t-title">{title}</text>
+  <text x="30" y="46" class="t-sub">{sub}</text>
+  <g transform="translate(560, 20)">
+    <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
+    <text x="18" y="10" class="t-legend">Stateless</text>
+    <rect x="110" y="0" width="12" height="12" rx="2" class="b-cursor"/>
+    <text x="128" y="10" class="t-legend">Cursor #340</text>
+    <rect x="250" y="0" width="12" height="12" rx="2" class="b-roaring"/>
+    <text x="268" y="10" class="t-legend">Roaring</text>
+  </g>
+  <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
+"""
+    y = 80
+    for label, sub2, s_val, c_val, r_val in rows:
+        w_s = width(s_val)
+        w_c = width(c_val)
+        w_r = width(r_val)
+        text, css = ratio_badge(c_val, r_val)
+        badge_text_css = "badge-win-text" if css == "badge-win" else "badge-loss-text"
+        svg += f"""  <text x="30" y="{y + 16}" class="t-bar-label">{label}</text>
+  <text x="30" y="{y + 30}" class="t-sub">{sub2}</text>
+  <rect x="{x0}" y="{y}" width="{w_s:.1f}" height="11" rx="2" class="b-expanse"/>
+  <text x="{x0 + w_s + 6:.1f}" y="{y + 9}" class="t-val-accent">{unit_fmt(s_val)}</text>
+  <rect x="{x0}" y="{y + 15}" width="{w_c:.1f}" height="11" rx="2" class="b-cursor"/>
+  <text x="{x0 + w_c + 6:.1f}" y="{y + 24}" class="t-val-amber">{unit_fmt(c_val)}</text>
+  <rect x="{x0}" y="{y + 30}" width="{w_r:.1f}" height="11" rx="2" class="b-roaring"/>
+  <text x="{x0 + w_r + 6:.1f}" y="{y + 39}" class="t-val-blue">{unit_fmt(r_val)}</text>
+  <rect x="775" y="{y + 12}" width="155" height="18" class="{css}"/>
+  <text x="852" y="{y + 25}" class="{badge_text_css}">{text}</text>
+"""
+        y += row_h
+    svg += "</svg>\n"
+    save_and_validate_svg(filepath, svg)
+
+
 def generate_boolean_chart():
     data = load("baseline_boolean.json")
     if not data:
@@ -182,13 +245,16 @@ def generate_wand_chart():
                         f"{dist.capitalize()} / {regime}",
                         f"{rec['skips']:,} skips • stride~{rec['avg_stride']:,}",
                         rec["expanse_ns_per_skip"],
+                        # Cursor arm (#340). Older JSON without it falls back to
+                        # the stateless value so the chart still renders.
+                        rec.get("expanse_cursor_ns_per_skip", rec["expanse_ns_per_skip"]),
                         rec["roaring_ns_per_skip"],
                     )
                 )
-    log_bars_chart(
+    log_bars_chart3(
         RESULTS_DIR / "bench_wand_skipscan.svg",
-        "WAND SKIP-SCAN: NANOSECONDS PER next_at_or_after (LOWER IS BETTER)",
-        f"Monotonic target advance • top size N={top:,} • ExpanseSet re-descent vs Roaring cursor advance_to",
+        "WAND SKIP-SCAN: NANOSECONDS PER ADVANCE (LOWER IS BETTER)",
+        f"Monotonic target advance • top size N={top:,} • stateless next_at_or_after vs #340 cursor advance_to vs Roaring advance_to",
         rows,
         lambda v: f"{v:.1f} ns",
     )

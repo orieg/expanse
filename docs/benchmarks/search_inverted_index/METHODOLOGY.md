@@ -94,6 +94,12 @@ adding a C toolchain dependency to the matrix).
 Any cell whose measured result contradicts this table is reported as-is; the
 table is the pre-registration, not the conclusion.
 
+> **Update (#340).** The **P2 WAND skip-scan** row is resolved: the pre-registered
+> "deep skips may favour the fixed-depth re-descent" was refuted for the stateless
+> `next_at_or_after`, and #340 adds a stateful cursor arm that reuses its descent
+> path. See the Pillar 2 update note in §3 and the measured three-arm table in the
+> README. The row above is preserved as the original pre-registration.
+
 ---
 
 ## 3. The three pillars
@@ -113,10 +119,27 @@ table is the pre-registration, not the conclusion.
 * **Skewed arm:** \|A\| ∈ {10^6, 10^7}, \|B\| = \|A\|/1000, AND only.
 
 ### Pillar 2 — WAND dynamic skip-scan (`search_wand`, `search_instructions`)
+
+> **Update (#340, resolving the P2 pre-registration).** The Step-0 hypothesis
+> (§2.3) — that Expanse's fixed-depth re-descent could beat Roaring's warm cursor
+> on deep skips — was **refuted** for the *stateless* `next_at_or_after`, which
+> re-descends from the root every call and lost every regime by 2×–4×. #340 adds
+> the missing piece: a **stateful cursor** (`ExpanseSet::cursor().advance_to`)
+> that keeps its descent path and re-descends only from the deepest ancestor
+> whose expanse still covers the next target — a leaf-local search for near skips.
+> The harness now measures **three arms** (stateless / cursor / Roaring); the
+> stateless numbers are kept alongside for comparison. The original
+> pre-registration and the two-arm framing are preserved below.
+
 * **Primitive:** advance to the next docID `≥ target` over a **monotonically
   increasing** target sequence (the block-max WAND pivot advance).
-* **ExpanseSet:** `next_at_or_after(target)` — a stateless O(depth) re-descent
-  from the trie root per call.
+* **ExpanseSet (stateless):** `next_at_or_after(target)` — a stateless O(depth)
+  re-descent from the trie root per call.
+* **ExpanseSet (cursor, #340):** `cursor().advance_to(target)` — a stateful
+  forward cursor reusing the held descent path; leaf-local for near targets,
+  O(levels crossed) for mid targets, root re-descent only for far/cross-expanse
+  targets. Answers the same "smallest key `≥ target`" query as the stateless arm,
+  so the two arms' sinks are bit-identical.
 * **Roaring:** `iter().advance_to(target)` — a stateful forward cursor.
 * **Regimes:** `shallow` (stride ≈ 1, near-full sweep), `medium` (stride ≈ 64),
   `deep` (few long-range skips). Wall-clock ns/skip in `search_boolean`'s
