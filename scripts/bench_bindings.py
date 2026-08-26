@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -19,12 +20,36 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+RELEASE_DIR = REPO_ROOT / "target" / "release"
+
+# Marker line prefix bindings/dotnet/tests/Expanse.NET.Tests/ExpanseBenchmark.cs uses to
+# emit its JSON result through `dotnet test`'s VSTest console logger, which otherwise
+# interleaves per-test diagnostic lines with stdout.
+DOTNET_JSON_MARKER = "##EXPANSE_BENCH_JSON##"
+
+
+def _native_lib_path() -> Optional[Path]:
+    """Locates the release-built libexpanse C ABI artifact for the current platform.
+
+    Go, Java, and .NET benchmark harnesses all dynamically load this shared library.
+    Unlike run_python_benchmark/run_php_benchmark/run_ruby_benchmark (which import an
+    already-packaged extension), these three link against it directly, so its absence
+    is a distinct, more specific skip condition than "toolchain not installed".
+    """
+    if sys.platform == "darwin":
+        name = "libexpanse.dylib"
+    elif sys.platform == "win32":
+        name = "expanse.dll"
+    else:
+        name = "libexpanse.so"
+    candidate = RELEASE_DIR / name
+    return candidate if candidate.exists() else None
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="Unified Expanse Cross-Language Benchmark Suite")
     p.add_argument("--quick", action="store_true", help="Run in quick mode (smaller N)")
-    p.add_argument("--runtimes", nargs="+", help="Specific runtimes to benchmark (node, wasm, go, python, php, ruby)")
+    p.add_argument("--runtimes", nargs="+", help="Specific runtimes to benchmark (node, wasm, go, python, php, ruby, java, dotnet)")
     p.add_argument("--json", action="store_true", help="Emit raw JSON results to stdout")
     p.add_argument("--output", type=str, help="Save markdown report to file")
     p.add_argument("--save-baseline", type=str, help="Save results to baseline JSON file")
@@ -122,6 +147,208 @@ def run_ruby_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
     except Exception as e:
         print(f"[WARN] Ruby benchmark failed: {e}", file=sys.stderr)
         return None
+
+
+_GO_BENCH_LINE_RE = re.compile(
+    r"^Benchmark(?P<name>[A-Za-z0-9_]+?)(?:-\d+)?\s+\d+\s+(?P<ns>[\d.]+)\s+ns/op"
+    r"(?:\s+(?P<bytes>[\d.]+)\s+B/op\s+(?P<allocs>\d+)\s+allocs/op)?",
+    re.MULTILINE,
+)
+
+
+def _parse_go_bench_output(text: str) -> Dict[str, Dict[str, float]]:
+    """Parses `go test -bench . -benchmem` text output into per-benchmark stats."""
+    stats: Dict[str, Dict[str, float]] = {}
+    for m in _GO_BENCH_LINE_RE.finditer(text):
+        stats[m.group("name")] = {
+            "ns_per_op": float(m.group("ns")),
+            "bytes_per_op": float(m.group("bytes")) if m.group("bytes") else 0.0,
+            "allocs_per_op": float(m.group("allocs")) if m.group("allocs") else 0.0,
+        }
+    return stats
+
+
+def run_go_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
+    go_dir = REPO_ROOT / "bindings" / "go"
+    bench_test = go_dir / "expanse_bench_test.go"
+    if not shutil.which("go") or not bench_test.exists():
+        return None
+
+    lib = _native_lib_path()
+    if not lib:
+        print("[WARN] Go benchmark skipped: libexpanse not built (cargo build --release -p expanse-capi)", file=sys.stderr)
+        return None
+
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = f"{RELEASE_DIR}:{env.get('LD_LIBRARY_PATH', '')}"
+    env["DYLD_LIBRARY_PATH"] = f"{RELEASE_DIR}:{env.get('DYLD_LIBRARY_PATH', '')}"
+    env["CGO_LDFLAGS_ALLOW"] = ".*"
+
+    benchtime = "100ms" if quick else "1s"
+    cmd = ["go", "test", "-run", "^$", "-bench", ".", "-benchmem", f"-benchtime={benchtime}", "."]
+
+    try:
+        proc = subprocess.run(cmd, cwd=go_dir, env=env, capture_output=True, text=True, check=True, timeout=180)
+    except Exception as e:
+        print(f"[WARN] Go benchmark failed: {e}", file=sys.stderr)
+        return None
+
+    stats = _parse_go_bench_output(proc.stdout)
+    if not stats:
+        print("[WARN] Go benchmark produced no parseable output", file=sys.stderr)
+        return None
+
+    def stat(name: str, field: str) -> float:
+        return stats.get(name, {}).get(field, 0.0)
+
+    def ns_to_mops(ns: float) -> float:
+        return (1e3 / ns) if ns > 0 else 0.0
+
+    exp_lookup_ns = stat("ExpanseMap_Lookup_Random", "ns_per_op")
+    exp_insert_ns = stat("ExpanseMap_Insert_Random", "ns_per_op")
+    go_lookup_ns = stat("GoMap_Lookup_Random", "ns_per_op")
+    go_insert_ns = stat("GoMap_Insert_Random", "ns_per_op")
+
+    result = {
+        "dist": "random",
+        "pop": 100_000,
+        "expanse_map": {
+            "lookup_ns": exp_lookup_ns,
+            "lookup_mops": ns_to_mops(exp_lookup_ns),
+            "insert_mops": ns_to_mops(exp_insert_ns),
+            # ExpanseMap's Go binding has no memoryUsed()/MemoryUsed() equivalent
+            # (unlike Java/.NET), so "bytes_per_key" here is b.ReportAllocs' B/op
+            # from the insert benchmark: GC-visible heap churn per op, not trie
+            # arena density. It is legitimately ~0 because the trie is off-heap —
+            # see docs/BINDINGS_BENCHMARKS.md's "0 Heap Allocs (0 B/op)" claim.
+            "bytes_per_key": stat("ExpanseMap_Insert_Random", "bytes_per_op"),
+            "insert_bytes_per_op": stat("ExpanseMap_Insert_Random", "bytes_per_op"),
+            "insert_allocs_per_op": stat("ExpanseMap_Insert_Random", "allocs_per_op"),
+            "lookup_bytes_per_op": stat("ExpanseMap_Lookup_Random", "bytes_per_op"),
+            "lookup_allocs_per_op": stat("ExpanseMap_Lookup_Random", "allocs_per_op"),
+        },
+        "go_map": {
+            "lookup_ns": go_lookup_ns,
+            "lookup_mops": ns_to_mops(go_lookup_ns),
+            "insert_mops": ns_to_mops(go_insert_ns),
+            "bytes_per_key": stat("GoMap_Insert_Random", "bytes_per_op"),
+        },
+    }
+    return {"runtime": "go", "results": [result]}
+
+
+def _extract_json_result(text: str, runtime: str, marker: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Pulls the single JSON result object out of build-tool output that may
+    interleave unrelated log lines (Maven INFO logs, VSTest logger output).
+
+    If `marker` is given, only a line starting with it (after stripping the
+    marker) is considered. Otherwise, the last line that parses as JSON with a
+    matching "runtime" field wins.
+    """
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        if marker is not None:
+            if not line.startswith(marker):
+                continue
+            line = line[len(marker):]
+        elif not line.startswith("{"):
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if data.get("runtime") == runtime:
+            return data
+    return None
+
+
+def run_java_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
+    java_dir = REPO_ROOT / "bindings" / "java"
+    bench_java = java_dir / "src" / "test" / "java" / "io" / "github" / "orieg" / "expanse" / "ExpanseBenchmark.java"
+    if not shutil.which("mvn") or not bench_java.exists():
+        return None
+
+    lib = _native_lib_path()
+    if not lib:
+        print("[WARN] Java benchmark skipped: libexpanse not built (cargo build --release -p expanse-capi)", file=sys.stderr)
+        return None
+
+    # ExpanseBenchmark.main() already accepts --quick/--json and prints a single
+    # JSON line (see bindings/java/src/test/java/.../ExpanseBenchmark.java); it is
+    # run test-scope, un-forked, via the exec-maven-plugin rather than through
+    # `mvn test`'s Surefire harness so its stdout isn't wrapped in a test report.
+    exec_args = "--json"
+    if quick:
+        exec_args += " --quick"
+
+    cmd = [
+        "mvn", "-q", "-B",
+        "test-compile", "exec:java",
+        "-Dexec.mainClass=io.github.orieg.expanse.ExpanseBenchmark",
+        "-Dexec.classpathScope=test",
+        f"-Dexec.args={exec_args}",
+        f"-Dexpanse.library.path={lib}",
+        "-DargLine=--enable-native-access=ALL-UNNAMED",
+    ]
+
+    try:
+        proc = subprocess.run(cmd, cwd=java_dir, capture_output=True, text=True, check=True, timeout=180)
+    except Exception as e:
+        print(f"[WARN] Java benchmark failed: {e}", file=sys.stderr)
+        return None
+
+    data = _extract_json_result(proc.stdout, "java")
+    if not data:
+        print("[WARN] Java benchmark produced no parseable output", file=sys.stderr)
+        return None
+    return data
+
+
+def run_dotnet_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
+    dotnet_dir = REPO_ROOT / "bindings" / "dotnet"
+    proj = dotnet_dir / "tests" / "Expanse.NET.Tests" / "Expanse.NET.Tests.csproj"
+    if not shutil.which("dotnet") or not proj.exists():
+        return None
+
+    lib = _native_lib_path()
+    if not lib:
+        print("[WARN] .NET benchmark skipped: libexpanse not built (cargo build --release -p expanse-capi)", file=sys.stderr)
+        return None
+
+    env = os.environ.copy()
+    env["EXPANSE_LIB_DIR"] = str(RELEASE_DIR)
+    env["EXPANSE_BENCH_JSON"] = "1"
+    if quick:
+        env["EXPANSE_BENCH_QUICK"] = "1"
+
+    # Pinned to net9.0: the project multi-targets net8.0;net9.0 for binding
+    # compatibility coverage (see test-dotnet in ci.yml, which runs both), but a
+    # host missing either runtime component makes `dotnet test`'s overall exit
+    # code non-zero even when the other target framework benchmarks fine. The
+    # benchmark measures binding/marshalling overhead, not runtime-version
+    # deltas, so running a single pinned TFM is both sufficient and more robust
+    # to partially-provisioned hosts (nightly runners, local dev machines).
+    cmd = [
+        "dotnet", "test", str(proj),
+        "-c", "Release",
+        "-f", "net9.0",
+        "--filter", "FullyQualifiedName~ExpanseBenchmark",
+        "--logger", "console;verbosity=normal",
+    ]
+
+    try:
+        proc = subprocess.run(cmd, cwd=dotnet_dir, env=env, capture_output=True, text=True, timeout=300)
+    except Exception as e:
+        print(f"[WARN] .NET benchmark failed: {e}", file=sys.stderr)
+        return None
+
+    data = _extract_json_result(proc.stdout, "dotnet", marker=DOTNET_JSON_MARKER)
+    if not data:
+        print(f"[WARN] .NET benchmark produced no parseable output (exit {proc.returncode})", file=sys.stderr)
+        return None
+    return data
 
 
 def format_markdown_report(all_results: List[Dict[str, Any]]) -> str:
@@ -260,9 +487,12 @@ def main():
     runners = {
         "node": run_node_benchmark,
         "wasm": run_wasm_benchmark,
+        "go": run_go_benchmark,
         "python": run_python_benchmark,
         "php": run_php_benchmark,
         "ruby": run_ruby_benchmark,
+        "java": run_java_benchmark,
+        "dotnet": run_dotnet_benchmark,
     }
 
     selected = args.runtimes or list(runners.keys())

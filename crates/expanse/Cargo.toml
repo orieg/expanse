@@ -103,6 +103,26 @@ harness = false
 test = false
 
 [[bench]]
+name = "search_boolean"
+harness = false
+test = false
+
+[[bench]]
+name = "search_wand"
+harness = false
+test = false
+
+[[bench]]
+name = "search_memory"
+harness = false
+test = false
+
+[[bench]]
+name = "search_instructions"
+harness = false
+test = false
+
+[[bench]]
 name = "zset_zadd"
 harness = false
 test = false

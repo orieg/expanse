@@ -1,0 +1,110 @@
+[
+  {
+    "actual": 10000,
+    "distribution": "dense",
+    "expanse_heap_bits_per_docid": 52.8384,
+    "expanse_mem_used_bits_per_docid": 0.7296,
+    "roaring_heap_bits_per_docid": 6.912,
+    "roaring_serialized_bits_per_docid": 6.576,
+    "size": 10000
+  },
+  {
+    "actual": 100000,
+    "distribution": "dense",
+    "expanse_heap_bits_per_docid": 6.39488,
+    "expanse_mem_used_bits_per_docid": 0.54272,
+    "roaring_heap_bits_per_docid": 1.34656,
+    "roaring_serialized_bits_per_docid": 1.3136,
+    "size": 100000
+  },
+  {
+    "actual": 1000000,
+    "distribution": "dense",
+    "expanse_heap_bits_per_docid": 1.099264,
+    "expanse_mem_used_bits_per_docid": 0.521216,
+    "roaring_heap_bits_per_docid": 1.055232,
+    "roaring_serialized_bits_per_docid": 1.04976,
+    "size": 1000000
+  },
+  {
+    "actual": 8064,
+    "distribution": "clustered",
+    "expanse_heap_bits_per_docid": 65.77777777777777,
+    "expanse_mem_used_bits_per_docid": 3.6825396825396823,
+    "roaring_heap_bits_per_docid": 8.571428571428571,
+    "roaring_serialized_bits_per_docid": 8.154761904761905,
+    "size": 10000
+  },
+  {
+    "actual": 78720,
+    "distribution": "clustered",
+    "expanse_heap_bits_per_docid": 10.419512195121952,
+    "expanse_mem_used_bits_per_docid": 3.245528455284553,
+    "roaring_heap_bits_per_docid": 2.7512195121951217,
+    "roaring_serialized_bits_per_docid": 2.684959349593496,
+    "size": 100000
+  },
+  {
+    "actual": 788480,
+    "distribution": "clustered",
+    "expanse_heap_bits_per_docid": 4.062337662337662,
+    "expanse_mem_used_bits_per_docid": 3.3168831168831168,
+    "roaring_heap_bits_per_docid": 2.5902597402597403,
+    "roaring_serialized_bits_per_docid": 2.5793425324675323,
+    "size": 1000000
+  },
+  {
+    "actual": 7834,
+    "distribution": "sparse",
+    "expanse_heap_bits_per_docid": 72.41460301250957,
+    "expanse_mem_used_bits_per_docid": 6.600970130201685,
+    "roaring_heap_bits_per_docid": 8.823078886903243,
+    "roaring_serialized_bits_per_docid": 8.39417921878989,
+    "size": 10000
+  },
+  {
+    "actual": 78717,
+    "distribution": "sparse",
+    "expanse_heap_bits_per_docid": 13.782639074151708,
+    "expanse_mem_used_bits_per_docid": 6.413252537571299,
+    "roaring_heap_bits_per_docid": 2.959462377885336,
+    "roaring_serialized_bits_per_docid": 2.777951395505418,
+    "size": 100000
+  },
+  {
+    "actual": 786944,
+    "distribution": "sparse",
+    "expanse_heap_bits_per_docid": 7.2075471698113205,
+    "expanse_mem_used_bits_per_docid": 6.3825634352635,
+    "roaring_heap_bits_per_docid": 2.5953155497722835,
+    "roaring_serialized_bits_per_docid": 2.5843770331815223,
+    "size": 1000000
+  },
+  {
+    "actual": 10000,
+    "distribution": "shard",
+    "expanse_heap_bits_per_docid": 69.0176,
+    "expanse_mem_used_bits_per_docid": 2.816,
+    "roaring_heap_bits_per_docid": 28.6976,
+    "roaring_serialized_bits_per_docid": 16.2624,
+    "size": 10000
+  },
+  {
+    "actual": 100000,
+    "distribution": "shard",
+    "expanse_heap_bits_per_docid": 7.4752,
+    "expanse_mem_used_bits_per_docid": 0.93696,
+    "roaring_heap_bits_per_docid": 10.73408,
+    "roaring_serialized_bits_per_docid": 10.512,
+    "size": 100000
+  },
+  {
+    "actual": 1000000,
+    "distribution": "shard",
+    "expanse_heap_bits_per_docid": 1.222656,
+    "expanse_mem_used_bits_per_docid": 0.56064,
+    "roaring_heap_bits_per_docid": 1.073408,
+    "roaring_serialized_bits_per_docid": 1.0512,
+    "size": 1000000
+  }
+]
