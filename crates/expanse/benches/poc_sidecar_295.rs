@@ -20,6 +20,11 @@
 //!   Phase 1 measured at ~10.3×/~22×). Metadata is kept ≤ 24-bit so the
 //!   Phase-1 arm can express it, isolating the *mechanism* (in-slot vs sidecar)
 //!   at parity.
+//! * `sidecar_cold_dram_xllc` — the H3 residency-cliff arm: `K = 3`, 256 B
+//!   payloads, N ∈ {1M boundary, 3M cliff}, σ ∈ {0.001, 0.05}. Sizes the
+//!   sidecar `meta[]` array to straddle the reference 30 MiB L3 (12 MiB at 1M,
+//!   36 MiB at 3M) while the 256 B payloads keep the arena under the shipped
+//!   1 GiB cap, so the cliff is *measured* rather than predicted.
 //! * `sidecar_compaction` — compaction time, sidecar (rewrite dense `offsets`)
 //!   vs Phase-1 (rewrite a trie value slot per live record).
 //! * `sidecar_write_path` — build (insert) throughput, sidecar vs Phase-1.
@@ -139,6 +144,118 @@ fn bench_sidecar_cold_dram(c: &mut Criterion) {
     g.finish();
 }
 
+/// The `>`LLC arm (RFC §5.6 H3 — the residency cliff, *measured* not predicted).
+///
+/// The sidecar's warm-read advantage holds only while its per-entry
+/// `meta: [u32; K]` array is LLC-resident. Because record handles are assigned
+/// in **insert** order, a **key-ordered** scan reads `meta[rid]` in a permuted
+/// order, so once that array exceeds the LLC it becomes a *second* cold-DRAM
+/// stream that Phase-1 in-slot metadata (which rides in the trie leaf the walk
+/// already touches) never pays.
+///
+/// To cross a 30 MiB reference L3 with the `meta` array while keeping the
+/// payload arena under the shipped 1 GiB `MAX_ARENA_CAPACITY` cap, this arm uses
+/// **`K = 3` (12 B/entry `meta`)** and **256 B payloads**. At N = 1_000_000
+/// (boundary) `meta` ≈ 12 MiB (< 30 MiB L3, warm) and the arena ≈ 272 MiB
+/// (> L3, cold payloads); at N = 3_000_000 (cliff) `meta` ≈ 36 MiB
+/// (> 30 MiB L3, spills) and the arena ≈ 816 MiB (< 1 GiB cap, > L3).
+/// The Phase-1 arm carries a single 24-bit in-slot field (it *cannot* express
+/// `K = 3`); the sidecar predicate reads column 0 only, so both scan the same
+/// keys/payloads and the only difference is the metadata-read locality —
+/// exactly what H3 isolates. σ ∈ {0.001, 0.05} as pre-registered.
+fn bench_sidecar_cold_dram_xllc(c: &mut Criterion) {
+    const PAYLOAD: usize = 256; // arena stays < 1 GiB even at N = 3M.
+    const META_RANGE: u32 = 10_000; // ≤ 24-bit so the Phase-1 arm can hold col 0.
+    let ns: [u64; 2] = [1_000_000, 3_000_000];
+    let selectivities = [("sigma_0.001", 10u32), ("sigma_0.05", 500u32)];
+
+    let mut g = c.benchmark_group("sidecar_cold_dram_xllc");
+    g.sample_size(10);
+
+    for n in ns {
+        // Shuffled insertion order (handles become insert-ordered, decorrelated
+        // from key order — so both the payload arena AND the sidecar meta[] are
+        // read in permuted order during an ascending-key scan).
+        let mut order: Vec<u64> = (0..n).collect();
+        let mut rng = XorShift(0x0BAD_F00D_C0FF_EE11 ^ n);
+        for i in (1..order.len()).rev() {
+            let j = (rng.next() % (i as u64 + 1)) as usize;
+            order.swap(i, j);
+        }
+
+        let mut phase1 = ExpanseBlobMap::with_chunk_size(64 * 1024 * 1024);
+        let mut sidecar = SidecarBlobMap::<3>::with_chunk_size(64 * 1024 * 1024);
+        for &k in &order {
+            let meta = (k.wrapping_mul(GOLDEN) % META_RANGE as u64) as u32;
+            let payload = vec![(k & 0xFF) as u8; PAYLOAD];
+            phase1.insert(k, &payload, meta).unwrap();
+            sidecar
+                .insert(k, &payload, [meta, (k % 8) as u32, (k % 4) as u32])
+                .unwrap();
+        }
+        let meta_mib = (n as usize * 12) as f64 / 1048576.0;
+        eprintln!(
+            "xllc N={n}: sidecar meta[] ≈ {meta_mib:.1} MiB (K=3), payload arena ≈ {:.0} MiB (256 B payloads)",
+            (n as usize * ((PAYLOAD + 8).div_ceil(16) * 16)) as f64 / 1048576.0
+        );
+
+        for (label, threshold) in selectivities {
+            let id = format!("{n}_{label}");
+            g.bench_function(BenchmarkId::new("phase1_in_slot", &id), |b| {
+                b.iter(|| {
+                    let mut matches = 0usize;
+                    let mut byte_sum = 0u64;
+                    phase1.scan_filtered(
+                        0..=n,
+                        |_k, meta| meta <= threshold,
+                        |_k, view, _m| {
+                            byte_sum += view.as_bytes()[0] as u64;
+                            matches += 1;
+                            true
+                        },
+                    );
+                    black_box((matches, byte_sum))
+                });
+            });
+            g.bench_function(BenchmarkId::new("sidecar", &id), |b| {
+                b.iter(|| {
+                    let mut matches = 0usize;
+                    let mut byte_sum = 0u64;
+                    sidecar.scan_filtered(
+                        0..=n,
+                        |_k, cols| cols[0] <= threshold,
+                        |_k, payload, _c| {
+                            byte_sum += payload[0] as u64;
+                            matches += 1;
+                            true
+                        },
+                    );
+                    black_box((matches, byte_sum))
+                });
+            });
+            g.bench_function(BenchmarkId::new("naive_row_deref", &id), |b| {
+                b.iter(|| {
+                    let mut matches = 0usize;
+                    let mut byte_sum = 0u64;
+                    sidecar.scan_filtered(
+                        0..=n,
+                        |_k, _c| true,
+                        |_k, payload, cols| {
+                            byte_sum += payload[0] as u64;
+                            if cols[0] <= threshold {
+                                matches += 1;
+                            }
+                            true
+                        },
+                    );
+                    black_box((matches, byte_sum))
+                });
+            });
+        }
+    }
+    g.finish();
+}
+
 /// Compaction cost after a 50% delete churn: sidecar (dense offset rewrite, no
 /// trie writes) vs Phase-1 (per-record trie value-slot rewrite).
 fn bench_sidecar_compaction(c: &mut Criterion) {
@@ -253,6 +370,7 @@ fn bench_inverted_index(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_sidecar_cold_dram,
+    bench_sidecar_cold_dram_xllc,
     bench_sidecar_compaction,
     bench_sidecar_write_path,
     bench_inverted_index

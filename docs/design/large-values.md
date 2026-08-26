@@ -776,6 +776,22 @@ in place once the host run completes:
 | 0.20 | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ |
 | 1.0 | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ | _(pending)_ |
 
+**`>`LLC arm (H3 residency cliff — measured, pending):** to cross the 30 MiB
+reference L3 with the per-entry `meta` array while keeping the payload arena
+under the shipped 1 GiB `MAX_ARENA_CAPACITY` cap (so no Phase-1 code is touched),
+this arm uses **`K = 3` (12 B/entry `meta`)** and **256 B payloads**, at
+N ∈ {1M, 3M}, σ ∈ {0.001, 0.05}, same three arms:
+
+| N | sidecar `meta[]` | payload arena | expected |
+|---:|---:|---:|---|
+| 1 000 000 | ≈ 12 MiB (< 30 MiB L3) | ≈ 272 MiB (> L3) | boundary — sidecar ≈ Phase-1 |
+| 3 000 000 | ≈ 36 MiB (**> 30 MiB L3**) | ≈ 816 MiB (> L3) | **cliff — sidecar loses** (2nd cold stream) |
+
+(256 B payloads, not 1 KiB, so the 3M arena stays under the 1 GiB cap without a
+shipped-code change; the cliff is driven by the `meta[]` array size, not the
+payload size. At 3M the `meta[]` array is only modestly over the 30 MiB L3, so a
+partial cliff is expected; a larger N or K would sharpen it.)
+
 Also pending: `sidecar_compaction` (sidecar vs Phase-1 at 50 %-delete churn,
 H5), `sidecar_write_path` (H6), and `inverted_index` query latency
 (`intersection` / `intersection_len`, ts range exact vs bucketed).

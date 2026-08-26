@@ -994,4 +994,30 @@ mod characterize {
         eprintln!("count(tenant=3 AND status=1) = {c} (via intersection_len, no materialization)");
         eprintln!("=== end characterization ===\n");
     }
+
+    /// Guards the `>`LLC bench arm's sizing: 3M × 256 B payloads must fit under
+    /// the shipped 1 GiB `MAX_ARENA_CAPACITY` cap for both maps, so the host run
+    /// cannot fail with `OffsetOverflow` after a long setup. (Ignored: builds
+    /// ~1.7 GiB of maps; run explicitly.)
+    #[test]
+    #[ignore = "large-memory sizing guard for the >LLC bench arm; run explicitly"]
+    fn xllc_3m_256b_fits_under_arena_cap() {
+        use crate::blobmap::ExpanseBlobMap;
+        const N: u64 = 3_000_000;
+        let mut sidecar = SidecarBlobMap::<3>::with_chunk_size(64 * 1024 * 1024);
+        let mut phase1 = ExpanseBlobMap::with_chunk_size(64 * 1024 * 1024);
+        let payload = [0xABu8; 256];
+        for k in 0..N {
+            sidecar
+                .insert(k, &payload, [(k % 10_000) as u32, 0, 0])
+                .expect("sidecar 3M x 256B must fit under the 1 GiB cap");
+            phase1
+                .insert(k, &payload, (k % 10_000) as u32)
+                .expect("phase1 3M x 256B must fit under the 1 GiB cap");
+        }
+        assert_eq!(sidecar.len(), N);
+        assert_eq!(phase1.len(), N);
+        // Arena stayed under the shipped cap.
+        assert!(sidecar.arena().mem_used() <= crate::blobmap::MAX_ARENA_CAPACITY);
+    }
 }
