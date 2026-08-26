@@ -140,6 +140,12 @@ module Expanse
       size.zero?
     end
 
+    # Bytes of native trie memory currently held by this set (arena accounting
+    # from `expanse_set_mem_used`; excludes the Ruby wrapper object itself).
+    def mem_used
+      Native.expanse_set_mem_used(@ptr)
+    end
+
     def clear
       Native.expanse_set_clear(@ptr)
       self
@@ -240,6 +246,12 @@ module Expanse
       Native.expanse_map_len(@ptr)
     end
     alias length size
+
+    # Bytes of native trie memory currently held by this map (arena accounting
+    # from `expanse_map_mem_used`; excludes the Ruby wrapper object itself).
+    def mem_used
+      Native.expanse_map_mem_used(@ptr)
+    end
 
     def clear
       Native.expanse_map_clear(@ptr)

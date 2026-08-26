@@ -82,6 +82,11 @@ public class ExpanseBenchmark {
             long[] keys = generateKeys(pop, dist);
             long[] probeKeys = shuffle(keys);
 
+            // Lookup sinks escape into this holder, which is read after timing
+            // (emitted as sink_checksum), so the JIT cannot dead-code-eliminate
+            // the probed lookups as dead locals (#373).
+            final long[] sinkGuard = new long[1];
+
             // 1. ExpanseMap
             System.gc();
             double expInsertS;
@@ -102,13 +107,18 @@ public class ExpanseBenchmark {
                         OptionalLong v = map.get(probeKeys[i]);
                         if (v.isPresent()) sink ^= v.getAsLong();
                     }
+                    sinkGuard[0] ^= sink;
                 }, 3);
 
                 expBytesPerKey = (double) map.memoryUsed() / pop;
             }
 
-            // 2. java.util.HashMap
+            // 2. java.util.HashMap — heap delta measured around the build
+            // (System.gc + totalMemory-freeMemory snapshots). Approximate by
+            // nature; a non-positive delta is emitted as null, never a
+            // hardcoded constant (pre-#373 this row fabricated 64.0).
             System.gc();
+            long heapBefore = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
             Map<Long, Long> jMap = new HashMap<>();
             double jInsertS = measure(() -> {
                 jMap.clear();
@@ -123,7 +133,15 @@ public class ExpanseBenchmark {
                     Long v = jMap.get(probeKeys[i]);
                     if (v != null) sink ^= v;
                 }
+                sinkGuard[0] ^= sink;
             }, 3);
+
+            System.gc();
+            long heapAfter = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+            Double jBytesPerKey = null;
+            if (heapAfter > heapBefore) {
+                jBytesPerKey = (double) (heapAfter - heapBefore) / pop;
+            }
 
             // 3. ExpanseSet
             double expSetInsertS;
@@ -137,6 +155,7 @@ public class ExpanseBenchmark {
                 expSetLookupS = measure(() -> {
                     int count = 0;
                     for (int i = 0; i < pop; i++) if (set.contains(probeKeys[i])) count++;
+                    sinkGuard[0] ^= count;
                 }, 3);
             }
 
@@ -150,6 +169,7 @@ public class ExpanseBenchmark {
             double jSetLookupS = measure(() -> {
                 int count = 0;
                 for (int i = 0; i < pop; i++) if (jSet.contains(probeKeys[i])) count++;
+                sinkGuard[0] ^= count;
             }, 3);
 
             double toMops = (pop / 1e6);
@@ -170,17 +190,22 @@ public class ExpanseBenchmark {
             double jSetLookupNs = (jSetLookupS * 1e9) / pop;
 
             if (json) {
+                String jMemJson = (jBytesPerKey != null)
+                    ? String.format(Locale.US, "\"bytes_per_key\": %.2f, \"bytes_per_key_approximate\": true", jBytesPerKey)
+                    : "\"bytes_per_key\": null";
                 jsonResults.add(String.format(Locale.US,
-                    "{\"dist\": \"%s\", \"pop\": %d, \"expanse_map\": {\"insert_mops\": %.2f, \"lookup_mops\": %.2f, \"lookup_ns\": %.2f, \"bytes_per_key\": %.2f}, \"java_hashmap\": {\"insert_mops\": %.2f, \"lookup_mops\": %.2f, \"lookup_ns\": %.2f, \"bytes_per_key\": 64.0}}",
-                    dist, pop, expInsertMops, expLookupMops, expLookupNs, expBytesPerKey, jInsertMops, jLookupMops, jLookupNs));
+                    "{\"dist\": \"%s\", \"pop\": %d, \"sink_checksum\": \"0x%x\", \"expanse_map\": {\"insert_mops\": %.2f, \"lookup_mops\": %.2f, \"lookup_ns\": %.2f, \"bytes_per_key\": %.2f}, \"java_hashmap\": {\"insert_mops\": %.2f, \"lookup_mops\": %.2f, \"lookup_ns\": %.2f, %s}}",
+                    dist, pop, sinkGuard[0], expInsertMops, expLookupMops, expLookupNs, expBytesPerKey, jInsertMops, jLookupMops, jLookupNs, jMemJson));
             } else {
                 System.out.printf("\n[ Distribution: %s | Population: %,d ]\n", dist, pop);
                 System.out.printf("%-20s | %11s | %13s | %13s | %8s\n", "Target", "Lookup (ns)", "Lookup (Mops)", "Insert (Mops)", "B/key");
                 System.out.printf("%s-+-%s-+-%s-+-%s-+-%s\n", "-".repeat(20), "-".repeat(11), "-".repeat(13), "-".repeat(13), "-".repeat(8));
                 System.out.printf("%-20s | %11.2f | %13.2f | %13.2f | %8.2f\n", "ExpanseMap (Panama)", expLookupNs, expLookupMops, expInsertMops, expBytesPerKey);
-                System.out.printf("%-20s | %11.2f | %13.2f | %13.2f | %8.2f\n", "java.util.HashMap", jLookupNs, jLookupMops, jInsertMops, 64.0);
+                String jMemCell = (jBytesPerKey != null) ? String.format(Locale.US, "%8.2f", jBytesPerKey) : String.format("%8s", "n/a");
+                System.out.printf("%-20s | %11.2f | %13.2f | %13.2f | %s\n", "java.util.HashMap", jLookupNs, jLookupMops, jInsertMops, jMemCell);
                 System.out.printf("%-20s | %11.2f | %13.2f | %13.2f | %8s\n", "ExpanseSet (Panama)", expSetLookupNs, expSetLookupMops, expSetInsertMops, "—");
                 System.out.printf("%-20s | %11.2f | %13.2f | %13.2f | %8s\n", "java.util.HashSet", jSetLookupNs, jSetLookupMops, jSetInsertMops, "—");
+                System.out.printf("(sink checksum: 0x%x)\n", sinkGuard[0]);
             }
         }
 

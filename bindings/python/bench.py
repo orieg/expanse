@@ -39,8 +39,28 @@ def parse_args():
     return p.parse_args()
 
 
+class XorShift64:
+    """XorShift64 PRNG, bit-identical to the node/wasm/ruby/java/dotnet/php/go
+    harnesses (seed 0x0DDB_1A5E_5EED_0001, shifts 13/7/17, logical right shift).
+    Pre-#373 this harness used Python's Mersenne Twister, so its key streams
+    diverged from every other language."""
+
+    MASK = 0xFFFF_FFFF_FFFF_FFFF
+
+    def __init__(self, seed: int = 0x0DDB_1A5E_5EED_0001):
+        self.state = seed & self.MASK
+
+    def next(self) -> int:
+        x = self.state
+        x ^= (x << 13) & self.MASK
+        x ^= x >> 7
+        x ^= (x << 17) & self.MASK
+        self.state = x
+        return x
+
+
 def generate_keys(pop: int, dist: str = "random") -> list[int]:
-    rng = random.Random(0x0DDB_1A5E_5EED_0001)
+    rng = XorShift64()
     if dist == "sequential":
         return list(range(pop))
     elif dist == "clustered":
@@ -48,11 +68,11 @@ def generate_keys(pop: int, dist: str = "random") -> list[int]:
         base = 0
         for i in range(pop):
             if i % 256 == 0:
-                base = rng.getrandbits(64) & ~0xFF
+                base = rng.next() & ~0xFF
             out.append(base + (i % 256))
         return out
     else:
-        return [rng.getrandbits(64) for _ in range(pop)]
+        return [rng.next() for _ in range(pop)]
 
 
 def measure(fn, rounds: int = 3) -> float:
@@ -133,7 +153,10 @@ def run_suite(pop: int, dist: str = "random") -> dict:
     sample_dict = {k: k ^ 0x55 for k in keys[:10_000]}
     _cur, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
-    py_bytes_per_key = float(peak) / 10_000 if peak > 0 else 64.0
+    del sample_dict
+    # tracemalloc peak over a 10k-key sample dict; None (never a fabricated
+    # constant) if tracemalloc reported nothing usable.
+    py_bytes_per_key = float(peak) / 10_000 if peak > 0 else None
 
     # 3. ExpanseSet
     exp_set = ExpanseSet()
@@ -220,7 +243,8 @@ def render_table(results: list[dict]):
         print(f"{'ExpanseMap':<20} | {em['lookup_ns']:>11.2f} | {em['lookup_mops']:>13.2f} | {em['insert_mops']:>13.2f} | {em['iter_mops']:>11.2f} | {em['bytes_per_key']:>8.2f}")
 
         pd = r["python_dict"]
-        print(f"{'Python native dict':<20} | {pd['lookup_ns']:>11.2f} | {pd['lookup_mops']:>13.2f} | {pd['insert_mops']:>13.2f} | {pd['iter_mops']:>11.2f} | {pd['bytes_per_key']:>8.2f}")
+        pd_bytes = f"{pd['bytes_per_key']:>8.2f}" if pd["bytes_per_key"] is not None else f"{'n/a':>8}"
+        print(f"{'Python native dict':<20} | {pd['lookup_ns']:>11.2f} | {pd['lookup_mops']:>13.2f} | {pd['insert_mops']:>13.2f} | {pd['iter_mops']:>11.2f} | {pd_bytes}")
 
         es = r["expanse_set"]
         print(f"{'ExpanseSet':<20} | {es['lookup_ns']:>11.2f} | {es['lookup_mops']:>13.2f} | {es['insert_mops']:>13.2f} | {'—':>11} | {'—':>8}")

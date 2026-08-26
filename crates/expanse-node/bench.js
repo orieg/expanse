@@ -86,6 +86,10 @@ function runSuite(pop, dist = 'random') {
   const keys = generateKeys(pop, dist);
   const probeKeys = shuffle(keys);
 
+  // Lookup sinks escape into this accumulator, which is emitted in the result
+  // (sink_checksum), so the JIT cannot dead-code-eliminate the probed lookups.
+  let sinkGuard = 0n;
+
   // 1. ExpanseMap
   if (global.gc) global.gc();
   const memBeforeExp = process.memoryUsage().heapUsed;
@@ -104,6 +108,7 @@ function runSuite(pop, dist = 'random') {
       const v = expMap.get(probeKeys[i]);
       if (v !== null && v !== undefined) sink ^= v;
     }
+    sinkGuard ^= sink;
     return sink;
   });
 
@@ -112,14 +117,19 @@ function runSuite(pop, dist = 'random') {
     return entries.length;
   });
 
+  // range_mops is calls-of-countRange per second: the loop below performs
+  // rangeCalls (~100) countRange() calls, NOT pop of them. Pre-#373 the rate
+  // divided pop by the elapsed time, inflating range_mops ~1000x.
+  const rangeStep = Math.max(1, Math.floor(pop / 100));
+  const rangeCalls = Math.ceil(pop / rangeStep);
   const expRangeMs = measure(() => {
     let count = 0n;
-    const step = Math.floor(pop / 100);
-    for (let i = 0; i < pop; i += step) {
+    for (let i = 0; i < pop; i += rangeStep) {
       const start = keys[i];
       const end = start + 100n;
       count += expMap.countRange(start, end);
     }
+    sinkGuard ^= count;
     return count;
   });
 
@@ -144,6 +154,7 @@ function runSuite(pop, dist = 'random') {
       const v = jsMap.get(probeKeys[i]);
       if (v !== undefined) sink ^= v;
     }
+    sinkGuard ^= sink;
     return sink;
   });
 
@@ -156,7 +167,11 @@ function runSuite(pop, dist = 'random') {
   });
 
   const memAfterJs = process.memoryUsage().heapUsed;
-  const jsBytesPerKey = Math.max(0, (memAfterJs - memBeforeJs) / pop);
+  // Heap delta around the JS Map build. Without --expose-gc this is noisy; a
+  // non-positive delta is NOT a measurement, so emit null (pre-#373 the table
+  // fabricated '~64.00' for that case).
+  const jsHeapDelta = (memAfterJs - memBeforeJs) / pop;
+  const jsBytesPerKey = jsHeapDelta > 0 ? jsHeapDelta : null;
 
   // 3. ExpanseSet
   const expSet = new ExpanseSet();
@@ -167,6 +182,7 @@ function runSuite(pop, dist = 'random') {
   const expSetLookupMs = measure(() => {
     let count = 0;
     for (let i = 0; i < pop; i++) if (expSet.has(probeKeys[i])) count++;
+    sinkGuard ^= BigInt(count);
     return count;
   });
 
@@ -179,6 +195,7 @@ function runSuite(pop, dist = 'random') {
   const jsSetLookupMs = measure(() => {
     let count = 0;
     for (let i = 0; i < pop; i++) if (jsSet.has(probeKeys[i])) count++;
+    sinkGuard ^= BigInt(count);
     return count;
   });
 
@@ -188,12 +205,14 @@ function runSuite(pop, dist = 'random') {
   return {
     dist,
     pop,
+    sink_checksum: `0x${sinkGuard.toString(16)}`,
     expanse_map: {
       insert_mops: toMops(expInsertMs),
       lookup_mops: toMops(expLookupMs),
       lookup_ns: toNs(expLookupMs),
       iter_mops: toMops(expIterMs),
-      range_mops: toMops(expRangeMs),
+      // countRange calls per second (rangeCalls calls in expRangeMs), not keys/s.
+      range_mops: (rangeCalls / (expRangeMs / 1000)) / 1e6,
       bytes_per_key: expBytesPerKey,
     },
     js_map: {
@@ -230,7 +249,7 @@ function renderTable(results) {
     console.log(`${'ExpanseMap'.padEnd(20)} | ${em.lookup_ns.toFixed(2).padStart(11)} | ${em.lookup_mops.toFixed(2).padStart(13)} | ${em.insert_mops.toFixed(2).padStart(13)} | ${em.iter_mops.toFixed(2).padStart(11)} | ${em.bytes_per_key.toFixed(2).padStart(8)}`);
 
     const jm = r.js_map;
-    console.log(`${'JS native Map'.padEnd(20)} | ${jm.lookup_ns.toFixed(2).padStart(11)} | ${jm.lookup_mops.toFixed(2).padStart(13)} | ${jm.insert_mops.toFixed(2).padStart(13)} | ${jm.iter_mops.toFixed(2).padStart(11)} | ${(jm.bytes_per_key > 0 ? jm.bytes_per_key.toFixed(2) : '~64.00').padStart(8)}`);
+    console.log(`${'JS native Map'.padEnd(20)} | ${jm.lookup_ns.toFixed(2).padStart(11)} | ${jm.lookup_mops.toFixed(2).padStart(13)} | ${jm.insert_mops.toFixed(2).padStart(13)} | ${jm.iter_mops.toFixed(2).padStart(11)} | ${(jm.bytes_per_key != null ? jm.bytes_per_key.toFixed(2) : 'n/a').padStart(8)}`);
 
     const es = r.expanse_set;
     console.log(`${'ExpanseSet'.padEnd(20)} | ${es.lookup_ns.toFixed(2).padStart(11)} | ${es.lookup_mops.toFixed(2).padStart(13)} | ${es.insert_mops.toFixed(2).padStart(13)} | ${'—'.padStart(11)} | ${'—'.padStart(8)}`);

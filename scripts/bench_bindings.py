@@ -56,6 +56,15 @@ def parse_args():
     p.add_argument("--check-baseline", type=str, help="Compare results against baseline JSON file")
     p.add_argument("--max-regression-pct", type=float, default=25.0, help="Max allowed throughput regression pct (default: 25%)")
     p.add_argument("--max-memory-regression-pct", type=float, default=10.0, help="Max allowed memory regression pct (default: 10%)")
+    p.add_argument(
+        "--prune-missing",
+        action="store_true",
+        help="When re-saving the baseline, DROP runtimes that were present in the old baseline "
+        "but produced no results tonight. Without this flag their old baseline entries are "
+        "carried forward (marked carried_forward_from_baseline) so coverage loss cannot "
+        "silently erase them (#373).",
+    )
+    p.add_argument("--self-test", action="store_true", help="Run internal self-checks and exit")
     return p.parse_args()
 
 
@@ -119,7 +128,10 @@ def run_php_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
     if not shutil.which("php") or not bench_php.exists():
         return None
 
-    cmd = ["php", str(bench_php), "--json"]
+    # ffi.enable=1 mirrors ci.yml's test-php job: without it the PHP FFI driver
+    # is unavailable and (pre-#373) Expanse\Map silently degraded to a pure-PHP
+    # array shim; bench.php now also refuses to run on that fallback driver.
+    cmd = ["php", "-d", "ffi.enable=1", str(bench_php), "--json"]
     if quick:
         cmd.append("--quick")
 
@@ -150,7 +162,7 @@ def run_ruby_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
 
 
 _GO_BENCH_LINE_RE = re.compile(
-    r"^Benchmark(?P<name>[A-Za-z0-9_]+?)(?:-\d+)?\s+\d+\s+(?P<ns>[\d.]+)\s+ns/op"
+    r"^Benchmark(?P<name>[A-Za-z0-9_]+?)(?:-\d+)?\s+(?P<iters>\d+)\s+(?P<ns>[\d.]+)\s+ns/op"
     r"(?:\s+(?P<bytes>[\d.]+)\s+B/op\s+(?P<allocs>\d+)\s+allocs/op)?",
     re.MULTILINE,
 )
@@ -161,6 +173,7 @@ def _parse_go_bench_output(text: str) -> Dict[str, Dict[str, float]]:
     stats: Dict[str, Dict[str, float]] = {}
     for m in _GO_BENCH_LINE_RE.finditer(text):
         stats[m.group("name")] = {
+            "iterations": float(m.group("iters")),
             "ns_per_op": float(m.group("ns")),
             "bytes_per_op": float(m.group("bytes")) if m.group("bytes") else 0.0,
             "allocs_per_op": float(m.group("allocs")) if m.group("allocs") else 0.0,
@@ -210,12 +223,21 @@ def run_go_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
     go_insert_ns = stat("GoMap_Insert_Random", "ns_per_op")
 
     result = {
+        # dist/pop describe the harness CONFIGURATION, not a measured sweep:
+        # the Go lookup benches probe a fixed 100,000-key map (see
+        # expanse_bench_test.go), while the insert benches insert b.N keys
+        # chosen by `go test` (recorded below as *_iterations). Pre-#373 these
+        # two fields were presented as if measured like the other runtimes'.
         "dist": "random",
         "pop": 100_000,
+        "pop_configured_not_measured": True,
         "expanse_map": {
             "lookup_ns": exp_lookup_ns,
             "lookup_mops": ns_to_mops(exp_lookup_ns),
             "insert_mops": ns_to_mops(exp_insert_ns),
+            # Real b.N iteration counts from the `go test -bench` output lines.
+            "lookup_iterations": stat("ExpanseMap_Lookup_Random", "iterations"),
+            "insert_iterations": stat("ExpanseMap_Insert_Random", "iterations"),
             # ExpanseMap's Go binding has no memoryUsed()/MemoryUsed() equivalent
             # (unlike Java/.NET), so "bytes_per_key" here is b.ReportAllocs' B/op
             # from the insert benchmark: GC-visible heap churn per op, not trie
@@ -231,6 +253,8 @@ def run_go_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
             "lookup_ns": go_lookup_ns,
             "lookup_mops": ns_to_mops(go_lookup_ns),
             "insert_mops": ns_to_mops(go_insert_ns),
+            "lookup_iterations": stat("GoMap_Lookup_Random", "iterations"),
+            "insert_iterations": stat("GoMap_Insert_Random", "iterations"),
             "bytes_per_key": stat("GoMap_Insert_Random", "bytes_per_op"),
         },
     }
@@ -375,17 +399,40 @@ def format_markdown_report(all_results: List[Dict[str, Any]]) -> str:
 
             if "expanse_map" in r:
                 em = r["expanse_map"]
-                lines.append(f"| **`ExpanseMap`** | **{em.get('lookup_ns', 0.0):.2f} ns** | **{em.get('lookup_mops', 0.0):.2f}** | **{em.get('insert_mops', 0.0):.2f}** | **{em.get('bytes_per_key', 0.0):.2f} B** |")
+                em_bpk = em.get("bytes_per_key")
+                em_bkey = f"{em_bpk:.2f} B" if isinstance(em_bpk, (int, float)) else "—"
+                lines.append(f"| **`ExpanseMap`** | **{em.get('lookup_ns', 0.0):.2f} ns** | **{em.get('lookup_mops', 0.0):.2f}** | **{em.get('insert_mops', 0.0):.2f}** | **{em_bkey}** |")
 
             for k, v in r.items():
                 if k not in ("dist", "pop", "expanse_map", "expanse_set") and isinstance(v, dict):
                     name = k.replace("_", " ").title()
-                    b_key = f"{v.get('bytes_per_key', 64.0):.2f} B" if "bytes_per_key" in v else "—"
+                    # A missing or null bytes_per_key renders as "—": harnesses
+                    # emit null when a baseline's memory could not actually be
+                    # measured, and this report must never substitute a
+                    # fabricated constant for it (#373).
+                    bpk = v.get("bytes_per_key")
+                    b_key = f"{bpk:.2f} B" if isinstance(bpk, (int, float)) else "—"
+                    if v.get("bytes_per_key_estimated") or v.get("bytes_per_key_approximate"):
+                        b_key += " (approx.)"
                     lines.append(f"| `{name}` (baseline) | {v.get('lookup_ns', 0.0):.2f} ns | {v.get('lookup_mops', 0.0):.2f} | {v.get('insert_mops', 0.0):.2f} | {b_key} |")
 
             lines.append("")
 
     return "\n".join(lines)
+
+
+def missing_baseline_runtimes(
+    current_results: List[Dict[str, Any]],
+    baseline_data: List[Dict[str, Any]],
+) -> List[str]:
+    """Runtimes present in the baseline but absent from tonight's results (#373)."""
+    current = {item.get("runtime", "").lower() for item in current_results}
+    missing: List[str] = []
+    for item in baseline_data:
+        rt = item.get("runtime", "").lower()
+        if rt and rt not in current and rt not in missing:
+            missing.append(rt)
+    return missing
 
 
 def compare_against_baseline(
@@ -424,6 +471,24 @@ def compare_against_baseline(
 
     regressions: List[str] = []
 
+    # Coverage-loss detection (#373): a runtime present in the baseline but
+    # absent tonight used to vanish without a trace (compare iterated current
+    # results only) and was then erased from the re-saved baseline. Report
+    # every disappearance explicitly; main() preserves the old baseline entry
+    # unless --prune-missing is passed.
+    missing_runtimes = missing_baseline_runtimes(current_results, baseline_data)
+    if missing_runtimes:
+        lines.append("### ⚠️ Coverage Loss vs Baseline")
+        lines.append("")
+        lines.append("| Runtime | Status |")
+        lines.append("|:---|:---|")
+        for rt in missing_runtimes:
+            lines.append(
+                f"| `{rt.upper()}` | ⚠️ present in baseline, produced NO results tonight "
+                "(toolchain/artifact missing or harness failed — see [WARN] lines) |"
+            )
+        lines.append("")
+
     for item in current_results:
         runtime = item.get("runtime", "").lower()
         lines.append(f"### Runtime: `{runtime.upper()}`")
@@ -461,15 +526,18 @@ def compare_against_baseline(
                     regressions.append(f"{runtime} {dist} insert throughput regressed {d_im:+.1f}% ({cur_im:.2f} vs {base_im:.2f} Mops)")
                 lines.append(f"| `{dist}` (N={pop:,}) | Insert (Mops/s) | {cur_im:.2f} | {base_im:.2f} | {d_im:+.1f}% | {status_im} |")
 
-            # Memory Density (lower is better)
-            cur_bpk = em_curr.get("bytes_per_key", 0.0)
-            base_bpk = em_base.get("bytes_per_key", 0.0)
-            if base_bpk > 0:
+            # Memory Density (lower is better). Harnesses may emit null for an
+            # unmeasurable value; treat that as "no data", not zero-regression.
+            cur_bpk = em_curr.get("bytes_per_key") or 0.0
+            base_bpk = em_base.get("bytes_per_key") or 0.0
+            if base_bpk > 0 and cur_bpk > 0:
                 d_bpk = (cur_bpk - base_bpk) / base_bpk * 100.0
                 status_bpk = "🟢" if d_bpk <= 0 else ("🔴" if d_bpk > max_memory_regression_pct else "⚪")
                 if d_bpk > max_memory_regression_pct:
                     regressions.append(f"{runtime} {dist} memory density regressed {d_bpk:+.1f}% ({cur_bpk:.2f} vs {base_bpk:.2f} B/key)")
                 lines.append(f"| `{dist}` (N={pop:,}) | Memory (B/key) | {cur_bpk:.2f} | {base_bpk:.2f} | {d_bpk:+.1f}% | {status_bpk} |")
+            elif base_bpk > 0:
+                lines.append(f"| `{dist}` (N={pop:,}) | Memory (B/key) | n/a | {base_bpk:.2f} | — | ⚠️ |")
 
         lines.append("")
 
@@ -482,8 +550,78 @@ def compare_against_baseline(
     return has_regressions, "\n".join(lines)
 
 
+def run_self_test() -> int:
+    """Internal self-checks for the pure functions in this orchestrator."""
+    import tempfile
+
+    failures: List[str] = []
+
+    def check(name: str, cond: bool):
+        if cond:
+            print(f"  [OK] {name}")
+        else:
+            failures.append(name)
+            print(f"  [FAIL] {name}")
+
+    # 1. Go bench-line parsing captures iterations, ns/op, B/op, allocs/op.
+    go_text = (
+        "goos: linux\n"
+        "BenchmarkExpanseMap_Insert_Random-8   \t 2861918\t       419.1 ns/op\t       0 B/op\t       0 allocs/op\n"
+        "BenchmarkGoMap_Lookup_Random-8        \t12345678\t        95.5 ns/op\n"
+    )
+    stats = _parse_go_bench_output(go_text)
+    check("go parse: names", set(stats) == {"ExpanseMap_Insert_Random", "GoMap_Lookup_Random"})
+    check("go parse: iterations", stats["ExpanseMap_Insert_Random"]["iterations"] == 2861918.0)
+    check("go parse: ns_per_op", stats["GoMap_Lookup_Random"]["ns_per_op"] == 95.5)
+    check("go parse: B/op", stats["ExpanseMap_Insert_Random"]["bytes_per_op"] == 0.0)
+
+    # 2. Coverage-loss detection: baseline-only runtimes are reported.
+    baseline = [
+        {"runtime": "node", "results": [{"dist": "random", "pop": 100, "expanse_map": {"lookup_mops": 10.0}}]},
+        {"runtime": "wasm", "results": [{"dist": "random", "pop": 100, "expanse_map": {"lookup_mops": 5.0}}]},
+    ]
+    current = [{"runtime": "node", "results": [{"dist": "random", "pop": 100, "expanse_map": {"lookup_mops": 11.0}}]}]
+    check("missing runtimes: wasm detected", missing_baseline_runtimes(current, baseline) == ["wasm"])
+    check("missing runtimes: none when covered", missing_baseline_runtimes(baseline, baseline) == [])
+
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(baseline, f)
+        baseline_path = f.name
+    try:
+        has_reg, report = compare_against_baseline(current, baseline_path)
+        check("compare: coverage-loss row emitted", "Coverage Loss vs Baseline" in report and "`WASM`" in report)
+        check("compare: no false regression", not has_reg)
+
+        # 3. Null bytes_per_key is 'no data', not a fabricated comparison.
+        cur_null = [{"runtime": "node", "results": [{"dist": "random", "pop": 100, "expanse_map": {"lookup_mops": 11.0, "bytes_per_key": None}}]}]
+        base_mem = [{"runtime": "node", "results": [{"dist": "random", "pop": 100, "expanse_map": {"lookup_mops": 10.0, "bytes_per_key": 12.0}}]}]
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f2:
+            json.dump(base_mem, f2)
+            base_mem_path = f2.name
+        try:
+            has_reg2, report2 = compare_against_baseline(cur_null, base_mem_path)
+            check("compare: null memory flagged n/a", "| n/a | 12.00 |" in report2)
+            check("compare: null memory not a regression", not has_reg2)
+        finally:
+            os.unlink(base_mem_path)
+
+        # 4. Markdown report never fabricates a bytes/key constant.
+        md = format_markdown_report(cur_null + [{"runtime": "php", "results": [{"dist": "random", "pop": 100, "php_array": {"lookup_mops": 1.0, "bytes_per_key": None}}]}])
+        check("markdown: null bytes_per_key renders as —", "64.0" not in md and "| — |" in md)
+    finally:
+        os.unlink(baseline_path)
+
+    if failures:
+        print(f"\nSelf-test FAILED ({len(failures)}): {failures}", file=sys.stderr)
+        return 1
+    print("\nSelf-test passed.")
+    return 0
+
+
 def main():
     args = parse_args()
+    if args.self_test:
+        sys.exit(run_self_test())
     runners = {
         "node": run_node_benchmark,
         "wasm": run_wasm_benchmark,
@@ -531,8 +669,26 @@ def main():
         print(f"\nSaved report to {args.output}")
 
     if args.save_baseline:
+        payload = list(all_results)
+        # Coverage-loss preservation (#373): a runtime that produced no results
+        # tonight must NOT be silently erased from the re-saved baseline (that
+        # would reset its regression reference the night coverage comes back).
+        # Its old entry is carried forward, marked, unless --prune-missing.
+        if args.check_baseline and not args.prune_missing:
+            try:
+                baseline_data = json.loads(Path(args.check_baseline).read_text(encoding="utf-8"))
+            except Exception:
+                baseline_data = []
+            for rt in missing_baseline_runtimes(all_results, baseline_data):
+                for item in baseline_data:
+                    if item.get("runtime", "").lower() == rt:
+                        carried = dict(item)
+                        carried["carried_forward_from_baseline"] = True
+                        payload.append(carried)
+                        print(f"[WARN] runtime '{rt}' produced no results; carrying its old baseline entry forward (use --prune-missing to drop)", file=sys.stderr)
+                        break
         Path(args.save_baseline).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.save_baseline).write_text(json.dumps(all_results, indent=2), encoding="utf-8")
+        Path(args.save_baseline).write_text(json.dumps(payload, indent=2), encoding="utf-8")
         print(f"\nSaved baseline to {args.save_baseline}")
 
     if has_reg:
