@@ -284,7 +284,7 @@ Expanse is *intended* to be distributed on [NuGet.org](https://www.nuget.org) as
   dotnet add package Orieg.Expanse
 
   # PackageReference (csproj)
-  <PackageReference Include="Orieg.Expanse" Version="0.4.0" />
+  <PackageReference Include="Orieg.Expanse" Version="0.4.1" />
   ```
 - **Quick Usage Snippet (C#)**:
   ```csharp
@@ -455,7 +455,7 @@ Add the dependency to your project's `main/idf_component.yml`:
 ```yaml
 dependencies:
   expanse:
-    version: "^0.4.0"
+    version: "^0.4.1"
 ```
 Or clone the component directly into your project's `components/` directory.
 

@@ -270,27 +270,33 @@ class JsonVersionHandler(ManifestHandler):
         )
 
 
-class ReadmePinsHandler(ManifestHandler):
-    """Versioned snippets inside the root README (install examples and the
-    Windows bundle name). Each pin is matched by an exact-shaped pattern that
-    is unique in the file; the lockstep check therefore fails loudly if a
-    README rewrite drops or duplicates a pin instead of silently untracking it.
+# Versioned snippet patterns shared by the doc-pin handlers below. Each is a
+# 3-group regex (prefix, version, suffix) and MUST be unique within the file it
+# is registered for, so the lockstep check fails loudly when a doc rewrite
+# drops or duplicates a pin instead of silently untracking it.
+PIN_CARGO_DEP = re.compile(r'(expanse-trie = ")([^"]+)(")')
+PIN_WINDOWS_BUNDLE = re.compile(r"(expanse-v)([0-9]+\.[0-9]+\.[0-9]+)(-x86_64-pc-windows-msvc\.zip)")
+PIN_MAVEN_SNIPPET = re.compile(r"(<version>)([^<]+)(</version>)")
+PIN_ESP_IDF = re.compile(r'(version: "\^)([^"]+)(")')
+PIN_NUGET_PACKAGEREF = re.compile(r'(<PackageReference Include="Orieg\.Expanse" Version=")([^"]+)(")')
+
+
+class DocPinsHandler(ManifestHandler):
+    """Versioned snippets inside READMEs/docs (install examples, bundle names).
+
+    Untracked doc pins are how stale versions leak into published pages; a
+    hardcoded literal of this class broke the v0.4.1 bump. `pins` is a list of
+    (name, pattern) using the shared PIN_* patterns above.
     """
 
-    PINS = [
-        ("cargo-dep", re.compile(r'(expanse-trie = ")([^"]+)(")')),
-        (
-            "windows-bundle",
-            re.compile(r"(expanse-v)([0-9]+\.[0-9]+\.[0-9]+)(-x86_64-pc-windows-msvc\.zip)"),
-        ),
-        ("maven-snippet", re.compile(r"(<version>)([^<]+)(</version>)")),
-        ("esp-idf", re.compile(r'(version: "\^)([^"]+)(")')),
-    ]
+    def __init__(self, rel_path: str, name: str, pins: List[Tuple[str, "re.Pattern[str]"]]):
+        super().__init__(rel_path, name)
+        self.pins = pins
 
     def get_versions(self, root: Path) -> Dict[str, str]:
         text = self.get_path(root).read_text(encoding="utf-8")
         out: Dict[str, str] = {}
-        for name, pat in self.PINS:
+        for name, pat in self.pins:
             match = pat.search(text)
             if match:
                 out[name] = match.group(2)
@@ -298,7 +304,7 @@ class ReadmePinsHandler(ManifestHandler):
 
     def set_version(self, root: Path, new_version: str) -> str:
         text = self.get_path(root).read_text(encoding="utf-8")
-        for _, pat in self.PINS:
+        for _, pat in self.pins:
             text = pat.sub(rf"\g<1>{new_version}\g<3>", text, count=1)
         return text
 
@@ -431,7 +437,31 @@ def get_handlers(root: Path) -> List[ManifestHandler]:
             "components/expanse/idf_component.yml",
             "components/expanse/idf_component.yml",
         ),
-        ReadmePinsHandler("README.md", "README.md (version pins)"),
+        DocPinsHandler(
+            "README.md",
+            "README.md (version pins)",
+            [
+                ("cargo-dep", PIN_CARGO_DEP),
+                ("windows-bundle", PIN_WINDOWS_BUNDLE),
+                ("maven-snippet", PIN_MAVEN_SNIPPET),
+                ("esp-idf", PIN_ESP_IDF),
+            ],
+        ),
+        DocPinsHandler(
+            "docs/PACKAGING.md",
+            "docs/PACKAGING.md (version pins)",
+            [("nuget-packageref", PIN_NUGET_PACKAGEREF), ("esp-idf", PIN_ESP_IDF)],
+        ),
+        DocPinsHandler(
+            "docs/bindings/java.md",
+            "docs/bindings/java.md (version pins)",
+            [("maven-snippet", PIN_MAVEN_SNIPPET)],
+        ),
+        DocPinsHandler(
+            "components/expanse/README.md",
+            "components/expanse/README.md (version pins)",
+            [("esp-idf", PIN_ESP_IDF)],
+        ),
     ]
 
     # Check for optional manifests
