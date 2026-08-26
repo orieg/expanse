@@ -298,7 +298,7 @@ pub(crate) fn immed_keys(edge: &Edge, im: ImmedType) -> ImmedBuf<u64> {
 }
 
 /// Rebuilds a set-flavor immediate edge from sorted keys.
-fn write_immed(edge: &mut Edge, kb: u8, keys: &[u64]) {
+pub(crate) fn write_immed(edge: &mut Edge, kb: u8, keys: &[u64]) {
     let count = keys.len();
     if count == 1 {
         *edge = Edge::new_immed_single_set(kb, keys[0]);
@@ -385,7 +385,7 @@ pub(crate) unsafe fn leaf_keys(edge: &Edge, kb: u8, pop: usize) -> Vec<u64> {
 }
 
 /// Allocates a linear leaf from sorted keys and points `edge` at it.
-fn build_leaf(a: &NodeAlloc, edge: &mut Edge, kb: u8, keys: &[u64]) {
+pub(crate) fn build_leaf(a: &NodeAlloc, edge: &mut Edge, kb: u8, keys: &[u64]) {
     let ptr = a.alloc_bytes(leaf::size_set(kb, keys.len()));
     let base = ptr.as_ptr();
     match kb {

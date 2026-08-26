@@ -25,6 +25,10 @@ enum Key {
     ClusterA(u16),
     ClusterB(u16),
     Sparse(u8),
+    /// A contiguous block; several of these fill whole level-1/level-2
+    /// expanses, exercising the `FullExpanse` structural clone / complement
+    /// paths of the direct-emission materializer (#348).
+    Block(u16),
     Raw(u64),
 }
 
@@ -35,6 +39,7 @@ impl Key {
             Key::ClusterA(i) => 0xAABB_CCDD_EE00 + u64::from(i),
             Key::ClusterB(i) => 0x1122_3344_0000 + u64::from(i),
             Key::Sparse(b) => u64::from(b) << 40,
+            Key::Block(i) => u64::from(i),
             Key::Raw(k) => k,
         }
     }
@@ -95,4 +100,15 @@ fuzz_target!(|lists: (Vec<Key>, Vec<Key>)| {
         sym_set.iter().eq(ma.symmetric_difference(&mb).copied()),
         "symmetric_difference"
     );
+
+    // Bulk builder (#348): from_sorted_iter equals key-by-key insertion and
+    // passes the validator; unsorted input is corrected.
+    let sorted: Vec<u64> = ma.iter().copied().collect();
+    let built = ExpanseSet::from_sorted_iter(sorted.iter().copied());
+    built.validate();
+    assert!(built.iter().eq(ma.iter().copied()), "from_sorted_iter");
+    let raw: Vec<u64> = a_keys.iter().map(Key::to_u64).collect();
+    let from_raw = ExpanseSet::from_sorted_iter(raw);
+    from_raw.validate();
+    assert!(from_raw.iter().eq(ma.iter().copied()), "from_sorted_iter unsorted");
 });

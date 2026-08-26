@@ -292,6 +292,41 @@ proptest! {
             sym_set.iter().eq(ma.symmetric_difference(&mb).copied()),
             "symmetric_difference"
         );
+
+        // Self-ops: A∩A = A∪A = A, A\A = A△A = ∅.
+        let self_and = &a & &a;
+        self_and.validate();
+        prop_assert!(self_and.iter().eq(ma.iter().copied()), "self intersection");
+        let self_diff = &a - &a;
+        self_diff.validate();
+        prop_assert_eq!(self_diff.len(), 0, "self difference empty");
+
+        // A materialized result stays a valid, mutable tree.
+        let mut mutd = union_set;
+        for &k in a_keys.iter().take(4) { mutd.remove(k); }
+        mutd.insert(u64::MAX);
+        mutd.validate();
+    }
+
+    /// `from_sorted_iter` bulk-build equals key-by-key insertion in content and
+    /// passes the invariants validator, on the interesting-region strategy.
+    #[test]
+    fn from_sorted_iter_matches_insert(keys in prop::collection::vec(key_strategy(), 0..500)) {
+        let mut sorted: Vec<u64> = keys.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+
+        let built = ExpanseSet::from_sorted_iter(sorted.iter().copied());
+        built.validate();
+        prop_assert!(built.iter().eq(sorted.iter().copied()), "from_sorted_iter contents");
+
+        let mut inserted = ExpanseSet::new();
+        for &k in &keys { inserted.insert(k); }
+        prop_assert!(built.iter().eq(inserted.iter()), "built vs inserted");
+        // Unsorted input is corrected, not trusted.
+        let shuffled = ExpanseSet::from_sorted_iter(keys.iter().copied());
+        shuffled.validate();
+        prop_assert!(shuffled.iter().eq(sorted.iter().copied()), "unsorted tolerated");
     }
 
     /// The stateful `advance_to` cursor (issue #340) matches a `BTreeSet`

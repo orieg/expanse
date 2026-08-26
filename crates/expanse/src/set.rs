@@ -989,6 +989,64 @@ impl Extend<Key> for ExpanseSet {
 }
 
 impl ExpanseSet {
+    /// Bulk-builds a set from an ascending iterator of keys, emitting the trie
+    /// bottom-up in one pass (issue #348) rather than inserting key by key.
+    ///
+    /// The fast path expects **strictly ascending** input; equal adjacent keys
+    /// are collapsed. Any out-of-order input is sorted and deduplicated first,
+    /// so the result is always correct, but callers get the direct-emission
+    /// speed only when the input is already sorted (e.g. a posting list, an
+    /// image key stream, or the output of a set-algebra merge).
+    ///
+    /// The result is byte-for-byte the tree the insert path converges to, so it
+    /// composes with every later `insert`/`remove`/query unchanged.
+    #[must_use]
+    pub fn from_sorted_iter<I: IntoIterator<Item = Key>>(iter: I) -> Self {
+        let mut keys: Vec<u64> = iter.into_iter().collect();
+        // Fast path leaves an already-sorted, deduplicated stream untouched.
+        if !keys.is_empty() {
+            let sorted = keys.windows(2).all(|w| w[0] < w[1]);
+            if !sorted {
+                keys.sort_unstable();
+                keys.dedup();
+            }
+        }
+        Self::from_sorted_keys(keys)
+    }
+
+    /// Builds a set from a `Vec` of strictly ascending, distinct keys, choosing
+    /// the root-leaf or trie representation by population exactly as the insert
+    /// ladder would. Consumes the vector.
+    pub(crate) fn from_sorted_keys(keys: Vec<u64>) -> Self {
+        debug_assert!(
+            keys.windows(2).all(|w| w[0] < w[1]),
+            "keys must be ascending"
+        );
+        let mut out = Self::new();
+        let n = keys.len();
+        if n == 0 {
+            return out;
+        }
+        if n <= ROOT_LEAF_CAP {
+            let leaf = out.alloc.alloc_bytes(root_leaf_size(n));
+            // SAFETY: `leaf` holds `n` u64 slots (class-sized); write each key.
+            unsafe {
+                let dst = leaf.as_ptr().cast::<u64>();
+                for (i, &k) in keys.iter().enumerate() {
+                    dst.add(i).write(k);
+                }
+            }
+            out.root = Root::Leaf { keys: leaf, pop: n };
+            return out;
+        }
+        // SAFETY: `keys` is sorted/distinct; `out.alloc` owns the built trie.
+        let top = unsafe { crate::algebra::build_subtree(&out.alloc, &keys, 8) };
+        out.root = Root::Tree { top, pop: n as u64 };
+        out
+    }
+}
+
+impl ExpanseSet {
     /// Rebuilds the flat sorted root leaf from a small tree (the shrink
     /// twin of the root-leaf → trie promotion).
     fn condense_to_root_leaf(&mut self) {
@@ -1108,124 +1166,140 @@ impl ExpanseSet {
     /// The set of keys present in **both** sets (`A ∩ B`).
     #[must_use]
     pub fn intersection(&self, other: &ExpanseSet) -> ExpanseSet {
-        let mut out = ExpanseSet::new();
-        let (mut ia, mut ib) = (self.iter(), other.iter());
-        let (mut x, mut y) = (ia.next(), ib.next());
-        while let (Some(xv), Some(yv)) = (x, y) {
-            match xv.cmp(&yv) {
-                core::cmp::Ordering::Equal => {
-                    out.insert(xv);
-                    x = ia.next();
-                    y = ib.next();
-                }
-                core::cmp::Ordering::Less => x = ia.next(),
-                core::cmp::Ordering::Greater => y = ib.next(),
-            }
-        }
-        out
+        self.materialize_op(other, crate::algebra::Op::And)
     }
 
     /// The set of keys present in **either** set (`A ∪ B`).
     #[must_use]
     pub fn union(&self, other: &ExpanseSet) -> ExpanseSet {
-        let mut out = ExpanseSet::new();
-        let (mut ia, mut ib) = (self.iter(), other.iter());
-        let (mut x, mut y) = (ia.next(), ib.next());
-        loop {
-            match (x, y) {
-                (Some(xv), Some(yv)) => match xv.cmp(&yv) {
-                    core::cmp::Ordering::Less => {
-                        out.insert(xv);
-                        x = ia.next();
-                    }
-                    core::cmp::Ordering::Greater => {
-                        out.insert(yv);
-                        y = ib.next();
-                    }
-                    core::cmp::Ordering::Equal => {
-                        out.insert(xv);
-                        x = ia.next();
-                        y = ib.next();
-                    }
-                },
-                (Some(xv), None) => {
-                    out.insert(xv);
-                    x = ia.next();
-                }
-                (None, Some(yv)) => {
-                    out.insert(yv);
-                    y = ib.next();
-                }
-                (None, None) => break,
-            }
-        }
-        out
+        self.materialize_op(other, crate::algebra::Op::Or)
     }
 
     /// The set of keys in `self` but not `other` (`A \ B`).
     #[must_use]
     pub fn difference(&self, other: &ExpanseSet) -> ExpanseSet {
-        let mut out = ExpanseSet::new();
-        let (mut ia, mut ib) = (self.iter(), other.iter());
-        let (mut x, mut y) = (ia.next(), ib.next());
-        loop {
-            match (x, y) {
-                (Some(xv), Some(yv)) => match xv.cmp(&yv) {
-                    core::cmp::Ordering::Less => {
-                        out.insert(xv);
-                        x = ia.next();
-                    }
-                    core::cmp::Ordering::Greater => y = ib.next(),
-                    core::cmp::Ordering::Equal => {
-                        x = ia.next();
-                        y = ib.next();
-                    }
-                },
-                (Some(xv), None) => {
-                    out.insert(xv);
-                    x = ia.next();
-                }
-                (None, _) => break,
-            }
-        }
-        out
+        self.materialize_op(other, crate::algebra::Op::Diff)
     }
 
     /// The set of keys in exactly one of the two sets (`A △ B`).
     #[must_use]
     pub fn symmetric_difference(&self, other: &ExpanseSet) -> ExpanseSet {
-        let mut out = ExpanseSet::new();
-        let (mut ia, mut ib) = (self.iter(), other.iter());
-        let (mut x, mut y) = (ia.next(), ib.next());
-        loop {
-            match (x, y) {
-                (Some(xv), Some(yv)) => match xv.cmp(&yv) {
-                    core::cmp::Ordering::Less => {
-                        out.insert(xv);
-                        x = ia.next();
-                    }
-                    core::cmp::Ordering::Greater => {
-                        out.insert(yv);
-                        y = ib.next();
-                    }
-                    core::cmp::Ordering::Equal => {
-                        x = ia.next();
-                        y = ib.next();
-                    }
-                },
-                (Some(xv), None) => {
-                    out.insert(xv);
-                    x = ia.next();
-                }
-                (None, Some(yv)) => {
-                    out.insert(yv);
-                    y = ib.next();
-                }
-                (None, None) => break,
-            }
-        }
-        out
+        self.materialize_op(other, crate::algebra::Op::Xor)
     }
+
+    /// Direct-emission set algebra (issue #348): when both operands are level-8
+    /// tries the result is emitted structurally by the lockstep walk
+    /// ([`crate::algebra::materialize`]) — bitmap leaves combined word-parallel,
+    /// full expanses resolved without enumeration, branches assembled
+    /// bottom-up — instead of re-inserting each surviving key. Any other root
+    /// combination (empty / small root leaf) merges the two ordered streams and
+    /// bulk-builds the result, which is already cheap.
+    fn materialize_op(&self, other: &ExpanseSet, op: crate::algebra::Op) -> ExpanseSet {
+        if let (Root::Tree { top: ta, .. }, Root::Tree { top: tb, .. }) = (&self.root, &other.root)
+        {
+            // Deferred ancestor pops must be settled before the walk reads
+            // `pop0` (the full-expanse shortcut / structural clone).
+            self.flush_path();
+            other.flush_path();
+            let mut out = ExpanseSet::new();
+            // SAFETY: both tries are live, engine-maintained, rooted at level 8;
+            // the result is built in `out.alloc`.
+            let built = unsafe { crate::algebra::materialize(&out.alloc, ta, tb, 8, op) };
+            let Some(top) = built else {
+                return out;
+            };
+            // SAFETY: `top` is a live level-8 branch built just now.
+            let pop = unsafe { crate::algebra::tree_pop(&top) };
+            if pop as usize <= ROOT_LEAF_CAP {
+                // A tiny result belongs in a root leaf, not a trie: drain the
+                // built subtree in order, then free it.
+                out.condense_built_tree(top, pop as usize);
+            } else {
+                out.root = Root::Tree { top, pop };
+            }
+            return out;
+        }
+        // Empty / root-leaf operands: merge the ordered streams and bulk-build.
+        ExpanseSet::from_sorted_keys(merge_sorted(self, other, op))
+    }
+
+    /// Installs a freshly-materialized `top` (a level-8 trie of `n` keys, with
+    /// `n <= ROOT_LEAF_CAP`) as a root leaf, draining it in order and freeing
+    /// the trie. `self` is a fresh set whose allocator owns `top`.
+    fn condense_built_tree(&mut self, top: Edge, n: usize) {
+        debug_assert!(n <= ROOT_LEAF_CAP);
+        if n == 0 {
+            let mut t = top;
+            // SAFETY: `top` is an empty live subtree owned by this allocator.
+            unsafe { mutate::free_subtree::<false>(&self.alloc, &mut t) };
+            self.root = Root::Empty;
+            return;
+        }
+        let leaf = self.alloc.alloc_bytes(root_leaf_size(n));
+        let mut written = 0usize;
+        let mut from = Some(0u64);
+        // SAFETY: `top` is a live, engine-maintained level-8 trie.
+        while let Some((k, _)) = from.and_then(|f| unsafe { crate::nav::next::<false>(&top, f, 8) })
+        {
+            debug_assert!(written < n);
+            // SAFETY: in-bounds write of the fresh n-key leaf.
+            unsafe { leaf.as_ptr().cast::<u64>().add(written).write(k) };
+            written += 1;
+            from = k.checked_add(1);
+        }
+        debug_assert_eq!(written, n);
+        let mut t = top;
+        // SAFETY: the built trie is owned by this allocator; freed exactly once.
+        unsafe { mutate::free_subtree::<false>(&self.alloc, &mut t) };
+        self.root = Root::Leaf { keys: leaf, pop: n };
+    }
+}
+
+/// Merges the two sets' ordered key streams under `op` into a sorted, distinct
+/// key vector (the root-leaf / empty-operand materialization path).
+fn merge_sorted(a: &ExpanseSet, b: &ExpanseSet, op: crate::algebra::Op) -> Vec<u64> {
+    use crate::algebra::Op;
+    let mut out = Vec::new();
+    let (mut ia, mut ib) = (a.iter(), b.iter());
+    let (mut x, mut y) = (ia.next(), ib.next());
+    loop {
+        let (in_a, in_b, v) = match (x, y) {
+            (Some(xv), Some(yv)) => match xv.cmp(&yv) {
+                core::cmp::Ordering::Less => {
+                    x = ia.next();
+                    (true, false, xv)
+                }
+                core::cmp::Ordering::Greater => {
+                    y = ib.next();
+                    (false, true, yv)
+                }
+                core::cmp::Ordering::Equal => {
+                    x = ia.next();
+                    y = ib.next();
+                    (true, true, xv)
+                }
+            },
+            (Some(xv), None) => {
+                x = ia.next();
+                (true, false, xv)
+            }
+            (None, Some(yv)) => {
+                y = ib.next();
+                (false, true, yv)
+            }
+            (None, None) => break,
+        };
+        let keep = match op {
+            Op::And => in_a && in_b,
+            Op::Or => true,
+            Op::Diff => in_a && !in_b,
+            Op::Xor => in_a != in_b,
+        };
+        if keep {
+            out.push(v);
+        }
+    }
+    out
 }
 
 impl core::ops::BitAnd for &ExpanseSet {
@@ -1294,6 +1368,220 @@ mod tests {
     const OPS: usize = 250;
     #[cfg(not(miri))]
     const OPS: usize = 6000;
+
+    /// `from_sorted_iter` must produce the byte-for-byte same tree the insert
+    /// path converges to: identical `stats()` (form-for-form) and identical
+    /// contents, and it must pass the invariants validator.
+    #[test]
+    fn from_sorted_iter_matches_insert() {
+        type Gen = fn(&mut XorShift, usize) -> Vec<u64>;
+        let distributions: &[(&str, Gen)] = &[
+            ("dense", |_r, n| (0..n as u64).collect()),
+            ("clustered", |r, n| {
+                let mut v = Vec::new();
+                let mut base = 0u64;
+                while v.len() < n {
+                    base += (r.next() % 4096) + 1;
+                    let run = 1 + (r.next() % 64) as usize;
+                    for j in 0..run {
+                        v.push(base + j as u64);
+                    }
+                }
+                v.truncate(n);
+                v
+            }),
+            ("sparse", |r, n| {
+                let mut s = BTreeSet::new();
+                while s.len() < n {
+                    s.insert(r.next());
+                }
+                s.into_iter().collect()
+            }),
+            ("byte-skewed", |r, n| {
+                let mut s = BTreeSet::new();
+                while s.len() < n {
+                    s.insert(r.next() & 0x0003_03FF_00FF_03FF);
+                }
+                s.into_iter().collect()
+            }),
+        ];
+        for &(name, genf) in distributions {
+            for &n in &[
+                0usize, 1, 5, 15, 16, 25, 26, 31, 32, 33, 200, 300, 2000, 20_000,
+            ] {
+                let mut rng = XorShift(0x51ED_0000 ^ n as u64);
+                let mut keys = genf(&mut rng, n);
+                keys.sort_unstable();
+                keys.dedup();
+
+                let built = ExpanseSet::from_sorted_iter(keys.iter().copied());
+                built
+                    .validate_defensive()
+                    .unwrap_or_else(|e| panic!("{name} n={n}: builder invalid: {e}"));
+
+                let mut inserted = ExpanseSet::new();
+                for &k in &keys {
+                    inserted.insert(k);
+                }
+
+                assert_eq!(built.len(), keys.len() as u64, "{name} n={n}: len");
+                assert_eq!(
+                    built.iter().collect::<Vec<_>>(),
+                    keys,
+                    "{name} n={n}: contents"
+                );
+                // The builder emits the same forms the insert ladder converges
+                // to, except it may pick the more-compact `FullExpanse` where
+                // an ascending insert (which fills a still-skipped bitmap leaf
+                // before the parent branch exists) leaves a `LeafBitmap1(256)`.
+                // Both are valid and equal in content; the bulk build is never
+                // *less* compact than insert.
+                assert!(
+                    built.mem_used() <= inserted.mem_used(),
+                    "{name} n={n}: builder less compact than insert ({} > {})",
+                    built.mem_used(),
+                    inserted.mem_used()
+                );
+
+                // Built tree must remain mutable and correct.
+                let mut b2 = ExpanseSet::from_sorted_iter(keys.iter().copied());
+                if let Some(&first) = keys.first() {
+                    assert!(!b2.insert(first), "re-insert of existing key");
+                    assert!(b2.remove(first), "remove existing key");
+                    assert!(!b2.contains(first), "removed key still present");
+                    b2.validate_defensive()
+                        .unwrap_or_else(|e| panic!("{name} n={n}: post-mutation invalid: {e}"));
+                }
+            }
+        }
+    }
+
+    /// Direct-emission materialization must match `BTreeSet` for all four ops
+    /// across the issue's input categories — including full-expanse-heavy and
+    /// self-ops — with every result passing the invariants validator.
+    #[test]
+    fn materialize_differential() {
+        fn set_of(v: &[u64]) -> ExpanseSet {
+            let mut s = ExpanseSet::new();
+            for &k in v {
+                s.insert(k);
+            }
+            s
+        }
+        fn check(a: &[u64], b: &[u64], label: &str) {
+            let (sa, sb) = (set_of(a), set_of(b));
+            let (ma, mb): (BTreeSet<u64>, BTreeSet<u64>) =
+                (a.iter().copied().collect(), b.iter().copied().collect());
+            let cases: &[(ExpanseSet, Vec<u64>, &str)] = &[
+                (
+                    sa.intersection(&sb),
+                    ma.intersection(&mb).copied().collect(),
+                    "and",
+                ),
+                (sa.union(&sb), ma.union(&mb).copied().collect(), "or"),
+                (
+                    sa.difference(&sb),
+                    ma.difference(&mb).copied().collect(),
+                    "diff",
+                ),
+                (
+                    sa.symmetric_difference(&sb),
+                    ma.symmetric_difference(&mb).copied().collect(),
+                    "xor",
+                ),
+            ];
+            for (got, want, op) in cases {
+                got.validate_defensive()
+                    .unwrap_or_else(|e| panic!("{label}/{op}: invalid result: {e}"));
+                assert_eq!(
+                    got.iter().collect::<Vec<_>>(),
+                    *want,
+                    "{label}/{op}: contents"
+                );
+                assert_eq!(got.len(), want.len() as u64, "{label}/{op}: len");
+            }
+        }
+
+        let mut rng = XorShift(0xA1B2_C3D4);
+        // dense contiguous ranges → full level-1 and level-2 expanses.
+        let dense_a: Vec<u64> = (0..70_000u64).collect();
+        let dense_b: Vec<u64> = (30_000..100_000u64).collect();
+        check(&dense_a, &dense_b, "dense-overlap");
+        check(&dense_a, &dense_a, "dense-self");
+        check(
+            &(0..65_536u64).collect::<Vec<_>>(),
+            &[0, 65_535, 65_536, 200_000],
+            "full-l2-vs-sparse",
+        );
+        check(
+            &(0..256u64).collect::<Vec<_>>(),
+            &(128..384u64).collect::<Vec<_>>(),
+            "full-l1-overlap",
+        );
+
+        // clustered runs.
+        let clustered = |rng: &mut XorShift, n: usize| -> Vec<u64> {
+            let mut v = Vec::new();
+            let mut base = 0u64;
+            while v.len() < n {
+                base += (rng.next() % 8192) + 1;
+                for j in 0..(1 + rng.next() % 200) {
+                    v.push(base + j);
+                }
+            }
+            v.truncate(n);
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
+        let ca = clustered(&mut rng, 40_000);
+        let cb = clustered(&mut rng, 40_000);
+        check(&ca, &cb, "clustered");
+
+        // sparse random (Tree × Tree, little overlap → small AND result).
+        let sparse = |rng: &mut XorShift, n: usize| -> Vec<u64> {
+            let mut s = BTreeSet::new();
+            while s.len() < n {
+                s.insert(rng.next());
+            }
+            s.into_iter().collect()
+        };
+        let ra = sparse(&mut rng, 5_000);
+        let rb = sparse(&mut rng, 5_000);
+        check(&ra, &rb, "sparse");
+
+        // zipfian / skewed: many small keys, few large.
+        let zipf = |rng: &mut XorShift, n: usize| -> Vec<u64> {
+            let mut s = BTreeSet::new();
+            while s.len() < n {
+                let r = rng.next();
+                let k = if r % 4 == 0 { r } else { r % 4096 };
+                s.insert(k);
+            }
+            s.into_iter().collect()
+        };
+        let za = zipf(&mut rng, 3_000);
+        let zb = zipf(&mut rng, 3_000);
+        check(&za, &zb, "zipfian");
+
+        // Root-combination coverage: empty, single, small leaf, and big tree.
+        let big = sparse(&mut rng, 2_000);
+        check(&[], &[], "empty-empty");
+        check(&[], &big, "empty-tree");
+        check(&big, &[], "tree-empty");
+        check(&[42], &big, "single-tree");
+        check(&[1, 2, 3], &[3, 4, 5], "leaf-leaf");
+        check(&big, &big, "tree-self");
+    }
+
+    /// Unsorted / duplicate input is corrected, not trusted.
+    #[test]
+    fn from_sorted_iter_tolerates_unsorted() {
+        let raw = [9u64, 3, 3, 7, 1, 1, 9, 100, 50, 50];
+        let built = ExpanseSet::from_sorted_iter(raw);
+        built.validate_defensive().unwrap();
+        assert_eq!(built.iter().collect::<Vec<_>>(), vec![1, 3, 7, 9, 50, 100]);
+    }
 
     /// Runs an op sequence differentially against `BTreeSet`, validating
     /// invariants as it goes, and drains the set at the end.

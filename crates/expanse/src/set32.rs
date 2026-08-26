@@ -15,6 +15,9 @@ use core::default::Default;
 use core::fmt;
 use core::option::Option;
 
+extern crate alloc;
+use alloc::vec::Vec;
+
 use crate::trie32::{self, Arena};
 use crate::types32::{Edge32, Key32};
 
@@ -38,6 +41,32 @@ impl ExpanseSet32 {
             root: Edge32::null(),
             len: 0,
         }
+    }
+
+    /// Bulk-build a 32-bit set from an ascending iterator of keys (issue #348).
+    ///
+    /// A convenience bulk-load entry mirroring [`crate::set::ExpanseSet::from_sorted_iter`].
+    /// Sorted input is loaded in ascending order (so the insert cursor stays on
+    /// the hot path); any out-of-order input is sorted and deduplicated first,
+    /// so the result is always correct. Duplicate keys are collapsed.
+    ///
+    /// Note: the 64-bit `ExpanseSet` emits the trie bottom-up in one pass
+    /// (direct emission); the 32-bit twin builds via the shared trie32 insert
+    /// engine — the 32-bit trie has no structural set-algebra kernel to emit
+    /// from, so a dedicated direct-emission builder is deferred with the 32-bit
+    /// materialization work.
+    #[must_use]
+    pub fn from_sorted_iter<I: IntoIterator<Item = Key32>>(iter: I) -> Self {
+        let mut keys: Vec<Key32> = iter.into_iter().collect();
+        if !keys.is_empty() && !keys.windows(2).all(|w| w[0] < w[1]) {
+            keys.sort_unstable();
+            keys.dedup();
+        }
+        let mut set = Self::new();
+        for k in keys {
+            set.insert(k);
+        }
+        set
     }
 
     /// Insert a 32-bit key into the set.
@@ -570,6 +599,35 @@ mod tests {
     use alloc_crate::vec::Vec;
     #[cfg(feature = "std")]
     use std::collections::BTreeSet;
+
+    #[test]
+    fn from_sorted_iter_matches_insert() {
+        let mut state = 0x1234_5678u32;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state
+        };
+        for &n in &[0usize, 1, 5, 40, 300, 5000] {
+            let mut model = BTreeSet::new();
+            while model.len() < n {
+                model.insert(next() & 0x0003_FFFF);
+            }
+            let keys: Vec<u32> = model.iter().copied().collect();
+
+            let built = ExpanseSet32::from_sorted_iter(keys.iter().copied());
+            assert_eq!(built.len(), n);
+            let got: Vec<u32> = built.iter().collect();
+            assert_eq!(got, keys, "sorted build contents n={n}");
+
+            // Unsorted / duplicate input is corrected.
+            let mut raw = keys.clone();
+            raw.extend(keys.iter().rev().copied());
+            let from_raw = ExpanseSet32::from_sorted_iter(raw);
+            assert_eq!(from_raw.iter().collect::<Vec<_>>(), keys, "unsorted n={n}");
+        }
+    }
 
     #[test]
     fn basic_mutations() {
