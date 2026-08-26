@@ -25,6 +25,8 @@ High-performance, **zero-GC**, off-heap associative trie collections for Java an
 
 ## Installation
 
+> **Not yet on Maven Central.** No `io.github.orieg` artifact is published yet; the version badge above renders "not found" until first publish. Build from `bindings/java` locally until then. The coordinates below are the planned ones.
+
 ### Maven
 ```xml
 <dependency>

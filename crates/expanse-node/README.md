@@ -3,7 +3,7 @@
 > Native Node.js, Bun, and Deno bindings for **Expanse**: clean-room, pure-Rust Judy arrays and 256-ary digital tries with optimistic concurrency control (OCC).
 
 [![npm version](https://img.shields.io/npm/v/@orieg/expanse.svg)](https://www.npmjs.com/package/@orieg/expanse)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](../../LICENSE-MIT)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](https://github.com/orieg/expanse/blob/main/LICENSE-MIT)
 
 ## Overview
 

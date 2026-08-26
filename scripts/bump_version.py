@@ -270,6 +270,39 @@ class JsonVersionHandler(ManifestHandler):
         )
 
 
+class ReadmePinsHandler(ManifestHandler):
+    """Versioned snippets inside the root README (install examples and the
+    Windows bundle name). Each pin is matched by an exact-shaped pattern that
+    is unique in the file; the lockstep check therefore fails loudly if a
+    README rewrite drops or duplicates a pin instead of silently untracking it.
+    """
+
+    PINS = [
+        ("cargo-dep", re.compile(r'(expanse-trie = ")([^"]+)(")')),
+        (
+            "windows-bundle",
+            re.compile(r"(expanse-v)([0-9]+\.[0-9]+\.[0-9]+)(-x86_64-pc-windows-msvc\.zip)"),
+        ),
+        ("maven-snippet", re.compile(r"(<version>)([^<]+)(</version>)")),
+        ("esp-idf", re.compile(r'(version: "\^)([^"]+)(")')),
+    ]
+
+    def get_versions(self, root: Path) -> Dict[str, str]:
+        text = self.get_path(root).read_text(encoding="utf-8")
+        out: Dict[str, str] = {}
+        for name, pat in self.PINS:
+            match = pat.search(text)
+            if match:
+                out[name] = match.group(2)
+        return out
+
+    def set_version(self, root: Path, new_version: str) -> str:
+        text = self.get_path(root).read_text(encoding="utf-8")
+        for _, pat in self.PINS:
+            text = pat.sub(rf"\g<1>{new_version}\g<3>", text, count=1)
+        return text
+
+
 class GemspecHandler(ManifestHandler):
     def get_versions(self, root: Path) -> Dict[str, str]:
         text = self.get_path(root).read_text(encoding="utf-8")
@@ -398,6 +431,7 @@ def get_handlers(root: Path) -> List[ManifestHandler]:
             "components/expanse/idf_component.yml",
             "components/expanse/idf_component.yml",
         ),
+        ReadmePinsHandler("README.md", "README.md (version pins)"),
     ]
 
     # Check for optional manifests

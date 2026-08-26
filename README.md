@@ -61,7 +61,7 @@ Naming the project after the mechanism honors the algorithm itself without inher
 | **C ABI (`libexpanse`)** | [`crates/expanse-capi`](crates/expanse-capi) | `cdylib`/`staticlib` exporting **both** the legacy `Judy.h` surface (`Judy1*`, `JudyL*`, `JudySL*`, `JudyHS*` — allowing consumers like [php-judy](https://github.com/orieg/php-judy) to swap `libJudy` for `libexpanse` without source changes) **and** modern `expanse.h` |
 | **Modern C++20 Header** | [`include/expanse.hpp`](include/expanse.hpp) | Modern header-only C++20 STL-compatible RAII wrapper (`expanse::set`, `expanse::map`, `expanse::str_map`, `expanse::bytes_map`, `expanse::blob_map`, `expanse::sync_map`), `std::span` zero-copy access, `std::forward_iterator` ranges, and lock-free OCC readers |
 | **Java / Scala FFM API** | [`bindings/java`](bindings/java) (`io.github.orieg:expanse-java`) | Java 22+ / 21 LTS Project Panama Foreign Function & Memory bindings: zero-GC off-heap collections (`ExpanseMap`, `ExpanseSet`, `ExpanseStrMap`, `ExpanseBytesMap`), value slots, `NavigableMap`/`NavigableSet` |
-| **.NET / C# API** | [`bindings/dotnet`](bindings/dotnet) (`Expanse.NET`) | .NET 8.0/9.0+ C# bindings & NuGet package via P/Invoke: zero-GC off-heap collections (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `ExpanseSyncMap`) |
+| **.NET / C# API** | [`bindings/dotnet`](bindings/dotnet) (`Orieg.Expanse`) | .NET 8.0/9.0+ C# bindings & NuGet package via P/Invoke: zero-GC off-heap collections (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `ExpanseSyncMap`) |
 | **Go API** | [`bindings/go`](bindings/go) (`github.com/orieg/expanse/bindings/go`) | Native Go bindings via CGO: zero-GC off-heap collections (`Set`, `Map`, `StrMap`, `BytesMap`, `BlobMap`) |
 | **PHP API** | [`bindings/php`](bindings/php) (`orieg/expanse`) | Native PHP bindings via FFI & PIE: `Expanse\Set`, `Expanse\Map`, `Expanse\StrMap`, `Expanse\BytesMap`, `Expanse\BlobMap`, `Expanse\SyncMap`, `Expanse\SyncSet` |
 | **Python API** | [`bindings/python`](bindings/python) (`pip install expanse-trie`) | High-performance Python extension via PyO3: `ExpanseSet`, `ExpanseMap`, `SyncExpanseMap`, GIL-released queries |
@@ -437,8 +437,6 @@ See [docs/bindings/java.md](docs/bindings/java.md) for Panama FFM architecture, 
 
 ### 10. .NET & C# Quickstart (`Orieg.Expanse`)
 
-> **Not yet on NuGet.org.** The `Orieg.Expanse` package does not resolve yet (NuGet returns 404 / `totalHits:0`); the version badge above renders "not found" until first publish. The `release.yml` push step is wired (OIDC trusted publishing) but has not landed a package. Build from `bindings/dotnet` locally until then.
-
 ```bash
 dotnet add package Orieg.Expanse
 ```
@@ -504,9 +502,10 @@ const blobmap = new ExpanseBlobMap();
 blobmap.set(1n, Buffer.from('inline'), 10 /* 32-bit hot metadata */);
 const res = blobmap.getWithMeta(1n);
 console.log(res.isInline);               // true (0 heap allocations)
+```
 See [crates/expanse-node/README.md](crates/expanse-node/README.md) for full Node.js documentation.
 
-### 11. Espressif ESP-IDF Component (ESP32, ESP32-C3, ESP32-C6, ESP32-S3)
+### 13. Espressif ESP-IDF Component (ESP32, ESP32-C3, ESP32-C6, ESP32-S3)
 
 Add `expanse` to your ESP-IDF project's `main/idf_component.yml`:
 ```yaml

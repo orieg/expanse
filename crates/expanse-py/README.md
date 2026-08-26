@@ -30,4 +30,4 @@ sync_m = SyncExpanseMap({1: 100, 2: 200})
 assert sync_m[1] == 100
 ```
 
-See [docs/bindings/python.md](../../docs/bindings/python.md) for complete documentation.
+See [docs/bindings/python.md](https://github.com/orieg/expanse/blob/main/docs/bindings/python.md) for complete documentation.

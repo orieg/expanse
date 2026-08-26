@@ -15,7 +15,7 @@ Expanse provides a **unified dual-driver architecture** for PHP 8.1–8.5+:
 flowchart TD
     subgraph Distribution["Distribution Channels"]
         Packagist["Packagist.org (orieg/expanse)"]
-        PIE_PECL["PIE (pie install orieg/expanse-extension)"]
+        PIE_INSTALL["PIE (pie install orieg/expanse-extension)"]
     end
 
     subgraph Consumer["Application Layer"]
@@ -30,7 +30,7 @@ flowchart TD
     end
 
     Packagist --> ComposerRequire
-    PIE_PECL --> NativeZend
+    PIE_INSTALL --> NativeZend
     ComposerRequire --> AppCode
     AppCode --> Detection
     Detection -->|Yes| NativeZend
@@ -57,7 +57,7 @@ composer require orieg/expanse
 
 ### 2.2 Native Zend Extension (Recommended for Production)
 
-For maximum performance, install the native Zend extension via PIE (PHP Installer for Extensions) or PECL:
+For maximum performance, install the native Zend extension via PIE (PHP Installer for Extensions):
 
 ```bash
 # Via PIE (compiles the Rust extension locally; requires the Rust toolchain)
