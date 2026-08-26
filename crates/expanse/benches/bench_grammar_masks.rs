@@ -169,6 +169,10 @@ fn main() {
             }
         }
     }
+    // Keep the masked buffer observable: without this the whole loop is
+    // dead code and release codegen deletes it (a committed result once
+    // recorded 0.0 ns for 12.8M iterations).
+    std::hint::black_box(&dummy_logits);
     let dense_apply_ns = t0.elapsed().as_nanos() as f64 / sample_states as f64;
 
     // 5. Top-k Candidate Intersection Latency (k=100)

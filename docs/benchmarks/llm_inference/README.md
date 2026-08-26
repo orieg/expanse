@@ -8,7 +8,7 @@ All token streams are evaluated under reference-continuation replay on genuine o
 - **Document Summarization**: 9 distinct articles (56,449 prompt tokens, 690 reference continuation tokens) from Wikipedia Computer Science Corpus (CC BY-SA 4.0).
 - **JSON Schemas**: 5 distinct schemas & payloads (69,524 prompt tokens, 68,639 reference continuation tokens) from SchemaStore Repository (Apache-2.0 / MIT).
 
-All benchmark timings below are measured on **Apple M1 (arm64-apple-darwin)**, commit containing this document (reference bare-metal runs triggered via `/bench` on PRs).
+All benchmark timings below were measured on an **Apple M1 laptop (8-core, arm64-apple-darwin)**; the committed `results/*.json` artifacts are the run of record (results commit `86b1503c`). These are **single-shot wall-clock runs on a shared host — informational, not regression-gate instruments** (the repo's gate-quality instruments are the Callgrind suites in `crates/expanse/benches/instructions.rs`; see `docs/BENCHMARKING.md`).
 
 ---
 
@@ -25,9 +25,9 @@ All benchmark timings below are measured on **Apple M1 (arm64-apple-darwin)**, c
 | **(a) Static Datastore RAM (1M)** | Static Window Index: 12.0 B/tok (11.44 MB) | ExpanseStrMap: 259.2 B/tok (247.23 MB) | **21.6× memory overhead for Expanse** (Expected loss vs static contiguous index) | **Pre-registered Loss** |
 | **(a) Dynamic Ingestion (1M tokens)** | Static Rebuild: 163.1 ms | ExpanseStrMap: 452,932 inserts/s | **Expanse wins continuous ingestion whenever batch B < 73,859** | **Expanse Win** |
 | **(b) Grammar Mask RAM (2,000 states)** | Dense Bitmask: 30.61 MB | Roaring: 11.50 MB / ExpanseSet: 127.64 MB | **Roaring wins 2.66× lower RAM** across sparse grammar DFA states | **Roaring Win** |
-| **(b) Grammar Full-Vocab Apply** | Dense Bitmask: <0.1 µs | ExpanseSet: 1.9 µs (Top-100 SIMD intersect) | **Dense wins raw apply; Roaring/Expanse win candidate filtering** | **Pre-registered Loss** |
-| **(c) KV-Block Table RAM (1M blocks)** | collections.OrderedDict: 219.92 MB | ExpanseMap Table: 23.19 MB | **9.48× lower RAM** (inclusive of side array) | **Expanse Win** |
-| **(c) KV-Block Rank Eviction** | OrderedDict: Unsupported (O(N) scan) | ExpanseMap: 1.48M items/sec | **Native count_below() bulk timestamp pruning** | **Expanse Win** |
+| **(b) Grammar Full-Vocab Apply** | Dense Bitmask: not measured (prior cell was a dead-code-eliminated loop; re-run pending) | ExpanseSet: 1.9 µs (Top-100 SIMD intersect) | **Dense expected to win raw apply by construction; Roaring/Expanse win candidate filtering** | **Expected Loss (measurement pending)** |
+| **(c) KV-Block Table RAM (1M blocks)** | collections.OrderedDict: 219.92 MB (tracemalloc peak, CPython object costs) | ExpanseMap Table: 23.19 MB (native bytes + idealized 8 B/entry side map) | **9.48× lower RAM** — cross-accounting comparison, treat as indicative | **Expanse Win (accounting-asymmetric; see Pillar E caveat)** |
+| **(c) KV-Block Rank Eviction** | OrderedDict twin not measured — with monotonic touch timestamps, pop-until-cutoff is O(evicted), not O(N) | ExpanseMap: 2.16M items/sec (`count_below()` + range prune) | **Native rank pruning measured; baseline cell pending a symmetric twin** | **Definitional (twin pending)** |
 
 ---
 
@@ -51,7 +51,7 @@ All benchmark timings below are measured on **Apple M1 (arm64-apple-darwin)**, c
 
 ### Step 0: Math-First Speedup Ceiling Model & Gating
 
-In speculative decoding with verification, candidate lookup latency (~1–35 µs) is dwarfed by the target model forward pass (15–50 ms). Hence, the theoretical throughput speedup is bounded by the acceptance length ratio:
+In speculative decoding with verification, the per-step draft overhead (propose + acceptance + incremental re-indexing, measured at ~2–61 µs in the Python harness — an upper bound on pure lookup cost) is dwarfed by the target model forward pass (15–50 ms). Hence, the theoretical throughput speedup is bounded by the acceptance length ratio:
 
 $$\text{tok/s Gain Ceiling} \le \frac{1 + \alpha_{\text{expanse}}}{1 + \alpha_{\text{baseline}}}$$
 
@@ -77,7 +77,7 @@ Using the **2-Neighbour Longest Common Prefix (LCP)** algorithm (`prev_at_or_bef
 
 | Workload | HF Adaptive Lookup Macro α | HF Fixed 3-gram Macro α | HF Fixed 2-gram Macro α | Expanse Variable LSM Macro α | Static Sorted Window Index Macro α |
 |---|---|---|---|---|---|
-| **HumanEval Code (N=40)** | 0.491 (95% CI [0.410, 0.593]) | 0.270 (95% CI [0.198, 0.370]) | 0.335 (95% CI [0.265, 0.428]) | **0.535** (95% CI [0.448, 0.653]) | 0.512 (95% CI [0.430, 0.628]) |
+| **HumanEval Code (N=40)** | 0.491 (95% CI [0.410, 0.593]) | 0.270 (95% CI [0.204, 0.370]) | 0.335 (95% CI [0.265, 0.428]) | **0.535** (95% CI [0.448, 0.653]) | 0.512 (95% CI [0.430, 0.628]) |
 | **Summarization (N=9)** | 3.382 (95% CI [3.243, 3.513]) | 2.895 (95% CI [2.804, 3.001]) | 3.097 (95% CI [2.927, 3.255]) | **3.381** (95% CI [3.238, 3.520]) | **3.398** (95% CI [3.282, 3.527]) |
 | **JSON Schemas (N=5)** | 1.050 (95% CI [0.901, 1.206]) | 0.782 (95% CI [0.643, 0.931]) | 0.881 (95% CI [0.756, 1.006]) | **1.229** (95% CI [1.089, 1.448]) | 1.144 (95% CI [1.002, 1.359]) |
 
@@ -111,12 +111,12 @@ Evaluating per-DFA-state allowed-token sets over a 128,000 vocabulary across 2,0
 
 | Mask Representation | Total RAM (2,000 states) | Projected RAM (20,000 states) | Memory Reduction | Full-Vocab Apply Latency | Top-100 SIMD Intersect |
 |---|---|---|---|---|---|
-| **Dense Bitmask (`[u64]` Array)** | 30.61 MB (16.0 KB/state) | 306.1 MB | 1.0× (Baseline) | **<0.1 µs (Win)** | N/A (Linear scan) |
+| **Dense Bitmask (`[u64]` Array)** | 30.61 MB (16.0 KB/state) | 306.1 MB | 1.0× (Baseline) | not measured (prior cell was dead-code-eliminated; re-run pending) | N/A (Linear scan) |
 | **`RoaringBitmap` (Compressed)** | 11.50 MB (5.7 KB/state) | 115.0 MB | **2.66× lower RAM** | 0.8 µs | **634.6 ns** |
 | **`ExpanseSet` (Judy Digital Trie)** | 127.64 MB (63.8 KB/state) | 1,276.4 MB | 4.2× higher RAM | 1.2 µs | **1,949.2 ns** |
 
 * **Winning Regimes**:
-  - **Dense Bitmask Win**: Fastest raw full-vocabulary logit masking (<0.1 µs).
+  - **Dense Bitmask (expected win)**: raw full-vocabulary logit masking is expected fastest by construction; the previously published <0.1 µs cell came from a dead-code-eliminated loop and awaits an honest re-run.
   - **RoaringBitmap Win**: When scaling to complex grammars with 20,000+ DFA states (e.g. JSON schemas, SQL ASTs), `RoaringBitmap` compresses sparse states down to 5.7 KB/state, cutting memory by 2.66x while enabling sub-microsecond candidate intersection (634.6 ns) via SIMD set algebra (#339).
 
 ---
@@ -129,14 +129,15 @@ Evaluating physical KV block cache managers across 100k to 1M active blocks (`be
 
 | Active Blocks N | OrderedDict RAM | ExpanseMap Table RAM | Memory Reduction | OrderedDict Touch | ExpanseMap Touch | ExpanseMap Rank Eviction |
 |---|---|---|---|---|---|---|
-| **100k** | 23.39 MB | **2.32 MB** | **10.09×** | 4.65M tps | 1.61M tps | 1.37M items/sec |
-| **500k** | 109.90 MB | **11.59 MB** | **9.48×** | 7.42M tps | 2.11M tps | 2.19M items/sec |
-| **1M** | 219.92 MB | **23.19 MB** | **9.48×** | 5.56M tps | 1.18M tps | **1.48M items/sec** |
+| **100k** | 23.39 MB | **2.32 MB** | **10.09×** | 7.02M tps | 2.29M tps | 2.15M items/sec |
+| **500k** | 109.90 MB | **11.59 MB** | **9.48×** | 15.63M tps | 1.92M tps | 1.98M items/sec |
+| **1M** | 219.92 MB | **23.19 MB** | **9.48×** | 15.28M tps | 2.04M tps | **2.16M items/sec** |
 
-* **Honest Speed Trade-off**: `collections.OrderedDict` wins raw O(1) touch throughput (2x–5x faster) due to inline doubly-linked list pointer swings.
+* **Honest Speed Trade-off**: `collections.OrderedDict` wins raw O(1) touch throughput (3.1x–7.6x faster in the committed run) due to inline doubly-linked list pointer swings.
+* **Accounting caveat (memory rows)**: the OrderedDict side is measured as CPython `tracemalloc` peak (including per-entry object/tuple boxing), while the Expanse side is native `mem_used()` plus an idealized 8 B/entry charge for the side map (implemented as a Python list, which costs more). The 9.5x–10.1x reduction is therefore a cross-accounting comparison — indicative, not a pure index-density claim; a symmetric-accounting re-run is pending.
 * **Expanse Winning Regimes**:
-  1. **9.5x–10.1x lower RAM footprint** (23.2 MB vs 219.9 MB at 1M blocks, all-inclusive).
-  2. **Rank-Threshold Eviction**: `ExpanseMap` executes native timestamp-cutoff pruning via `count_below()` and range iteration at **1.48M–2.19M items/sec**; `OrderedDict` is structurally incapable of window pruning without an O(N) full table scan.
+  1. **9.5x–10.1x lower RAM footprint** (23.2 MB vs 219.9 MB at 1M blocks, subject to the accounting caveat above).
+  2. **Rank-Threshold Eviction**: `ExpanseMap` executes native timestamp-cutoff pruning via `count_below()` and range iteration at **1.98M–2.16M items/sec**. The OrderedDict cell is **definitional, not measured**: because touch timestamps are assigned monotonically, insertion order equals timestamp order and an OrderedDict can prune below a cutoff with `popitem(last=False)` in O(evicted) — its measured front-pop eviction runs at ~8.6M items/sec, so a symmetric twin may well win this cell. Pending that twin, this row is a capability demonstration, not a measured architectural advantage.
 
 ---
 

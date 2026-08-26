@@ -24,6 +24,9 @@ from typing import List, Tuple, Dict, Any
 import numpy as np
 from scipy.stats import bootstrap
 
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+sys.path.insert(0, str(REPO_ROOT / "bindings" / "python"))
+
 import expanse_trie
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -256,6 +259,7 @@ def simulate_speculation(matcher_cls, matcher_kwargs, prompt_tokens, ground_trut
     speculation_steps = 0
     total_accepted = 0
     total_drafted = 0
+    total_draft_accepted = 0
     
     t0 = time.perf_counter()
     lat_queries = 0
@@ -273,7 +277,12 @@ def simulate_speculation(matcher_cls, matcher_kwargs, prompt_tokens, ground_trut
                 break
         
         total_drafted += len(draft)
+        # alpha numerator: accepted drafted tokens + the 1 bonus token the
+        # target model always yields per step.
         total_accepted += (accepted + 1)
+        # acceptance-rate numerator: drafted tokens only (a *rate* over
+        # drafted tokens must never exceed 1.0).
+        total_draft_accepted += accepted
         
         advance_count = min(gt_len - pos, accepted + 1)
         new_tokens = ground_truth_tokens[pos : pos + advance_count]
@@ -282,10 +291,13 @@ def simulate_speculation(matcher_cls, matcher_kwargs, prompt_tokens, ground_trut
         matcher.append_and_update(new_tokens)
 
     t1 = time.perf_counter()
+    # Per-STEP draft overhead in the Python harness: propose() + acceptance
+    # comparison + append_and_update() re-indexing. NOT a pure datastore
+    # lookup latency (Pillar B's native bench owns that construct).
     avg_latency_us = ((t1 - t0) / max(1, lat_queries)) * 1e6
     alpha = (total_accepted / max(1, speculation_steps)) - 1.0
 
-    return speculation_steps, total_accepted, total_drafted, alpha, avg_latency_us
+    return speculation_steps, total_accepted, total_drafted, total_draft_accepted, alpha, avg_latency_us
 
 
 def run_benchmark():
@@ -332,7 +344,14 @@ def run_benchmark():
 
         for arm_name, cls_type, kwargs in arms:
             # 1. Full-stream execution (micro)
-            micro_steps, micro_accepted, micro_drafted, micro_alpha, lat_us = simulate_speculation(
+            (
+                micro_steps,
+                micro_accepted,
+                micro_drafted,
+                micro_draft_accepted,
+                micro_alpha,
+                lat_us,
+            ) = simulate_speculation(
                 cls_type, kwargs, prompt_tokens, ground_truth_tokens
             )
 
@@ -359,7 +378,7 @@ def run_benchmark():
                 "speculation_steps": micro_steps,
                 "total_accepted_tokens": micro_accepted,
                 "total_drafted_tokens": micro_drafted,
-                "acceptance_rate": round(micro_accepted / max(1, micro_drafted), 4) if micro_drafted > 0 else 0.0,
+                "acceptance_rate": round(micro_draft_accepted / max(1, micro_drafted), 4) if micro_drafted > 0 else 0.0,
                 "candidate_lookup_latency_us": round(lat_us, 3),
             }
             print(f"  [{arm_name:24s}] macro α = {macro_alpha:.3f} (95% BCa CI [{ci_low:.3f}, {ci_high:.3f}], N={len(task_alphas)}), micro α = {micro_alpha:.3f}, lat = {lat_us:.2f} µs")

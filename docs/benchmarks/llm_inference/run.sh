@@ -20,20 +20,18 @@ if [[ "${1:-}" == "--quick" ]]; then
     QUICK_FLAG="--quick"
 fi
 
-# Acquire atomic host-wide benchmark lock
-LOCK_FILE="/tmp/expanse-bench.lock"
-exec 200>"${LOCK_FILE}"
-if ! flock -n 200; then
-    echo "[-] Another benchmark suite is currently running. Waiting for lock..."
-    flock 200
+# Host-wide benchmark lock (docs/BENCHMARKING.md, methodology rule 8): one
+# suite at a time per machine, across every checkout. `mkdir` is atomic and
+# portable (flock(1) does not exist on stock macOS), and it is the same
+# mechanism the sibling suites use, so they mutually exclude.
+BENCH_LOCK="${EXPANSE_BENCH_LOCK:-${TMPDIR:-/tmp}/expanse-bench.lock}"
+if ! mkdir "${BENCH_LOCK}" 2>/dev/null; then
+  echo "refusing to start: benchmark lock ${BENCH_LOCK} is held by:" >&2
+  { cat "${BENCH_LOCK}/owner" 2>/dev/null || true; } >&2
+  exit 75
 fi
-echo "[+] Acquired benchmark lock (${LOCK_FILE})"
-
-cleanup() {
-    flock -u 200 || true
-    echo "[+] Released benchmark lock"
-}
-trap cleanup EXIT
+printf 'suite=%s pid=%s start=%s\n' "$(basename "${SCRIPT_DIR}")" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${BENCH_LOCK}/owner"
+trap 'rm -rf "${BENCH_LOCK}"' EXIT
 
 log_system_load() {
     echo "--- System Load Snapshot ---"
@@ -53,11 +51,22 @@ log_system_load
 echo "==> [0/5] Verifying Step 0 Speedup Ceiling Model..."
 python3 "${SCRIPT_DIR}/scripts/ceiling.py"
 
-# Step 1: Generate Runtime Artifacts (ungated corpus + grammar DFAs + reference streams)
-echo "==> [1/5] Generating Runtime Datastore Corpus & Reference Streams..."
-python3 "${SCRIPT_DIR}/scripts/build_corpus.py"
-python3 "${SCRIPT_DIR}/scripts/dump_grammar_dfa.py"
-python3 "${SCRIPT_DIR}/scripts/record_streams.py"
+# Step 1: Materialize runtime artifacts. The gitignored corpus binary is
+# regenerated when missing; the reference-token streams are PINNED committed
+# snapshots (the committed results were measured on them) and are never
+# refreshed here — run scripts/record_streams.py manually to re-record from
+# the live sources.
+echo "==> [1/5] Materializing Datastore Corpus & Reference Streams..."
+if [[ ! -f "${DATA_DIR}/datastore_corpus.bin" ]]; then
+    python3 "${SCRIPT_DIR}/scripts/build_corpus.py"
+fi
+if [[ ! -f "${DATA_DIR}/humaneval_reference_tokens.json" \
+   || ! -f "${DATA_DIR}/summary_reference_tokens.json" \
+   || ! -f "${DATA_DIR}/json_reference_tokens.json" ]]; then
+    python3 "${SCRIPT_DIR}/scripts/record_streams.py"
+else
+    echo "    (pinned reference streams present; skipping network re-record)"
+fi
 
 # Step 2: Pillar A (Speculative Draft Quality & Alpha)
 echo "==> [2/5] Running Pillar A: Reference-Continuation Draft Quality..."
@@ -85,9 +94,18 @@ echo "==> [5/5] Running Pillar E: Prefix-Cache KV-Block Table..."
 log_system_load
 python3 "${SCRIPT_DIR}/benches/bench_prefix_lru.py" ${QUICK_FLAG}
 
-# Step 6: Generate Dual-Theme SVGs
-echo "==> Generating Dual-Theme SVG Comparison Charts..."
-python3 "${SCRIPT_DIR}/scripts/generate_charts.py"
+# Step 6: Generate Dual-Theme SVGs — full runs only. A --quick run writes
+# reduced-sweep data into results/*.json, and regenerating the committed
+# charts from it would ship blank/mislabeled SVGs.
+if [[ -z "${QUICK_FLAG}" ]]; then
+    echo "==> Generating Dual-Theme SVG Comparison Charts..."
+    python3 "${SCRIPT_DIR}/scripts/generate_charts.py"
+else
+    echo "==> Skipping chart regeneration (--quick)."
+    echo "    WARNING: the quick run rewrote results/*.json with reduced-sweep"
+    echo "    smoke data. Restore before committing:"
+    echo "      git restore docs/benchmarks/llm_inference/results"
+fi
 
 log_system_load
 echo "========================================================================"

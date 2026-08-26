@@ -100,6 +100,10 @@ fn load_corpus_tokens(max_n: usize) -> Vec<u32> {
     }
 
     // Fallback: deterministic LCG tokens if corpus binary not found
+    eprintln!(
+        "  --> WARNING: datastore_corpus.bin missing; falling back to synthetic \
+         LCG tokens (run docs/benchmarks/llm_inference/run.sh to build the corpus)"
+    );
     let mut tokens = Vec::with_capacity(max_n);
     let mut lcg: u64 = 424242;
     for _ in 0..max_n {
@@ -122,7 +126,7 @@ fn main() {
     let mut results = serde_json::Map::new();
 
     for &n in &populations {
-        eprintln!("  --> Benchmarking population N = {n} tokens from authentic corpus...");
+        eprintln!("  --> Benchmarking population N = {n} tokens...");
         let tokens = load_corpus_tokens(n);
         let actual_n = tokens.len();
 
