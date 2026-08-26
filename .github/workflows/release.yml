@@ -402,11 +402,11 @@ jobs:
               fs.writeFileSync(`${process.env.PKGDIR}/package.json`, JSON.stringify(pkg, null, 2));
             ' "$plat" "$VERSION" "$(platform_os "$plat")" "$(platform_cpu "$plat")"
             echo "Publishing @orieg/expanse-${plat}..."
-            npm publish "${pkgdir}" --access public --provenance
+            npm publish "${pkgdir}" --access public --provenance || echo "::warning::Publishing @orieg/expanse-${plat} returned status $?; continuing."
           done
 
           echo "Publishing main package @orieg/expanse..."
-          npm publish "${CRATE}" --access public --provenance
+          npm publish "${CRATE}" --access public --provenance || echo "::warning::Publishing main package @orieg/expanse returned status $?; continuing."
 
   github-release:
     name: Create GitHub Release
