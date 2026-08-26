@@ -86,34 +86,34 @@
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="104" class="t-bar-label">ZRANGEBYSCORE small</text>
   <text x="30" y="118" class="t-sub">~64-member windows</text>
-  <rect x="300" y="92" width="181.9" height="13" rx="2" class="b-expanse"/>
-  <text x="489.9" y="102" class="t-val-accent">78.2</text>
-  <rect x="300" y="108" width="31.5" height="13" rx="2" class="b-skiplist"/>
-  <text x="339.5" y="118" class="t-val-blue">13.6</text>
+  <rect x="300" y="92" width="187.6" height="13" rx="2" class="b-expanse"/>
+  <text x="495.6" y="102" class="t-val-accent">80.5</text>
+  <rect x="300" y="108" width="31.7" height="13" rx="2" class="b-skiplist"/>
+  <text x="339.7" y="118" class="t-val-blue">13.6</text>
   <rect x="800" y="98" width="130" height="18" rx="3" class="badge-win"/>
-  <text x="865" y="111" class="badge-win-text">Expanse 5.77x</text>
+  <text x="865" y="111" class="badge-win-text">Expanse 5.92x</text>
   <text x="30" y="156" class="t-bar-label">ZRANGEBYSCORE large</text>
   <text x="30" y="170" class="t-sub">~8192-member windows</text>
   <rect x="300" y="144" width="234.4" height="13" rx="2" class="b-expanse"/>
-  <text x="542.4" y="154" class="t-val-accent">100.8</text>
-  <rect x="300" y="160" width="42.8" height="13" rx="2" class="b-skiplist"/>
-  <text x="350.8" y="170" class="t-val-blue">18.4</text>
+  <text x="542.4" y="154" class="t-val-accent">100.6</text>
+  <rect x="300" y="160" width="43.0" height="13" rx="2" class="b-skiplist"/>
+  <text x="351.0" y="170" class="t-val-blue">18.5</text>
   <rect x="800" y="150" width="130" height="18" rx="3" class="badge-win"/>
-  <text x="865" y="163" class="badge-win-text">Expanse 5.47x</text>
+  <text x="865" y="163" class="badge-win-text">Expanse 5.45x</text>
   <text x="30" y="208" class="t-bar-label">ZREVRANGEBYSCORE small</text>
   <text x="30" y="222" class="t-sub">~64 members, no reverse iterator</text>
-  <rect x="300" y="196" width="47.1" height="13" rx="2" class="b-expanse"/>
-  <text x="355.1" y="206" class="t-val-accent">20.3</text>
-  <rect x="300" y="212" width="68.4" height="13" rx="2" class="b-skiplist"/>
-  <text x="376.4" y="222" class="t-val-blue">29.4</text>
-  <rect x="800" y="202" width="130" height="18" rx="3" class="badge-loss"/>
-  <text x="865" y="215" class="badge-loss-text">SkipList 1.45x</text>
+  <rect x="300" y="196" width="181.3" height="13" rx="2" class="b-expanse"/>
+  <text x="489.3" y="206" class="t-val-accent">77.8</text>
+  <rect x="300" y="212" width="67.1" height="13" rx="2" class="b-skiplist"/>
+  <text x="375.1" y="222" class="t-val-blue">28.8</text>
+  <rect x="800" y="202" width="130" height="18" rx="3" class="badge-win"/>
+  <text x="865" y="215" class="badge-win-text">Expanse 2.70x</text>
   <text x="30" y="260" class="t-bar-label">ZREVRANGEBYSCORE large</text>
   <text x="30" y="274" class="t-sub">~8192 members, no reverse iterator</text>
-  <rect x="300" y="248" width="50.2" height="13" rx="2" class="b-expanse"/>
-  <text x="358.2" y="258" class="t-val-accent">21.6</text>
-  <rect x="300" y="264" width="134.3" height="13" rx="2" class="b-skiplist"/>
-  <text x="442.3" y="274" class="t-val-blue">57.8</text>
-  <rect x="800" y="254" width="130" height="18" rx="3" class="badge-loss"/>
-  <text x="865" y="267" class="badge-loss-text">SkipList 2.68x</text>
+  <rect x="300" y="248" width="210.2" height="13" rx="2" class="b-expanse"/>
+  <text x="518.2" y="258" class="t-val-accent">90.2</text>
+  <rect x="300" y="264" width="128.7" height="13" rx="2" class="b-skiplist"/>
+  <text x="436.7" y="274" class="t-val-blue">55.2</text>
+  <rect x="800" y="254" width="130" height="18" rx="3" class="badge-win"/>
+  <text x="865" y="267" class="badge-win-text">Expanse 1.63x</text>
 </svg>

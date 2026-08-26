@@ -89,7 +89,7 @@ published regardless of outcome.
 | Cell | Prior | Reason |
 |---|---|---|
 | `ZSCORE` random member | **Expected LOSS** | The dict is a flat hash probe (~12 ns at 1M, per the repo's stdlib table); the Expanse member map is a trie descent (~38 ns random at 1M). This is the hash table's home turf; the Expanse member half cannot match it on uniform-random members. |
-| `ZREVRANGEBYSCORE` | **Expected LOSS** | `ExpanseMap` has **no reverse iterator**. Descending iteration is repeated `prev_at_or_before`, `O(depth)` per element, versus the skip list's `O(1)` level-0 backward pointers. |
+| `ZREVRANGEBYSCORE` | **Expected LOSS** (prior); **resolved WIN** post-#341 | Prior (pre-#341): `ExpanseMap` had no reverse iterator, so descending iteration was repeated `prev_at_or_before`, `O(depth)` per element, versus the skip list's `O(1)` level-0 backward pointers. Resolution: the `range_rev` reverse ordered iterator (#341) amortizes descent to `O(1)` per member and flips both cells to wins (2.70× / 1.63× over the skip list). The emulated re-descent is retained as a suite arm for the emulated-vs-native comparison. |
 | `ZRANGE` by rank / select | **Toss-up, lean LOSS** | `by_count` re-descends summing populations; the skip list's span descent is a tight `O(log n)` pointer walk. |
 | `ZRANK` | **Toss-up** | `count_below` `O(depth)` vs span `O(log n)`. Both sublinear; decided by measurement, not structure. |
 | `ZCOUNT` | **Toss-up** | Two rank primitives on each side. |

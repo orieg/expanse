@@ -39,8 +39,9 @@ What that dual buys over Redis's dual is the real thesis, and it holds up:
 
 **Bottom line:** "single structure" is **refuted**; "a better-shaped dual, with
 native rank and a large memory win" is **supported** — with named, published
-losses on `ZSCORE` of random members, reverse range (no reverse iterator), and
-rank-select.
+losses on `ZSCORE` of random members and rank-select. (Reverse range was a
+pre-registered loss under the emulated `prev_at_or_before` re-descent; the
+`range_rev` reverse ordered iterator (#341) turns it into a win — see Pillar 2.)
 
 <!-- RESULTS_START -->
 ## Results
@@ -87,17 +88,27 @@ it; it would not close it (the trie still allocates far less per op).
 
 500,000 members, 5 rounds.
 
-| scenario | Expanse | SkipList + Dict | result |
-|---|--:|--:|---|
-| ZRANGEBYSCORE, ~64-member windows | **78.2** | 13.6 | **5.77× Expanse** |
-| ZRANGEBYSCORE, ~8192-member windows | **100.8** | 18.4 | **5.47× Expanse** |
-| ZREVRANGEBYSCORE, ~64-member windows | 20.3 | **29.4** | 1.45× SkipList |
-| ZREVRANGEBYSCORE, ~8192-member windows | 21.6 | **57.8** | 2.68× SkipList |
+*(Pillar 2 re-measured for the reverse ordered iterator (#341): reference host —
+Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit
+`ad540acc`; single-threaded, host idle — load 0.01–0.25 throughout, no other
+bench in-window; interleaved arms, median of 5 rounds. Pillars 1/3/4 remain at
+the commit in the Results note above.)*
 
-Forward iteration streams contiguous leaves and beats the skip list ~5.5×.
-**Reverse is a pre-registered loss:** `ExpanseMap` has no reverse iterator, so
-descending iteration is repeated `prev_at_or_before` (`O(depth)` per element)
-against the skip list's `O(1)` backward pointers.
+| scenario | Expanse (native) | Expanse (emulated) | SkipList + Dict | result |
+|---|--:|--:|--:|---|
+| ZRANGEBYSCORE, ~64-member windows | **80.5** | — | 13.6 | **5.92× Expanse** |
+| ZRANGEBYSCORE, ~8192-member windows | **100.6** | — | 18.5 | **5.45× Expanse** |
+| ZREVRANGEBYSCORE, ~64-member windows | **77.8** | 20.4 | 28.8 | **2.70× Expanse** (native 3.82× over emulated) |
+| ZREVRANGEBYSCORE, ~8192-member windows | **90.2** | 21.7 | 55.2 | **1.63× Expanse** (native 4.16× over emulated) |
+
+Forward iteration streams contiguous leaves and beats the skip list ~5.5×. The
+reverse cells report two Expanse arms: `native` is the reverse ordered iterator
+(`ExpanseMap::range_rev`, #341), an amortized descending leaf walk (`O(1)` per
+member); `emulated` is the pre-#341 repeated-`prev_at_or_before` re-descent
+(`O(depth)` per member). The native iterator turns both **pre-registered reverse
+losses into wins** (2.70× / 1.63× over the skip list, 3.82× / 4.16× over the
+emulated arm) and brings reverse throughput to within 1.2× of forward
+(77.8/80.5 = 1.03×, 90.2/100.6 = 1.11×).
 
 ### Pillar 3 — rank & count throughput (M queries/sec)
 
@@ -142,8 +153,10 @@ real Redis ZSET is materially larger than this baseline. At 1M random scores the
 
 * **Design claim:** "single structure" is **refuted** (§ Design verdict). Expanse
   is a dual-trie engine; the supported claim is a better-shaped dual.
-* **Losing cells are published:** reverse range (1.45–2.68× behind) and select
-  (a dead heat) — both pre-registered.
+* **Losing cells are published:** select (a dead heat) — pre-registered. Reverse
+  range was a pre-registered loss (1.45–2.68× behind under emulated
+  re-descent); the `range_rev` iterator (#341) now wins it (2.70× / 1.63×), and
+  the emulated arm is retained in the suite for the comparison.
 * **Churn magnitude is optimistic** for Expanse because the reference skip list
   double-allocates per node (disclosed above); the range/rank/count/memory wins
   do not depend on the allocation model (those paths allocate nothing, and the
@@ -163,7 +176,7 @@ real Redis ZSET is materially larger than this baseline. At 1M random scores the
 | `ZSCORE` | `O(1)` hash probe | `O(depth)` trie descent |
 | `ZRANK` | `O(log n)` span accumulation | `O(depth)` `count_below` over pop counters |
 | `ZRANGEBYSCORE` | `O(log n)` seek + `O(k)` forward links | `O(depth)` seek + `O(k)` leaf stream |
-| `ZREVRANGEBYSCORE` | `O(k)` level-0 backward pointers | `O(k · depth)` repeated `prev_at_or_before` |
+| `ZREVRANGEBYSCORE` | `O(k)` level-0 backward pointers | `O(depth)` seek + `O(k)` reverse leaf stream (`range_rev`, #341) |
 | Rank maintenance | Hand-maintained spans every insert/delete | None — property of the trie |
 | Score domain | IEEE double | `u32` (packed into the `u64` key here) |
 
