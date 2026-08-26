@@ -1040,7 +1040,7 @@ impl ExpanseSet {
             return out;
         }
         // SAFETY: `keys` is sorted/distinct; `out.alloc` owns the built trie.
-        let top = unsafe { crate::algebra::build_subtree(&out.alloc, &keys, 8) };
+        let top = unsafe { crate::algebra_build::build_subtree(&out.alloc, &keys, 8) };
         out.root = Root::Tree { top, pop: n as u64 };
         out
     }
@@ -1166,35 +1166,35 @@ impl ExpanseSet {
     /// The set of keys present in **both** sets (`A ∩ B`).
     #[must_use]
     pub fn intersection(&self, other: &ExpanseSet) -> ExpanseSet {
-        self.materialize_op(other, crate::algebra::Op::And)
+        self.materialize_op(other, crate::algebra_build::Op::And)
     }
 
     /// The set of keys present in **either** set (`A ∪ B`).
     #[must_use]
     pub fn union(&self, other: &ExpanseSet) -> ExpanseSet {
-        self.materialize_op(other, crate::algebra::Op::Or)
+        self.materialize_op(other, crate::algebra_build::Op::Or)
     }
 
     /// The set of keys in `self` but not `other` (`A \ B`).
     #[must_use]
     pub fn difference(&self, other: &ExpanseSet) -> ExpanseSet {
-        self.materialize_op(other, crate::algebra::Op::Diff)
+        self.materialize_op(other, crate::algebra_build::Op::Diff)
     }
 
     /// The set of keys in exactly one of the two sets (`A △ B`).
     #[must_use]
     pub fn symmetric_difference(&self, other: &ExpanseSet) -> ExpanseSet {
-        self.materialize_op(other, crate::algebra::Op::Xor)
+        self.materialize_op(other, crate::algebra_build::Op::Xor)
     }
 
     /// Direct-emission set algebra (issue #348): when both operands are level-8
     /// tries the result is emitted structurally by the lockstep walk
-    /// ([`crate::algebra::materialize`]) — bitmap leaves combined word-parallel,
+    /// ([`crate::algebra_build::materialize`]) — bitmap leaves combined word-parallel,
     /// full expanses resolved without enumeration, branches assembled
     /// bottom-up — instead of re-inserting each surviving key. Any other root
     /// combination (empty / small root leaf) merges the two ordered streams and
     /// bulk-builds the result, which is already cheap.
-    fn materialize_op(&self, other: &ExpanseSet, op: crate::algebra::Op) -> ExpanseSet {
+    fn materialize_op(&self, other: &ExpanseSet, op: crate::algebra_build::Op) -> ExpanseSet {
         if let (Root::Tree { top: ta, .. }, Root::Tree { top: tb, .. }) = (&self.root, &other.root)
         {
             // Deferred ancestor pops must be settled before the walk reads
@@ -1204,12 +1204,12 @@ impl ExpanseSet {
             let mut out = ExpanseSet::new();
             // SAFETY: both tries are live, engine-maintained, rooted at level 8;
             // the result is built in `out.alloc`.
-            let built = unsafe { crate::algebra::materialize(&out.alloc, ta, tb, 8, op) };
+            let built = unsafe { crate::algebra_build::materialize(&out.alloc, ta, tb, 8, op) };
             let Some(top) = built else {
                 return out;
             };
             // SAFETY: `top` is a live level-8 branch built just now.
-            let pop = unsafe { crate::algebra::tree_pop(&top) };
+            let pop = unsafe { crate::algebra_build::tree_pop(&top) };
             if pop as usize <= ROOT_LEAF_CAP {
                 // A tiny result belongs in a root leaf, not a trie: drain the
                 // built subtree in order, then free it.
@@ -1257,8 +1257,8 @@ impl ExpanseSet {
 
 /// Merges the two sets' ordered key streams under `op` into a sorted, distinct
 /// key vector (the root-leaf / empty-operand materialization path).
-fn merge_sorted(a: &ExpanseSet, b: &ExpanseSet, op: crate::algebra::Op) -> Vec<u64> {
-    use crate::algebra::Op;
+fn merge_sorted(a: &ExpanseSet, b: &ExpanseSet, op: crate::algebra_build::Op) -> Vec<u64> {
+    use crate::algebra_build::Op;
     let mut out = Vec::new();
     let (mut ia, mut ib) = (a.iter(), b.iter());
     let (mut x, mut y) = (ia.next(), ib.next());

@@ -36,6 +36,7 @@ compile_error!("expanse supports 64-bit and 32-bit targets");
 
 #[cfg(target_pointer_width = "64")]
 mod algebra;
+mod algebra_build;
 #[cfg(target_pointer_width = "64")]
 pub mod alloc;
 #[cfg(target_pointer_width = "64")]
