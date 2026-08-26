@@ -3,7 +3,7 @@
     "description": "Native PHP bindings for Expanse via PIE / C ABI / FFI",
     "type": "library",
     "license": "MIT OR Apache-2.0",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "require": {
         "php": "^8.1 || ^8.2 || ^8.3 || ^8.4 || ^8.5",
         "ext-ffi": "*"

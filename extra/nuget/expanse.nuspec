@@ -2,7 +2,7 @@
 <package >
   <metadata>
     <id>Expanse</id>
-    <version>0.4.0</version>
+    <version>0.4.1</version>
     <authors>Nicolas Brousse</authors>
     <owners>Nicolas Brousse</owners>
     <projectUrl>https://github.com/orieg/expanse</projectUrl>
