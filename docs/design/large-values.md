@@ -670,6 +670,17 @@ keeps the trie word narrowest.)
    it tests the mechanism at parity; the `>`LLC-sidecar regime is a separate,
    named limitation.
 
+   > **[Measurement correction, §5.6.4]** This pre-registered model is **wrong on
+   > two counts**, kept here frozen with the correction annotated. (i) The "262 k
+   > → warm parity" prediction is refuted: even at 262 k the sidecar is 1.37×
+   > slower at σ=0.001 — the extra permuted read is never free (H1). (ii) The
+   > boundary is **L2-residency, not LLC-residency.** The loss is already 2.70× at
+   > **1 M**, where `meta[]` (11.4 MiB measured, `K=3`) is *well inside* the 30 MiB
+   > L3 — because permuted access to any array larger than **L2 (1.25 MiB)** already
+   > costs L3/DRAM latency. So "warm while `meta[]` `<` LLC" should read "cheap only
+   > while `meta[]` `<` L2"; past L2 the sidecar pays a growing scan tax
+   > (1.37×→~3×). See §5.6.4/§5.6.5.
+
 3. **56-bit locator ceiling** (axis *c*): `2^56 × 16 B = 2^60 B = 1 EiB`
    (`WIDE_LOCATOR_CEILING`); the sidecar's `u64` `offsets` column already
    addresses the full `usize` arena, both far beyond the shipped 64 GiB
@@ -767,12 +778,17 @@ filter on the two boundary buckets. Representative
 
 ### 5.6.4 Measured — timing (dedicated host) *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit `25c6f128`; window 16:38:58–16:47:22Z, load before 0.00 / after 1.07, no concurrent bench; `poc_sidecar_295` bench, criterion medians, `sample_size = 10`)*
 
-> **Load-hygiene note.** The `run.sh` "before" snapshot read loadavg 3.92, but
-> that is the 1-min average decaying from the immediately-preceding release
-> *build* (5-min 1.32, 15-min 0.47 — a compile spike, not a concurrent
-> workload); the box ran only the single-threaded bench during measurement, and
-> the criterion median spreads are all `< 0.5 %` (e.g. 409.29 / 409.82 /
-> 410.66 µs), which contention would widen. The run is clean.
+> **Load-hygiene note.** The `run.sh` "before" snapshot read loadavg 3.92, taken
+> *immediately after* the release build; that is a 1-min average still decaying
+> from the compile (5-min 1.32, 15-min 0.47 — a build spike, not a concurrent
+> workload), so the **first cell** (`sidecar_cold_dram/phase1/σ=0.001`) was
+> measured during that decay. Three independent checks say the run is
+> nonetheless clean: (a) the box has 24 threads and the bench is single-threaded,
+> so even at loadavg ~4 it is not core-starved; (b) every criterion median spread
+> is `< 0.5 %` (e.g. 409.29 / 409.82 / 410.66 µs), which contention would widen
+> into outliers; (c) that first cell's 409.8 µs **matches the independent #287
+> §10.3 measurement (~404 µs)** of the same Phase-1 arm on the same harness —
+> a decisive cross-check that it was not inflated by the build decay.
 
 **Warm arm — `sidecar_cold_dram` (262 k, 1 KiB payloads, `K=1`; sidecar
 `meta[]` = 3.25 MiB).** "naive" = touch every payload (the payload-fetch
@@ -785,27 +801,55 @@ baseline), measured on the sidecar map.
 | 0.20 | 1.644 ms | 1.390 ms | 5.297 ms | 3.2× | 3.8× | **0.85× (faster)** |
 | 1.0 | 9.568 ms | 5.310 ms | 5.401 ms | 0.56× | 1.02× | **0.55× (faster)** |
 
-**H1 (warm parity) is REFUTED — replaced by a σ-dependent crossover.** At low σ
-(scan-bound) the sidecar is *slower* (1.37× at σ=0.001): its extra permuted
-`meta[]` + `offsets[]` reads cost more than Phase-1's metadata, which rides *free*
-in the trie leaf the walk already touches. At high σ (fetch-bound) the sidecar is
-*faster* (0.55× at σ=1.0) — because the shipped `ExpanseBlobMap::scan_filtered`
-re-descends the trie via `get(key)` on **every match** to fetch the payload (a
-redundant O(k) lookup — it already holds the slot from the range walk), whereas
-the sidecar resolves the payload directly from `offsets[rid]`. The crossover sits
-near σ ≈ 0.05–0.2. (At σ=1.0 Phase-1's redundant re-lookup makes it 9.57 ms —
-*slower than touching every payload naively*, 5.40 ms; see the bonus finding
-in §5.6.5.)
+**H1 (warm parity) is REFUTED — replaced by a σ-dependent crossover.** The
+pre-registered "sidecar ≈ Phase-1 in the warm regime" is wrong: the sidecar read
+is **never free**. Per scanned record it is **one extra dependent random access**
+— `meta[rid]` (and, on a match, `offsets[rid]`) — and because record handles are
+assigned in **insert** order, a key-ordered walk hits `meta[]` in *permuted*
+order, so that access is an L2 miss → ~40 ns L3 hit (or a DRAM fetch once
+`meta[]` is large). Phase-1's in-slot metadata, by contrast, rides in the value
+word the range walk **already loads**, so it is not a separate access at all.
 
-**H2 (≥10× vs payload-fetch at σ≤0.05):** the Phase-1 arm's *absolute* times
-reproduce §10.3 (~410 µs / ~872 µs), and it clears ≥10× at σ=0.001 (12.8×) but
-not at σ=0.05 (6.0×); the sidecar arm is 9.3× / 5.7×. The ratios are below
-§10.3's headline 22× / 10.3× **because the payload-fetch baseline here is faster
-/ tougher**: this bench's naive uses the sidecar's re-lookup-free full-deref
-(5.2 ms), whereas §10.3's naive used Phase-1's `get(key)`-per-entry full-deref
-(~8.9 ms, paying the redundant re-lookup on *all* entries). Against §10.3's
-baseline the Phase-1 arm still lands ~10×/~22×; the tougher baseline is the
-honest one, and it shows the "10×" is baseline-sensitive.
+At low σ (scan-bound) that extra access dominates and the sidecar is *slower*
+(1.37× at σ=0.001; 1.04× at σ=0.05). At high σ (fetch-bound) the sidecar is
+*faster* (0.85× at σ=0.20, 0.55× at σ=1.0) — for a *different* reason (the
+Phase-1 re-lookup inefficiency, next paragraph), not because its metadata read
+got cheaper. The crossover sits near σ ≈ 0.05–0.2.
+
+**Anomaly investigated — Phase-1 is 1.8× slower than the naive payload-fetch arm
+at σ=1.0 (9.57 ms vs 5.40 ms), and slower than the sidecar at σ≥0.20. Root cause:
+a redundant trie re-descent in the shipped `scan_filtered`, NOT a harness
+artifact.** The loop `for (key, raw_slot) in self.index.range(range)` already
+holds `raw_slot` (the locator), but on **every match** it calls `self.get(key)`,
+which calls `self.index.get_slot_ptr(key)` — a *fresh* `O(k)` trie descent to
+re-find the slot it already has — before `resolve_meta`. So at σ=1.0 Phase-1 pays
+`N` redundant descents on top of the `N` payload fetches, while the sidecar-based
+naive resolves payloads directly via `offsets[rid]` (no descent). Two facts
+confirm this is real Phase-1 behaviour, not a measurement artifact: (a) the code
+path above is the shipped `ExpanseBlobMap::scan_filtered` (`blobmap.rs`), which
+the harness calls unmodified; (b) **#287 §10.3's own naive arm — which *is*
+Phase-1's `get()`-per-entry full-deref — measured ~8.9 ms, ≈ this run's Phase-1
+`scan_filtered` at σ=1.0 (9.57 ms)**; both pay the same redundant descent. The
+fix is one line (resolve the payload from the `raw_slot` already in hand instead
+of calling `get(key)`), and it would speed the shipped engine at high match rates
+independently of the sidecar — filed as its own Phase-1 optimization (see §5.6.5).
+
+**H2 (≥10× vs payload-fetch at σ≤0.05) — and why this arm reads 12.8× / 6.0×
+where #287 published ~22× / ~10.3×.** This is **not** a lower re-measurement of
+#287. The harness is **identical** to #287 §10.3's `bench_predicate_scan_cold_dram_large`
+— same `N = 262 144`, same 1 KiB payloads, same ~260 MiB arena (64 MiB chunks,
+≈ 8.7× the 30 MiB LLC), same shuffled insert order — and this run's **Phase-1 arm
+reproduces #287's columnar arm exactly** (409.8 µs / 871.7 µs here vs ~404 µs /
+~872 µs there). The *only* thing that differs is the **payload-fetch baseline**:
+this bench's naive resolves payloads through the sidecar's handle (`offsets[rid]`,
+re-lookup-free) and measures **5.2 ms**, whereas #287's naive used Phase-1's
+`get()`-per-entry full-deref and measured **~8.9 ms** — the ~3.7 ms gap is exactly
+the redundant-re-descent overhead (the anomaly above) applied to all 262 k
+entries. So the speedup ratio is baseline-sensitive: against #287's Phase-1-based
+baseline the Phase-1 arm still lands ~10× / ~22×; against this run's tougher
+(re-lookup-free) baseline it is 12.8× / 6.0× (sidecar 9.3× / 5.7×). #287's
+numbers stand unchanged; the smaller ratios here reflect a *harder* denominator,
+not a slower Phase-1.
 
 **`>`LLC arm — `sidecar_cold_dram_xllc` (H3 residency cliff; declared scaled
 proxy).** The cliff is driven by the per-entry `meta[]` array (`4·K·N` bytes),
