@@ -32,7 +32,7 @@ dotnet add package Orieg.Expanse
 Or via Package Manager Console in Visual Studio:
 
 ```powershell
-Install-Package Expanse.NET
+Install-Package Orieg.Expanse
 ```
 
 ---
@@ -177,4 +177,4 @@ Custom library locations can be provided via environment variables:
 
 ## License
 
-Licensed under either of [MIT License](../../LICENSE-MIT) or [Apache License, Version 2.0](../../LICENSE-APACHE) at your option.
+Licensed under either of [MIT License](https://github.com/orieg/expanse/blob/main/LICENSE-MIT) or [Apache License, Version 2.0](https://github.com/orieg/expanse/blob/main/LICENSE-APACHE) at your option.

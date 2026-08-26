@@ -56,4 +56,4 @@ puts "#{val} (meta: #{meta})"
 
 ## Documentation
 
-For complete API specifications and benchmarks, see [docs/bindings/ruby.md](../../docs/bindings/ruby.md).
+For complete API specifications and benchmarks, see [docs/bindings/ruby.md](https://github.com/orieg/expanse/blob/main/docs/bindings/ruby.md).
