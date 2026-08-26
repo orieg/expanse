@@ -189,19 +189,19 @@ Expanse is an empirical performance project. Autonomous agents interacting with 
 ### 8.1 Zero Silent Fallbacks & Fail-Loud Error Visibility
 - **Never swallow errors with fake outputs**: If a benchmark dependency, language runtime, or native extension (`libexpanse.so`, Node addon, Python wheel) is missing or fails to compile, the harness MUST fail immediately and loudly with a non-zero exit code (`panic!`, `sys.exit(1)`, `b.Fatalf`).
 - **Never substitute placeholder estimates or mocked loops**: Returning hardcoded strings, estimated numbers, or fake loops in place of an unrun benchmark is a critical methodology violation.
-- **Explicit Non-Fatal Degradations**: In CI workflows where a failure is intentionally non-fatal (e.g. checking out an unbuildable historical base commit), the degradation must surface prominently (`⚠️ NO BASELINE — gate did not run`) and must **never** render as success or "0 Regressions".
+- **Explicit Non-Fatal Degradations**: In CI workflows where a failure is intentionally non-fatal (e.g. checking out an unbuildable historical base commit), the degradation must surface prominently (`⚠️ NO BASELINE — regression gate did not run`, matching `perf_report.py`) and must **never** render as success or "0 Regressions".
 
 ### 8.2 Dynamic Data Derivation (Zero Hardcoded Report Prose)
 - **No Stamped Narrative Constants**: Benchmark reporting scripts (`bench_report.py`, `perf_report.py`, `generate_charts.py`) must never stamp hardcoded summary constants (e.g. `"4× to 10× faster point lookups"`, `"outperforms stock across all distributions"`).
 - **100% Derived Outputs**: Every table cell, speedup ratio, status badge, and finding statement in generated markdown reports must be computed dynamically from the parsed JSON/Criterion artifacts of that specific run.
 
-### 8.3 Symmetrical & Competitive Substitution-Twins (Rule 1.2 / B-11)
-- **Production-Grade Baselines**: Competitor baselines must represent realistic production configurations (e.g. variable-height skiplist towers with 20–25 B/entry overhead, NOT static 16-pointer strawmen with 146.7 B/entry).
+### 8.3 Symmetrical & Competitive Substitution-Twins
+- **Production-Grade Baselines**: Competitor baselines must represent realistic production configurations (e.g. InlineSkipList-equivalent variable-height tower allocation — NOT a strawman embedding all 16 tower pointers statically at 146.7 B/entry, the audited anti-example; the fair baseline's actual footprint is established by measurement, #372).
 - **Symmetric Selectivity & Workload Predicates**: Multi-structure comparisons must evaluate identical filter selectivity across all arms (e.g. matching 50% predicate pass rates across Expanse and competitors in YCSB Workload E).
 - **Symmetric PRNGs**: Cross-language comparisons must use identical PRNG algorithms and seeds (e.g. matching XorShift64 algorithms and seeds across Rust, Python, Go, Node, PHP, Java, and .NET).
 - **Symmetric Memory Accounting**: When measuring memory, report live resident heap via allocator instrumentation (`TrackingAlloc`/`GlobalAlloc`) across all arms, or explicitly disclose any platform-level asymmetry.
 
-### 8.4 Metric-Scoped Statistical Gating (Rule 1.1 / B-9)
+### 8.4 Metric-Scoped Statistical Gating
 - **Continuous / Sampling Metrics**: Claims over wall-clock execution or continuous sampling distributions pass iff the **BCa 95% bootstrap CI lower bound $\ge$ floor** (≥1,000 resamples), NOT iff point estimate $\ge$ floor. Point estimates and CIs must use identical definitions (e.g. macro-mean with macro-CI) so the point estimate is always enclosed within the interval. Overlapping intervals must be labeled `BOUNDARY_RESULT` or `INTERMEDIATE_floor_within_ci`.
 - **Deterministic Instruction Counters**: Exact Callgrind instruction counts (the primary regression instrument) are exact integers with zero variance, evaluated strictly against the deterministic threshold contract.
 
@@ -212,7 +212,7 @@ Expanse is an empirical performance project. Autonomous agents interacting with 
 - **Consume Every Output**: Every timed inner loop must consume its output via `std::hint::black_box`, `b.Fatalf`, or an accumulator sink to prevent compiler Dead-Code Elimination.
 - **Realistic Keyspaces & Hit Rates**: Read benchmarks must specify and test realistic hit rates (e.g. 50% hit / 50% miss), never probing unbounded 64-bit random keys against sparse sets where hit rate is ~0% unless explicitly benchmarking the miss path.
 
-### 8.7 Provenance & Pre-Registration Integrity (Rule 18)
+### 8.7 Provenance & Pre-Registration Integrity
 - **Provenance Tags Required**: Every published number in documentation must carry a provenance tag: `(measured: host, commit)` resolving to a committed JSON artifact or cited CI run.
 - **No In-Place Backfilling**: Pre-registration sections, hypotheses, claims ceilings, and expected loss matrices must **never be reconciled in place** with observed outcomes. When an empirical result refutes a pre-registered hypothesis or reveals an unexpected loss, report the outcome honestly with its strict verdict label.
 
