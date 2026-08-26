@@ -25,6 +25,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "set_algebra"
+path = "fuzz_targets/set_algebra.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "map_ops"
 path = "fuzz_targets/map_ops.rs"
 test = false

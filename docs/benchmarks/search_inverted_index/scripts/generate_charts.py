@@ -136,7 +136,9 @@ def generate_boolean_chart():
                 (
                     dist.capitalize(),
                     f"symmetric |A|=|B|={rec['na']:,}",
-                    rec["expanse_ns"],
+                    # Native structural kernel (#339) is now the Expanse arm;
+                    # the composed path is in the README table's second column.
+                    rec.get("expanse_native_ns", rec["expanse_ns"]),
                     rec["roaring_ns"],
                 )
             )
@@ -146,14 +148,14 @@ def generate_boolean_chart():
             (
                 f"Skewed {rec['distribution']}",
                 f"|A|={rec['na']:,}  |B|={rec['nb']:,}",
-                rec["expanse_ns"],
+                rec.get("expanse_native_ns", rec["expanse_ns"]),
                 rec["roaring_ns"],
             )
         )
     log_bars_chart(
         RESULTS_DIR / "bench_boolean_and.svg",
         "BOOLEAN AND: INTERSECTION LATENCY (LOG SCALE, LOWER IS BETTER)",
-        f"Cardinality of A ∩ B • top size N={top:,} per list • ExpanseSet (merge/leapfrog) vs Roaring (native intersection_len)",
+        f"Cardinality of A ∩ B • top size N={top:,} per list • ExpanseSet native kernel #339 (intersection_len) vs Roaring (intersection_len)",
         rows,
         fmt_ns,
     )

@@ -616,6 +616,78 @@ impl Bitmap256 {
         (self.words[0] | self.words[1] | self.words[2] | self.words[3]) == 0
     }
 
+    /// Word-parallel intersection (`self & other`) — the bitmap-leaf kernel
+    /// of native set-algebra `AND` (`docs/ALGORITHMS.md`, "Set-algebra
+    /// kernels"). Four 64-bit `AND`s over the packed membership words.
+    #[inline]
+    #[must_use]
+    pub const fn and(&self, o: &Self) -> Self {
+        Self {
+            words: [
+                self.words[0] & o.words[0],
+                self.words[1] & o.words[1],
+                self.words[2] & o.words[2],
+                self.words[3] & o.words[3],
+            ],
+        }
+    }
+
+    /// Word-parallel union (`self | other`) — the bitmap-leaf kernel of `OR`.
+    #[inline]
+    #[must_use]
+    pub const fn or(&self, o: &Self) -> Self {
+        Self {
+            words: [
+                self.words[0] | o.words[0],
+                self.words[1] | o.words[1],
+                self.words[2] | o.words[2],
+                self.words[3] | o.words[3],
+            ],
+        }
+    }
+
+    /// Word-parallel difference (`self & !other`) — the bitmap-leaf kernel of
+    /// `AND-NOT`.
+    #[inline]
+    #[must_use]
+    pub const fn andnot(&self, o: &Self) -> Self {
+        Self {
+            words: [
+                self.words[0] & !o.words[0],
+                self.words[1] & !o.words[1],
+                self.words[2] & !o.words[2],
+                self.words[3] & !o.words[3],
+            ],
+        }
+    }
+
+    /// Word-parallel symmetric difference (`self ^ other`) — the bitmap-leaf
+    /// kernel of `XOR`.
+    #[inline]
+    #[must_use]
+    pub const fn xor(&self, o: &Self) -> Self {
+        Self {
+            words: [
+                self.words[0] ^ o.words[0],
+                self.words[1] ^ o.words[1],
+                self.words[2] ^ o.words[2],
+                self.words[3] ^ o.words[3],
+            ],
+        }
+    }
+
+    /// Population of `self & other` without materializing the result — four
+    /// `AND`s and a `popcnt` per word. The cardinality kernel behind
+    /// `ExpanseSet::intersection_len` at aligned bitmap leaves.
+    #[inline(always)]
+    #[must_use]
+    pub const fn count_and(&self, o: &Self) -> u32 {
+        (self.words[0] & o.words[0]).count_ones()
+            + (self.words[1] & o.words[1]).count_ones()
+            + (self.words[2] & o.words[2]).count_ones()
+            + (self.words[3] & o.words[3]).count_ones()
+    }
+
     /// Number of members strictly below `idx` — the packed-array slot of
     /// `idx` in a bitmap branch/leaf.
     #[inline(always)]
@@ -1007,6 +1079,54 @@ mod tests {
                 full.test_and_subexpanse_rank(idx),
                 Some((u32::from(idx) % 32) as usize)
             );
+        }
+    }
+
+    #[test]
+    fn bitmap_word_parallel_ops_parity() {
+        // The set-algebra bitmap-leaf kernels (`and`/`or`/`andnot`/`xor` +
+        // `count_and`) must agree bit-for-bit with a per-bit reference across
+        // a spread of densities (docs/TESTING.md SIMD/kernel parity rule).
+        fn mk(rng: &mut XorShift, density: u32) -> Bitmap256 {
+            let mut b = Bitmap256::new();
+            for _ in 0..density {
+                b.set(rng.next() as u8);
+            }
+            b
+        }
+        let mut rng = XorShift(0xA136_5A00_1234_5678);
+        for _ in 0..if cfg!(miri) { 20 } else { 2000 } {
+            let da = (rng.next() % 257) as u32;
+            let a = mk(&mut rng, da);
+            let db = (rng.next() % 257) as u32;
+            let b = mk(&mut rng, db);
+            let mut ex_and = Bitmap256::new();
+            let mut ex_or = Bitmap256::new();
+            let mut ex_andnot = Bitmap256::new();
+            let mut ex_xor = Bitmap256::new();
+            let mut n_and = 0u32;
+            for i in 0..=255u8 {
+                let (ta, tb) = (a.test(i), b.test(i));
+                if ta && tb {
+                    ex_and.set(i);
+                    n_and += 1;
+                }
+                if ta || tb {
+                    ex_or.set(i);
+                }
+                if ta && !tb {
+                    ex_andnot.set(i);
+                }
+                if ta ^ tb {
+                    ex_xor.set(i);
+                }
+            }
+            assert_eq!(a.and(&b), ex_and, "and");
+            assert_eq!(a.or(&b), ex_or, "or");
+            assert_eq!(a.andnot(&b), ex_andnot, "andnot");
+            assert_eq!(a.xor(&b), ex_xor, "xor");
+            assert_eq!(a.count_and(&b), n_and, "count_and");
+            assert_eq!(a.and(&b).count(), n_and, "count_and vs and.count");
         }
     }
 

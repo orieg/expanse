@@ -30,7 +30,8 @@ use std::time::Duration;
 #[path = "search_common/mod.rs"]
 mod common;
 use common::{
-    build_list, expanse_and_count, expanse_andnot_count, expanse_or_count, median_ns_per_op,
+    build_list, expanse_and_count, expanse_andnot_count, expanse_native_and_count,
+    expanse_native_andnot_count, expanse_native_or_count, expanse_or_count, median_ns_per_op,
     to_expanse, to_roaring,
 };
 
@@ -77,18 +78,35 @@ fn main() {
 
             let and_card = expanse_and_count(&ea, &eb);
             debug_assert_eq!(and_card, ra.intersection_len(&rb));
+            // Native kernels must agree with the composed path and Roaring.
+            debug_assert_eq!(expanse_native_and_count(&ea, &eb), and_card);
+            debug_assert_eq!(expanse_native_or_count(&ea, &eb), ra.union_len(&rb));
+            debug_assert_eq!(
+                expanse_native_andnot_count(&ea, &eb),
+                ra.difference_len(&rb)
+            );
 
             let e_and = median_ns_per_op(|| expanse_and_count(&ea, &eb), batches, min_batch);
+            let n_and = median_ns_per_op(|| expanse_native_and_count(&ea, &eb), batches, min_batch);
             let r_and = median_ns_per_op(|| ra.intersection_len(&rb), batches, min_batch);
             let e_or = median_ns_per_op(|| expanse_or_count(&ea, &eb), batches, min_batch);
+            let n_or = median_ns_per_op(|| expanse_native_or_count(&ea, &eb), batches, min_batch);
             let r_or = median_ns_per_op(|| ra.union_len(&rb), batches, min_batch);
             let e_andnot = median_ns_per_op(|| expanse_andnot_count(&ea, &eb), batches, min_batch);
+            let n_andnot =
+                median_ns_per_op(|| expanse_native_andnot_count(&ea, &eb), batches, min_batch);
             let r_andnot = median_ns_per_op(|| ra.difference_len(&rb), batches, min_batch);
 
-            for (op, e_ns, r_ns, card) in [
-                ("and", e_and, r_and, and_card),
-                ("or", e_or, r_or, expanse_or_count(&ea, &eb)),
-                ("andnot", e_andnot, r_andnot, expanse_andnot_count(&ea, &eb)),
+            for (op, e_ns, n_ns, r_ns, card) in [
+                ("and", e_and, n_and, r_and, and_card),
+                ("or", e_or, n_or, r_or, expanse_or_count(&ea, &eb)),
+                (
+                    "andnot",
+                    e_andnot,
+                    n_andnot,
+                    r_andnot,
+                    expanse_andnot_count(&ea, &eb),
+                ),
             ] {
                 results.push(json!({
                     "cell": "symmetric",
@@ -99,11 +117,14 @@ fn main() {
                     "op": op,
                     "card": card,
                     "expanse_ns": e_ns,
+                    "expanse_native_ns": n_ns,
                     "roaring_ns": r_ns,
                 }));
             }
             if !json_mode {
-                eprintln!("  {dist:<10} n={n:>9}  AND exp={e_and:>12.0}ns roar={r_and:>12.0}ns");
+                eprintln!(
+                    "  {dist:<10} n={n:>9}  AND composed={e_and:>12.0}ns native={n_and:>12.0}ns roar={r_and:>12.0}ns"
+                );
             }
         }
     }
@@ -129,7 +150,9 @@ fn main() {
 
             let card = expanse_and_count(&ea, &eb);
             debug_assert_eq!(card, ra.intersection_len(&rb));
+            debug_assert_eq!(expanse_native_and_count(&ea, &eb), card);
             let e_and = median_ns_per_op(|| expanse_and_count(&ea, &eb), batches, min_batch);
+            let n_and = median_ns_per_op(|| expanse_native_and_count(&ea, &eb), batches, min_batch);
             let r_and = median_ns_per_op(|| ra.intersection_len(&rb), batches, min_batch);
 
             results.push(json!({
@@ -141,11 +164,12 @@ fn main() {
                 "op": "and",
                 "card": card,
                 "expanse_ns": e_and,
+                "expanse_native_ns": n_and,
                 "roaring_ns": r_and,
             }));
             if !json_mode {
                 eprintln!(
-                    "  skewed {dist:<8} |A|={n_a:>9} |B|={n_b:>7}  AND exp={e_and:>12.0}ns roar={r_and:>12.0}ns"
+                    "  skewed {dist:<8} |A|={n_a:>9} |B|={n_b:>7}  AND composed={e_and:>12.0}ns native={n_and:>12.0}ns roar={r_and:>12.0}ns"
                 );
             }
         }
