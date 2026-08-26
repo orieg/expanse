@@ -19,12 +19,28 @@ skip-scan, and memory footprint.
 >   both tries in lockstep, skip whole absent subtrees, count full expanses from
 >   `pop0` in O(1), and `AND` bitmap leaves word-parallel with `popcnt`.
 >
-> The native kernel closes the composed gap from up to **1406×** to **≤ 3.70×**
+> The native kernel closes the composed gap from up to **1406×** to **≤ 3.84×**
 > on every symmetric cell, **beats** Roaring on the small-N and all zipfian
 > large-N symmetric cells and on the dense/zipfian skewed-size AND, and still
-> loses the **sparse skewed** cells (17×–23×), where Roaring's flat tiny-array
+> loses the **sparse skewed** cells (17×–24×), where Roaring's flat tiny-array
 > container beats pointer-chasing a sparse trie. Every cell — wins and losses —
 > is published below.
+>
+> **#348 adds a third, materializing arm.** The cardinality cells above build
+> no result set. #348 adds direct-emission materialization: `ExpanseSet::intersection`
+> etc. emit the result tree from the lockstep walk — bitmap leaves combined
+> word-parallel, full expanses resolved structurally, branches assembled
+> bottom-up — instead of re-inserting each key. The Boolean harness now measures
+> materialization in three arms — **v2** (direct emission), **v1** (the pre-#348
+> ordered-merge + per-key `insert`), and **roaring** (`&`/`|`/`-` returning a
+> bitmap) — alongside the unchanged cardinality cells. **v2 is 7×–215× faster
+> than v1**; it loses to roaring on the dense/clustered/sparse symmetric cells
+> (1.4×–11.7×) for the same reason the cardinality pillar does — a 256-key bitmap
+> leaf vs roaring's 65,536-key container — and the pre-registered targets (§2)
+> are **not** met; every cell is published in §Pillar 1. The cardinality cells
+> are unchanged from #339 (this pillar's kernel did not change). A prefetch +
+> SIMD `BranchU` step was tried and **dropped** — a controlled +61 % dense
+> regression; see §2 and `ALGORITHMS.md` §3.4.
 
 ---
 
@@ -45,7 +61,7 @@ skip-scan, and memory footprint.
 
 ## 2. Key findings
 
-*(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8. **Pillar 1 (Boolean)** re-measured at commit `c129836d` with the native set-algebra kernel arm (#339) in the window 2026-08-26T08:13:34Z → 08:15:28Z, host idle (load 0.00 before → 0.90 after — a single thread; no concurrent bench process during the window). **Pillar 2 (WAND)** was re-measured at commit `5bd7bdda` with the stateful `advance_to` cursor arm (#340) in the window 2026-08-26T09:28:47Z → 09:31:30Z, host idle (load 0.01 before → 1.01 after — a single thread; max load 1.03 across the run, no concurrent bench process; host-wide lock held). **Pillar 3 (memory)** is unchanged from the #337 baseline (commit `29f86ddc`, measured on the same host in the 08:05Z–08:07Z window, also idle) — the cursor does not touch footprint. Full non-quick suite via `run.sh`. The Boolean harness is `median_ns_per_op` (custom: 5 batches each grown to ≥ 60 ms), not criterion, identical to #337's config — the composed / native / roaring cells are same-methodology comparable. Deterministic instruction counts (`search_instructions`, iai-callgrind) require valgrind and run in the `instruction-counts` CI job, not on this host.)*
+*(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8. **Pillar 1 (Boolean)** re-measured at commit `9c0026c8` (#348) with the materialization arm, window 2026-08-26T14:03:19Z → 14:07:21Z, host idle (load 0.04 before → 0.98 after — a single thread; no concurrent bench process; host-wide lock held via `run.sh`). Sanity gate: native cardinality at this commit reproduces #347 (`c129836d`) within the run-to-run band — dense 10⁷ AND 59.9 µs vs 56.5 µs (+6%), clustered 577 µs vs 572 µs (+1%), sparse 590 µs vs 502 µs (+17%), zipfian 2.23 ms (+0%) — #348 did not change this pillar's kernel. A prefetch + SIMD `BranchU` step measured at an earlier commit (`4d720b0c`) was a controlled +61% dense-cardinality regression and was dropped (§2.1, `ALGORITHMS.md` §3.4). **Pillar 2 (WAND)** was re-measured at commit `5bd7bdda` with the stateful `advance_to` cursor arm (#340) in the window 2026-08-26T09:28:47Z → 09:31:30Z, host idle (load 0.01 before → 1.01 after — a single thread; max load 1.03 across the run, no concurrent bench process; host-wide lock held). **Pillar 3 (memory)** is unchanged from the #337 baseline (commit `29f86ddc`, measured on the same host in the 08:05Z–08:07Z window, also idle) — the cursor does not touch footprint. Full non-quick suite via `run.sh`. The Boolean harness is `median_ns_per_op` (custom: 5 batches each grown to ≥ 60 ms), not criterion, identical to #337's config — the composed / native / roaring cells are same-methodology comparable. Deterministic instruction counts (`search_instructions`, iai-callgrind) require valgrind and run in the `instruction-counts` CI job, not on this host.)*
 
 <!-- RESULTS:START -->
 
@@ -53,7 +69,7 @@ skip-scan, and memory footprint.
 
 | Pillar | Winner | Margin | Notes |
 |---|---|---|---|
-| **1. Boolean AND / OR / AND-NOT** | **Mixed** (native kernel, #339) | composed 4×–1406× slower; **native ≤ 3.70× slower, wins 7/16 symmetric cells** | The native structural kernel replaces per-element composition. Symmetric: within 3.70× everywhere, faster than Roaring at small N and on all zipfian large-N. Skewed AND: **faster** on dense/zipfian, loses only sparse (17×–23×). |
+| **1. Boolean AND / OR / AND-NOT** | **Mixed** (native kernel #339, materialization #348) | cardinality: **native ≤ 3.84× slower, wins 15/48**; materialization: **v2 7×–225× faster than v1 insert; 1.4×–11.7× vs roaring** | #348 makes materialization structural — direct emission is **7×–225× faster than the pre-#348 per-key insert path**. Cardinality is unchanged from #339 (native within 3.84× of roaring, faster at small N and all zipfian large-N; skewed AND faster on dense/zipfian, loses sparse). Neither cardinality nor materialization reaches roaring on dense/clustered/sparse symmetric cells, and the **#348 vs-roaring targets are not met** — gap = the deferred L2 65,536-key bitmap leaf. A prefetch + SIMD `BranchU` step was **dropped** (+61% dense regression). |
 | **2. WAND skip-scan** | **Mixed** (stateful cursor, #340) | stateless 2×–4× slower; **cursor 0.53×–1.64× vs Roaring** | The stateless `next_at_or_after` re-descends per call and loses every cell (the refuted Step-0 hypothesis). The #340 cursor reuses its descent path: it **beats or ties Roaring on all 6 dense cells and on clustered shallow/medium (down to 0.53× — 1.9× faster)**, is within 1.2× in 14/18 cells, and meets the near-skip target (dense 10^6 shallow **6.60 ns ≤ 8 ns**, faster than Roaring). Only the sparse deep-skip cells trail (1.40×–1.64×); sparse/10^6/deep at 1.64× is the sole cell past the 1.5× goal. |
 | **3. Memory (bits/docID)** | **Mixed** | see below | Roaring wins most cells; **Expanse wins `shard` @ 10^5 (1.4× more compact)** and **ties dense/shard @ 10^6** (within ~4%). Small-N and sparse are Expanse losses. |
 
@@ -61,71 +77,106 @@ skip-scan, and memory footprint.
 
 ![Boolean AND latency](results/bench_boolean_and.svg)
 
-Two Expanse arms are reported per cell: **composed** (the pre-#339 path — AND as
-adaptive iterator-merge/leapfrog, OR as iterator merge, AND-NOT as a `contains`
-probe, all per-element) and **native** (the #339 structural kernel —
+Cardinality is reported in two Expanse arms per cell: **composed** (the pre-#339
+path — AND as adaptive iterator-merge/leapfrog, OR as iterator merge, AND-NOT as
+a `contains` probe, all per-element) and **native** (the #339 structural kernel —
 `intersection_len` and its `union_len`/`difference_len` derivations, descending
 both tries in lockstep, skipping absent subtrees, counting full expanses from
 `pop0` in O(1), and `AND`-ing bitmap leaves word-parallel with `popcnt`). The
-native kernel turns a uniform 4×–1406× loss into a contest: **≤ 3.70× slower on
-every symmetric cell, faster than Roaring on 7 of 16**, and faster on the
+native kernel turns a uniform 4×–1406× loss into a contest: **≤ 3.84× slower on
+every symmetric cell, faster than Roaring on 15 of 48**, and faster on the
 dense/zipfian skewed-size AND. It still loses the sparse cells, where Roaring's
-flat containers beat a sparse trie's pointer-chasing.
+flat containers beat a sparse trie's pointer-chasing. #348 adds a **materialization**
+arm — the result *set* built, not just counted — measured in three ways (v2
+direct emission, v1 insert, roaring bitmap) below.
 
-**AND (symmetric, |A| = |B|)** — `composed` / `native` / `roaring`, and the
-native-vs-Roaring ratio (the composed-vs-Roaring ratio is the last column):
+**AND cardinality (symmetric, |A| = |B|)** — `composed` / `native` / `roaring`,
+native-vs-Roaring ratio, and composed-vs-Roaring in the last column
+*(measured: #348 run, commit `9c0026c8`; native cardinality reproduces #339
+within the run-to-run band — see §2 sanity gate)*:
 
 | Distribution | Size | Composed | Native | Roaring | Native vs Roaring | Composed vs Roaring |
 |---|--:|--:|--:|--:|---|--:|
-| dense | 10,000 | 9.45 µs | 0.25 µs | 0.52 µs | **2.08× faster** | 18× |
-| dense | 100,000 | 91.43 µs | 1.09 µs | 1.02 µs | 1.07× slower | 90× |
-| dense | 1,000,000 | 909.85 µs | 6.21 µs | 4.57 µs | 1.36× slower | 199× |
-| dense | 10,000,000 | 9.13 ms | 56.49 µs | 38.93 µs | 1.45× slower | 235× |
-| clustered | 10,000 | 17.59 µs | 0.38 µs | 0.51 µs | **1.37× faster** | 34× |
-| clustered | 100,000 | 175.93 µs | 2.99 µs | 2.77 µs | 1.08× slower | 63× |
-| clustered | 1,000,000 | 1.79 ms | 47.63 µs | 15.62 µs | 3.05× slower | 115× |
-| clustered | 10,000,000 | 18.12 ms | 572.17 µs | 154.51 µs | 3.70× slower | 117× |
-| sparse | 10,000 | 63.57 µs | 0.75 µs | 0.51 µs | 1.46× slower | 123× |
-| sparse | 100,000 | 802.22 µs | 5.33 µs | 3.03 µs | 1.76× slower | 264× |
-| sparse | 1,000,000 | 8.20 ms | 50.17 µs | 15.58 µs | 3.22× slower | 526× |
-| sparse | 10,000,000 | 82.04 ms | 502.34 µs | 153.64 µs | 3.27× slower | 534× |
-| zipfian | 10,000 | 13.64 µs | 1.73 µs | 3.86 µs | **2.23× faster** | 4× |
-| zipfian | 100,000 | 294.04 µs | 15.65 µs | 5.62 µs | 2.78× slower | 52× |
-| zipfian | 1,000,000 | 2.80 ms | 212.37 µs | 265.87 µs | **1.25× faster** | 11× |
-| zipfian | 10,000,000 | 25.71 ms | 2.23 ms | 3.08 ms | **1.38× faster** | 8× |
+| dense | 10,000 | 9.39 µs | 0.25 µs | 0.52 µs | **2.07× faster** | 18× |
+| dense | 100,000 | 90.40 µs | 1.09 µs | 1.02 µs | 1.07× slower | 89× |
+| dense | 1,000,000 | 905.69 µs | 6.45 µs | 4.58 µs | 1.41× slower | 198× |
+| dense | 10,000,000 | 9.07 ms | 59.94 µs | 38.82 µs | 1.54× slower | 234× |
+| clustered | 10,000 | 17.57 µs | 0.39 µs | 0.52 µs | **1.32× faster** | 34× |
+| clustered | 100,000 | 175.93 µs | 3.00 µs | 2.76 µs | 1.09× slower | 64× |
+| clustered | 1,000,000 | 1.80 ms | 44.66 µs | 15.59 µs | 2.86× slower | 115× |
+| clustered | 10,000,000 | 18.07 ms | 577.10 µs | 154.41 µs | 3.74× slower | 117× |
+| sparse | 10,000 | 65.60 µs | 0.75 µs | 0.52 µs | 1.46× slower | 127× |
+| sparse | 100,000 | 791.36 µs | 6.02 µs | 3.03 µs | 1.99× slower | 261× |
+| sparse | 1,000,000 | 8.06 ms | 59.29 µs | 15.59 µs | 3.80× slower | 517× |
+| sparse | 10,000,000 | 80.26 ms | 590.23 µs | 153.66 µs | 3.84× slower | 522× |
+| zipfian | 10,000 | 13.86 µs | 1.74 µs | 3.86 µs | **2.22× faster** | 4× |
+| zipfian | 100,000 | 288.32 µs | 15.78 µs | 5.60 µs | 2.82× slower | 51× |
+| zipfian | 1,000,000 | 2.76 ms | 212.85 µs | 271.52 µs | **1.28× faster** | 10× |
+| zipfian | 10,000,000 | 25.27 ms | 2.23 ms | 3.09 ms | **1.39× faster** | 8× |
 
-**OR** and **AND-NOT** track AND almost exactly for the native kernel — both
-derive from the same `intersection_len` walk plus O(1) populations, so their
-native cost equals AND's to within noise (native worst is **3.70× slower**,
-clustered 10^7, for all three ops; native is faster than Roaring on the same 7
-cells). For the composed path they are the largest losses (OR to 803×, AND-NOT
-to **1406×** at dense 10^7). Full per-size, per-op data (all 54 cells) is in
+**OR** and **AND-NOT** cardinality track AND (both derive from the same
+`intersection_len` walk plus O(1) populations); native worst symmetric cell is
+**3.84× slower** (sparse 10⁷), and native beats Roaring on **15 of 48** symmetric
+cells (small-N across distributions and all large-N zipfian). Composed is the
+largest loss (to **1406×**, AND-NOT dense 10⁷). All 54 cells are in
 [`results/baseline_boolean.json`](results/baseline_boolean.json).
 
-**Skewed-size AND (|B| = |A|/1000)** — the subtree-skipping case (METHODOLOGY
-§2.3): a tiny B intersected into a huge A. The native kernel drives the
-recursion from B's few present children, so absent A-subtrees are never walked —
-it is **faster than Roaring on dense and zipfian**, and loses only `sparse`,
-where B's ~1000 scattered keys each cost a cache-missing descent into A while
-Roaring answers from a flat 1-key array container:
+**Materialization (#348) — the result set built, at N=10⁷** — `v2` direct
+emission / `v1` pre-#348 ordered-merge + `insert` / `roaring` bitmap:
+
+![Boolean AND materialization latency](results/bench_boolean_and_materialize.svg)
+
+| Distribution | Op | v2 direct | v1 insert | roaring | v1 / v2 | v2 vs roaring | v2 vs its card cell |
+|---|---|--:|--:|--:|--:|---|--:|
+| dense | and | 207.28 µs | 29.92 ms | 79.79 µs | **144×** | 2.60× slower | 3.5× |
+| dense | or | 356.12 µs | 76.77 ms | 101.36 µs | **216×** | 3.51× slower | 6.0× |
+| dense | andnot | 140.19 µs | 31.61 ms | 96.81 µs | **225×** | 1.45× slower | 2.4× |
+| clustered | and | 1.83 ms | 36.77 ms | 257.91 µs | **20×** | 7.11× slower | 3.2× |
+| clustered | or | 2.63 ms | 81.04 ms | 265.65 µs | **31×** | 9.90× slower | 4.5× |
+| clustered | andnot | 2.12 ms | 46.60 ms | 262.73 µs | **22×** | 8.06× slower | 3.7× |
+| sparse | and | 2.99 ms | 136.92 ms | 255.08 µs | **46×** | 11.72× slower | 5.1× |
+| sparse | or | 2.94 ms | 141.36 ms | 253.33 µs | **48×** | 11.62× slower | 5.0× |
+| sparse | andnot | 2.94 ms | 133.43 ms | 255.47 µs | **45×** | 11.53× slower | 5.0× |
+| zipfian | and | 4.93 ms | 36.22 ms | 3.47 ms | **7×** | 1.42× slower | 2.2× |
+| zipfian | or | 7.40 ms | 71.75 ms | 4.49 ms | **10×** | 1.65× slower | 3.3× |
+| zipfian | andnot | 8.26 ms | 57.14 ms | 3.18 ms | **7×** | 2.60× slower | 3.7× |
+
+Direct emission is **7×–225× faster than the pre-#348 per-key `insert` path** it
+replaces — that is the #348 deliverable. Against Roaring it is closest on
+dense-AND-NOT (1.45×) and all zipfian (1.4×–2.6×), and loses the dense/clustered/
+sparse cells (2.6×–11.7×) for the same reason the cardinality pillar does: an
+Expanse bitmap leaf covers 256 keys where a Roaring container covers 65,536, so
+each op pays orders of magnitude more edge decodes. **The pre-registered targets
+(§2) are not met** — dense 2.6× (target ≤ 1.2×), clustered 7.1× (≤ 1.5×), worst
+symmetric 11.7× (≤ 2×), v2/cardinality 2.2×–6.0× (≤ 2×). Closing them needs the
+deferred level-2 65,536-key bitmap leaf, out of #348 scope (a new node form with
+its own density-crossover design note).
+
+**Skewed-size AND (|B| = |A|/1000)** — a tiny B intersected into a huge A; the
+native kernel drives the recursion from B's few present children, so absent
+A-subtrees are never walked. Faster than Roaring on dense/zipfian, loses only
+`sparse` (scattered probes each cost a cache-missing descent):
 
 | Distribution | \|A\| | \|B\| | Composed | Native | Roaring | Native vs Roaring |
 |---|--:|--:|--:|--:|--:|---|
-| dense | 1,000,000 | 1,000 | 32.35 µs | 0.07 µs | 0.29 µs | **4.08× faster** |
-| sparse | 786,944 | 999 | 58.04 µs | 9.50 µs | 0.41 µs | 23.05× slower |
-| zipfian | 266,218 | 733 | 41.22 µs | 4.15 µs | 21.68 µs | **5.22× faster** |
-| dense | 10,000,000 | 10,000 | 274.84 µs | 0.26 µs | 0.74 µs | **2.83× faster** |
-| sparse | 7,867,812 | 9,997 | 598.55 µs | 120.85 µs | 6.92 µs | 17.46× slower |
-| zipfian | 2,415,102 | 6,491 | 353.14 µs | 39.10 µs | 221.41 µs | **5.66× faster** |
+| dense | 1,000,000 | 1,000 | 29.72 µs | 0.07 µs | 0.29 µs | **3.97× faster** |
+| zipfian | 266,218 | 733 | 41.87 µs | 4.22 µs | 21.66 µs | **5.14× faster** |
+| sparse | 786,944 | 999 | 57.47 µs | 9.59 µs | 0.41 µs | 23.57× slower |
+| dense | 10,000,000 | 10,000 | 261.66 µs | 0.23 µs | 0.74 µs | **3.23× faster** |
+| zipfian | 2,415,102 | 6,491 | 352.45 µs | 38.65 µs | 221.58 µs | **5.73× faster** |
+| sparse | 7,867,812 | 9,997 | 600.63 µs | 121.29 µs | 7.27 µs | 16.68× slower |
 
-> **Verdict:** with the #339 native kernel, `ExpanseSet` is a viable
-> posting-list Boolean backend — within 3.70× of Roaring on every symmetric
-> cell and faster on 7 of 16, and faster on the dense/zipfian skewed AND where
-> subtree skipping pays off. The remaining losses are the **sparse** cells
-> (uniform-random keys over a wide universe): the trie has no shared structure
-> to skip, so each probe is a cache-missing descent, which Roaring's flat
-> containers beat. A `croaring` run-container arm and a sparse-probe fast path
-> are future work.
+> **Verdict:** #348's win is materialization — direct emission is **7×–225×
+> faster than the pre-#348 insert path**, making the materializing ops structural
+> as #339 intended. `ExpanseSet` stays a viable posting-list Boolean backend
+> (cardinality within 3.84× of Roaring on every symmetric cell, faster on 15/48
+> and on the dense/zipfian skewed AND), but neither cardinality nor
+> materialization reaches Roaring on the dense/clustered/sparse symmetric cells,
+> and the #348 vs-Roaring targets are not met: the gap is the 256-key bitmap leaf
+> vs Roaring's 65,536-key container, closable only by the deferred level-2 bitmap
+> leaf. A prefetch + SIMD `BranchU` step was tried and **dropped** (controlled
+> +61% dense-cardinality regression — see §2 and `ALGORITHMS.md` §3.4). A
+> `croaring` run-container arm and the L2 bitmap leaf are future work.
 
 ### Pillar 2 — WAND dynamic skip-scan
 
@@ -224,9 +275,12 @@ Full per-size data (including 10^4/10^5 rows for every distribution) is in
   and bitmap containers (no run containers). CRoaring's run containers would
   compress dense/contiguous data further; this suite makes **no** claim about
   CRoaring. A `croaring` arm is future work.
-* **Cardinality, not materialization.** Pillar 1 measures set-operation
-  *cardinality* (no result set is built), isolating algebra compute from
-  allocation on both sides.
+* **Cardinality *and* materialization (#348).** Pillar 1's cardinality cells
+  build no result set, isolating algebra compute from allocation. #348 adds a
+  materializing arm that builds the result set in three ways — v2 direct
+  emission, v1 ordered-merge + `insert`, and roaring bitmap `&`/`|`/`-` — so the
+  cost of producing (not just counting) the Boolean result is measured, not
+  inferred. Every arm asserts the same cardinality as the count cells.
 * **Wall-clock numbers are single-host, idle.** Load was snapshotted before and
   between arms (see the run log). The deterministic instruction-count arm is the
   noise-free cross-check and lives in CI.
