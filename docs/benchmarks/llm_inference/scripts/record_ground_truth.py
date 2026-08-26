@@ -150,12 +150,6 @@ def generate_json_workload(seed: int = 202) -> dict:
 
 def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # Remove older files if any
-    for old_f in ["code_humaneval_tokens.json", "summarization_cnndm_tokens.json", "structured_json_tokens.json"]:
-        old_p = DATA_DIR / old_f
-        if old_p.exists():
-            old_p.unlink()
 
     code_data = generate_code_workload()
     with open(DATA_DIR / "code_patterns_tokens.json", "w", encoding="utf-8") as f:

@@ -1,5 +1,5 @@
-# Patch for llama.cpp (pinned commit: b3560 / master)
-# Integrates Expanse C++20 str_map into common/ngram-cache.cpp
+# Illustrative integration snippet for llama.cpp (common/ngram-cache.cpp)
+# Demonstrates replacing nested std::unordered_map with expanse::str_map via include/expanse.hpp
 --- a/common/ngram-cache.cpp
 +++ b/common/ngram-cache.cpp
 @@ -1,5 +1,6 @@

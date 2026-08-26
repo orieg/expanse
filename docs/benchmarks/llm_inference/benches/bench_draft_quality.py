@@ -7,8 +7,8 @@ Compares:
 2. Fixed 2-Gram Match (HuggingFace PromptLookup Baseline)
 3. Expanse Fixed 3-Gram (Bit-packed 21-bit integer trie)
 4. Expanse Variable-Length Longest-Suffix Match (2-neighbour LCP in ExpanseStrMap)
-5. Dict Multimap Draft Tree (dict[prefix, list[(token, count)]])
-6. Expanse Draft Tree (Subexpanse range scan continuation tree)
+5. Dict Multimap Chain (dict[prefix, dict[token, count]] autoregressive chain)
+6. Expanse Draft Tree Chain (Subexpanse range scan autoregressive chain)
 
 Evaluates on committed offline synthetic token pattern streams:
 - Code Patterns
@@ -174,15 +174,15 @@ class ExpanseLongestSuffixEngine:
         if not cands:
             return []
 
-        best_lcp, pos = max(cands, key=lambda x: x[0])
+        best_lcp, pos = max(cands, key=lambda x: (x[0], x[1]))
         start = pos + 1
         return self.tokens[start : start + self.num_draft]
 
 class DictMultimapTreeEngine:
-    """Python dict multimap baseline for multi-candidate draft trees."""
-    def __init__(self, ngram_size: int = 3, tree_width: int = 4):
+    """Python dict multimap baseline drafting an autoregressive chain of tokens."""
+    def __init__(self, ngram_size: int = 3, draft_len: int = 4):
         self.ngram_size = ngram_size
-        self.tree_width = tree_width
+        self.draft_len = draft_len
         self.tokens: List[int] = []
         self.multimap: Dict[Tuple[int, ...], Dict[int, int]] = {}
 
@@ -210,21 +210,25 @@ class DictMultimapTreeEngine:
         if len(self.tokens) < self.ngram_size:
             return []
 
-        query = tuple(self.tokens[-self.ngram_size:])
-        counts = self.multimap.get(query)
-        if not counts:
-            return []
+        cur = list(self.tokens)
+        drafted = []
+        for _ in range(self.draft_len):
+            query = tuple(cur[-self.ngram_size:])
+            counts = self.multimap.get(query)
+            if not counts:
+                break
+            best_tok = max(counts.items(), key=lambda x: (x[1], -x[0]))[0]
+            drafted.append(best_tok)
+            cur.append(best_tok)
 
-        sorted_cands = sorted(counts.items(), key=lambda x: x[1], reverse=True)
-        top_tokens = [tok for tok, _ in sorted_cands[:self.tree_width]]
-        return top_tokens
+        return drafted
 
 class ExpanseDraftTreeEngine:
-    """Expanse variable-length suffix tree building multi-candidate draft trees."""
-    def __init__(self, max_suffix_len: int = 8, min_match_len: int = 2, tree_width: int = 4):
+    """Expanse variable-length suffix tree building continuation chains."""
+    def __init__(self, max_suffix_len: int = 8, min_match_len: int = 2, draft_len: int = 4):
         self.max_suffix_len = max_suffix_len
         self.min_match_len = min_match_len
-        self.tree_width = tree_width
+        self.draft_len = draft_len
         self.tokens: List[int] = []
         self.strmap = ExpanseStrMap()
 
@@ -267,15 +271,15 @@ class ExpanseDraftTreeEngine:
         if not cands:
             return []
 
-        best_lcp, pos = max(cands, key=lambda x: x[0])
+        best_lcp, pos = max(cands, key=lambda x: (x[0], x[1]))
         start = pos + 1
-        return self.tokens[start : start + self.tree_width]
+        return self.tokens[start : start + self.draft_len]
 
 # ==============================================================================
 # Replay Verifier Simulation Harness
 # ==============================================================================
 
-def run_replay_verifier(engine, prompt_tokens: List[int], ground_truth_tokens: List[int], repeats: int = 5) -> dict:
+def run_replay_verifier(engine, prompt_tokens: List[int], ground_truth_tokens: List[int], repeats: int = 10) -> dict:
     """Executes deterministic speculative verification simulation with repeat latency measurements."""
     all_latencies_us = []
     
@@ -318,20 +322,8 @@ def run_replay_verifier(engine, prompt_tokens: List[int], ground_truth_tokens: L
     alpha = total_accepted_tokens / max(1, speculation_steps)
     acceptance_rate = (total_accepted_tokens - speculation_steps) / max(1, total_drafted_tokens) if total_drafted_tokens > 0 else 0.0
     
-    # Compute median and BCa bootstrap 95% CI for lookup latency
     lat_arr = np.array(all_latencies_us)
     med_latency_us = float(np.median(lat_arr))
-    
-    ci_low, ci_high = med_latency_us, med_latency_us
-    if len(lat_arr) >= 30 and np.std(lat_arr) > 1e-6:
-        try:
-            res = bootstrap((lat_arr,), np.median, confidence_level=0.95, method='percentile', n_resamples=1000, random_state=42)
-            ci_low = float(res.confidence_interval.low)
-            ci_high = float(res.confidence_interval.high)
-        except Exception:
-            ci_low, ci_high = float(np.percentile(lat_arr, 2.5)), float(np.percentile(lat_arr, 97.5))
-    elif len(lat_arr) > 0:
-        ci_low, ci_high = float(np.percentile(lat_arr, 2.5)), float(np.percentile(lat_arr, 97.5))
 
     return {
         "speculation_steps": speculation_steps,
@@ -340,7 +332,6 @@ def run_replay_verifier(engine, prompt_tokens: List[int], ground_truth_tokens: L
         "mean_acceptance_length_alpha": round(alpha, 3),
         "acceptance_rate": round(acceptance_rate, 4),
         "candidate_lookup_latency_us": round(med_latency_us, 3),
-        "lookup_latency_ci_95": [round(ci_low, 3), round(ci_high, 3)],
     }
 
 def main():
@@ -376,8 +367,8 @@ def main():
             "hf_fixed_2gram": FixedNgramSearchEngine(ngram_size=2, num_draft=4),
             "expanse_fixed_3gram": ExpanseFixedNgramEngine(num_draft=4),
             "expanse_longest_suffix": ExpanseLongestSuffixEngine(max_suffix_len=16, min_match_len=2, num_draft=4),
-            "dict_multimap_tree": DictMultimapTreeEngine(ngram_size=3, tree_width=4),
-            "expanse_draft_tree": ExpanseDraftTreeEngine(max_suffix_len=8, min_match_len=2, tree_width=4),
+            "dict_multimap_tree": DictMultimapTreeEngine(ngram_size=3, draft_len=4),
+            "expanse_draft_tree": ExpanseDraftTreeEngine(max_suffix_len=8, min_match_len=2, draft_len=4),
         }
 
         w_res = {}

@@ -81,7 +81,7 @@ public:
                 auto it = map.find(key);
                 if (it != map.end() && !it->second.empty()) {
                     for (const auto& [tok, cnt] : it->second) {
-                        if (cnt > max_count) {
+                        if (cnt > max_count || (cnt == max_count && (best_tok == -1 || tok < best_tok))) {
                             max_count = cnt;
                             best_tok = tok;
                         }
@@ -116,7 +116,7 @@ public:
         token_t next_tok = history[pos];
         for (int32_t n = ngram_min; n <= ngram_max; ++n) {
             if (static_cast<int32_t>(pos) < n) break;
-            std::string key = encode_ngram_7bit(&history[pos - n], n);
+            std::string key = std::string(1, static_cast<char>('0' + n)) + encode_ngram_7bit(&history[pos - n], n);
             std::string full_key = key + encode_ngram_7bit(&next_tok, 1);
             uint64_t cnt = map.get(full_key).value_or(0);
             map.insert(full_key, cnt + 1);
@@ -132,19 +132,22 @@ public:
             uint64_t max_count = 0;
 
             for (int32_t n = std::min<int32_t>(ngram_max, cur.size()); n >= ngram_min; --n) {
-                std::string pfx = encode_ngram_7bit(&cur[cur.size() - n], n);
+                std::string pfx = std::string(1, static_cast<char>('0' + n)) + encode_ngram_7bit(&cur[cur.size() - n], n);
                 auto it = map.next_at_or_after(pfx);
                 while (it.has_value()) {
                     const auto& [matched_k, cnt] = *it;
-                    if (matched_k.size() != pfx.size() + 3 || matched_k.compare(0, pfx.size(), pfx) != 0) {
+                    if (matched_k.compare(0, pfx.size(), pfx) != 0) {
                         break;
                     }
-                    if (cnt > max_count) {
-                        max_count = cnt;
+                    if (matched_k.size() == pfx.size() + 3) {
                         uint8_t b0 = static_cast<uint8_t>(matched_k[pfx.size()]);
                         uint8_t b1 = static_cast<uint8_t>(matched_k[pfx.size() + 1]);
                         uint8_t b2 = static_cast<uint8_t>(matched_k[pfx.size() + 2]);
-                        best_tok = static_cast<token_t>(((b0 - 1) << 14) | ((b1 - 1) << 7) | (b2 - 1));
+                        token_t cand_tok = static_cast<token_t>(((b0 - 1) << 14) | ((b1 - 1) << 7) | (b2 - 1));
+                        if (cnt > max_count || (cnt == max_count && (best_tok == -1 || cand_tok < best_tok))) {
+                            max_count = cnt;
+                            best_tok = cand_tok;
+                        }
                     }
                     it = map.next(matched_k);
                 }

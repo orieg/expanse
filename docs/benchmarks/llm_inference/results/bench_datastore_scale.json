@@ -4,25 +4,27 @@
     "cpython_dict": {
       "memory_mb": 12.49,
       "bytes_per_entry": 131.0,
-      "build_throughput_tps": 629588.0,
-      "lookup_latency_ns": 458.0
+      "build_throughput_tps": 315678.0,
+      "lookup_latency_ns": 292.0
     },
     "sorted_numpy": {
       "memory_mb": 1.53,
       "bytes_per_entry": 16.0,
-      "build_throughput_tps": 6218100.0,
-      "lookup_latency_ns": 256.1,
-      "single_insert_tps": 13093.0,
-      "batched_append_tps": 2622207.0,
-      "snapshot_save_ms": 1.61,
-      "snapshot_load_ms": 13.83
+      "build_throughput_tps": 9031043.0,
+      "lookup_latency_ns": 192.0,
+      "single_insert_tps": 16840.0,
+      "batched_append_tps": 2485913.0,
+      "snapshot_save_ms": 1.63,
+      "snapshot_load_ms": 10.75
     },
     "expanse_map": {
       "memory_mb": 2.55,
       "bytes_per_entry": 26.7,
-      "build_throughput_tps": 2275201.0,
-      "lookup_latency_ns": 291.0,
-      "streaming_insert_tps": 800109.0,
+      "build_throughput_tps": 1712473.0,
+      "lookup_latency_ns": 667.0,
+      "streaming_insert_tps": 751800.0,
+      "snapshot_save_ms": 35.33,
+      "snapshot_load_ms": 23.78,
       "memory_reduction_vs_dict_x": 4.91
     }
   },
@@ -31,25 +33,27 @@
     "cpython_dict": {
       "memory_mb": 49.99,
       "bytes_per_entry": 104.8,
-      "build_throughput_tps": 496713.0,
-      "lookup_latency_ns": 500.0
+      "build_throughput_tps": 509602.0,
+      "lookup_latency_ns": 792.0
     },
     "sorted_numpy": {
       "memory_mb": 7.63,
       "bytes_per_entry": 16.0,
-      "build_throughput_tps": 7487856.0,
-      "lookup_latency_ns": 2426.2,
-      "single_insert_tps": 1148.0,
-      "batched_append_tps": 654161.0,
-      "snapshot_save_ms": 2.67,
-      "snapshot_load_ms": 8.73
+      "build_throughput_tps": 6498461.0,
+      "lookup_latency_ns": 1532.4,
+      "single_insert_tps": 1154.0,
+      "batched_append_tps": 671025.0,
+      "snapshot_save_ms": 3.71,
+      "snapshot_load_ms": 9.81
     },
     "expanse_map": {
       "memory_mb": 10.85,
       "bytes_per_entry": 22.7,
-      "build_throughput_tps": 1560183.0,
-      "lookup_latency_ns": 416.0,
-      "streaming_insert_tps": 1255230.0,
+      "build_throughput_tps": 1216164.0,
+      "lookup_latency_ns": 750.0,
+      "streaming_insert_tps": 639591.0,
+      "snapshot_save_ms": 142.36,
+      "snapshot_load_ms": 115.19,
       "memory_reduction_vs_dict_x": 4.61
     }
   },
@@ -58,25 +62,27 @@
     "cpython_dict": {
       "memory_mb": 99.99,
       "bytes_per_entry": 104.9,
-      "build_throughput_tps": 481780.0,
-      "lookup_latency_ns": 750.0
+      "build_throughput_tps": 495620.0,
+      "lookup_latency_ns": 958.0
     },
     "sorted_numpy": {
       "memory_mb": 15.26,
       "bytes_per_entry": 16.0,
-      "build_throughput_tps": 7352889.0,
-      "lookup_latency_ns": 2483.1,
-      "single_insert_tps": 546.0,
-      "batched_append_tps": 295637.0,
-      "snapshot_save_ms": 4.54,
-      "snapshot_load_ms": 10.69
+      "build_throughput_tps": 4840107.0,
+      "lookup_latency_ns": 5717.5,
+      "single_insert_tps": 476.0,
+      "batched_append_tps": 225409.0,
+      "snapshot_save_ms": 5.05,
+      "snapshot_load_ms": 10.05
     },
     "expanse_map": {
       "memory_mb": 17.75,
       "bytes_per_entry": 18.6,
-      "build_throughput_tps": 1405426.0,
-      "lookup_latency_ns": 667.0,
-      "streaming_insert_tps": 607118.0,
+      "build_throughput_tps": 1148103.0,
+      "lookup_latency_ns": 833.0,
+      "streaming_insert_tps": 986218.0,
+      "snapshot_save_ms": 277.28,
+      "snapshot_load_ms": 202.1,
       "memory_reduction_vs_dict_x": 5.63
     }
   },
@@ -85,25 +91,27 @@
     "cpython_dict": {
       "memory_mb": 446.1,
       "bytes_per_entry": 93.6,
-      "build_throughput_tps": 375017.0,
-      "lookup_latency_ns": 6625.0
+      "build_throughput_tps": 408697.0,
+      "lookup_latency_ns": 6292.0
     },
     "sorted_numpy": {
       "memory_mb": 76.29,
       "bytes_per_entry": 16.0,
-      "build_throughput_tps": 3466181.0,
-      "lookup_latency_ns": 3509.3,
-      "single_insert_tps": 86.0,
-      "batched_append_tps": 36708.0,
-      "snapshot_save_ms": 22.03,
-      "snapshot_load_ms": 12.77
+      "build_throughput_tps": 3941338.0,
+      "lookup_latency_ns": 3527.8,
+      "single_insert_tps": 105.0,
+      "batched_append_tps": 44900.0,
+      "snapshot_save_ms": 24.92,
+      "snapshot_load_ms": 15.16
     },
     "expanse_map": {
       "memory_mb": 109.67,
       "bytes_per_entry": 23.0,
-      "build_throughput_tps": 792320.0,
-      "lookup_latency_ns": 750.0,
-      "streaming_insert_tps": 564730.0,
+      "build_throughput_tps": 804341.0,
+      "lookup_latency_ns": 1167.0,
+      "streaming_insert_tps": 610046.0,
+      "snapshot_save_ms": 1836.76,
+      "snapshot_load_ms": 1342.39,
       "memory_reduction_vs_dict_x": 4.07
     }
   }

@@ -2,46 +2,46 @@
   "4000": {
     "context_tokens": 4000,
     "stock_llama_cache": {
-      "update_latency_ns": 1199.3,
-      "draft_latency_us": 0.72,
+      "update_latency_ns": 591.3,
+      "draft_latency_us": 0.54,
       "total_drafted": 4000
     },
     "expanse_llama_cache": {
-      "update_latency_ns": 5230.7,
-      "draft_latency_us": 11.30,
-      "memory_mb": 3.04,
+      "update_latency_ns": 1011.0,
+      "draft_latency_us": 3.21,
+      "memory_mb": 0.61,
       "total_drafted": 4000,
-      "sequence_match_pct": 0.6
+      "sequence_match_pct": 100.0
     }
   },
   "32000": {
     "context_tokens": 32000,
     "stock_llama_cache": {
-      "update_latency_ns": 2623.2,
-      "draft_latency_us": 0.85,
+      "update_latency_ns": 1915.0,
+      "draft_latency_us": 0.42,
       "total_drafted": 4000
     },
     "expanse_llama_cache": {
-      "update_latency_ns": 7780.5,
-      "draft_latency_us": 13.19,
-      "memory_mb": 24.39,
+      "update_latency_ns": 1485.6,
+      "draft_latency_us": 3.95,
+      "memory_mb": 5.20,
       "total_drafted": 4000,
-      "sequence_match_pct": 0.1
+      "sequence_match_pct": 100.0
     }
   },
   "128000": {
     "context_tokens": 128000,
     "stock_llama_cache": {
-      "update_latency_ns": 2503.4,
-      "draft_latency_us": 0.75,
+      "update_latency_ns": 2259.2,
+      "draft_latency_us": 1.13,
       "total_drafted": 4000
     },
     "expanse_llama_cache": {
-      "update_latency_ns": 4201.9,
-      "draft_latency_us": 21.66,
-      "memory_mb": 97.04,
+      "update_latency_ns": 1695.3,
+      "draft_latency_us": 4.56,
+      "memory_mb": 19.72,
       "total_drafted": 4000,
-      "sequence_match_pct": 0.0
+      "sequence_match_pct": 100.0
     }
   }
 }

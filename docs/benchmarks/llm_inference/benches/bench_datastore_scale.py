@@ -5,8 +5,8 @@ Pillar 2: Million-Token Datastore Scale (100k to 5M Tokens).
 Measures:
 1. Live Memory Footprint (Bytes/Token and total MB) via tracemalloc.
 2. Build Throughput (Tokens/sec).
-3. Streaming Continuous Ingestion Throughput (Tokens/sec) — Single-token vs Batched append.
-4. Snapshot Save / Load Latency (ms).
+3. Continuous Ingestion Throughput (Tokens/sec) — Single-token insert vs Batched append chunk sort.
+4. Snapshot Save / Load Latency (ms) — Expanse serialization vs NumPy mmap load.
 
 Competitors:
 - CPython dict[int, int] (Heap table + boxed integer objects)
@@ -18,12 +18,12 @@ import os
 import sys
 import time
 import json
+import pickle
 import argparse
 import tracemalloc
 import numpy as np
 from pathlib import Path
 from typing import List, Dict
-from scipy.stats import bootstrap
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "bindings" / "python"))
@@ -105,7 +105,7 @@ def run_datastore_scale(populations: List[int], seed: int = 42) -> Dict[str, dic
         numpy_single_insert_tps = num_single_inserts / max(1e-9, t1 - t0)
         del test_keys_copy
 
-        # 2b. NumPy Batched Amortized Ingestion (appending a chunk of 500 items and re-sorting — NumPy's winning regime)
+        # 2b. NumPy Batched Amortized Ingestion (appending a chunk of items and re-sorting — NumPy's winning regime)
         chunk_size = min(5000, N // 10)
         chunk_keys = (tokens_np[:chunk_size] << np.uint64(42)) | (tokens_np[:chunk_size] << np.uint64(21)) | tokens_np[:chunk_size]
         t0 = time.perf_counter()
@@ -163,6 +163,27 @@ def run_datastore_scale(populations: List[int], seed: int = 42) -> Dict[str, dic
         t1 = time.perf_counter()
         expanse_streaming_insert_tps = num_stream_inserts / max(1e-9, t1 - t0)
 
+        # 3b. Expanse Snapshot Save / Load (keys binary serialization + reconstruct)
+        tmp_exp_path = Path(f"/tmp/expanse_bench_exp_{N}.bin")
+        t0 = time.perf_counter()
+        all_keys = [k for k, _ in exp_map.range(0, (1 << 64) - 1)]
+        with open(tmp_exp_path, "wb") as f:
+            pickle.dump(all_keys, f, protocol=pickle.HIGHEST_PROTOCOL)
+        t1 = time.perf_counter()
+        expanse_snapshot_save_ms = (t1 - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        with open(tmp_exp_path, "rb") as f:
+            loaded_keys = pickle.load(f)
+        reconstructed_map = ExpanseMap()
+        for idx, k in enumerate(loaded_keys):
+            reconstructed_map.insert(k, idx)
+        t1 = time.perf_counter()
+        expanse_snapshot_load_ms = (t1 - t0) * 1000.0
+        if tmp_exp_path.exists():
+            tmp_exp_path.unlink()
+        del all_keys, loaded_keys, reconstructed_map
+
         del exp_map
 
         results[str(N)] = {
@@ -189,6 +210,8 @@ def run_datastore_scale(populations: List[int], seed: int = 42) -> Dict[str, dic
                 "build_throughput_tps": round(N / max(1e-9, expanse_build_sec), 0),
                 "lookup_latency_ns": round(expanse_lookup_ns, 1),
                 "streaming_insert_tps": round(expanse_streaming_insert_tps, 0),
+                "snapshot_save_ms": round(expanse_snapshot_save_ms, 2),
+                "snapshot_load_ms": round(expanse_snapshot_load_ms, 2),
                 "memory_reduction_vs_dict_x": round(dict_mem_mb / max(1e-9, expanse_mem_mb), 2),
             },
         }
