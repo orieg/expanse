@@ -1,0 +1,28 @@
+{
+  "large_window_members": 8192,
+  "population": 500000,
+  "rounds": 5,
+  "scenarios": {
+    "forward_large": {
+      "expanse_melem_s": 100.8186478256557,
+      "skiplist_melem_s": 18.427787784286544,
+      "winner": "expanse"
+    },
+    "forward_small": {
+      "expanse_melem_s": 78.23173512894488,
+      "skiplist_melem_s": 13.555044065692032,
+      "winner": "expanse"
+    },
+    "reverse_large": {
+      "expanse_melem_s": 21.591185036293957,
+      "skiplist_melem_s": 57.76764725627858,
+      "winner": "skiplist"
+    },
+    "reverse_small": {
+      "expanse_melem_s": 20.270335558081936,
+      "skiplist_melem_s": 29.44328924570348,
+      "winner": "skiplist"
+    }
+  },
+  "small_window_members": 64
+}

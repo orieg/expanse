@@ -1,0 +1,28 @@
+{
+  "population": 1000000,
+  "queries_per_scenario": 1000000,
+  "rounds": 5,
+  "scenarios": {
+    "zcount": {
+      "expanse_mops": 0.5074342803507083,
+      "expanse_ns": 1970.698549,
+      "skiplist_mops": 0.4097994483135577,
+      "skiplist_ns": 2440.2180240000002,
+      "winner": "expanse"
+    },
+    "zrank": {
+      "expanse_mops": 0.9257639069559431,
+      "expanse_ns": 1080.1890119999998,
+      "skiplist_mops": 0.7145378098600269,
+      "skiplist_ns": 1399.5060669999998,
+      "winner": "expanse"
+    },
+    "zrank_by_rank": {
+      "expanse_mops": 0.8983470289796537,
+      "expanse_ns": 1113.155571,
+      "skiplist_mops": 0.9026966785051846,
+      "skiplist_ns": 1107.791824,
+      "winner": "skiplist"
+    }
+  }
+}
