@@ -1174,10 +1174,9 @@ impl ExpanseMap {
         }
     }
 
-    /// Ascending iterator over `(key, value)` entries.
-    #[must_use]
-    pub fn iter(&self) -> MapIter<'_> {
-        let raw = match &self.root {
+    /// Builds a forward (ascending) raw cursor over all entries.
+    fn iter_fwd_raw(&self) -> crate::iter::RawIter<true> {
+        match &self.root {
             Root::Empty => crate::iter::RawIter::new(),
             Root::Leaf { ptr, pop } => {
                 let keys_ptr = ptr.as_ptr().cast::<u64>();
@@ -1187,25 +1186,12 @@ impl ExpanseMap {
             }
             // SAFETY: tree maintained by map engine per invariants.
             Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree(top) },
-        };
-        MapIter {
-            _map: core::marker::PhantomData,
-            raw,
         }
     }
 
-    /// Returns an iterator over entries in the inclusive range `[start, end]`.
-    #[must_use]
-    pub fn range(&self, range: core::ops::RangeInclusive<Key>) -> MapRange<'_> {
-        let (start, end) = (*range.start(), *range.end());
-        if start > end {
-            return MapRange {
-                _map: core::marker::PhantomData,
-                raw: crate::iter::RawIter::new(),
-                end,
-            };
-        }
-        let raw = match &self.root {
+    /// Builds a forward (ascending) raw cursor over entries with key `>= start`.
+    fn range_fwd_raw(&self, start: Key) -> crate::iter::RawIter<true> {
+        match &self.root {
             Root::Empty => crate::iter::RawIter::new(),
             Root::Leaf { ptr, pop } => {
                 let (keys, values) = Self::leaf_parts(*ptr, *pop);
@@ -1216,11 +1202,97 @@ impl ExpanseMap {
             }
             // SAFETY: tree maintained by map engine per invariants.
             Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree_range(top, start) },
+        }
+    }
+
+    /// Ascending iterator over `(key, value)` entries.
+    #[must_use]
+    pub fn iter(&self) -> MapIter<'_> {
+        MapIter {
+            _map: core::marker::PhantomData,
+            raw: self.iter_fwd_raw(),
+        }
+    }
+
+    /// Returns an iterator over entries in the inclusive range `[start, end]`.
+    #[must_use]
+    pub fn range(&self, range: core::ops::RangeInclusive<Key>) -> MapRange<'_> {
+        let (start, end) = (*range.start(), *range.end());
+        let raw = if start > end {
+            crate::iter::RawIter::new()
+        } else {
+            self.range_fwd_raw(start)
         };
         MapRange {
             _map: core::marker::PhantomData,
             raw,
             end,
+        }
+    }
+
+    /// Builds a reverse (descending) raw cursor over all entries.
+    fn iter_rev_raw(&self) -> crate::iter::RawIter<true> {
+        match &self.root {
+            Root::Empty => crate::iter::RawIter::new(),
+            Root::Leaf { ptr, pop } => {
+                let keys_ptr = ptr.as_ptr().cast::<u64>();
+                // SAFETY: root leaf holds pop values starting at leaf_values_offset(pop).
+                let vals_ptr = unsafe { keys_ptr.add(leaf_values_offset(*pop) / 8) };
+                crate::iter::RawIter::from_root_leaf_rev(keys_ptr, vals_ptr, *pop)
+            }
+            // SAFETY: tree maintained by map engine per invariants.
+            Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree_rev(top) },
+        }
+    }
+
+    /// Builds a reverse (descending) raw cursor over entries with key `<= end`.
+    fn range_rev_raw(&self, end: Key) -> crate::iter::RawIter<true> {
+        match &self.root {
+            Root::Empty => crate::iter::RawIter::new(),
+            Root::Leaf { ptr, pop } => {
+                let (keys, values) = Self::leaf_parts(*ptr, *pop);
+                // SAFETY: root leaf contains valid keys and values arrays of length pop.
+                unsafe {
+                    crate::iter::RawIter::from_root_leaf_range_rev(keys.as_ptr(), values, *pop, end)
+                }
+            }
+            // SAFETY: tree maintained by map engine per invariants.
+            Root::Tree { top, .. } => unsafe {
+                crate::iter::RawIter::from_tree_range_rev(top, end)
+            },
+        }
+    }
+
+    /// Descending (double-ended) iterator over `(key, value)` entries.
+    #[must_use]
+    pub fn iter_rev(&self) -> MapIterRev<'_> {
+        MapIterRev {
+            map: self,
+            raw: self.iter_rev_raw(),
+            front: None,
+            lo: 0,
+            hi: Key::MAX,
+            done: self.is_empty(),
+        }
+    }
+
+    /// Returns a descending (double-ended) iterator over entries in the
+    /// inclusive range `[start, end]`.
+    #[must_use]
+    pub fn range_rev(&self, range: core::ops::RangeInclusive<Key>) -> MapRangeRev<'_> {
+        let (start, end) = (*range.start(), *range.end());
+        let (raw, done) = if start > end {
+            (crate::iter::RawIter::new(), true)
+        } else {
+            (self.range_rev_raw(end), false)
+        };
+        MapRangeRev {
+            map: self,
+            raw,
+            front: None,
+            lo: start,
+            hi: end,
+            done,
         }
     }
 
@@ -1261,6 +1333,11 @@ impl ExpanseMap {
 }
 
 /// Ascending entry iterator over an [`ExpanseMap`].
+///
+/// Forward-only by design: the deterministic-Callgrind zero-regression gate
+/// (`AGENTS.md` §5) forbids adding any per-element work to this hot path, so
+/// reverse iteration lives on the dedicated [`MapIterRev`] / [`MapRangeRev`]
+/// types (`iter_rev` / `range_rev`), which are themselves double-ended.
 pub struct MapIter<'a> {
     _map: core::marker::PhantomData<&'a ExpanseMap>,
     raw: crate::iter::RawIter<true>,
@@ -1290,6 +1367,124 @@ impl Iterator for MapRange<'_> {
         let (k, v) = self.raw.next()?;
         if k > self.end {
             return None;
+        }
+        Some((k, v))
+    }
+}
+
+/// Double-ended entry iterator over an [`ExpanseMap`], descending by default.
+///
+/// `next` streams descending from the largest key; `next_back` streams
+/// ascending from the smallest. The two ends share an inclusive `[lo, hi]`
+/// window so interleaved calls never cross: `next` lowers `hi`, `next_back`
+/// raises `lo`, and each stops once the window closes. The ascending cursor is
+/// built lazily, so a pure-descending walk never pays for it.
+pub struct MapIterRev<'a> {
+    map: &'a ExpanseMap,
+    raw: crate::iter::RawIter<true>,
+    front: Option<crate::iter::RawIter<true>>,
+    lo: Key,
+    hi: Key,
+    done: bool,
+}
+
+impl Iterator for MapIterRev<'_> {
+    type Item = (Key, u64);
+
+    #[inline]
+    fn next(&mut self) -> Option<(Key, u64)> {
+        if self.done {
+            return None;
+        }
+        let (k, v) = self.raw.next_back()?;
+        if k < self.lo {
+            self.done = true;
+            return None;
+        }
+        if k == self.lo {
+            self.done = true;
+        } else {
+            self.hi = k - 1;
+        }
+        Some((k, v))
+    }
+}
+
+impl DoubleEndedIterator for MapIterRev<'_> {
+    #[inline]
+    fn next_back(&mut self) -> Option<(Key, u64)> {
+        if self.done {
+            return None;
+        }
+        if self.front.is_none() {
+            self.front = Some(self.map.iter_fwd_raw());
+        }
+        let (k, v) = self.front.as_mut().unwrap().next()?;
+        if k > self.hi {
+            self.done = true;
+            return None;
+        }
+        if k == self.hi {
+            self.done = true;
+        } else {
+            self.lo = k + 1;
+        }
+        Some((k, v))
+    }
+}
+
+/// Double-ended entry iterator over a key range in an [`ExpanseMap`],
+/// descending by default. See [`MapIterRev`] for the shared-window discipline.
+pub struct MapRangeRev<'a> {
+    map: &'a ExpanseMap,
+    raw: crate::iter::RawIter<true>,
+    front: Option<crate::iter::RawIter<true>>,
+    lo: Key,
+    hi: Key,
+    done: bool,
+}
+
+impl Iterator for MapRangeRev<'_> {
+    type Item = (Key, u64);
+
+    #[inline]
+    fn next(&mut self) -> Option<(Key, u64)> {
+        if self.done {
+            return None;
+        }
+        let (k, v) = self.raw.next_back()?;
+        if k < self.lo {
+            self.done = true;
+            return None;
+        }
+        if k == self.lo {
+            self.done = true;
+        } else {
+            self.hi = k - 1;
+        }
+        Some((k, v))
+    }
+}
+
+impl DoubleEndedIterator for MapRangeRev<'_> {
+    #[inline]
+    fn next_back(&mut self) -> Option<(Key, u64)> {
+        if self.done {
+            return None;
+        }
+        if self.front.is_none() {
+            // At first `next_back`, `lo` still equals the original range start.
+            self.front = Some(self.map.range_fwd_raw(self.lo));
+        }
+        let (k, v) = self.front.as_mut().unwrap().next()?;
+        if k > self.hi {
+            self.done = true;
+            return None;
+        }
+        if k == self.hi {
+            self.done = true;
+        } else {
+            self.lo = k + 1;
         }
         Some((k, v))
     }

@@ -80,6 +80,28 @@ fn run_set(ops: &[Op]) {
                 set.validate();
                 assert_eq!(set.len(), model.len() as u64, "len");
                 assert!(set.iter().eq(model.iter().copied()), "ordered iteration");
+                assert!(
+                    set.iter_rev().eq(model.iter().rev().copied()),
+                    "reverse iteration"
+                );
+                // The reverse iterator is double-ended: `.rev()` recovers ascending.
+                assert!(
+                    set.iter_rev().rev().eq(model.iter().copied()),
+                    "iter_rev().rev()"
+                );
+                if let (Some(&lo), Some(&hi)) = (model.iter().next(), model.iter().next_back()) {
+                    assert!(
+                        set.range_rev(lo..=hi)
+                            .eq(model.range(lo..=hi).rev().copied()),
+                        "reverse range"
+                    );
+                    assert!(
+                        set.range_rev(lo..=hi)
+                            .rev()
+                            .eq(model.range(lo..=hi).copied()),
+                        "range_rev().rev()"
+                    );
+                }
                 // Rank/select agree with the model's own ordering.
                 if let Some(&first) = model.iter().next() {
                     assert_eq!(set.first(), Some(first));
@@ -125,6 +147,29 @@ fn run_map(ops: &[Op]) {
                     map.iter().eq(model.iter().map(|(k, v)| (*k, *v))),
                     "ordered iteration"
                 );
+                assert!(
+                    map.iter_rev().eq(model.iter().rev().map(|(k, v)| (*k, *v))),
+                    "reverse iteration"
+                );
+                assert!(
+                    map.iter_rev().rev().eq(model.iter().map(|(k, v)| (*k, *v))),
+                    "iter_rev().rev()"
+                );
+                if let (Some((&lo, _)), Some((&hi, _))) =
+                    (model.iter().next(), model.iter().next_back())
+                {
+                    assert!(
+                        map.range_rev(lo..=hi)
+                            .eq(model.range(lo..=hi).rev().map(|(k, v)| (*k, *v))),
+                        "reverse range"
+                    );
+                    assert!(
+                        map.range_rev(lo..=hi)
+                            .rev()
+                            .eq(model.range(lo..=hi).map(|(k, v)| (*k, *v))),
+                        "range_rev().rev()"
+                    );
+                }
                 if let Some((&k, &v)) = model.iter().next() {
                     assert_eq!(map.first(), Some((k, v)));
                     assert_eq!(map.by_count(0), Some((k, v)));

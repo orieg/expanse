@@ -647,10 +647,9 @@ impl ExpanseSet {
         }
     }
 
-    /// Ascending iterator over the keys.
-    #[must_use]
-    pub fn iter(&self) -> SetIter<'_> {
-        let raw = match &self.root {
+    /// Builds a forward (ascending) raw cursor over all keys.
+    fn iter_fwd_raw(&self) -> crate::iter::RawIter<false> {
+        match &self.root {
             Root::Empty => crate::iter::RawIter::new(),
             Root::Leaf { pop, .. } => {
                 let keys_ptr = self.root_leaf_keys().as_ptr();
@@ -658,25 +657,12 @@ impl ExpanseSet {
             }
             // SAFETY: tree maintained by set engine per invariants.
             Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree(top) },
-        };
-        SetIter {
-            _set: core::marker::PhantomData,
-            raw,
         }
     }
 
-    /// Returns an iterator over keys in the inclusive range `[start, end]`.
-    #[must_use]
-    pub fn range(&self, range: core::ops::RangeInclusive<Key>) -> SetRange<'_> {
-        let (start, end) = (*range.start(), *range.end());
-        if start > end {
-            return SetRange {
-                _set: core::marker::PhantomData,
-                raw: crate::iter::RawIter::new(),
-                end,
-            };
-        }
-        let raw = match &self.root {
+    /// Builds a forward (ascending) raw cursor over keys `>= start`.
+    fn range_fwd_raw(&self, start: Key) -> crate::iter::RawIter<false> {
+        match &self.root {
             Root::Empty => crate::iter::RawIter::new(),
             Root::Leaf { pop, .. } => {
                 let keys_ptr = self.root_leaf_keys().as_ptr();
@@ -692,6 +678,26 @@ impl ExpanseSet {
             }
             // SAFETY: tree maintained by set engine per invariants.
             Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree_range(top, start) },
+        }
+    }
+
+    /// Ascending iterator over the keys.
+    #[must_use]
+    pub fn iter(&self) -> SetIter<'_> {
+        SetIter {
+            _set: core::marker::PhantomData,
+            raw: self.iter_fwd_raw(),
+        }
+    }
+
+    /// Returns an iterator over keys in the inclusive range `[start, end]`.
+    #[must_use]
+    pub fn range(&self, range: core::ops::RangeInclusive<Key>) -> SetRange<'_> {
+        let (start, end) = (*range.start(), *range.end());
+        let raw = if start > end {
+            crate::iter::RawIter::new()
+        } else {
+            self.range_fwd_raw(start)
         };
         SetRange {
             _set: core::marker::PhantomData,
@@ -699,9 +705,83 @@ impl ExpanseSet {
             end,
         }
     }
+
+    /// Builds a reverse (descending) raw cursor over all keys.
+    fn iter_rev_raw(&self) -> crate::iter::RawIter<false> {
+        match &self.root {
+            Root::Empty => crate::iter::RawIter::new(),
+            Root::Leaf { pop, .. } => {
+                let keys_ptr = self.root_leaf_keys().as_ptr();
+                crate::iter::RawIter::from_root_leaf_rev(keys_ptr, core::ptr::null(), *pop)
+            }
+            // SAFETY: tree maintained by set engine per invariants.
+            Root::Tree { top, .. } => unsafe { crate::iter::RawIter::from_tree_rev(top) },
+        }
+    }
+
+    /// Builds a reverse (descending) raw cursor over keys `<= end`.
+    fn range_rev_raw(&self, end: Key) -> crate::iter::RawIter<false> {
+        match &self.root {
+            Root::Empty => crate::iter::RawIter::new(),
+            Root::Leaf { pop, .. } => {
+                let keys_ptr = self.root_leaf_keys().as_ptr();
+                // SAFETY: root leaf contains valid keys array of length pop.
+                unsafe {
+                    crate::iter::RawIter::from_root_leaf_range_rev(
+                        keys_ptr,
+                        core::ptr::null(),
+                        *pop,
+                        end,
+                    )
+                }
+            }
+            // SAFETY: tree maintained by set engine per invariants.
+            Root::Tree { top, .. } => unsafe {
+                crate::iter::RawIter::from_tree_range_rev(top, end)
+            },
+        }
+    }
+
+    /// Descending (double-ended) iterator over the keys.
+    #[must_use]
+    pub fn iter_rev(&self) -> SetIterRev<'_> {
+        SetIterRev {
+            set: self,
+            raw: self.iter_rev_raw(),
+            front: None,
+            lo: 0,
+            hi: Key::MAX,
+            done: self.is_empty(),
+        }
+    }
+
+    /// Returns a descending (double-ended) iterator over keys in the inclusive
+    /// range `[start, end]`.
+    #[must_use]
+    pub fn range_rev(&self, range: core::ops::RangeInclusive<Key>) -> SetRangeRev<'_> {
+        let (start, end) = (*range.start(), *range.end());
+        let (raw, done) = if start > end {
+            (crate::iter::RawIter::new(), true)
+        } else {
+            (self.range_rev_raw(end), false)
+        };
+        SetRangeRev {
+            set: self,
+            raw,
+            front: None,
+            lo: start,
+            hi: end,
+            done,
+        }
+    }
 }
 
 /// Ascending key iterator over an [`ExpanseSet`].
+///
+/// Forward-only by design: the deterministic-Callgrind zero-regression gate
+/// (`AGENTS.md` §5) forbids adding any per-element work to this hot path, so
+/// reverse iteration lives on the dedicated [`SetIterRev`] / [`SetRangeRev`]
+/// types (`iter_rev` / `range_rev`), which are themselves double-ended.
 pub struct SetIter<'a> {
     _set: core::marker::PhantomData<&'a ExpanseSet>,
     raw: crate::iter::RawIter<false>,
@@ -731,6 +811,123 @@ impl Iterator for SetRange<'_> {
         let (k, _) = self.raw.next()?;
         if k > self.end {
             return None;
+        }
+        Some(k)
+    }
+}
+
+/// Double-ended key iterator over an [`ExpanseSet`], descending by default.
+///
+/// `next` streams descending from the largest key; `next_back` streams
+/// ascending from the smallest. The two ends share an inclusive `[lo, hi]`
+/// window so interleaved calls never cross: `next` lowers `hi`, `next_back`
+/// raises `lo`. The ascending cursor is built lazily.
+pub struct SetIterRev<'a> {
+    set: &'a ExpanseSet,
+    raw: crate::iter::RawIter<false>,
+    front: Option<crate::iter::RawIter<false>>,
+    lo: Key,
+    hi: Key,
+    done: bool,
+}
+
+impl Iterator for SetIterRev<'_> {
+    type Item = u64;
+
+    #[inline]
+    fn next(&mut self) -> Option<u64> {
+        if self.done {
+            return None;
+        }
+        let (k, _) = self.raw.next_back()?;
+        if k < self.lo {
+            self.done = true;
+            return None;
+        }
+        if k == self.lo {
+            self.done = true;
+        } else {
+            self.hi = k - 1;
+        }
+        Some(k)
+    }
+}
+
+impl DoubleEndedIterator for SetIterRev<'_> {
+    #[inline]
+    fn next_back(&mut self) -> Option<u64> {
+        if self.done {
+            return None;
+        }
+        if self.front.is_none() {
+            self.front = Some(self.set.iter_fwd_raw());
+        }
+        let (k, _) = self.front.as_mut().unwrap().next()?;
+        if k > self.hi {
+            self.done = true;
+            return None;
+        }
+        if k == self.hi {
+            self.done = true;
+        } else {
+            self.lo = k + 1;
+        }
+        Some(k)
+    }
+}
+
+/// Double-ended key iterator over a range in an [`ExpanseSet`], descending by
+/// default. See [`SetIterRev`] for the shared-window discipline.
+pub struct SetRangeRev<'a> {
+    set: &'a ExpanseSet,
+    raw: crate::iter::RawIter<false>,
+    front: Option<crate::iter::RawIter<false>>,
+    lo: Key,
+    hi: Key,
+    done: bool,
+}
+
+impl Iterator for SetRangeRev<'_> {
+    type Item = u64;
+
+    #[inline]
+    fn next(&mut self) -> Option<u64> {
+        if self.done {
+            return None;
+        }
+        let (k, _) = self.raw.next_back()?;
+        if k < self.lo {
+            self.done = true;
+            return None;
+        }
+        if k == self.lo {
+            self.done = true;
+        } else {
+            self.hi = k - 1;
+        }
+        Some(k)
+    }
+}
+
+impl DoubleEndedIterator for SetRangeRev<'_> {
+    #[inline]
+    fn next_back(&mut self) -> Option<u64> {
+        if self.done {
+            return None;
+        }
+        if self.front.is_none() {
+            // At first `next_back`, `lo` still equals the original range start.
+            self.front = Some(self.set.range_fwd_raw(self.lo));
+        }
+        let (k, _) = self.front.as_mut().unwrap().next()?;
+        if k > self.hi {
+            self.done = true;
+            return None;
+        }
+        if k == self.hi {
+            self.done = true;
+        } else {
+            self.lo = k + 1;
         }
         Some(k)
     }

@@ -1245,6 +1245,1127 @@ impl<const MAP: bool> RawIter<MAP> {
             }
         }
     }
+
+    // --- Reverse (descending) traversal ---------------------------------
+    //
+    // A `RawIter` instance is mono-directional: the reverse constructors
+    // seed the leaf cursor at the *high* end and the stack frames record the
+    // *previous* child to descend into (going down), so `next_back` streams
+    // keys in descending order exactly as `next` streams them ascending. The
+    // forward and reverse machinery never share one instance; the public
+    // double-ended wrappers hold one cursor per direction (see map.rs/set.rs).
+
+    /// Reads the little-endian `u32` subexpanse word `sub` (0..8) of a 256-bit
+    /// bitmap — the 32-digit value/child group for bitmap map-leaves.
+    #[inline(always)]
+    fn subexpanse_word(bitmap: &Bitmap256, sub: u8) -> u32 {
+        (bitmap.words[sub as usize / 2] >> ((sub as usize % 2) * 32)) as u32
+    }
+
+    /// Initializes reverse iteration from a root leaf (descending).
+    pub fn from_root_leaf_rev(keys: *const u64, values: *const u64, pop: usize) -> Self {
+        let mut iter = Self::new();
+        iter.leaf = if pop == 0 {
+            LeafCursor::Empty
+        } else {
+            LeafCursor::RootLeaf {
+                keys,
+                values,
+                pop: pop as u32,
+                idx: pop as u32,
+            }
+        };
+        iter
+    }
+
+    /// Initializes reverse iteration from a root leaf yielding keys `<= end`.
+    ///
+    /// # Safety
+    /// `keys` and `values` must point to live, initialized allocations of at least `pop` entries.
+    pub unsafe fn from_root_leaf_range_rev(
+        keys: *const u64,
+        values: *const u64,
+        pop: usize,
+        end: u64,
+    ) -> Self {
+        let mut iter = Self::new();
+        // SAFETY: root leaf contains `pop` sorted u64 keys per contract.
+        let slice = unsafe { core::slice::from_raw_parts(keys, pop) };
+        let idx = slice.partition_point(|&k| k <= end);
+        iter.leaf = if idx == 0 {
+            LeafCursor::Empty
+        } else {
+            LeafCursor::RootLeaf {
+                keys,
+                values,
+                pop: pop as u32,
+                idx: idx as u32,
+            }
+        };
+        iter
+    }
+
+    /// Initializes reverse iteration from a root edge (descending).
+    ///
+    /// # Safety
+    /// `top` must point to a live, well-formed trie edge.
+    pub unsafe fn from_tree_rev(top: &Edge) -> Self {
+        let mut iter = Self::new();
+        // SAFETY: top points to a live trie per contract.
+        unsafe {
+            iter.descend_max(top, 8, 0);
+        }
+        iter
+    }
+
+    /// Initializes reverse iteration from a root edge yielding keys `<= end`.
+    ///
+    /// # Safety
+    /// `top` must point to a live, well-formed trie edge.
+    pub unsafe fn from_tree_range_rev(top: &Edge, end: u64) -> Self {
+        let mut iter = Self::new();
+        // SAFETY: top points to a live trie per contract.
+        unsafe {
+            iter.descend_seek_back(top, 8, 0, end);
+            if matches!(iter.leaf, LeafCursor::Empty) {
+                iter.retreat_leaf();
+            }
+        }
+        iter
+    }
+
+    /// Descends from `edge` into the rightmost leaf, seeding reverse cursors.
+    ///
+    /// # Safety
+    /// `edge` must point to a live node / leaf at `level`.
+    #[inline(always)]
+    unsafe fn descend_max(&mut self, edge: &Edge, level: u8, prefix: u64) {
+        let mut cur_edge = *edge;
+        let mut cur_level = level;
+        let mut cur_prefix = prefix;
+
+        loop {
+            if cur_edge.is_null() {
+                return;
+            }
+
+            let tag = match cur_edge.tag() {
+                Some(t) => t,
+                None => return,
+            };
+
+            match tag {
+                EdgeTag::Structural(EdgeType::Null) => return,
+
+                EdgeTag::Immed(im) => {
+                    let n = im.key_count();
+                    if n == 1 {
+                        let kb = im.key_bytes() as usize;
+                        let (low, value) = if MAP {
+                            let aux = cur_edge.aux_bytes();
+                            let mut kbuf = [0u8; 8];
+                            kbuf[..kb].copy_from_slice(&aux[..kb]);
+                            (
+                                u64::from_le_bytes(kbuf),
+                                u64::from_le_bytes(cur_edge.imm_bytes()),
+                            )
+                        } else {
+                            let w0 = cur_edge.imm_bytes();
+                            let mut kbuf = [0u8; 8];
+                            kbuf[..kb].copy_from_slice(&w0[..kb]);
+                            (u64::from_le_bytes(kbuf), 0)
+                        };
+                        self.leaf = LeafCursor::ImmedSingle {
+                            key: cur_prefix | low,
+                            value,
+                            done: false,
+                        };
+                        return;
+                    }
+                    let (keys_buf, vals_buf) = if MAP {
+                        let k = crate::mutate::immed_map_keys(&cur_edge, im);
+                        let mut v = [0u64; 15];
+                        let v_ptr = cur_edge.node_ptr().cast::<u64>();
+                        for (i, val) in v.iter_mut().enumerate().take(n as usize) {
+                            // SAFETY: live value array for n entries.
+                            *val = unsafe { *v_ptr.add(i) };
+                        }
+                        (k, v)
+                    } else {
+                        (crate::mutate::immed_keys(&cur_edge, im), [0u64; 15])
+                    };
+                    let mut keys = [0u64; 15];
+                    for i in 0..n as usize {
+                        keys[i] = cur_prefix | keys_buf[i];
+                    }
+                    self.leaf = LeafCursor::ImmedMulti {
+                        keys,
+                        values: vals_buf,
+                        count: n,
+                        idx: n,
+                    };
+                    return;
+                }
+
+                EdgeTag::Structural(
+                    t @ (EdgeType::Leaf1
+                    | EdgeType::Leaf2
+                    | EdgeType::Leaf3
+                    | EdgeType::Leaf4
+                    | EdgeType::Leaf5
+                    | EdgeType::Leaf6
+                    | EdgeType::Leaf7),
+                ) => {
+                    let kb = t.leaf_key_bytes().expect("leaf tag");
+                    let pop = cur_edge.pop0(kb) as u16 + 1;
+                    let dv = if kb < cur_level {
+                        decode_value(&cur_edge, kb, cur_level)
+                    } else {
+                        0
+                    };
+                    let leaf_prefix = cur_prefix | (dv << (8 * u32::from(kb)));
+                    let base = cur_edge.node_ptr();
+                    let (keys_ptr, values_ptr): (*const u8, *const u64) = if MAP {
+                        // SAFETY: map leaf layout: values then class-sized keys.
+                        let keys = unsafe { base.add(leaf::map_keys_offset(pop as usize)) };
+                        (keys, base.cast::<u64>())
+                    } else {
+                        (base, core::ptr::null())
+                    };
+                    self.leaf = LeafCursor::Linear {
+                        keys_ptr,
+                        values_ptr,
+                        kb,
+                        pop,
+                        idx: pop,
+                        prefix: leaf_prefix,
+                    };
+                    return;
+                }
+
+                EdgeTag::Structural(EdgeType::LeafB1) => {
+                    let dv = if cur_level > 1 {
+                        decode_value(&cur_edge, 1, cur_level)
+                    } else {
+                        0
+                    };
+                    let leaf_prefix = cur_prefix | (dv << 8);
+                    if MAP {
+                        // SAFETY: live LeafBitmapL node pointer.
+                        let b = unsafe { &*cur_edge.node_ptr().cast::<LeafBitmapL>() };
+                        let sub = 7u8;
+                        let current_word = Self::subexpanse_word(&b.bitmap, sub);
+                        let rank = (current_word.count_ones() as u16).wrapping_sub(1);
+                        self.leaf = LeafCursor::BitmapMap {
+                            bitmap: b.bitmap,
+                            values: b.values,
+                            sub,
+                            current_word,
+                            rank,
+                            prefix: leaf_prefix,
+                        };
+                    } else {
+                        // SAFETY: live LeafBitmap1 node pointer.
+                        let b = unsafe { &*cur_edge.node_ptr().cast::<LeafBitmap1>() };
+                        self.leaf = LeafCursor::BitmapSet {
+                            words: b.bitmap.words,
+                            word_idx: 3,
+                            prefix: leaf_prefix,
+                        };
+                    }
+                    return;
+                }
+
+                EdgeTag::Structural(EdgeType::FullExpanse) => {
+                    let max = if cur_level == 8 {
+                        u64::MAX
+                    } else {
+                        (1u64 << (8 * u32::from(cur_level))) - 1
+                    };
+                    self.leaf = LeafCursor::FullExpanse {
+                        next_key: cur_prefix,
+                        max_key: cur_prefix | max,
+                    };
+                    return;
+                }
+
+                EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                    // SAFETY: live branch per contract.
+                    let bl = unsafe { crate::mutate::branch_form_level(&cur_edge, t, cur_level) };
+                    let dv = if bl < cur_level {
+                        decode_value(&cur_edge, bl, cur_level)
+                    } else {
+                        0
+                    };
+                    let branch_prefix = if bl < cur_level {
+                        cur_prefix | (dv << (8 * u32::from(bl)))
+                    } else {
+                        cur_prefix
+                    };
+
+                    if matches!(t, EdgeType::BranchL3) {
+                        // SAFETY: live BranchL3 pointer.
+                        let b = unsafe { &*cur_edge.node_ptr().cast::<BranchL3>() };
+                        let num = b.hdr.num;
+                        if num == 0 {
+                            return;
+                        }
+                        let slot = (num - 1) as usize;
+                        let d = b.hdr.digits[slot];
+                        let child_prefix =
+                            branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
+                        let next_child = b.edges[slot];
+
+                        self.stack[self.depth] = StackFrame {
+                            kind: BranchKind::L3 {
+                                ptr: b,
+                                num,
+                                digits: b.hdr.digits,
+                                idx: slot as u8,
+                            },
+                            level: bl,
+                            prefix: branch_prefix,
+                        };
+                        self.depth += 1;
+
+                        cur_edge = next_child;
+                        cur_level = bl - 1;
+                        cur_prefix = child_prefix;
+                    } else {
+                        // SAFETY: live BranchL7 pointer.
+                        let b = unsafe { &*cur_edge.node_ptr().cast::<BranchL7>() };
+                        let num = b.hdr.num;
+                        if num == 0 {
+                            return;
+                        }
+                        let slot = (num - 1) as usize;
+                        let d = b.hdr.digits[slot];
+                        let child_prefix =
+                            branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
+                        let next_child = b.edges[slot];
+
+                        self.stack[self.depth] = StackFrame {
+                            kind: BranchKind::L7 {
+                                ptr: b,
+                                num,
+                                digits: b.hdr.digits,
+                                idx: slot as u8,
+                            },
+                            level: bl,
+                            prefix: branch_prefix,
+                        };
+                        self.depth += 1;
+
+                        cur_edge = next_child;
+                        cur_level = bl - 1;
+                        cur_prefix = child_prefix;
+                    }
+                }
+
+                EdgeTag::Structural(EdgeType::BranchB) => {
+                    // SAFETY: live BranchB pointer.
+                    let b = unsafe { &*cur_edge.node_ptr().cast::<BranchB>() };
+                    let bl = b.level;
+                    let dv = if bl < cur_level {
+                        decode_value(&cur_edge, bl, cur_level)
+                    } else {
+                        0
+                    };
+                    let branch_prefix = if bl < cur_level {
+                        cur_prefix | (dv << (8 * u32::from(bl)))
+                    } else {
+                        cur_prefix
+                    };
+
+                    let Some(last_d) = b.bitmap.prev_set(255) else {
+                        return;
+                    };
+                    let slot = b.bitmap.subexpanse_rank(last_d) as usize;
+                    let sub = (last_d >> 5) as usize;
+                    // SAFETY: last_d is set in bitmap → subarrays[sub] is non-null.
+                    let next_child = unsafe { *b.subarrays[sub].add(slot) };
+                    let child_prefix =
+                        branch_prefix | (u64::from(last_d) << (8 * u32::from(bl - 1)));
+
+                    self.stack[self.depth] = StackFrame {
+                        kind: BranchKind::B {
+                            ptr: b,
+                            current_digit: u16::from(last_d),
+                        },
+                        level: bl,
+                        prefix: branch_prefix,
+                    };
+                    self.depth += 1;
+
+                    cur_edge = next_child;
+                    cur_level = bl - 1;
+                    cur_prefix = child_prefix;
+                }
+
+                EdgeTag::Structural(EdgeType::BranchU) => {
+                    // SAFETY: live BranchU pointer.
+                    let b = unsafe { &*cur_edge.node_ptr().cast::<BranchU>() };
+                    let bl = cur_level;
+                    let mut d = 255i32;
+                    while d >= 0 && b.edges[d as usize].is_null() {
+                        d -= 1;
+                    }
+                    if d < 0 {
+                        return;
+                    }
+                    let d = d as usize;
+                    let next_child = b.edges[d];
+                    let child_prefix = cur_prefix | (u64::from(d as u8) << (8 * u32::from(bl - 1)));
+
+                    self.stack[self.depth] = StackFrame {
+                        kind: BranchKind::U {
+                            ptr: b,
+                            current_digit: d as u16,
+                        },
+                        level: bl,
+                        prefix: cur_prefix,
+                    };
+                    self.depth += 1;
+
+                    cur_edge = next_child;
+                    cur_level = bl - 1;
+                    cur_prefix = child_prefix;
+                }
+            }
+        }
+    }
+
+    /// Descends from `edge` targeting the largest key `<= end`, seeding reverse cursors.
+    ///
+    /// # Safety
+    /// `edge` must point to a live node / leaf at `level`.
+    #[inline(always)]
+    unsafe fn descend_seek_back(&mut self, edge: &Edge, level: u8, prefix: u64, end: u64) {
+        let mut cur_edge = *edge;
+        let mut cur_level = level;
+        let mut cur_prefix = prefix;
+
+        loop {
+            if cur_edge.is_null() {
+                self.leaf = LeafCursor::Empty;
+                return;
+            }
+
+            let tag = match cur_edge.tag() {
+                Some(t) => t,
+                None => {
+                    self.leaf = LeafCursor::Empty;
+                    return;
+                }
+            };
+
+            match tag {
+                EdgeTag::Structural(EdgeType::Null) => {
+                    self.leaf = LeafCursor::Empty;
+                    return;
+                }
+
+                EdgeTag::Immed(im) => {
+                    let n = im.key_count();
+                    if n == 1 {
+                        let kb = im.key_bytes() as usize;
+                        let (low, value) = if MAP {
+                            let aux = cur_edge.aux_bytes();
+                            let mut kbuf = [0u8; 8];
+                            kbuf[..kb].copy_from_slice(&aux[..kb]);
+                            (
+                                u64::from_le_bytes(kbuf),
+                                u64::from_le_bytes(cur_edge.imm_bytes()),
+                            )
+                        } else {
+                            let w0 = cur_edge.imm_bytes();
+                            let mut kbuf = [0u8; 8];
+                            kbuf[..kb].copy_from_slice(&w0[..kb]);
+                            (u64::from_le_bytes(kbuf), 0)
+                        };
+                        let full_k = cur_prefix | low;
+                        if full_k <= end {
+                            self.leaf = LeafCursor::ImmedSingle {
+                                key: full_k,
+                                value,
+                                done: false,
+                            };
+                        } else {
+                            self.leaf = LeafCursor::Empty;
+                        }
+                        return;
+                    }
+                    let (keys_buf, vals_buf) = if MAP {
+                        let k = crate::mutate::immed_map_keys(&cur_edge, im);
+                        let mut v = [0u64; 15];
+                        let v_ptr = cur_edge.node_ptr().cast::<u64>();
+                        for (i, val) in v.iter_mut().enumerate().take(n as usize) {
+                            // SAFETY: live value array for n entries.
+                            *val = unsafe { *v_ptr.add(i) };
+                        }
+                        (k, v)
+                    } else {
+                        (crate::mutate::immed_keys(&cur_edge, im), [0u64; 15])
+                    };
+                    let mut keys = [0u64; 15];
+                    let mut cnt = 0u8;
+                    for i in 0..n as usize {
+                        let full_k = cur_prefix | keys_buf[i];
+                        keys[i] = full_k;
+                        if full_k <= end {
+                            cnt = (i + 1) as u8;
+                        }
+                    }
+                    if cnt > 0 {
+                        self.leaf = LeafCursor::ImmedMulti {
+                            keys,
+                            values: vals_buf,
+                            count: n,
+                            idx: cnt,
+                        };
+                    } else {
+                        self.leaf = LeafCursor::Empty;
+                    }
+                    return;
+                }
+
+                EdgeTag::Structural(
+                    t @ (EdgeType::Leaf1
+                    | EdgeType::Leaf2
+                    | EdgeType::Leaf3
+                    | EdgeType::Leaf4
+                    | EdgeType::Leaf5
+                    | EdgeType::Leaf6
+                    | EdgeType::Leaf7),
+                ) => {
+                    let kb = t.leaf_key_bytes().expect("leaf tag");
+                    let pop = cur_edge.pop0(kb) as u16 + 1;
+                    let dv = if kb < cur_level {
+                        decode_value(&cur_edge, kb, cur_level)
+                    } else {
+                        0
+                    };
+                    let leaf_prefix = cur_prefix | (dv << (8 * u32::from(kb)));
+                    let base = cur_edge.node_ptr();
+                    let (keys_ptr, values_ptr): (*const u8, *const u64) = if MAP {
+                        // SAFETY: map leaf layout: values then class-sized keys.
+                        let keys = unsafe { base.add(leaf::map_keys_offset(pop as usize)) };
+                        (keys, base.cast::<u64>())
+                    } else {
+                        (base, core::ptr::null())
+                    };
+
+                    let shift = 8 * u32::from(kb);
+                    let end_high = if shift >= 64 { 0 } else { end >> shift };
+                    let prefix_high = if shift >= 64 { 0 } else { leaf_prefix >> shift };
+
+                    if end_high < prefix_high {
+                        self.leaf = LeafCursor::Empty;
+                        return;
+                    }
+
+                    let idx = if end_high > prefix_high {
+                        pop
+                    } else {
+                        let end_low = crate::mutate::key_low(end, kb);
+                        // SAFETY: keys_ptr points to pop packed keys in live leaf.
+                        let cnt = unsafe {
+                            match leaf::locate(keys_ptr, pop as usize, kb, end_low) {
+                                Ok(i) => i + 1,
+                                Err(i) => i,
+                            }
+                        };
+                        if cnt == 0 {
+                            self.leaf = LeafCursor::Empty;
+                            return;
+                        }
+                        cnt as u16
+                    };
+
+                    self.leaf = LeafCursor::Linear {
+                        keys_ptr,
+                        values_ptr,
+                        kb,
+                        pop,
+                        idx,
+                        prefix: leaf_prefix,
+                    };
+                    return;
+                }
+
+                EdgeTag::Structural(EdgeType::LeafB1) => {
+                    let dv = if cur_level > 1 {
+                        decode_value(&cur_edge, 1, cur_level)
+                    } else {
+                        0
+                    };
+                    let leaf_prefix = cur_prefix | (dv << 8);
+
+                    let end_high = end >> 8;
+                    let prefix_high = leaf_prefix >> 8;
+
+                    if end_high < prefix_high {
+                        self.leaf = LeafCursor::Empty;
+                        return;
+                    }
+
+                    let target_d = if end_high > prefix_high {
+                        255u8
+                    } else {
+                        (end & 0xFF) as u8
+                    };
+
+                    if MAP {
+                        // SAFETY: live LeafBitmapL node pointer.
+                        let b = unsafe { &*cur_edge.node_ptr().cast::<LeafBitmapL>() };
+                        if let Some(last_d) = b.bitmap.prev_set(target_d) {
+                            let sub = last_d >> 5;
+                            let sub_word = Self::subexpanse_word(&b.bitmap, sub);
+                            let bit = u32::from(last_d & 31);
+                            let keep = if bit == 31 {
+                                u32::MAX
+                            } else {
+                                (1u32 << (bit + 1)) - 1
+                            };
+                            let current_word = sub_word & keep;
+                            let rank = (current_word.count_ones() as u16).wrapping_sub(1);
+                            self.leaf = LeafCursor::BitmapMap {
+                                bitmap: b.bitmap,
+                                values: b.values,
+                                sub,
+                                current_word,
+                                rank,
+                                prefix: leaf_prefix,
+                            };
+                        } else {
+                            self.leaf = LeafCursor::Empty;
+                        }
+                    } else {
+                        // SAFETY: live LeafBitmap1 node pointer.
+                        let b = unsafe { &*cur_edge.node_ptr().cast::<LeafBitmap1>() };
+                        if let Some(last_d) = b.bitmap.prev_set(target_d) {
+                            let word_idx = last_d >> 6;
+                            let mut words = b.bitmap.words;
+                            for w in words.iter_mut().skip(word_idx as usize + 1) {
+                                *w = 0;
+                            }
+                            let bit = u32::from(last_d & 63);
+                            let keep = if bit == 63 {
+                                u64::MAX
+                            } else {
+                                (1u64 << (bit + 1)) - 1
+                            };
+                            words[word_idx as usize] &= keep;
+                            self.leaf = LeafCursor::BitmapSet {
+                                words,
+                                word_idx,
+                                prefix: leaf_prefix,
+                            };
+                        } else {
+                            self.leaf = LeafCursor::Empty;
+                        }
+                    }
+                    return;
+                }
+
+                EdgeTag::Structural(EdgeType::FullExpanse) => {
+                    let max = if cur_level == 8 {
+                        u64::MAX
+                    } else {
+                        (1u64 << (8 * u32::from(cur_level))) - 1
+                    };
+                    let max_key = cur_prefix | max;
+                    if end < cur_prefix {
+                        self.leaf = LeafCursor::Empty;
+                    } else {
+                        self.leaf = LeafCursor::FullExpanse {
+                            next_key: cur_prefix,
+                            max_key: end.min(max_key),
+                        };
+                    }
+                    return;
+                }
+
+                EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                    // SAFETY: live branch per contract.
+                    let bl = unsafe { crate::mutate::branch_form_level(&cur_edge, t, cur_level) };
+                    let dv = if bl < cur_level {
+                        decode_value(&cur_edge, bl, cur_level)
+                    } else {
+                        0
+                    };
+                    let branch_prefix = if bl < cur_level {
+                        cur_prefix | (dv << (8 * u32::from(bl)))
+                    } else {
+                        cur_prefix
+                    };
+
+                    let shift = 8 * u32::from(bl);
+                    let end_high = if shift >= 64 { 0 } else { end >> shift };
+                    let prefix_high = if shift >= 64 {
+                        0
+                    } else {
+                        branch_prefix >> shift
+                    };
+
+                    if end_high < prefix_high {
+                        self.leaf = LeafCursor::Empty;
+                        return;
+                    }
+                    if end_high > prefix_high {
+                        // SAFETY: cur_edge is a live branch at cur_level.
+                        unsafe {
+                            self.descend_max(&cur_edge, cur_level, cur_prefix);
+                        }
+                        return;
+                    }
+
+                    let (num, digits, edges_ptr, ptr_raw) = if matches!(t, EdgeType::BranchL3) {
+                        // SAFETY: cur_edge is a live BranchL3 pointer.
+                        let b = unsafe { &*cur_edge.node_ptr().cast::<BranchL3>() };
+                        (
+                            b.hdr.num,
+                            b.hdr.digits,
+                            b.edges.as_ptr(),
+                            b as *const BranchL3 as *const (),
+                        )
+                    } else {
+                        // SAFETY: cur_edge is a live BranchL7 pointer.
+                        let b = unsafe { &*cur_edge.node_ptr().cast::<BranchL7>() };
+                        (
+                            b.hdr.num,
+                            b.hdr.digits,
+                            b.edges.as_ptr(),
+                            b as *const BranchL7 as *const (),
+                        )
+                    };
+
+                    if num == 0 {
+                        self.leaf = LeafCursor::Empty;
+                        return;
+                    }
+
+                    let target_d = crate::types::digit(end, bl);
+                    let bound = digits[..num as usize].partition_point(|&bd| bd <= target_d);
+                    if bound == 0 {
+                        self.leaf = LeafCursor::Empty;
+                        return;
+                    }
+                    let slot = bound - 1;
+                    let d = digits[slot];
+                    let child_prefix = branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
+                    // SAFETY: slot < num and edges_ptr has num entries.
+                    let next_child = unsafe { *edges_ptr.add(slot) };
+
+                    if matches!(t, EdgeType::BranchL3) {
+                        self.stack[self.depth] = StackFrame {
+                            kind: BranchKind::L3 {
+                                ptr: ptr_raw.cast(),
+                                num,
+                                digits,
+                                idx: slot as u8,
+                            },
+                            level: bl,
+                            prefix: branch_prefix,
+                        };
+                    } else {
+                        self.stack[self.depth] = StackFrame {
+                            kind: BranchKind::L7 {
+                                ptr: ptr_raw.cast(),
+                                num,
+                                digits,
+                                idx: slot as u8,
+                            },
+                            level: bl,
+                            prefix: branch_prefix,
+                        };
+                    }
+                    self.depth += 1;
+
+                    if d == target_d {
+                        cur_edge = next_child;
+                        cur_level = bl - 1;
+                        cur_prefix = child_prefix;
+                    } else {
+                        // First digit <= target_d is strictly less; descend rightmost.
+                        // SAFETY: next_child is a live edge at bl - 1.
+                        unsafe {
+                            self.descend_max(&next_child, bl - 1, child_prefix);
+                        }
+                        return;
+                    }
+                }
+
+                EdgeTag::Structural(EdgeType::BranchB) => {
+                    // SAFETY: live BranchB pointer.
+                    let b = unsafe { &*cur_edge.node_ptr().cast::<BranchB>() };
+                    let bl = b.level;
+                    let dv = if bl < cur_level {
+                        decode_value(&cur_edge, bl, cur_level)
+                    } else {
+                        0
+                    };
+                    let branch_prefix = if bl < cur_level {
+                        cur_prefix | (dv << (8 * u32::from(bl)))
+                    } else {
+                        cur_prefix
+                    };
+
+                    let shift = 8 * u32::from(bl);
+                    let end_high = if shift >= 64 { 0 } else { end >> shift };
+                    let prefix_high = if shift >= 64 {
+                        0
+                    } else {
+                        branch_prefix >> shift
+                    };
+
+                    if end_high < prefix_high {
+                        self.leaf = LeafCursor::Empty;
+                        return;
+                    }
+                    if end_high > prefix_high {
+                        // SAFETY: cur_edge is a live branch at cur_level.
+                        unsafe {
+                            self.descend_max(&cur_edge, cur_level, cur_prefix);
+                        }
+                        return;
+                    }
+
+                    let target_d = crate::types::digit(end, bl);
+                    let Some(last_d) = b.bitmap.prev_set(target_d) else {
+                        self.leaf = LeafCursor::Empty;
+                        return;
+                    };
+
+                    let slot = b.bitmap.subexpanse_rank(last_d) as usize;
+                    let sub = (last_d >> 5) as usize;
+                    // SAFETY: last_d is set in bitmap → subarrays[sub] is non-null.
+                    let next_child = unsafe { *b.subarrays[sub].add(slot) };
+                    let child_prefix =
+                        branch_prefix | (u64::from(last_d) << (8 * u32::from(bl - 1)));
+
+                    self.stack[self.depth] = StackFrame {
+                        kind: BranchKind::B {
+                            ptr: b,
+                            current_digit: u16::from(last_d),
+                        },
+                        level: bl,
+                        prefix: branch_prefix,
+                    };
+                    self.depth += 1;
+
+                    if last_d == target_d {
+                        cur_edge = next_child;
+                        cur_level = bl - 1;
+                        cur_prefix = child_prefix;
+                    } else {
+                        // SAFETY: next_child is a live edge at bl - 1.
+                        unsafe {
+                            self.descend_max(&next_child, bl - 1, child_prefix);
+                        }
+                        return;
+                    }
+                }
+
+                EdgeTag::Structural(EdgeType::BranchU) => {
+                    // SAFETY: live BranchU pointer.
+                    let b = unsafe { &*cur_edge.node_ptr().cast::<BranchU>() };
+                    let bl = cur_level;
+                    let shift = 8 * u32::from(bl);
+                    let end_high = if shift >= 64 { 0 } else { end >> shift };
+                    let prefix_high = if shift >= 64 { 0 } else { cur_prefix >> shift };
+
+                    if end_high < prefix_high {
+                        self.leaf = LeafCursor::Empty;
+                        return;
+                    }
+                    if end_high > prefix_high {
+                        // SAFETY: cur_edge is a live branch at cur_level.
+                        unsafe {
+                            self.descend_max(&cur_edge, cur_level, cur_prefix);
+                        }
+                        return;
+                    }
+
+                    let target_d = i32::from(crate::types::digit(end, bl));
+                    let mut d = target_d;
+                    while d >= 0 && b.edges[d as usize].is_null() {
+                        d -= 1;
+                    }
+                    if d < 0 {
+                        self.leaf = LeafCursor::Empty;
+                        return;
+                    }
+                    let d = d as usize;
+                    let next_child = b.edges[d];
+                    let child_prefix = cur_prefix | (u64::from(d as u8) << (8 * u32::from(bl - 1)));
+
+                    self.stack[self.depth] = StackFrame {
+                        kind: BranchKind::U {
+                            ptr: b,
+                            current_digit: d as u16,
+                        },
+                        level: bl,
+                        prefix: cur_prefix,
+                    };
+                    self.depth += 1;
+
+                    if d as i32 == target_d {
+                        cur_edge = next_child;
+                        cur_level = bl - 1;
+                        cur_prefix = child_prefix;
+                    } else {
+                        // SAFETY: next_child is a live edge at bl - 1.
+                        unsafe {
+                            self.descend_max(&next_child, bl - 1, child_prefix);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Retreats the iterator to the previous leaf in tree order.
+    ///
+    /// # Safety
+    /// Stack must contain valid node pointers per tree invariants.
+    #[inline(always)]
+    unsafe fn retreat_leaf(&mut self) -> bool {
+        while self.depth > 0 {
+            let top = &mut self.stack[self.depth - 1];
+            let bl = top.level;
+            let branch_prefix = top.prefix;
+
+            match &mut top.kind {
+                BranchKind::L3 {
+                    ptr,
+                    num: _,
+                    digits,
+                    idx,
+                } => {
+                    if *idx > 0 {
+                        *idx -= 1;
+                        let slot = *idx as usize;
+                        let d = digits[slot];
+                        // SAFETY: ptr is valid BranchL3 and slot < num.
+                        let child = unsafe { (*(*ptr)).edges[slot] };
+                        let child_prefix =
+                            branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
+                        // SAFETY: child is live edge at bl - 1.
+                        unsafe {
+                            self.descend_max(&child, bl - 1, child_prefix);
+                        }
+                        return true;
+                    }
+                }
+                BranchKind::L7 {
+                    ptr,
+                    num: _,
+                    digits,
+                    idx,
+                } => {
+                    if *idx > 0 {
+                        *idx -= 1;
+                        let slot = *idx as usize;
+                        let d = digits[slot];
+                        // SAFETY: ptr is valid BranchL7 and slot < num.
+                        let child = unsafe { (*(*ptr)).edges[slot] };
+                        let child_prefix =
+                            branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
+                        // SAFETY: child is live edge at bl - 1.
+                        unsafe {
+                            self.descend_max(&child, bl - 1, child_prefix);
+                        }
+                        return true;
+                    }
+                }
+                BranchKind::B { ptr, current_digit } => {
+                    if *current_digit > 0 {
+                        // SAFETY: ptr is valid BranchB.
+                        let b = unsafe { &**ptr };
+                        if let Some(prev_d) = b.bitmap.prev_set((*current_digit - 1) as u8) {
+                            *current_digit = u16::from(prev_d);
+                            let slot = b.bitmap.subexpanse_rank(prev_d) as usize;
+                            let sub = (prev_d >> 5) as usize;
+                            // SAFETY: prev_d is set in bitmap → subarrays[sub] is non-null.
+                            let child = unsafe { *b.subarrays[sub].add(slot) };
+                            let child_prefix =
+                                branch_prefix | (u64::from(prev_d) << (8 * u32::from(bl - 1)));
+                            // SAFETY: child is live edge at bl - 1.
+                            unsafe {
+                                self.descend_max(&child, bl - 1, child_prefix);
+                            }
+                            return true;
+                        }
+                    }
+                }
+                BranchKind::U { ptr, current_digit } => {
+                    // SAFETY: ptr is valid BranchU.
+                    let b = unsafe { &**ptr };
+                    while *current_digit > 0 {
+                        *current_digit -= 1;
+                        let d = *current_digit;
+                        let child = b.edges[d as usize];
+                        if !child.is_null() {
+                            let child_prefix =
+                                branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
+                            // SAFETY: child is live edge at bl - 1.
+                            unsafe {
+                                self.descend_max(&child, bl - 1, child_prefix);
+                            }
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            self.depth -= 1;
+        }
+
+        false
+    }
+
+    /// Yields the next element in descending key order.
+    #[inline(always)]
+    pub fn next_back(&mut self) -> Option<(Key, u64)> {
+        loop {
+            match &mut self.leaf {
+                LeafCursor::Empty => return None,
+
+                LeafCursor::RootLeaf {
+                    keys,
+                    values,
+                    pop: _,
+                    idx,
+                } => {
+                    if *idx > 0 {
+                        *idx -= 1;
+                        let i = *idx as usize;
+                        // SAFETY: i < pop per idx invariant.
+                        let k = unsafe { *keys.add(i) };
+                        let v = if MAP {
+                            // SAFETY: values array holds at least pop entries.
+                            unsafe { *values.add(i) }
+                        } else {
+                            0
+                        };
+                        return Some((k, v));
+                    }
+                    self.leaf = LeafCursor::Empty;
+                    return None;
+                }
+
+                LeafCursor::Linear {
+                    keys_ptr,
+                    values_ptr,
+                    kb,
+                    pop: _,
+                    idx,
+                    prefix,
+                } => {
+                    if *idx > 0 {
+                        *idx -= 1;
+                        let i = *idx as usize;
+                        // SAFETY: i < pop and keys_ptr is valid for pop packed keys.
+                        let low = unsafe { crate::mutate::read_packed(*keys_ptr, i, *kb as usize) };
+                        let v = if MAP {
+                            // SAFETY: values_ptr holds at least pop values.
+                            unsafe { *values_ptr.add(i) }
+                        } else {
+                            0
+                        };
+                        return Some((*prefix | low, v));
+                    }
+                }
+
+                LeafCursor::BitmapSet {
+                    words,
+                    word_idx,
+                    prefix,
+                } => loop {
+                    let w = words[*word_idx as usize];
+                    if w != 0 {
+                        let bit = 63 - w.leading_zeros();
+                        words[*word_idx as usize] = w & !(1u64 << bit);
+                        let d = (u64::from(*word_idx) << 6) | u64::from(bit);
+                        return Some((*prefix | d, 0));
+                    }
+                    if *word_idx == 0 {
+                        break;
+                    }
+                    *word_idx -= 1;
+                },
+
+                LeafCursor::BitmapMap {
+                    bitmap,
+                    values,
+                    sub,
+                    current_word,
+                    rank,
+                    prefix,
+                } => loop {
+                    if *current_word != 0 {
+                        let bit = 31 - current_word.leading_zeros();
+                        *current_word &= !(1u32 << bit);
+                        let d = (u64::from(*sub) << 5) | u64::from(bit);
+                        // SAFETY: bit is set in subexpanse → value array has entry at rank.
+                        let v = unsafe { *values[*sub as usize].add(*rank as usize) };
+                        *rank = rank.wrapping_sub(1);
+                        return Some((*prefix | d, v));
+                    }
+                    if *sub == 0 {
+                        break;
+                    }
+                    *sub -= 1;
+                    let sw = Self::subexpanse_word(bitmap, *sub);
+                    *current_word = sw;
+                    *rank = (sw.count_ones() as u16).wrapping_sub(1);
+                },
+
+                LeafCursor::ImmedSingle { key, value, done } => {
+                    if !*done {
+                        *done = true;
+                        return Some((*key, *value));
+                    }
+                }
+
+                LeafCursor::ImmedMulti {
+                    keys,
+                    values,
+                    count: _,
+                    idx,
+                } => {
+                    if *idx > 0 {
+                        *idx -= 1;
+                        let i = *idx as usize;
+                        return Some((keys[i], values[i]));
+                    }
+                }
+
+                LeafCursor::FullExpanse { next_key, max_key } => {
+                    if *max_key >= *next_key {
+                        let k = *max_key;
+                        if *max_key == *next_key {
+                            *next_key = 1;
+                            *max_key = 0;
+                        } else {
+                            *max_key -= 1;
+                        }
+                        return Some((k, 0));
+                    }
+                }
+            }
+
+            // Current leaf exhausted; descend to previous leaf in tree walk.
+            // SAFETY: tree invariant holds.
+            let has_more = unsafe { self.retreat_leaf() };
+            if !has_more {
+                self.leaf = LeafCursor::Empty;
+                return None;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1335,6 +2456,201 @@ mod tests {
             map.iter().eq(map_model.iter().map(|(&k, &v)| (k, v))),
             "sparse map ordered iteration"
         );
+    }
+
+    // ---- Reverse iteration differential tests -------------------------
+
+    fn seeded(seed: u64) -> impl FnMut() -> u64 {
+        let mut s = seed | 1;
+        move || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        }
+    }
+
+    fn build_pair(keys: &[u64]) -> (ExpanseSet, ExpanseMap, BTreeSet<u64>, BTreeMap<u64, u64>) {
+        let mut set = ExpanseSet::new();
+        let mut map = ExpanseMap::new();
+        let mut bset = BTreeSet::new();
+        let mut bmap = BTreeMap::new();
+        for &k in keys {
+            let v = k.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xABCD;
+            set.insert(k);
+            map.insert(k, v);
+            bset.insert(k);
+            bmap.insert(k, v);
+        }
+        (set, map, bset, bmap)
+    }
+
+    fn check_distribution(keys: &[u64]) {
+        let (set, map, bset, bmap) = build_pair(keys);
+
+        // Full reverse via iter_rev; the reverse iterator is double-ended, so
+        // `.rev()` on it recovers ascending order.
+        let desc_set: Vec<u64> = bset.iter().rev().copied().collect();
+        let asc_set: Vec<u64> = bset.iter().copied().collect();
+        assert_eq!(set.iter_rev().collect::<Vec<_>>(), desc_set, "set.iter_rev");
+        assert_eq!(
+            set.iter_rev().rev().collect::<Vec<_>>(),
+            asc_set,
+            "set.iter_rev().rev()"
+        );
+        let desc_map: Vec<(u64, u64)> = bmap.iter().rev().map(|(&k, &v)| (k, v)).collect();
+        let asc_map: Vec<(u64, u64)> = bmap.iter().map(|(&k, &v)| (k, v)).collect();
+        assert_eq!(map.iter_rev().collect::<Vec<_>>(), desc_map, "map.iter_rev");
+        assert_eq!(
+            map.iter_rev().rev().collect::<Vec<_>>(),
+            asc_map,
+            "map.iter_rev().rev()"
+        );
+
+        // Range reverse over a spread of bounds, including boundary keys.
+        let mut bounds: Vec<u64> = keys.to_vec();
+        bounds.sort_unstable();
+        bounds.dedup();
+        let probes: Vec<u64> = if bounds.is_empty() {
+            vec![0, 1, u64::MAX]
+        } else {
+            let mut p = vec![0u64, u64::MAX];
+            for i in [0, bounds.len() / 3, bounds.len() / 2, bounds.len() - 1] {
+                let b = bounds[i];
+                p.push(b.saturating_sub(1));
+                p.push(b);
+                p.push(b.saturating_add(1));
+            }
+            p
+        };
+        for &lo in &probes {
+            for &hi in &probes {
+                if lo > hi {
+                    continue;
+                }
+                let ws_desc: Vec<u64> = bset.range(lo..=hi).rev().copied().collect();
+                let ws_asc: Vec<u64> = bset.range(lo..=hi).copied().collect();
+                assert_eq!(
+                    set.range_rev(lo..=hi).collect::<Vec<_>>(),
+                    ws_desc,
+                    "set.range_rev({lo}..={hi})"
+                );
+                assert_eq!(
+                    set.range_rev(lo..=hi).rev().collect::<Vec<_>>(),
+                    ws_asc,
+                    "set.range_rev({lo}..={hi}).rev()"
+                );
+                let wm_desc: Vec<(u64, u64)> =
+                    bmap.range(lo..=hi).rev().map(|(&k, &v)| (k, v)).collect();
+                let wm_asc: Vec<(u64, u64)> = bmap.range(lo..=hi).map(|(&k, &v)| (k, v)).collect();
+                assert_eq!(
+                    map.range_rev(lo..=hi).collect::<Vec<_>>(),
+                    wm_desc,
+                    "map.range_rev({lo}..={hi})"
+                );
+                assert_eq!(
+                    map.range_rev(lo..=hi).rev().collect::<Vec<_>>(),
+                    wm_asc,
+                    "map.range_rev({lo}..={hi}).rev()"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rev_immediate_and_linear() {
+        check_distribution(&[]);
+        check_distribution(&[42]);
+        check_distribution(&[10, 20, 30]);
+        check_distribution(&(100..140).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn rev_bitmap_and_branches() {
+        let dense: Vec<u64> = (1000..2000).step_by(3).collect();
+        check_distribution(&dense);
+        let spread: Vec<u64> = vec![
+            0,
+            1,
+            255,
+            256,
+            100_000,
+            1_000_000,
+            100_000_000,
+            0x1234_5678_9ABC_DEF0,
+            u64::MAX - 1,
+            u64::MAX,
+        ];
+        check_distribution(&spread);
+    }
+
+    #[test]
+    fn rev_sparse_single_key_immediates() {
+        let keys: Vec<u64> = (0..5000u64).map(|i| i << 40).collect();
+        check_distribution(&keys);
+    }
+
+    #[test]
+    fn rev_random_distributions() {
+        for seed in [1u64, 7, 99, 12345] {
+            let mut rng = seeded(seed);
+            let keys: Vec<u64> = (0..3000).map(|_| rng()).collect();
+            check_distribution(&keys);
+            let masked: Vec<u64> = (0..3000).map(|_| rng() & 0xFFFF).collect();
+            check_distribution(&masked);
+        }
+    }
+
+    #[test]
+    fn rev_interleaved_no_cross() {
+        // DoubleEndedIterator contract on the reverse iterators: `next`
+        // descends from the top, `next_back` ascends from the bottom, and
+        // together they yield every element exactly once, ends never crossing.
+        for seed in [3u64, 42, 2024] {
+            let mut rng = seeded(seed);
+            let keys: Vec<u64> = (0..1500).map(|_| rng() & 0x3FFF).collect();
+            let (set, map, bset, bmap) = build_pair(&keys);
+
+            // Two-ended drain against an ascending model: `next` consumes the
+            // high end (`top`), `next_back` the low end (`bot`).
+            let model: Vec<u64> = bset.iter().copied().collect();
+            let mut bot = 0usize;
+            let mut top = model.len();
+            let mut it = set.iter_rev();
+            let mut take_primary = true;
+            while bot < top {
+                if take_primary {
+                    top -= 1;
+                    assert_eq!(it.next(), Some(model[top]), "primary (descending)");
+                } else {
+                    assert_eq!(it.next_back(), Some(model[bot]), "back (ascending)");
+                    bot += 1;
+                }
+                take_primary = !take_primary;
+            }
+            assert_eq!(it.next(), None, "primary exhausted");
+            assert_eq!(it.next_back(), None, "back exhausted");
+
+            // Same for a bounded range on the map.
+            let (lo, hi) = (0x0400u64, 0x3000u64);
+            let model: Vec<(u64, u64)> = bmap.range(lo..=hi).map(|(&k, &v)| (k, v)).collect();
+            let mut bot = 0usize;
+            let mut top = model.len();
+            let mut it = map.range_rev(lo..=hi);
+            let mut take_primary = true;
+            while bot < top {
+                if take_primary {
+                    top -= 1;
+                    assert_eq!(it.next(), Some(model[top]));
+                } else {
+                    assert_eq!(it.next_back(), Some(model[bot]));
+                    bot += 1;
+                }
+                take_primary = !take_primary;
+            }
+            assert_eq!(it.next(), None);
+            assert_eq!(it.next_back(), None);
+        }
     }
 
     #[test]
