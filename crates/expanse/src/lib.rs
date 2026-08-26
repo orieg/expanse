@@ -45,6 +45,8 @@ pub mod blobmap;
 #[cfg(target_pointer_width = "64")]
 pub mod bytesmap;
 #[cfg(target_pointer_width = "64")]
+pub mod cursor;
+#[cfg(target_pointer_width = "64")]
 pub mod get;
 #[cfg(target_pointer_width = "64")]
 pub mod iter;
@@ -76,6 +78,7 @@ pub mod types;
 pub mod validate;
 
 pub mod blobmap32;
+pub mod cursor32;
 pub mod map32;
 pub mod node32;
 pub mod set32;
@@ -86,6 +89,8 @@ pub mod types32;
 #[cfg(target_pointer_width = "64")]
 pub use blobmap::{BlobArena, BlobView, ExpanseBlobMap};
 #[cfg(target_pointer_width = "64")]
+pub use cursor::{MapCursor, SetCursor};
+#[cfg(target_pointer_width = "64")]
 pub use map::ExpanseMap;
 #[cfg(target_pointer_width = "64")]
 pub use set::ExpanseSet;
@@ -95,6 +100,8 @@ pub use slot::{SlotTag, ValueSlot};
 #[cfg(target_pointer_width = "32")]
 pub use blobmap32::ExpanseBlobMap32 as ExpanseBlobMap;
 #[cfg(target_pointer_width = "32")]
+pub use cursor32::{MapCursor32 as MapCursor, SetCursor32 as SetCursor};
+#[cfg(target_pointer_width = "32")]
 pub use map32::ExpanseMap32 as ExpanseMap;
 #[cfg(target_pointer_width = "32")]
 pub use set32::ExpanseSet32 as ExpanseSet;
@@ -102,6 +109,7 @@ pub use set32::ExpanseSet32 as ExpanseSet;
 pub use slot32::ValueSlot32 as ValueSlot;
 
 pub use blobmap32::{BlobMap32Error, BlobView32, ExpanseBlobMap32};
+pub use cursor32::{MapCursor32, SetCursor32};
 pub use map32::ExpanseMap32;
 pub use set32::ExpanseSet32;
 pub use slot32::{SlotTag32, ValueSlot32};

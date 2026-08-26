@@ -2366,6 +2366,332 @@ impl<const MAP: bool> RawIter<MAP> {
             }
         }
     }
+
+    // --- Stateful forward seek (advance_to cursor engine) ----------------
+    //
+    // A `RawIter` built as a *forward* cursor (`from_tree` / `from_tree_range`
+    // / `from_root_leaf*`) keeps its whole descent path — the edge stack plus a
+    // leaf position. `seek_forward` reuses that path to reposition to the next
+    // key `>= target` without re-descending from the root when it can avoid it:
+    // a target inside the current leaf is a leaf-local search, a target under a
+    // near ancestor re-descends only the levels it crosses, and only a target
+    // beyond the entire current path re-descends from the root. This is the
+    // engine behind [`crate::cursor`]; see docs/ALGORITHMS.md §3.5.
+
+    /// Repositions this **forward** cursor so the next [`next`](Self::next)
+    /// yields the smallest key `>= target`, reusing the current descent path.
+    ///
+    /// A `target` inside the current leaf is a leaf-local SIMD/SWAR search; a
+    /// `target` in a sibling or ancestor subtree re-descends only from the
+    /// deepest stack ancestor whose expanse still covers it; only a `target`
+    /// beyond the whole current path re-descends from `top`. Zero allocation.
+    ///
+    /// `top` is the trie root edge, or [`Edge::NULL`] for a flat root-leaf
+    /// cursor (which is handled entirely leaf-locally).
+    ///
+    /// **Precondition:** `target` should be strictly greater than the cursor's
+    /// current position (monotone skip-scan). A call that violates it —
+    /// `target` at or below the current key — is a **no-op**: every leaf arm
+    /// clamps to the current front rather than rewinding, so the next
+    /// [`next`](Self::next) still yields a key `>= target` and never re-yields a
+    /// consumed one.
+    ///
+    /// # Safety
+    /// The iterator must be a live forward cursor over the trie rooted at
+    /// `top` (or a root leaf) and positioned per the tree invariants.
+    #[inline]
+    pub unsafe fn seek_forward(&mut self, top: &Edge, target: u64) {
+        // Flat root-leaf cursor: no trie stack, pure leaf-local reposition.
+        if let LeafCursor::RootLeaf { keys, pop, idx, .. } = &mut self.leaf {
+            // SAFETY: root leaf holds `pop` sorted u64 keys per contract.
+            let slice = unsafe { core::slice::from_raw_parts(*keys, *pop as usize) };
+            let at = slice.partition_point(|&k| k < target);
+            if at >= *pop as usize {
+                self.leaf = LeafCursor::Empty;
+            } else if at as u32 > *idx {
+                *idx = at as u32;
+            }
+            return;
+        }
+
+        // Drained / empty cursor: nothing remains at or after `target`.
+        if matches!(self.leaf, LeafCursor::Empty) {
+            return;
+        }
+
+        // 1. Leaf-local fast path: `target` inside the current leaf's expanse.
+        // SAFETY: the current leaf cursor holds live pointers per invariants.
+        if unsafe { self.leaf_seek_forward(target) } {
+            return;
+        }
+
+        // 2. Ascend, re-descending from the deepest ancestor still covering it.
+        loop {
+            if self.depth == 0 {
+                // Whole current path exhausted for `target`: re-descend root.
+                self.leaf = LeafCursor::Empty;
+                if !top.is_null() {
+                    // SAFETY: `top` is a live trie root per contract.
+                    unsafe {
+                        self.descend_seek(top, 8, 0, target);
+                        if matches!(self.leaf, LeafCursor::Empty) {
+                            self.advance_leaf();
+                        }
+                    }
+                }
+                return;
+            }
+            let frame = self.stack[self.depth - 1];
+            let shift = 8u32 * u32::from(frame.level);
+            let covers = shift >= 64 || (target >> shift) == (frame.prefix >> shift);
+            if !covers {
+                self.depth -= 1;
+                continue;
+            }
+            // SAFETY: the covering frame holds a live branch per invariants.
+            if unsafe { self.reseek_branch(target) } {
+                return;
+            }
+            // Branch has no child `>= target`'s digit here: ascend to parent.
+            self.depth -= 1;
+        }
+    }
+
+    /// Leaf-local forward seek: if `target` lies in the current leaf's expanse
+    /// and a key `>= target` still remains in it, repositions inside the leaf
+    /// and returns `true`. Returns `false` (caller must ascend) when `target`
+    /// is beyond the leaf, leaving the cursor usable for the stack walk.
+    ///
+    /// # Safety
+    /// The current leaf cursor must hold live pointers per the tree invariants.
+    #[inline]
+    unsafe fn leaf_seek_forward(&mut self, target: u64) -> bool {
+        match &mut self.leaf {
+            LeafCursor::Empty | LeafCursor::RootLeaf { .. } => false,
+
+            LeafCursor::Linear {
+                keys_ptr,
+                kb,
+                pop,
+                idx,
+                prefix,
+                ..
+            } => {
+                let shift = 8 * u32::from(*kb);
+                let t_high = target >> shift;
+                let p_high = *prefix >> shift;
+                if t_high < p_high {
+                    // Below the leaf: the current front is already `>= target`.
+                    return true;
+                }
+                if t_high > p_high {
+                    return false;
+                }
+                let t_low = crate::mutate::key_low(target, *kb);
+                // SAFETY: `keys_ptr` addresses `pop` packed keys of width `kb`.
+                let at = unsafe {
+                    match crate::leaf::locate(*keys_ptr, *pop as usize, *kb, t_low) {
+                        Ok(i) | Err(i) => i,
+                    }
+                };
+                if at >= *pop as usize {
+                    return false;
+                }
+                if at as u16 > *idx {
+                    *idx = at as u16;
+                }
+                true
+            }
+
+            LeafCursor::BitmapSet {
+                words,
+                word_idx,
+                prefix,
+            } => {
+                let t_high = target >> 8;
+                let p_high = *prefix >> 8;
+                if t_high < p_high {
+                    return true;
+                }
+                if t_high > p_high {
+                    return false;
+                }
+                let td = (target & 0xFF) as u8;
+                let new_wi = (td >> 6) as usize;
+                for w in words.iter_mut().take(new_wi) {
+                    *w = 0;
+                }
+                words[new_wi] &= u64::MAX << (td & 63);
+                if words[new_wi..].iter().all(|&w| w == 0) {
+                    return false;
+                }
+                *word_idx = new_wi as u8;
+                true
+            }
+
+            LeafCursor::BitmapMap {
+                bitmap,
+                sub,
+                current_word,
+                rank,
+                prefix,
+                ..
+            } => {
+                let t_high = target >> 8;
+                let p_high = *prefix >> 8;
+                if t_high < p_high {
+                    return true;
+                }
+                if t_high > p_high {
+                    return false;
+                }
+                let td = (target & 0xFF) as u8;
+                let Some(fd) = bitmap.next_set(td) else {
+                    return false;
+                };
+                let new_sub = fd >> 5;
+                // Defensive rewind guard. This arm re-derives the position from
+                // the pristine `bitmap`, so a below-precondition `target` (≤ the
+                // current front) would otherwise resolve `fd` at or before where
+                // we already are and re-yield a consumed digit. The current
+                // front is `(sub << 5) | current_word.trailing_zeros()` when
+                // `current_word != 0`, else it lies in a higher sub. If `fd`
+                // would land at or before it, no-op instead of rewinding. (The
+                // other leaf arms are monotone by construction.)
+                if new_sub < *sub
+                    || (new_sub == *sub
+                        && (*current_word == 0 || (fd & 31) < current_word.trailing_zeros() as u8))
+                {
+                    return true;
+                }
+                let sub_word = Self::subexpanse_word(bitmap, new_sub);
+                *sub = new_sub;
+                *current_word = sub_word & (u32::MAX << (u32::from(fd) & 31));
+                *rank = bitmap.subexpanse_rank(fd) as u16;
+                true
+            }
+
+            LeafCursor::ImmedSingle { key, done, .. } => !*done && *key >= target,
+
+            LeafCursor::ImmedMulti {
+                keys, count, idx, ..
+            } => {
+                let mut i = *idx as usize;
+                while i < *count as usize && keys[i] < target {
+                    i += 1;
+                }
+                if i >= *count as usize {
+                    return false;
+                }
+                *idx = i as u8;
+                true
+            }
+
+            LeafCursor::FullExpanse { next_key, max_key } => {
+                if target > *max_key {
+                    return false;
+                }
+                if target > *next_key {
+                    *next_key = target;
+                }
+                true
+            }
+        }
+    }
+
+    /// Re-dispatches the top stack branch toward `target`, descending into the
+    /// first child whose digit is `>= target`'s digit at this branch level and
+    /// advancing the frame's forward cursor past it. Returns `false` when the
+    /// branch holds no such child (caller ascends); otherwise repositions the
+    /// leaf cursor — recovering the next in-order leaf when the chosen child
+    /// itself holds nothing `>= target` — and returns `true`.
+    ///
+    /// # Safety
+    /// The top stack frame must hold a live branch pointer at its level.
+    #[inline]
+    unsafe fn reseek_branch(&mut self, target: u64) -> bool {
+        let depth = self.depth;
+        let bl;
+        let branch_prefix;
+        let child;
+        let child_d;
+        {
+            let frame = &mut self.stack[depth - 1];
+            bl = frame.level;
+            branch_prefix = frame.prefix;
+            let target_d = crate::types::digit(target, bl);
+            match &mut frame.kind {
+                BranchKind::L3 {
+                    ptr,
+                    num,
+                    digits,
+                    idx,
+                } => {
+                    let n = *num as usize;
+                    let bound = digits[..n].partition_point(|&d| d < target_d);
+                    if bound >= n {
+                        return false;
+                    }
+                    *idx = (bound + 1) as u8;
+                    child_d = digits[bound];
+                    // SAFETY: `ptr` is a live BranchL3; `bound < num`.
+                    child = unsafe { (*(*ptr)).edges[bound] };
+                }
+                BranchKind::L7 {
+                    ptr,
+                    num,
+                    digits,
+                    idx,
+                } => {
+                    let n = *num as usize;
+                    let bound = digits[..n].partition_point(|&d| d < target_d);
+                    if bound >= n {
+                        return false;
+                    }
+                    *idx = (bound + 1) as u8;
+                    child_d = digits[bound];
+                    // SAFETY: `ptr` is a live BranchL7; `bound < num`.
+                    child = unsafe { (*(*ptr)).edges[bound] };
+                }
+                BranchKind::B { ptr, current_digit } => {
+                    // SAFETY: `ptr` is a live BranchB.
+                    let b = unsafe { &**ptr };
+                    let Some(d) = b.bitmap.next_set(target_d) else {
+                        return false;
+                    };
+                    *current_digit = u16::from(d) + 1;
+                    let slot = b.bitmap.subexpanse_rank(d) as usize;
+                    let sub = (d >> 5) as usize;
+                    child_d = d;
+                    // SAFETY: `d` is set → `subarrays[sub]` non-null, `slot` valid.
+                    child = unsafe { *b.subarrays[sub].add(slot) };
+                }
+                BranchKind::U { ptr, current_digit } => {
+                    // SAFETY: `ptr` is a live BranchU.
+                    let b = unsafe { &**ptr };
+                    let mut d = u16::from(target_d);
+                    while d < 256 && b.edges[d as usize].is_null() {
+                        d += 1;
+                    }
+                    if d == 256 {
+                        return false;
+                    }
+                    *current_digit = d + 1;
+                    child_d = d as u8;
+                    child = b.edges[d as usize];
+                }
+            }
+        }
+        let child_prefix = branch_prefix | (u64::from(child_d) << (8 * u32::from(bl - 1)));
+        // SAFETY: `child` is a live edge at level `bl - 1`.
+        unsafe {
+            self.descend_seek(&child, bl - 1, child_prefix, target);
+            if matches!(self.leaf, LeafCursor::Empty) {
+                self.advance_leaf();
+            }
+        }
+        true
+    }
 }
 
 #[cfg(test)]
@@ -2382,6 +2708,54 @@ mod tests {
 
         let mut empty_map_iter = RawIter::<true>::new();
         assert_eq!(empty_map_iter.next(), None);
+    }
+
+    #[test]
+    fn seek_forward_below_current_no_rewind_bitmap_map() {
+        // Exercises the BitmapMap arm's defensive rewind guard directly: a
+        // dense low-byte run under one prefix builds a bitmap map-leaf, and a
+        // `seek_forward` whose target is *below* the current front (violating
+        // the monotone precondition) must be a no-op, not a rewind.
+        use crate::map::ExpanseMap;
+        use crate::sync::RootSnapshot;
+
+        let base = 0x7700u64;
+        let mut map = ExpanseMap::new();
+        for i in 0..200u64 {
+            map.insert(base + i, i);
+        }
+        assert!(
+            map.stats().node_counts.leaf_bitmap > 0,
+            "test must exercise a bitmap map-leaf"
+        );
+
+        let (snap, _) = map.occ_root();
+        let RootSnapshot::Tree { top, .. } = snap else {
+            panic!("expected a tree root");
+        };
+        // SAFETY: `top` is the live tree root of `map`, held immutable here.
+        let mut it = unsafe { RawIter::<true>::from_tree(&top) };
+
+        // Drive into the middle of the bitmap leaf.
+        let mut last = 0u64;
+        for _ in 0..100 {
+            last = it.next().expect("element").0;
+        }
+        assert_eq!(last, base + 99);
+
+        // Below-current target in the SAME leaf expanse: must not rewind.
+        // SAFETY: `it` is a live forward cursor over `top`.
+        unsafe { it.seek_forward(&top, base + 5) };
+        let n = it.next().expect("element after seek").0;
+        assert!(
+            n > last,
+            "seek_forward with a below-current target rewound: {n:#x} <= {last:#x}"
+        );
+        assert_eq!(
+            n,
+            base + 100,
+            "no-op seek must resume at the next in-order key"
+        );
     }
 
     #[test]
