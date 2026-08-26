@@ -25,6 +25,7 @@ __pycache__/
 *.dll
 /integrations/rocksdb/build/
 /docs/benchmarks/llm_inference/benches/bench_llama_lookup
+/docs/benchmarks/llm_inference/data/*.bin
 
 # Cached hardware/ISA reference manuals (large, re-downloadable; see docs/HARDWARE.md §7)
 /docs/research/hardware/

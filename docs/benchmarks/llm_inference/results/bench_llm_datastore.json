@@ -1,0 +1,53 @@
+{
+  "100000": {
+    "expanse_strmap": {
+      "build_time_ms": 30.4,
+      "bytes_per_token": 87.0,
+      "crossover_batch_size_tokens": 42790,
+      "memory_mb": 8.3,
+      "memory_overhead_vs_sa_x": 7.2,
+      "streaming_insert_tps": 2642594.0
+    },
+    "population_tokens": 100000,
+    "suffix_array": {
+      "bytes_per_token": 12.0,
+      "memory_mb": 1.14,
+      "rebuild_time_ms": 16.2,
+      "rebuild_tps": 6175651.0
+    }
+  },
+  "1000000": {
+    "expanse_strmap": {
+      "build_time_ms": 733.3,
+      "bytes_per_token": 82.5,
+      "crossover_batch_size_tokens": 263338,
+      "memory_mb": 78.66,
+      "memory_overhead_vs_sa_x": 6.9,
+      "streaming_insert_tps": 837025.0
+    },
+    "population_tokens": 1000000,
+    "suffix_array": {
+      "bytes_per_token": 12.0,
+      "memory_mb": 11.44,
+      "rebuild_time_ms": 314.6,
+      "rebuild_tps": 3178512.0
+    }
+  },
+  "500000": {
+    "expanse_strmap": {
+      "build_time_ms": 268.4,
+      "bytes_per_token": 86.5,
+      "crossover_batch_size_tokens": 181325,
+      "memory_mb": 41.25,
+      "memory_overhead_vs_sa_x": 7.2,
+      "streaming_insert_tps": 1725378.0
+    },
+    "population_tokens": 500000,
+    "suffix_array": {
+      "bytes_per_token": 12.0,
+      "memory_mb": 5.72,
+      "rebuild_time_ms": 105.1,
+      "rebuild_tps": 4757695.0
+    }
+  }
+}

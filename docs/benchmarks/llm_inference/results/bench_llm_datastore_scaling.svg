@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 440" width="100%" height="100%">
+  <style>
+    .bg { fill: #ffffff; }
+    .text-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 700; fill: #1e293b; }
+    .text-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; fill: #64748b; }
+    .text-axis { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; fill: #475569; }
+    .text-val { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 600; fill: #1e293b; }
+    .grid-line { stroke: #e2e8f0; stroke-width: 1; stroke-dasharray: 4 4; }
+    .axis-line { stroke: #cbd5e1; stroke-width: 1.5; }
+    .bar-baseline { fill: #94a3b8; }
+    .bar-expanse { fill: #2563eb; }
+    .bar-highlight { fill: #10b981; }
+    .legend-text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; fill: #334155; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0f172a; }
+      .text-title { fill: #f8fafc; }
+      .text-sub { fill: #94a3b8; }
+      .text-axis { fill: #cbd5e1; }
+      .text-val { fill: #f1f5f9; }
+      .grid-line { stroke: #334155; }
+      .axis-line { stroke: #475569; }
+      .bar-baseline { fill: #64748b; }
+      .bar-expanse { fill: #3b82f6; }
+      .bar-highlight { fill: #34d399; }
+      .legend-text { fill: #e2e8f0; }
+    }
+  </style>
+  <rect width="800" height="440" class="bg" rx="8" />
+  <text x="40" y="40" class="text-title">Pillar B: Dynamic Datastore vs Suffix Array (Memory & Crossover)</text>
+<text x="40" y="62" class="text-sub">Expanse trades static memory for O(depth) continuous incremental insertion</text>
+<rect x="420" y="32" width="14" height="14" rx="2" class="bar-baseline" />
+<text x="440" y="44" class="legend-text">Suffix Array (Static)</text>
+<rect x="600" y="32" width="14" height="14" rx="2" class="bar-expanse" />
+<text x="620" y="44" class="legend-text">ExpanseStrMap</text>
+<text x="40" y="142" class="text-axis">100,000 Tokens</text>
+<rect x="200" y="120" width="55.2" height="20" rx="3" class="bar-baseline" />
+<text x="265.2" y="135" class="text-val">12.0 B/tok</text>
+<rect x="200" y="146" width="400.2" height="20" rx="3" class="bar-expanse" />
+<text x="610.2" y="161" class="text-val">87.0 B/tok (Crossover: B &lt; 42,790)</text>
+<text x="40" y="232" class="text-axis">1,000,000 Tokens</text>
+<rect x="200" y="210" width="55.2" height="20" rx="3" class="bar-baseline" />
+<text x="265.2" y="225" class="text-val">12.0 B/tok</text>
+<rect x="200" y="236" width="379.5" height="20" rx="3" class="bar-expanse" />
+<text x="589.5" y="251" class="text-val">82.5 B/tok (Crossover: B &lt; 263,338)</text>
+<text x="40" y="322" class="text-axis">500,000 Tokens</text>
+<rect x="200" y="300" width="55.2" height="20" rx="3" class="bar-baseline" />
+<text x="265.2" y="315" class="text-val">12.0 B/tok</text>
+<rect x="200" y="326" width="397.9" height="20" rx="3" class="bar-expanse" />
+<text x="607.9" y="341" class="text-val">86.5 B/tok (Crossover: B &lt; 181,325)</text>
+</svg>

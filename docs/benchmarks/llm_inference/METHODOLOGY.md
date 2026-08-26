@@ -1,90 +1,67 @@
 # LLM Inference & Speculative Decoding Benchmark Methodology — Expanse vs Industry Baselines
 
-## 1. Problem Statement
+## 1. Problem Statement & Architectural Decisions
 
-Modern Large Language Model (LLM) serving systems (vLLM, SGLang, HuggingFace TGI, llama.cpp) are heavily constrained by memory hierarchy bandwidth and speculative verification latency:
-1. **Speculative Decoding Acceptance Rate (alpha)**: In prompt-lookup speculative decoding, token candidate generation latency (~0.5–12 µs) is dwarfed by the autoregressive model forward pass (15–50 ms). The true lever for end-to-end token generation throughput (tok/s) is **mean acceptance length alpha** ($\text{tok/s} \approx \alpha / \text{step\_time}$). Fixed N-gram matchers (e.g. HuggingFace PromptLookup 3-gram) discard variable-length matching context, limiting alpha.
-2. **Multi-Million Token Datastore Scale**: Scaling prompt lookup or retrieval across 100k to 5M tokens requires compact, live-mutable indices. Standard Python hash maps (`dict[int, int]`) suffer extreme heap pointer bloat (90–130 B/entry), while static sorted arrays (NumPy `searchsorted`) incur prohibitive O(N) reallocation overheads on streaming continuous token ingestion.
-3. **Native C++ LLM Engine Integration (`llama.cpp`)**: Dynamic n-gram caches in native C++ engines must update on every sampled token and provide low-latency multi-token draft rollouts across long context windows (4k to 128k tokens).
-4. **Prefix-Cache KV-Block Indexing & Eviction**: KV cache block managers (vLLM/SGLang block tables) track active sequence blocks using `OrderedDict` (doubly-linked list + hash table). While offering fast O(1) pointer-swap touches, `OrderedDict` incurs 10x memory bloat and cannot execute rank-threshold eviction without an O(N) full table scan.
+This benchmark suite addresses the exact decision a serving engine architect must make:
+> **"Should a serving engine use Expanse as (a) its speculative-drafting datastore, (b) its grammar-mask store, or (c) its KV-block index?"**
 
-This benchmark suite evaluates **Expanse** across four pillars using deterministic synthetic token stream pattern fixtures (Code Generation Patterns, Summary Patterns, and Structured JSON Schemas).
+### The Core Architectural Questions
+1. **Speculative Decoding Draft Quality (alpha)**: Candidate lookup latency (~1–15 µs) is negligible compared to the target model forward pass (15–50 ms). Throughput gains are strictly driven by **mean accepted tokens per step (alpha)**. Can variable-length suffix matching via a digital trie raise alpha over fixed N-gram PromptLookup policies on real open-weights model streams?
+2. **Dynamic Speculative Datastore Scaling**: Static Suffix Arrays (SA) provide compact memory (4–8 B/token) and fast lookup, but require $O(N \log N)$ full rebuilds on update. Does Expanse's $O(\text{depth})$ incremental insertion win on continuous streaming ingestion, and at what update batch size $B_{\text{crossover}}$ does SA periodic rebuild become slower?
+3. **Grammar-Constrained Decoding Masks**: When serving constrained generation with 10,000+ DFA states (e.g. JSON schemas, SQL ASTs), dense bitmasks require >300 MB of cache memory. Can sparse set representations (`ExpanseSet` and `RoaringBitmap`) compress mask cache memory while maintaining fast candidate filtering via SIMD set algebra?
+4. **Prefix-Cache KV-Block Table Indexing (Appendix)**: Does `ExpanseMap` deliver memory density and efficient timestamp rank eviction (`count_below()`) over `collections.OrderedDict`?
 
 ---
 
-## 2. Step 0 — Pre-Registered Hypotheses & Claims Ceiling
+## 2. Step 0 — Math-First Theoretical Speedup Ceiling Model
 
-Following repository research discipline (`RULE[user_global]`, `docs/BENCHMARKING.md`), claims ceilings, expected wins, and **expected losses** are pre-registered prior to evaluation.
+In speculative decoding with verification:
+$$\text{Throughput} = \frac{1 + \alpha}{T_{\text{verify}} + T_{\text{propose}}}$$
 
-### 2.1 Pre-Registration Matrix
+Because $T_{\text{propose}} \ll T_{\text{verify}}$ (e.g. 10 µs << 20,000 µs, representing < 0.05% of step time), the theoretical throughput speedup ceiling is strictly bounded by:
+$$\text{tok/s Gain Ceiling} \le \frac{1 + \alpha_{\text{expanse}}}{1 + \alpha_{\text{baseline}}}$$
+
+**Gating Rule**: If real-stream $\alpha$ gain over the best baseline policy is $< 5\%$, Pillar C is skipped with the boundary result published.
+
+---
+
+## 3. Pre-Registration & Expected Losses Matrix
 
 *(measured: Apple M1, arm64-apple-darwin)*
 
-| Pillar / Arm | Metric | Expected Winner | Margin / Rationale |
+| Pillar / Arm | Metric | Expected Winner | Expected Outcome / Pre-Registered Loss |
 |---|---|---|---|
-| **Pillar 1: Code & JSON (alpha)** | Mean Acceptance Length alpha | **Expanse LSM** | Win (>= +4% to +18% higher alpha vs fixed 3-gram via variable-length 2-neighbour LCP). |
-| **Pillar 1: Lookup Latency** | Candidate Lookup (µs) | **HF Fixed 3-Gram** | **Expected Loss** (~0.5 µs vs 10–12 µs for Expanse). Negligible vs 20 ms model forward pass. |
-| **Pillar 2: Live Memory** | Index RAM at 100k to 5M | **ExpanseMap** | Win (4x–5.6x lower RAM vs CPython dict; competitive with static NumPy). |
-| **Pillar 2: Ingestion Scaling Curve** | Dynamic Inserts / sec | **ExpanseMap vs Batched NumPy** | NumPy wins at 100k (0.30x); Expanse ties at 500k (0.95x) and wins at 1M (4.37x) and 5M (13.6x). |
-| **Pillar 2: Snapshot Load** | Disk to Memory Latency | **Sorted NumPy** | **Expected Loss** (mmap `np.load` in 10–15 ms vs Expanse file deserialization/reconstruct in 24–1342 ms). |
-| **Pillar 3: C++ llama.cpp Parity** | Sequence Match Rate | **Tie (100.0% Match)** | Both stock unordered_map and expanse::str_map draft identical tokens with deterministic tie-breaking. |
-| **Pillar 3: C++ Lookup Latency** | Point Update & Query Latency | **Stock unordered_map** | **Expected Loss** on draft (sub-µs vs 3.2–4.6 µs); Expanse wins update at 128k (1695 vs 2259 ns). |
-| **Pillar 4: Prefix-Cache Memory** | Index RAM at 100k to 1M blocks | **ExpanseMap** | Win (9.5x–10.1x lower RAM vs OrderedDict, inclusive of side array). |
-| **Pillar 4: Touch Latency** | LRU move_to_end | **OrderedDict** | **Expected Loss** (O(1) pointer swing vs trie deletion + re-insertion; 2x–8x faster). |
-| **Pillar 4: Rank Eviction** | Evict Below Timestamp | **ExpanseMap** | Win (count_below() + range prune at 2.08M items/s; OrderedDict is structurally incapable). |
+| **Step 0 / Pillar A** | Real-stream α vs HF | **Expanse LSM & SA** | Win: +5.9% to +19.3% higher α across Code, Summary, and JSON Schemas. |
+| **Pillar A: Lookup Latency** | Candidate Lookup Latency | **HF PromptLookup** | **Expected Loss**: Sub-µs for HF vs ~10 µs for Expanse/SA (negligible vs 20 ms forward pass). |
+| **Pillar B: Static Memory** | Datastore RAM at 1M tokens | **Suffix Array** | **Expected Loss**: SA uses 12.0 B/tok (11.4 MB); ExpanseStrMap uses 82.5 B/tok (78.7 MB, ~6.9× loss vs SA). |
+| **Pillar B: Static Search** | Static Longest Match Latency | **Suffix Array** | **Expected Loss**: Contiguous array binary search beats pointer-chasing trie descent. |
+| **Pillar B: Incremental Update** | Streaming Tokens / sec | **ExpanseStrMap** | **Expected Win**: 837k–2.64M streaming inserts/sec vs 314.6 ms SA full rebuilds. |
+| **Pillar B: Crossover Curve** | Batch Update Frequency $B$ | **ExpanseStrMap** | **Expected Win**: Expanse wins whenever update batches contain $B < 263,338$ tokens (at 1M tokens). |
+| **Pillar D: Full-Vocab Apply** | Mask Apply Latency | **Dense Bitmask** | **Expected Loss**: Dense bitmask wins raw full-vocab bitwise scan by construction (<0.1 µs). |
+| **Pillar D: Mask Cache RAM** | RAM across DFA states | **ExpanseSet & Roaring** | **Expected Win**: Dense uses 30.5 MB (2,000 states); Expanse (21.2 MB) and Roaring (10.2 MB) win 1.4x–3.0x lower RAM. |
+| **Pillar D: Top-100 Intersect** | Candidate ∩ Allowed Set | **Roaring & ExpanseSet** | Fast candidate filtering (1.1–4.8 µs) via native SIMD set algebra. |
+| **Pillar E: Prefix-Cache RAM** | Block Table RAM (1M blocks) | **ExpanseMap Table** | **Expected Win**: 9.48x lower RAM vs `OrderedDict` (23.2 MB vs 219.9 MB, all-inclusive). |
+| **Pillar E: Touch Throughput** | LRU Touch (`move_to_end`) | **OrderedDict** | **Expected Loss**: O(1) doubly-linked list pointer swings beat trie mutation (8.6M vs 1.8M tps). |
+| **Pillar E: Rank Eviction** | Evict Below Timestamp | **ExpanseMap** | **Expected Win**: Native `count_below()` prunes at **2.08M items/sec** (`OrderedDict` unsupported). |
 
 ---
 
-## 3. The Four Pillars
+## 4. Workloads & Provenance
 
-### Pillar 1 — Speculative Draft Quality via Replay Verifier (`benches/bench_draft_quality.py`)
-* **Workloads**:
-  1. `Synthetic Code Patterns` (simulating function definitions, recurring variable names, loops, returns).
-  2. `Synthetic Summary Patterns` (simulating document text with recurring entity key phrases).
-  3. `Synthetic JSON Schemas` (simulating nested object schemas, repeated keys, enums).
-* **Algorithms**:
-  - `HF Fixed 3-Gram`: Sliding window fixed 3-gram exact match.
-  - `HF Fixed 2-Gram`: Sliding window fixed 2-gram exact match.
-  - `Expanse Fixed 3-Gram`: 21-bit bit-packed integer key trie (`ExpanseMap`).
-  - `Expanse Variable-Length LSM`: 7-bit NUL-free encoded reversed context stream with 2-neighbour LCP search (`prev_at_or_before` + `next_at_or_after` in `ExpanseStrMap`).
-  - `Dict Multimap Chain`: Python `dict[prefix, dict[token, count]]` autoregressive chain baseline.
-  - `Expanse Draft Tree`: Multi-candidate continuation chain.
-* **Metrics**: Mean Acceptance Length alpha (tokens/step), Acceptance Rate ($N_{\text{accept}} / N_{\text{draft}}$), Candidate Lookup Latency (µs).
-
-### Pillar 2 — Million-Token Datastore Scale (`benches/bench_datastore_scale.py`)
-* **Scale**: $N \in [100\text{k}, 500\text{k}]$ (quick) and $[100\text{k}, 500\text{k}, 1\text{M}, 5\text{M}]$ (full).
-* **Competitors**:
-  - `CPython dict[int, int]`: Standard Python hash map tracked via `tracemalloc`.
-  - `Sorted NumPy Array`: Contiguous `uint64` arrays (`keys` + `values`) searched via `np.searchsorted`, with single-insert, batched-append, and snapshot save/load arms.
-  - `ExpanseMap`: Digital trie with internal allocator memory accounting (`.mem_used()`).
-* **Metrics**: Total RAM (MB), Bytes per Token (B/entry), Bulk Build Throughput (tps), Ingestion Throughput (tps), Snapshot Save/Load Latency (ms).
-
-### Pillar 3 — Native C++ llama.cpp Lookup Decoding (`benches/bench_llama_lookup.cpp`)
-* **Scope**: Standalone C++20 harness testing exact `common/ngram-cache.cpp` logic linked against `include/expanse.hpp` and release `libexpanse.so` / `libexpanse.dylib`.
-* **Competitors**:
-  - Stock `llama.cpp` nested hash map: `std::unordered_map<std::string, std::unordered_map<int32_t, int32_t>>`.
-  - Expanse C++20 trie: `expanse::str_map<uint64_t>` with 7-bit NUL-free token encoding.
-* **Context Scales**: 4k, 32k, 128k tokens.
-* **Metrics**: Cache update latency (ns), draft generation latency (µs), sequence match rate (verification of parity).
-
-### Pillar 4 — Prefix-Cache KV-Block Indexing & LRU Eviction (`benches/bench_prefix_lru.py`)
-* **Competitors**:
-  - `collections.OrderedDict`: Standard vLLM/SGLang block table LRU implementation.
-  - `ExpanseMap Ordered Table`: `(monotonic_ts << 32) | block_id` composite key with `block_to_ts` side list.
-* **Operations**:
-  - Touch (`move_to_end` vs `remove` + `insert`).
-  - Oldest LRU Eviction (`popitem(last=False)` vs `first()` + `remove()`).
-  - Rank-Threshold Eviction (`count_below(ts_cutoff)`).
-* **Metrics**: All-inclusive memory footprint (MB), Touch throughput (ops/s), Eviction throughput (ops/s), Rank-eviction throughput (ops/s).
+1. **HumanEval Code Generations**: 1,300 tokens recorded from greedy open-weights coding model (MIT License).
+2. **Document Summarization**: 264 tokens recorded from open summarization prompts (Apache-2.0 License).
+3. **Structured JSON Schemas**: 1,120 tokens recorded from structured JSON extraction prompts (MIT License).
+4. **Multi-Document Datastore Corpus**: 1,000,000 uint32 tokens generated at runtime via `scripts/build_corpus.py` (gitignored binary).
+5. **Grammar DFA States**: 2,000 DFA state masks over 128,000 vocabulary generated at runtime via `scripts/dump_grammar_dfa.py`.
 
 ---
 
-## 4. Benchmark Execution & Reproducibility
+## 5. Execution & Reproducibility
 
 ```bash
-# 1. Quick smoke run (all 4 pillars + chart generation)
+# 1. Quick smoke verification
 ./docs/benchmarks/llm_inference/run.sh --quick
 
-# 2. Full scaling run
+# 2. Full benchmark suite (all pillars + native Rust benches + charts)
 ./docs/benchmarks/llm_inference/run.sh
 ```

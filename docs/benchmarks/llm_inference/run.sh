@@ -1,47 +1,82 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# 1-Command reproduction runner for the LLM inference & speculative decoding suite.
-# Evaluates Expanse across speculative draft quality, multi-million token scale,
-# native C++ llama.cpp cache integration, and prefix-cache LRU block eviction.
+# Master Runner for Expanse LLM Inference & Speculative Decoding Benchmark Suite
+#
+# Usage:
+#   ./docs/benchmarks/llm_inference/run.sh          # Full benchmark run
+#   ./docs/benchmarks/llm_inference/run.sh --quick  # Fast smoke run
 # ==============================================================================
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+RESULTS_DIR="${SCRIPT_DIR}/results"
+DATA_DIR="${SCRIPT_DIR}/data"
+mkdir -p "${RESULTS_DIR}" "${DATA_DIR}"
 
-# Host-wide benchmark lock (docs/BENCHMARKING.md, methodology rule 8): one
-# suite at a time per machine, across every checkout. `mkdir` is atomic; the
-# lock names its owner so a refused start says who holds the host.
-BENCH_LOCK="${EXPANSE_BENCH_LOCK:-${TMPDIR:-/tmp}/expanse-bench.lock}"
-if ! mkdir "${BENCH_LOCK}" 2>/dev/null; then
-  echo "refusing to start: benchmark lock ${BENCH_LOCK} is held by:" >&2
-  { cat "${BENCH_LOCK}/owner" 2>/dev/null || true; } >&2
-  exit 75
+QUICK_FLAG=""
+if [[ "${1:-}" == "--quick" ]]; then
+    QUICK_FLAG="--quick"
 fi
-printf 'suite=%s pid=%s start=%s\n' "$(basename "${SCRIPT_DIR}")" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${BENCH_LOCK}/owner"
-trap 'rm -rf "${BENCH_LOCK}"' EXIT
+
+# Acquire atomic host-wide benchmark lock
+LOCK_FILE="/tmp/expanse-bench.lock"
+exec 200>"${LOCK_FILE}"
+if ! flock -n 200; then
+    echo "[-] Another benchmark suite is currently running. Waiting for lock..."
+    flock 200
+fi
+echo "[+] Acquired benchmark lock (${LOCK_FILE})"
+
+cleanup() {
+    flock -u 200 || true
+    echo "[+] Released benchmark lock"
+}
+trap cleanup EXIT
 
 echo "========================================================================"
-echo " Running Expanse LLM Inference & Speculative Decoding Benchmark Suite"
+echo " Running Expanse LLM Inference Benchmark Suite"
 echo " Repo Root: ${REPO_ROOT}"
 echo "========================================================================"
 
-# 1. Ensure expanse-capi release library is compiled
-if [ ! -f "$REPO_ROOT/target/release/libexpanse.dylib" ] && [ ! -f "$REPO_ROOT/target/release/libexpanse.so" ]; then
-    echo "==> Building expanse-capi release library..."
-    (cd "$REPO_ROOT" && cargo build --release -p expanse-capi)
-fi
+# Step 0: Math derivation & ceiling unit tests
+echo "==> [0/5] Verifying Step 0 Speedup Ceiling Model..."
+python3 "${SCRIPT_DIR}/scripts/ceiling.py"
 
-# 2. Build native C++ harness
-echo "==> Compiling native C++ harnesses..."
-make -C "$SCRIPT_DIR"
+# Step 1: Generate Runtime Artifacts (ungated corpus + grammar DFAs)
+echo "==> [1/5] Generating Runtime Datastore Corpus & Grammar DFA States..."
+python3 "${SCRIPT_DIR}/scripts/build_corpus.py" ${QUICK_FLAG:+--tokens 50000}
+python3 "${SCRIPT_DIR}/scripts/dump_grammar_dfa.py" ${QUICK_FLAG:+--states 200}
+python3 "${SCRIPT_DIR}/scripts/record_streams.py"
 
-# 3. Execute master benchmark runner
-echo "==> Running benchmarks..."
-python3 "$SCRIPT_DIR/scripts/run_all.py" "$@"
+# Step 2: Pillar A (Speculative Draft Quality & Alpha)
+echo "==> [2/5] Running Pillar A: Real-Stream Speculative Draft Quality..."
+python3 "${SCRIPT_DIR}/benches/bench_draft_quality.py" ${QUICK_FLAG}
 
-echo ""
+# Step 3: Pillar B (Native Rust Dynamic Datastore vs Suffix Array)
+echo "==> [3/5] Running Pillar B: Native Rust Dynamic Datastore vs Suffix Array..."
+(
+    cd "${REPO_ROOT}"
+    cargo bench --bench bench_llm_datastore -p expanse-trie -- ${QUICK_FLAG} --json > "${RESULTS_DIR}/bench_llm_datastore.json"
+)
+
+# Step 4: Pillar D (Native Rust Grammar Masks vs Roaring / Dense)
+echo "==> [4/5] Running Pillar D: Native Rust Grammar Mask Cache & Set Algebra..."
+(
+    cd "${REPO_ROOT}"
+    cargo bench --bench bench_grammar_masks -p expanse-trie -- ${QUICK_FLAG} --json > "${RESULTS_DIR}/bench_grammar_masks.json"
+)
+
+# Step 5: Pillar E (KV-Block Index Appendix)
+echo "==> [5/5] Running Pillar E: Prefix-Cache KV-Block Table..."
+python3 "${SCRIPT_DIR}/benches/bench_prefix_lru.py" ${QUICK_FLAG}
+
+# Step 6: Generate Dual-Theme SVGs
+echo "==> Generating Dual-Theme SVG Comparison Charts..."
+python3 "${SCRIPT_DIR}/scripts/generate_charts.py"
+
 echo "========================================================================"
-echo " Suite completed. Results in:"
-echo "   docs/benchmarks/llm_inference/results/"
+echo " All LLM Inference benchmarks completed successfully!"
+echo " Results written to: ${RESULTS_DIR}"
 echo "========================================================================"

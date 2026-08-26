@@ -1,0 +1,11 @@
+{
+  "source": "Permissive Open Source Code & Text Repository Corpus",
+  "license": "MIT / Apache-2.0",
+  "vocab_size": 128000,
+  "max_token_id": 127999,
+  "seed": 424242,
+  "generator_version": "1.0.0",
+  "num_tokens": 1000000,
+  "sha256": "7e07d13b7c7d1b880820327b8b5f29e5088d448a29feb59323bf9f4a92f853a0",
+  "binary_file": "datastore_corpus.bin"
+}
