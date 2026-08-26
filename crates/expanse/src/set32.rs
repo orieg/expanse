@@ -160,6 +160,189 @@ impl ExpanseSet32 {
     pub fn mem_used(&self) -> usize {
         self.alloc.bytes_in_use()
     }
+
+    /// Smallest key `>= bound`, if any.
+    #[inline]
+    fn first_ge(&self, bound: Key32) -> Option<Key32> {
+        if bound == 0 {
+            self.first()
+        } else {
+            self.next(bound - 1)
+        }
+    }
+
+    /// Largest key `<= bound`, if any.
+    #[inline]
+    fn last_le(&self, bound: Key32) -> Option<Key32> {
+        if bound == Key32::MAX {
+            self.last()
+        } else {
+            self.prev(bound + 1)
+        }
+    }
+
+    /// Double-ended iterator over all keys in ascending order.
+    ///
+    /// Cursor-based (`first`/`next` forward, `last`/`prev` backward); the two
+    /// ends share `[lo, hi]` bounds so interleaved calls never cross.
+    #[inline]
+    #[must_use]
+    pub fn iter(&self) -> SetIter32<'_> {
+        SetIter32 {
+            set: self,
+            lo: 0,
+            hi: Key32::MAX,
+            done: self.is_empty(),
+        }
+    }
+
+    /// Double-ended iterator over keys in the inclusive range `[start, end]`.
+    #[inline]
+    #[must_use]
+    pub fn range(&self, range: core::ops::RangeInclusive<Key32>) -> SetIter32<'_> {
+        let (start, end) = (*range.start(), *range.end());
+        SetIter32 {
+            set: self,
+            lo: start,
+            hi: end,
+            done: start > end || self.is_empty(),
+        }
+    }
+
+    /// Descending iterator over all keys.
+    #[inline]
+    #[must_use]
+    pub fn iter_rev(&self) -> SetRangeRev32<'_> {
+        SetRangeRev32 {
+            set: self,
+            lo: 0,
+            hi: Key32::MAX,
+            done: self.is_empty(),
+        }
+    }
+
+    /// Descending iterator over keys in the inclusive range `[start, end]`.
+    #[inline]
+    #[must_use]
+    pub fn range_rev(&self, range: core::ops::RangeInclusive<Key32>) -> SetRangeRev32<'_> {
+        let (start, end) = (*range.start(), *range.end());
+        SetRangeRev32 {
+            set: self,
+            lo: start,
+            hi: end,
+            done: start > end || self.is_empty(),
+        }
+    }
+}
+
+/// Double-ended key iterator over an [`ExpanseSet32`] (ascending by default).
+pub struct SetIter32<'a> {
+    set: &'a ExpanseSet32,
+    lo: Key32,
+    hi: Key32,
+    done: bool,
+}
+
+impl Iterator for SetIter32<'_> {
+    type Item = Key32;
+
+    #[inline]
+    fn next(&mut self) -> Option<Key32> {
+        if self.done {
+            return None;
+        }
+        let k = self.set.first_ge(self.lo)?;
+        if k > self.hi {
+            self.done = true;
+            return None;
+        }
+        if k == self.hi {
+            self.done = true;
+        } else {
+            self.lo = k + 1;
+        }
+        Some(k)
+    }
+}
+
+impl DoubleEndedIterator for SetIter32<'_> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Key32> {
+        if self.done {
+            return None;
+        }
+        let k = self.set.last_le(self.hi)?;
+        if k < self.lo {
+            self.done = true;
+            return None;
+        }
+        if k == self.lo {
+            self.done = true;
+        } else {
+            self.hi = k - 1;
+        }
+        Some(k)
+    }
+}
+
+/// Descending key iterator over an [`ExpanseSet32`] range.
+pub struct SetRangeRev32<'a> {
+    set: &'a ExpanseSet32,
+    lo: Key32,
+    hi: Key32,
+    done: bool,
+}
+
+impl Iterator for SetRangeRev32<'_> {
+    type Item = Key32;
+
+    #[inline]
+    fn next(&mut self) -> Option<Key32> {
+        if self.done {
+            return None;
+        }
+        let k = self.set.last_le(self.hi)?;
+        if k < self.lo {
+            self.done = true;
+            return None;
+        }
+        if k == self.lo {
+            self.done = true;
+        } else {
+            self.hi = k - 1;
+        }
+        Some(k)
+    }
+}
+
+impl DoubleEndedIterator for SetRangeRev32<'_> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Key32> {
+        if self.done {
+            return None;
+        }
+        let k = self.set.first_ge(self.lo)?;
+        if k > self.hi {
+            self.done = true;
+            return None;
+        }
+        if k == self.hi {
+            self.done = true;
+        } else {
+            self.lo = k + 1;
+        }
+        Some(k)
+    }
+}
+
+impl<'a> IntoIterator for &'a ExpanseSet32 {
+    type Item = Key32;
+    type IntoIter = SetIter32<'a>;
+
+    #[inline]
+    fn into_iter(self) -> SetIter32<'a> {
+        self.iter()
+    }
 }
 
 impl Default for ExpanseSet32 {
@@ -310,6 +493,67 @@ mod tests {
         ] {
             let exp = expected.iter().filter(|&&x| x >= lo && x <= hi).count();
             assert_eq!(set.count_range(lo, hi), exp, "count_range({lo:#x},{hi:#x})");
+        }
+
+        // Iterator agreement (forward, reverse, ranges) vs BTreeSet.
+        assert_eq!(set.iter().collect::<Vec<_>>(), expected, "iter seed={seed}");
+        let rev: Vec<u32> = expected.iter().rev().copied().collect();
+        assert_eq!(
+            set.iter_rev().collect::<Vec<_>>(),
+            rev,
+            "iter_rev seed={seed}"
+        );
+        assert_eq!(
+            set.iter().rev().collect::<Vec<_>>(),
+            rev,
+            "iter().rev() seed={seed}"
+        );
+        for &(lo, hi) in &[
+            (0u32, key_mask),
+            (0, key_mask / 2),
+            (key_mask / 4, key_mask / 2),
+            (key_mask / 2, key_mask / 2),
+        ] {
+            let fwd: Vec<u32> = expected
+                .iter()
+                .copied()
+                .filter(|&x| x >= lo && x <= hi)
+                .collect();
+            let bwd: Vec<u32> = fwd.iter().rev().copied().collect();
+            assert_eq!(
+                set.range(lo..=hi).collect::<Vec<_>>(),
+                fwd,
+                "range({lo:#x},{hi:#x})"
+            );
+            assert_eq!(
+                set.range_rev(lo..=hi).collect::<Vec<_>>(),
+                bwd,
+                "range_rev({lo:#x},{hi:#x})"
+            );
+            assert_eq!(
+                set.range(lo..=hi).rev().collect::<Vec<_>>(),
+                bwd,
+                "range({lo:#x},{hi:#x}).rev()"
+            );
+        }
+        // Interleaved next()/next_back(): the two ends must never cross.
+        {
+            let mut it = set.iter();
+            let mut lo = 0usize;
+            let mut hi = expected.len();
+            let mut front = true;
+            while lo < hi {
+                if front {
+                    assert_eq!(it.next(), Some(expected[lo]), "interleave front");
+                    lo += 1;
+                } else {
+                    hi -= 1;
+                    assert_eq!(it.next_back(), Some(expected[hi]), "interleave back");
+                }
+                front = !front;
+            }
+            assert_eq!(it.next(), None);
+            assert_eq!(it.next_back(), None);
         }
 
         // Drain: every key removable once, no bytes left behind.

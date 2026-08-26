@@ -84,6 +84,44 @@ Expanse uses an adaptive least-compressed-form ladder with **1-index hysteresis*
    - If class is exceeded, allocate next class from slab allocator and realloc-insert.
    - If population exceeds leaf capacity ($\text{pop} > 25$ or $\text{pop} > 32$), upgrade to `LeafBitmap1` or cascade into a `BranchL3`.
 
+### 3.3 Ordered Iteration (`iter` / `range`, forward & reverse)
+
+Ordered iteration is a **zero-allocation stack walk** (`crate::iter::RawIter`), not a
+per-element `next_at_or_after` re-descent. A single fixed `[StackFrame; 8]` records
+the active branch on each of the ≤8 trie levels plus a `LeafCursor` streaming the
+current leaf; each key costs $O(1)$ amortized instead of $O(\text{depth})$.
+
+**Forward (`next`, ascending).** `descend`/`descend_seek` walk to the leftmost leaf
+(or the first key `≥ start`), pushing each branch frame with the *next* child to
+visit going up. `next` streams the `LeafCursor` (leaf slot `idx`, bitmap word via
+`trailing_zeros`, immediate slot); when a leaf is exhausted, `advance_leaf` pops to
+the nearest frame with a remaining higher child and re-descends leftmost.
+
+**Reverse (`next_back` / `iter_rev` / `range_rev`, descending).** The mirror image:
+`descend_max`/`descend_seek_back` walk to the *rightmost* leaf (or the largest key
+`≤ end`), pushing each branch frame with the *previous* child to visit going down
+(`prev_set` on bitmap branches, `num-1` on linear branches). `next_back` streams the
+`LeafCursor` from its high end — leaf slot `idx-1`, the bitmap's highest set bit via
+`63 - leading_zeros`, and for map bitmap leaves a within-subexpanse `rank` walked
+from `popcount-1` down — so `prev_at_or_before` semantics are **amortized across a
+leaf** rather than re-descended per element. When a leaf is exhausted, `retreat_leaf`
+pops to the nearest frame with a remaining lower child and re-descends rightmost.
+This also unlocks the `LeafCursor::ImmedSingle` fast path in reverse.
+
+**`DoubleEndedIterator`.** The zero-regression gate (`AGENTS.md` §5) forbids adding
+any per-element work to the forward `iter`/`range` `next` (a measured hot path), so
+the 64-bit `iter`/`range` iterators stay strictly forward-only and byte-identical.
+Bidirectional traversal instead lives on the dedicated reverse iterators
+`iter_rev`/`range_rev`, which **are** `DoubleEndedIterator`: `next` streams descending
+(the primary direction) and `next_back` streams ascending. The two directions run
+independent cursors (the ascending cursor is built lazily on the first `next_back`, so
+a pure-descending walk never pays for it) sharing an inclusive `[lo, hi]` window —
+`next` lowers `hi`, `next_back` raises `lo`, and each side stops once its next key
+would leave the window, so the ends never cross or double-yield. The 32-bit
+`ExpanseMap32`/`ExpanseSet32` have no measured forward-iterator baseline, so their
+`iter`/`range` are directly double-ended, cursor-based over the existing
+`first`/`next`/`last`/`prev` trie navigation with the same shared-window discipline.
+
 ---
 
 ## 4. Microarchitecture Acceleration (`x86-64-v3` vs `v1`)

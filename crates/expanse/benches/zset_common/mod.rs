@@ -225,11 +225,36 @@ impl ExpanseZSet {
         n
     }
 
-    /// `ZREVRANGEBYSCORE` (descending): descending walk via repeated
-    /// `prev_at_or_before`. There is no reverse iterator on `ExpanseMap`, so
-    /// each step is an `O(depth)` seek — the honest cost, benchmarked as such.
+    /// `ZREVRANGEBYSCORE` (descending): a single amortized descending walk via
+    /// the reverse ordered iterator (`range_rev`, #341) — `O(1)` per member
+    /// across a leaf. This is the production path; the emulated re-descent is
+    /// retained as [`Self::zrevrangebyscore_emulated`] only so the suite can
+    /// report emulated vs native vs skiplist per cell.
     #[inline]
     pub fn zrevrangebyscore<F: FnMut(u32, u32)>(&self, min: u32, max: u32, mut f: F) -> usize {
+        if min > max {
+            return 0;
+        }
+        let lo = composite(min, 0);
+        let hi = composite(max, u32::MAX);
+        let mut n = 0;
+        for (k, _) in self.order.range_rev(lo..=hi) {
+            f(comp_member(k), comp_score(k));
+            n += 1;
+        }
+        n
+    }
+
+    /// `ZREVRANGEBYSCORE` (descending), **emulated** arm: descending walk via
+    /// repeated `prev_at_or_before`, each step an `O(depth)` re-descent — the
+    /// pre-#341 cost, kept as a benchmark-only comparison arm.
+    #[inline]
+    pub fn zrevrangebyscore_emulated<F: FnMut(u32, u32)>(
+        &self,
+        min: u32,
+        max: u32,
+        mut f: F,
+    ) -> usize {
         if min > max {
             return 0;
         }
@@ -786,8 +811,11 @@ pub fn validate() {
     exp.zrevrangebyscore(lo, hi, |m, s| e.push((s, m)));
     let mut s2 = Vec::new();
     sl.zrevrangebyscore(lo, hi, |m, s| s2.push((s, m)));
-    assert_eq!(e, want_rev, "expanse zrevrangebyscore");
+    assert_eq!(e, want_rev, "expanse zrevrangebyscore (native)");
     assert_eq!(s2, want_rev, "skiplist zrevrangebyscore");
+    let mut e_emul = Vec::new();
+    exp.zrevrangebyscore_emulated(lo, hi, |m, s| e_emul.push((s, m)));
+    assert_eq!(e_emul, want_rev, "expanse zrevrangebyscore (emulated)");
 
     let want_rank: Vec<(u32, u32)> = ordered
         .iter()

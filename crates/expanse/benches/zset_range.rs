@@ -10,10 +10,12 @@
 //! * `reverse_small`  — many `ZREVRANGEBYSCORE` queries, ~64-member windows.
 //! * `reverse_large`  — few `ZREVRANGEBYSCORE` queries, ~8192-member windows.
 //!
-//! Expanse is expected to lose the reverse scenarios: it has no reverse
-//! iterator, so each descending step is an `O(depth)` `prev_at_or_before`
-//! seek, whereas the skip list's level-0 backward pointers make each step
-//! `O(1)`. Published regardless.
+//! The reverse scenarios report **two** Expanse arms per cell: the pre-#341
+//! `emulated` arm (each descending step an `O(depth)` `prev_at_or_before`
+//! re-descent) and the `native` arm (the reverse ordered iterator `range_rev`,
+//! #341 — `O(1)` amortized per member). `expanse_melem_s` and the `winner`
+//! track the native arm; `expanse_emulated_melem_s` retains the emulated
+//! baseline for the emulated / native / skiplist comparison.
 //!
 //! Measured region: only the query loop. Set construction and query streams
 //! are built in setup (rule 0).
@@ -74,8 +76,10 @@ fn main() {
     let mut exp_fl = Vec::new();
     let mut sl_fl = Vec::new();
     let mut exp_rs = Vec::new();
+    let mut exp_rs_native = Vec::new();
     let mut sl_rs = Vec::new();
     let mut exp_rl = Vec::new();
+    let mut exp_rl_native = Vec::new();
     let mut sl_rl = Vec::new();
 
     for _ in 0..rounds {
@@ -127,7 +131,19 @@ fn main() {
         };
         sl_fl.push(n as f64 / d / 1e6);
 
-        // reverse_small
+        // reverse_small (emulated arm)
+        let (n, d) = {
+            let mut cnt = 0usize;
+            let t = Instant::now();
+            for &s in &starts_small {
+                cnt += exp.zrevrangebyscore_emulated(s, s + small_w, |m, sc| {
+                    black_box((m, sc));
+                });
+            }
+            (cnt, t.elapsed().as_secs_f64())
+        };
+        exp_rs.push(n as f64 / d / 1e6);
+        // reverse_small (native arm)
         let (n, d) = {
             let mut cnt = 0usize;
             let t = Instant::now();
@@ -138,7 +154,7 @@ fn main() {
             }
             (cnt, t.elapsed().as_secs_f64())
         };
-        exp_rs.push(n as f64 / d / 1e6);
+        exp_rs_native.push(n as f64 / d / 1e6);
         let (n, d) = {
             let mut cnt = 0usize;
             let t = Instant::now();
@@ -151,7 +167,19 @@ fn main() {
         };
         sl_rs.push(n as f64 / d / 1e6);
 
-        // reverse_large
+        // reverse_large (emulated arm)
+        let (n, d) = {
+            let mut cnt = 0usize;
+            let t = Instant::now();
+            for &s in &starts_large {
+                cnt += exp.zrevrangebyscore_emulated(s, s + large_w, |m, sc| {
+                    black_box((m, sc));
+                });
+            }
+            (cnt, t.elapsed().as_secs_f64())
+        };
+        exp_rl.push(n as f64 / d / 1e6);
+        // reverse_large (native arm)
         let (n, d) = {
             let mut cnt = 0usize;
             let t = Instant::now();
@@ -162,7 +190,7 @@ fn main() {
             }
             (cnt, t.elapsed().as_secs_f64())
         };
-        exp_rl.push(n as f64 / d / 1e6);
+        exp_rl_native.push(n as f64 / d / 1e6);
         let (n, d) = {
             let mut cnt = 0usize;
             let t = Instant::now();
@@ -186,6 +214,22 @@ fn main() {
         })
     };
 
+    // Reverse cells carry emulated + native Expanse arms; the headline
+    // `expanse_melem_s` and `winner` track the native (`range_rev`) arm.
+    let scenario_rev = |exp_emul: Vec<f64>, exp_native: Vec<f64>, sl: Vec<f64>| {
+        let emul = median(exp_emul);
+        let native = median(exp_native);
+        let s = median(sl);
+        json!({
+            "expanse_melem_s": native,
+            "expanse_native_melem_s": native,
+            "expanse_emulated_melem_s": emul,
+            "skiplist_melem_s": s,
+            "native_speedup_over_emulated": if emul > 0.0 { native / emul } else { 0.0 },
+            "winner": if native >= s { "expanse" } else { "skiplist" },
+        })
+    };
+
     let results = json!({
         "population": pop,
         "rounds": rounds,
@@ -194,8 +238,8 @@ fn main() {
         "scenarios": {
             "forward_small": scenario(exp_fs, sl_fs),
             "forward_large": scenario(exp_fl, sl_fl),
-            "reverse_small": scenario(exp_rs, sl_rs),
-            "reverse_large": scenario(exp_rl, sl_rl),
+            "reverse_small": scenario_rev(exp_rs, exp_rs_native, sl_rs),
+            "reverse_large": scenario_rev(exp_rl, exp_rl_native, sl_rl),
         }
     });
 
