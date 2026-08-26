@@ -333,25 +333,25 @@ fn set32_insert() -> ExpanseSet32 {
     black_box(set)
 }
 
-#[library_benchmark]
-#[bench::can_dispatch()]
-fn map32_get() -> u64 {
+// Build in `setup` — the same isolation rule as the 64-bit cells (#375).
+// Until #375 the builds ran inside the measured region of `map32_get` and
+// `blobmap32_scan`, so those cells counted insert work under a get/scan
+// label. The first run after this change therefore shows a large one-time
+// instruction-count DROP on both cells: build work leaving the measured
+// region, not a real get/scan optimization.
+
+/// Prebuilt 32-bit map — the probe stream is regenerated in the body (it
+/// is 500 multiply-and-mask steps, negligible next to the lookups).
+fn built_map32(_dist: &str) -> ExpanseMap32 {
     let mut map = ExpanseMap32::new();
     for i in 0..500 {
         map.insert((i * 100_007) & 0x1FFF_FFFF, i);
     }
-    let mut sum = 0u64;
-    for i in 0..500 {
-        if let Some(v) = map.get(black_box((i * 100_007) & 0x1FFF_FFFF)) {
-            sum += v as u64;
-        }
-    }
-    black_box(sum)
+    map
 }
 
-#[library_benchmark]
-#[bench::ipv4_routes()]
-fn blobmap32_scan() -> usize {
+/// Prebuilt 32-bit blob map with IPv4-route-shaped keys.
+fn built_blobmap32(_dist: &str) -> ExpanseBlobMap32 {
     let mut blobmap = ExpanseBlobMap32::new();
     for i in 0..2_000 {
         let ip = (10 << 24) | ((i as Key32 / 256) << 16) | ((i as Key32 % 256) << 8);
@@ -359,6 +359,27 @@ fn blobmap32_scan() -> usize {
             .insert(ip, &[0xAA, 0xBB, 0xCC], (i % 16) as u16)
             .unwrap();
     }
+    blobmap
+}
+
+#[library_benchmark]
+#[bench::can_dispatch(args = ("can_dispatch",), setup = built_map32)]
+fn map32_get(map: ExpanseMap32) -> u64 {
+    let mut sum = 0u64;
+    for i in 0..500 {
+        if let Some(v) = map.get(black_box((i * 100_007) & 0x1FFF_FFFF)) {
+            sum += v as u64;
+        }
+    }
+    // Leaked — see `map_get`: dropping the map here would measure teardown
+    // under the lookup label.
+    core::mem::forget(map);
+    black_box(sum)
+}
+
+#[library_benchmark]
+#[bench::ipv4_routes(args = ("ipv4_routes",), setup = built_blobmap32)]
+fn blobmap32_scan(blobmap: ExpanseBlobMap32) -> usize {
     let mut count = 0;
     blobmap.scan_filtered(
         black_box(10 << 24),
@@ -366,6 +387,8 @@ fn blobmap32_scan() -> usize {
         |_k, meta| meta < 8,
         |_k, _view, _meta| count += 1,
     );
+    // Leaked — see `map_get`.
+    core::mem::forget(blobmap);
     black_box(count)
 }
 

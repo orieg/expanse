@@ -350,6 +350,19 @@ impl LatencyStats {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Workload E scan predicate — identical selectivity by construction (#375)
+// ---------------------------------------------------------------------------
+//
+// Every engine's scan arm filters entries by KEY parity: `k & 1 == 0`.
+// Keys are uniform-random u64s, so the predicate passes ~50% of scanned
+// entries, and because it depends only on the key — never on an engine's
+// value representation — the pass/fail decision is identical for the same
+// key across the ExpanseMap, ExpanseBlobMap, BTreeMap and SkipMap arms.
+// (Before #375 the ExpanseMap arm used `(v ^ k) & 1 == 0`, which passes
+// ~100% of entries because values are `k ^ const`, so that arm traversed
+// ~2x the entries per scan versus the ~50%-selective baseline arms.)
+
 /// Execution runner for `ExpanseMap`.
 pub fn run_workload_expanse_map(
     map: &mut ExpanseMap,
@@ -383,8 +396,8 @@ pub fn run_workload_expanse_map(
             YcsbOp::Scan(start_k, len) => {
                 let mut count = 0;
                 for (k, v) in map.range(start_k..=start_k.saturating_add(len as u64 * 1000)) {
-                    // Evaluate predicate filter
-                    if (v ^ k) & 1 == 0 {
+                    // Key-parity predicate (see WORKLOAD E note above).
+                    if k & 1 == 0 {
                         black_box((k, v));
                         count += 1;
                         if count >= len {
@@ -444,7 +457,8 @@ pub fn run_workload_expanse_blobmap(
                 let mut count = 0;
                 map.scan_filtered(
                     start_k..=start_k.saturating_add(len as u64 * 1000),
-                    |_k, meta| meta % 2 == 0,
+                    // Key-parity predicate (see WORKLOAD E note above).
+                    |k, _meta| k & 1 == 0,
                     |k, view, meta| {
                         black_box((k, view.len(), meta));
                         count += 1;
@@ -502,7 +516,8 @@ pub fn run_workload_btreemap(
             YcsbOp::Scan(start_k, len) => {
                 let mut count = 0;
                 for (&k, v) in map.range(start_k..=start_k.saturating_add(len as u64 * 1000)) {
-                    if (k ^ v.len() as u64) & 1 == 0 {
+                    // Key-parity predicate (see WORKLOAD E note above).
+                    if k & 1 == 0 {
                         black_box((k, v));
                         count += 1;
                         if count >= len {
@@ -528,7 +543,13 @@ pub fn run_workload_btreemap(
     }
 
     let elapsed = start_all.elapsed();
-    // BTreeMap memory estimation: ~48 bytes per node slot overhead + payload allocation
+    // ESTIMATED, not measured (#375): std `BTreeMap` exposes no allocator
+    // accounting and this harness has no allocator hook on external crates,
+    // so this is a hand model — ~48 B amortized per-entry node overhead
+    // (B-tree node headers, key + value slots, typical fill factor) plus
+    // the boxed payload allocation plus ~16 B `Box`/allocator rounding.
+    // The latency report marks these figures with a `*` (est.); the
+    // Expanse arms report measured `mem_used()` figures.
     let entry_overhead = 48 + payload.len() + 16;
     let mem = map.len() * entry_overhead;
     (LatencyStats::compute(latencies, elapsed), mem)
@@ -570,7 +591,8 @@ pub fn run_workload_skipmap(
                 for entry in map.range(start_k..=start_k.saturating_add(len as u64 * 1000)) {
                     let k: u64 = *entry.key();
                     let v: &[u8] = entry.value();
-                    if (k ^ v.len() as u64) & 1 == 0 {
+                    // Key-parity predicate (see WORKLOAD E note above).
+                    if k & 1 == 0 {
                         black_box((k, v));
                         count += 1;
                         if count >= len {
@@ -598,7 +620,13 @@ pub fn run_workload_skipmap(
     }
 
     let elapsed = start_all.elapsed();
-    // SkipMap memory estimation: ~64 bytes per tower node + payload allocation
+    // ESTIMATED, not measured (#375): `crossbeam_skiplist` exposes no
+    // allocator accounting and this harness has no allocator hook on
+    // external crates, so this is a hand model — ~64 B amortized per
+    // tower node (entry header + expected level pointers) plus the boxed
+    // payload allocation plus ~16 B `Box`/allocator rounding. The latency
+    // report marks these figures with a `*` (est.); the Expanse arms
+    // report measured `mem_used()` figures.
     let entry_overhead = 64 + payload.len() + 16;
     let mem = map.len() * entry_overhead;
     (LatencyStats::compute(latencies, elapsed), mem)
@@ -778,23 +806,14 @@ fn bench_ycsb_workloads(c: &mut Criterion) {
     }
 }
 
-fn bench_ycsb_concurrency(c: &mut Criterion) {
-    let mut group = c.benchmark_group("ycsb_concurrent_scaling");
-    for &threads in &[1, 2, 4, 8] {
-        group.bench_function(
-            BenchmarkId::new("SyncExpanseMap_WorkloadB", format!("{threads}_threads")),
-            |b| {
-                b.iter(|| {
-                    let res = run_concurrent_ycsb(threads, Workload::B, Duration::from_millis(50));
-                    black_box(res);
-                });
-            },
-        );
-    }
-    group.finish();
-}
-
-criterion_group!(benches, bench_ycsb_workloads, bench_ycsb_concurrency);
+// The former `bench_ycsb_concurrency` criterion group was removed (#375):
+// it timed a closure containing the 100k-key build, the thread spawns and a
+// fixed 50 ms sleep, so the reported time was ~constant regardless of thread
+// count and the measured throughput was discarded. Thread-scaling throughput
+// for the sync structures is owned by the `/benchmark concurrency` suite
+// (`benches/concurrency.rs` + `scripts/bench_concurrency_check.py`, #368).
+// `run_concurrent_ycsb` itself stays: `tests/test_ycsb.rs` exercises it.
+criterion_group!(benches, bench_ycsb_workloads);
 
 // ---------------------------------------------------------------------------
 // Latency-report mode (opt-in via `YCSB_LATENCY_REPORT=1`)
@@ -842,12 +861,24 @@ fn timer_bracket_overhead_ns() -> f64 {
     t_all.elapsed().as_nanos() as f64 / n as f64
 }
 
-/// Prints one formatted engine row of the latency report.
-fn emit_latency_row(wl: Workload, engine: &str, thr_mops: f64, s: &LatencyStats, mem: usize) {
+/// Prints one formatted engine row of the latency report. `mem_estimated`
+/// marks the memory columns with `*`: baseline engines (BTreeMap, SkipMap)
+/// have no allocator accounting, so their figures are hand-modeled per-node
+/// constants (see `run_workload_btreemap` / `run_workload_skipmap`), not
+/// measured like the Expanse `mem_used()` columns.
+fn emit_latency_row(
+    wl: Workload,
+    engine: &str,
+    thr_mops: f64,
+    s: &LatencyStats,
+    mem: usize,
+    mem_estimated: bool,
+) {
     let mem_mb = mem as f64 / (1024.0 * 1024.0);
     let bytes_per_key = mem as f64 / POPULATION_N as f64;
+    let marker = if mem_estimated { "*" } else { "" };
     println!(
-        "{:<11} {:<24} {:>9.2} {:>7} {:>7} {:>7} {:>7} {:>8} {:>8.2} {:>8.1}",
+        "{:<11} {:<24} {:>9.2} {:>7} {:>7} {:>7} {:>7} {:>8} {:>9} {:>9}",
         wl.tag(),
         engine,
         thr_mops,
@@ -856,8 +887,8 @@ fn emit_latency_row(wl: Workload, engine: &str, thr_mops: f64, s: &LatencyStats,
         s.p95_ns,
         s.p99_ns,
         s.p999_ns,
-        mem_mb,
-        bytes_per_key,
+        format!("{mem_mb:.2}{marker}"),
+        format!("{bytes_per_key:.1}{marker}"),
     );
 }
 
@@ -887,7 +918,10 @@ fn run_latency_report() {
     );
     println!("# latency columns are nanoseconds; thrpt is the untimed-pass cross-check (Mops/s)");
     println!(
-        "{:<11} {:<24} {:>9} {:>7} {:>7} {:>7} {:>7} {:>8} {:>8} {:>8}",
+        "# mem_MB/B-key marked * are ESTIMATES (hand-modeled ~48 B/node BTreeMap, ~64 B/node SkipMap + payload; no allocator hook on external crates) — unmarked Expanse rows are measured via mem_used()"
+    );
+    println!(
+        "{:<11} {:<24} {:>9} {:>7} {:>7} {:>7} {:>7} {:>8} {:>9} {:>9}",
         "workload", "engine", "thrpt", "p50", "p90", "p95", "p99", "p99.9", "mem_MB", "B/key"
     );
 
@@ -913,7 +947,14 @@ fn run_latency_report() {
             }
             let mut m = build();
             let (s, mem) = run_workload_expanse_map(&mut m, &lat_ops, true);
-            emit_latency_row(wl, "ExpanseMap (u64)", median_f64(&mut mops), &s, mem);
+            emit_latency_row(
+                wl,
+                "ExpanseMap (u64)",
+                median_f64(&mut mops),
+                &s,
+                mem,
+                false,
+            );
         }
 
         // 2. ExpanseBlobMap (128B)
@@ -934,7 +975,14 @@ fn run_latency_report() {
             }
             let mut m = build();
             let (s, mem) = run_workload_expanse_blobmap(&mut m, &lat_ops, &payload, true);
-            emit_latency_row(wl, "ExpanseBlobMap (128B)", median_f64(&mut mops), &s, mem);
+            emit_latency_row(
+                wl,
+                "ExpanseBlobMap (128B)",
+                median_f64(&mut mops),
+                &s,
+                mem,
+                false,
+            );
         }
 
         // 3. std::collections::BTreeMap (128B)
@@ -955,7 +1003,7 @@ fn run_latency_report() {
             }
             let mut m = build();
             let (s, mem) = run_workload_btreemap(&mut m, &lat_ops, &payload, true);
-            emit_latency_row(wl, "BTreeMap (128B)", median_f64(&mut mops), &s, mem);
+            emit_latency_row(wl, "BTreeMap (128B)", median_f64(&mut mops), &s, mem, true);
         }
 
         // 4. crossbeam_skiplist::SkipMap (RocksDB MemTable model, 128B)
@@ -976,7 +1024,7 @@ fn run_latency_report() {
             }
             let m = build();
             let (s, mem) = run_workload_skipmap(&m, &lat_ops, &payload, true);
-            emit_latency_row(wl, "SkipMap (128B)", median_f64(&mut mops), &s, mem);
+            emit_latency_row(wl, "SkipMap (128B)", median_f64(&mut mops), &s, mem, true);
         }
     }
 }

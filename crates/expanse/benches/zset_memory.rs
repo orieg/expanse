@@ -14,6 +14,12 @@
 //! skip list's per-node allocator overhead; and members are `u32` inline rather
 //! than Redis's heap `sds` strings. Both choices make the baseline conservative
 //! — a memory win for Expanse here is a floor, not a ceiling.
+//!
+//! One caveat cuts the other way: live-byte accounting records requested
+//! allocation sizes, so `Vec`-backed pieces (the skip-list node arena, the
+//! hashbrown table) include capacity overshoot from doubling/power-of-two
+//! growth — up to ~2x live data — which *inflates* the baseline's
+//! bytes/member relative to Expanse's exactly-sized node allocations.
 
 #[path = "zset_common/mod.rs"]
 mod zset_common;
