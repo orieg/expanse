@@ -15,9 +15,8 @@ The pipeline is **anchor-first** (#313): the **GitHub Release is the canonical a
 
 ```mermaid
 graph TD
-    A[1. Synchronize Versions via scripts/bump_version.py] --> B[2. Update CHANGELOG.md]
-    B --> C[3. Commit & Create Git Tag 'vX.Y.Z']
-    C --> D[4. Push Tag to GitHub: git push origin vX.Y.Z]
+    A[1. Synchronize Versions via scripts/bump_version.py] --> C[2. Commit & Create Git Tag 'vX.Y.Z']
+    C --> D[3. Push Tag to GitHub: git push origin vX.Y.Z]
     D --> E[Phase 1: release-gate - polls CI Gate rollup + version lockstep]
 
     E --> F[build-release-artifacts: multi-arch C ABI + .deb/.rpm]
@@ -42,8 +41,8 @@ graph TD
 1. **Multi-Ecosystem Version Bump**:
    - Run `python3 scripts/bump_version.py <NEW_VERSION>` to synchronize version numbers across all 10 manifests (`Cargo.toml`, `pyproject.toml`, `package.json`, `.csproj`, `pom.xml`, `build.gradle`, etc.) and regenerate `Cargo.lock`.
    - Verify lockstep sync: `python3 scripts/bump_version.py --check`.
-2. **Changelog & Documentation**:
-   - Record release highlights, performance deltas, and bug fixes in `CHANGELOG.md`.
+2. **Release Notes** (automatic — no CHANGELOG file is maintained):
+   - The GitHub Release generates its notes from merged PR titles, grouped by the label categories in [`.github/release.yml`](../.github/release.yml). Conventional-commit PR titles keep them readable; label PRs (`enhancement`, `bug`, `performance`, `documentation`, `ci`, …) for correct grouping.
 3. **Commit & Tag**:
    ```bash
    git commit -am "chore(release): prepare v0.4.0"
