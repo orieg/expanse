@@ -97,7 +97,7 @@
   <rect x="250" y="108" width="37.1" height="13" rx="2" class="b-baseline"/>
   <text x="295.1" y="118" class="t-val-gray">12.0 B/tok</text>
   <rect x="760" y="98" width="170" height="18" rx="3" class="badge-win"/>
-  <text x="845" y="111" class="badge-win-text">Expanse Win: B &lt; 42,790</text>
+  <text x="845" y="111" class="badge-win-text">Expanse Win: B &lt; 12,479</text>
   <text x="30" y="160" class="t-bar-label">500k Tokens</text>
   <text x="30" y="174" class="t-sub">Incremental update vs periodic rebuild</text>
   <rect x="250" y="148" width="267.4" height="13" rx="2" class="b-expanse"/>
@@ -105,7 +105,7 @@
   <rect x="250" y="164" width="37.1" height="13" rx="2" class="b-baseline"/>
   <text x="295.1" y="174" class="t-val-gray">12.0 B/tok</text>
   <rect x="760" y="154" width="170" height="18" rx="3" class="badge-win"/>
-  <text x="845" y="167" class="badge-win-text">Expanse Win: B &lt; 181,325</text>
+  <text x="845" y="167" class="badge-win-text">Expanse Win: B &lt; 176,582</text>
   <text x="30" y="216" class="t-bar-label">1M Tokens</text>
   <text x="30" y="230" class="t-sub">Incremental update vs periodic rebuild</text>
   <rect x="250" y="204" width="255.0" height="13" rx="2" class="b-expanse"/>
@@ -113,5 +113,5 @@
   <rect x="250" y="220" width="37.1" height="13" rx="2" class="b-baseline"/>
   <text x="295.1" y="230" class="t-val-gray">12.0 B/tok</text>
   <rect x="760" y="210" width="170" height="18" rx="3" class="badge-win"/>
-  <text x="845" y="223" class="badge-win-text">Expanse Win: B &lt; 263,338</text>
+  <text x="845" y="223" class="badge-win-text">Expanse Win: B &lt; 177,232</text>
 </svg>

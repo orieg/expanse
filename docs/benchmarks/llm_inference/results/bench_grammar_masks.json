@@ -1,8 +1,8 @@
 {
   "latency_summary": {
     "dense_full_vocab_apply_us": 0.0,
-    "expanse_topk_intersection_ns": 4833.3,
-    "roaring_topk_intersection_ns": 1127.9
+    "expanse_topk_intersection_ns": 3167.9,
+    "roaring_topk_intersection_ns": 678.8
   },
   "memory_summary": {
     "dense_bitmask_mb": 30.52,

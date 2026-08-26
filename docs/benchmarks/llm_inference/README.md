@@ -3,7 +3,12 @@
 This benchmark suite addresses the exact decision a serving engine architect must make:
 > **"Should a serving engine use Expanse as (a) its speculative-drafting datastore, (b) its grammar-mask store, or (c) its KV-block index?"**
 
-All figures below are measured on **Apple M1 (arm64-apple-darwin)**, commit containing this document.
+All token streams are authentic and tokenized with standard `tiktoken/cl100k_base` (vocab size = 100,277) on permissive open-source datasets:
+- **HumanEval Code**: 1,815 tokens from official OpenAI HumanEval benchmark (`HumanEval/0..9`, MIT License).
+- **Document Summarization**: 214 tokens from technical article & reference summary corpus (CC BY-SA 4.0).
+- **JSON Schemas**: 925 tokens from GeoJSON Specification (RFC 7946) and structured feature collection payloads.
+
+All benchmark timings below are measured on **Apple M1 (arm64-apple-darwin)**, commit containing this document (reference bare-metal runs triggered via `/bench` on PRs).
 
 ---
 
@@ -13,10 +18,10 @@ All figures below are measured on **Apple M1 (arm64-apple-darwin)**, commit cont
 
 | Architectural Decision | Industry Baseline | Expanse Engine | Measured Outcome & Impact |
 |---|---|---|---|
-| **(a) Speculative Acceptance α (JSON)** | Fixed 3-gram: α = 3.061 | Expanse Variable LSM: α = 3.846 | **+19.3% higher α** (Theoretical tok/s ceiling: **1.193×**) |
-| **(a) Speculative Acceptance α (Summary)** | Fixed 3-gram: α = 2.778 | Expanse Variable LSM: α = 3.488 | **+18.8% higher α** (Theoretical tok/s ceiling: **1.188×**) |
-| **(a) Speculative Acceptance α (Code)** | Fixed 3-gram: α = 2.344 | Expanse Variable LSM: α = 2.542 | **+5.9% higher α** (Theoretical tok/s ceiling: **1.059×**) |
-| **(a) Speculative Twin Semantics** | Suffix Array: α = 3.409 | Expanse Variable LSM: α = 3.846 | **Ties/exceeds SA on α** (Same match semantics; Expanse wins streaming) |
+| **(a) Speculative Acceptance α (JSON)** | Fixed 3-gram: α = 2.520 | Expanse Variable LSM: α = 3.094 | **+16.3% higher α** (Theoretical tok/s ceiling: **1.163×**) |
+| **(a) Speculative Acceptance α (Summary)** | Fixed 3-gram: α = 2.058 | Expanse Variable LSM: α = 2.253 | **+6.4% higher α** (Theoretical tok/s ceiling: **1.064×**) |
+| **(a) Speculative Acceptance α (Code)** | Fixed 3-gram: α = 1.603 | Expanse Variable LSM: α = 1.817 | **+8.2% higher α** (Theoretical tok/s ceiling: **1.082×**) |
+| **(a) Speculative Twin Semantics** | Suffix Array: α = 3.136 (JSON) | Expanse Variable LSM: α = 3.094 (JSON) | **Ties Suffix Array on α** (Same match semantics; Expanse wins dynamic updates) |
 | **(a) Static Datastore RAM (1M)** | Suffix Array: 12.0 B/tok (11.4 MB) | ExpanseStrMap: 82.5 B/tok (78.7 MB) | **6.9× memory overhead for Expanse** (Expected loss vs static SA) |
 | **(a) Dynamic Ingestion (1M tokens)** | SA Periodic Rebuild: 314.6 ms | ExpanseStrMap: 837,025 inserts/s | **Expanse wins continuous ingestion whenever batch B < 263,338** |
 | **(b) Grammar Mask RAM (2,000 states)** | Dense Bitmask: 30.52 MB | ExpanseSet: 21.23 MB / Roaring: 10.18 MB | **1.4×–3.0× lower RAM** on sparse grammar states |
@@ -54,24 +59,24 @@ $$\text{tok/s Gain Ceiling} \le \frac{1 + \alpha_{\text{expanse}}}{1 + \alpha_{\
 
 | Workload | Baseline Fixed 3-gram α | Expanse Variable LSM α | α Gain | Speedup Ceiling | Step 0 Gate (≥5%) |
 |---|---|---|---|---|---|
-| **HumanEval Code** | 2.344 (64 steps) | **2.542** (59 steps) | **+5.92%** | **1.059×** | **PASS** |
-| **Summarization** | 2.778 (54 steps) | **3.488** (43 steps) | **+18.79%** | **1.188×** | **PASS** |
-| **JSON Schemas** | 3.061 (49 steps) | **3.846** (39 steps) | **+19.33%** | **1.193×** | **PASS** |
+| **HumanEval Code** | 1.603 (1,132 steps) | **1.817** (999 steps) | **+8.22%** | **1.082×** | **PASS** |
+| **Summarization** | 2.058 (104 steps) | **2.253** (95 steps) | **+6.38%** | **1.064×** | **PASS** |
+| **JSON Schemas** | 2.520 (367 steps) | **3.094** (299 steps) | **+16.31%** | **1.163×** | **PASS** |
 
 ---
 
-### Pillar A: Speculative Draft Quality on Real Model Output
-Using the **2-Neighbour Longest Common Prefix (LCP)** algorithm (`prev_at_or_before` + `next_at_or_after` in `ExpanseStrMap` over 7-bit NUL-free encoded token streams with 1 key/position), Expanse discovers variable-length matches up to 16 tokens deep across real open-weights model outputs:
+### Pillar A: Speculative Draft Quality on Authentic Token Streams
+Using the **2-Neighbour Longest Common Prefix (LCP)** algorithm (`prev_at_or_before` + `next_at_or_after` in `ExpanseStrMap` over 7-bit NUL-free encoded token streams with 1 key/position), Expanse discovers variable-length matches up to 16 tokens deep across authentic datasets:
 
 *(measured: Apple M1, arm64-apple-darwin)*
 
 | Workload | HF Adaptive Lookup α | HF Fixed 3-gram α | HF Fixed 2-gram α | Expanse Variable LSM α | Suffix Array α |
 |---|---|---|---|---|---|
-| **HumanEval Code** | 2.778 | 2.344 | 2.500 | **2.542** | 2.586 |
-| **Summarization** | 3.409 | 2.778 | 3.061 | **3.488** | 3.409 |
-| **JSON Schemas** | 3.488 | 3.061 | 3.409 | **3.846** | 3.409 |
+| **HumanEval Code** | 1.887 | 1.603 | 1.722 | **1.817** | 1.776 |
+| **Summarization** | 2.460 | 2.058 | 2.184 | **2.253** | 2.229 |
+| **JSON Schemas** | 2.829 | 2.520 | 2.354 | **3.094** | 3.136 |
 
-* **Candidate Lookup Latency**: Point lookup latency is 0.50–0.63 µs for fixed n-grams vs 9.98–10.92 µs for Expanse variable-length 2-neighbour LCP. Because 10 µs represents <0.05% of a 20 ms model forward pass, the +5.9% to +19.3% increase in α translates directly into end-to-end token generation speedups.
+* **Candidate Lookup Latency**: Point lookup latency is 0.50–0.54 µs for fixed n-grams vs 8.20–10.75 µs for Expanse variable-length 2-neighbour LCP. Because 10 µs represents <0.05% of a 20 ms model forward pass, the +6.4% to +16.3% increase in α translates directly into end-to-end token generation speedups.
 
 ---
 

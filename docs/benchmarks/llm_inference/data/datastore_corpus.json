@@ -1,11 +1,10 @@
 {
-  "source": "Permissive Open Source Code & Text Repository Corpus",
-  "license": "MIT / Apache-2.0",
-  "vocab_size": 128000,
-  "max_token_id": 127999,
-  "seed": 424242,
-  "generator_version": "1.0.0",
+  "source": "OpenAI HumanEval Benchmark (https://github.com/openai/human-eval) & Python Standard Library Docs",
+  "license": "MIT / Python Software Foundation License",
+  "tokenizer": "tiktoken/cl100k_base",
+  "vocab_size": 100277,
+  "generator_version": "2.0.0",
   "num_tokens": 1000000,
-  "sha256": "7e07d13b7c7d1b880820327b8b5f29e5088d448a29feb59323bf9f4a92f853a0",
+  "sha256": "e3fbcc2fb203aedd8abbad414971b6e4c1adf1e7f9406c6de0daab9ad97a4ed7",
   "binary_file": "datastore_corpus.bin"
 }

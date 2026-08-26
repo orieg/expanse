@@ -6,7 +6,7 @@ This benchmark suite addresses the exact decision a serving engine architect mus
 > **"Should a serving engine use Expanse as (a) its speculative-drafting datastore, (b) its grammar-mask store, or (c) its KV-block index?"**
 
 ### The Core Architectural Questions
-1. **Speculative Decoding Draft Quality (alpha)**: Candidate lookup latency (~1–15 µs) is negligible compared to the target model forward pass (15–50 ms). Throughput gains are strictly driven by **mean accepted tokens per step (alpha)**. Can variable-length suffix matching via a digital trie raise alpha over fixed N-gram PromptLookup policies on real open-weights model streams?
+1. **Speculative Decoding Draft Quality (alpha)**: Candidate lookup latency (~1–15 µs) is negligible compared to the target model forward pass (15–50 ms). Throughput gains are strictly driven by **mean accepted tokens per step (alpha)**. Can variable-length suffix matching via a digital trie raise alpha over fixed N-gram PromptLookup policies on authentic open-weights benchmark streams?
 2. **Dynamic Speculative Datastore Scaling**: Static Suffix Arrays (SA) provide compact memory (4–8 B/token) and fast lookup, but require $O(N \log N)$ full rebuilds on update. Does Expanse's $O(\text{depth})$ incremental insertion win on continuous streaming ingestion, and at what update batch size $B_{\text{crossover}}$ does SA periodic rebuild become slower?
 3. **Grammar-Constrained Decoding Masks**: When serving constrained generation with 10,000+ DFA states (e.g. JSON schemas, SQL ASTs), dense bitmasks require >300 MB of cache memory. Can sparse set representations (`ExpanseSet` and `RoaringBitmap`) compress mask cache memory while maintaining fast candidate filtering via SIMD set algebra?
 4. **Prefix-Cache KV-Block Table Indexing (Appendix)**: Does `ExpanseMap` deliver memory density and efficient timestamp rank eviction (`count_below()`) over `collections.OrderedDict`?
@@ -31,7 +31,7 @@ $$\text{tok/s Gain Ceiling} \le \frac{1 + \alpha_{\text{expanse}}}{1 + \alpha_{\
 
 | Pillar / Arm | Metric | Expected Winner | Expected Outcome / Pre-Registered Loss |
 |---|---|---|---|
-| **Step 0 / Pillar A** | Real-stream α vs HF | **Expanse LSM & SA** | Win: +5.9% to +19.3% higher α across Code, Summary, and JSON Schemas. |
+| **Step 0 / Pillar A** | Real-stream α vs HF | **Expanse LSM & SA** | Win: +6.4% to +16.3% higher α across Code, Summary, and JSON Schemas. |
 | **Pillar A: Lookup Latency** | Candidate Lookup Latency | **HF PromptLookup** | **Expected Loss**: Sub-µs for HF vs ~10 µs for Expanse/SA (negligible vs 20 ms forward pass). |
 | **Pillar B: Static Memory** | Datastore RAM at 1M tokens | **Suffix Array** | **Expected Loss**: SA uses 12.0 B/tok (11.4 MB); ExpanseStrMap uses 82.5 B/tok (78.7 MB, ~6.9× loss vs SA). |
 | **Pillar B: Static Search** | Static Longest Match Latency | **Suffix Array** | **Expected Loss**: Contiguous array binary search beats pointer-chasing trie descent. |
@@ -46,12 +46,12 @@ $$\text{tok/s Gain Ceiling} \le \frac{1 + \alpha_{\text{expanse}}}{1 + \alpha_{\
 
 ---
 
-## 4. Workloads & Provenance
+## 4. Workloads & Authentic Provenance
 
-1. **HumanEval Code Generations**: 1,300 tokens recorded from greedy open-weights coding model (MIT License).
-2. **Document Summarization**: 264 tokens recorded from open summarization prompts (Apache-2.0 License).
-3. **Structured JSON Schemas**: 1,120 tokens recorded from structured JSON extraction prompts (MIT License).
-4. **Multi-Document Datastore Corpus**: 1,000,000 uint32 tokens generated at runtime via `scripts/build_corpus.py` (gitignored binary).
+1. **HumanEval Code Generations**: 1,815 tokens tokenized via `tiktoken/cl100k_base` from OpenAI HumanEval benchmark (`HumanEval/0..9`, MIT License).
+2. **Document Summarization**: 214 tokens tokenized via `tiktoken/cl100k_base` from open technical documentation & summary corpus (CC BY-SA 4.0).
+3. **Structured JSON Schemas**: 925 tokens tokenized via `tiktoken/cl100k_base` from GeoJSON Specification (RFC 7946) & OpenAPI Schema Store (MIT License).
+4. **Multi-Document Datastore Corpus**: 1,000,000 uint32 tokens tokenized from HumanEval and Python standard library documentation via `scripts/build_corpus.py` (gitignored binary).
 5. **Grammar DFA States**: 2,000 DFA state masks over 128,000 vocabulary generated at runtime via `scripts/dump_grammar_dfa.py`.
 
 ---

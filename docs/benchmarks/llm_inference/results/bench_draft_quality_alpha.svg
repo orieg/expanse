@@ -92,26 +92,26 @@
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="104" class="t-bar-label">HumanEval Code</text>
   <text x="30" y="118" class="t-sub">Open coding model (greedy)</text>
-  <rect x="250" y="92" width="294.1" height="13" rx="2" class="b-expanse"/>
-  <text x="552.1" y="102" class="t-val-blue">&#945; = 4.498</text>
-  <rect x="250" y="108" width="257.6" height="13" rx="2" class="b-baseline"/>
-  <text x="515.5" y="118" class="t-val-gray">&#945; = 3.939</text>
+  <rect x="250" y="92" width="118.8" height="13" rx="2" class="b-expanse"/>
+  <text x="376.8" y="102" class="t-val-blue">&#945; = 1.817</text>
+  <rect x="250" y="108" width="104.8" height="13" rx="2" class="b-baseline"/>
+  <text x="362.8" y="118" class="t-val-gray">&#945; = 1.603</text>
   <rect x="790" y="98" width="140" height="18" rx="3" class="badge-win"/>
-  <text x="860" y="111" class="badge-win-text">Expanse +14.2% &#945;</text>
+  <text x="860" y="111" class="badge-win-text">Expanse +13.3% &#945;</text>
   <text x="30" y="160" class="t-bar-label">Document Summarization</text>
   <text x="30" y="174" class="t-sub">Open summarization task</text>
-  <rect x="250" y="148" width="261.5" height="13" rx="2" class="b-expanse"/>
-  <text x="519.5" y="158" class="t-val-blue">&#945; = 4.000</text>
-  <rect x="250" y="164" width="213.1" height="13" rx="2" class="b-baseline"/>
-  <text x="471.1" y="174" class="t-val-gray">&#945; = 3.259</text>
+  <rect x="250" y="148" width="147.3" height="13" rx="2" class="b-expanse"/>
+  <text x="405.3" y="158" class="t-val-blue">&#945; = 2.253</text>
+  <rect x="250" y="164" width="134.6" height="13" rx="2" class="b-baseline"/>
+  <text x="392.6" y="174" class="t-val-gray">&#945; = 2.058</text>
   <rect x="790" y="154" width="140" height="18" rx="3" class="badge-win"/>
-  <text x="860" y="167" class="badge-win-text">Expanse +22.7% &#945;</text>
+  <text x="860" y="167" class="badge-win-text">Expanse +9.5% &#945;</text>
   <text x="30" y="216" class="t-bar-label">JSON Schemas</text>
   <text x="30" y="230" class="t-sub">Structured extraction</text>
-  <rect x="250" y="204" width="243.3" height="13" rx="2" class="b-expanse"/>
-  <text x="501.3" y="214" class="t-val-blue">&#945; = 3.721</text>
-  <rect x="250" y="220" width="208.6" height="13" rx="2" class="b-baseline"/>
-  <text x="466.6" y="230" class="t-val-gray">&#945; = 3.191</text>
+  <rect x="250" y="204" width="202.3" height="13" rx="2" class="b-expanse"/>
+  <text x="460.3" y="214" class="t-val-blue">&#945; = 3.094</text>
+  <rect x="250" y="220" width="164.8" height="13" rx="2" class="b-baseline"/>
+  <text x="422.8" y="230" class="t-val-gray">&#945; = 2.520</text>
   <rect x="790" y="210" width="140" height="18" rx="3" class="badge-win"/>
-  <text x="860" y="223" class="badge-win-text">Expanse +16.6% &#945;</text>
+  <text x="860" y="223" class="badge-win-text">Expanse +22.8% &#945;</text>
 </svg>

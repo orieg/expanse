@@ -1,148 +1,148 @@
 {
   "humaneval_code": {
     "hf_adaptive_lookup": {
-      "speculation_steps": 320,
-      "total_accepted_tokens": 1300,
-      "total_drafted_tokens": 1216,
-      "mean_acceptance_length_alpha": 4.062,
-      "acceptance_rate": 0.8059,
-      "candidate_lookup_latency_us": 0.75
+      "speculation_steps": 962,
+      "total_accepted_tokens": 1815,
+      "total_drafted_tokens": 3346,
+      "mean_acceptance_length_alpha": 1.887,
+      "acceptance_rate": 0.2549,
+      "candidate_lookup_latency_us": 0.958
     },
     "hf_fixed_3gram": {
-      "speculation_steps": 330,
-      "total_accepted_tokens": 1300,
-      "total_drafted_tokens": 1188,
-      "mean_acceptance_length_alpha": 3.939,
-      "acceptance_rate": 0.8165,
+      "speculation_steps": 1132,
+      "total_accepted_tokens": 1815,
+      "total_drafted_tokens": 1684,
+      "mean_acceptance_length_alpha": 1.603,
+      "acceptance_rate": 0.4056,
       "candidate_lookup_latency_us": 0.5
     },
     "hf_fixed_2gram": {
-      "speculation_steps": 361,
-      "total_accepted_tokens": 1300,
-      "total_drafted_tokens": 1344,
-      "mean_acceptance_length_alpha": 3.601,
-      "acceptance_rate": 0.6987,
+      "speculation_steps": 1054,
+      "total_accepted_tokens": 1815,
+      "total_drafted_tokens": 2418,
+      "mean_acceptance_length_alpha": 1.722,
+      "acceptance_rate": 0.3147,
       "candidate_lookup_latency_us": 0.5
     },
     "expanse_longest_suffix": {
-      "speculation_steps": 289,
-      "total_accepted_tokens": 1300,
-      "total_drafted_tokens": 1056,
-      "mean_acceptance_length_alpha": 4.498,
-      "acceptance_rate": 0.9574,
-      "candidate_lookup_latency_us": 12.583
+      "speculation_steps": 999,
+      "total_accepted_tokens": 1815,
+      "total_drafted_tokens": 2191,
+      "mean_acceptance_length_alpha": 1.817,
+      "acceptance_rate": 0.3724,
+      "candidate_lookup_latency_us": 8.541
     },
     "suffix_array_baseline": {
-      "speculation_steps": 288,
-      "total_accepted_tokens": 1300,
-      "total_drafted_tokens": 1052,
-      "mean_acceptance_length_alpha": 4.514,
-      "acceptance_rate": 0.962,
-      "candidate_lookup_latency_us": 581.688
+      "speculation_steps": 1022,
+      "total_accepted_tokens": 1815,
+      "total_drafted_tokens": 2284,
+      "mean_acceptance_length_alpha": 1.776,
+      "acceptance_rate": 0.3472,
+      "candidate_lookup_latency_us": 2045.833
     },
     "_speculative_ceiling": {
-      "baseline_alpha": 3.939,
-      "expanse_alpha": 4.498,
-      "alpha_gain_pct": 11.32,
-      "theoretical_tok_per_sec_ceiling": 1.113,
+      "baseline_alpha": 1.603,
+      "expanse_alpha": 1.817,
+      "alpha_gain_pct": 8.22,
+      "theoretical_tok_per_sec_ceiling": 1.082,
       "passes_pillar_c_gate": true
     }
   },
   "summarization": {
     "hf_adaptive_lookup": {
-      "speculation_steps": 71,
-      "total_accepted_tokens": 264,
-      "total_drafted_tokens": 248,
-      "mean_acceptance_length_alpha": 3.718,
-      "acceptance_rate": 0.7782,
-      "candidate_lookup_latency_us": 0.708
+      "speculation_steps": 87,
+      "total_accepted_tokens": 214,
+      "total_drafted_tokens": 260,
+      "mean_acceptance_length_alpha": 2.46,
+      "acceptance_rate": 0.4885,
+      "candidate_lookup_latency_us": 0.834
     },
     "hf_fixed_3gram": {
-      "speculation_steps": 81,
-      "total_accepted_tokens": 264,
-      "total_drafted_tokens": 248,
-      "mean_acceptance_length_alpha": 3.259,
-      "acceptance_rate": 0.7379,
-      "candidate_lookup_latency_us": 0.5
+      "speculation_steps": 104,
+      "total_accepted_tokens": 214,
+      "total_drafted_tokens": 144,
+      "mean_acceptance_length_alpha": 2.058,
+      "acceptance_rate": 0.7639,
+      "candidate_lookup_latency_us": 0.542
     },
     "hf_fixed_2gram": {
-      "speculation_steps": 76,
-      "total_accepted_tokens": 264,
-      "total_drafted_tokens": 248,
-      "mean_acceptance_length_alpha": 3.474,
-      "acceptance_rate": 0.7581,
-      "candidate_lookup_latency_us": 0.5
+      "speculation_steps": 98,
+      "total_accepted_tokens": 214,
+      "total_drafted_tokens": 180,
+      "mean_acceptance_length_alpha": 2.184,
+      "acceptance_rate": 0.6444,
+      "candidate_lookup_latency_us": 0.542
     },
     "expanse_longest_suffix": {
-      "speculation_steps": 66,
-      "total_accepted_tokens": 264,
-      "total_drafted_tokens": 208,
-      "mean_acceptance_length_alpha": 4.0,
-      "acceptance_rate": 0.9519,
-      "candidate_lookup_latency_us": 11.542
+      "speculation_steps": 95,
+      "total_accepted_tokens": 214,
+      "total_drafted_tokens": 168,
+      "mean_acceptance_length_alpha": 2.253,
+      "acceptance_rate": 0.7083,
+      "candidate_lookup_latency_us": 8.208
     },
     "suffix_array_baseline": {
-      "speculation_steps": 67,
-      "total_accepted_tokens": 264,
-      "total_drafted_tokens": 212,
-      "mean_acceptance_length_alpha": 3.94,
-      "acceptance_rate": 0.9292,
-      "candidate_lookup_latency_us": 125.25
+      "speculation_steps": 96,
+      "total_accepted_tokens": 214,
+      "total_drafted_tokens": 172,
+      "mean_acceptance_length_alpha": 2.229,
+      "acceptance_rate": 0.686,
+      "candidate_lookup_latency_us": 945.833
     },
     "_speculative_ceiling": {
-      "baseline_alpha": 3.259,
-      "expanse_alpha": 4.0,
-      "alpha_gain_pct": 17.4,
-      "theoretical_tok_per_sec_ceiling": 1.174,
+      "baseline_alpha": 2.058,
+      "expanse_alpha": 2.253,
+      "alpha_gain_pct": 6.38,
+      "theoretical_tok_per_sec_ceiling": 1.064,
       "passes_pillar_c_gate": true
     }
   },
   "json_schemas": {
     "hf_adaptive_lookup": {
-      "speculation_steps": 313,
-      "total_accepted_tokens": 1120,
-      "total_drafted_tokens": 1112,
-      "mean_acceptance_length_alpha": 3.578,
-      "acceptance_rate": 0.7257,
-      "candidate_lookup_latency_us": 0.667
+      "speculation_steps": 327,
+      "total_accepted_tokens": 925,
+      "total_drafted_tokens": 1084,
+      "mean_acceptance_length_alpha": 2.829,
+      "acceptance_rate": 0.5517,
+      "candidate_lookup_latency_us": 0.75
     },
     "hf_fixed_3gram": {
-      "speculation_steps": 351,
-      "total_accepted_tokens": 1120,
-      "total_drafted_tokens": 984,
-      "mean_acceptance_length_alpha": 3.191,
-      "acceptance_rate": 0.7815,
-      "candidate_lookup_latency_us": 0.5
+      "speculation_steps": 367,
+      "total_accepted_tokens": 925,
+      "total_drafted_tokens": 900,
+      "mean_acceptance_length_alpha": 2.52,
+      "acceptance_rate": 0.62,
+      "candidate_lookup_latency_us": 0.542
     },
     "hf_fixed_2gram": {
-      "speculation_steps": 316,
-      "total_accepted_tokens": 1120,
-      "total_drafted_tokens": 984,
-      "mean_acceptance_length_alpha": 3.544,
-      "acceptance_rate": 0.8171,
-      "candidate_lookup_latency_us": 0.459
+      "speculation_steps": 393,
+      "total_accepted_tokens": 925,
+      "total_drafted_tokens": 1172,
+      "mean_acceptance_length_alpha": 2.354,
+      "acceptance_rate": 0.4539,
+      "candidate_lookup_latency_us": 0.5
     },
     "expanse_longest_suffix": {
-      "speculation_steps": 301,
-      "total_accepted_tokens": 1120,
-      "total_drafted_tokens": 924,
-      "mean_acceptance_length_alpha": 3.721,
-      "acceptance_rate": 0.8864,
-      "candidate_lookup_latency_us": 10.084
+      "speculation_steps": 299,
+      "total_accepted_tokens": 925,
+      "total_drafted_tokens": 796,
+      "mean_acceptance_length_alpha": 3.094,
+      "acceptance_rate": 0.7864,
+      "candidate_lookup_latency_us": 10.75
     },
     "suffix_array_baseline": {
-      "speculation_steps": 331,
-      "total_accepted_tokens": 1120,
-      "total_drafted_tokens": 1044,
-      "mean_acceptance_length_alpha": 3.384,
-      "acceptance_rate": 0.7557,
-      "candidate_lookup_latency_us": 1203.75
+      "speculation_steps": 295,
+      "total_accepted_tokens": 925,
+      "total_drafted_tokens": 780,
+      "mean_acceptance_length_alpha": 3.136,
+      "acceptance_rate": 0.8077,
+      "candidate_lookup_latency_us": 925.208
     },
     "_speculative_ceiling": {
-      "baseline_alpha": 3.191,
-      "expanse_alpha": 3.721,
-      "alpha_gain_pct": 12.65,
-      "theoretical_tok_per_sec_ceiling": 1.126,
+      "baseline_alpha": 2.52,
+      "expanse_alpha": 3.094,
+      "alpha_gain_pct": 16.31,
+      "theoretical_tok_per_sec_ceiling": 1.163,
       "passes_pillar_c_gate": true
     }
   }
