@@ -1,6 +1,7 @@
 {
-  "workload": "structured_json",
-  "description": "Structured JSON entity extraction with recurring key schemas",
+  "workload": "json_schemas",
+  "description": "Synthetic structured JSON schema fixture with recurring key patterns",
+  "seed": 202,
   "prompt_tokens": [
     58,
     36,

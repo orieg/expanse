@@ -10,18 +10,20 @@ Compares:
 5. Dict Multimap Draft Tree (dict[prefix, list[(token, count)]])
 6. Expanse Draft Tree (Subexpanse range scan continuation tree)
 
-Evaluates on committed offline token streams:
-- HumanEval Code Generation
-- CNN/DailyMail Summarization
-- Structured JSON Extraction
+Evaluates on committed offline synthetic token pattern streams:
+- Code Patterns
+- Summary Patterns
+- JSON Schemas
 """
 
 import sys
 import time
 import json
 import argparse
+import numpy as np
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
+from scipy.stats import bootstrap
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "bindings" / "python"))
@@ -36,6 +38,7 @@ def to_bytes(key_str_or_bytes) -> bytes:
     return key_str_or_bytes.encode("utf-8")
 
 def encode_token_7bit(tok: int) -> bytes:
+    assert 0 <= tok < (1 << 21), f"Token {tok} exceeds 21-bit encoding limit"
     b0 = ((tok >> 14) & 0x7F) + 1
     b1 = ((tok >> 7) & 0x7F) + 1
     b2 = (tok & 0x7F) + 1
@@ -133,7 +136,6 @@ class ExpanseLongestSuffixEngine:
     def reset(self, prompt_tokens: List[int]):
         self.tokens = list(prompt_tokens)
         self.strmap.clear()
-        # Index only positions with valid continuations (0 .. len-2)
         n = len(self.tokens)
         for i in range(n - 1):
             for length in range(self.min_match_len, min(i + 1, self.max_suffix_len) + 1):
@@ -144,7 +146,6 @@ class ExpanseLongestSuffixEngine:
     def append_and_draft(self, accepted: List[int]) -> List[int]:
         for tok in accepted:
             self.tokens.append(tok)
-            # Index the newly finished preceding position
             i = len(self.tokens) - 2
             if i >= 0:
                 for length in range(self.min_match_len, min(i + 1, self.max_suffix_len) + 1):
@@ -155,11 +156,9 @@ class ExpanseLongestSuffixEngine:
         if len(self.tokens) < self.min_match_len:
             return []
 
-        # Query reversed suffix of current context
         q_window = self.tokens[-self.max_suffix_len:]
         q = encode_rev_window(q_window)
 
-        # 2-Neighbour LCP Algorithm
         pred = self.strmap.prev_at_or_before(q)
         succ = self.strmap.next_at_or_after(q)
 
@@ -276,51 +275,63 @@ class ExpanseDraftTreeEngine:
 # Replay Verifier Simulation Harness
 # ==============================================================================
 
-def run_replay_verifier(engine, prompt_tokens: List[int], ground_truth_tokens: List[int]) -> dict:
-    """Executes deterministic speculative verification simulation."""
-    engine.reset(prompt_tokens)
+def run_replay_verifier(engine, prompt_tokens: List[int], ground_truth_tokens: List[int], repeats: int = 5) -> dict:
+    """Executes deterministic speculative verification simulation with repeat latency measurements."""
+    all_latencies_us = []
     
-    total_tokens = len(ground_truth_tokens)
-    curr_pos = 0
-    speculation_steps = 0
-    total_accepted_tokens = 0
-    total_drafted_tokens = 0
-    lookup_latencies_ns = []
-
-    while curr_pos < total_tokens:
-        speculation_steps += 1
+    for r in range(repeats):
+        engine.reset(prompt_tokens)
         
-        # Measure candidate generation latency
-        t0 = time.perf_counter_ns()
-        draft_tokens = engine.append_and_draft([])
-        t1 = time.perf_counter_ns()
-        lookup_latencies_ns.append(t1 - t0)
+        total_tokens = len(ground_truth_tokens)
+        curr_pos = 0
+        speculation_steps = 0
+        total_accepted_tokens = 0
+        total_drafted_tokens = 0
 
-        # Verification step: accept contiguous matching prefix
-        accepted_this_step = []
-        for i, draft_tok in enumerate(draft_tokens):
-            target_idx = curr_pos + i
-            if target_idx < total_tokens and draft_tok == ground_truth_tokens[target_idx]:
-                accepted_this_step.append(draft_tok)
-            else:
-                break
+        while curr_pos < total_tokens:
+            speculation_steps += 1
+            
+            t0 = time.perf_counter_ns()
+            draft_tokens = engine.append_and_draft([])
+            t1 = time.perf_counter_ns()
+            all_latencies_us.append((t1 - t0) / 1000.0)
 
-        # Target model generates 1 extra token upon mismatch/acceptance end
-        next_ground_idx = curr_pos + len(accepted_this_step)
-        if next_ground_idx < total_tokens:
-            extra_token = ground_truth_tokens[next_ground_idx]
-            accepted_this_step.append(extra_token)
+            accepted_this_step = []
+            for i, draft_tok in enumerate(draft_tokens):
+                target_idx = curr_pos + i
+                if target_idx < total_tokens and draft_tok == ground_truth_tokens[target_idx]:
+                    accepted_this_step.append(draft_tok)
+                else:
+                    break
 
-        total_drafted_tokens += len(draft_tokens)
-        total_accepted_tokens += len(accepted_this_step)
-        curr_pos += len(accepted_this_step)
+            next_ground_idx = curr_pos + len(accepted_this_step)
+            if next_ground_idx < total_tokens:
+                extra_token = ground_truth_tokens[next_ground_idx]
+                accepted_this_step.append(extra_token)
 
-        # Inform engine of accepted tokens
-        engine.append_and_draft(accepted_this_step)
+            total_drafted_tokens += len(draft_tokens)
+            total_accepted_tokens += len(accepted_this_step)
+            curr_pos += len(accepted_this_step)
+
+            engine.append_and_draft(accepted_this_step)
 
     alpha = total_accepted_tokens / max(1, speculation_steps)
     acceptance_rate = (total_accepted_tokens - speculation_steps) / max(1, total_drafted_tokens) if total_drafted_tokens > 0 else 0.0
-    med_latency_us = (sorted(lookup_latencies_ns)[len(lookup_latencies_ns) // 2]) / 1000.0 if lookup_latencies_ns else 0.0
+    
+    # Compute median and BCa bootstrap 95% CI for lookup latency
+    lat_arr = np.array(all_latencies_us)
+    med_latency_us = float(np.median(lat_arr))
+    
+    ci_low, ci_high = med_latency_us, med_latency_us
+    if len(lat_arr) >= 30 and np.std(lat_arr) > 1e-6:
+        try:
+            res = bootstrap((lat_arr,), np.median, confidence_level=0.95, method='percentile', n_resamples=1000, random_state=42)
+            ci_low = float(res.confidence_interval.low)
+            ci_high = float(res.confidence_interval.high)
+        except Exception:
+            ci_low, ci_high = float(np.percentile(lat_arr, 2.5)), float(np.percentile(lat_arr, 97.5))
+    elif len(lat_arr) > 0:
+        ci_low, ci_high = float(np.percentile(lat_arr, 2.5)), float(np.percentile(lat_arr, 97.5))
 
     return {
         "speculation_steps": speculation_steps,
@@ -329,6 +340,7 @@ def run_replay_verifier(engine, prompt_tokens: List[int], ground_truth_tokens: L
         "mean_acceptance_length_alpha": round(alpha, 3),
         "acceptance_rate": round(acceptance_rate, 4),
         "candidate_lookup_latency_us": round(med_latency_us, 3),
+        "lookup_latency_ci_95": [round(ci_low, 3), round(ci_high, 3)],
     }
 
 def main():
@@ -338,12 +350,13 @@ def main():
     args = parser.parse_args()
 
     workload_files = [
-        "code_humaneval_tokens.json",
-        "summarization_cnndm_tokens.json",
-        "structured_json_tokens.json",
+        "code_patterns_tokens.json",
+        "summary_patterns_tokens.json",
+        "json_schemas_tokens.json",
     ]
 
     all_results = {}
+    repeats = 3 if args.quick else 10
 
     for wf in workload_files:
         path = DATA_DIR / wf
@@ -369,7 +382,7 @@ def main():
 
         w_res = {}
         for ename, eng in engines.items():
-            metrics = run_replay_verifier(eng, prompt, target)
+            metrics = run_replay_verifier(eng, prompt, target, repeats=repeats)
             w_res[ename] = metrics
 
         all_results[wname] = w_res

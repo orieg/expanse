@@ -1,6 +1,3 @@
 scipy>=1.10.0
 numpy>=1.22.0
 pympler>=1.0.1
-# Optional for re-recording offline datasets via scripts/record_ground_truth.py:
-# torch>=2.0.0
-# transformers>=4.36.0

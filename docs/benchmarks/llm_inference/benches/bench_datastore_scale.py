@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-Pillar 2: Million-Token Datastore Scale (128k to 10M Tokens).
+Pillar 2: Million-Token Datastore Scale (100k to 5M Tokens).
 
 Measures:
-1. Live Memory Footprint (Bytes/Token and total MB) via tracemalloc + pympler.
+1. Live Memory Footprint (Bytes/Token and total MB) via tracemalloc.
 2. Build Throughput (Tokens/sec).
-3. Streaming Continuous Ingestion Throughput (Tokens/sec).
-4. Snapshot Save / Load Latency.
+3. Streaming Continuous Ingestion Throughput (Tokens/sec) — Single-token vs Batched append.
+4. Snapshot Save / Load Latency (ms).
 
 Competitors:
-- CPython dict[int, int] (tracemalloc + pympler.asizeof)
-- Sorted NumPy Array (np.uint64 keys+values with np.searchsorted)
+- CPython dict[int, int] (Heap table + boxed integer objects)
+- Sorted NumPy Array (Single insert O(N) copy, Batched append chunk sort, and np.save/load)
 - ExpanseMap (Expanse digital trie, exact allocator accounting)
 """
 
+import os
 import sys
 import time
 import json
@@ -22,6 +23,7 @@ import tracemalloc
 import numpy as np
 from pathlib import Path
 from typing import List, Dict
+from scipy.stats import bootstrap
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "bindings" / "python"))
@@ -35,7 +37,6 @@ def run_datastore_scale(populations: List[int], seed: int = 42) -> Dict[str, dic
     for N in populations:
         print(f"  --> Benchmarking population N = {N:,} tokens...")
         
-        # Generate random 21-bit token sequence
         tokens_list = [int(x) for x in rng.integers(0, 128000, size=N)]
         
         # ---------------------------------------------------------------------
@@ -59,11 +60,13 @@ def run_datastore_scale(populations: List[int], seed: int = 42) -> Dict[str, dic
         q_idx = rng.integers(0, N - 2, size=min(10000, N - 2))
         q_keys = [(tokens_list[i] << 42) | (tokens_list[i+1] << 21) | tokens_list[i+2] for i in q_idx]
         
-        t0 = time.perf_counter_ns()
+        lookups_ns = []
         for k in q_keys:
+            t0 = time.perf_counter_ns()
             _ = py_dict.get(k)
-        t1 = time.perf_counter_ns()
-        dict_lookup_ns = (t1 - t0) / len(q_keys)
+            t1 = time.perf_counter_ns()
+            lookups_ns.append(t1 - t0)
+        dict_lookup_ns = float(np.median(lookups_ns))
 
         del py_dict
 
@@ -90,14 +93,41 @@ def run_datastore_scale(populations: List[int], seed: int = 42) -> Dict[str, dic
         t1 = time.perf_counter_ns()
         numpy_lookup_ns = (t1 - t0) / len(q_keys)
 
-        # Measure NumPy streaming insert penalty (inserting 500 individual items into sorted array)
+        # 2a. NumPy Streaming Single-Insert Penalty (inserting individual items into sorted array)
+        num_single_inserts = min(500, N - 2) if N <= 100000 else 100
+        test_keys_copy = sorted_keys.copy()
         t0 = time.perf_counter()
-        for i in range(min(500, N - 2)):
-            insert_k = np.uint64((tokens_list[i] << 42) | (tokens_list[i+1] << 21) | tokens_list[i+2])
-            pos = int(np.searchsorted(sorted_keys, insert_k))
-            sorted_keys = np.insert(sorted_keys, pos, insert_k)
+        for i in range(num_single_inserts):
+            insert_k = np.uint64((tokens_list[i] << 42) | (tokens_list[i+1] << 21) | (tokens_list[i+2] ^ 0x3F))
+            pos = int(np.searchsorted(test_keys_copy, insert_k))
+            test_keys_copy = np.insert(test_keys_copy, pos, insert_k)
         t1 = time.perf_counter()
-        numpy_streaming_insert_tps = 500.0 / max(1e-9, t1 - t0)
+        numpy_single_insert_tps = num_single_inserts / max(1e-9, t1 - t0)
+        del test_keys_copy
+
+        # 2b. NumPy Batched Amortized Ingestion (appending a chunk of 500 items and re-sorting — NumPy's winning regime)
+        chunk_size = min(5000, N // 10)
+        chunk_keys = (tokens_np[:chunk_size] << np.uint64(42)) | (tokens_np[:chunk_size] << np.uint64(21)) | tokens_np[:chunk_size]
+        t0 = time.perf_counter()
+        combined_keys = np.concatenate([sorted_keys, chunk_keys])
+        combined_keys.sort()
+        t1 = time.perf_counter()
+        numpy_batched_insert_tps = chunk_size / max(1e-9, t1 - t0)
+        del combined_keys, chunk_keys
+
+        # 2c. Snapshot Save / Load (NumPy raw binary array)
+        tmp_np_path = Path(f"/tmp/expanse_bench_np_{N}.npy")
+        t0 = time.perf_counter()
+        np.save(tmp_np_path, sorted_keys)
+        t1 = time.perf_counter()
+        numpy_snapshot_save_ms = (t1 - t0) * 1000.0
+
+        t0 = time.perf_counter()
+        _loaded_np = np.load(tmp_np_path, mmap_mode="r")
+        t1 = time.perf_counter()
+        numpy_snapshot_load_ms = (t1 - t0) * 1000.0
+        if tmp_np_path.exists():
+            tmp_np_path.unlink()
 
         del sorted_keys, sorted_vals, k_arr, val_arr, tokens_np
 
@@ -116,19 +146,22 @@ def run_datastore_scale(populations: List[int], seed: int = 42) -> Dict[str, dic
         expanse_mem_mb = expanse_mem_bytes / (1024 * 1024)
         expanse_bytes_per_entry = expanse_mem_bytes / max(1, len(exp_map))
 
-        t0 = time.perf_counter_ns()
+        exp_lookups_ns = []
         for k in q_keys:
+            t0 = time.perf_counter_ns()
             _ = exp_map.get(k)
-        t1 = time.perf_counter_ns()
-        expanse_lookup_ns = (t1 - t0) / len(q_keys)
+            t1 = time.perf_counter_ns()
+            exp_lookups_ns.append(t1 - t0)
+        expanse_lookup_ns = float(np.median(exp_lookups_ns))
 
-        # Measure Expanse streaming insert throughput
+        # Measure Expanse streaming continuous insert throughput
+        num_stream_inserts = min(10000, N - 2)
         t0 = time.perf_counter()
-        for i in range(min(10000, N - 2)):
+        for i in range(num_stream_inserts):
             insert_k = (tokens_list[i] << 42) | (tokens_list[i+1] << 21) | (tokens_list[i+2] ^ 0x1F)
             exp_map.insert(insert_k, i)
         t1 = time.perf_counter()
-        expanse_streaming_insert_tps = 10000.0 / max(1e-9, t1 - t0)
+        expanse_streaming_insert_tps = num_stream_inserts / max(1e-9, t1 - t0)
 
         del exp_map
 
@@ -145,7 +178,10 @@ def run_datastore_scale(populations: List[int], seed: int = 42) -> Dict[str, dic
                 "bytes_per_entry": round(numpy_bytes_per_entry, 1),
                 "build_throughput_tps": round(N / max(1e-9, numpy_build_sec), 0),
                 "lookup_latency_ns": round(numpy_lookup_ns, 1),
-                "streaming_insert_tps": round(numpy_streaming_insert_tps, 0),
+                "single_insert_tps": round(numpy_single_insert_tps, 0),
+                "batched_append_tps": round(numpy_batched_insert_tps, 0),
+                "snapshot_save_ms": round(numpy_snapshot_save_ms, 2),
+                "snapshot_load_ms": round(numpy_snapshot_load_ms, 2),
             },
             "expanse_map": {
                 "memory_mb": round(expanse_mem_mb, 2),
@@ -166,7 +202,7 @@ def main():
     args = parser.parse_args()
 
     if args.quick:
-        populations = [10_000, 50_000, 100_000]
+        populations = [100_000, 500_000]
     else:
         populations = [100_000, 500_000, 1_000_000, 5_000_000]
 

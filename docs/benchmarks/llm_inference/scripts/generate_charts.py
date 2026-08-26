@@ -11,7 +11,7 @@ Reads:
 Emits:
 - results/bench_draft_quality_alpha.svg
 - results/bench_datastore_scale_memory.svg
-- results/bench_llama_lookup_tps.svg
+- results/bench_llama_lookup_latency.svg
 - results/bench_prefix_lru_throughput.svg
 """
 
@@ -26,9 +26,8 @@ def generate_draft_quality_chart(data: dict, out_path: Path):
     """Generates Pillar 1 Mean Acceptance Length (alpha) grouped bar chart."""
     svg = [svg_header(width=960, height=320, title="Speculative Draft Quality: Mean Acceptance Length (alpha)")]
     
-    # Title and subtitle
     svg.append('  <text x="24" y="28" class="t-title">PILLAR 1: SPECULATIVE DRAFT QUALITY (MEAN ACCEPTANCE LENGTH &alpha;)</text>')
-    svg.append('  <text x="24" y="44" class="t-sub">Replay Verifier evaluation on deterministic token streams (Higher &alpha; = fewer forward passes per generated token)</text>')
+    svg.append('  <text x="24" y="44" class="t-sub">Replay Verifier evaluation on deterministic token stream patterns (Higher &alpha; = fewer forward passes per generated token)</text>')
     
     # Legend
     svg.append('  <rect x="520" y="20" width="12" height="12" rx="2" class="b-hf"/>')
@@ -39,9 +38,9 @@ def generate_draft_quality_chart(data: dict, out_path: Path):
     svg.append('  <text x="816" y="30" class="t-legend">Expanse Longest-Suffix (LSM)</text>')
     
     workloads = [
-        ("code_humaneval", "HumanEval Code Gen"),
-        ("summarization_cnndm", "CNN/DailyMail Summary"),
-        ("structured_json", "Structured JSON Schema"),
+        ("code_patterns", "Code Patterns"),
+        ("summary_patterns", "Summary Patterns"),
+        ("json_schemas", "JSON Schemas"),
     ]
     
     x_start = 60
@@ -50,7 +49,6 @@ def generate_draft_quality_chart(data: dict, out_path: Path):
     chart_bottom = 260
     chart_height = 180
     
-    # Grid lines
     for a_val in [1.0, 2.0, 3.0, 4.0, 5.0]:
         y = chart_bottom - int((a_val / max_alpha) * chart_height)
         svg.append(f'  <line x1="50" y1="{y}" x2="920" y2="{y}" class="grid"/>')
@@ -66,7 +64,6 @@ def generate_draft_quality_chart(data: dict, out_path: Path):
         dict_a = w_data.get("dict_multimap_tree", {}).get("mean_acceptance_length_alpha", 1.0)
         exp_a = w_data.get("expanse_longest_suffix", {}).get("mean_acceptance_length_alpha", 1.0)
         
-        # Bars
         bar_w = 40
         b1_x = gx + 20
         b2_x = b1_x + bar_w + 10
@@ -89,9 +86,8 @@ def generate_draft_quality_chart(data: dict, out_path: Path):
         svg.append(f'  <rect x="{b3_x}" y="{y3}" width="{bar_w}" height="{h3}" rx="3" class="b-expanse"/>')
         svg.append(f'  <text x="{b3_x + bar_w/2}" y="{y3 - 6}" class="t-val-accent" text-anchor="middle">{exp_a:.2f}&times;</text>')
         
-        # Win Badge
         if exp_a > hf_a:
-            win_pct = int(((exp_a - hf_a) / hf_a) * 100)
+            win_pct = round(((exp_a - hf_a) / hf_a) * 100, 1)
             badge_x = b3_x + bar_w/2 - 28
             svg.append(f'  <rect x="{badge_x}" y="{y3 - 24}" width="56" height="15" class="badge-win"/>')
             svg.append(f'  <text x="{badge_x + 28}" y="{y3 - 13}" class="badge-win-text">+{win_pct}% &alpha;</text>')
@@ -110,7 +106,6 @@ def generate_datastore_memory_chart(data: dict, out_path: Path):
     svg.append('  <text x="24" y="28" class="t-title">PILLAR 2: DATASTORE SCALE &mdash; LIVE MEMORY FOOTPRINT (MB)</text>')
     svg.append('  <text x="24" y="44" class="t-sub">Index memory across token populations (Lower = More tokens fit in RAM; Expanse vs CPython dict vs Sorted NumPy)</text>')
     
-    # Legend
     svg.append('  <rect x="520" y="20" width="12" height="12" rx="2" class="b-hf"/>')
     svg.append('  <text x="536" y="30" class="t-legend">CPython dict (Heap)</text>')
     svg.append('  <rect x="680" y="20" width="12" height="12" rx="2" class="b-baseline"/>')
@@ -125,7 +120,6 @@ def generate_datastore_memory_chart(data: dict, out_path: Path):
     chart_bottom = 260
     chart_height = 180
     
-    # Grid
     for step in range(5):
         mb_val = (max_mb / 4) * step
         y = chart_bottom - int((mb_val / max_mb) * chart_height)
@@ -243,11 +237,11 @@ def generate_prefix_lru_chart(data: dict, out_path: Path):
     print(f"Generated {out_path}")
 
 def generate_llama_lookup_chart(data: dict, out_path: Path):
-    """Generates Pillar 3 C++ llama.cpp lookup benchmark chart."""
-    svg = [svg_header(width=960, height=320, title="Native C++ llama.cpp N-Gram Cache")]
+    """Generates Pillar 3 C++ llama.cpp lookup benchmark latency chart."""
+    svg = [svg_header(width=960, height=320, title="Native C++ llama.cpp Lookup Cache Latency")]
     
-    svg.append('  <text x="24" y="28" class="t-title">PILLAR 3: NATIVE C++ LLAMA.CPP LOOKUP CACHE PERFORMANCE</text>')
-    svg.append('  <text x="24" y="44" class="t-sub">Cache update & draft query latency (expanse::str_map vs stock std::unordered_map)</text>')
+    svg.append('  <text x="24" y="28" class="t-title">PILLAR 3: NATIVE C++ LLAMA.CPP LOOKUP CACHE DRAFT LATENCY (&mu;s)</text>')
+    svg.append('  <text x="24" y="44" class="t-sub">Candidate draft query latency across context lengths (expanse::str_map vs stock std::unordered_map)</text>')
     
     svg.append('  <rect x="620" y="20" width="12" height="12" rx="2" class="b-hf"/>')
     svg.append('  <text x="636" y="30" class="t-legend">Stock std::unordered_map</text>')
@@ -302,6 +296,11 @@ def generate_llama_lookup_chart(data: dict, out_path: Path):
     print(f"Generated {out_path}")
 
 def main():
+    # Clean up old SVGs if present
+    old_tps_svg = RESULTS_DIR / "bench_llama_lookup_tps.svg"
+    if old_tps_svg.exists():
+        old_tps_svg.unlink()
+
     p1_path = RESULTS_DIR / "bench_draft_quality.json"
     if p1_path.exists():
         with open(p1_path, "r", encoding="utf-8") as f:
@@ -315,7 +314,7 @@ def main():
     p3_path = RESULTS_DIR / "bench_llama_lookup.json"
     if p3_path.exists():
         with open(p3_path, "r", encoding="utf-8") as f:
-            generate_llama_lookup_chart(json.load(f), RESULTS_DIR / "bench_llama_lookup_tps.svg")
+            generate_llama_lookup_chart(json.load(f), RESULTS_DIR / "bench_llama_lookup_latency.svg")
 
     p4_path = RESULTS_DIR / "bench_prefix_lru.json"
     if p4_path.exists():

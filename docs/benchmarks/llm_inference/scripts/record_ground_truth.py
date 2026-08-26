@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 """
-Generates and commits deterministic offline token stream fixtures for speculative decoding benchmarks.
+Generates and commits deterministic offline synthetic token stream fixtures for speculative decoding benchmarks.
 
-Covers three representative workloads:
-1. Code Generation (HumanEval / MBPP style: high context repetition, repeated variable names, types)
-2. Document Summarization (CNN/DailyMail style: recurring named entities, topic phrases)
-3. Structured JSON Extraction (Strict schemas, repeated object keys, enum types)
+Covers three representative synthetic workload patterns:
+1. Code Patterns (Simulates function definitions, recurring variable names, loops, returns)
+2. Summary Patterns (Simulates article text with recurring entity key phrases)
+3. JSON Schemas (Simulates nested object schemas, repeated keys, enums)
 
-Outputs committed fixtures to `data/` so benchmark suites can run 100% offline without GPU or HuggingFace downloads.
+Outputs committed fixtures to `data/` so benchmark suites run 100% offline with zero external downloads.
 """
 
-import os
 import sys
 import json
+import random
 from pathlib import Path
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 def generate_code_workload(seed: int = 42) -> dict:
-    """Generates synthetic realistic code token streams with high context repetition."""
-    # Representative token IDs mapping to standard BPE tokens in Qwen/Llama (vocabs 0..128000)
-    # Simulates function definitions, recurring variable names, loops, and return statements
+    """Generates synthetic code token streams with high context and structural repetition."""
+    rng = random.Random(seed)
+    
     TOK_DEF = 1205
     TOK_FN = 4821
     TOK_LPAREN = 7
@@ -41,10 +41,8 @@ def generate_code_workload(seed: int = 42) -> dict:
     TOK_SELF = 2104
     TOK_DOT = 13
     TOK_APPEND = 4590
-    TOK_TRUE = 1942
-    TOK_FALSE = 2884
 
-    # Build prompt tokens (e.g. class definition + docstrings + helper utilities)
+    # Build prompt context
     prompt = []
     for fn_id in range(10):
         prompt.extend([
@@ -56,10 +54,10 @@ def generate_code_workload(seed: int = 42) -> dict:
             TOK_INDENT, TOK_RETURN, TOK_VAR_RES, TOK_NEWLINE, TOK_NEWLINE
         ])
 
-    # Ground truth generation (synthesizing a new function that heavily repeats prompt patterns)
+    # Target sequence with repetition
     ground_truth = []
     for step in range(50):
-        fn_id = step % 10
+        fn_id = rng.choice(range(10))
         ground_truth.extend([
             TOK_DEF, TOK_FN + fn_id, TOK_LPAREN, TOK_SELF, TOK_VAR_DATA, TOK_RPAREN, TOK_COLON, TOK_NEWLINE,
             TOK_INDENT, TOK_VAR_RES, TOK_EQUAL, 98, TOK_NEWLINE,
@@ -70,17 +68,18 @@ def generate_code_workload(seed: int = 42) -> dict:
         ])
 
     return {
-        "workload": "code_humaneval",
-        "description": "Code generation with high context and pattern repetition",
+        "workload": "code_patterns",
+        "description": "Synthetic code generation pattern fixture with high context repetition",
+        "seed": seed,
         "prompt_tokens": prompt,
         "ground_truth_tokens": ground_truth,
     }
 
-def generate_summarization_workload(seed: int = 101) -> dict:
-    """Generates synthetic document summarization token streams."""
-    # Simulates article text containing repeated entities, locations, statistics
+def generate_summary_workload(seed: int = 101) -> dict:
+    """Generates synthetic summarization token streams with recurring key phrases."""
+    rng = random.Random(seed)
+    
     TOK_ARTICLE = [5000 + (i * 37) % 50000 for i in range(2000)]
-    # Create repeated key phrase chunks
     KEY_PHRASES = [
         [12040, 391, 4810, 2901],
         [8910, 110, 48201, 3910],
@@ -92,25 +91,25 @@ def generate_summarization_workload(seed: int = 101) -> dict:
         idx = (i + 1) * 300
         prompt[idx:idx+len(phrase)] = phrase
 
-    # Summary ground truth that extracts and composes sentences containing the key phrases
     ground_truth = []
-    for phrase in KEY_PHRASES:
-        ground_truth.extend([101, 592] + phrase + [284, 1920, 13, 198])
-    ground_truth = ground_truth * 5
+    for _ in range(5):
+        for phrase in KEY_PHRASES:
+            ground_truth.extend([101, 592] + phrase + [284, 1920, 13, 198])
 
     return {
-        "workload": "summarization_cnndm",
-        "description": "Document summarization with key entity and phrase recurrence",
+        "workload": "summary_patterns",
+        "description": "Synthetic document summarization pattern fixture with recurring phrases",
+        "seed": seed,
         "prompt_tokens": prompt,
         "ground_truth_tokens": ground_truth,
     }
 
 def generate_json_workload(seed: int = 202) -> dict:
-    """Generates structured JSON schema token streams."""
+    """Generates synthetic structured JSON schema token streams."""
+    rng = random.Random(seed)
+    
     TOK_LBRACE = 58
     TOK_RBRACE = 60
-    TOK_LBRACKET = 59
-    TOK_RBRACKET = 61
     TOK_COLON = 25
     TOK_COMMA = 11
     TOK_QUOTE = 36
@@ -122,7 +121,6 @@ def generate_json_workload(seed: int = 202) -> dict:
     TOK_PENDING = 29400
 
     prompt = []
-    # Build a schema definition in prompt
     for i in range(20):
         prompt.extend([
             TOK_LBRACE, TOK_QUOTE, TOK_ID_KEY, TOK_QUOTE, TOK_COLON, 1000 + i, TOK_COMMA,
@@ -143,8 +141,9 @@ def generate_json_workload(seed: int = 202) -> dict:
         ])
 
     return {
-        "workload": "structured_json",
-        "description": "Structured JSON entity extraction with recurring key schemas",
+        "workload": "json_schemas",
+        "description": "Synthetic structured JSON schema fixture with recurring key patterns",
+        "seed": seed,
         "prompt_tokens": prompt,
         "ground_truth_tokens": ground_truth,
     }
@@ -152,20 +151,26 @@ def generate_json_workload(seed: int = 202) -> dict:
 def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     
-    code_data = generate_code_workload()
-    with open(DATA_DIR / "code_humaneval_tokens.json", "w", encoding="utf-8") as f:
-        json.dump(code_data, f, indent=2)
-    print(f"Generated {DATA_DIR / 'code_humaneval_tokens.json'} ({len(code_data['prompt_tokens'])} prompt tokens, {len(code_data['ground_truth_tokens'])} target tokens)")
+    # Remove older files if any
+    for old_f in ["code_humaneval_tokens.json", "summarization_cnndm_tokens.json", "structured_json_tokens.json"]:
+        old_p = DATA_DIR / old_f
+        if old_p.exists():
+            old_p.unlink()
 
-    summ_data = generate_summarization_workload()
-    with open(DATA_DIR / "summarization_cnndm_tokens.json", "w", encoding="utf-8") as f:
-        json.dump(summ_data, f, indent=2)
-    print(f"Generated {DATA_DIR / 'summarization_cnndm_tokens.json'} ({len(summ_data['prompt_tokens'])} prompt tokens, {len(summ_data['ground_truth_tokens'])} target tokens)")
+    code_data = generate_code_workload()
+    with open(DATA_DIR / "code_patterns_tokens.json", "w", encoding="utf-8") as f:
+        json.dump(code_data, f, indent=2)
+    print(f"Generated {DATA_DIR / 'code_patterns_tokens.json'} ({len(code_data['prompt_tokens'])} prompt tokens, {len(code_data['ground_truth_tokens'])} target tokens)")
+
+    summary_data = generate_summary_workload()
+    with open(DATA_DIR / "summary_patterns_tokens.json", "w", encoding="utf-8") as f:
+        json.dump(summary_data, f, indent=2)
+    print(f"Generated {DATA_DIR / 'summary_patterns_tokens.json'} ({len(summary_data['prompt_tokens'])} prompt tokens, {len(summary_data['ground_truth_tokens'])} target tokens)")
 
     json_data = generate_json_workload()
-    with open(DATA_DIR / "structured_json_tokens.json", "w", encoding="utf-8") as f:
+    with open(DATA_DIR / "json_schemas_tokens.json", "w", encoding="utf-8") as f:
         json.dump(json_data, f, indent=2)
-    print(f"Generated {DATA_DIR / 'structured_json_tokens.json'} ({len(json_data['prompt_tokens'])} prompt tokens, {len(json_data['ground_truth_tokens'])} target tokens)")
+    print(f"Generated {DATA_DIR / 'json_schemas_tokens.json'} ({len(json_data['prompt_tokens'])} prompt tokens, {len(json_data['ground_truth_tokens'])} target tokens)")
 
 if __name__ == "__main__":
     main()

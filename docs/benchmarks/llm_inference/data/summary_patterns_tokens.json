@@ -1,6 +1,7 @@
 {
-  "workload": "summarization_cnndm",
-  "description": "Document summarization with key entity and phrase recurrence",
+  "workload": "summary_patterns",
+  "description": "Synthetic document summarization pattern fixture with recurring phrases",
+  "seed": 101,
   "prompt_tokens": [
     5000,
     5037,

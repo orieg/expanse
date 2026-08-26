@@ -6,11 +6,11 @@ Measures:
 1. Touch Throughput (touches/sec) — updating access timestamps.
 2. LRU Eviction Throughput (evictions/sec) — evicting oldest blocks.
 3. Rank-Threshold Eviction Throughput (evictions/sec) — batch eviction below timestamp.
-4. Total Index Memory Footprint (MB) at scale.
+4. Total Index Memory Footprint (MB) including all side arrays.
 
 Competitors:
 - collections.OrderedDict (Doubly-Linked List + Hash Table, standard vLLM/SGLang pattern)
-- ExpanseMap Ordered Table ((monotonic_ts << 32) | block_id, exact digital trie)
+- ExpanseMap Ordered Table ((monotonic_ts << 32) | block_id + block_to_ts side map)
 """
 
 import sys
@@ -39,13 +39,12 @@ def run_prefix_lru(block_counts: List[int]) -> Dict[str, dict]:
         tracemalloc.start()
         od = OrderedDict()
         for b_id in range(N):
-            od[b_id] = (b_id * 16, b_id * 32)  # dummy physical KV slot pointers
+            od[b_id] = (b_id * 16, b_id * 32)
         od_current, od_peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
 
         od_mem_mb = od_peak / (1024 * 1024)
 
-        # Measure Touch Throughput (updating 10,000 blocks to most recently used)
         touch_keys = [i * 3 % N for i in range(min(10000, N))]
         t0 = time.perf_counter()
         for k in touch_keys:
@@ -53,7 +52,6 @@ def run_prefix_lru(block_counts: List[int]) -> Dict[str, dict]:
         t1 = time.perf_counter()
         od_touch_tps = len(touch_keys) / max(1e-9, t1 - t0)
 
-        # Measure LRU Eviction Throughput (evicting oldest 2,000 blocks)
         evict_count = min(2000, N // 4)
         t0 = time.perf_counter()
         for _ in range(evict_count):
@@ -68,7 +66,7 @@ def run_prefix_lru(block_counts: List[int]) -> Dict[str, dict]:
         # ---------------------------------------------------------------------
         # Key: (monotonic_ts << 32) | block_id
         # Value: physical KV slot offset
-        # Side map: block_id -> monotonic_ts
+        # Side map: block_id -> monotonic_ts (8 bytes per block)
         exp_table = ExpanseMap()
         block_to_ts = [0] * N
         monotonic_ts = 0
@@ -79,10 +77,13 @@ def run_prefix_lru(block_counts: List[int]) -> Dict[str, dict]:
             k = (monotonic_ts << 32) | b_id
             exp_table.insert(k, b_id * 16)
 
-        exp_mem_bytes = exp_table.mem_used()
-        exp_mem_mb = exp_mem_bytes / (1024 * 1024)
+        # Include side-map memory (8 bytes per entry) in total Expanse footprint
+        exp_trie_bytes = exp_table.mem_used()
+        exp_side_map_bytes = N * 8
+        exp_total_bytes = exp_trie_bytes + exp_side_map_bytes
+        exp_mem_mb = exp_total_bytes / (1024 * 1024)
 
-        # Measure Touch Throughput (remove old timestamp key, insert new timestamp key)
+        # Touch Throughput
         t0 = time.perf_counter()
         for b_id in touch_keys:
             old_ts = block_to_ts[b_id]
@@ -93,7 +94,7 @@ def run_prefix_lru(block_counts: List[int]) -> Dict[str, dict]:
         t1 = time.perf_counter()
         exp_touch_tps = len(touch_keys) / max(1e-9, t1 - t0)
 
-        # Measure LRU Eviction Throughput via first() + remove()
+        # LRU Eviction Throughput
         t0 = time.perf_counter()
         for _ in range(evict_count):
             oldest = exp_table.first()
@@ -102,11 +103,10 @@ def run_prefix_lru(block_counts: List[int]) -> Dict[str, dict]:
         t1 = time.perf_counter()
         exp_evict_tps = evict_count / max(1e-9, t1 - t0)
 
-        # Measure Rank-Threshold Eviction via count_below()
+        # Rank-Threshold Eviction via count_below()
         cutoff_ts = monotonic_ts // 2
         t0 = time.perf_counter()
         items_below = exp_table.count_below(cutoff_ts << 32)
-        # Bounded bulk prune
         prune_keys = []
         cur = exp_table.first()
         while cur is not None and (cur[0] >> 32) < cutoff_ts and len(prune_keys) < 1000:
@@ -146,7 +146,7 @@ def main():
     args = parser.parse_args()
 
     if args.quick:
-        blocks = [10_000, 50_000, 100_000]
+        blocks = [100_000, 500_000]
     else:
         blocks = [100_000, 500_000, 1_000_000]
 

@@ -4,22 +4,25 @@
     "cpython_dict": {
       "memory_mb": 12.49,
       "bytes_per_entry": 131.0,
-      "build_throughput_tps": 518898.0,
-      "lookup_latency_ns": 327.6
+      "build_throughput_tps": 407353.0,
+      "lookup_latency_ns": 875.0
     },
     "sorted_numpy": {
       "memory_mb": 1.53,
       "bytes_per_entry": 16.0,
-      "build_throughput_tps": 8097794.0,
-      "lookup_latency_ns": 234.9,
-      "streaming_insert_tps": 24987.0
+      "build_throughput_tps": 6287430.0,
+      "lookup_latency_ns": 756.1,
+      "single_insert_tps": 9789.0,
+      "batched_append_tps": 1274697.0,
+      "snapshot_save_ms": 4.22,
+      "snapshot_load_ms": 20.1
     },
     "expanse_map": {
       "memory_mb": 2.55,
       "bytes_per_entry": 26.7,
-      "build_throughput_tps": 3041555.0,
-      "lookup_latency_ns": 144.5,
-      "streaming_insert_tps": 3117005.0,
+      "build_throughput_tps": 1030374.0,
+      "lookup_latency_ns": 584.0,
+      "streaming_insert_tps": 601679.0,
       "memory_reduction_vs_dict_x": 4.91
     }
   },
@@ -28,22 +31,25 @@
     "cpython_dict": {
       "memory_mb": 49.99,
       "bytes_per_entry": 104.8,
-      "build_throughput_tps": 687092.0,
-      "lookup_latency_ns": 572.4
+      "build_throughput_tps": 354501.0,
+      "lookup_latency_ns": 708.0
     },
     "sorted_numpy": {
       "memory_mb": 7.63,
       "bytes_per_entry": 16.0,
-      "build_throughput_tps": 10529179.0,
-      "lookup_latency_ns": 511.4,
-      "streaming_insert_tps": 2766.0
+      "build_throughput_tps": 4534878.0,
+      "lookup_latency_ns": 2450.3,
+      "single_insert_tps": 966.0,
+      "batched_append_tps": 452962.0,
+      "snapshot_save_ms": 3.62,
+      "snapshot_load_ms": 11.14
     },
     "expanse_map": {
       "memory_mb": 10.85,
       "bytes_per_entry": 22.7,
-      "build_throughput_tps": 2595686.0,
-      "lookup_latency_ns": 257.2,
-      "streaming_insert_tps": 1962500.0,
+      "build_throughput_tps": 953837.0,
+      "lookup_latency_ns": 708.0,
+      "streaming_insert_tps": 694436.0,
       "memory_reduction_vs_dict_x": 4.61
     }
   },
@@ -52,22 +58,25 @@
     "cpython_dict": {
       "memory_mb": 99.99,
       "bytes_per_entry": 104.9,
-      "build_throughput_tps": 606105.0,
-      "lookup_latency_ns": 1031.5
+      "build_throughput_tps": 333912.0,
+      "lookup_latency_ns": 958.0
     },
     "sorted_numpy": {
       "memory_mb": 15.26,
       "bytes_per_entry": 16.0,
-      "build_throughput_tps": 7210665.0,
-      "lookup_latency_ns": 1132.0,
-      "streaming_insert_tps": 835.0
+      "build_throughput_tps": 5913560.0,
+      "lookup_latency_ns": 2496.8,
+      "single_insert_tps": 557.0,
+      "batched_append_tps": 236753.0,
+      "snapshot_save_ms": 6.22,
+      "snapshot_load_ms": 11.97
     },
     "expanse_map": {
       "memory_mb": 17.75,
       "bytes_per_entry": 18.6,
-      "build_throughput_tps": 1696135.0,
-      "lookup_latency_ns": 396.5,
-      "streaming_insert_tps": 930175.0,
+      "build_throughput_tps": 785037.0,
+      "lookup_latency_ns": 1042.0,
+      "streaming_insert_tps": 501735.0,
       "memory_reduction_vs_dict_x": 5.63
     }
   },
@@ -76,22 +85,25 @@
     "cpython_dict": {
       "memory_mb": 446.1,
       "bytes_per_entry": 93.6,
-      "build_throughput_tps": 519072.0,
-      "lookup_latency_ns": 4969.5
+      "build_throughput_tps": 328683.0,
+      "lookup_latency_ns": 5958.0
     },
     "sorted_numpy": {
       "memory_mb": 76.29,
       "bytes_per_entry": 16.0,
-      "build_throughput_tps": 6000824.0,
-      "lookup_latency_ns": 2371.0,
-      "streaming_insert_tps": 168.0
+      "build_throughput_tps": 3617780.0,
+      "lookup_latency_ns": 4383.0,
+      "single_insert_tps": 103.0,
+      "batched_append_tps": 28368.0,
+      "snapshot_save_ms": 21.34,
+      "snapshot_load_ms": 16.28
     },
     "expanse_map": {
       "memory_mb": 109.67,
       "bytes_per_entry": 23.0,
-      "build_throughput_tps": 1070389.0,
-      "lookup_latency_ns": 828.5,
-      "streaming_insert_tps": 1107251.0,
+      "build_throughput_tps": 598012.0,
+      "lookup_latency_ns": 1166.0,
+      "streaming_insert_tps": 603846.0,
       "memory_reduction_vs_dict_x": 4.07
     }
   }

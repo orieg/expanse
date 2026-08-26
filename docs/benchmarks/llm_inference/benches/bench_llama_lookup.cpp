@@ -8,6 +8,7 @@
  * Measures:
  * - Candidate draft latency (ns/query)
  * - Cache update latency (ns/update)
+ * - Exact token draft sequence match percentage
  * - Memory footprint (MB) across context lengths (4k, 32k, 128k tokens)
  */
 
@@ -20,6 +21,7 @@
 #include <fstream>
 #include <iomanip>
 #include <cstdint>
+#include <cassert>
 #include <algorithm>
 
 #include "expanse.hpp"
@@ -32,6 +34,7 @@ static inline std::string encode_ngram_7bit(const int32_t* tokens, size_t n) {
     s.reserve(n * 3);
     for (size_t i = 0; i < n; ++i) {
         uint32_t tok = static_cast<uint32_t>(tokens[i]);
+        assert(tok < (1u << 21) && "Token ID exceeds 21-bit limit");
         uint8_t b0 = static_cast<uint8_t>(((tok >> 14) & 0x7F) + 1);
         uint8_t b1 = static_cast<uint8_t>(((tok >> 7) & 0x7F) + 1);
         uint8_t b2 = static_cast<uint8_t>((tok & 0x7F) + 1);
@@ -114,7 +117,6 @@ public:
         for (int32_t n = ngram_min; n <= ngram_max; ++n) {
             if (static_cast<int32_t>(pos) < n) break;
             std::string key = encode_ngram_7bit(&history[pos - n], n);
-            // Append next token to key to store exact (ngram + token) frequency
             std::string full_key = key + encode_ngram_7bit(&next_tok, 1);
             uint64_t cnt = map.get(full_key).value_or(0);
             map.insert(full_key, cnt + 1);
@@ -131,16 +133,14 @@ public:
 
             for (int32_t n = std::min<int32_t>(ngram_max, cur.size()); n >= ngram_min; --n) {
                 std::string pfx = encode_ngram_7bit(&cur[cur.size() - n], n);
-                // Scan subexpanse matching pfx
                 auto it = map.next_at_or_after(pfx);
                 while (it.has_value()) {
                     const auto& [matched_k, cnt] = *it;
                     if (matched_k.size() != pfx.size() + 3 || matched_k.compare(0, pfx.size(), pfx) != 0) {
-                        break; // left prefix range
+                        break;
                     }
                     if (cnt > max_count) {
                         max_count = cnt;
-                        // Decode token from last 3 bytes
                         uint8_t b0 = static_cast<uint8_t>(matched_k[pfx.size()]);
                         uint8_t b1 = static_cast<uint8_t>(matched_k[pfx.size() + 1]);
                         uint8_t b2 = static_cast<uint8_t>(matched_k[pfx.size() + 2]);
@@ -187,11 +187,9 @@ int main(int argc, char** argv) {
         size_t N = contexts[ci];
         std::cout << "  --> Testing context length N = " << N << " tokens...\n";
 
-        // Generate synthetic token stream with repeated n-grams
         std::vector<int32_t> tokens(N);
         for (size_t i = 0; i < N; ++i) {
             if (i > 50 && (rng() % 100) < 60) {
-                // Repeat earlier pattern
                 size_t prev = rng() % (i - 20);
                 tokens[i] = tokens[prev];
             } else {
@@ -212,10 +210,11 @@ int main(int argc, char** argv) {
         size_t n_queries = std::min<size_t>(1000, N - 10);
         t0 = std::chrono::high_resolution_clock::now();
         size_t stock_drafted = 0;
+        std::vector<std::vector<int32_t>> stock_draft_results(n_queries);
         for (size_t q = 0; q < n_queries; ++q) {
             std::vector<int32_t> ctx(tokens.begin() + q, tokens.begin() + q + 10);
-            auto drafts = stock_cache.draft(ctx, 4);
-            stock_drafted += drafts.size();
+            stock_draft_results[q] = stock_cache.draft(ctx, 4);
+            stock_drafted += stock_draft_results[q].size();
         }
         t1 = std::chrono::high_resolution_clock::now();
         double stock_draft_us = (std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count() / static_cast<double>(n_queries)) / 1000.0;
@@ -231,14 +230,23 @@ int main(int argc, char** argv) {
 
         t0 = std::chrono::high_resolution_clock::now();
         size_t expanse_drafted = 0;
+        std::vector<std::vector<int32_t>> expanse_draft_results(n_queries);
         for (size_t q = 0; q < n_queries; ++q) {
             std::vector<int32_t> ctx(tokens.begin() + q, tokens.begin() + q + 10);
-            auto drafts = expanse_cache.draft(ctx, 4);
-            expanse_drafted += drafts.size();
+            expanse_draft_results[q] = expanse_cache.draft(ctx, 4);
+            expanse_drafted += expanse_draft_results[q].size();
         }
         t1 = std::chrono::high_resolution_clock::now();
         double expanse_draft_us = (std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count() / static_cast<double>(n_queries)) / 1000.0;
 
+        // Compare exact sequence agreement
+        size_t exact_match_count = 0;
+        for (size_t q = 0; q < n_queries; ++q) {
+            if (stock_draft_results[q] == expanse_draft_results[q]) {
+                exact_match_count++;
+            }
+        }
+        double sequence_match_pct = (exact_match_count * 100.0) / std::max<size_t>(1, n_queries);
         double expanse_mem_mb = expanse_cache.memory_used() / (1024.0 * 1024.0);
 
         out << "  \"" << N << "\": {\n"
@@ -252,7 +260,8 @@ int main(int argc, char** argv) {
             << "      \"update_latency_ns\": " << std::fixed << std::setprecision(1) << expanse_update_ns << ",\n"
             << "      \"draft_latency_us\": " << std::fixed << std::setprecision(2) << expanse_draft_us << ",\n"
             << "      \"memory_mb\": " << std::fixed << std::setprecision(2) << expanse_mem_mb << ",\n"
-            << "      \"total_drafted\": " << expanse_drafted << "\n"
+            << "      \"total_drafted\": " << expanse_drafted << ",\n"
+            << "      \"sequence_match_pct\": " << std::fixed << std::setprecision(1) << sequence_match_pct << "\n"
             << "    }\n"
             << "  }" << (ci + 1 < contexts.size() ? "," : "") << "\n";
     }
