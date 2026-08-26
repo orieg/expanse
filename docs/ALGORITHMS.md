@@ -122,6 +122,23 @@ would leave the window, so the ends never cross or double-yield. The 32-bit
 `iter`/`range` are directly double-ended, cursor-based over the existing
 `first`/`next`/`last`/`prev` trie navigation with the same shared-window discipline.
 
+### 3.4 Set-Algebra Kernels (`algebra.rs`, issue #339)
+
+`ExpanseSet` exposes native set algebra — `intersection` / `union` / `difference` / `symmetric_difference` (materializing a new set), their `*_len` cardinality variants, and the `BitAnd` / `BitOr` / `Sub` / `BitXor` operators — computed over the trie structure rather than by composing navigation primitives element by element (the composed path lost every Boolean cell to a word-parallel container; see `docs/benchmarks/search_inverted_index/`).
+
+**One structural walk.** Only the **intersection cardinality** is computed structurally; the other three derive from it and the two populations (both $O(1)$):
+
+$$|A \cap B| \text{ (structural)}, \quad |A \cup B| = |A| + |B| - |A \cap B|, \quad |A \setminus B| = |A| - |A \cap B|, \quad |A \bigtriangleup B| = |A| + |B| - 2|A \cap B|.$$
+
+**`intersection_len` descent** (`algebra::intersection_len(ea, eb, level)`), over two non-null edges covering the same expanse:
+
+1. **Full-expanse shortcut.** If one side is a `FullExpanse`, every key of its expanse is present, so the intersection equals the other side's population — read in $O(1)$ from the sibling edge's `pop0` ($256^{level}$ for a full expanse). No descent.
+2. **Aligned bitmap leaves.** If both edges reduce to a real-level-1 form (`LeafBitmap1`, `Leaf1`, or a 1-byte immediate — possibly reached through a narrow-pointer skip), compare their skipped middle digits: disjoint ⇒ 0; equal ⇒ `Bitmap256::count_and` — four 64-bit `AND`s and a `popcnt`, instead of iterating up to 256 elements per leaf. This is the dense/clustered win.
+3. **Branch × branch.** Iterate the **present children of the smaller side** (per the caller's population ordering) and probe each digit into the other branch, peeling one narrow-pointer skip level at a time so both sides stay aligned; recurse only where **both** sides have a child. Driving from the sparser operand's actual children — rather than scanning all 256 digits — makes the cost scale with the smaller list, so whole subtrees absent on one side are never visited. This is the source of the skewed-`AND` advantage.
+4. **Terminal probe.** When one side is a linear leaf or wide immediate that did not reduce to a shared bitmap (bounded to $\le 32$ / $\le 15$ keys by the leaf/immediate caps), enumerate its remainders and probe each into the sibling subtree with `get::test_set`.
+
+The kernel operates only on the existing `Edge`/branch/leaf geometry — no new node form, no fat slot (`AGENTS.md` §2). The materializing variants merge the two ordered iterators (the measured Boolean gate is cardinality-only, which the structural walk serves with zero allocation). `Bitmap256::{and, or, andnot, xor, count_and}` are the word-parallel leaf kernels shared by all four operations.
+
 ---
 
 ## 4. Microarchitecture Acceleration (`x86-64-v3` vs `v1`)

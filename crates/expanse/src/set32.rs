@@ -345,6 +345,201 @@ impl<'a> IntoIterator for &'a ExpanseSet32 {
     }
 }
 
+/// Native set algebra (issue #339), the 32-bit twin of the `ExpanseSet`
+/// kernels. The 32-bit engine is a distinct arena/handle trie (`trie32`) that
+/// does not share the 64-bit `Edge` geometry the structural word-parallel
+/// kernel walks, so these compose the result from an ordered merge of the two
+/// tries via `first`/`next` — correct and `O(|A| + |B|)` in ordered steps.
+/// The cardinality variants materialize nothing; the union/difference/xor
+/// counts derive from `intersection_len` and the two populations.
+impl ExpanseSet32 {
+    /// Number of keys present in **both** sets (`|A ∩ B|`), via a lockstep
+    /// merge of the two ordered key streams. No result is materialized.
+    #[must_use]
+    pub fn intersection_len(&self, other: &ExpanseSet32) -> usize {
+        let (mut a, mut b) = (self.first(), other.first());
+        let mut count = 0usize;
+        while let (Some(x), Some(y)) = (a, b) {
+            if x == y {
+                count += 1;
+                a = self.next(x);
+                b = other.next(y);
+            } else if x < y {
+                a = self.next(x);
+            } else {
+                b = other.next(y);
+            }
+        }
+        count
+    }
+
+    /// Number of keys in the union (`|A ∪ B| = |A| + |B| − |A ∩ B|`).
+    #[must_use]
+    pub fn union_len(&self, other: &ExpanseSet32) -> usize {
+        self.len() + other.len() - self.intersection_len(other)
+    }
+
+    /// Number of keys in the difference (`|A \ B| = |A| − |A ∩ B|`).
+    #[must_use]
+    pub fn difference_len(&self, other: &ExpanseSet32) -> usize {
+        self.len() - self.intersection_len(other)
+    }
+
+    /// Number of keys in the symmetric difference
+    /// (`|A △ B| = |A| + |B| − 2·|A ∩ B|`).
+    #[must_use]
+    pub fn symmetric_difference_len(&self, other: &ExpanseSet32) -> usize {
+        self.len() + other.len() - 2 * self.intersection_len(other)
+    }
+
+    /// The set of keys present in **both** sets (`A ∩ B`).
+    #[must_use]
+    pub fn intersection(&self, other: &ExpanseSet32) -> ExpanseSet32 {
+        let mut out = ExpanseSet32::new();
+        let (mut a, mut b) = (self.first(), other.first());
+        while let (Some(x), Some(y)) = (a, b) {
+            if x == y {
+                out.insert(x);
+                a = self.next(x);
+                b = other.next(y);
+            } else if x < y {
+                a = self.next(x);
+            } else {
+                b = other.next(y);
+            }
+        }
+        out
+    }
+
+    /// The set of keys present in **either** set (`A ∪ B`).
+    #[must_use]
+    pub fn union(&self, other: &ExpanseSet32) -> ExpanseSet32 {
+        let mut out = ExpanseSet32::new();
+        let (mut a, mut b) = (self.first(), other.first());
+        loop {
+            match (a, b) {
+                (Some(x), Some(y)) => {
+                    if x < y {
+                        out.insert(x);
+                        a = self.next(x);
+                    } else if x > y {
+                        out.insert(y);
+                        b = other.next(y);
+                    } else {
+                        out.insert(x);
+                        a = self.next(x);
+                        b = other.next(y);
+                    }
+                }
+                (Some(x), None) => {
+                    out.insert(x);
+                    a = self.next(x);
+                }
+                (None, Some(y)) => {
+                    out.insert(y);
+                    b = other.next(y);
+                }
+                (None, None) => break,
+            }
+        }
+        out
+    }
+
+    /// The set of keys in `self` but not `other` (`A \ B`).
+    #[must_use]
+    pub fn difference(&self, other: &ExpanseSet32) -> ExpanseSet32 {
+        let mut out = ExpanseSet32::new();
+        let (mut a, mut b) = (self.first(), other.first());
+        loop {
+            match (a, b) {
+                (Some(x), Some(y)) => {
+                    if x < y {
+                        out.insert(x);
+                        a = self.next(x);
+                    } else if x > y {
+                        b = other.next(y);
+                    } else {
+                        a = self.next(x);
+                        b = other.next(y);
+                    }
+                }
+                (Some(x), None) => {
+                    out.insert(x);
+                    a = self.next(x);
+                }
+                (None, _) => break,
+            }
+        }
+        out
+    }
+
+    /// The set of keys in exactly one of the two sets (`A △ B`).
+    #[must_use]
+    pub fn symmetric_difference(&self, other: &ExpanseSet32) -> ExpanseSet32 {
+        let mut out = ExpanseSet32::new();
+        let (mut a, mut b) = (self.first(), other.first());
+        loop {
+            match (a, b) {
+                (Some(x), Some(y)) => {
+                    if x < y {
+                        out.insert(x);
+                        a = self.next(x);
+                    } else if x > y {
+                        out.insert(y);
+                        b = other.next(y);
+                    } else {
+                        a = self.next(x);
+                        b = other.next(y);
+                    }
+                }
+                (Some(x), None) => {
+                    out.insert(x);
+                    a = self.next(x);
+                }
+                (None, Some(y)) => {
+                    out.insert(y);
+                    b = other.next(y);
+                }
+                (None, None) => break,
+            }
+        }
+        out
+    }
+}
+
+impl core::ops::BitAnd for &ExpanseSet32 {
+    type Output = ExpanseSet32;
+    /// `A & B` — the intersection ([`ExpanseSet32::intersection`]).
+    fn bitand(self, rhs: &ExpanseSet32) -> ExpanseSet32 {
+        self.intersection(rhs)
+    }
+}
+
+impl core::ops::BitOr for &ExpanseSet32 {
+    type Output = ExpanseSet32;
+    /// `A | B` — the union ([`ExpanseSet32::union`]).
+    fn bitor(self, rhs: &ExpanseSet32) -> ExpanseSet32 {
+        self.union(rhs)
+    }
+}
+
+impl core::ops::Sub for &ExpanseSet32 {
+    type Output = ExpanseSet32;
+    /// `A - B` — the difference ([`ExpanseSet32::difference`]).
+    fn sub(self, rhs: &ExpanseSet32) -> ExpanseSet32 {
+        self.difference(rhs)
+    }
+}
+
+impl core::ops::BitXor for &ExpanseSet32 {
+    type Output = ExpanseSet32;
+    /// `A ^ B` — the symmetric difference
+    /// ([`ExpanseSet32::symmetric_difference`]).
+    fn bitxor(self, rhs: &ExpanseSet32) -> ExpanseSet32 {
+        self.symmetric_difference(rhs)
+    }
+}
+
 impl Default for ExpanseSet32 {
     #[inline]
     fn default() -> Self {
@@ -588,5 +783,87 @@ mod tests {
         for seed in [101u64, 202] {
             differential(seed, OPS, 0x000F_FFFF);
         }
+    }
+
+    // ---- Set algebra (issue #339) ----
+
+    fn algebra_run(seed: u64, key_mask: u32) {
+        let mut rng = XorShift::new(seed);
+        let n = if cfg!(miri) { 40 } else { 2000 };
+        let mut a = ExpanseSet32::new();
+        let mut ma: BTreeSet<u32> = BTreeSet::new();
+        let mut b = ExpanseSet32::new();
+        let mut mb: BTreeSet<u32> = BTreeSet::new();
+        for _ in 0..n {
+            let ka = rng.next() & key_mask;
+            a.insert(ka);
+            ma.insert(ka);
+            let kb = rng.next() & key_mask;
+            b.insert(kb);
+            mb.insert(kb);
+        }
+
+        let inter = ma.intersection(&mb).count();
+        assert_eq!(a.intersection_len(&b), inter, "intersection_len");
+        assert_eq!(b.intersection_len(&a), inter, "intersection_len rev");
+        assert_eq!(a.union_len(&b), ma.union(&mb).count(), "union_len");
+        assert_eq!(
+            a.difference_len(&b),
+            ma.difference(&mb).count(),
+            "difference_len"
+        );
+        assert_eq!(
+            a.symmetric_difference_len(&b),
+            ma.symmetric_difference(&mb).count(),
+            "symmetric_difference_len"
+        );
+
+        let collect = |s: &ExpanseSet32| -> Vec<u32> {
+            let mut out = Vec::new();
+            let mut cur = s.first();
+            while let Some(k) = cur {
+                out.push(k);
+                cur = s.next(k);
+            }
+            out
+        };
+        assert_eq!(
+            collect(&(&a & &b)),
+            ma.intersection(&mb).copied().collect::<Vec<_>>(),
+            "intersection"
+        );
+        assert_eq!(
+            collect(&(&a | &b)),
+            ma.union(&mb).copied().collect::<Vec<_>>(),
+            "union"
+        );
+        assert_eq!(
+            collect(&(&a - &b)),
+            ma.difference(&mb).copied().collect::<Vec<_>>(),
+            "difference"
+        );
+        assert_eq!(
+            collect(&(&a ^ &b)),
+            ma.symmetric_difference(&mb).copied().collect::<Vec<_>>(),
+            "symmetric_difference"
+        );
+    }
+
+    #[test]
+    fn algebra_matches_btreeset() {
+        for seed in [7u64, 42, 1234] {
+            algebra_run(seed, 0x0000_03FF); // dense/clustered overlap
+            algebra_run(seed, 0x000F_FFFF); // midrange
+            algebra_run(seed, 0xFFFF_FFFF); // sparse full spread
+        }
+        // Edge cases: empty, disjoint, identical.
+        let empty = ExpanseSet32::new();
+        let mut one = ExpanseSet32::new();
+        one.insert(5);
+        assert_eq!(empty.intersection_len(&one), 0);
+        assert_eq!(one.union_len(&empty), 1);
+        assert_eq!(one.difference_len(&empty), 1);
+        assert_eq!((&one ^ &empty).len(), 1);
+        assert_eq!((&one & &one).len(), 1);
     }
 }

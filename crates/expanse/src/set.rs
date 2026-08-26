@@ -987,6 +987,250 @@ impl ExpanseSet {
     }
 }
 
+/// Counts the keys common to two ascending, deduplicated `u64` slices via a
+/// lockstep merge (the small root-leaf intersection path).
+fn sorted_intersection_count(a: &[u64], b: &[u64]) -> u64 {
+    let (mut i, mut j) = (0usize, 0usize);
+    let mut count = 0u64;
+    while i < a.len() && j < b.len() {
+        match a[i].cmp(&b[j]) {
+            core::cmp::Ordering::Equal => {
+                count += 1;
+                i += 1;
+                j += 1;
+            }
+            core::cmp::Ordering::Less => i += 1,
+            core::cmp::Ordering::Greater => j += 1,
+        }
+    }
+    count
+}
+
+/// Native set algebra (issue #339). The cardinality variants are computed
+/// structurally over both tries (`crate::algebra`, `docs/ALGORITHMS.md`);
+/// only [`Self::intersection_len`] walks the structure — the other three
+/// cardinalities derive from it and the two populations, all `O(1)` given the
+/// walk. The result-materializing variants merge the two ordered iterators.
+impl ExpanseSet {
+    /// Number of keys present in **both** sets (`|A ∩ B|`), computed by
+    /// descending both tries in lockstep: whole subtrees absent on one side
+    /// are skipped, whole subtrees under a full expanse are counted from the
+    /// sibling's `pop0` in `O(1)`, and aligned bitmap leaves are `AND`-ed
+    /// word-parallel with `popcnt`. No result is materialized.
+    #[must_use]
+    pub fn intersection_len(&self, other: &ExpanseSet) -> u64 {
+        match (&self.root, &other.root) {
+            (Root::Empty, _) | (_, Root::Empty) => 0,
+            (Root::Leaf { .. }, Root::Leaf { .. }) => {
+                sorted_intersection_count(self.root_leaf_keys(), other.root_leaf_keys())
+            }
+            (Root::Leaf { .. }, Root::Tree { .. }) => self
+                .root_leaf_keys()
+                .iter()
+                .filter(|&&k| other.contains(k))
+                .count() as u64,
+            (Root::Tree { .. }, Root::Leaf { .. }) => other
+                .root_leaf_keys()
+                .iter()
+                .filter(|&&k| self.contains(k))
+                .count() as u64,
+            (Root::Tree { top: ta, .. }, Root::Tree { top: tb, .. }) => {
+                // Deferred ancestor pops must be settled before the walk reads
+                // `pop0` (the full-expanse shortcut); both cursors are flushed
+                // exactly as `validate`/`count_below` do.
+                self.flush_path();
+                other.flush_path();
+                // Pass the smaller side second so the lockstep probes it first
+                // and a sparse operand short-circuits each digit.
+                let (big, small) = if self.len() >= other.len() {
+                    (ta, tb)
+                } else {
+                    (tb, ta)
+                };
+                // SAFETY: both trees are live and maintained by the set engine,
+                // rooted at level 8.
+                unsafe { crate::algebra::intersection_len(big, small, 8) }
+            }
+        }
+    }
+
+    /// Number of keys in the union (`|A ∪ B| = |A| + |B| − |A ∩ B|`), without
+    /// materializing the result.
+    #[must_use]
+    pub fn union_len(&self, other: &ExpanseSet) -> u64 {
+        self.len() + other.len() - self.intersection_len(other)
+    }
+
+    /// Number of keys in the difference (`|A \ B| = |A| − |A ∩ B|`), without
+    /// materializing the result.
+    #[must_use]
+    pub fn difference_len(&self, other: &ExpanseSet) -> u64 {
+        self.len() - self.intersection_len(other)
+    }
+
+    /// Number of keys in the symmetric difference
+    /// (`|A △ B| = |A| + |B| − 2·|A ∩ B|`), without materializing the result.
+    #[must_use]
+    pub fn symmetric_difference_len(&self, other: &ExpanseSet) -> u64 {
+        self.len() + other.len() - 2 * self.intersection_len(other)
+    }
+
+    /// The set of keys present in **both** sets (`A ∩ B`).
+    #[must_use]
+    pub fn intersection(&self, other: &ExpanseSet) -> ExpanseSet {
+        let mut out = ExpanseSet::new();
+        let (mut ia, mut ib) = (self.iter(), other.iter());
+        let (mut x, mut y) = (ia.next(), ib.next());
+        while let (Some(xv), Some(yv)) = (x, y) {
+            match xv.cmp(&yv) {
+                core::cmp::Ordering::Equal => {
+                    out.insert(xv);
+                    x = ia.next();
+                    y = ib.next();
+                }
+                core::cmp::Ordering::Less => x = ia.next(),
+                core::cmp::Ordering::Greater => y = ib.next(),
+            }
+        }
+        out
+    }
+
+    /// The set of keys present in **either** set (`A ∪ B`).
+    #[must_use]
+    pub fn union(&self, other: &ExpanseSet) -> ExpanseSet {
+        let mut out = ExpanseSet::new();
+        let (mut ia, mut ib) = (self.iter(), other.iter());
+        let (mut x, mut y) = (ia.next(), ib.next());
+        loop {
+            match (x, y) {
+                (Some(xv), Some(yv)) => match xv.cmp(&yv) {
+                    core::cmp::Ordering::Less => {
+                        out.insert(xv);
+                        x = ia.next();
+                    }
+                    core::cmp::Ordering::Greater => {
+                        out.insert(yv);
+                        y = ib.next();
+                    }
+                    core::cmp::Ordering::Equal => {
+                        out.insert(xv);
+                        x = ia.next();
+                        y = ib.next();
+                    }
+                },
+                (Some(xv), None) => {
+                    out.insert(xv);
+                    x = ia.next();
+                }
+                (None, Some(yv)) => {
+                    out.insert(yv);
+                    y = ib.next();
+                }
+                (None, None) => break,
+            }
+        }
+        out
+    }
+
+    /// The set of keys in `self` but not `other` (`A \ B`).
+    #[must_use]
+    pub fn difference(&self, other: &ExpanseSet) -> ExpanseSet {
+        let mut out = ExpanseSet::new();
+        let (mut ia, mut ib) = (self.iter(), other.iter());
+        let (mut x, mut y) = (ia.next(), ib.next());
+        loop {
+            match (x, y) {
+                (Some(xv), Some(yv)) => match xv.cmp(&yv) {
+                    core::cmp::Ordering::Less => {
+                        out.insert(xv);
+                        x = ia.next();
+                    }
+                    core::cmp::Ordering::Greater => y = ib.next(),
+                    core::cmp::Ordering::Equal => {
+                        x = ia.next();
+                        y = ib.next();
+                    }
+                },
+                (Some(xv), None) => {
+                    out.insert(xv);
+                    x = ia.next();
+                }
+                (None, _) => break,
+            }
+        }
+        out
+    }
+
+    /// The set of keys in exactly one of the two sets (`A △ B`).
+    #[must_use]
+    pub fn symmetric_difference(&self, other: &ExpanseSet) -> ExpanseSet {
+        let mut out = ExpanseSet::new();
+        let (mut ia, mut ib) = (self.iter(), other.iter());
+        let (mut x, mut y) = (ia.next(), ib.next());
+        loop {
+            match (x, y) {
+                (Some(xv), Some(yv)) => match xv.cmp(&yv) {
+                    core::cmp::Ordering::Less => {
+                        out.insert(xv);
+                        x = ia.next();
+                    }
+                    core::cmp::Ordering::Greater => {
+                        out.insert(yv);
+                        y = ib.next();
+                    }
+                    core::cmp::Ordering::Equal => {
+                        x = ia.next();
+                        y = ib.next();
+                    }
+                },
+                (Some(xv), None) => {
+                    out.insert(xv);
+                    x = ia.next();
+                }
+                (None, Some(yv)) => {
+                    out.insert(yv);
+                    y = ib.next();
+                }
+                (None, None) => break,
+            }
+        }
+        out
+    }
+}
+
+impl core::ops::BitAnd for &ExpanseSet {
+    type Output = ExpanseSet;
+    /// `A & B` — the intersection ([`ExpanseSet::intersection`]).
+    fn bitand(self, rhs: &ExpanseSet) -> ExpanseSet {
+        self.intersection(rhs)
+    }
+}
+
+impl core::ops::BitOr for &ExpanseSet {
+    type Output = ExpanseSet;
+    /// `A | B` — the union ([`ExpanseSet::union`]).
+    fn bitor(self, rhs: &ExpanseSet) -> ExpanseSet {
+        self.union(rhs)
+    }
+}
+
+impl core::ops::Sub for &ExpanseSet {
+    type Output = ExpanseSet;
+    /// `A - B` — the difference ([`ExpanseSet::difference`]).
+    fn sub(self, rhs: &ExpanseSet) -> ExpanseSet {
+        self.difference(rhs)
+    }
+}
+
+impl core::ops::BitXor for &ExpanseSet {
+    type Output = ExpanseSet;
+    /// `A ^ B` — the symmetric difference
+    /// ([`ExpanseSet::symmetric_difference`]).
+    fn bitxor(self, rhs: &ExpanseSet) -> ExpanseSet {
+        self.symmetric_difference(rhs)
+    }
+}
+
 impl Default for ExpanseSet {
     fn default() -> Self {
         Self::new()
@@ -1650,5 +1894,181 @@ mod tests {
             }
             assert_eq!(found_count, expected_found);
         }
+    }
+
+    // ---- Set algebra (issue #339) ----
+
+    fn set_of(keys: &[u64]) -> ExpanseSet {
+        let mut s = ExpanseSet::new();
+        for &k in keys {
+            s.insert(k);
+        }
+        s
+    }
+
+    /// Checks every native set-algebra kernel (cardinality + materializing +
+    /// operators) against `BTreeSet`, and validates the invariants of every
+    /// materialized result.
+    fn check_algebra(a_keys: &[u64], b_keys: &[u64]) {
+        let a = set_of(a_keys);
+        let b = set_of(b_keys);
+        let ma: BTreeSet<u64> = a_keys.iter().copied().collect();
+        let mb: BTreeSet<u64> = b_keys.iter().copied().collect();
+
+        let inter: u64 = ma.intersection(&mb).count() as u64;
+        let uni: u64 = ma.union(&mb).count() as u64;
+        let diff: u64 = ma.difference(&mb).count() as u64;
+        let sym: u64 = ma.symmetric_difference(&mb).count() as u64;
+
+        // Cardinality kernels (both directions; intersection/union/xor are
+        // symmetric, difference is not).
+        assert_eq!(a.intersection_len(&b), inter, "intersection_len");
+        assert_eq!(b.intersection_len(&a), inter, "intersection_len rev");
+        assert_eq!(a.union_len(&b), uni, "union_len");
+        assert_eq!(b.union_len(&a), uni, "union_len rev");
+        assert_eq!(a.difference_len(&b), diff, "difference_len");
+        assert_eq!(b.difference_len(&a), mb.difference(&ma).count() as u64);
+        assert_eq!(
+            a.symmetric_difference_len(&b),
+            sym,
+            "symmetric_difference_len"
+        );
+
+        // Materializing ops + operator sugar; validate each result.
+        let checks: [(ExpanseSet, Vec<u64>, &str); 4] = [
+            (
+                &a & &b,
+                ma.intersection(&mb).copied().collect(),
+                "intersection",
+            ),
+            (&a | &b, ma.union(&mb).copied().collect(), "union"),
+            (&a - &b, ma.difference(&mb).copied().collect(), "difference"),
+            (
+                &a ^ &b,
+                ma.symmetric_difference(&mb).copied().collect(),
+                "symmetric_difference",
+            ),
+        ];
+        for (got, expected, name) in checks {
+            got.validate();
+            assert_eq!(got.len(), expected.len() as u64, "{name} len");
+            assert!(got.iter().eq(expected.iter().copied()), "{name} contents");
+        }
+    }
+
+    fn build_dist(kind: u8, n: usize, seed: u64) -> Vec<u64> {
+        let mut rng = XorShift(0x5EED_0000 ^ seed);
+        let mut v: Vec<u64> = match kind {
+            // dense contiguous run, offset by seed so pairs half-overlap
+            0 => {
+                let start = (seed % 4) * (n as u64 / 2).max(1);
+                (start..start + n as u64).collect()
+            }
+            // clustered: bursts of 128 contiguous at random bases
+            1 => {
+                let universe = (n as u64 * 2).max(2);
+                let mut out = Vec::new();
+                while out.len() < n {
+                    let base = (rng.next() % (universe / 128).max(1)) * 128;
+                    for j in 0..128 {
+                        out.push(base + j);
+                    }
+                }
+                out.truncate(n);
+                out
+            }
+            // sparse: uniform random over a wide universe
+            2 => (0..n).map(|_| rng.next() % (n as u64 * 4).max(2)).collect(),
+            // power-law-ish: concentrate on low IDs
+            3 => (0..n)
+                .map(|_| {
+                    let r = rng.next() % 1000;
+                    if r < 800 {
+                        rng.next() % 256
+                    } else {
+                        rng.next() % (n as u64 * 4).max(2)
+                    }
+                })
+                .collect(),
+            // shard layout: (tenant << 40) | doc
+            _ => {
+                let mut out = Vec::new();
+                for t in 0..16u64 {
+                    for d in 0..(n as u64).div_ceil(16) {
+                        out.push((t << 40) | d);
+                    }
+                }
+                out.truncate(n);
+                out
+            }
+        };
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+
+    #[test]
+    fn algebra_edge_cases() {
+        check_algebra(&[], &[]);
+        check_algebra(&[1], &[]);
+        check_algebra(&[], &[1]);
+        check_algebra(&[1], &[1]);
+        check_algebra(&[1], &[2]);
+        check_algebra(&[0, u64::MAX], &[0, u64::MAX]);
+        check_algebra(&[0, 1, 2, 3], &[2, 3, 4, 5]);
+        // Root-leaf vs tree (one side small, other promoted past 31).
+        let big: Vec<u64> = (0..200u64).map(|k| k * 7).collect();
+        check_algebra(&[0, 700, 1400], &big);
+        check_algebra(&big, &[0, 700, 1400]);
+    }
+
+    #[test]
+    fn algebra_distributions() {
+        let sizes = if cfg!(miri) {
+            &[64usize][..]
+        } else {
+            &[300usize, 4096][..]
+        };
+        for kind in 0u8..=4 {
+            for &n in sizes {
+                let a = build_dist(kind, n, 0);
+                let b = build_dist(kind, n, 1);
+                check_algebra(&a, &b);
+            }
+        }
+    }
+
+    #[test]
+    fn algebra_skewed_sizes() {
+        // |B| = |A| / 1000: the subtree-skipping case. A dense, B a sparse
+        // sample drawn from A's universe (guaranteed partial overlap).
+        let n = if cfg!(miri) { 256usize } else { 20_000 };
+        for kind in 0u8..=2 {
+            let a = build_dist(kind, n, 0);
+            let mut rng = XorShift(0xB10B_0007);
+            let nb = (n / 1000).max(4);
+            let mut b: Vec<u64> = (0..nb)
+                .map(|_| {
+                    if rng.next() % 2 == 0 && !a.is_empty() {
+                        a[(rng.next() as usize) % a.len()] // a hit
+                    } else {
+                        rng.next() % (n as u64 * 4).max(2) // maybe a miss
+                    }
+                })
+                .collect();
+            b.sort_unstable();
+            b.dedup();
+            check_algebra(&a, &b);
+        }
+    }
+
+    #[test]
+    fn algebra_disjoint_high_expanses() {
+        // Sets whose keys live under different top-byte expanses: the lockstep
+        // must skip the entire non-overlapping subtrees (intersection empty).
+        let a: Vec<u64> = (0..500u64).collect();
+        let b: Vec<u64> = (0..500u64).map(|k| (1u64 << 56) | k).collect();
+        check_algebra(&a, &b);
+        assert_eq!(set_of(&a).intersection_len(&set_of(&b)), 0);
     }
 }

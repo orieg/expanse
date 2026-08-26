@@ -248,4 +248,49 @@ proptest! {
         }
         prop_assert_eq!(set.by_count(model.len() as u64), None, "select past the end");
     }
+
+    /// Native set algebra (issue #339) matches `BTreeSet` for both the
+    /// cardinality kernels and the materialized results, on independently
+    /// generated key sets drawn from the interesting-region strategy (which
+    /// makes real overlap, shared high-byte prefixes, and narrow-pointer
+    /// skips likely). Every materialized result is invariant-validated.
+    #[test]
+    fn set_algebra_matches_btreeset(
+        a_keys in prop::collection::vec(key_strategy(), 0..400),
+        b_keys in prop::collection::vec(key_strategy(), 0..400),
+    ) {
+        let mut a = ExpanseSet::new();
+        let mut ma = BTreeSet::new();
+        for &k in &a_keys { a.insert(k); ma.insert(k); }
+        let mut b = ExpanseSet::new();
+        let mut mb = BTreeSet::new();
+        for &k in &b_keys { b.insert(k); mb.insert(k); }
+
+        let inter = ma.intersection(&mb).count() as u64;
+        prop_assert_eq!(a.intersection_len(&b), inter, "intersection_len");
+        prop_assert_eq!(b.intersection_len(&a), inter, "intersection_len rev");
+        prop_assert_eq!(a.union_len(&b), ma.union(&mb).count() as u64, "union_len");
+        prop_assert_eq!(a.difference_len(&b), ma.difference(&mb).count() as u64, "difference_len");
+        prop_assert_eq!(
+            a.symmetric_difference_len(&b),
+            ma.symmetric_difference(&mb).count() as u64,
+            "symmetric_difference_len"
+        );
+
+        let inter_set = &a & &b;
+        inter_set.validate();
+        prop_assert!(inter_set.iter().eq(ma.intersection(&mb).copied()), "intersection");
+        let union_set = &a | &b;
+        union_set.validate();
+        prop_assert!(union_set.iter().eq(ma.union(&mb).copied()), "union");
+        let diff_set = &a - &b;
+        diff_set.validate();
+        prop_assert!(diff_set.iter().eq(ma.difference(&mb).copied()), "difference");
+        let sym_set = &a ^ &b;
+        sym_set.validate();
+        prop_assert!(
+            sym_set.iter().eq(ma.symmetric_difference(&mb).copied()),
+            "symmetric_difference"
+        );
+    }
 }
