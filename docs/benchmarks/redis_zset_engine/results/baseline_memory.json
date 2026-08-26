@@ -1,0 +1,56 @@
+[
+  {
+    "population": 100000,
+    "random_scores": {
+      "expanse_bytes_per_member": 49.50272,
+      "expanse_members_bytes_per_member": 25.7598,
+      "expanse_order_bytes_per_member": 23.74292,
+      "label": "random_scores",
+      "population": 100000,
+      "ratio_skiplist_over_expanse": 1.3010016419299788,
+      "skiplist_bytes_per_member": 64.40312,
+      "skiplist_dict_bytes_per_member": 11.79664,
+      "skiplist_list_bytes_per_member": 52.60648,
+      "winner": "expanse"
+    },
+    "sequential_scores": {
+      "expanse_bytes_per_member": 50.38936,
+      "expanse_members_bytes_per_member": 25.7598,
+      "expanse_order_bytes_per_member": 24.62956,
+      "label": "sequential_scores",
+      "population": 100000,
+      "ratio_skiplist_over_expanse": 1.2781095056575436,
+      "skiplist_bytes_per_member": 64.40312,
+      "skiplist_dict_bytes_per_member": 11.79664,
+      "skiplist_list_bytes_per_member": 52.60648,
+      "winner": "expanse"
+    }
+  },
+  {
+    "population": 1000000,
+    "random_scores": {
+      "expanse_bytes_per_member": 54.143704,
+      "expanse_members_bytes_per_member": 25.213932,
+      "expanse_order_bytes_per_member": 28.929772,
+      "label": "random_scores",
+      "population": 1000000,
+      "ratio_skiplist_over_expanse": 1.1653317253655198,
+      "skiplist_bytes_per_member": 63.095376,
+      "skiplist_dict_bytes_per_member": 18.874384,
+      "skiplist_list_bytes_per_member": 44.220992,
+      "winner": "expanse"
+    },
+    "sequential_scores": {
+      "expanse_bytes_per_member": 49.4086,
+      "expanse_members_bytes_per_member": 25.213932,
+      "expanse_order_bytes_per_member": 24.194668,
+      "label": "sequential_scores",
+      "population": 1000000,
+      "ratio_skiplist_over_expanse": 1.2770120181506863,
+      "skiplist_bytes_per_member": 63.095376,
+      "skiplist_dict_bytes_per_member": 18.874384,
+      "skiplist_list_bytes_per_member": 44.220992,
+      "winner": "expanse"
+    }
+  }
+]

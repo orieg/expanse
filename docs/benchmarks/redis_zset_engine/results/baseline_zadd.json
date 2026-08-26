@@ -1,0 +1,31 @@
+{
+  "ops_per_scenario": 1000000,
+  "population": 1000000,
+  "rounds": 5,
+  "scenarios": {
+    "fresh_insert": {
+      "expanse_mops": 7.5104003648732744,
+      "ops": 1000000.0,
+      "skiplist_mops": 1.1102636234484342,
+      "winner": "expanse"
+    },
+    "mixed_churn": {
+      "expanse_mops": 4.973666772065297,
+      "ops": 1000000.0,
+      "skiplist_mops": 0.5596984606632825,
+      "winner": "expanse"
+    },
+    "score_update": {
+      "expanse_mops": 3.558972561492453,
+      "ops": 1000000.0,
+      "skiplist_mops": 0.36015390456803903,
+      "winner": "expanse"
+    },
+    "zincrby": {
+      "expanse_mops": 3.5715476952997376,
+      "ops": 1000000.0,
+      "skiplist_mops": 0.37880920187175915,
+      "winner": "expanse"
+    }
+  }
+}
