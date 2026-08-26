@@ -935,6 +935,12 @@ jobs:
       - name: Build native addon
         run: cargo build --release -p expanse-capi
 
+      - name: Validate Composer manifests (library + PIE extension)
+        if: matrix.os == 'ubuntu-latest' && matrix.php-version == '8.3'
+        run: |
+          composer validate --no-check-publish --no-check-lock bindings/php/composer.json
+          composer validate --no-check-publish --no-check-lock crates/expanse-php/composer.json
+
       - name: Run PHP test suite
         run: php -d ffi.enable=1 tests/ExpanseTest.php
         working-directory: bindings/php

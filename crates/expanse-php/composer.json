@@ -1,0 +1,35 @@
+{
+    "name": "orieg/expanse-extension",
+    "type": "php-ext",
+    "description": "Native PHP Zend Engine extension for Expanse: modern Judy arrays in pure Rust (ext-php-rs). Userland API: orieg/expanse.",
+    "keywords": [
+        "judy",
+        "judy-arrays",
+        "trie",
+        "sparse-array",
+        "data-structures",
+        "performance",
+        "extension",
+        "pie"
+    ],
+    "license": "MIT OR Apache-2.0",
+    "homepage": "https://github.com/orieg/expanse",
+    "support": {
+        "issues": "https://github.com/orieg/expanse/issues",
+        "source": "https://github.com/orieg/php-expanse"
+    },
+    "authors": [
+        {
+            "name": "Nicolas Brousse",
+            "email": "nicolas@brousse.info"
+        }
+    ],
+    "require": {
+        "php": ">=8.1"
+    },
+    "php-ext": {
+        "extension-name": "expanse",
+        "support-zts": true,
+        "configure-options": []
+    }
+}

@@ -11,6 +11,9 @@
     "require-dev": {
         "phpunit/phpunit": "^10.0 || ^11.0"
     },
+    "suggest": {
+        "ext-expanse": "Install via 'pie install orieg/expanse-extension' for maximum native performance (falls back to FFI + libexpanse otherwise)."
+    },
     "autoload": {
         "psr-4": {
             "Expanse\\": "src/"
