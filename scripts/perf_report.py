@@ -128,6 +128,64 @@ def pct(head: int, base: int) -> float:
     return 0.0 if base == 0 else (head - base) / base * 100.0
 
 
+def parse_allow_regression(pr_body: str) -> str | None:
+    """Extracts a regression-override reason from a PR body.
+
+    Only the strict `allow-regression: <nonempty reason>` form (optionally
+    inside an HTML comment) is accepted — colon plus a reason on the same
+    line. A bare `allow-regression` substring, `perf-override: approved`, or
+    a quoted copy of the policy text (`allow-regression: <reason>`) does NOT
+    approve anything: a PR quoting the docs must never silently pass the gate.
+    """
+    for match in re.finditer(
+        r"(?:<!--\s*)?allow-regression:[ \t]*([^\n]+)", pr_body, re.IGNORECASE
+    ):
+        reason = match.group(1).strip()
+        # Strip trailing HTML-comment close / stray backticks from inline quoting.
+        reason = re.sub(r"(?:-->|`)+\s*$", "", reason).strip()
+        if reason and not reason.lower().startswith("<reason>"):
+            return reason
+    return None
+
+
+def head_parse_fatals(
+    head: dict[str, dict[str, int]],
+    base: dict[str, dict[str, int]] | None,
+    min_base_fraction: float = 0.5,
+) -> list[str]:
+    """Fatal conditions for `--fail-on-regression` mode.
+
+    A crashed benchmark run must never render '0 Regressions': an empty head
+    parse, or a head that lost most of the base's arms (partial crash), is a
+    hard failure rather than a quietly green report.
+    """
+    fatals: list[str] = []
+    if not head:
+        fatals.append(
+            "head benchmark output parsed to zero benchmarks — the benchmark run "
+            "crashed or produced no parseable output; refusing to report a green "
+            "regression gate for a run that measured nothing"
+        )
+    elif base and len(head) < len(base) * min_base_fraction:
+        fatals.append(
+            f"head parsed only {len(head)} benchmark(s) vs {len(base)} in base "
+            f"(<{min_base_fraction:.0%}) — partial benchmark crash suspected; "
+            "the missing arms cannot be compared"
+        )
+    return fatals
+
+
+def missing_arms(
+    head: dict[str, dict[str, int]],
+    base: dict[str, dict[str, int]] | None,
+) -> list[str]:
+    """Arms present in base but absent from head — reported explicitly, never
+    silently dropped from the comparison."""
+    if not base:
+        return []
+    return sorted(set(base) - set(head))
+
+
 def verdict(delta: float) -> str:
     """Marker for one delta. Fewer instructions is better, always."""
     if abs(delta) < NOISE_PCT:
@@ -241,12 +299,15 @@ def parse_bytes_64(text: str | None) -> tuple[bool, list[dict[str, Any]]]:
 
     # Parse 1,000,000 population rows
     # Line pattern: dist pop set_bpk map_bpk
+    # Ceilings mirror the enforced maxima in examples/bytes_per_key.rs (the CI
+    # `memory-budget` gate); the displayed ceiling is derived from the values
+    # this table actually enforces, never a separate hand-written figure.
     budgets = {
-        "sequential": ("**Sequential**", "< 9.50 B", 0.10, 9.00),
-        "clustered": ("**Clustered**", "< 9.50 B", 0.50, 9.00),
-        "clustered-wide": ("**Clustered-Wide**", "< 9.50 B", 0.30, 9.00),
-        "random": ("**Random (Uniform)**", "< 28.00 B", 9.00, 18.00),
-        "sparse": ("**Sparse (High 24-bit)**", "< 28.00 B", 17.00, 17.00),
+        "sequential": ("**Sequential**", 0.10, 9.00),
+        "clustered": ("**Clustered**", 0.50, 9.00),
+        "clustered-wide": ("**Clustered-Wide**", 0.30, 9.00),
+        "random": ("**Random (Uniform)**", 9.00, 18.00),
+        "sparse": ("**Sparse (High 24-bit)**", 17.00, 17.00),
     }
 
     for line in text.splitlines():
@@ -257,7 +318,7 @@ def parse_bytes_64(text: str | None) -> tuple[bool, list[dict[str, Any]]]:
                 try:
                     set_bpk = float(parts[2])
                     map_bpk = float(parts[3])
-                    label, ceiling_str, set_max, map_max = budgets[dist]
+                    label, set_max, map_max = budgets[dist]
                     passed = set_bpk <= set_max and map_bpk <= map_max
                     if not passed:
                         all_compliant = False
@@ -266,7 +327,7 @@ def parse_bytes_64(text: str | None) -> tuple[bool, list[dict[str, Any]]]:
                         "pop": "1,000,000",
                         "set_bpk": f"**{set_bpk:.2f} B**",
                         "map_bpk": f"**{map_bpk:.2f} B**",
-                        "ceiling": ceiling_str,
+                        "ceiling": f"set ≤ {set_max:.2f} · map ≤ {map_max:.2f} B",
                         "status": "🟢 Pass" if passed else "🔴 Fail",
                     }
                 except ValueError:
@@ -302,7 +363,7 @@ def render_bytes_64_table(rows: list[dict[str, Any]], raw_fallback: str | None) 
         "<details open>",
         "<summary><b>64-Bit Server Architecture (Bytes per Key)</b></summary>",
         "",
-        "| Distribution | Population | ExpanseSet (B/key) | ExpanseMap (B/key) | Budget Ceiling | Status |",
+        "| Distribution | Population | ExpanseSet (B/key) | ExpanseMap (B/key) | Enforced Ceiling | Status |",
         "|:---|---:|---:|---:|---:|:---:|",
     ]
     for r in rows:
@@ -336,11 +397,13 @@ def parse_bytes_32(text: str | None) -> tuple[bool, list[dict[str, Any]]]:
         r"^\d+\.\s+([^(]+)\s*\(N\s*=\s*(\d+)\):\s*(\d+)\s*bytes\s*\(([0-9.]+)\s*B/key\)"
     )
 
+    # Guards mirror the enforced assertions in examples/bytes_per_key_32.rs;
+    # the displayed ceiling is the value this table actually enforces.
     ceilings = {
-        "clustered": ("**Clustered Sensor Timestamps**", 1.50, 1.00),
-        "sparse": ("**Sparse 29-bit CAN IDs**", 18.00, 20.00),
-        "ipv4": ("**IPv4 Subnet Routing Map**", 12.00, 24.00),
-        "dense": ("**Dense Consecutive Array**", 6.50, 12.00),
+        "clustered": ("**Clustered Sensor Timestamps**", 1.00),
+        "sparse": ("**Sparse 29-bit CAN IDs**", 20.00),
+        "ipv4": ("**IPv4 Subnet Routing Map**", 24.00),
+        "dense": ("**Dense Consecutive Array**", 12.00),
     }
 
     for line in text.splitlines():
@@ -359,7 +422,7 @@ def parse_bytes_32(text: str | None) -> tuple[bool, list[dict[str, Any]]]:
                 key = "dense"
 
             if key and key in ceilings:
-                label, ceiling_val, guard_val = ceilings[key]
+                label, guard_val = ceilings[key]
                 bpk = float(bpk_str)
                 total_bytes = int(total_bytes_str)
                 n = int(n_str)
@@ -371,7 +434,7 @@ def parse_bytes_32(text: str | None) -> tuple[bool, list[dict[str, Any]]]:
                     "pop": f"{n:,}",
                     "total_bytes": f"{total_bytes:,} B",
                     "bpk": f"**{bpk:.2f} B**",
-                    "ceiling": f"< {ceiling_val:.2f} B",
+                    "ceiling": f"≤ {guard_val:.2f} B",
                     "status": "🟢 Pass" if passed else "🔴 Fail",
                 })
 
@@ -398,7 +461,7 @@ def render_bytes_32_table(rows: list[dict[str, Any]], raw_fallback: str | None) 
         "<details>",
         "<summary><b>32-Bit Embedded Architecture (RV32 / ESP32 / Cortex-M)</b></summary>",
         "",
-        "| Embedded Workload | Population | Total Allocated | Bytes / Key | Budget Ceiling | Status |",
+        "| Embedded Workload | Population | Total Allocated | Bytes / Key | Enforced Ceiling | Status |",
         "|:---|---:|---:|---:|---:|:---:|",
     ]
     for r in rows:
@@ -621,6 +684,9 @@ def render(
     is_smoke: bool = False,
     has_violation: bool = False,
     is_allowed_override: bool = False,
+    base_requested: bool = False,
+    gate_armed: bool = False,
+    head_fatals: list[str] | None = None,
 ) -> str:
     # 1. Parse memory density tables and verify compliance
     compliant_64, rows_64 = parse_bytes_64(bytes_table)
@@ -658,7 +724,10 @@ def render(
 
     # 3. Build Executive Header Chips
     if not base:
-        reg_chip = "⚪ **No Baseline**"
+        if base_requested or gate_armed:
+            reg_chip = "⚠️ **NO BASELINE — gate did not run**"
+        else:
+            reg_chip = "⚪ **No Baseline**"
         opt_chip = "—"
     elif has_violation:
         reg_chip = f"🔴 **{regressed} Regressions**"
@@ -673,13 +742,25 @@ def render(
         reg_chip = "🟢 **0 Regressions**"
         opt_chip = f"🚀 **{best:+.2f}% ins** (`{best_bench}`)" if improved else "—"
 
-    chip_64 = "✅ **100% Compliant**" if compliant_64 else "🔴 **Exceeded Ceiling**"
+    # An empty parse is a parse failure, never silent compliance: a supplied
+    # bytes table that yields zero rows must not render "✅ 100% Compliant".
     if not bytes_table:
         chip_64 = "—"
+    elif not rows_64:
+        chip_64 = "⚠️ **Unparsed (no rows)**"
+    elif compliant_64:
+        chip_64 = "✅ **100% Compliant**"
+    else:
+        chip_64 = "🔴 **Exceeded Ceiling**"
 
-    chip_32 = "✅ **100% Compliant**" if compliant_32 else "🔴 **Exceeded Ceiling**"
     if not bytes32_table:
         chip_32 = "—"
+    elif not rows_32:
+        chip_32 = "⚠️ **Unparsed (no rows)**"
+    elif compliant_32:
+        chip_32 = "✅ **100% Compliant**"
+    else:
+        chip_32 = "🔴 **Exceeded Ceiling**"
 
     chip_bindings = bindings_status or "⚪ **Not measured (see nightly)**"
 
@@ -693,6 +774,34 @@ def render(
         f"> **Context & Baseline**: Compares this branch against **merge base `{base_ref}` (expanse's own previous code)**. "
         "Instructions measure *computational work/cost*, not wall-clock time. Fewer instructions is strictly better.",
         "",
+    ]
+
+    # Loud, honest degradation: a baseline that failed to materialize means the
+    # regression gate did not run — say so prominently, not via a quiet chip.
+    if not base and (base_requested or gate_armed):
+        if base_requested:
+            detail = (
+                "A base benchmark file was supplied but parsed to **zero benchmarks** "
+                "(the base pass failed to build, crashed, or produced no output). "
+            )
+        else:
+            detail = "No base benchmark output was supplied to `--base`. "
+        lines += [
+            "> [!WARNING]",
+            "> ### ⚠️ NO BASELINE — regression gate did not run",
+            f"> {detail}Head numbers below are reported **without comparison**; "
+            "this change has NOT been checked for instruction regressions.",
+            "",
+        ]
+
+    for fatal in head_fatals or []:
+        lines += [
+            "> [!CAUTION]",
+            f"> **Benchmark output integrity failure**: {fatal}",
+            "",
+        ]
+
+    lines += [
         "---",
         "",
     ]
@@ -738,6 +847,18 @@ def render(
                     f"| {status_icon} | `{name}` | {ins:,} | {fmt_delta(d_ins)} | {ins_op_str} | {cyc:,} | {fmt_delta(d_cyc)} |"
                 )
             lines.append("")
+
+        # Arms measured on base but absent from head are reported, not
+        # silently dropped from the comparison.
+        dropped = missing_arms(head, base)
+        if dropped:
+            arm_list = ", ".join(f"`{name}`" for name in dropped)
+            lines += [
+                "> [!WARNING]",
+                f"> **{len(dropped)} arm(s) present in base `{base_ref}` but missing from head** — "
+                f"not compared (benchmark removed, renamed, or crashed): {arm_list}",
+                "",
+            ]
     else:
         for cat_id, cat_title, bench_list in categories:
             lines.append(cat_title)
@@ -762,7 +883,7 @@ def render(
         lines.append(
             "> **Wall-Clock Notice**: Indicative throughput measured on CI host via `scripts/bench_report.py` (job: `instructions / comparative`). "
             "Shared CI runners have ~15-20% thermal noise floor; no CI gating is performed on wall-clock metrics. "
-            "Formal quiet-host measurements live in nightly reports (`docs/BENCHMARKING.md`)."
+            "Formal quiet-host measurements come from the dedicated-host `/bench` bare-metal runs (`docs/BENCHMARKING.md`)."
         )
         lines.append("")
         lines.append(head_to_head.strip())
@@ -827,9 +948,82 @@ def read(path: str | None) -> str | None:
         return None
 
 
+SELF_TEST_HEAD = """\
+instructions::cost::map_get random:"random"
+  Instructions:              1000|1000            (No change)
+  Estimated Cycles:          2000|2000            (No change)
+instructions::cost::map_insert
+  Instructions:              3000|3000            (No change)
+  Estimated Cycles:          6000|6000            (No change)
+"""
+
+
+def self_test() -> int:
+    """Unit-style checks for the parsing and gating helpers. No cargo required."""
+    # 1. Parser basics.
+    head = parse(SELF_TEST_HEAD)
+    assert set(head) == {"map_get/random", "map_insert"}, head
+    assert head["map_get/random"]["Instructions"] == 1000
+
+    # 2. Empty / near-empty head parse is fatal for the armed gate.
+    assert head_parse_fatals({}, None), "empty head parse must be fatal"
+    assert head_parse_fatals({}, head), "empty head parse must be fatal with base too"
+    assert not head_parse_fatals(head, head), "identical head/base must not be fatal"
+    base_big = {f"bench_{i}": {"Instructions": 100} for i in range(6)}
+    partial_head = {"bench_0": {"Instructions": 100}}
+    assert head_parse_fatals(partial_head, base_big), "losing most base arms must be fatal"
+
+    # 3. Base-present/head-missing arms are reported explicitly.
+    base = dict(head)
+    base["map_remove"] = {"Instructions": 500, "Estimated Cycles": 900}
+    assert missing_arms(head, base) == ["map_remove"]
+    out = render(head=head, base=base, bytes_table=None, base_ref="origin/main")
+    assert "missing from head" in out and "`map_remove`" in out, "missing arms must be rendered"
+
+    # 4. allow-regression: strict form only.
+    assert parse_allow_regression("allow-regression: intentional SIMD trade-off") == "intentional SIMD trade-off"
+    assert parse_allow_regression("<!-- allow-regression: hardening cost -->") == "hardening cost"
+    assert parse_allow_regression("we may need allow-regression at some point") is None
+    assert parse_allow_regression("add `allow-regression: <reason>` to the PR body.") is None
+    assert parse_allow_regression("allow-regression:") is None
+    assert parse_allow_regression("perf-override: approved") is None
+    # A quoted policy line must not shadow a real approval further down.
+    assert parse_allow_regression(
+        "docs say `allow-regression: <reason>`\n\nallow-regression: OCC hardening cost"
+    ) == "OCC hardening cost"
+
+    # 5. Baseline degradation is loud, not a quiet chip.
+    out = render(head=head, base=None, bytes_table=None, base_ref="origin/main", base_requested=True)
+    assert "NO BASELINE — regression gate did not run" in out
+    out = render(head=head, base=None, bytes_table=None, base_ref="origin/main", gate_armed=True)
+    assert "NO BASELINE — regression gate did not run" in out
+    out = render(head=head, base=None, bytes_table=None, base_ref="origin/main")
+    assert "NO BASELINE" not in out and "⚪ **No Baseline**" in out
+
+    # 6. Empty bytes-per-key parse renders a warning chip, never compliance.
+    out = render(head=head, base=head, bytes_table="garbage with no rows", base_ref="origin/main")
+    assert "⚠️ **Unparsed (no rows)**" in out
+    assert "100% Compliant" not in out
+
+    # 7. The memory table prints the ceilings it actually enforces.
+    compliant, rows = parse_bytes_64("random 1000000 8.50 17.50\n")
+    assert compliant and len(rows) == 1
+    assert rows[0]["ceiling"] == "set ≤ 9.00 · map ≤ 18.00 B", rows[0]["ceiling"]
+    compliant, rows = parse_bytes_64("random 1000000 9.50 17.50\n")
+    assert not compliant, "8.50->9.50 must exceed the enforced set ceiling of 9.00"
+
+    # 8. Regression detection still fires.
+    regressed_head = {"map_get/random": {"Instructions": 1200}, "map_insert": {"Instructions": 3000}}
+    has_violation, msgs = check_regressions(regressed_head, head, max_regression_pct=5.0)
+    assert has_violation and msgs, "a +20% single-arm regression must violate the 5% gate"
+
+    print("perf_report.py --self-test: all checks passed")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Render Expanse CI Performance & Architecture Telemetry Report")
-    ap.add_argument("--head", required=True, help="bench output for this branch")
+    ap.add_argument("--head", help="bench output for this branch (required unless --self-test)")
     ap.add_argument("--base", help="bench output for the merge base")
     ap.add_argument("--bytes", help="bytes_per_key output")
     ap.add_argument("--bytes32", help="bytes_per_key_32 output")
@@ -844,11 +1038,25 @@ def main() -> int:
     ap.add_argument("--allow-regression", action="store_true", help="override/approve intentional regressions")
     ap.add_argument("--allow-regression-reason", help="reason for approving regression")
     ap.add_argument("--pr-body-file", help="path to PR body markdown to check for override markers")
+    ap.add_argument("--self-test", action="store_true", help="run unit-style checks on the parsing/gating helpers and exit")
     args = ap.parse_args()
+
+    if args.self_test:
+        return self_test()
+    if not args.head:
+        ap.error("--head is required unless --self-test is given")
 
     head_text = read(args.head)
     if head_text is None:
         print("## 📊 Expanse CI Performance & Architecture Telemetry\n\nBenchmarks did not run.\n")
+        if args.fail_on_regression:
+            print(
+                "::error::head benchmark output is missing/unreadable — the "
+                "benchmark run produced nothing to gate on; failing instead of "
+                "reporting a green regression gate",
+                file=sys.stderr,
+            )
+            return 1
         return 0
     base_text = read(args.base)
     stock_text = read(args.vs_stock)
@@ -856,19 +1064,20 @@ def main() -> int:
 
     head_parsed = parse(head_text)
     base_parsed = parse(base_text) if base_text else None
+    base_requested = bool(args.base)
 
-    # Check for PR body override markers
+    fatals = head_parse_fatals(head_parsed, base_parsed)
+
+    # Check for PR body override markers (strict `allow-regression: <reason>`
+    # form only; a bare substring or quoted policy text approves nothing).
     allowed = args.allow_regression
     allow_reason = args.allow_regression_reason
     if args.pr_body_file:
         pr_body = read(args.pr_body_file) or ""
-        match = re.search(r"(?:<!--\s*)?allow-regression:\s*([^\n\->]+)", pr_body, re.IGNORECASE)
-        if match:
+        reason = parse_allow_regression(pr_body)
+        if reason:
             allowed = True
-            allow_reason = match.group(1).strip()
-        elif "allow-regression" in pr_body.lower() or "perf-override: approved" in pr_body.lower():
-            allowed = True
-            allow_reason = allow_reason or "PR body requested regression override"
+            allow_reason = reason
 
     has_violation, reg_messages = check_regressions(
         head_parsed,
@@ -894,12 +1103,22 @@ def main() -> int:
         is_smoke=is_smoke,
         has_violation=has_violation,
         is_allowed_override=is_allowed_override,
+        base_requested=base_requested,
+        gate_armed=args.fail_on_regression,
+        head_fatals=fatals,
     )
 
     if reg_messages:
         rendered += "\n### 🛡️ Regression Guard\n\n" + "\n".join(reg_messages) + "\n"
 
     print(rendered, end="")
+
+    # A crashed/empty head parse is a hard failure when the gate is armed: a
+    # run that measured nothing must never render a green regression gate.
+    if args.fail_on_regression and fatals:
+        for fatal in fatals:
+            print(f"::error::{fatal}", file=sys.stderr)
+        return 1
 
     if args.fail_on_regression and has_violation:
         for msg in reg_messages:

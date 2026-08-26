@@ -158,7 +158,8 @@ See `docs/BENCHMARKING.md` §2–3 and `docs/CI.md` for details.
 
 ### Zero-Regression Policy
 - **Fewer instructions is always better.**
-- Any instruction count regression $>0.1\%$ vs baseline main in deterministic Callgrind is considered a blocker.
+- **Review policy**: $0.1\%$ is Callgrind's deterministic measurement resolution; any instruction count regression $>0.1\%$ vs baseline main is considered a blocker in review and must be justified in the PR.
+- **Automated CI gate** (distinct from the review threshold): `scripts/perf_report.py --fail-on-regression` fails the job at a $>5\%$ single-worst regression or $\geq 2$ arms regressed above the $0.5\%$ noise floor; the only automated override is a literal `allow-regression: <reason>` line in the PR body.
 - Numbers in docs are tagged `(measured: host, commit)` or `(target)`; follow `docs/BENCHMARKING.md` (interleaved A/B arms, system-load snapshots before/between comparison runs, CI ratios ≠ publishable numbers).
 - No time estimates in pull requests, comments, or documentation.
 

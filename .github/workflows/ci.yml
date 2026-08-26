@@ -545,6 +545,10 @@ jobs:
 
       - name: Instruction and cache-miss counts (merge base)
         if: github.event_name == 'pull_request'
+        # shell: bash implies pipefail. The base pass stays non-fatal (|| true:
+        # a broken base commit must not hard-block PRs); perf_report.py renders
+        # a loud NO BASELINE section when the base output parses empty.
+        shell: bash
         run: |
           git config --global --add safe.directory "$PWD"
           MERGE_BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD 2>/dev/null || echo "")
@@ -556,6 +560,9 @@ jobs:
           fi
 
       - name: Instruction and cache-miss counts (this branch, baseline)
+        # shell: bash implies pipefail: a crashed bench must fail the step, not
+        # exit 0 through tee and render "0 Regressions" from an empty parse.
+        shell: bash
         run: |
           if [ -f base-counts.txt ]; then
             cargo bench --bench instructions -p expanse-trie -- --baseline=main_base | tee instruction-counts.txt
@@ -564,19 +571,24 @@ jobs:
           fi
 
       - name: Instruction and cache-miss counts (this branch, x86-64-v3 modern)
+        shell: bash
         run: |
           RUSTFLAGS="-C target-cpu=x86-64-v3" cargo bench --bench instructions -p expanse-trie | tee v3-counts.txt
 
       - name: bytes/key table (64-bit)
+        shell: bash
         run: cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
 
       - name: bytes/key table (32-bit embedded)
+        shell: bash
         run: cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
 
       - name: libexpanse vs stock libjudy (instructions)
+        shell: bash
         run: cargo bench --bench vs_stock -p expanse-capi | tee vs-stock.txt
 
       - name: Head-to-Head Comparative Benchmark (Expanse vs hashbrown vs BTreeMap)
+        shell: bash
         run: |
           python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
 
@@ -690,6 +702,8 @@ jobs:
 
       - name: Callgrind Fast Smoke (merge base)
         if: github.event_name == 'pull_request'
+        # shell: bash implies pipefail; base pass stays non-fatal (|| true).
+        shell: bash
         run: |
           git config --global --add safe.directory "$PWD"
           MERGE_BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD 2>/dev/null || echo "")
@@ -701,6 +715,9 @@ jobs:
           fi
 
       - name: Run Callgrind Fast Smoke Instructions Benchmark
+        # shell: bash implies pipefail: a crashed bench must fail the step, not
+        # exit 0 through tee.
+        shell: bash
         run: |
           if [ -f base-smoke-counts.txt ]; then
             cargo bench --bench smoke_instructions -p expanse-trie -- --baseline=smoke_base | tee smoke-instruction-counts.txt

@@ -180,7 +180,7 @@ python3 scripts/bench_report.py --pop 100000 --format json --output bench_result
 | Flag | Description | Default |
 |---|---|---|
 | `--quick` | Fast smoke mode ($N = 10,000$ keys) | `false` |
-| `--extended` | Multi-population sweep ($N \in [10\text{k}, 100\text{k}, 1\text{M}]$) + arch sweep | `false` |
+| `--extended` | Multi-population sweep ($N \in [10\text{k}, 100\text{k}, 1\text{M}]$); combine with `--arch-sweep` for the microarchitecture matrix (the `/bench extended` CI trigger passes both) | `false` |
 | `--arch-sweep` | Target CPU microarchitecture sweep (baseline, v2, v3, native) | `false` |
 | `--target-cpu <cpu>` | Specific target CPU architecture (e.g. `x86-64-v3`, `native`) | `None` (generic baseline) |
 | `--pop <N>` | Target key population | `1,000,000` |
@@ -190,6 +190,7 @@ python3 scripts/bench_report.py --pop 100000 --format json --output bench_result
 | `--output <file>` | Output destination file path | `stdout` |
 | `--rounds <N>` | Interleaved benchmark rounds (median reported) | `3` |
 | `--input <file>` | Render tables from precomputed JSON artifact | `None` |
+| `--self-test` | Run unit-style checks on the rendering helpers (parity band vs legend, derived summary) and exit | `false` |
 
 
 ## Reading perf results in a PR
@@ -207,7 +208,13 @@ Every pull request gets a single updating comment from the `instruction-counts` 
 3. **vs the merge base**: the same engine measured against its own
    merge-base commit on the base branch (`crates/expanse/benches/instructions.rs` via `--save-baseline=main_base` and `--baseline=main_base`). This is
    the regression question — did this change make the engine do more
-   work — and it gates CI with deterministic `<0.1%` sensitivity.
+   work — reported at Callgrind's deterministic `0.1%` measurement
+   resolution. The **automated gate** (`scripts/perf_report.py
+   --fail-on-regression`) fails the job at a `>5%` single-worst regression
+   or ≥2 arms regressed above the `0.5%` noise floor; anything above
+   `0.1%` remains a *review* blocker per AGENTS.md §6, and the only
+   automated override is a literal `allow-regression: <reason>` line in
+   the PR body.
 
 All three tables are paired with collapsed sections for cache line / RAM traffic breakdowns and the deterministic bytes/key allocator memory budget tables.
 
@@ -283,7 +290,8 @@ To eliminate `N/A` comparison columns and guarantee accurate, side-by-side regre
    - Runs comparative baseline benchmarks against `hashbrown::HashMap` and `BTreeMap` (`scripts/bench_report.py`).
 3. **Drift Aggregation & Sticky PR Reporting**:
    - `scripts/perf_report.py` synthesizes the dual-pass measurements into a structured GitHub Flavored Markdown report.
-   - Posts or updates a sticky comment on the PR thread tagged with the exact host hardware metadata (`Intel Core i9-12900F (24 threads, 30 MiB L3, Linux 6.8)`).
+   - Posts or updates a sticky comment on the PR thread tagged with an anonymized host hardware description captured from the runner itself (`lscpu` / `nproc` / `uname` — no hostname), plus the system-load snapshot (uptime + top processes) recorded at run start.
+   - Prints a `Base Ref` line only when the base pass actually produced comparable benchmark output; a comparison that never ran is reported as such, and an empty base parse renders the report's prominent `⚠️ NO BASELINE` section instead of a quiet chip.
    - Emits the formatted report directly to `$GITHUB_STEP_SUMMARY`.
 
 ### 3. Triggering via PR Comment
@@ -296,7 +304,7 @@ Maintainers and collaborators can trigger benchmarks directly on any pull reques
 - `/benchmark ycsb` (runs only the `ycsb` suite)
 - `/benchmark concurrency` (runs only the `concurrency` suite — `benches/concurrency.rs`, the dedicated `Sync*` wall-clock scaling instrument: `SyncExpanseMap`/`Set`/`BlobMap`/`StrMap`/`BytesMap` plus their `Mutex`/`RwLock`/`SkipMap`/`DashMap` baselines)
 
-The self-hosted runner executes the suite natively on bare metal, verifies system load hygiene, and posts/updates a sticky comment on the PR thread.
+The self-hosted runner executes the suite natively on bare metal and posts/updates a sticky comment on the PR thread. Before benchmarking it takes the host-wide benchmark lock (methodology rule 8 above — refuses to start with exit 75 while another suite holds the host, releasing on exit), records the system-load hygiene snapshot (uptime + top processes, non-gating) into the report, and fails fast with a clear error if a Callgrind suite (`all`, `extended`, `instructions`, `vs_stock`) is requested on a host missing `valgrind` or `iai-callgrind-runner`. Benchmark steps run under `pipefail`, so a crashed `cargo bench … | tee` fails the step instead of silently producing an empty report.
 
 **Concurrency suite specifics.** Unlike the Callgrind suites, the `concurrency` suite is wall-clock and single-pass (report-only, no dual-pass baseline arm — thread-scheduling noise makes a tight per-PR threshold dishonest). `benches/concurrency.rs` accepts two env knobs, parsed in its `main()`:
 

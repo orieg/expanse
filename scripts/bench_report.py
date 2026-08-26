@@ -95,26 +95,85 @@ def run_benchmark_harness(
         sys.exit(1)
 
 
-def fmt_speedup(
+# Parity band shared by the ratio markers and the printed legend ("⚪ Parity
+# (±5%)"). The code and the legend must agree: the legend is the published
+# contract, and a wider band would hide real losses behind a parity marker.
+PARITY_BAND = 0.05
+
+
+def classify_ratio(
     expanse_val: float,
     baseline_val: float,
     higher_is_better: bool = True,
-    noise_floor: float = 0.20,
-) -> str:
-    """Computes and formats a speedup multiplier."""
+    noise_floor: float = PARITY_BAND,
+) -> Optional[Tuple[str, float]]:
+    """Classifies a measured pair as ('win'|'parity'|'loss', ratio), or None
+    when either side is missing/non-positive."""
     if expanse_val <= 0.0 or baseline_val <= 0.0:
-        return "—"
+        return None
     if higher_is_better:
         ratio = expanse_val / baseline_val
     else:
         ratio = baseline_val / expanse_val
-
     if ratio >= (1.0 + noise_floor):
+        return "win", ratio
+    if ratio <= (1.0 - noise_floor):
+        return "loss", ratio
+    return "parity", ratio
+
+
+def fmt_speedup(
+    expanse_val: float,
+    baseline_val: float,
+    higher_is_better: bool = True,
+    noise_floor: float = PARITY_BAND,
+) -> str:
+    """Computes and formats a speedup multiplier."""
+    classified = classify_ratio(expanse_val, baseline_val, higher_is_better, noise_floor)
+    if classified is None:
+        return "—"
+    kind, ratio = classified
+    if kind == "win":
         return f"**{ratio:.2f}x** 🟢"
-    elif ratio <= (1.0 - noise_floor):
+    if kind == "loss":
         return f"{ratio:.2f}x 🔴"
-    else:
-        return f"{ratio:.2f}x ⚪"
+    return f"{ratio:.2f}x ⚪"
+
+
+def derive_summary(results: Dict[str, Any]) -> List[str]:
+    """Derives win/parity/loss counts for point-lookup latency strictly from
+    the parsed results. No prose beyond the tallies: the tables carry the data."""
+    baselines = [
+        ("btree", "`std::BTreeMap`"),
+        ("hashbrown", "`hashbrown::HashMap`"),
+        ("libjudy", "`libjudy (stock JudyL)`"),
+    ]
+    lines: List[str] = []
+    for key, label in baselines:
+        tally = {"win": 0, "parity": 0, "loss": 0}
+        total = 0
+        for res in results.values():
+            exp_lkp = res.get("expanse", {}).get("lookup_ns", 0.0)
+            other = res.get(key) or {}
+            classified = classify_ratio(
+                exp_lkp, other.get("lookup_ns", 0.0), higher_is_better=False
+            )
+            if classified is None:
+                continue
+            tally[classified[0]] += 1
+            total += 1
+        if total:
+            lines.append(
+                f"- vs {label}: **{tally['win']} faster · {tally['parity']} parity · "
+                f"{tally['loss']} slower** (point lookup, {total} distribution(s))"
+            )
+    if not lines:
+        return []
+    return [
+        "---",
+        f"**Measured Summary** (derived from the tables above; parity band ±{PARITY_BAND * 100:.0f}%):",
+        *lines,
+    ]
 
 
 def render_markdown(data: Dict[str, Any]) -> str:
@@ -200,14 +259,10 @@ def render_markdown(data: Dict[str, Any]) -> str:
 
         lines.append("")
 
+    lines.extend(derive_summary(results))
     lines.extend([
-        "---",
-        "**Key Architectural Findings:**",
-        "- **vs Ordered Baseline (`std::BTreeMap`)**: `ExpanseMap` delivers **4× to 10× faster point lookups**, **1.5× to 2.3× faster cold insertion**, competitive or faster bounded range scans, and **~3.4× smaller memory footprint**.",
-        "- **vs Unordered Baseline (`hashbrown::HashMap`)**: `ExpanseMap` maintains full sorted order and streaming $O(1)$ amortized range scans while using **up to 2.8× less memory** (`8.58 B/key` vs `24.38 B/key`).",
-        "- **vs C ABI Baseline (`libjudy`)**: `ExpanseMap` outperforms stock `libjudy` across all key distributions in lookup latency, insertion throughput, and iteration.",
         "",
-        "<sub>🟢 Faster than baseline · ⚪ Parity (±5%) · 🔴 Slower than baseline. Generated automatically via <code>scripts/bench_report.py</code>.</sub>\n",
+        f"<sub>🟢 Faster than baseline · ⚪ Parity (±{PARITY_BAND * 100:.0f}%) · 🔴 Slower than baseline. Generated automatically via <code>scripts/bench_report.py</code>.</sub>\n",
     ])
 
     return "\n".join(lines)
@@ -348,6 +403,60 @@ def render_arch_sweep_markdown(arch_reports: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def self_test() -> int:
+    """Unit-style checks for the pure rendering helpers. No cargo required."""
+    # 1. Legend/band agreement: the parity band is the ±5% the legend prints.
+    assert abs(PARITY_BAND - 0.05) < 1e-12, "parity band must match the printed ±5% legend"
+    # lower-is-better latency pairs: 104 vs 100 is inside the band, 106/94 are not.
+    assert fmt_speedup(100.0, 104.0, higher_is_better=False).endswith("⚪")
+    assert fmt_speedup(100.0, 106.0, higher_is_better=False).endswith("🟢")
+    assert fmt_speedup(106.0, 100.0, higher_is_better=False).endswith("🔴")
+    assert fmt_speedup(0.0, 100.0, higher_is_better=False) == "—"
+
+    # 2. Summary is derived strictly from the parsed results.
+    data = {
+        "pop": 10_000,
+        "system": {"os": "linux", "arch": "x86_64"},
+        "results": {
+            "sequential": {
+                "expanse": {"lookup_ns": 10.0},
+                "hashbrown": {"lookup_ns": 12.0},
+                "btree": {"lookup_ns": 40.0},
+                "libjudy": {"lookup_ns": 11.0},
+            },
+            "random": {
+                "expanse": {"lookup_ns": 30.0},
+                "hashbrown": {"lookup_ns": 15.0},
+                "btree": {"lookup_ns": 60.0},
+                "libjudy": {"lookup_ns": 27.0},
+            },
+        },
+    }
+    summary = "\n".join(derive_summary(data["results"]))
+    assert "vs `std::BTreeMap`: **2 faster · 0 parity · 0 slower**" in summary, summary
+    assert "vs `hashbrown::HashMap`: **1 faster · 0 parity · 1 slower**" in summary, summary
+    assert "vs `libjudy (stock JudyL)`: **1 faster · 0 parity · 1 slower**" in summary, summary
+
+    # 3. The rendered report carries no hardcoded findings prose.
+    md = render_markdown(data)
+    for fabricated in (
+        "4× to 10×",
+        "3.4× smaller",
+        "outperforms stock",
+        "across all key distributions",
+        "Key Architectural Findings",
+    ):
+        assert fabricated not in md, f"hardcoded findings prose leaked into report: {fabricated!r}"
+    assert "Measured Summary" in md
+    assert "±5%" in md
+
+    # 4. No results at all -> no summary block, not a fabricated one.
+    assert derive_summary({}) == []
+
+    print("bench_report.py --self-test: all checks passed")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Automated Head-to-Head Benchmark Comparison Report Tool for Expanse."
@@ -415,8 +524,15 @@ def main() -> int:
         type=str,
         help="Optional input JSON file with precomputed benchmark results.",
     )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Run unit-style checks on the rendering helpers and exit.",
+    )
 
     args = parser.parse_args()
+    if args.self_test:
+        return self_test()
     root = get_repo_root()
 
     if args.input:
