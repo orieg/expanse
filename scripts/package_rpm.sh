@@ -30,6 +30,10 @@ mkdir -p "${RPM_TOPDIR}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS,BUILDROOT}
 SPEC_FILE="${RPM_TOPDIR}/SPECS/expanse.spec"
 
 cat <<'SPECEOF' > "${SPEC_FILE}"
+%define __strip /bin/true
+%define __brp_strip %{nil}
+%global debug_package %{nil}
+
 Name:           libexpanse
 Version:        VERSION_PLACEHOLDER
 Release:        1%{?dist}
