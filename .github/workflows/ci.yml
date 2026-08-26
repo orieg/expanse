@@ -826,9 +826,25 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
 
-      - name: Fuzz smoke (60s per target)
+      - name: Fuzz target registration self-check
+        # Every fuzz/fuzz_targets/*.rs must be a registered [[bin]] in
+        # fuzz/Cargo.toml and vice versa; a target that is only one of the
+        # two is silently never fuzzed. Targets are discovered, never listed
+        # by hand here.
         run: |
-          for t in set_ops set_algebra map_ops bytesmap_ops strmap_ops blobmap_image_corrupt set32_ops map32_ops; do
+          registered="$(cargo fuzz list | sort)"
+          on_disk="$(ls fuzz/fuzz_targets/*.rs | xargs -n1 basename | sed 's/\.rs$//' | sort)"
+          if [ "$registered" != "$on_disk" ]; then
+            echo "::error::fuzz/Cargo.toml [[bin]] targets and fuzz/fuzz_targets/*.rs differ"
+            diff <(echo "$registered") <(echo "$on_disk") || true
+            exit 1
+          fi
+          test -n "$registered"
+          echo "fuzz targets: $(echo "$registered" | tr '\n' ' ')"
+
+      - name: Fuzz smoke (60s per target, targets discovered from fuzz/Cargo.toml)
+        run: |
+          for t in $(cargo fuzz list); do
             echo "::group::$t"
             cargo fuzz run "$t" -- -max_total_time=60 -print_final_stats=1
             echo "::endgroup::"

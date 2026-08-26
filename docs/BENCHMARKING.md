@@ -94,6 +94,18 @@ Performance claims are this project's reason to exist, so they follow the strict
 6. **Fixed seeds, recorded populations.** Every bench names its RNG seed and population sizes so runs are reproducible bit-for-bit.
 7. **No time estimates, no projections-as-results** — per repo-wide discipline (CLAUDE.md).
 
+8. **One suite per machine at a time — enforced by a host-wide lock, not by
+   coordination.** Every `docs/benchmarks/*/run.sh` takes an atomic `mkdir`
+   lock at `${EXPANSE_BENCH_LOCK:-${TMPDIR:-/tmp}/expanse-bench.lock}`
+   (shared across all checkouts on the host), records `suite`/`pid`/`start`
+   in `owner`, refuses to start (exit 75) while another run holds it, and
+   removes it on exit. This exists because two runs scheduled by message
+   passing nearly overlapped twice in one morning; the lock makes the
+   collision impossible rather than merely unlikely. Ad-hoc `cargo bench`
+   invocations outside `run.sh` must check the lock manually (`cat
+   "$TMPDIR/expanse-bench.lock/owner"`) and are otherwise subject to rule 2's
+   load-snapshot requirement.
+
 ## Bench matrix
 
 | Bench | Status | Notes |
