@@ -9,10 +9,10 @@ This directory contains the reproducible benchmark suite, raw measurements, meth
 | Capability / Property | `hashbrown::HashMap` (SwissTable) | `std::collections::BTreeMap` | `expanse::ExpanseMap` |
 | :--- | :--- | :--- | :--- |
 | **Underlying Data Structure** | Flat 1-Byte Control Array + Buckets | Cache-Oblivious B-Tree | Expanse-Partitioned Digital Trie |
-| **Point Query Complexity** | $O(1)$ amortized expected | $O(\log N)$ | $O(k) \le 8$ digit steps |
-| **Ordered Traversal & Range Scans** | ❌ **Disqualified** ($O(N \log N)$) | ✅ Supported | ✅ Supported |
-| **Sequential Key Memory Density** | $35.7\text{ Bytes / Key}$ | $34.3\text{ Bytes / Key}$ | **$8.7\text{ Bytes / Key}$** ($3.9\times\text{ to }4.1\times$ smaller) |
-| **Key Hashing Required** | ✅ Yes (SipHash / FoldHash) | ❌ No (Direct ordering) | ❌ No (Direct radix prefix slicing) |
+| **Point Query Complexity** | O(1) amortized expected | O(log N) | O(k) ≤ 8 digit steps |
+| **Ordered Traversal & Range Scans** | ❌ **Disqualified** (O(N log N)) | ✅ Supported | ✅ Supported |
+| **Sequential Key Memory Density** | 35.7 Bytes / Key | 34.3 Bytes / Key | **8.7 Bytes / Key** (3.9× to 4.1× smaller) |
+| **Key Hashing Required** | Required (SipHash / FoldHash) | Not needed — direct ordering | Not needed — direct radix prefix slicing |
 | **Dynamic Ingestion Growth Model** | Global Table Doubling (Rehash) | Node Splitting | Local Subexpanse Allocation |
 
 ---
@@ -37,10 +37,10 @@ Measured via custom `GlobalAlloc` hooks tracking heap allocations at steady stat
 
 ![Memory Footprint Bytes Per Key](results/bench_memory_footprint.svg)
 
-| Key Pattern ($N = 500,000$) | `hashbrown` | `BTreeMap` | `ExpanseMap` | Expanse vs. Hashbrown |
+| Key Pattern (N = 500,000) | `hashbrown` | `BTreeMap` | `ExpanseMap` | Expanse vs. Hashbrown |
 | :--- | :--- | :--- | :--- | :--- |
-| **Dense Sequential ($0 \dots N$)** | $35.7\text{ B/key}$ | $34.3\text{ B/key}$ | **$8.7\text{ B/key}$** | **$4.1\times$ more compact** |
-| **Uniform Random 64-bit** | $35.7\text{ B/key}$ | $27.1\text{ B/key}$ | **$24.7\text{ B/key}$** | **$1.4\times$ more compact** |
+| **Dense Sequential (0 … N)** | 35.7 B/key | 34.3 B/key | **8.7 B/key** | **4.1× more compact** |
+| **Uniform Random 64-bit** | 35.7 B/key | 27.1 B/key | **24.7 B/key** | **1.4× more compact** |
 
 Expanse's uncompressed bitmap-backed leaf nodes pack sequential and clustered integer keys with near-zero pointer overhead, dropping memory consumption to under 9 bytes per key. (At smaller populations the picture shifts — e.g. at $N = 100,000$ random keys Expanse uses $30.8\text{ B/key}$ vs hashbrown's $22.3\text{ B/key}$, because a just-doubled SwissTable is at its slack minimum while sparse trie branches have low occupancy; the full population sweep is in `results/baseline_memory.json`. An earlier revision of this table mixed rows from different populations under one label.)
 
@@ -61,12 +61,12 @@ Point lookup throughput (Mops/sec) evaluated across standard key geometries ($N 
 
 ![Key Distributions Throughput](results/bench_key_distributions.svg)
 
-| Key Geometry ($N = 500,000$) | `hashbrown` | `BTreeMap` | `ExpanseMap` | Expanse Result |
+| Key Geometry (N = 500,000) | `hashbrown` | `BTreeMap` | `ExpanseMap` | Expanse Result |
 | :--- | :--- | :--- | :--- | :--- |
-| **Sparse Clustered / Stride** | $94.9\text{ Mops/s}$ | $24.4\text{ Mops/s}$ | **$170.1\text{ Mops/s}$** | **$1.8\times$ faster than Hashbrown, $7.0\times$ vs BTree** |
-| **Dense Sequential ($0 \dots N$)** | $102.8\text{ Mops/s}$ | $27.3\text{ Mops/s}$ | **$135.5\text{ Mops/s}$** | **$1.3\times$ faster than Hashbrown, $5.0\times$ vs BTree** |
-| **Zipfian Skewed ($s = 0.99$)** | $197.7\text{ Mops/s}$ | $19.7\text{ Mops/s}$ | $116.1\text{ Mops/s}$ | **$5.9\times$ vs BTree**; Hashbrown leads ($1.7\times$) |
-| **Uniform Random 64-bit** | $89.4\text{ Mops/s}$ | $10.0\text{ Mops/s}$ | $28.0\text{ Mops/s}$ | **$2.8\times$ vs BTree**; Hashbrown leads ($3.2\times$) |
+| **Sparse Clustered / Stride** | 94.9 Mops/s | 24.4 Mops/s | **170.1 Mops/s** | **1.8× faster than Hashbrown, 7.0× vs BTree** |
+| **Dense Sequential (0 … N)** | 102.8 Mops/s | 27.3 Mops/s | **135.5 Mops/s** | **1.3× faster than Hashbrown, 5.0× vs BTree** |
+| **Zipfian Skewed (s = 0.99)** | 197.7 Mops/s | 19.7 Mops/s | 116.1 Mops/s | **5.9× vs BTree**; Hashbrown leads (1.7×) |
+| **Uniform Random 64-bit** | 89.4 Mops/s | 10.0 Mops/s | 28.0 Mops/s | **2.8× vs BTree**; Hashbrown leads (3.2×) |
 
 ---
 
