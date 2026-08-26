@@ -870,21 +870,50 @@ impl ExpanseBlobMap {
     {
         for (key, raw_slot) in self.index.range(range) {
             let slot = ValueSlot::from_raw(raw_slot);
+            let tag = slot.tag();
             // Inline slots store payload bytes in the slot word, not metadata;
             // only `ArenaMeta` slots carry a real hot-metadata field. Reading it
             // on an inline slot would feed payload garbage to the predicate, so
             // report inline metadata as 0.
-            let meta = if slot.tag() == SlotTag::ArenaMeta {
+            let meta = if tag == SlotTag::ArenaMeta {
                 slot.arena_meta_meta()
             } else {
                 0
             };
-            if predicate(key, meta) {
-                if let Some((view, _)) = self.get(key) {
-                    if !callback(key, view, meta) {
-                        break;
-                    }
+            if !predicate(key, meta) {
+                continue;
+            }
+            // Resolve the payload directly from the slot the range walk already
+            // holds — no per-match `get(key)` re-descent through the trie (#355).
+            // `le_bytes` must outlive the match so an inline `BlobView` can borrow
+            // the slot word's payload bytes; keep it bound in the loop body.
+            let le_bytes = raw_slot.to_le_bytes();
+            let view = match tag {
+                SlotTag::Inline0
+                | SlotTag::Inline1
+                | SlotTag::Inline2
+                | SlotTag::Inline3
+                | SlotTag::Inline4
+                | SlotTag::Inline5
+                | SlotTag::Inline6
+                | SlotTag::Inline7 => {
+                    // Little-endian: `ValueSlot::new_inline` writes payload byte
+                    // `i` at slot byte `i + 1`, so bytes `1..=len` are the payload.
+                    let len = tag as u8 as usize;
+                    BlobView::Inline(&le_bytes[1..1 + len])
                 }
+                SlotTag::ArenaMeta => match self.arena.resolve_meta(slot.arena_meta_locator()) {
+                    Some(slice) => BlobView::Arena(slice),
+                    // A slot whose locator no longer resolves (e.g. stale after a
+                    // compaction) is skipped, exactly as `get` would return `None`.
+                    None => continue,
+                },
+                // Non-inline / non-arena tags carry no payload — skipped, matching
+                // `get`'s `_ => None` arm.
+                _ => continue,
+            };
+            if !callback(key, view, meta) {
+                break;
             }
         }
     }
@@ -1682,6 +1711,102 @@ mod tests {
             assert_eq!(view.as_bytes(), &vec![0x40 + k as u8; 2000][..]);
             // Metadata rides along through compaction relocation.
             assert_eq!(meta, 900 + k as u32, "k={k} meta preserved by compaction");
+        }
+    }
+
+    /// `scan_filtered` must visit exactly the same `(key, meta, payload)`
+    /// sequence a `BTreeMap` reference does when filtered by the same predicate —
+    /// across inline (`<= 7` B) and arena payloads, at low/zero/full selectivity,
+    /// over full and partial windows, and after a compaction relocates arena
+    /// records. This pins the #355 change (resolve from the held slot, no
+    /// per-match `get` re-descent) to byte-identical output.
+    #[test]
+    fn scan_filtered_matches_btreemap_reference() {
+        use std::collections::BTreeMap;
+
+        type Pred = dyn Fn(u64, u32) -> bool;
+
+        let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
+        // Reference model: key -> (effective_meta, payload). `effective_meta`
+        // mirrors `scan_filtered`: 0 for inline (no metadata field), the hot
+        // metadata for arena payloads.
+        let mut model: BTreeMap<u64, (u32, Vec<u8>)> = BTreeMap::new();
+
+        let n = 400u64;
+        for i in 0..n {
+            let (payload, hot_meta): (Vec<u8>, u32) = if i % 3 == 0 {
+                // Inline payload: 0..=7 bytes (metadata ignored / reported as 0).
+                let len = (i % 8) as usize;
+                (
+                    (0..len).map(|b| (i as u8).wrapping_add(b as u8)).collect(),
+                    0,
+                )
+            } else {
+                // Arena payload: >7 bytes, carries 24-bit hot metadata.
+                let len = 8 + (i % 40) as usize;
+                (
+                    (0..len).map(|b| (i as u8).wrapping_add(b as u8)).collect(),
+                    (i as u32) & ValueSlot::ARENA_META_MAX,
+                )
+            };
+            map.insert(i, &payload, hot_meta).unwrap();
+            let effective_meta = if payload.len() <= 7 { 0 } else { hot_meta };
+            model.insert(i, (effective_meta, payload));
+        }
+
+        // Collect the scan_filtered output and the identically-filtered model
+        // slice, then compare — as a single assertion per (predicate, window).
+        fn check(
+            map: &ExpanseBlobMap,
+            model: &BTreeMap<u64, (u32, Vec<u8>)>,
+            lo: u64,
+            hi: u64,
+            pred: &Pred,
+            label: &str,
+        ) {
+            let mut seen: Vec<(u64, u32, Vec<u8>)> = Vec::new();
+            map.scan_filtered(lo..=hi, pred, |k, view, m| {
+                seen.push((k, m, view.as_bytes().to_vec()));
+                true
+            });
+            let expected: Vec<(u64, u32, Vec<u8>)> = model
+                .range(lo..=hi)
+                .filter(|(k, (m, _))| pred(**k, *m))
+                .map(|(k, (m, p))| (*k, *m, p.clone()))
+                .collect();
+            assert_eq!(seen, expected, "{label}");
+        }
+
+        // sigma = 1.0 (all match), 0.0 (none), 0.05 (exactly 1/20 of keys, chosen
+        // odd so the subset survives the even-key churn below).
+        let preds: [(&str, &Pred); 3] = [
+            ("sigma=1.0", &|_k, _m| true),
+            ("sigma=0.0", &|_k, _m| false),
+            ("sigma=0.05", &|k, _m| k % 20 == 1),
+        ];
+
+        for (label, pred) in preds {
+            check(&map, &model, 0, n - 1, pred, &format!("{label} full-range"));
+            check(&map, &model, 50, 349, pred, &format!("{label} sub-range"));
+        }
+
+        // Churn away every even key, compact (arena records relocate to fresh
+        // chunks; inline payloads stay in-slot), then re-verify against the model.
+        for i in (0..n).step_by(2) {
+            assert!(map.remove(i));
+            model.remove(&i);
+        }
+        map.compact().unwrap();
+
+        for (label, pred) in preds {
+            check(
+                &map,
+                &model,
+                0,
+                n - 1,
+                pred,
+                &format!("{label} post-compaction"),
+            );
         }
     }
 }

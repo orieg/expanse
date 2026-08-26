@@ -26,13 +26,30 @@ fuzz_target!(|data: &[u8]| {
                 let _ = view.as_bytes().iter().fold(0u8, |a, &b| a ^ b);
             }
         }
+        // Differential: with an always-true predicate, `scan_filtered` (which
+        // resolves each match from the slot the range walk already holds, #355)
+        // must visit exactly what the point-lookup `get` path returns, in
+        // ascending key order — same keys, same payload bytes, same hot_meta.
+        let mut scanned: Vec<(u64, u32, Vec<u8>)> = Vec::new();
         map.scan_filtered(
             0..=u64::MAX,
             |_key, _meta| true,
-            |_key, view, _meta| {
-                let _ = view.len();
+            |key, view, meta| {
+                scanned.push((key, meta, view.as_bytes().to_vec()));
                 true
             },
+        );
+        let via_get: Vec<(u64, u32, Vec<u8>)> = map
+            .index()
+            .iter()
+            .filter_map(|(key, _raw)| {
+                map.get(key)
+                    .map(|(view, meta)| (key, meta, view.as_bytes().to_vec()))
+            })
+            .collect();
+        assert_eq!(
+            scanned, via_get,
+            "scan_filtered output diverged from the get() re-descent path"
         );
 
         // Differential save -> load roundtrip: any image that parses must
