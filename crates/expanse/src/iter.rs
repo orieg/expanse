@@ -83,18 +83,6 @@ enum LeafCursor {
         count: u8,
         idx: u8,
     },
-    ImmedRun {
-        branch: *const BranchU,
-        current_digit: u16,
-        prefix: u64,
-        level: u8,
-    },
-    ImmedRunRev {
-        branch: *const BranchU,
-        current_digit: u16,
-        prefix: u64,
-        level: u8,
-    },
     FullExpanse {
         next_key: u64,
         max_key: u64,
@@ -244,24 +232,7 @@ impl<const MAP: bool> RawIter<MAP> {
                     // skipping the two 15-wide staging arrays and the wide
                     // cursor copy the multi-key path pays per element.
                     if n == 1 {
-                        let kb = im.key_bytes() as usize;
-                        let (low, value) = if MAP {
-                            // Map immediate: key in the low `kb` aux bytes,
-                            // value in word 0.
-                            let aux = cur_edge.aux_bytes();
-                            let mut kbuf = [0u8; 8];
-                            kbuf[..kb].copy_from_slice(&aux[..kb]);
-                            (
-                                u64::from_le_bytes(kbuf),
-                                u64::from_le_bytes(cur_edge.imm_bytes()),
-                            )
-                        } else {
-                            // Set immediate: key packed in word 0.
-                            let w0 = cur_edge.imm_bytes();
-                            let mut kbuf = [0u8; 8];
-                            kbuf[..kb].copy_from_slice(&w0[..kb]);
-                            (u64::from_le_bytes(kbuf), 0)
-                        };
+                        let (low, value) = unpack_immed_single::<MAP>(&cur_edge, im);
                         self.leaf = LeafCursor::ImmedSingle {
                             key: cur_prefix | low,
                             value,
@@ -503,18 +474,6 @@ impl<const MAP: bool> RawIter<MAP> {
                         return;
                     }
                     let next_child = b.edges[d as usize];
-                    if let Some(EdgeTag::Immed(im)) = next_child.tag()
-                        && im.key_count() == 1
-                    {
-                        self.leaf = LeafCursor::ImmedRun {
-                            branch: b,
-                            current_digit: d,
-                            prefix: cur_prefix,
-                            level: bl,
-                        };
-                        return;
-                    }
-
                     let child_prefix = cur_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
 
                     self.stack[self.depth] = StackFrame {
@@ -1023,19 +982,6 @@ impl<const MAP: bool> RawIter<MAP> {
                     let next_child = b.edges[d as usize];
                     let child_prefix = cur_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
 
-                    if let Some(EdgeTag::Immed(im)) = next_child.tag()
-                        && im.key_count() == 1
-                        && (d > target_d || start_high < prefix_high)
-                    {
-                        self.leaf = LeafCursor::ImmedRun {
-                            branch: b,
-                            current_digit: d,
-                            prefix: cur_prefix,
-                            level: bl,
-                        };
-                        return;
-                    }
-
                     self.stack[self.depth] = StackFrame {
                         kind: BranchKind::U {
                             ptr: b,
@@ -1145,20 +1091,19 @@ impl<const MAP: bool> RawIter<MAP> {
                         *current_digit += 1;
                         let child = b.edges[d as usize];
                         if !child.is_null() {
+                            let child_prefix =
+                                branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
                             if let Some(EdgeTag::Immed(im)) = child.tag()
                                 && im.key_count() == 1
                             {
-                                self.depth -= 1;
-                                self.leaf = LeafCursor::ImmedRun {
-                                    branch: *ptr,
-                                    current_digit: d,
-                                    prefix: branch_prefix,
-                                    level: bl,
+                                let (low, value) = unpack_immed_single::<MAP>(&child, im);
+                                self.leaf = LeafCursor::ImmedSingle {
+                                    key: child_prefix | low,
+                                    value,
+                                    done: false,
                                 };
                                 return true;
                             }
-                            let child_prefix =
-                                branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
                             // SAFETY: child is live edge at bl - 1.
                             unsafe {
                                 self.descend(&child, bl - 1, child_prefix);
@@ -1294,58 +1239,6 @@ impl<const MAP: bool> RawIter<MAP> {
                     }
                 }
 
-                LeafCursor::ImmedRun {
-                    branch,
-                    current_digit,
-                    prefix,
-                    level,
-                } => {
-                    // SAFETY: branch points to a live BranchU per tree invariants.
-                    let b = unsafe { &**branch };
-                    let mut non_immed = None;
-                    while *current_digit < 256 {
-                        let d = *current_digit;
-                        *current_digit += 1;
-                        let edge = b.edges[d as usize];
-                        if edge.is_null() {
-                            continue;
-                        }
-                        if let Some(EdgeTag::Immed(im)) = edge.tag()
-                            && im.key_count() == 1
-                        {
-                            let (low, value) = unpack_immed_single::<MAP>(&edge, im);
-                            let child_prefix =
-                                *prefix | (u64::from(d) << (8 * u32::from(*level - 1)));
-                            return Some((child_prefix | low, value));
-                        }
-                        non_immed = Some((edge, d, *current_digit, *branch, *prefix, *level));
-                        break;
-                    }
-                    if let Some((edge, d, resume_digit, b_ptr, branch_prefix, bl)) = non_immed {
-                        self.leaf = LeafCursor::Empty;
-                        self.stack[self.depth] = StackFrame {
-                            kind: BranchKind::U {
-                                ptr: b_ptr,
-                                current_digit: resume_digit,
-                            },
-                            level: bl,
-                            prefix: branch_prefix,
-                        };
-                        self.depth += 1;
-                        let child_prefix =
-                            branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
-                        // SAFETY: edge is a live edge at bl - 1.
-                        unsafe {
-                            self.descend(&edge, bl - 1, child_prefix);
-                        }
-                        continue;
-                    }
-                }
-
-                LeafCursor::ImmedRunRev { .. } => {
-                    unreachable!("reverse cursor in forward iter");
-                }
-
                 LeafCursor::FullExpanse { next_key, max_key } => {
                     if *next_key <= *max_key {
                         let k = *next_key;
@@ -1479,21 +1372,7 @@ impl<const MAP: bool> RawIter<MAP> {
                 EdgeTag::Immed(im) => {
                     let n = im.key_count();
                     if n == 1 {
-                        let kb = im.key_bytes() as usize;
-                        let (low, value) = if MAP {
-                            let aux = cur_edge.aux_bytes();
-                            let mut kbuf = [0u8; 8];
-                            kbuf[..kb].copy_from_slice(&aux[..kb]);
-                            (
-                                u64::from_le_bytes(kbuf),
-                                u64::from_le_bytes(cur_edge.imm_bytes()),
-                            )
-                        } else {
-                            let w0 = cur_edge.imm_bytes();
-                            let mut kbuf = [0u8; 8];
-                            kbuf[..kb].copy_from_slice(&w0[..kb]);
-                            (u64::from_le_bytes(kbuf), 0)
-                        };
+                        let (low, value) = unpack_immed_single::<MAP>(&cur_edge, im);
                         self.leaf = LeafCursor::ImmedSingle {
                             key: cur_prefix | low,
                             value,
@@ -1734,18 +1613,6 @@ impl<const MAP: bool> RawIter<MAP> {
                     }
                     let d = d as usize;
                     let next_child = b.edges[d];
-                    if let Some(EdgeTag::Immed(im)) = next_child.tag()
-                        && im.key_count() == 1
-                    {
-                        self.leaf = LeafCursor::ImmedRunRev {
-                            branch: b,
-                            current_digit: (d + 1) as u16,
-                            prefix: cur_prefix,
-                            level: bl,
-                        };
-                        return;
-                    }
-
                     let child_prefix = cur_prefix | (u64::from(d as u8) << (8 * u32::from(bl - 1)));
 
                     self.stack[self.depth] = StackFrame {
@@ -1799,21 +1666,7 @@ impl<const MAP: bool> RawIter<MAP> {
                 EdgeTag::Immed(im) => {
                     let n = im.key_count();
                     if n == 1 {
-                        let kb = im.key_bytes() as usize;
-                        let (low, value) = if MAP {
-                            let aux = cur_edge.aux_bytes();
-                            let mut kbuf = [0u8; 8];
-                            kbuf[..kb].copy_from_slice(&aux[..kb]);
-                            (
-                                u64::from_le_bytes(kbuf),
-                                u64::from_le_bytes(cur_edge.imm_bytes()),
-                            )
-                        } else {
-                            let w0 = cur_edge.imm_bytes();
-                            let mut kbuf = [0u8; 8];
-                            kbuf[..kb].copy_from_slice(&w0[..kb]);
-                            (u64::from_le_bytes(kbuf), 0)
-                        };
+                        let (low, value) = unpack_immed_single::<MAP>(&cur_edge, im);
                         let full_k = cur_prefix | low;
                         if full_k <= end {
                             self.leaf = LeafCursor::ImmedSingle {
@@ -2339,20 +2192,19 @@ impl<const MAP: bool> RawIter<MAP> {
                         let d = *current_digit;
                         let child = b.edges[d as usize];
                         if !child.is_null() {
+                            let child_prefix =
+                                branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
                             if let Some(EdgeTag::Immed(im)) = child.tag()
                                 && im.key_count() == 1
                             {
-                                self.depth -= 1;
-                                self.leaf = LeafCursor::ImmedRunRev {
-                                    branch: *ptr,
-                                    current_digit: d + 1,
-                                    prefix: branch_prefix,
-                                    level: bl,
+                                let (low, value) = unpack_immed_single::<MAP>(&child, im);
+                                self.leaf = LeafCursor::ImmedSingle {
+                                    key: child_prefix | low,
+                                    value,
+                                    done: false,
                                 };
                                 return true;
                             }
-                            let child_prefix =
-                                branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
                             // SAFETY: child is live edge at bl - 1.
                             unsafe {
                                 self.descend_max(&child, bl - 1, child_prefix);
@@ -2484,58 +2336,6 @@ impl<const MAP: bool> RawIter<MAP> {
                         let i = *idx as usize;
                         return Some((keys[i], values[i]));
                     }
-                }
-
-                LeafCursor::ImmedRunRev {
-                    branch,
-                    current_digit,
-                    prefix,
-                    level,
-                } => {
-                    // SAFETY: branch points to a live BranchU per tree invariants.
-                    let b = unsafe { &**branch };
-                    let mut non_immed = None;
-                    while *current_digit > 0 {
-                        *current_digit -= 1;
-                        let d = *current_digit;
-                        let edge = b.edges[d as usize];
-                        if edge.is_null() {
-                            continue;
-                        }
-                        if let Some(EdgeTag::Immed(im)) = edge.tag()
-                            && im.key_count() == 1
-                        {
-                            let (low, value) = unpack_immed_single::<MAP>(&edge, im);
-                            let child_prefix =
-                                *prefix | (u64::from(d) << (8 * u32::from(*level - 1)));
-                            return Some((child_prefix | low, value));
-                        }
-                        non_immed = Some((edge, d, *current_digit, *branch, *prefix, *level));
-                        break;
-                    }
-                    if let Some((edge, d, resume_digit, b_ptr, branch_prefix, bl)) = non_immed {
-                        self.leaf = LeafCursor::Empty;
-                        self.stack[self.depth] = StackFrame {
-                            kind: BranchKind::U {
-                                ptr: b_ptr,
-                                current_digit: resume_digit,
-                            },
-                            level: bl,
-                            prefix: branch_prefix,
-                        };
-                        self.depth += 1;
-                        let child_prefix =
-                            branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
-                        // SAFETY: edge is a live edge at bl - 1.
-                        unsafe {
-                            self.descend_max(&edge, bl - 1, child_prefix);
-                        }
-                        continue;
-                    }
-                }
-
-                LeafCursor::ImmedRun { .. } => {
-                    unreachable!("forward cursor in reverse iter");
                 }
 
                 LeafCursor::FullExpanse { next_key, max_key } => {
@@ -2781,31 +2581,6 @@ impl<const MAP: bool> RawIter<MAP> {
                 *idx = i as u8;
                 true
             }
-
-            LeafCursor::ImmedRun {
-                current_digit,
-                prefix,
-                level,
-                ..
-            } => {
-                let shift = 8 * u32::from(*level);
-                let t_high = if shift >= 64 { 0 } else { target >> shift };
-                let p_high = if shift >= 64 { 0 } else { *prefix >> shift };
-                if t_high < p_high {
-                    return true;
-                }
-                if t_high > p_high {
-                    return false;
-                }
-                let td = u16::from(crate::types::digit(target, *level));
-                if td < *current_digit {
-                    return true;
-                }
-                *current_digit = td;
-                true
-            }
-
-            LeafCursor::ImmedRunRev { .. } => false,
 
             LeafCursor::FullExpanse { next_key, max_key } => {
                 if target > *max_key {
