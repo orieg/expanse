@@ -227,6 +227,10 @@ def check_arms(manifest: dict, root: Path) -> list[str]:
     enter the report as if it were our code, carrying a `vs main` column
     against a dependency and leaving its twin ratio uncomputed. That is the
     silent-untwinning this check exists to make loud.
+
+    A baseline may be named by more than one twin — one competitor kernel is
+    the symmetric comparison for each of our paths to it (#417) — but a subject
+    is named once, and no arm may be both.
     """
     errs: list[str] = []
     for s in manifest["suites"]:
@@ -259,12 +263,14 @@ def check_arms(manifest: dict, root: Path) -> list[str]:
         group_of = {fn: g for g, fns in groups.items() for fn in fns}
 
         twins = arms.get("twins", [])
-        declared: list[str] = list(arms.get("unpaired", []))
+        subjects: list[str] = list(arms.get("unpaired", []))
+        baselines: list[str] = []
         for t in twins:
             if not t.get("subject") or not t.get("baseline"):
                 errs.append(f"{MANIFEST}: suite {name!r}: a twin needs `subject` and `baseline`")
                 continue
-            declared += [t["subject"], t["baseline"]]
+            subjects.append(t["subject"])
+            baselines.append(t["baseline"])
             if t["subject"] in group_of and t["baseline"] in group_of:
                 if group_of[t["subject"]] != group_of[t["baseline"]]:
                     errs.append(
@@ -279,18 +285,33 @@ def check_arms(manifest: dict, root: Path) -> list[str]:
                 "the rendered ratio has to name what it is a ratio against"
             )
 
-        dupes = sorted({a for a in declared if declared.count(a) > 1})
+        # A subject is ours and is counted once. A baseline is a competitor
+        # kernel and may be the twin of several subjects: where the competitor
+        # exposes one kernel and we reach it by more than one path (composed
+        # vs native), the same baseline is the symmetric comparison for each,
+        # and forbidding the repeat would force a duplicate arm measuring the
+        # identical function under a second name. What must never happen is an
+        # arm classified as both ours and theirs — that decides the `vs main`
+        # column and the regression gate, so it is an error, not a warning.
+        dupes = sorted({a for a in subjects if subjects.count(a) > 1})
         if dupes:
             errs.append(f"{MANIFEST}: suite {name!r}: arm(s) declared twice: {', '.join(dupes)}")
+        both = sorted(set(subjects) & set(baselines))
+        if both:
+            errs.append(
+                f"{MANIFEST}: suite {name!r}: arm(s) declared as both a subject and a "
+                f"baseline: {', '.join(both)}"
+            )
 
-        missing = sorted(in_source - set(declared))
+        declared = set(subjects) | set(baselines)
+        missing = sorted(in_source - declared)
         if missing:
             errs.append(
                 f"{MANIFEST}: suite {name!r}: {len(missing)} arm(s) in "
                 f"{matches[0].relative_to(root)} are not classified in `arms` — add each "
                 f"to a `twins` pair or to `unpaired`: {', '.join(missing)}"
             )
-        stale = sorted(set(declared) - in_source)
+        stale = sorted(declared - in_source)
         if stale:
             errs.append(
                 f"{MANIFEST}: suite {name!r}: `arms` names {len(stale)} arm(s) that "
@@ -491,6 +512,45 @@ def self_test() -> int:
         ]
         e = check_arms(suite(crossed), root)
         assert any("spans two library_benchmark_group" in x for x in e), e
+
+        # #417: one competitor kernel is the honest twin of both our composed
+        # and our native path, so a baseline may be repeated across twins.
+        src2 = """
+            library_benchmark_group!(
+                name = boolean;
+                benchmarks = expanse_and, expanse_native_and, roaring_and
+            );
+        """
+        (root / "crates" / "expanse" / "benches" / "two.rs").write_text(src2, encoding="utf-8")
+
+        def suite2(arms):
+            s = suite(arms)
+            s["suites"][0]["target"] = "two"
+            return s
+
+        two = {
+            "subject_label": "Expanse",
+            "baseline_label": "Roaring",
+            "twins": [
+                {"subject": "expanse_and", "baseline": "roaring_and"},
+                {"subject": "expanse_native_and", "baseline": "roaring_and"},
+            ],
+            "unpaired": [],
+        }
+        assert check_arms(suite2(two), root) == [], check_arms(suite2(two), root)
+
+        # A subject still may not repeat — that would double-count our own arm.
+        dup_subject = json.loads(json.dumps(two))
+        dup_subject["twins"][1]["subject"] = "expanse_and"
+        e = check_arms(suite2(dup_subject), root)
+        assert any("declared twice" in x and "expanse_and" in x for x in e), e
+
+        # An arm may not be ours and theirs at once: that decides the `vs main`
+        # column and the regression gate.
+        both_sides = json.loads(json.dumps(two))
+        both_sides["unpaired"] = ["roaring_and"]
+        e = check_arms(suite2(both_sides), root)
+        assert any("both a subject and a baseline" in x for x in e), e
 
         # Twins without a label would render a ratio against an unnamed thing.
         unlabelled = json.loads(json.dumps(good))
