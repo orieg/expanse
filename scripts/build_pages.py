@@ -567,22 +567,32 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
     ycsb_svg_path = os.path.join(repo_assets, "bench_ycsb.svg")
     rocksdb_svg_path = os.path.join(repo_assets, "bench_rocksdb.svg")
 
-    comp_svg = ""
-    conc_svg = ""
-    ycsb_svg = ""
-    rocksdb_svg = ""
-    if os.path.isfile(comp_svg_path):
-        with open(comp_svg_path, "r", encoding="utf-8") as f:
-            comp_svg = f.read()
-    if os.path.isfile(conc_svg_path):
-        with open(conc_svg_path, "r", encoding="utf-8") as f:
-            conc_svg = f.read()
-    if os.path.isfile(ycsb_svg_path):
-        with open(ycsb_svg_path, "r", encoding="utf-8") as f:
-            ycsb_svg = f.read()
-    if os.path.isfile(rocksdb_svg_path):
-        with open(rocksdb_svg_path, "r", encoding="utf-8") as f:
-            rocksdb_svg = f.read()
+    # AGENTS.md section 8.1: fail loud. These four charts are the landing
+    # page's entire evidence base. Resolving a missing one to "" rendered an
+    # empty chart box and deployed green, so a chart could silently vanish
+    # from the published site without failing a single job.
+    def _read_chart(path: str) -> str:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                svg = f.read()
+        except OSError as exc:
+            raise SystemExit(
+                f"FATAL: benchmark chart missing or unreadable: {path} ({exc}).\n"
+                "The landing page embeds this chart inline; publishing without it "
+                "would ship a page whose benchmark section is silently empty. "
+                "Regenerate it with scripts/generate_asset_svgs.py."
+            ) from exc
+        if "<svg" not in svg:
+            raise SystemExit(
+                f"FATAL: {path} is not an SVG (no <svg> element found). "
+                "Refusing to inline it into the published page."
+            )
+        return svg
+
+    comp_svg = _read_chart(comp_svg_path)
+    conc_svg = _read_chart(conc_svg_path)
+    ycsb_svg = _read_chart(ycsb_svg_path)
+    rocksdb_svg = _read_chart(rocksdb_svg_path)
 
     # 2. Main Portal index.html
     main_html_template = """<!DOCTYPE html>
@@ -933,7 +943,7 @@ try (var map = new ExpanseMap()) {
 
         <div id="tab-rocksdb" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">RocksDB pluggable MemTable plugin (<code>ExpanseMemTableRepFactory</code> / <code>integrations/rocksdb</code>):</p>
-          <pre><code>// RocksDB integration: 2x-3x higher key density in RAM, fewer SSTable flushes
+          <pre><code>// RocksDB integration: 1.42x denser MemTable indexing (13.2 vs 18.7 B/entry)
 #include &lt;expanse_memtable.h&gt;
 #include &lt;rocksdb/db.h&gt;
 #include &lt;rocksdb/options.h&gt;
