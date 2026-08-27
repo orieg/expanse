@@ -95,7 +95,7 @@ First / Last Entry	expanse_map_first, expanse_map_last
 Forward Navigation	expanse_map_next_after, expanse_map_next_at_or_after
 Reverse Navigation	expanse_map_prev_before, expanse_map_prev_at_or_before
 Rank (Count < Key)	expanse_map_count_below, expanse_map_count_range
-Select (Nth Entry)	expanse_map_by_count (1-indexed rank)
+Select (Nth Entry)	expanse_map_by_count (0-based rank)
 Batched Prefetch	expanse_map_get_batch (SIMD/MLP)
 .fi
 .SH EXAMPLES
@@ -215,7 +215,12 @@ Returns the count of keys in the inclusive interval [\fIlo\fR, \fIhi\fR].
 .TP
 .BI "bool expanse_map_by_count(const expanse_map_t *" map ", uint64_t " n ","
 .BI "                          uint64_t *" key_out ", uint64_t *" value_out ");"
-Selects the \fIn\fR-th smallest key (1-indexed).
+Selects the entry with exactly \fIn\fR entries below it: a \fB0-based\fR
+rank, so \fIn\fR = 0 is the smallest key. Writes the key to \fIkey_out\fR
+and the value to \fIvalue_out\fR and returns \fBtrue\fR, or \fBfalse\fR if
+\fIn\fR is greater than or equal to the total population.
+.PP
+Note this differs from the legacy \fBJudyLByCount\fR(3), which is 1-based.
 .SS Batched Queries
 .TP
 .BI "size_t expanse_map_get_batch(const expanse_map_t *" map ","

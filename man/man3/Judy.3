@@ -43,7 +43,7 @@ Error diagnostic struct containing \fIje_Errno\fR and \fIje_ErrID\fR.
 Pass \fBPJE0\fR (\fBNULL\fR) if error inspection is not required.
 .SH ERROR CODES
 .nf
-.ta 26n 10n
+.ta 26n 34n
 \fBConstant\fR	\fBValue\fR	\fBDescription\fR
 --------------------------------------------------------------------------
 JU_ERRNO_NONE	0	No error
@@ -109,8 +109,12 @@ allocators, exact byte numbers will differ from HP Judy, though asymptotic
 scaling remains monotonic and identical.
 .TP
 .B Out of Memory Handling
-When memory allocation fails, functions return \fBJERR\fR or \fBPJERR\fR and
-populate \fBPJError\fR with \fBJU_ERRNO_NOMEM\fR if passed.
+\fBAllocation failure aborts the process\fR, following the Rust global-allocator
+convention. Functions do \fInot\fR return \fBJERR\fR/\fBPJERR\fR with
+\fBJU_ERRNO_NOMEM\fR on exhaustion, so an OOM-recovery branch written against
+HP Judy will never be reached here. This is a recorded, deliberate deviation
+(doc-gap D3 in the project's compatibility record); \fBJU_ERRNO_NOMEM\fR is
+retained in the error enumeration for source compatibility only.
 .SH SEE ALSO
 .BR Judy1 (3),
 .BR JudyL (3),

@@ -61,7 +61,7 @@ arbitrary byte payloads indexed by 64-bit integer keys.
 .PP
 Payloads up to 7 bytes are packed directly inside the 8-byte value slot
 with zero heap allocation (\fIis_inline = true\fR). Larger payloads are
-allocated in contiguous slab arena chunks (\fIchunk_size\fR, default 64 KiB
+allocated in contiguous slab arena chunks (\fIchunk_size\fR, default 2 MiB
 if 0).
 .PP
 \fBhot_meta\fR is a 32-bit user-defined metadata word stored directly inside

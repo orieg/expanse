@@ -84,7 +84,7 @@ First / Last Key	expanse_set_first, expanse_set_last
 Forward Iteration	expanse_set_next_after, expanse_set_next_at_or_after
 Reverse Iteration	expanse_set_prev_before, expanse_set_prev_at_or_before
 Rank (Count < Key)	expanse_set_count_below, expanse_set_count_range
-Select (Nth Key)	expanse_set_by_count (1-indexed rank)
+Select (Nth Key)	expanse_set_by_count (0-based rank)
 Batched Prefetch	expanse_set_contains_batch (SIMD/MLP)
 .fi
 .SH EXAMPLES
@@ -110,9 +110,9 @@ int main(void) {
     printf("Range count [10, 100]: %" PRIu64 "\\n",
            expanse_set_count_range(set, 10, 100));
 
-    /* Select: find 2nd key (1-indexed) */
+    /* Select: find the 2nd smallest key (0-based rank, so n = 1) */
     uint64_t second_key;
-    if (expanse_set_by_count(set, 2, &second_key)) {
+    if (expanse_set_by_count(set, 1, &second_key)) {
         printf("2nd key: %" PRIu64 "\\n", second_key);
     }
 
@@ -197,9 +197,12 @@ Returns the number of keys in the inclusive interval [\fIlo\fR, \fIhi\fR].
 .TP
 .BI "bool expanse_set_by_count(const expanse_set_t *" "set" ", uint64_t " "n"
 .BI ", uint64_t *" "key_out" ");"
-Selects the \fIn\fR-th smallest key (1-indexed: \fIn\fR = 1 is the first key).
-Writes the found key to \fIkey_out\fR and returns \fBtrue\fR, or \fBfalse\fR if
-\fIn\fR is 0 or greater than the total population.
+Selects the key with exactly \fIn\fR keys below it: a \fB0-based\fR rank,
+so \fIn\fR = 0 is the smallest key. Writes it to \fIkey_out\fR and returns
+\fBtrue\fR, or \fBfalse\fR if \fIn\fR is greater than or equal to the
+total population.
+.PP
+Note this differs from the legacy \fBJudy1ByCount\fR(3), which is 1-based.
 .SS Batched Queries
 .TP
 .BI "size_t expanse_set_contains_batch(const expanse_set_t *" "set"
