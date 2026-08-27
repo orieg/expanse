@@ -145,15 +145,50 @@ jobs:
           fetch-depth: 0
 
       - name: System Load Hygiene Check
+        id: sysinfo
+        # Captures the load snapshot into the report (non-gating, per
+        # docs/BENCHMARKING.md rule 2) and derives an anonymized host
+        # description from the runner itself. No hostnames, no command
+        # paths: this output lands in a public PR comment.
         run: |
           echo "=== System Load & Host Snapshot ==="
-          uname -a
+          uname -srm
           uptime
           echo "Top CPU consumers:"
-          ps -A -o %cpu,%mem,command | sort -rn | head -n 8
+          ps -A -o %cpu= -o %mem= -o comm= | sort -rn | head -n 8 || true
+
+          {
+            echo "<details>"
+            echo "<summary><b>System Load Snapshot (non-gating, captured at run start)</b></summary>"
+            echo ""
+            echo '```text'
+            echo "kernel: $(uname -srm)"
+            echo "uptime:$(uptime)"
+            echo ""
+            echo "top CPU consumers (%cpu %mem command):"
+            { ps -A -o %cpu= -o %mem= -o comm= | sort -rn | head -n 8 || true; } \
+              | awk '{cmd=$3; sub(".*/", "", cmd); printf "%7s %6s %s\n", $1, $2, cmd}'
+            echo '```'
+            echo ""
+            echo "</details>"
+          } > system-load.md
+
+          MODEL=$(lscpu 2>/dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -n 1)
+          [ -n "$MODEL" ] || MODEL="$(uname -m)"
+          THREADS=$(nproc 2>/dev/null || echo "?")
+          L3=$(lscpu 2>/dev/null | sed -n 's/^L3 cache:[[:space:]]*//p' | head -n 1 | sed 's/ (.*)//')
+          KERNEL=$(uname -sr)
+          DESC="$MODEL ($THREADS threads${L3:+, $L3 L3}, $KERNEL)"
+          echo "host_desc=$DESC" >> "$GITHUB_OUTPUT"
+          echo "Host description: $DESC"
 
       - name: Run Native Bare-Metal Benchmarks (Dual-Pass)
         id: bench
+        # shell: bash implies pipefail: a benchmark that crashes must fail the
+        # step instead of exiting 0 through tee. Base-pass commands keep
+        # `|| true` deliberately (a broken base commit must not hard-block the
+        # run); the report renders a loud NO BASELINE section instead.
+        shell: bash
         run: |
           export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
           export LD_LIBRARY_PATH="$HOME/.local/lib:$LD_LIBRARY_PATH"
@@ -169,6 +204,33 @@ jobs:
           echo "Configured Ref: $REF"
           echo "Configured Base Ref: $BASE_REF"
           echo "Configured Suite: $SUITE"
+
+          # Fail fast if the suite needs Callgrind and the host lacks the
+          # tooling: an iai-callgrind run without valgrind or a runner binary
+          # produces garbage/empty output, which must not become a report.
+          case "$SUITE" in
+            all|extended|instructions|vs_stock)
+              for tool in valgrind iai-callgrind-runner; do
+                if ! command -v "$tool" >/dev/null 2>&1; then
+                  echo "::error::Suite '$SUITE' requires Callgrind, but '$tool' is not installed on this runner. Install valgrind and a version-matched iai-callgrind-runner (see the ci.yml callgrind jobs) before re-triggering."
+                  exit 1
+                fi
+              done
+              ;;
+          esac
+
+          # Host-wide benchmark lock (docs/BENCHMARKING.md, methodology rule
+          # 8): one suite at a time per machine, across every checkout.
+          # `mkdir` is atomic; the lock names its owner so a refused start
+          # says who holds the host.
+          BENCH_LOCK="${EXPANSE_BENCH_LOCK:-${TMPDIR:-/tmp}/expanse-bench.lock}"
+          if ! mkdir "${BENCH_LOCK}" 2>/dev/null; then
+            echo "::error::refusing to start: benchmark lock ${BENCH_LOCK} is held by:"
+            { cat "${BENCH_LOCK}/owner" 2>/dev/null || true; } >&2
+            exit 75
+          fi
+          printf 'suite=ci-%s pid=%s start=%s\n' "$SUITE" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${BENCH_LOCK}/owner"
+          trap 'rm -rf "${BENCH_LOCK}"' EXIT
 
           # Detect / resolve base_ref if not explicitly provided
           if [ -z "$BASE_REF" ]; then
@@ -200,18 +262,25 @@ jobs:
           if [ -n "$BASE_REF" ]; then
             echo "=== [Pass 1] Benchmarking Base Ref: $BASE_REF ==="
             if git checkout "$BASE_REF"; then
-              # Pre-compile release C ABI
-              cargo build --release -p expanse-capi
-              export EXPANSE_CDYLIB="$PWD/target/release/libexpanse.so"
+              # Pre-compile release C ABI. The whole base pass is non-fatal
+              # (a broken base commit must not hard-block the run); the
+              # degradation is reported loudly by perf_report.py's NO
+              # BASELINE section and the sticky comment's Base Ref guard.
+              if cargo build --release -p expanse-capi; then
+                export EXPANSE_CDYLIB="$PWD/target/release/libexpanse.so"
 
-              if [ "$SUITE" = "all" ] || [ "$SUITE" = "extended" ] || [ "$SUITE" = "instructions" ]; then
-                echo "Running base instructions benchmark..."
-                cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_base | tee base-instructions.txt || true
-              fi
+                if [ "$SUITE" = "all" ] || [ "$SUITE" = "extended" ] || [ "$SUITE" = "instructions" ]; then
+                  echo "Running base instructions benchmark..."
+                  cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_base | tee base-instructions.txt || true
+                fi
 
-              if [ "$SUITE" = "all" ] || [ "$SUITE" = "extended" ] || [ "$SUITE" = "vs_stock" ]; then
-                echo "Running base vs_stock benchmark..."
-                cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_base_vs_stock | tee base-vs-stock.txt || true
+                if [ "$SUITE" = "all" ] || [ "$SUITE" = "extended" ] || [ "$SUITE" = "vs_stock" ]; then
+                  echo "Running base vs_stock benchmark..."
+                  cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_base_vs_stock | tee base-vs-stock.txt || true
+                fi
+              else
+                echo "Warning: base ref $BASE_REF failed to build; continuing single pass."
+                BASE_REF=""
               fi
 
               git checkout "$REF"
@@ -303,6 +372,24 @@ jobs:
           # ====================================================================
           # Report Generation Step
           # ====================================================================
+          # The sticky comment must not print a Base Ref for a comparison
+          # that never ran: only report the base when its output actually
+          # parses as benchmark results (bench headers present), matching
+          # what perf_report.py / criterion could compare against.
+          BASE_OK=false
+          if [ -n "$BASE_REF" ]; then
+            if { [ -f base-instructions.txt ] && grep -qE '^[[:alpha:]_][[:alnum:]_:]*::[[:alnum:]_]+' base-instructions.txt; } \
+               || { [ -f base-vs-stock.txt ] && grep -qE '^[[:alpha:]_][[:alnum:]_:]*::[[:alnum:]_]+' base-vs-stock.txt; }; then
+              BASE_OK=true
+            fi
+          fi
+          echo "base_ok=$BASE_OK" >> "$GITHUB_OUTPUT"
+          if [ "$BASE_OK" = "true" ]; then
+            echo "base_line=- **Base Ref**: \`$BASE_REF\`" >> "$GITHUB_OUTPUT"
+          else
+            echo "base_line=- **Base Ref**: _none — no base comparison ran_" >> "$GITHUB_OUTPUT"
+          fi
+
           if [ -f head-instructions.txt ]; then
             BASE_ARGS=""
             if [ -f base-instructions.txt ]; then
@@ -336,34 +423,45 @@ jobs:
           fi
 
           if [ -f baremetal-report.md ]; then
+            if [ -f system-load.md ]; then
+              cat system-load.md >> baremetal-report.md
+            fi
             echo "BENCH_REPORT<<EOF" >> $GITHUB_ENV
             cat baremetal-report.md >> $GITHUB_ENV
             echo "EOF" >> $GITHUB_ENV
             cat baremetal-report.md >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "BENCH_REPORT<<EOF" >> $GITHUB_ENV
-            if [ -f head-vs-stock.txt ]; then
-              echo '```text'
-              cat head-vs-stock.txt
-              echo '```'
-            elif [ -f comparative.txt ]; then
-              if [ -f head-to-head.md ]; then
-                cat head-to-head.md
-                echo ""
+            # The whole heredoc body is redirected into GITHUB_ENV as a
+            # group; the previous form only redirected the delimiters,
+            # leaving the report content on stdout and the comment empty.
+            {
+              echo "BENCH_REPORT<<EOF"
+              if [ -f head-vs-stock.txt ]; then
+                echo '```text'
+                cat head-vs-stock.txt
+                echo '```'
+              elif [ -f comparative.txt ]; then
+                if [ -f head-to-head.md ]; then
+                  cat head-to-head.md
+                  echo ""
+                fi
+                echo '```text'
+                cat comparative.txt
+                echo '```'
+              elif [ -f ycsb.txt ]; then
+                echo '```text'
+                cat ycsb.txt
+                echo '```'
+              elif [ -f concurrency.txt ]; then
+                echo '```text'
+                cat concurrency.txt
+                echo '```'
               fi
-              echo '```text'
-              cat comparative.txt
-              echo '```'
-            elif [ -f ycsb.txt ]; then
-              echo '```text'
-              cat ycsb.txt
-              echo '```'
-            elif [ -f concurrency.txt ]; then
-              echo '```text'
-              cat concurrency.txt
-              echo '```'
-            fi
-            echo "EOF" >> $GITHUB_ENV
+              if [ -f system-load.md ]; then
+                cat system-load.md
+              fi
+              echo "EOF"
+            } >> $GITHUB_ENV
 
             echo "## Bare-Metal Benchmark Results ($SUITE)" >> "$GITHUB_STEP_SUMMARY"
             if [ -f head-vs-stock.txt ]; then
@@ -387,6 +485,9 @@ jobs:
               cat concurrency.txt >> "$GITHUB_STEP_SUMMARY"
               echo '```' >> "$GITHUB_STEP_SUMMARY"
             fi
+            if [ -f system-load.md ]; then
+              cat system-load.md >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
 
       - name: Find Comment
@@ -406,12 +507,12 @@ jobs:
           issue-number: ${{ steps.vars.outputs.pr_number }}
           body: |
             ## 🚀 Bare-Metal Benchmark Results (`honeycomb`)
-            
-            - **Host**: `Intel Core i9-12900F (24 threads, 30 MiB L3, Linux 6.8)`
+
+            - **Host**: `${{ steps.sysinfo.outputs.host_desc || 'unknown (host probe failed)' }}`
             - **Suite**: `${{ steps.vars.outputs.benchmark_suite }}`
             - **Ref**: `${{ steps.vars.outputs.ref }}`
-            - **Base Ref**: `${{ steps.vars.outputs.base_ref || 'main' }}`
+            ${{ steps.bench.outputs.base_line || '- **Base Ref**: _none — no base comparison ran_' }}
             - **Runner**: `self-hosted (baremetal / honeycomb)`
-            
+
             ${{ env.BENCH_REPORT }}
           edit-mode: replace

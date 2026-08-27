@@ -84,7 +84,7 @@ graph TD
 | `instruction-counts` | Perf / Callgrind Deterministic Instructions | Valgrind/Callgrind instruction counting + `scripts/perf_report.py` regression guard. |
 | `callgrind-smoke` | Perf / Callgrind Fast Smoke (Ubuntu) | Fast scaled-down (<20s) Callgrind instruction regression smoke gate ($N = 10,000$). |
 | `memory-budget` | Perf / Memory Budget Invariants | Runs `examples/bytes_per_key.rs`; fails if deterministic B/key exceeds architectural ceilings. |
-| `bench-baremetal` | Perf / Remote Bare-Metal Benchmarks | Triggered via `workflow_dispatch` or `/bench` / `/bench extended` / `/benchmark <suite>` PR comments (suites: `vs_stock`, `instructions`, `comparative`, `ycsb`, `concurrency`). Dual-pass baseline drift reporting, Callgrind profiling, and multi-arch / population sweeps on dedicated host (`honeycomb`). |
+| `bench-baremetal` | Perf / Remote Bare-Metal Benchmarks | Triggered via `workflow_dispatch` or `/bench` / `/bench extended` / `/benchmark <suite>` PR comments (suites: `vs_stock`, `instructions`, `comparative`, `ycsb`, `concurrency`). Dual-pass baseline drift reporting, Callgrind profiling, and multi-arch / population sweeps on dedicated host (`honeycomb`). Takes the host-wide bench lock (exit 75 if held), captures a system-load snapshot into the report, derives an anonymized host description from the runner, fails fast when a Callgrind suite lacks `valgrind`/`iai-callgrind-runner`, and only prints a `Base Ref` when the base pass actually produced comparable output. |
 
 ### Bindings
 | Job | Name | Role |
@@ -132,14 +132,21 @@ Wall-clock timing on shared cloud runners exhibits large multi-tenancy / thermal
 1. **Single-benchmark threshold**: any benchmark above `--max-regression-pct` fails CI.
 2. **Multi-benchmark threshold**: more than one benchmark above the noise floor fails CI.
 
-The job wires `--fail-on-regression` with a deliberately loose `--max-regression-pct 5.0` (shared runners are noisy). The guard fires only once a base-branch bench is supplied to `--base`; that base capture is not produced in this job yet, so the guard is presently latent — its immediate value is that a `perf_report.py` crash is no longer swallowed by `|| true`.
+The job wires `--fail-on-regression` with a deliberately loose `--max-regression-pct 5.0` (shared runners are noisy; the `0.1%` figure above is Callgrind's measurement/display resolution and the *review* threshold — see `docs/BENCHMARKING.md` and AGENTS.md §6 — not the automated failure threshold). On pull requests the job captures the merge-base bench and supplies it via `--base`, arming the guard. The pipeline degrades loudly, never silently:
+
+- **Pipefail on bench steps** — the `cargo bench … | tee` steps run with `shell: bash` (implies `set -o pipefail`), so a crashed benchmark fails its step instead of exiting `0` through `tee`.
+- **Empty/near-empty head parse is a hard failure** in `--fail-on-regression` mode: a run that measured nothing (or lost most of the base's arms to a partial crash) can never render "🟢 0 Regressions".
+- **Base-present/head-missing arms are reported explicitly** in the report rather than silently dropped from the comparison.
+- **A base capture that fails stays non-fatal** (`|| true` on the base pass — a broken base commit must not hard-block PRs), but the report then renders a prominent "⚠️ NO BASELINE — regression gate did not run" section, not a quiet chip.
+
+Both report scripts ship unit-style checks for this behavior: `python3 scripts/perf_report.py --self-test` and `python3 scripts/bench_report.py --self-test`.
 
 ### 4.3 Interleaved dual-arm ratios (where instruction counting is unavailable)
 For end-to-end runtime comparisons (e.g. the PHP runtime, JIT paths), never compare absolute wall-clock across runs. Measure two arms — **Arm S** (pristine baseline) and **Arm C** (candidate) — in alternating interleaved rounds on the same runner, and gate on the ratio `Candidate / Baseline`. Runner slowdown scales both arms equally, keeping the ratio noise-free.
 
 ### 4.4 Controlled performance-bypass protocol
 An intentional trade-off (safety hardening, new feature, metadata tagging) is approved explicitly:
-- Add `allow-regression: <reason>` or `perf-override: approved` / the `perf-bypass-approved` label to the PR, plus a **Performance Trade-off Disclosure** section in the PR body (regressed metric + load-bearing rationale + net win). CI parses the metadata, records `PASS_OVERRIDE (Approved)` in the step summary, and allows the PR.
+- Add a literal `allow-regression: <reason>` line to the PR body — the colon and a nonempty reason on the same line — plus a **Performance Trade-off Disclosure** section (regressed metric + load-bearing rationale + net win). `perf_report.py` accepts **only** this strict form: a bare `allow-regression` substring, `perf-override: approved`, or a quoted copy of the policy text approves nothing. CI records the override in the step summary and allows the PR.
 
 ### 4.5 Memory density assertions (deterministic)
 `memory-budget` runs `examples/bytes_per_key.rs`: total heap bytes ÷ key count against strict per-distribution ceilings. These are deterministic allocator-accounting numbers (unaffected by machine load), so unlike timing tables they can hard-gate a build. Raise a ceiling only deliberately, updating the `BENCHMARKING.md` row in the same commit.
@@ -188,6 +195,7 @@ Nightly workflows run out of band with no human watching PR checks, so failures 
 - **`--pr-body-file <path>`** — supplies the PR description so approval markers are parsed.
 - **`--max-regression-pct <float>`** — max allowed single-benchmark instruction regression.
 - **`--noise-floor <float>`** — threshold above which an instruction delta is a regression.
+- **`--self-test`** — runs the unit-style checks built into `perf_report.py` / `bench_report.py` (parse, gating, override matching, legend bands) and exits.
 - **`RUSTFLAGS="--cfg loom"`** — swaps `std::sync::atomic` for Loom permutation-checked atomics.
 - **`-C target-cpu=x86-64-v3`** — enables AVX2/BMI2/POPCNT for the comparative microarchitecture benches.
 
