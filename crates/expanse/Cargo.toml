@@ -19,6 +19,10 @@ name = "expanse_trie"
 [features]
 default = ["std"]
 std = []
+# Diagnostic-only: arms the `occ_stats` event counters (OCC retries,
+# writer-lock fallbacks, epoch advances). Off by default and compiled
+# out entirely — never enable it for a published benchmark.
+occ-stats = []
 
 [dependencies]
 
