@@ -62,6 +62,16 @@ python3 scripts/bench_report.py --self-test
 python3 scripts/check_docs_hygiene.py --self-test
 python3 scripts/check_bench_suites.py --self-test
 python3 scripts/check_man_pages.py --self-test
+python3 scripts/check_man_examples.py --self-test
+
+# Verifying the documented example output needs libexpanse built; the CI
+# man-examples job always runs it. Locally it is opt-in, so `gate.sh` stays
+# fast and does not force a release build.
+if [ -n "$(ls target/release/libexpanse.* 2>/dev/null)" ]; then
+  python3 scripts/check_man_examples.py
+else
+  echo "  (skipping man-page example run: build with 'cargo build --release -p expanse-capi' to enable)"
+fi
 
 step "5/6 docs hygiene (time estimates, PII, provenance advisory)"
 python3 scripts/check_docs_hygiene.py

@@ -103,6 +103,16 @@ int main(void) {
     return 0;
 }
 .fi
+.SS Example Output
+.nf
+libexpanse version: <version>
+Key 250 -> 2500
+Keys in [100, 300]: 2
+  100 -> 1000
+  250 -> 2500
+  500 -> 5000
+Memory used: 64 bytes
+.fi
 .SH CONCURRENCY & THREAD SAFETY
 Distinct container handles are completely independent and may be accessed
 concurrently from different threads without coordination.
