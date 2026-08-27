@@ -345,7 +345,14 @@ def render_twins(
     labels = sorted({(r["subject_label"], r["baseline_label"]) for r in rows})
     subject_label, baseline_label = labels[0] if len(labels) == 1 else ("Expanse", "baseline")
     pair = " vs ".join(labels[0]) if len(labels) == 1 else "Expanse vs baseline"
-    ratio_header = f"vs {baseline_label} (instructions retired, not time)"
+    # The division is spelled out in the header so a bare `3.51x` cannot be
+    # read backwards. `ratio_reading` used to state direction in a sentence,
+    # but phrased it "Nx more than B", which asserts (N+1)xB -- wrong by one
+    # multiple of the denominator. Encoding the division here keeps the
+    # direction the sentence supplied without restating the arithmetic.
+    ratio_header = (
+        f"{subject_label} &divide; {baseline_label} (instructions retired, not time)"
+    )
     if base_present:
         intro = (
             f"One row per {subject_label} arm, carrying both comparisons: how the arm "
@@ -1592,7 +1599,10 @@ def self_test() -> int:
     # Both columns are labelled in one header row, so the frame switch is marked.
     header = next(line for line in twin_block.splitlines() if line.startswith("| Group"))
     assert "vs `origin/main`" in header, header
-    assert "vs Roaring (instructions retired, not time)" in header, header
+    assert "Expanse &divide; Roaring (instructions retired, not time)" in header, header
+    # The division must be explicit: a bare ratio in a column headed only
+    # "vs Roaring" can be read either way round.
+    assert "&divide;" in header, header
 
     # 10b. #421 done-when 3: no prose sentence asserts a comparative claim from
     #      the ratio. "Nx more than" means (N+1)x the baseline, so it overstated
@@ -1627,7 +1637,7 @@ def self_test() -> int:
     )
     nobase_block = out_nobase.split("symmetric twins")[1].split("\n---\n")[0]
     assert "vs `origin/main`" not in nobase_block, nobase_block
-    assert "| Group | Case | Arm | Instructions | vs Roaring" in nobase_block, nobase_block
+    assert "| Group | Case | Arm | Instructions | Expanse &divide; Roaring" in nobase_block, nobase_block
     assert "`new`" not in nobase_block, nobase_block
 
     # 10d. #421 done-when 4: the pinned-baseline caveat sits next to the ratio
