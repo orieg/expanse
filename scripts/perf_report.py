@@ -255,6 +255,11 @@ def twin_rows(
                 "baseline_base_ins": b_base,
                 "subject_delta": pct(s_ins, s_base) if s_base else None,
                 "ratio": s_ins / b_ins,
+                # The same ratio at the merge base. With a pinned dependency
+                # this moves exactly with `subject_delta`; if the baseline ever
+                # does move (crate or compiler bump) the two diverge, and this
+                # is the column that shows it.
+                "base_ratio": (s_base / b_base) if s_base and b_base else None,
                 "cycles_ratio": (s_cyc / b_cyc) if b_cyc else None,
                 "subject_label": arms.get("subject_label", "Expanse"),
                 "baseline_label": arms.get("baseline_label", twin["baseline"]),
@@ -351,7 +356,7 @@ def render_twins(
     # multiple of the denominator. Encoding the division here keeps the
     # direction the sentence supplied without restating the arithmetic.
     ratio_header = (
-        f"{subject_label} &divide; {baseline_label} (instructions retired, not time)"
+        f"{subject_label} &divide; {baseline_label} (instructions, not time)"
     )
     if base_present:
         intro = (
@@ -390,7 +395,10 @@ def render_twins(
         if base_present:
             delta = fmt_delta(r["subject_delta"]) if r["subject_delta"] is not None else "`new`"
             cells.append(f"| {delta} ")
-        cells.append(f"| {r['ratio']:.2f}x |")
+        if r.get("base_ratio"):
+            cells.append(f"| {r['ratio']:.2f}x &larr; {r['base_ratio']:.2f}x |")
+        else:
+            cells.append(f"| {r['ratio']:.2f}x |")
         lines.append("".join(cells))
     note = baseline_pinned_note(rows, base_present, baseline_label, base_ref)
     if note:
@@ -1599,7 +1607,7 @@ def self_test() -> int:
     # Both columns are labelled in one header row, so the frame switch is marked.
     header = next(line for line in twin_block.splitlines() if line.startswith("| Group"))
     assert "vs `origin/main`" in header, header
-    assert "Expanse &divide; Roaring (instructions retired, not time)" in header, header
+    assert "Expanse &divide; Roaring (instructions, not time)" in header, header
     # The division must be explicit: a bare ratio in a column headed only
     # "vs Roaring" can be read either way round.
     assert "&divide;" in header, header
