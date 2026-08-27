@@ -877,11 +877,45 @@ Timing numbers here are working baselines, not publishable claims; headline numb
 > [`docs/visualizer_data.json`](visualizer_data.json): deterministic Callgrind
 > instruction counts for the portable baseline (`x86-64-v1`) and `x86-64-v3`
 > for every instruction-benchmark routine (v1→v3 deltas span −1.9% to −42.6%,
-> the largest on `map_remove/random`). The instrument for regenerating a
-> measured tier table is the `/bench extended` microarchitecture arch sweep
-> (`scripts/bench_report.py --arch-sweep`) on the benchmark host; regeneration
-> from such a run is queued, and a measured table will be restored from its
-> artifact.
+> the largest on `map_remove/random`).
+
+**Measured replacement ([#382](https://github.com/orieg/expanse/issues/382))**
+*(reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 /
+kernel 6.8, run
+[33030463060](https://github.com/orieg/expanse/actions/runs/33030463060), ref
+`main` @ `5fb03aa3`; `scripts/bench_report.py --extended --arch-sweep`,
+**wall-clock**, N = 10,000, 3 interleaved rounds, median, load average 0.02)*:
+
+| Distribution | Target CPU | Lookup (ns) | Lookup (Mops) | Insert (Mops) | vs `baseline` lookup |
+|---|---|---:|---:|---:|---:|
+| `clustered` | `baseline` | 5.39 | 185.4 | 44.0 | — |
+| `clustered` | `x86-64-v2` | 4.89 | 204.4 | 53.3 | **1.10×** |
+| `clustered` | `x86-64-v3` | 5.00 | 200.1 | 51.4 | **1.08×** |
+| `clustered` | `native` | 4.74 | 210.9 | 53.8 | **1.14×** |
+| `random` | `baseline` | 9.96 | 100.4 | 13.3 | — |
+| `random` | `x86-64-v2` | 11.43 | 87.5 | 13.7 | 0.87× |
+| `random` | `x86-64-v3` | 10.45 | 95.7 | 12.8 | 0.95× |
+| `random` | `native` | 11.35 | 88.1 | 10.2 | 0.88× |
+| `sequential` | `baseline` | 5.34 | 187.3 | 57.9 | — |
+| `sequential` | `x86-64-v2` | 15.74 | 63.5 | 15.8 | 0.34× ⚠️ |
+| `sequential` | `x86-64-v3` | 9.42 | 106.1 | 28.1 | 0.57× ⚠️ |
+| `sequential` | `native` | 7.72 | 129.5 | 37.5 | 0.69× ⚠️ |
+
+**What this establishes, and what it does not.** The retracted table claimed
+progressive *instruction* reductions per ISA tier. This sweep measures
+**wall-clock, not instruction counts**, so it does not restore that table — a
+Callgrind-under-`target-cpu` harness would, and none exists yet. What it does
+settle is that the retracted table's premise was wrong: **higher ISA tiers do
+not uniformly help.** Clustered lookups gain modestly (1.08×–1.14×), random is
+flat to slightly worse (0.87×–0.95×), and sequential regresses.
+
+⚠️ **The sequential rows are published as measurement, not as a finding.** A 3×
+slowdown from enabling POPCNT (`x86-64-v2`) has no plausible mechanism; at
+N = 10,000 the sequential structure is L2-resident with ~5 ns lookups, the
+regime where code layout, branch alignment and inlining decisions dominate and
+rule 0 says to distrust a wall-clock reading. Read that column as evidence that
+this harness is layout-sensitive at small N — a real per-tier claim needs the
+deterministic instrument.
 
 ---
 

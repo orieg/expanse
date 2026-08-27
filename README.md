@@ -152,9 +152,9 @@ All arms use bounded ~50%-hit keyspaces *(measured: reference host — Intel i9-
 
 ## Microarchitecture Scaling: x86-64-v1 vs v3
 
-> **Retraction ([#372](https://github.com/orieg/expanse/issues/372)).** A per-tier v1/v2/v3/v4 instruction-reduction table previously published here is **retracted**: it was derived from a fabricated benchmark table (nonexistent harness arms, an `x86-64-v4`/AVX-512 column whose stated mechanism is not implemented anywhere in the tree, and per-cell numbers contradicting the committed measurements) — see the retraction note in [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
+> **Retracted and re-measured ([#372](https://github.com/orieg/expanse/issues/372), [#382](https://github.com/orieg/expanse/issues/382)).** The per-tier v1/v2/v3/v4 instruction-reduction table previously published here was fabricated (nonexistent harness arms, an AVX-512 column whose mechanism is not in the tree). The measured arch sweep — run [33030463060](https://github.com/orieg/expanse/actions/runs/33030463060) on the idle reference host — **refutes its premise**: higher ISA tiers do not uniformly help. Clustered lookups gain 1.08×–1.14× over the portable baseline, random is flat-to-slightly-worse (0.87×–0.95×), and sequential regresses (its 0.34× `x86-64-v2` cell has no plausible ISA mechanism and reads as code-layout sensitivity at N = 10k — published as measurement, not finding). Full table and caveats in [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
 
-Real, committed per-tier data: [`docs/visualizer_data.json`](docs/visualizer_data.json) carries deterministic Callgrind instruction counts for the portable baseline (`x86-64-v1`) and `x86-64-v3` for every instruction-benchmark routine — v1→v3 deltas span **−1.9% to −42.6%** (largest on `map_remove/random`). A measured tier table will be restored from a `/bench extended` arch-sweep artifact (regeneration queued).
+Trustworthy per-tier data remains deterministic: [`docs/visualizer_data.json`](docs/visualizer_data.json) carries Callgrind instruction counts for `x86-64-v1` and `x86-64-v3` across every instruction-benchmark routine — v1→v3 deltas span **−1.9% to −42.6%** (largest on `map_remove/random`).
 
 ---
 
