@@ -1024,20 +1024,20 @@ pub(crate) unsafe fn materialize(
     let la = unsafe { as_level1_bitmap(ea, level) };
     // SAFETY: eb is live at `level`.
     let lb = unsafe { as_level1_bitmap(eb, level) };
-    if let (Some((da, ba)), Some((db, bb))) = (la, lb) {
-        if da == db {
-            let res = match op {
-                Op::And => ba.and(&bb),
-                Op::Or => ba.or(&bb),
-                Op::Diff => ba.andnot(&bb),
-                Op::Xor => ba.xor(&bb),
-            };
-            // SAFETY: `a` owns the result; `da` is the shared skip.
-            return unsafe { build_leaf_from_bitmap(a, &res, level, da) };
-        }
-        // Disjoint final-byte clusters at different skip positions: fall through
-        // to the terminal merge (both are terminals).
+    if let (Some((da, ba)), Some((db, bb))) = (la, lb)
+        && da == db
+    {
+        let res = match op {
+            Op::And => ba.and(&bb),
+            Op::Or => ba.or(&bb),
+            Op::Diff => ba.andnot(&bb),
+            Op::Xor => ba.xor(&bb),
+        };
+        // SAFETY: `a` owns the result; `da` is the shared skip.
+        return unsafe { build_leaf_from_bitmap(a, &res, level, da) };
     }
+    // Disjoint final-byte clusters at different skip positions: fall through
+    // to the terminal merge (both are terminals).
 
     let both_branches = is_branch(ea.tag_byte()) && is_branch(eb.tag_byte());
     if both_branches {

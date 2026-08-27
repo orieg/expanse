@@ -79,10 +79,10 @@ fn check_linearizability_for_key(events: &[Event]) -> bool {
 
                 // Real-time order violation: if an unused event ended before `e` started,
                 // `e` cannot be executed before it.
-                if let Some(me) = min_end {
-                    if me < e.start {
-                        continue;
-                    }
+                if let Some(me) = min_end
+                    && me < e.start
+                {
+                    continue;
                 }
 
                 let (valid, next_state) = is_valid_transition(&state, &e.op, &e.ret);

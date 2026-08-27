@@ -186,7 +186,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             if ptr.is_null() {
                 return Err("leaf edge has null node pointer".into());
             }
-            if (ptr as usize) % 16 != 0 {
+            if !(ptr as usize).is_multiple_of(16) {
                 return Err(format!("linear leaf pointer {ptr:p} not 16-byte aligned"));
             }
             let keys = if MAP {
@@ -211,7 +211,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                 return Err("LeafB1 has null node pointer".into());
             }
             let count = if MAP {
-                if (ptr as usize) % 64 != 0 {
+                if !(ptr as usize).is_multiple_of(64) {
                     return Err(format!("LeafBitmapL pointer {ptr:p} not 64-byte aligned"));
                 }
                 // SAFETY: ptr is non-null and 64-byte aligned LeafBitmapL.
@@ -221,7 +221,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                     if (node.values[sub].is_null()) != (n == 0) {
                         return Err("value subarray/bitmap disagreement in LeafBitmapL".into());
                     }
-                    if n > 0 && (node.values[sub] as usize) % 16 != 0 {
+                    if n > 0 && !(node.values[sub] as usize).is_multiple_of(16) {
                         return Err(format!(
                             "LeafBitmapL value subarray {sub} pointer not 16-byte aligned"
                         ));
@@ -229,7 +229,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                 }
                 u64::from(node.bitmap.count())
             } else {
-                if (ptr as usize) % 64 != 0 {
+                if !(ptr as usize).is_multiple_of(64) {
                     return Err(format!("LeafBitmap1 pointer {ptr:p} not 64-byte aligned"));
                 }
                 // SAFETY: ptr is non-null and 64-byte aligned LeafBitmap1.
@@ -263,7 +263,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             if ptr.is_null() {
                 return Err("branch edge has null node pointer".into());
             }
-            if (ptr as usize) % 64 != 0 {
+            if !(ptr as usize).is_multiple_of(64) {
                 return Err(format!("linear branch pointer {ptr:p} not 64-byte aligned"));
             }
             // SAFETY: ptr is non-null and 64-byte aligned BranchL3/L7.
@@ -299,7 +299,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             if ptr.is_null() {
                 return Err("BranchB edge has null node pointer".into());
             }
-            if (ptr as usize) % 64 != 0 {
+            if !(ptr as usize).is_multiple_of(64) {
                 return Err(format!("BranchB pointer {ptr:p} not 64-byte aligned"));
             }
             // SAFETY: ptr is non-null and 64-byte aligned BranchB.
@@ -335,7 +335,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                     if sub_ptr.is_null() {
                         return Err(format!("non-empty subexpanse {sub} with null subarray"));
                     }
-                    if (sub_ptr as usize) % 16 != 0 {
+                    if !(sub_ptr as usize).is_multiple_of(16) {
                         return Err(format!(
                             "BranchB subarray {sub} pointer not 16-byte aligned"
                         ));
@@ -359,7 +359,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             if ptr.is_null() {
                 return Err("BranchU edge has null node pointer".into());
             }
-            if (ptr as usize) % 64 != 0 {
+            if !(ptr as usize).is_multiple_of(64) {
                 return Err(format!("BranchU pointer {ptr:p} not 64-byte aligned"));
             }
             // SAFETY: ptr is non-null and 64-byte aligned BranchU.

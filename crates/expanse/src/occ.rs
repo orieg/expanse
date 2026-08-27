@@ -54,7 +54,7 @@ impl SeqVersion {
     /// a plain release store here misses).
     pub fn begin(&self) {
         let v = self.0.load(Ordering::Relaxed);
-        debug_assert!(v % 2 == 0, "nested or unpaired begin");
+        debug_assert!(v.is_multiple_of(2), "nested or unpaired begin");
         self.0.store(v + 1, Ordering::Relaxed);
         fence(Ordering::Release);
     }
@@ -73,7 +73,7 @@ impl SeqVersion {
     pub fn sample(&self) -> u64 {
         loop {
             let v = self.0.load(Ordering::Acquire);
-            if v % 2 == 0 {
+            if v.is_multiple_of(2) {
                 return v;
             }
             crate::occ_stats::bump(crate::occ_stats::Stat::SampleSpins);
@@ -142,7 +142,7 @@ pub(crate) fn version_end_if<const OCC: bool>(a: &crate::alloc::NodeAlloc, v: &m
 #[inline]
 pub(crate) fn version_begin(v: &mut u32) {
     let cur = *v;
-    debug_assert!(cur % 2 == 0, "nested node write bracket");
+    debug_assert!(cur.is_multiple_of(2), "nested node write bracket");
     // SAFETY: plain field write through the exclusive borrow; volatile
     // only pins the store's shape for concurrent atomic readers.
     unsafe { core::ptr::write_volatile(v, cur + 1) };

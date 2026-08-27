@@ -1733,7 +1733,7 @@ mod tests {
         while start.elapsed() < std::time::Duration::from_millis(300) {
             for _ in 0..10_000 {
                 let k = key_of(&mut rng);
-                if rng.next() % 2 == 0 {
+                if rng.next().is_multiple_of(2) {
                     m.insert(k, val_of(k));
                     model.insert(k, val_of(k));
                 } else {
@@ -1788,7 +1788,7 @@ mod tests {
         while start.elapsed() < std::time::Duration::from_millis(200) {
             for _ in 0..10_000 {
                 let k = rng.next() % 4096;
-                if rng.next() % 2 == 0 {
+                if rng.next().is_multiple_of(2) {
                     s.insert(k);
                 } else {
                     s.remove(k);
@@ -1813,7 +1813,7 @@ mod tests {
             b"k",
         ];
         let mut k = PREFIXES[(idx % 4) as usize].to_vec();
-        if idx % 8 == 0 {
+        if idx.is_multiple_of(8) {
             k.extend_from_slice(&[b'd'; 96]);
         }
         let mut x = idx | 1;
@@ -1907,7 +1907,7 @@ mod tests {
         while start.elapsed() < std::time::Duration::from_millis(300) {
             for _ in 0..2000 {
                 let k = str_key_of(rng.next() % 512);
-                if rng.next() % 2 == 0 {
+                if rng.next().is_multiple_of(2) {
                     m.insert(&k, str_val_of(&k));
                     model.insert(k, ());
                 } else {
@@ -2220,7 +2220,7 @@ mod tests {
         while start.elapsed() < std::time::Duration::from_millis(300) {
             for _ in 0..2000 {
                 let k = key_of(&mut rng);
-                if rng.next() % 2 == 0 {
+                if rng.next().is_multiple_of(2) {
                     m.insert(k, &blob_payload_of(k), blob_meta_of(k)).unwrap();
                     model.insert(k, ());
                 } else {
@@ -2401,7 +2401,7 @@ mod tests {
         while start.elapsed() < std::time::Duration::from_millis(300) {
             for _ in 0..2000 {
                 let k = str_key_of(rng.next() % 512);
-                if rng.next() % 2 == 0 {
+                if rng.next().is_multiple_of(2) {
                     m.insert(&k, str_val_of(&k));
                     model.insert(k, ());
                 } else {

@@ -1559,7 +1559,7 @@ mod tests {
             let mut s = BTreeSet::new();
             while s.len() < n {
                 let r = rng.next();
-                let k = if r % 4 == 0 { r } else { r % 4096 };
+                let k = if r.is_multiple_of(4) { r } else { r % 4096 };
                 s.insert(k);
             }
             s.into_iter().collect()
@@ -2430,7 +2430,7 @@ mod tests {
             let nb = (n / 1000).max(4);
             let mut b: Vec<u64> = (0..nb)
                 .map(|_| {
-                    if rng.next() % 2 == 0 && !a.is_empty() {
+                    if rng.next().is_multiple_of(2) && !a.is_empty() {
                         a[(rng.next() as usize) % a.len()] // a hit
                     } else {
                         rng.next() % (n as u64 * 4).max(2) // maybe a miss

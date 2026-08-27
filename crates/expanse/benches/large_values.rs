@@ -155,11 +155,11 @@ fn bench_predicate_scan_selectivity_sweep(c: &mut Criterion) {
                 let mut matches = 0usize;
                 let mut byte_sum = 0usize;
                 for k in 0..total_keys {
-                    if let Some((view, meta)) = map.get(k) {
-                        if meta <= threshold {
-                            matches += 1;
-                            byte_sum += view.len();
-                        }
+                    if let Some((view, meta)) = map.get(k)
+                        && meta <= threshold
+                    {
+                        matches += 1;
+                        byte_sum += view.len();
                     }
                 }
                 black_box((matches, byte_sum))
