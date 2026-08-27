@@ -1637,6 +1637,92 @@ mod tests {
         }
     }
 
+    /// Explicitly exercises branch form pairings (Linear × Linear, Linear ×
+    /// BranchU, Linear × BranchB, BranchB × BranchB, BranchU × BranchU) across
+    /// all four set-algebra materialization operators.
+    #[test]
+    fn test_materialize_branch_form_combinations() {
+        let make_set = |digits: &[u64]| -> (ExpanseSet, BTreeSet<u64>) {
+            let mut keys = Vec::new();
+            for &d in digits {
+                // Multi-key child at level 6 so the tree creates real branches.
+                for j in 0..10u64 {
+                    keys.push((d << 48) | (j << 8) | 1);
+                }
+            }
+            keys.sort_unstable();
+            let mut s = ExpanseSet::new();
+            let mut m = BTreeSet::new();
+            for &k in &keys {
+                s.insert(k);
+                m.insert(k);
+            }
+            s.validate_defensive().unwrap();
+            (s, m)
+        };
+
+        let l3_a_digits = [2u64, 5, 9];
+        let l3_b_digits = [5u64, 9, 12];
+        let l7_digits: Vec<u64> = (1..=7).map(|i| i * 4).collect();
+        let b_digits: Vec<u64> = (0..25).map(|i| i * 6).collect();
+        let u_digits: Vec<u64> = (0..195).collect();
+
+        let (s_l3a, m_l3a) = make_set(&l3_a_digits);
+        let (s_l3b, m_l3b) = make_set(&l3_b_digits);
+        let (s_l7, m_l7) = make_set(&l7_digits);
+        let (s_b, m_b) = make_set(&b_digits);
+        let (s_u, m_u) = make_set(&u_digits);
+
+        let pairs = [
+            (&s_l3a, &m_l3a, &s_l3b, &m_l3b, "L3 x L3"),
+            (&s_l3a, &m_l3a, &s_l7, &m_l7, "L3 x L7"),
+            (&s_l7, &m_l7, &s_l7, &m_l7, "L7 x L7"),
+            (&s_l3a, &m_l3a, &s_u, &m_u, "L3 x BranchU"),
+            (&s_u, &m_u, &s_l3a, &m_l3a, "BranchU x L3"),
+            (&s_l7, &m_l7, &s_u, &m_u, "L7 x BranchU"),
+            (&s_u, &m_u, &s_l7, &m_l7, "BranchU x L7"),
+            (&s_l3a, &m_l3a, &s_b, &m_b, "L3 x BranchB"),
+            (&s_b, &m_b, &s_l3a, &m_l3a, "BranchB x L3"),
+            (&s_b, &m_b, &s_b, &m_b, "BranchB x BranchB"),
+            (&s_u, &m_u, &s_u, &m_u, "BranchU x BranchU"),
+        ];
+
+        for (sa, ma, sb, mb, label) in pairs {
+            let ops = [
+                (
+                    sa.intersection(sb),
+                    ma.intersection(mb).copied().collect::<Vec<_>>(),
+                    "and",
+                ),
+                (
+                    sa.union(sb),
+                    ma.union(mb).copied().collect::<Vec<_>>(),
+                    "or",
+                ),
+                (
+                    sa.difference(sb),
+                    ma.difference(mb).copied().collect::<Vec<_>>(),
+                    "diff",
+                ),
+                (
+                    sa.symmetric_difference(sb),
+                    ma.symmetric_difference(mb).copied().collect::<Vec<_>>(),
+                    "xor",
+                ),
+            ];
+            for (got, want, op) in ops {
+                got.validate_defensive()
+                    .unwrap_or_else(|e| panic!("{label}/{op}: defensive validation failed: {e}"));
+                assert_eq!(got.len(), want.len() as u64, "{label}/{op}: len mismatch");
+                assert_eq!(
+                    got.iter().collect::<Vec<_>>(),
+                    want,
+                    "{label}/{op}: contents mismatch"
+                );
+            }
+        }
+    }
+
     /// Unsorted / duplicate input is corrected, not trusted.
     #[test]
     fn from_sorted_iter_tolerates_unsorted() {

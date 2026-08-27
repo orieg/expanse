@@ -36,9 +36,6 @@ use crate::mutate;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1};
 use crate::types::{EdgeTag, EdgeType};
 
-extern crate alloc;
-use alloc::vec::Vec;
-
 /// True when `tag` names one of the four branch flavors.
 #[inline(always)]
 pub(crate) fn is_branch(tag: u8) -> bool {
@@ -207,15 +204,28 @@ pub(crate) unsafe fn child_by_digit(edge: &Edge, level: u8, d: u8) -> Edge {
 /// against a sibling subtree with [`get::test_set`] at the same `level`.
 ///
 /// # Safety
+/// Extracts the `level`-byte key remainders of a terminal (leaf / immediate)
+/// edge into `buf`, returning the count of keys written, or `None` when `edge` is a
+/// branch.
 ///
-/// `edge` must reference a live node/leaf of its tagged type.
+/// # Safety
+///
+/// `edge` must reference a live node/leaf of its tagged type. `buf` must have
+/// capacity >= 256.
 #[inline]
-pub(crate) unsafe fn terminal_remainders(edge: &Edge, level: u8) -> Option<Vec<u64>> {
+pub(crate) unsafe fn terminal_remainders_buf(
+    edge: &Edge,
+    level: u8,
+    buf: &mut [u64],
+) -> Option<usize> {
     match edge.tag() {
         Some(EdgeTag::Immed(im)) => {
             // Immediates store the whole remainder (key_bytes == slot level).
             let keys = mutate::immed_keys(edge, im);
-            Some(keys.to_vec())
+            let n = keys.len();
+            debug_assert!(buf.len() >= n);
+            buf[..n].copy_from_slice(&keys);
+            Some(n)
         }
         Some(EdgeTag::Structural(EdgeType::LeafB1)) => {
             let dv = if level > 1 {
@@ -226,17 +236,20 @@ pub(crate) unsafe fn terminal_remainders(edge: &Edge, level: u8) -> Option<Vec<u
             let base = dv << 8;
             // SAFETY: live LeafBitmap1 node pointer.
             let b = unsafe { &*edge.node_ptr().cast::<LeafBitmap1>() };
-            let mut out = Vec::with_capacity(b.bitmap.count() as usize);
+            let mut count = 0;
             let mut from = b.bitmap.next_set(0);
             while let Some(bit) = from {
-                out.push(base | u64::from(bit));
+                if count < buf.len() {
+                    buf[count] = base | u64::from(bit);
+                    count += 1;
+                }
                 from = if bit == 255 {
                     None
                 } else {
                     b.bitmap.next_set(bit + 1)
                 };
             }
-            Some(out)
+            Some(count)
         }
         Some(EdgeTag::Structural(t)) if t.is_leaf() => {
             let kb = t.leaf_key_bytes().expect("leaf tag");
@@ -249,7 +262,14 @@ pub(crate) unsafe fn terminal_remainders(edge: &Edge, level: u8) -> Option<Vec<u
             let base = dv << (8 * u32::from(kb));
             // SAFETY: live linear leaf of `pop` keys of `kb` bytes.
             let packed = unsafe { mutate::leaf_keys(edge, kb, pop) };
-            Some(packed.into_iter().map(|k| base | k).collect())
+            let mut count = 0;
+            for k in packed {
+                if count < buf.len() {
+                    buf[count] = base | k;
+                    count += 1;
+                }
+            }
+            Some(count)
         }
         _ => None,
     }
@@ -387,25 +407,29 @@ unsafe fn intersection_branch(ea: &Edge, eb: &Edge, level: u8) -> u64 {
 /// are branches (that case is handled by [`intersection_branch`]).
 #[inline]
 unsafe fn intersection_terminal(ea: &Edge, eb: &Edge, level: u8) -> u64 {
+    let mut ka_buf = [0u64; 256];
+    let mut kb_buf = [0u64; 256];
     // SAFETY: forwarded contract.
-    let ra = unsafe { terminal_remainders(ea, level) };
+    let ra = unsafe { terminal_remainders_buf(ea, level, &mut ka_buf) };
     // SAFETY: forwarded contract.
-    let rb = unsafe { terminal_remainders(eb, level) };
+    let rb = unsafe { terminal_remainders_buf(eb, level, &mut kb_buf) };
     match (ra, rb) {
-        (Some(ka), Some(kb)) => {
+        (Some(na), Some(nb)) => {
+            let ka = &ka_buf[..na];
+            let kb = &kb_buf[..nb];
             // Both terminal: probe the smaller list into the larger subtree.
-            if ka.len() <= kb.len() {
+            if na <= nb {
                 // SAFETY: eb is a live subtree at `level`.
-                unsafe { probe_count(&ka, eb, level) }
+                unsafe { probe_count(ka, eb, level) }
             } else {
                 // SAFETY: ea is a live subtree at `level`.
-                unsafe { probe_count(&kb, ea, level) }
+                unsafe { probe_count(kb, ea, level) }
             }
         }
         // SAFETY: the branch side is a live subtree at `level`.
-        (Some(ka), None) => unsafe { probe_count(&ka, eb, level) },
+        (Some(na), None) => unsafe { probe_count(&ka_buf[..na], eb, level) },
         // SAFETY: the branch side is a live subtree at `level`.
-        (None, Some(kb)) => unsafe { probe_count(&kb, ea, level) },
+        (None, Some(nb)) => unsafe { probe_count(&kb_buf[..nb], ea, level) },
         (None, None) => 0,
     }
 }
