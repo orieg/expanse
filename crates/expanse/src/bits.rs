@@ -516,6 +516,7 @@ pub struct Bitmap256 {
 /// path (per-byte popcount plus horizontal add), not a scalar instruction —
 /// base A64 has no scalar popcount (scalar `CNT` needs FEAT_CSSC, Armv8.9+;
 /// see docs/HARDWARE.md §2.2).
+/// Runtime CPU feature dispatch for hardware POPCNT (x86-64 only).
 #[cfg(target_arch = "x86_64")]
 pub(crate) mod popcnt_rt {
     use core::sync::atomic::{AtomicU8, Ordering};
@@ -540,11 +541,118 @@ pub(crate) mod popcnt_rt {
     /// into every lookup entry (review finding, PR #19).
     #[cold]
     #[inline(never)]
+    #[allow(unused_unsafe)]
     fn detect() -> bool {
-        let yes = std::arch::is_x86_feature_detected!("popcnt");
+        // SAFETY: CPUID leaf 1 is supported on all standard x86-64 CPUs.
+        let leaf1 = unsafe { core::arch::x86_64::__cpuid(1) };
+        let yes = (leaf1.ecx & (1 << 23)) != 0;
         STATE.store(if yes { 2 } else { 1 }, Ordering::Relaxed);
         yes
     }
+}
+
+/// Runtime CPU feature dispatch for hardware BMI2 PDEP/PEXT (x86-64 only).
+///
+/// **Microarchitecture exclusion**: On AMD Zen 1 and Zen 2 (Family 17h and 15h),
+/// `PDEP`/`PEXT` are implemented in microcode (taking 18 to 250+ cycles).
+/// On those microarchitectures, `available()` returns `false` so execution
+/// automatically falls back to the fast 2 KB `SELECT_LUT` table. AMD Zen 3+
+/// (Family 19h+) and Intel Haswell+ execute `PDEP` in hardware (1 cycle).
+#[cfg(target_arch = "x86_64")]
+pub(crate) mod bmi2_rt {
+    use core::sync::atomic::{AtomicU8, Ordering};
+
+    static STATE: AtomicU8 = AtomicU8::new(0);
+
+    #[inline(always)]
+    pub(crate) fn available() -> bool {
+        let s = STATE.load(Ordering::Relaxed);
+        if s == 2 {
+            true
+        } else if s == 1 {
+            false
+        } else {
+            detect()
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    #[allow(unused_unsafe)]
+    fn detect() -> bool {
+        // SAFETY: CPUID leaf 0 is universally supported on x86-64.
+        let max_leaf = unsafe { core::arch::x86_64::__cpuid(0).eax };
+        if max_leaf < 7 {
+            STATE.store(1, Ordering::Relaxed);
+            return false;
+        }
+
+        // SAFETY: CPUID leaf 0 is supported.
+        let leaf0 = unsafe { core::arch::x86_64::__cpuid(0) };
+        let is_amd =
+            leaf0.ebx == 0x6874_7541 && leaf0.edx == 0x6974_6e65 && leaf0.ecx == 0x444d_4163;
+
+        // SAFETY: CPUID leaf 1 is supported on standard x86-64 CPUs.
+        let leaf1 = unsafe { core::arch::x86_64::__cpuid(1) };
+        let base_family = (leaf1.eax >> 8) & 0xF;
+        let ext_family = (leaf1.eax >> 20) & 0xFF;
+        let family = if base_family == 0xF {
+            base_family + ext_family
+        } else {
+            base_family
+        };
+
+        // SAFETY: CPUID leaf 7 is supported (max_leaf >= 7).
+        let leaf7 = unsafe { core::arch::x86_64::__cpuid_count(7, 0) };
+        let has_bmi2 = (leaf7.ebx & (1 << 8)) != 0;
+
+        let fast_bmi2 = has_bmi2 && (!is_amd || family >= 0x19);
+        STATE.store(if fast_bmi2 { 2 } else { 1 }, Ordering::Relaxed);
+        fast_bmi2
+    }
+}
+
+/// Compile-time lookup table mapping `(byte, k)` to the 0-based bit index (0..7)
+/// of the `k`-th set bit inside `byte` (for `k < byte.count_ones()`).
+///
+/// 256 bytes * 8 ranks = 2048 bytes (2 KB) in `.rodata`.
+const fn build_select_lut() -> [[u8; 8]; 256] {
+    let mut lut = [[0u8; 8]; 256];
+    let mut byte = 0usize;
+    while byte < 256 {
+        let mut rank = 0usize;
+        let mut bit = 0u8;
+        while bit < 8 {
+            if (byte & (1 << bit)) != 0 {
+                lut[byte][rank] = bit;
+                rank += 1;
+            }
+            bit += 1;
+        }
+        byte += 1;
+    }
+    lut
+}
+
+pub(crate) static SELECT_LUT: [[u8; 8]; 256] = build_select_lut();
+
+/// Hardware-accelerated `select` on x86-64 using BMI2 `PDEP` + `TZCNT` and `POPCNT`.
+#[cfg(all(target_arch = "x86_64", not(miri)))]
+#[target_feature(enable = "bmi2,popcnt")]
+unsafe fn select_bmi2(words: &[u64; 4], n: u32) -> Option<u8> {
+    use core::arch::x86_64::{_pdep_u64, _popcnt64};
+    let mut remaining = n;
+    let mut w = 0usize;
+    while w < 4 {
+        let pop = _popcnt64(words[w] as i64) as u32;
+        if remaining < pop {
+            let deposit = _pdep_u64(1u64 << remaining, words[w]);
+            return Some(((w as u32 * 64) + deposit.trailing_zeros()) as u8);
+        }
+        remaining -= pop;
+        w += 1;
+    }
+    None
 }
 
 impl Bitmap256 {
@@ -772,21 +880,48 @@ impl Bitmap256 {
 
     /// The member with `n` members below it (0-based rank → bit), if any —
     /// the `ByCount` primitive. Inverse of [`Self::rank`] for present bits.
+    ///
+    /// Automatically dispatches to hardware BMI2 `PDEP` on supported x86-64 CPUs
+    /// (excluding AMD Zen 1/2 microcode) or the fast 2 KB `SELECT_LUT` fallback.
+    #[inline]
     #[must_use]
-    pub const fn select(&self, n: u32) -> Option<u8> {
+    pub fn select(&self, n: u32) -> Option<u8> {
+        #[cfg(all(target_arch = "x86_64", not(miri)))]
+        {
+            if bmi2_rt::available() {
+                // SAFETY: bmi2_rt::available() guarantees the target CPU supports BMI2 and
+                // POPCNT natively with fast hardware execution (excluding AMD Zen 1/2 microcode).
+                return unsafe { select_bmi2(&self.words, n) };
+            }
+        }
+        self.select_portable(n)
+    }
+
+    /// Portable software implementation of `select` using the 2 KB `SELECT_LUT`.
+    ///
+    /// Evaluates at most 4 word steps and at most 8 byte steps via lookup table,
+    /// replacing the $O(k)$ Kernighan bit-clearing loop with constant-time byte indexing.
+    #[inline]
+    #[must_use]
+    pub const fn select_portable(&self, n: u32) -> Option<u8> {
         let mut remaining = n;
         let mut w = 0;
         while w < 4 {
             let pop = self.words[w].count_ones();
             if remaining < pop {
-                // Select the `remaining`-th set bit inside this word.
-                let mut word = self.words[w];
-                let mut k = remaining;
-                while k > 0 {
-                    word &= word - 1; // drop lowest set bit
-                    k -= 1;
+                let word = self.words[w];
+                let mut byte_idx = 0;
+                while byte_idx < 8 {
+                    let b = ((word >> (byte_idx * 8)) & 0xFF) as u8;
+                    let b_pop = b.count_ones();
+                    if remaining < b_pop {
+                        let bit_in_byte = SELECT_LUT[b as usize][remaining as usize];
+                        return Some(((w as u32 * 64) + (byte_idx * 8) + bit_in_byte as u32) as u8);
+                    }
+                    remaining -= b_pop;
+                    byte_idx += 1;
                 }
-                return Some(((w as u32 * 64) + word.trailing_zeros()) as u8);
+                return None;
             }
             remaining -= pop;
             w += 1;
@@ -1271,6 +1406,85 @@ mod tests {
                 .position(|&v| v >= needle_u32)
                 .unwrap_or(len_u32.min(4));
             assert_eq!(actual_lb_u32, expected_lb_u32, "lower_bound_4_u32 parity");
+        }
+    }
+
+    #[test]
+    fn select_lut_exact() {
+        for (byte, lut_entry) in SELECT_LUT.iter().enumerate() {
+            let mut bits = Vec::new();
+            for bit in 0..8u8 {
+                if (byte & (1 << bit)) != 0 {
+                    bits.push(bit);
+                }
+            }
+            for (rank, &expected_bit) in bits.iter().enumerate() {
+                assert_eq!(
+                    lut_entry[rank], expected_bit,
+                    "byte {byte:#04x}, rank {rank}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn select_parity_exhaustive() {
+        let mut rng = XorShift(0xFEEDBEEF_12345678);
+
+        let mut test_bitmaps = Vec::new();
+        // 1. Empty
+        test_bitmaps.push(Bitmap256::new());
+        // 2. Full
+        test_bitmaps.push(Bitmap256::full());
+        // 3. Singletons
+        for bit in 0..256u16 {
+            let mut b = Bitmap256::new();
+            b.set(bit as u8);
+            test_bitmaps.push(b);
+        }
+        // 4. Random densities
+        let count = if cfg!(miri) { 20 } else { 2000 };
+        for _ in 0..count {
+            let mut b = Bitmap256::new();
+            let pop = (rng.next() % 257) as usize;
+            for _ in 0..pop {
+                b.set((rng.next() & 0xFF) as u8);
+            }
+            test_bitmaps.push(b);
+        }
+
+        for bm in &test_bitmaps {
+            let members: Vec<u8> = (0..=255u8).filter(|&i| bm.test(i)).collect();
+            let pop = members.len() as u32;
+
+            for rank in 0..pop {
+                let expected = members[rank as usize];
+                let portable = bm.select_portable(rank);
+                let dispatched = bm.select(rank);
+
+                assert_eq!(
+                    portable,
+                    Some(expected),
+                    "portable select mismatch at rank {rank}"
+                );
+                assert_eq!(
+                    dispatched,
+                    Some(expected),
+                    "dispatched select mismatch at rank {rank}"
+                );
+            }
+
+            // Beyond population -> None
+            assert_eq!(bm.select_portable(pop), None);
+            assert_eq!(bm.select(pop), None);
+            assert_eq!(bm.select_portable(pop + 10), None);
+            assert_eq!(bm.select(pop + 10), None);
+
+            // Rank / select round trip
+            for &m in &members {
+                let r = bm.rank(m);
+                assert_eq!(bm.select(r), Some(m), "round-trip rank->select for bit {m}");
+            }
         }
     }
 }
