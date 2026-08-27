@@ -1371,3 +1371,64 @@ fn markdown_docs() -> Vec<std::path::PathBuf> {
     out.sort();
     out
 }
+
+/// `docs/BENCHMARKING.md` publishes the same bytes/key table as
+/// `docs/visualizer_data.json`, in prose. [`test_memory_budget_matches_engine`]
+/// gates the JSON copy; this gates the markdown one against the same engine
+/// call, so the two artifacts cannot disagree.
+///
+/// They did. The `random (set)` row read `12.34 / 13.83 / 7.66` while the
+/// engine measured `13.50 / 14.78 / 7.92` — same claimed method ("deterministic
+/// allocation accounting via `NodeAlloc`, machine-independent"), different
+/// numbers, and no shared source to reconcile them. Every other row happened to
+/// agree, which is exactly why nobody noticed (#384).
+#[test]
+fn test_benchmarking_md_density_table_matches_engine() {
+    // (markdown row label, `bytes_per_key.rs` distribution name)
+    const ROWS: &[(&str, &str)] = &[
+        ("sequential (set)", "sequential"),
+        ("clustered 256-run (set)", "clustered"),
+        ("clustered 4096-run (set)", "clustered-wide"),
+        ("random (set)", "random"),
+        ("sparse `i << 40` (set)", "sparse"),
+    ];
+    let md = fs::read_to_string(repo_root().join("docs").join("BENCHMARKING.md"))
+        .expect("read docs/BENCHMARKING.md");
+
+    for (label, dist) in ROWS {
+        let prefix = format!("| {label} |");
+        let line = md
+            .lines()
+            .find(|l| l.starts_with(&prefix))
+            .unwrap_or_else(|| {
+                panic!("bytes/key table row {label:?} not found in BENCHMARKING.md")
+            });
+
+        // `| label | 1k | 100k | 1M | note |` -- cells may carry ** emphasis.
+        let cells: Vec<f64> = line
+            .split('|')
+            .skip(2)
+            .take(3)
+            .map(|c| {
+                c.trim()
+                    .trim_matches('*')
+                    .parse::<f64>()
+                    .unwrap_or_else(|_| panic!("row {label:?}: cell {c:?} is not a number"))
+            })
+            .collect();
+        assert_eq!(cells.len(), 3, "row {label:?} must publish 1k/100k/1M");
+
+        for (cell, pop) in cells.iter().zip([1_000usize, 100_000, 1_000_000]) {
+            let (set_bpk, _) = bytes_per_key(dist, pop);
+            let expected = round_to(set_bpk, 2);
+            assert!(
+                (cell - expected).abs() < 1e-9,
+                "docs/BENCHMARKING.md bytes/key, row {label:?} at pop {pop}: \
+                 publishes {cell} B/key but the engine measures {expected} B/key. \
+                 This table and docs/visualizer_data.json must both derive from \
+                 `cargo run --release -p expanse-trie --example bytes_per_key` -- \
+                 regenerate both rather than editing either by hand."
+            );
+        }
+    }
+}
