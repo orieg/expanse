@@ -35,10 +35,12 @@ is asymmetric:
 > descent (`crates/expanse/src/algebra.rs`). Pillar 1 now measures **composed
 > vs native vs roaring** per cell. The pre-registered expectation below —
 > "Roaring wins every symmetric cell, often by 1–3 orders of magnitude" — held
-> for the **composed** arm (4×–1406×) and is **refuted for the native arm**,
-> which is within 3.70× on every symmetric cell, faster than Roaring on 7 of 16,
-> and faster on the dense/zipfian skewed AND (see README §Pillar 1). The text
-> below is preserved as the original pre-registration.
+> for the **composed** arm (4×–1413×) and is **refuted for the native arm**,
+> which is within 3.84× on every symmetric cell and faster than Roaring on 15 of
+> 48 symmetric cells (per the committed #348-run artifact,
+> `results/baseline_boolean.json`), and faster on the dense/zipfian skewed AND
+> (see README §Pillar 1). The text below is preserved as the original
+> pre-registration.
 >
 > **Update (#348, second resolution — materialization).** #339 measured
 > *cardinality* only; its materializing ops still merged the two iterators and
@@ -51,10 +53,11 @@ is asymmetric:
 > ≤ 1.2× roaring, clustered 1e7 ≤ 1.5×, no symmetric cell > 2×, each materialized
 > cell within 2× of the corresponding cardinality cell. **Measured outcome: all
 > four targets are MISSED.** v2 materialization at N=10⁷ vs roaring is dense AND
-> 2.6×, clustered AND 7.2×, sparse AND 11.7×, zipfian AND 1.4×; v2/cardinality is
-> 1.6×–4.6× (building the result tree costs more than counting it). The honest
-> result: **v2 direct emission is 7×–215× faster than the v1 insert-based path it
-> replaces** — that is the #348 deliverable ("materializing ops are not
+> 2.6×, clustered AND 7.1×, sparse AND 11.7×, zipfian AND 1.4×; v2/cardinality at
+> N=10⁷ is 2.2×–6.0× (building the result tree costs more than counting it). The
+> honest result: **v2 direct emission is 7×–225× faster at N=10⁷ than the v1
+> insert-based path it replaces** (3.2× floor across the full 10⁴–10⁷ sweep,
+> zipfian AND at 10⁴) — that is the #348 deliverable ("materializing ops are not
 > structural" → now they are) — but it does not reach roaring on the symmetric
 > cells, which need the level-2 65,536-key bitmap leaf that #348 explicitly left
 > out of scope (a new node form with its own density-crossover design note). The

@@ -19,7 +19,7 @@ This directory contains the reproducible benchmark suite, raw measurements, meth
 
 ## 2. Key Findings & Empirical Results
 
-*(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 7d87dff7; full non-quick suite via `run.sh`, host idle — load < 0.4 before and between arms. Earlier published figures were measured on a slower, non-isolated environment; this run supersedes them.)*
+*(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 7d87dff7; full non-quick suite via `run.sh`, host idle — load < 0.4 before and between arms. Earlier published figures were measured on a slower, non-isolated environment; this run supersedes them. Reproducibility note: the Zipfian samplers in the YCSB and key-distribution harnesses were originally unseeded (`rand::thread_rng()`) and are now seeded (`StdRng::seed_from_u64`, #374); the committed baselines predate seeding — their Zipfian streams are not bit-reproducible — and will be refreshed on the next full run.)*
 
 ### Pillar 1: YCSB (Yahoo! Cloud Serving Benchmark) Workloads A–F
 Zipfian access distribution ($s = 0.99$, power-law skew) on 500,000 keys.
@@ -27,13 +27,13 @@ Zipfian access distribution ($s = 0.99$, power-law skew) on 500,000 keys.
 ![YCSB Workloads A-F Throughput](results/bench_ycsb_workloads.svg)
 
 - **Workload E (Short Range Scans):** SwissTable is structurally disqualified because hash tables cannot perform ordered scans without allocating, dumping, and sorting the entire table. `ExpanseMap` ($9.6\text{ Mops/sec}$) and `BTreeMap` ($10.1\text{ Mops/sec}$) execute ordered range queries natively, within $5\%$ of each other.
-- **Read & Update Heavy Workloads (A, B, C, D, F):** `ExpanseMap` delivers $41\text{–}118\text{ Mops/sec}$, consistently beating `BTreeMap` ($13\text{–}17\text{ Mops/sec}$) by **$3.0\times\text{ to }7.1\times$**.
+- **Read & Update Heavy Workloads (A, B, C, D, F):** `ExpanseMap` delivers $41\text{–}118\text{ Mops/sec}$, consistently beating `BTreeMap` ($12.6\text{–}17.2\text{ Mops/sec}$) by **$3.0\times\text{ to }7.1\times$**.
 - **`hashbrown` leads the pure point-op workloads** ($154\text{–}219\text{ Mops/sec}$ on A–D, F) — an unordered hash table's home turf. The trade is ordered capability (Workload E) and worst-case latency (Pillar 3 rehash cliffs), not average point throughput.
 
 ---
 
 ### Pillar 2: Memory Footprint (Live Heap Bytes / Key)
-Measured via custom `GlobalAlloc` hooks tracking heap allocations at steady state ($N = 100,000$).
+Measured via custom `GlobalAlloc` hooks tracking heap allocations at steady state ($N = 500,000$; the full $10^3 \dots 5 \times 10^5$ sweep is in `results/baseline_memory.json`).
 
 ![Memory Footprint Bytes Per Key](results/bench_memory_footprint.svg)
 
@@ -47,12 +47,13 @@ Expanse's uncompressed bitmap-backed leaf nodes pack sequential and clustered in
 ---
 
 ### Pillar 3: Ingestion Tail Latency & Rehash Cliffs
-Dynamic table expansion from $0 \to 100,000$ keys without pre-allocating capacity, measured via `HdrHistogram`.
+Dynamic table expansion from $0 \to 10^6$ keys without pre-allocating capacity, measured via `HdrHistogram` (`total_inserts` in `results/baseline_tail_latency.json`).
 
 ![Ingestion Tail Latency Percentiles](results/bench_tail_latency.svg)
 
 - `hashbrown` wins the median ($P_{50} = 26\text{ ns}$ vs Expanse $76\text{ ns}$, BTreeMap $118\text{ ns}$) — but its **worst-case insert is $11.09\text{ ms}$**: the global-rehash cliff, where the entire table is reallocated and rehashed at once.
 - **Expanse's worst-case insert is $34.7\text{ µs}$** ($P_{99.99} = 3.4\text{ µs}$) — **$320\times$ better worst-case than SwissTable** — because growth is local subexpanse allocation: no global rehash exists in the structure. BTreeMap's max is $73.3\text{ µs}$ (node-split chains).
+- *Timer-overhead disclosure:* the per-op `Instant::now()`/`elapsed()` bracket in this pillar is **uncalibrated**, so the low percentiles ($P_{50}$/$P_{75}$) sit near clock resolution and include the bracket's own cost; the tail/max cells (the cliffs above) are orders of magnitude larger and unaffected. Follow-up: subtract a calibrated bracket cost the way `crates/expanse/benches/ycsb.rs` does.
 
 ---
 
@@ -71,7 +72,7 @@ Point lookup throughput (Mops/sec) evaluated across standard key geometries ($N 
 ---
 
 ### Pillar 5: Native Hashbrown Criterion Suite Port
-Point query hit/miss and dynamic growth throughput ported from `hashbrown/benches/bench.rs` ($N = 100,000$):
+Point query hit/miss and dynamic growth throughput ported from `hashbrown/benches/bench.rs` (chart shows the largest population band, $N = 500,000$; the $10^4$/$10^5$ bands are in `results/baseline_native.json`):
 
 ![Native Criterion Port Throughput](results/bench_native_throughput.svg)
 

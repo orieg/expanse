@@ -107,7 +107,7 @@
   <!-- Panel: Point Lookup Hit -->
   <g transform="translate(30, 20)">
     <text x="0" y="0" class="t-title">Point Lookup Hit</text>
-    <text x="0" y="13" class="t-sub">100,000 keys random query</text>
+    <text x="0" y="13" class="t-sub">500,000 keys random query</text>
     <text x="0" y="27" class="t-unit">&#9650; Throughput (M ops / sec)</text>
 
     <!-- Grid lines -->
@@ -140,7 +140,7 @@
   <!-- Panel: Point Lookup Miss -->
   <g transform="translate(345, 20)">
     <text x="0" y="0" class="t-title">Point Lookup Miss</text>
-    <text x="0" y="13" class="t-sub">100,000 absent keys query</text>
+    <text x="0" y="13" class="t-sub">500,000 absent keys query</text>
     <text x="0" y="27" class="t-unit">&#9650; Throughput (M ops / sec)</text>
 
     <!-- Grid lines -->
@@ -173,7 +173,7 @@
   <!-- Panel: Dynamic Ingestion -->
   <g transform="translate(660, 20)">
     <text x="0" y="0" class="t-title">Dynamic Ingestion</text>
-    <text x="0" y="13" class="t-sub">Growth 0 -&gt; 100k keys</text>
+    <text x="0" y="13" class="t-sub">Growth 0 -&gt; 500,000 keys</text>
     <text x="0" y="27" class="t-unit">&#9650; Throughput (M ops / sec)</text>
 
     <!-- Grid lines -->

@@ -2,7 +2,7 @@
 //!
 //! Uses a custom GlobalAlloc hook to track exact live heap bytes allocated
 //! for ExpanseMap vs hashbrown::HashMap vs std::collections::BTreeMap across
-//! population scales: 10^3, 10^4, 10^5, 10^6.
+//! population scales: 10^3, 10^4, 10^5, 5*10^5.
 
 use expanse_trie::map::ExpanseMap;
 use hashbrown::HashMap;

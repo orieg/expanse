@@ -587,6 +587,42 @@ jobs:
         shell: bash
         run: cargo bench --bench vs_stock -p expanse-capi | tee vs-stock.txt
 
+      # Search-suite deterministic cross-check (docs/benchmarks/search_inverted_index,
+      # #374): the suite's docs point at this job for its iai-callgrind arm.
+      # Self-contained step — its own merge-base save + baseline compare,
+      # mirroring how the main `instructions` bench is handled above.
+      - name: Search suite instruction counts (search_instructions)
+        # shell: bash implies pipefail: a crashed bench must fail the step, not
+        # exit 0 through tee. The merge-base pass stays non-fatal (guarded if;
+        # a broken base falls back to an absolute run).
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$PWD"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            SEARCH_MERGE_BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD 2>/dev/null || echo "")
+            if [ -n "$SEARCH_MERGE_BASE" ]; then
+              echo "Benchmarking merge base $SEARCH_MERGE_BASE for search_instructions..."
+              git checkout "$SEARCH_MERGE_BASE"
+              if ! cargo bench --bench search_instructions -p expanse-trie -- --save-baseline=search_main_base | tee search-base-counts.txt; then
+                # Non-fatal: a broken merge base must not block the PR; fall
+                # back to an absolute run below.
+                rm -f search-base-counts.txt
+              fi
+              git checkout -
+            fi
+          fi
+          if [ -f search-base-counts.txt ]; then
+            cargo bench --bench search_instructions -p expanse-trie -- --baseline=search_main_base | tee search-instruction-counts.txt
+          else
+            cargo bench --bench search_instructions -p expanse-trie | tee search-instruction-counts.txt
+          fi
+          {
+            echo '### search_instructions (iai-callgrind, search suite cross-check)'
+            echo '```'
+            cat search-instruction-counts.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Head-to-Head Comparative Benchmark (Expanse vs hashbrown vs BTreeMap)
         shell: bash
         run: |

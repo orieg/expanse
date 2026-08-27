@@ -21,7 +21,6 @@ This methodology document specifies the reproduction harness, metrics, statistic
   - `lookup_hit`: Point queries on 100% present keys.
   - `lookup_miss`: Point queries on 100% absent keys.
   - `iter_all`: Linear scan of all elements.
-  - `remove`: Point deletions.
 - **Population Bands:** $10^4, 10^5, 5 \times 10^5$ keys.
 
 ### Pillar 2: YCSB (Yahoo! Cloud Serving Benchmark) Workloads A–F
@@ -49,7 +48,7 @@ This methodology document specifies the reproduction harness, metrics, statistic
 
 ### Pillar 5: Runtime Memory Allocation Profiler
 - **Instrumentation:** Custom `GlobalAlloc` hook tracking exact heap allocations and deallocations in bytes.
-- **Metric:** Live Heap Bytes / Key ($\text{Bytes} / N$) at steady state across population scales $10^3, 10^4, 10^5, 10^6$.
+- **Metric:** Live Heap Bytes / Key ($\text{Bytes} / N$) at steady state across population scales $10^3, 10^4, 10^5, 5 \times 10^5$ (the populations in `results/baseline_memory.json`).
 
 ---
 

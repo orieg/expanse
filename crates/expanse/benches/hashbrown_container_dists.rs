@@ -9,6 +9,7 @@
 
 use expanse_trie::map::ExpanseMap;
 use hashbrown::HashMap;
+use rand::SeedableRng;
 use rand_distr::{Distribution, Zipf};
 use std::collections::BTreeMap;
 use std::hint::black_box;
@@ -58,7 +59,10 @@ fn generate_distribution(dist: &str, n: usize, seed: u64) -> Vec<u64> {
         }
         "zipfian" => {
             let zipf = Zipf::new(n as u64, 0.99).unwrap();
-            let mut rand_rng = rand::thread_rng();
+            // Seeded (#374): the Zipfian stream must be reproducible
+            // run-to-run. Committed baselines predate seeding and are
+            // refreshed on the next run.
+            let mut rand_rng = rand::rngs::StdRng::seed_from_u64(seed);
             for _ in 0..n {
                 keys.push(zipf.sample(&mut rand_rng) as u64);
             }

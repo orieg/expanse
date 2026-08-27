@@ -2,11 +2,9 @@
 //!
 //! Mirrors the upstream hashbrown/benches/bench.rs suite across:
 //! - insert_growing (un-preallocated dynamic growth)
-//! - insert_preallocated (with_capacity(N) vs cold ExpanseMap)
 //! - lookup_hit (point query on present keys)
 //! - lookup_miss (point query on absent keys)
 //! - iter_all (full container iteration)
-//! - remove (point deletion)
 //!
 //! Supports standalone execution with `--json` for automated script collection.
 

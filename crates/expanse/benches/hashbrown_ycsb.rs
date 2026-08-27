@@ -11,6 +11,7 @@
 
 use expanse_trie::map::ExpanseMap;
 use hashbrown::HashMap;
+use rand::SeedableRng;
 use rand_distr::{Distribution, Zipf};
 use std::collections::BTreeMap;
 use std::hint::black_box;
@@ -52,7 +53,9 @@ fn generate_workload_ops(
     let mut rng = XorShift64::new(seed);
     let mut next_insert_key = dataset_size as u64 + 1;
     let zipf = Zipf::new(dataset_size as u64, 0.99).unwrap();
-    let mut rand_rng = rand::thread_rng();
+    // Seeded (#374): the Zipfian stream must be reproducible run-to-run.
+    // Committed baselines predate seeding and are refreshed on the next run.
+    let mut rand_rng = rand::rngs::StdRng::seed_from_u64(seed);
 
     let mut ops = Vec::with_capacity(num_ops);
     for _ in 0..num_ops {

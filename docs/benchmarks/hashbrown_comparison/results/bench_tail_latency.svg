@@ -96,7 +96,7 @@
 
   <!-- Header -->
   <text x="30" y="30" class="t-title">INGESTION TAIL LATENCY: P50 TO P99.99 (NANOSECONDS)</text>
-  <text x="30" y="46" class="t-sub">Dynamic Ingestion without Pre-allocation • 100,000 Inserts • Lower is better</text>
+  <text x="30" y="46" class="t-sub">Dynamic Ingestion without Pre-allocation • 1,000,000 Inserts • Lower is better</text>
 
   <!-- Legend -->
   <g transform="translate(630, 20)">
