@@ -888,24 +888,40 @@ The Yahoo! Cloud Serving Benchmark (YCSB) standardizes real-world database engin
 
 ### 2. Measured Comparative Results (`N = 100,000`, `θ = 0.99`, 128B Blobs)
 
-*(Measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, run [33029134435](https://github.com/orieg/expanse/actions/runs/33029134435), ref `a59bb1f7` (merged as `7b9a711e`); `benches/ycsb.rs`, seed `0x1234_5678_9ABC`, criterion median throughput)*
+*(Measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, run [33037221608](https://github.com/orieg/expanse/actions/runs/33037221608), ref `main` post-[#385](https://github.com/orieg/expanse/pull/385), load average 0.07; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`, criterion median throughput)*
 
 Throughput (Mops/s) per workload × engine:
 
 | Workload | `ExpanseMap (u64)` | `ExpanseBlobMap (128B)` | `BTreeMap (128B)` | `SkipMap (128B)` (RocksDB) |
 |---|---:|---:|---:|---:|
-| **A** (50R / 50U) | **20.73** | **20.30** | 4.23 | 1.92 |
-| **B** (95R / 5U) | **23.47** | **21.12** | 4.39 | 2.59 |
-| **C** (100% Read) | **23.91** | **21.26** | 4.45 | 1.98 |
-| **D** (95R-Latest / 5I) | **23.11** | **21.36** | 4.27 | 1.92 |
-| **E** (95% Scan / 5I) | **12.70** | **12.20** | 4.12 | 1.81 |
-| **F** (50R / 50 RMW) | **18.89** | **14.65** | 4.34 | 1.74 |
+| **A** (50R / 50U) | **20.66** | **20.38** | 4.26 | 1.90 |
+| **B** (95R / 5U) | **23.27** | **21.21** | 4.42 | 2.54 |
+| **C** (100% Read) | **23.61** | **21.26** | 4.44 | 1.98 |
+| **D** (95R-Latest / 5I) | **23.02** | **21.50** | 4.28 | 1.93 |
+| **E** (95% Scan / 5I) | 0.830 | 0.657 | **1.289** | 0.305 |
+| **F** (50R / 50 RMW) | **18.82** | **14.73** | 4.35 | 1.81 |
 
-> **Workload E is pending re-measurement ([#385](https://github.com/orieg/expanse/pull/385)).**
-> The scan arm is under active revision; do not quote the E row until that
-> lands. The other rows moved only with the commit/toolchain refresh
-> (`ExpanseBlobMap` A gained from the
-> [#357](https://github.com/orieg/expanse/issues/357) `scan_filtered` fix).
+> **Workload E is a loss, and the previously published E numbers were
+> measuring the wrong thing.** Until [#385](https://github.com/orieg/expanse/pull/385)
+> the scan bound was a *key-width* window (`start_k ..= start_k + len*1000`)
+> against uniform-random `u64` keys, so the expected number of keys in
+> range was ~3e-10: every arm traversed **1.0000 records per scan** against
+> a mean requested length of **54.9**, and 0 of 19,054 scans ever reached
+> their target length. With scans actually traversing ~55 records,
+> `BTreeMap` leads `ExpanseMap` **1.55×**. The earlier 4.33× and 3.08×
+> figures — both in Expanse's favour — are withdrawn.
+>
+> The cause is structural, not a tuning gap. On uniform-random 64-bit keys
+> the trie holds **~1.43 records per leaf** (a level-7 subexpanse holds
+> ~1.5 keys, a level-8 one ~390, with nothing in between), so a 55-record
+> scan costs ~27.6 leaf transitions where a B-tree walks contiguous leaf
+> arrays. `LEAF_CAP` is 32 and is not the binding constraint; no
+> in-invariant tuning raises occupancy. Scan cost is dominated by the
+> body, not the seek: the initial descent is 3 level-steps against ~27.6
+> leaf transitions. Dense distributions behave completely differently —
+> sequential and clustered keys yield ~322 records/leaf and 0.003 leaf
+> transitions per record — so this is a sparse-key result, not a general
+> range-scan result.
 
 #### Per-operation latency percentiles *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit `43b46f38`; `benches/ycsb.rs` run with `YCSB_LATENCY_REPORT=1`, seed `0x1234_5678_9ABC`, 200,000 recorded ops/workload)*
 
@@ -965,7 +981,7 @@ that. Multi-writer support is the standing follow-up
 1. **`ExpanseBlobMap` vs RocksDB `SkipMap`**: **~7.6×–11.0× higher throughput** across Workloads B, C, D, F on this host (host- and payload-dependent — the boxed-blob path is heavier for the skiplist here than on the earlier Apple-silicon run).
 2. **`ExpanseBlobMap` vs `BTreeMap` on Read-Latest (Workload D)**: **~5.7× higher throughput** (21.04 vs 3.67 Mops/s) — digital-trie appends avoid B-tree page splits.
 3. **Pure Word Trie (`ExpanseMap`)**: sustained **>23 Mops/s** on read-heavy workloads (B & C) with a compact ~24.6 B/key footprint.
-4. **Range-heavy workloads (E)** are the trie's weakest YCSB profile. The E row is pending re-measurement ([#385](https://github.com/orieg/expanse/pull/385)); see also the full-`iter()` gap vs `BTreeMap` (`docs/DATABASE.md` §7.1).
+4. **Range-heavy workloads (E) are a measured loss on sparse keys** — `BTreeMap` leads 1.55×, for the same structural reason as the full-`iter()` gap (`docs/DATABASE.md` §7.1): ~1.43 records per leaf on uniform-random keys means a scan pays a leaf transition roughly every 1.4 records. Dense and clustered key distributions do not share this behaviour (~322 records/leaf).
 
 
 
@@ -973,6 +989,8 @@ that. Multi-writer support is the standing follow-up
 ---
 
 ## Corrections record
+
+- **YCSB Workload E (#385).** Published as 4.33×, then 3.08×, in Expanse's favour. Both were measured with a key-width scan bound that made every arm traverse 1 record instead of ~55. With the bound fixed to record count, `BTreeMap` leads 1.55× — E is a loss. The #375 note attributing the 15.26 → 12.70 move to predicate asymmetry was also wrong: both predicates traversed one record, so selectivity could not have changed traversal volume.
 
 Published figures that were withdrawn, and what replaced them. Kept because each
 one names a failure mode the methodology rules now guard against.
