@@ -48,6 +48,11 @@ jobs:
               - 'rust-toolchain*'
               - '.github/workflows/ci.yml'
               - '.github/workflows/nightly.yml'
+              # The `lint` job carries check_bench_suites.py; a PR that only
+              # touches the suite manifest or the bench workflow must still
+              # run it, or the sync guard is skipped exactly when it matters.
+              - '.github/bench-suites.json'
+              - '.github/workflows/bench_baremetal.yml'
             python:
               - 'bindings/python/**'
               - 'crates/expanse-py/**'
@@ -148,13 +153,21 @@ jobs:
       - name: Verify CI Gate Completeness
         run: python3 scripts/check_ci_gate.py
 
+      # The `/bench` suite vocabulary is declared once in
+      # `.github/bench-suites.json`; this fails when the workflow's
+      # workflow_dispatch choices, the docs/BENCHMARKING.md table, or the
+      # crate `[[bench]]` targets have drifted away from it (#410).
+      - name: Verify Benchmark Suite Manifest Sync
+        run: python3 scripts/check_bench_suites.py
+
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / docs hygiene)
+      - name: Report-Script Self-Tests (perf_report / bench_report / docs hygiene / bench suites)
         run: |
           python3 scripts/perf_report.py --self-test
           python3 scripts/bench_report.py --self-test
           python3 scripts/check_docs_hygiene.py --self-test
+          python3 scripts/check_bench_suites.py --self-test
 
   msrv:
     name: Core / MSRV 1.88 Build
