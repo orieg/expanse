@@ -446,3 +446,824 @@ fn validate_js_structure(js: &str, script_idx: usize) {
         brace_stack
     );
 }
+
+// =====================================================================
+// Issue #384: provenance & derivation gates for the published artifact.
+//
+// The original sync test covered only the Callgrind benchmark routines,
+// which left `memory_budget`, `stock_vs_expanse`, `concurrency_scaling`,
+// `embedded_32bit_benchmarks` and every hand-written `notes` string
+// ungated -- that is why retracted figures survived the #371-#375
+// remediation inside a committed, published artifact. These tests close
+// the gap: every derived column is recomputed, every measured memory cell
+// is recomputed from the engine itself, benchmark rows are checked against
+// the real harness arms, the HTML's embedded fallback copy must parse
+// equal to the JSON, and stamped narrative claims are rejected outright
+// (AGENTS.md section 8.2).
+// =====================================================================
+
+use expanse_trie::map::ExpanseMap;
+use expanse_trie::node::Edge;
+use expanse_trie::set::ExpanseSet;
+use expanse_trie::types32::Edge32;
+use expanse_trie::{ExpanseMap32, ExpanseSet32, Key32};
+use serde_json::Value;
+
+/// `crates/expanse/benches/instructions.rs::POP`.
+const BENCH_POP: f64 = 50_000.0;
+
+fn repo_root() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("failed to locate workspace root")
+        .to_path_buf()
+}
+
+fn load_json() -> Value {
+    let path = repo_root().join("docs").join("visualizer_data.json");
+    let text = fs::read_to_string(&path).expect("failed to read docs/visualizer_data.json");
+    serde_json::from_str(&text).expect("docs/visualizer_data.json must be valid JSON")
+}
+
+fn load_html() -> String {
+    fs::read_to_string(
+        repo_root()
+            .join("docs")
+            .join("architecture_visualizer.html"),
+    )
+    .expect("failed to read docs/architecture_visualizer.html")
+}
+
+fn f(v: &Value, key: &str) -> f64 {
+    v.get(key)
+        .and_then(Value::as_f64)
+        .unwrap_or_else(|| panic!("missing or non-numeric field {key:?} in {v}"))
+}
+
+fn s<'a>(v: &'a Value, key: &str) -> &'a str {
+    v.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("missing or non-string field {key:?} in {v}"))
+}
+
+fn round_to(x: f64, places: i32) -> f64 {
+    let scale = 10f64.powi(places);
+    (x * scale).round() / scale
+}
+
+/// The XorShift64 PRNG used by `crates/expanse/examples/bytes_per_key.rs`.
+struct BudgetRng(u64);
+impl BudgetRng {
+    fn next(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x
+    }
+}
+
+/// Mirrors the key generators in `crates/expanse/examples/bytes_per_key.rs`.
+/// If that example's distributions change, this diverges and the published
+/// memory rows fail -- which is the point.
+fn budget_keys(dist: &str, n: usize) -> Vec<u64> {
+    let mut rng = BudgetRng(0x0DDB_1A5E_5EED_0001);
+    let mut out = Vec::with_capacity(n);
+    match dist {
+        "sequential" => out.extend(0..n as u64),
+        "random" => out.extend((0..n).map(|_| rng.next())),
+        "clustered" => {
+            let mut base = 0;
+            for i in 0..n as u64 {
+                if i % 256 == 0 {
+                    base = rng.next() & !0xFF;
+                }
+                out.push(base + (i % 256));
+            }
+        }
+        "clustered-wide" => {
+            let mut base = 0;
+            for i in 0..n as u64 {
+                if i % 4096 == 0 {
+                    base = rng.next() & !0xFFF;
+                }
+                out.push(base + (i % 4096));
+            }
+        }
+        "sparse" => out.extend((0..n as u64).map(|i| i << 40)),
+        other => panic!("unknown distribution {other}"),
+    }
+    out
+}
+
+fn bytes_per_key(dist: &str, pop: usize) -> (f64, f64) {
+    let ks = budget_keys(dist, pop);
+    let mut set = ExpanseSet::new();
+    let mut map = ExpanseMap::new();
+    for &k in &ks {
+        set.insert(k);
+        map.insert(k, !k);
+    }
+    (
+        set.mem_used() as f64 / set.len().max(1) as f64,
+        map.mem_used() as f64 / map.len().max(1) as f64,
+    )
+}
+
+/// Extracts the balanced `[...]` / `{...}` literal that follows
+/// `let <var> = ` in the visualizer HTML. The embedded fallback datasets are
+/// emitted as verbatim JSON precisely so this test can parse and compare them.
+fn extract_embedded_literal(html: &str, var: &str) -> Value {
+    let needle = format!("\n  let {var} = ");
+    let start = html
+        .find(&needle)
+        .unwrap_or_else(|| panic!("docs/architecture_visualizer.html must declare `let {var} =`"))
+        + needle.len();
+    let opener = html[start..].chars().next().expect("literal body");
+    assert!(
+        opener == '[' || opener == '{',
+        "{var} literal must start with '[' or '{{', got {opener:?} -- the embedded \
+         fallback datasets are generated from docs/visualizer_data.json and must \
+         stay verbatim JSON"
+    );
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (offset, ch) in html[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '[' | '{' => depth += 1,
+            ']' | '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    let text = &html[start..start + offset + ch.len_utf8()];
+                    return serde_json::from_str(text).unwrap_or_else(|e| {
+                        panic!("embedded {var} literal is not valid JSON: {e}")
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("unbalanced {var} literal in docs/architecture_visualizer.html");
+}
+
+/// Walks every string leaf in a JSON value, yielding `(path, text)`.
+fn string_leaves(v: &Value, path: &str, out: &mut Vec<(String, String)>) {
+    match v {
+        Value::String(t) => out.push((path.to_string(), t.clone())),
+        Value::Array(items) => {
+            for (i, item) in items.iter().enumerate() {
+                string_leaves(item, &format!("{path}[{i}]"), out);
+            }
+        }
+        Value::Object(map) => {
+            for (k, item) in map {
+                string_leaves(item, &format!("{path}.{k}"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Every published section carries a provenance entry (AGENTS.md section 8.7).
+#[test]
+fn test_every_data_section_has_provenance() {
+    let data = load_json();
+    let prov = data
+        .get("provenance")
+        .and_then(Value::as_object)
+        .expect("docs/visualizer_data.json must carry a top-level `provenance` map");
+
+    for section in [
+        "node_ladder",
+        "benchmarks",
+        "memory_budget",
+        "stock_vs_expanse",
+        "modern_architecture",
+        "embedded_32bit_benchmarks",
+    ] {
+        assert!(
+            data.get(section).is_some(),
+            "docs/visualizer_data.json must contain section {section}"
+        );
+        assert!(
+            prov.contains_key(section),
+            "section {section} has no `provenance` entry -- every published number \
+             needs a source (AGENTS.md section 8.7)"
+        );
+    }
+    // Sub-sections whose numbers come from different runs must say so separately.
+    for key in [
+        "ycsb_benchmarks.workloads.throughput_mops",
+        "ycsb_benchmarks.workloads.latency_and_memory",
+        "ycsb_benchmarks.concurrency_scaling",
+        "large_value_benchmarks.inlining_speedups",
+        "large_value_benchmarks.predicate_scan_selectivity",
+    ] {
+        assert!(prov.contains_key(key), "missing provenance entry for {key}");
+    }
+}
+
+/// No stamped narrative performance claims outside `provenance`
+/// (AGENTS.md section 8.2). This is what let "45% faster than Stock Judy"
+/// and "SIMD demotion saves -77% instrs" sit in a published artifact.
+#[test]
+fn test_no_stamped_narrative_claims() {
+    let mut data = load_json();
+    // `provenance` is the one place an honest retraction narrative belongs.
+    data.as_object_mut()
+        .expect("top level object")
+        .remove("provenance");
+
+    let banned = [
+        "faster",
+        "slower",
+        "speedup",
+        "outperform",
+        "beats",
+        "saves",
+        "saving",
+        "% reduction",
+        "reduces",
+        "advantage",
+        "win rationale",
+        "better than",
+        "than stock",
+        "vs stock",
+    ];
+    let mut leaves = Vec::new();
+    string_leaves(&data, "", &mut leaves);
+    for (path, text) in leaves {
+        let lower = text.to_lowercase();
+        for word in banned {
+            assert!(
+                !lower.contains(word),
+                "narrative performance claim {word:?} in {path}: {text:?}\n\
+                 AGENTS.md section 8.2 forbids stamped narrative constants in \
+                 published artifacts. Put the derivation in `provenance`, or drop \
+                 the string."
+            );
+        }
+    }
+}
+
+/// Retracted figures must never reappear in the published artifact.
+#[test]
+fn test_retracted_figures_absent() {
+    let mut data = load_json();
+    data.as_object_mut()
+        .expect("top level object")
+        .remove("provenance");
+    let text = serde_json::to_string(&data).expect("serialize");
+
+    // The retracted 95/5 write-mixed `SyncExpanseMap` curve
+    // (docs/BENCHMARKING.md section 3): it came from the ~100%-miss unbounded
+    // `u64` word-key arms.
+    for figure in ["19.63", "27.94", "35.62", "33.97", "28.84"] {
+        assert!(
+            !text.contains(figure),
+            "retracted concurrency figure {figure} is published again -- the honest \
+             measurement is negative scaling (0.12x-0.55x), docs/BENCHMARKING.md \
+             section 3"
+        );
+    }
+    // The retracted vs-libjudy wall-clock random-lookup reading (README.md):
+    // measured under load; the quiet host measures ~11% SLOWER.
+    for figure in ["26.8", "48.6"] {
+        assert!(
+            !text.contains(figure),
+            "retracted vs-libjudy wall-clock figure {figure} ns is published again -- \
+             see README.md and docs/BENCHMARKING.md"
+        );
+    }
+    // The retracted YCSB Workload E `ExpanseMap` throughput (#375: an
+    // asymmetric scan predicate passing ~100% vs ~50% for the baselines).
+    assert!(
+        !text.contains("15.26"),
+        "retracted YCSB Workload E figure 15.26 Mops/s is published again (#375)"
+    );
+}
+
+/// Every benchmark row must name an arm that exists in the harness.
+/// `set_insert / small` was published although `set_insert` carries no
+/// `#[bench::small]` arm.
+#[test]
+fn test_benchmark_rows_match_harness_arms() {
+    let benches = fs::read_to_string(
+        repo_root()
+            .join("crates")
+            .join("expanse")
+            .join("benches")
+            .join("instructions.rs"),
+    )
+    .expect("failed to read benches/instructions.rs");
+
+    // Collect `#[bench::<dist>]` attributes and attach them to the `fn` they
+    // decorate.
+    let mut harness: std::collections::BTreeSet<String> = Default::default();
+    let mut pending: Vec<String> = Vec::new();
+    for line in benches.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("#[bench::") {
+            pending.push(
+                rest.chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect(),
+            );
+        } else if let Some(rest) = line.strip_prefix("fn ") {
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            for dist in pending.drain(..) {
+                harness.insert(format!("{name}/{dist}"));
+            }
+        }
+    }
+    assert!(
+        harness.contains("map_insert/random"),
+        "harness arm parse failed -- expected map_insert/random in {harness:?}"
+    );
+
+    let data = load_json();
+    for row in data["benchmarks"].as_array().expect("benchmarks array") {
+        let id = s(row, "id");
+        assert!(
+            harness.contains(id),
+            "docs/visualizer_data.json publishes benchmark arm {id:?}, which does not \
+             exist in crates/expanse/benches/instructions.rs. Known arms: {harness:?}"
+        );
+        assert_eq!(
+            s(row, "name"),
+            id.replace('/', " / "),
+            "benchmark `name` must be the `id` with spaces around the slash"
+        );
+    }
+}
+
+/// The benchmark table's derived columns must actually be derived.
+#[test]
+fn test_benchmark_derived_columns() {
+    let data = load_json();
+    for row in data["benchmarks"].as_array().expect("benchmarks array") {
+        let id = s(row, "id");
+        let v1 = f(row, "instructions_v1");
+        let v3 = f(row, "instructions_v3");
+
+        let expected_per_op = round_to(v1 / BENCH_POP, 2);
+        assert!(
+            (f(row, "instr_per_op_v1") - expected_per_op).abs() < 1e-9,
+            "{id}: instr_per_op_v1 must be instructions_v1 / {BENCH_POP} = \
+             {expected_per_op}, got {}",
+            f(row, "instr_per_op_v1")
+        );
+
+        assert_eq!(
+            s(row, "v3_delta"),
+            format!("{:.2}%", (v3 - v1) / v1 * 100.0),
+            "{id}: v3_delta must be derived from the two instruction counts"
+        );
+    }
+}
+
+/// The vs-libjudy table's ratio columns must follow from the raw counts, and
+/// the columns withdrawn for lack of provenance must stay withdrawn.
+#[test]
+fn test_stock_vs_expanse_derived_columns() {
+    let data = load_json();
+    let rows = data["stock_vs_expanse"].as_array().expect("stock array");
+    assert!(!rows.is_empty());
+    for row in rows {
+        let op = s(row, "op");
+        let v1 = f(row, "expanse_so_v1");
+        let v3 = f(row, "expanse_so_v3");
+        let stock = f(row, "stock_libjudy");
+        let ratio = v3 / stock;
+
+        assert_eq!(
+            s(row, "ratio_so"),
+            format!("{ratio:.2}x"),
+            "{op}: ratio_so must be expanse_so_v3 / stock_libjudy"
+        );
+        assert_eq!(
+            s(row, "hw_delta"),
+            format!("{:.2}%", (v3 - v1) / v1 * 100.0),
+            "{op}: hw_delta must be the v1 -> v3 instruction delta"
+        );
+        assert_eq!(
+            row["is_win"].as_bool().expect("is_win"),
+            ratio < 1.0,
+            "{op}: is_win must follow from ratio_so, not be asserted by hand"
+        );
+        // Columns with no committed count and no stated model stay removed.
+        for gone in ["ratio_rlib", "est_cycles_so", "notes"] {
+            assert!(
+                row.get(gone).is_none(),
+                "{op}: `{gone}` was removed for lack of provenance (#384); re-add it \
+                 only together with the artifact it derives from"
+            );
+        }
+    }
+}
+
+/// Every memory cell is recomputed from the engine. This is the gate that
+/// would have caught the "Random Uniform 1M = 16.31 B/key" row -- 16.31 is
+/// the *sparse* `i << 40` figure, not the random-uniform one.
+#[test]
+fn test_memory_budget_matches_engine() {
+    let data = load_json();
+    let rows = data["memory_budget"]
+        .as_array()
+        .expect("memory_budget array");
+
+    // The label a reader sees must map to the generator that produced the row.
+    let dists = [
+        ("Sequential (0..N)", "sequential"),
+        ("Random Uniform (64-bit)", "random"),
+        ("Clustered (256-key runs)", "clustered"),
+        ("Clustered-wide (4096-key runs)", "clustered-wide"),
+        ("Sparse (i << 40)", "sparse"),
+    ];
+    assert_eq!(
+        rows.len(),
+        dists.len(),
+        "memory_budget must publish exactly the distributions \
+         crates/expanse/examples/bytes_per_key.rs measures"
+    );
+
+    for (row, (label, dist)) in rows.iter().zip(dists) {
+        assert_eq!(s(row, "dist"), label, "unexpected memory_budget row label");
+        for (pop, set_key, map_key) in [
+            (1_000usize, "set_1k", "map_1k"),
+            (100_000, "set_100k", "map_100k"),
+            (1_000_000, "set_1m", "map_1m"),
+        ] {
+            let (set_bpk, map_bpk) = bytes_per_key(dist, pop);
+            assert!(
+                (f(row, set_key) - round_to(set_bpk, 2)).abs() < 1e-9,
+                "{label} {set_key}: published {} B/key but the engine measures \
+                 {set_bpk:.2} B/key (mem_used()/len, deterministic). Re-run \
+                 `cargo run --release -p expanse-trie --example bytes_per_key`.",
+                f(row, set_key)
+            );
+            assert!(
+                (f(row, map_key) - round_to(map_bpk, 2)).abs() < 1e-9,
+                "{label} {map_key}: published {} B/key but the engine measures \
+                 {map_bpk:.2} B/key",
+                f(row, map_key)
+            );
+        }
+        // The published ceilings are the committed regression budget.
+        assert!(
+            f(row, "set_1m") <= f(row, "set_ceiling_1m"),
+            "{label}: set_1m exceeds its published ceiling"
+        );
+        assert!(
+            f(row, "map_1m") <= f(row, "map_ceiling_1m"),
+            "{label}: map_1m exceeds its published ceiling"
+        );
+    }
+}
+
+/// The 32-bit density rows are recomputed too. The published figures
+/// (0.51 / 0.63 / 8.03 / 8.00 B/key) matched none of the real ones -- the
+/// CAN row was off by roughly 20x.
+#[test]
+fn test_embedded_32bit_matches_engine() {
+    let data = load_json();
+    let rows = data["embedded_32bit_benchmarks"]["workloads"]
+        .as_array()
+        .expect("embedded_32bit_benchmarks.workloads array");
+
+    let mut measured: std::collections::BTreeMap<&str, (usize, usize)> = Default::default();
+
+    let n_sensor = 10_000usize;
+    let mut sensor = ExpanseSet32::new();
+    for i in 0..n_sensor {
+        sensor.insert(1_700_000_000 + i as Key32);
+    }
+    measured.insert("Clustered Sensor Timestamps", (n_sensor, sensor.mem_used()));
+
+    let n_can = 500usize;
+    let mut can = ExpanseSet32::new();
+    for i in 0..n_can as Key32 {
+        can.insert((i * 100_007) & 0x1FFF_FFFF);
+    }
+    measured.insert("Sparse CAN-Bus 29-bit Identifiers", (n_can, can.mem_used()));
+
+    let n_routes = 2_000usize;
+    let mut routes = ExpanseMap32::new();
+    for i in 0..n_routes as Key32 {
+        let ip = (10 << 24) | ((i / 256) << 16) | ((i % 256) << 8);
+        routes.insert(ip, i % 16);
+    }
+    measured.insert(
+        "IPv4 Subnet /24 Routing Table",
+        (n_routes, routes.mem_used()),
+    );
+
+    assert_eq!(
+        rows.len(),
+        measured.len(),
+        "embedded_32bit_benchmarks must publish exactly the workloads \
+         crates/expanse/examples/bytes_per_key_32.rs reports a B/key for"
+    );
+
+    for row in rows {
+        let workload = s(row, "workload");
+        let (n, mem) = *measured
+            .get(workload)
+            .unwrap_or_else(|| panic!("unknown 32-bit workload {workload:?}"));
+        assert_eq!(
+            row["keys"].as_u64().expect("keys") as usize,
+            n,
+            "{workload}: population mismatch"
+        );
+        assert_eq!(
+            row["mem_used_bytes"].as_u64().expect("mem_used_bytes") as usize,
+            mem,
+            "{workload}: published mem_used() disagrees with the engine"
+        );
+        let expected = round_to(mem as f64 / n as f64, 4);
+        assert!(
+            (f(row, "bytes_per_key") - expected).abs() < 1e-9,
+            "{workload}: published {} B/key, engine measures {expected} B/key",
+            f(row, "bytes_per_key")
+        );
+        // A comparative baseline that resolves to no measurement stays out.
+        for gone in ["btreeset_bpk", "btreemap_bpk", "memory_saving", "notes"] {
+            assert!(
+                row.get(gone).is_none(),
+                "{workload}: `{gone}` was removed for lack of a measured baseline (#384)"
+            );
+        }
+    }
+}
+
+/// YCSB derived columns, plus: the concurrency section must be labelled for
+/// what it actually measures.
+#[test]
+fn test_ycsb_derived_and_concurrency_labelled() {
+    let data = load_json();
+    let ycsb = &data["ycsb_benchmarks"];
+
+    for w in ycsb["workloads"].as_array().expect("ycsb workloads") {
+        let name = s(w, "workload");
+        for engine in ["expanse_blobmap", "btreemap", "skipmap", "expanse_map_u64"] {
+            let e = &w[engine];
+            let expected = round_to(f(e, "mem_mb") * 1_048_576.0 / 100_000.0, 1);
+            assert!(
+                (f(e, "bytes_per_key") - expected).abs() < 1e-9,
+                "{name}/{engine}: bytes_per_key must be mem_mb * 1 MiB / 100,000 keys \
+                 = {expected}, got {}",
+                f(e, "bytes_per_key")
+            );
+        }
+        let blob = f(&w["expanse_blobmap"], "throughput_mops");
+        assert_eq!(
+            s(w, "speedup_vs_btree"),
+            format!("{:.2}x", blob / f(&w["btreemap"], "throughput_mops")),
+            "{name}: speedup_vs_btree must be derived from the two throughputs"
+        );
+        assert_eq!(
+            s(w, "speedup_vs_skip"),
+            format!("{:.2}x", blob / f(&w["skipmap"], "throughput_mops")),
+            "{name}: speedup_vs_skip must be derived from the two throughputs"
+        );
+    }
+
+    let conc = &ycsb["concurrency_scaling"];
+    assert_eq!(
+        s(conc, "harness"),
+        "crates/expanse/benches/concurrency.rs",
+        "concurrency_scaling must name its harness"
+    );
+    let workloads = conc["workloads"].as_array().expect("concurrency workloads");
+    let mixed = workloads
+        .iter()
+        .find(|w| s(w, "workload").contains("50%"))
+        .expect("concurrency_scaling must publish the 50/50 write-mixed rows");
+    // benches/concurrency.rs alternates read and write inside a single thread
+    // loop, so the 50/50 read-op column is a mixed-workload rate. Publishing it
+    // as "read scaling" is exactly the mislabel this section had to correct.
+    let note = s(mixed, "metric_note").to_lowercase();
+    assert!(
+        note.contains("mixed") && note.contains("not read scaling"),
+        "the 50/50 rows must be labelled a mixed-workload read-op rate, NOT read \
+         scaling -- each bench thread alternates read and write in one loop, so \
+         reads are pinned 1:1 to write handoffs. Got: {note:?}"
+    );
+    let rows = mixed["rows"].as_array().expect("rows");
+    let first = f(&rows[0], "read_mops");
+    let last = f(&rows[rows.len() - 1], "read_mops");
+    assert!(
+        last < first,
+        "the measured 50/50 curve is NEGATIVE scaling (throughput falls as threads \
+         are added). A rising curve here means the retracted word-key figures have \
+         come back -- docs/BENCHMARKING.md section 3"
+    );
+    // docs/BENCHMARKING.md publishes the per-thread rows rounded to 0.1 Mops/s
+    // and the scaling factor from the full-precision run, so the two agree only
+    // to within the rounding envelope -- but they must still agree.
+    for w in workloads {
+        let name = s(w, "workload");
+        let r = w["rows"].as_array().expect("rows");
+        let lo = f(&r[0], "read_mops");
+        let hi = f(&r[r.len() - 1], "read_mops");
+        let published: f64 = s(w, "scale_at_16t")
+            .trim_end_matches('x')
+            .parse()
+            .expect("scale_at_16t must parse");
+        let derived = hi / lo;
+        assert!(
+            (published - derived).abs() <= (derived * 0.05).max(0.02),
+            "{name}: scale_at_16t {published} does not follow from the published rows \
+             ({hi} / {lo} = {derived:.3})"
+        );
+    }
+}
+
+/// `modern_architecture` must match the compiled layout, not a stale draft.
+#[test]
+fn test_modern_architecture_matches_source() {
+    let data = load_json();
+    let ma = &data["modern_architecture"];
+
+    assert_eq!(
+        ma["value_slot"]["word_size_bytes"].as_u64(),
+        Some(core::mem::size_of::<u64>() as u64)
+    );
+    // Tags as declared by `SlotTag` in crates/expanse/src/slot.rs. `ArenaShort`
+    // (0x10) / `ArenaLong` (0x11) were replaced by the single `ArenaMeta`
+    // encoding and must not reappear in the published artifact.
+    let tags: Vec<&str> = ma["value_slot"]["modes"]
+        .as_array()
+        .expect("value_slot.modes")
+        .iter()
+        .map(|m| s(m, "tag"))
+        .collect();
+    assert_eq!(
+        tags,
+        vec!["0x00..=0x07", "0x10", "0x12", "0xFE", "0xFF"],
+        "value_slot tags must match SlotTag in crates/expanse/src/slot.rs"
+    );
+    let modes: Vec<&str> = ma["value_slot"]["modes"]
+        .as_array()
+        .expect("value_slot.modes")
+        .iter()
+        .map(|m| s(m, "mode"))
+        .collect();
+    assert!(
+        modes.contains(&"ArenaMeta") && !modes.iter().any(|m| m.contains("Arena Short")),
+        "the sole arena encoding is `ArenaMeta` (tag 0x10); got {modes:?}"
+    );
+
+    assert_eq!(
+        ma["edge_32"]["edge_size_bytes"].as_u64(),
+        Some(core::mem::size_of::<Edge32>() as u64),
+        "edge_32.edge_size_bytes must equal size_of::<Edge32>()"
+    );
+    assert_eq!(
+        s(&ma["edge_32"], "edge_size_vs_64bit"),
+        format!(
+            "{} B (Edge32) vs {} B (Edge on 64-bit targets)",
+            core::mem::size_of::<Edge32>(),
+            core::mem::size_of::<Edge>()
+        ),
+        "the 32-bit edge comparison must be derived from the two compiled sizes"
+    );
+}
+
+/// Large-value rows: derived ratios, and no back-solved absolutes.
+#[test]
+fn test_large_value_rows_derived() {
+    let data = load_json();
+    let lv = &data["large_value_benchmarks"];
+
+    for row in lv["inlining_speedups"]
+        .as_array()
+        .expect("inlining_speedups")
+    {
+        let size = s(row, "size");
+        // A cell with no committed measurement is null, never interpolated.
+        let get_ours = row["expanse_get_ns"].as_f64();
+        let get_theirs = row["btree_get_ns"].as_f64();
+        match (get_ours, get_theirs) {
+            (Some(a), Some(b)) => assert_eq!(
+                s(row, "get_speedup"),
+                format!("{:.2}x", b / a),
+                "{size}: get_speedup must be derived from the two times"
+            ),
+            (None, None) => assert!(
+                row.get("source").is_some(),
+                "{size}: a row without absolute times must cite where its ratios come from"
+            ),
+            _ => panic!("{size}: one of the two get times is missing -- publish both or neither"),
+        }
+        assert!(
+            row.get("expanse_ins_ns").is_some(),
+            "{size}: insert columns must be present (null when unmeasured)"
+        );
+    }
+
+    for row in lv["predicate_scan_selectivity"]
+        .as_array()
+        .expect("predicate_scan_selectivity")
+    {
+        let sel = s(row, "selectivity");
+        let ratio = f(row, "naive_deref_ms") / f(row, "columnar_scan_ms");
+        let published: f64 = s(row, "speedup")
+            .trim_end_matches('x')
+            .parse()
+            .expect("speedup must parse");
+        assert!(
+            (published - ratio).abs() <= 0.011,
+            "{sel}: speedup {published} does not follow from {} / {}",
+            f(row, "naive_deref_ms"),
+            f(row, "columnar_scan_ms")
+        );
+    }
+
+    // Withdrawn for lack of a tagged host and a committed artifact (#384).
+    assert!(
+        lv.get("arena_gc_compaction").is_none(),
+        "arena GC compaction pause times need a tagged reference-host run before \
+         they are published again (#384)"
+    );
+}
+
+/// The HTML's embedded standalone-mode copy must equal the JSON. Two
+/// hand-maintained copies of the same table is how the memory rows, the
+/// concurrency curve and the benchmark field names drifted apart.
+#[test]
+fn test_html_embedded_datasets_match_json() {
+    let data = load_json();
+    let html = load_html();
+
+    for (var, key) in [
+        ("BENCHMARK_DATA", "benchmarks"),
+        ("STOCK_VS_EXPANSE_DATA", "stock_vs_expanse"),
+        ("MEMORY_DATA", "memory_budget"),
+        ("YCSB_BENCHMARKS_DATA", "ycsb_benchmarks"),
+        ("LARGE_VALUE_BENCHMARKS_DATA", "large_value_benchmarks"),
+        (
+            "EMBEDDED_32BIT_BENCHMARKS_DATA",
+            "embedded_32bit_benchmarks",
+        ),
+    ] {
+        let embedded = extract_embedded_literal(&html, var);
+        assert_eq!(
+            &embedded, &data[key],
+            "docs/architecture_visualizer.html `{var}` (the file:/// fallback copy) \
+             has drifted from docs/visualizer_data.json `{key}`. The JSON is the \
+             source of truth; regenerate the embedded literal from it."
+        );
+    }
+}
+
+/// The live-data loader must be able to render everything it loads.
+#[test]
+fn test_live_loader_covers_every_dataset() {
+    let html = load_html();
+    for var in [
+        "BENCHMARK_DATA",
+        "STOCK_VS_EXPANSE_DATA",
+        "MEMORY_DATA",
+        "YCSB_BENCHMARKS_DATA",
+        "LARGE_VALUE_BENCHMARKS_DATA",
+        "EMBEDDED_32BIT_BENCHMARKS_DATA",
+    ] {
+        // `const` would make checkLiveDataSource()'s reassignment throw.
+        assert!(
+            html.contains(&format!("let {var} = ")),
+            "{var} must be declared with `let`: checkLiveDataSource() reassigns it \
+             when the page is served over http(s)"
+        );
+    }
+    for key in [
+        "liveData.benchmarks",
+        "liveData.stock_vs_expanse",
+        "liveData.memory_budget",
+        "liveData.ycsb_benchmarks",
+        "liveData.large_value_benchmarks",
+        "liveData.embedded_32bit_benchmarks",
+    ] {
+        assert!(
+            html.contains(key),
+            "checkLiveDataSource() must refresh {key} from docs/visualizer_data.json"
+        );
+    }
+}
