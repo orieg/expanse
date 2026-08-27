@@ -213,14 +213,15 @@ adoption must be measured per-microarch and guarded.
 
 ### 2.6 GitHub-hosted AArch64 runner capability census (Neoverse N2 / Cobalt 100) — **VALIDATED**
 
-*Context:* Issue #397 established the `test-aarch64` native execution and Callgrind tracking lane on GitHub-hosted ARM64 Linux runners (`ubuntu-24.04-arm`). The capability census captured from the runner environment validates:
+*Context:* Issue #397 established the `test-aarch64` native execution and Callgrind tracking lane on GitHub-hosted ARM64 Linux runners (`ubuntu-24.04-arm`).
 
-*Runner Hardware Census:*
-- **CPU implementer / Part:** `0x41` (Arm) / `0xd49` (Neoverse-N2), Armv9.0-A architecture.
-- **Cache-line size:** 64 bytes (`CTR_EL0.DminLine = 4` $\rightarrow 2^4 \times 4 = 64$ B; L1d coherency line size = 64 B). This provides a concrete cloud-server data point confirming 64-byte alignment matches Neoverse hardware lines, in contrast to Apple Silicon's 128-byte lines (§2.4).
-- **NEON / AdvSIMD:** `asimd`, `asimdhp`, `asimddp`, `asimdfhm` present. Advanced SIMD kernels (`find_byte_16_neon`, `find_byte_8`, `CNT`+`ADDV` popcount) run and pass all parity tests natively in CI.
-- **SVE / SVE2 Status:** `sve`, `sve2`, `sveaes`, `svesha3`, `svesm4`, `svei8mm`, `svebf16` are **exposed in `/proc/cpuinfo`** on the runner with 128-bit vector length (Neoverse N2). This changes the status of SVE/SVE2 leaf scanning (§6) from "untestable" to **testable in CI** on the AArch64 lane, gated by runtime detection (`is_aarch64_feature_detected!("sve2")`).
-- **FEAT_CSSC Status:** Absent on Neoverse N2 (CSSC is Armv8.9/v9.4+; N2 is Armv9.0-A; scalar popcount/CTZ continue lowering to NEON/`RBIT`+`CLZ`).
+*Runner hardware census* — everything in this list is read from the runner by the `test-aarch64` job, which **asserts** the first three so a fleet rotation fails the job rather than silently invalidating this section *(measured: GitHub `ubuntu-24.04-arm` runner, [run 33124978928](https://github.com/orieg/expanse/actions/runs/33124978928), ref `ci/aarch64-execution-lane-397`)*:
+
+- **CPU implementer / Part:** `0x41` (Arm) / `0xd49` (Neoverse-N2). Note `/proc/cpuinfo` reports `CPU architecture: 8` — the legacy AArch64 field the kernel always sets to 8; that Neoverse-N2 is Armv9.0-A comes from Arm's product spec, not from this census.
+- **Cache-line size:** 64 bytes, read as `coherency_line_size` from sysfs and confirmed by `getconf LEVEL1_DCACHE_LINESIZE`. **The census does not read `CTR_EL0`** — the equivalent `DminLine = 4` is inferred from the kernel-reported value, not observed, which is worth stating precisely because §2.4's point is that `CTR_EL0` is the authority. A concrete cloud-server data point that 64-byte alignment matches Neoverse lines, in contrast to Apple Silicon's 128 B (§2.4).
+- **NEON / AdvSIMD:** `asimd`, `asimdhp`, `asimddp`, `asimdfhm` present. The Advanced SIMD kernels (`find_byte_16_neon`, `find_byte_8`, `CNT`+`ADDV` popcount) and their parity tests execute here — as they already do on the `test` job's `macos-latest` (arm64) runner. What this lane adds over that is glibc rather than macOS, and Callgrind, which does not run on macOS.
+- **SVE / SVE2 status:** `sve`, `sve2`, `sveaes`, `svesha3`, `svesm4`, `svei8mm`, `svebf16` are **exposed in `/proc/cpuinfo`**. Vector length is not measured by the census; 128-bit is the Neoverse-N2 spec figure. This makes SVE/SVE2 leaf scanning (§6) **testable** on this lane — the hardware is available — but **no SVE code path exists yet**: `is_aarch64_feature_detected!` appears nowhere in `crates/`, and nothing in the lane exercises SVE. §6's standing caveat, that SVE is absent on Apple M-series, is unchanged by this.
+- **FEAT_CSSC status:** no `cssc` flag in the runner's `Features` line, as expected (CSSC is Armv8.9/v9.4+; scalar popcount/CTZ continue lowering to NEON / `RBIT`+`CLZ`).
 
 ---
 
@@ -289,8 +290,11 @@ capability census & 64-byte cache line (§2.6), 32-byte embedded alignment for c
 (§4.1), RV32 pointer width (§3.2).
 
 **Assumptions that are risks / lower to software:**
-- ⚠️ **ARM 64-byte cache line (§2.4)** — not architectural; Apple Silicon is 128 B
-  (Neoverse N2 cloud runners are 64 B). Correctness holds, performance premise varies.
+- ⚠️ **ARM 64-byte cache line (§2.4)** — not architectural; Apple Silicon is 128 B.
+  Correctness holds, performance premise does not. *Highest-value finding.* The
+  Neoverse-N2 runner measuring 64 B (§2.6) confirms the assumption on that part;
+  it says nothing about Apple Silicon, which is where the premise fails and which
+  remains untested — so the finding stands at full weight.
 - ⚠️ **RV32 popcount/clz/ctz (§3.1)** — software on base `riscv32imac`; enabled with `+zbb` lane in CI.
 
 **Recommended code-comment precision fixes (non-behavioral):**
@@ -316,7 +320,7 @@ capability census & 64-byte cache line (§2.6), 32-byte embedded alignment for c
 | **AVX-512 VPOPCNTDQ** for `Bitmap256` rank | 4×u64 bitmap → one `_mm256_popcnt_epi64` | Moderate, benchmark-gated | AVX-512 license **downclock** (Opt. Manual p.76,81) |
 | **AVX2** 32-byte leaf scan | KB≥2 / wider sorted leaves | Low–moderate | leaves rarely > 16 lanes before bitmap switch |
 | **FEAT_CSSC** scalar bit-manip (AArch64) | `count_ones`/`ctz` → single scalar op | Moderate (future) | Armv8.9+ (Neoverse-class); nightly/asm only today |
-| **SVE / SVE2** VL-agnostic scan (AArch64) | additive fast leaf scan on Neoverse/Graviton | Moderate | needs runtime detection; **exposed and testable on GitHub AArch64 CI runner (Neoverse N2)**, absent on Apple M-series |
+| **SVE / SVE2** VL-agnostic scan (AArch64) | additive fast leaf scan on Neoverse/Graviton | Moderate | needs runtime detection (none exists yet: no `is_aarch64_feature_detected!` in `crates/`); hardware **exposed** on the GitHub AArch64 runner (§2.6) so it is now testable, absent on Apple M-series |
 | **RVV** vector leaf scan (RISC-V) | `vcpop.m`/`viota.m`/`vfirst.m` on RV64 | Low (availability) | absent on embedded RV32 targets |
 | **ARMv7E-M DSP SIMD** (`SADD8`, `SEL`) on M4/M7 | 8-byte digit scan | Low | Rust stable exposes no ARM DSP intrinsics |
 | **FEAT_RPRFM** range prefetch (AArch64) | contiguous node/leaf arrays (#242) | Low | hint, impl-defined; measure per-µarch |
