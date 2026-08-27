@@ -115,7 +115,29 @@ def render_datastore_chart():
         ("1000000", "1M Tokens", "Continuous streaming vs per-token rebuild"),
     ]
 
-    max_val = 2000.0
+    # The RAM trade-off quoted in the subtitle is DERIVED from the artifact
+    # (`memory_overhead_vs_static_index_x` per population), never stamped: a
+    # hardcoded "6.9x" shipped here previously and understated the
+    # pre-registered loss by ~3x (the artifact says 21.6x-24.7x).
+    overheads = [
+        data[p]["expanse_strmap"]["memory_overhead_vs_static_index_x"]
+        for p, _, _ in keys
+        if p in data and "memory_overhead_vs_static_index_x" in data[p]["expanse_strmap"]
+    ]
+    if overheads:
+        lo, hi = min(overheads), max(overheads)
+        ram_note = (
+            f"Expanse trades {lo:.1f}x RAM for O(depth) updates"
+            if abs(hi - lo) < 0.05
+            else f"Expanse trades {lo:.1f}x-{hi:.1f}x RAM for O(depth) updates"
+        )
+    else:
+        ram_note = "RAM overhead vs the static index: see suite README"
+
+    # Bar geometry: the largest measured value sets the axis, so the plot is
+    # not squeezed into a fraction of its width by a fixed ceiling.
+    exp_vals = [data[p]["expanse_strmap"]["streaming_insert_tps"] / 1000.0 for p, _, _ in keys if p in data]
+    max_val = max(exp_vals + [1.0]) * 1.15
     bar_max = 340.0
     row_h = 56
     top = 96
@@ -124,14 +146,15 @@ def render_datastore_chart():
     svg = svg_header(width=960, height=height, title="PILLAR B — DYNAMIC DATASTORE INGESTION THROUGHPUT")
     svg += f"""
   <text x="30" y="34" class="t-title">PILLAR B — DYNAMIC DATASTORE INGESTION THROUGHPUT</text>
-  <text x="30" y="50" class="t-sub">Streaming insertion throughput &#183; k tok/s &#183; higher is better (Expanse trades 6.9x RAM for O(depth) updates)</text>
-  <g transform="translate(580, 24)">
+  <text x="30" y="50" class="t-sub">Streaming insertion throughput &#183; k tok/s &#183; higher is better</text>
+  <text x="30" y="64" class="t-note">{esc(ram_note)} &#183; baseline bar clamped to a 2 px floor (not to scale)</text>
+  <g transform="translate(580, 20)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
     <text x="18" y="10" class="t-legend">ExpanseStrMap (Streaming)</text>
     <rect x="0" y="18" width="12" height="12" rx="2" class="b-baseline"/>
     <text x="18" y="28" class="t-legend">Static Window Index (Rebuild/tok)</text>
   </g>
-  <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
+  <line x1="30" y1="76" x2="930" y2="76" class="divider"/>
 """
 
     for i, (pop, label, sub) in enumerate(keys):

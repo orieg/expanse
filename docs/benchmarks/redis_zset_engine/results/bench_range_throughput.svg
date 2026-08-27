@@ -101,7 +101,7 @@
   <rect x="800" y="150" width="130" height="18" rx="3" class="badge-win"/>
   <text x="865" y="163" class="badge-win-text">Expanse 5.45x</text>
   <text x="30" y="208" class="t-bar-label">ZREVRANGEBYSCORE small</text>
-  <text x="30" y="222" class="t-sub">~64 members, no reverse iterator</text>
+  <text x="30" y="222" class="t-sub">~64 members, native range_rev (#341)</text>
   <rect x="300" y="196" width="181.3" height="13" rx="2" class="b-expanse"/>
   <text x="489.3" y="206" class="t-val-accent">77.8</text>
   <rect x="300" y="212" width="67.1" height="13" rx="2" class="b-skiplist"/>
@@ -109,7 +109,7 @@
   <rect x="800" y="202" width="130" height="18" rx="3" class="badge-win"/>
   <text x="865" y="215" class="badge-win-text">Expanse 2.70x</text>
   <text x="30" y="260" class="t-bar-label">ZREVRANGEBYSCORE large</text>
-  <text x="30" y="274" class="t-sub">~8192 members, no reverse iterator</text>
+  <text x="30" y="274" class="t-sub">~8192 members, native range_rev (#341)</text>
   <rect x="300" y="248" width="210.2" height="13" rx="2" class="b-expanse"/>
   <text x="518.2" y="258" class="t-val-accent">90.2</text>
   <rect x="300" y="264" width="128.7" height="13" rx="2" class="b-skiplist"/>

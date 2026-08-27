@@ -92,8 +92,12 @@ ZADD_LABELS = {
 RANGE_LABELS = {
     "forward_small": ("ZRANGEBYSCORE small", "~64-member windows"),
     "forward_large": ("ZRANGEBYSCORE large", "~8192-member windows"),
-    "reverse_small": ("ZREVRANGEBYSCORE small", "~64 members, no reverse iterator"),
-    "reverse_large": ("ZREVRANGEBYSCORE large", "~8192 members, no reverse iterator"),
+    # The plotted Expanse arm is `expanse_native_melem_s` — the `range_rev`
+    # reverse ordered iterator (#341). The label previously read "no reverse
+    # iterator", which described the pre-#341 emulated re-descent arm that this
+    # chart does not plot.
+    "reverse_small": ("ZREVRANGEBYSCORE small", "~64 members, native range_rev (#341)"),
+    "reverse_large": ("ZREVRANGEBYSCORE large", "~8192 members, native range_rev (#341)"),
 }
 RANK_LABELS = {
     "zrank": ("ZRANK", "count_below vs span walk"),

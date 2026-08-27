@@ -82,34 +82,35 @@
   <rect width="100%" height="100%" class="border" rx="8"/>
 
   <text x="30" y="34" class="t-title">PILLAR B — DYNAMIC DATASTORE INGESTION THROUGHPUT</text>
-  <text x="30" y="50" class="t-sub">Streaming insertion throughput &#183; k tok/s &#183; higher is better (Expanse trades 6.9x RAM for O(depth) updates)</text>
-  <g transform="translate(580, 24)">
+  <text x="30" y="50" class="t-sub">Streaming insertion throughput &#183; k tok/s &#183; higher is better</text>
+  <text x="30" y="64" class="t-note">Expanse trades 21.6x-24.7x RAM for O(depth) updates &#183; baseline bar clamped to a 2 px floor (not to scale)</text>
+  <g transform="translate(580, 20)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
     <text x="18" y="10" class="t-legend">ExpanseStrMap (Streaming)</text>
     <rect x="0" y="18" width="12" height="12" rx="2" class="b-baseline"/>
     <text x="18" y="28" class="t-legend">Static Window Index (Rebuild/tok)</text>
   </g>
-  <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
+  <line x1="30" y1="76" x2="930" y2="76" class="divider"/>
   <text x="30" y="104" class="t-bar-label">100k Tokens</text>
   <text x="30" y="118" class="t-sub">Continuous streaming vs per-token rebuild</text>
-  <rect x="250" y="92" width="105.7" height="13" rx="2" class="b-expanse"/>
-  <text x="363.7" y="102" class="t-val-blue">621.7k tok/s</text>
+  <rect x="250" y="92" width="295.7" height="13" rx="2" class="b-expanse"/>
+  <text x="553.7" y="102" class="t-val-blue">621.7k tok/s</text>
   <rect x="250" y="108" width="2.0" height="13" rx="2" class="b-baseline"/>
   <text x="260.0" y="118" class="t-val-gray">0.05k tok/s</text>
   <rect x="760" y="98" width="170" height="18" rx="3" class="badge-win"/>
   <text x="845" y="111" class="badge-win-text">Expanse 12497x (B &lt; 12,466)</text>
   <text x="30" y="160" class="t-bar-label">500k Tokens</text>
   <text x="30" y="174" class="t-sub">Continuous streaming vs per-token rebuild</text>
-  <rect x="250" y="148" width="80.6" height="13" rx="2" class="b-expanse"/>
-  <text x="338.6" y="158" class="t-val-blue">474.3k tok/s</text>
+  <rect x="250" y="148" width="225.5" height="13" rx="2" class="b-expanse"/>
+  <text x="483.5" y="158" class="t-val-blue">474.3k tok/s</text>
   <rect x="250" y="164" width="2.0" height="13" rx="2" class="b-baseline"/>
   <text x="260.0" y="174" class="t-val-gray">0.01k tok/s</text>
   <rect x="760" y="154" width="170" height="18" rx="3" class="badge-win"/>
   <text x="845" y="167" class="badge-win-text">Expanse 43206x (B &lt; 43,202)</text>
   <text x="30" y="216" class="t-bar-label">1M Tokens</text>
   <text x="30" y="230" class="t-sub">Continuous streaming vs per-token rebuild</text>
-  <rect x="250" y="204" width="77.0" height="13" rx="2" class="b-expanse"/>
-  <text x="335.0" y="214" class="t-val-blue">452.9k tok/s</text>
+  <rect x="250" y="204" width="215.4" height="13" rx="2" class="b-expanse"/>
+  <text x="473.4" y="214" class="t-val-blue">452.9k tok/s</text>
   <rect x="250" y="220" width="2.0" height="13" rx="2" class="b-baseline"/>
   <text x="260.0" y="230" class="t-val-gray">0.01k tok/s</text>
   <rect x="760" y="210" width="170" height="18" rx="3" class="badge-win"/>
