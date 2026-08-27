@@ -1,0 +1,218 @@
+.TH EXPANSE_SET 3 "2026-08-27" "libexpanse" "Expanse C Library Manual"
+.SH NAME
+expanse_set_new, expanse_set_free, expanse_set_insert, \
+expanse_set_remove, expanse_set_contains, expanse_set_len, \
+expanse_set_mem_used, expanse_set_clear, expanse_set_first, \
+expanse_set_last, expanse_set_next_at_or_after, \
+expanse_set_next_after, expanse_set_prev_at_or_before, \
+expanse_set_prev_before, expanse_set_count_below, \
+expanse_set_count_range, expanse_set_by_count, \
+expanse_set_contains_batch \
+\- dynamic ordered 64-bit sparse integer set
+.SH SYNOPSIS
+.B #include <expanse.h>
+.PP
+.BI "expanse_set_t *expanse_set_new(void);"
+.br
+.BI "void           expanse_set_free(expanse_set_t *" set ");"
+.br
+.BI "void           expanse_set_clear(expanse_set_t *" set ");"
+.PP
+.BI "bool     expanse_set_insert(expanse_set_t *" set ", uint64_t " key ");"
+.br
+.BI "bool     expanse_set_remove(expanse_set_t *" set ", uint64_t " key ");"
+.br
+.BI "bool     expanse_set_contains(const expanse_set_t *" set ","
+.BI "                              uint64_t " key ");"
+.br
+.BI "uint64_t expanse_set_len(const expanse_set_t *" set ");"
+.br
+.BI "size_t   expanse_set_mem_used(const expanse_set_t *" set ");"
+.PP
+.BI "bool expanse_set_first(const expanse_set_t *" "set" ", uint64_t *"
+.BI "key_out" ");"
+.br
+.BI "bool expanse_set_last(const expanse_set_t *" "set" ", uint64_t *"
+.BI "key_out" ");"
+.br
+.BI "bool expanse_set_next_at_or_after(const expanse_set_t *" set ","
+.BI "                                  uint64_t " "key" ", uint64_t *"
+.BI "key_out" ");"
+.br
+.BI "bool expanse_set_next_after(const expanse_set_t *" set ","
+.BI "                            uint64_t " key ", uint64_t *" key_out ");"
+.br
+.BI "bool expanse_set_prev_at_or_before(const expanse_set_t *" set ","
+.BI "                                  uint64_t " "key" ", uint64_t *"
+.BI "key_out" ");"
+.br
+.BI "bool expanse_set_prev_before(const expanse_set_t *" set ","
+.BI "                            uint64_t " key ", uint64_t *" key_out ");"
+.PP
+.BI "uint64_t expanse_set_count_below(const expanse_set_t *" set ","
+.BI "                                 uint64_t " key ");"
+.br
+.BI "uint64_t expanse_set_count_range(const expanse_set_t *" set ","
+.BI "                                 uint64_t " lo ", uint64_t " hi ");"
+.br
+.BI "bool     expanse_set_by_count(const expanse_set_t *" set ","
+.BI "                              uint64_t " n ", uint64_t *" key_out ");"
+.PP
+.BI "size_t expanse_set_contains_batch(const expanse_set_t *" set ","
+.BI "                                  const uint64_t *" keys ","
+.BI "                                  bool *" "out_present" ", size_t "
+.BI "count" ");"
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+\fBexpanse_set_t\fR is an ordered, dynamic set of 64-bit unsigned integers
+(\fBuint64_t\fR), representing a modernized, clean-room equivalent of Judy1.
+It scales dynamically across population densities with zero heap allocation for
+small populations (immediate word packing) and high cache-line density for
+large sparse populations.
+.SH QUICK REFERENCE
+.nf
+.ta 32n 45n
+\fBOperation\fR	\fBFunction\fR
+--------------------------------------------------------------------------
+Create / Destroy	expanse_set_new, expanse_set_free
+Clear Container	expanse_set_clear
+Insert / Remove / Test	expanse_set_insert, expanse_set_remove,
+expanse_set_contains
+Size & Byte Accounting	expanse_set_len, expanse_set_mem_used
+First / Last Key	expanse_set_first, expanse_set_last
+Forward Iteration	expanse_set_next_after, expanse_set_next_at_or_after
+Reverse Iteration	expanse_set_prev_before, expanse_set_prev_at_or_before
+Rank (Count < Key)	expanse_set_count_below, expanse_set_count_range
+Select (Nth Key)	expanse_set_by_count (0-based rank)
+Batched Prefetch	expanse_set_contains_batch (SIMD/MLP)
+.fi
+.SH EXAMPLES
+.nf
+#include <stdio.h>
+#include <inttypes.h>
+#include <expanse.h>
+
+int main(void) {
+    expanse_set_t *set = expanse_set_new();
+
+    /* Insert integer keys */
+    expanse_set_insert(set, 10);
+    expanse_set_insert(set, 50);
+    expanse_set_insert(set, 100);
+
+    /* Membership check */
+    if (expanse_set_contains(set, 50)) {
+        printf("Set contains 50\\n");
+    }
+
+    /* Rank: count keys in [10, 100] */
+    printf("Range count [10, 100]: %" PRIu64 "\\n",
+           expanse_set_count_range(set, 10, 100));
+
+    /* Select: find the 2nd smallest key (0-based rank, so n = 1) */
+    uint64_t second_key;
+    if (expanse_set_by_count(set, 1, &second_key)) {
+        printf("2nd key: %" PRIu64 "\\n", second_key);
+    }
+
+    /* Forward traversal */
+    uint64_t k;
+    if (expanse_set_first(set, &k)) {
+        do {
+            printf("  Key: %" PRIu64 "\\n", k);
+        } while (expanse_set_next_after(set, k, &k));
+    }
+
+    expanse_set_free(set);
+    return 0;
+}
+.fi
+.SH FUNCTIONS
+.SS Lifecycle
+.TP
+.BI "expanse_set_t *expanse_set_new(void);"
+Allocates and initializes a new empty set handle.
+.TP
+.BI "void expanse_set_free(expanse_set_t *" set ");"
+Frees all memory associated with the set. Passing NULL is a no-op.
+.TP
+.BI "void expanse_set_clear(expanse_set_t *" set ");"
+Removes all keys from the set, resetting it to empty without releasing the
+handle.
+.SS Mutations & Queries
+.TP
+.BI "bool expanse_set_insert(expanse_set_t *" set ", uint64_t " key ");"
+Inserts \fIkey\fR. Returns \fBtrue\fR if the key was newly added, \fBfalse\fR
+if it was already present.
+.TP
+.BI "bool expanse_set_remove(expanse_set_t *" set ", uint64_t " key ");"
+Removes \fIkey\fR. Returns \fBtrue\fR if the key was present and removed,
+\fBfalse\fR if absent.
+.TP
+.BI "bool expanse_set_contains(const expanse_set_t *" set ", uint64_t " key ");"
+Returns \fBtrue\fR if \fIkey\fR exists in the set, \fBfalse\fR otherwise.
+.TP
+.BI "uint64_t expanse_set_len(const expanse_set_t *" set ");"
+Returns the total number of keys stored in the set.
+.TP
+.BI "size_t expanse_set_mem_used(const expanse_set_t *" set ");"
+Returns the byte-exact heap memory currently consumed by the set.
+.SS Ordered Navigation
+.TP
+.BI "bool expanse_set_first(const expanse_set_t *" "set" ", uint64_t *"
+.BI "key_out" ");"
+Writes the smallest key in the set to \fIkey_out\fR. Returns \fBtrue\fR on
+success, or \fBfalse\fR if the set is empty.
+.TP
+.BI "bool expanse_set_last(const expanse_set_t *" "set" ", uint64_t *"
+.BI "key_out" ");"
+Writes the largest key in the set to \fIkey_out\fR. Returns \fBtrue\fR on
+success, or \fBfalse\fR if the set is empty.
+.TP
+.BI "bool expanse_set_next_after(const expanse_set_t *" "set" ", uint64_t "
+.BI "key" ", uint64_t *" "key_out" ");"
+Finds the smallest key strictly greater than \fIkey\fR (> key).
+.TP
+.BI "bool expanse_set_next_at_or_after(const expanse_set_t *" "set"
+.BI ", uint64_t " "key" ", uint64_t *" "key_out" ");"
+Finds the smallest key greater than or equal to \fIkey\fR (>= key).
+.TP
+.BI "bool expanse_set_prev_before(const expanse_set_t *" "set" ", uint64_t "
+.BI "key" ", uint64_t *" "key_out" ");"
+Finds the largest key strictly less than \fIkey\fR (< key).
+.TP
+.BI "bool expanse_set_prev_at_or_before(const expanse_set_t *" "set"
+.BI ", uint64_t " "key" ", uint64_t *" "key_out" ");"
+Finds the largest key less than or equal to \fIkey\fR (<= key).
+.SS Rank & Select
+.TP
+.BI "uint64_t expanse_set_count_below(const expanse_set_t *" "set"
+.BI ", uint64_t " "key" ");"
+Returns the number of keys strictly less than \fIkey\fR in O(depth) time.
+.TP
+.BI "uint64_t expanse_set_count_range(const expanse_set_t *" "set"
+.BI ", uint64_t " "lo" ", uint64_t " "hi" ");"
+Returns the number of keys in the inclusive interval [\fIlo\fR, \fIhi\fR].
+.TP
+.BI "bool expanse_set_by_count(const expanse_set_t *" "set" ", uint64_t " "n"
+.BI ", uint64_t *" "key_out" ");"
+Selects the key with exactly \fIn\fR keys below it: a \fB0-based\fR rank,
+so \fIn\fR = 0 is the smallest key. Writes it to \fIkey_out\fR and returns
+\fBtrue\fR, or \fBfalse\fR if \fIn\fR is greater than or equal to the
+total population.
+.PP
+Note this differs from the legacy \fBJudy1ByCount\fR(3), which is 1-based.
+.SS Batched Queries
+.TP
+.BI "size_t expanse_set_contains_batch(const expanse_set_t *" "set"
+.BI ", const uint64_t *" "keys" ", bool *" "out_present" ", size_t " "count"
+.BI ");"
+Executes memory-level parallelism (MLP) prefetching over \fIcount\fR keys.
+For each key in \fIkeys\fR[i], writes true/false into \fIout_present\fR[i].
+Returns the number of found keys.
+.SH SEE ALSO
+.BR expanse (3),
+.BR expanse_map (3),
+.BR expanse_sync (3),
+.BR Judy1 (3)

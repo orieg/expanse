@@ -1,0 +1,235 @@
+.TH EXPANSE_MAP 3 "2026-08-27" "libexpanse" "Expanse C Library Manual"
+.SH NAME
+expanse_map_new, expanse_map_free, expanse_map_clear, expanse_map_insert, \
+expanse_map_get, expanse_map_remove, expanse_map_len, expanse_map_mem_used, \
+expanse_map_slot, expanse_map_ins_slot, expanse_map_first, \
+expanse_map_last, expanse_map_next_at_or_after, expanse_map_next_after, \
+expanse_map_prev_at_or_before, expanse_map_prev_before, \
+expanse_map_count_below, expanse_map_count_range, expanse_map_by_count, \
+expanse_map_get_batch \
+\- dynamic ordered 64-bit integer-to-integer map
+.SH SYNOPSIS
+.B #include <expanse.h>
+.PP
+.BI "expanse_map_t *expanse_map_new(void);"
+.br
+.BI "void           expanse_map_free(expanse_map_t *" map ");"
+.br
+.BI "void           expanse_map_clear(expanse_map_t *" map ");"
+.PP
+.BI "bool     expanse_map_insert(expanse_map_t *" map ", uint64_t " key ","
+.BI "                            uint64_t " value ", uint64_t *" old_out ");"
+.br
+.BI "bool     expanse_map_get(const expanse_map_t *" map ", uint64_t " key ","
+.BI "                         uint64_t *" value_out ");"
+.br
+.BI "bool     expanse_map_remove(expanse_map_t *" map ", uint64_t " key ","
+.BI "                            uint64_t *" old_out ");"
+.br
+.BI "uint64_t expanse_map_len(const expanse_map_t *" map ");"
+.br
+.BI "size_t   expanse_map_mem_used(const expanse_map_t *" map ");"
+.PP
+.BI "uint64_t *expanse_map_slot(expanse_map_t *" map ", uint64_t " key ");"
+.br
+.BI "uint64_t *expanse_map_ins_slot(expanse_map_t *" map ", uint64_t " key ");"
+.PP
+.BI "bool expanse_map_first(const expanse_map_t *" "map" ", uint64_t *"
+.BI "key_out" ","
+.BI "                       uint64_t *" value_out ");"
+.br
+.BI "bool expanse_map_last(const expanse_map_t *" map ", uint64_t *" key_out ","
+.BI "                      uint64_t *" value_out ");"
+.br
+.BI "bool expanse_map_next_at_or_after(const expanse_map_t *" map ","
+.BI "                                  uint64_t " key ", uint64_t *" key_out ","
+.BI "                                  uint64_t *" value_out ");"
+.br
+.BI "bool expanse_map_next_after(const expanse_map_t *" map ","
+.BI "                            uint64_t " key ", uint64_t *" key_out ","
+.BI "                            uint64_t *" value_out ");"
+.br
+.BI "bool expanse_map_prev_at_or_before(const expanse_map_t *" map ","
+.BI "                                  uint64_t " key ", uint64_t *" key_out ","
+.BI "                                  uint64_t *" value_out ");"
+.br
+.BI "bool expanse_map_prev_before(const expanse_map_t *" map ","
+.BI "                            uint64_t " key ", uint64_t *" key_out ","
+.BI "                            uint64_t *" value_out ");"
+.PP
+.BI "uint64_t expanse_map_count_below(const expanse_map_t *" map ","
+.BI "                                 uint64_t " key ");"
+.br
+.BI "uint64_t expanse_map_count_range(const expanse_map_t *" map ","
+.BI "                                 uint64_t " lo ", uint64_t " hi ");"
+.br
+.BI "bool     expanse_map_by_count(const expanse_map_t *" map ","
+.BI "                              uint64_t " n ", uint64_t *" key_out ","
+.BI "                              uint64_t *" value_out ");"
+.PP
+.BI "size_t expanse_map_get_batch(const expanse_map_t *" map ","
+.BI "                             const uint64_t *" keys ","
+.BI "                             uint64_t *" out_values ","
+.BI "                             bool *" out_found ", size_t " count ");"
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+\fBexpanse_map_t\fR is an ordered, dynamic map from 64-bit unsigned integer keys
+(\fBuint64_t\fR) to 64-bit values (\fBuint64_t\fR), representing a modernized
+clean-room equivalent of JudyL.
+.PP
+Values are stored directly in single-machine-word \fBValueSlot\fRs inside leaf
+arrays, allowing direct in-place mutation through slot pointers without tree
+re-traversal.
+.SH QUICK REFERENCE
+.nf
+.ta 32n 45n
+\fBOperation\fR	\fBFunction\fR
+--------------------------------------------------------------------------
+Create / Destroy	expanse_map_new, expanse_map_free
+Clear Container	expanse_map_clear
+Insert / Get / Delete	expanse_map_insert, expanse_map_get, expanse_map_remove
+Direct Slot Pointer	expanse_map_slot, expanse_map_ins_slot
+Size & Byte Accounting	expanse_map_len, expanse_map_mem_used
+First / Last Entry	expanse_map_first, expanse_map_last
+Forward Navigation	expanse_map_next_after, expanse_map_next_at_or_after
+Reverse Navigation	expanse_map_prev_before, expanse_map_prev_at_or_before
+Rank (Count < Key)	expanse_map_count_below, expanse_map_count_range
+Select (Nth Entry)	expanse_map_by_count (0-based rank)
+Batched Prefetch	expanse_map_get_batch (SIMD/MLP)
+.fi
+.SH EXAMPLES
+.nf
+#include <stdio.h>
+#include <inttypes.h>
+#include <expanse.h>
+
+int main(void) {
+    expanse_map_t *map = expanse_map_new();
+
+    /* Insert keys and values */
+    expanse_map_insert(map, 1000, 42, NULL);
+
+    /* Direct in-place mutation via ValueSlot pointer */
+    uint64_t *slot = expanse_map_ins_slot(map, 2000);
+    *slot = 99;  /* In-place write without additional lookup */
+
+    /* Point query */
+    uint64_t val;
+    if (expanse_map_get(map, 1000, &val)) {
+        printf("Key 1000 -> %" PRIu64 "\\n", val);
+    }
+
+    /* Sorted range traversal */
+    uint64_t k, v;
+    if (expanse_map_first(map, &k, &v)) {
+        do {
+            printf("  %" PRIu64 " => %" PRIu64 "\\n", k, v);
+        } while (expanse_map_next_after(map, k, &k, &v));
+    }
+
+    expanse_map_free(map);
+    return 0;
+}
+.fi
+.SH FUNCTIONS
+.SS Lifecycle
+.TP
+.BI "expanse_map_t *expanse_map_new(void);"
+Allocates and initializes a new empty map.
+.TP
+.BI "void expanse_map_free(expanse_map_t *" map ");"
+Frees the map and all internal nodes. Passing NULL is a no-op.
+.TP
+.BI "void expanse_map_clear(expanse_map_t *" map ");"
+Removes all key-value pairs from the map.
+.SS Mutations & Queries
+.TP
+.BI "bool expanse_map_insert(expanse_map_t *" map ", uint64_t " key ","
+.BI "                        uint64_t " value ", uint64_t *" old_out ");"
+Stores \fIkey\fR -> \fIvalue\fR. If \fIkey\fR existed, writes previous value to
+\fIold_out\fR (if non-NULL) and returns \fBfalse\fR; returns \fBtrue\fR if new.
+.TP
+.BI "bool expanse_map_get(const expanse_map_t *" map ", uint64_t " key ","
+.BI "                     uint64_t *" value_out ");"
+Looks up \fIkey\fR. On success, writes value to \fIvalue_out\fR (if non-NULL)
+and returns \fBtrue\fR; returns \fBfalse\fR if absent.
+.TP
+.BI "bool expanse_map_remove(expanse_map_t *" map ", uint64_t " key ","
+.BI "                        uint64_t *" old_out ");"
+Removes \fIkey\fR. Writes removed value to \fIold_out\fR (if non-NULL).
+Returns \fBtrue\fR if found and removed, \fBfalse\fR if absent.
+.TP
+.BI "uint64_t *expanse_map_slot(expanse_map_t *" map ", uint64_t " key ");"
+Returns a direct writable pointer to the value slot for \fIkey\fR, or NULL if
+absent.
+.TP
+.BI "uint64_t *expanse_map_ins_slot(expanse_map_t *" map ", uint64_t " key ");"
+Inserts \fIkey\fR with initial value 0 if absent (preserving existing value if
+present) and returns a writable pointer to its value slot.
+.SS Slot Pointer Invalidation Contract
+Pointers returned by \fBexpanse_map_slot\fR and \fBexpanse_map_ins_slot\fR
+remain valid \fBONLY until the next structural mutation\fR of the map
+(\fIinsert\fR, \fIremove\fR, \fIclear\fR, or \fIfree\fR).
+.SS Ordered Navigation
+.TP
+.BI "bool expanse_map_first(const expanse_map_t *" "map" ", uint64_t *"
+.BI "key_out" ","
+.BI "                       uint64_t *" value_out ");"
+Finds the smallest key.
+.TP
+.BI "bool expanse_map_last(const expanse_map_t *" map ", uint64_t *" key_out ","
+.BI "                      uint64_t *" value_out ");"
+Finds the largest key.
+.TP
+.BI "bool expanse_map_next_after(const expanse_map_t *" "map" ", uint64_t "
+.BI "key" ","
+.BI "                            uint64_t *" "key_out" ", uint64_t *"
+.BI "value_out" ");"
+Finds the smallest key strictly greater than \fIkey\fR (> key).
+.TP
+.BI "bool expanse_map_next_at_or_after(const expanse_map_t *" map ","
+.BI "                                  uint64_t " key ", uint64_t *" key_out ","
+.BI "                                  uint64_t *" value_out ");"
+Finds the smallest key greater than or equal to \fIkey\fR (>= key).
+.TP
+.BI "bool expanse_map_prev_before(const expanse_map_t *" "map" ", uint64_t "
+.BI "key" ","
+.BI "                            uint64_t *" "key_out" ", uint64_t *"
+.BI "value_out" ");"
+Finds the largest key strictly less than \fIkey\fR (< key).
+.TP
+.BI "bool expanse_map_prev_at_or_before(const expanse_map_t *" map ","
+.BI "                                  uint64_t " key ", uint64_t *" key_out ","
+.BI "                                  uint64_t *" value_out ");"
+Finds the largest key less than or equal to \fIkey\fR (<= key).
+.SS Rank & Select
+.TP
+.BI "uint64_t expanse_map_count_below(const expanse_map_t *" map ","
+.BI "                                 uint64_t " key ");"
+Returns the count of keys strictly less than \fIkey\fR.
+.TP
+.BI "uint64_t expanse_map_count_range(const expanse_map_t *" map ","
+.BI "                                 uint64_t " lo ", uint64_t " hi ");"
+Returns the count of keys in the inclusive interval [\fIlo\fR, \fIhi\fR].
+.TP
+.BI "bool expanse_map_by_count(const expanse_map_t *" map ", uint64_t " n ","
+.BI "                          uint64_t *" key_out ", uint64_t *" value_out ");"
+Selects the entry with exactly \fIn\fR entries below it: a \fB0-based\fR
+rank, so \fIn\fR = 0 is the smallest key. Writes the key to \fIkey_out\fR
+and the value to \fIvalue_out\fR and returns \fBtrue\fR, or \fBfalse\fR if
+\fIn\fR is greater than or equal to the total population.
+.PP
+Note this differs from the legacy \fBJudyLByCount\fR(3), which is 1-based.
+.SS Batched Queries
+.TP
+.BI "size_t expanse_map_get_batch(const expanse_map_t *" map ","
+.BI "                             const uint64_t *" keys ","
+.BI "                             uint64_t *" out_values ","
+.BI "                             bool *" out_found ", size_t " count ");"
+Performs parallel MLP pipelined lookups for \fIcount\fR keys.
+.SH SEE ALSO
+.BR expanse (3),
+.BR expanse_set (3),
+.BR expanse_sync (3),
+.BR JudyL (3)

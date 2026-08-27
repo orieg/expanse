@@ -1,0 +1,66 @@
+.TH JUDYHS 3 "2026-08-27" "libexpanse" "Judy Compatibility Manual"
+.SH NAME
+JudyHS, JudyHSIns, JudyHSDel, JudyHSGet, JudyHSFreeArray, \
+JHSI, JHSD, JHSG, JHSFA \
+\- dynamic map for arbitrary byte arrays to word values
+.SH SYNOPSIS
+.B #include <Judy.h>
+.PP
+.BI "PPvoid_t JudyHSIns(PPvoid_t " PPArray ", void *" Index ","
+.BI "                  Word_t " Length ", PJError_t " PJError ");"
+.br
+.BI "int      JudyHSDel(PPvoid_t " PPArray ", void *" Index ","
+.BI "                  Word_t " Length ", PJError_t " PJError ");"
+.br
+.BI "PPvoid_t JudyHSGet(Pcvoid_t " PArray ", void *" Index ","
+.BI "                  Word_t " Length ");"
+.br
+.BI "Word_t   JudyHSFreeArray(PPvoid_t " PPArray ", PJError_t " PJError ");"
+.PP
+.BI "JHSI(PWord_t " "PV" ", Pvoid_t " "PArray" ", void *" "Index" ", Word_t "
+.BI "Length" ");"
+.br
+.BI "JHSD(int " Rc ", Pvoid_t " PArray ", void *" Index ", Word_t " Length ");"
+.br
+.BI "JHSG(PWord_t " "PV" ", Pvoid_t " "PArray" ", void *" "Index" ", Word_t "
+.BI "Length" ");"
+.br
+.BI "JHSFA(Word_t " Rc ", Pvoid_t " PArray ");"
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+A \fBJudyHS\fR array is an associative array mapping arbitrary byte arrays
+(\fBvoid *\fR, with explicit byte \fBLength\fR) to machine words (\fBWord_t\fR).
+Keys may contain arbitrary binary data including embedded null bytes.
+.SH EXAMPLES
+.nf
+#include <stdio.h>
+#include <stdint.h>
+#include <Judy.h>
+
+int main(void) {
+    Pvoid_t PJHSArray = (Pvoid_t) NULL;
+    PWord_t PValue;
+
+    uint8_t key[4] = {0x01, 0x00, 0xAA, 0xBB};
+
+    /* Insert binary key */
+    JHSI(PValue, PJHSArray, key, sizeof(key));
+    *PValue = 4242;
+
+    /* Lookup */
+    JHSG(PValue, PJHSArray, key, sizeof(key));
+    if (PValue) {
+        printf("Binary key matched: %lu\\n", *PValue);
+    }
+
+    Word_t BytesFreed;
+    JHSFA(BytesFreed, PJHSArray);
+    return 0;
+}
+.fi
+.SH SEE ALSO
+.BR Judy (3),
+.BR JudyL (3),
+.BR JudySL (3),
+.BR expanse_bytesmap (3)

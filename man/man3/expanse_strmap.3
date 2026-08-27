@@ -1,0 +1,160 @@
+.TH EXPANSE_STRMAP 3 "2026-08-27" "libexpanse" "Expanse C Library Manual"
+.SH NAME
+expanse_strmap_new, expanse_strmap_free, expanse_strmap_clear, \
+expanse_strmap_insert, expanse_strmap_get, expanse_strmap_remove, \
+expanse_strmap_slot, expanse_strmap_ins_slot, expanse_strmap_len, \
+expanse_strmap_mem_used, expanse_strmap_first, expanse_strmap_last, \
+expanse_strmap_next_at_or_after, expanse_strmap_next_after, \
+expanse_strmap_prev_at_or_before, expanse_strmap_prev_before, \
+expanse_strmap_first_ex, expanse_strmap_last_ex, \
+expanse_strmap_next_at_or_after_ex, expanse_strmap_next_after_ex, \
+expanse_strmap_prev_at_or_before_ex, expanse_strmap_prev_before_ex \
+\- dynamic ordered null-terminated string-to-uint64 map
+.SH SYNOPSIS
+.B #include <expanse.h>
+.PP
+.BI "expanse_strmap_t *expanse_strmap_new(void);"
+.br
+.BI "void              expanse_strmap_free(expanse_strmap_t *" map ");"
+.br
+.BI "void              expanse_strmap_clear(expanse_strmap_t *" map ");"
+.PP
+.BI "bool     expanse_strmap_insert(expanse_strmap_t *" map ","
+.BI "                               const char *" key ", uint64_t " value ","
+.BI "                               uint64_t *" old_out ");"
+.br
+.BI "bool     expanse_strmap_get(const expanse_strmap_t *" map ","
+.BI "                            const char *" key ","
+.BI "                            uint64_t *" value_out ");"
+.br
+.BI "bool     expanse_strmap_remove(expanse_strmap_t *" map ","
+.BI "                               const char *" key ","
+.BI "                               uint64_t *" old_out ");"
+.br
+.BI "uint64_t *expanse_strmap_slot(expanse_strmap_t *" map ","
+.BI "                              const char *" key ");"
+.br
+.BI "uint64_t *expanse_strmap_ins_slot(expanse_strmap_t *" map ","
+.BI "                                  const char *" key ");"
+.br
+.BI "uint64_t expanse_strmap_len(const expanse_strmap_t *" map ");"
+.br
+.BI "size_t   expanse_strmap_mem_used(const expanse_strmap_t *" map ");"
+.PP
+.BI "bool expanse_strmap_first(expanse_strmap_t *" map ", char *" key_out ","
+.BI "                          size_t " buf_len ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_strmap_last(expanse_strmap_t *" map ", char *" key_out ","
+.BI "                         size_t " buf_len ", uint64_t *" value_out ");"
+.br
+.BI "bool expanse_strmap_next_at_or_after(expanse_strmap_t *" map ","
+.BI "                                     const char *" key ","
+.BI "                                     char *" key_out ","
+.BI "                                     size_t " buf_len ","
+.BI "                                     uint64_t *" value_out ");"
+.br
+.BI "bool expanse_strmap_next_after(expanse_strmap_t *" map ","
+.BI "                               const char *" key ","
+.BI "                               char *" key_out ", size_t " buf_len ","
+.BI "                               uint64_t *" value_out ");"
+.br
+.BI "bool expanse_strmap_prev_at_or_before(expanse_strmap_t *" map ","
+.BI "                                      const char *" key ","
+.BI "                                      char *" key_out ","
+.BI "                                      size_t " buf_len ","
+.BI "                                      uint64_t *" value_out ");"
+.br
+.BI "bool expanse_strmap_prev_before(expanse_strmap_t *" map ","
+.BI "                                const char *" key ","
+.BI "                                char *" key_out ", size_t " buf_len ","
+.BI "                                uint64_t *" value_out ");"
+.PP
+.BI "expanse_str_nav_status expanse_strmap_first_ex("
+.BI "    expanse_strmap_t *" map ", char *" key_out ", size_t " buf_len ","
+.BI "    size_t *" required_len ", uint64_t *" value_out ");"
+.br
+.BI "expanse_str_nav_status expanse_strmap_last_ex("
+.BI "    expanse_strmap_t *" map ", char *" key_out ", size_t " buf_len ","
+.BI "    size_t *" required_len ", uint64_t *" value_out ");"
+.br
+.BI "expanse_str_nav_status expanse_strmap_next_at_or_after_ex("
+.BI "    expanse_strmap_t *" map ", const char *" key ", char *" key_out ","
+.BI "    size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_str_nav_status expanse_strmap_next_after_ex("
+.BI "    expanse_strmap_t *" map ", const char *" key ", char *" key_out ","
+.BI "    size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_str_nav_status expanse_strmap_prev_at_or_before_ex("
+.BI "    expanse_strmap_t *" map ", const char *" key ", char *" key_out ","
+.BI "    size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.br
+.BI "expanse_str_nav_status expanse_strmap_prev_before_ex("
+.BI "    expanse_strmap_t *" map ", const char *" key ", char *" key_out ","
+.BI "    size_t " buf_len ", size_t *" required_len ","
+.BI "    uint64_t *" value_out ");"
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+\fBexpanse_strmap_t\fR is an ordered dynamic radix trie mapping null-terminated
+C strings (\fBconst char *\fR) to 64-bit integer values (\fBuint64_t\fR),
+representing a modernized, clean-room equivalent of JudySL.
+.PP
+Keys are sorted in unsigned byte-lexicographical order.
+.SH EXAMPLES
+.nf
+#include <stdio.h>
+#include <inttypes.h>
+#include <expanse.h>
+
+int main(void) {
+    expanse_strmap_t *map = expanse_strmap_new();
+
+    expanse_strmap_insert(map, "apple", 100, NULL);
+    expanse_strmap_insert(map, "banana", 200, NULL);
+    expanse_strmap_insert(map, "cherry", 300, NULL);
+
+    /* Point query */
+    uint64_t val;
+    if (expanse_strmap_get(map, "banana", &val)) {
+        printf("banana -> %" PRIu64 "\\n", val);
+    }
+
+    /* Truncation-safe ordered traversal */
+    char buf[128];
+    size_t req;
+    expanse_str_nav_status st =
+        expanse_strmap_first_ex(map, buf, sizeof(buf), &req, &val);
+
+    while (st == EXPANSE_STR_NAV_OK) {
+        printf("  %s => %" PRIu64 "\\n", buf, val);
+        st = expanse_strmap_next_after_ex(map, buf, buf, sizeof(buf),
+                                          &req, &val);
+    }
+
+    expanse_strmap_free(map);
+    return 0;
+}
+.fi
+.SH TRUNCATION-AWARE NAVIGATION
+Classic string navigation functions (\fBexpanse_strmap_first\fR, etc.) return
+\fBfalse\fR both when no key matches and when \fIbuf_len\fR is too small.
+The \fB_ex\fR variants return an explicit \fBexpanse_str_nav_status\fR:
+.TP
+.B EXPANSE_STR_NAV_OK (0)
+Success. The null-terminated key is written to \fIkey_out\fR.
+.TP
+.B EXPANSE_STR_NAV_NOT_FOUND (1)
+No matching key found.
+.TP
+.B EXPANSE_STR_NAV_BUFFER_TOO_SMALL (2)
+A matching key was found, but \fIbuf_len\fR was insufficient.
+The exact required buffer size is reported in \fIrequired_len\fR.
+.SH SEE ALSO
+.BR expanse (3),
+.BR expanse_map (3),
+.BR expanse_bytesmap (3),
+.BR JudySL (3)

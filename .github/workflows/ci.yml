@@ -75,6 +75,10 @@ jobs:
               - 'scripts/**'
               - '.github/workflows/**'
               - '.github/bench-suites.json'
+              # `lint` runs check_man_pages.py, so a man-page-only PR must run
+              # it. Kept out of `rust-src`: troff edits compile nothing, and
+              # gating the safety lane on them would undo #412.
+              - 'man/**'
             # The genuine tooling->Rust coupling, scoped to it: these two
             # report scripts are executed by `instruction-counts` and
             # `callgrind-smoke`, so they gate those two jobs specifically
@@ -114,6 +118,7 @@ jobs:
               - 'Cargo.lock'
             docs:
               - 'docs/**'
+              - 'man/**'
               - '*.md'
               - 'scripts/**'
               - 'website/**'
@@ -189,14 +194,24 @@ jobs:
       - name: Verify Benchmark Suite Manifest Sync
         run: python3 scripts/check_bench_suites.py
 
+      # check_man_pages.py skips its troff lint when mandoc is absent, and the
+      # runner image does not ship it — without this install the advertised
+      # lint silently never runs.
+      - name: Install mandoc (troff linter)
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mandoc
+
+      - name: Verify Section 3 Manual Pages
+        run: python3 scripts/check_man_pages.py
+
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / docs hygiene / bench suites)
+      - name: Report-Script Self-Tests (perf_report / bench_report / docs hygiene / bench suites / man pages)
         run: |
           python3 scripts/perf_report.py --self-test
           python3 scripts/bench_report.py --self-test
           python3 scripts/check_docs_hygiene.py --self-test
           python3 scripts/check_bench_suites.py --self-test
+          python3 scripts/check_man_pages.py --self-test
 
   msrv:
     name: Core / MSRV 1.88 Build

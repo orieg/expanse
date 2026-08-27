@@ -1,0 +1,133 @@
+.TH EXPANSE 3 "2026-08-27" "libexpanse" "Expanse C Library Manual"
+.SH NAME
+expanse \- modern Judy arrays and high-performance digital tree engine
+.SH SYNOPSIS
+.B #include <expanse.h>
+.PP
+.BI "const char *expanse_version(void);"
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+\fBlibexpanse\fR is a clean-room, modernized C library implementation of
+Judy arrays and digital trees (radix tries) designed for high-density
+cache-conscious indexing.
+It provides both modern, strongly-typed C APIs (\fBexpanse.h\fR) and drop-in
+binary compatibility for legacy \fBlibjudy\fR applications (\fBJudy.h\fR).
+.PP
+Digital trees in Expanse partition keys by \fBexpanse\fR (byte digit positions
+from MSB to LSB) rather than population, dynamically adapting node structures
+between zero-allocation immediates, linear arrays, POPCNT-indexed bitmapped
+nodes, and uncompressed arrays.
+.SH CONTAINER TYPES
+.TP
+.BR expanse_set_t " (see " expanse_set (3))
+Dynamic sparse 64-bit unsigned integer set (analogous to Judy1).
+.TP
+.BR expanse_map_t " (see " expanse_map (3))
+Dynamic ordered map from 64-bit unsigned integer keys to 64-bit values
+(analogous to JudyL).
+.TP
+.BR expanse_strmap_t " (see " expanse_strmap (3))
+Dynamic ordered map from null-terminated C strings to 64-bit values
+(analogous to JudySL).
+.TP
+.BR expanse_bytesmap_t " (see " expanse_bytesmap (3))
+Dynamic map from arbitrary byte slices to 64-bit values
+(analogous to JudyHS).
+.TP
+.BR expanse_sync_set_t ", " expanse_sync_map_t " (see " expanse_sync (3))
+Concurrent set and map supporting single-writer mutations with lock-free
+Optimistic Concurrency Control (OCC) reader handles.
+.TP
+.BR ExpanseBlobMap " (see " expanse_blob_map (3))
+Polymorphic large-value map with inline payload packing and slab arena
+allocation.
+.SH QUICK REFERENCE
+.nf
+.ta 22n 18n 40n
+\fBContainer Type\fR	\fBKey Type\fR	\fBValue Type / Features\fR
+--------------------------------------------------------------------------
+expanse_set_t	uint64_t	Bit set; rank & select; batch query
+expanse_map_t	uint64_t	uint64_t; direct slot ptr; rank/select
+expanse_strmap_t	const char *	uint64_t; lexicographic order
+expanse_bytesmap_t	void * + len	uint64_t; arbitrary byte buffers
+expanse_sync_set_t	uint64_t	Lock-free concurrent readers (OCC)
+expanse_sync_map_t	uint64_t	uint64_t; lock-free readers (OCC)
+ExpanseBlobMap	uint64_t	Arbitrary bytes; arena slab
+.fi
+.SH EXAMPLES
+The following complete C program demonstrates creating a map, inserting
+key-value pairs, retrieving values, performing range queries, and freeing
+the container:
+.PP
+.nf
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <expanse.h>
+
+int main(void) {
+    printf("libexpanse version: %s\\n", expanse_version());
+
+    expanse_map_t *map = expanse_map_new();
+    if (!map) {
+        fprintf(stderr, "Allocation failed\\n");
+        return 1;
+    }
+
+    /* Insert keys */
+    expanse_map_insert(map, 100, 1000, NULL);
+    expanse_map_insert(map, 250, 2500, NULL);
+    expanse_map_insert(map, 500, 5000, NULL);
+
+    /* Point lookup */
+    uint64_t val;
+    if (expanse_map_get(map, 250, &val)) {
+        printf("Key 250 -> %" PRIu64 "\\n", val);
+    }
+
+    /* Rank: count keys in range [100, 300] */
+    uint64_t count = expanse_map_count_range(map, 100, 300);
+    printf("Keys in [100, 300]: %" PRIu64 "\\n", count);
+
+    /* Sorted iteration */
+    uint64_t k = 0, v = 0;
+    if (expanse_map_first(map, &k, &v)) {
+        do {
+            printf("  %" PRIu64 " -> %" PRIu64 "\\n", k, v);
+        } while (expanse_map_next_after(map, k, &k, &v));
+    }
+
+    printf("Memory used: %zu bytes\\n", expanse_map_mem_used(map));
+    expanse_map_free(map);
+    return 0;
+}
+.fi
+.SH CONCURRENCY & THREAD SAFETY
+Distinct container handles are completely independent and may be accessed
+concurrently from different threads without coordination.
+.PP
+For concurrent access to a single shared container across multiple threads,
+use \fBexpanse_sync_set_t\fR or \fBexpanse_sync_map_t\fR (see
+\fBexpanse_sync\fR(3)), which provide lock-free reader handles utilizing
+Optimistic Concurrency Control (OCC) and Epoch-Based Reclamation (EBR).
+.SH COMPATIBILITY
+\fBlibexpanse\fR also provides full drop-in C ABI compatibility for classic
+\fBlibjudy\fR.
+Legacy programs can include \fB<Judy.h>\fR and link with \fI-lexpanse\fR
+without source modifications (see \fBJudy\fR(3)).
+.SH SEE ALSO
+.BR expanse_set (3),
+.BR expanse_map (3),
+.BR expanse_strmap (3),
+.BR expanse_bytesmap (3),
+.BR expanse_sync (3),
+.BR expanse_blob_map (3),
+.BR Judy (3),
+.BR Judy1 (3),
+.BR JudyL (3),
+.BR JudySL (3),
+.BR JudyHS (3)
+.SH AUTHORS
+Expanse is developed by the Expanse project contributors:
+https://github.com/orieg/expanse
