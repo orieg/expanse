@@ -325,13 +325,21 @@ jobs:
       - name: Assert capi drop-in artifacts exist (Unix)
         if: runner.os != 'Windows'
         run: |
-          shopt -s nullglob
-          arts=(target/debug/libexpanse.{so,dylib} target/debug/libexpanse.a)
-          if [ ${#arts[@]} -lt 2 ]; then
-            echo "::error::expected cdylib + staticlib capi artifacts, found: ${arts[*]:-none}"
+          # `libexpanse.{so,dylib}` is BRACE expansion, not a glob: it yields
+          # literal words with no metacharacters, so `nullglob` cannot drop the
+          # ones that do not exist and the array was always 3 long. The count
+          # test could never fail — verified against an empty directory.
+          # Test each path instead, and require the cdylib for this platform.
+          cdylib="target/debug/libexpanse.so"
+          [ "$RUNNER_OS" = "macOS" ] && cdylib="target/debug/libexpanse.dylib"
+          missing=()
+          [ -f "$cdylib" ] || missing+=("$cdylib")
+          [ -f target/debug/libexpanse.a ] || missing+=("target/debug/libexpanse.a")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::missing capi drop-in artifact(s): ${missing[*]}"
             exit 1
           fi
-          echo "capi artifacts present: ${arts[*]}"
+          echo "capi artifacts present: $cdylib target/debug/libexpanse.a"
         shell: bash
 
       - name: Run C++20 Header Tests (Unix)
@@ -387,13 +395,17 @@ jobs:
       - name: Assert C ABI drop-in artifacts exist
         shell: bash
         run: |
-          shopt -s nullglob
-          arts=(target/debug/libexpanse.{so,dylib} target/debug/libexpanse.a)
-          if [ ${#arts[@]} -lt 2 ]; then
-            echo "::error::expected cdylib + staticlib capi artifacts, found: ${arts[*]:-none}"
+          # See the note in the `test` job: the brace-expansion form this was
+          # copied from could never fail. This lane is Linux, so the cdylib is
+          # always the .so.
+          missing=()
+          [ -f target/debug/libexpanse.so ] || missing+=("target/debug/libexpanse.so")
+          [ -f target/debug/libexpanse.a ] || missing+=("target/debug/libexpanse.a")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::missing capi drop-in artifact(s): ${missing[*]}"
             exit 1
           fi
-          echo "capi artifacts present: ${arts[*]}"
+          echo "capi artifacts present: target/debug/libexpanse.so target/debug/libexpanse.a"
 
       - name: Run C++20 Header Tests
         run: |
