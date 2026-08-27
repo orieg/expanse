@@ -203,6 +203,9 @@ jobs:
       - name: Verify Section 3 Manual Pages
         run: python3 scripts/check_man_pages.py
 
+      - name: Verify Man Page Example Self-Tests
+        run: python3 scripts/check_man_examples.py --self-test
+
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
       - name: Report-Script Self-Tests (perf_report / bench_report / docs hygiene / bench suites / man pages)
@@ -230,6 +233,32 @@ jobs:
 
       - name: Check workspace on the declared MSRV
         run: cargo check --workspace --exclude expanse-php --all-targets
+
+  man-examples:
+    name: Docs / Man Page Examples Compile and Match
+    needs: [detect-changes]
+    # `man/**` sits in the `tooling` filter, so a man-page-only PR reaches this.
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # check_man_pages.py validates that the troff is well formed and that
+      # every symbol is mentioned. It cannot tell whether the prose is true —
+      # it passed a page whose example printed the 3rd key while claiming the
+      # 2nd (#419). This builds the real C ABI, compiles each page's EXAMPLES
+      # program against it, runs it, and diffs stdout against the output the
+      # page documents.
+      - name: Build the C ABI shared library
+        run: cargo build --release -p expanse-capi
+
+      - name: Compile, run and verify every man page example
+        run: python3 scripts/check_man_examples.py --lib-dir target/release
 
   docs-lint:
     name: Docs / Hygiene (time estimates, PII, provenance)
@@ -1418,6 +1447,7 @@ jobs:
       - detect-changes
       - lint
       - msrv
+      - man-examples
       - docs-lint
       - test
       - test-musl
