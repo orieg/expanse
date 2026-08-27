@@ -93,14 +93,34 @@ Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine shared library with glibc-hwcaps support.
 EOF
 
-# 2. libexpanse-dev package: headers, static library, and the unversioned .so dev symlink
+# 2. libexpanse-dev package: headers, static library, pkg-config, man pages, and the unversioned .so dev symlink
 mkdir -p "${DEB_DIR}/libexpanse-dev/usr/include"
-mkdir -p "${DEB_DIR}/libexpanse-dev/${LIBDIR}"
+mkdir -p "${DEB_DIR}/libexpanse-dev/${LIBDIR}/pkgconfig"
+mkdir -p "${DEB_DIR}/libexpanse-dev/usr/share/man/man3"
+
 cp crates/expanse-capi/include/*.h* "${DEB_DIR}/libexpanse-dev/usr/include/"
 if [ -f "${DIST_DIR}/lib/libexpanse.a" ]; then
     cp "${DIST_DIR}/lib/libexpanse.a" "${DEB_DIR}/libexpanse-dev/${LIBDIR}/"
 fi
 ln -sf libexpanse.so.1 "${DEB_DIR}/libexpanse-dev/${LIBDIR}/libexpanse.so"
+
+if [ -f "extra/pkgconfig/expanse.pc.in" ]; then
+    sed -e "s|@prefix@|/usr|g" \
+        -e "s|@VERSION@|${VERSION}|g" \
+        -e "s|/lib|/${LIBDIR#usr/}|g" \
+        extra/pkgconfig/expanse.pc.in > "${DEB_DIR}/libexpanse-dev/${LIBDIR}/pkgconfig/expanse.pc"
+fi
+
+# AGENTS.md §8.1: a missing source tree must fail loudly, not ship a package
+# that silently lacks the man pages the control block advertises.
+if [ ! -d "man/man3" ]; then
+    echo "error: man/man3 not found — cannot build libexpanse-dev with man pages" >&2
+    exit 1
+fi
+for f in man/man3/expanse*.3; do
+    [ -f "$f" ] || { echo "error: no expanse*.3 man pages in man/man3" >&2; exit 1; }
+    gzip -9nc "$f" > "${DEB_DIR}/libexpanse-dev/usr/share/man/man3/$(basename "$f").gz"
+done
 
 cat <<EOF > "${DEB_DIR}/libexpanse-dev/DEBIAN/control"
 Package: libexpanse-dev
@@ -108,16 +128,34 @@ Version: ${VERSION}
 Architecture: ${DEB_ARCH}
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Depends: libexpanse1 (= ${VERSION})
-Description: Expanse trie engine development files (headers, static library).
+Description: Expanse trie engine development files (headers, static library, man pages).
 EOF
 
-# 3. libjudy-compat package: drop-in libJudy.so.1 soname pointing at libexpanse.so.1
+# 3. libjudy-compat package: drop-in libJudy.so.1 soname pointing at libexpanse.so.1 + pkg-config + Judy man pages
 mkdir -p "${DEB_DIR}/libjudy-compat/${LIBDIR}"
+mkdir -p "${DEB_DIR}/libjudy-compat/usr/share/man/man3"
+
 ln -sf libexpanse.so.1 "${DEB_DIR}/libjudy-compat/${LIBDIR}/libJudy.so.1"
 
 for HWCAP in "${HWCAPS[@]}"; do
     mkdir -p "${DEB_DIR}/libjudy-compat/${LIBDIR}/glibc-hwcaps/${HWCAP}"
     ln -sf libexpanse.so.1 "${DEB_DIR}/libjudy-compat/${LIBDIR}/glibc-hwcaps/${HWCAP}/libJudy.so.1"
+done
+
+# judy.pc emits `-lexpanse` and `-I${includedir}`, which need the unversioned
+# .so dev symlink and Judy.h — both shipped by libexpanse-dev, not here. Placing
+# it in libjudy-compat (a runtime package depending only on libexpanse1) makes
+# `pkg-config --cflags --libs judy` resolve to files the user has not installed.
+if [ -f "extra/pkgconfig/judy.pc.in" ]; then
+    sed -e "s|@prefix@|/usr|g" \
+        -e "s|@VERSION@|${VERSION}|g" \
+        -e "s|/lib|/${LIBDIR#usr/}|g" \
+        extra/pkgconfig/judy.pc.in > "${DEB_DIR}/libexpanse-dev/${LIBDIR}/pkgconfig/judy.pc"
+fi
+
+for f in man/man3/Judy*.3; do
+    [ -f "$f" ] || { echo "error: no Judy*.3 man pages in man/man3" >&2; exit 1; }
+    gzip -9nc "$f" > "${DEB_DIR}/libjudy-compat/usr/share/man/man3/$(basename "$f").gz"
 done
 
 cat <<EOF > "${DEB_DIR}/libjudy-compat/DEBIAN/control"
@@ -128,7 +166,7 @@ Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Depends: libexpanse1 (= ${VERSION})
 Conflicts: libjudy
 Provides: libjudy
-Description: Drop-in compatibility for libjudy applications.
+Description: Drop-in compatibility for libjudy applications (symlinks, man pages).
 EOF
 
 # Build packages

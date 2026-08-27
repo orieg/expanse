@@ -207,8 +207,11 @@ jobs:
           fi
           T="${{ matrix.target }}"
 
-          mkdir -p dist/include dist/lib
+          mkdir -p dist/include dist/lib dist/share/man/man3
           cp crates/expanse-capi/include/*.h dist/include/
+          if [ -d "man/man3" ]; then
+            cp man/man3/*.3 dist/share/man/man3/
+          fi
 
           if [ -f "target/$T/release/libexpanse.a" ]; then
             cp "target/$T/release/libexpanse.a" dist/lib/

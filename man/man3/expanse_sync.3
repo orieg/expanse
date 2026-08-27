@@ -1,0 +1,123 @@
+.TH EXPANSE_SYNC 3 "2026-08-27" "libexpanse" "Expanse C Library Manual"
+.SH NAME
+expanse_sync_set_new, expanse_sync_set_free, expanse_sync_set_insert, \
+expanse_sync_set_remove, expanse_sync_set_contains, expanse_sync_set_len, \
+expanse_sync_set_reader_new, expanse_sync_set_reader_free, \
+expanse_sync_set_reader_contains, expanse_sync_map_new, \
+expanse_sync_map_free, expanse_sync_map_insert, expanse_sync_map_get, \
+expanse_sync_map_remove, expanse_sync_map_len, \
+expanse_sync_map_reader_new, expanse_sync_map_reader_free, \
+expanse_sync_map_reader_get \
+\- lock-free concurrent sets and maps with optimistic readers (OCC)
+.SH SYNOPSIS
+.B #include <expanse.h>
+.PP
+.BI "typedef struct expanse_sync_set expanse_sync_set_t;"
+.br
+.BI "typedef struct expanse_sync_set_reader expanse_sync_set_reader_t;"
+.br
+.BI "typedef struct expanse_sync_map expanse_sync_map_t;"
+.br
+.BI "typedef struct expanse_sync_map_reader expanse_sync_map_reader_t;"
+.PP
+.BI "expanse_sync_set_t *expanse_sync_set_new(void);"
+.br
+.BI "void                expanse_sync_set_free(expanse_sync_set_t *" set ");"
+.br
+.BI "bool                expanse_sync_set_insert(expanse_sync_set_t *" set ","
+.BI "                                            uint64_t " key ");"
+.br
+.BI "bool                expanse_sync_set_remove(expanse_sync_set_t *" set ","
+.BI "                                            uint64_t " key ");"
+.br
+.BI "bool                expanse_sync_set_contains(const expanse_sync_set_t *"
+.BI "set" ","
+.BI "                                              uint64_t " key ");"
+.br
+.BI "uint64_t            expanse_sync_set_len(const expanse_sync_set_t *"
+.BI "set" ");"
+.PP
+.BI "expanse_sync_set_reader_t *expanse_sync_set_reader_new("
+.BI "    const expanse_sync_set_t *" set ");"
+.br
+.BI "void expanse_sync_set_reader_free(expanse_sync_set_reader_t *" reader ");"
+.br
+.BI "bool expanse_sync_set_reader_contains("
+.BI "    const expanse_sync_set_reader_t *" reader ", uint64_t " key ");"
+.PP
+.BI "expanse_sync_map_t *expanse_sync_map_new(void);"
+.br
+.BI "void                expanse_sync_map_free(expanse_sync_map_t *" map ");"
+.br
+.BI "bool                expanse_sync_map_insert(expanse_sync_map_t *" map ","
+.BI "                                            uint64_t " key ","
+.BI "                                            uint64_t " value ","
+.BI "                                            uint64_t *" old_out ");"
+.br
+.BI "bool                expanse_sync_map_get(const expanse_sync_map_t *"
+.BI "map" ","
+.BI "                                         uint64_t " key ","
+.BI "                                         uint64_t *" value_out ");"
+.br
+.BI "bool                expanse_sync_map_remove(expanse_sync_map_t *" map ","
+.BI "                                            uint64_t " key ","
+.BI "                                            uint64_t *" old_out ");"
+.br
+.BI "uint64_t            expanse_sync_map_len(const expanse_sync_map_t *"
+.BI "map" ");"
+.PP
+.BI "expanse_sync_map_reader_t *expanse_sync_map_reader_new("
+.BI "    const expanse_sync_map_t *" map ");"
+.br
+.BI "void expanse_sync_map_reader_free(expanse_sync_map_reader_t *" reader ");"
+.br
+.BI "bool expanse_sync_map_reader_get("
+.BI "    const expanse_sync_map_reader_t *" reader ", uint64_t " key ","
+.BI "    uint64_t *" value_out ");"
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+\fBexpanse_sync_set_t\fR and \fBexpanse_sync_map_t\fR provide thread-safe,
+concurrent digital trie collections.
+.PP
+Writers serialize internally, while readers execute an optimistic, lock-free
+validation walk using seqlock version words and Epoch-Based Reclamation (EBR).
+Readers never acquire mutexes, never block writers, and scale linearly across
+CPU cores.
+.SH READER HANDLES
+For optimal throughput in multithreaded readers, threads should instantiate a
+dedicated reader handle (\fBexpanse_sync_map_reader_new\fR) once per thread and
+reuse it across queries.
+.PP
+The one-shot functions (\fBexpanse_sync_map_get\fR) implicitly register and
+deregister epoch participation on each invocation.
+.SH EXAMPLES
+.nf
+#include <stdio.h>
+#include <inttypes.h>
+#include <expanse.h>
+
+int main(void) {
+    expanse_sync_map_t *sync_map = expanse_sync_map_new();
+
+    /* Writer inserts keys */
+    expanse_sync_map_insert(sync_map, 42, 1000, NULL);
+
+    /* Reader thread acquires a handle */
+    expanse_sync_map_reader_t *reader =
+        expanse_sync_map_reader_new(sync_map);
+
+    uint64_t val;
+    if (expanse_sync_map_reader_get(reader, 42, &val)) {
+        printf("Concurrent read: 42 -> %" PRIu64 "\\n", val);
+    }
+
+    expanse_sync_map_reader_free(reader);
+    expanse_sync_map_free(sync_map);
+    return 0;
+}
+.fi
+.SH SEE ALSO
+.BR expanse (3),
+.BR expanse_set (3),
+.BR expanse_map (3)

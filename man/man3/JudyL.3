@@ -1,0 +1,138 @@
+.TH JUDYL 3 "2026-08-27" "libexpanse" "Judy Compatibility Manual"
+.SH NAME
+JudyL, JudyLIns, JudyLDel, JudyLGet, JudyLCount, JudyLByCount, \
+JudyLFirst, JudyLNext, JudyLLast, JudyLPrev, \
+JudyLFirstEmpty, JudyLNextEmpty, JudyLLastEmpty, JudyLPrevEmpty, \
+JudyLFreeArray, JudyLMemUsed, \
+JLI, JLD, JLG, JLC, JLBC, JLF, JLN, JLL, JLP, \
+JLFE, JLNE, JLLE, JLPE, JLFA, JLMU \
+\- dynamic array from word index to word value
+.SH SYNOPSIS
+.B #include <Judy.h>
+.PP
+.BI "PPvoid_t JudyLIns(PPvoid_t " PPArray ", Word_t " Index ","
+.BI "                 PJError_t " PJError ");"
+.br
+.BI "int      JudyLDel(PPvoid_t " PPArray ", Word_t " Index ","
+.BI "                 PJError_t " PJError ");"
+.br
+.BI "PPvoid_t JudyLGet(Pcvoid_t " PArray ", Word_t " Index ","
+.BI "                 PJError_t " PJError ");"
+.br
+.BI "Word_t   JudyLCount(Pcvoid_t " PArray ", Word_t " Index1 ","
+.BI "                    Word_t " Index2 ", PJError_t " PJError ");"
+.br
+.BI "PPvoid_t JudyLByCount(Pcvoid_t " PArray ", Word_t " Nth ","
+.BI "                      Word_t *" PIndex ", PJError_t " PJError ");"
+.br
+.BI "PPvoid_t JudyLFirst(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                    PJError_t " PJError ");"
+.br
+.BI "PPvoid_t JudyLNext(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                   PJError_t " PJError ");"
+.br
+.BI "PPvoid_t JudyLLast(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                   PJError_t " PJError ");"
+.br
+.BI "PPvoid_t JudyLPrev(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                   PJError_t " PJError ");"
+.br
+.BI "int      JudyLFirstEmpty(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                         PJError_t " PJError ");"
+.br
+.BI "int      JudyLNextEmpty(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                        PJError_t " PJError ");"
+.br
+.BI "int      JudyLLastEmpty(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                        PJError_t " PJError ");"
+.br
+.BI "int      JudyLPrevEmpty(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                        PJError_t " PJError ");"
+.br
+.BI "Word_t   JudyLFreeArray(PPvoid_t " PPArray ", PJError_t " PJError ");"
+.br
+.BI "Word_t   JudyLMemUsed(Pcvoid_t " PArray ");"
+.PP
+.BI "JLI(PWord_t " PV ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "JLD(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "JLG(PWord_t " PV ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "JLC(Word_t " Rc ", Pvoid_t " PArray ", Word_t " I1 ", Word_t " I2 ");"
+.br
+.BI "JLBC(PWord_t " "PV" ", Pvoid_t " "PArray" ", Word_t " "Nth" ", Word_t "
+.BI "Index" ");"
+.br
+.BI "JLF(PWord_t " PV ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "JLN(PWord_t " PV ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "JLL(PWord_t " PV ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "JLP(PWord_t " PV ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "JLFE(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "JLNE(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "JLLE(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "JLPE(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "JLFA(Word_t " Rc ", Pvoid_t " PArray ");"
+.br
+.BI "JLMU(Word_t " Rc ", Pvoid_t " PArray ");"
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+A \fBJudyL\fR array is an ordered associative array mapping unsigned machine
+words (\fBWord_t\fR) to values (\fBWord_t\fR).
+.PP
+Insertion functions (\fBJudyLIns\fR / \fBJLI\fR) return a pointer to the value
+slot (\fBPPvoid_t\fR / \fBPWord_t\fR). The caller can immediately dereference
+and assign the value (*PValue = value).
+.SH VALUE SLOT CONTRACT
+Pointers to value slots returned by \fBJLI\fR, \fBJLG\fR, \fBJLF\fR, \fBJLN\fR,
+etc. are valid \fBuntil the next insertion or deletion\fR on that array.
+.SH EXAMPLES
+.nf
+#include <stdio.h>
+#include <Judy.h>
+
+int main(void) {
+    Pvoid_t PJLArray = (Pvoid_t) NULL;
+    PWord_t PValue;
+    Word_t Index;
+
+    /* Insert keys and values */
+    JLI(PValue, PJLArray, 100);
+    *PValue = 1000;
+
+    JLI(PValue, PJLArray, 200);
+    *PValue = 2000;
+
+    /* Lookup */
+    JLG(PValue, PJLArray, 100);
+    if (PValue) {
+        printf("Key 100 -> %lu\\n", *PValue);
+    }
+
+    /* Iterate in sorted order */
+    Index = 0;
+    JLF(PValue, PJLArray, Index);
+    while (PValue != NULL) {
+        printf("  %lu => %lu\\n", Index, *PValue);
+        JLN(PValue, PJLArray, Index);
+    }
+
+    Word_t BytesFreed;
+    JLFA(BytesFreed, PJLArray);
+    return 0;
+}
+.fi
+.SH SEE ALSO
+.BR Judy (3),
+.BR Judy1 (3),
+.BR JudySL (3),
+.BR expanse_map (3)

@@ -1,0 +1,81 @@
+.TH EXPANSE_BYTESMAP 3 "2026-08-27" "libexpanse" "Expanse C Library Manual"
+.SH NAME
+expanse_bytesmap_new, expanse_bytesmap_free, expanse_bytesmap_clear, \
+expanse_bytesmap_insert, expanse_bytesmap_get, expanse_bytesmap_remove, \
+expanse_bytesmap_slot, expanse_bytesmap_ins_slot, expanse_bytesmap_len, \
+expanse_bytesmap_mem_used \
+\- dynamic map for arbitrary byte slices to 64-bit values
+.SH SYNOPSIS
+.B #include <expanse.h>
+.PP
+.BI "expanse_bytesmap_t *expanse_bytesmap_new(void);"
+.br
+.BI "void                expanse_bytesmap_free(expanse_bytesmap_t *" map ");"
+.br
+.BI "void                expanse_bytesmap_clear(expanse_bytesmap_t *" map ");"
+.PP
+.BI "bool     expanse_bytesmap_insert(expanse_bytesmap_t *" map ","
+.BI "                                 const void *" key ", size_t " len ","
+.BI "                                 uint64_t " "value" ", uint64_t *"
+.BI "old_out" ");"
+.br
+.BI "bool     expanse_bytesmap_get(const expanse_bytesmap_t *" map ","
+.BI "                              const void *" key ", size_t " len ","
+.BI "                              uint64_t *" value_out ");"
+.br
+.BI "bool     expanse_bytesmap_remove(expanse_bytesmap_t *" map ","
+.BI "                                 const void *" key ", size_t " len ","
+.BI "                                 uint64_t *" old_out ");"
+.PP
+.BI "uint64_t *expanse_bytesmap_slot(expanse_bytesmap_t *" map ","
+.BI "                                const void *" key ", size_t " len ");"
+.br
+.BI "uint64_t *expanse_bytesmap_ins_slot(expanse_bytesmap_t *" map ","
+.BI "                                    const void *" key ", size_t " len ");"
+.PP
+.BI "uint64_t expanse_bytesmap_len(const expanse_bytesmap_t *" map ");"
+.br
+.BI "size_t   expanse_bytesmap_mem_used(const expanse_bytesmap_t *" map ");"
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+\fBexpanse_bytesmap_t\fR is a dynamic map from arbitrary byte slices
+(\fBconst void *\fR, \fBsize_t\fR) to 64-bit integer values (\fBuint64_t\fR),
+representing a modernized clean-room equivalent of JudyHS.
+.PP
+Unlike \fBexpanse_strmap_t\fR, keys may contain embedded null bytes (NUL) and
+need not be null-terminated. A length of 0 with a NULL pointer is treated as
+the valid empty key.
+.SH EXAMPLES
+.nf
+#include <stdio.h>
+#include <stdint.h>
+#include <inttypes.h>
+#include <expanse.h>
+
+int main(void) {
+    expanse_bytesmap_t *map = expanse_bytesmap_new();
+
+    uint8_t key1[] = {0x01, 0x00, 0xFE, 0xFF};
+    uint8_t key2[] = {0xAA, 0xBB, 0xCC};
+
+    /* Insert binary keys */
+    expanse_bytesmap_insert(map, key1, sizeof(key1), 100, NULL);
+    expanse_bytesmap_insert(map, key2, sizeof(key2), 200, NULL);
+
+    /* Lookup */
+    uint64_t val;
+    if (expanse_bytesmap_get(map, key1, sizeof(key1), &val)) {
+        printf("key1 -> %" PRIu64 "\\n", val);
+    }
+
+    printf("Total keys: %" PRIu64 "\\n", expanse_bytesmap_len(map));
+    expanse_bytesmap_free(map);
+    return 0;
+}
+.fi
+.SH SEE ALSO
+.BR expanse (3),
+.BR expanse_strmap (3),
+.BR expanse_map (3),
+.BR JudyHS (3)
