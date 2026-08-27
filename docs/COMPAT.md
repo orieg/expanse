@@ -21,7 +21,7 @@ Drop-in compatibility is officially verified for:
 - **AArch64** (Linux, macOS)
 - **RISC-V 64-bit (RV64GC)** (Linux, cross-compiled)
 
-All targets are 64-bit (LP64 or LLP64). 32-bit platforms are not currently supported.
+All verified targets are 64-bit (LP64 or LLP64). 32-bit drop-in compatibility is not currently verified; the 32-bit engine ships through the native Rust and `expanse_*` C surfaces instead (see [design/32-bit-embedded.md](design/32-bit-embedded.md)).
 
 ### hwcaps sub-packages (x86-64-v2 and x86-64-v3)
 
@@ -112,13 +112,13 @@ Modern features (lock-free concurrent reads, iterators, arena controls) are expo
 
 | # | Question the docs leave open | Resolution |
 |---|---|---|
-| D1 | `Word_t` width on LLP64 (Windows): classic header used `unsigned long` | `Word_t` = `size_t` (pointer-width). ABI-identical to classic on LP64 Linux/macOS; 64-bit on Win64, which the consumers we target (php-judy MSVC) require |
+| D1 | `Word_t` width on LLP64 (Windows): classic header used `unsigned long` | `Word_t` = `size_t` (pointer-width). ABI-identical to classic on LP64 Linux/macOS; 64-bit on Win64, which the targeted consumers (php-judy MSVC) require |
 | D2 | `JU_ERRNO_*` numeric values (man pages name the codes, not numbers; the classic header is LGPL and unread) | libexpanse assigns its own stable numbering in `Judy.h`. Source-compatible (names match); numeric equality with classic builds is not guaranteed |
 | D3 | Behavior on allocation failure | Allocation failure aborts (Rust global-allocator convention) instead of returning `JERR`/`PJERR` with `JU_ERRNO_NOMEM`. Recorded as a deviation; revisit if a consumer needs graceful OOM |
-| D4 | `JudyHSFreeArray` byte total | The returned "bytes freed" is implementation-defined (our hash-trie + bucket accounting differs from classic's internals). Both are nonzero for nonempty arrays; the oracle compares emptiness semantics, not byte totals — same stance as `MemUsed` |
-| D5 | Convenience-macro grammar (`JLI`/`J1S`/…) | Statement blocks `{ … ; }`, not expressions. Black-box evidence: php-judy invokes several macros without trailing semicolons at statement position and compiles against classic system libjudy, so classic's macros tolerate that; ours match, accepting both `JLI(...)` and `JLI(...);`. Consequence: the macros cannot be used as expressions, and unbraced `if/else` around one needs braces (no observed consumer does either) |
+| D4 | `JudyHSFreeArray` byte total | The returned "bytes freed" is implementation-defined (libexpanse's hash-trie + bucket accounting differs from classic's internals). Both are nonzero for nonempty arrays; the oracle compares emptiness semantics, not byte totals — same stance as `MemUsed` |
+| D5 | Convenience-macro grammar (`JLI`/`J1S`/…) | Statement blocks `{ … ; }`, not expressions. Black-box evidence: php-judy invokes several macros without trailing semicolons at statement position and compiles against classic system libjudy, so classic's macros tolerate that; the shipped macros match, accepting both `JLI(...)` and `JLI(...);`. Consequence: the macros cannot be used as expressions, and unbraced `if/else` around one needs braces (no observed consumer does either) |
 
-Status: **all four families exported** — Judy1, JudyL, JudySL, and JudyHS — with the shipped `Judy.h`; the gate G1 differential-oracle harness runs in CI against a dlopen'd stock libjudy for all four (randomized op sequences, full-sweep/rank agreement, byte-exact JudySL buffer sweeps, JudyHS byte-key sequences including zero-length keys). **Gate G2 is green**: the php-judy test suite passes built against libexpanse via the libjudy-compat prefix — 221/221 locally (macOS AArch64, PHP 8.5) and as the `php-judy-compat` Linux CI job. **All four gates are green** — G1 (differential oracle), G2 (php-judy Linux), G3 (php-judy Windows against `expanse.dll`), G4 (`LD_PRELOAD` smoke) — each as a standing CI job.
+Status: **all four families exported** — Judy1, JudyL, JudySL, JudyHS — with the shipped `Judy.h`, and **all four gates green**, each as a standing CI job. G1 runs the differential-oracle harness against a `dlopen`'d stock libjudy for all four families (randomized op sequences, full-sweep/rank agreement, byte-exact JudySL buffer sweeps, JudyHS byte-key sequences including zero-length keys). G2 passes the php-judy test suite built against libexpanse via the libjudy-compat prefix — 221/221 locally (macOS AArch64, PHP 8.5) and as the `php-judy-compat` Linux CI job.
 
 ---
 
