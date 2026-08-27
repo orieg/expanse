@@ -1267,3 +1267,107 @@ fn test_live_loader_covers_every_dataset() {
         );
     }
 }
+
+/// Markdown counterpart to [`test_no_stamped_narrative_claims`].
+///
+/// The JSON scanner bans narrative words outright, which works because
+/// `visualizer_data.json` is data -- prose has no business in it. Markdown
+/// cannot use that rule: `docs/BENCHMARKING.md` legitimately says "faster"
+/// on most pages, and the corrections record legitimately *names* a
+/// retracted figure in order to retract it.
+///
+/// So this gate matches a retracted figure only when it appears in its
+/// original claim context, and only when no retraction marker sits within
+/// three lines. That combination is what distinguishes republishing a
+/// withdrawn number from documenting that it was withdrawn.
+///
+/// Calibrated against the tree at the commit that added it: a bare-figure
+/// scan flagged 8 lines, 7 of them false positives (`32.3 ns` is stock
+/// libjudy's real measured figure; `-3.08%` is an unrelated delta). This
+/// form flagged exactly one -- `docs/DATABASE.md` republishing the
+/// retracted Workload E row -- which is fixed in the same commit.
+#[test]
+fn test_retracted_figures_absent_from_markdown() {
+    // (retracted figure, lowercase context that makes it *that* claim)
+    const CLAIMS: &[(&str, &[&str])] = &[
+        ("15.26", &["workload e", "range scan", "scan"]),
+        ("265.8", &["m ops", "mops", "thread", "scal"]),
+        ("284.9", &["m ops", "mops", "set"]),
+        ("12.0\u{d7}", &["thread", "scal"]),
+        ("4.33", &["workload e", "scan", "expanse"]),
+        ("146.7", &["b/entry", "skiplist", "tower"]),
+        ("45% faster", &["judy"]),
+        ("11.1\u{d7}", &["densit", "rocksdb", "b/entry"]),
+    ];
+    const MARKERS: &[&str] = &[
+        "retract",
+        "withdraw",
+        "supersed",
+        "correct",
+        "previously",
+        "no longer",
+        "refuted",
+        "stale",
+        "anti-example",
+        "earlier",
+        "was measured with",
+        "both were",
+    ];
+
+    let mut offenders = Vec::new();
+    for path in markdown_docs() {
+        let text = fs::read_to_string(&path).expect("read markdown doc");
+        let lines: Vec<&str> = text.lines().collect();
+        for (idx, line) in lines.iter().enumerate() {
+            let lower = line.to_lowercase();
+            for (figure, contexts) in CLAIMS {
+                if !line.contains(figure) || !contexts.iter().any(|c| lower.contains(c)) {
+                    continue;
+                }
+                // A retraction marker anywhere in the +/-3 line window means
+                // the figure is being documented as withdrawn, not published.
+                let lo = idx.saturating_sub(3);
+                let hi = (idx + 4).min(lines.len());
+                let window = lines[lo..hi].join("\n").to_lowercase();
+                if MARKERS.iter().any(|m| window.contains(m)) {
+                    continue;
+                }
+                offenders.push(format!(
+                    "{}:{} republishes retracted figure {figure:?}: {}",
+                    path.display(),
+                    idx + 1,
+                    line.trim()
+                ));
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "retracted figures republished in markdown without a retraction marker:\n{}\n\n\
+         AGENTS.md section 8.7 forbids in-place backfilling. Either drop the figure or \
+         state, within three lines, that it was withdrawn and what replaced it.",
+        offenders.join("\n")
+    );
+}
+
+/// Every tracked markdown doc: `README.md` plus `docs/**/*.md`.
+fn markdown_docs() -> Vec<std::path::PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|e| e == "md") {
+                out.push(path);
+            }
+        }
+    }
+    let root = repo_root();
+    let mut out = vec![root.join("README.md")];
+    walk(&root.join("docs"), &mut out);
+    out.sort();
+    out
+}
