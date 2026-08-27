@@ -356,7 +356,7 @@ def render_twins(
     # multiple of the denominator. Encoding the division here keeps the
     # direction the sentence supplied without restating the arithmetic.
     ratio_header = (
-        f"{subject_label} &divide; {baseline_label} (instructions, not time)"
+        f"{subject_label} &divide; {baseline_label} (instruction count, not time)"
     )
     if base_present:
         intro = (
@@ -919,7 +919,7 @@ def render_v3(
 
 def render_vs_stock(counts: dict[str, dict[str, int]]) -> list[str]:
     """The headline comparison: our C ABI against stock libjudy's, in
-    instructions retired, paired by benchmark name."""
+    instruction count, paired by benchmark name."""
     sides = (("_expanse_dl", "dl"), ("_expanse", "ours"), ("_stock", "stock"))
     pairs: dict[str, dict[str, dict[str, int]]] = {}
     for name, metrics in counts.items():
@@ -938,7 +938,7 @@ def render_vs_stock(counts: dict[str, dict[str, int]]) -> list[str]:
         "### vs stock libjudy (deterministic C ABI instructions)",
         "",
         "The comparison that decides whether libexpanse is a viable drop-in: "
-        "**identical C ABI calls, identical key streams**, instructions retired. "
+        "**identical C ABI calls, identical key streams**, instruction count. "
         "Deterministic, so this is reviewable per PR — unlike wall-clock "
         "ratios on shared runners.",
         "",
@@ -1607,7 +1607,7 @@ def self_test() -> int:
     # Both columns are labelled in one header row, so the frame switch is marked.
     header = next(line for line in twin_block.splitlines() if line.startswith("| Group"))
     assert "vs `origin/main`" in header, header
-    assert "Expanse &divide; Roaring (instructions, not time)" in header, header
+    assert "Expanse &divide; Roaring (instruction count, not time)" in header, header
     # The division must be explicit: a bare ratio in a column headed only
     # "vs Roaring" can be read either way round.
     assert "&divide;" in header, header
@@ -1619,6 +1619,9 @@ def self_test() -> int:
     assert "x more" not in out, out
     assert "x fewer" not in out, out
     assert "retires" not in out, out
+    # "instructions retired" is CPU-architecture jargon for a report read by
+    # people who mostly want to know whether a number went up. Say what it is.
+    assert "retired" not in out, out
     # The 1.64x arm renders as a bare ratio under the labelled column — the
     # reading that phrasing got wrong by 61%.
     native = next(line for line in twin_table if "`expanse_native_and`" in line)
