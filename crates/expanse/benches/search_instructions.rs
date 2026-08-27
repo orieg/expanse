@@ -22,7 +22,8 @@ use std::hint::black_box;
 #[path = "search_common/mod.rs"]
 mod common;
 use common::{
-    build_list, expanse_and_count, expanse_skipscan, roaring_skipscan, to_expanse, to_roaring,
+    build_list, expanse_and_count, expanse_and_materialize, expanse_skipscan,
+    roaring_and_materialize, roaring_skipscan, to_expanse, to_roaring,
 };
 
 /// Population per posting list — small enough that callgrind (~50x slowdown)
@@ -98,6 +99,32 @@ fn roaring_and(pair: (RoaringTreemap, RoaringTreemap)) -> u64 {
     black_box(n)
 }
 
+// ---- Boolean AND (materialization) ----------------------------------------
+
+#[library_benchmark]
+#[bench::dense(args = ("dense",), setup = expanse_pair)]
+#[bench::clustered(args = ("clustered",), setup = expanse_pair)]
+#[bench::sparse(args = ("sparse",), setup = expanse_pair)]
+#[bench::zipfian(args = ("zipfian",), setup = expanse_pair)]
+fn expanse_materialize(pair: (ExpanseSet, ExpanseSet)) -> u64 {
+    let (a, b) = pair;
+    let n = expanse_and_materialize(black_box(&a), black_box(&b));
+    core::mem::forget((a, b));
+    black_box(n)
+}
+
+#[library_benchmark]
+#[bench::dense(args = ("dense",), setup = roaring_pair)]
+#[bench::clustered(args = ("clustered",), setup = roaring_pair)]
+#[bench::sparse(args = ("sparse",), setup = roaring_pair)]
+#[bench::zipfian(args = ("zipfian",), setup = roaring_pair)]
+fn roaring_materialize(pair: (RoaringTreemap, RoaringTreemap)) -> u64 {
+    let (a, b) = pair;
+    let n = roaring_and_materialize(black_box(&a), black_box(&b));
+    core::mem::forget((a, b));
+    black_box(n)
+}
+
 // ---- WAND skip-scan -------------------------------------------------------
 
 #[library_benchmark]
@@ -128,12 +155,17 @@ library_benchmark_group!(
 );
 
 library_benchmark_group!(
+    name = materialize;
+    benchmarks = expanse_materialize, roaring_materialize
+);
+
+library_benchmark_group!(
     name = wand;
     benchmarks = expanse_wand, roaring_wand
 );
 
 #[cfg(target_os = "linux")]
-main!(library_benchmark_groups = boolean, wand);
+main!(library_benchmark_groups = boolean, materialize, wand);
 
 #[cfg(not(target_os = "linux"))]
 fn main() {

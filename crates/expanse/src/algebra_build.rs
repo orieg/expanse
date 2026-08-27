@@ -685,6 +685,77 @@ unsafe fn assemble(a: &NodeAlloc, level: u8, digits: Vec<u8>, children: Vec<Edge
     Some(e)
 }
 
+/// Extracts the 256-bit set of populated digits for a branch edge at `level`.
+///
+/// Bit `d` in the returned [`Bitmap256`] is set iff digit `d` is populated in
+/// the subtree under `edge` at the given `level`:
+/// - When `bl < level` (skipping narrow pointer), only the single path digit at
+///   `level` is set.
+/// - For [`BranchL3`] and [`BranchL7`], only the `hdr.num` active digits are set.
+/// - For [`BranchB`], the embedded 256-bit bitmap is returned directly.
+/// - For [`BranchU`], all 256 edge slots are scanned once to collect non-null entries.
+/// - Any non-branch edge triggers [`unreachable!`].
+#[inline]
+unsafe fn branch_populated_bitmap(edge: &Edge, level: u8) -> Bitmap256 {
+    match edge.tag() {
+        Some(EdgeTag::Structural(EdgeType::BranchL3)) => {
+            // SAFETY: live BranchL3 pointer.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+            let bl = b.hdr.level;
+            let mut bm = Bitmap256::new();
+            if bl < level {
+                let pd = edge.decode_bytes(bl)[(level - bl - 1) as usize];
+                bm.set(pd);
+            } else {
+                for &d in &b.hdr.digits[..b.hdr.num as usize] {
+                    bm.set(d);
+                }
+            }
+            bm
+        }
+        Some(EdgeTag::Structural(EdgeType::BranchL7)) => {
+            // SAFETY: live BranchL7 pointer.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
+            let bl = b.hdr.level;
+            let mut bm = Bitmap256::new();
+            if bl < level {
+                let pd = edge.decode_bytes(bl)[(level - bl - 1) as usize];
+                bm.set(pd);
+            } else {
+                for &d in &b.hdr.digits[..b.hdr.num as usize] {
+                    bm.set(d);
+                }
+            }
+            bm
+        }
+        Some(EdgeTag::Structural(EdgeType::BranchB)) => {
+            // SAFETY: live BranchB pointer.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
+            let bl = b.level;
+            if bl < level {
+                let pd = edge.decode_bytes(bl)[(level - bl - 1) as usize];
+                let mut bm = Bitmap256::new();
+                bm.set(pd);
+                bm
+            } else {
+                b.bitmap
+            }
+        }
+        Some(EdgeTag::Structural(EdgeType::BranchU)) => {
+            // SAFETY: live BranchU pointer (BranchU never skips).
+            let b = unsafe { &*edge.node_ptr().cast::<BranchU>() };
+            let mut bm = Bitmap256::new();
+            for d in 0..256 {
+                if !b.edges[d].is_null() {
+                    bm.set(d as u8);
+                }
+            }
+            bm
+        }
+        _ => unreachable!("branch_populated_bitmap called on non-branch edge"),
+    }
+}
+
 /// Structural branch × branch materialization: recurse each digit present on
 /// either side and assemble the survivors.
 ///
@@ -699,21 +770,45 @@ unsafe fn materialize_branch(
     level: u8,
     op: Op,
 ) -> Option<Edge> {
+    // SAFETY: ea is a live branch covering level-expanse per contract.
+    let bm_a = unsafe { branch_populated_bitmap(ea, level) };
+    // SAFETY: eb is a live branch covering level-expanse per contract.
+    let bm_b = unsafe { branch_populated_bitmap(eb, level) };
+
+    let active_bm = match op {
+        Op::And => {
+            let abm = bm_a.and(&bm_b);
+            if abm.is_empty() {
+                return None;
+            }
+            abm
+        }
+        Op::Diff => bm_a,
+        Op::Or | Op::Xor => bm_a.or(&bm_b),
+    };
+
     let mut digits: Vec<u8> = Vec::new();
     let mut children: Vec<Edge> = Vec::new();
-    for d in 0..256u32 {
-        let d = d as u8;
-        // SAFETY: both are live branches at `level`.
-        let ca = unsafe { child_by_digit(ea, level, d) };
-        // SAFETY: both are live branches at `level`.
-        let cb = unsafe { child_by_digit(eb, level, d) };
-        if ca.is_null() && cb.is_null() {
-            continue;
-        }
-        // SAFETY: ca, cb are live-or-null subtrees at `level - 1`.
-        if let Some(child) = unsafe { materialize(a, &ca, &cb, level - 1, op) } {
-            digits.push(d);
-            children.push(child);
+
+    for w in 0..4 {
+        let mut word = active_bm.words[w];
+        while word != 0 {
+            let bit = word.trailing_zeros();
+            word &= word - 1;
+            let d = ((w as u32 * 64) + bit) as u8;
+
+            // SAFETY: both are live branches at `level`.
+            let ca = unsafe { child_by_digit(ea, level, d) };
+            // SAFETY: both are live branches at `level`.
+            let cb = unsafe { child_by_digit(eb, level, d) };
+            if ca.is_null() && cb.is_null() {
+                continue;
+            }
+            // SAFETY: ca, cb are live-or-null subtrees at `level - 1`.
+            if let Some(child) = unsafe { materialize(a, &ca, &cb, level - 1, op) } {
+                digits.push(d);
+                children.push(child);
+            }
         }
     }
     // SAFETY: children are live subtrees at `level - 1`.
