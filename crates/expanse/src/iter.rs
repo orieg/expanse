@@ -89,6 +89,24 @@ enum LeafCursor {
     },
 }
 
+/// Extracts the `(key_suffix, value)` from a 1-key immediate edge.
+#[inline(always)]
+fn unpack_immed_single<const MAP: bool>(edge: &Edge, im: crate::types::ImmedType) -> (u64, u64) {
+    let kb = im.key_bytes() as usize;
+    let mask = if kb >= 8 {
+        u64::MAX
+    } else {
+        (1u64 << (8 * kb)) - 1
+    };
+    let low = if MAP {
+        edge.aux_word() & mask
+    } else {
+        edge.word0() & mask
+    };
+    let value = if MAP { edge.word0() } else { 0 };
+    (low, value)
+}
+
 /// A zero-allocation, stack-based in-order trie iterator.
 pub struct RawIter<const MAP: bool> {
     leaf: LeafCursor,
@@ -214,24 +232,7 @@ impl<const MAP: bool> RawIter<MAP> {
                     // skipping the two 15-wide staging arrays and the wide
                     // cursor copy the multi-key path pays per element.
                     if n == 1 {
-                        let kb = im.key_bytes() as usize;
-                        let (low, value) = if MAP {
-                            // Map immediate: key in the low `kb` aux bytes,
-                            // value in word 0.
-                            let aux = cur_edge.aux_bytes();
-                            let mut kbuf = [0u8; 8];
-                            kbuf[..kb].copy_from_slice(&aux[..kb]);
-                            (
-                                u64::from_le_bytes(kbuf),
-                                u64::from_le_bytes(cur_edge.imm_bytes()),
-                            )
-                        } else {
-                            // Set immediate: key packed in word 0.
-                            let w0 = cur_edge.imm_bytes();
-                            let mut kbuf = [0u8; 8];
-                            kbuf[..kb].copy_from_slice(&w0[..kb]);
-                            (u64::from_le_bytes(kbuf), 0)
-                        };
+                        let (low, value) = unpack_immed_single::<MAP>(&cur_edge, im);
                         self.leaf = LeafCursor::ImmedSingle {
                             key: cur_prefix | low,
                             value,
@@ -1092,6 +1093,17 @@ impl<const MAP: bool> RawIter<MAP> {
                         if !child.is_null() {
                             let child_prefix =
                                 branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
+                            if let Some(EdgeTag::Immed(im)) = child.tag()
+                                && im.key_count() == 1
+                            {
+                                let (low, value) = unpack_immed_single::<MAP>(&child, im);
+                                self.leaf = LeafCursor::ImmedSingle {
+                                    key: child_prefix | low,
+                                    value,
+                                    done: false,
+                                };
+                                return true;
+                            }
                             // SAFETY: child is live edge at bl - 1.
                             unsafe {
                                 self.descend(&child, bl - 1, child_prefix);
@@ -1360,21 +1372,7 @@ impl<const MAP: bool> RawIter<MAP> {
                 EdgeTag::Immed(im) => {
                     let n = im.key_count();
                     if n == 1 {
-                        let kb = im.key_bytes() as usize;
-                        let (low, value) = if MAP {
-                            let aux = cur_edge.aux_bytes();
-                            let mut kbuf = [0u8; 8];
-                            kbuf[..kb].copy_from_slice(&aux[..kb]);
-                            (
-                                u64::from_le_bytes(kbuf),
-                                u64::from_le_bytes(cur_edge.imm_bytes()),
-                            )
-                        } else {
-                            let w0 = cur_edge.imm_bytes();
-                            let mut kbuf = [0u8; 8];
-                            kbuf[..kb].copy_from_slice(&w0[..kb]);
-                            (u64::from_le_bytes(kbuf), 0)
-                        };
+                        let (low, value) = unpack_immed_single::<MAP>(&cur_edge, im);
                         self.leaf = LeafCursor::ImmedSingle {
                             key: cur_prefix | low,
                             value,
@@ -1668,21 +1666,7 @@ impl<const MAP: bool> RawIter<MAP> {
                 EdgeTag::Immed(im) => {
                     let n = im.key_count();
                     if n == 1 {
-                        let kb = im.key_bytes() as usize;
-                        let (low, value) = if MAP {
-                            let aux = cur_edge.aux_bytes();
-                            let mut kbuf = [0u8; 8];
-                            kbuf[..kb].copy_from_slice(&aux[..kb]);
-                            (
-                                u64::from_le_bytes(kbuf),
-                                u64::from_le_bytes(cur_edge.imm_bytes()),
-                            )
-                        } else {
-                            let w0 = cur_edge.imm_bytes();
-                            let mut kbuf = [0u8; 8];
-                            kbuf[..kb].copy_from_slice(&w0[..kb]);
-                            (u64::from_le_bytes(kbuf), 0)
-                        };
+                        let (low, value) = unpack_immed_single::<MAP>(&cur_edge, im);
                         let full_k = cur_prefix | low;
                         if full_k <= end {
                             self.leaf = LeafCursor::ImmedSingle {
@@ -2210,6 +2194,17 @@ impl<const MAP: bool> RawIter<MAP> {
                         if !child.is_null() {
                             let child_prefix =
                                 branch_prefix | (u64::from(d) << (8 * u32::from(bl - 1)));
+                            if let Some(EdgeTag::Immed(im)) = child.tag()
+                                && im.key_count() == 1
+                            {
+                                let (low, value) = unpack_immed_single::<MAP>(&child, im);
+                                self.leaf = LeafCursor::ImmedSingle {
+                                    key: child_prefix | low,
+                                    value,
+                                    done: false,
+                                };
+                                return true;
+                            }
                             // SAFETY: child is live edge at bl - 1.
                             unsafe {
                                 self.descend_max(&child, bl - 1, child_prefix);
@@ -2804,7 +2799,7 @@ mod tests {
         // always zero, so every leaf is a single-key immediate. Exercises the
         // ImmedSingle fast path for both set and map flavors against the
         // ordered std baselines.
-        let n = 20_000u64;
+        let n = if cfg!(miri) { 100u64 } else { 20_000u64 };
 
         let mut set = ExpanseSet::new();
         let mut set_model = BTreeSet::new();
@@ -2899,24 +2894,26 @@ mod tests {
         };
         for &lo in &probes {
             for &hi in &probes {
-                if lo > hi {
-                    continue;
-                }
-                let ws_desc: Vec<u64> = bset.range(lo..=hi).rev().copied().collect();
-                let ws_asc: Vec<u64> = bset.range(lo..=hi).copied().collect();
-                assert_eq!(
-                    set.range_rev(lo..=hi).collect::<Vec<_>>(),
-                    ws_desc,
-                    "set.range_rev({lo}..={hi})"
-                );
+                let (w_set, wm_desc, wm_asc) = if lo <= hi {
+                    let ws: Vec<u64> = bset.range(lo..=hi).copied().collect();
+                    let wmd: Vec<(u64, u64)> =
+                        bmap.range(lo..=hi).rev().map(|(&k, &v)| (k, v)).collect();
+                    let wma: Vec<(u64, u64)> = bmap.range(lo..=hi).map(|(&k, &v)| (k, v)).collect();
+                    (ws, wmd, wma)
+                } else {
+                    (Vec::new(), Vec::new(), Vec::new())
+                };
+
+                let ds: Vec<u64> = set.range_rev(lo..=hi).collect();
+                let mut exp_rev = w_set.clone();
+                exp_rev.reverse();
+                assert_eq!(ds, exp_rev, "set.range_rev({lo}..={hi})");
                 assert_eq!(
                     set.range_rev(lo..=hi).rev().collect::<Vec<_>>(),
-                    ws_asc,
+                    w_set,
                     "set.range_rev({lo}..={hi}).rev()"
                 );
-                let wm_desc: Vec<(u64, u64)> =
-                    bmap.range(lo..=hi).rev().map(|(&k, &v)| (k, v)).collect();
-                let wm_asc: Vec<(u64, u64)> = bmap.range(lo..=hi).map(|(&k, &v)| (k, v)).collect();
+
                 assert_eq!(
                     map.range_rev(lo..=hi).collect::<Vec<_>>(),
                     wm_desc,
@@ -2960,17 +2957,19 @@ mod tests {
 
     #[test]
     fn rev_sparse_single_key_immediates() {
-        let keys: Vec<u64> = (0..5000u64).map(|i| i << 40).collect();
+        let count = if cfg!(miri) { 100u64 } else { 5000u64 };
+        let keys: Vec<u64> = (0..count).map(|i| i << 40).collect();
         check_distribution(&keys);
     }
 
     #[test]
     fn rev_random_distributions() {
+        let count = if cfg!(miri) { 50 } else { 3000 };
         for seed in [1u64, 7, 99, 12345] {
             let mut rng = seeded(seed);
-            let keys: Vec<u64> = (0..3000).map(|_| rng()).collect();
+            let keys: Vec<u64> = (0..count).map(|_| rng()).collect();
             check_distribution(&keys);
-            let masked: Vec<u64> = (0..3000).map(|_| rng() & 0xFFFF).collect();
+            let masked: Vec<u64> = (0..count).map(|_| rng() & 0xFFFF).collect();
             check_distribution(&masked);
         }
     }
@@ -2980,9 +2979,10 @@ mod tests {
         // DoubleEndedIterator contract on the reverse iterators: `next`
         // descends from the top, `next_back` ascends from the bottom, and
         // together they yield every element exactly once, ends never crossing.
+        let count = if cfg!(miri) { 40 } else { 1500 };
         for seed in [3u64, 42, 2024] {
             let mut rng = seeded(seed);
-            let keys: Vec<u64> = (0..1500).map(|_| rng() & 0x3FFF).collect();
+            let keys: Vec<u64> = (0..count).map(|_| rng() & 0x3FFF).collect();
             let (set, map, bset, bmap) = build_pair(&keys);
 
             // Two-ended drain against an ascending model: `next` consumes the
@@ -3029,10 +3029,11 @@ mod tests {
 
     #[test]
     fn test_map_iter_dense_and_sparse() {
+        let count = if cfg!(miri) { 100u64 } else { 5000u64 };
         let mut map = ExpanseMap::new();
         let mut model = BTreeMap::new();
 
-        for i in 0..5000u64 {
+        for i in 0..count {
             let k = (i * 37 + 13) ^ (i << 12);
             let v = k.wrapping_mul(3);
             map.insert(k, v);
