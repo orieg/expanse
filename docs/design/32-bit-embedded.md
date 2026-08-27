@@ -34,7 +34,7 @@ leak-check, cross-compilation for RV32/Cortex-M, 32-bit test execution on
 | §8 `SlabPage32` custom allocator / freelist classes | **Not yet** | arena uses the global allocator via `alloc` |
 | §9 `SeqVersion32` / OCC / concurrent (sync) wrapper | **Not yet** | 32-bit layer is single-threaded (docs no longer claim "lock-free") |
 | §12/§13 QEMU runners, ESP-IDF component | **Not yet** | CI adds RV32/Cortex-M `check` + `i686` test execution; QEMU/ESP-IDF deferred |
-| Published density numbers | **Deferred** | `bytes_per_key_32` reports real measured B/key; publication awaits a tagged, load-controlled re-run per `docs/BENCHMARKING.md` |
+| Published density numbers | **Shipped** | `bytes_per_key_32` reports real measured B/key. These are deterministic `mem_used()/N` byte-accounting values — machine-independent and load-immune, so no quiet-host run applies. Published in `docs/visualizer_data.json` and recomputed from the engine by `tests/test_visualizer_sync.rs`, so a layout change fails CI rather than silently invalidating the figure ([#384](https://github.com/orieg/expanse/issues/384)) |
 
 **Deviation — handle vs raw pointer.** The RFC describes `Edge32` word 0 as
 a raw child pointer. A real heap pointer does not fit in a `u32` on the

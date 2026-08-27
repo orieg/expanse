@@ -5,9 +5,13 @@
 //! by `mem_used()` on the actual digital trie (not a formula). The
 //! assertions are conservative **regression guards** sitting above the
 //! currently-measured values on this build — they exist to catch a density
-//! regression, not to publish a density figure. Published density numbers
-//! are deferred to a later docs pass with a properly tagged, load-controlled
-//! re-run per `docs/BENCHMARKING.md`; do not copy these into README/docs.
+//! regression, not to define the published figure.
+//!
+//! These values are deterministic byte accounting: machine-independent and
+//! load-immune, so the quiet-host rule in `docs/BENCHMARKING.md` does not
+//! apply to them. They are published in `docs/visualizer_data.json` and
+//! recomputed from the engine by `tests/test_visualizer_sync.rs`, so the
+//! published figure cannot drift from the code.
 
 use expanse_trie::{ExpanseBlobMap32, ExpanseMap32, ExpanseSet32, Key32};
 
