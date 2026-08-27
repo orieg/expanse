@@ -1,7 +1,7 @@
 //! Polymorphic 32-Bit Value Slot (`ValueSlot32`).
 //!
 //! Provides inline payload packing (<= 3 bytes, 0 heap allocations),
-//! columnar hot metadata tagging (16-bit meta + 12-bit arena offset),
+//! columnar hot metadata tagging (12-bit meta + 12-bit arena offset),
 //! and transparent raw 32-bit word drop-in C ABI compatibility.
 
 use core::convert::From;
@@ -21,7 +21,7 @@ pub enum SlotTag32 {
     Inline2 = 0x02,
     /// Inline payload with 3 bytes.
     Inline3 = 0x03,
-    /// Arena mode: 16-bit hot metadata + 12-bit slab offset (up to 4096 entries).
+    /// Arena mode: 12-bit hot metadata + 12-bit slab offset (up to 4096 entries).
     Arena = 0x10,
     /// Raw uninterpreted 32-bit word (C ABI drop-in).
     RawWord = 0xFF,

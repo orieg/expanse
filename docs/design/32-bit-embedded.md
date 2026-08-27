@@ -61,7 +61,7 @@ This design establishes a unified 32-bit architecture for Expanse, scaling the d
 3. **Immediate In-Edge Packing up to 7 Bytes**: Packing up to 7 1-byte keys, 3 2-byte keys, or 2 3-byte keys directly inside a single 8-byte edge without heap allocation.
 4. **Polymorphic 32-Bit Value Slots (`ValueSlot32`) & Large-Value Integration (#112)**:
    - **Inline Mode ($\le 3$ bytes)**: Direct 24-bit payload packing in the slot with zero heap allocations.
-   - **Arena Mode**: 16-bit hot metadata (TTL, status flags, sensor threshold) + 12-bit slab offset (4 KiB direct / 64 KiB aligned chunks).
+   - **Arena Mode**: 12-bit hot metadata (TTL, status flags, sensor threshold) + 12-bit slab offset (4 KiB direct / 64 KiB aligned chunks) + the 8-bit tag — 12 + 12 + 8 = 32 bits exactly. (Earlier drafts of this document said 16-bit metadata, which does not fit alongside a 12-bit offset and an 8-bit tag; the shipped widths are gated in [ARCHITECTURE.md §10.5](../ARCHITECTURE.md#105-valueslot--the-8-byte-polymorphic-value-word).)
    - **Raw Word Mode (`0xFF`)**: Transparent 32-bit C ABI drop-in compatibility for classic `JudyL` on 32-bit architectures.
 5. **Microarchitecture-Aware 32-Byte / 64-Byte Cache Alignment**: Optimized node geometries mapped directly to 32-byte cache lines (Cortex-M7, ESP32 cache) and tightly-coupled un-cached SRAM.
 6. **`#![no_std]` & Embedded Concurrency**: Replacing 64-bit atomics with `AtomicU32` / `AtomicUsize` for base `RV32I` architectures, with pluggable support for FreeRTOS `pvPortMalloc` and ESP-IDF `esp_heap_caps_malloc`.
@@ -77,7 +77,7 @@ Key Type:  u64 (8 Bytes)                                 u32 (4 Bytes)
 Tree Depth:8 Levels (L8 -> L1)                           4 Levels (L4 -> L1)
 Edge Size: 16 Bytes                                      8 Bytes (-50% Structural RAM)
 Cache Line:64 Bytes / 128 Bytes                          32 Bytes / 64 Bytes / Un-cached SRAM
-Value Slot:64-bit (<=7B Inline, 32B Meta)                32-bit (<=3B Inline, 16B Meta)
+Value Slot:64-bit (<=7B inline, 24-bit meta)              32-bit (<=3B inline, 12-bit meta)
 Atomics:   AtomicU64 SeqVersion                          AtomicU32 SeqVersion32 (Native RV32A)
 Max Heap:  Exabytes (Virtual Addressing)                 128 KiB - 16 MiB (Strict Physical SRAM)
 ```
@@ -416,10 +416,14 @@ Issue #112 established the polymorphic `ValueSlot` architecture on 64-bit system
 2. Embedded Arena Mode (Hot Metadata + 12-bit Arena Offset):
 +------------------------------------+------------------------------+-------------------+
 | Hot Metadata (TTL / Sensor Flags)  | Arena Chunk Offset (12 bits) | Tag (0x10)        |
-| [31:16] (16 bits)                  | [15:8, 23:20] (12 bits)      | [7:0]             |
+| [31:20] (12 bits)                  | [19:8] (12 bits)             | [7:0]             |
 +------------------------------------+------------------------------+-------------------+
-  - 16-bit Hot Metadata: Directly filterable in registers (e.g. status code, TTL).
+  - 12-bit Hot Metadata: Directly filterable in registers (e.g. status code, TTL).
   - 12-bit Arena Offset: 4 KiB direct offset (or 64 KiB at 16B alignment) per slab.
+  (Both widths are `ValueSlot32::ARENA_META_MASK` / `ARENA_OFFSET_MASK`, gated in
+   ARCHITECTURE.md section 10.5. An earlier revision of this diagram claimed a
+   16-bit metadata field at [31:16] overlapping a 12-bit offset at [15:8, 23:20],
+   which is not a partition of a 32-bit word.)
 
 3. Raw Uninterpreted 32-Bit Machine Word (JudyL C ABI Compatibility):
 +---------------------------------------------------------------------------------------+

@@ -18,7 +18,10 @@
 //!   128-byte lines);
 //! - hardware `popcnt`/`tzcnt` and SIMD byte scanning instead of SWAR bit
 //!   hacks and unrolled scalar loops;
-//! - tagged pointers exploiting 48-bit virtual addressing;
+//! - no upper-bit pointer stealing: the tag byte and the
+//!   population/decode field live in word 1 of the
+//!   16-byte `Edge`, so word 0 keeps the raw untruncated 64-bit pointer
+//!   (correct under 57-bit LA57 and 52-bit ARM64 LVA);
 //! - a modern allocation strategy instead of the custom 2001 chunk allocator;
 //! - optimistic concurrency control for lock-free reads.
 //!
