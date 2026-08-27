@@ -560,18 +560,17 @@ pub(crate) mod cpu_features {
     #[cold]
     #[inline(never)]
     fn detect() -> u8 {
-        // SAFETY: CPUID is universally present on x86-64.
-        let max_leaf = unsafe { core::arch::x86_64::__cpuid(0).eax };
+        let max_leaf = core::arch::x86_64::__cpuid(0).eax;
         if max_leaf == 0 {
             STATE.store(0x01, Ordering::Relaxed);
             return 0x01;
         }
 
-        let leaf0 = unsafe { core::arch::x86_64::__cpuid(0) };
+        let leaf0 = core::arch::x86_64::__cpuid(0);
         let is_amd =
             leaf0.ebx == 0x6874_7541 && leaf0.edx == 0x6974_6e65 && leaf0.ecx == 0x444d_4163;
 
-        let leaf1 = unsafe { core::arch::x86_64::__cpuid(1) };
+        let leaf1 = core::arch::x86_64::__cpuid(1);
         let has_popcnt = (leaf1.ecx & (1 << 23)) != 0;
 
         let base_family = (leaf1.eax >> 8) & 0xF;
@@ -584,7 +583,7 @@ pub(crate) mod cpu_features {
 
         let mut has_fast_bmi2 = false;
         if max_leaf >= 7 {
-            let leaf7 = unsafe { core::arch::x86_64::__cpuid_count(7, 0) };
+            let leaf7 = core::arch::x86_64::__cpuid_count(7, 0);
             let has_bmi2 = (leaf7.ebx & (1 << 8)) != 0;
             if has_bmi2 {
                 // AMD Zen 1/Zen 2 (Family 17h / 15h) microcode pdep (18-250 cycles).
