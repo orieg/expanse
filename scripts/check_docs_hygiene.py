@@ -8,7 +8,8 @@ Fatal (exit 1):
     Infrastructure"): home-directory paths, private LAN IPv4 addresses, and
     any hostname listed in the DOCS_HOSTNAME_DENYLIST environment variable
     (comma-separated; kept out of the repository on purpose — set it as a
-    repository variable, never commit it).
+    repository *secret*, never commit it, and never echo it: matches are
+    reported as "denylisted hostname" without the value).
 
 Advisory (GitHub `::warning::` annotations, exit 0):
   * documents that publish unit-bearing numbers (ns, ops/s, B/key, ×) in tables
@@ -215,7 +216,7 @@ def main() -> int:
     root = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip())
     denylist = [h.strip() for h in os.environ.get("DOCS_HOSTNAME_DENYLIST", "").split(",") if h.strip()]
     if not denylist:
-        print("::notice::DOCS_HOSTNAME_DENYLIST is unset — hostname check skipped (set it as a repository variable; never commit it)")
+        print("::notice::DOCS_HOSTNAME_DENYLIST is unset — hostname check skipped (set it as a repository secret; never commit it)")
 
     fatal = warnings = 0
     for path in tracked_markdown(root):

@@ -181,9 +181,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      # Comma-separated private hostnames to reject in docs/PR text. Set as a
-      # repository variable so the names never enter the repository.
-      DOCS_HOSTNAME_DENYLIST: ${{ vars.DOCS_HOSTNAME_DENYLIST }}
+      # Comma-separated private hostnames to reject in docs/PR text. A SECRET,
+      # not a variable: Actions echoes job `env:` values into the run log, which
+      # is public on this repository, and only secrets are masked (`***`). A
+      # check that exists to keep these names out of public artifacts must not
+      # print them on every run. Cost: secrets are unavailable to fork PRs, so
+      # the hostname check skips there — the script says so and still runs its
+      # other checks.
+      DOCS_HOSTNAME_DENYLIST: ${{ secrets.DOCS_HOSTNAME_DENYLIST }}
       PR_BODY: ${{ github.event.pull_request.body }}
     steps:
       - uses: actions/checkout@v7
