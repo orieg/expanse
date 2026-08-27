@@ -45,6 +45,46 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/bench') || startsWith(github.event.comment.body, '/benchmark')))
     runs-on: [self-hosted, linux]
+    # One in-flight run per (PR, suite): a re-triggered suite supersedes its
+    # own pending run instead of queueing behind the single self-hosted
+    # runner, while a *different* suite on the same PR runs independently and
+    # is arbitrated by the host-wide bench lock further down.
+    #
+    # The suite has to be re-derived here because job-level `concurrency` is
+    # evaluated before any step runs, so `steps.pr-info` is not available yet.
+    # Keep this ladder in sync with the resolver in `Resolve PR info`; the
+    # `noop-` fallback keeps ordinary PR chatter (which the job `if` skips)
+    # out of a real suite's group.
+    concurrency:
+      # Uniform indentation under `>-`: a more-indented continuation line
+      # would be folded literally, leaving raw newlines inside the group key.
+      group: >-
+        ${{ (github.event_name == 'workflow_dispatch'
+        || startsWith(github.event.comment.body, '/bench')
+        || startsWith(github.event.comment.body, '/benchmark'))
+        && 'bench-baremetal' || format('bench-noop-{0}', github.run_id) }}-${{
+        github.event.issue.number || github.event.inputs.pr_number || github.run_id }}-${{
+        github.event_name == 'workflow_dispatch' && github.event.inputs.benchmark_suite
+        || (contains(github.event.comment.body, 'extended')
+        || contains(github.event.comment.body, 'full')) && 'extended'
+        || contains(github.event.comment.body, 'vs_stock') && 'vs_stock'
+        || contains(github.event.comment.body, 'instructions') && 'instructions'
+        || contains(github.event.comment.body, 'comparative') && 'comparative'
+        || contains(github.event.comment.body, 'ycsb') && 'ycsb'
+        || contains(github.event.comment.body, 'concurrency') && 'concurrency'
+        || 'all' }}
+      cancel-in-progress: true
+    # Sized off the longest suite. The longest observed successful run of this
+    # workflow is ~15 min (`all`: dual-pass Callgrind over instructions and
+    # vs_stock); `extended` layers six further `bench_report.py` harness runs
+    # on that same Callgrind work - the N in {10k, 100k, 1M} population sweep
+    # plus the baseline/x86-64-v2/x86-64-v3/native matrix, four of which
+    # rebuild the harness under a different `-C target-cpu`. 180 leaves an
+    # order of magnitude of headroom over the observed maximum while halving
+    # the window in which a wedged run can hold the shared host, versus
+    # GitHub's 6-hour default. Raise it if a real `extended` run ever trips
+    # it: the failure is now visible rather than silent.
+    timeout-minutes: 180
     steps:
       - name: Check permissions
         if: github.event_name == 'issue_comment'
@@ -117,26 +157,104 @@ jobs:
             echo "benchmark_suite=${{ steps.pr-info.outputs.benchmark_suite }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Find comment for start acknowledgment
-        id: fc-start
-        if: steps.vars.outputs.pr_number != ''
-        continue-on-error: true
-        uses: peter-evans/find-comment@v4
-        with:
-          issue-number: ${{ steps.vars.outputs.pr_number }}
-          comment-author: 'github-actions[bot]'
-          body-includes: Bare-Metal Benchmark Results
-
+      # Comment identity: one sticky comment per suite, addressed by the
+      # stable marker `<!-- expanse-bench:<suite> -->` - the same pattern
+      # ci.yml's perf report uses - and never by the human-readable heading.
+      # Two suites requested on one PR therefore own two comments and cannot
+      # clobber each other, and editing the heading cannot silently break
+      # matching the way `body-includes: Bare-Metal Benchmark Results` did.
+      #
+      # This step still runs before checkout and before the bench lock, so it
+      # must never destroy numbers this suite already published: whatever the
+      # comment held is folded into a collapsed <details> and carried until
+      # this run has something real to put in its place. AGENTS.md section 8.7
+      # wants a published figure to keep resolving to a cited run; a result
+      # overwritten by a pending marker stops resolving to anything.
       - name: Post start acknowledgment
+        id: ack
         if: steps.vars.outputs.pr_number != ''
         continue-on-error: true
-        uses: peter-evans/create-or-update-comment@v5
+        uses: actions/github-script@v8
+        env:
+          SUITE: ${{ steps.vars.outputs.benchmark_suite }}
+          PR_NUMBER: ${{ steps.vars.outputs.pr_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
-          comment-id: ${{ steps.fc-start.outputs.comment-id }}
-          issue-number: ${{ steps.vars.outputs.pr_number }}
-          body: |
-            ⏳ Bare-Metal Benchmark Results pending — suite `${{ steps.vars.outputs.benchmark_suite }}` running on the dedicated bare-metal reference host: [view run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          edit-mode: replace
+          script: |
+            const suite = process.env.SUITE;
+            const marker = `<!-- expanse-bench:${suite} -->`;
+            const runMarker = `<!-- expanse-bench-run:${context.runId} -->`;
+            const priorMarker = '<!-- expanse-bench-prior -->';
+            const resultMarker = '<!-- expanse-bench-result -->';
+            const issue_number = Number(process.env.PR_NUMBER);
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+
+            // Carry the previous body forward rather than erasing it. When the
+            // comment is already a pending one its prior block is reused
+            // verbatim, so repeated triggers cannot nest <details> in <details>.
+            let prior = '';
+            if (existing) {
+              const at = existing.body.indexOf(priorMarker);
+              if (at >= 0) {
+                // Already a pending / failed body: reuse its prior block as is.
+                prior = existing.body.slice(at);
+              } else if (existing.body.includes(resultMarker)) {
+                // A finished result. Only a result is worth preserving - a
+                // previous run's failure notice must not be re-presented as
+                // "previous results", which is why this is keyed on a marker
+                // rather than on the heading prose.
+                const kept = existing.body
+                  .split('\n')
+                  .filter(line => !line.startsWith('<!-- expanse-bench'))
+                  .join('\n')
+                  .trim();
+                if (kept) {
+                  prior = [
+                    priorMarker,
+                    '<details>',
+                    `<summary><b>Previous \`${suite}\` results - kept until this run reports</b></summary>`,
+                    '',
+                    kept,
+                    '',
+                    '</details>',
+                  ].join('\n');
+                }
+              }
+            }
+
+            const head = [
+              marker,
+              runMarker,
+              `## ⏳ Bare-Metal Benchmark Results — suite \`${suite}\` (running)`,
+              '',
+              `Running on the dedicated bare-metal reference host: [view run](${process.env.RUN_URL})`,
+              '',
+              'This comment is replaced by the finished numbers, or by the reason the run produced none.',
+            ].join('\n');
+            const body = prior ? `${head}\n\n${prior}\n` : `${head}\n`;
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            }
 
       - name: Checkout code
         uses: actions/checkout@v7
@@ -226,6 +344,10 @@ jobs:
               for tool in valgrind iai-callgrind-runner; do
                 if ! command -v "$tool" >/dev/null 2>&1; then
                   echo "::error::Suite '$SUITE' requires Callgrind, but '$tool' is not installed on this runner. Install valgrind and a version-matched iai-callgrind-runner (see the ci.yml callgrind jobs) before re-triggering."
+                  # Hand the cause to the terminal comment step, so the PR
+                  # says why nothing ran instead of staying at the pending
+                  # marker (AGENTS.md section 8.1).
+                  echo "fail_reason=missing_tool:$tool" >> "$GITHUB_OUTPUT"
                   exit 1
                 fi
               done
@@ -238,12 +360,24 @@ jobs:
           # says who holds the host.
           BENCH_LOCK="${EXPANSE_BENCH_LOCK:-${TMPDIR:-/tmp}/expanse-bench.lock}"
           if ! mkdir "${BENCH_LOCK}" 2>/dev/null; then
-            echo "::error::refusing to start: benchmark lock ${BENCH_LOCK} is held by:"
-            { cat "${BENCH_LOCK}/owner" 2>/dev/null || true; } >&2
+            LOCK_OWNER="$( { cat "${BENCH_LOCK}/owner" 2>/dev/null || true; } | head -n 1 | tr -d '\r' )"
+            [ -n "$LOCK_OWNER" ] || LOCK_OWNER="unknown (lock directory present, no owner record)"
+            echo "::error::refusing to start: benchmark lock ${BENCH_LOCK} is held by: ${LOCK_OWNER}"
+            # Publish the holder to the terminal comment step so a refused
+            # start reads as refused, and names who holds the host, instead
+            # of leaving the pending marker as the final state.
+            {
+              echo "fail_reason=lock_held"
+              echo "lock_owner=${LOCK_OWNER}"
+            } >> "$GITHUB_OUTPUT"
             exit 75
           fi
           printf 'suite=ci-%s pid=%s start=%s\n' "$SUITE" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${BENCH_LOCK}/owner"
-          trap 'rm -rf "${BENCH_LOCK}"' EXIT
+          # INT and TERM as well as EXIT: a run superseded through the job's
+          # concurrency group, or stopped by timeout-minutes, is signalled
+          # before it is killed, and a lock left behind on this host would
+          # refuse every later run.
+          trap 'rm -rf "${BENCH_LOCK}"' EXIT INT TERM
 
           # Detect / resolve base_ref if not explicitly provided
           if [ -z "$BASE_REF" ]; then
@@ -503,29 +637,147 @@ jobs:
             fi
           fi
 
-      - name: Find Comment
-        if: steps.vars.outputs.pr_number != ''
-        uses: peter-evans/find-comment@v4
-        id: fc
+      # Terminal comment. `if: always()` so every outcome overwrites this
+      # suite's own pending marker: a permanent ⏳ is exactly the "renders as
+      # still working" shape AGENTS.md section 8.1 forbids. The failure branch
+      # names the actual cause - lock holder, missing Callgrind tooling, build
+      # or bench failure, cancellation - and always links the run.
+      #
+      # A run that produced no numbers keeps the prior result block the
+      # acknowledgment carried, so a failed run never erases a good one, and
+      # a run whose comment a newer run already claimed stands down rather
+      # than overwriting fresher numbers with stale ones.
+      - name: Publish benchmark comment
+        if: always() && steps.vars.outputs.pr_number != ''
+        uses: actions/github-script@v8
+        env:
+          SUITE: ${{ steps.vars.outputs.benchmark_suite }}
+          PR_NUMBER: ${{ steps.vars.outputs.pr_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HOST_DESC: ${{ steps.sysinfo.outputs.host_desc }}
+          HEAD_REF: ${{ steps.vars.outputs.ref }}
+          BASE_LINE: ${{ steps.bench.outputs.base_line }}
+          BENCH_OUTCOME: ${{ steps.bench.outcome }}
+          FAIL_REASON: ${{ steps.bench.outputs.fail_reason }}
+          LOCK_OWNER: ${{ steps.bench.outputs.lock_owner }}
+          JOB_STATUS: ${{ job.status }}
         with:
-          issue-number: ${{ steps.vars.outputs.pr_number }}
-          comment-author: 'github-actions[bot]'
-          body-includes: Bare-Metal Benchmark Results
+          script: |
+            const suite = process.env.SUITE;
+            const marker = `<!-- expanse-bench:${suite} -->`;
+            const runMarker = `<!-- expanse-bench-run:${context.runId} -->`;
+            const priorMarker = '<!-- expanse-bench-prior -->';
+            // Stamped on a body that actually carries numbers, so the next
+            // run's acknowledgment can tell a result from a failure notice.
+            const resultMarker = '<!-- expanse-bench-result -->';
+            const runUrl = process.env.RUN_URL;
+            const issue_number = Number(process.env.PR_NUMBER);
 
-      - name: Create or update PR comment
-        if: steps.vars.outputs.pr_number != ''
-        uses: peter-evans/create-or-update-comment@v5
-        with:
-          comment-id: ${{ steps.fc.outputs.comment-id }}
-          issue-number: ${{ steps.vars.outputs.pr_number }}
-          body: |
-            ## 🚀 Bare-Metal Benchmark Results (dedicated reference host)
+            const outcome = process.env.BENCH_OUTCOME || 'skipped';
+            const reason = process.env.FAIL_REASON || '';
+            const cancelled = outcome === 'cancelled' || process.env.JOB_STATUS === 'cancelled';
+            // BENCH_REPORT reaches this step through GITHUB_ENV, written by the
+            // benchmark step; it is absent whenever that step produced nothing.
+            const report = (process.env.BENCH_REPORT || '').trim();
 
-            - **Host**: `${{ steps.sysinfo.outputs.host_desc || 'unknown (host probe failed)' }}`
-            - **Suite**: `${{ steps.vars.outputs.benchmark_suite }}`
-            - **Ref**: `${{ steps.vars.outputs.ref }}`
-            ${{ steps.bench.outputs.base_line || '- **Base Ref**: _none — no base comparison ran_' }}
-            - **Runner**: `self-hosted (baremetal, dedicated reference host)`
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
 
-            ${{ env.BENCH_REPORT }}
-          edit-mode: replace
+            if (existing) {
+              const owner = existing.body.match(/<!-- expanse-bench-run:(\d+) -->/);
+              if (owner && Number(owner[1]) > context.runId) {
+                core.notice(`Run ${owner[1]} already owns the ${suite} comment; leaving it in place.`);
+                return;
+              }
+            }
+
+            let prior = '';
+            if (existing) {
+              const at = existing.body.indexOf(priorMarker);
+              if (at >= 0) prior = existing.body.slice(at);
+            }
+
+            let body;
+            if (outcome === 'success' && report) {
+              body = [
+                marker,
+                runMarker,
+                resultMarker,
+                `## 🚀 Bare-Metal Benchmark Results — suite \`${suite}\` (dedicated reference host)`,
+                '',
+                `- **Host**: \`${process.env.HOST_DESC || 'unknown (host probe failed)'}\``,
+                `- **Suite**: \`${suite}\``,
+                `- **Ref**: \`${process.env.HEAD_REF}\``,
+                process.env.BASE_LINE || '- **Base Ref**: _none — no base comparison ran_',
+                '- **Runner**: `self-hosted (baremetal, dedicated reference host)`',
+                `- **Run**: [${context.runId}](${runUrl})`,
+                '',
+                report,
+                '',
+              ].join('\n');
+            } else {
+              let icon = '❌';
+              let label = 'no results';
+              let cause;
+              if (cancelled) {
+                icon = '🛑';
+                label = 'cancelled';
+                cause = 'The run was **cancelled** - superseded by a newer `/bench` for this same suite, stopped by hand, or stopped by the job timeout. No numbers were produced.';
+              } else if (reason === 'lock_held') {
+                label = 'refused';
+                cause = [
+                  'The run was **refused before any benchmark started**: the host-wide bench lock was already held. One suite runs at a time on this host.',
+                  '',
+                  'Lock holder:',
+                  '',
+                  '```text',
+                  process.env.LOCK_OWNER || 'unknown (lock directory present, no owner record)',
+                  '```',
+                  '',
+                  'Re-trigger once the holder finishes.',
+                ].join('\n');
+              } else if (reason.startsWith('missing_tool:')) {
+                label = 'refused';
+                const tool = reason.slice('missing_tool:'.length);
+                cause = `The run was **refused before any benchmark started**: suite \`${suite}\` needs Callgrind, but \`${tool}\` is not installed on the runner. Install \`valgrind\` and a version-matched \`iai-callgrind-runner\` (see the \`ci.yml\` Callgrind jobs) before re-triggering.`;
+              } else if (outcome === 'failure') {
+                cause = 'The benchmark step **failed** - build error, benchmark crash, or a host problem. The failing command is in the job log.';
+              } else if (outcome === 'success') {
+                cause = 'The benchmark step reported success but produced **no report**. That is a harness fault, not a result: treat this run as having measured nothing.';
+              } else {
+                cause = 'The job **failed before the benchmarks started** - permission check, checkout, or host probe. The failing step is in the job log.';
+              }
+
+              const lines = [
+                marker,
+                runMarker,
+                `## ${icon} Bare-Metal Benchmark Results — suite \`${suite}\` (${label})`,
+                '',
+                cause,
+                '',
+                `[View run](${runUrl})`,
+              ];
+              if (prior) lines.push('', prior);
+              body = lines.join('\n') + '\n';
+            }
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            }
