@@ -135,7 +135,7 @@ jobs:
           comment-id: ${{ steps.fc-start.outputs.comment-id }}
           issue-number: ${{ steps.vars.outputs.pr_number }}
           body: |
-            ⏳ Bare-Metal Benchmark Results pending — suite `${{ steps.vars.outputs.benchmark_suite }}` running on `honeycomb`: [view run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            ⏳ Bare-Metal Benchmark Results pending — suite `${{ steps.vars.outputs.benchmark_suite }}` running on the dedicated bare-metal reference host: [view run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           edit-mode: replace
 
       - name: Checkout code
@@ -506,13 +506,13 @@ jobs:
           comment-id: ${{ steps.fc.outputs.comment-id }}
           issue-number: ${{ steps.vars.outputs.pr_number }}
           body: |
-            ## 🚀 Bare-Metal Benchmark Results (`honeycomb`)
+            ## 🚀 Bare-Metal Benchmark Results (dedicated reference host)
 
             - **Host**: `${{ steps.sysinfo.outputs.host_desc || 'unknown (host probe failed)' }}`
             - **Suite**: `${{ steps.vars.outputs.benchmark_suite }}`
             - **Ref**: `${{ steps.vars.outputs.ref }}`
             ${{ steps.bench.outputs.base_line || '- **Base Ref**: _none — no base comparison ran_' }}
-            - **Runner**: `self-hosted (baremetal / honeycomb)`
+            - **Runner**: `self-hosted (baremetal, dedicated reference host)`
 
             ${{ env.BENCH_REPORT }}
           edit-mode: replace
