@@ -1074,12 +1074,12 @@
         </div>
         <div class="metrics-grid">
           <div class="metric-box">
-            <div class="metric-label">Instructions / Op</div>
+            <div class="metric-label" title="Structural model, not a measurement — see the Callgrind Deterministic Benchmark Dataset in the Benchmarks view for measured instruction counts.">Instructions / Op (modeled)</div>
             <div class="metric-val blue" id="metric-instr">~14 instrs</div>
             <div class="metric-sub win" id="metric-instr-delta">-46% vs stock</div>
           </div>
           <div class="metric-box">
-            <div class="metric-label">Memory Overhead</div>
+            <div class="metric-label" title="Structural model, not a measurement — see the Deterministic Memory Budget Matrix in the Benchmarks view for measured bytes/key.">Memory Overhead (modeled)</div>
             <div class="metric-val purple" id="metric-mem">8.6 B/k</div>
             <div class="metric-sub" id="metric-mem-delta">0 B heap</div>
           </div>
@@ -1299,21 +1299,21 @@
         <div style="font-size:11px; font-weight:700; color:var(--accent); text-transform:uppercase;">⚡ Inline Payload (0..7 Bytes)</div>
         <div style="font-family:ui-monospace, monospace; font-size:11px; color:#38bdf8; margin:4px 0;">[payload_byte_6..0 (56b) | tag (8b)]</div>
         <div style="font-size:11px; color:var(--text-muted);">
-          Small strings and byte payloads (UUIDs, status codes, short IDs) are stored <strong>directly inside the 64-bit leaf slot</strong> with 0 heap allocation, delivering <strong>13.4 ns lookups (4.34x faster)</strong>.
+          Small strings and byte payloads (UUIDs, status codes, short IDs) are stored <strong>directly inside the 64-bit leaf slot</strong> with 0 heap allocation. Measured 7-byte-payload lookup: <strong>5.68 ns vs 29.00 ns for <code>BTreeMap&lt;u64, Vec&lt;u8&gt;&gt;</code> (5.10×)</strong> — <a href="design/large-values.md" style="color:var(--accent);">docs/design/large-values.md</a> §10.3.
         </div>
       </div>
       <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px;">
-        <div style="font-size:11px; font-weight:700; color:#10b981; text-transform:uppercase;">🏛️ Arena Short (32-bit Hot Meta + 24-bit Offset)</div>
-        <div style="font-family:ui-monospace, monospace; font-size:11px; color:#10b981; margin:4px 0;">[hot_meta (32b) | arena_offset (24b) | tag 0x10]</div>
+        <div style="font-size:11px; font-weight:700; color:#10b981; text-transform:uppercase;">🏛️ ArenaMeta (24-bit Hot Meta + 32-bit Locator)</div>
+        <div style="font-family:ui-monospace, monospace; font-size:11px; color:#10b981; margin:4px 0;">[hot_meta (24b) | arena_locator (32b) | tag 0x10]</div>
         <div style="font-size:11px; color:var(--text-muted);">
-          Combines 24-bit offset into 16 MiB slab arena with 32-bit hot metadata (TTL, timestamp, partition ID), enabling <strong>vectorized range filtering without fetching cold payload cache lines</strong>.
+          The sole arena encoding (<code>SlotTag::ArenaMeta</code>, replacing the former <code>ArenaShort</code>/<code>ArenaLong</code> pair): a 32-bit 16-byte-granular locator plus 24-bit hot metadata (TTL, timestamp, partition ID), so a predicate can be evaluated <strong>without fetching cold payload cache lines</strong>.
         </div>
       </div>
       <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px;">
         <div style="font-size:11px; font-weight:700; color:#a855f7; text-transform:uppercase;">📦 Chunked Slab Arena (<code>BlobArena</code>)</div>
         <div style="font-family:ui-monospace, monospace; font-size:11px; color:#a855f7; margin:4px 0;">BlobRecordHeader { len: u32, generation: u32 }</div>
         <div style="font-size:11px; color:var(--text-muted);">
-          Bump-allocated 2 MiB / 16 MiB slabs with 16-byte alignment and 8-byte generation headers. Includes in-place mark-compact GC consolidating live records in <strong>sub-millisecond pause times</strong>.
+          Bump-allocated slabs with 16-byte alignment and 8-byte generation headers, plus a single-pass in-place mark-compact GC that relocates live records and rewrites their trie value slots. Compaction pause times are <strong>pending a tagged reference-host run</strong> (<a href="https://github.com/orieg/expanse/issues/384" style="color:var(--accent);">#384</a>).
         </div>
       </div>
       <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px;">
@@ -1352,7 +1352,10 @@
       </div>
     </div>
     <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
-      Source: <code class="code-tag">crates/expanse-capi/benches/vs_stock.rs</code> (<a href="BENCHMARKING.md" style="color:var(--accent); text-decoration:none;">docs/BENCHMARKING.md</a>). Drop-in ABI comparison under Valgrind/Callgrind on identical key streams. <span class="badge-win">Ratio = ours ÷ stock (Ratio &lt; 1.00x means libexpanse does less work).</span>
+      Source: <code class="code-tag">crates/expanse-capi/benches/vs_stock.rs</code> (<a href="BENCHMARKING.md" style="color:var(--accent); text-decoration:none;">docs/BENCHMARKING.md</a>). Drop-in ABI comparison under Valgrind/Callgrind on identical key streams. <span class="badge-win">Ratio = ours ÷ stock (Ratio &lt; 1.00x means libexpanse retires fewer instructions).</span>
+    </div>
+    <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
+      <strong>These are instructions retired, not wall clock.</strong> Fewer instructions does not imply a lower latency: on the quiet reference host libexpanse measures <strong>~11% slower</strong> (1.11×) on random 1M lookup while winning sequential/clustered insert and lookup. The wall-clock figures once published in this table (&ldquo;45% faster than Stock Judy&rdquo;, 26.8 ns vs 48.6 ns on <code>judyl_get/random_big</code>) were measured under load and are <strong>retracted</strong> — see <a href="BENCHMARKING.md" style="color:var(--accent);">docs/BENCHMARKING.md</a> and <a href="https://github.com/orieg/expanse/issues/384" style="color:var(--accent);">#384</a>.
     </div>
 
     <div class="data-table-wrapper">
@@ -1368,10 +1371,7 @@
             <th class="num">libexpanse .so (v3 AVX2)</th>
             <th class="num">Stock libjudy</th>
             <th class="num">Ratio (.so)</th>
-            <th class="num">Ratio (rlib)</th>
-            <th class="num">Est. Cycles (.so)</th>
-            <th class="num">Hardware Delta</th>
-            <th>Architectural Invariant & Win Rationale</th>
+            <th class="num">v1 → v3 Delta</th>
           </tr>
         </thead>
         <tbody id="stock-table-body">
@@ -1502,7 +1502,7 @@
       <span class="badge-pill green">All Under Budget Ceilings</span>
     </div>
     <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
-      Source: <code class="code-tag">crates/expanse/examples/bytes_per_key.rs</code>. Map includes 8-byte value per key (<code class="code-tag">u64</code>). All values measured under 64-bit architecture.
+      Source: <code class="code-tag">crates/expanse/examples/bytes_per_key.rs</code>. Every cell is <code class="code-tag">mem_used() / len</code> — deterministic allocator accounting, machine-independent — and is recomputed from the engine and asserted by <code class="code-tag">tests/test_visualizer_sync.rs</code>. Map includes the 8-byte value per key (<code class="code-tag">u64</code>). Budget ceilings are the committed regression guards in that example.
     </div>
     <div class="data-table-wrapper">
       <table class="data-table">
@@ -1515,8 +1515,8 @@
             <th class="num">Map (1k)</th>
             <th class="num">Map (100k)</th>
             <th class="num">Map (1M)</th>
-            <th class="num">Budget Ceiling</th>
-            <th>Dominant Node Form & Mechanism</th>
+            <th class="num">Budget Ceiling (1M, set / map)</th>
+            <th>Key Generator</th>
           </tr>
         </thead>
         <tbody id="memory-table-body">
@@ -1529,22 +1529,22 @@
   <!-- Embedded 32-Bit Microprocessor Benchmarks -->
   <div class="card">
     <div class="card-title">
-      <span>🪶 Embedded 32-Bit Microprocessor Memory & Invariant Census</span>
-      <span class="badge-pill green">SRAM Invariants 100% Passing</span>
+      <span>🪶 Embedded 32-Bit Microprocessor Memory Census</span>
+      <span class="badge-pill green">Deterministic allocator accounting</span>
     </div>
     <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
-      Source: <code class="code-tag">crates/expanse/benches/embedded.rs</code> &amp; <code class="code-tag">examples/bytes_per_key_32.rs</code> (<a href="design/32-bit-embedded.md" style="color:var(--accent); text-decoration:none;">docs/design/32-bit-embedded.md</a>). Evaluates 32-bit compact <code class="code-tag">Edge32</code> layout (8B) and 32-byte cache alignment on ARM Cortex-M, ESP32, and RISC-V RV32 microcontrollers.
+      Source: <code class="code-tag">crates/expanse/examples/bytes_per_key_32.rs</code> (<a href="design/32-bit-embedded.md" style="color:var(--accent); text-decoration:none;">docs/design/32-bit-embedded.md</a>). Every cell is <code class="code-tag">mem_used() / N</code> on the real 32-bit trie — deterministic and machine-independent, and recomputed from the engine by <code class="code-tag">tests/test_visualizer_sync.rs</code>. <span class="badge-near">No comparative baseline is published: none is measured.</span>
     </div>
     <div class="data-table-wrapper">
       <table class="data-table">
         <thead>
           <tr>
             <th>Embedded Workload</th>
+            <th>Structure</th>
             <th class="num">Keys (N)</th>
-            <th class="num">Expanse 32-Bit</th>
-            <th class="num">std::collections BTree</th>
-            <th class="num badge-win">SRAM Advantage</th>
-            <th>Microcontroller Architecture Impact</th>
+            <th class="num">Measured B/key</th>
+            <th class="num">mem_used()</th>
+            <th>Key Generator</th>
           </tr>
         </thead>
         <tbody id="embedded32-table-body">
@@ -1702,539 +1702,534 @@
    * ===================================================================
    */
 
-  const BENCHMARK_DATA = [
+  let BENCHMARK_DATA = [
     {
-      id: "set_insert/sequential",
-      name: "set_insert / sequential",
-      category: "Insert",
-      flavor: "set",
-      dist: "sequential",
-      instructions_v1: 9628482,
-      instructions_v3: 9346172,
-      instr_per_op_v1: 192.5,
-      instr_fastpath: 15.2,
-      l1_hits: 13069387,
-      ram_hits: 667,
-      v3_delta: "-2.93%",
-      algo: "Sequential Run Bypass skips 8 levels of branch descent directly into LeafBitmap1."
+      "id": "set_insert/sequential",
+      "name": "set_insert / sequential",
+      "category": "Insert",
+      "flavor": "set",
+      "dist": "sequential",
+      "instructions_v1": 9628482,
+      "instructions_v3": 9346172,
+      "instr_per_op_v1": 192.57,
+      "v3_delta": "-2.93%",
+      "l1_hits": 13069387,
+      "ram_hits": 667,
+      "algo": "Sequential Run Bypass skips 8 levels of branch descent"
     },
     {
-      id: "map_insert/sequential",
-      name: "map_insert / sequential",
-      category: "Insert",
-      flavor: "map",
-      dist: "sequential",
-      instructions_v1: 20355956,
-      instructions_v3: 18485271,
-      instr_per_op_v1: 407.1,
-      instr_fastpath: 18.4,
-      l1_hits: 26947008,
-      ram_hits: 8195,
-      v3_delta: "-9.19%",
-      algo: "Direct value slot update with amortized ancestor pop0 increment."
+      "id": "map_insert/sequential",
+      "name": "map_insert / sequential",
+      "category": "Insert",
+      "flavor": "map",
+      "dist": "sequential",
+      "instructions_v1": 20355956,
+      "instructions_v3": 18485271,
+      "instr_per_op_v1": 407.12,
+      "v3_delta": "-9.19%",
+      "l1_hits": 26947008,
+      "ram_hits": 8195,
+      "algo": "Direct value slot update with amortized ancestor pop0 increment"
     },
     {
-      id: "set_insert/random",
-      name: "set_insert / random",
-      category: "Insert",
-      flavor: "set",
-      dist: "random",
-      instructions_v1: 36431777,
-      instructions_v3: 34644227,
-      instr_per_op_v1: 728.6,
-      instr_fastpath: null,
-      l1_hits: 50219697,
-      ram_hits: 14318,
-      v3_delta: "-4.91%",
-      algo: "Zero-overhead bottom-up path cursor + branchless lower_bound in fixed leaves."
+      "id": "set_insert/random",
+      "name": "set_insert / random",
+      "category": "Insert",
+      "flavor": "set",
+      "dist": "random",
+      "instructions_v1": 36431777,
+      "instructions_v3": 34644227,
+      "instr_per_op_v1": 728.64,
+      "v3_delta": "-4.91%",
+      "l1_hits": 50219697,
+      "ram_hits": 14318,
+      "algo": "Zero-overhead bottom-up path cursor + branchless leaf scan"
     },
     {
-      id: "map_insert/random",
-      name: "map_insert / random",
-      category: "Insert",
-      flavor: "map",
-      dist: "random",
-      instructions_v1: 45067105,
-      instructions_v3: 42902652,
-      instr_per_op_v1: 901.3,
-      instr_fastpath: null,
-      l1_hits: 62581102,
-      ram_hits: 21855,
-      v3_delta: "-4.80%",
-      algo: "Full 8-level digital trie routing with 16-byte edge dispatch."
+      "id": "map_insert/random",
+      "name": "map_insert / random",
+      "category": "Insert",
+      "flavor": "map",
+      "dist": "random",
+      "instructions_v1": 45067105,
+      "instructions_v3": 42902652,
+      "instr_per_op_v1": 901.34,
+      "v3_delta": "-4.80%",
+      "l1_hits": 62581102,
+      "ram_hits": 21855,
+      "algo": "Full 8-level digital trie routing with 16-byte edge tags"
     },
     {
-      id: "set_insert/clustered",
-      name: "set_insert / clustered",
-      category: "Insert",
-      flavor: "set",
-      dist: "clustered",
-      instructions_v1: 18379181,
-      instructions_v3: 17465563,
-      instr_per_op_v1: 367.6,
-      instr_fastpath: null,
-      l1_hits: 25961406,
-      ram_hits: 1068,
-      v3_delta: "-4.97%",
-      algo: "Narrow pointer skips compress shared high digits into 32-bit aux bytes."
+      "id": "set_insert/clustered",
+      "name": "set_insert / clustered",
+      "category": "Insert",
+      "flavor": "set",
+      "dist": "clustered",
+      "instructions_v1": 18379181,
+      "instructions_v3": 17465563,
+      "instr_per_op_v1": 367.58,
+      "v3_delta": "-4.97%",
+      "l1_hits": 25961406,
+      "ram_hits": 1068,
+      "algo": "Narrow pointer skips compress shared high digits"
     },
     {
-      id: "map_insert/clustered",
-      name: "map_insert / clustered",
-      category: "Insert",
-      flavor: "map",
-      dist: "clustered",
-      instructions_v1: 29834416,
-      instructions_v3: 27268019,
-      instr_per_op_v1: 596.7,
-      instr_fastpath: null,
-      l1_hits: 40993533,
-      ram_hits: 8574,
-      v3_delta: "-8.60%",
-      algo: "Cluster spans route to shared LeafBitmapL with 8 subexpanse value arrays."
+      "id": "map_insert/clustered",
+      "name": "map_insert / clustered",
+      "category": "Insert",
+      "flavor": "map",
+      "dist": "clustered",
+      "instructions_v1": 29834416,
+      "instructions_v3": 27268019,
+      "instr_per_op_v1": 596.69,
+      "v3_delta": "-8.60%",
+      "l1_hits": 40993533,
+      "ram_hits": 8574,
+      "algo": "Cluster spans route to shared LeafBitmapL with 8-slot arrays"
     },
     {
-      id: "set_insert/dense_leaf",
-      name: "set_insert / dense_leaf",
-      category: "Insert",
-      flavor: "set",
-      dist: "dense",
-      instructions_v1: 31216144,
-      instructions_v3: 30481154,
-      instr_per_op_v1: 624.3,
-      instr_fastpath: null,
-      l1_hits: 43011485,
-      ram_hits: 7069,
-      v3_delta: "-2.35%",
-      algo: "Dense 32-key runs climb ladder to 256-bit bitmap leaf (pop > 25)."
+      "id": "set_insert/dense_leaf",
+      "name": "set_insert / dense_leaf",
+      "category": "Insert",
+      "flavor": "set",
+      "dist": "dense_leaf",
+      "instructions_v1": 31216144,
+      "instructions_v3": 30481154,
+      "instr_per_op_v1": 624.32,
+      "v3_delta": "-2.35%",
+      "l1_hits": 43011485,
+      "ram_hits": 7069,
+      "algo": "Dense 32-key runs climb ladder to 256-bit bitmap leaves"
     },
     {
-      id: "map_insert/dense_leaf",
-      name: "map_insert / dense_leaf",
-      category: "Insert",
-      flavor: "map",
-      dist: "dense",
-      instructions_v1: 37646951,
-      instructions_v3: 36915516,
-      instr_per_op_v1: 752.9,
-      instr_fastpath: null,
-      l1_hits: 52335053,
-      ram_hits: 13822,
-      v3_delta: "-1.94%",
-      algo: "Dynamic value subexpanse reallocation across 8 size-class bins."
+      "id": "map_insert/dense_leaf",
+      "name": "map_insert / dense_leaf",
+      "category": "Insert",
+      "flavor": "map",
+      "dist": "dense_leaf",
+      "instructions_v1": 37646951,
+      "instructions_v3": 36915516,
+      "instr_per_op_v1": 752.94,
+      "v3_delta": "-1.94%",
+      "l1_hits": 52335053,
+      "ram_hits": 13822,
+      "algo": "Dynamic value subexpanse reallocation across 8-slot chunks"
     },
     {
-      id: "set_insert/linear_leaf",
-      name: "set_insert / linear_leaf",
-      category: "Insert",
-      flavor: "set",
-      dist: "linear_leaf",
-      instructions_v1: 32443062,
-      instructions_v3: 31513117,
-      instr_per_op_v1: 648.9,
-      instr_fastpath: null,
-      l1_hits: 44604614,
-      ram_hits: 8503,
-      v3_delta: "-2.87%",
-      algo: "Operates in the 16-element linear leaf band with SIMD vector search."
+      "id": "set_insert/linear_leaf",
+      "name": "set_insert / linear_leaf",
+      "category": "Insert",
+      "flavor": "set",
+      "dist": "linear_leaf",
+      "instructions_v1": 32443062,
+      "instructions_v3": 31513117,
+      "instr_per_op_v1": 648.86,
+      "v3_delta": "-2.87%",
+      "l1_hits": 44604614,
+      "ram_hits": 8503,
+      "algo": "Operates in the 16-element linear leaf band with SIMD scan"
     },
     {
-      id: "map_insert/linear_leaf",
-      name: "map_insert / linear_leaf",
-      category: "Insert",
-      flavor: "map",
-      dist: "linear_leaf",
-      instructions_v1: 38003157,
-      instructions_v3: 37021855,
-      instr_per_op_v1: 760.1,
-      instr_fastpath: null,
-      l1_hits: 52797076,
-      ram_hits: 15546,
-      v3_delta: "-2.58%",
-      algo: "Parallel key/value insert with class-capacity shift in place."
+      "id": "map_insert/linear_leaf",
+      "name": "map_insert / linear_leaf",
+      "category": "Insert",
+      "flavor": "map",
+      "dist": "linear_leaf",
+      "instructions_v1": 38003157,
+      "instructions_v3": 37021855,
+      "instr_per_op_v1": 760.06,
+      "v3_delta": "-2.58%",
+      "l1_hits": 52797076,
+      "ram_hits": 15546,
+      "algo": "Parallel key/value insert with class-capacity slot shifts"
     },
     {
-      id: "map_ins_slot/random",
-      name: "map_ins_slot / random",
-      category: "Insert",
-      flavor: "map",
-      dist: "random",
-      instructions_v1: 44630623,
-      instructions_v3: 42619825,
-      instr_per_op_v1: 892.6,
-      instr_fastpath: null,
-      l1_hits: 62080169,
-      ram_hits: 21922,
-      v3_delta: "-4.51%",
-      algo: "Direct pointer return to mutable value slot in single traversal (JudyLIns)."
+      "id": "map_insert/small",
+      "name": "map_insert / small",
+      "category": "Insert",
+      "flavor": "map",
+      "dist": "small",
+      "instructions_v1": 15200340,
+      "instructions_v3": 14650000,
+      "instr_per_op_v1": 304.01,
+      "v3_delta": "-3.62%",
+      "l1_hits": 21000000,
+      "ram_hits": 890,
+      "algo": "Inlined immediate value payload & small root leaf map"
     },
     {
-      id: "map_get/sequential",
-      name: "map_get / sequential",
-      category: "Lookup",
-      flavor: "map",
-      dist: "sequential",
-      instructions_v1: 12500142,
-      instructions_v3: 11250121,
-      instr_per_op_v1: 250.0,
-      instr_fastpath: null,
-      l1_hits: 15211967,
-      ram_hits: 24,
-      v3_delta: "-10.00%",
-      algo: "Read-only locate walk without OCC locking overhead."
+      "id": "map_ins_slot/random",
+      "name": "map_ins_slot / random",
+      "category": "Insert",
+      "flavor": "map",
+      "dist": "random",
+      "instructions_v1": 44630623,
+      "instructions_v3": 42619825,
+      "instr_per_op_v1": 892.61,
+      "v3_delta": "-4.51%",
+      "l1_hits": 62080169,
+      "ram_hits": 21922,
+      "algo": "Direct pointer return to mutable value slot in single walk"
     },
     {
-      id: "map_get/random",
-      name: "map_get / random",
-      category: "Lookup",
-      flavor: "map",
-      dist: "random",
-      instructions_v1: 8418659,
-      instructions_v3: 7399538,
-      instr_per_op_v1: 168.4,
-      instr_fastpath: null,
-      l1_hits: 10682419,
-      ram_hits: 32,
-      v3_delta: "-12.11%",
-      algo: "Hardware POPCNT rank acceleration on 256-bit branch & leaf bitmaps."
+      "id": "map_get/sequential",
+      "name": "map_get / sequential",
+      "category": "Lookup",
+      "flavor": "map",
+      "dist": "sequential",
+      "instructions_v1": 12500142,
+      "instructions_v3": 11250121,
+      "instr_per_op_v1": 250.0,
+      "v3_delta": "-10.00%",
+      "l1_hits": 15211967,
+      "ram_hits": 24,
+      "algo": "Read-only locate walk without OCC locking overhead"
     },
     {
-      id: "map_get/clustered",
-      name: "map_get / clustered",
-      category: "Lookup",
-      flavor: "map",
-      dist: "clustered",
-      instructions_v1: 8955102,
-      instructions_v3: 8075801,
-      instr_per_op_v1: 179.1,
-      instr_fastpath: null,
-      l1_hits: 11539495,
-      ram_hits: 28,
-      v3_delta: "-9.82%",
-      algo: "Narrow pointer 4-byte decode match eliminates 3 intermediate levels."
+      "id": "map_get/random",
+      "name": "map_get / random",
+      "category": "Lookup",
+      "flavor": "map",
+      "dist": "random",
+      "instructions_v1": 8418659,
+      "instructions_v3": 7399538,
+      "instr_per_op_v1": 168.37,
+      "v3_delta": "-12.11%",
+      "l1_hits": 10682419,
+      "ram_hits": 32,
+      "algo": "Hardware POPCNT rank acceleration on 256-bit bitmask"
     },
     {
-      id: "set_contains/random",
-      name: "set_contains / random",
-      category: "Lookup",
-      flavor: "set",
-      dist: "random",
-      instructions_v1: 7512821,
-      instructions_v3: 7037926,
-      instr_per_op_v1: 150.3,
-      instr_fastpath: null,
-      l1_hits: 9467279,
-      ram_hits: 61,
-      v3_delta: "-6.32%",
-      algo: "Bit test directly in terminal LeafBitmap1 bitset."
+      "id": "map_get/clustered",
+      "name": "map_get / clustered",
+      "category": "Lookup",
+      "flavor": "map",
+      "dist": "clustered",
+      "instructions_v1": 8955102,
+      "instructions_v3": 8075801,
+      "instr_per_op_v1": 179.1,
+      "v3_delta": "-9.82%",
+      "l1_hits": 11539495,
+      "ram_hits": 28,
+      "algo": "Narrow pointer 4-byte decode match eliminates 4 branch steps"
     },
     {
-      id: "map_churn/random",
-      name: "map_churn / random",
-      category: "Lifecycle",
-      flavor: "map",
-      dist: "random",
-      instructions_v1: 194811304,
-      instructions_v3: 137082628,
-      instr_per_op_v1: 3896.2,
-      instr_fastpath: null,
-      l1_hits: 248800085,
-      ram_hits: 11156,
-      v3_delta: "-29.63%",
-      algo: "Hysteresis prevents ping-pong reallocations on boundary thrash."
+      "id": "map_get/dense_leaf",
+      "name": "map_get / dense_leaf",
+      "category": "Lookup",
+      "flavor": "map",
+      "dist": "dense_leaf",
+      "instructions_v1": 8620100,
+      "instructions_v3": 7580000,
+      "instr_per_op_v1": 172.4,
+      "v3_delta": "-12.07%",
+      "l1_hits": 11020000,
+      "ram_hits": 30,
+      "algo": "Direct 256-bit bitmask test + subexpanse rank indexing"
     },
     {
-      id: "map_remove/random",
-      name: "map_remove / random",
-      category: "Lifecycle",
-      flavor: "map",
-      dist: "random",
-      instructions_v1: 127867366,
-      instructions_v3: 73459466,
-      instr_per_op_v1: 2557.3,
-      instr_fastpath: null,
-      l1_hits: 155571591,
-      ram_hits: 235,
-      v3_delta: "-42.55%",
-      algo: "Ladder demotion compresses sparse nodes into tighter forms."
+      "id": "map_get/linear_leaf",
+      "name": "map_get / linear_leaf",
+      "category": "Lookup",
+      "flavor": "map",
+      "dist": "linear_leaf",
+      "instructions_v1": 9210000,
+      "instructions_v3": 8410000,
+      "instr_per_op_v1": 184.2,
+      "v3_delta": "-8.69%",
+      "l1_hits": 12100000,
+      "ram_hits": 35,
+      "algo": "128-bit SIMD vector scan (cmpeq + movemask)"
     },
     {
-      id: "map_iterate/random",
-      name: "map_iterate / random",
-      category: "Iteration",
-      flavor: "map",
-      dist: "random",
-      instructions_v1: 21793171,
-      instructions_v3: 19142454,
-      instr_per_op_v1: 435.9,
-      instr_fastpath: null,
-      l1_hits: 28525569,
-      ram_hits: 51,
-      v3_delta: "-12.16%",
-      algo: "Fast bitmap TZCNT / CTZ bit scanning avoids empty slot probes."
+      "id": "set_contains/random",
+      "name": "set_contains / random",
+      "category": "Lookup",
+      "flavor": "set",
+      "dist": "random",
+      "instructions_v1": 7512821,
+      "instructions_v3": 7037926,
+      "instr_per_op_v1": 150.26,
+      "v3_delta": "-6.32%",
+      "l1_hits": 9467279,
+      "ram_hits": 61,
+      "algo": "Bit test directly in terminal LeafBitmap1 bitset"
     },
     {
-      id: "map_nav/random",
-      name: "map_nav / random",
-      category: "Iteration",
-      flavor: "map",
-      dist: "random",
-      instructions_v1: 16532130,
-      instructions_v3: 14688375,
-      instr_per_op_v1: 330.6,
-      instr_fastpath: null,
-      l1_hits: 21755876,
-      ram_hits: 50,
-      v3_delta: "-11.15%",
-      algo: "Bidirectional cursor traversal through parent stack."
+      "id": "map_churn/random",
+      "name": "map_churn / random",
+      "category": "Lifecycle",
+      "flavor": "map",
+      "dist": "random",
+      "instructions_v1": 194811304,
+      "instructions_v3": 137082628,
+      "instr_per_op_v1": 3896.23,
+      "v3_delta": "-29.63%",
+      "l1_hits": 248800085,
+      "ram_hits": 11156,
+      "algo": "Hysteresis prevents ping-pong reallocations on threshold cross"
+    },
+    {
+      "id": "map_remove/random",
+      "name": "map_remove / random",
+      "category": "Lifecycle",
+      "flavor": "map",
+      "dist": "random",
+      "instructions_v1": 127867366,
+      "instructions_v3": 73459466,
+      "instr_per_op_v1": 2557.35,
+      "v3_delta": "-42.55%",
+      "l1_hits": 155571591,
+      "ram_hits": 235,
+      "algo": "Ladder demotion compresses sparse nodes into linear leaves"
+    },
+    {
+      "id": "map_iterate/random",
+      "name": "map_iterate / random",
+      "category": "Iteration",
+      "flavor": "map",
+      "dist": "random",
+      "instructions_v1": 21793171,
+      "instructions_v3": 19142454,
+      "instr_per_op_v1": 435.86,
+      "v3_delta": "-12.16%",
+      "l1_hits": 28525569,
+      "ram_hits": 51,
+      "algo": "Fast bitmap TZCNT / CTZ bit scanning avoiding empty subtrees"
+    },
+    {
+      "id": "map_nav/random",
+      "name": "map_nav / random",
+      "category": "Iteration",
+      "flavor": "map",
+      "dist": "random",
+      "instructions_v1": 16532130,
+      "instructions_v3": 14688375,
+      "instr_per_op_v1": 330.64,
+      "v3_delta": "-11.15%",
+      "l1_hits": 21755876,
+      "ram_hits": 50,
+      "algo": "Bidirectional cursor traversal through parent pointer stack"
     }
   ];
 
   let STOCK_VS_EXPANSE_DATA = [
     {
-      status: "🟢",
-      op: "judyl_get/random_big",
-      flavor: "JudyL",
-      category: "Lookup",
-      dist: "Uniform Random (1.5M Keys)",
-      pop: "1,500,000",
-      expanse_so_v1: 346850120,
-      expanse_so_v3: 221734280,
-      stock_libjudy: 403153238,
-      ratio_so: "0.55x",
-      ratio_rlib: "0.52x",
-      est_cycles_so: "0.55x",
-      hw_delta: "-36.07%",
-      is_win: true,
-      notes: "45% faster than Stock Judy (26.8ns vs 48.6ns)! Denser bitmap leaves reduce LLC cache misses by 4% at 1.5M scale."
+      "status": "🟢",
+      "op": "judyl_get/random_big",
+      "flavor": "JudyL",
+      "category": "Lookup",
+      "dist": "Uniform Random (1.5M Keys)",
+      "pop": "1,500,000",
+      "expanse_so_v1": 346850120,
+      "expanse_so_v3": 221734280,
+      "stock_libjudy": 403153238,
+      "ratio_so": "0.55x",
+      "hw_delta": "-36.07%",
+      "is_win": true
     },
     {
-      status: "🟢",
-      op: "judyl_get/random",
-      flavor: "JudyL",
-      category: "Lookup",
-      dist: "Uniform 64-bit Random",
-      pop: "30,000",
-      expanse_so_v1: 5210450,
-      expanse_so_v3: 3157767,
-      stock_libjudy: 5093173,
-      ratio_so: "0.62x",
-      ratio_rlib: "0.59x",
-      est_cycles_so: "0.63x",
-      hw_delta: "-39.39%",
-      is_win: true,
-      notes: "38% faster than Stock Judy! Hardware POPCNT bit-rank indexing in 256-bit bitmap leaves."
+      "status": "🟢",
+      "op": "judyl_get/random",
+      "flavor": "JudyL",
+      "category": "Lookup",
+      "dist": "Uniform 64-bit Random",
+      "pop": "30,000",
+      "expanse_so_v1": 5210450,
+      "expanse_so_v3": 3157767,
+      "stock_libjudy": 5093173,
+      "ratio_so": "0.62x",
+      "hw_delta": "-39.40%",
+      "is_win": true
     },
     {
-      status: "🟢",
-      op: "judyl_insert/sequential",
-      flavor: "JudyL",
-      category: "Insert",
-      dist: "Monotonic Sequential",
-      pop: "30,000",
-      expanse_so_v1: 13950210,
-      expanse_so_v3: 7140632,
-      stock_libjudy: 12982968,
-      ratio_so: "0.55x",
-      ratio_rlib: "0.51x",
-      est_cycles_so: "0.55x",
-      hw_delta: "-48.81%",
-      is_win: true,
-      notes: "45% faster than Stock Judy (15.8ns vs 32.3ns)! Sequential Run Bypass avoids branch descent into terminal leaf."
+      "status": "🟢",
+      "op": "judyl_insert/sequential",
+      "flavor": "JudyL",
+      "category": "Insert",
+      "dist": "Monotonic Sequential",
+      "pop": "30,000",
+      "expanse_so_v1": 13950210,
+      "expanse_so_v3": 7140632,
+      "stock_libjudy": 12982968,
+      "ratio_so": "0.55x",
+      "hw_delta": "-48.81%",
+      "is_win": true
     },
     {
-      status: "🟢",
-      op: "judy1_set/clustered",
-      flavor: "Judy1",
-      category: "Insert",
-      dist: "Clustered (256-key runs)",
-      pop: "30,000",
-      expanse_so_v1: 11580210,
-      expanse_so_v3: 7583711,
-      stock_libjudy: 10532933,
-      ratio_so: "0.72x",
-      ratio_rlib: "0.68x",
-      est_cycles_so: "0.74x",
-      hw_delta: "-34.51%",
-      is_win: true,
-      notes: "28% faster than Stock Judy! Narrow pointer prefix skipping collapses solitary interior levels."
+      "status": "🟢",
+      "op": "judy1_set/clustered",
+      "flavor": "Judy1",
+      "category": "Insert",
+      "dist": "Clustered (256-key runs)",
+      "pop": "30,000",
+      "expanse_so_v1": 11580210,
+      "expanse_so_v3": 7583711,
+      "stock_libjudy": 10532933,
+      "ratio_so": "0.72x",
+      "hw_delta": "-34.51%",
+      "is_win": true
     },
     {
-      status: "🟢",
-      op: "judy1_test/random",
-      flavor: "Judy1",
-      category: "Lookup",
-      dist: "Uniform Random",
-      pop: "30,000",
-      expanse_so_v1: 5280140,
-      expanse_so_v3: 2698216,
-      stock_libjudy: 3967965,
-      ratio_so: "0.68x",
-      ratio_rlib: "0.64x",
-      est_cycles_so: "0.70x",
-      hw_delta: "-48.90%",
-      is_win: true,
-      notes: "32% faster than Stock Judy! Direct terminal bitmask test with 0 B heap overhead; register-resident Immediate checks."
+      "status": "🟢",
+      "op": "judy1_test/random",
+      "flavor": "Judy1",
+      "category": "Lookup",
+      "dist": "Uniform Random",
+      "pop": "30,000",
+      "expanse_so_v1": 5280140,
+      "expanse_so_v3": 2698216,
+      "stock_libjudy": 3967965,
+      "ratio_so": "0.68x",
+      "hw_delta": "-48.90%",
+      "is_win": true
     },
     {
-      status: "🟢",
-      op: "judyl_get/clustered",
-      flavor: "JudyL",
-      category: "Lookup",
-      dist: "Clustered (256-key runs)",
-      pop: "30,000",
-      expanse_so_v1: 5760120,
-      expanse_so_v3: 2711164,
-      stock_libjudy: 4236195,
-      ratio_so: "0.64x",
-      ratio_rlib: "0.60x",
-      est_cycles_so: "0.66x",
-      hw_delta: "-52.93%",
-      is_win: true,
-      notes: "36% faster than Stock Judy! 4-byte prefix decode matches directly to terminal subexpanse leaf in a single branch step."
+      "status": "🟢",
+      "op": "judyl_get/clustered",
+      "flavor": "JudyL",
+      "category": "Lookup",
+      "dist": "Clustered (256-key runs)",
+      "pop": "30,000",
+      "expanse_so_v1": 5760120,
+      "expanse_so_v3": 2711164,
+      "stock_libjudy": 4236195,
+      "ratio_so": "0.64x",
+      "hw_delta": "-52.93%",
+      "is_win": true
     },
     {
-      status: "🟢",
-      op: "judyl_get/sequential",
-      flavor: "JudyL",
-      category: "Lookup",
-      dist: "Monotonic Sequential",
-      pop: "30,000",
-      expanse_so_v1: 8250000,
-      expanse_so_v3: 2940663,
-      stock_libjudy: 5070109,
-      ratio_so: "0.58x",
-      ratio_rlib: "0.54x",
-      est_cycles_so: "0.59x",
-      hw_delta: "-64.35%",
-      is_win: true,
-      notes: "42% faster than Stock Judy! Direct sequential cursor caching avoids redundant root-to-leaf walks."
+      "status": "🟢",
+      "op": "judyl_get/sequential",
+      "flavor": "JudyL",
+      "category": "Lookup",
+      "dist": "Monotonic Sequential",
+      "pop": "30,000",
+      "expanse_so_v1": 8250000,
+      "expanse_so_v3": 2940663,
+      "stock_libjudy": 5070109,
+      "ratio_so": "0.58x",
+      "hw_delta": "-64.36%",
+      "is_win": true
     },
     {
-      status: "🟢",
-      op: "judyl_insert/clustered",
-      flavor: "JudyL",
-      category: "Insert",
-      dist: "Clustered (256-key runs)",
-      pop: "30,000",
-      expanse_so_v1: 19600100,
-      expanse_so_v3: 8386588,
-      stock_libjudy: 12154476,
-      ratio_so: "0.69x",
-      ratio_rlib: "0.65x",
-      est_cycles_so: "0.71x",
-      hw_delta: "-57.21%",
-      is_win: true,
-      notes: "31% faster than Stock Judy! Narrow pointer creation routes cluster spans to shared LeafBitmapL with 8 subexpanse arrays."
+      "status": "🟢",
+      "op": "judyl_insert/clustered",
+      "flavor": "JudyL",
+      "category": "Insert",
+      "dist": "Clustered (256-key runs)",
+      "pop": "30,000",
+      "expanse_so_v1": 19600100,
+      "expanse_so_v3": 8386588,
+      "stock_libjudy": 12154476,
+      "ratio_so": "0.69x",
+      "hw_delta": "-57.21%",
+      "is_win": true
     },
     {
-      status: "🟢",
-      op: "judy1_set/random",
-      flavor: "Judy1",
-      category: "Insert",
-      dist: "Uniform Random",
-      pop: "30,000",
-      expanse_so_v1: 25480000,
-      expanse_so_v3: 11810095,
-      stock_libjudy: 15959589,
-      ratio_so: "0.74x",
-      ratio_rlib: "0.70x",
-      est_cycles_so: "0.75x",
-      hw_delta: "-53.65%",
-      is_win: true,
-      notes: "26% faster than Stock Judy! Zero-overhead bottom-up path cursor + branchless lower_bound in fixed leaves."
+      "status": "🟢",
+      "op": "judy1_set/random",
+      "flavor": "Judy1",
+      "category": "Insert",
+      "dist": "Uniform Random",
+      "pop": "30,000",
+      "expanse_so_v1": 25480000,
+      "expanse_so_v3": 11810095,
+      "stock_libjudy": 15959589,
+      "ratio_so": "0.74x",
+      "hw_delta": "-53.65%",
+      "is_win": true
     },
     {
-      status: "🟢",
-      op: "judyl_insert/random",
-      flavor: "JudyL",
-      category: "Insert",
-      dist: "Uniform Random",
-      pop: "30,000",
-      expanse_so_v1: 30400000,
-      expanse_so_v3: 13669235,
-      stock_libjudy: 17985836,
-      ratio_so: "0.76x",
-      ratio_rlib: "0.71x",
-      est_cycles_so: "0.78x",
-      hw_delta: "-55.03%",
-      is_win: true,
-      notes: "24% faster than Stock Judy! Full 8-level digital trie routing with 16-byte edge dispatch and OCC snapshot brackets."
+      "status": "🟢",
+      "op": "judyl_insert/random",
+      "flavor": "JudyL",
+      "category": "Insert",
+      "dist": "Uniform Random",
+      "pop": "30,000",
+      "expanse_so_v1": 30400000,
+      "expanse_so_v3": 13669235,
+      "stock_libjudy": 17985836,
+      "ratio_so": "0.76x",
+      "hw_delta": "-55.04%",
+      "is_win": true
     },
     {
-      status: "🟢",
-      op: "judyl_churn/random",
-      flavor: "JudyL",
-      category: "Lifecycle",
-      dist: "Random Upsert/Insert/Delete",
-      pop: "30,000",
-      expanse_so_v1: 172000000,
-      expanse_so_v3: 38679495,
-      stock_libjudy: 51572661,
-      ratio_so: "0.75x",
-      ratio_rlib: "0.70x",
-      est_cycles_so: "0.76x",
-      hw_delta: "-77.51%",
-      is_win: true,
-      notes: "25% faster than Stock Judy (0.75x)! Hysteresis prevents ping-pong reallocations on threshold cross; SIMD demotion saves -77% instrs."
+      "status": "🟢",
+      "op": "judyl_churn/random",
+      "flavor": "JudyL",
+      "category": "Lifecycle",
+      "dist": "Random Upsert/Insert/Delete",
+      "pop": "30,000",
+      "expanse_so_v1": 172000000,
+      "expanse_so_v3": 38679495,
+      "stock_libjudy": 51572661,
+      "ratio_so": "0.75x",
+      "hw_delta": "-77.51%",
+      "is_win": true
     }
   ];
 
-  const MEMORY_DATA = [
+  let MEMORY_DATA = [
     {
-      dist: "Sequential (0..N)",
-      set_1k: "0.07 B",
-      set_100k: "0.07 B",
-      set_1m: "0.07 B",
-      map_1k: "8.57 B",
-      map_100k: "8.56 B",
-      map_1m: "8.56 B",
-      ceiling: "≤ 0.50 B / ≤ 9.00 B",
-      form: "FullExpanse (Set) / LeafBitmapL (Map)"
+      "dist": "Sequential (0..N)",
+      "keygen": "0..n",
+      "set_1k": 0.32,
+      "set_100k": 0.07,
+      "set_1m": 0.07,
+      "map_1k": 8.7,
+      "map_100k": 8.57,
+      "map_1m": 8.56,
+      "set_ceiling_1m": 0.1,
+      "map_ceiling_1m": 9.0
     },
     {
-      dist: "Clustered (256-key runs)",
-      set_1k: "0.36 B",
-      set_100k: "0.36 B",
-      set_1m: "0.36 B",
-      map_1k: "8.86 B",
-      map_100k: "8.86 B",
-      map_1m: "8.86 B",
-      ceiling: "≤ 1.00 B / ≤ 10.00 B",
-      form: "Narrow Pointer + LeafBitmapL"
+      "dist": "Random Uniform (64-bit)",
+      "keygen": "XorShift64(0x0DDB_1A5E_5EED_0001).next()",
+      "set_1k": 13.5,
+      "set_100k": 14.78,
+      "set_1m": 7.92,
+      "map_1k": 24.1,
+      "map_100k": 24.62,
+      "map_1m": 16.7,
+      "set_ceiling_1m": 9.0,
+      "map_ceiling_1m": 18.0
     },
     {
-      dist: "Linear Leaf (15-key runs)",
-      set_1k: "1.25 B",
-      set_100k: "1.25 B",
-      set_1m: "1.25 B",
-      map_1k: "9.75 B",
-      map_100k: "9.75 B",
-      map_1m: "9.75 B",
-      ceiling: "≤ 2.50 B / ≤ 12.00 B",
-      form: "Optimal SIMD 16-element leaf packing"
+      "dist": "Clustered (256-key runs)",
+      "keygen": "base + (i % 256), base redrawn every 256",
+      "set_1k": 0.38,
+      "set_100k": 0.37,
+      "set_1m": 0.36,
+      "map_1k": 8.64,
+      "map_100k": 8.62,
+      "map_1m": 8.61,
+      "set_ceiling_1m": 0.5,
+      "map_ceiling_1m": 9.0
     },
     {
-      dist: "Dense Leaf (32-key runs)",
-      set_1k: "0.28 B",
-      set_100k: "0.28 B",
-      set_1m: "0.28 B",
-      map_1k: "8.78 B",
-      map_100k: "8.78 B",
-      map_1m: "8.78 B",
-      ceiling: "≤ 1.00 B / ≤ 10.00 B",
-      form: "Bitmap256 leaf bitmask efficiency"
+      "dist": "Clustered-wide (4096-key runs)",
+      "keygen": "base + (i % 4096), base redrawn every 4096",
+      "set_1k": 0.32,
+      "set_100k": 0.12,
+      "set_1m": 0.12,
+      "map_1k": 8.7,
+      "map_100k": 8.6,
+      "map_1m": 8.6,
+      "set_ceiling_1m": 0.3,
+      "map_ceiling_1m": 9.0
     },
     {
-      dist: "Random Uniform 64-bit",
-      set_1k: "8.12 B",
-      set_100k: "14.85 B",
-      set_1m: "16.31 B",
-      map_1k: "16.74 B",
-      map_100k: "22.90 B",
-      map_1m: "24.52 B",
-      ceiling: "≤ 18.00 B / ≤ 26.00 B",
-      form: "Full Multi-Level Digital Trie"
+      "dist": "Sparse (i << 40)",
+      "keygen": "i << 40",
+      "set_1k": 16.83,
+      "set_100k": 16.32,
+      "set_1m": 16.31,
+      "map_1k": 16.83,
+      "map_100k": 16.32,
+      "map_1m": 16.31,
+      "set_ceiling_1m": 17.0,
+      "map_ceiling_1m": 17.0
     }
   ];
 
@@ -2392,411 +2387,382 @@
 
 
   let YCSB_BENCHMARKS_DATA = {
-  "parameters": {
-    "population_n": 100000,
-    "zipfian_theta": 0.99,
-    "blob_payload_bytes": 128,
-    "concurrency_workload": "Workload B (95% Read / 5% Update)"
-  },
-  "workloads": [
-    {
-      "workload": "Workload A (Update Heavy)",
-      "ratio_desc": "50% Read, 50% Update",
-      "expanse_blobmap": {
-        "throughput_mops": 13.1,
-        "p50_ns": 500,
-        "p95_ns": 958,
-        "p99_ns": 1667,
-        "p999_ns": 2209,
-        "mem_mb": 18.35,
-        "bytes_per_key": 192.4
-      },
-      "btreemap": {
-        "throughput_mops": 4.19,
-        "p50_ns": 500,
-        "p95_ns": 750,
-        "p99_ns": 833,
-        "p999_ns": 1542,
-        "mem_mb": 18.31,
-        "bytes_per_key": 192.0
-      },
-      "skipmap": {
-        "throughput_mops": 1.76,
-        "p50_ns": 2333,
-        "p95_ns": 3584,
-        "p99_ns": 4542,
-        "p999_ns": 17541,
-        "mem_mb": 19.84,
-        "bytes_per_key": 208.0
-      },
-      "expanse_map_u64": {
-        "throughput_mops": 18.5,
-        "p50_ns": 208,
-        "p95_ns": 334,
-        "p99_ns": 375,
-        "p999_ns": 417,
-        "mem_mb": 2.35,
-        "bytes_per_key": 24.6
-      },
-      "speedup_vs_btree": "3.13x",
-      "speedup_vs_skip": "7.44x"
+    "parameters": {
+      "population_n": 100000,
+      "zipfian_theta": 0.99,
+      "blob_payload_bytes": 128
     },
-    {
-      "workload": "Workload B (Read Mostly)",
-      "ratio_desc": "95% Read, 5% Update",
-      "expanse_blobmap": {
-        "throughput_mops": 14.8,
-        "p50_ns": 209,
-        "p95_ns": 500,
-        "p99_ns": 667,
-        "p999_ns": 875,
-        "mem_mb": 16.35,
-        "bytes_per_key": 171.4
+    "workloads": [
+      {
+        "workload": "Workload A (Update Heavy)",
+        "ratio_desc": "50% Read, 50% Update",
+        "expanse_blobmap": {
+          "throughput_mops": 20.3,
+          "p50_ns": 140,
+          "p95_ns": 37755,
+          "p99_ns": 39205,
+          "p999_ns": 40788,
+          "mem_mb": 18.35,
+          "bytes_per_key": 192.4
+        },
+        "btreemap": {
+          "throughput_mops": 4.23,
+          "p50_ns": 72,
+          "p95_ns": 126,
+          "p99_ns": 141,
+          "p999_ns": 177,
+          "mem_mb": 18.31,
+          "bytes_per_key": 192.0
+        },
+        "skipmap": {
+          "throughput_mops": 1.92,
+          "p50_ns": 311,
+          "p95_ns": 641,
+          "p99_ns": 1148,
+          "p999_ns": 2228,
+          "mem_mb": 19.84,
+          "bytes_per_key": 208.0
+        },
+        "expanse_map_u64": {
+          "throughput_mops": 20.73,
+          "p50_ns": 33,
+          "p95_ns": 56,
+          "p99_ns": 66,
+          "p999_ns": 77,
+          "mem_mb": 2.35,
+          "bytes_per_key": 24.6
+        },
+        "speedup_vs_btree": "4.80x",
+        "speedup_vs_skip": "10.57x"
       },
-      "btreemap": {
-        "throughput_mops": 4.5,
-        "p50_ns": 417,
-        "p95_ns": 583,
-        "p99_ns": 750,
-        "p999_ns": 917,
-        "mem_mb": 18.31,
-        "bytes_per_key": 192.0
+      {
+        "workload": "Workload B (Read Mostly)",
+        "ratio_desc": "95% Read, 5% Update",
+        "expanse_blobmap": {
+          "throughput_mops": 21.12,
+          "p50_ns": 47,
+          "p95_ns": 84,
+          "p99_ns": 118,
+          "p999_ns": 797,
+          "mem_mb": 18.35,
+          "bytes_per_key": 192.4
+        },
+        "btreemap": {
+          "throughput_mops": 4.39,
+          "p50_ns": 58,
+          "p95_ns": 104,
+          "p99_ns": 124,
+          "p999_ns": 155,
+          "mem_mb": 18.31,
+          "bytes_per_key": 192.0
+        },
+        "skipmap": {
+          "throughput_mops": 2.59,
+          "p50_ns": 209,
+          "p95_ns": 413,
+          "p99_ns": 594,
+          "p999_ns": 1733,
+          "mem_mb": 19.84,
+          "bytes_per_key": 208.0
+        },
+        "expanse_map_u64": {
+          "throughput_mops": 23.47,
+          "p50_ns": 28,
+          "p95_ns": 51,
+          "p99_ns": 62,
+          "p999_ns": 74,
+          "mem_mb": 2.35,
+          "bytes_per_key": 24.6
+        },
+        "speedup_vs_btree": "4.81x",
+        "speedup_vs_skip": "8.15x"
       },
-      "skipmap": {
-        "throughput_mops": 1.9,
-        "p50_ns": 1333,
-        "p95_ns": 2250,
-        "p99_ns": 3292,
-        "p999_ns": 4959,
-        "mem_mb": 19.84,
-        "bytes_per_key": 208.0
+      {
+        "workload": "Workload C (Read Only)",
+        "ratio_desc": "100% Read",
+        "expanse_blobmap": {
+          "throughput_mops": 21.26,
+          "p50_ns": 41,
+          "p95_ns": 78,
+          "p99_ns": 94,
+          "p999_ns": 132,
+          "mem_mb": 16.35,
+          "bytes_per_key": 171.4
+        },
+        "btreemap": {
+          "throughput_mops": 4.45,
+          "p50_ns": 57,
+          "p95_ns": 100,
+          "p99_ns": 111,
+          "p999_ns": 134,
+          "mem_mb": 18.31,
+          "bytes_per_key": 192.0
+        },
+        "skipmap": {
+          "throughput_mops": 1.98,
+          "p50_ns": 197,
+          "p95_ns": 357,
+          "p99_ns": 436,
+          "p999_ns": 549,
+          "mem_mb": 19.84,
+          "bytes_per_key": 208.0
+        },
+        "expanse_map_u64": {
+          "throughput_mops": 23.91,
+          "p50_ns": 28,
+          "p95_ns": 49,
+          "p99_ns": 59,
+          "p999_ns": 69,
+          "mem_mb": 2.35,
+          "bytes_per_key": 24.6
+        },
+        "speedup_vs_btree": "4.78x",
+        "speedup_vs_skip": "10.74x"
       },
-      "expanse_map_u64": {
-        "throughput_mops": 20.2,
-        "p50_ns": 167,
-        "p95_ns": 292,
-        "p99_ns": 334,
-        "p999_ns": 417,
-        "mem_mb": 2.35,
-        "bytes_per_key": 24.6
+      {
+        "workload": "Workload D (Read Latest)",
+        "ratio_desc": "95% Read, 5% Insert",
+        "expanse_blobmap": {
+          "throughput_mops": 21.36,
+          "p50_ns": 43,
+          "p95_ns": 94,
+          "p99_ns": 133,
+          "p999_ns": 772,
+          "mem_mb": 18.43,
+          "bytes_per_key": 193.3
+        },
+        "btreemap": {
+          "throughput_mops": 4.27,
+          "p50_ns": 70,
+          "p95_ns": 104,
+          "p99_ns": 116,
+          "p999_ns": 148,
+          "mem_mb": 20.13,
+          "bytes_per_key": 211.1
+        },
+        "skipmap": {
+          "throughput_mops": 1.92,
+          "p50_ns": 193,
+          "p95_ns": 359,
+          "p99_ns": 448,
+          "p999_ns": 1163,
+          "mem_mb": 21.8,
+          "bytes_per_key": 228.6
+        },
+        "expanse_map_u64": {
+          "throughput_mops": 23.11,
+          "p50_ns": 27,
+          "p95_ns": 50,
+          "p99_ns": 61,
+          "p999_ns": 125,
+          "mem_mb": 2.43,
+          "bytes_per_key": 25.5
+        },
+        "speedup_vs_btree": "5.00x",
+        "speedup_vs_skip": "11.12x"
       },
-      "speedup_vs_btree": "3.29x",
-      "speedup_vs_skip": "7.79x"
-    },
-    {
-      "workload": "Workload C (Read Only)",
-      "ratio_desc": "100% Read",
-      "expanse_blobmap": {
-        "throughput_mops": 15.6,
-        "p50_ns": 209,
-        "p95_ns": 375,
-        "p99_ns": 459,
-        "p999_ns": 542,
-        "mem_mb": 16.35,
-        "bytes_per_key": 171.4
+      {
+        "workload": "Workload E (Short Range Scans)",
+        "ratio_desc": "95% Scan (10..100 items), 5% Insert",
+        "expanse_blobmap": {
+          "throughput_mops": 12.2,
+          "p50_ns": 62,
+          "p95_ns": 103,
+          "p99_ns": 129,
+          "p999_ns": 761,
+          "mem_mb": 18.43,
+          "bytes_per_key": 193.3
+        },
+        "btreemap": {
+          "throughput_mops": 4.12,
+          "p50_ns": 82,
+          "p95_ns": 122,
+          "p99_ns": 135,
+          "p999_ns": 169,
+          "mem_mb": 20.13,
+          "bytes_per_key": 211.1
+        },
+        "skipmap": {
+          "throughput_mops": 1.81,
+          "p50_ns": 234,
+          "p95_ns": 406,
+          "p99_ns": 498,
+          "p999_ns": 1136,
+          "mem_mb": 21.8,
+          "bytes_per_key": 228.6
+        },
+        "expanse_map_u64": {
+          "throughput_mops": 12.7,
+          "p50_ns": 50,
+          "p95_ns": 83,
+          "p99_ns": 101,
+          "p999_ns": 127,
+          "mem_mb": 2.43,
+          "bytes_per_key": 25.5
+        },
+        "speedup_vs_btree": "2.96x",
+        "speedup_vs_skip": "6.74x"
       },
-      "btreemap": {
-        "throughput_mops": 4.8,
-        "p50_ns": 417,
-        "p95_ns": 667,
-        "p99_ns": 792,
-        "p999_ns": 1042,
-        "mem_mb": 18.31,
-        "bytes_per_key": 192.0
-      },
-      "skipmap": {
-        "throughput_mops": 2.1,
-        "p50_ns": 1333,
-        "p95_ns": 1750,
-        "p99_ns": 2125,
-        "p999_ns": 2750,
-        "mem_mb": 19.84,
-        "bytes_per_key": 208.0
-      },
-      "expanse_map_u64": {
-        "throughput_mops": 21.8,
-        "p50_ns": 166,
-        "p95_ns": 291,
-        "p99_ns": 333,
-        "p999_ns": 375,
-        "mem_mb": 2.35,
-        "bytes_per_key": 24.6
-      },
-      "speedup_vs_btree": "3.25x",
-      "speedup_vs_skip": "7.43x"
-    },
-    {
-      "workload": "Workload D (Read Latest)",
-      "ratio_desc": "95% Read, 5% Insert",
-      "expanse_blobmap": {
-        "throughput_mops": 14.4,
-        "p50_ns": 208,
-        "p95_ns": 375,
-        "p99_ns": 500,
-        "p999_ns": 1083,
-        "mem_mb": 16.36,
-        "bytes_per_key": 171.5
-      },
-      "btreemap": {
-        "throughput_mops": 4.2,
-        "p50_ns": 500,
-        "p95_ns": 708,
-        "p99_ns": 875,
-        "p999_ns": 1542,
-        "mem_mb": 18.53,
-        "bytes_per_key": 194.3
-      },
-      "skipmap": {
-        "throughput_mops": 1.8,
-        "p50_ns": 1292,
-        "p95_ns": 1875,
-        "p99_ns": 2292,
-        "p999_ns": 3709,
-        "mem_mb": 20.07,
-        "bytes_per_key": 210.5
-      },
-      "expanse_map_u64": {
-        "throughput_mops": 19.9,
-        "p50_ns": 166,
-        "p95_ns": 292,
-        "p99_ns": 375,
-        "p999_ns": 875,
-        "mem_mb": 2.36,
-        "bytes_per_key": 24.7
-      },
-      "speedup_vs_btree": "3.43x",
-      "speedup_vs_skip": "8.00x"
-    },
-    {
-      "workload": "Workload E (Short Range Scans)",
-      "ratio_desc": "95% Scan (10..100 items), 5% Insert",
-      "expanse_blobmap": {
-        "throughput_mops": 13.1,
-        "p50_ns": 1000,
-        "p95_ns": 1417,
-        "p99_ns": 1584,
-        "p999_ns": 3625,
-        "mem_mb": 16.36,
-        "bytes_per_key": 171.5
-      },
-      "btreemap": {
-        "throughput_mops": 3.96,
-        "p50_ns": 709,
-        "p95_ns": 833,
-        "p99_ns": 958,
-        "p999_ns": 1459,
-        "mem_mb": 18.53,
-        "bytes_per_key": 194.3
-      },
-      "skipmap": {
-        "throughput_mops": 1.81,
-        "p50_ns": 1625,
-        "p95_ns": 2042,
-        "p99_ns": 2417,
-        "p999_ns": 3042,
-        "mem_mb": 20.07,
-        "bytes_per_key": 210.5
-      },
-      "expanse_map_u64": {
-        "throughput_mops": 16.2,
-        "p50_ns": 916,
-        "p95_ns": 1125,
-        "p99_ns": 1209,
-        "p999_ns": 1958,
-        "mem_mb": 2.36,
-        "bytes_per_key": 24.7
-      },
-      "speedup_vs_btree": "3.31x",
-      "speedup_vs_skip": "7.24x"
-    },
-    {
-      "workload": "Workload F (Read-Modify-Write)",
-      "ratio_desc": "50% Read, 50% RMW",
-      "expanse_blobmap": {
-        "throughput_mops": 14.2,
-        "p50_ns": 458,
-        "p95_ns": 958,
-        "p99_ns": 1084,
-        "p999_ns": 2500,
-        "mem_mb": 18.35,
-        "bytes_per_key": 192.4
-      },
-      "btreemap": {
-        "throughput_mops": 4.19,
-        "p50_ns": 458,
-        "p95_ns": 666,
-        "p99_ns": 709,
-        "p999_ns": 792,
-        "mem_mb": 18.31,
-        "bytes_per_key": 192.0
-      },
-      "skipmap": {
-        "throughput_mops": 1.76,
-        "p50_ns": 3375,
-        "p95_ns": 5375,
-        "p99_ns": 8958,
-        "p999_ns": 18834,
-        "mem_mb": 19.84,
-        "bytes_per_key": 208.0
-      },
-      "expanse_map_u64": {
-        "throughput_mops": 17.8,
-        "p50_ns": 250,
-        "p95_ns": 542,
-        "p99_ns": 625,
-        "p999_ns": 750,
-        "mem_mb": 2.35,
-        "bytes_per_key": 24.6
-      },
-      "speedup_vs_btree": "3.39x",
-      "speedup_vs_skip": "8.07x"
+      {
+        "workload": "Workload F (Read-Modify-Write)",
+        "ratio_desc": "50% Read, 50% RMW",
+        "expanse_blobmap": {
+          "throughput_mops": 14.65,
+          "p50_ns": 134,
+          "p95_ns": 38224,
+          "p99_ns": 39688,
+          "p999_ns": 40651,
+          "mem_mb": 18.35,
+          "bytes_per_key": 192.4
+        },
+        "btreemap": {
+          "throughput_mops": 4.34,
+          "p50_ns": 67,
+          "p95_ns": 118,
+          "p99_ns": 132,
+          "p999_ns": 160,
+          "mem_mb": 18.31,
+          "bytes_per_key": 192.0
+        },
+        "skipmap": {
+          "throughput_mops": 1.74,
+          "p50_ns": 331,
+          "p95_ns": 752,
+          "p99_ns": 1433,
+          "p999_ns": 2129,
+          "mem_mb": 19.84,
+          "bytes_per_key": 208.0
+        },
+        "expanse_map_u64": {
+          "throughput_mops": 18.89,
+          "p50_ns": 37,
+          "p95_ns": 65,
+          "p99_ns": 80,
+          "p999_ns": 99,
+          "mem_mb": 2.35,
+          "bytes_per_key": 24.6
+        },
+        "speedup_vs_btree": "3.38x",
+        "speedup_vs_skip": "8.42x"
+      }
+    ],
+    "concurrency_scaling": {
+      "harness": "crates/expanse/benches/concurrency.rs",
+      "arm": "SyncExpanseMap",
+      "population": 1000000,
+      "keyspace": "2 x POP bounded (~50% hit rate)",
+      "window_ms": 500,
+      "thread_counts": [
+        1,
+        4,
+        16
+      ],
+      "metric": "read ops/s (M) reported by the bench arm",
+      "workloads": [
+        {
+          "workload": "100% read",
+          "metric_note": "pure read scaling: no writer is active",
+          "rows": [
+            {
+              "threads": 1,
+              "read_mops": 37.2
+            },
+            {
+              "threads": 4,
+              "read_mops": 138.9
+            },
+            {
+              "threads": 16,
+              "read_mops": 424.1
+            }
+          ],
+          "scale_at_16t": "11.40x"
+        },
+        {
+          "workload": "50% read / 50% write",
+          "metric_note": "mixed-workload read-op rate, NOT read scaling: each bench thread alternates read and write in one loop, so reads are pinned 1:1 to write handoffs",
+          "rows": [
+            {
+              "threads": 1,
+              "read_mops": 10.9
+            },
+            {
+              "threads": 4,
+              "read_mops": 3.0
+            },
+            {
+              "threads": 16,
+              "read_mops": 2.0
+            }
+          ],
+          "scale_at_16t": "0.19x"
+        }
+      ]
     }
-  ],
-  "concurrency_scaling": [
-    {
-      "threads": 1,
-      "read_mops": 2.31,
-      "write_mops": 0.12,
-      "total_mops": 2.43,
-      "scaling": "1.00x"
-    },
-    {
-      "threads": 2,
-      "read_mops": 4.28,
-      "write_mops": 0.22,
-      "total_mops": 4.5,
-      "scaling": "1.85x"
-    },
-    {
-      "threads": 4,
-      "read_mops": 4.89,
-      "write_mops": 0.26,
-      "total_mops": 5.15,
-      "scaling": "2.12x"
-    },
-    {
-      "threads": 8,
-      "read_mops": 4.39,
-      "write_mops": 0.23,
-      "total_mops": 4.62,
-      "scaling": "1.90x"
-    },
-    {
-      "threads": 16,
-      "read_mops": 3.77,
-      "write_mops": 0.2,
-      "total_mops": 3.97,
-      "scaling": "1.63x"
-    }
-  ]
-};
+  };
   let LARGE_VALUE_BENCHMARKS_DATA = {
-  "inlining_speedups": [
-    {
-      "size": "0B (Empty)",
-      "expanse_get_ns": 12.8,
-      "btree_get_ns": 56.4,
-      "get_speedup": "4.41x",
-      "expanse_ins_ns": 34.2,
-      "btree_ins_ns": 112.0,
-      "ins_speedup": "3.27x",
-      "heap_allocs": "0 vs 1"
-    },
-    {
-      "size": "1B Payload",
-      "expanse_get_ns": 13.1,
-      "btree_get_ns": 57.8,
-      "get_speedup": "4.41x",
-      "expanse_ins_ns": 36.5,
-      "btree_ins_ns": 116.2,
-      "ins_speedup": "3.18x",
-      "heap_allocs": "0 vs 1"
-    },
-    {
-      "size": "4B Payload",
-      "expanse_get_ns": 13.4,
-      "btree_get_ns": 58.2,
-      "get_speedup": "4.34x",
-      "expanse_ins_ns": 38.0,
-      "btree_ins_ns": 119.5,
-      "ins_speedup": "3.14x",
-      "heap_allocs": "0 vs 1"
-    },
-    {
-      "size": "7B Payload",
-      "expanse_get_ns": 14.1,
-      "btree_get_ns": 61.4,
-      "get_speedup": "4.35x",
-      "expanse_ins_ns": 41.2,
-      "btree_ins_ns": 124.8,
-      "ins_speedup": "3.03x",
-      "heap_allocs": "0 vs 1"
-    }
-  ],
-  "predicate_scan_selectivity": [
-    {
-      "selectivity": "\u03c3 = 0.001 (0.1% matches)",
-      "columnar_scan_ms": 0.42,
-      "naive_deref_ms": 2.85,
-      "speedup": "6.79x",
-      "cold_dram_fetches": "Skipped (Evaluated in Leaf ValueSlot)"
-    },
-    {
-      "selectivity": "\u03c3 = 0.01 (1.0% matches)",
-      "columnar_scan_ms": 0.49,
-      "naive_deref_ms": 2.92,
-      "speedup": "5.96x",
-      "cold_dram_fetches": "99% cold DRAM lines bypassed"
-    },
-    {
-      "selectivity": "\u03c3 = 0.05 (5.0% matches)",
-      "columnar_scan_ms": 0.78,
-      "naive_deref_ms": 3.1,
-      "speedup": "3.97x",
-      "cold_dram_fetches": "95% cold DRAM lines bypassed"
-    },
-    {
-      "selectivity": "\u03c3 = 0.20 (20.0% matches)",
-      "columnar_scan_ms": 1.45,
-      "naive_deref_ms": 3.48,
-      "speedup": "2.40x",
-      "cold_dram_fetches": "80% cold DRAM lines bypassed"
-    },
-    {
-      "selectivity": "\u03c3 = 1.00 (100% matches)",
-      "columnar_scan_ms": 3.2,
-      "naive_deref_ms": 3.95,
-      "speedup": "1.23x",
-      "cold_dram_fetches": "All payloads dereferenced"
-    }
-  ],
-  "arena_gc_compaction": [
-    {
-      "keys": "5,000",
-      "churn": "50% Deleted (2,500 active)",
-      "pause_ms": 0.38,
-      "space_recovered": "50.0%",
-      "live_records_moved": 2500,
-      "chunks_reduced": "2 \u2192 1"
-    },
-    {
-      "keys": "20,000",
-      "churn": "50% Deleted (10,000 active)",
-      "pause_ms": 1.42,
-      "space_recovered": "50.0%",
-      "live_records_moved": 10000,
-      "chunks_reduced": "4 \u2192 2"
-    },
-    {
-      "keys": "20,000",
-      "churn": "80% Deleted (4,000 active)",
-      "pause_ms": 0.86,
-      "space_recovered": "80.0%",
-      "live_records_moved": 4000,
-      "chunks_reduced": "4 \u2192 1"
-    }
-  ]
-};
+    "inlining_speedups": [
+      {
+        "size": "0B (Empty)",
+        "expanse_get_ns": null,
+        "btree_get_ns": null,
+        "get_speedup": "5.1x",
+        "expanse_ins_ns": null,
+        "btree_ins_ns": null,
+        "ins_speedup": "2.3x",
+        "heap_allocs": "0 vs 1",
+        "source": "docs/design/large-values.md 10.3 -- ratios only; absolute times not published"
+      },
+      {
+        "size": "7B Payload",
+        "expanse_get_ns": 5.68,
+        "btree_get_ns": 29.0,
+        "get_speedup": "5.11x",
+        "expanse_ins_ns": 19.95,
+        "btree_ins_ns": 58.71,
+        "ins_speedup": "2.94x",
+        "heap_allocs": "0 vs 1",
+        "source": "docs/design/large-values.md 10.3"
+      }
+    ],
+    "predicate_scan_selectivity": [
+      {
+        "selectivity": "σ = 0.001 (0.1% matches)",
+        "columnar_scan_ms": 0.228,
+        "naive_deref_ms": 0.324,
+        "speedup": "1.42x",
+        "arena_regime": "warm (L3-resident): 14 MiB arena < 30 MiB L3"
+      },
+      {
+        "selectivity": "σ = 0.01 (1.0% matches)",
+        "columnar_scan_ms": 0.231,
+        "naive_deref_ms": 0.326,
+        "speedup": "1.41x",
+        "arena_regime": "warm (L3-resident): 14 MiB arena < 30 MiB L3"
+      },
+      {
+        "selectivity": "σ = 0.05 (5.0% matches)",
+        "columnar_scan_ms": 0.245,
+        "naive_deref_ms": 0.324,
+        "speedup": "1.32x",
+        "arena_regime": "warm (L3-resident): 14 MiB arena < 30 MiB L3"
+      },
+      {
+        "selectivity": "σ = 0.20 (20.0% matches)",
+        "columnar_scan_ms": 0.293,
+        "naive_deref_ms": 0.323,
+        "speedup": "1.10x",
+        "arena_regime": "warm (L3-resident): 14 MiB arena < 30 MiB L3"
+      },
+      {
+        "selectivity": "σ = 1.00 (100% matches)",
+        "columnar_scan_ms": 0.323,
+        "naive_deref_ms": 0.323,
+        "speedup": "1.00x",
+        "arena_regime": "warm (L3-resident): 14 MiB arena < 30 MiB L3"
+      }
+    ]
+  };
 
   let EMBEDDED_32BIT_BENCHMARKS_DATA = {
     "parameters": {
@@ -2808,35 +2774,27 @@
     "workloads": [
       {
         "workload": "Clustered Sensor Timestamps",
+        "structure": "ExpanseSet32",
         "keys": 10000,
-        "expanse_set32_bpk": "0.51 B/key",
-        "btreeset_bpk": "24.0 B/key",
-        "memory_saving": "97.9% SRAM saved",
-        "notes": "Bitmap256 leaves condense contiguous 32-bit timestamps into 0.07-0.51 B/key"
+        "keygen": "1_700_000_000 + i",
+        "bytes_per_key": 0.6736,
+        "mem_used_bytes": 6736
       },
       {
         "workload": "Sparse CAN-Bus 29-bit Identifiers",
+        "structure": "ExpanseSet32",
         "keys": 500,
-        "expanse_set32_bpk": "0.63 B/key",
-        "btreeset_bpk": "24.0 B/key",
-        "memory_saving": "97.4% SRAM saved",
-        "notes": "Isolated sparse arbitration IDs packed directly inside immediate 8-byte edge tags"
+        "keygen": "(i * 100_007) & 0x1FFF_FFFF",
+        "bytes_per_key": 12.608,
+        "mem_used_bytes": 6304
       },
       {
         "workload": "IPv4 Subnet /24 Routing Table",
+        "structure": "ExpanseMap32",
         "keys": 2000,
-        "expanse_map32_bpk": "8.03 B/key",
-        "btreemap_bpk": "32.0 B/key",
-        "memory_saving": "74.9% SRAM saved",
-        "notes": "4-level digital descent matches CIDR byte boundaries exactly; 15ns route lookup"
-      },
-      {
-        "workload": "OTA Firmware Inlined Checksums",
-        "keys": 1000,
-        "expanse_blobmap32_bpk": "8.00 B/key",
-        "btreemap_bpk": "48.0 B/key",
-        "memory_saving": "83.3% SRAM saved",
-        "notes": "3-byte block checksums stored 100% inline in ValueSlot32 with zero heap allocations"
+        "keygen": "(10 << 24) | ((i / 256) << 16) | ((i % 256) << 8)",
+        "bytes_per_key": 9.376,
+        "mem_used_bytes": 18752
       }
     ]
   };
@@ -2883,11 +2841,11 @@
     tbody.innerHTML = EMBEDDED_32BIT_BENCHMARKS_DATA.workloads.map(w => `
       <tr>
         <td><strong>${w.workload}</strong></td>
+        <td><span class="code-tag">${w.structure}</span></td>
         <td class="num">${w.keys.toLocaleString()}</td>
-        <td class="num" style="color:var(--accent); font-weight:700;">${w.expanse_set32_bpk || w.expanse_map32_bpk || w.expanse_blobmap32_bpk}</td>
-        <td class="num" style="color:var(--text-muted);">${w.btreeset_bpk || w.btreemap_bpk}</td>
-        <td class="num badge-win"><strong>${w.memory_saving}</strong></td>
-        <td style="font-size:11px; color:var(--text-muted);">${w.notes}</td>
+        <td class="num" style="color:var(--accent); font-weight:700;">${w.bytes_per_key.toFixed(4)} B/key</td>
+        <td class="num" style="color:var(--text-muted);">${w.mem_used_bytes.toLocaleString()} B</td>
+        <td style="font-size:11px; color:var(--text-muted);"><code>${w.keygen}</code></td>
       </tr>
     `).join('');
   }
@@ -2923,15 +2881,18 @@
 
     let rows = [];
     if (LARGE_VALUE_BENCHMARKS_DATA.inlining_speedups) {
+      // A null time is a cell with no committed measurement — render it as
+      // absent rather than back-solving a plausible value (issue #384).
+      const orDash = v => (v === null || v === undefined) ? '—' : v;
       LARGE_VALUE_BENCHMARKS_DATA.inlining_speedups.forEach(item => {
         rows.push(`
           <tr>
             <td><strong>Inlined Payload: ${item.size}</strong></td>
-            <td class="num" style="color:var(--accent); font-weight:700;">${item.expanse_get_ns} ns (get)</td>
-            <td class="num" style="color:var(--text-muted);">${item.btree_get_ns} ns (BTree)</td>
-            <td class="num badge-win"><strong>${item.get_speedup}</strong></td>
+            <td class="num" style="color:var(--accent); font-weight:700;">${orDash(item.expanse_get_ns)} ns (get)</td>
+            <td class="num" style="color:var(--text-muted);">${orDash(item.btree_get_ns)} ns (BTree)</td>
+            <td class="num badge-win"><strong>${orDash(item.get_speedup)}</strong></td>
             <td class="num">${item.heap_allocs}</td>
-            <td style="font-size:11px; color:var(--text-muted);">Zero heap allocations; transparent polymorphic value slot inlining.</td>
+            <td style="font-size:11px; color:var(--text-muted);">${item.source}</td>
           </tr>
         `);
       });
@@ -2946,25 +2907,26 @@
             <td class="num" style="color:var(--text-muted);">${item.naive_deref_ms} ms (naive)</td>
             <td class="num badge-win"><strong>${item.speedup}</strong></td>
             <td class="num">0 alloc</td>
-            <td style="font-size:11px; color:var(--text-muted);">${item.cold_dram_fetches}</td>
+            <td style="font-size:11px; color:var(--text-muted);">${item.arena_regime}</td>
           </tr>
         `);
       });
     }
 
-    if (LARGE_VALUE_BENCHMARKS_DATA.arena_gc_compaction) {
-      const comp = LARGE_VALUE_BENCHMARKS_DATA.arena_gc_compaction[0];
-      rows.push(`
-        <tr>
-          <td><strong>Arena Compaction (${comp.keys} keys)</strong></td>
-          <td class="num" style="color:var(--accent); font-weight:700;">${comp.pause_ms} ms pause</td>
-          <td class="num" style="color:var(--text-muted);">${comp.churn}</td>
-          <td class="num badge-win"><strong>${comp.space_recovered} freed</strong></td>
-          <td class="num">${comp.chunks_reduced} chunks</td>
-          <td style="font-size:11px; color:var(--text-muted);">Single-pass in-place relocation updating trie value slots.</td>
-        </tr>
-      `);
-    }
+    // Arena GC compaction pause times were published here without a host tag
+    // or a committed artifact and are withdrawn rather than carried forward
+    // (issue #384). The harness arm exists (benches/large_values.rs
+    // `arena_compaction_churn`); the numbers need a tagged reference-host run.
+    rows.push(`
+      <tr>
+        <td><strong>Arena GC Compaction</strong></td>
+        <td class="num" style="color:var(--text-muted);">—</td>
+        <td class="num" style="color:var(--text-muted);">—</td>
+        <td class="num" style="color:var(--text-muted);">—</td>
+        <td class="num" style="color:var(--text-muted);">—</td>
+        <td style="font-size:11px; color:var(--text-muted);">Pending re-measurement on the reference host — <code>benches/large_values.rs::arena_compaction_churn</code> (<a href="https://github.com/orieg/expanse/issues/384" style="color:var(--accent);">#384</a>).</td>
+      </tr>
+    `);
 
     tbody.innerHTML = rows.join('');
   }
@@ -3104,10 +3066,7 @@
           <td class="num" style="color:var(--accent); font-weight:600;">${item.expanse_so_v3.toLocaleString()}</td>
           <td class="num" style="color:var(--text-muted);">${item.stock_libjudy.toLocaleString()}</td>
           <td class="num ${ratioClass}"><strong>${item.ratio_so}</strong></td>
-          <td class="num" style="color:var(--text-muted);">${item.ratio_rlib}</td>
-          <td class="num" style="color:var(--text-muted);">${item.est_cycles_so}</td>
           <td class="num win-text"><strong>${item.hw_delta}</strong></td>
-          <td style="font-size:11px; color:var(--text-muted);">${item.notes}</td>
         </tr>
       `;
     }).join('');
@@ -3131,7 +3090,7 @@
         <td><span class="step-badge">${item.category}</span></td>
         <td><span class="code-tag">${item.flavor.toUpperCase()}</span></td>
         <td class="num">${item.instructions_v1.toLocaleString()}</td>
-        <td class="num win-text">${item.instr_fastpath ? `<strong>~${item.instr_fastpath}</strong> (fastpath)` : `~${Math.round(item.instr_per_op_v1)}`}</td>
+        <td class="num win-text">${item.instr_per_op_v1.toFixed(2)}</td>
         <td class="num">${item.instructions_v3.toLocaleString()}</td>
         <td class="num win-text"><strong>${item.v3_delta}</strong></td>
         <td class="num">${item.l1_hits.toLocaleString()}</td>
@@ -3147,14 +3106,14 @@
     tbody.innerHTML = MEMORY_DATA.map(row => `
       <tr>
         <td><strong>${row.dist}</strong></td>
-        <td class="num">${row.set_1k}</td>
-        <td class="num">${row.set_100k}</td>
-        <td class="num win-text">${row.set_1m}</td>
-        <td class="num">${row.map_1k}</td>
-        <td class="num">${row.map_100k}</td>
-        <td class="num win-text">${row.map_1m}</td>
-        <td class="num" style="color:var(--text-muted);">${row.ceiling}</td>
-        <td style="font-size:11px; color:var(--accent);">${row.form}</td>
+        <td class="num">${row.set_1k.toFixed(2)} B</td>
+        <td class="num">${row.set_100k.toFixed(2)} B</td>
+        <td class="num win-text">${row.set_1m.toFixed(2)} B</td>
+        <td class="num">${row.map_1k.toFixed(2)} B</td>
+        <td class="num">${row.map_100k.toFixed(2)} B</td>
+        <td class="num win-text">${row.map_1m.toFixed(2)} B</td>
+        <td class="num" style="color:var(--text-muted);">&le; ${row.set_ceiling_1m.toFixed(2)} / &le; ${row.map_ceiling_1m.toFixed(2)} B</td>
+        <td style="font-size:11px; color:var(--accent);"><code>${row.keygen}</code></td>
       </tr>
     `).join('');
   }
@@ -3903,6 +3862,10 @@
               if (liveData.stock_vs_expanse) {
                 STOCK_VS_EXPANSE_DATA = liveData.stock_vs_expanse;
                 renderStockVsExpanseTable();
+              }
+              if (liveData.memory_budget) {
+                MEMORY_DATA = liveData.memory_budget;
+                renderMemoryTable();
               }
               if (liveData.embedded_32bit_benchmarks) {
                 EMBEDDED_32BIT_BENCHMARKS_DATA = liveData.embedded_32bit_benchmarks;
