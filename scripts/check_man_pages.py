@@ -60,8 +60,14 @@ def check_formatting_hygiene(man_path: Path) -> list[str]:
         if line.startswith(".TH"):
             has_th = True
         elif line.strip() == ".nf":
+            # A toggle would read `.nf .nf .fi` as balanced; track nesting so a
+            # dropped `.fi` is caught wherever it happens.
+            if in_nf:
+                errors.append(f"{man_path.name}:{idx}: nested .nf (previous block never closed with .fi)")
             in_nf = True
         elif line.strip() == ".fi":
+            if not in_nf:
+                errors.append(f"{man_path.name}:{idx}: .fi without a matching .nf")
             in_nf = False
 
     if not has_th:
@@ -83,6 +89,13 @@ def check_mandoc(man_path: Path) -> list[str]:
     return []
 
 
+# A parser that silently matches nothing would report "100% coverage" over an
+# empty set. These floors are well below the real counts (100 / 88) and exist
+# only to turn a broken regex into a failure instead of a vacuous pass.
+MIN_EXPANSE_SYMBOLS = 80
+MIN_JUDY_SYMBOLS = 60
+
+
 def parse_c_symbols(header_path: Path, prefix_pattern: str) -> set[str]:
     text = header_path.read_text(encoding="utf-8")
     # Matches functions or macros
@@ -91,6 +104,16 @@ def parse_c_symbols(header_path: Path, prefix_pattern: str) -> set[str]:
     # Exclude C keywords / macro syntax
     symbols = {m for m in matches if not m.startswith("defined")}
     return symbols
+
+
+def documents_symbol(man_text: str, symbol: str) -> bool:
+    """True when `symbol` appears as a whole identifier.
+
+    A plain substring test lets a longer name stand in for a shorter one —
+    `expanse_map_get` would be "documented" by `expanse_map_get_batch` alone.
+    Eight such prefix pairs exist in expanse.h today.
+    """
+    return re.search(rf"\b{re.escape(symbol)}(?![A-Za-z0-9_])", man_text) is not None
 
 
 def check_symbol_coverage(root: Path) -> list[str]:
@@ -104,6 +127,20 @@ def check_symbol_coverage(root: Path) -> list[str]:
     expanse_symbols = parse_c_symbols(expanse_h, "expanse_")
     judy_symbols = parse_c_symbols(judy_h, r"(?:Judy|J1|JL|JSL|JHS)")
 
+    if len(expanse_symbols) < MIN_EXPANSE_SYMBOLS:
+        errors.append(
+            f"only {len(expanse_symbols)} symbols parsed from {expanse_h.name} "
+            f"(expected >= {MIN_EXPANSE_SYMBOLS}) — the header format likely changed and the "
+            f"coverage check is no longer reading it; fix the parser rather than lowering the floor"
+        )
+    if len(judy_symbols) < MIN_JUDY_SYMBOLS:
+        errors.append(
+            f"only {len(judy_symbols)} symbols parsed from {judy_h.name} "
+            f"(expected >= {MIN_JUDY_SYMBOLS}) — see above"
+        )
+    if errors:
+        return errors
+
     # Read all man pages text
     man_dir = root / "man" / "man3"
     all_man_text = ""
@@ -112,28 +149,61 @@ def check_symbol_coverage(root: Path) -> list[str]:
 
     # Check expanse functions
     for sym in sorted(expanse_symbols):
-        if sym not in all_man_text:
+        if not documents_symbol(all_man_text, sym):
             errors.append(f"C ABI symbol '{sym}' from expanse.h is not documented in any man page")
 
     # Check Judy functions & macros
     for sym in sorted(judy_symbols):
-        if sym not in all_man_text:
+        if not documents_symbol(all_man_text, sym):
             errors.append(f"C ABI symbol/macro '{sym}' from Judy.h is not documented in any man page")
 
     return errors
 
 
 def self_test() -> int:
+    """Exercise the checkers against synthetic inputs.
+
+    Re-running the real checks over the real man pages (what this did before)
+    proves nothing about the checkers and duplicates the plain invocation that
+    CI already runs; it would pass just as happily if a checker had been broken
+    into a no-op. These assert both the true and the false positives.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        good = Path(td) / "good.3"
+        good.write_text('.TH GOOD 3 "d" "s" "m"\n.SH NAME\ngood \\- x\n.nf\ntext\n.fi\n')
+        assert not check_formatting_hygiene(good), "clean page must pass"
+
+        no_th = Path(td) / "no_th.3"
+        no_th.write_text(".SH NAME\nx\n")
+        assert any("missing .TH" in e for e in check_formatting_hygiene(no_th)), "missing .TH must fail"
+
+        unclosed = Path(td) / "unclosed.3"
+        unclosed.write_text('.TH U 3 "d" "s" "m"\n.nf\ntext\n')
+        assert any("unclosed .nf" in e for e in check_formatting_hygiene(unclosed)), "unclosed .nf must fail"
+
+        nested = Path(td) / "nested.3"
+        nested.write_text('.TH N 3 "d" "s" "m"\n.nf\na\n.nf\nb\n.fi\n')
+        assert any("nested .nf" in e for e in check_formatting_hygiene(nested)), "nested .nf must fail"
+
+        long_line = Path(td) / "long.3"
+        long_line.write_text('.TH L 3 "d" "s" "m"\n' + ("x" * 81) + "\n")
+        assert any("exceeds 80 bytes" in e for e in check_formatting_hygiene(long_line)), "long line must fail"
+
+    # Word-boundary coverage: a longer symbol must not satisfy a shorter one.
+    assert documents_symbol("see expanse_map_get for details", "expanse_map_get")
+    assert not documents_symbol("only expanse_map_get_batch here", "expanse_map_get"), \
+        "a longer symbol must not count as documenting the shorter one"
+    assert documents_symbol(".BI expanse_map_get(", "expanse_map_get"), "signature form must count"
+
+    # The floors must actually be enforced against the live headers.
     root = get_repo_root()
-    man_dir = root / "man" / "man3"
-    assert man_dir.exists(), "man/man3 directory must exist"
-    for name in EXPECTED_MAN_PAGES:
-        p = man_dir / name
-        assert p.exists(), f"man page {name} must exist"
-        errs = check_formatting_hygiene(p)
-        assert not errs, f"Formatting hygiene failed for {name}: {errs}"
-    cov_errs = check_symbol_coverage(root)
-    assert not cov_errs, f"Symbol coverage failed: {cov_errs}"
+    expanse_h = root / "crates" / "expanse-capi" / "include" / "expanse.h"
+    if expanse_h.exists():
+        n = len(parse_c_symbols(expanse_h, "expanse_"))
+        assert n >= MIN_EXPANSE_SYMBOLS, f"parser regressed: {n} symbols < floor {MIN_EXPANSE_SYMBOLS}"
+
     print("check_man_pages.py --self-test: all checks passed")
     return 0
 
@@ -154,6 +224,17 @@ def main() -> int:
     if not man_dir.exists():
         print(f"::error::man/man3 directory does not exist at {man_dir}")
         return 1
+
+    # Cross-check both directions. The expected list catches a deleted page; the
+    # reverse catches a page added to man/man3 that nobody wired into packaging
+    # or this list — the drift the fuzz-target registration self-check exists to
+    # prevent, and that the hand-listed nightly fuzz matrix actually suffered.
+    on_disk = {p.name for p in man_dir.glob("*.3")}
+    for extra in sorted(on_disk - set(EXPECTED_MAN_PAGES)):
+        errors.append(
+            f"man page '{extra}' exists on disk but is not in EXPECTED_MAN_PAGES — add it there "
+            f"and to the deb/rpm packaging globs, or remove it"
+        )
 
     for name in EXPECTED_MAN_PAGES:
         p = man_dir / name
