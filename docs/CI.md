@@ -41,7 +41,9 @@ graph TD
 
 ## 2. Job Catalog (rolled up by the CI Gate)
 
-`ci.yml` defines **31 jobs** — 30 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while `main` pushes and non-PR events run everything.
+`ci.yml` defines **33 jobs** — 32 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while `main` pushes and non-PR events run everything.
+
+> `bench-baremetal` appears in the Performance table below for completeness but lives in `bench_baremetal.yml`; it is `/bench`-triggered and is **not** one of `ci-gate`'s dependencies.
 
 ### Change detection
 | Job | Name | Role |
@@ -51,8 +53,10 @@ graph TD
 ### Core
 | Job | Name | Role |
 |---|---|---|
-| `lint` | Core / Linter & Formatting | `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, plus three repo-consistency scripts: `bump_version.py --check` (multi-ecosystem version lockstep), `check_abi_parity.py` (C ABI symbol parity across bindings), `check_ci_gate.py` (gate completeness). |
-| `test` | Core / Workspace Tests (ubuntu / macOS / windows) | Full `cargo test --workspace` across the three host OSes (glibc, Mach-O, PE/COFF ABI). |
+| `lint` | Core / Linter & Formatting | `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, plus repo-consistency scripts: `bump_version.py --check` (multi-ecosystem version lockstep), `check_abi_parity.py` (C ABI symbol parity across bindings), `check_ci_gate.py` (gate completeness), and the `--self-test` suites of `perf_report.py`, `bench_report.py`, `check_docs_hygiene.py` (so the §8.1 fail-loud and §8.2 no-hardcoded-prose assertions cannot rot). |
+| `test` | Core / Workspace Tests (ubuntu / macOS / windows) | `cargo test --workspace --exclude expanse-php` across the three host OSes (glibc, Mach-O, PE/COFF ABI), with `PROPTEST_CASES=500` (AGENTS.md §5 gate 4). `expanse-php` needs PHP headers and is covered by `test-php` / `php-judy-*`. |
+| `msrv` | Core / MSRV 1.88 Build | `cargo check --workspace --exclude expanse-php --all-targets` on the pinned floor toolchain (`dtolnay/rust-toolchain@1.88.0`). Every other job builds on `stable`, which never exercises `rust-version`. |
+| `docs-lint` | Docs / Hygiene (time estimates, PII, provenance) | `scripts/check_docs_hygiene.py` over tracked markdown **and the PR body**: fatal on time estimates (§6) and on home-directory paths / private LAN IPs / denylisted hostnames (§7); advisory warning on unit-bearing tables with no `(measured: …)` provenance tag (§8.7). Gated on the `docs` path filter, so docs-only PRs still run a check. Hostnames come from the `DOCS_HOSTNAME_DENYLIST` repository variable — never committed. |
 
 ### Cross-compilation & 32-bit
 | Job | Name | Role |
@@ -109,7 +113,7 @@ graph TD
 ### Rollup gate
 | Job | Name | Role |
 |---|---|---|
-| `ci-gate` | CI Gate / All Checks Passed | Runs `if: always()`, `needs:` all 30 other jobs, treats cleanly-skipped jobs as passing, and runs the completeness self-check. The **only** required branch-protection context. |
+| `ci-gate` | CI Gate / All Checks Passed | Runs `if: always()`, `needs:` all 32 other jobs, treats cleanly-skipped jobs as passing, and runs the completeness self-check. The **only** required branch-protection context. |
 
 ---
 
@@ -119,7 +123,7 @@ Turnaround stays low for non-code and localized PRs without losing required-chec
 
 - A single lightweight `detect-changes` job (`dorny/paths-filter@v4`) computes eleven per-subsystem booleans: `rust`, `python`, `node`, `dotnet`, `java`, `docs`, `ruby`, `php`, `wasm`, `go`, `integrations`. Downstream jobs declare `needs: [detect-changes]` and `if: needs.detect-changes.outputs.<subsystem> == 'true' || github.event_name != 'pull_request'`.
 - The `rust` filter is deliberately wide — `crates/**`, `include/**`, `integrations/**`, `tests/cpp/**`, `fuzz/**`, `scripts/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain*`, and `ci.yml`/`nightly.yml` themselves. A scripts-only or workflow-only PR therefore runs the whole Rust matrix, `lint` / `miri` / `instruction-counts` included.
-- A PR touching only `docs/**`, `*.md` or `website/**` matches no Rust job and skips the Rust matrix entirely.
+- A PR touching only `docs/**`, `*.md` or `website/**` matches no Rust job and skips the Rust matrix entirely — but it does run `docs-lint`, which consumes the `docs` filter output, so a docs-only PR is never a zero-check PR.
 - The `CI Gate / All Checks Passed` rollup satisfies branch protection once its dependencies conclude (skipped jobs count as passing), so PRs never deadlock in "Pending" behind a filtered-out check.
 
 ---
@@ -140,8 +144,9 @@ The job wires `--fail-on-regression` with a deliberately loose `--max-regression
 - **Empty/near-empty head parse is a hard failure** in `--fail-on-regression` mode: a run that measured nothing (or lost most of the base's arms to a partial crash) can never render "🟢 0 Regressions".
 - **Base-present/head-missing arms are reported explicitly** in the report rather than silently dropped from the comparison.
 - **A base capture that fails stays non-fatal** (`|| true` on the base pass — a broken base commit must not hard-block PRs), but the report then renders a prominent "⚠️ NO BASELINE — regression gate did not run" section, not a quiet chip.
+- **A missing head artifact fails the step.** The guard steps assert their inputs exist (`instruction-counts.txt` / `bytes-per-key.txt` / `vs-stock.txt`, and `smoke-instruction-counts.txt`) and `::error` + exit 1 when one is absent. Previously the invocation sat inside an `if [ -f … ]` wrapper, so a crashed benchmark skipped the guard and the step exited `0`.
 
-Both report scripts ship unit-style checks for this behavior: `python3 scripts/perf_report.py --self-test` and `python3 scripts/bench_report.py --self-test`.
+Both report scripts ship unit-style checks for this behavior — `python3 scripts/perf_report.py --self-test` and `python3 scripts/bench_report.py --self-test` — and the `lint` job runs them on every PR.
 
 ### 4.3 Interleaved dual-arm ratios (where instruction counting is unavailable)
 For end-to-end runtime comparisons (e.g. the PHP runtime, JIT paths), never compare absolute wall-clock across runs. Measure two arms — **Arm S** (pristine baseline) and **Arm C** (candidate) — in alternating interleaved rounds on the same runner, and gate on the ratio `Candidate / Baseline`. Runner slowdown scales both arms equally, keeping the ratio noise-free.
