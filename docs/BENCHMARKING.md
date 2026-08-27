@@ -327,16 +327,69 @@ To eliminate `N/A` comparison columns and guarantee accurate, side-by-side regre
    - Emits the formatted report directly to `$GITHUB_STEP_SUMMARY`.
 
 ### 3. Triggering via PR Comment
-Maintainers and collaborators can trigger benchmarks directly on any pull request by commenting:
-- `/bench` (runs standard dual-pass suites: C ABI vs stock, instruction counters, and fast comparative sweep)
-- `/bench extended` (or `/benchmark extended`): runs full multi-population sweeps ($N \in [10\text{k}, 100\text{k}, 1\text{M}]$) + microarchitecture target matrix (`baseline`, `x86-64-v2`, `x86-64-v3`, `native`) + Callgrind
-- `/benchmark vs_stock` (runs only the `vs_stock` suite)
-- `/benchmark instructions` (runs only the `instructions` suite)
-- `/benchmark comparative` (runs only the `comparative` suite)
-- `/benchmark ycsb` (runs only the `ycsb` suite)
-- `/benchmark concurrency` (runs only the `concurrency` suite — `benches/concurrency.rs`, the dedicated `Sync*` wall-clock scaling instrument: `SyncExpanseMap`/`Set`/`BlobMap`/`StrMap`/`BytesMap` plus their `Mutex`/`RwLock`/`SkipMap`/`DashMap` baselines)
+Maintainers and collaborators trigger benchmarks on any pull request by commenting `/bench` or `/benchmark <suite>`.
 
-The self-hosted runner executes the suite natively on bare metal and posts/updates **that suite's own** sticky comment on the PR thread. Before benchmarking it takes the host-wide benchmark lock (methodology rule 8 above — refuses to start with exit 75 while another suite holds the host, releasing on exit, on interrupt, and on termination), records the system-load hygiene snapshot (uptime + top processes, non-gating) into the report, and fails fast with a clear error if a Callgrind suite (`all`, `extended`, `instructions`, `vs_stock`) is requested on a host missing `valgrind` or `iai-callgrind-runner`. Benchmark steps run under `pipefail`, so a crashed `cargo bench … | tee` fails the step instead of silently producing an empty report.
+#### Suite vocabulary
+
+The suites below are declared once, in [`.github/bench-suites.json`](../.github/bench-suites.json). The workflow's resolver, this table, and the `workflow_dispatch` dropdown all derive from that file, and `scripts/check_bench_suites.py` (run by the `lint` CI job) fails when any of them disagree.
+
+<!-- BEGIN GENERATED: bench-suites -->
+<!-- Generated from `.github/bench-suites.json` by
+     `python3 scripts/check_bench_suites.py --write`. Do not hand-edit:
+     the `lint` CI job fails when this block and the manifest disagree. -->
+
+`/bench` with no argument runs `all`. The argument is matched as a whole token against this table — never as a substring — and an unrecognised argument is refused by name with no benchmark run.
+
+| Suite | Instrument | What it runs |
+|---|---|---|
+| `all` | Callgrind | Default for a bare `/bench`: dual-pass Callgrind over `instructions` and `vs_stock`, the two B/key examples, and the fast comparative sweep. |
+| `extended` (alias `full`) | Callgrind | Everything in `all`, plus the multi-population scaling sweep and the microarchitecture target-CPU matrix (`bench_report.py --extended --arch-sweep`). |
+| `vs_stock` | Callgrind | C ABI drop-in parity against the stock oracle (`expanse-capi`), dual-pass against the base ref. |
+| `instructions` | Callgrind | Core deterministic Callgrind instruction counters plus the 64-bit and 32-bit B/key examples, dual-pass against the base ref. |
+| `comparative` | wall-clock | Wall-clock head-to-head against hashbrown / BTreeMap, with the `bench_report.py --quick` markdown table. |
+| `ycsb` | wall-clock | YCSB core workloads on the 64-bit map. |
+| `concurrency` | wall-clock | `Sync*` wall-clock scaling instrument on a reduced thread/workload sweep; report-only, never gating. |
+| `search_instructions` | Callgrind | Callgrind instruction counters for the inverted-index search kernels, dual-pass against the base ref. |
+| `smoke_instructions` | Callgrind | Scaled-down Callgrind smoke counters, dual-pass against the base ref. The same instrument as the `callgrind-smoke` CI job, on the reference host. |
+| `search_boolean` | wall-clock | Boolean posting-list intersection and union against the search baselines. |
+| `search_wand` | wall-clock | WAND / top-k scoring over the inverted index. |
+| `search_memory` | wall-clock | Live-heap footprint of the inverted index against the search baselines. |
+| `zset_zadd` | wall-clock | Sorted-set insert/update throughput against the skiplist baseline. |
+| `zset_range` | wall-clock | Sorted-set range scans, forward and reverse. |
+| `zset_rank` | wall-clock | Sorted-set rank and select queries. |
+| `zset_memory` | wall-clock | Live-heap footprint of the sorted-set representation against the skiplist baseline. |
+| `hashbrown_native_suite` | wall-clock | Core point-operation comparison against hashbrown. |
+| `hashbrown_ycsb` | wall-clock | YCSB workloads run on the hashbrown comparison arms. |
+| `hashbrown_tail_latency` | wall-clock | Tail-latency percentiles against hashbrown, including rehash spikes. |
+| `hashbrown_container_dists` | wall-clock | Key-distribution sensitivity sweep against hashbrown. |
+| `hashbrown_memory_alloc` | wall-clock | Live-heap and allocation-count comparison against hashbrown. |
+| `large_values` | wall-clock | Blob-arena storage paths for values above the immediate capacity. |
+| `embedded` | wall-clock | 32-bit embedded trie surface (`trie32` / `set32` / `map32` / `blobmap32`). |
+| `compare` | wall-clock | Standing container comparison harness across the core map and set types. |
+
+Bench targets deliberately **not** reachable from a slash command:
+
+| Target | Why |
+|---|---|
+| `bench_llm_datastore` | needs the generated corpus under `docs/benchmarks/llm_inference/data/`, which is materialized by that suite's Python driver; run `docs/benchmarks/llm_inference/run.sh` instead. |
+| `bench_grammar_masks` | part of the same Python-driven pipeline as `bench_llm_datastore` and reports into its JSON artifacts; run `docs/benchmarks/llm_inference/run.sh` instead. |
+<!-- END GENERATED: bench-suites -->
+
+#### How a request is resolved
+
+The word after `/bench` / `/benchmark` is taken as a **whole token** and looked up in the table above. Nothing else about the comment is inspected:
+
+- **Exact match, never substring.** `/benchmark search_instructions` runs `search_instructions`. It previously ran `instructions`, because the resolver was an `includes()` ladder and `"search_instructions".includes("instructions")` is true — the report, the marker and the run all said `instructions`, and nothing said the request had not been honoured ([#410](https://github.com/orieg/expanse/issues/410)).
+- **No argument means the default**, currently `all`. Only a *bare* command defaults; an argument that is present but unrecognised never does.
+- **An unrecognised argument is refused by name.** The workflow posts a comment naming the argument and listing every accepted suite, adds a `confused` reaction, fails the run, and **starts no benchmark** — the shared host is never touched. Falling through to `all` was the second §8.1 violation in #410: a long dual-pass Callgrind sweep with no indication the argument was not understood.
+- **The resolved suite is echoed before the run starts.** The `⏳` acknowledgment names the suite that will execute, so a mismatch is visible up front rather than only in the finished, provenance-tagged report.
+- **Resolution happens on a GitHub-hosted runner**, in a separate `resolve` job whose output feeds both the bench job and its `concurrency` group. There is exactly one resolver in the workflow; the duplicate ladder that used to live in the `concurrency:` expression is gone.
+
+The self-hosted runner executes the resolved suite natively on bare metal and posts/updates **that suite's own** sticky comment on the PR thread. Before benchmarking it takes the host-wide benchmark lock (methodology rule 8 above — refuses to start with exit 75 while another suite holds the host, releasing on exit, on interrupt, and on termination), records the system-load hygiene snapshot (uptime + top processes, non-gating) into the report, and fails fast with a clear error if a Callgrind suite is requested on a host missing `valgrind` or `iai-callgrind-runner` (the manifest's `kind` field drives that check, so a newly declared Callgrind suite arms it automatically). Benchmark steps run under `pipefail`, so a crashed `cargo bench … | tee` fails the step instead of silently producing an empty report.
+
+#### Adding a suite
+
+Add an entry to `.github/bench-suites.json`, run `python3 scripts/check_bench_suites.py --write`, and commit the regenerated blocks. A `generic` entry needs nothing else — the workflow runs it straight from its `package` + `target` (a `callgrind` one dual-passes against the base ref and goes through `perf_report.py`; a `wallclock` one is teed into the comment). A `builtin` entry additionally needs a branch in the workflow's suite `case`; without one the run is refused with `unwired_suite` rather than falling through to `all`.
 
 **Every trigger reaches a terminal comment.** Comments are addressed by the marker `<!-- expanse-bench:<suite> -->`, never by the heading text, so each suite owns one comment and suites never clobber one another. The reporting step is `if: always()`: a run that produces no numbers replaces its own `⏳` with the reason — the bench lock holder (`suite`/`pid`/`start`, read straight out of the lock's `owner` file), the missing `valgrind` / `iai-callgrind-runner`, a build or benchmark failure, or cancellation — plus the run link. A pending marker is never the final state, and a run with no numbers keeps whatever that suite last published in a collapsed block rather than erasing it (§8.1 forbids a degradation that renders as still-working; §8.7 wants a published figure to keep resolving to a cited run). A `concurrency:` group keyed on PR + suite means re-triggering the same suite supersedes its own in-flight run instead of queueing behind the single runner, while a *different* suite proceeds and is arbitrated by the host lock; the superseded run stands down rather than overwriting the newer run's comment. `timeout-minutes: 180` bounds a wedged run: comfortably above the longest observed run (~15 min for `all`) with headroom for `extended`'s population and microarchitecture sweeps, and half of GitHub's 6-hour default.
 

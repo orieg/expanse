@@ -167,9 +167,11 @@ ssh "$BENCH_HOST" "export PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH; \
 
 ### Automated Bare-Metal CI Triggers (`/bench` & `/bench extended`)
 On pull requests, maintainers and authorized collaborators can trigger automated bare-metal benchmarks on the dedicated bare-metal reference host via PR comments:
-- `/bench`: Runs standard dual-pass Callgrind (`vs_stock`, `instructions`) and fast comparative sweep ($N = 10,000$).
+- `/bench`: Runs the default suite — standard dual-pass Callgrind (`vs_stock`, `instructions`) and fast comparative sweep ($N = 10,000$).
 - `/bench extended` (or `/benchmark extended`): Runs full multi-population scaling sweeps ($N \in [10\text{k}, 100\text{k}, 1\text{M}]$) + microarchitectural target CPU scaling matrix (`baseline`, `x86-64-v2`, `x86-64-v3`, `native`) + Callgrind.
-- `/benchmark <suite>`: Targeted suite runs (`vs_stock`, `instructions`, `comparative`, `ycsb`).
+- `/benchmark <suite>`: Targeted suite run. **The suite vocabulary is declared once, in `.github/bench-suites.json`** — never enumerate it a second time in prose; link the generated table in `docs/BENCHMARKING.md` §3 instead. `scripts/check_bench_suites.py` fails the `lint` job when the manifest, the workflow and that table disagree.
+- The argument is matched as a **whole token**, never as a substring, and an unrecognised argument is refused by name with **no** benchmark run. Adding a suite means adding a manifest entry and running `python3 scripts/check_bench_suites.py --write`; it never means adding another `includes()` branch (#410).
+
 See `docs/BENCHMARKING.md` §2–3 and `docs/CI.md` for details.
 
 ### Zero-Regression Policy

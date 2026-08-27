@@ -1,0 +1,261 @@
+{
+  "_comment": [
+    "Single source of truth for the /bench and /benchmark suite vocabulary.",
+    "",
+    "Consumed by:",
+    "  * .github/workflows/bench_baremetal.yml - the `resolve` job reads this file,",
+    "    matches the requested token against `name` exactly (never by substring),",
+    "    and refuses anything not declared here;",
+    "  * scripts/check_bench_suites.py - asserts this file, the workflow_dispatch",
+    "    `benchmark_suite` choice list, the generated table in docs/BENCHMARKING.md,",
+    "    and the [[bench]] targets in the crate manifests all agree. Run",
+    "    `python3 scripts/check_bench_suites.py --write` after editing this file.",
+    "",
+    "Fields:",
+    "  name       the exact token accepted after /bench or /benchmark.",
+    "  available  false = declared but not reachable from a slash command; the",
+    "             refusal message lists it with its `reason` so the gap is stated",
+    "             rather than silent (AGENTS.md 8.1).",
+    "  kind       callgrind = needs valgrind + iai-callgrind-runner on the host,",
+    "             checked before anything runs; wallclock = criterion / custom-main.",
+    "  runner     builtin = handled by a named branch of the workflow's case",
+    "             statement (dual-pass baselines, report post-processing);",
+    "             generic = run straight from `package` + `target` (+ `env`).",
+    "  package    cargo package for a generic suite.",
+    "  target     [[bench]] target name for a generic suite.",
+    "  env        space-separated KEY=VALUE pairs prefixed to a generic run.",
+    "  summary    one line, rendered verbatim into the docs table and the",
+    "             refusal comment. No hardcoded numbers that a run would produce."
+  ],
+  "default": "all",
+  "aliases": {
+    "full": "extended"
+  },
+  "reserved": [
+    "rejected"
+  ],
+  "suites": [
+    {
+      "name": "all",
+      "available": true,
+      "kind": "callgrind",
+      "runner": "builtin",
+      "summary": "Default for a bare `/bench`: dual-pass Callgrind over `instructions` and `vs_stock`, the two B/key examples, and the fast comparative sweep."
+    },
+    {
+      "name": "extended",
+      "available": true,
+      "kind": "callgrind",
+      "runner": "builtin",
+      "summary": "Everything in `all`, plus the multi-population scaling sweep and the microarchitecture target-CPU matrix (`bench_report.py --extended --arch-sweep`)."
+    },
+    {
+      "name": "vs_stock",
+      "available": true,
+      "kind": "callgrind",
+      "runner": "builtin",
+      "summary": "C ABI drop-in parity against the stock oracle (`expanse-capi`), dual-pass against the base ref."
+    },
+    {
+      "name": "instructions",
+      "available": true,
+      "kind": "callgrind",
+      "runner": "builtin",
+      "summary": "Core deterministic Callgrind instruction counters plus the 64-bit and 32-bit B/key examples, dual-pass against the base ref."
+    },
+    {
+      "name": "comparative",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Wall-clock head-to-head against hashbrown / BTreeMap, with the `bench_report.py --quick` markdown table."
+    },
+    {
+      "name": "ycsb",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "YCSB core workloads on the 64-bit map."
+    },
+    {
+      "name": "concurrency",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "`Sync*` wall-clock scaling instrument on a reduced thread/workload sweep; report-only, never gating."
+    },
+    {
+      "name": "search_instructions",
+      "available": true,
+      "kind": "callgrind",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "search_instructions",
+      "summary": "Callgrind instruction counters for the inverted-index search kernels, dual-pass against the base ref."
+    },
+    {
+      "name": "smoke_instructions",
+      "available": true,
+      "kind": "callgrind",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "smoke_instructions",
+      "summary": "Scaled-down Callgrind smoke counters, dual-pass against the base ref. The same instrument as the `callgrind-smoke` CI job, on the reference host."
+    },
+    {
+      "name": "search_boolean",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "search_boolean",
+      "summary": "Boolean posting-list intersection and union against the search baselines."
+    },
+    {
+      "name": "search_wand",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "search_wand",
+      "summary": "WAND / top-k scoring over the inverted index."
+    },
+    {
+      "name": "search_memory",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "search_memory",
+      "summary": "Live-heap footprint of the inverted index against the search baselines."
+    },
+    {
+      "name": "zset_zadd",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "zset_zadd",
+      "summary": "Sorted-set insert/update throughput against the skiplist baseline."
+    },
+    {
+      "name": "zset_range",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "zset_range",
+      "summary": "Sorted-set range scans, forward and reverse."
+    },
+    {
+      "name": "zset_rank",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "zset_rank",
+      "summary": "Sorted-set rank and select queries."
+    },
+    {
+      "name": "zset_memory",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "zset_memory",
+      "summary": "Live-heap footprint of the sorted-set representation against the skiplist baseline."
+    },
+    {
+      "name": "hashbrown_native_suite",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "hashbrown_native_suite",
+      "summary": "Core point-operation comparison against hashbrown."
+    },
+    {
+      "name": "hashbrown_ycsb",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "hashbrown_ycsb",
+      "summary": "YCSB workloads run on the hashbrown comparison arms."
+    },
+    {
+      "name": "hashbrown_tail_latency",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "hashbrown_tail_latency",
+      "summary": "Tail-latency percentiles against hashbrown, including rehash spikes."
+    },
+    {
+      "name": "hashbrown_container_dists",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "hashbrown_container_dists",
+      "summary": "Key-distribution sensitivity sweep against hashbrown."
+    },
+    {
+      "name": "hashbrown_memory_alloc",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "hashbrown_memory_alloc",
+      "summary": "Live-heap and allocation-count comparison against hashbrown."
+    },
+    {
+      "name": "large_values",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "large_values",
+      "summary": "Blob-arena storage paths for values above the immediate capacity."
+    },
+    {
+      "name": "embedded",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "embedded",
+      "summary": "32-bit embedded trie surface (`trie32` / `set32` / `map32` / `blobmap32`)."
+    },
+    {
+      "name": "compare",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "compare",
+      "summary": "Standing container comparison harness across the core map and set types."
+    },
+    {
+      "name": "bench_llm_datastore",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "bench_llm_datastore",
+      "reason": "needs the generated corpus under `docs/benchmarks/llm_inference/data/`, which is materialized by that suite's Python driver; run `docs/benchmarks/llm_inference/run.sh` instead.",
+      "summary": "Speculative-decoding datastore against a static sorted window index."
+    },
+    {
+      "name": "bench_grammar_masks",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "bench_grammar_masks",
+      "reason": "part of the same Python-driven pipeline as `bench_llm_datastore` and reports into its JSON artifacts; run `docs/benchmarks/llm_inference/run.sh` instead.",
+      "summary": "Grammar-constrained decoding mask cache and set algebra against roaring and dense bitmaps."
+    }
+  ]
+}

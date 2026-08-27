@@ -14,11 +14,17 @@ on:
         description: 'PR number to post results to'
         required: false
       benchmark_suite:
-        description: 'Benchmark suite to run (all, extended, vs_stock, instructions, comparative, ycsb, concurrency)'
+        # Kept in lockstep with `.github/bench-suites.json` by
+        # `scripts/check_bench_suites.py` (run it with `--write` to regenerate
+        # this list); the `resolve` job validates the choice against the
+        # manifest again at runtime, so a drifted dropdown cannot smuggle in an
+        # undeclared suite.
+        description: 'Benchmark suite to run (see .github/bench-suites.json)'
         required: true
         default: 'all'
         type: choice
         options:
+          # BEGIN GENERATED: bench-suites
           - all
           - extended
           - vs_stock
@@ -26,6 +32,24 @@ on:
           - comparative
           - ycsb
           - concurrency
+          - search_instructions
+          - smoke_instructions
+          - search_boolean
+          - search_wand
+          - search_memory
+          - zset_zadd
+          - zset_range
+          - zset_rank
+          - zset_memory
+          - hashbrown_native_suite
+          - hashbrown_ycsb
+          - hashbrown_tail_latency
+          - hashbrown_container_dists
+          - hashbrown_memory_alloc
+          - large_values
+          - embedded
+          - compare
+          # END GENERATED: bench-suites
   issue_comment:
     types: [created]
 
@@ -39,53 +63,53 @@ permissions:
   pull-requests: write
 
 jobs:
-  bench-baremetal:
-    name: Run Bare-Metal Benchmarks
+  # Resolve the request on a GitHub-hosted runner, before the shared bare-metal
+  # host is touched at all. This job owns the whole suite vocabulary: it parses
+  # the token after `/bench` / `/benchmark`, matches it *exactly* against
+  # `.github/bench-suites.json`, and refuses anything else by name.
+  #
+  # Why a separate job rather than a first step (#410): job-level `concurrency`
+  # is evaluated before any step runs, so the old workflow re-derived the suite
+  # inside its own `concurrency.group` expression - a second copy of the
+  # resolver that had to be kept in sync by hand. `needs` *is* available to
+  # `concurrency`, so publishing the suite as a job output removes that
+  # duplicate ladder entirely.
+  #
+  # The old resolver matched by substring, so `/benchmark search_instructions`
+  # hit `comment.includes('instructions')` and silently ran `instructions`,
+  # and any unrecognised argument fell through to the initial `let suite =
+  # 'all'` and ran a full dual-pass sweep. Both rendered as an ordinary,
+  # successful, provenance-tagged report for a suite that never executed -
+  # exactly the silent degradation AGENTS.md section 8.1 forbids.
+  resolve:
+    name: Resolve Benchmark Request
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && (startsWith(github.event.comment.body, '/bench') || startsWith(github.event.comment.body, '/benchmark')))
-    runs-on: [self-hosted, linux]
-    # One in-flight run per (PR, suite): a re-triggered suite supersedes its
-    # own pending run instead of queueing behind the single self-hosted
-    # runner, while a *different* suite on the same PR runs independently and
-    # is arbitrated by the host-wide bench lock further down.
-    #
-    # The suite has to be re-derived here because job-level `concurrency` is
-    # evaluated before any step runs, so `steps.pr-info` is not available yet.
-    # Keep this ladder in sync with the resolver in `Resolve PR info`; the
-    # `noop-` fallback keeps ordinary PR chatter (which the job `if` skips)
-    # out of a real suite's group.
-    concurrency:
-      # Uniform indentation under `>-`: a more-indented continuation line
-      # would be folded literally, leaving raw newlines inside the group key.
-      group: >-
-        ${{ (github.event_name == 'workflow_dispatch'
-        || startsWith(github.event.comment.body, '/bench')
-        || startsWith(github.event.comment.body, '/benchmark'))
-        && 'bench-baremetal' || format('bench-noop-{0}', github.run_id) }}-${{
-        github.event.issue.number || github.event.inputs.pr_number || github.run_id }}-${{
-        github.event_name == 'workflow_dispatch' && github.event.inputs.benchmark_suite
-        || (contains(github.event.comment.body, 'extended')
-        || contains(github.event.comment.body, 'full')) && 'extended'
-        || contains(github.event.comment.body, 'vs_stock') && 'vs_stock'
-        || contains(github.event.comment.body, 'instructions') && 'instructions'
-        || contains(github.event.comment.body, 'comparative') && 'comparative'
-        || contains(github.event.comment.body, 'ycsb') && 'ycsb'
-        || contains(github.event.comment.body, 'concurrency') && 'concurrency'
-        || 'all' }}
-      cancel-in-progress: true
-    # Sized off the longest suite. The longest observed successful run of this
-    # workflow is ~15 min (`all`: dual-pass Callgrind over instructions and
-    # vs_stock); `extended` layers six further `bench_report.py` harness runs
-    # on that same Callgrind work - the N in {10k, 100k, 1M} population sweep
-    # plus the baseline/x86-64-v2/x86-64-v3/native matrix, four of which
-    # rebuild the harness under a different `-C target-cpu`. 180 leaves an
-    # order of magnitude of headroom over the observed maximum while halving
-    # the window in which a wedged run can hold the shared host, versus
-    # GitHub's 6-hour default. Raise it if a real `extended` run ever trips
-    # it: the failure is now visible rather than silent.
-    timeout-minutes: 180
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      # Empty `suite` means "no benchmark run": either the comment was not a
+      # bench command after all, or it was refused. The bench job gates on it.
+      suite: ${{ steps.resolve.outputs.suite }}
+      kind: ${{ steps.resolve.outputs.kind }}
+      runner: ${{ steps.resolve.outputs.runner }}
+      bench_package: ${{ steps.resolve.outputs.bench_package }}
+      bench_target: ${{ steps.resolve.outputs.bench_target }}
+      bench_env: ${{ steps.resolve.outputs.bench_env }}
+      ref: ${{ steps.resolve.outputs.ref }}
+      base_ref: ${{ steps.resolve.outputs.base_ref }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
     steps:
+      # Sparse, non-cone: only the manifest. For `issue_comment` the checkout
+      # ref is the default branch, so the accepted vocabulary is always the one
+      # reviewed on `main`, never a version proposed by the pull request.
+      - name: Check out the suite manifest
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/bench-suites.json
+          sparse-checkout-cone-mode: false
+
       - name: Check permissions
         if: github.event_name == 'issue_comment'
         uses: actions/github-script@v8
@@ -100,63 +124,232 @@ jobs:
               core.setFailed('User does not have permission to trigger benchmarks.');
             }
 
-      - name: React to trigger comment
-        if: github.event_name == 'issue_comment'
-        continue-on-error: true
+      - name: Resolve suite
+        id: resolve
         uses: actions/github-script@v8
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           script: |
-            try {
-              await github.rest.reactions.createForIssueComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: context.payload.comment.id,
-                content: 'rocket',
-              });
-            } catch (e) {
-              core.warning(`Failed to add reaction to trigger comment: ${e.message}`);
+            const fs = require('fs');
+            const manifestPath = '.github/bench-suites.json';
+            if (!fs.existsSync(manifestPath)) {
+              // Fail closed: with no vocabulary there is no defensible default,
+              // and guessing one is the bug this job exists to remove.
+              core.setOutput('suite', '');
+              core.setFailed(`${manifestPath} is missing from the checkout; the suite vocabulary could not be read, so no benchmark was started.`);
+              return;
+            }
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            const suites = manifest.suites;
+            const aliases = manifest.aliases || {};
+            const byName = new Map(suites.map(s => [s.name, s]));
+            const available = suites.filter(s => s.available);
+            const unavailable = suites.filter(s => !s.available);
+
+            const publish = (s) => {
+              core.setOutput('suite', s.name);
+              core.setOutput('kind', s.kind);
+              core.setOutput('runner', s.runner);
+              core.setOutput('bench_package', s.package || '');
+              core.setOutput('bench_target', s.target || '');
+              core.setOutput('bench_env', s.env || '');
+              core.notice(`Resolved benchmark suite: ${s.name}`);
+            };
+
+            // ---- workflow_dispatch ------------------------------------------
+            // `type: choice` already constrains the dropdown, but the dropdown
+            // is a second copy of the list; validate against the manifest so a
+            // drifted copy cannot start an undeclared suite.
+            if (context.eventName === 'workflow_dispatch') {
+              const inputs = context.payload.inputs || {};
+              const requested = String(inputs.benchmark_suite || manifest.default).trim();
+              const resolved = byName.get(aliases[requested] || requested);
+              if (!resolved || !resolved.available) {
+                core.setFailed(
+                  `Unknown or unavailable benchmark suite '${requested}'. ` +
+                  `Declared and available: ${available.map(s => s.name).join(', ')}.`
+                );
+                return;
+              }
+              core.setOutput('ref', inputs.ref || '');
+              core.setOutput('base_ref', inputs.base_ref || '');
+              core.setOutput('pr_number', inputs.pr_number || '');
+              publish(resolved);
+              return;
             }
 
-      - name: Resolve PR info
-        id: pr-info
-        if: github.event_name == 'issue_comment'
-        uses: actions/github-script@v8
-        with:
-          script: |
+            // ---- /bench and /benchmark PR comments ---------------------------
+            // Token matching, never substring matching: take the first word of
+            // the first line as the command and the second as the argument.
+            const body = context.payload.comment.body || '';
+            const firstLine = body.split(/\r?\n/)[0].trim();
+            const parsed = firstLine.match(/^\/(bench|benchmark)\b\s*(\S*)/);
+            if (!parsed) {
+              // The job `if` only checks `startsWith('/bench')`, so ordinary
+              // prose like `/benchmarking-notes` reaches here. That is not a
+              // command; do nothing and start nothing.
+              core.notice(`Not a benchmark command: ${JSON.stringify(firstLine.slice(0, 80))}`);
+              core.setOutput('suite', '');
+              return;
+            }
+
+            // Trailing punctuation and wrapping quotes/backticks are typing
+            // noise, not part of the name; everything else is significant.
+            const raw = parsed[2]
+              .replace(/^[`'"(\[]+/, '')
+              .replace(/[`'".,;:!?)\]]+$/, '');
+            const token = raw.toLowerCase();
+            const requested = aliases[token] || token;
+            const resolved = token === '' ? byName.get(manifest.default) : byName.get(requested);
+
+            const issue_number = context.issue.number;
+            const react = async (content) => {
+              try {
+                await github.rest.reactions.createForIssueComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: context.payload.comment.id,
+                  content,
+                });
+              } catch (e) {
+                core.warning(`Failed to add reaction to trigger comment: ${e.message}`);
+              }
+            };
+
+            if (!resolved || !resolved.available) {
+              // Refusal is terminal and loud: a comment naming the argument and
+              // the whole accepted vocabulary, a confused reaction, a red job,
+              // and no bench job at all (AGENTS.md section 8.1).
+              await react('confused');
+
+              // The token is attacker-controlled text echoed into a comment.
+              // Reduce it to the character class a suite name can use and cap
+              // its length, so it cannot break out of the code span.
+              const shown = raw.replace(/[^A-Za-z0-9_.\/-]/g, '').slice(0, 40) || '(empty)';
+              const rows = available.map(s => `| \`${s.name}\` | ${s.kind === 'callgrind' ? 'Callgrind' : 'wall-clock'} | ${s.summary} |`);
+              const gaps = unavailable.map(s => `| \`${s.name}\` | ${s.reason} |`);
+
+              // A declared-but-unavailable target is a different answer from a
+              // name nobody recognises, and saying so is the whole point: the
+              // gap is stated rather than left to be discovered by a run that
+              // quietly measured something else.
+              const heading = resolved
+                ? `## ⛔ Benchmark request refused — \`${shown}\` is not available via slash command`
+                : `## ⛔ Benchmark request refused — unknown suite \`${shown}\``;
+              const why = resolved
+                ? 'No benchmark was started, and no numbers were produced. `' + shown + '` is a real bench target, but it is deliberately not reachable this way: ' + resolved.reason
+                : 'No benchmark was started, and no numbers were produced. `' + shown + '` does not name a declared suite, and an unrecognised argument is never quietly turned into a default run (AGENTS.md §8.1).';
+
+              const lines = [
+                '<!-- expanse-bench:rejected -->',
+                `<!-- expanse-bench-run:${context.runId} -->`,
+                heading,
+                '',
+                why,
+                '',
+                '**Accepted suites** — `/bench` with no argument runs `' + manifest.default + '`:',
+                '',
+                '| Suite | Instrument | What it runs |',
+                '|---|---|---|',
+                ...rows,
+              ];
+              if (Object.keys(aliases).length) {
+                lines.push(
+                  '',
+                  'Aliases: ' + Object.entries(aliases).map(([a, s]) => `\`${a}\` → \`${s}\``).join(', ') + '.',
+                );
+              }
+              if (gaps.length) {
+                lines.push(
+                  '',
+                  '<details>',
+                  '<summary><b>Bench targets deliberately not reachable from a slash command</b></summary>',
+                  '',
+                  '| Target | Why |',
+                  '|---|---|',
+                  ...gaps,
+                  '',
+                  '</details>',
+                );
+              }
+              lines.push('', `[View run](${process.env.RUN_URL})`);
+              const refusal = lines.join('\n') + '\n';
+
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                per_page: 100,
+              });
+              const existing = comments.find(c => c.body && c.body.includes('<!-- expanse-bench:rejected -->'));
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body: refusal,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number,
+                  body: refusal,
+                });
+              }
+
+              core.setOutput('suite', '');
+              core.setFailed(
+                resolved
+                  ? `Refused: '${shown}' is declared but not reachable from a slash command.`
+                  : `Refused: '${shown}' is not a declared benchmark suite.`
+              );
+              return;
+            }
+
+            await react('rocket');
+
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: context.issue.number,
+              pull_number: issue_number,
             });
             core.setOutput('ref', pr.head.sha);
             core.setOutput('base_ref', pr.base.sha);
-            core.setOutput('pr_number', context.issue.number.toString());
-            
-            const comment = context.payload.comment.body;
-            let suite = 'all';
-            if (comment.includes('extended') || comment.includes('full')) suite = 'extended';
-            else if (comment.includes('vs_stock')) suite = 'vs_stock';
-            else if (comment.includes('instructions')) suite = 'instructions';
-            else if (comment.includes('comparative')) suite = 'comparative';
-            else if (comment.includes('ycsb')) suite = 'ycsb';
-            else if (comment.includes('concurrency')) suite = 'concurrency';
-            core.setOutput('benchmark_suite', suite);
+            core.setOutput('pr_number', String(issue_number));
+            publish(resolved);
 
-      - name: Set input variables
-        id: vars
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "ref=${{ github.event.inputs.ref }}" >> $GITHUB_OUTPUT
-            echo "base_ref=${{ github.event.inputs.base_ref }}" >> $GITHUB_OUTPUT
-            echo "pr_number=${{ github.event.inputs.pr_number }}" >> $GITHUB_OUTPUT
-            echo "benchmark_suite=${{ github.event.inputs.benchmark_suite }}" >> $GITHUB_OUTPUT
-          else
-            echo "ref=${{ steps.pr-info.outputs.ref }}" >> $GITHUB_OUTPUT
-            echo "base_ref=${{ steps.pr-info.outputs.base_ref }}" >> $GITHUB_OUTPUT
-            echo "pr_number=${{ steps.pr-info.outputs.pr_number }}" >> $GITHUB_OUTPUT
-            echo "benchmark_suite=${{ steps.pr-info.outputs.benchmark_suite }}" >> $GITHUB_OUTPUT
-          fi
-
+  bench-baremetal:
+    name: Run Bare-Metal Benchmarks
+    needs: [resolve]
+    # An empty suite means the resolver refused, or the comment was not a bench
+    # command; either way nothing runs on the shared host.
+    if: needs.resolve.result == 'success' && needs.resolve.outputs.suite != ''
+    runs-on: [self-hosted, linux]
+    # One in-flight run per (PR, suite): a re-triggered suite supersedes its
+    # own pending run instead of queueing behind the single self-hosted
+    # runner, while a *different* suite on the same PR runs independently and
+    # is arbitrated by the host-wide bench lock further down.
+    #
+    # The suite comes from the `resolve` job rather than being re-derived from
+    # the comment body here (#410): `needs` is available to job-level
+    # `concurrency`, so there is exactly one resolver in this workflow.
+    concurrency:
+      group: bench-baremetal-${{ needs.resolve.outputs.pr_number || github.run_id }}-${{ needs.resolve.outputs.suite }}
+      cancel-in-progress: true
+    # Sized off the longest suite. The longest observed successful run of this
+    # workflow is ~15 min (`all`: dual-pass Callgrind over instructions and
+    # vs_stock); `extended` layers six further `bench_report.py` harness runs
+    # on that same Callgrind work - the N in {10k, 100k, 1M} population sweep
+    # plus the baseline/x86-64-v2/x86-64-v3/native matrix, four of which
+    # rebuild the harness under a different `-C target-cpu`. 180 leaves an
+    # order of magnitude of headroom over the observed maximum while halving
+    # the window in which a wedged run can hold the shared host, versus
+    # GitHub's 6-hour default. Raise it if a real `extended` run ever trips
+    # it: the failure is now visible rather than silent.
+    timeout-minutes: 180
+    steps:
       # Comment identity: one sticky comment per suite, addressed by the
       # stable marker `<!-- expanse-bench:<suite> -->` - the same pattern
       # ci.yml's perf report uses - and never by the human-readable heading.
@@ -172,12 +365,12 @@ jobs:
       # overwritten by a pending marker stops resolving to anything.
       - name: Post start acknowledgment
         id: ack
-        if: steps.vars.outputs.pr_number != ''
+        if: needs.resolve.outputs.pr_number != ''
         continue-on-error: true
         uses: actions/github-script@v8
         env:
-          SUITE: ${{ steps.vars.outputs.benchmark_suite }}
-          PR_NUMBER: ${{ steps.vars.outputs.pr_number }}
+          SUITE: ${{ needs.resolve.outputs.suite }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           script: |
@@ -229,10 +422,17 @@ jobs:
               }
             }
 
+            // The resolved suite is stated before a single benchmark runs, so
+            // a request that resolved to something other than what was asked
+            // for is visible now rather than only in the finished report
+            // (#410). The resolver refuses anything it cannot name, so this
+            // line is the suite that will actually execute.
             const head = [
               marker,
               runMarker,
               `## ⏳ Bare-Metal Benchmark Results — suite \`${suite}\` (running)`,
+              '',
+              `Resolved suite: \`${suite}\`. Nothing else runs under this comment.`,
               '',
               `Running on the dedicated bare-metal reference host: [view run](${process.env.RUN_URL})`,
               '',
@@ -259,7 +459,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
         with:
-          ref: ${{ steps.vars.outputs.ref }}
+          ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
 
       - name: System Load Hygiene Check
@@ -320,6 +520,18 @@ jobs:
         # `|| true` deliberately (a broken base commit must not hard-block the
         # run); the report renders a loud NO BASELINE section instead.
         shell: bash
+        env:
+          # Every one of these comes from the `resolve` job, which only ever
+          # publishes values it read out of `.github/bench-suites.json` or the
+          # pulls API - never raw comment text.
+          REF: ${{ needs.resolve.outputs.ref }}
+          BASE_REF_IN: ${{ needs.resolve.outputs.base_ref }}
+          SUITE: ${{ needs.resolve.outputs.suite }}
+          SUITE_KIND: ${{ needs.resolve.outputs.kind }}
+          SUITE_RUNNER: ${{ needs.resolve.outputs.runner }}
+          BENCH_PACKAGE: ${{ needs.resolve.outputs.bench_package }}
+          BENCH_TARGET: ${{ needs.resolve.outputs.bench_target }}
+          BENCH_ENV: ${{ needs.resolve.outputs.bench_env }}
         run: |
           export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
           export LD_LIBRARY_PATH="$HOME/.local/lib:$LD_LIBRARY_PATH"
@@ -328,31 +540,43 @@ jobs:
 
           git config --global --add safe.directory "$PWD"
 
-          REF="${{ steps.vars.outputs.ref }}"
-          BASE_REF="${{ steps.vars.outputs.base_ref }}"
-          SUITE="${{ steps.vars.outputs.benchmark_suite }}"
+          BASE_REF="$BASE_REF_IN"
 
           echo "Configured Ref: $REF"
           echo "Configured Base Ref: $BASE_REF"
-          echo "Configured Suite: $SUITE"
+          echo "Configured Suite: $SUITE (kind=$SUITE_KIND runner=$SUITE_RUNNER)"
+
+          # The resolver is the only place a suite name is interpreted; if it
+          # ever hands this step something incomplete, that is a harness fault
+          # and must stop the run rather than silently pick a default.
+          if [ -z "$SUITE" ] || [ -z "$SUITE_KIND" ] || [ -z "$SUITE_RUNNER" ]; then
+            echo "::error::resolver published an incomplete suite descriptor (suite='$SUITE' kind='$SUITE_KIND' runner='$SUITE_RUNNER')"
+            echo "fail_reason=bad_descriptor" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if [ "$SUITE_RUNNER" = "generic" ] && { [ -z "$BENCH_PACKAGE" ] || [ -z "$BENCH_TARGET" ]; }; then
+            echo "::error::generic suite '$SUITE' has no package/target in .github/bench-suites.json"
+            echo "fail_reason=bad_descriptor" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
 
           # Fail fast if the suite needs Callgrind and the host lacks the
           # tooling: an iai-callgrind run without valgrind or a runner binary
           # produces garbage/empty output, which must not become a report.
-          case "$SUITE" in
-            all|extended|instructions|vs_stock)
-              for tool in valgrind iai-callgrind-runner; do
-                if ! command -v "$tool" >/dev/null 2>&1; then
-                  echo "::error::Suite '$SUITE' requires Callgrind, but '$tool' is not installed on this runner. Install valgrind and a version-matched iai-callgrind-runner (see the ci.yml callgrind jobs) before re-triggering."
-                  # Hand the cause to the terminal comment step, so the PR
-                  # says why nothing ran instead of staying at the pending
-                  # marker (AGENTS.md section 8.1).
-                  echo "fail_reason=missing_tool:$tool" >> "$GITHUB_OUTPUT"
-                  exit 1
-                fi
-              done
-              ;;
-          esac
+          # Driven by the manifest's `kind`, so adding a Callgrind suite arms
+          # this check without a second edit here.
+          if [ "$SUITE_KIND" = "callgrind" ]; then
+            for tool in valgrind iai-callgrind-runner; do
+              if ! command -v "$tool" >/dev/null 2>&1; then
+                echo "::error::Suite '$SUITE' requires Callgrind, but '$tool' is not installed on this runner. Install valgrind and a version-matched iai-callgrind-runner (see the ci.yml callgrind jobs) before re-triggering."
+                # Hand the cause to the terminal comment step, so the PR
+                # says why nothing ran instead of staying at the pending
+                # marker (AGENTS.md section 8.1).
+                echo "fail_reason=missing_tool:$tool" >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+            done
+          fi
 
           # Host-wide benchmark lock (docs/BENCHMARKING.md, methodology rule
           # 8): one suite at a time per machine, across every checkout.
@@ -425,6 +649,14 @@ jobs:
                   echo "Running base vs_stock benchmark..."
                   cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_base_vs_stock | tee base-vs-stock.txt || true
                 fi
+
+                # Manifest-declared Callgrind suites get the same dual pass:
+                # an instruction count with nothing to compare against is a
+                # weaker instrument, and there is no per-suite code to write.
+                if [ "$SUITE_RUNNER" = "generic" ] && [ "$SUITE_KIND" = "callgrind" ]; then
+                  echo "Running base $BENCH_TARGET benchmark..."
+                  cargo bench --bench "$BENCH_TARGET" -p "$BENCH_PACKAGE" -- --save-baseline=baremetal_base_generic | tee base-generic.txt || true
+                fi
               else
                 echo "Warning: base ref $BASE_REF failed to build; continuing single pass."
                 BASE_REF=""
@@ -445,76 +677,106 @@ jobs:
           cargo build --release -p expanse-capi
           export EXPANSE_CDYLIB="$PWD/target/release/libexpanse.so"
 
-          case "$SUITE" in
-            "vs_stock")
-              if [ -f base-vs-stock.txt ]; then
-                cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
+          # A manifest-declared `generic` suite is run straight from its
+          # package/target: one branch covers every such suite, so a new bench
+          # target becomes reachable by adding a manifest entry, not by adding
+          # a case arm that a later name could shadow.
+          if [ "$SUITE_RUNNER" = "generic" ]; then
+            if [ "$SUITE_KIND" = "callgrind" ]; then
+              if [ -f base-generic.txt ]; then
+                cargo bench --bench "$BENCH_TARGET" -p "$BENCH_PACKAGE" -- --baseline=baremetal_base_generic | tee bench-output.txt
               else
-                cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
+                cargo bench --bench "$BENCH_TARGET" -p "$BENCH_PACKAGE" | tee bench-output.txt
               fi
-              ;;
-            "instructions")
-              if [ -f base-instructions.txt ]; then
-                cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
-              else
-                cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_main | tee head-instructions.txt
-              fi
-              cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
-              cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
-              ;;
-            "comparative")
-              cargo bench --bench comparative -p expanse-trie | tee comparative.txt
-              python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
-              ;;
-            "extended")
-              if [ -f base-instructions.txt ]; then
-                cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
-              else
-                cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_main | tee head-instructions.txt
-              fi
+            elif [ -n "$BENCH_ENV" ]; then
+              # BENCH_ENV is a manifest-declared `KEY=VALUE ...` string; word
+              # splitting is the intent here.
+              # shellcheck disable=SC2086
+              env $BENCH_ENV cargo bench --bench "$BENCH_TARGET" -p "$BENCH_PACKAGE" | tee bench-output.txt
+            else
+              cargo bench --bench "$BENCH_TARGET" -p "$BENCH_PACKAGE" | tee bench-output.txt
+            fi
+          else
+            case "$SUITE" in
+              "vs_stock")
+                if [ -f base-vs-stock.txt ]; then
+                  cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
+                else
+                  cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
+                fi
+                ;;
+              "instructions")
+                if [ -f base-instructions.txt ]; then
+                  cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
+                else
+                  cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_main | tee head-instructions.txt
+                fi
+                cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
+                cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
+                ;;
+              "comparative")
+                cargo bench --bench comparative -p expanse-trie | tee comparative.txt
+                python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
+                ;;
+              "extended")
+                if [ -f base-instructions.txt ]; then
+                  cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
+                else
+                  cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_main | tee head-instructions.txt
+                fi
 
-              if [ -f base-vs-stock.txt ]; then
-                cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
-              else
-                cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
-              fi
+                if [ -f base-vs-stock.txt ]; then
+                  cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
+                else
+                  cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
+                fi
 
-              cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
-              cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
+                cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
+                cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
 
-              cargo bench --bench comparative -p expanse-trie | tee comparative.txt
-              python3 scripts/bench_report.py --extended --arch-sweep --format markdown | tee head-to-head.md
-              ;;
-            "ycsb")
-              cargo bench --bench ycsb -p expanse-trie | tee ycsb.txt
-              ;;
-            "concurrency")
-              # Wall-clock Sync* scaling instrument (benches/concurrency.rs,
-              # harness = false; configured via env, not CLI args). Reduced
-              # sweep to stay within the job window; report-only.
-              EXPANSE_BENCH_THREADS="1,4,16" EXPANSE_BENCH_WORKLOADS="100,50" \
-                cargo bench --bench concurrency -p expanse-trie | tee concurrency.txt
-              ;;
-            "all"|*)
-              if [ -f base-instructions.txt ]; then
-                cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
-              else
-                cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_main | tee head-instructions.txt
-              fi
+                cargo bench --bench comparative -p expanse-trie | tee comparative.txt
+                python3 scripts/bench_report.py --extended --arch-sweep --format markdown | tee head-to-head.md
+                ;;
+              "ycsb")
+                cargo bench --bench ycsb -p expanse-trie | tee ycsb.txt
+                ;;
+              "concurrency")
+                # Wall-clock Sync* scaling instrument (benches/concurrency.rs,
+                # harness = false; configured via env, not CLI args). Reduced
+                # sweep to stay within the job window; report-only.
+                EXPANSE_BENCH_THREADS="1,4,16" EXPANSE_BENCH_WORKLOADS="100,50" \
+                  cargo bench --bench concurrency -p expanse-trie | tee concurrency.txt
+                ;;
+              "all")
+                if [ -f base-instructions.txt ]; then
+                  cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base | tee head-instructions.txt
+                else
+                  cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_main | tee head-instructions.txt
+                fi
 
-              if [ -f base-vs-stock.txt ]; then
-                cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
-              else
-                cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
-              fi
+                if [ -f base-vs-stock.txt ]; then
+                  cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock | tee head-vs-stock.txt
+                else
+                  cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_main_vs_stock | tee head-vs-stock.txt
+                fi
 
-              cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
-              cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
+                cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
+                cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
 
-              cargo bench --bench comparative -p expanse-trie | tee comparative.txt
-              python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
-              ;;
-          esac
+                cargo bench --bench comparative -p expanse-trie | tee comparative.txt
+                python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
+                ;;
+              *)
+                # Unreachable: the resolver only publishes declared suites and
+                # every builtin one has an arm above. If it is ever reached, a
+                # manifest entry was added without wiring - stop, do not run `all`
+                # under another suite's name (AGENTS.md section 8.1).
+                echo "::error::builtin suite '$SUITE' is declared in .github/bench-suites.json but has no branch in this workflow"
+                echo "fail_reason=unwired_suite" >> "$GITHUB_OUTPUT"
+                exit 1
+                ;;
+            esac
+          fi
 
           # ====================================================================
           # Report Generation Step
@@ -526,6 +788,7 @@ jobs:
           BASE_OK=false
           if [ -n "$BASE_REF" ]; then
             if { [ -f base-instructions.txt ] && grep -qE '^[[:alpha:]_][[:alnum:]_:]*::[[:alnum:]_]+' base-instructions.txt; } \
+               || { [ -f base-generic.txt ] && grep -qE '^[[:alpha:]_][[:alnum:]_:]*::[[:alnum:]_]+' base-generic.txt; } \
                || { [ -f base-vs-stock.txt ] && grep -qE '^[[:alpha:]_][[:alnum:]_:]*::[[:alnum:]_]+' base-vs-stock.txt; }; then
               BASE_OK=true
             fi
@@ -535,6 +798,16 @@ jobs:
             echo "base_line=- **Base Ref**: \`$BASE_REF\`" >> "$GITHUB_OUTPUT"
           else
             echo "base_line=- **Base Ref**: _none — no base comparison ran_" >> "$GITHUB_OUTPUT"
+          fi
+
+          # A generic Callgrind suite emits the same iai-callgrind format as
+          # `instructions`, so it goes through perf_report.py too rather than
+          # being dumped as raw text: same parser, same regression legend.
+          if [ "$SUITE_RUNNER" = "generic" ] && [ "$SUITE_KIND" = "callgrind" ] && [ -f bench-output.txt ]; then
+            mv bench-output.txt head-instructions.txt
+            if [ -f base-generic.txt ]; then
+              mv base-generic.txt base-instructions.txt
+            fi
           fi
 
           if [ -f head-instructions.txt ]; then
@@ -603,6 +876,11 @@ jobs:
                 echo '```text'
                 cat concurrency.txt
                 echo '```'
+              elif [ -f bench-output.txt ]; then
+                # Wall-clock output from a manifest-declared generic suite.
+                echo '```text'
+                cat bench-output.txt
+                echo '```'
               fi
               if [ -f system-load.md ]; then
                 cat system-load.md
@@ -631,6 +909,10 @@ jobs:
               echo '```text' >> "$GITHUB_STEP_SUMMARY"
               cat concurrency.txt >> "$GITHUB_STEP_SUMMARY"
               echo '```' >> "$GITHUB_STEP_SUMMARY"
+            elif [ -f bench-output.txt ]; then
+              echo '```text' >> "$GITHUB_STEP_SUMMARY"
+              cat bench-output.txt >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
             fi
             if [ -f system-load.md ]; then
               cat system-load.md >> "$GITHUB_STEP_SUMMARY"
@@ -648,14 +930,14 @@ jobs:
       # a run whose comment a newer run already claimed stands down rather
       # than overwriting fresher numbers with stale ones.
       - name: Publish benchmark comment
-        if: always() && steps.vars.outputs.pr_number != ''
+        if: always() && needs.resolve.outputs.pr_number != ''
         uses: actions/github-script@v8
         env:
-          SUITE: ${{ steps.vars.outputs.benchmark_suite }}
-          PR_NUMBER: ${{ steps.vars.outputs.pr_number }}
+          SUITE: ${{ needs.resolve.outputs.suite }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           HOST_DESC: ${{ steps.sysinfo.outputs.host_desc }}
-          HEAD_REF: ${{ steps.vars.outputs.ref }}
+          HEAD_REF: ${{ needs.resolve.outputs.ref }}
           BASE_LINE: ${{ steps.bench.outputs.base_line }}
           BENCH_OUTCOME: ${{ steps.bench.outcome }}
           FAIL_REASON: ${{ steps.bench.outputs.fail_reason }}
@@ -745,6 +1027,17 @@ jobs:
                 label = 'refused';
                 const tool = reason.slice('missing_tool:'.length);
                 cause = `The run was **refused before any benchmark started**: suite \`${suite}\` needs Callgrind, but \`${tool}\` is not installed on the runner. Install \`valgrind\` and a version-matched \`iai-callgrind-runner\` (see the \`ci.yml\` Callgrind jobs) before re-triggering.`;
+              } else if (reason === 'bad_descriptor' || reason === 'unwired_suite') {
+                label = 'refused';
+                cause = [
+                  'The run was **refused before any benchmark started**: the suite resolved cleanly but this workflow has no complete wiring for it.',
+                  '',
+                  reason === 'unwired_suite'
+                    ? `\`${suite}\` is declared in \`.github/bench-suites.json\` as a builtin suite but has no branch in the benchmark step.`
+                    : `\`${suite}\` has an incomplete descriptor in \`.github/bench-suites.json\` (missing kind, runner, package or target).`,
+                  '',
+                  'That is a repository fault, not a request fault. `scripts/check_bench_suites.py` is the guard that should have caught it before merge.',
+                ].join('\n');
               } else if (outcome === 'failure') {
                 cause = 'The benchmark step **failed** - build error, benchmark crash, or a host problem. The failing command is in the job log.';
               } else if (outcome === 'success') {
