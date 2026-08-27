@@ -8,12 +8,20 @@ Fatal (exit 1):
     Infrastructure"): home-directory paths, private LAN IPv4 addresses, and
     any hostname listed in the DOCS_HOSTNAME_DENYLIST environment variable
     (comma-separated; kept out of the repository on purpose — set it as a
-    repository variable, never commit it).
+    repository *secret*, never commit it, and never echo it: matches are
+    reported as "denylisted hostname" without the value).
 
 Advisory (GitHub `::warning::` annotations, exit 0):
-  * benchmark tables that carry unit-bearing numbers (ns, ops/s, B/key, ×)
-    with no `(measured: …)` / `(target…)` / `(projected…)` provenance tag in
-    the preceding lines (AGENTS.md §6 / §8.7). Heuristic — reviewers decide.
+  * documents that publish unit-bearing numbers (ns, ops/s, B/key, ×) in tables
+    while carrying no `(measured: …)` / `(target…)` / `(projected…)` provenance
+    tag anywhere in the file (AGENTS.md §6 / §8.7).
+
+    Deliberately file-scoped, not per-table. The suite READMEs state provenance
+    once in a header that covers every table below it — often far more than a
+    screenful up — so a proximity rule reports those as violations and trains
+    readers to ignore the warning. What is worth flagging is a document that
+    publishes numbers with no provenance at all; whether a given table sits
+    under the right tag is a reviewer's judgement, not a regex's.
 
 Fenced code blocks are skipped for every check. A line may opt out of the
 fatal checks with the literal marker `docs-lint: allow` (use sparingly, and
@@ -72,7 +80,6 @@ UNIT_TOKEN = re.compile(
 PROVENANCE_TAG = re.compile(r"\((?:measured|target|projected|unverified|retracted|pending)", re.IGNORECASE)
 PROVENANCE_FILES = ("docs/BENCHMARKING.md", "README.md", "docs/DATABASE.md", "docs/BINDINGS_BENCHMARKS.md")
 PROVENANCE_GLOBS = ("docs/benchmarks/*/README.md",)
-PROVENANCE_LOOKBACK = 60
 
 
 def tracked_markdown(root: Path) -> list[Path]:
@@ -132,21 +139,21 @@ def check_pii(lines: list[tuple[int, str]], denylist: list[str]) -> list[tuple[i
 
 
 def check_provenance(lines: list[str]) -> list[int]:
-    """Advisory: first line of each unit-bearing table with no tag in the lookback."""
-    warn, i, n = [], 0, len(lines)
+    """Advisory: file-scoped. Returns the first unit-bearing table's line number
+    when the document carries no provenance tag anywhere, else nothing."""
+    if any(PROVENANCE_TAG.search(l) for l in lines):
+        return []
+    i, n = 0, len(lines)
     while i < n:
         if lines[i].lstrip().startswith("|"):
             start = i
             while i < n and lines[i].lstrip().startswith("|"):
                 i += 1
-            block = lines[start:i]
-            if any(UNIT_TOKEN.search(l) for l in block):
-                lookback = lines[max(0, start - PROVENANCE_LOOKBACK): start]
-                if not any(PROVENANCE_TAG.search(l) for l in lookback) and not any(PROVENANCE_TAG.search(l) for l in block):
-                    warn.append(start + 1)
+            if any(UNIT_TOKEN.search(l) for l in lines[start:i]):
+                return [start + 1]
         else:
             i += 1
-    return warn
+    return []
 
 
 def scan_text(path_label: str, text: str, denylist: list[str], provenance: bool) -> tuple[int, int]:
@@ -162,7 +169,7 @@ def scan_text(path_label: str, text: str, denylist: list[str], provenance: bool)
     warnings = 0
     if provenance:
         for n in check_provenance(lines):
-            print(f"::warning file={path_label},line={n}::unit-bearing table with no (measured|target|projected) provenance tag in the preceding {PROVENANCE_LOOKBACK} lines — AGENTS.md §8.7 (advisory)")
+            print(f"::warning file={path_label},line={n}::this document publishes unit-bearing numbers but carries no (measured: host, commit) / (target) / (projected) tag anywhere — AGENTS.md §8.7 (advisory; first such table shown)")
             warnings += 1
     return fatal, warnings
 
@@ -187,6 +194,12 @@ def self_test() -> int:
     fatal, _ = scan_text("t.md", "planned for 2 weeks docs-lint: allow\n", deny, False); assert fatal == 0, "allow marker"
     _, w = scan_text("t.md", "| arm | ns |\n|---|---|\n| a | 35.8 ns |\n", deny, True); assert w == 1, "provenance warn"
     _, w = scan_text("t.md", "*(measured: host, commit)*\n| arm | ns |\n|---|---|\n| a | 35.8 ns |\n", deny, True); assert w == 0, "provenance tagged"
+    # File-scoped: one tag covers tables far below it, however many.
+    far = "*(measured: host, commit)*\n" + ("filler\n" * 200) + "| arm | ns |\n|---|---|\n| a | 35.8 ns |\n"
+    _, w = scan_text("t.md", far, deny, True); assert w == 0, "distant tag still covers"
+    two = "| a | ns |\n|---|---|\n| x | 1 ns |\n\ntext\n\n| b | ns |\n|---|---|\n| y | 2 ns |\n"
+    _, w = scan_text("t.md", two, deny, True); assert w == 1, "one warning per untagged file, not per table"
+    _, w = scan_text("t.md", "| cap | value |\n|---|---|\n| ordered | yes |\n", deny, True); assert w == 0, "no unit-bearing cell"
     print("check_docs_hygiene.py --self-test: all checks passed")
     return 0
 
@@ -203,7 +216,7 @@ def main() -> int:
     root = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip())
     denylist = [h.strip() for h in os.environ.get("DOCS_HOSTNAME_DENYLIST", "").split(",") if h.strip()]
     if not denylist:
-        print("::notice::DOCS_HOSTNAME_DENYLIST is unset — hostname check skipped (set it as a repository variable; never commit it)")
+        print("::notice::DOCS_HOSTNAME_DENYLIST is unset — hostname check skipped (set it as a repository secret; never commit it)")
 
     fatal = warnings = 0
     for path in tracked_markdown(root):
