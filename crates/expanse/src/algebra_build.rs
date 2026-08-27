@@ -7,7 +7,7 @@
 //! `subtree_count`, `terminal_remainders`, `full_count`, `is_branch`).
 
 use crate::algebra::{
-    as_level1_bitmap, child_by_digit, full_count, is_branch, subtree_count, terminal_remainders,
+    as_level1_bitmap, child_by_digit, full_count, is_branch, subtree_count, terminal_remainders_buf,
 };
 use crate::alloc::NodeAlloc;
 use crate::bits::Bitmap256;
@@ -432,8 +432,9 @@ pub(crate) unsafe fn clone_subtree(a: &NodeAlloc, edge: &Edge, level: u8) -> Edg
 unsafe fn collect_subtree_keys(edge: &Edge, level: u8, base: u64, out: &mut Vec<u64>) {
     // SAFETY: forwarded contract; branch children recurse one level down.
     unsafe {
-        if let Some(rem) = terminal_remainders(edge, level) {
-            for k in rem {
+        let mut buf = [0u64; 256];
+        if let Some(n) = terminal_remainders_buf(edge, level, &mut buf) {
+            for &k in &buf[..n] {
                 out.push(base | k);
             }
             return;
@@ -446,11 +447,18 @@ unsafe fn collect_subtree_keys(edge: &Edge, level: u8, base: u64, out: &mut Vec<
                 }
             }
             Some(EdgeTag::Structural(t)) if t.is_branch() => {
-                for d in 0..256u32 {
-                    let child = child_by_digit(edge, level, d as u8);
-                    if !child.is_null() {
-                        let child_base = base | (u64::from(d as u8) << (8 * u32::from(level - 1)));
-                        collect_subtree_keys(&child, level - 1, child_base, out);
+                let bm = branch_populated_bitmap(edge, level);
+                for w in 0..4 {
+                    let mut word = bm.words[w];
+                    while word != 0 {
+                        let bit = word.trailing_zeros();
+                        word &= word - 1;
+                        let d = ((w as u32 * 64) + bit) as u8;
+                        let child = child_by_digit(edge, level, d);
+                        if !child.is_null() {
+                            let child_base = base | (u64::from(d) << (8 * u32::from(level - 1)));
+                            collect_subtree_keys(&child, level - 1, child_base, out);
+                        }
                     }
                 }
             }
@@ -637,7 +645,7 @@ unsafe fn wrap_single_child(a: &NodeAlloc, level: u8, d0: u8, child: Edge, child
 /// # Safety
 ///
 /// Every child is a live subtree at `level - 1` owned by `a`.
-unsafe fn assemble(a: &NodeAlloc, level: u8, digits: Vec<u8>, children: Vec<Edge>) -> Option<Edge> {
+unsafe fn assemble(a: &NodeAlloc, level: u8, digits: &[u8], children: &[Edge]) -> Option<Edge> {
     let m = digits.len();
     if m == 0 {
         return None;
@@ -648,7 +656,7 @@ unsafe fn assemble(a: &NodeAlloc, level: u8, digits: Vec<u8>, children: Vec<Edge
         .map(|c| unsafe { subtree_count(c, level - 1) })
         .sum();
     if total == 0 {
-        for c in children {
+        for &c in children {
             // SAFETY: discarding a live (empty) temporary subtree.
             unsafe { free_temp(a, c) };
         }
@@ -658,12 +666,12 @@ unsafe fn assemble(a: &NodeAlloc, level: u8, digits: Vec<u8>, children: Vec<Edge
         // Re-canonicalize: enumerate the few keys and rebuild flat, freeing the
         // temporary children.
         let mut keys = Vec::with_capacity(total as usize);
-        for (i, c) in children.iter().enumerate() {
+        for (i, &c) in children.iter().enumerate() {
             let base = u64::from(digits[i]) << (8 * u32::from(level - 1));
             // SAFETY: live small child at `level - 1`.
-            unsafe { collect_subtree_keys(c, level - 1, base, &mut keys) };
+            unsafe { collect_subtree_keys(&c, level - 1, base, &mut keys) };
         }
-        for c in children {
+        for &c in children {
             // SAFETY: temporary child, now superseded by the rebuild.
             unsafe { free_temp(a, c) };
         }
@@ -678,11 +686,159 @@ unsafe fn assemble(a: &NodeAlloc, level: u8, digits: Vec<u8>, children: Vec<Edge
         return Some(unsafe { wrap_single_child(a, level, digits[0], children[0], total) });
     }
     // SAFETY: ≥ 1 live children at `level - 1` (single child only at level 8).
-    let mut e = unsafe { build_branch(a, level, &digits, &children) };
+    let mut e = unsafe { build_branch(a, level, digits, children) };
     if level <= 7 {
         e.set_pop0(level, total - 1);
     }
     Some(e)
+}
+
+/// Extracts `(level, digits, edges)` for a linear branch ([`BranchL3`] or [`BranchL7`]).
+#[inline]
+unsafe fn linear_branch_data(edge: &Edge) -> Option<(u8, &[u8], &[Edge])> {
+    match edge.tag() {
+        Some(EdgeTag::Structural(EdgeType::BranchL3)) => {
+            // SAFETY: live BranchL3 pointer.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+            let num = b.hdr.num as usize;
+            Some((b.hdr.level, &b.hdr.digits[..num], &b.edges[..num]))
+        }
+        Some(EdgeTag::Structural(EdgeType::BranchL7)) => {
+            // SAFETY: live BranchL7 pointer.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
+            let num = b.hdr.num as usize;
+            Some((b.hdr.level, &b.hdr.digits[..num], &b.edges[..num]))
+        }
+        _ => None,
+    }
+}
+
+/// Specialized fast merge when both branches are non-skipping linear branches.
+#[inline]
+unsafe fn materialize_linear_pair(
+    a: &NodeAlloc,
+    da_slice: &[u8],
+    ea_slice: &[Edge],
+    db_slice: &[u8],
+    eb_slice: &[Edge],
+    level: u8,
+    op: Op,
+) -> Option<Edge> {
+    let mut digits = [0u8; 14];
+    let mut children = [Edge::NULL; 14];
+    let mut count = 0usize;
+
+    let (mut ia, mut ib) = (0usize, 0usize);
+    let (na, nb) = (da_slice.len(), db_slice.len());
+
+    match op {
+        Op::And => {
+            while ia < na && ib < nb {
+                let da = da_slice[ia];
+                let db = db_slice[ib];
+                match da.cmp(&db) {
+                    core::cmp::Ordering::Equal => {
+                        // SAFETY: live children at level - 1.
+                        if let Some(child) = unsafe {
+                            materialize(a, &ea_slice[ia], &eb_slice[ib], level - 1, Op::And)
+                        } {
+                            digits[count] = da;
+                            children[count] = child;
+                            count += 1;
+                        }
+                        ia += 1;
+                        ib += 1;
+                    }
+                    core::cmp::Ordering::Less => ia += 1,
+                    core::cmp::Ordering::Greater => ib += 1,
+                }
+            }
+        }
+        Op::Diff => {
+            while ia < na {
+                let da = da_slice[ia];
+                while ib < nb && db_slice[ib] < da {
+                    ib += 1;
+                }
+                if ib < nb && db_slice[ib] == da {
+                    let child_opt =
+                        // SAFETY: live children at level - 1.
+                        unsafe { materialize(a, &ea_slice[ia], &eb_slice[ib], level - 1, Op::Diff) };
+                    if let Some(child) = child_opt {
+                        digits[count] = da;
+                        children[count] = child;
+                        count += 1;
+                    }
+                    ia += 1;
+                    ib += 1;
+                } else {
+                    // Present in A, absent in B -> clone child A.
+                    // SAFETY: live child at level - 1.
+                    let child = unsafe { clone_subtree(a, &ea_slice[ia], level - 1) };
+                    digits[count] = da;
+                    children[count] = child;
+                    count += 1;
+                    ia += 1;
+                }
+            }
+        }
+        Op::Or | Op::Xor => {
+            while ia < na || ib < nb {
+                let (take_a, take_b, d) = if ia == na {
+                    let d = db_slice[ib];
+                    ib += 1;
+                    (false, true, d)
+                } else if ib == nb {
+                    let d = da_slice[ia];
+                    ia += 1;
+                    (true, false, d)
+                } else {
+                    let da = da_slice[ia];
+                    let db = db_slice[ib];
+                    match da.cmp(&db) {
+                        core::cmp::Ordering::Less => {
+                            ia += 1;
+                            (true, false, da)
+                        }
+                        core::cmp::Ordering::Greater => {
+                            ib += 1;
+                            (false, true, db)
+                        }
+                        core::cmp::Ordering::Equal => {
+                            ia += 1;
+                            ib += 1;
+                            (true, true, da)
+                        }
+                    }
+                };
+                let child_opt = match (take_a, take_b) {
+                    (true, true) => {
+                        // SAFETY: live children at level - 1.
+                        unsafe {
+                            materialize(a, &ea_slice[ia - 1], &eb_slice[ib - 1], level - 1, op)
+                        }
+                    }
+                    (true, false) => {
+                        // SAFETY: live child at level - 1.
+                        Some(unsafe { clone_subtree(a, &ea_slice[ia - 1], level - 1) })
+                    }
+                    (false, true) => {
+                        // SAFETY: live child at level - 1.
+                        Some(unsafe { clone_subtree(a, &eb_slice[ib - 1], level - 1) })
+                    }
+                    (false, false) => unreachable!(),
+                };
+                if let Some(child) = child_opt {
+                    digits[count] = d;
+                    children[count] = child;
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    // SAFETY: children are live subtrees at level - 1.
+    unsafe { assemble(a, level, &digits[..count], &children[..count]) }
 }
 
 /// Extracts the 256-bit set of populated digits for a branch edge at `level`.
@@ -770,6 +926,73 @@ unsafe fn materialize_branch(
     level: u8,
     op: Op,
 ) -> Option<Edge> {
+    // Fast path: both non-skipping linear branches.
+    // SAFETY: ea and eb are live branches per function contract.
+    let l_a = unsafe { linear_branch_data(ea) };
+    // SAFETY: eb is a live branch per function contract.
+    let l_b = unsafe { linear_branch_data(eb) };
+    if let (Some((bl_a, da, ea_slice)), Some((bl_b, db, eb_slice))) = (l_a, l_b)
+        && bl_a == level
+        && bl_b == level
+    {
+        // SAFETY: both non-skipping linear branches covering level.
+        return unsafe { materialize_linear_pair(a, da, ea_slice, db, eb_slice, level, op) };
+    }
+
+    // Fast path for AND: linear branch vs BranchU.
+    if op == Op::And {
+        if let Some((bl_a, da_slice, ea_slice)) = l_a
+            && bl_a == level
+            && eb.tag_byte() == EdgeType::BranchU as u8
+        {
+            // SAFETY: eb is a live BranchU.
+            let b_u = unsafe { &*eb.node_ptr().cast::<BranchU>() };
+            let mut digits = [0u8; 7];
+            let mut children = [Edge::NULL; 7];
+            let mut count = 0usize;
+            for (i, &da) in da_slice.iter().enumerate() {
+                let cb = b_u.edges[da as usize];
+                if !cb.is_null() {
+                    let child_opt =
+                        // SAFETY: live subtrees at level - 1.
+                        unsafe { materialize(a, &ea_slice[i], &cb, level - 1, Op::And) };
+                    if let Some(child) = child_opt {
+                        digits[count] = da;
+                        children[count] = child;
+                        count += 1;
+                    }
+                }
+            }
+            // SAFETY: children are live subtrees at level - 1.
+            return unsafe { assemble(a, level, &digits[..count], &children[..count]) };
+        }
+        if let Some((bl_b, db_slice, eb_slice)) = l_b
+            && bl_b == level
+            && ea.tag_byte() == EdgeType::BranchU as u8
+        {
+            // SAFETY: ea is a live BranchU.
+            let b_u = unsafe { &*ea.node_ptr().cast::<BranchU>() };
+            let mut digits = [0u8; 7];
+            let mut children = [Edge::NULL; 7];
+            let mut count = 0usize;
+            for (i, &db) in db_slice.iter().enumerate() {
+                let ca = b_u.edges[db as usize];
+                if !ca.is_null() {
+                    let child_opt =
+                        // SAFETY: live subtrees at level - 1.
+                        unsafe { materialize(a, &ca, &eb_slice[i], level - 1, Op::And) };
+                    if let Some(child) = child_opt {
+                        digits[count] = db;
+                        children[count] = child;
+                        count += 1;
+                    }
+                }
+            }
+            // SAFETY: children are live subtrees at level - 1.
+            return unsafe { assemble(a, level, &digits[..count], &children[..count]) };
+        }
+    }
+
     // SAFETY: ea is a live branch covering level-expanse per contract.
     let bm_a = unsafe { branch_populated_bitmap(ea, level) };
     // SAFETY: eb is a live branch covering level-expanse per contract.
@@ -787,8 +1010,9 @@ unsafe fn materialize_branch(
         Op::Or | Op::Xor => bm_a.or(&bm_b),
     };
 
-    let mut digits: Vec<u8> = Vec::new();
-    let mut children: Vec<Edge> = Vec::new();
+    let mut digits = [0u8; 256];
+    let mut children = [Edge::NULL; 256];
+    let mut count = 0usize;
 
     for w in 0..4 {
         let mut word = active_bm.words[w];
@@ -806,13 +1030,14 @@ unsafe fn materialize_branch(
             }
             // SAFETY: ca, cb are live-or-null subtrees at `level - 1`.
             if let Some(child) = unsafe { materialize(a, &ca, &cb, level - 1, op) } {
-                digits.push(d);
-                children.push(child);
+                digits[count] = d;
+                children[count] = child;
+                count += 1;
             }
         }
     }
     // SAFETY: children are live subtrees at `level - 1`.
-    unsafe { assemble(a, level, digits, children) }
+    unsafe { assemble(a, level, &digits[..count], &children[..count]) }
 }
 
 /// Terminal-driven materialization for the mixed cases (at least one side a
@@ -831,14 +1056,19 @@ unsafe fn materialize_mixed(
     level: u8,
     op: Op,
 ) -> Option<Edge> {
+    let mut ka_buf = [0u64; 256];
+    let mut kb_buf = [0u64; 256];
     // SAFETY: forwarded contract.
-    let ra = unsafe { terminal_remainders(ea, level) };
+    let ra = unsafe { terminal_remainders_buf(ea, level, &mut ka_buf) };
     // SAFETY: forwarded contract.
-    let rb = unsafe { terminal_remainders(eb, level) };
+    let rb = unsafe { terminal_remainders_buf(eb, level, &mut kb_buf) };
 
     // Both terminals: merge the two small key lists per op and rebuild flat.
-    if let (Some(ka), Some(kb)) = (&ra, &rb) {
-        let mut out: Vec<u64> = Vec::new();
+    if let (Some(na), Some(nb)) = (ra, rb) {
+        let ka = &ka_buf[..na];
+        let kb = &kb_buf[..nb];
+        let mut out_buf = [0u64; 512];
+        let mut out_len = 0usize;
         let (mut i, mut j) = (0usize, 0usize);
         while i < ka.len() || j < kb.len() {
             let take = if i == ka.len() {
@@ -877,44 +1107,47 @@ unsafe fn materialize_mixed(
                 Op::Xor => in_a != in_b,
             };
             if keep {
-                out.push(v);
+                out_buf[out_len] = v;
+                out_len += 1;
             }
         }
-        if out.is_empty() {
+        if out_len == 0 {
             return None;
         }
         // SAFETY: `out` is sorted/distinct and shares digits above `level`.
-        return Some(unsafe { build_subtree(a, &out, level) });
+        return Some(unsafe { build_subtree(a, &out_buf[..out_len], level) });
     }
 
     // One terminal, one branch.
     let a_is_term = ra.is_some();
     let (term_keys, branch, term_is_a) = if a_is_term {
-        (ra.unwrap(), eb, true)
+        (&ka_buf[..ra.unwrap()], eb, true)
     } else {
-        (rb.unwrap(), ea, false)
+        (&kb_buf[..rb.unwrap()], ea, false)
     };
 
     match op {
         Op::And => {
             // Result ⊆ the terminal's keys: probe each into the branch.
-            let mut out = Vec::new();
-            for &k in &term_keys {
+            let mut out_buf = [0u64; 256];
+            let mut out_len = 0;
+            for &k in term_keys {
                 // SAFETY: branch is a live subtree at `level`.
                 if unsafe { get::test_set(branch, k, level) } {
-                    out.push(k);
+                    out_buf[out_len] = k;
+                    out_len += 1;
                 }
             }
-            if out.is_empty() {
+            if out_len == 0 {
                 return None;
             }
             // SAFETY: sorted/distinct, sharing digits above `level`.
-            Some(unsafe { build_subtree(a, &out, level) })
+            Some(unsafe { build_subtree(a, &out_buf[..out_len], level) })
         }
         Op::Or => {
             // SAFETY: clone the branch side, then insert the terminal's keys.
             let mut e = unsafe { clone_subtree(a, branch, level) };
-            for &k in &term_keys {
+            for &k in term_keys {
                 // SAFETY: e is a live subtree at `level`; k lies in its expanse.
                 unsafe { mutate::insert_dyn(a, &mut e, k, level) };
             }
@@ -923,7 +1156,7 @@ unsafe fn materialize_mixed(
         Op::Xor => {
             // SAFETY: clone the branch side, then toggle the terminal's keys.
             let mut e = unsafe { clone_subtree(a, branch, level) };
-            for &k in &term_keys {
+            for &k in term_keys {
                 // SAFETY: e is a live subtree at `level`.
                 let present = unsafe { get::test_set(&e, k, level) };
                 if present {
@@ -942,23 +1175,25 @@ unsafe fn materialize_mixed(
         Op::Diff => {
             if term_is_a {
                 // terminal \ branch: keep terminal keys absent from the branch.
-                let mut out = Vec::new();
-                for &k in &term_keys {
+                let mut out_buf = [0u64; 256];
+                let mut out_len = 0;
+                for &k in term_keys {
                     // SAFETY: branch live at `level`.
                     if !unsafe { get::test_set(branch, k, level) } {
-                        out.push(k);
+                        out_buf[out_len] = k;
+                        out_len += 1;
                     }
                 }
-                if out.is_empty() {
+                if out_len == 0 {
                     return None;
                 }
                 // SAFETY: sorted/distinct, sharing digits above `level`.
-                Some(unsafe { build_subtree(a, &out, level) })
+                Some(unsafe { build_subtree(a, &out_buf[..out_len], level) })
             } else {
                 // branch \ terminal: clone the branch, remove the terminal keys.
                 // SAFETY: clone the branch side.
                 let mut e = unsafe { clone_subtree(a, branch, level) };
-                for &k in &term_keys {
+                for &k in term_keys {
                     // SAFETY: e live at `level`.
                     unsafe { mutate::remove_dyn(a, &mut e, k, level) };
                 }
@@ -1004,20 +1239,22 @@ unsafe fn complement(a: &NodeAlloc, edge: &Edge, level: u8) -> Option<Edge> {
         return unsafe { build_leaf_from_bitmap(a, &comp, 1, 0) };
     }
     // level > 1: complement each of the 256 sub-expanses.
-    let mut digits: Vec<u8> = Vec::new();
-    let mut children: Vec<Edge> = Vec::new();
+    let mut digits = [0u8; 256];
+    let mut children = [Edge::NULL; 256];
+    let mut count = 0usize;
     for d in 0..256u32 {
         let d = d as u8;
         // SAFETY: child covering top-digit d of `edge`'s expanse.
         let child = unsafe { child_at_top(edge, level, d) };
         // SAFETY: child is a live-or-null subtree at `level - 1`.
         if let Some(c) = unsafe { complement(a, &child, level - 1) } {
-            digits.push(d);
-            children.push(c);
+            digits[count] = d;
+            children[count] = c;
+            count += 1;
         }
     }
     // SAFETY: children are live subtrees at `level - 1`.
-    unsafe { assemble(a, level, digits, children) }
+    unsafe { assemble(a, level, &digits[..count], &children[..count]) }
 }
 
 /// The child subtree covering top-digit `d` of `edge`'s `level`-expanse,
