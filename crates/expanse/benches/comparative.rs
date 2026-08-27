@@ -170,22 +170,44 @@ fn bench_map_comparative(c: &mut Criterion) {
             });
             g.finish();
 
+            // Whole-build insert cell (#375): each iteration constructs the
+            // container and inserts the FULL key set, so the dist/pop labels
+            // describe what is actually measured. `iter_batched` keeps the
+            // key-Vec clone in setup and, by returning the built container
+            // (plus the consumed Vec), hands both to criterion's post-batch
+            // drop — teardown stays outside the timed routine.
+            // `BatchSize::PerIteration` bounds live memory to one container.
+            // (Before #375 this cell timed ONE insert into a freshly
+            // allocated empty container per iteration, comparing "allocate a
+            // hashtable" vs "write a tagged word" under fictional dist/pop
+            // labels.)
             let mut g = c.benchmark_group(format!("comparative_map_insert/{dist}/{pop}"));
-            let mut i = 0;
+            g.throughput(criterion::Throughput::Elements(pop as u64));
             g.bench_function("expanse", |b| {
-                b.iter(|| {
-                    i = (i + 1) % ks.len();
-                    let mut m = ExpanseMap::new();
-                    m.insert(black_box(ks[i] as u64), black_box(ks[i] as u64));
-                })
+                b.iter_batched(
+                    || ks.clone(),
+                    |ks| {
+                        let mut m = ExpanseMap::new();
+                        for &k in &ks {
+                            m.insert(black_box(k as u64), black_box(k as u64));
+                        }
+                        (m, ks)
+                    },
+                    criterion::BatchSize::PerIteration,
+                )
             });
-            let mut i2 = 0;
             g.bench_function("hashbrown", |b| {
-                b.iter(|| {
-                    i2 = (i2 + 1) % ks.len();
-                    let mut m = HashMap::new();
-                    m.insert(black_box(ks[i2]), black_box(ks[i2]));
-                })
+                b.iter_batched(
+                    || ks.clone(),
+                    |ks| {
+                        let mut m = HashMap::new();
+                        for &k in &ks {
+                            m.insert(black_box(k), black_box(k));
+                        }
+                        (m, ks)
+                    },
+                    criterion::BatchSize::PerIteration,
+                )
             });
             g.finish();
         }

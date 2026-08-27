@@ -35,13 +35,20 @@ impl XorShift {
 }
 
 const POP: u64 = 1_000_000;
+/// Map/set arms: prefill and probes draw from the same bounded keyspace
+/// (the `BLOB_KEYSPACE` construction the blob arm below uses), so reads
+/// actually hit ~50% of the time and exercise the full descent-to-value
+/// path. Until #375 these arms probed unbounded `u64` keys against a
+/// 1M-key prefill (~100% miss), so the read numbers measured early-exit
+/// descent on absent keys only.
+const KEYSPACE: u64 = 2 * POP;
 const WINDOW: Duration = Duration::from_millis(500);
 
 fn bench_map(ratio_read: u32, _ratio_write: u32, readers: usize) -> (f64, f64) {
     let m = Arc::new(SyncExpanseMap::new());
     let mut rng = XorShift(0x5CA1_AB1E);
     for _ in 0..POP {
-        let k = rng.next();
+        let k = rng.next() % KEYSPACE;
         m.insert(k, !k);
     }
     run_window(readers, move |i, stop| {
@@ -51,7 +58,7 @@ fn bench_map(ratio_read: u32, _ratio_write: u32, readers: usize) -> (f64, f64) {
         let mut sink = 0u64;
         while !stop.load(Ordering::Relaxed) {
             let r = (rng.next() % 100) as u32;
-            let k = rng.next();
+            let k = rng.next() % KEYSPACE;
             if r < ratio_read {
                 sink ^= rd.get(k).unwrap_or(0);
                 read_ops += 1;
@@ -73,7 +80,7 @@ fn bench_set(ratio_read: u32, _ratio_write: u32, readers: usize) -> (f64, f64) {
     let s = Arc::new(SyncExpanseSet::new());
     let mut rng = XorShift(0x5CA1_AB1E);
     for _ in 0..POP {
-        s.insert(rng.next());
+        s.insert(rng.next() % KEYSPACE);
     }
     run_window(readers, move |i, stop| {
         let rd = s.reader();
@@ -82,7 +89,7 @@ fn bench_set(ratio_read: u32, _ratio_write: u32, readers: usize) -> (f64, f64) {
         let mut sink = false;
         while !stop.load(Ordering::Relaxed) {
             let r = (rng.next() % 100) as u32;
-            let k = rng.next();
+            let k = rng.next() % KEYSPACE;
             if r < ratio_read {
                 sink ^= rd.contains(k);
                 read_ops += 1;
@@ -116,6 +123,11 @@ fn blob_payload(k: u64, buf: &mut [u8; BLOB_LEN]) {
 
 /// Runs `threads` copies of `work(thread_idx, stop) -> (read_ops, write_ops)`
 /// for one measurement window; returns (read ops/sec, write ops/sec).
+///
+/// The spawn ramp (thread creation + each worker's startup before its op
+/// loop) is inside the measurement window. Every engine pays it identically
+/// — an equal handicap, not a per-engine bias — and at `WINDOW` = 500 ms it
+/// is a small, uniform deflation of absolute ops/sec.
 fn run_window<F>(threads: usize, work: F) -> (f64, f64)
 where
     F: Fn(usize, &AtomicBool) -> (u64, u64) + Send + Sync + 'static,
