@@ -1617,7 +1617,7 @@ try (var map = new ExpanseMap()) {
 
         <div id="tab-rocksdb" class="install-panel" role="tabpanel" style="display: none;">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">RocksDB pluggable MemTable plugin (<code>ExpanseMemTableRepFactory</code> / <code>integrations/rocksdb</code>):</p>
-          <pre><code>// RocksDB integration: 2x-3x higher key density in RAM, fewer SSTable flushes
+          <pre><code>// RocksDB integration: 1.42x denser MemTable indexing (13.2 vs 18.7 B/entry)
 #include &lt;expanse_memtable.h&gt;
 #include &lt;rocksdb/db.h&gt;
 #include &lt;rocksdb/options.h&gt;
@@ -1910,7 +1910,7 @@ void app_main(void) {
   <footer>
     <div class="container">
       <p style="margin-bottom: 0.75rem;">
-        <span class="badge" style="font-size: 0.78rem;">Release v0.4.1</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/8d2f5fb"><code>8d2f5fb</code></a> &bull; Built on 2026-08-26
+        <span class="badge" style="font-size: 0.78rem;">Release v0.4.1</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/6ab522b"><code>6ab522b</code></a> &bull; Built on 2026-08-26
       </p>
       <p>
         <strong>Expanse</strong> is open source software released under dual MIT / Apache-2.0 licenses.<br>
