@@ -845,501 +845,574 @@
 
       <div class="bench-container">
         <div class="bench-wrapper">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 275" width="100%" height="100%">
+          <svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 300" width="100%" height="100%">
+  <title>ExpanseSet vs std collections -- insert, random lookup, clustered lookup</title>
   <defs>
     <style>
-      /* Default styles: Light theme by default for maximum contrast on web */
+      /* Light theme by default for maximum contrast on the web. */
       .bg { fill: #ffffff; }
       .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
       .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
       .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
       .divider { stroke: #e2e8f0; stroke-width: 1px; }
-      
+
+      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
       .t-chart-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
-      .t-chart-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
-      .t-unit-header { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
+      .t-note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
       .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; fill: #475569; }
-      .t-win { fill: #16a34a; font-weight: 600; }
       .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
-      
-      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #16a34a; text-anchor: middle; }
-      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #334155; text-anchor: middle; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
+      .t-win { fill: #15803d; font-weight: 700; }
+      .t-loss { fill: #b45309; font-weight: 700; }
+
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #15803d; text-anchor: middle; }
       .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; text-anchor: middle; }
+      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #334155; text-anchor: middle; }
+      .t-row-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 700; fill: #15803d; }
+      .t-row-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 600; fill: #334155; }
 
       .b-expanse { fill: #16a34a; }
-      .b-roaring { fill: #2563eb; }
+      .b-expanse-alt { fill: #10b981; }
+      .b-hash { fill: #2563eb; }
+      .b-btree { fill: #64748b; }
+      .b-skipmap { fill: #94a3b8; }
       .b-other { fill: #64748b; }
 
-      /* Dark theme overrides */
+      .badge-win { fill: #dcfce7; stroke: #86efac; stroke-width: 1px; rx: 3px; }
+      .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .badge-loss { fill: #fef3c7; stroke: #fcd34d; stroke-width: 1px; rx: 3px; }
+      .badge-loss-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 700; fill: #b45309; text-anchor: middle; }
+
       @media (prefers-color-scheme: dark) {
         .bg { fill: #0d1117; }
         .border { stroke: #30363d; }
         .grid { stroke: #21262d; }
         .axis { stroke: #484f58; }
         .divider { stroke: #21262d; }
+        .t-title { fill: #f0f6fc; }
         .t-chart-title { fill: #f0f6fc; }
-        .t-chart-sub { fill: #94a3b8; }
-        .t-unit-header { fill: #94a3b8; }
+        .t-sub { fill: #94a3b8; }
+        .t-note { fill: #94a3b8; }
+        .t-unit { fill: #94a3b8; }
         .t-axis-label { fill: #94a3b8; }
-        .t-win { fill: #4ade80; font-weight: 600; }
         .t-bar-label { fill: #f8fafc; }
+        .t-legend { fill: #f8fafc; }
+        .t-win { fill: #4ade80; }
+        .t-loss { fill: #fcd34d; }
         .t-val-accent { fill: #4ade80; }
         .t-val-blue { fill: #38bdf8; }
         .t-val-muted { fill: #e2e8f0; }
+        .t-row-accent { fill: #4ade80; }
+        .t-row-muted { fill: #e2e8f0; }
         .b-expanse { fill: #22c55e; }
-        .b-roaring { fill: #3b82f6; }
-        .b-other { fill: #475569; }
+        .b-expanse-alt { fill: #34d399; }
+        .b-hash { fill: #3b82f6; }
+        .b-btree { fill: #64748b; }
+        .b-skipmap { fill: #475569; }
+        .b-other { fill: #64748b; }
+        .badge-win { fill: #064e3b; stroke: #059669; }
+        .badge-win-text { fill: #6ee7b7; }
+        .badge-loss { fill: #451a03; stroke: #d97706; }
+        .badge-loss-text { fill: #fcd34d; }
       }
 
-      [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0d1117; }
-      [data-theme="dark"] .border, :root[data-theme="dark"] .border { stroke: #30363d; }
-      [data-theme="dark"] .grid, :root[data-theme="dark"] .grid { stroke: #21262d; }
-      [data-theme="dark"] .axis, :root[data-theme="dark"] .axis { stroke: #484f58; }
-      [data-theme="dark"] .divider, :root[data-theme="dark"] .divider { stroke: #21262d; }
-      [data-theme="dark"] .t-chart-title, :root[data-theme="dark"] .t-chart-title { fill: #f0f6fc; }
-      [data-theme="dark"] .t-chart-sub, :root[data-theme="dark"] .t-chart-sub { fill: #94a3b8; }
-      [data-theme="dark"] .t-unit-header, :root[data-theme="dark"] .t-unit-header { fill: #94a3b8; }
-      [data-theme="dark"] .t-axis-label, :root[data-theme="dark"] .t-axis-label { fill: #94a3b8; }
-      [data-theme="dark"] .t-win, :root[data-theme="dark"] .t-win { fill: #4ade80; }
-      [data-theme="dark"] .t-bar-label, :root[data-theme="dark"] .t-bar-label { fill: #f8fafc; }
-      [data-theme="dark"] .t-val-accent, :root[data-theme="dark"] .t-val-accent { fill: #4ade80; }
-      [data-theme="dark"] .t-val-blue, :root[data-theme="dark"] .t-val-blue { fill: #38bdf8; }
-      [data-theme="dark"] .t-val-muted, :root[data-theme="dark"] .t-val-muted { fill: #e2e8f0; }
-      [data-theme="dark"] .b-expanse, :root[data-theme="dark"] .b-expanse { fill: #22c55e; }
-      [data-theme="dark"] .b-roaring, :root[data-theme="dark"] .b-roaring { fill: #3b82f6; }
-      [data-theme="dark"] .b-other, :root[data-theme="dark"] .b-other { fill: #475569; }
+      :root[data-theme="dark"] .bg, [data-theme="dark"] .bg { fill: #0d1117; }
+      :root[data-theme="dark"] .border, [data-theme="dark"] .border { stroke: #30363d; }
+      :root[data-theme="dark"] .grid, [data-theme="dark"] .grid { stroke: #21262d; }
+      :root[data-theme="dark"] .axis, [data-theme="dark"] .axis { stroke: #484f58; }
+      :root[data-theme="dark"] .divider, [data-theme="dark"] .divider { stroke: #21262d; }
+      :root[data-theme="dark"] .t-title, [data-theme="dark"] .t-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-chart-title, [data-theme="dark"] .t-chart-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-sub, [data-theme="dark"] .t-sub { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-unit, [data-theme="dark"] .t-unit { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-axis-label, [data-theme="dark"] .t-axis-label { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-bar-label, [data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-legend, [data-theme="dark"] .t-legend { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-win, [data-theme="dark"] .t-win { fill: #4ade80; }
+      :root[data-theme="dark"] .t-loss, [data-theme="dark"] .t-loss { fill: #fcd34d; }
+      :root[data-theme="dark"] .t-val-accent, [data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      :root[data-theme="dark"] .t-val-muted, [data-theme="dark"] .t-val-muted { fill: #e2e8f0; }
+      :root[data-theme="dark"] .t-row-accent, [data-theme="dark"] .t-row-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-row-muted, [data-theme="dark"] .t-row-muted { fill: #e2e8f0; }
+      :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse { fill: #22c55e; }
+      :root[data-theme="dark"] .b-expanse-alt, [data-theme="dark"] .b-expanse-alt { fill: #34d399; }
+      :root[data-theme="dark"] .b-hash, [data-theme="dark"] .b-hash { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-btree, [data-theme="dark"] .b-btree { fill: #64748b; }
+      :root[data-theme="dark"] .b-skipmap, [data-theme="dark"] .b-skipmap { fill: #475569; }
+      :root[data-theme="dark"] .b-other, [data-theme="dark"] .b-other { fill: #64748b; }
+      :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #064e3b; stroke: #059669; }
+      :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #6ee7b7; }
+      :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss { fill: #451a03; stroke: #d97706; }
+      :root[data-theme="dark"] .badge-loss-text, [data-theme="dark"] .badge-loss-text { fill: #fcd34d; }
     </style>
   </defs>
 
   <rect width="100%" height="100%" class="bg" rx="8"/>
   <rect width="100%" height="100%" class="border" rx="8"/>
 
-  <!-- ================= CHART 1: COLD-BUILD INSERT ================= -->
   <g transform="translate(30, 20)">
     <text x="0" y="0" class="t-chart-title">Cold-Build Insert</text>
-    <text x="0" y="13" class="t-chart-sub">100,000 clustered keys, cold build (higher is better)</text>
-    <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M keys / sec)</text>
-
-    <!-- Y Axis: 0 to 100M -->
-    <line x1="30" y1="45" x2="240" y2="45" class="grid"/>
+    <text x="0" y="13" class="t-sub">100,000 clustered keys, cold build (higher is better)</text>
+    <text x="0" y="29" class="t-unit">&#9650; Throughput (M keys / sec)</text>
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
     <text x="22" y="48" class="t-axis-label" text-anchor="end">100M</text>
-
-    <line x1="30" y1="120" x2="240" y2="120" class="grid"/>
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
     <text x="22" y="123" class="t-axis-label" text-anchor="end">50M</text>
-
-    <line x1="30" y1="195" x2="240" y2="195" class="axis"/>
-    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
-    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-
-    <!-- Bar 1: ExpanseSet (96.2M -> height = 144.3, y = 50.7) -->
-    <rect x="55" y="50.7" width="65" height="144.3" class="b-expanse" rx="2"/>
-    <text x="87.5" y="43" class="t-val-accent">96.2 M/s</text>
-    <text x="87.5" y="214" class="t-bar-label" text-anchor="middle">ExpanseSet</text>
-    <text x="87.5" y="228" class="t-chart-sub t-win" text-anchor="middle">4.4&#215; speedup</text>
-
-    <!-- Bar 2: BTreeSet (21.8M -> height = 32.7, y = 162.3) -->
-    <rect x="145" y="162.3" width="65" height="32.7" class="b-other" rx="2"/>
-    <text x="177.5" y="154" class="t-val-muted">21.8 M/s</text>
-    <text x="177.5" y="214" class="t-bar-label" text-anchor="middle">BTreeSet</text>
-    <text x="177.5" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
-  </g>
-
-  <!-- Divider 1 -->
-  <line x1="310" y1="20" x2="310" y2="255" class="divider"/>
-
-  <!-- ================= CHART 2: POINT LOOKUP LATENCY ================= -->
-  <g transform="translate(340, 20)">
-    <text x="0" y="0" class="t-chart-title">Point Lookup Latency</text>
-    <text x="0" y="13" class="t-chart-sub">1,000,000 keys random queries (lower is better)</text>
-    <text x="0" y="29" class="t-unit-header">&#9660; Latency (ns / op)</text>
-
-    <!-- Y Axis: 0 to 40 ns -->
-    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">40 ns</text>
-    
-    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">20 ns</text>
-    
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-
-    <!-- Bar 1: ExpanseSet (15.8ns -> height = 15.8 * 3.75 = 59.25, y = 135.75) -->
-    <rect x="45" y="135.75" width="50" height="59.25" class="b-expanse" rx="2"/>
-    <text x="70" y="128" class="t-val-accent">15.8 ns</text>
+    <rect x="45" y="50.8" width="50" height="144.2" class="b-expanse" rx="2"/>
+    <text x="70" y="42.3" class="t-val-accent">96.2 M/s</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">ExpanseSet</text>
-    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">fastest</text>
-
-    <!-- Bar 2: Roaring (24.2ns -> height = 90.75, y = 104.25) -->
-    <rect x="115" y="104.25" width="50" height="90.75" class="b-roaring" rx="2"/>
-    <text x="140" y="96" class="t-val-blue">24.2 ns</text>
-    <text x="140" y="214" class="t-bar-label" text-anchor="middle">Roaring</text>
-    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1.5&#215;</text>
-
-    <!-- Bar 3: Stock Judy (32.3ns -> height = 121.1, y = 73.9) -->
-    <rect x="185" y="73.9" width="50" height="121.1" class="b-other" rx="2"/>
-    <text x="210" y="66" class="t-val-muted">32.3 ns</text>
-    <text x="210" y="214" class="t-bar-label" text-anchor="middle">Stock Judy</text>
-    <text x="210" y="228" class="t-chart-sub" text-anchor="middle">2.0&#215; baseline</text>
-  </g>
-
-  <!-- Divider 2 -->
-  <line x1="635" y1="20" x2="635" y2="255" class="divider"/>
-
-  <!-- ================= CHART 3: MEMORY CONSUMPTION ================= -->
-  <g transform="translate(665, 20)">
-    <text x="0" y="0" class="t-chart-title">Memory Footprint</text>
-    <text x="0" y="13" class="t-chart-sub">100,000 keys in 256-key clusters (lower is better)</text>
-    <text x="0" y="29" class="t-unit-header">&#9660; Density (Bytes / key)</text>
-
-    <!-- Y Axis: 0 to 20 B/k -->
-    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">20 B</text>
-    
-    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">10 B</text>
-    
-    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
-    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
-    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-
-    <!-- Bar 1: ExpanseSet -->
-    <rect x="45" y="191" width="50" height="4" class="b-expanse" rx="1"/>
-    <text x="70" y="183" class="t-val-accent">0.36 B</text>
-    <text x="70" y="214" class="t-bar-label" text-anchor="middle">ExpanseSet</text>
-    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">-98% heap</text>
-
-    <!-- Bar 2: Roaring -->
-    <rect x="115" y="191" width="50" height="4" class="b-roaring" rx="1"/>
-    <text x="140" y="183" class="t-val-blue">0.38 B</text>
-    <text x="140" y="214" class="t-bar-label" text-anchor="middle">Roaring</text>
-    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">-98% heap</text>
-
-    <!-- Bar 3: BTreeSet (16.0 B -> height = 120, y = 75) -->
-    <rect x="185" y="75" width="50" height="120" class="b-other" rx="2"/>
-    <text x="210" y="67" class="t-val-muted">16.00 B</text>
+    <text x="70" y="228" class="t-sub t-win" text-anchor="middle">1.74x faster</text>
+    <rect x="115" y="112.1" width="50" height="82.9" class="b-hash" rx="2"/>
+    <text x="140" y="103.6" class="t-val-blue">55.2 M/s</text>
+    <text x="140" y="214" class="t-bar-label" text-anchor="middle">HashSet</text>
+    <text x="140" y="228" class="t-sub " text-anchor="middle">SwissTable</text>
+    <rect x="185" y="162.3" width="50" height="32.7" class="b-btree" rx="2"/>
+    <text x="210" y="153.8" class="t-val-muted">21.8 M/s</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">BTreeSet</text>
-    <text x="210" y="228" class="t-chart-sub" text-anchor="middle">44&#215; larger</text>
+    <text x="210" y="228" class="t-sub " text-anchor="middle">std ordered</text>
   </g>
+
+  <line x1="310" y1="20" x2="310" y2="258" class="divider"/>
+
+  <g transform="translate(340, 20)">
+    <text x="0" y="0" class="t-chart-title">Point Lookup: Random</text>
+    <text x="0" y="13" class="t-sub">1,000,000 keys, hit (lower is better)</text>
+    <text x="0" y="29" class="t-unit">&#9660; Latency (ns / op)</text>
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">120 ns</text>
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">60 ns</text>
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+    <rect x="45" y="149.4" width="50" height="45.6" class="b-expanse" rx="2"/>
+    <text x="70" y="140.9" class="t-val-accent">36.5 ns</text>
+    <text x="70" y="214" class="t-bar-label" text-anchor="middle">ExpanseSet</text>
+    <text x="70" y="228" class="t-sub t-loss" text-anchor="middle">3.07x slower</text>
+    <rect x="115" y="180.1" width="50" height="14.9" class="b-hash" rx="2"/>
+    <text x="140" y="171.6" class="t-val-blue">11.9 ns</text>
+    <text x="140" y="214" class="t-bar-label" text-anchor="middle">HashSet</text>
+    <text x="140" y="228" class="t-sub " text-anchor="middle">SwissTable</text>
+    <rect x="185" y="64.4" width="50" height="130.6" class="b-btree" rx="2"/>
+    <text x="210" y="55.9" class="t-val-muted">104.5 ns</text>
+    <text x="210" y="214" class="t-bar-label" text-anchor="middle">BTreeSet</text>
+    <text x="210" y="228" class="t-sub " text-anchor="middle">std ordered</text>
+  </g>
+
+  <line x1="635" y1="20" x2="635" y2="258" class="divider"/>
+
+  <g transform="translate(665, 20)">
+    <text x="0" y="0" class="t-chart-title">Point Lookup: Clustered</text>
+    <text x="0" y="13" class="t-sub">1,000,000 keys, hit (lower is better)</text>
+    <text x="0" y="29" class="t-unit">&#9660; Latency (ns / op)</text>
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">120 ns</text>
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">60 ns</text>
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+    <rect x="45" y="184.8" width="50" height="10.2" class="b-expanse" rx="2"/>
+    <text x="70" y="176.3" class="t-val-accent">8.2 ns</text>
+    <text x="70" y="214" class="t-bar-label" text-anchor="middle">ExpanseSet</text>
+    <text x="70" y="228" class="t-sub t-win" text-anchor="middle">1.47x faster</text>
+    <rect x="115" y="180.0" width="50" height="15.0" class="b-hash" rx="2"/>
+    <text x="140" y="171.5" class="t-val-blue">12.0 ns</text>
+    <text x="140" y="214" class="t-bar-label" text-anchor="middle">HashSet</text>
+    <text x="140" y="228" class="t-sub " text-anchor="middle">SwissTable</text>
+    <rect x="185" y="68.0" width="50" height="127.0" class="b-btree" rx="2"/>
+    <text x="210" y="59.5" class="t-val-muted">101.6 ns</text>
+    <text x="210" y="214" class="t-bar-label" text-anchor="middle">BTreeSet</text>
+    <text x="210" y="228" class="t-sub " text-anchor="middle">std ordered</text>
+  </g>
+
+  <text x="30" y="278" class="t-note">Measured: reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8 &#183; commit 695b98d &#183; benches/compare.rs + benches/comparative.rs, criterion medians</text>
+  <text x="30" y="291" class="t-note">Source: docs/BENCHMARKING.md, section 'vs stdlib &amp; 3rd-party collections'. Random-key lookup is the engine's measured weak arm and is published as a loss.</text>
 </svg>
 
         </div>
         <div class="bench-wrapper">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 285" width="100%" height="100%">
+          <svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 452" width="100%" height="100%">
+  <title>OCC concurrency: 100% read at 16 threads</title>
   <defs>
     <style>
-      /* Default styles: Light theme by default for maximum compatibility */
-      .bg { fill: #ffffff; }
-      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
-      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
-      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
-      
-      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
-      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
-      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
-      .t-tick { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; fill: #475569; }
-      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
-      
-      .line-occ { fill: none; stroke: #16a34a; stroke-width: 2.5px; stroke-linecap: round; }
-      .line-linear { fill: none; stroke: #64748b; stroke-width: 1.5px; stroke-dasharray: 4,4; }
-      .dot-occ { fill: #16a34a; stroke: #ffffff; stroke-width: 2px; }
-      .t-tag { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #16a34a; }
-
-      /* Dark theme overrides */
-      @media (prefers-color-scheme: dark) {
-        .bg { fill: #0d1117; }
-        .border { stroke: #30363d; }
-        .grid { stroke: #21262d; }
-        .axis { stroke: #484f58; }
-        .t-title { fill: #f0f6fc; }
-        .t-sub { fill: #94a3b8; }
-        .t-unit { fill: #94a3b8; }
-        .t-tick { fill: #94a3b8; }
-        .t-legend { fill: #f8fafc; }
-        .line-occ { stroke: #22c55e; }
-        .dot-occ { fill: #22c55e; stroke: #0d1117; }
-        .line-linear { stroke: #8b949e; }
-        .t-tag { fill: #4ade80; }
-        .t-win { fill: #4ade80; }
-      }
-
-      [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0d1117; }
-      [data-theme="dark"] .border, :root[data-theme="dark"] .border { stroke: #30363d; }
-      [data-theme="dark"] .grid, :root[data-theme="dark"] .grid { stroke: #21262d; }
-      [data-theme="dark"] .axis, :root[data-theme="dark"] .axis { stroke: #484f58; }
-      [data-theme="dark"] .t-title, :root[data-theme="dark"] .t-title { fill: #f0f6fc; }
-      [data-theme="dark"] .t-sub, :root[data-theme="dark"] .t-sub { fill: #94a3b8; }
-      [data-theme="dark"] .t-unit, :root[data-theme="dark"] .t-unit { fill: #94a3b8; }
-      [data-theme="dark"] .t-tick, :root[data-theme="dark"] .t-tick { fill: #94a3b8; }
-      [data-theme="dark"] .t-legend, :root[data-theme="dark"] .t-legend { fill: #f8fafc; }
-      [data-theme="dark"] .line-occ, :root[data-theme="dark"] .line-occ { stroke: #22c55e; }
-      [data-theme="dark"] .dot-occ, :root[data-theme="dark"] .dot-occ { fill: #22c55e; stroke: #0d1117; }
-      [data-theme="dark"] .line-linear, :root[data-theme="dark"] .line-linear { stroke: #8b949e; }
-      [data-theme="dark"] .t-tag, :root[data-theme="dark"] .t-tag { fill: #4ade80; }
-    </style>
-  </defs>
-
-  <rect width="100%" height="100%" class="bg" rx="8"/>
-  <rect width="100%" height="100%" class="border" rx="8"/>
-
-  <g transform="translate(30, 20)">
-    <text x="35" y="0" class="t-title">MULTITHREADED OCC CONCURRENCY SCALABILITY (SyncExpanseMap)</text>
-    <text x="35" y="14" class="t-sub">Concurrent read throughput across 1..16 threads (1,000,000 keys, 100% Read, i9-12900F · 24t)</text>
-
-    <!-- Legend -->
-    <g transform="translate(600, 0)">
-      <line x1="0" y1="4" x2="16" y2="4" class="line-occ"/>
-      <circle cx="8" cy="4" r="3.5" class="dot-occ"/>
-      <text x="22" y="7" class="t-legend">SyncExpanseMap</text>
-
-      <line x1="150" y1="4" x2="166" y2="4" class="line-linear"/>
-      <text x="172" y="7" class="t-legend">Linear Ideal</text>
-    </g>
-
-    <!-- Y Axis Header -->
-    <text x="35" y="32" class="t-unit">&#9650; Throughput (M ops / sec)</text>
-
-    <!-- Y Axis: 0 to 300M -->
-    <line x1="35" y1="185" x2="865" y2="185" class="axis"/>
-    <text x="27" y="188" class="t-tick" text-anchor="end">0</text>
-
-    <line x1="35" y1="138" x2="865" y2="138" class="grid"/>
-    <text x="27" y="141" class="t-tick" text-anchor="end">100M</text>
-
-    <line x1="35" y1="92" x2="865" y2="92" class="grid"/>
-    <text x="27" y="95" class="t-tick" text-anchor="end">200M</text>
-
-    <line x1="35" y1="45" x2="865" y2="45" class="grid"/>
-    <text x="27" y="48" class="t-tick" text-anchor="end">300M</text>
-
-    <line x1="35" y1="40" x2="35" y2="185" class="axis"/>
-
-    <!-- X Ticks -->
-    <line x1="90" y1="45" x2="90" y2="185" class="grid"/>
-    <text x="90" y="202" class="t-tick" text-anchor="middle">1 Thread</text>
-
-    <line x1="260" y1="45" x2="260" y2="185" class="grid"/>
-    <text x="260" y="202" class="t-tick" text-anchor="middle">2 Threads</text>
-
-    <line x1="440" y1="45" x2="440" y2="185" class="grid"/>
-    <text x="440" y="202" class="t-tick" text-anchor="middle">4 Threads</text>
-
-    <line x1="630" y1="45" x2="630" y2="185" class="grid"/>
-    <text x="630" y="202" class="t-tick" text-anchor="middle">8 Threads</text>
-
-    <line x1="820" y1="45" x2="820" y2="185" class="grid"/>
-    <text x="820" y="202" class="t-tick" text-anchor="middle">16 Threads</text>
-
-    <!-- Linear Reference: (90, 174.8) -> (820, 63.2) -->
-    <line x1="90" y1="174.8" x2="820" y2="63.2" class="line-linear"/>
-
-    <!-- Data Line:
-         1 Thread:  22.1M  -> y = 174.7
-         2 Threads: 42.7M  -> y = 165.1
-         4 Threads: 83.7M  -> y = 145.9
-         8 Threads: 160.7M -> y = 110.0
-         16 Threads: 265.8M -> y = 61.0
-    -->
-    <polyline points="90,174.7 260,165.1 440,145.9 630,110.0 820,61.0" class="line-occ"/>
-
-    <!-- Points and Labels -->
-    <circle cx="90" cy="174.7" r="4.5" class="dot-occ"/>
-    <text x="90" y="162" class="t-tag" text-anchor="middle">22.1 M/s</text>
-
-    <circle cx="260" cy="165.1" r="4.5" class="dot-occ"/>
-    <text x="260" y="180" class="t-tag" text-anchor="middle">42.7 M/s (1.9&#215;)</text>
-
-    <circle cx="440" cy="145.9" r="4.5" class="dot-occ"/>
-    <text x="440" y="162" class="t-tag" text-anchor="middle">83.7 M/s (3.8&#215;)</text>
-
-    <circle cx="630" cy="110.0" r="4.5" class="dot-occ"/>
-    <text x="630" y="136" class="t-tag" text-anchor="middle">160.7 M/s (7.3&#215;)</text>
-
-    <circle cx="820" cy="61.0" r="4.5" class="dot-occ"/>
-    <text x="820" y="48" class="t-tag" text-anchor="middle">265.8 M/s (12.0&#215;)</text>
-
-    <text x="450" y="235" class="t-sub" text-anchor="middle">Measured on reference host (i9-12900F · 24t, Ubuntu 22.04 / kernel 6.8), commit 695b98d &#8226; 100% read; write-mixed workloads are seqlock-bound</text>
-  </g>
-</svg>
-
-        </div>
-        <div class="bench-wrapper">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 275" width="100%" height="100%">
-  <defs>
-    <style>
-      /* Default styles: Light theme by default for maximum contrast on web */
+      /* Light theme by default for maximum contrast on the web. */
       .bg { fill: #ffffff; }
       .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
       .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
       .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
       .divider { stroke: #e2e8f0; stroke-width: 1px; }
-      
+
+      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
       .t-chart-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
-      .t-chart-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
-      .t-unit-header { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
+      .t-note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
       .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; fill: #475569; }
-      .t-win { fill: #16a34a; font-weight: 600; }
       .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
-      
-      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #16a34a; text-anchor: middle; }
-      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #334155; text-anchor: middle; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
+      .t-win { fill: #15803d; font-weight: 700; }
+      .t-loss { fill: #b45309; font-weight: 700; }
+
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #15803d; text-anchor: middle; }
       .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; text-anchor: middle; }
+      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #334155; text-anchor: middle; }
+      .t-row-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 700; fill: #15803d; }
+      .t-row-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 600; fill: #334155; }
 
       .b-expanse { fill: #16a34a; }
-      .b-btreemap { fill: #2563eb; }
-      .b-skipmap { fill: #64748b; }
+      .b-expanse-alt { fill: #10b981; }
+      .b-hash { fill: #2563eb; }
+      .b-btree { fill: #64748b; }
+      .b-skipmap { fill: #94a3b8; }
+      .b-other { fill: #64748b; }
 
-      /* Dark theme overrides */
+      .badge-win { fill: #dcfce7; stroke: #86efac; stroke-width: 1px; rx: 3px; }
+      .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .badge-loss { fill: #fef3c7; stroke: #fcd34d; stroke-width: 1px; rx: 3px; }
+      .badge-loss-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 700; fill: #b45309; text-anchor: middle; }
+
       @media (prefers-color-scheme: dark) {
         .bg { fill: #0d1117; }
         .border { stroke: #30363d; }
         .grid { stroke: #21262d; }
         .axis { stroke: #484f58; }
         .divider { stroke: #21262d; }
+        .t-title { fill: #f0f6fc; }
         .t-chart-title { fill: #f0f6fc; }
-        .t-chart-sub { fill: #94a3b8; }
-        .t-unit-header { fill: #94a3b8; }
+        .t-sub { fill: #94a3b8; }
+        .t-note { fill: #94a3b8; }
+        .t-unit { fill: #94a3b8; }
         .t-axis-label { fill: #94a3b8; }
-        .t-win { fill: #4ade80; font-weight: 600; }
         .t-bar-label { fill: #f8fafc; }
+        .t-legend { fill: #f8fafc; }
+        .t-win { fill: #4ade80; }
+        .t-loss { fill: #fcd34d; }
         .t-val-accent { fill: #4ade80; }
         .t-val-blue { fill: #38bdf8; }
         .t-val-muted { fill: #e2e8f0; }
+        .t-row-accent { fill: #4ade80; }
+        .t-row-muted { fill: #e2e8f0; }
         .b-expanse { fill: #22c55e; }
-        .b-btreemap { fill: #3b82f6; }
+        .b-expanse-alt { fill: #34d399; }
+        .b-hash { fill: #3b82f6; }
+        .b-btree { fill: #64748b; }
         .b-skipmap { fill: #475569; }
+        .b-other { fill: #64748b; }
+        .badge-win { fill: #064e3b; stroke: #059669; }
+        .badge-win-text { fill: #6ee7b7; }
+        .badge-loss { fill: #451a03; stroke: #d97706; }
+        .badge-loss-text { fill: #fcd34d; }
       }
 
-      [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0d1117; }
-      [data-theme="dark"] .border, :root[data-theme="dark"] .border { stroke: #30363d; }
-      [data-theme="dark"] .grid, :root[data-theme="dark"] .grid { stroke: #21262d; }
-      [data-theme="dark"] .axis, :root[data-theme="dark"] .axis { stroke: #484f58; }
-      [data-theme="dark"] .divider, :root[data-theme="dark"] .divider { stroke: #21262d; }
-      [data-theme="dark"] .t-chart-title, :root[data-theme="dark"] .t-chart-title { fill: #f0f6fc; }
-      [data-theme="dark"] .t-chart-sub, :root[data-theme="dark"] .t-chart-sub { fill: #94a3b8; }
-      [data-theme="dark"] .t-unit-header, :root[data-theme="dark"] .t-unit-header { fill: #94a3b8; }
-      [data-theme="dark"] .t-axis-label, :root[data-theme="dark"] .t-axis-label { fill: #94a3b8; }
-      [data-theme="dark"] .t-win, :root[data-theme="dark"] .t-win { fill: #4ade80; }
-      [data-theme="dark"] .t-bar-label, :root[data-theme="dark"] .t-bar-label { fill: #f8fafc; }
-      [data-theme="dark"] .t-val-accent, :root[data-theme="dark"] .t-val-accent { fill: #4ade80; }
-      [data-theme="dark"] .t-val-blue, :root[data-theme="dark"] .t-val-blue { fill: #38bdf8; }
-      [data-theme="dark"] .t-val-muted, :root[data-theme="dark"] .t-val-muted { fill: #e2e8f0; }
-      [data-theme="dark"] .b-expanse, :root[data-theme="dark"] .b-expanse { fill: #22c55e; }
-      [data-theme="dark"] .b-btreemap, :root[data-theme="dark"] .b-btreemap { fill: #3b82f6; }
-      [data-theme="dark"] .b-skipmap, :root[data-theme="dark"] .b-skipmap { fill: #475569; }
+      :root[data-theme="dark"] .bg, [data-theme="dark"] .bg { fill: #0d1117; }
+      :root[data-theme="dark"] .border, [data-theme="dark"] .border { stroke: #30363d; }
+      :root[data-theme="dark"] .grid, [data-theme="dark"] .grid { stroke: #21262d; }
+      :root[data-theme="dark"] .axis, [data-theme="dark"] .axis { stroke: #484f58; }
+      :root[data-theme="dark"] .divider, [data-theme="dark"] .divider { stroke: #21262d; }
+      :root[data-theme="dark"] .t-title, [data-theme="dark"] .t-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-chart-title, [data-theme="dark"] .t-chart-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-sub, [data-theme="dark"] .t-sub { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-unit, [data-theme="dark"] .t-unit { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-axis-label, [data-theme="dark"] .t-axis-label { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-bar-label, [data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-legend, [data-theme="dark"] .t-legend { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-win, [data-theme="dark"] .t-win { fill: #4ade80; }
+      :root[data-theme="dark"] .t-loss, [data-theme="dark"] .t-loss { fill: #fcd34d; }
+      :root[data-theme="dark"] .t-val-accent, [data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      :root[data-theme="dark"] .t-val-muted, [data-theme="dark"] .t-val-muted { fill: #e2e8f0; }
+      :root[data-theme="dark"] .t-row-accent, [data-theme="dark"] .t-row-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-row-muted, [data-theme="dark"] .t-row-muted { fill: #e2e8f0; }
+      :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse { fill: #22c55e; }
+      :root[data-theme="dark"] .b-expanse-alt, [data-theme="dark"] .b-expanse-alt { fill: #34d399; }
+      :root[data-theme="dark"] .b-hash, [data-theme="dark"] .b-hash { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-btree, [data-theme="dark"] .b-btree { fill: #64748b; }
+      :root[data-theme="dark"] .b-skipmap, [data-theme="dark"] .b-skipmap { fill: #475569; }
+      :root[data-theme="dark"] .b-other, [data-theme="dark"] .b-other { fill: #64748b; }
+      :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #064e3b; stroke: #059669; }
+      :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #6ee7b7; }
+      :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss { fill: #451a03; stroke: #d97706; }
+      :root[data-theme="dark"] .badge-loss-text, [data-theme="dark"] .badge-loss-text { fill: #fcd34d; }
     </style>
   </defs>
 
   <rect width="100%" height="100%" class="bg" rx="8"/>
   <rect width="100%" height="100%" class="border" rx="8"/>
 
-  <!-- ================= CHART 1: YCSB WORKLOAD E (RANGE SCANS) ================= -->
-  <g transform="translate(30, 20)">
-    <text x="0" y="0" class="t-chart-title">YCSB Workload E (OLAP Scan)</text>
-    <text x="0" y="13" class="t-chart-sub">95% Range Scan, 5% Insert (higher is better)</text>
-    <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M ops / sec)</text>
-
-    <!-- Y Axis: 0 to 15M -->
-    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">15M</text>
-    
-    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">7.5M</text>
-    
-    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
-    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
-    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-
-    <!-- Bar 1: ExpanseBlobMap (13.22M -> height = 132.2, y = 62.8) -->
-    <rect x="42" y="62.8" width="55" height="132.2" class="b-expanse" rx="2"/>
-    <text x="69.5" y="55" class="t-val-accent">13.2 M/s</text>
-    <text x="69.5" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="69.5" y="228" class="t-chart-sub t-win" text-anchor="middle">7.3&#215; speedup</text>
-
-    <!-- Bar 2: BTreeMap (3.52M -> height = 35.2, y = 159.8) -->
-    <rect x="114" y="159.8" width="55" height="35.2" class="b-btreemap" rx="2"/>
-    <text x="141.5" y="152" class="t-val-blue">3.52 M/s</text>
-    <text x="141.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
-    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.0&#215;</text>
-
-    <!-- Bar 3: SkipMap (1.80M -> height = 18.0, y = 177.0) -->
-    <rect x="186" y="177.0" width="55" height="18.0" class="b-skipmap" rx="2"/>
-    <text x="213.5" y="169" class="t-val-muted">1.80 M/s</text>
-    <text x="213.5" y="214" class="t-bar-label" text-anchor="middle">SkipMap</text>
-    <text x="213.5" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
+  <text x="30" y="30" class="t-title">MULTITHREADED OCC CONCURRENCY &#183; 100% READ</text>
+  <text x="30" y="46" class="t-sub">Read throughput at 16 threads &#183; M ops/sec &#183; higher is better &#183; bounded 2xPOP, ~50% hit rate (#375)</text>
+  <g transform="translate(690, 20)">
+    <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
+    <text x="18" y="10" class="t-legend">Expanse OCC arm</text>
+    <rect x="150" y="0" width="12" height="12" rx="2" class="b-other"/>
+    <text x="168" y="10" class="t-legend">Baseline</text>
   </g>
+  <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
+  <text x="30" y="74" class="t-note">Bars are 16-thread throughput on a zero-based linear axis; the badge is that arm's own 1&#8594;16-thread scaling.</text>
+  <text x="30" y="105" class="t-bar-label">SyncExpanseSet</text>
+  <rect x="300.0" y="96" width="263.2" height="11" rx="2" class="b-expanse"/>
+  <text x="571.2" y="105" class="t-row-accent">884.5 M ops/s</text>
+  <rect x="800" y="92" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="105" class="badge-win-text">11.42x scaling</text>
+  <text x="30" y="131" class="t-bar-label">SyncExpanseMap</text>
+  <rect x="300.0" y="122" width="126.2" height="11" rx="2" class="b-expanse"/>
+  <text x="434.2" y="131" class="t-row-accent">424.1 M ops/s</text>
+  <rect x="800" y="118" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="131" class="badge-win-text">11.40x scaling</text>
+  <text x="30" y="157" class="t-bar-label">SyncExpanseBlobMap</text>
+  <rect x="300.0" y="148" width="98.9" height="11" rx="2" class="b-expanse"/>
+  <text x="406.9" y="157" class="t-row-accent">332.4 M ops/s</text>
+  <rect x="800" y="144" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="157" class="badge-win-text">10.60x scaling</text>
+  <text x="30" y="183" class="t-bar-label">SyncExpanseBytesMap</text>
+  <rect x="300.0" y="174" width="39.8" height="11" rx="2" class="b-expanse"/>
+  <text x="347.8" y="183" class="t-row-accent">133.8 M ops/s</text>
+  <rect x="800" y="170" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="183" class="badge-win-text">11.48x scaling</text>
+  <text x="30" y="209" class="t-bar-label">SyncExpanseStrMap</text>
+  <rect x="300.0" y="200" width="24.7" height="11" rx="2" class="b-expanse"/>
+  <text x="332.7" y="209" class="t-row-accent">82.9 M ops/s</text>
+  <rect x="800" y="196" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="209" class="badge-win-text">11.84x scaling</text>
+  <text x="30" y="235" class="t-bar-label">DashMap&lt;Vec&lt;u8&gt;, u64&gt;</text>
+  <rect x="300.0" y="226" width="39.3" height="11" rx="2" class="b-other"/>
+  <text x="347.3" y="235" class="t-row-muted">132.1 M ops/s</text>
+  <rect x="800" y="222" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="235" class="badge-win-text">8.47x scaling</text>
+  <text x="30" y="261" class="t-bar-label">SkipMap&lt;u64, Vec&lt;u8&gt;&gt;</text>
+  <rect x="300.0" y="252" width="11.4" height="11" rx="2" class="b-other"/>
+  <text x="319.4" y="261" class="t-row-muted">38.3 M ops/s</text>
+  <rect x="800" y="248" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="261" class="badge-win-text">11.13x scaling</text>
+  <text x="30" y="287" class="t-bar-label">RwLock&lt;BTreeMap&lt;u64, ...&gt;&gt;</text>
+  <rect x="300.0" y="278" width="5.5" height="11" rx="2" class="b-other"/>
+  <text x="313.5" y="287" class="t-row-muted">18.6 M ops/s</text>
+  <rect x="800" y="274" width="130" height="18" class="badge-win"/>
+  <text x="865.0" y="287" class="badge-win-text">1.75x scaling</text>
 
-  <!-- Divider 1 -->
-  <line x1="315" y1="20" x2="315" y2="255" class="divider"/>
+  <line x1="30" y1="316" x2="930" y2="316" class="divider"/>
+  <text x="30" y="330" class="t-bar-label">Honest limit &#8212; the same arms at 50% read / 50% write (1&#8594;16 threads, read ops/s):</text>
+  <text x="42" y="346" class="t-row-accent">DashMap&lt;Vec&lt;u8&gt;, u64&gt;: 5.6 &#8594; 17.3 &#8594; 44.5 M ops/s &#183; 7.93x</text>
+  <text x="42" y="362" class="t-row-accent">SkipMap&lt;u64, Vec&lt;u8&gt;&gt;: 1.1 &#8594; 3.4 &#8594; 7.7 M ops/s &#183; 6.94x</text>
+  <text x="42" y="378" class="t-row-muted">SyncExpanseMap: 10.9 &#8594; 3.0 &#8594; 2.0 M ops/s &#183; 0.19x</text>
+  <text x="42" y="394" class="t-row-muted">SyncExpanseSet: 16.6 &#8594; 3.3 &#8594; 2.1 M ops/s &#183; 0.12x</text>
 
-  <!-- ================= CHART 2: YCSB WORKLOAD F (READ-MODIFY-WRITE) ================= -->
-  <g transform="translate(345, 20)">
-    <text x="0" y="0" class="t-chart-title">YCSB Workload F (Atomic RMW)</text>
-    <text x="0" y="13" class="t-chart-sub">50% Read, 50% RMW (higher is better)</text>
-    <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M ops / sec)</text>
+  <text x="30" y="426" class="t-note">Measured: reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8 &#183; run 33030152085, ref 5fb03aa3</text>
+  <text x="30" y="439" class="t-note">EXPANSE_BENCH_THREADS="1,4,16", EXPANSE_BENCH_WORKLOADS="100,50", 500 ms windows, load average 0.00 at start &#183; single-writer OCC scales reads, not writes.</text>
+</svg>
 
-    <!-- Y Axis: 0 to 16M -->
-    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">16M</text>
-    
-    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">8.0M</text>
-    
-    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
-    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
-    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+        </div>
+        <div class="bench-wrapper">
+          <svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 602" width="100%" height="100%">
+  <title>YCSB workloads A-F throughput</title>
+  <defs>
+    <style>
+      /* Light theme by default for maximum contrast on the web. */
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
+      .divider { stroke: #e2e8f0; stroke-width: 1px; }
 
-    <!-- Bar 1: ExpanseBlobMap (14.27M -> height = 133.8, y = 61.2) -->
-    <rect x="42" y="61.2" width="55" height="133.8" class="b-expanse" rx="2"/>
-    <text x="69.5" y="53" class="t-val-accent">14.3 M/s</text>
-    <text x="69.5" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="69.5" y="228" class="t-chart-sub t-win" text-anchor="middle">8.1&#215; speedup</text>
+      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-chart-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
+      .t-note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; fill: #475569; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
+      .t-win { fill: #15803d; font-weight: 700; }
+      .t-loss { fill: #b45309; font-weight: 700; }
 
-    <!-- Bar 2: BTreeMap (3.71M -> height = 34.8, y = 160.2) -->
-    <rect x="114" y="160.2" width="55" height="34.8" class="b-btreemap" rx="2"/>
-    <text x="141.5" y="152" class="t-val-blue">3.71 M/s</text>
-    <text x="141.5" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
-    <text x="141.5" y="228" class="t-chart-sub" text-anchor="middle">2.1&#215;</text>
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; text-anchor: middle; }
+      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #334155; text-anchor: middle; }
+      .t-row-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 700; fill: #15803d; }
+      .t-row-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 600; fill: #334155; }
 
-    <!-- Bar 3: SkipMap (1.76M -> height = 16.5, y = 178.5) -->
-    <rect x="186" y="178.5" width="55" height="16.5" class="b-skipmap" rx="2"/>
-    <text x="213.5" y="171" class="t-val-muted">1.76 M/s</text>
-    <text x="213.5" y="214" class="t-bar-label" text-anchor="middle">SkipMap</text>
-    <text x="213.5" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
+      .b-expanse { fill: #16a34a; }
+      .b-expanse-alt { fill: #10b981; }
+      .b-hash { fill: #2563eb; }
+      .b-btree { fill: #64748b; }
+      .b-skipmap { fill: #94a3b8; }
+      .b-other { fill: #64748b; }
+
+      .badge-win { fill: #dcfce7; stroke: #86efac; stroke-width: 1px; rx: 3px; }
+      .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .badge-loss { fill: #fef3c7; stroke: #fcd34d; stroke-width: 1px; rx: 3px; }
+      .badge-loss-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 700; fill: #b45309; text-anchor: middle; }
+
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .divider { stroke: #21262d; }
+        .t-title { fill: #f0f6fc; }
+        .t-chart-title { fill: #f0f6fc; }
+        .t-sub { fill: #94a3b8; }
+        .t-note { fill: #94a3b8; }
+        .t-unit { fill: #94a3b8; }
+        .t-axis-label { fill: #94a3b8; }
+        .t-bar-label { fill: #f8fafc; }
+        .t-legend { fill: #f8fafc; }
+        .t-win { fill: #4ade80; }
+        .t-loss { fill: #fcd34d; }
+        .t-val-accent { fill: #4ade80; }
+        .t-val-blue { fill: #38bdf8; }
+        .t-val-muted { fill: #e2e8f0; }
+        .t-row-accent { fill: #4ade80; }
+        .t-row-muted { fill: #e2e8f0; }
+        .b-expanse { fill: #22c55e; }
+        .b-expanse-alt { fill: #34d399; }
+        .b-hash { fill: #3b82f6; }
+        .b-btree { fill: #64748b; }
+        .b-skipmap { fill: #475569; }
+        .b-other { fill: #64748b; }
+        .badge-win { fill: #064e3b; stroke: #059669; }
+        .badge-win-text { fill: #6ee7b7; }
+        .badge-loss { fill: #451a03; stroke: #d97706; }
+        .badge-loss-text { fill: #fcd34d; }
+      }
+
+      :root[data-theme="dark"] .bg, [data-theme="dark"] .bg { fill: #0d1117; }
+      :root[data-theme="dark"] .border, [data-theme="dark"] .border { stroke: #30363d; }
+      :root[data-theme="dark"] .grid, [data-theme="dark"] .grid { stroke: #21262d; }
+      :root[data-theme="dark"] .axis, [data-theme="dark"] .axis { stroke: #484f58; }
+      :root[data-theme="dark"] .divider, [data-theme="dark"] .divider { stroke: #21262d; }
+      :root[data-theme="dark"] .t-title, [data-theme="dark"] .t-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-chart-title, [data-theme="dark"] .t-chart-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-sub, [data-theme="dark"] .t-sub { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-unit, [data-theme="dark"] .t-unit { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-axis-label, [data-theme="dark"] .t-axis-label { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-bar-label, [data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-legend, [data-theme="dark"] .t-legend { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-win, [data-theme="dark"] .t-win { fill: #4ade80; }
+      :root[data-theme="dark"] .t-loss, [data-theme="dark"] .t-loss { fill: #fcd34d; }
+      :root[data-theme="dark"] .t-val-accent, [data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      :root[data-theme="dark"] .t-val-muted, [data-theme="dark"] .t-val-muted { fill: #e2e8f0; }
+      :root[data-theme="dark"] .t-row-accent, [data-theme="dark"] .t-row-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-row-muted, [data-theme="dark"] .t-row-muted { fill: #e2e8f0; }
+      :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse { fill: #22c55e; }
+      :root[data-theme="dark"] .b-expanse-alt, [data-theme="dark"] .b-expanse-alt { fill: #34d399; }
+      :root[data-theme="dark"] .b-hash, [data-theme="dark"] .b-hash { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-btree, [data-theme="dark"] .b-btree { fill: #64748b; }
+      :root[data-theme="dark"] .b-skipmap, [data-theme="dark"] .b-skipmap { fill: #475569; }
+      :root[data-theme="dark"] .b-other, [data-theme="dark"] .b-other { fill: #64748b; }
+      :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #064e3b; stroke: #059669; }
+      :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #6ee7b7; }
+      :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss { fill: #451a03; stroke: #d97706; }
+      :root[data-theme="dark"] .badge-loss-text, [data-theme="dark"] .badge-loss-text { fill: #fcd34d; }
+    </style>
+  </defs>
+
+  <rect width="100%" height="100%" class="bg" rx="8"/>
+  <rect width="100%" height="100%" class="border" rx="8"/>
+
+  <text x="30" y="30" class="t-title">YCSB WORKLOADS A&#8211;F THROUGHPUT</text>
+  <text x="30" y="46" class="t-sub">Mops/s &#183; higher is better &#183; N = 100,000, Zipfian theta = 0.99, 128B blobs, seed 0x1234_5678_9ABC, criterion median throughput</text>
+  <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
+  <g transform="translate(30, 68)">
+    <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
+    <text x="18" y="10" class="t-legend">ExpanseMap (u64)</text>
+    <rect x="172" y="0" width="12" height="12" rx="2" class="b-expanse-alt"/>
+    <text x="190" y="10" class="t-legend">ExpanseBlobMap (128B)</text>
+    <rect x="344" y="0" width="12" height="12" rx="2" class="b-btree"/>
+    <text x="362" y="10" class="t-legend">BTreeMap (128B)</text>
+    <rect x="516" y="0" width="12" height="12" rx="2" class="b-skipmap"/>
+    <text x="534" y="10" class="t-legend">SkipMap (128B)</text>
   </g>
+  <text x="30" y="92" class="t-note">Workloads A&#8211;D and F share one zero-based axis; Workload E has its own, an order of magnitude lower.</text>
+  <text x="30" y="109" class="t-bar-label">Workload A</text>
+  <text x="30" y="122" class="t-sub">50% Read / 50% Update</text>
+  <rect x="300.0" y="100" width="295.5" height="9" rx="2" class="b-expanse"/>
+  <text x="700" y="108" class="t-row-accent" text-anchor="end">20.66</text>
+  <rect x="300.0" y="113" width="291.5" height="9" rx="2" class="b-expanse-alt"/>
+  <text x="700" y="121" class="t-row-muted" text-anchor="end">20.38</text>
+  <rect x="300.0" y="126" width="60.9" height="9" rx="2" class="b-btree"/>
+  <text x="700" y="134" class="t-row-muted" text-anchor="end">4.26</text>
+  <rect x="300.0" y="139" width="27.2" height="9" rx="2" class="b-skipmap"/>
+  <text x="700" y="147" class="t-row-muted" text-anchor="end">1.90</text>
+  <rect x="775" y="117.0" width="155" height="18" class="badge-win"/>
+  <text x="852.5" y="130.0" class="badge-win-text">Expanse 4.85x</text>
+  <text x="30" y="177" class="t-bar-label">Workload B</text>
+  <text x="30" y="190" class="t-sub">95% Read / 5% Update</text>
+  <rect x="300.0" y="168" width="332.9" height="9" rx="2" class="b-expanse"/>
+  <text x="700" y="176" class="t-row-accent" text-anchor="end">23.27</text>
+  <rect x="300.0" y="181" width="303.4" height="9" rx="2" class="b-expanse-alt"/>
+  <text x="700" y="189" class="t-row-muted" text-anchor="end">21.21</text>
+  <rect x="300.0" y="194" width="63.2" height="9" rx="2" class="b-btree"/>
+  <text x="700" y="202" class="t-row-muted" text-anchor="end">4.42</text>
+  <rect x="300.0" y="207" width="36.3" height="9" rx="2" class="b-skipmap"/>
+  <text x="700" y="215" class="t-row-muted" text-anchor="end">2.54</text>
+  <rect x="775" y="185.0" width="155" height="18" class="badge-win"/>
+  <text x="852.5" y="198.0" class="badge-win-text">Expanse 5.26x</text>
+  <text x="30" y="245" class="t-bar-label">Workload C</text>
+  <text x="30" y="258" class="t-sub">100% Read</text>
+  <rect x="300.0" y="236" width="337.7" height="9" rx="2" class="b-expanse"/>
+  <text x="700" y="244" class="t-row-accent" text-anchor="end">23.61</text>
+  <rect x="300.0" y="249" width="304.1" height="9" rx="2" class="b-expanse-alt"/>
+  <text x="700" y="257" class="t-row-muted" text-anchor="end">21.26</text>
+  <rect x="300.0" y="262" width="63.5" height="9" rx="2" class="b-btree"/>
+  <text x="700" y="270" class="t-row-muted" text-anchor="end">4.44</text>
+  <rect x="300.0" y="275" width="28.3" height="9" rx="2" class="b-skipmap"/>
+  <text x="700" y="283" class="t-row-muted" text-anchor="end">1.98</text>
+  <rect x="775" y="253.0" width="155" height="18" class="badge-win"/>
+  <text x="852.5" y="266.0" class="badge-win-text">Expanse 5.32x</text>
+  <text x="30" y="313" class="t-bar-label">Workload D</text>
+  <text x="30" y="326" class="t-sub">95% Read-Latest / 5% Insert</text>
+  <rect x="300.0" y="304" width="329.3" height="9" rx="2" class="b-expanse"/>
+  <text x="700" y="312" class="t-row-accent" text-anchor="end">23.02</text>
+  <rect x="300.0" y="317" width="307.5" height="9" rx="2" class="b-expanse-alt"/>
+  <text x="700" y="325" class="t-row-muted" text-anchor="end">21.50</text>
+  <rect x="300.0" y="330" width="61.2" height="9" rx="2" class="b-btree"/>
+  <text x="700" y="338" class="t-row-muted" text-anchor="end">4.28</text>
+  <rect x="300.0" y="343" width="27.6" height="9" rx="2" class="b-skipmap"/>
+  <text x="700" y="351" class="t-row-muted" text-anchor="end">1.93</text>
+  <rect x="775" y="321.0" width="155" height="18" class="badge-win"/>
+  <text x="852.5" y="334.0" class="badge-win-text">Expanse 5.38x</text>
+  <text x="30" y="381" class="t-bar-label">Workload F</text>
+  <text x="30" y="394" class="t-sub">50% Read / 50% Read-Modify-Write</text>
+  <rect x="300.0" y="372" width="269.2" height="9" rx="2" class="b-expanse"/>
+  <text x="700" y="380" class="t-row-accent" text-anchor="end">18.82</text>
+  <rect x="300.0" y="385" width="210.7" height="9" rx="2" class="b-expanse-alt"/>
+  <text x="700" y="393" class="t-row-muted" text-anchor="end">14.73</text>
+  <rect x="300.0" y="398" width="62.2" height="9" rx="2" class="b-btree"/>
+  <text x="700" y="406" class="t-row-muted" text-anchor="end">4.35</text>
+  <rect x="300.0" y="411" width="25.9" height="9" rx="2" class="b-skipmap"/>
+  <text x="700" y="419" class="t-row-muted" text-anchor="end">1.81</text>
+  <rect x="775" y="389.0" width="155" height="18" class="badge-win"/>
+  <text x="852.5" y="402.0" class="badge-win-text">Expanse 4.33x</text>
 
-  <!-- Divider 2 -->
-  <line x1="635" y1="20" x2="635" y2="255" class="divider"/>
+  <line x1="30" y1="454" x2="930" y2="454" class="divider"/>
+  <text x="30" y="468" class="t-note">Workload E, separate axis (max 1.289 Mops/s) &#8212; Plotted on its own axis: every arm is an order of magnitude below A-D/F, and BTreeMap wins.</text>
+  <text x="30" y="493" class="t-bar-label">Workload E</text>
+  <text x="30" y="506" class="t-sub">95% Short Range Scan / 5% Insert</text>
+  <rect x="300.0" y="484" width="217.5" height="9" rx="2" class="b-expanse"/>
+  <text x="700" y="492" class="t-row-muted" text-anchor="end">0.830</text>
+  <rect x="300.0" y="497" width="172.1" height="9" rx="2" class="b-expanse-alt"/>
+  <text x="700" y="505" class="t-row-muted" text-anchor="end">0.657</text>
+  <rect x="300.0" y="510" width="337.7" height="9" rx="2" class="b-btree"/>
+  <text x="700" y="518" class="t-row-accent" text-anchor="end">1.289</text>
+  <rect x="300.0" y="523" width="79.9" height="9" rx="2" class="b-skipmap"/>
+  <text x="700" y="531" class="t-row-muted" text-anchor="end">0.305</text>
+  <rect x="775" y="501.0" width="155" height="18" class="badge-loss"/>
+  <text x="852.5" y="514.0" class="badge-loss-text">BTreeMap 1.55x</text>
 
-  <!-- ================= CHART 3: SMALL PAYLOAD INLINING (POINT GET) ================= -->
-  <g transform="translate(665, 20)">
-    <text x="0" y="0" class="t-chart-title">Small-Payload Inlining</text>
-    <text x="0" y="13" class="t-chart-sub">&#8804; 7B payloads, zero heap alloc (lower is better)</text>
-    <text x="0" y="29" class="t-unit-header">&#9660; Latency (ns / op)</text>
-
-    <!-- Y Axis: 0 to 70 ns -->
-    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">70 ns</text>
-    
-    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">35 ns</text>
-    
-    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
-    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
-    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-
-    <!-- Bar 1: Expanse (5.7ns -> height = 5.7 * 2.14 = 12.2, y = 182.8) -->
-    <rect x="55" y="182.8" width="70" height="12.2" class="b-expanse" rx="2"/>
-    <text x="90" y="174" class="t-val-accent">5.7 ns</text>
-    <text x="90" y="214" class="t-bar-label" text-anchor="middle">ExpanseBlobMap</text>
-    <text x="90" y="228" class="t-chart-sub t-win" text-anchor="middle">5.1&#215; faster (0 alloc)</text>
-
-    <!-- Bar 2: BTreeMap (29.0ns -> height = 29.0 * 2.14 = 62.1, y = 132.9) -->
-    <rect x="155" y="132.9" width="70" height="62.1" class="b-btreemap" rx="2"/>
-    <text x="190" y="124" class="t-val-blue">29.0 ns</text>
-    <text x="190" y="214" class="t-bar-label" text-anchor="middle">BTreeMap (Heap)</text>
-    <text x="190" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; (16B header)</text>
-  </g>
+  <text x="30" y="576" class="t-note">Measured: reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, idle &#183; run 33037221608 &#183; benches/ycsb.rs, post-#385 re-measurement</text>
+  <text x="30" y="589" class="t-note">The Workload E figure published under #375 is retracted; E is re-measured here and inverts.</text>
 </svg>
 
         </div>
@@ -1566,7 +1639,7 @@ int main() {
               Micro-Benchmark: ExpanseMemTable vs. RocksDB SkipListRep vs. VectorRep (100K keys, 16B key / 64B val)
             </div>
             <div style="padding: 1rem;">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 275" width="100%" height="100%">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 285" width="100%" height="100%">
   <defs>
     <style>
       /* Default styles: Light theme by default for maximum contrast on web */
@@ -1716,6 +1789,9 @@ int main() {
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215;</text>
   </g>
+
+  <text x="30" y="262" class="t-chart-sub">Panels 1 and 3 (wall clock) were measured against the retracted strawman skiplist node (#372):</text>
+  <text x="30" y="275" class="t-chart-sub">every vs-SkipList ratio there awaits a quiet-host re-run. Panel 2 uses the fair variable-height baseline.</text>
 </svg>
 
             </div>
@@ -1834,7 +1910,7 @@ void app_main(void) {
   <footer>
     <div class="container">
       <p style="margin-bottom: 0.75rem;">
-        <span class="badge" style="font-size: 0.78rem;">Release v0.4.1</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/1d44ab1"><code>1d44ab1</code></a> &bull; Built on 2026-08-26
+        <span class="badge" style="font-size: 0.78rem;">Release v0.4.1</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/0a72503"><code>0a72503</code></a> &bull; Built on 2026-08-26
       </p>
       <p>
         <strong>Expanse</strong> is open source software released under dual MIT / Apache-2.0 licenses.<br>
