@@ -516,56 +516,75 @@ pub struct Bitmap256 {
 /// path (per-byte popcount plus horizontal add), not a scalar instruction —
 /// base A64 has no scalar popcount (scalar `CNT` needs FEAT_CSSC, Armv8.9+;
 /// see docs/HARDWARE.md §2.2).
-/// Runtime CPU feature dispatch (x86-64 only).
-///
-/// Features detected and cached in a relaxed atomic:
-/// - `POPCNT`: hardware single-instruction population count.
-/// - `BMI2`: hardware bit manipulation extensions (specifically `PDEP`/`PEXT`).
-///
-/// **Microarchitecture exclusion**: On AMD Zen 1 and Zen 2 (Family 17h and 15h),
-/// `PDEP`/`PEXT` are implemented in microcode (taking 18 to 250+ cycles).
-/// On those microarchitectures, `has_bmi2()` returns `false` so execution
-/// automatically falls back to the fast 2 KB `SELECT_LUT` table. AMD Zen 3+
-/// (Family 19h+) and Intel Haswell+ execute `PDEP` in hardware (1 cycle).
+/// Runtime CPU feature dispatch for hardware POPCNT (x86-64 only).
 #[cfg(target_arch = "x86_64")]
-pub(crate) mod cpu_features {
+pub(crate) mod popcnt_rt {
     use core::sync::atomic::{AtomicU8, Ordering};
 
-    // Cached probe bitfield:
-    // Bit 0 (0x01): Probed (1 if probed, 0 if unknown)
-    // Bit 1 (0x02): POPCNT supported
-    // Bit 2 (0x04): Fast BMI2 (PDEP/PEXT) supported (Intel Haswell+, AMD Zen 3+)
     static STATE: AtomicU8 = AtomicU8::new(0);
 
     #[inline(always)]
-    pub(crate) fn has_popcnt() -> bool {
+    pub(crate) fn available() -> bool {
         let s = STATE.load(Ordering::Relaxed);
-        if (s & 0x01) != 0 {
-            (s & 0x02) != 0
+        if s == 2 {
+            true
+        } else if s == 1 {
+            false
         } else {
-            (detect() & 0x02) != 0
+            detect()
         }
     }
 
+    /// First-call CPUID probe, outlined so the dispatchers' fast path is
+    /// exactly one load and one predicted branch — the
+    /// `is_x86_feature_detected!` expansion would otherwise be inlined
+    /// into every lookup entry (review finding, PR #19).
+    #[cold]
+    #[inline(never)]
+    #[allow(unused_unsafe)]
+    fn detect() -> bool {
+        // SAFETY: CPUID leaf 1 is supported on all standard x86-64 CPUs.
+        let leaf1 = unsafe { core::arch::x86_64::__cpuid(1) };
+        let yes = (leaf1.ecx & (1 << 23)) != 0;
+        STATE.store(if yes { 2 } else { 1 }, Ordering::Relaxed);
+        yes
+    }
+}
+
+/// Runtime CPU feature dispatch for hardware BMI2 PDEP/PEXT (x86-64 only).
+///
+/// **Microarchitecture exclusion**: On AMD Zen 1 and Zen 2 (Family 17h and 15h),
+/// `PDEP`/`PEXT` are implemented in microcode (taking 18 to 250+ cycles).
+/// On those microarchitectures, `available()` returns `false` so execution
+/// automatically falls back to the fast 2 KB `SELECT_LUT` table. AMD Zen 3+
+/// (Family 19h+) and Intel Haswell+ execute `PDEP` in hardware (1 cycle).
+#[cfg(target_arch = "x86_64")]
+pub(crate) mod bmi2_rt {
+    use core::sync::atomic::{AtomicU8, Ordering};
+
+    static STATE: AtomicU8 = AtomicU8::new(0);
+
     #[inline(always)]
-    pub(crate) fn has_bmi2() -> bool {
+    pub(crate) fn available() -> bool {
         let s = STATE.load(Ordering::Relaxed);
-        if (s & 0x01) != 0 {
-            (s & 0x04) != 0
+        if s == 2 {
+            true
+        } else if s == 1 {
+            false
         } else {
-            (detect() & 0x04) != 0
+            detect()
         }
     }
 
     #[cold]
     #[inline(never)]
     #[allow(unused_unsafe)]
-    fn detect() -> u8 {
+    fn detect() -> bool {
         // SAFETY: CPUID leaf 0 is universally supported on x86-64.
         let max_leaf = unsafe { core::arch::x86_64::__cpuid(0).eax };
-        if max_leaf == 0 {
-            STATE.store(0x01, Ordering::Relaxed);
-            return 0x01;
+        if max_leaf < 7 {
+            STATE.store(1, Ordering::Relaxed);
+            return false;
         }
 
         // SAFETY: CPUID leaf 0 is supported.
@@ -573,10 +592,8 @@ pub(crate) mod cpu_features {
         let is_amd =
             leaf0.ebx == 0x6874_7541 && leaf0.edx == 0x6974_6e65 && leaf0.ecx == 0x444d_4163;
 
-        // SAFETY: CPUID leaf 1 is supported on all standard x86-64 CPUs.
+        // SAFETY: CPUID leaf 1 is supported on standard x86-64 CPUs.
         let leaf1 = unsafe { core::arch::x86_64::__cpuid(1) };
-        let has_popcnt = (leaf1.ecx & (1 << 23)) != 0;
-
         let base_family = (leaf1.eax >> 8) & 0xF;
         let ext_family = (leaf1.eax >> 20) & 0xFF;
         let family = if base_family == 0xF {
@@ -585,39 +602,13 @@ pub(crate) mod cpu_features {
             base_family
         };
 
-        let mut has_fast_bmi2 = false;
-        if max_leaf >= 7 {
-            // SAFETY: CPUID leaf 7 is supported when max_leaf >= 7.
-            let leaf7 = unsafe { core::arch::x86_64::__cpuid_count(7, 0) };
-            let has_bmi2 = (leaf7.ebx & (1 << 8)) != 0;
-            if has_bmi2 {
-                // AMD Zen 1/Zen 2 (Family 17h / 15h) microcode pdep (18-250 cycles).
-                // AMD Zen 3+ (Family 19h+) has fast single-cycle hardware pdep.
-                // Intel Haswell+ has fast hardware pdep.
-                if !is_amd || family >= 0x19 {
-                    has_fast_bmi2 = true;
-                }
-            }
-        }
+        // SAFETY: CPUID leaf 7 is supported (max_leaf >= 7).
+        let leaf7 = unsafe { core::arch::x86_64::__cpuid_count(7, 0) };
+        let has_bmi2 = (leaf7.ebx & (1 << 8)) != 0;
 
-        let mut flags = 0x01;
-        if has_popcnt {
-            flags |= 0x02;
-        }
-        if has_fast_bmi2 {
-            flags |= 0x04;
-        }
-        STATE.store(flags, Ordering::Relaxed);
-        flags
-    }
-}
-
-/// Backwards-compatible alias for the POPCNT feature detector.
-#[cfg(target_arch = "x86_64")]
-pub(crate) mod popcnt_rt {
-    #[inline(always)]
-    pub(crate) fn available() -> bool {
-        super::cpu_features::has_popcnt()
+        let fast_bmi2 = has_bmi2 && (!is_amd || family >= 0x19);
+        STATE.store(if fast_bmi2 { 2 } else { 1 }, Ordering::Relaxed);
+        fast_bmi2
     }
 }
 
@@ -897,8 +888,8 @@ impl Bitmap256 {
     pub fn select(&self, n: u32) -> Option<u8> {
         #[cfg(all(target_arch = "x86_64", not(miri)))]
         {
-            if cpu_features::has_bmi2() {
-                // SAFETY: has_bmi2() guarantees the target CPU supports BMI2 and
+            if bmi2_rt::available() {
+                // SAFETY: bmi2_rt::available() guarantees the target CPU supports BMI2 and
                 // POPCNT natively with fast hardware execution (excluding AMD Zen 1/2 microcode).
                 return unsafe { select_bmi2(&self.words, n) };
             }
