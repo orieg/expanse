@@ -244,22 +244,33 @@ pub fn expanse_native_andnot_count(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
 // ------------------------------------------------------------------------
 // Materializing arm (#348): build the *result set*, not just its cardinality.
 // The sink is the result population so the closure returns a `u64` like the
-// cardinality arms, and dead-code elimination cannot drop the build.
+// cardinality arms, and dead-code elimination cannot drop the build. Leaking
+// via `mem::forget` keeps `free_subtree` teardown out of the timed loop
+// (BENCHMARKING.md:729 Rule 0).
 // ------------------------------------------------------------------------
 
 /// AND result via the native direct-emission kernel (`ExpanseSet::intersection`).
 pub fn expanse_and_materialize(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
-    a.intersection(b).len()
+    let out = a.intersection(b);
+    let n = out.len();
+    core::mem::forget(out);
+    n
 }
 
 /// OR result via the native direct-emission kernel.
 pub fn expanse_or_materialize(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
-    a.union(b).len()
+    let out = a.union(b);
+    let n = out.len();
+    core::mem::forget(out);
+    n
 }
 
 /// AND-NOT result via the native direct-emission kernel.
 pub fn expanse_andnot_materialize(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
-    a.difference(b).len()
+    let out = a.difference(b);
+    let n = out.len();
+    core::mem::forget(out);
+    n
 }
 
 /// AND result via the pre-#348 path: ordered-merge the two iterators and
@@ -279,7 +290,9 @@ pub fn expanse_and_materialize_v1(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
             std::cmp::Ordering::Greater => y = ib.next(),
         }
     }
-    out.len()
+    let n = out.len();
+    core::mem::forget(out);
+    n
 }
 
 /// OR result via the pre-#348 ordered-merge + `insert` path.
@@ -315,7 +328,9 @@ pub fn expanse_or_materialize_v1(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
             (None, None) => break,
         }
     }
-    out.len()
+    let n = out.len();
+    core::mem::forget(out);
+    n
 }
 
 /// AND-NOT result via the pre-#348 ordered-merge + `insert` path.
@@ -343,22 +358,33 @@ pub fn expanse_andnot_materialize_v1(a: &ExpanseSet, b: &ExpanseSet) -> u64 {
             (None, _) => break,
         }
     }
-    out.len()
+    let n = out.len();
+    core::mem::forget(out);
+    n
 }
 
 /// AND result materialized as a [`RoaringTreemap`] (`a & b`), sink is its len.
 pub fn roaring_and_materialize(a: &RoaringTreemap, b: &RoaringTreemap) -> u64 {
-    (a & b).len()
+    let out = a & b;
+    let n = out.len();
+    core::mem::forget(out);
+    n
 }
 
 /// OR result materialized as a [`RoaringTreemap`] (`a | b`).
 pub fn roaring_or_materialize(a: &RoaringTreemap, b: &RoaringTreemap) -> u64 {
-    (a | b).len()
+    let out = a | b;
+    let n = out.len();
+    core::mem::forget(out);
+    n
 }
 
 /// AND-NOT result materialized as a [`RoaringTreemap`] (`a - b`).
 pub fn roaring_andnot_materialize(a: &RoaringTreemap, b: &RoaringTreemap) -> u64 {
-    (a - b).len()
+    let out = a - b;
+    let n = out.len();
+    core::mem::forget(out);
+    n
 }
 
 /// WAND skip-scan over an [`ExpanseSet`]: stateless O(depth) re-descent per
