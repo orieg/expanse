@@ -86,16 +86,16 @@ fn resolve_path(rel_path: &str) -> PathBuf {
 
 fn load_corpus_tokens(max_n: usize) -> Vec<u32> {
     let corpus_path = resolve_path("docs/benchmarks/llm_inference/data/datastore_corpus.bin");
-    if corpus_path.exists() {
-        if let Ok(mut f) = File::open(&corpus_path) {
-            let mut buf = Vec::new();
-            if f.read_to_end(&mut buf).is_ok() && buf.len() >= 4 {
-                let mut tokens = Vec::with_capacity((buf.len() / 4).min(max_n));
-                for chunk in buf.chunks_exact(4).take(max_n) {
-                    tokens.push(u32::from_ne_bytes(chunk.try_into().unwrap()));
-                }
-                return tokens;
+    if corpus_path.exists()
+        && let Ok(mut f) = File::open(&corpus_path)
+    {
+        let mut buf = Vec::new();
+        if f.read_to_end(&mut buf).is_ok() && buf.len() >= 4 {
+            let mut tokens = Vec::with_capacity((buf.len() / 4).min(max_n));
+            for chunk in buf.as_chunks::<4>().0.iter().take(max_n) {
+                tokens.push(u32::from_ne_bytes(*chunk));
             }
+            return tokens;
         }
     }
 

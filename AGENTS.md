@@ -103,25 +103,40 @@ Never propose or graft foreign data structures or complected models onto Expanse
 ## 5. Rust Standards & Quality Gates
 
 ### Language & Edition
-- **Rust Edition 2024**, MSRV `1.85`.
+- **Rust Edition 2024**, MSRV `1.88` — enforced by the `Core / MSRV 1.88 Build` CI job, not just declared. The floor is set by let-chains in `crates/expanse/src/strmap.rs` (stable in 1.88) and by `napi-build` (requires 1.88). It was previously declared as `1.85`, which no toolchain could actually build; corrected after measuring (1.85 and 1.86 fail, 1.88 passes).
 - **64-bit and 32-bit targets supported** — a `compile_error!` in `lib.rs` fires only on targets that are neither 64- nor 32-bit.
 
 ### Mandatory Local Gates (Must Pass 100% Before Committing)
+
+**Run them as one command — mirrors CI's `lint` + `test` jobs:**
+```bash
+scripts/gate.sh            # fmt · clippy · workspace tests (PROPTEST_CASES=500) · repo scripts · docs hygiene
+scripts/gate.sh --miri     # additionally the Tier-1 Miri filter (the per-PR CI scope)
+```
+The local test step excludes `expanse-php` (PHP headers, as CI does) and
+`expanse-py` (its PyO3 test binary needs `libpythonX.Y` on the rpath); CI runs
+both. `--with-bindings` includes them once your toolchain is set up. CI remains
+the authority — a green local gate is necessary, not sufficient.
+
+Individually, if you need to run one:
 ```bash
 # 1. Code formatting
-cargo fmt --check
+cargo fmt --all --check
 
 # 2. Strict linter (zero warnings permitted)
 cargo clippy --workspace --all-targets -- -D warnings
 
-# 3. Complete workspace test suite
-cargo test --workspace
+# 3. Workspace test suite (expanse-php needs PHP headers; CI excludes it here
+#    and covers it in the dedicated test-php / php-judy-* jobs)
+cargo test --workspace --exclude expanse-php
 
-# 4. Randomized model testing (heavy iterations)
+# 4. Randomized model testing (heavy iterations) — CI sets this on the `test` job
 PROPTEST_CASES=500 cargo test --test proptest_model
 
-# 5. Miri undefined behavior verification (skipping long-running model sweeps)
-cargo miri test -p expanse-trie -- --skip model_
+# 5. Miri: run the SAME Tier-1 filter CI runs per PR. Do NOT run the full
+#    suite locally (it is slow and the nightly CI job is the authority).
+cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: types:: \
+  blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred
 ```
 
 ### Unsafe Code & Undocumented Unsafe Blocks
@@ -150,7 +165,7 @@ ssh "$BENCH_HOST" "export PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH; \
 ```
 
 ### Automated Bare-Metal CI Triggers (`/bench` & `/bench extended`)
-On pull requests, maintainers and authorized collaborators can trigger automated bare-metal benchmarks on the dedicated benchmark host (`honeycomb`) via PR comments:
+On pull requests, maintainers and authorized collaborators can trigger automated bare-metal benchmarks on the dedicated bare-metal reference host via PR comments:
 - `/bench`: Runs standard dual-pass Callgrind (`vs_stock`, `instructions`) and fast comparative sweep ($N = 10,000$).
 - `/bench extended` (or `/benchmark extended`): Runs full multi-population scaling sweeps ($N \in [10\text{k}, 100\text{k}, 1\text{M}]$) + microarchitectural target CPU scaling matrix (`baseline`, `x86-64-v2`, `x86-64-v3`, `native`) + Callgrind.
 - `/benchmark <suite>`: Targeted suite runs (`vs_stock`, `instructions`, `comparative`, `ycsb`).
@@ -165,17 +180,54 @@ See `docs/BENCHMARKING.md` §2–3 and `docs/CI.md` for details.
 
 ---
 
+## 6.5 Enforcement Map — what is checked mechanically vs by review
+
+Know which rules a machine will catch and which only a reviewer will. **CI-enforced** rules fail the `CI Gate / All Checks Passed` context; **review-enforced** rules are yours to uphold and a reviewer's to check.
+
+| Rule | Enforced by | Where |
+|---|---|---|
+| fmt · clippy `-D warnings` (carries `undocumented_unsafe_blocks`, `missing_docs`) | **CI** | `lint` job |
+| Workspace tests on 3 OSes, `PROPTEST_CASES=500` | **CI** | `test` job |
+| MSRV floor builds | **CI** | `msrv` job |
+| Tier-1 Miri (UB, provenance, borrows) · ASan · loom · fuzz smoke | **CI** | `miri`, `test-asan`, `loom`, `fuzz-smoke` |
+| Node/edge layout invariants (§2.1 sizes, offsets, alignment) | **compile time** | `const _: () = { assert!(…) }` in `node.rs`, `types32.rs` |
+| Instruction regression (>5 % worst, or ≥2 arms >0.5 %) + `allow-regression:` override | **CI** | `instruction-counts`, `callgrind-smoke` → `scripts/perf_report.py` |
+| Memory density ceilings | **CI** | `memory-budget` |
+| C ABI symbol parity · version lockstep · gate completeness · report-script self-tests | **CI** | `lint` job scripts |
+| Black-box parity vs stock `libjudy` | **CI** | `differential-oracle`, `php-judy-*` |
+| Doc↔code constant sync (visualizer) | **CI** | `tests/test_visualizer_sync.rs` |
+| No time estimates · no PII/home paths/LAN IPs in docs and PR body | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |
+| Provenance tags on published numbers (§8.7) | **CI (advisory warning)** + review | `docs-lint` heuristic; reviewer confirms the artifact |
+| §6 review threshold (>0.1 % instructions) | **review** | `perf_report.py` renders it; a human decides |
+| §8.4 BCa 95 % CI lower bound ≥ floor | **review** | no CI tooling yet — state the interval and its n in the PR |
+| §2.1 / §2.2 architectural invariants beyond sizes (no B-tree/hash mutation, no coarse locks, ordered semantics) | **review** | — |
+| §3 clean-room (no LGPL exposure) | **review** (`references/` is gitignored) | — |
+| §8.3 symmetric baselines · §8.6 DCE sinks & realistic hit rates · §8.7 no in-place backfilling · §8.8 3-commit cadence | **review** | — |
+| Conventional-commit type · branch naming | **review** | — |
+
+---
+
 ## 7. Git & Pull Request Protocol
 
 - **Branch Naming**: `perf/<feature>`, `feat/<feature>`, `fix/<issue>`, `refactor/<scope>`, `docs/<scope>`.
-- **Commit Format**: Conventional Commits: `type(scope): message` (types: `feat`, `fix`, `docs`, `refactor`, `chore`, `eval`, `poc`), atomic. Subject concise + factual; body states what + why.
+- **Commit Format**: Conventional Commits: `type(scope): message` (types: `feat`, `fix`, `perf`, `bench`, `docs`, `refactor`, `test`, `ci`, `chore`, `eval`, `poc`), atomic. Subject concise + factual; body states what + why.
 - **Commit/push only when the maintainer asks.** The repo (`github.com/orieg/expanse`) is public; if on `main`, branch first.
 - **Protected `main` Branch** (ruleset `main-protection`): direct pushes to `main` are rejected. All merges require:
-  - An approved Pull Request (`gh pr create --base main`).
+  - A Pull Request (`gh pr create --base main`). The ruleset currently requires **0 approving reviews** — the enforced gate is the status check below, so self-merging a green PR is permitted; request a review when the change is architectural, touches `unsafe`, or moves a published number.
   - **A single required status check — `CI Gate / All Checks Passed`** (the `ci-gate` rollup job that `needs:` every other `ci.yml` job and fails if any failed or was cancelled; a `lint` step plus the gate's own self-check parse `ci.yml` and assert no job id is missing from its `needs`). Because the ruleset requires only the rollup context, renaming a *non-gate* CI job does not require editing the ruleset; only renaming `ci-gate` itself would.
   - No force-push, no deletion, no bypass actors.
   - Workflow: branch → push → `gh pr create` → watch checks → `gh pr merge`.
 - **Impersonal GitHub prose.** Issue/PR/review text is published from the maintainer's own account: state what changed, where (commit SHA / file path / issue ref), and status — no external-collaboration framing, no self-attribution, no `@`-mentioning or thanking the maintainer.
+- **No agent/session trailers** in commit messages (`Claude-Session:`, `Co-Authored-By:` for tools, etc.).
+
+### Before Opening a PR (checklist — `.github/PULL_REQUEST_TEMPLATE.md` mirrors this)
+
+1. `scripts/gate.sh` is green (fmt · clippy · tests with `PROPTEST_CASES=500` · repo scripts · docs hygiene); add `--miri` when the change touches `unsafe` or node layout.
+2. Every new `unsafe` block has a `// SAFETY:` rationale; new public items are documented.
+3. Hot-path change? Say so, and paste the `perf_report.py` table from `instruction-counts`; anything >0.1 % needs a justification, anything over the automated thresholds needs a literal `allow-regression: <reason>` line plus a Performance Trade-off Disclosure.
+4. Every published number carries `(measured: host, commit)` resolving to a committed artifact — with n and the CI where §8.4 applies. Losing cells are published too.
+5. Canonical doc updated (§1 hierarchy) — no new standalone `.md`.
+6. Prose check: no time estimates, no hostnames/home paths, impersonal voice.
 
 ### Privacy & Local Infrastructure
 

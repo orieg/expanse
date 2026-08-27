@@ -476,7 +476,7 @@ pub const MAX_ARENA_CAPACITY: usize = 1 << 30;
 /// never silently truncating either field.
 #[inline]
 fn slot_from_global(global_offset: u64, hot_meta: u32) -> Result<ValueSlot, ArenaError> {
-    if global_offset % (ARENA_ALIGN as u64) != 0 || global_offset >= ARENA_META_CEILING {
+    if !global_offset.is_multiple_of(ARENA_ALIGN as u64) || global_offset >= ARENA_META_CEILING {
         return Err(ArenaError::OffsetOverflow);
     }
     if hot_meta > ValueSlot::ARENA_META_MAX {
@@ -768,12 +768,12 @@ impl BlobArena {
             return Err(ArenaError::AllocationFailed);
         }
 
-        if let Some(idx) = self.active_chunk {
-            if self.chunks[idx].can_fit(data.len()) {
-                let offset_in_chunk = self.chunks[idx].alloc(data)?;
-                self.live_bytes += needed;
-                return Ok(self.global_offset(idx, offset_in_chunk));
-            }
+        if let Some(idx) = self.active_chunk
+            && self.chunks[idx].can_fit(data.len())
+        {
+            let offset_in_chunk = self.chunks[idx].alloc(data)?;
+            self.live_bytes += needed;
+            return Ok(self.global_offset(idx, offset_in_chunk));
         }
 
         // A new chunk is required — enforce the chunk-count and total capacity
@@ -1359,7 +1359,7 @@ impl ExpanseBlobMap {
         // `ArenaMeta` locators are `global / 16`, so a chunk boundary must land on
         // a 16-byte-aligned global offset: reject an unaligned declared chunk size
         // rather than let it desync locator decoding.
-        if header.chunk_size % (ARENA_ALIGN as u64) != 0 {
+        if !header.chunk_size.is_multiple_of(ARENA_ALIGN as u64) {
             return Err(ArenaError::CorruptedHeader);
         }
 

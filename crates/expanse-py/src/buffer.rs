@@ -89,16 +89,20 @@ fn packed_byte_source(obj: &Bound<'_, PyAny>) -> PyResult<Option<Vec<u8>>> {
 /// Decodes a packed byte buffer as NATIVE-endian `u64` values, erroring (rather than
 /// silently reinterpreting) if the length is not a whole number of 8-byte elements.
 fn bytes_as_u64_vec(bytes: &[u8], what: &str) -> PyResult<Vec<u64>> {
-    if bytes.len() % 8 != 0 {
+    if !bytes.len().is_multiple_of(8) {
         return Err(PyValueError::new_err(format!(
             "insert_many: {what} byte buffer length ({}) is not a multiple of 8; a packed \
              u64 buffer must contain whole 8-byte elements",
             bytes.len()
         )));
     }
+    // Length is an exact multiple of 8 (checked above), so `as_chunks` leaves an
+    // empty remainder and every chunk is a `[u8; 8]` — no fallible conversion.
     Ok(bytes
-        .chunks_exact(8)
-        .map(|c| u64::from_ne_bytes(c.try_into().unwrap()))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| u64::from_ne_bytes(*c))
         .collect())
 }
 

@@ -148,6 +148,52 @@ jobs:
       - name: Verify CI Gate Completeness
         run: python3 scripts/check_ci_gate.py
 
+      # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
+      # findings prose) assertions as self-tests; run them so they cannot rot.
+      - name: Report-Script Self-Tests (perf_report / bench_report / docs hygiene)
+        run: |
+          python3 scripts/perf_report.py --self-test
+          python3 scripts/bench_report.py --self-test
+          python3 scripts/check_docs_hygiene.py --self-test
+
+  msrv:
+    name: Core / MSRV 1.88 Build
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      # Cargo.toml declares rust-version = "1.88" (AGENTS.md §5); every other
+      # job builds on `stable`, which never exercises the floor. This job does.
+      - uses: dtolnay/rust-toolchain@1.88.0
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check workspace on the declared MSRV
+        run: cargo check --workspace --exclude expanse-php --all-targets
+
+  docs-lint:
+    name: Docs / Hygiene (time estimates, PII, provenance)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.docs == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      # Comma-separated private hostnames to reject in docs/PR text. Set as a
+      # repository variable so the names never enter the repository.
+      DOCS_HOSTNAME_DENYLIST: ${{ vars.DOCS_HOSTNAME_DENYLIST }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Scan tracked markdown and the PR body
+        shell: bash
+        run: |
+          printf '%s' "$PR_BODY" > pr-body.txt
+          python3 scripts/check_docs_hygiene.py --pr-body-file pr-body.txt
+
   test:
     name: Core / Workspace Tests (${{ matrix.os }})
     needs: [detect-changes]
@@ -158,6 +204,10 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    env:
+      # AGENTS.md §5 gate 4: the randomized model test at heavy iterations
+      # (proptest's default is 256 cases).
+      PROPTEST_CASES: "500"
     steps:
       - uses: actions/checkout@v7
 
@@ -632,8 +682,19 @@ jobs:
         if: always()
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+        shell: bash
         run: |
-          if [ -f instruction-counts.txt ] && [ -f bytes-per-key.txt ] && [ -f vs-stock.txt ]; then
+          # AGENTS.md §8.1: a missing artifact means the benchmark never ran —
+          # that must fail loudly, not skip the guard and exit 0.
+          missing=()
+          for f in instruction-counts.txt bytes-per-key.txt vs-stock.txt; do
+            [ -f "$f" ] || missing+=("$f")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::regression guard did not run — missing benchmark output: ${missing[*]}"
+            exit 1
+          fi
+          if true; then
             printf '%s' "$PR_BODY" > pr-body.txt
             BASE_ARGS=""
             if [ -f base-counts.txt ]; then
@@ -765,8 +826,14 @@ jobs:
         if: always()
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+        shell: bash
         run: |
-          if [ -f smoke-instruction-counts.txt ]; then
+          # AGENTS.md §8.1: no smoke output means the bench crashed; fail loudly.
+          if [ ! -f smoke-instruction-counts.txt ]; then
+            echo "::error::regression guard did not run — missing smoke-instruction-counts.txt"
+            exit 1
+          fi
+          if true; then
             printf '%s' "$PR_BODY" > pr-body.txt
             BASE_ARGS=""
             if [ -f base-smoke-counts.txt ]; then
@@ -1288,6 +1355,8 @@ jobs:
     needs:
       - detect-changes
       - lint
+      - msrv
+      - docs-lint
       - test
       - test-musl
       - test-riscv64
