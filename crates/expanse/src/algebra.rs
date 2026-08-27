@@ -23,7 +23,7 @@
 //!
 //! so `intersection_len` is the single load-bearing structural walk. The
 //! result-materializing ops (`intersection`/`union`/… returning a new set)
-//! are built in `set.rs` from an ordered merge of the two iterators; the
+//! use direct-emission bulk construction in `algebra_build.rs` (#348); the
 //! measured Boolean gate (#337 Pillar 1) is cardinality-only, which this
 //! kernel serves directly with no allocation.
 //!
