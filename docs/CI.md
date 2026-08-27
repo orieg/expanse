@@ -48,7 +48,7 @@ graph TD
 ### Change detection
 | Job | Name | Role |
 |---|---|---|
-| `detect-changes` | Subsystems / Change Detection | `dorny/paths-filter@v4` computes per-subsystem outputs (`rust`, `python`, `node`, `dotnet`, `java`, `docs`, `ruby`, `php`, `wasm`, `go`, `integrations`) that downstream jobs gate on. |
+| `detect-changes` | Subsystems / Change Detection | `dorny/paths-filter@v4` computes per-subsystem outputs (`rust-src`, `tooling`, `perf-tooling`, `python`, `node`, `dotnet`, `java`, `docs`, `ruby`, `php`, `wasm`, `go`, `integrations`) that downstream jobs gate on. |
 
 ### Core
 | Job | Name | Role |
@@ -121,9 +121,14 @@ graph TD
 
 Turnaround stays low for non-code and localized PRs without losing required-check coverage:
 
-- A single lightweight `detect-changes` job (`dorny/paths-filter@v4`) computes eleven per-subsystem booleans: `rust`, `python`, `node`, `dotnet`, `java`, `docs`, `ruby`, `php`, `wasm`, `go`, `integrations`. Downstream jobs declare `needs: [detect-changes]` and `if: needs.detect-changes.outputs.<subsystem> == 'true' || github.event_name != 'pull_request'`.
-- The `rust` filter is deliberately wide — `crates/**`, `include/**`, `integrations/**`, `tests/cpp/**`, `fuzz/**`, `scripts/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain*`, and `ci.yml`/`nightly.yml` themselves. A scripts-only or workflow-only PR therefore runs the whole Rust matrix, `lint` / `miri` / `instruction-counts` included.
+- A single lightweight `detect-changes` job (`dorny/paths-filter@v4`) computes thirteen per-subsystem booleans: `rust-src`, `tooling`, `perf-tooling`, `python`, `node`, `dotnet`, `java`, `docs`, `ruby`, `php`, `wasm`, `go`, `integrations`. Downstream jobs declare `needs: [detect-changes]` and `if: needs.detect-changes.outputs.<subsystem> == 'true' || github.event_name != 'pull_request'`.
+- **`rust-src` — "does Rust/C++ behaviour need re-verifying"**: `crates/**`, `include/**`, `tests/cpp/**`, `fuzz/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain*`, plus `ci.yml` itself. It is the only filter that schedules the expensive safety lane (`miri`, `test-asan`, `fuzz-smoke`, `callgrind-smoke`) and the cross-compile matrix. It does **not** include `scripts/**`: no Rust job compiles or links a Python script (#412).
+- **`tooling` — the repo guards**: `scripts/**`, `.github/workflows/**`, `.github/bench-suites.json`. Gates `lint`, which carries `bump_version.py`, `check_abi_parity.py`, `check_ci_gate.py`, `check_bench_suites.py` and the report-script self-tests. A PR that only edits the `/bench` suite manifest or `bench_baremetal.yml` therefore still runs the sync guard — without pulling in Miri, ASan, fuzz or Callgrind.
+- **`perf-tooling` — the one real tooling↔Rust coupling, scoped to it**: `scripts/perf_report.py` and `scripts/bench_report.py` are executed by `instruction-counts` and `callgrind-smoke`, so they gate those two jobs specifically rather than justifying `scripts/**` → everything.
+- **`ci.yml` stays in `rust-src` deliberately.** An edit to it rewrites the build commands, flags, toolchains and `if:` gates of the safety jobs themselves, and can silently remove one; `main` is protected, so the `push` event fires only after the merge and PR time is the sole place a broken or disabled safety job is observable before it lands. Restricting it to the jobs a diff actually touches is not expressible as a path glob, so the conservative case is taken: every `ci.yml` edit runs the full matrix. `nightly.yml` and `bench_baremetal.yml` carry no such risk for `ci.yml`'s jobs and sit in `tooling` only.
+- `integrations/**` is C++ outside the cargo workspace, built by exactly one job (`test-rocksdb-memtable`) and already covered by the `integrations` filter, so it is not part of `rust-src`.
 - A PR touching only `docs/**`, `*.md` or `website/**` matches no Rust job and skips the Rust matrix entirely — but it does run `docs-lint`, which consumes the `docs` filter output, so a docs-only PR is never a zero-check PR.
+- Known residual: `check_bench_suites.py` also asserts the generated table in `docs/BENCHMARKING.md`, but `lint` is not gated on `docs/**`, so a docs-only edit to that table is checked by the next PR that touches `rust-src` or `tooling` rather than by its own.
 - The `CI Gate / All Checks Passed` rollup satisfies branch protection once its dependencies conclude (skipped jobs count as passing), so PRs never deadlock in "Pending" behind a filtered-out check.
 
 ---

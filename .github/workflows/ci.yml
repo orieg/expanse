@@ -19,7 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      rust: ${{ steps.filter.outputs.rust }}
+      rust-src: ${{ steps.filter.outputs.rust-src }}
+      tooling: ${{ steps.filter.outputs.tooling }}
+      perf-tooling: ${{ steps.filter.outputs.perf-tooling }}
       python: ${{ steps.filter.outputs.python }}
       node: ${{ steps.filter.outputs.node }}
       dotnet: ${{ steps.filter.outputs.dotnet }}
@@ -36,23 +38,50 @@ jobs:
         id: filter
         with:
           filters: |
-            rust:
+            # Rust/C++ behaviour: the sources every compiled artifact is
+            # built from. This is the only filter that gates the expensive
+            # safety lane (miri, ASan, fuzz, Callgrind) and the cross-compile
+            # matrix. It deliberately excludes `scripts/**`, which no Rust job
+            # compiles or links -- see `tooling` and `perf-tooling` below (#412).
+            # `integrations/**` is C++ outside the cargo workspace and is
+            # covered by the `integrations` filter, which gates the only job
+            # that builds it.
+            rust-src:
               - 'crates/**'
               - 'include/**'
-              - 'integrations/**'
               - 'tests/cpp/**'
               - 'fuzz/**'
-              - 'scripts/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain*'
+              # Kept here deliberately, not by reflex (#412). An edit to this
+              # file rewrites the build commands, flags, toolchains and `if:`
+              # gates of the jobs above, and can silently remove one. `main` is
+              # protected, so the `push` event fires only after the merge --
+              # PR time is the sole place a broken or disabled safety job is
+              # observable before it lands. Restricting this to the jobs a diff
+              # actually touches is not expressible as a path glob, so the
+              # conservative case is taken: every ci.yml edit runs the full
+              # matrix. Tooling-only PRs that leave this file alone do not.
               - '.github/workflows/ci.yml'
-              - '.github/workflows/nightly.yml'
-              # The `lint` job carries check_bench_suites.py; a PR that only
-              # touches the suite manifest or the bench workflow must still
-              # run it, or the sync guard is skipped exactly when it matters.
+            # Repo tooling with no Rust coupling: the guard scripts the `lint`
+            # job carries (bump_version, check_abi_parity, check_ci_gate,
+            # check_bench_suites, check_docs_hygiene), the workflow files those
+            # scripts parse, and the /bench suite vocabulary they parse it
+            # against. A PR confined to these must still run `lint` -- skipping
+            # the sync guards exactly when their inputs change would defeat
+            # them -- but must not run Miri, ASan, fuzz or Callgrind.
+            tooling:
+              - 'scripts/**'
+              - '.github/workflows/**'
               - '.github/bench-suites.json'
-              - '.github/workflows/bench_baremetal.yml'
+            # The genuine tooling->Rust coupling, scoped to it: these two
+            # report scripts are executed by `instruction-counts` and
+            # `callgrind-smoke`, so they gate those two jobs specifically
+            # rather than justifying `scripts/**` -> everything.
+            perf-tooling:
+              - 'scripts/perf_report.py'
+              - 'scripts/bench_report.py'
             python:
               - 'bindings/python/**'
               - 'crates/expanse-py/**'
@@ -126,7 +155,7 @@ jobs:
   lint:
     name: Core / Linter & Formatting
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -172,7 +201,7 @@ jobs:
   msrv:
     name: Core / MSRV 1.88 Build
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -215,7 +244,7 @@ jobs:
   test:
     name: Core / Workspace Tests (${{ matrix.os }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -269,7 +298,7 @@ jobs:
   test-riscv64:
     name: Cross / RV64GC Cross-Compile (Linux)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -287,7 +316,7 @@ jobs:
   test-rv32:
     name: Cross / RV32IMAC Cross-Compile (Bare-Metal)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -306,7 +335,7 @@ jobs:
   test-rv32-zbb:
     name: Cross / RV32IMAC + Zbb Cross-Compile (Bare-Metal)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -331,7 +360,7 @@ jobs:
   test-esp32c3:
     name: Cross / ESP32-C3 Cross-Compile (Bare-Metal RV32IMC)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -350,7 +379,7 @@ jobs:
   test-cortex-m:
     name: Cross / ARM Cortex-M4 Cross-Compile (Bare-Metal)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -369,7 +398,7 @@ jobs:
   test-i686:
     name: Cross / i686 32-bit Test Execution (Linux)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -398,7 +427,7 @@ jobs:
   test-musl:
     name: Cross / Musl Static C ABI (Linux)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -434,7 +463,7 @@ jobs:
   miri:
     name: Safety / Tier 1 Miri Fast Smoke
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -453,7 +482,7 @@ jobs:
   test-asan:
     name: Safety / ASan Core Smoke (Ubuntu)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -470,7 +499,7 @@ jobs:
   php-judy-compat:
     name: Compat / PHP-Judy Extension (Linux)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -521,7 +550,7 @@ jobs:
   php-judy-windows:
     name: Compat / PHP-Judy Extension (Windows x64)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -570,7 +599,7 @@ jobs:
   instruction-counts:
     name: Perf / Callgrind Deterministic Instructions
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -782,7 +811,7 @@ jobs:
   callgrind-smoke:
     name: Perf / Callgrind Fast Smoke (Ubuntu)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -871,7 +900,7 @@ jobs:
   differential-oracle:
     name: Compat / Stock libjudy Oracle (Linux)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -914,7 +943,7 @@ jobs:
   memory-budget:
     name: Perf / Memory Budget Invariants
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -933,7 +962,7 @@ jobs:
   loom:
     name: Safety / Loom Concurrency Race Model
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -951,7 +980,7 @@ jobs:
   fuzz-smoke:
     name: Safety / Fuzz Invariants Smoke
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -999,7 +1028,7 @@ jobs:
   test-python:
     name: Bindings / Python Fast Smoke (Py3.12)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || needs.detect-changes.outputs.python == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.python == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1031,7 +1060,7 @@ jobs:
   test-node:
     name: Bindings / Node.js (${{ matrix.os }}, Node ${{ matrix.node-version }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || needs.detect-changes.outputs.node == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.node == 'true' || github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -1064,7 +1093,7 @@ jobs:
   test-php:
     name: Bindings / PHP (${{ matrix.os }}, PHP ${{ matrix.php-version }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.php == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -1107,7 +1136,7 @@ jobs:
   test-dotnet:
     name: Bindings / .NET (${{ matrix.os }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || needs.detect-changes.outputs.dotnet == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.dotnet == 'true' || github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -1149,7 +1178,7 @@ jobs:
   pack-dotnet:
     name: Bindings / .NET NuGet Package
     needs: [detect-changes, test-dotnet]
-    if: needs.detect-changes.outputs.rust == 'true' || needs.detect-changes.outputs.dotnet == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.dotnet == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1181,7 +1210,7 @@ jobs:
   test-java:
     name: Bindings / Java 22+ Panama (${{ matrix.os }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || needs.detect-changes.outputs.java == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.java == 'true' || github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -1226,7 +1255,7 @@ jobs:
   test-rocksdb-memtable:
     name: Integrations / RocksDB MemTable (${{ matrix.os }}, ${{ matrix.sanitizer }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -1291,7 +1320,7 @@ jobs:
     name: Bindings / Ruby (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.ruby == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -1317,7 +1346,7 @@ jobs:
     name: Bindings / WebAssembly (wasm32)
     runs-on: ubuntu-latest
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -1338,7 +1367,7 @@ jobs:
     name: Bindings / Go (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.rust == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.go == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
