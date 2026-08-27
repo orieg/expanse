@@ -111,12 +111,16 @@ if [ -f "extra/pkgconfig/expanse.pc.in" ]; then
         extra/pkgconfig/expanse.pc.in > "${DEB_DIR}/libexpanse-dev/${LIBDIR}/pkgconfig/expanse.pc"
 fi
 
-if [ -d "man/man3" ]; then
-    for f in man/man3/expanse*.3; do
-        [ -f "$f" ] || continue
-        gzip -9nc "$f" > "${DEB_DIR}/libexpanse-dev/usr/share/man/man3/$(basename "$f").gz"
-    done
+# AGENTS.md §8.1: a missing source tree must fail loudly, not ship a package
+# that silently lacks the man pages the control block advertises.
+if [ ! -d "man/man3" ]; then
+    echo "error: man/man3 not found — cannot build libexpanse-dev with man pages" >&2
+    exit 1
 fi
+for f in man/man3/expanse*.3; do
+    [ -f "$f" ] || { echo "error: no expanse*.3 man pages in man/man3" >&2; exit 1; }
+    gzip -9nc "$f" > "${DEB_DIR}/libexpanse-dev/usr/share/man/man3/$(basename "$f").gz"
+done
 
 cat <<EOF > "${DEB_DIR}/libexpanse-dev/DEBIAN/control"
 Package: libexpanse-dev
@@ -128,7 +132,7 @@ Description: Expanse trie engine development files (headers, static library, man
 EOF
 
 # 3. libjudy-compat package: drop-in libJudy.so.1 soname pointing at libexpanse.so.1 + pkg-config + Judy man pages
-mkdir -p "${DEB_DIR}/libjudy-compat/${LIBDIR}/pkgconfig"
+mkdir -p "${DEB_DIR}/libjudy-compat/${LIBDIR}"
 mkdir -p "${DEB_DIR}/libjudy-compat/usr/share/man/man3"
 
 ln -sf libexpanse.so.1 "${DEB_DIR}/libjudy-compat/${LIBDIR}/libJudy.so.1"
@@ -138,19 +142,21 @@ for HWCAP in "${HWCAPS[@]}"; do
     ln -sf libexpanse.so.1 "${DEB_DIR}/libjudy-compat/${LIBDIR}/glibc-hwcaps/${HWCAP}/libJudy.so.1"
 done
 
+# judy.pc emits `-lexpanse` and `-I${includedir}`, which need the unversioned
+# .so dev symlink and Judy.h — both shipped by libexpanse-dev, not here. Placing
+# it in libjudy-compat (a runtime package depending only on libexpanse1) makes
+# `pkg-config --cflags --libs judy` resolve to files the user has not installed.
 if [ -f "extra/pkgconfig/judy.pc.in" ]; then
     sed -e "s|@prefix@|/usr|g" \
         -e "s|@VERSION@|${VERSION}|g" \
         -e "s|/lib|/${LIBDIR#usr/}|g" \
-        extra/pkgconfig/judy.pc.in > "${DEB_DIR}/libjudy-compat/${LIBDIR}/pkgconfig/judy.pc"
+        extra/pkgconfig/judy.pc.in > "${DEB_DIR}/libexpanse-dev/${LIBDIR}/pkgconfig/judy.pc"
 fi
 
-if [ -d "man/man3" ]; then
-    for f in man/man3/Judy*.3; do
-        [ -f "$f" ] || continue
-        gzip -9nc "$f" > "${DEB_DIR}/libjudy-compat/usr/share/man/man3/$(basename "$f").gz"
-    done
-fi
+for f in man/man3/Judy*.3; do
+    [ -f "$f" ] || { echo "error: no Judy*.3 man pages in man/man3" >&2; exit 1; }
+    gzip -9nc "$f" > "${DEB_DIR}/libjudy-compat/usr/share/man/man3/$(basename "$f").gz"
+done
 
 cat <<EOF > "${DEB_DIR}/libjudy-compat/DEBIAN/control"
 Package: libjudy-compat
