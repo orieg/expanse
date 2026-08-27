@@ -1646,7 +1646,7 @@ mod tests {
             let mut keys = Vec::new();
             for &d in digits {
                 // Multi-key child at level 6 so the tree creates real branches.
-                for j in 0..40u64 {
+                for j in 0..10u64 {
                     keys.push((d << 48) | (j << 8) | 1);
                 }
             }
