@@ -351,7 +351,10 @@ jobs:
   test-aarch64:
     name: Core / AArch64 Linux Tests & Callgrind (Neoverse N2)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request'
+    # `perf-tooling` (perf_report.py, bench_report.py) is deliberately not here:
+    # this job runs neither script, so gating on it spun the whole ARM lane for
+    # PRs it cannot say anything about. `rust-src` covers what it does build.
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     env:
@@ -384,6 +387,31 @@ jobs:
           echo "=== SVE / SVE2 Feature Status ==="
           grep -q '\bsve\b' /proc/cpuinfo && echo "SVE: present" || echo "SVE: absent"
           grep -q '\bsve2\b' /proc/cpuinfo && echo "SVE2: present" || echo "SVE2: absent"
+
+          # Assert, do not merely print. docs/HARDWARE.md §2.6 publishes this
+          # census as fact and this job is named for the core; if GitHub rotates
+          # the ubuntu-24.04-arm fleet to a different part (Cobalt 200, an
+          # Ampere Altra with no SVE), a print-only step stays green while the
+          # docs and the Callgrind counts silently describe other hardware.
+          # AGENTS.md §8.1: the degradation must surface, not pass.
+          echo "=== Census assertions ==="
+          fail=0
+          part=$(awk -F': ' '/^CPU part/{print $2; exit}' /proc/cpuinfo)
+          line=$(cat /sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size)
+          if [ "$part" != "0xd49" ]; then
+            echo "::error::CPU part is $part, expected 0xd49 (Neoverse-N2). The runner fleet changed: re-take the census, update docs/HARDWARE.md §2.6 and this job's name before trusting its numbers."
+            fail=1
+          fi
+          if [ "$line" != "64" ]; then
+            echo "::error::L1d coherency_line_size is $line, expected 64 — docs/HARDWARE.md §2.4/§2.6 assert 64 B on Neoverse."
+            fail=1
+          fi
+          if ! grep -q '\bsve2\b' /proc/cpuinfo; then
+            echo "::error::SVE2 absent — docs/HARDWARE.md §2.6 records it as exposed on this runner."
+            fail=1
+          fi
+          [ "$fail" -eq 0 ] && echo "census matches docs/HARDWARE.md §2.6 (part=$part, line=${line}B, sve2 present)"
+          exit "$fail"
 
       - name: Build
         run: cargo build --workspace --exclude expanse-php
@@ -443,12 +471,22 @@ jobs:
         if: always()
         shell: bash
         run: |
-          if [ -f aarch64-smoke-instructions.txt ]; then
-            echo '### AArch64 Callgrind Instruction Counts (Neoverse N2)' >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            cat aarch64-smoke-instructions.txt >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # §8.1: never render a partial or absent measurement as a clean
+          # result. These counts are tracked, not gated — there is no baseline
+          # on this platform and no perf_report.py regression guard — so say so
+          # rather than let a reader take the table for a passing gate.
+          if [ ! -f aarch64-smoke-instructions.txt ]; then
+            echo '> ### ⚠️ NO AARCH64 COUNTS — the Callgrind benchmark produced no output' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+          if [ "${{ job.status }}" != "success" ]; then
+            echo '> ### ⚠️ PARTIAL — a step failed; the counts below may be truncated' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo '### AArch64 Callgrind Instruction Counts (Neoverse N2)' >> "$GITHUB_STEP_SUMMARY"
+          echo '_Tracked, not gated: no baseline or regression guard on this platform yet._' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat aarch64-smoke-instructions.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
   test-riscv64:
     name: Cross / RV64GC Cross-Compile (Linux)
