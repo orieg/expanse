@@ -289,7 +289,7 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 
 ## Bare-Metal Hardware Benchmarks
 
-To ensure consistent performance measurements unaffected by shared cloud runner noise, Expanse supports automated bare-metal benchmarking on dedicated hardware (`honeycomb`).
+To ensure consistent performance measurements unaffected by shared cloud runner noise, Expanse supports automated bare-metal benchmarking on a dedicated bare-metal **reference host**.
 
 ### 1. Automated Execution via Self-Hosted GitHub Actions Runner
 For dedicated benchmark rigs residing on private LANs (without inbound WAN access), a self-hosted GitHub Actions runner daemon (`runs-on: [self-hosted, linux]`) connects to GitHub via outbound-only HTTPS polling.
@@ -302,7 +302,7 @@ curl -o actions-runner-linux-x64-2.322.0.tar.gz -L https://github.com/actions/ru
 tar xzf ./actions-runner-linux-x64-2.322.0.tar.gz
 
 # Configure runner with repository registration token
-./config.sh --url https://github.com/orieg/expanse --token <RUNNER_REGISTRATION_TOKEN> --labels baremetal,honeycomb --unattended
+./config.sh --url https://github.com/orieg/expanse --token <RUNNER_REGISTRATION_TOKEN> --labels baremetal,reference-host --unattended
 
 # Run the worker (or install as systemd service: sudo ./svc.sh install && sudo ./svc.sh start)
 ./run.sh

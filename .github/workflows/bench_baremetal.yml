@@ -135,7 +135,7 @@ jobs:
           comment-id: ${{ steps.fc-start.outputs.comment-id }}
           issue-number: ${{ steps.vars.outputs.pr_number }}
           body: |
-            ⏳ Bare-Metal Benchmark Results pending — suite `${{ steps.vars.outputs.benchmark_suite }}` running on `honeycomb`: [view run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            ⏳ Bare-Metal Benchmark Results pending — suite `${{ steps.vars.outputs.benchmark_suite }}` running on the dedicated bare-metal reference host: [view run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
           edit-mode: replace
 
       - name: Checkout code
@@ -148,8 +148,21 @@ jobs:
         id: sysinfo
         # Captures the load snapshot into the report (non-gating, per
         # docs/BENCHMARKING.md rule 2) and derives an anonymized host
-        # description from the runner itself. No hostnames, no command
-        # paths: this output lands in a public PR comment.
+        # description from the runner itself: host_desc is built from
+        # lscpu/nproc/uname -sr, so it carries a CPU model and kernel but
+        # no hostname, and the ps snapshot strips leading paths from
+        # command names.
+        #
+        # Scope of that guarantee: it covers what this step WRITES into
+        # the PR comment. It does NOT sanitize the job log, which on a
+        # public repository is public too. The log additionally exposes
+        # the runner's registered name and, when the runner is installed
+        # under a user home directory, a /home/<user> prefix on every
+        # path a build tool echoes. AGENTS.md section 7 forbids OS
+        # usernames and home-directory paths alongside hostnames, so that
+        # is fixed by relocating the runner on the host (a neutral path
+        # such as /opt/actions-runner under a service account) - it
+        # cannot be fixed from this workflow.
         run: |
           echo "=== System Load & Host Snapshot ==="
           uname -srm
@@ -506,13 +519,13 @@ jobs:
           comment-id: ${{ steps.fc.outputs.comment-id }}
           issue-number: ${{ steps.vars.outputs.pr_number }}
           body: |
-            ## 🚀 Bare-Metal Benchmark Results (`honeycomb`)
+            ## 🚀 Bare-Metal Benchmark Results (dedicated reference host)
 
             - **Host**: `${{ steps.sysinfo.outputs.host_desc || 'unknown (host probe failed)' }}`
             - **Suite**: `${{ steps.vars.outputs.benchmark_suite }}`
             - **Ref**: `${{ steps.vars.outputs.ref }}`
             ${{ steps.bench.outputs.base_line || '- **Base Ref**: _none — no base comparison ran_' }}
-            - **Runner**: `self-hosted (baremetal / honeycomb)`
+            - **Runner**: `self-hosted (baremetal, dedicated reference host)`
 
             ${{ env.BENCH_REPORT }}
           edit-mode: replace
