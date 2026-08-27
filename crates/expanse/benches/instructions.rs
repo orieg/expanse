@@ -292,7 +292,13 @@ fn map_nav(built: (ExpanseMap, Vec<u64>)) -> u64 {
 fn map_range(built: (ExpanseMap, Vec<u64>)) -> u64 {
     let (map, probes) = built;
     let mut sink = 0u64;
-    // Bounded range scans across 100 windows of 100 elements
+    // 100 key-WIDTH windows of 100 key units — NOT 100 elements each. The
+    // yield depends entirely on the distribution, and was measured (structural
+    // counters in `RawIter`, POP = 50 000) as: `random` 1.00 element/window
+    // (the probe key itself; density is ~2.7e-15 per key unit, so a 100-wide
+    // window holds nothing else — this cell is a seek + one terminating
+    // advance, not a scan), `sequential` 101.00, `clustered` 85.90.
+    // Only the sequential and clustered cells exercise real scan streaming.
     for &start in probes.iter().take(100) {
         let end = start.saturating_add(100);
         for (k, v) in map.range(black_box(start..=end)) {
@@ -311,7 +317,9 @@ fn map_range(built: (ExpanseMap, Vec<u64>)) -> u64 {
 fn set_range(built: (ExpanseSet, Vec<u64>)) -> u64 {
     let (set, probes) = built;
     let mut sink = 0u64;
-    // Bounded range scans across 100 windows of 100 elements
+    // 100 key-WIDTH windows of 100 key units — see the yield note on
+    // `map_range`: the `random` cell yields one element per window and so
+    // measures seek, not scan streaming.
     for &start in probes.iter().take(100) {
         let end = start.saturating_add(100);
         for k in set.range(black_box(start..=end)) {
