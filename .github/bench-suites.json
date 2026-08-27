@@ -25,7 +25,25 @@
     "  target     [[bench]] target name for a generic suite.",
     "  env        space-separated KEY=VALUE pairs prefixed to a generic run.",
     "  summary    one line, rendered verbatim into the docs table and the",
-    "             refusal comment. No hardcoded numbers that a run would produce."
+    "             refusal comment. No hardcoded numbers that a run would produce.",
+    "  arms       required on every callgrind + generic suite; the declaration",
+    "             scripts/perf_report.py reads to tell our arms from a",
+    "             third-party baseline. Detection is never inferred from an",
+    "             arm's name. Fields:",
+    "               subject_label / baseline_label  words used in the rendered",
+    "                   ratio sentence, e.g. 'Expanse retires 4.18x more",
+    "                   instructions than Roaring'.",
+    "               twins     [{subject, baseline}] - two arms measured over",
+    "                   identical inputs. perf_report.py publishes the ratio",
+    "                   between them per case, and suppresses the `vs main`",
+    "                   columns and the regression gate on the baseline side.",
+    "               unpaired  our arms with no competitor twin. Listed rather",
+    "                   than assumed, so that adding an arm without saying what",
+    "                   it is fails check_bench_suites.py instead of quietly",
+    "                   entering the report as if it were ours.",
+    "             check_bench_suites.py asserts the union of twins + unpaired is",
+    "             exactly the set of functions the suite's",
+    "             `library_benchmark_group!` declarations name."
   ],
   "default": "all",
   "aliases": {
@@ -91,6 +109,16 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "search_instructions",
+      "arms": {
+        "subject_label": "Expanse",
+        "baseline_label": "Roaring",
+        "twins": [
+          { "subject": "expanse_and", "baseline": "roaring_and" },
+          { "subject": "expanse_materialize", "baseline": "roaring_materialize" },
+          { "subject": "expanse_wand", "baseline": "roaring_wand" }
+        ],
+        "unpaired": []
+      },
       "summary": "Callgrind instruction counters for the inverted-index search kernels, dual-pass against the base ref."
     },
     {
@@ -100,6 +128,24 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "smoke_instructions",
+      "arms": {
+        "subject_label": "Expanse",
+        "twins": [],
+        "unpaired": [
+          "map_insert",
+          "map_get",
+          "set_insert",
+          "set_contains",
+          "map_ins_slot",
+          "map_churn",
+          "strmap_insert",
+          "strmap_get",
+          "strmap_churn",
+          "bytesmap_insert",
+          "bytesmap_get",
+          "bytesmap_churn"
+        ]
+      },
       "summary": "Scaled-down Callgrind smoke counters, dual-pass against the base ref. The same instrument as the `callgrind-smoke` CI job, on the reference host."
     },
     {

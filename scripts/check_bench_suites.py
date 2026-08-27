@@ -204,6 +204,101 @@ def bench_targets(root: Path) -> dict[str, set[str]]:
     return out
 
 
+GROUP_DECL = re.compile(
+    r"library_benchmark_group!\s*\(\s*name\s*=\s*(\w+)\s*;\s*benchmarks\s*=\s*([^;)]+)\)"
+)
+
+
+def declared_arms(source: str) -> dict[str, list[str]]:
+    """`{library_benchmark_group! name -> [benchmark fn, ...]}` from a bench source."""
+    out: dict[str, list[str]] = {}
+    for group, body in GROUP_DECL.findall(source):
+        out[group] = [n.strip() for n in body.split(",") if n.strip()]
+    return out
+
+
+def check_arms(manifest: dict, root: Path) -> list[str]:
+    """Every callgrind arm must say what it is.
+
+    `scripts/perf_report.py` reads the `arms` block to tell an Expanse arm from
+    a third-party baseline — it never infers that from the arm's name. So the
+    block has to be a complete partition of the arms the bench source actually
+    declares: an arm added to the source without a line here would otherwise
+    enter the report as if it were our code, carrying a `vs main` column
+    against a dependency and leaving its twin ratio uncomputed. That is the
+    silent-untwinning this check exists to make loud.
+    """
+    errs: list[str] = []
+    for s in manifest["suites"]:
+        arms = s.get("arms")
+        needs_arms = s.get("kind") == "callgrind" and s.get("runner") == "generic"
+        if not needs_arms and not arms:
+            continue
+        name = s["name"]
+        if needs_arms and not arms:
+            errs.append(
+                f"{MANIFEST}: suite {name!r} is a callgrind suite run from a bench "
+                "target but declares no `arms` block; perf_report.py cannot tell its "
+                "third-party baselines from our own arms"
+            )
+            continue
+        if not s.get("target"):
+            errs.append(f"{MANIFEST}: suite {name!r} declares `arms` but no `target`")
+            continue
+
+        matches = sorted(root.glob(f"crates/*/benches/{s['target']}.rs"))
+        if not matches:
+            errs.append(
+                f"{MANIFEST}: suite {name!r} declares `arms` but no bench source "
+                f"crates/*/benches/{s['target']}.rs exists to check them against"
+            )
+            continue
+
+        groups = declared_arms(matches[0].read_text(encoding="utf-8"))
+        in_source = {fn for fns in groups.values() for fn in fns}
+        group_of = {fn: g for g, fns in groups.items() for fn in fns}
+
+        twins = arms.get("twins", [])
+        declared: list[str] = list(arms.get("unpaired", []))
+        for t in twins:
+            if not t.get("subject") or not t.get("baseline"):
+                errs.append(f"{MANIFEST}: suite {name!r}: a twin needs `subject` and `baseline`")
+                continue
+            declared += [t["subject"], t["baseline"]]
+            if t["subject"] in group_of and t["baseline"] in group_of:
+                if group_of[t["subject"]] != group_of[t["baseline"]]:
+                    errs.append(
+                        f"{MANIFEST}: suite {name!r}: twin {t['subject']!r}/"
+                        f"{t['baseline']!r} spans two library_benchmark_group!s "
+                        f"({group_of[t['subject']]} vs {group_of[t['baseline']]}) — "
+                        "a twin pair must be measured in the same group"
+                    )
+        if twins and not arms.get("baseline_label"):
+            errs.append(
+                f"{MANIFEST}: suite {name!r} declares twins but no `baseline_label`; "
+                "the rendered ratio has to name what it is a ratio against"
+            )
+
+        dupes = sorted({a for a in declared if declared.count(a) > 1})
+        if dupes:
+            errs.append(f"{MANIFEST}: suite {name!r}: arm(s) declared twice: {', '.join(dupes)}")
+
+        missing = sorted(in_source - set(declared))
+        if missing:
+            errs.append(
+                f"{MANIFEST}: suite {name!r}: {len(missing)} arm(s) in "
+                f"{matches[0].relative_to(root)} are not classified in `arms` — add each "
+                f"to a `twins` pair or to `unpaired`: {', '.join(missing)}"
+            )
+        stale = sorted(set(declared) - in_source)
+        if stale:
+            errs.append(
+                f"{MANIFEST}: suite {name!r}: `arms` names {len(stale)} arm(s) that "
+                f"{matches[0].relative_to(root)} no longer declares: {', '.join(stale)}"
+            )
+    return errs
+
+
 def check_targets(manifest: dict, root: Path) -> list[str]:
     targets = bench_targets(root)
     errs = []
@@ -231,6 +326,7 @@ def run(root: Path, write: bool) -> int:
         return 1
 
     errs += check_targets(manifest, root)
+    errs += check_arms(manifest, root)
     errs += splice(root / WORKFLOW, render_choice_options(manifest, " " * 10), write)
     errs += splice(root / DOCS, render_docs_table(manifest), write)
 
@@ -316,6 +412,91 @@ def self_test() -> int:
     assert "  - search_instructions" in opts, opts
     table = "\n".join(render_docs_table(m))
     assert "`search_instructions`" in table and "`extended` (alias `full`)" in table, table
+
+    # --- #413: an arm must say what it is -------------------------------
+    src = """
+        library_benchmark_group!(
+            name = boolean;
+            benchmarks = expanse_and, roaring_and
+        );
+        library_benchmark_group!(
+            name = wand;
+            benchmarks =
+                expanse_wand,
+                roaring_wand
+        );
+    """
+    groups = declared_arms(src)
+    assert groups == {
+        "boolean": ["expanse_and", "roaring_and"],
+        "wand": ["expanse_wand", "roaring_wand"],
+    }, groups
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "crates" / "expanse" / "benches").mkdir(parents=True)
+        (root / "crates" / "expanse" / "benches" / "demo.rs").write_text(src, encoding="utf-8")
+
+        def suite(arms):
+            return {
+                "suites": [
+                    {
+                        "name": "demo",
+                        "available": True,
+                        "kind": "callgrind",
+                        "runner": "generic",
+                        "package": "expanse-trie",
+                        "target": "demo",
+                        "summary": "s",
+                        **({"arms": arms} if arms is not None else {}),
+                    }
+                ]
+            }
+
+        good = {
+            "subject_label": "Expanse",
+            "baseline_label": "Roaring",
+            "twins": [
+                {"subject": "expanse_and", "baseline": "roaring_and"},
+                {"subject": "expanse_wand", "baseline": "roaring_wand"},
+            ],
+            "unpaired": [],
+        }
+        assert check_arms(suite(good), root) == [], check_arms(suite(good), root)
+
+        # A callgrind bench target with no `arms` block at all.
+        e = check_arms(suite(None), root)
+        assert any("declares no `arms` block" in x for x in e), e
+
+        # An arm added to the source but not classified: the silent-untwinning
+        # this check exists to make loud.
+        partial = json.loads(json.dumps(good))
+        partial["twins"] = partial["twins"][:1]
+        e = check_arms(suite(partial), root)
+        assert any("not classified in `arms`" in x and "roaring_wand" in x for x in e), e
+
+        # An arm named here that the source no longer declares.
+        stale = json.loads(json.dumps(good))
+        stale["unpaired"] = ["expanse_gone"]
+        e = check_arms(suite(stale), root)
+        assert any("no longer declares" in x and "expanse_gone" in x for x in e), e
+
+        # A twin pair must be measured inside one library_benchmark_group!.
+        crossed = json.loads(json.dumps(good))
+        crossed["twins"] = [
+            {"subject": "expanse_and", "baseline": "roaring_wand"},
+            {"subject": "expanse_wand", "baseline": "roaring_and"},
+        ]
+        e = check_arms(suite(crossed), root)
+        assert any("spans two library_benchmark_group" in x for x in e), e
+
+        # Twins without a label would render a ratio against an unnamed thing.
+        unlabelled = json.loads(json.dumps(good))
+        del unlabelled["baseline_label"]
+        e = check_arms(suite(unlabelled), root)
+        assert any("baseline_label" in x for x in e), e
 
     print("check_bench_suites.py --self-test: all checks passed")
     return 0
