@@ -351,6 +351,29 @@ impl LatencyStats {
 }
 
 // ---------------------------------------------------------------------------
+// Workload E scan bound — record-count terminated, not key-width terminated
+// ---------------------------------------------------------------------------
+//
+// YCSB Workload E is specified as "scan up to N records from a starting key".
+// The bound is a RECORD COUNT, so every arm iterates from `start_k` forward
+// and stops when `len` predicate-matching records have been collected.
+//
+// This replaces a `start_k ..= start_k + len * 1000` key-width window, which
+// silently made Workload E a seek benchmark instead of a scan benchmark. The
+// window constant assumed a dense keyspace, but `generate_initial_keys` draws
+// uniform-random u64s: at N = 100 000 the key density is ~5.4e-15 per key
+// unit, so a <= 99 000-wide window is expected to contain 3e-10 keys beyond
+// the start key. Measured on the shipped stream (`generate_operations`,
+// Workload::E, seed 0x1234_5678_9ABC, 20 000 ops, 19 054 scans) via
+// structural counters inside `RawIter`: the iterator yielded 1.0000 records
+// per scan against a mean REQUESTED length of 54.9, and `count >= len` was
+// reached 0 times out of 19 054. Every arm used the same window, so the
+// cross-engine ratio was not fabricated — but what it ranked was seek plus
+// one terminating iterator advance, not short range scanning.
+//
+// Scan-length semantics unchanged: `rng.gen_range(10, 100)` records.
+//
+// ---------------------------------------------------------------------------
 // Workload E scan predicate — identical selectivity by construction (#375)
 // ---------------------------------------------------------------------------
 //
@@ -359,9 +382,16 @@ impl LatencyStats {
 // entries, and because it depends only on the key — never on an engine's
 // value representation — the pass/fail decision is identical for the same
 // key across the ExpanseMap, ExpanseBlobMap, BTreeMap and SkipMap arms.
-// (Before #375 the ExpanseMap arm used `(v ^ k) & 1 == 0`, which passes
-// ~100% of entries because values are `k ^ const`, so that arm traversed
-// ~2x the entries per scan versus the ~50%-selective baseline arms.)
+//
+// (Before #375 the ExpanseMap arm used `(v ^ k) & 1 == 0`. Values are
+// `k ^ 0x5CA1_AB1E` in the map arms, so `v ^ k` folds to the even constant
+// `0x5CA1_AB1E` and that predicate was unconditionally true — asymmetric
+// against the ~50%-selective baseline arms, and dead code besides. The #375
+// note attributed "~2x the entries per scan" to it; that magnitude does not
+// hold, because under the key-width window every arm traversed exactly one
+// record per scan regardless of predicate. The #375 change is still correct;
+// only its stated effect size was wrong. Any throughput delta measured
+// across #375 therefore needs re-attribution to some other cause.)
 
 /// Execution runner for `ExpanseMap`.
 pub fn run_workload_expanse_map(
@@ -395,7 +425,8 @@ pub fn run_workload_expanse_map(
             }
             YcsbOp::Scan(start_k, len) => {
                 let mut count = 0;
-                for (k, v) in map.range(start_k..=start_k.saturating_add(len as u64 * 1000)) {
+                // Record-count bound (see WORKLOAD E note above).
+                for (k, v) in map.range(start_k..=u64::MAX) {
                     // Key-parity predicate (see WORKLOAD E note above).
                     if k & 1 == 0 {
                         black_box((k, v));
@@ -456,7 +487,8 @@ pub fn run_workload_expanse_blobmap(
             YcsbOp::Scan(start_k, len) => {
                 let mut count = 0;
                 map.scan_filtered(
-                    start_k..=start_k.saturating_add(len as u64 * 1000),
+                    // Record-count bound (see WORKLOAD E note above).
+                    start_k..=u64::MAX,
                     // Key-parity predicate (see WORKLOAD E note above).
                     |k, _meta| k & 1 == 0,
                     |k, view, meta| {
@@ -515,7 +547,8 @@ pub fn run_workload_btreemap(
             }
             YcsbOp::Scan(start_k, len) => {
                 let mut count = 0;
-                for (&k, v) in map.range(start_k..=start_k.saturating_add(len as u64 * 1000)) {
+                // Record-count bound (see WORKLOAD E note above).
+                for (&k, v) in map.range(start_k..=u64::MAX) {
                     // Key-parity predicate (see WORKLOAD E note above).
                     if k & 1 == 0 {
                         black_box((k, v));
@@ -588,7 +621,8 @@ pub fn run_workload_skipmap(
             }
             YcsbOp::Scan(start_k, len) => {
                 let mut count = 0;
-                for entry in map.range(start_k..=start_k.saturating_add(len as u64 * 1000)) {
+                // Record-count bound (see WORKLOAD E note above).
+                for entry in map.range(start_k..=u64::MAX) {
                     let k: u64 = *entry.key();
                     let v: &[u8] = entry.value();
                     // Key-parity predicate (see WORKLOAD E note above).
