@@ -32,23 +32,17 @@ Performance claims are this project's reason to exist, so they follow the strict
    what is in `setup`/`teardown`. Every other rule below governs how a number
    is interpreted; this one governs whether it measures what its name says.
 
-   Four violations have been found and fixed across both harness files: the
-   tree build inside the vs-stock lookup arms; the teardown inside every
-   vs-stock arm; key generation inside the insert arms; and the same teardown
-   bug again in `benches/instructions.rs`, the file that produces the vs-base
-   column on every PR, where the arms take the container by value so `Drop`
-   ran inside the timed window.
+   **How it is upheld.** Setup runs through the harness's own `setup =`
+   parameter so it is structurally outside the timed window; containers are
+   leaked rather than dropped, so `Drop` cannot land inside it. Neither is
+   machine-checked — verify with `callgrind_annotate` per-function output, not
+   by reading the source: a `free_subtree` or key-generation symbol inside an
+   arm named `map_get` is unmissable there, and was missed four times in review
+   when the same fact was only stated in prose.
 
-   Two lessons:
-
-   - **Symmetric contamination is not harmless contamination.** Key generation
-     was charged to both libraries equally, which is why it survived review. It
-     still corrupts the comparison, by pulling every ratio toward 1.00.
-   - **All four were found by an instrument, never by a reviewer.** Treat "a
-     reviewer checked it" as the weakest evidence available and get
-     per-function output instead: `free_subtree` inside a benchmark named
-     `map_get` is unmissable, while the same fact stated in prose was missed
-     four times.
+   **Symmetric contamination is not harmless contamination.** Work charged to
+   both arms equally still corrupts the comparison, by pulling every ratio
+   toward 1.00 — which is why it survives review.
 
    The same discipline applies to **provenance**: a mislabelled commit misleads
    exactly as much as a mismeasured region. Both failure modes, and the figures
@@ -60,7 +54,9 @@ Performance claims are this project's reason to exist, so they follow the strict
    inlining and direct calls that stock structurally cannot have. Every
    vs-stock arm now has an `*_expanse_dl` twin that loads `libexpanse.so`
    exactly as stock is loaded; the PR comment reports the `.so` ratio as the
-   headline and the rlib−`.so` difference as an explicit correction factor.
+   headline and the rlib−`.so` difference as an explicit correction factor
+   (measured at **1.06× median, range 0.95–1.08×** — stable across two code
+   states, which is what a ratio between two builds of the same code should do).
 
 0c. **The estimated-cycles column is a regression alarm, never an
    adjudicator across inlining changes.** Callgrind's model
@@ -87,8 +83,8 @@ Performance claims are this project's reason to exist, so they follow the strict
    lock at `${EXPANSE_BENCH_LOCK:-${TMPDIR:-/tmp}/expanse-bench.lock}`
    (shared across all checkouts on the host), records `suite`/`pid`/`start`
    in `owner`, refuses to start (exit 75) while another run holds it, and
-   removes it on exit. Scheduling by coordination is not enough: two runs
-   arranged that way nearly overlapped twice in one morning. Ad-hoc `cargo bench`
+   removes it on exit. Scheduling by coordination is not enough — the lock is
+   the mechanism. Ad-hoc `cargo bench`
    invocations outside `run.sh` must check the lock manually (`cat
    "$TMPDIR/expanse-bench.lock/owner"`) and are otherwise subject to rule 2's
    load-snapshot requirement.
@@ -410,19 +406,9 @@ Two things this table is **not**. It is not a wall-clock claim: instructions are
 
 ### Attribution findings (measured: M1 MacBook Pro under load — attribution only, no timing claim; commit with this section)
 
-Profiling a 1M-key random `get` loop (`examples/lookup_profile.rs`, macOS `sample`) attributed **~6% of lookup samples to `memcmp` reached through a dynamic-linker stub**: the linear-leaf key comparison used a runtime-width slice compare, which lowers to a libc call rather than inline code. Monomorphizing the scan over the key width (`leaf::search_fixed::<KB>`) removed the call — the re-profiled binary contains **zero** `memcmp` references on that path. This is a *structural* claim (the call no longer exists), independent of machine load; the resulting ns/op change is unclaimed until a quiet-host run.
+Profiling a 1M-key random `get` loop (`examples/lookup_profile.rs`, macOS `sample`) attributed **~6% of lookup samples to `memcmp` reached through a dynamic-linker stub**: the linear-leaf key comparison used a runtime-width slice compare, which lowers to a libc call rather than inline code. Monomorphizing the scan over the key width (`leaf::search_fixed::<KB>`) removed the call — the re-profiled binary contains **zero** `memcmp` references on that path. This is a *structural* claim (the call no longer exists), independent of machine load. A controlled A/B through the `bench-report` job could **not** resolve a wall-clock effect: within-arm spread (up to 0.32 on a ~1.5 ratio) matched the between-arm difference. The change is kept because it strictly removes work from the innermost loop, but **no speedup is claimed**.
 
-Also visible: `EdgeTag::from_u8` not fully inlined (~1.7% of samples), which is the measured part of the "tag-dispatch overhead" hypothesis — small next to the leaf comparison, and worth revisiting only with the vs-stock harness on a quiet host.
-
-**Did removing the `memcmp` call speed lookups up? Not measurably — verdict: NO DETECTABLE EFFECT.** A controlled A/B was run through the `bench-report` job: identical code and job on both arms, with only `leaf::search` reverted to the runtime-width compare on a throwaway branch. The first pair looked like a 7–11% get-ratio win in all three distributions; a second pair of runs refuted it.
-
-| get ratio @1M | with monomorphized search | with `memcmp` |
-|---|---|---|
-| sequential | 1.60, 1.75 | 1.77, 1.62 |
-| random | 1.47, 1.47 | 1.66, **1.34** |
-| clustered | 1.55, 1.73 | 1.65, 1.65 |
-
-The arms overlap; the pre-change branch produced both the worst and the best random-key ratio observed. Within-arm spread (up to 0.32 on a ~1.5 ratio) is as large as the between-arm difference, so any real effect is buried. The change is kept because it strictly removes work (a PLT-indirected libc call from the innermost loop) and cannot be slower, but **no speedup is claimed**.
+Callgrind attribution on `map_insert/random` puts **~16% of the arm inside the allocator** (`_int_malloc` 11.2%, `_mid_memalign` 4.7%) — the measured cost of 64-byte alignment taking glibc off its fast `malloc` route, and the case for alignment size classes.
 
 **The CI runner's noise floor.** Across four runs the same ratio varied by up to ±10%, and absolute ns by ±40%, on freshly booted runners at load < 1.7. That puts the minimum detectable effect for this setup around **15–20% at n=2**: fine for catching a structural regression, useless for validating incremental optimization. Adding runs to CI buys little, because the variance is between runner instances rather than within a run. Incremental perf work needs a dedicated quiet host with many rounds and reported confidence intervals; absent that, prefer changes justified *structurally* (work removed, allocations avoided, cache lines not touched) over changes justified by a measured delta this environment cannot resolve.
 
@@ -546,193 +532,23 @@ Expanse wins membership on sparse/clustered; Roaring's specialized rank index wi
 
 **Sparse-key iteration ([#270](https://github.com/orieg/expanse/issues/270)):** the `sparse` distribution `keys(i) = i << 40` puts all variation in bytes 5–7 with bytes 0–4 always zero, so at 1M keys the trie is a three-level dense `BranchU` spine over **1,000,000 single-key immediate leaves** (one 16-byte edge per isolated key — the structural floor; immediates absorb the zero remainders, so there is no separate leaf allocation or pointer chain to remove). [#270](https://github.com/orieg/expanse/issues/270) added a single-key-immediate fast path to the stack iterator: the post-#245 iterator decoded every immediate through the general multi-key path, zeroing two `[u64; 15]` staging arrays and copying a 240-byte cursor to carry one 16-byte key/value. Decoding single-key immediates directly cut the Expanse arm from **14.34 ms → 7.09 ms** (~2.0× faster; criterion CIs [14.18, 14.42] vs [7.09, 7.10] separate cleanly), narrowing the gap from ~4.7× to ~2.4× slower than `BTreeMap`. The residual ~2.4× is the remaining structural floor: the trie still visits ≈3,900 branch nodes (~16 MB of `BranchU` pages) and re-descends per key, where a B-tree walks contiguous 11-wide leaf arrays. Point lookups and prefix seeks, where the trie skips empty expanses, remain the engine's other advantage.
 
-### Checkpoint B0 — first vs-stock baseline on the corrected harness (measured: GitHub `ubuntu-latest` runner, callgrind via the `instruction-counts` job, **the issue #1 items-1-3 branch, not `af21e02`**; deterministic)
+### Standing measurement caveats
 
-The first vs-stock instruction baseline taken after the harness stopped
-measuring its own setup: both the tree build and the teardown sat inside the
-timed region of every arm before `af21e02`, so the lookup arms were reporting
-insert work.
+Three findings that govern how every table in this document is read. Each was
+measured on the Callgrind suites; the runs themselves are in git history.
 
-This table is an rlib-only measurement of the issue #1 items-1-3 branch, i.e.
-`main` *plus* that engine work — not of `af21e02`, the commit it was originally
-labelled with. B2 below carries the true `main` baseline alongside it.
-
-Ratio = ours ÷ stock, instructions retired through the identical C ABI on
-identical key streams. 30k keys except `random_big`, which is 1.5M.
-
-| operation | ours | stock | ratio | est. cycles ratio |
-|---|---:|---:|---:|---:|
-| `judy1_set/clustered` | 12,561,871 | 10,910,533 | **1.15×** | 1.20× |
-| `judy1_set/random` | 32,633,176 | 16,350,887 | 2.00× | 2.02× |
-| `judy1_test/random` | 7,160,539 | 3,970,257 | 1.80× | 1.69× |
-| `judyl_get/clustered` | 6,730,957 | 4,238,479 | 1.59× | 1.52× |
-| `judyl_get/random` | 7,576,697 | 5,095,457 | 1.49× | 1.45× |
-| `judyl_get/random_big` (1.5M) | 441,381,294 | 403,155,522 | **1.09×** | **1.04×** |
-| `judyl_get/sequential` | 9,300,109 | 5,072,393 | 1.83× | 1.68× |
-| `judyl_insert/clustered` | 20,710,296 | 12,532,068 | 1.65× | 1.69× |
-| `judyl_insert/random` | 40,152,643 | 18,377,126 | 2.18× | 2.20× |
-| `judyl_insert/sequential` | 23,217,209 | 13,089,262 | 1.77× | 1.77× |
-
-**The gap is population-dependent.** The same random-key lookup is 1.49× at 30k
-keys and 1.09× at 1.5M, and its estimated-cycles ratio (1.04×) is *below* its
-instruction ratio — the only arm where that happens, and what a denser
-structure taking proportionally fewer misses looks like.
-
-Read that as a hypothesis, not a result: it is one arm at one population, and
-the estimated-cycles figure is callgrind's `Ir + 10·L1m + 100·LLm` model, which
-assumes zero mispredicts and zero dependent-load latency. Confirming the
-narrowing needs wall-clock at 1.5M with bootstrap CIs (checkpoint B5). What the
-table does establish is that small-population arms are not representative of
-the whole curve, so no single ratio should be quoted as "the gap" without its
-population.
-
-**Every ratio above is optimistic**, uncorrected. This arm is an LTO'd rlib
-reached by direct calls; stock is a PIC shared object reached through
-`dlopen`/`dlsym`, with its `dlopen` still inside the measured region. Both
-biases favour libexpanse, so these are a floor on the gap, not an estimate. The
-drop-in number is B2 below, measured through `libexpanse.so`.
-
-Operational note: `instruction-counts` runs in **~2 minutes against its
-45-minute timeout**, including the 1.5M arms, so the big arms stay in the
-required check. `miri` is the only expensive job at ~25 minutes, and it is
-conditional on the diff touching Rust sources.
-
-### Checkpoint B2 — the same-shape comparison, and the shared-library correction factor (measured: GitHub `ubuntu-latest` runner, callgrind via `instruction-counts`, commit with this section; deterministic)
-
-B0 above measured the rlib against stock's shared object. This measures
-`libexpanse.so`, `dlopen`'d and called through resolved symbols exactly as
-stock is — the shape a drop-in consumer gets. **These are the numbers to
-quote.**
-
-Taken on `main` at `6587e9f`, via a pull request that changes only CI
-configuration, so the measured code is `main`'s exactly.
-
-| operation | `.so` ratio | rlib ratio | est. cycles (`.so`) |
-|---|---:|---:|---:|
-| `judyl_get/random_big` (1.5M) | **1.15×** | 1.09× | **1.09×** |
-| `judy1_set/clustered` | **1.25×** | 1.16× | 1.25× |
-| `judyl_get/random` | 1.58× | 1.49× | 1.53× |
-| `judyl_insert/sequential` | 1.71× | 1.78× | 1.70× |
-| `judyl_get/clustered` | 1.71× | 1.59× | 1.64× |
-| `judyl_insert/clustered` | 1.78× | 1.68× | 1.77× |
-| `judy1_test/random` | 1.88× | 1.80× | 1.79× |
-| `judy1_set/random` | 1.93× | 2.02× | 1.95× |
-| `judyl_get/sequential` | 1.94× | 1.83× | 1.79× |
-| `judyl_insert/random` | 2.16× | 2.21× | 2.18× |
-
-**Correction factor: 1.06× median, range 0.95–1.08×** (1.05×, 0.96–1.07×
-measured on the same harness without items 1-3 — it barely moves between two
-code states, which is what a ratio between two builds of the *same* code should
-do, and makes it the most robust number in this section).
-
-**Best and worst, both worth naming.** The 1.5M lookup at **1.15×** (1.09× in
-estimated cycles) and clustered `Judy1` inserts at **1.25×** are the strongest
-arms; random `JudyL` insert at **2.16×** is the weakest, and per-function
-profiling puts ~16% of it inside the allocator. The 1.5M arm remains the only
-one whose cycles ratio falls *below* its instruction ratio.
-
-**The shared-object cost is not uniform.** It is **confined to the lookup
-arms** (1.05–1.07×), where a PLT-mediated entry is a meaningful fraction of a
-short operation. On the insert arms the `.so` is *cheaper* than the LTO'd rlib
-(0.96–0.98×). Both builds get `lto = "thin"` and `codegen-units = 1`; what the
-rlib arm additionally gets is cross-crate inlining with the harness, and on a
-long insert that costs more instructions than it saves. Cross-object inlining
-is worth ~6–8% on lookups and nothing on inserts.
-
-**Two arms are byte-identical with and without items 1-3.**
-`judyl_get/clustered` at 7,227,854 and `judyl_get/sequential` at 9,840,110 did
-not move by a single instruction while every other arm did. The terminal-form
-census below predicts exactly that: those arms build only bitmap leaves, so
-neither the immediate scan nor the linear-leaf population read is on their
-path. That also makes the +1.50% those items landed on `map_get/sequential` a
-codegen side-effect rather than a change in work done — that arm executes none
-of the changed code.
-
-Both arms bind their symbols in `setup`, so neither measures its own dynamic
-linking, and key generation has moved out of the insert arms' measured region —
-see rule 0 for why that mattered even though it was symmetric.
-
-### Tag decode inlined — the first arm below 1.00 (measured: GitHub `ubuntu-latest` runner, callgrind via `instruction-counts`, commit with this section; deterministic)
-
-The first optimization measured against B2, and the largest single change in
-the project so far. Three `#[inline(always)]` attributes on `EdgeType::from_u8`,
-`ImmedType::from_u8` and `EdgeTag::from_u8`.
-
-**`judyl_get/random_big` (1.5M keys) is now 0.95×** — libexpanse retires ~5%
-**fewer** instructions than stock libjudy through the identical C ABI, in the
-`.so` shape a drop-in consumer gets. Estimated cycles 0.94×. That is the first
-arm to go below 1.00.
-
-| operation | before | after |
-|---|---:|---:|
-| `judyl_get/random_big` (1.5M) | 1.15× | **0.95×** |
-| `judy1_set/clustered` | 1.25× | **1.14×** |
-| `judyl_get/random` | 1.58× | **1.23×** |
-| `judyl_get/clustered` | 1.71× | 1.43× |
-| `judy1_test/random` | 1.88× | 1.55× |
-| `judyl_get/sequential` | 1.94× | 1.65× |
-| `judyl_insert/sequential` | 1.71× | 1.61× |
-| `judyl_insert/random` | 2.16× | 2.08× |
-
-All 14 self-comparison benchmarks improved: lookups −13.8% to −21.2%, inserts
-−4.0% to −10.9%, iteration −13.7%, remove −1.8%.
-
-**Instructions are cost, not time.** A ratio below 1.00 says the engine does
-less work, not that it is faster; wall-clock confirmation needs a quiet host
-and belongs to checkpoint B5. It is also one arm at one population — the 30k
-arms remain 1.14–2.08×.
-
-**Plain `#[inline]` changed nothing** — all 14 benchmarks byte-identical, the
-symbol still present at 17.05% of `set_contains/random`. Within a single crate
-built with `codegen-units = 1`, `#[inline]` is close to advisory: LLVM already
-has full visibility into the body, so the hint carries no information it lacks
-and does not override its cost model. It earns its keep across crate
-boundaries. Only `#[inline(always)]` moved this.
-
-The saving slightly exceeds the symbol's own cost: `set_contains/random` fell
-2,155,565 against a `from_u8` self-cost of 2,022,260, and `ExpanseSet::contains`
-*shrank* rather than absorbing the work. The caller's match fused with the
-decode once LLVM could see through the call, which is most of what raw-tag
-dispatch was meant to achieve; re-justify that follow-up against fresh profiles
-before spending a PR on it.
-
-### First per-function attribution (measured: GitHub `ubuntu-latest` runner, `callgrind_annotate` over the `instruction-counts` job, commit with this section; deterministic)
-
-Per-benchmark totals show a delta but cannot attribute it. The first run with
-per-function output found three things in one pass.
-
-**1. `EdgeTag::from_u8` is not inlined, and it is 8-19% of every lookup.**
-*(Resolved — see the tag-decode section above. Shares below predate the
-harness teardown fix, so part of each is `free_subtree` decoding tags inside
-what was then the measured region; on the corrected harness it was 17.05% of
-`set_contains/random`.)*
-
-| arm | `from_u8` | share |
-|---|---:|---:|
-| `set_contains/random` | 2,948,168 | **19.4%** |
-| `map_get/random` | 2,413,688 | 14.2% |
-| `map_get/sequential` | 1,602,072 | 9.6% |
-| `map_get/clustered` | 1,008,776 | 8.1% |
-
-It appears as its own symbol, a real call, at ~8 instructions each, once per
-level descended. The call count cross-checks exactly against the terminal-form
-census below: sequential lookups touch 4 edges (`BranchL3`@8, `BranchL3`@7,
-`BranchU`@2, `LeafB1`@1) and the profile shows 200,259 calls over 50,000
-probes, i.e. 4.005 per lookup. The earlier macOS figure of ~1.7% was a sampling
-profile of a different distribution.
-
-**2. ~16% of `map_insert/random` is inside the allocator** — `_int_malloc`
-7,685,357 (11.2%) plus `_mid_memalign` 3,226,000 (4.7%). The `memalign` path
-is what 64-byte alignment costs: it takes glibc off its fast `malloc` route.
-This is the measured case for alignment classes.
-
-**3. Rule 0 violated a fourth time, in the other harness file.**
-`free_subtree` appeared *inside the lookup benchmarks*: 1,654,204 (9.7%) of
-`map_get/random`, 1,264,288 (8.3%) of `set_contains/random`. The arms take the
-container by value, so `Drop` ran inside the measured region. `vs_stock.rs` had
-been fixed; `instructions.rs`, the file that produces the vs-base column on
-every PR, had not. Fixed by leaking, matching `vs_stock.rs`, along with
-`keys()` moving into `setup` for the insert arms.
+- **The gap is population-dependent.** The same random-key lookup measured 1.49×
+  at 30k keys and 1.09× at 1.5M, with the estimated-cycles ratio *below* the
+  instruction ratio only on the large arm. No single ratio is "the gap" without
+  its population, and small-population arms are not representative of the curve.
+- **The shared-object cost is not uniform.** It is confined to the lookup arms
+  (1.05–1.07×); on insert arms the `.so` is marginally *cheaper* than the LTO'd
+  rlib (0.96–0.98×), because cross-crate inlining costs more instructions than
+  it saves on a long operation.
+- **`#[inline]` is advisory within a crate; `#[inline(always)]` is not.** With
+  `codegen-units = 1` LLVM already sees the body, so plain `#[inline]` on the
+  tag-decode helpers left all 14 arms byte-identical. `#[inline(always)]` on
+  `EdgeType/ImmedType/EdgeTag::from_u8` is what moved them.
 
 ### What the bench matrix structurally covers (measured: terminal-form census over the tree each benchmark builds, 50k keys, map flavor; commit with this section; machine-independent)
 
@@ -783,30 +599,6 @@ Wall-clock ns per operation, 1,000,000-key populations (the stable rows; `< 1.00
 | **clustered 1M** | **19.9 / 21.6 ns (0.92×)** | **8.5 / 10.4 ns (0.82×)** | 8.61 / 9.32 (**0.92×**) |
 
 Honest reading: with the **native SIMD paths active** libexpanse wins insert across all three distributions (0.57×–0.92×) and wins sequential/clustered lookup (0.68× / 0.82×). It is **~11% slower on random 1M lookup** (1.11×). Random point access is memory-latency-bound, where the trie's extra indirection costs and SIMD does not help; this agrees with the M-series NEON laptop reading below (random lookup 1.55× slower) and is the engine's weak arm. On the `x86-64-v1` CI runner above, without the SIMD leaf/branch kernels, the same operations are slower than stock. The swing between the two rows is the microarchitecture tier, not a code change (per-routine v1→v3 instruction deltas span −1.9% to −42.6% — [`docs/visualizer_data.json`](visualizer_data.json)). The 100k-population rows are cache-warmup-noisy on this desktop part and are omitted. bytes/key is deterministic allocator accounting (`JudyLMemUsed`) and reproduces byte-for-byte across runs.
-
-### Earlier: same harness on the development laptop (measured: M1 MacBook Pro under load — a VM at ~226% CPU co-resident — commit with this section; interleaved A/B medians of 5 rounds, so the *ratios* are meaningful while absolute ns are contaminated; harness: `crates/expanse-capi/examples/bench_vs_libjudy.rs`)
-
-| dist | pop | get ratio (ours/stock) | insert ratio | B/key ratio |
-|---|---|---|---|---|
-| sequential | 1M | 2.3–4× slower | 3.4× slower | 1.03 |
-| random | 1M | 1.55× slower | **1.35× slower** | **0.93 (smaller)** |
-| clustered | 1M | **~parity (0.94–1.2×)** | **1.7× slower** | **0.93 (smaller)** |
-
-The insert column reached **1.7×** from 13.5× at v1, through narrow-pointer synthesis and then insert-path optimization (capacity-classed allocations with in-place shifts across leaves, bitmap-branch subarrays and bitmap-leaf value arrays, plus the fused single-walk `JudyLIns`).
-
-**Reproducibility correction:** re-measuring three historical commits back-to-back on a quieter host put the random-insert ratio in a **1.8–2.3 band at every one of them**, including the commit the table's 1.35 was recorded at. The 1.35 reading was distorted by the co-resident VM load of its session — interleaving cancels drift, not cache-pressure asymmetry. Treat the band, not the point, as the working baseline until a quiet-host run. Clustered insert (~1.7–1.8×) and all bytes/key columns reproduce exactly.
-
-Memory cost of the capacity classes is bounded by keeping ≤2-entry allocations exact (random map bytes/key briefly regressed 21→27 with naive rounding; 22.9 after the refinement, vs stock's 24.8). The remaining insert gap is profile-driven follow-up (immediate rebuilds, per-level dispatch).
-
-Honest reading (v1 correctness-first, zero optimization passes yet):
-
-- **Memory is already competitive** — smaller than stock on random keys.
-- **Clustered lookup is solved**: narrow-pointer synthesis removed the chain walk (5.31× slower → parity). The remaining lookup gap is on sequential/random — next profile targets: per-level dispatch overhead and the root-leaf/tree split.
-- **Insert gap** has three known, documented v1 costs to burn down: full leaf rebuild per insert (no capacity classes), `Vec` materialization in the mutation path, and capi `JudyLIns` walking the tree three times (contains + insert + slot). Each is an isolated follow-up with this table as baseline.
-
-Timing numbers here are working baselines, not publishable claims; headline numbers still require a quiet-host run under the system-load protocol above.
-
----
 
 ## Microarchitecture Scaling: x86-64-v1 vs v2 vs v3 vs v4
 
@@ -992,15 +784,17 @@ that. Multi-writer support is the standing follow-up
 
 ## Corrections record
 
-- **YCSB Workload E (#385).** Published as 4.33×, then 3.08×, in Expanse's favour. Both were measured with a key-width scan bound that made every arm traverse 1 record instead of ~55. With the bound fixed to record count, `BTreeMap` leads 1.55× — E is a loss. The #375 note attributing the 15.26 → 12.70 move to predicate asymmetry was also wrong: both predicates traversed one record, so selectivity could not have changed traversal volume.
+Published figures that were withdrawn, what replaced them, and the rule each one
+now falls under. Required by `AGENTS.md` §8.7 — a retracted number stays visible
+so the same failure mode is not re-published. This is the **only** history this
+document keeps; superseded measurements live in git history, not here.
 
-Published figures that were withdrawn, and what replaced them. Kept because each
-one names a failure mode the methodology rules now guard against.
-
-- **vs-stock lookup ratios** (`judyl_get/random 2.09×`, `judy1_test/random 2.11×`, and the clustered/sequential lookup rows): the arms built their 30k-key array inside the measured region, so "lookup" was a blend dominated by insert. Fixed with `setup =`; checkpoints B0/B2 are the current tables. (rule 0)
-- **Checkpoint B0's commit label**: published as `af21e02`, actually measured on the issue #1 items-1-3 branch. Table retained with corrected provenance. (rule 0)
-- **"2.1×–3.4× faster range scans"**: retracted; the post-#245 / post-#270 iteration table is the current reading. ([#245](https://github.com/orieg/expanse/pull/245), [#270](https://github.com/orieg/expanse/issues/270))
-- **Laptop random-insert 1.35×** (2026-08-18): distorted by a co-resident VM; a quieter host puts the ratio in a 1.8–2.3 band at every historical commit re-measured.
-- **Microarchitectural Capability Matrix, the v1–v4 instruction-scaling table, and the derived tier percentages**: retracted in full — cited benchmark arms and populations the harness does not produce, and an `x86-64-v4` column for an unimplemented AVX-512 kernel. Replaced by [`docs/visualizer_data.json`](visualizer_data.json) and the #382 wall-clock sweep. ([#372](https://github.com/orieg/expanse/issues/372))
-- **Concurrency word-key arms** (including the 95/5 `SyncExpanseMap` "peak at ~4 threads" table, 19.63 → 35.62 → 28.84 Mops/s): probed unbounded random `u64` keys, so they measured near-100%-miss descent walks. Retracted; every arm has used a bounded keyspace since [#375](https://github.com/orieg/expanse/issues/375).
-- **YCSB Workload E**: the figure published under #375 is superseded; the row is pending re-measurement in [#385](https://github.com/orieg/expanse/pull/385).
+| Withdrawn figure | Why it was wrong | Current reading | Rule |
+|---|---|---|---|
+| YCSB Workload E, `4.33×` then `3.08×` in Expanse's favour | a key-width scan bound made every arm traverse 1 record instead of ~55; the #375 note blaming predicate asymmetry was also wrong (both predicates traversed one record) | `BTreeMap` leads **1.55×** — E is a loss ([#385](https://github.com/orieg/expanse/pull/385)) | 11, 14 |
+| vs-stock lookup ratios (`judyl_get/random 2.09×`, `judy1_test/random 2.11×`, clustered/sequential rows) | the arms built their 30k-key array inside the measured region, so "lookup" was dominated by insert | fixed with `setup =`; the CI and quiet-host tables above | 0 |
+| Checkpoint B0's commit label `af21e02` | actually measured on the issue #1 items-1-3 branch | superseded baseline, removed | 0, 4 |
+| "2.1×–3.4× faster range scans" | — | the post-#245 / post-#270 iteration table ([#245](https://github.com/orieg/expanse/pull/245), [#270](https://github.com/orieg/expanse/issues/270)) | 4 |
+| Laptop random-insert `1.35×` (2026-08-18) | distorted by a co-resident VM at ~226% CPU; interleaving cancels drift, not cache-pressure asymmetry | a quieter host puts it in a **1.8–2.3 band** at every commit re-measured | 2 |
+| Microarchitectural Capability Matrix, the v1–v4 instruction-scaling table, the derived tier percentages | cited benchmark arms and populations the harness does not produce, plus an `x86-64-v4` column for an unimplemented AVX-512 kernel | [`docs/visualizer_data.json`](visualizer_data.json) and the #382 wall-clock sweep ([#372](https://github.com/orieg/expanse/issues/372)) | 10, 15 |
+| Concurrency word-key arms (incl. the 95/5 "peak at ~4 threads" table, 19.63 → 35.62 → 28.84 Mops/s) | probed unbounded random `u64` keys, i.e. near-100%-miss descent walks | bounded keyspace on every arm since [#375](https://github.com/orieg/expanse/issues/375); tables above | 14 |
