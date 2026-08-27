@@ -21,8 +21,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -32,6 +34,13 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # "cost::set32_insert"
 HEADER = re.compile(r"^([\w:]+)::(\w+)(?:\s+([^:\s]+):?.*)?$")
 METRIC = re.compile(r"^\s{2,}([\w+ ]+):\s+([\d,]+)\|")
+
+# `.github/bench-suites.json` is the single source of truth for the suite
+# vocabulary (#410) and, since #413, for which arms are third-party baselines
+# and which Expanse arm each one is the symmetric twin of. Detection is never
+# heuristic: an arm this file does not classify is reported as undeclared
+# rather than quietly assumed to be our own code.
+BENCH_SUITES = Path(__file__).resolve().parent.parent / ".github" / "bench-suites.json"
 
 METRICS = ["Instructions", "Estimated Cycles", "L1 Hits", "LL Hits", "RAM Hits"]
 NOISE_PCT = 0.1
@@ -103,16 +112,27 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
 ]
 
 
-def parse(text: str) -> dict[str, dict[str, int]]:
-    """{benchmark id -> {metric -> count}} from one bench run's output."""
+def parse_full(text: str) -> tuple[dict[str, dict[str, int]], dict[str, tuple[str, str]]]:
+    """Parses one bench run's output.
+
+    Returns `(counts, origins)` where `counts` is `{benchmark id -> {metric ->
+    count}}` and `origins` is `{benchmark id -> (bench target, group)}` taken
+    from the `<target>::<group>::<bench>` header iai-callgrind prints. The
+    group is the `library_benchmark_group!` name declared in the bench source,
+    so sectioning the report by it cannot drift from the source the way a
+    second hardcoded name list would.
+    """
     out: dict[str, dict[str, int]] = {}
+    origins: dict[str, tuple[str, str]] = {}
     current: str | None = None
     for line in ANSI.sub("", text).splitlines():
         head = HEADER.match(line)
         if head:
-            _group, bench, arg = head.groups()
+            prefix, bench, arg = head.groups()
             current = f"{bench}/{arg}" if arg else bench
+            target, _, group = prefix.rpartition("::")
             out[current] = {}
+            origins[current] = (target, group)
             continue
         metric = METRIC.match(line)
         if metric and current:
@@ -121,7 +141,168 @@ def parse(text: str) -> dict[str, dict[str, int]]:
                 out[current][name] = int(value)
             except ValueError:
                 pass
-    return {k: v for k, v in out.items() if v}
+    counts = {k: v for k, v in out.items() if v}
+    return counts, {k: v for k, v in origins.items() if k in counts}
+
+
+def parse(text: str) -> dict[str, dict[str, int]]:
+    """{benchmark id -> {metric -> count}} from one bench run's output."""
+    return parse_full(text)[0]
+
+
+def load_arm_declarations(path: Path | str | None = None) -> dict[str, dict[str, Any]]:
+    """`{bench target -> arms block}` from `.github/bench-suites.json`.
+
+    A missing or unreadable manifest is not fatal — the report degrades to the
+    pre-#413 shape (every arm treated as ours, no twin ratios) rather than
+    failing a benchmark run over report metadata.
+    """
+    manifest_path = Path(path) if path else BENCH_SUITES
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"warning: {manifest_path}: {exc}", file=sys.stderr)
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for suite in manifest.get("suites", []):
+        arms = suite.get("arms")
+        target = suite.get("target")
+        if arms and target:
+            out[target] = arms
+    return out
+
+
+def classify_arms(
+    names: list[str],
+    origins: dict[str, tuple[str, str]],
+    declarations: dict[str, dict[str, Any]],
+) -> tuple[set[str], list[str]]:
+    """Splits run arms into third-party baselines and undeclared arms.
+
+    Baseline membership is read from the manifest, never inferred from the
+    arm's name: an arm whose bench target declares an `arms` block but which
+    that block does not classify comes back in `undeclared` so the report can
+    say so, rather than being silently treated as Expanse's own code.
+    """
+    baselines: set[str] = set()
+    undeclared: list[str] = []
+    for name in names:
+        target = origins.get(name, ("", ""))[0]
+        arms = declarations.get(target)
+        if not arms:
+            continue
+        fn = name.split("/")[0]
+        twins = arms.get("twins", [])
+        if any(fn == t.get("baseline") for t in twins):
+            baselines.add(name)
+        elif any(fn == t.get("subject") for t in twins) or fn in set(arms.get("unpaired", [])):
+            continue
+        else:
+            undeclared.append(name)
+    return baselines, undeclared
+
+
+def twin_rows(
+    head: dict[str, dict[str, int]],
+    origins: dict[str, tuple[str, str]],
+    declarations: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """One row per declared twin pair that this run measured on both sides.
+
+    Every field is computed from the parsed artifact; nothing here is a
+    stamped narrative constant (AGENTS.md 8.2).
+    """
+    rows: list[dict[str, Any]] = []
+    for name in head:
+        target, group = origins.get(name, ("", ""))
+        arms = declarations.get(target)
+        if not arms:
+            continue
+        fn, _, arg = name.partition("/")
+        twin = next((t for t in arms.get("twins", []) if t.get("subject") == fn), None)
+        if not twin:
+            continue
+        peer = f"{twin['baseline']}/{arg}" if arg else twin["baseline"]
+        if peer not in head:
+            continue
+        s_ins = head[name].get("Instructions", 0)
+        b_ins = head[peer].get("Instructions", 0)
+        if not b_ins:
+            continue
+        s_cyc = head[name].get("Estimated Cycles", 0)
+        b_cyc = head[peer].get("Estimated Cycles", 0)
+        rows.append(
+            {
+                "target": target,
+                "group": group,
+                "arg": arg or "—",
+                "subject": name,
+                "baseline": peer,
+                "subject_ins": s_ins,
+                "baseline_ins": b_ins,
+                "ratio": s_ins / b_ins,
+                "cycles_ratio": (s_cyc / b_cyc) if b_cyc else None,
+                "subject_label": arms.get("subject_label", "Expanse"),
+                "baseline_label": arms.get("baseline_label", twin["baseline"]),
+            }
+        )
+    return rows
+
+
+def ratio_reading(ratio: float, subject_label: str, baseline_label: str) -> str:
+    """The ratio's direction, in words. A bare `4.18x` does not say which way
+    it points; this does."""
+    if ratio >= 1.005:
+        return f"{subject_label} retires **{ratio:.2f}x more** instructions than {baseline_label}"
+    if ratio <= 0.995:
+        return (
+            f"{subject_label} retires **{1.0 / ratio:.2f}x fewer** instructions "
+            f"than {baseline_label}"
+        )
+    return f"{subject_label} and {baseline_label} are within 0.5% of each other"
+
+
+def render_twins(rows: list[dict[str, Any]]) -> list[str]:
+    """Section 1's symmetric-twin table: the ratio a competitor baseline exists
+    to produce, published rather than left for the reader to compute.
+
+    Deliberately verdict-free. The ratio is the deliverable; whether a given
+    value clears a gate is a separate question with its own metric (#403's
+    Track 2 threshold is written for wall-clock, not instructions), and this
+    report does not answer it."""
+    if not rows:
+        return []
+    labels = sorted({(r["subject_label"], r["baseline_label"]) for r in rows})
+    pair = " vs ".join(labels[0]) if len(labels) == 1 else "Expanse vs baseline"
+    lines = [
+        f"#### ⚖️ {pair} — symmetric twins (identical inputs, instructions retired)",
+        "",
+        "Both arms of each row are built from the same generated input by the same "
+        "setup function, so the ratio is a like-for-like cost comparison. It is "
+        "**reported, not graded**: instructions are not wall-clock, and no gate in "
+        "this repo is written against this ratio.",
+        "",
+        "| Group | Case | Expanse arm | Instructions | Baseline arm | Instructions | Ratio | Reading |",
+        "|:---|:---|:---|---:|:---|---:|---:|:---|",
+    ]
+    for r in rows:
+        lines.append(
+            f"| `{r['group']}` | `{r['arg']}` | `{r['subject']}` | {r['subject_ins']:,} "
+            f"| `{r['baseline']}` | {r['baseline_ins']:,} | **{r['ratio']:.2f}x** "
+            f"| {ratio_reading(r['ratio'], r['subject_label'], r['baseline_label'])} |"
+        )
+    cycles = [r for r in rows if r["cycles_ratio"]]
+    if cycles:
+        worst = max(cycles, key=lambda r: r["cycles_ratio"])
+        best = min(cycles, key=lambda r: r["cycles_ratio"])
+        lines += [
+            "",
+            f"Modeled est.-cycles ratio over the same pairs spans "
+            f"**{best['cycles_ratio']:.2f}x** (`{best['subject']}`) to "
+            f"**{worst['cycles_ratio']:.2f}x** (`{worst['subject']}`).",
+        ]
+    lines.append("")
+    return lines
 
 
 def pct(head: int, base: int) -> float:
@@ -250,8 +431,15 @@ def format_n(n: int) -> str:
 
 
 def format_ins_per_op(ins: int, n: int, bold: bool = False) -> str:
-    """Computes and formats Instructions / Op (N)."""
-    ins_per_op = ins / n if n > 0 else float(ins)
+    """Computes and formats Instructions / Op (N).
+
+    N = 1 means no per-op count is known for this arm; printing the total a
+    second time under a per-op heading is noise that reads like a measurement.
+    Suppressed instead.
+    """
+    if n <= 1:
+        return "—"
+    ins_per_op = ins / n
     n_str = format_n(n)
     if bold:
         return f"**{ins_per_op:,.1f}** ({n_str})"
@@ -260,8 +448,18 @@ def format_ins_per_op(ins: int, n: int, bold: bool = False) -> str:
 
 def categorize_benchmarks(
     benchmarks: list[str],
+    origins: dict[str, tuple[str, str]] | None = None,
 ) -> list[tuple[str, str, list[str]]]:
-    """Partitions benchmark names into categories in fixed display order, with an 'uncategorized' fallback."""
+    """Partitions benchmark names into sections in fixed display order.
+
+    Named subsystem categories come first. A `library_benchmark_group!` whose
+    arms the named categories do not cover *at all* becomes its own section,
+    titled with the group name the bench source declared — read out of the
+    run's own headers, so a suite's grouping cannot drift from a second
+    hardcoded list here. A group the named categories already split up (the
+    core `instructions::cost` group) keeps its leftovers in 'Other & General',
+    where they are genuinely miscellaneous rather than a coherent group.
+    """
     categorized: list[tuple[str, str, list[str]]] = []
     seen = set()
 
@@ -276,12 +474,28 @@ def categorize_benchmarks(
         if matched:
             categorized.append((cat_id, cat_title, matched))
 
-    # Uncategorized fallback: ensures no benchmark is ever dropped from the report!
-    uncategorized = [name for name in benchmarks if name not in seen]
-    if uncategorized:
-        categorized.append(
-            ("uncategorized", "#### 📦 Other & General", uncategorized)
-        )
+    # A group is "claimed" when a named category already took any of its arms.
+    claimed_groups = {
+        (origins or {}).get(name, ("", ""))[1] for name in benchmarks if name in seen
+    }
+
+    rest = [name for name in benchmarks if name not in seen]
+    by_group: dict[tuple[str, str], list[str]] = {}
+    ungrouped: list[str] = []
+    for name in rest:
+        target, group = (origins or {}).get(name, ("", ""))
+        if group and group not in claimed_groups:
+            by_group.setdefault((target, group), []).append(name)
+        else:
+            ungrouped.append(name)
+
+    for (target, group), members in by_group.items():
+        label = f"{target}::{group}" if target else group
+        categorized.append((f"group:{label}", f"#### 🧩 `{label}`", members))
+
+    # Fallback: ensures no benchmark is ever dropped from the report.
+    if ungrouped:
+        categorized.append(("uncategorized", "#### 📦 Other & General", ungrouped))
 
     return categorized
 
@@ -624,8 +838,12 @@ def check_regressions(
     noise_floor: float = 0.5,
     allowed: bool = False,
     allow_reason: str | None = None,
+    baseline_arms: set[str] | None = None,
 ) -> tuple[bool, list[str]]:
     """Evaluates if head introduces unacceptable instruction regressions vs base.
+
+    Third-party baseline arms are excluded: they are not our code, so a change
+    in one is a dependency fact, never a regression this PR introduced.
 
     Returns (has_unacceptable_regression, list_of_error_messages).
     """
@@ -634,6 +852,8 @@ def check_regressions(
 
     regressions: list[tuple[str, float, int, int]] = []
     for name, metrics in head.items():
+        if name in (baseline_arms or set()):
+            continue
         b = base.get(name)
         if not b:
             continue
@@ -687,10 +907,16 @@ def render(
     base_requested: bool = False,
     gate_armed: bool = False,
     head_fatals: list[str] | None = None,
+    origins: dict[str, tuple[str, str]] | None = None,
+    baseline_arms: set[str] | None = None,
+    undeclared_arms: list[str] | None = None,
+    twins: list[dict[str, Any]] | None = None,
 ) -> str:
     # 1. Parse memory density tables and verify compliance
     compliant_64, rows_64 = parse_bytes_64(bytes_table)
     compliant_32, rows_32 = parse_bytes_32(bytes32_table)
+
+    baseline_arms = baseline_arms or set()
 
     # 2. Evaluate overall instruction delta stats
     regressed = improved = unchanged = 0
@@ -699,9 +925,20 @@ def render(
     best_bench = ""
 
     all_bench_names = list(head.keys())
+    # Arms this PR is answerable for: third-party baselines are excluded from
+    # every count below, since they are not our code.
+    gated_names = [n for n in all_bench_names if n not in baseline_arms]
+    comparable = 0
+    if base:
+        comparable = sum(
+            1 for n in gated_names if base.get(n) and "Instructions" in base[n]
+        )
+    new_arms = len(gated_names) - comparable
 
     if base:
         for name, metrics in head.items():
+            if name in baseline_arms:
+                continue
             ins = metrics.get("Instructions")
             if ins is None:
                 continue
@@ -729,6 +966,12 @@ def render(
         else:
             reg_chip = "⚪ **No Baseline**"
         opt_chip = "—"
+    elif comparable == 0:
+        # A baseline exists but shares no arm with head: nothing *could* have
+        # regressed. Reporting "0 Regressions" here would invite a reader to
+        # conclude the run validated something.
+        reg_chip = "⚪ **Nothing comparable — no arm has a merge-base counterpart**"
+        opt_chip = "—"
     elif has_violation:
         reg_chip = f"🔴 **{regressed} Regressions**"
         opt_chip = f"🚀 **{best:+.2f}% ins** (`{best_bench}`)" if improved else "—"
@@ -739,7 +982,7 @@ def render(
         reg_chip = f"🟡 **{regressed} Regressed (< threshold)**"
         opt_chip = f"🚀 **{best:+.2f}% ins** (`{best_bench}`)" if improved else "—"
     else:
-        reg_chip = "🟢 **0 Regressions**"
+        reg_chip = f"🟢 **0 Regressions** ({comparable}/{len(gated_names)} arms compared)"
         opt_chip = f"🚀 **{best:+.2f}% ins** (`{best_bench}`)" if improved else "—"
 
     # An empty parse is a parse failure, never silent compliance: a supplied
@@ -794,6 +1037,35 @@ def render(
             "",
         ]
 
+    # A run whose arms are all new establishes a baseline; it validates nothing.
+    if base and comparable == 0 and gated_names:
+        lines += [
+            "> [!WARNING]",
+            "> ### ⚪ Nothing comparable — this run gated nothing",
+            f"> All {len(gated_names)} Expanse arm(s) here are absent from merge base "
+            f"`{base_ref}`, so no arm could have regressed. This run **establishes** a "
+            "baseline for them; it does not validate a change against one.",
+            "",
+        ]
+    elif base and new_arms:
+        lines += [
+            f"> **{new_arms} of {len(gated_names)} Expanse arm(s) are new** (no counterpart "
+            f"in merge base `{base_ref}`) and are therefore outside the regression gate; "
+            f"{comparable} arm(s) were compared.",
+            "",
+        ]
+
+    if undeclared_arms:
+        arm_list = ", ".join(f"`{n}`" for n in undeclared_arms)
+        lines += [
+            "> [!WARNING]",
+            f"> **{len(undeclared_arms)} arm(s) not classified in `.github/bench-suites.json`** — "
+            "their suite declares an `arms` block, but these arms appear in neither a "
+            "`twins` pair nor `unpaired`, so the report cannot say whether they are our "
+            f"code or a third-party baseline: {arm_list}",
+            "",
+        ]
+
     for fatal in head_fatals or []:
         lines += [
             "> [!CAUTION]",
@@ -810,7 +1082,7 @@ def render(
     lines.append(f"### 1. Deterministic Instructions vs Merge Base (`{base_ref}`)")
     lines.append("")
 
-    categories = categorize_benchmarks(all_bench_names)
+    categories = categorize_benchmarks(all_bench_names, origins)
 
     if base:
         for cat_id, cat_title, bench_list in categories:
@@ -827,6 +1099,16 @@ def render(
                 cyc = metrics.get("Estimated Cycles", 0)
                 n = get_bench_n(name, is_smoke=is_smoke)
                 b = base.get(name)
+
+                # A third-party baseline is not our code. Diffing it against
+                # its own previous build measures a dependency, not this PR,
+                # so the `vs main` columns are not applicable to it.
+                if name in baseline_arms:
+                    ins_op_str = format_ins_per_op(ins, n, bold=False)
+                    lines.append(
+                        f"| ⚪ | `{name}` | {ins:,} | n/a | {ins_op_str} | {cyc:,} | n/a |"
+                    )
+                    continue
 
                 if not b or "Instructions" not in b:
                     ins_op_str = format_ins_per_op(ins, n, bold=False)
@@ -872,6 +1154,9 @@ def render(
                 ins_op_str = format_ins_per_op(ins, n, bold=False)
                 lines.append(f"| `{name}` | {ins:,} | {ins_op_str} | {cyc:,} |")
             lines.append("")
+
+    # The competitor ratio the symmetric twins exist to produce.
+    lines.extend(render_twins(twins or []))
 
     lines.append("---")
     lines.append("")
@@ -930,7 +1215,8 @@ def render(
         "- **FFI & Marshalling Overhead**: Tracked against historical baseline in nightly verification runs (`scripts/bench_bindings.py --check-baseline`).",
         "",
         "---",
-        "<sub>🟢 less work · 🔴 more work · = within noise ($< 0.1\\%$) · 🆕 new benchmark. "
+        "<sub>🟢 less work · 🔴 more work · = within noise ($< 0.1\\%$) · 🆕 new benchmark · "
+        "⚪ third-party baseline (not our code — not compared to the merge base, not gated). "
         "Instructions reflect exact deterministic computational work vs previous code. Full cross-language benchmarks: <code>docs/BINDINGS_BENCHMARKS.md</code>.</sub>\n",
     ])
 
@@ -956,6 +1242,41 @@ instructions::cost::map_insert
   Instructions:              3000|3000            (No change)
   Estimated Cycles:          6000|6000            (No change)
 """
+
+# A miniature of the search suite: two library_benchmark_group!s, each pairing
+# an Expanse arm with its symmetric Roaring twin over the same input.
+SELF_TEST_TWIN_HEAD = """\
+search_instructions::boolean::expanse_and dense:expanse_pair("dense")
+  Instructions:              4000|4000            (No change)
+  Estimated Cycles:          8000|8000            (No change)
+search_instructions::boolean::roaring_and dense:roaring_pair("dense")
+  Instructions:              1000|1000            (No change)
+  Estimated Cycles:          2500|2500            (No change)
+search_instructions::materialize::expanse_materialize dense:expanse_pair("dense")
+  Instructions:              1000|1000            (No change)
+  Estimated Cycles:          2000|2000            (No change)
+search_instructions::materialize::roaring_materialize dense:roaring_pair("dense")
+  Instructions:              4000|4000            (No change)
+  Estimated Cycles:          8000|8000            (No change)
+"""
+
+SELF_TEST_ARMS = {
+    "suites": [
+        {
+            "name": "search_instructions",
+            "target": "search_instructions",
+            "arms": {
+                "subject_label": "Expanse",
+                "baseline_label": "Roaring",
+                "twins": [
+                    {"subject": "expanse_and", "baseline": "roaring_and"},
+                    {"subject": "expanse_materialize", "baseline": "roaring_materialize"},
+                ],
+                "unpaired": [],
+            },
+        }
+    ]
+}
 
 
 def self_test() -> int:
@@ -1017,6 +1338,128 @@ def self_test() -> int:
     has_violation, msgs = check_regressions(regressed_head, head, max_regression_pct=5.0)
     assert has_violation and msgs, "a +20% single-arm regression must violate the 5% gate"
 
+    # ---- #413: the report must publish what the symmetric twins measure ----
+    twin_head, twin_origins = parse_full(SELF_TEST_TWIN_HEAD)
+    assert twin_origins["expanse_and/dense"] == ("search_instructions", "boolean")
+    decls = {
+        s["target"]: s["arms"] for s in SELF_TEST_ARMS["suites"]
+    }
+    names = list(twin_head)
+    baselines, undeclared = classify_arms(names, twin_origins, decls)
+
+    # 9. Baseline arms are declared, never inferred from the arm's name.
+    assert baselines == {"roaring_and/dense", "roaring_materialize/dense"}, baselines
+    assert undeclared == [], undeclared
+    stripped = {
+        "search_instructions": {
+            "twins": [{"subject": "expanse_and", "baseline": "roaring_and"}],
+            "unpaired": [],
+        }
+    }
+    _, undeclared_now = classify_arms(names, twin_origins, stripped)
+    assert undeclared_now == [
+        "expanse_materialize/dense",
+        "roaring_materialize/dense",
+    ], undeclared_now
+    out = render(
+        head=twin_head,
+        base=twin_head,
+        bytes_table=None,
+        base_ref="origin/main",
+        origins=twin_origins,
+        undeclared_arms=undeclared_now,
+    )
+    assert "not classified in `.github/bench-suites.json`" in out, out
+
+    # 10. Done-when 1: the Expanse:competitor ratio is published, both
+    #     directions, without hand computation.
+    rows = twin_rows(twin_head, twin_origins, decls)
+    assert {r["arg"] for r in rows} == {"dense"} and len(rows) == 2, rows
+    by_subject = {r["subject"]: r for r in rows}
+    assert abs(by_subject["expanse_and/dense"]["ratio"] - 4.0) < 1e-9
+    assert abs(by_subject["expanse_materialize/dense"]["ratio"] - 0.25) < 1e-9
+    out = render(
+        head=twin_head,
+        base=twin_head,
+        bytes_table=None,
+        base_ref="origin/main",
+        origins=twin_origins,
+        baseline_arms=baselines,
+        twins=rows,
+    )
+    assert "**4.00x**" in out and "**0.25x**" in out, out
+    # Direction stated in words, both ways — a bare ratio does not say which
+    # way it points.
+    assert "retires **4.00x more** instructions than Roaring" in out, out
+    assert "retires **4.00x fewer** instructions than Roaring" in out, out
+    assert ratio_reading(1.0, "Expanse", "Roaring").endswith("within 0.5% of each other")
+    # The ratio is reported, not graded: no pass/fail verdict is invented.
+    twin_block = out.split("symmetric twins")[1].split("---")[0]
+    for verdict_marker in ("🟢", "🔴", "🟡", "Pass", "Fail"):
+        assert verdict_marker not in twin_block, (verdict_marker, twin_block)
+
+    # 11. Done-when 2: no third-party baseline arm carries a `vs main` column.
+    section_1 = out.split("### 1.")[1].split("symmetric twins")[0]
+    baseline_rows = [
+        line
+        for line in section_1.splitlines()
+        if line.startswith("|") and "`roaring" in line
+    ]
+    assert len(baseline_rows) == 2, baseline_rows
+    for line in baseline_rows:
+        assert line.startswith("| ⚪ |"), line
+        assert line.count("| n/a |") == 2, line
+        assert "%" not in line, line
+    # ... and a dependency's own drift is never this PR's regression.
+    roaring_moved = {k: dict(v) for k, v in twin_head.items()}
+    roaring_moved["roaring_and/dense"]["Instructions"] = 100_000
+    violation, _ = check_regressions(
+        roaring_moved, twin_head, max_regression_pct=1.5, baseline_arms=baselines
+    )
+    assert not violation, "a third-party baseline arm must not trip our regression gate"
+    violation, _ = check_regressions(roaring_moved, twin_head, max_regression_pct=1.5)
+    assert violation, "sanity: without the declaration it would have tripped"
+
+    # 12. Done-when 3: no row prints Ins / Op with N = 1.
+    assert format_ins_per_op(1_303_484, 1) == "—"
+    assert format_ins_per_op(1_000_000, 50_000) == "20.0 (50k)"
+    assert "(1)" not in out, out
+
+    # 13. Done-when 4: a run whose arms are all new says so rather than
+    #     reporting 0 Regressions.
+    all_new_base = {"expanse_and/dense": {"Instructions": 4000, "Estimated Cycles": 8000}}
+    fresh = {k: v for k, v in twin_head.items() if k != "expanse_and/dense"}
+    out_new = render(
+        head=fresh,
+        base=all_new_base,
+        bytes_table=None,
+        base_ref="origin/main",
+        origins=twin_origins,
+        baseline_arms=baselines,
+    )
+    assert "0 Regressions" not in out_new, out_new
+    assert "Nothing comparable — this run gated nothing" in out_new, out_new
+    # A partially-new run states how much of it was actually compared.
+    assert "0 Regressions** (2/2 arms compared)" in out, out
+
+    # 14. Done-when 5: search arms are sectioned by their declared
+    #     library_benchmark_group!, not dumped into "Other & General".
+    assert "#### 🧩 `search_instructions::boolean`" in out, out
+    assert "#### 🧩 `search_instructions::materialize`" in out, out
+    assert "Other & General" not in out, out
+    # A group the named categories already split keeps its leftovers in
+    # "Other & General" — `instructions::cost` must not become a section.
+    mixed, mixed_origins = parse_full(
+        SELF_TEST_HEAD + 'instructions::cost::strmap_get routes:"routes"\n'
+        "  Instructions:              9000|9000            (No change)\n"
+        "  Estimated Cycles:         18000|18000           (No change)\n"
+    )
+    out_mixed = render(
+        head=mixed, base=mixed, bytes_table=None, base_ref="origin/main", origins=mixed_origins
+    )
+    assert "#### 📦 Other & General" in out_mixed, out_mixed
+    assert "instructions::cost`" not in out_mixed, out_mixed
+
     print("perf_report.py --self-test: all checks passed")
     return 0
 
@@ -1038,6 +1481,11 @@ def main() -> int:
     ap.add_argument("--allow-regression", action="store_true", help="override/approve intentional regressions")
     ap.add_argument("--allow-regression-reason", help="reason for approving regression")
     ap.add_argument("--pr-body-file", help="path to PR body markdown to check for override markers")
+    ap.add_argument(
+        "--bench-suites",
+        help="path to the bench-suite manifest declaring baseline arms and their twins "
+        f"(default: {BENCH_SUITES})",
+    )
     ap.add_argument("--self-test", action="store_true", help="run unit-style checks on the parsing/gating helpers and exit")
     args = ap.parse_args()
 
@@ -1062,9 +1510,15 @@ def main() -> int:
     stock_text = read(args.vs_stock)
     v3_text = read(args.v3)
 
-    head_parsed = parse(head_text)
+    head_parsed, head_origins = parse_full(head_text)
     base_parsed = parse(base_text) if base_text else None
     base_requested = bool(args.base)
+
+    declarations = load_arm_declarations(args.bench_suites)
+    baseline_arms, undeclared = classify_arms(
+        list(head_parsed), head_origins, declarations
+    )
+    twins = twin_rows(head_parsed, head_origins, declarations)
 
     fatals = head_parse_fatals(head_parsed, base_parsed)
 
@@ -1085,6 +1539,7 @@ def main() -> int:
         max_regression_pct=args.max_regression_pct,
         allowed=allowed,
         allow_reason=allow_reason,
+        baseline_arms=baseline_arms,
     )
 
     is_smoke = args.smoke or "smoke" in args.head.lower()
@@ -1106,6 +1561,10 @@ def main() -> int:
         base_requested=base_requested,
         gate_armed=args.fail_on_regression,
         head_fatals=fatals,
+        origins=head_origins,
+        baseline_arms=baseline_arms,
+        undeclared_arms=undeclared,
+        twins=twins,
     )
 
     if reg_messages:
