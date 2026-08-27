@@ -60,10 +60,11 @@ def generate_native_chart():
 
     svg = svg_header(width=960, height=290, title="Native Criterion Benchmarks")
 
-    # Legend top right
+    # Legend along the bottom: the top-right band is occupied by the third
+    # panel's title/subtitle (translate(660, 20)), so a legend there overlaps it.
     svg += """
   <!-- Legend -->
-  <g transform="translate(630, 18)">
+  <g transform="translate(335, 266)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
     <text x="18" y="10" class="t-legend">ExpanseMap</text>
     <rect x="105" y="0" width="12" height="12" rx="2" class="b-hashbrown"/>
@@ -210,12 +211,19 @@ def generate_ycsb_chart():
         svg += f"""  <rect x="310" y="{y + 24}" width="{w_bt:.1f}" height="9" rx="2" class="b-btree"/>
   <text x="{318 + w_bt:.1f}" y="{y + 32}" class="t-val-muted" text-anchor="start">{m_bt:.1f}M</text>
 """
-        # Speedup Badge
+        # Ratio badge vs BTreeMap. A ratio below 1.0 is a LOSS and must not be
+        # styled or rounded as a win (Workload E measures 0.96x here, which
+        # `{:.1f}x` renders as a green "1.0x").
         if m_bt > 0:
             speedup = m_exp / m_bt
-            badge_text = f"{speedup:.1f}x vs BTree"
-            svg += f"""  <rect x="815" y="{y + 10}" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="{y + 23}" class="badge-win-text">{badge_text}</text>
+            if speedup >= 1.0:
+                badge_text = f"{speedup:.2f}x vs BTree"
+                badge_cls, text_cls = "badge-win", "badge-win-text"
+            else:
+                badge_text = f"BTree {1.0 / speedup:.2f}x faster"
+                badge_cls, text_cls = "badge-loss", "badge-loss-text"
+            svg += f"""  <rect x="800" y="{y + 10}" width="130" height="18" class="{badge_cls}"/>
+  <text x="865" y="{y + 23}" class="{text_cls}">{badge_text}</text>
 """
 
     svg += "</svg>\n"

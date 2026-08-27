@@ -59,26 +59,63 @@ def ratio_badge(expanse, roaring):
     return (f"{expanse / roaring:.1f}x slower", "badge-loss")
 
 
-def log_bars_chart(filepath, title, sub, rows, unit_fmt):
-    """Horizontal paired log-scale bars.
+#: Dynamic range (max/min) above which a log scale is the only readable
+#: choice, because a zero-based linear axis would collapse the small arms to a
+#: few pixels. Below it, linear from zero is used: a log axis with an offset
+#: origin makes bar *lengths* non-proportional to their values (a 2.4x
+#: difference rendered as a 3.6x-longer bar) for no legibility gain. At the
+#: current data this keeps the two boolean-AND charts (67,000x and 62x spans)
+#: on log and puts WAND (10x) and memory-bits (7x) on linear.
+LOG_SCALE_THRESHOLD = 25.0
 
-    rows: list of (label, sublabel, expanse_val, roaring_val) — lower is better.
+
+def bar_scale(vals):
+    """Pick the bar scale for `vals` and return (kind, width_fn, scale_label).
+
+    `kind` is "log" or "linear"; `width_fn(v)` maps a value to a bar length in
+    px; `scale_label` is stamped into the chart title so the reader is never
+    left to guess which scale the bars use.
     """
-    vals = [v for _, _, e, r in rows for v in (e, r) if v > 0]
-    if not vals:
-        return
-    lo = min(vals)
-    hi = max(vals)
-    lo_log = math.log10(lo) - 0.15
-    hi_log = math.log10(hi) + 0.05
-    span = max(hi_log - lo_log, 0.5)
     bar_max = 300.0
-    x0 = 360
+    positive = [v for v in vals if v > 0]
+    if not positive:
+        return ("linear", lambda v: 3.0, "LINEAR SCALE FROM ZERO")
+    lo, hi = min(positive), max(positive)
+
+    if hi / lo >= LOG_SCALE_THRESHOLD:
+        lo_log = math.log10(lo) - 0.15
+        hi_log = math.log10(hi) + 0.05
+        span = max(hi_log - lo_log, 0.5)
+
+        def width(v):
+            if v <= 0:
+                return 3.0
+            return max(3.0, (math.log10(v) - lo_log) / span * bar_max)
+
+        return ("log", width, "LOG SCALE")
+
+    axis_max = hi * 1.12
 
     def width(v):
         if v <= 0:
             return 3.0
-        return max(3.0, (math.log10(v) - lo_log) / span * bar_max)
+        return max(3.0, (v / axis_max) * bar_max)
+
+    return ("linear", width, "LINEAR SCALE FROM ZERO")
+
+
+def log_bars_chart(filepath, base_title, sub, rows, unit_fmt):
+    """Horizontal paired bars, log or zero-based linear per `bar_scale`.
+
+    rows: list of (label, sublabel, expanse_val, roaring_val) — lower is better.
+    `base_title` carries no scale wording; the chosen scale is appended.
+    """
+    vals = [v for _, _, e, r in rows for v in (e, r) if v > 0]
+    if not vals:
+        return
+    _kind, width, scale_label = bar_scale(vals)
+    title = f"{base_title} ({scale_label}, LOWER IS BETTER)"
+    x0 = 360
 
     row_h = 46
     height = 96 + len(rows) * row_h + 20
@@ -114,29 +151,21 @@ def log_bars_chart(filepath, title, sub, rows, unit_fmt):
     save_and_validate_svg(filepath, svg)
 
 
-def log_bars_chart3(filepath, title, sub, rows, unit_fmt):
-    """Horizontal triple log-scale bars: stateless / cursor / Roaring.
+def log_bars_chart3(filepath, base_title, sub, rows, unit_fmt):
+    """Horizontal triple bars: stateless / cursor / Roaring.
 
     rows: list of (label, sublabel, stateless_val, cursor_val, roaring_val) —
     lower is better. The win/loss badge compares the #340 cursor against
     Roaring (the parity target); the stateless re-descent is the baseline
-    being improved.
+    being improved. Scale is log or zero-based linear per `bar_scale`, and the
+    chosen scale is appended to `base_title`.
     """
     vals = [v for _, _, s, c, r in rows for v in (s, c, r) if v > 0]
     if not vals:
         return
-    lo = min(vals)
-    hi = max(vals)
-    lo_log = math.log10(lo) - 0.15
-    hi_log = math.log10(hi) + 0.05
-    span = max(hi_log - lo_log, 0.5)
-    bar_max = 300.0
+    _kind, width, scale_label = bar_scale(vals)
+    title = f"{base_title} ({scale_label}, LOWER IS BETTER)"
     x0 = 360
-
-    def width(v):
-        if v <= 0:
-            return 3.0
-        return max(3.0, (math.log10(v) - lo_log) / span * bar_max)
 
     row_h = 58
     height = 100 + len(rows) * row_h + 20
@@ -217,7 +246,7 @@ def generate_boolean_chart():
         )
     log_bars_chart(
         RESULTS_DIR / "bench_boolean_and.svg",
-        "BOOLEAN AND: INTERSECTION LATENCY (LOG SCALE, LOWER IS BETTER)",
+        "BOOLEAN AND: INTERSECTION LATENCY",
         f"Cardinality of A ∩ B • top size N={top:,} per list • ExpanseSet native kernel #339 (intersection_len) vs Roaring (intersection_len)",
         rows,
         fmt_ns,
@@ -266,7 +295,7 @@ def generate_boolean_materialize_chart():
         return
     log_bars_chart(
         RESULTS_DIR / "bench_boolean_and_materialize.svg",
-        "BOOLEAN AND: MATERIALIZATION LATENCY (LOG SCALE, LOWER IS BETTER)",
+        "BOOLEAN AND: MATERIALIZATION LATENCY",
         f"Result set A ∩ B built • top size N={top:,} per list • ExpanseSet direct emission #348 (intersection) vs Roaring bitmap AND",
         rows,
         fmt_ns,
@@ -302,7 +331,7 @@ def generate_wand_chart():
                 )
     log_bars_chart3(
         RESULTS_DIR / "bench_wand_skipscan.svg",
-        "WAND SKIP-SCAN: NANOSECONDS PER ADVANCE (LOWER IS BETTER)",
+        "WAND SKIP-SCAN: NANOSECONDS PER ADVANCE",
         f"Monotonic target advance • top size N={top:,} • stateless next_at_or_after vs #340 cursor advance_to vs Roaring advance_to",
         rows,
         lambda v: f"{v:.1f} ns",
@@ -329,7 +358,7 @@ def generate_memory_chart():
             )
     log_bars_chart(
         RESULTS_DIR / "bench_memory_bits.svg",
-        "MEMORY: LIVE-HEAP BITS PER DOCID (LOWER IS BETTER)",
+        "MEMORY: LIVE-HEAP BITS PER DOCID",
         f"Resident heap via GlobalAlloc tracker • top size N={top:,} • ExpanseSet vs Roaring (roaring-rs 0.10, no run containers)",
         rows,
         lambda v: f"{v:.2f} b",

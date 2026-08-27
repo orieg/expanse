@@ -194,8 +194,21 @@ def main() -> int:
               "1.0&#215;", False),
     )
 
+    # The wall-clock panels were measured against the retracted strawman
+    # skiplist node (#372); results.json records that and the chart must carry
+    # it too, since the asset is inlined standalone into the Pages portal where
+    # the surrounding DATABASE.md prose does not travel with it.
+    caveat = ""
+    if data["meta"].get("retraction_372"):
+        caveat = (
+            '  <text x="30" y="262" class="t-chart-sub">Panels 1 and 3 (wall clock) were measured'
+            " against the retracted strawman skiplist node (#372):</text>\n"
+            '  <text x="30" y="275" class="t-chart-sub">every vs-SkipList ratio there awaits a'
+            " quiet-host re-run. Panel 2 uses the fair variable-height baseline.</text>\n"
+        )
+
     svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 275" width="100%" height="100%">\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 285" width="100%" height="100%">\n'
         "  <defs>\n    <style>" + STYLE + "    </style>\n  </defs>\n\n"
         '  <rect width="100%" height="100%" class="bg" rx="8"/>\n'
         '  <rect width="100%" height="100%" class="border" rx="8"/>\n\n'
@@ -207,6 +220,8 @@ def main() -> int:
         + '\n  <line x1="635" y1="20" x2="635" y2="255" class="divider"/>\n\n'
         "  <!-- ================= CHART 3: POINT LOOKUP LATENCY ================= -->\n"
         + p3
+        + "\n"
+        + caveat
         + "</svg>\n"
     )
 

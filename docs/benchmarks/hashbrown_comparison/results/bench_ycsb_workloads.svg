@@ -32,6 +32,9 @@
       .badge-win { fill: #dcfce7; stroke: #86efac; stroke-width: 1px; rx: 3px; }
       .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
 
+      .badge-loss { fill: #fef3c7; stroke: #fcd34d; stroke-width: 1px; rx: 3px; }
+      .badge-loss-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #b45309; text-anchor: middle; }
+
       .badge-disq { fill: #fee2e2; stroke: #fca5a5; stroke-width: 1px; rx: 3px; }
       .badge-disq-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #991b1b; text-anchor: middle; }
 
@@ -60,6 +63,8 @@
         .b-disqualified { fill: #ef4444; stroke: #f87171; fill-opacity: 0.25; }
         .badge-win { fill: #064e3b; stroke: #059669; }
         .badge-win-text { fill: #6ee7b7; }
+        .badge-loss { fill: #451a03; stroke: #d97706; }
+        .badge-loss-text { fill: #fcd34d; }
         .badge-disq { fill: #450a0a; stroke: #dc2626; }
         .badge-disq-text { fill: #fca5a5; }
       }
@@ -87,6 +92,8 @@
       :root[data-theme="dark"] .b-disqualified, [data-theme="dark"] .b-disqualified { fill: #ef4444; stroke: #f87171; fill-opacity: 0.25; }
       :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #064e3b; stroke: #059669; }
       :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #6ee7b7; }
+      :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss { fill: #451a03; stroke: #d97706; }
+      :root[data-theme="dark"] .badge-loss-text, [data-theme="dark"] .badge-loss-text { fill: #fcd34d; }
       :root[data-theme="dark"] .badge-disq, [data-theme="dark"] .badge-disq { fill: #450a0a; stroke: #dc2626; }
       :root[data-theme="dark"] .badge-disq-text, [data-theme="dark"] .badge-disq-text { fill: #fca5a5; }
     </style>
@@ -116,8 +123,8 @@
   <text x="515.9" y="102" class="t-val-blue" text-anchor="start">164.2M</text>
   <rect x="310" y="106" width="16.7" height="9" rx="2" class="b-btree"/>
   <text x="334.7" y="114" class="t-val-muted" text-anchor="start">13.9M</text>
-  <rect x="815" y="92" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="105" class="badge-win-text">3.0x vs BTree</text>
+  <rect x="800" y="92" width="130" height="18" class="badge-win"/>
+  <text x="865" y="105" class="badge-win-text">2.97x vs BTree</text>
   <text x="30" y="143" class="t-bar-label">Workload B</text>
   <text x="30" y="156" class="t-sub">95% Read, 5% Update (Read Heavy)</text>
   <rect x="310" y="130" width="135.0" height="9" rx="2" class="b-expanse"/>
@@ -126,8 +133,8 @@
   <text x="582.0" y="150" class="t-val-blue" text-anchor="start">219.0M</text>
   <rect x="310" y="154" width="20.7" height="9" rx="2" class="b-btree"/>
   <text x="338.7" y="162" class="t-val-muted" text-anchor="start">17.2M</text>
-  <rect x="815" y="140" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="153" class="badge-win-text">6.5x vs BTree</text>
+  <rect x="800" y="140" width="130" height="18" class="badge-win"/>
+  <text x="865" y="153" class="badge-win-text">6.52x vs BTree</text>
   <text x="30" y="191" class="t-bar-label">Workload C</text>
   <text x="30" y="204" class="t-sub">100% Read (Read Only)</text>
   <rect x="310" y="178" width="141.9" height="9" rx="2" class="b-expanse"/>
@@ -136,8 +143,8 @@
   <text x="562.4" y="198" class="t-val-blue" text-anchor="start">202.7M</text>
   <rect x="310" y="202" width="20.2" height="9" rx="2" class="b-btree"/>
   <text x="338.2" y="210" class="t-val-muted" text-anchor="start">16.7M</text>
-  <rect x="815" y="188" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="201" class="badge-win-text">7.0x vs BTree</text>
+  <rect x="800" y="188" width="130" height="18" class="badge-win"/>
+  <text x="865" y="201" class="badge-win-text">7.03x vs BTree</text>
   <text x="30" y="239" class="t-bar-label">Workload D</text>
   <text x="30" y="252" class="t-sub">95% Read, 5% Insert (Latest Insert)</text>
   <rect x="310" y="226" width="130.9" height="9" rx="2" class="b-expanse"/>
@@ -146,8 +153,8 @@
   <text x="567.3" y="246" class="t-val-blue" text-anchor="start">206.8M</text>
   <rect x="310" y="250" width="18.5" height="9" rx="2" class="b-btree"/>
   <text x="336.5" y="258" class="t-val-muted" text-anchor="start">15.4M</text>
-  <rect x="815" y="236" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="249" class="badge-win-text">7.1x vs BTree</text>
+  <rect x="800" y="236" width="130" height="18" class="badge-win"/>
+  <text x="865" y="249" class="badge-win-text">7.07x vs BTree</text>
   <text x="30" y="287" class="t-bar-label">Workload E</text>
   <text x="30" y="300" class="t-sub">95% Short Range Scan, 5% Insert (Scan)</text>
   <rect x="310" y="274" width="11.6" height="9" rx="2" class="b-expanse"/>
@@ -157,8 +164,8 @@
   <text x="570" y="294" class="badge-disq-text">DISQUALIFIED (No Range Scan)</text>
   <rect x="310" y="298" width="12.1" height="9" rx="2" class="b-btree"/>
   <text x="330.1" y="306" class="t-val-muted" text-anchor="start">10.1M</text>
-  <rect x="815" y="284" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="297" class="badge-win-text">1.0x vs BTree</text>
+  <rect x="800" y="284" width="130" height="18" class="badge-loss"/>
+  <text x="865" y="297" class="badge-loss-text">BTree 1.04x faster</text>
   <text x="30" y="335" class="t-bar-label">Workload F</text>
   <text x="30" y="348" class="t-sub">50% Read, 50% Read-Modify-Write (RMW)</text>
   <rect x="310" y="322" width="73.1" height="9" rx="2" class="b-expanse"/>
@@ -167,6 +174,6 @@
   <text x="504.0" y="342" class="t-val-blue" text-anchor="start">154.3M</text>
   <rect x="310" y="346" width="15.2" height="9" rx="2" class="b-btree"/>
   <text x="333.2" y="354" class="t-val-muted" text-anchor="start">12.6M</text>
-  <rect x="815" y="332" width="115" height="18" class="badge-win"/>
-  <text x="872.5" y="345" class="badge-win-text">4.8x vs BTree</text>
+  <rect x="800" y="332" width="130" height="18" class="badge-win"/>
+  <text x="865" y="345" class="badge-win-text">4.82x vs BTree</text>
 </svg>

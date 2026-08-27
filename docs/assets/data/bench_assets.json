@@ -1,0 +1,89 @@
+{
+  "_readme": "Source data for the three README hero charts rendered by scripts/generate_asset_svgs.py. Every value here must resolve to a committed table or a cited CI run (AGENTS.md 8.7). Update this file from the measurement, then re-run the generator -- never hand-edit the SVGs.",
+
+  "comparative": {
+    "meta": {
+      "source": "docs/BENCHMARKING.md, section 'vs stdlib & 3rd-party collections'",
+      "host": "reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8",
+      "commit": "695b98d",
+      "harness": "benches/compare.rs + benches/comparative.rs, criterion medians",
+      "note": "Three panels, one host, one commit, one harness. The random-lookup panel is a measured loss to HashSet and is published as such."
+    },
+    "cold_build_insert_clustered_100k_ms": {
+      "unit": "ms for 100,000 keys",
+      "population": 100000,
+      "ExpanseSet": 1.04,
+      "HashSet": 1.81,
+      "BTreeSet": 4.59
+    },
+    "point_lookup_random_1m_ns": {
+      "unit": "ns/op, hit, 1,000,000 keys",
+      "population": 1000000,
+      "ExpanseSet": 36.5,
+      "HashSet": 11.9,
+      "BTreeSet": 104.5
+    },
+    "point_lookup_clustered_1m_ns": {
+      "unit": "ns/op, hit, 1,000,000 keys",
+      "population": 1000000,
+      "ExpanseSet": 8.19,
+      "HashSet": 12.0,
+      "BTreeSet": 101.6
+    }
+  },
+
+  "concurrency": {
+    "meta": {
+      "source": "docs/BENCHMARKING.md, section 'Concurrent read scaling (benches/concurrency.rs, all Sync* arms)'",
+      "host": "reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8",
+      "run": "33030152085",
+      "ref": "5fb03aa3",
+      "config": "EXPANSE_BENCH_THREADS=\"1,4,16\", EXPANSE_BENCH_WORKLOADS=\"100,50\", 500 ms windows, load average 0.00 at start",
+      "keyspace": "bounded 2xPOP, ~50% hit rate (#375)",
+      "retraction": "The earlier 1..16-thread SyncExpanseMap curve (22.1 / 42.7 / 83.7 / 160.7 / 265.8 M ops/s, '12.0x') probed unbounded random u64 keys and measured a near-100%-miss descent walk. Retracted; every arm has used a bounded keyspace since #375."
+    },
+    "threads": [1, 4, 16],
+    "read_100": [
+      { "arm": "SyncExpanseSet", "mops": [77.5, 295.2, 884.5], "scale_16t": 11.42, "kind": "expanse" },
+      { "arm": "SyncExpanseMap", "mops": [37.2, 138.9, 424.1], "scale_16t": 11.40, "kind": "expanse" },
+      { "arm": "SyncExpanseBlobMap", "mops": [31.4, 120.5, 332.4], "scale_16t": 10.60, "kind": "expanse" },
+      { "arm": "SyncExpanseBytesMap", "mops": [11.7, 40.9, 133.8], "scale_16t": 11.48, "kind": "expanse" },
+      { "arm": "SyncExpanseStrMap", "mops": [7.0, 26.6, 82.9], "scale_16t": 11.84, "kind": "expanse" },
+      { "arm": "DashMap<Vec<u8>, u64>", "mops": [15.6, 50.4, 132.1], "scale_16t": 8.47, "kind": "other" },
+      { "arm": "SkipMap<u64, Vec<u8>>", "mops": [3.4, 13.1, 38.3], "scale_16t": 11.13, "kind": "other" },
+      { "arm": "RwLock<BTreeMap<u64, ...>>", "mops": [10.6, 20.0, 18.6], "scale_16t": 1.75, "kind": "other" }
+    ],
+    "read_write_50_50": [
+      { "arm": "DashMap<Vec<u8>, u64>", "mops": [5.6, 17.3, 44.5], "scale_16t": 7.93, "kind": "other" },
+      { "arm": "SkipMap<u64, Vec<u8>>", "mops": [1.1, 3.4, 7.7], "scale_16t": 6.94, "kind": "other" },
+      { "arm": "SyncExpanseMap", "mops": [10.9, 3.0, 2.0], "scale_16t": 0.19, "kind": "expanse" },
+      { "arm": "SyncExpanseSet", "mops": [16.6, 3.3, 2.1], "scale_16t": 0.12, "kind": "expanse" }
+    ]
+  },
+
+  "ycsb": {
+    "meta": {
+      "source": "benches/ycsb.rs, post-#385 re-measurement",
+      "host": "reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, idle",
+      "run": "33037221608",
+      "config": "N = 100,000, Zipfian theta = 0.99, 128B blobs, seed 0x1234_5678_9ABC, criterion median throughput",
+      "retraction": "The Workload E figure published under #375 (ExpanseBlobMap 13.2 Mops/s, '7.3x speedup' over SkipMap) is retracted. Re-measured under #385, Workload E INVERTS: BTreeMap wins it."
+    },
+    "unit": "Mops/s",
+    "engines": ["ExpanseMap (u64)", "ExpanseBlobMap (128B)", "BTreeMap (128B)", "SkipMap (128B)"],
+    "kinds": ["expanse", "expanse_blob", "btree", "skipmap"],
+    "workloads": [
+      { "id": "A", "desc": "50% Read / 50% Update", "mops": [20.66, 20.38, 4.26, 1.90] },
+      { "id": "B", "desc": "95% Read / 5% Update", "mops": [23.27, 21.21, 4.42, 2.54] },
+      { "id": "C", "desc": "100% Read", "mops": [23.61, 21.26, 4.44, 1.98] },
+      { "id": "D", "desc": "95% Read-Latest / 5% Insert", "mops": [23.02, 21.50, 4.28, 1.93] },
+      { "id": "F", "desc": "50% Read / 50% Read-Modify-Write", "mops": [18.82, 14.73, 4.35, 1.81] }
+    ],
+    "workload_e": {
+      "id": "E",
+      "desc": "95% Short Range Scan / 5% Insert",
+      "mops": [0.830, 0.657, 1.289, 0.305],
+      "note": "Plotted on its own axis: every arm is an order of magnitude below A-D/F, and BTreeMap wins."
+    }
+  }
+}

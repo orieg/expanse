@@ -46,6 +46,9 @@ def svg_header(width: int = 960, height: int = 300, title: str = "Benchmark Char
       .badge-win {{ fill: #dcfce7; stroke: #86efac; stroke-width: 1px; rx: 3px; }}
       .badge-win-text {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }}
 
+      .badge-loss {{ fill: #fef3c7; stroke: #fcd34d; stroke-width: 1px; rx: 3px; }}
+      .badge-loss-text {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #b45309; text-anchor: middle; }}
+
       .badge-disq {{ fill: #fee2e2; stroke: #fca5a5; stroke-width: 1px; rx: 3px; }}
       .badge-disq-text {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 700; fill: #991b1b; text-anchor: middle; }}
 
@@ -74,6 +77,8 @@ def svg_header(width: int = 960, height: int = 300, title: str = "Benchmark Char
         .b-disqualified {{ fill: #ef4444; stroke: #f87171; fill-opacity: 0.25; }}
         .badge-win {{ fill: #064e3b; stroke: #059669; }}
         .badge-win-text {{ fill: #6ee7b7; }}
+        .badge-loss {{ fill: #451a03; stroke: #d97706; }}
+        .badge-loss-text {{ fill: #fcd34d; }}
         .badge-disq {{ fill: #450a0a; stroke: #dc2626; }}
         .badge-disq-text {{ fill: #fca5a5; }}
       }}
@@ -101,6 +106,8 @@ def svg_header(width: int = 960, height: int = 300, title: str = "Benchmark Char
       :root[data-theme="dark"] .b-disqualified, [data-theme="dark"] .b-disqualified {{ fill: #ef4444; stroke: #f87171; fill-opacity: 0.25; }}
       :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win {{ fill: #064e3b; stroke: #059669; }}
       :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text {{ fill: #6ee7b7; }}
+      :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss {{ fill: #451a03; stroke: #d97706; }}
+      :root[data-theme="dark"] .badge-loss-text, [data-theme="dark"] .badge-loss-text {{ fill: #fcd34d; }}
       :root[data-theme="dark"] .badge-disq, [data-theme="dark"] .badge-disq {{ fill: #450a0a; stroke: #dc2626; }}
       :root[data-theme="dark"] .badge-disq-text, [data-theme="dark"] .badge-disq-text {{ fill: #fca5a5; }}
     </style>
