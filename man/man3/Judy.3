@@ -1,0 +1,119 @@
+.TH JUDY 3 "2026-08-27" "libexpanse" "Judy Compatibility Manual"
+.SH NAME
+Judy \- C library for high-performance dynamic arrays (libexpanse compat)
+.SH SYNOPSIS
+.B #include <Judy.h>
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+\fBJudy.h\fR provides a 100% source- and binary-compatible drop-in C ABI
+replacement for the classic \fBlibjudy\fR library, implemented clean-room
+by \fBlibexpanse\fR.
+Existing C/C++ applications can swap in \fBlibexpanse\fR with zero source
+modifications.
+.SH ARRAY TYPES
+.TP
+.BR Judy1 " (see " Judy1 (3))
+Dynamic bit array of machine words (\fBWord_t\fR).
+.TP
+.BR JudyL " (see " JudyL (3))
+Dynamic map from word key (\fBWord_t\fR) to word value (\fBWord_t\fR).
+.TP
+.BR JudySL " (see " JudySL (3))
+Dynamic map from null-terminated string (\fBconst unsigned char *\fR)
+to word value.
+.TP
+.BR JudyHS " (see " JudyHS (3))
+Dynamic map from arbitrary byte array (\fBvoid *\fR, \fBWord_t\fR length)
+to word value.
+.SH DATA TYPES
+.TP
+.B Word_t, *PWord_t
+Unsigned machine word, pointer-sized (64-bit on 64-bit platforms, 32-bit on
+32-bit platforms).
+.TP
+.B Pvoid_t
+Opaque pointer representing a Judy array root (initialized to NULL).
+.TP
+.B PPvoid_t
+Pointer to a \fBPvoid_t\fR array pointer (\fBvoid **\fR).
+.TP
+.B JError_t, *PJError_t
+Error diagnostic struct containing \fIje_Errno\fR and \fIje_ErrID\fR.
+Pass \fBPJE0\fR (\fBNULL\fR) if error inspection is not required.
+.SH ERROR CODES
+.nf
+.ta 26n 10n
+\fBConstant\fR	\fBValue\fR	\fBDescription\fR
+--------------------------------------------------------------------------
+JU_ERRNO_NONE	0	No error
+JU_ERRNO_NOMEM	2	Out of memory
+JU_ERRNO_NULLPPARRAY	3	Null pointer to array pointer passed
+JU_ERRNO_NONNULLPARRAY	4	Array pointer is non-null when expected null
+JU_ERRNO_NULLPINDEX	5	Null pointer to index passed
+JU_ERRNO_NULLPVALUE	6	Null pointer to value passed
+JU_ERRNO_NOTJUDY1	7	Array is not a Judy1 array
+JU_ERRNO_NOTJUDYL	8	Array is not a JudyL array
+JU_ERRNO_NOTJUDYSL	9	Array is not a JudySL array
+JU_ERRNO_UNSORTED	12	Index is unsorted
+JU_ERRNO_OVERRUN	13	Index exceeds bounds
+JU_ERRNO_CORRUPT	14	Array corruption detected
+.fi
+.SH MACRO USAGE CONVENTION
+Judy provides both raw C functions (\fBJudyLIns\fR, etc.) and shorthand
+convenience macros (\fBJLI\fR, \fBJLG\fR, etc.).
+The convenience macros automatically pass \fBPJE0\fR as the error parameter.
+.PP
+.nf
+#include <stdio.h>
+#include <Judy.h>
+
+int main(void) {
+    Pvoid_t PJArray = (Pvoid_t) NULL; /* Root must start as NULL */
+    PWord_t PValue;
+    Word_t Index;
+
+    /* Insert key 1234 using macro */
+    JLI(PValue, PJArray, 1234);
+    if (PValue == PJERR) {
+        fprintf(stderr, "Out of memory\\n");
+        return 1;
+    }
+    *PValue = 5678; /* Store value */
+
+    /* Retrieve key 1234 */
+    JLG(PValue, PJArray, 1234);
+    if (PValue) {
+        printf("Index 1234 has value %lu\\n", *PValue);
+    }
+
+    /* Iterate */
+    Index = 0;
+    JLF(PValue, PJArray, Index);
+    while (PValue != NULL) {
+        printf("Index %lu -> %lu\\n", Index, *PValue);
+        JLN(PValue, PJArray, Index);
+    }
+
+    Word_t BytesFreed;
+    JLFA(BytesFreed, PJArray);
+    return 0;
+}
+.fi
+.SH BEHAVIORAL DIFFERENCES FROM ORIGINAL LIBJUDY
+.TP
+.B Memory Accounting
+\fBJudy1MemUsed\fR and \fBJudyLMemUsed\fR report heap consumption. Because
+Expanse uses modern cache-aligned 64-byte node structures and custom slab
+allocators, exact byte numbers will differ from HP Judy, though asymptotic
+scaling remains monotonic and identical.
+.TP
+.B Out of Memory Handling
+When memory allocation fails, functions return \fBJERR\fR or \fBPJERR\fR and
+populate \fBPJError\fR with \fBJU_ERRNO_NOMEM\fR if passed.
+.SH SEE ALSO
+.BR Judy1 (3),
+.BR JudyL (3),
+.BR JudySL (3),
+.BR JudyHS (3),
+.BR expanse (3)

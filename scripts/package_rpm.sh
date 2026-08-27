@@ -51,16 +51,16 @@ Summary:        Development files for libexpanse
 Requires:       %{name}%{?_isa} = %{version}-%{release}
 
 %description devel
-Development headers, static library, and pkg-config manifests for Expanse.
+Development headers, static library, pkg-config manifests, and man pages for Expanse.
 
 %package -n libjudy-compat
-Summary:        Drop-in libjudy compatibility symlinks
+Summary:        Drop-in libjudy compatibility symlinks and man pages
 Requires:       %{name}%{?_isa} = %{version}-%{release}
 Provides:       libjudy = 1.0.5
 Conflicts:      libjudy
 
 %description -n libjudy-compat
-Drop-in compatibility library providing libJudy.so.1 symlinks directed to libexpanse.
+Drop-in compatibility library providing libJudy.so.1 symlinks and Judy man pages.
 
 %prep
 
@@ -71,6 +71,7 @@ rm -rf %{buildroot}
 mkdir -p %{buildroot}/usr/lib64
 mkdir -p %{buildroot}/usr/include
 mkdir -p %{buildroot}/usr/lib64/pkgconfig
+mkdir -p %{buildroot}/usr/share/man/man3
 
 # Runtime libraries (error swallowing removed: a missing runtime library must fail the build)
 cp -P DIST_DIR_PLACEHOLDER/lib/libexpanse.so* %{buildroot}/usr/lib64/
@@ -105,18 +106,25 @@ done
 
 # Pkg-config files
 if [ -f "REPO_ROOT_PLACEHOLDER/extra/pkgconfig/expanse.pc.in" ]; then
-    sed -e "s|@PREFIX@|/usr|g" \
+    sed -e "s|@prefix@|/usr|g" \
+        -e "s|@PREFIX@|/usr|g" \
         -e "s|@LIBDIR@|/usr/lib64|g" \
         -e "s|@INCLUDEDIR@|/usr/include|g" \
         -e "s|@VERSION@|VERSION_PLACEHOLDER|g" \
         REPO_ROOT_PLACEHOLDER/extra/pkgconfig/expanse.pc.in > %{buildroot}/usr/lib64/pkgconfig/expanse.pc
 fi
 if [ -f "REPO_ROOT_PLACEHOLDER/extra/pkgconfig/judy.pc.in" ]; then
-    sed -e "s|@PREFIX@|/usr|g" \
+    sed -e "s|@prefix@|/usr|g" \
+        -e "s|@PREFIX@|/usr|g" \
         -e "s|@LIBDIR@|/usr/lib64|g" \
         -e "s|@INCLUDEDIR@|/usr/include|g" \
         -e "s|@VERSION@|VERSION_PLACEHOLDER|g" \
         REPO_ROOT_PLACEHOLDER/extra/pkgconfig/judy.pc.in > %{buildroot}/usr/lib64/pkgconfig/judy.pc
+fi
+
+# Man pages
+if [ -d "REPO_ROOT_PLACEHOLDER/man/man3" ]; then
+    cp REPO_ROOT_PLACEHOLDER/man/man3/*.3 %{buildroot}/usr/share/man/man3/
 fi
 
 %files
@@ -125,10 +133,13 @@ fi
 %files devel
 /usr/include/*
 /usr/lib64/libexpanse.a
-/usr/lib64/pkgconfig/*.pc
+/usr/lib64/pkgconfig/expanse.pc
+/usr/share/man/man3/expanse*.3*
 
 %files -n libjudy-compat
 /usr/lib64/libJudy.so.1
+/usr/lib64/pkgconfig/judy.pc
+/usr/share/man/man3/Judy*.3*
 
 SPECEOF
 

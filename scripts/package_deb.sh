@@ -93,14 +93,30 @@ Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine shared library with glibc-hwcaps support.
 EOF
 
-# 2. libexpanse-dev package: headers, static library, and the unversioned .so dev symlink
+# 2. libexpanse-dev package: headers, static library, pkg-config, man pages, and the unversioned .so dev symlink
 mkdir -p "${DEB_DIR}/libexpanse-dev/usr/include"
-mkdir -p "${DEB_DIR}/libexpanse-dev/${LIBDIR}"
+mkdir -p "${DEB_DIR}/libexpanse-dev/${LIBDIR}/pkgconfig"
+mkdir -p "${DEB_DIR}/libexpanse-dev/usr/share/man/man3"
+
 cp crates/expanse-capi/include/*.h* "${DEB_DIR}/libexpanse-dev/usr/include/"
 if [ -f "${DIST_DIR}/lib/libexpanse.a" ]; then
     cp "${DIST_DIR}/lib/libexpanse.a" "${DEB_DIR}/libexpanse-dev/${LIBDIR}/"
 fi
 ln -sf libexpanse.so.1 "${DEB_DIR}/libexpanse-dev/${LIBDIR}/libexpanse.so"
+
+if [ -f "extra/pkgconfig/expanse.pc.in" ]; then
+    sed -e "s|@prefix@|/usr|g" \
+        -e "s|@VERSION@|${VERSION}|g" \
+        -e "s|/lib|/${LIBDIR#usr/}|g" \
+        extra/pkgconfig/expanse.pc.in > "${DEB_DIR}/libexpanse-dev/${LIBDIR}/pkgconfig/expanse.pc"
+fi
+
+if [ -d "man/man3" ]; then
+    for f in man/man3/expanse*.3; do
+        [ -f "$f" ] || continue
+        gzip -9nc "$f" > "${DEB_DIR}/libexpanse-dev/usr/share/man/man3/$(basename "$f").gz"
+    done
+fi
 
 cat <<EOF > "${DEB_DIR}/libexpanse-dev/DEBIAN/control"
 Package: libexpanse-dev
@@ -108,17 +124,33 @@ Version: ${VERSION}
 Architecture: ${DEB_ARCH}
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Depends: libexpanse1 (= ${VERSION})
-Description: Expanse trie engine development files (headers, static library).
+Description: Expanse trie engine development files (headers, static library, man pages).
 EOF
 
-# 3. libjudy-compat package: drop-in libJudy.so.1 soname pointing at libexpanse.so.1
-mkdir -p "${DEB_DIR}/libjudy-compat/${LIBDIR}"
+# 3. libjudy-compat package: drop-in libJudy.so.1 soname pointing at libexpanse.so.1 + pkg-config + Judy man pages
+mkdir -p "${DEB_DIR}/libjudy-compat/${LIBDIR}/pkgconfig"
+mkdir -p "${DEB_DIR}/libjudy-compat/usr/share/man/man3"
+
 ln -sf libexpanse.so.1 "${DEB_DIR}/libjudy-compat/${LIBDIR}/libJudy.so.1"
 
 for HWCAP in "${HWCAPS[@]}"; do
     mkdir -p "${DEB_DIR}/libjudy-compat/${LIBDIR}/glibc-hwcaps/${HWCAP}"
     ln -sf libexpanse.so.1 "${DEB_DIR}/libjudy-compat/${LIBDIR}/glibc-hwcaps/${HWCAP}/libJudy.so.1"
 done
+
+if [ -f "extra/pkgconfig/judy.pc.in" ]; then
+    sed -e "s|@prefix@|/usr|g" \
+        -e "s|@VERSION@|${VERSION}|g" \
+        -e "s|/lib|/${LIBDIR#usr/}|g" \
+        extra/pkgconfig/judy.pc.in > "${DEB_DIR}/libjudy-compat/${LIBDIR}/pkgconfig/judy.pc"
+fi
+
+if [ -d "man/man3" ]; then
+    for f in man/man3/Judy*.3; do
+        [ -f "$f" ] || continue
+        gzip -9nc "$f" > "${DEB_DIR}/libjudy-compat/usr/share/man/man3/$(basename "$f").gz"
+    done
+fi
 
 cat <<EOF > "${DEB_DIR}/libjudy-compat/DEBIAN/control"
 Package: libjudy-compat
@@ -128,7 +160,7 @@ Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Depends: libexpanse1 (= ${VERSION})
 Conflicts: libjudy
 Provides: libjudy
-Description: Drop-in compatibility for libjudy applications.
+Description: Drop-in compatibility for libjudy applications (symlinks, man pages).
 EOF
 
 # Build packages

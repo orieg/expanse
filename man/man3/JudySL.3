@@ -1,0 +1,95 @@
+.TH JUDYSL 3 "2026-08-27" "libexpanse" "Judy Compatibility Manual"
+.SH NAME
+JudySL, JudySLIns, JudySLDel, JudySLGet, \
+JudySLFirst, JudySLNext, JudySLLast, JudySLPrev, JudySLFreeArray, \
+JSLI, JSLD, JSLG, JSLF, JSLN, JSLL, JSLP, JSLFA \
+\- dynamic string map to word values
+.SH SYNOPSIS
+.B #include <Judy.h>
+.PP
+.BI "PPvoid_t JudySLIns(PPvoid_t " PPArray ", const unsigned char *" Index ","
+.BI "                  PJError_t " PJError ");"
+.br
+.BI "int      JudySLDel(PPvoid_t " PPArray ", const unsigned char *" Index ","
+.BI "                  PJError_t " PJError ");"
+.br
+.BI "PPvoid_t JudySLGet(Pcvoid_t " PArray ", const unsigned char *" Index ","
+.BI "                  PJError_t " PJError ");"
+.br
+.BI "PPvoid_t JudySLFirst(Pcvoid_t " PArray ", unsigned char *" Index ","
+.BI "                    PJError_t " PJError ");"
+.br
+.BI "PPvoid_t JudySLNext(Pcvoid_t " PArray ", unsigned char *" Index ","
+.BI "                   PJError_t " PJError ");"
+.br
+.BI "PPvoid_t JudySLLast(Pcvoid_t " PArray ", unsigned char *" Index ","
+.BI "                   PJError_t " PJError ");"
+.br
+.BI "PPvoid_t JudySLPrev(Pcvoid_t " PArray ", unsigned char *" Index ","
+.BI "                   PJError_t " PJError ");"
+.br
+.BI "Word_t   JudySLFreeArray(PPvoid_t " PPArray ", PJError_t " PJError ");"
+.PP
+.BI "JSLI(PWord_t " PV ", Pvoid_t " PArray ", const unsigned char *" Index ");"
+.br
+.BI "JSLD(int " Rc ", Pvoid_t " PArray ", const unsigned char *" Index ");"
+.br
+.BI "JSLG(PWord_t " PV ", Pvoid_t " PArray ", const unsigned char *" Index ");"
+.br
+.BI "JSLF(PWord_t " PV ", Pvoid_t " PArray ", unsigned char *" Index ");"
+.br
+.BI "JSLN(PWord_t " PV ", Pvoid_t " PArray ", unsigned char *" Index ");"
+.br
+.BI "JSLL(PWord_t " PV ", Pvoid_t " PArray ", unsigned char *" Index ");"
+.br
+.BI "JSLP(PWord_t " PV ", Pvoid_t " PArray ", unsigned char *" Index ");"
+.br
+.BI "JSLFA(Word_t " Rc ", Pvoid_t " PArray ");"
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+A \fBJudySL\fR array is an ordered associative digital trie mapping
+null-terminated strings (\fBconst unsigned char *\fR) to machine words
+(\fBWord_t\fR).
+Keys are ordered in unsigned byte-lexicographical order.
+.SH EXAMPLES
+.nf
+#include <stdio.h>
+#include <Judy.h>
+
+int main(void) {
+    Pvoid_t PJSLArray = (Pvoid_t) NULL;
+    PWord_t PValue;
+    unsigned char Index[100];
+
+    /* Insert string keys */
+    JSLI(PValue, PJSLArray, (const unsigned char *)"apple");
+    *PValue = 10;
+
+    JSLI(PValue, PJSLArray, (const unsigned char *)"banana");
+    *PValue = 20;
+
+    /* Lookup */
+    JSLG(PValue, PJSLArray, (const unsigned char *)"banana");
+    if (PValue) {
+        printf("banana -> %lu\\n", *PValue);
+    }
+
+    /* Iterate alphabetically */
+    Index[0] = '\\0';
+    JSLF(PValue, PJSLArray, Index);
+    while (PValue != NULL) {
+        printf("  %s => %lu\\n", (char *)Index, *PValue);
+        JSLN(PValue, PJSLArray, Index);
+    }
+
+    Word_t BytesFreed;
+    JSLFA(BytesFreed, PJSLArray);
+    return 0;
+}
+.fi
+.SH SEE ALSO
+.BR Judy (3),
+.BR JudyL (3),
+.BR JudyHS (3),
+.BR expanse_strmap (3)

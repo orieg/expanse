@@ -1,0 +1,152 @@
+.TH JUDY1 3 "2026-08-27" "libexpanse" "Judy Compatibility Manual"
+.SH NAME
+Judy1, Judy1Set, Judy1Unset, Judy1Test, Judy1Count, Judy1ByCount, \
+Judy1First, Judy1Next, Judy1Last, Judy1Prev, \
+Judy1FirstEmpty, Judy1NextEmpty, Judy1LastEmpty, Judy1PrevEmpty, \
+Judy1FreeArray, Judy1MemUsed, \
+J1S, J1U, J1T, J1C, J1BC, J1F, J1N, J1L, J1P, \
+J1FE, J1NE, J1LE, J1PE, J1FA, J1MU \
+\- dynamic bit array of machine words
+.SH SYNOPSIS
+.B #include <Judy.h>
+.PP
+.BI "int    Judy1Set(PPvoid_t " PPArray ", Word_t " Index ","
+.BI "                PJError_t " PJError ");"
+.br
+.BI "int    Judy1Unset(PPvoid_t " PPArray ", Word_t " Index ","
+.BI "                  PJError_t " PJError ");"
+.br
+.BI "int    Judy1Test(Pcvoid_t " PArray ", Word_t " Index ","
+.BI "                 PJError_t " PJError ");"
+.br
+.BI "Word_t Judy1Count(Pcvoid_t " PArray ", Word_t " Index1 ","
+.BI "                  Word_t " Index2 ", PJError_t " PJError ");"
+.br
+.BI "int    Judy1ByCount(Pcvoid_t " PArray ", Word_t " Nth ","
+.BI "                    Word_t *" PIndex ", PJError_t " PJError ");"
+.br
+.BI "int    Judy1First(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                  PJError_t " PJError ");"
+.br
+.BI "int    Judy1Next(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                 PJError_t " PJError ");"
+.br
+.BI "int    Judy1Last(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                 PJError_t " PJError ");"
+.br
+.BI "int    Judy1Prev(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                 PJError_t " PJError ");"
+.br
+.BI "int    Judy1FirstEmpty(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                       PJError_t " PJError ");"
+.br
+.BI "int    Judy1NextEmpty(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                      PJError_t " PJError ");"
+.br
+.BI "int    Judy1LastEmpty(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                      PJError_t " PJError ");"
+.br
+.BI "int    Judy1PrevEmpty(Pcvoid_t " PArray ", Word_t *" PIndex ","
+.BI "                      PJError_t " PJError ");"
+.br
+.BI "Word_t Judy1FreeArray(PPvoid_t " PPArray ", PJError_t " PJError ");"
+.br
+.BI "Word_t Judy1MemUsed(Pcvoid_t " PArray ");"
+.PP
+.BI "J1S(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "J1U(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "J1T(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "J1C(Word_t " Rc ", Pvoid_t " PArray ", Word_t " I1 ", Word_t " I2 ");"
+.br
+.BI "J1BC(int " Rc ", Pvoid_t " PArray ", Word_t " Nth ", Word_t " Index ");"
+.br
+.BI "J1F(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "J1N(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "J1L(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "J1P(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "J1FE(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "J1NE(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "J1LE(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "J1PE(int " Rc ", Pvoid_t " PArray ", Word_t " Index ");"
+.br
+.BI "J1FA(Word_t " Rc ", Pvoid_t " PArray ");"
+.br
+.BI "J1MU(Word_t " Rc ", Pvoid_t " PArray ");"
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+A \fBJudy1\fR array is a dynamic bit set indexed by unsigned machine words
+(\fBWord_t\fR).
+A bit is either set (1) or unset (0).
+An empty Judy1 array is initialized to NULL:
+.PP
+.B Pvoid_t PJ1Array = (Pvoid_t) NULL;
+.SH QUICK REFERENCE
+.nf
+.ta 28n 40n
+\fBMacro (Auto PJE0)\fR	\fBFunction Call\fR
+--------------------------------------------------------------------------
+J1S(Rc, Array, Idx)	Judy1Set(&Array, Idx, PJE0)
+J1U(Rc, Array, Idx)	Judy1Unset(&Array, Idx, PJE0)
+J1T(Rc, Array, Idx)	Judy1Test(Array, Idx, PJE0)
+J1C(Rc, Array, I1, I2)	Judy1Count(Array, I1, I2, PJE0)
+J1BC(Rc, Array, N, Idx)	Judy1ByCount(Array, N, &Idx, PJE0)
+J1F(Rc, Array, Idx)	Judy1First(Array, &Idx, PJE0)
+J1N(Rc, Array, Idx)	Judy1Next(Array, &Idx, PJE0)
+J1L(Rc, Array, Idx)	Judy1Last(Array, &Idx, PJE0)
+J1P(Rc, Array, Idx)	Judy1Prev(Array, &Idx, PJE0)
+J1FE(Rc, Array, Idx)	Judy1FirstEmpty(Array, &Idx, PJE0)
+J1NE(Rc, Array, Idx)	Judy1NextEmpty(Array, &Idx, PJE0)
+J1LE(Rc, Array, Idx)	Judy1LastEmpty(Array, &Idx, PJE0)
+J1PE(Rc, Array, Idx)	Judy1PrevEmpty(Array, &Idx, PJE0)
+J1FA(Rc, Array)	Judy1FreeArray(&Array, PJE0)
+J1MU(Rc, Array)	Judy1MemUsed(Array)
+.fi
+.SH EXAMPLES
+.nf
+#include <stdio.h>
+#include <Judy.h>
+
+int main(void) {
+    Pvoid_t PJ1Array = (Pvoid_t) NULL;
+    int Rc;
+    Word_t Index;
+
+    /* Set bits 10, 20, 50 */
+    J1S(Rc, PJ1Array, 10);
+    J1S(Rc, PJ1Array, 20);
+    J1S(Rc, PJ1Array, 50);
+
+    /* Test bit */
+    J1T(Rc, PJ1Array, 20);
+    if (Rc == 1) {
+        printf("Bit 20 is set\\n");
+    }
+
+    /* Iterate all set bits */
+    Index = 0;
+    J1F(Rc, PJ1Array, Index);
+    while (Rc == 1) {
+        printf("  Found bit %lu\\n", Index);
+        J1N(Rc, PJ1Array, Index);
+    }
+
+    Word_t BytesFreed;
+    J1FA(BytesFreed, PJ1Array);
+    return 0;
+}
+.fi
+.SH SEE ALSO
+.BR Judy (3),
+.BR JudyL (3),
+.BR expanse_set (3)

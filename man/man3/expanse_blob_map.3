@@ -1,0 +1,108 @@
+.TH EXPANSE_BLOB_MAP 3 "2026-08-27" "libexpanse" "Expanse C Library Manual"
+.SH NAME
+expanse_blob_map_new, expanse_blob_map_free, expanse_blob_map_clear, \
+expanse_blob_map_insert, expanse_blob_map_remove, expanse_blob_map_get, \
+expanse_blob_map_scan_filtered, expanse_blob_map_compact, \
+expanse_blob_map_len, expanse_blob_map_mem_used, \
+expanse_blob_map_contains_key \
+\- polymorphic large-value map with inline packing and slab arena
+.SH SYNOPSIS
+.B #include <expanse.h>
+.PP
+.BI "typedef struct ExpanseBlobMap ExpanseBlobMap;"
+.PP
+.nf
+typedef struct {
+    const uint8_t *ptr;
+    size_t         len;
+    uint32_t       hot_meta;
+    bool           is_inline;
+} ExpanseBlobView;
+
+typedef bool (*expanse_predicate_fn)(uint64_t key, uint32_t hot_meta,
+                                    void *user_ctx);
+typedef bool (*expanse_scan_cb_fn)(uint64_t key, ExpanseBlobView view,
+                                   void *user_ctx);
+.fi
+.PP
+.BI "ExpanseBlobMap *expanse_blob_map_new(size_t " chunk_size ");"
+.br
+.BI "void            expanse_blob_map_free(ExpanseBlobMap *" map ");"
+.br
+.BI "void            expanse_blob_map_clear(ExpanseBlobMap *" map ");"
+.PP
+.BI "bool expanse_blob_map_insert(ExpanseBlobMap *" map ", uint64_t " key ","
+.BI "                             const uint8_t *" data ", size_t " len ","
+.BI "                             uint32_t " hot_meta ");"
+.br
+.BI "bool expanse_blob_map_remove(ExpanseBlobMap *" map ", uint64_t " key ");"
+.br
+.BI "bool expanse_blob_map_get(const ExpanseBlobMap *" map ", uint64_t " key ","
+.BI "                          ExpanseBlobView *" out_view ");"
+.br
+.BI "bool expanse_blob_map_contains_key(const ExpanseBlobMap *" map ","
+.BI "                                   uint64_t " key ");"
+.PP
+.BI "size_t expanse_blob_map_scan_filtered("
+.BI "    const ExpanseBlobMap *" map ", uint64_t " start_key ","
+.BI "    uint64_t " end_key ", expanse_predicate_fn " predicate ","
+.BI "    expanse_scan_cb_fn " callback ", void *" user_ctx ");"
+.PP
+.BI "bool     expanse_blob_map_compact(ExpanseBlobMap *" map ");"
+.br
+.BI "uint64_t expanse_blob_map_len(const ExpanseBlobMap *" map ");"
+.br
+.BI "size_t   expanse_blob_map_mem_used(const ExpanseBlobMap *" map ");"
+.PP
+Link with \fI-lexpanse\fR.
+.SH DESCRIPTION
+\fBExpanseBlobMap\fR is an ordered, polymorphic large-value map that stores
+arbitrary byte payloads indexed by 64-bit integer keys.
+.PP
+Payloads up to 7 bytes are packed directly inside the 8-byte value slot
+with zero heap allocation (\fIis_inline = true\fR). Larger payloads are
+allocated in contiguous slab arena chunks (\fIchunk_size\fR, default 64 KiB
+if 0).
+.PP
+\fBhot_meta\fR is a 32-bit user-defined metadata word stored directly inside
+the trie index nodes, enabling high-speed predicate filtering during range
+scans without touching off-trie payload memory.
+.SH VIEW INVALIDATION CONTRACT
+\fBExpanseBlobView.ptr\fR borrows directly into the map's inline slot memory
+or arena slab. It remains valid \fBONLY until the next mutation\fR of the map
+(\fIinsert\fR, \fIremove\fR, \fIclear\fR, \fIcompact\fR, or \fIfree\fR).
+Views delivered to a scan callback are valid only during that invocation.
+.SH EXAMPLES
+.nf
+#include <stdio.h>
+#include <string.h>
+#include <inttypes.h>
+#include <expanse.h>
+
+static bool print_entry(uint64_t key, ExpanseBlobView view, void *ctx) {
+    printf("Key %" PRIu64 " (len=%zu, inline=%d): %.*s\\n",
+           key, view.len, view.is_inline, (int)view.len, view.ptr);
+    return true; /* continue scan */
+}
+
+int main(void) {
+    ExpanseBlobMap *bmap = expanse_blob_map_new(0);
+
+    const char *msg = "hello expanse";
+    expanse_blob_map_insert(bmap, 100, (const uint8_t *)msg,
+                            strlen(msg), 0x01);
+
+    ExpanseBlobView view;
+    if (expanse_blob_map_get(bmap, 100, &view)) {
+        printf("Retrieved payload: %.*s\\n", (int)view.len, view.ptr);
+    }
+
+    expanse_blob_map_scan_filtered(bmap, 0, 1000, NULL, print_entry, NULL);
+
+    expanse_blob_map_free(bmap);
+    return 0;
+}
+.fi
+.SH SEE ALSO
+.BR expanse (3),
+.BR expanse_map (3)
