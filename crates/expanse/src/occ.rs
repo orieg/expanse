@@ -76,6 +76,7 @@ impl SeqVersion {
             if v % 2 == 0 {
                 return v;
             }
+            crate::occ_stats::bump(crate::occ_stats::Stat::SampleSpins);
             core::hint::spin_loop();
             #[cfg(loom)]
             loom::thread::yield_now();
@@ -291,6 +292,7 @@ impl Collector {
     /// caught up to the current epoch, then frees the bin two epochs
     /// back. Writer-side, amortized (call once per mutation batch).
     pub fn try_advance(&self) {
+        crate::occ_stats::bump(crate::occ_stats::Stat::AdvanceCalls);
         let e = self.epoch.load(Ordering::Relaxed);
         // Store-buffer pairing with `Reader::pin` (its slot store /
         // epoch load run against our epoch store / slot loads): the
@@ -310,6 +312,7 @@ impl Collector {
                 }
             }
         }
+        crate::occ_stats::bump(crate::occ_stats::Stat::AdvanceOk);
         self.epoch.store(e + 1, Ordering::Release);
         // Everything retired at epoch e - 1 predates every possible pin
         // in epochs e and e + 1: no live reader can hold it.
@@ -336,6 +339,16 @@ impl Collector {
                 free_raw(g.ptr, g.bytes, g.align);
             }
         }
+    }
+
+    /// Current epoch. Test-only observability, so `sync`'s write-batching
+    /// policy can assert how often it actually advances.
+    // Its only caller — `sync::tests` — is `#[cfg(not(miri))]`, so under
+    // Miri this is legitimately unreferenced.
+    #[cfg(test)]
+    #[cfg_attr(miri, allow(dead_code))]
+    pub(crate) fn epoch_now(&self) -> usize {
+        self.epoch.load(Ordering::Relaxed)
     }
 
     /// Frees everything still queued. Only sound once no reader can be

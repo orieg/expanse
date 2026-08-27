@@ -67,6 +67,8 @@ pub mod node;
 #[cfg(target_pointer_width = "64")]
 pub mod occ;
 #[cfg(target_pointer_width = "64")]
+pub mod occ_stats;
+#[cfg(target_pointer_width = "64")]
 pub mod set;
 #[cfg(target_pointer_width = "64")]
 pub mod slot;

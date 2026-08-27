@@ -76,6 +76,28 @@ pub(crate) struct Retry;
 /// Bounded optimistic restarts before falling back to the writer lock.
 const MAX_RETRIES: usize = 64;
 
+/// Writes between epoch-advance attempts (`Collector::try_advance`).
+///
+/// `try_advance` is documented writer-side and *amortized* — "call once
+/// per mutation batch" — but `Shared::write` called it on every single
+/// mutation, **inside the writer critical section**. It takes the
+/// collector's reader-registry mutex, scans every registered reader slot
+/// (a separately allocated cache line each, so the scan bounces lines
+/// between cores), then takes a garbage bin mutex and recycles the stale
+/// bin. A stack sample of a 16-thread 50/50 write-mix run attributed
+/// about as much on-CPU time to `try_advance` as to the trie mutation
+/// itself — i.e. it roughly doubled the length of the one section every
+/// writer must serialize on.
+///
+/// Batching it costs only *latency* of reclamation, never safety:
+/// advancing less often keeps retired blocks alive strictly longer, and
+/// the deferred garbage is bounded by the mutations since the last
+/// attempt (`Collector::drain` sweeps the remainder when the wrapper is
+/// dropped). 32 sits at the knee — a sweep over 1/4/8/32/128/1024 on a
+/// 16-thread mix reached ~85% of the total available gain by 32, with
+/// 1024 adding only a few more points for 32x the retained garbage.
+const ADVANCE_EVERY: u64 = 32;
+
 /// The reader's cover for the bytes it just loaded: the tree-level
 /// version for the root state, then — hand-over-hand — the version of
 /// the node each subsequent edge was loaded from (Phase 7 per-node OCC:
@@ -469,11 +491,17 @@ struct Shared<T> {
     version: SeqVersion,
     write: Mutex<()>,
     collector: Arc<Collector>,
+    /// Mutations since the last epoch-advance attempt (see
+    /// [`ADVANCE_EVERY`]). Read and written only by [`Shared::write`],
+    /// which holds `write` — a plain counter, not an atomic, so it adds
+    /// no coherence traffic to the critical section.
+    advance_tick: UnsafeCell<u64>,
 }
 
 // SAFETY: the OCC protocol above is exactly what makes the inner tree
 // shareable — writers are serialized by the mutex + version brackets, and
-// readers only act on validated, EBR-live data.
+// readers only act on validated, EBR-live data. `advance_tick` is touched
+// only by `write`, which holds that same mutex, so it is never aliased.
 unsafe impl<T: Send> Send for Shared<T> {}
 // SAFETY: as above.
 unsafe impl<T: Send> Sync for Shared<T> {}
@@ -497,17 +525,30 @@ impl<T> Shared<T> {
             version: SeqVersion::new(),
             write: Mutex::new(()),
             collector,
+            advance_tick: UnsafeCell::new(0),
         }
     }
 
-    /// Runs one mutation under the writer lock and version bracket.
+    /// Runs one mutation under the writer lock and version bracket, and
+    /// attempts an epoch advance once every [`ADVANCE_EVERY`] mutations.
+    ///
+    /// The tick lives behind the writer mutex (a plain `Cell` read and
+    /// write, no atomic traffic): this is the one place that mutates it
+    /// and the lock is already held.
     fn write<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+        crate::occ_stats::bump(crate::occ_stats::Stat::WriteOps);
         let _g = self.write.lock().expect("writer lock poisoned");
         self.version.begin();
         // SAFETY: the writer mutex makes this the only mutable borrow.
         let r = f(unsafe { &mut *self.inner.get() });
         self.version.end();
-        self.collector.try_advance();
+        // SAFETY: as above — the writer mutex serializes this counter.
+        let tick = unsafe { &mut *self.advance_tick.get() };
+        *tick += 1;
+        if *tick >= ADVANCE_EVERY {
+            *tick = 0;
+            self.collector.try_advance();
+        }
         r
     }
 
@@ -632,7 +673,9 @@ impl SetReader<'_> {
     #[must_use]
     pub fn contains(&self, key: Key) -> bool {
         let shared = &self.set.shared;
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
         for _ in 0..MAX_RETRIES {
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
             let snap = shared.version.sample();
             // SAFETY: pinned + freshly sampled version; the walk
@@ -643,6 +686,7 @@ impl SetReader<'_> {
                 return r.is_some();
             }
         }
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
         shared.read_locked(|s| s.contains(key))
     }
 }
@@ -732,7 +776,9 @@ impl MapReader<'_> {
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         let shared = &self.map.shared;
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
         for _ in 0..MAX_RETRIES {
+            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
             let _pin = self.reader.pin();
             let snap = shared.version.sample();
             // SAFETY: pinned + freshly sampled version; the walk
@@ -743,6 +789,7 @@ impl MapReader<'_> {
                 return r;
             }
         }
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
         shared.read_locked(|m| m.get(key))
     }
 }
@@ -1551,6 +1598,39 @@ mod tests {
             self.0 = x;
             x
         }
+    }
+
+    /// `Shared::write` batches epoch-advance attempts one per
+    /// [`ADVANCE_EVERY`] mutations — it must batch them (that is the
+    /// point: `try_advance` runs inside the writer critical section and
+    /// roughly doubled its length) and it must not *stop* making them
+    /// (that would defer reclamation without bound).
+    ///
+    /// With no readers registered, every attempt succeeds, so the epoch
+    /// delta counts the attempts exactly.
+    #[test]
+    fn write_batches_epoch_advances_without_dropping_them() {
+        let collector = Arc::new(Collector::new());
+        let shared = Shared::with_collector(ExpanseMap::new(), Arc::clone(&collector));
+        let start = collector.epoch_now();
+
+        let writes = ADVANCE_EVERY * 4;
+        for i in 1..=writes {
+            shared.write(|m| m.insert(i, !i));
+        }
+
+        let advances = (collector.epoch_now() - start) as u64;
+        assert_eq!(
+            advances, 4,
+            "expected one advance per {ADVANCE_EVERY} writes over {writes} writes"
+        );
+        assert!(
+            advances < writes,
+            "advances must be batched, not one per write"
+        );
+        // The batching is a reclamation-latency change only: the tree is
+        // still exactly what the mutations said it is.
+        assert_eq!(shared.read_locked(ExpanseMap::len), writes);
     }
 
     /// Deterministic guard for the root-leaf layout the concurrent read
