@@ -510,28 +510,30 @@ The `ExpanseMap` point-lookup range's 38.6 ns upper bound is the out-of-cache un
 
 ### 7.2 Standardized YCSB Workload Analysis ($N = 100,000$, $\theta = 0.99$, 128B Blobs)
 
-The Yahoo! Cloud Serving Benchmark evaluates engine behaviour under real-world access distributions. Throughput derived from criterion median time over 20,000 operations per iteration *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`)*:
+The Yahoo! Cloud Serving Benchmark evaluates engine behaviour under real-world access distributions. Throughput derived from criterion median time over 20,000 operations per iteration *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, run [33037221608](https://github.com/orieg/expanse/actions/runs/33037221608), ref `main` post-[#385](https://github.com/orieg/expanse/pull/385), load average 0.07; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`)*:
 
 ```
 Workload Comparison (Throughput in Mops/sec):
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 Workload             ExpanseMap (u64)    ExpanseBlobMap (128B)    BTreeMap (128B)    SkipMap (RocksDB)
 ────────────────────────────────────────────────────────────────────────────────────────────────────
-A (50% Read, 50% Update)     20.81 Mops/s         11.63 Mops/s          3.65 Mops/s        1.91 Mops/s
-B (95% Read, 5% Update)      23.40 Mops/s         19.86 Mops/s          3.78 Mops/s        2.61 Mops/s
-C (100% Read)                23.81 Mops/s         21.14 Mops/s          3.81 Mops/s        1.98 Mops/s
-D (95% Read Latest, 5% Ins)  23.20 Mops/s         21.04 Mops/s          3.67 Mops/s        1.91 Mops/s
-E (95% Range Scan, 5% Ins)   15.26 Mops/s         13.22 Mops/s          3.52 Mops/s        1.80 Mops/s
-F (50% Read, 50% RMW)        18.93 Mops/s         14.27 Mops/s          3.71 Mops/s        1.76 Mops/s
+A (50% Read, 50% Update)     20.66 Mops/s         20.38 Mops/s          4.26 Mops/s        1.90 Mops/s
+B (95% Read, 5% Update)      23.27 Mops/s         21.21 Mops/s          4.42 Mops/s        2.54 Mops/s
+C (100% Read)                23.61 Mops/s         21.26 Mops/s          4.44 Mops/s        1.98 Mops/s
+D (95% Read Latest, 5% Ins)  23.02 Mops/s         21.50 Mops/s          4.28 Mops/s        1.93 Mops/s
+E (95% Range Scan, 5% Ins)    0.830 Mops/s         0.657 Mops/s          1.289 Mops/s       0.305 Mops/s
+F (50% Read, 50% RMW)        18.82 Mops/s         14.73 Mops/s          4.35 Mops/s        1.81 Mops/s
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 ```
+
+> **Workload E is a loss.** `BTreeMap` leads `ExpanseMap` **1.55×** on range scans. The earlier 4.33× and 3.08× figures, both in Expanse's favour, were withdrawn once [#385](https://github.com/orieg/expanse/pull/385) fixed a scan bound that had every arm traversing one record per scan against a mean requested length of 54.9. The cause is structural: uniform-random 64-bit keys give ~1.43 records per leaf, so a 55-record scan pays ~27.6 leaf transitions where a B-tree walks contiguous arrays. Dense and clustered distributions yield ~322 records/leaf and do not share this behaviour — **this is a sparse-key result, not a general scan result.** Choose `BTreeMap` for scan-dominated workloads over sparse random keys.
 
 > **Per-operation latency percentiles** (p50/p95/p99/p99.9) and per-workload resident memory are measured on the reference host via the `YCSB_LATENCY_REPORT=1` path of `benches/ycsb.rs` — the full table lives in `docs/BENCHMARKING.md` §7.2. The load-bearing result for engine selection: `ExpanseMap`/`BTreeMap` hold sub-160 ns tails on every workload, whereas **`ExpanseBlobMap` spikes to ~38–41 µs at p95–p99.9 on the write-heavy mixes (A, F)** from arena slab-chunk allocation stalls — the read-mostly and read-latest mixes (B, C, D) stay ≤ 800 ns at p99.9. `SkipMap` carries the highest steady-state latency (p50 ~200–330 ns). (Those percentiles include a calibrated ~26 ns/op measurement bracket; see the BENCHMARKING caveat — tail ordering is the trustworthy signal, not the sub-100 ns absolutes.)
 
 **Key Architectural Insights for Database Engineers:**
-1. **MemTable Read-Latest Advantage (Workload D)**: `ExpanseBlobMap` achieves **~5.7× higher throughput than `BTreeMap`** (21.04 M/s vs 3.67 M/s). In write-heavy ingestion where recent records are frequently read, digital trie leaf appending avoids page-split stalls.
-2. **Advantage over RocksDB SkipMap**: `ExpanseBlobMap` outperforms `crossbeam_skiplist::SkipMap` by **~7.6× to ~11.0× across Workloads B, C, D, and F** on this 24-core host (the margin is host- and payload-dependent — the boxed-128B blob path is heavier for the skiplist here than on the earlier Apple-silicon run).
-3. **Lock-Free Concurrency Scaling**: `SyncExpanseMap` read-only scaling is near-linear under active write-churn (see §3.2). Write-mixed throughput is seqlock- and single-writer-bound and does not scale at all — it *falls* as threads are added.
+1. **MemTable Read-Latest Advantage (Workload D)**: `ExpanseBlobMap` achieves **~5.0× higher throughput than `BTreeMap`** (21.50 M/s vs 4.28 M/s). In write-heavy ingestion where recent records are frequently read, digital trie leaf appending avoids page-split stalls.
+2. **Advantage over RocksDB SkipMap**: `ExpanseBlobMap` outperforms `crossbeam_skiplist::SkipMap` by **~8.1× to ~11.1× across Workloads B, C, D, and F** on this 24-core host (the margin is host- and payload-dependent — the boxed-128B blob path is heavier for the skiplist here than on the earlier Apple-silicon run).
+3. **Lock-Free Concurrency Scaling**: `SyncExpanseMap` scales on **read-only** workloads (see §3.2). Write-mixed throughput does not scale at all — it *falls* as threads are added. The cause is the **single writer mutex**, not the seqlock: `read_fallbacks` measures 0, so readers are not being invalidated, and the bench's own coarse-lock controls (`RwLock<BTreeMap>`, `Mutex<ExpanseBlobMap>`) collapse identically. OCC makes *readers* lock-free; it was never a multi-writer design. Size a write-heavy deployment by single-writer throughput, or shard across independent maps.
 
 ### 7.3 Architectural Selection Guide
 
