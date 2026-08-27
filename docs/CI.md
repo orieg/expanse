@@ -3,7 +3,7 @@
 > Canonical CI/CD documentation for Expanse (job catalog, rollup gate, regression gating, and the org-wide engineering standards the pipeline is built on).
 > Design & Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Testing Layers: [TESTING.md](TESTING.md) · Performance Discipline: [BENCHMARKING.md](BENCHMARKING.md) · Compatibility Gates: [COMPAT.md](COMPAT.md) · Release & Packaging: [PACKAGING.md](PACKAGING.md)
 
-Expanse is a zero-allocation, high-performance, drop-in replacement for the 20-year-old C `libjudy` library, with bindings across many language ecosystems. Because Expanse relies heavily on `unsafe` Rust, lock-free concurrency, low-level bit manipulation, and precise C ABI compatibility, the CI pipeline is engineered as a multi-layered verification harness where each job enforces strict correctness, memory safety, or performance invariants.
+Expanse is a drop-in replacement for the 20-year-old C `libjudy` library, with bindings across many language ecosystems. It leans on `unsafe` Rust, lock-free concurrency, low-level bit manipulation and precise C ABI compatibility. The CI pipeline is therefore a layered verification harness: each job enforces a correctness, memory-safety, or performance invariant.
 
 ---
 
@@ -20,7 +20,7 @@ Because the ruleset requires only the rollup context, renaming a *non-gate* job 
 graph TD
     PR[Pull Request / Push] --> DC[detect-changes<br/>dorny/paths-filter]
     DC --> CORE[Core: lint, workspace tests<br/>ubuntu / macOS / windows]
-    DC --> CROSS[Cross: RV64GC, RV32IMAC, Cortex-M4,<br/>i686 32-bit, musl static]
+    DC --> CROSS[Cross: RV64GC, RV32IMAC, RV32IMAC+Zbb,<br/>ESP32-C3, Cortex-M4, i686 32-bit, musl static]
     DC --> SAFE[Safety: Miri, ASan, Loom, Fuzz smoke]
     DC --> COMPAT[Compat: stock-libjudy oracle,<br/>php-judy Linux + Windows]
     DC --> PERF[Perf: Callgrind instructions,<br/>memory-budget B/key]
@@ -41,7 +41,7 @@ graph TD
 
 ## 2. Job Catalog (rolled up by the CI Gate)
 
-`ci.yml` defines **29 jobs** — 28 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while `main` pushes and non-PR events run everything.
+`ci.yml` defines **31 jobs** — 30 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while `main` pushes and non-PR events run everything.
 
 ### Change detection
 | Job | Name | Role |
@@ -51,7 +51,7 @@ graph TD
 ### Core
 | Job | Name | Role |
 |---|---|---|
-| `lint` | Core / Linter & Formatting | `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, doc build; also runs `check_ci_gate.py`. |
+| `lint` | Core / Linter & Formatting | `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, plus three repo-consistency scripts: `bump_version.py --check` (multi-ecosystem version lockstep), `check_abi_parity.py` (C ABI symbol parity across bindings), `check_ci_gate.py` (gate completeness). |
 | `test` | Core / Workspace Tests (ubuntu / macOS / windows) | Full `cargo test --workspace` across the three host OSes (glibc, Mach-O, PE/COFF ABI). |
 
 ### Cross-compilation & 32-bit
@@ -59,6 +59,8 @@ graph TD
 |---|---|---|
 | `test-riscv64` | Cross / RV64GC Cross-Compile (Linux) | `riscv64gc-unknown-linux-gnu` build. |
 | `test-rv32` | Cross / RV32IMAC Cross-Compile (Bare-Metal) | `riscv32imac-unknown-none-elf` `#![no_std]` check. |
+| `test-rv32-zbb` | Cross / RV32IMAC + Zbb Cross-Compile (Bare-Metal) | Same target with the `Zbb` bit-manipulation extension enabled. |
+| `test-esp32c3` | Cross / ESP32-C3 Cross-Compile (Bare-Metal RV32IMC) | `riscv32imc-unknown-none-elf` `#![no_std]` check. |
 | `test-cortex-m` | Cross / ARM Cortex-M4 Cross-Compile (Bare-Metal) | `thumbv7em-none-eabihf` `#![no_std]` check. |
 | `test-i686` | Cross / i686 32-bit Test Execution (Linux) | `i686-unknown-linux-gnu` — the only host-runnable 32-bit target; runs the real 32-bit trie test suite. |
 | `test-musl` | Cross / Musl Static C ABI (Linux) | `x86_64-unknown-linux-musl` static build, zero glibc leak. |
@@ -83,7 +85,7 @@ graph TD
 |---|---|---|
 | `instruction-counts` | Perf / Callgrind Deterministic Instructions | Valgrind/Callgrind instruction counting + `scripts/perf_report.py` regression guard. |
 | `callgrind-smoke` | Perf / Callgrind Fast Smoke (Ubuntu) | Fast scaled-down (<20s) Callgrind instruction regression smoke gate ($N = 10,000$). |
-| `memory-budget` | Perf / Memory Budget Invariants | Runs `examples/bytes_per_key.rs`; fails if deterministic B/key exceeds architectural ceilings. |
+| `memory-budget` | Perf / Memory Budget Invariants | Runs `examples/bytes_per_key.rs` and `examples/bytes_per_key_32.rs`; fails if deterministic B/key exceeds architectural ceilings. |
 | `bench-baremetal` | Perf / Remote Bare-Metal Benchmarks | Triggered via `workflow_dispatch` or `/bench` / `/bench extended` / `/benchmark <suite>` PR comments (suites: `vs_stock`, `instructions`, `comparative`, `ycsb`, `concurrency`). Dual-pass baseline drift reporting, Callgrind profiling, and multi-arch / population sweeps on dedicated host (`honeycomb`). Takes the host-wide bench lock (exit 75 if held), captures a system-load snapshot into the report, derives an anonymized host description from the runner, fails fast when a Callgrind suite lacks `valgrind`/`iai-callgrind-runner`, and only prints a `Base Ref` when the base pass actually produced comparable output. |
 
 ### Bindings
@@ -107,17 +109,17 @@ graph TD
 ### Rollup gate
 | Job | Name | Role |
 |---|---|---|
-| `ci-gate` | CI Gate / All Checks Passed | Runs `if: always()`, `needs:` all 28 jobs, treats cleanly-skipped jobs as passing, and runs the completeness self-check. The **only** required branch-protection context. |
+| `ci-gate` | CI Gate / All Checks Passed | Runs `if: always()`, `needs:` all 30 other jobs, treats cleanly-skipped jobs as passing, and runs the completeness self-check. The **only** required branch-protection context. |
 
 ---
 
 ## 3. Scope-Based Fast Paths & Path Filtering
 
-To keep turnaround low for non-code and localized PRs while preserving 100% required-check coverage:
+Turnaround stays low for non-code and localized PRs without losing required-check coverage:
 
-- A single lightweight `detect-changes` job (`dorny/paths-filter@v4`) computes per-subsystem booleans. Downstream jobs declare `needs: [detect-changes]` and `if: needs.detect-changes.outputs.<subsystem> == 'true' || github.event_name != 'pull_request'`.
-- **Docs & tooling PRs** (only `docs/**`, `*.md`, `LICENSE*`, `scripts/**`, etc.): heavy Rust jobs detect no crate diff and exit `0`; `fuzz-smoke` skips libFuzzer execution unless `crates/`/`fuzz/` changed; `instruction-counts` only runs Callgrind if `crates/` or `scripts/perf_report.py` changed.
-- **`lint` always runs** (markdown hygiene + formatting on every PR).
+- A single lightweight `detect-changes` job (`dorny/paths-filter@v4`) computes eleven per-subsystem booleans: `rust`, `python`, `node`, `dotnet`, `java`, `docs`, `ruby`, `php`, `wasm`, `go`, `integrations`. Downstream jobs declare `needs: [detect-changes]` and `if: needs.detect-changes.outputs.<subsystem> == 'true' || github.event_name != 'pull_request'`.
+- The `rust` filter is deliberately wide — `crates/**`, `include/**`, `integrations/**`, `tests/cpp/**`, `fuzz/**`, `scripts/**`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain*`, and `ci.yml`/`nightly.yml` themselves. A scripts-only or workflow-only PR therefore runs the whole Rust matrix, `lint` / `miri` / `instruction-counts` included.
+- A PR touching only `docs/**`, `*.md` or `website/**` matches no Rust job and skips the Rust matrix entirely.
 - The `CI Gate / All Checks Passed` rollup satisfies branch protection once its dependencies conclude (skipped jobs count as passing), so PRs never deadlock in "Pending" behind a filtered-out check.
 
 ---
@@ -149,16 +151,20 @@ An intentional trade-off (safety hardening, new feature, metadata tagging) is ap
 - Add a literal `allow-regression: <reason>` line to the PR body — the colon and a nonempty reason on the same line — plus a **Performance Trade-off Disclosure** section (regressed metric + load-bearing rationale + net win). `perf_report.py` accepts **only** this strict form: a bare `allow-regression` substring, `perf-override: approved`, or a quoted copy of the policy text approves nothing. CI records the override in the step summary and allows the PR.
 
 ### 4.5 Memory density assertions (deterministic)
-`memory-budget` runs `examples/bytes_per_key.rs`: total heap bytes ÷ key count against strict per-distribution ceilings. These are deterministic allocator-accounting numbers (unaffected by machine load), so unlike timing tables they can hard-gate a build. Raise a ceiling only deliberately, updating the `BENCHMARKING.md` row in the same commit.
+`memory-budget` runs `examples/bytes_per_key.rs` and `examples/bytes_per_key_32.rs`: total heap bytes ÷ key count against strict per-distribution ceilings. These are deterministic allocator-accounting numbers, unaffected by machine load, so unlike timing tables they can hard-gate a build. Raise a ceiling only deliberately, updating the `BENCHMARKING.md` row in the same commit.
 
 ### 4.6 Concurrency scaling-ratio guard (nightly, warn-only)
-The instruction gates above are single-threaded and deterministic by design; they cannot catch a change that serializes concurrent readers or silently degrades a lock-free path to the mutex fallback (Callgrind serializes threads; raw wall-clock ops/s is too noisy to threshold tightly). The nightly `bench-report` job therefore runs `benches/concurrency.rs` (all `Sync*` types + baselines, reduced sweep via `EXPANSE_BENCH_THREADS` / `EXPANSE_BENCH_WORKLOADS`) and gates on **scaling ratios** — total ops/s at max threads ÷ 1 thread per (engine, workload) — via `scripts/bench_concurrency_check.py` against the previous nightly's `concurrency-baseline` artifact (the same upload/download round-trip as the `bindings-baseline`). Ratios are robust to host-load drift, so a generous 30% relative-drop threshold flags real scaling collapses while tolerating scheduler noise. Currently **warn-only** (no `--fail-on-regression`); promotion to failing is gated on the baseline staying quiet across several consecutive unmodified nightlies (#360). `/benchmark concurrency` runs the same instrument report-only on the bare-metal host. See `docs/BENCHMARKING.md` §2–3 for the suite and knob details.
+The instruction gates above are single-threaded and deterministic by design. They cannot catch a change that serializes concurrent readers or silently degrades a lock-free path to the mutex fallback: Callgrind serializes threads, and raw wall-clock ops/s is too noisy to threshold tightly.
+
+The nightly `bench-report` job therefore runs `benches/concurrency.rs` — all `Sync*` types plus baselines, on a reduced sweep via `EXPANSE_BENCH_THREADS` / `EXPANSE_BENCH_WORKLOADS`. It gates on **scaling ratios**: total ops/s at max threads ÷ 1 thread, per (engine, workload). `scripts/bench_concurrency_check.py` compares those against the previous nightly's `concurrency-baseline` artifact, using the same upload/download round-trip as the `bindings-baseline`.
+
+Ratios are robust to host-load drift, so a generous 30% relative-drop threshold flags real scaling collapses while tolerating scheduler noise. The gate is **warn-only** today (no `--fail-on-regression`); promotion to failing is gated on the baseline staying quiet across several consecutive unmodified nightlies ([#360](https://github.com/orieg/expanse/issues/360)). `/benchmark concurrency` runs the same instrument report-only on the bare-metal host. Suite and knob details: `docs/BENCHMARKING.md` §2–3.
 
 ---
 
 ## 5. Tiered Miri & Undefined-Behavior Prevention
 
-- **Tier 1 (per-PR, `ci.yml`)**: `miri` runs a fast smoke over the unsafe core (`cargo +nightly miri test --lib`, skipping heavy op-sequence tests covered by proptest/fuzzing, and short-circuiting on non-Rust diffs). Catches Stacked/Tree Borrows and provenance violations before merge.
+- **Tier 1 (per-PR, `ci.yml`)**: `miri` runs `cargo miri test -p expanse-trie --lib` over an explicit filter list — `leaf`, `node`, `slot`, `alloc`, `bits`, `types`, plus the `blobmap`/`strmap`/`bytesmap` deferred-dispose round trips. Heavy op-sequence tests are left to proptest and fuzzing. The job skips on non-Rust diffs (§3). Catches Stacked/Tree Borrows and provenance violations before merge.
 - **Tier 2 (merge gate)**: `ci-gate` requires Tier 1 Miri to pass before a PR is mergeable.
 - **Tier 3 (nightly, `nightly.yml`)**: the full un-skipped Miri suite across all crate targets, including long-running randomized model sweeps (`proptest_model.rs`). Failures open/update a deduplicated GitHub issue; recovery auto-closes it (see §8).
 
@@ -168,7 +174,7 @@ The instruction gates above are single-threaded and deterministic by design; the
 
 - **Sanitizer matrix (ASan/UBSan/TSan)**: `test-asan` covers the Rust core; `test-rocksdb-memtable` runs `sanitizer: [none, asan-ubsan, tsan]` over the C++ `ExpanseMemTableRep` (TSan catches races in atomic sibling-leaf pointers and the lock-free reader path; TSan excluded on macOS).
 - **Differential oracles**: `differential-oracle` runs identical operation sequences through `libexpanse` and stock C `libjudy`; the RocksDB integration adds a differential memtable test asserting byte-for-byte state equality against reference structures.
-- **Concurrency models**: `loom` (`--cfg loom`) model-checks atomic seqlock ordering, 2-epoch EBR retirement invariants, and branch-node promotion retry safety; a multi-threaded history recorder (`tests/linearizability.rs`) validates OCC linearizability.
+- **Concurrency models**: `loom` (`--cfg loom`) model-checks the two `occ` protocol primitives — seqlock version ordering and EBR pin/advance retirement (a retirement waits 2 epoch advances). It does **not** model a branch split; the `sync` read path as a whole is not loom-checkable (TESTING.md, layer 6). A multi-threaded history recorder (`tests/linearizability.rs`) validates OCC linearizability.
 
 ---
 
@@ -214,8 +220,8 @@ Nightly workflows run out of band with no human watching PR checks, so failures 
 
 - **Continuous flamegraph artifacts** — publish differential SVG flamegraphs on regression.
 - **AArch64 / NEON runner matrix** — extend Callgrind tracking to Graviton / Apple Silicon.
-- **Dedicated bare-metal benchmark runner** — quiet host for nanosecond wall-clock latency alongside instruction counts.
 - **Automated corpus cache sync** — promote high-coverage nightly fuzz corpora into PR smoke checks.
+- **Failing concurrency scaling gate** — promote the nightly warn-only ratio guard (§4.6) to blocking once the baseline stays quiet ([#360](https://github.com/orieg/expanse/issues/360)).
 
 ---
 
