@@ -441,44 +441,78 @@ The arms overlap; the pre-change branch produced both the worst and the best ran
 
 Method note: attribution is done inside a single process, so co-resident load shifts *how many* samples land, not *where* they land. A/B wall-clock ratios do not share that property and stay deferred (rule 2).
 
-### Concurrent read scaling (`SyncExpanseStrMap` / `SyncExpanseBytesMap`; word-key arms retracted)
+### Concurrent read scaling (`benches/concurrency.rs`, all `Sync*` arms)
 
-> **Retraction (2026-08-26, [#372](https://github.com/orieg/expanse/issues/372)).**
-> The previously published `SyncExpanseMap` read-scaling numbers — the
-> idle/churn table from `examples/concurrent_scaling.rs` (22.6 M → 145.1 M
-> reads/s at 1→8 readers) and the "265.8 M ops/s / 12.0× at 16 threads"
-> headline from `benches/concurrency.rs` — are **retracted**. Both word-key
-> harness arms probe unbounded random `u64` keys against a 1 M-key structure
-> (hit rate ≈ 5×10⁻¹⁴), so those figures measured ~100%-miss descent walks,
-> not useful lookups. The bounded-keyspace fix already used by the same
-> file's blob/str/bytes arms (~50% hits) is tracked for the map/set arms in
-> [#375](https://github.com/orieg/expanse/issues/375); map/set scaling will
-> be re-measured via `/benchmark concurrency` after it lands.
+*(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu
+22.04 / kernel 6.8, run
+[33030152085](https://github.com/orieg/expanse/actions/runs/33030152085), ref
+`main` @ `5fb03aa3`; `EXPANSE_BENCH_THREADS="1,4,16"`,
+`EXPANSE_BENCH_WORKLOADS="100,50"`, 500 ms windows, load average 0.00 at start)*
 
-The string/bytes arms of `benches/concurrency.rs` use bounded ~50%-hit
-keyspaces and payload-dereferencing reads, so they are valid and stand as the
-honest read-scaling measurement *(measured: reference host — Intel i9-12900F,
-24 threads, 30 MiB L3, run [33016450539](https://github.com/orieg/expanse/actions/runs/33016450539), commit `698bf70c`; `benches/concurrency.rs`, 100%-read arms, dual-pass)*:
+Every arm now uses a bounded keyspace (`2 × POP`, ~50% hit rate) after
+[#375](https://github.com/orieg/expanse/issues/375); the previously retracted
+word-key figures probed unbounded random `u64` keys (hit rate ≈ 5×10⁻¹⁴) and
+measured ~100%-miss descent walks. The corrected map/set arms measure **higher**,
+not lower — a dense bounded keyspace builds a compact, cache-resident trie,
+whereas the old sparse full-`u64` probes chased cold branches to a miss.
 
-| arm (100% read) | 1 thread | 4 threads | 16 threads | scale @ 16T |
+**100% read:**
+
+| arm | 1 thread | 4 threads | 16 threads | scale @ 16T |
 |---|---:|---:|---:|---:|
-| `SyncExpanseStrMap` | 7.04 M ops/s | 26.8 M ops/s | **82.7 M ops/s** | **11.76×** |
-| `SyncExpanseBytesMap` | 11.73 M ops/s | 42.3 M ops/s | **135.1 M ops/s** | **11.52×** |
-| `Mutex<ExpanseStrMap>` baseline | 9.16 M ops/s | 5.9 M ops/s | 3.1 M ops/s | 0.34× |
-| `Mutex<ExpanseBytesMap>` baseline | 12.37 M ops/s | 5.7 M ops/s | 3.7 M ops/s | 0.30× |
+| `SyncExpanseSet` | 77.5 M ops/s | 295.2 M | **884.5 M ops/s** | **11.42×** |
+| `SyncExpanseMap` | 37.2 M | 138.9 M | **424.1 M ops/s** | **11.40×** |
+| `SyncExpanseBlobMap` | 31.4 M | 120.5 M | **332.4 M** | **10.60×** |
+| `SyncExpanseBytesMap` | 11.7 M | 40.9 M | **133.8 M** | **11.48×** |
+| `SyncExpanseStrMap` | 7.0 M | 26.6 M | **82.9 M** | **11.84×** |
+| `DashMap<Vec<u8>, u64>` | 15.6 M | 50.4 M | 132.1 M | 8.47× |
+| `SkipMap<u64, Vec<u8>>` | 3.4 M | 13.1 M | 38.3 M | 11.13× |
+| `RwLock<BTreeMap<u64, …>>` | 10.6 M | 20.0 M | 18.6 M | 1.75× |
+| `Mutex<ExpanseBlobMap>` | 40.0 M | 10.4 M | 5.6 M | 0.14× |
+| `Mutex<ExpanseBytesMap>` | 12.2 M | 6.0 M | 3.5 M | 0.29× |
+| `Mutex<ExpanseStrMap>` | 9.2 M | 5.7 M | 4.1 M | 0.45× |
 
-**Read-only OCC scaling on hit-bearing workloads is near-linear (11.5–11.8×
-at 16 threads)** while the coarse-mutex baselines collapse below their own
-single-thread throughput (0.30–0.34×). On the write-mixed side the
-architectural picture is unchanged: a single tree-level seqlock still
-brackets whole operations for the root snapshot, so under an active writer
-the version changes faster than a walk completes and a fraction of readers
-retry or fall back to the mutex; the per-node version refinement (writers
-bracket each node's in-place mutations; readers validate hand-over-hand) is
-the next refinement target (`docs/ARCHITECTURE.md` §6). Quantified
-write-churn scaling awaits the #375 re-measurement. Single-threaded trees
-skip the version brackets entirely (`NodeAlloc::occ_enabled`), so the
-classic engine pays nothing.
+Reproducibility: the string/bytes arms measured 82.7 M / 11.76× and 135.1 M /
+11.52× in the independent earlier run
+[33016450539](https://github.com/orieg/expanse/actions/runs/33016450539)
+(commit `698bf70c`) — within ~1% of this run's 82.9 M / 133.8 M.
+
+**50% read / 50% write (read ops/s; the honest worst case):**
+
+| arm | 1 thread | 4 threads | 16 threads | scale @ 16T |
+|---|---:|---:|---:|---:|
+| `DashMap<Vec<u8>, u64>` | 5.6 M | 17.3 M | **44.5 M** | **7.93×** |
+| `SkipMap<u64, Vec<u8>>` | 1.1 M | 3.4 M | 7.7 M | 6.94× |
+| `SyncExpanseStrMap` | 3.1 M | 2.6 M | 1.7 M | 0.55× |
+| `SyncExpanseBlobMap` | 7.3 M | 3.1 M | 2.1 M | 0.28× |
+| `SyncExpanseMap` | 10.9 M | 3.0 M | 2.0 M | 0.19× |
+| `SyncExpanseBytesMap` | 3.1 M | 2.0 M | 0.5 M | 0.17× |
+| `SyncExpanseSet` | 16.6 M | 3.3 M | 2.1 M | 0.12× |
+| `RwLock<BTreeMap<u64, …>>` | 4.2 M | 2.1 M | 1.5 M | 0.34× |
+
+**The architectural trade-off, stated plainly.** Under a 50/50 mix every
+single-writer arm *loses throughput as threads are added* (0.12×–0.55×): writes
+serialize on the wrapper mutex and each one invalidates concurrent readers'
+snapshots, so added threads mostly contend and retry. Sharded/lock-free-write
+structures win this regime outright — `DashMap` scales 7.93× and `SkipMap`
+6.94×, both far above every Expanse arm. The Expanse design targets read-mostly
+workloads: at 100% read it leads `DashMap` in both absolute throughput (884.5 M
+`SyncExpanseSet`, 424.1 M `SyncExpanseMap`, 133.8 M `SyncExpanseBytesMap` vs
+132.1 M) and scaling (10.6×–11.8× vs 8.47×), while retaining ordered iteration
+and range/rank queries that a sharded hash map cannot serve. Multi-writer
+support (sharding or per-node write locks) is the standing follow-up.
+
+**Mechanism.** Read-only scaling is near-linear (10.6×–11.8× at 16 threads)
+while the coarse-mutex baselines collapse below their own single-thread
+throughput (0.14×–0.45×). The write-mixed collapse above has a single cause: a
+tree-level seqlock brackets whole operations for the root snapshot, so under an
+active writer the version changes faster than a walk completes and readers retry
+or fall back to the mutex. The per-node version refinement (writers bracket each
+node's in-place mutations; readers validate hand-over-hand) already keeps churn
+in the millions rather than collapsing to zero, but closing the write-mixed gap
+needs multi-writer support, not just finer validation (`docs/ARCHITECTURE.md`
+§6). Single-threaded trees skip the version brackets entirely
+(`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
 
 ### vs stdlib & 3rd-party collections (measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/compare.rs` + `benches/comparative.rs`, criterion medians)
 
@@ -885,18 +919,28 @@ The Yahoo! Cloud Serving Benchmark (YCSB) standardizes real-world database engin
 
 ### 2. Measured Comparative Results (`N = 100,000`, `θ = 0.99`, 128B Blobs)
 
-*(Measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`, throughput = 20,000 ops ÷ criterion median)*
+*(Measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, run [33029134435](https://github.com/orieg/expanse/actions/runs/33029134435), ref `a59bb1f7` (merged as `7b9a711e`); `benches/ycsb.rs`, seed `0x1234_5678_9ABC`, criterion median throughput)*
 
 Throughput (Mops/s) per workload × engine:
 
 | Workload | `ExpanseMap (u64)` | `ExpanseBlobMap (128B)` | `BTreeMap (128B)` | `SkipMap (128B)` (RocksDB) |
 |---|---:|---:|---:|---:|
-| **A** (50R / 50U) | **20.81** | **11.63** | 3.65 | 1.91 |
-| **B** (95R / 5U) | **23.40** | **19.86** | 3.78 | 2.61 |
-| **C** (100% Read) | **23.81** | **21.14** | 3.81 | 1.98 |
-| **D** (95R-Latest / 5I) | **23.20** | **21.04** | 3.67 | 1.91 |
-| **E** (95% Scan / 5I) | **15.26** | **13.22** | 3.52 | 1.80 |
-| **F** (50R / 50 RMW) | **18.93** | **14.27** | 3.71 | 1.76 |
+| **A** (50R / 50U) | **20.73** | **20.30** | 4.23 | 1.92 |
+| **B** (95R / 5U) | **23.47** | **21.12** | 4.39 | 2.59 |
+| **C** (100% Read) | **23.91** | **21.26** | 4.45 | 1.98 |
+| **D** (95R-Latest / 5I) | **23.11** | **21.36** | 4.27 | 1.92 |
+| **E** (95% Scan / 5I) | **12.70** | **12.20** | 4.12 | 1.81 |
+| **F** (50R / 50 RMW) | **18.89** | **14.65** | 4.34 | 1.74 |
+
+> **Workload E correction ([#375](https://github.com/orieg/expanse/issues/375)).**
+> The previously published E row (`ExpanseMap` 15.26 / `BTreeMap` 3.52 → a
+> claimed 4.33× advantage) gave the `ExpanseMap` arm an asymmetric scan
+> predicate that passed ~100% of entries while every baseline filtered ~50%,
+> so it traversed roughly half the work per scan. With all four arms on one
+> key-parity predicate the honest E advantage over `BTreeMap` is **3.08×**
+> — real, but ~40% smaller than the retracted figure. The other rows moved
+> only with the commit/toolchain refresh (`ExpanseBlobMap` A gained from the
+> [#357](https://github.com/orieg/expanse/issues/357) `scan_filtered` fix).
 
 #### Per-operation latency percentiles *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit `43b46f38`; `benches/ycsb.rs` run with `YCSB_LATENCY_REPORT=1`, seed `0x1234_5678_9ABC`, 200,000 recorded ops/workload)*
 
@@ -937,18 +981,25 @@ The criterion groups above time whole op batches (`record_latencies = false`). T
 
 ### 3. Concurrent scaling under write churn: `SyncExpanseMap`
 
-> **Retracted (2026-08-26, [#372](https://github.com/orieg/expanse/issues/372)) — pending re-measurement.**
-> A 95%-read / 5%-write `SyncExpanseMap` scaling table previously published
-> here (19.63 → 35.62 → 28.84 Mops/s across 1→4→16 threads, peak ~4 threads)
-> came from the same `benches/concurrency.rs` word-key arms whose reads probe
-> unbounded random `u64` keys (~100% miss) — see the retraction in the
-> concurrent-read-scaling section above. The qualitative claim that
-> write-mixed throughput is bound by the tree-level seqlock is an
-> architectural statement, not a measured curve; honest write-mixed numbers
-> for the map/set arms will come from `/benchmark concurrency` after the
-> bounded-keyspace fix ([#375](https://github.com/orieg/expanse/issues/375))
-> lands. The str/bytes arms' valid 100%-read scaling (11.5–11.8× at 16
-> threads, run 33016450539, commit `698bf70c`) is tabulated in that section.
+The retracted 95%-read / 5%-write `SyncExpanseMap` table (19.63 → 35.62 →
+28.84 Mops/s across 1→4→16 threads, "peak at ~4 threads") came from the
+word-key arms that probed ~100%-miss unbounded `u64` keys. It is replaced by
+the measured **50/50 read/write** rows in the concurrent-read-scaling section
+above (run
+[33030152085](https://github.com/orieg/expanse/actions/runs/33030152085)) —
+the bare-metal sweep runs `EXPANSE_BENCH_WORKLOADS="100,50"`, so 95/5 is not
+currently a published cell; the env knob accepts it for local runs.
+
+The measured picture is harsher than the retracted one and worth stating
+directly: under a 50/50 mix `SyncExpanseMap` goes 10.9 M → 3.0 M → 2.0 M
+read-ops/s across 1→4→16 threads (**0.19×** — throughput *falls* as threads are
+added, no peak at 4), and every other single-writer arm behaves the same way
+(0.12×–0.55×). Writes serialize on the wrapper mutex and invalidate concurrent
+readers' snapshots, so added threads mostly contend and retry. `DashMap`
+(7.93×) and `SkipMap` (6.94×) scale in this regime because they admit
+concurrent writers; the single-writer OCC design does not, and no amount of
+validation refinement changes that — multi-writer support is the standing
+follow-up (`docs/ARCHITECTURE.md` §6).
 
 **Architectural Takeaways (measured, reference host):**
 1. **`ExpanseBlobMap` vs RocksDB `SkipMap`**: **~7.6×–11.0× higher throughput** across Workloads B, C, D, F on this host (host- and payload-dependent — the boxed-blob path is heavier for the skiplist here than on the earlier Apple-silicon run).
