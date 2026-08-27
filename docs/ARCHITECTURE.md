@@ -1,6 +1,6 @@
 # Expanse Architecture
 
-> Canonical design doc. Compat contract: [COMPAT.md](COMPAT.md) · Testing: [TESTING.md](TESTING.md) · Benchmarks: [BENCHMARKING.md](BENCHMARKING.md) · Database Engines: [DATABASE.md](DATABASE.md) · 32-Bit & Embedded: [design/32-bit-embedded.md](design/32-bit-embedded.md) · Large Values: [design/large-values.md](design/large-values.md)
+> Canonical design doc. Bit-level encoding reference: [§10](#10-bit-level-encoding-reference) · Compat contract: [COMPAT.md](COMPAT.md) · Testing: [TESTING.md](TESTING.md) · Benchmarks: [BENCHMARKING.md](BENCHMARKING.md) · Database Engines: [DATABASE.md](DATABASE.md) · 32-Bit & Embedded: [design/32-bit-embedded.md](design/32-bit-embedded.md) · Large Values: [design/large-values.md](design/large-values.md)
 
 Expanse is a clean-room reimplementation of the Judy array family (Judy1 bit set, JudyL word→word map, JudySL string→word map), redesigned for 2026 hardware and named for Judy's defining idea: partitioning keys by *expanse* rather than by population. Derived from published algorithm descriptions only; no libjudy source consulted (see COMPAT.md for the clean-room rules).
 
@@ -55,6 +55,8 @@ and the remaining high bytes hold the narrow-pointer decode bytes — the two
 never overlap, and no branch header needs a wide population field.
 Implemented in `crates/expanse/src/node.rs`.
 
+Byte-exact field positions, per-tag word-0 contents, and why the pointer is stored unmasked are in [§10.1](#101-edge--the-16-byte-tagged-descriptor-64-bit-targets).
+
 Tag encoding (implemented in `crates/expanse/src/types.rs`):
 
 - Structural tags `0x00..=0x0C`, `0x7F`: null, 4 branch flavors, linear leaves for 1–7 remaining bytes, bitmap leaf, full expanse.
@@ -83,9 +85,13 @@ Geometry note: the naive "8 B header + 4 edges" one-line branch is arithmeticall
 - **LinearLeaf1..7**: header-less variable-length allocations — population lives in the parent edge's `pop0`, so a leaf is nothing but payload (as in the original). Set flavor: `[keys: L×pop]`; map flavor: `[values: u64×pop][keys: L×pop]` in one 64-aligned allocation (values first = free 8-alignment). Search is a linear scan; whether SIMD or binary search earns its complexity is a benchmark question, not a settled one.
 - **LeafBitmap1** (level 1, 64 B): 32-byte bitmask + OCC version (set flavor). **LeafBitmapL** (128 B): bitmask + 8 value-subarray pointers addressed by popcount rank + OCC version (map flavor).
 
-### 3.4 Tagged pointers (read-optimized paths)
+The per-width immediate capacity tables, the bitmap rank/select addressing, and the `ValueSlot` encodings are in [§10.4](#104-immediate-capacity)–[§10.6](#106-bitmap-structures).
 
-x86-64/AArch64/RISC-V 64-bit user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3 bits. A compact 8-byte edge variant packs `[type:16][address:45][level:3]` for read-dominated structures and for caching branch metadata without extra line fills. Must stay behind an abstraction that also supports full 16-byte edges (LAM/TBI/Sv57 and 57-bit VA systems change the free-bit budget — feature-detected, never assumed).
+### 3.4 Tagged pointers (read-optimized paths) — *design note, not shipped*
+
+> **Nothing in this subsection is implemented.** The shipped 64-bit `Edge` is the full 16-byte descriptor of §3.1, whose word 0 holds the raw untruncated pointer with zero bit-stealing ([§10.1](#why-word-0-is-stored-unmasked-gated)). Do not cite this subsection as a description of the current representation.
+
+x86-64/AArch64/RISC-V 64-bit user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3 bits. A compact 8-byte edge variant would pack `[type:16][address:45][level:3]` for read-dominated structures and for caching branch metadata without extra line fills. It would have to stay behind an abstraction that also supports full 16-byte edges (LAM/TBI/Sv57 and 57-bit VA systems change the free-bit budget — feature-detected, never assumed).
 
 ## 4. Algorithms
 
@@ -202,7 +208,7 @@ Key Type:  u64 (8 Bytes)                                 u32 (4 Bytes)
 Tree Depth:8 Levels (L8 -> L1)                           4 Levels (L4 -> L1, 48% lower latency)
 Edge Size: 16 Bytes                                      8 Bytes (-50% Structural RAM)
 Cache Line:64 Bytes / 128 Bytes                          32 Bytes (Cortex-M7, ESP32) / Flat SRAM
-Value Slot:64-bit (<=7B Inline, 32B Meta)                32-bit (<=3B Inline, 16B Meta)
+Value Slot:64-bit (<=7B inline, 24-bit meta)              32-bit (<=3B inline, 12-bit meta)
 Atomics:   AtomicU64 SeqVersion                          AtomicU32 SeqVersion32 (Native RV32A)
 Max Heap:  Exabytes (Virtual Addressing)                 64 KiB - 16 MiB (Physical SRAM)
 ```
@@ -217,12 +223,12 @@ offset 7: tag        1 B   edge type discriminant tag
 **32-byte microcontroller cache-line alignment.** Embedded cores like ARM Cortex-M7 and ESP32 MMU caches feature **32-byte cache lines**:
 - **`BranchL2_32`**: 8B Header + 2B Digits + 6B Pad + 16B Child Edges = **32 Bytes** (exactly 1 cache line).
 - **`BranchL6_32`**: 8B Header + 6B Digits + 2B Pad + 48B Child Edges = **64 Bytes** (exactly 2 cache lines).
-- **`LeafBitmap1_32`**: 32B 256-bit bitmask + 4B pop0/header = **36 Bytes** with 32B alignment.
+- **`LeafBitmap1_32`**: 32B 256-bit bitmask + 4B pop0/level/pad = 36 declared bytes, which `#[repr(C, align(32))]` rounds to **64 bytes** — the figure the engine's own accounting and its bitmap-leaf conversion threshold use ([§10.6](#106-bitmap-structures)).
 
 ### 8.2 Polymorphic 32-Bit Value Slots (`ValueSlot32`)
 
 - **Inline Mode ($\le 3\text{ B}$)**: Direct in-slot storage with zero heap allocation.
-- **Arena Mode**: 16-bit hot metadata (TTL, flags) + 12-bit slab offset (up to 4096 entries per chunk).
+- **Arena Mode**: 12-bit hot metadata (TTL, flags) + 12-bit slab offset (up to 4096 entries per chunk) + the 8-bit tag — 12 + 12 + 8 = 32 bits exactly ([§10.5](#105-valueslot--the-8-byte-polymorphic-value-word)).
 - **Raw Word Mode (`0xFF`)**: Drop-in 32-bit `JudyL` C ABI compatibility (`uint32_t`).
 
 For complete struct definitions, bit layouts, cache models, and implementation phase gates, see [design/32-bit-embedded.md](design/32-bit-embedded.md).
@@ -256,4 +262,367 @@ Expanse functions transparently on 48-bit legacy systems, 52-bit ARM64, and 57-b
 
 > **Primary-source citation.** The 57-bit VA / LA57 assumption is validated against the Intel SDM in [`docs/HARDWARE.md` §1.6](HARDWARE.md#16-la57--5-level-paging--57-bit-va--validated-intel-side); the ARM64 52-bit LVA and low-bit alignment guarantees are covered in [`docs/HARDWARE.md` §2](HARDWARE.md#2-aarch64-arm--apple-silicon).
 
+---
 
+## 10. Bit-level encoding reference
+
+§2–3 give node *geometry* and [ALGORITHMS.md](ALGORITHMS.md) gives descent *flow*. This section is the layer between them: the exact bit and byte encoding of every tagged word the engine reads or writes. It exists because that layer previously lived only in scattered doc comments, and external writing repeatedly restated it wrongly (see §10.9).
+
+**Every number below is derived from the compiled source, not from prose.** The pinned-constant table in §10.8, the tag tables in §10.3, the capacity tables in §10.4 and the behavioural claims flagged *(gated)* are asserted against the compiled crate by `crates/expanse/tests/test_encoding_reference_sync.rs`. A layout change fails that test instead of silently invalidating this text. Do not hand-edit a gated value; change the source and re-run the test, which prints the expected value.
+
+Citations are `path:line` at the commit this section was written against. The gate checks that each cited file and line still exists and still mentions the symbol; a `path:line` that has merely drifted will fail the test with the symbol it was looking for.
+
+### 10.1 `Edge` — the 16-byte tagged descriptor (64-bit targets)
+
+```
+byte  0 ..  7   word 0   child-node pointer, or immediate payload
+byte  8 .. 14   aux      7 B, level-split: low L bytes pop0, high bytes decode
+byte 15         tag      1 B type tag
+```
+
+Declared at `crates/expanse/src/node.rs:62`; `size_of` = 16, `align_of` = 8, `aux` at offset 8, `tag` at offset 15, all const-asserted at `crates/expanse/src/node.rs:556`–`559`.
+
+**Word 0 is a `union`** (`crates/expanse/src/node.rs:47`) of `*mut u8` and `[u8; 8]`. What it carries depends on the tag class:
+
+| Tag class | Word 0 holds |
+|---|---|
+| `Null` | zero (`Edge::NULL`, `crates/expanse/src/node.rs:82`) |
+| Branch / linear-leaf / bitmap-leaf tags | the raw child-node pointer (`Edge::new_node`, `crates/expanse/src/node.rs:91`) |
+| `FullExpanse` | unused — the tag alone states that the whole subexpanse is present |
+| Set immediate | the first 8 of up to 15 packed key-remainder bytes (`Edge::imm_payload`, `crates/expanse/src/node.rs:194`) |
+| Map immediate, 1 key | the value word (`Edge::new_immed_single_map`, `crates/expanse/src/node.rs:115`) |
+| Map immediate, ≥ 2 keys | a pointer to a heap value array of `8 × cap_class(n)` bytes (`crates/expanse/src/mutate_map.rs:86`, sized by `map_immed_val_size`, `crates/expanse/src/mutate_map.rs:33`) |
+
+**Word 1 is the aux/tag word.** `Edge::aux_word` (`crates/expanse/src/node.rs:247`) reads `aux[0..7]` plus the tag byte as one little-endian `u64`: `aux[0]` is the low byte, the tag is the high byte. The little-endian requirement is const-asserted at `crates/expanse/src/node.rs:563`.
+
+The 7 aux bytes are **level-split** for a pointer-carrying edge whose child sits at level `L` (1..=7):
+
+- low `L` bytes: `pop0`, the subtree population minus one. A level-`L` subtree holds at most `256^L` keys, so `L` bytes always suffice. Masked by `POP0_MASKS` (`crates/expanse/src/node.rs:69`), read by `Edge::pop0` (`crates/expanse/src/node.rs:226`) and written by `Edge::set_pop0` (`crates/expanse/src/node.rs:266`) as a masked read-modify-write of the same word, so the decode bytes and the tag survive.
+- high `7 - L` bytes: the narrow-pointer *decode* bytes naming the digits this edge skips. `Edge::decode_bytes` (`crates/expanse/src/node.rs:281`) returns `&self.aux[L..]`.
+
+The two regions never overlap. That is why no branch header carries a wide population field, and why level-8 slots can never skip: at `L = 8` there are no aux bytes left over for decode digits.
+
+For **immediate** edges the aux bytes are key or value storage instead, and there is no `pop0` (the tag's key count *is* the population). See §10.4.
+
+#### Why word 0 is stored unmasked *(gated)*
+
+Word 0 holds the full, untruncated 64-bit pointer. No bit of it is stolen for metadata — the tag has its own byte, and the population and decode fields have their own word. `Edge::node_ptr` (`crates/expanse/src/node.rs:163`) reads the union member and returns it with no masking, shifting or sign-extension.
+
+This is the deliberate opposite of the classic 48-bit-virtual-address assumption, and it is what keeps the representation correct on 57-bit x86-64 (LA57 / PML5) and 52-bit ARM64 (LVA) hardware, where a heap pointer can legitimately use bits above 47. §9 gives the hardware background and the primary-source citations.
+
+Two things are commonly confused with this and are **not** shipped:
+
+- The compact 8-byte edge variant sketched in §3.4 (`[type:16][address:45][level:3]`) is a **design note, not implemented**. No type in `crates/expanse/src/` packs an address into a bitfield on a 64-bit target.
+- `Edge32` (§10.2) *is* 8 bytes, but that is the 32-bit-target descriptor, and even there word 0 is a whole 32-bit word — an arena handle in the shipped engine — not a packed address field.
+
+The gate asserts the round trip directly: an `Edge::new_node` built over a pointer value with every bit above 47 set returns bit-identical from `node_ptr()`, and the tag byte is unaffected.
+
+### 10.2 `Edge32` — the 8-byte descriptor (32-bit targets)
+
+```
+byte 0 .. 3   word 0   child handle / pointer, or immediate payload
+byte 4 .. 6   aux      3 B, decode digits / population / more payload
+byte 7        tag      1 B tag discriminant
+```
+
+Declared at `crates/expanse/src/types32.rs:128`; `size_of` = 8, `align_of` = 4, const-asserted at `crates/expanse/src/types32.rs:137`–`138`. `trie32`/`set32`/`map32`/`blobmap32` compile unconditionally on every target; on a 32-bit target the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, and so on, `crates/expanse/src/lib.rs:107`–`116`).
+
+Three divergences from the 64-bit `Edge` matter:
+
+1. **Word 0 is a handle, not a pointer, in the shipped engine.** `Edge32::new_node` (`crates/expanse/src/types32.rs:171`) will store a truncated `*mut u8`, but the real 32-bit trie keeps nodes in a per-tree arena and stores a 32-bit arena index in word 0 instead, so the engine behaves identically on a 64-bit host and on RV32 — and so `Arena::bytes_in_use` is an exact memory figure. The rationale is stated at `crates/expanse/src/trie32.rs:13`–`24`.
+2. **The aux field is 3 bytes, not 7**, and `Edge32::aux_u24` (`crates/expanse/src/types32.rs:193`) reads it as one little-endian 24-bit value. There are only 4 decode levels (`MAX_LEVEL_32 = 4`, `crates/expanse/src/types32.rs:18`), so the level-split budget is correspondingly smaller.
+3. **The tag space is different, and there are two of them.** `Tag32` (`crates/expanse/src/types32.rs:59`) is the design-document enumeration; the shipped engine writes its own raw tag bytes (`crates/expanse/src/trie32.rs:107`–`120`) and decodes them with `kind_of` (`crates/expanse/src/trie32.rs:153`). `Tag32` is referenced nowhere outside its own module. Both are tabulated in §10.3.3 so neither is mistaken for the other.
+
+### 10.3 Tag discriminants
+
+#### 10.3.1 `EdgeType` — structural tags (64-bit)
+
+Declared at `crates/expanse/src/types.rs:90`, decoded by `EdgeType::from_u8` (`crates/expanse/src/types.rs:126`). The variant names below are the compiled `Debug` names; the gate decodes every listed byte and compares.
+
+<!-- ENCODING-TABLE edge_type -->
+
+| Variant | Tag byte | Refers to |
+|---|---|---|
+| `Null` | 0x00 | empty subexpanse; no keys below this edge |
+| `BranchL3` | 0x01 | one-line linear branch, ≤ 3 child edges |
+| `BranchL7` | 0x02 | two-line linear branch, ≤ 7 child edges |
+| `BranchB` | 0x03 | bitmap branch: 256-bit membership + 8 packed edge subarrays |
+| `BranchU` | 0x04 | uncompressed branch: flat 256-edge page |
+| `Leaf1` | 0x05 | linear leaf, 1-byte key remainders |
+| `Leaf2` | 0x06 | linear leaf, 2-byte key remainders |
+| `Leaf3` | 0x07 | linear leaf, 3-byte key remainders |
+| `Leaf4` | 0x08 | linear leaf, 4-byte key remainders |
+| `Leaf5` | 0x09 | linear leaf, 5-byte key remainders |
+| `Leaf6` | 0x0A | linear leaf, 6-byte key remainders |
+| `Leaf7` | 0x0B | linear leaf, 7-byte key remainders |
+| `LeafB1` | 0x0C | level-1 bitmap leaf: 256-bit mask over the final key byte |
+| `FullExpanse` | 0x7F | set flavor only: every key in this subexpanse is present, no node allocated |
+
+<!-- /ENCODING-TABLE -->
+
+`is_branch` (`crates/expanse/src/types.rs:156`) is true for `0x01..=0x04`; `is_leaf` (`crates/expanse/src/types.rs:166`) is true for `0x05..=0x0C`. `FullExpanse` is neither, and `leaf_key_bytes` (`crates/expanse/src/types.rs:184`) returns `Some(n)` only for `Leaf1..Leaf7`.
+
+#### 10.3.2 Immediate tags (64-bit)
+
+Immediate tags occupy a nibble-packed space disjoint from the structural bytes: `(key_bytes << 4) | (key_count - 1)`, built and validated by `ImmedType::new` (`crates/expanse/src/types.rs:214`) and decoded by `ImmedType::from_u8` (`crates/expanse/src/types.rs:232`). A byte is a valid immediate tag exactly when
+
+```
+1 <= key_bytes <= 7   and   1 <= key_count   and   key_bytes * key_count <= IMMED_PAYLOAD_BYTES
+```
+
+with `IMMED_PAYLOAD_BYTES = 15` (`crates/expanse/src/types.rs:82`). The raw values therefore span `0x10..=0x71`, never colliding with `0x00..=0x0C` or `0x7F`. `EdgeTag` (`crates/expanse/src/types.rs:267`) unifies both spaces and is total: every one of the 256 bytes decodes as structural, immediate, or invalid, never two of those.
+
+Valid tag-byte counts *(gated)*: 14 structural + 37 immediate = 51 of 256.
+
+#### 10.3.3 32-bit tag spaces
+
+`Tag32` (`crates/expanse/src/types32.rs:59`), the design-document enumeration:
+
+<!-- ENCODING-TABLE tag32 -->
+
+| Variant | Tag byte |
+|---|---|
+| `Null` | 0x00 |
+| `LeafBitmap1` | 0x01 |
+| `LeafLinear1` | 0x02 |
+| `LeafLinear2` | 0x03 |
+| `LeafLinear3` | 0x04 |
+| `BranchL2` | 0x05 |
+| `BranchL6` | 0x06 |
+| `BranchB` | 0x07 |
+| `BranchU` | 0x08 |
+| `ImmedSet` | 0x10 |
+| `ImmedMap` | 0x11 |
+| `ValueSlotInline` | 0x20 |
+| `ValueSlotArena` | 0x21 |
+| `ValueSlotRaw` | 0x22 |
+| `Custom` | 0xFF |
+
+<!-- /ENCODING-TABLE -->
+
+`Tag32::from_u8` maps every unlisted byte to `Custom`, so `Custom` is a catch-all rather than a reserved value.
+
+The tags the shipped 32-bit engine actually writes are module-private constants in `crates/expanse/src/trie32.rs:107`–`120`. They are gated by a source scan rather than by symbol reference, because the engine deliberately keeps them private:
+
+<!-- ENCODING-TABLE trie32_tags -->
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `T_NULL` | 0 | empty edge |
+| `T_L2` | 1 | `BranchL2_32` |
+| `T_L6` | 2 | `BranchL6_32` |
+| `T_U` | 3 | `BranchU32` |
+| `T_BITMAP` | 4 | `LeafBitmap1_32` |
+| `T_SET_LEAF_BASE` | 4 | set linear leaf tag is `T_SET_LEAF_BASE + key_bytes`, so 5..=8 |
+| `T_MAP_LEAF_BASE` | 8 | map linear leaf tag is `T_MAP_LEAF_BASE + key_bytes`, so 9..=12 |
+| `T_SET_IMMED_BASE` | 0x40 | set immediate tag is `0x40 \| ((key_bytes - 1) << 3) \| (key_count - 1)`, so 0x40..=0x5F |
+| `T_MAP_IMMED_BASE` | 0x60 | map immediate tag is `0x60 \| (key_bytes - 1)`, single entry only, so 0x60..=0x62 |
+
+<!-- /ENCODING-TABLE -->
+
+`kind_of` (`crates/expanse/src/trie32.rs:153`) decodes these back into a `Kind`; any byte outside the listed ranges decodes as `Kind::Null`.
+
+### 10.4 Immediate capacity
+
+The budget rule is a byte count, not a key count. This is the fact most often restated wrongly: an immediate holds **15 bytes** of set-flavor key payload, which is 15 keys only when the remainder is 1 byte wide, and 2 keys when it is 7 bytes wide.
+
+- **Set flavor, 64-bit.** Keys pack across word 0 and the aux bytes — bytes 0..14 of the edge, 15 usable bytes, byte 15 being the tag (`Edge::imm_payload`, `crates/expanse/src/node.rs:194`; writer `write_immed`, `crates/expanse/src/mutate.rs:301`). Capacity is `IMMED_PAYLOAD_BYTES / key_bytes`, i.e. `ImmedType::max_count` (`crates/expanse/src/types.rs:260`).
+- **Map flavor, 64-bit.** Keys live in the 7 aux bytes only, because word 0 is spent on the value (one key) or on the value-array pointer (two or more) — `write_map_immed`, `crates/expanse/src/mutate_map.rs:75`. Capacity is `7 / key_bytes`, `mutate::map_immed_max` (`crates/expanse/src/mutate.rs:325`). The gate derives the 7 from the compiled length of `Edge::aux_bytes()` rather than from this sentence.
+- **Set flavor, 32-bit.** Keys pack across word 0 and the 3 aux bytes — 7 usable bytes of an 8-byte edge. Capacity is `7 / key_bytes`, `trie32::set_immed_cap` (`crates/expanse/src/trie32.rs:85`), for `key_bytes` in 1..=4.
+- **Map flavor, 32-bit.** A map immediate is single-entry by construction: the tag encodes only `key_bytes` (1..=3) and word 0 is the value (`crates/expanse/src/trie32.rs:119`–`120`, `crates/expanse/src/types32.rs:243`).
+
+<!-- ENCODING-TABLE immediate_capacity -->
+
+| Key bytes | 64-bit set max keys | 64-bit map max keys | 32-bit set max keys |
+|---|---|---|---|
+| 1 | 15 | 7 | 7 |
+| 2 | 7 | 3 | 3 |
+| 3 | 5 | 2 | 2 |
+| 4 | 3 | 1 | 1 |
+| 5 | 3 | 1 | n/a |
+| 6 | 2 | 1 | n/a |
+| 7 | 2 | 1 | n/a |
+
+<!-- /ENCODING-TABLE -->
+
+The `n/a` rows are widths a 32-bit key cannot produce: a 4-level trie leaves at most 4 undecoded bytes.
+
+Pinning tests for these numbers live in `crates/expanse/src/types.rs:367` (`immed_capacity_bounds`), `crates/expanse/src/types.rs:343` (`tag_spaces_are_disjoint_and_total`), and `crates/expanse/src/trie32.rs:1732` (`immediate_payload_round_trips_all_widths`), in addition to the doc gate.
+
+### 10.5 `ValueSlot` — the 8-byte polymorphic value word
+
+`ValueSlot` (`crates/expanse/src/slot.rs:116`) is `#[repr(transparent)]` over a `u64`, so a map leaf's value area is exactly 8 slots per 64-byte line and the `JudyL` C ABI `*mut Word` contract is preserved. The low byte is always the tag.
+
+`SlotTag` (`crates/expanse/src/slot.rs:32`), decoded by `SlotTag::from_u8` (`crates/expanse/src/slot.rs:77`):
+
+<!-- ENCODING-TABLE slot_tag -->
+
+| Variant | Tag byte | Inline length | Rest of the word |
+|---|---|---|---|
+| `Inline0` | 0x00 | 0 | unused |
+| `Inline1` | 0x01 | 1 | payload byte in bits 15:8 |
+| `Inline2` | 0x02 | 2 | payload bytes in bits 23:8 |
+| `Inline3` | 0x03 | 3 | payload bytes in bits 31:8 |
+| `Inline4` | 0x04 | 4 | payload bytes in bits 39:8 |
+| `Inline5` | 0x05 | 5 | payload bytes in bits 47:8 |
+| `Inline6` | 0x06 | 6 | payload bytes in bits 55:8 |
+| `Inline7` | 0x07 | 7 | payload bytes in bits 63:8 |
+| `ArenaMeta` | 0x10 | — | hot metadata in bits 63:40, arena locator in bits 39:8 |
+| `External` | 0x12 | — | reserved; no code path produces or consumes it |
+| `Tombstone` | 0xFE | — | soft-deleted marker |
+| `RawWord` | 0xFF | — | uninterpreted 64-bit word |
+
+<!-- /ENCODING-TABLE -->
+
+`from_u8` maps every unlisted byte to `RawWord`, so `RawWord` is the catch-all; `is_inline` (`crates/expanse/src/slot.rs:97`) is simply `tag <= 0x07`, and `inline_len` (`crates/expanse/src/slot.rs:104`) returns the tag itself as the length.
+
+**Inline encoding** *(gated)*. `ValueSlot::new_inline` (`crates/expanse/src/slot.rs:131`) writes `raw = len | Σ bytes[i] << (8 * (i + 1))`: the length is the tag byte, and the payload occupies bits 63:8 little-endian. The payload is the whole word above the tag, which is precisely why an inline slot carries **no metadata field** — `ExpanseBlobMap` ignores the `hot_meta` argument for payloads of ≤ 7 bytes and reports their metadata as `0` (`crates/expanse/src/blobmap.rs:27`–`33`, `crates/expanse/src/blobmap.rs:1090`). No cold fetch is needed for them in any case: the payload is already in the slot.
+
+This is also where `ExpanseBlobMap` puts small payloads — in the leaf's value slot, **not** inside an edge.
+
+**`ArenaMeta` encoding** *(gated)*. `ValueSlot::new_arena_meta` (`crates/expanse/src/slot.rs:152`) writes
+
+```
+raw = (hot_meta << 40) | (locator << 8) | 0x10
+
+  bits 63:40   hot_meta   24 bits, capped by ARENA_META_MAX = 0x00FF_FFFF
+  bits 39: 8   locator    32 bits
+  bits  7: 0   tag        0x10
+```
+
+`hot_meta` above the 24-bit field is rejected (`None`), never truncated. `arena_meta_meta` (`crates/expanse/src/slot.rs:184`) and `arena_meta_locator` (`crates/expanse/src/slot.rs:192`) read the two fields back; `with_arena_meta_meta` (`crates/expanse/src/slot.rs:200`) rewrites the metadata in place without disturbing the locator. This is the sole arena encoding — there is no metadata-less spill form, so a predicate over metadata is always evaluable in-slot.
+
+**Locator arithmetic** *(gated)*. The locator is not a chunk/offset pair; it is a flat global address in 16-byte units:
+
+```
+locator      = global_offset / ARENA_ALIGN          (ARENA_ALIGN = 16)
+global_offset = locator * ARENA_ALIGN
+```
+
+`slot_for` at `crates/expanse/src/blobmap.rs:485` performs the first, `resolve_meta` at `crates/expanse/src/blobmap.rs:819` and `resolve_meta_in_table` at `crates/expanse/src/blobmap.rs:561` the second. The chunk/offset split is resolved by the arena geometry afterwards, so a chunk boundary must stay a multiple of 16 — a loaded image with a misaligned boundary is rejected (`crates/expanse/src/blobmap.rs:1359`). The envelope is `ARENA_META_CEILING = 2^32 × 16` = 64 GiB (`crates/expanse/src/blobmap.rs:450`), well above the shipped `MAX_ARENA_CAPACITY` growth cap of 1 GiB (`crates/expanse/src/blobmap.rs:468`), so a locator overflow cannot occur under the shipped cap.
+
+**`ValueSlot32`** (`crates/expanse/src/slot32.rs:47`) is the 32-bit counterpart, `#[repr(transparent)]` over a `u32`, same low-byte-is-tag convention:
+
+<!-- ENCODING-TABLE slot_tag32 -->
+
+| Variant | Tag byte | Rest of the word |
+|---|---|---|
+| `Inline0` | 0x00 | unused |
+| `Inline1` | 0x01 | payload byte in bits 15:8 |
+| `Inline2` | 0x02 | payload bytes in bits 23:8 |
+| `Inline3` | 0x03 | payload bytes in bits 31:8 |
+| `Arena` | 0x10 | hot metadata in bits 31:20, slab offset in bits 19:8 |
+| `RawWord` | 0xFF | uninterpreted 32-bit word (C ABI drop-in) |
+
+<!-- /ENCODING-TABLE -->
+
+Both arena fields are **12 bits wide**: `ARENA_OFFSET_MASK = 0x000F_FF00` at shift 8 and `ARENA_META_MASK = 0xFFF0_0000` at shift 20 (`crates/expanse/src/slot32.rs:54`–`61`), and `ValueSlot32::new_arena` (`crates/expanse/src/slot32.rs:114`) rejects either argument above `0x0FFF`. 12 bits of metadata and 4096 addressable slab entries — not the 16 bits some older prose claimed.
+
+### 10.6 Bitmap structures
+
+`Bitmap256` (`crates/expanse/src/bits.rs:491`) is four `u64` words, 32 bytes, covering one decode byte's 256 values. Bit `idx` is word `idx >> 6`, bit `idx & 63` (`test`, `crates/expanse/src/bits.rs:568`).
+
+Both bitmap branches and bitmap map-leaves partition those 256 values into **eight 32-digit subexpanses**, each with its own packed array, so the rank that finds a slot is a rank *within a subexpanse*, not a global rank:
+
+- `subexpanse_rank` (`crates/expanse/src/bits.rs:713`) reinterprets the four `u64` words as eight `u32` subwords, loads subword `idx >> 5`, and popcounts the bits below `idx & 31`. That is one 32-bit load and one popcount — no loop over preceding words.
+- `test_and_subexpanse_rank` (`crates/expanse/src/bits.rs:727`) fuses the membership test with that rank, and `test_and_subexpanse_rank_with_sub` (`crates/expanse/src/bits.rs:746`) also returns the subexpanse index.
+- `subexpanse_count` (`crates/expanse/src/bits.rs:765`) is the length of one subexpanse's packed array.
+- `rank` (`crates/expanse/src/bits.rs:695`) is the *global* count of members below `idx`, used for ordered navigation rather than slot addressing; `select` (`crates/expanse/src/bits.rs:776`) inverts it and is the `ByCount` primitive.
+
+**`BranchB`** (`crates/expanse/src/node.rs:425`) is 128 bytes: the bitmap at offset 0, `subarrays: [*mut Edge; 8]` at offset 32, `pop_counts: [u16; 8]` at offset 96, `version` at 112. Line 0 therefore holds the bitmap plus the first four subarray pointers, so a lookup landing in digits `0x00..0x7F` touches one line before the child edge. Reaching a child is: `test_and_subexpanse_rank(digit)` → `subarrays[digit >> 5]` → `.add(rank)`.
+
+**`LeafBitmapL`** (`crates/expanse/src/node.rs:523`) is the map-flavor bitmap leaf, also 128 bytes: bitmap at 0, `values: [*mut u64; 8]` at offset 32, `version` at 96. Reaching a value is the same three steps against the value subarrays — bitmap test, subexpanse rank, index into `values[digit >> 5]`.
+
+**`LeafBitmap1`** (`crates/expanse/src/node.rs:491`) is the set-flavor level-1 leaf, 64 bytes: the bitmap *is* the membership answer, so there is no subarray and no rank on the lookup path.
+
+The 32-bit bitmap leaf `LeafBitmap1_32` (`crates/expanse/src/node32.rs:170`) stores its 256-bit mask as `[u64; 4]` plus a `u16` population and a level byte. Its declared fields total 36 bytes but `#[repr(C, align(32))]` rounds the type to 64 bytes, and 64 is the figure the engine's own accounting and conversion threshold use (`crates/expanse/src/trie32.rs:93`, `crates/expanse/src/trie32.rs:247`).
+
+### 10.7 Per-node OCC version words
+
+Each version word is a plain `u32` seqlock counter: even means stable, odd means a mutation is in progress. Writers bracket a node's in-place mutation region — the child-slot rewrites *and* the recursion beneath them — with `version_begin_if` / `version_end_if` (`crates/expanse/src/occ.rs:119`, `crates/expanse/src/occ.rs:131`), and only when the tree is concurrently shared. Readers sample and re-validate hand-over-hand with `node_sample` / `node_validate` (`crates/expanse/src/occ.rs:169`, `crates/expanse/src/occ.rs:182`). The tree-level `SeqVersion` (`crates/expanse/src/occ.rs:40`) is a separate `AtomicU64` covering the root snapshot.
+
+| Node type | Field | Byte offset | In the read protocol? |
+|---|---|---|---|
+| `BranchL3` / `BranchL7` | `hdr.version` | 0 | yes — `crates/expanse/src/sync.rs:218` |
+| `BranchB` | `version` | 112 | yes |
+| `BranchU` | `version` | 0 | yes |
+| `LeafBitmap1` | `version` | 32 | no — field present, never bracketed |
+| `LeafBitmapL` | `version` | 96 | no — field present, never bracketed |
+
+The offsets are gated in §10.8. The last column is not: it reflects that `crates/expanse/src/occ.rs:97`–`99` names exactly three carriers (`BranchHeader.version`, `BranchB.version`, `BranchU.version`), and no `version_begin_if` call site in `mutate.rs` or `mutate_map.rs` passes a bitmap leaf's field. Bitmap-leaf payloads are covered by the parent branch's version instead, per §4.1's "terminal payloads are covered by their parent's version". The two leaf fields are reserved capacity, not live protocol state.
+
+### 10.8 Pinned constants
+
+Values are decimal unless prefixed `0x`. The gate asserts each against the compiled crate and checks that the cited file and line still exist and still mention the symbol.
+
+<!-- ENCODING-CONSTANTS -->
+
+| Symbol | Value | Source |
+|---|---|---|
+| `size_of::<Edge>()` | 16 | `crates/expanse/src/node.rs:556` |
+| `align_of::<Edge>()` | 8 | `crates/expanse/src/node.rs:557` |
+| `offset_of!(Edge, aux)` | 8 | `crates/expanse/src/node.rs:558` |
+| `offset_of!(Edge, tag)` | 15 | `crates/expanse/src/node.rs:559` |
+| `IMMED_PAYLOAD_BYTES` | 15 | `crates/expanse/src/types.rs:82` |
+| `MAX_LEVEL` | 8 | `crates/expanse/src/types.rs:61` |
+| `BRANCH_FANOUT` | 256 | `crates/expanse/src/types.rs:64` |
+| `BRANCH_L3_CAP` | 3 | `crates/expanse/src/types.rs:71` |
+| `BRANCH_L7_CAP` | 7 | `crates/expanse/src/types.rs:74` |
+| `BITMAP_TO_UNCOMPRESSED_THRESHOLD` | 192 | `crates/expanse/src/types.rs:78` |
+| `CACHE_LINE` | 64 | `crates/expanse/src/types.rs:43` |
+| `RAW_ALIGN` | 16 | `crates/expanse/src/types.rs:58` |
+| `size_of::<BranchHeader>()` | 16 | `crates/expanse/src/node.rs:565` |
+| `offset_of!(BranchHeader, version)` | 0 | `crates/expanse/src/node.rs:317` |
+| `offset_of!(BranchHeader, digits)` | 8 | `crates/expanse/src/node.rs:566` |
+| `size_of::<BranchL3>()` | 64 | `crates/expanse/src/node.rs:568` |
+| `offset_of!(BranchL3, edges)` | 16 | `crates/expanse/src/node.rs:570` |
+| `size_of::<BranchL7>()` | 128 | `crates/expanse/src/node.rs:572` |
+| `offset_of!(BranchL7, edges)` | 16 | `crates/expanse/src/node.rs:574` |
+| `size_of::<BranchB>()` | 128 | `crates/expanse/src/node.rs:577` |
+| `offset_of!(BranchB, subarrays)` | 32 | `crates/expanse/src/node.rs:580` |
+| `offset_of!(BranchB, pop_counts)` | 96 | `crates/expanse/src/node.rs:582` |
+| `offset_of!(BranchB, version)` | 112 | `crates/expanse/src/node.rs:583` |
+| `size_of::<BranchU>()` | 4160 | `crates/expanse/src/node.rs:585` |
+| `offset_of!(BranchU, version)` | 0 | `crates/expanse/src/node.rs:462` |
+| `size_of::<LeafBitmap1>()` | 64 | `crates/expanse/src/node.rs:588` |
+| `offset_of!(LeafBitmap1, version)` | 32 | `crates/expanse/src/node.rs:495` |
+| `size_of::<LeafBitmapL>()` | 128 | `crates/expanse/src/node.rs:589` |
+| `offset_of!(LeafBitmapL, values)` | 32 | `crates/expanse/src/node.rs:590` |
+| `offset_of!(LeafBitmapL, version)` | 96 | `crates/expanse/src/node.rs:529` |
+| `size_of::<Bitmap256>()` | 32 | `crates/expanse/src/node.rs:576` |
+| `size_of::<ValueSlot>()` | 8 | `crates/expanse/src/slot.rs:116` |
+| `ValueSlot::TAG_MASK` | 0xFF | `crates/expanse/src/slot.rs:120` |
+| `ValueSlot::ARENA_META_MASK` | 0xFFFFFF | `crates/expanse/src/slot.rs:122` |
+| `ValueSlot::ARENA_META_MAX` | 16777215 | `crates/expanse/src/slot.rs:124` |
+| `ARENA_ALIGN` | 16 | `crates/expanse/src/blobmap.rs:445` |
+| `ARENA_META_CEILING` | 68719476736 | `crates/expanse/src/blobmap.rs:450` |
+| `MAX_ARENA_CHUNKS` | 65536 | `crates/expanse/src/blobmap.rs:457` |
+| `MAX_ARENA_CAPACITY` | 1073741824 | `crates/expanse/src/blobmap.rs:468` |
+| `DEFAULT_CHUNK_SIZE` | 2097152 | `crates/expanse/src/blobmap.rs:440` |
+| `size_of::<Edge32>()` | 8 | `crates/expanse/src/types32.rs:137` |
+| `align_of::<Edge32>()` | 4 | `crates/expanse/src/types32.rs:138` |
+| `MAX_LEVEL_32` | 4 | `crates/expanse/src/types32.rs:18` |
+| `CACHE_LINE_32` | 32 | `crates/expanse/src/types32.rs:27` |
+| `size_of::<BranchHeader32>()` | 8 | `crates/expanse/src/node32.rs:23` |
+| `size_of::<BranchL2_32>()` | 32 | `crates/expanse/src/node32.rs:53` |
+| `size_of::<BranchL6_32>()` | 64 | `crates/expanse/src/node32.rs:100` |
+| `size_of::<BranchU32>()` | 2080 | `crates/expanse/src/node32.rs:149` |
+| `size_of::<LeafBitmap1_32>()` | 64 | `crates/expanse/src/node32.rs:170` |
+| `size_of::<ValueSlot32>()` | 4 | `crates/expanse/src/slot32.rs:47` |
+| `ValueSlot32::TAG_MASK` | 0xFF | `crates/expanse/src/slot32.rs:51` |
+| `ValueSlot32::ARENA_OFFSET_MASK` | 0xFFF00 | `crates/expanse/src/slot32.rs:54` |
+| `ValueSlot32::ARENA_OFFSET_SHIFT` | 8 | `crates/expanse/src/slot32.rs:56` |
+| `ValueSlot32::ARENA_META_MASK` | 0xFFF00000 | `crates/expanse/src/slot32.rs:59` |
+| `ValueSlot32::ARENA_META_SHIFT` | 20 | `crates/expanse/src/slot32.rs:61` |
+
+<!-- /ENCODING-CONSTANTS -->
+
+### 10.9 Corrections this section supersedes
+
+Three claims that circulated in draft external writing, and what the source says:
+
+| Claim | What the source says |
+|---|---|
+| "`Edge` supports 48-bit virtual addressing" | The opposite. Word 0 is the raw untruncated 64-bit pointer with zero upper-bit stealing (§10.1), which is what keeps it correct under 52-bit ARM64 LVA and 57-bit LA57. The compact 48-bit-style packing in §3.4 is a design note, not shipped. |
+| "Immediates hold between 1 and 15 keys" | The budget is 15 **bytes**. 15 keys only at 1-byte remainders, 2 at 7-byte, and the map flavor is tighter still at `7 / key_bytes` because word 0 carries the value or the value-array pointer (§10.4). |
+| "`ExpanseBlobMap` inlines payloads inside the edge pointers" | Inline payloads live in the leaf's 64-bit **value slot**, bits 63:8, with the low byte carrying the length tag (§10.5). |
