@@ -2,6 +2,9 @@
 name = "expanse-rb"
 version = "0.4.1"
 edition = "2024"
+# Not a workspace member (built by the Ruby gem toolchain), so the MSRV is
+# stated literally; keep in lockstep with [workspace.package] rust-version.
+rust-version = "1.88"
 
 [lib]
 crate-type = ["cdylib"]

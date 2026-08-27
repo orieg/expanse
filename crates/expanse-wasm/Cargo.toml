@@ -2,6 +2,7 @@
 name = "expanse-wasm"
 version = "0.4.1"
 edition = "2024"
+rust-version.workspace = true
 description = "WebAssembly bindings for Expanse: clean-room, pure-Rust Judy arrays for browser and edge runtimes"
 repository = "https://github.com/orieg/expanse"
 license = "MIT OR Apache-2.0"

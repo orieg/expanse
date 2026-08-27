@@ -8,6 +8,9 @@ name = "expanse-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2024"
+# Standalone (see above), so the MSRV is stated literally; keep in lockstep
+# with the root [workspace.package] rust-version.
+rust-version = "1.88"
 
 [package.metadata]
 cargo-fuzz = true
