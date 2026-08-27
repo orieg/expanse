@@ -7,6 +7,7 @@
 require "optparse"
 require "json"
 require "set"
+require "objspace"
 require_relative "lib/expanse"
 
 options = { pop: 50_000, quick: false, json: false }
@@ -86,7 +87,14 @@ def run_suite(pop, dist = "random")
     count
   end
 
-  exp_bytes_per_key = exp_map.respond_to?(:mem_used) ? (exp_map.mem_used.to_f / pop) : (dist == "random" ? 22.5 : 8.6)
+  # Real native arena accounting is REQUIRED: pre-#373 this silently fell back
+  # to hardcoded constants (22.5/8.6), so the nightly Ruby memory gate could
+  # structurally never fire.
+  unless exp_map.respond_to?(:mem_used)
+    abort "Error: Expanse::Map#mem_used is not available — cannot measure bytes/key. " \
+          "Rebuild the native library (cargo build --release -p expanse-capi) and update lib/expanse.rb."
+  end
+  exp_bytes_per_key = exp_map.mem_used.to_f / pop
 
   # 2. Ruby Hash
   GC.start
@@ -110,6 +118,13 @@ def run_suite(pop, dist = "random")
     rb_hash.each { |_k, _v| count += 1 }
     count
   end
+
+  # ObjectSpace.memsize_of is a SHALLOW measurement: it covers the Hash's own
+  # entry table but not off-slab key/value objects. Random 64-bit keys exceed
+  # Ruby's 62-bit Fixnum range, so many keys are separately-allocated Bignums
+  # that this number does not include — hence the estimated flag (it is a
+  # lower bound, not the fabricated 64.0 constant emitted pre-#373).
+  rb_hash_bytes_per_key = ObjectSpace.memsize_of(rb_hash).to_f / pop
 
   # 3. Expanse::Set
   exp_set = Expanse::Set.new
@@ -155,7 +170,10 @@ def run_suite(pop, dist = "random")
       lookup_mops: to_mops.call(rb_lookup_s),
       lookup_ns: to_ns.call(rb_lookup_s),
       iter_mops: to_mops.call(rb_iter_s),
-      bytes_per_key: 64.0
+      bytes_per_key: rb_hash_bytes_per_key,
+      # Shallow ObjectSpace.memsize_of / pop: excludes off-slab Bignum keys
+      # (random 64-bit keys > 2**62), so this is a lower-bound estimate.
+      bytes_per_key_estimated: true
     },
     expanse_set: {
       insert_mops: to_mops.call(exp_set_insert_s),

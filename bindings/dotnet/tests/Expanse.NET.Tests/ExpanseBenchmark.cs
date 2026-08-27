@@ -100,6 +100,11 @@ public class ExpanseBenchmark
             var probeKeys = (ulong[])keys.Clone();
             Array.Reverse(probeKeys);
 
+            // Lookup sinks escape into this accumulator, which is read after
+            // timing (emitted as sink_checksum), so the JIT cannot
+            // dead-code-eliminate the probed lookups as dead locals (#373).
+            ulong sinkGuard = 0;
+
             // 1. ExpanseMap
             GC.Collect();
             GC.WaitForPendingFinalizers();
@@ -118,13 +123,16 @@ public class ExpanseBenchmark
                 {
                     if (expMap.TryGet(probeKeys[i], out ulong v)) sink ^= v;
                 }
+                sinkGuard ^= sink;
             });
 
             double expBytesPerKey = (double)expMap.MemoryUsed / pop;
 
-            // 2. Dictionary<ulong, ulong>
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
+            // 2. Dictionary<ulong, ulong> — managed-heap delta measured around
+            // the build via GC.GetTotalMemory(true). Approximate by nature; a
+            // non-positive delta is emitted as null, never a hardcoded
+            // constant (pre-#373 this row fabricated 32.0).
+            long heapBefore = GC.GetTotalMemory(forceFullCollection: true);
             var dict = new Dictionary<ulong, ulong>(pop);
 
             double dictInsertS = Measure(() =>
@@ -140,7 +148,12 @@ public class ExpanseBenchmark
                 {
                     if (dict.TryGetValue(probeKeys[i], out ulong v)) sink ^= v;
                 }
+                sinkGuard ^= sink;
             });
+
+            long heapAfter = GC.GetTotalMemory(forceFullCollection: true);
+            GC.KeepAlive(dict);
+            double? dictBytesPerKey = heapAfter > heapBefore ? (double)(heapAfter - heapBefore) / pop : (double?)null;
 
             // 3. ExpanseSet
             using var expSet = new ExpanseSet();
@@ -154,6 +167,7 @@ public class ExpanseBenchmark
             {
                 int count = 0;
                 for (int i = 0; i < pop; i++) if (expSet.Contains(probeKeys[i])) count++;
+                sinkGuard ^= (ulong)count;
             });
 
             // 4. HashSet<ulong>
@@ -168,6 +182,7 @@ public class ExpanseBenchmark
             {
                 int count = 0;
                 for (int i = 0; i < pop; i++) if (hashSet.Contains(probeKeys[i])) count++;
+                sinkGuard ^= (ulong)count;
             });
 
             double toMops = pop / 1e6;
@@ -180,20 +195,27 @@ public class ExpanseBenchmark
                 double dictInsertMops = toMops / dictInsertS;
                 double dictLookupMops = toMops / dictLookupS;
                 double dictLookupNs = dictLookupS * 1e9 / pop;
+                string dictMemJson = dictBytesPerKey.HasValue
+                    ? string.Format(CultureInfo.InvariantCulture, "\"bytes_per_key\": {0:F2}, \"bytes_per_key_approximate\": true", dictBytesPerKey.Value)
+                    : "\"bytes_per_key\": null";
 
                 jsonResults.Add(string.Format(CultureInfo.InvariantCulture,
-                    "{{\"dist\": \"{0}\", \"pop\": {1}, \"expanse_map\": {{\"insert_mops\": {2:F2}, \"lookup_mops\": {3:F2}, \"lookup_ns\": {4:F2}, \"bytes_per_key\": {5:F2}}}, \"dotnet_dictionary\": {{\"insert_mops\": {6:F2}, \"lookup_mops\": {7:F2}, \"lookup_ns\": {8:F2}, \"bytes_per_key\": 32.0}}}}",
-                    dist, pop, expInsertMops, expLookupMops, expLookupNs, expBytesPerKey, dictInsertMops, dictLookupMops, dictLookupNs));
+                    "{{\"dist\": \"{0}\", \"pop\": {1}, \"sink_checksum\": \"0x{2:x}\", \"expanse_map\": {{\"insert_mops\": {3:F2}, \"lookup_mops\": {4:F2}, \"lookup_ns\": {5:F2}, \"bytes_per_key\": {6:F2}}}, \"dotnet_dictionary\": {{\"insert_mops\": {7:F2}, \"lookup_mops\": {8:F2}, \"lookup_ns\": {9:F2}, {10}}}}}",
+                    dist, pop, sinkGuard, expInsertMops, expLookupMops, expLookupNs, expBytesPerKey, dictInsertMops, dictLookupMops, dictLookupNs, dictMemJson));
             }
             else
             {
+                string dictMemCell = dictBytesPerKey.HasValue
+                    ? string.Format(CultureInfo.InvariantCulture, "{0,8:F2}", dictBytesPerKey.Value)
+                    : string.Format("{0,8}", "n/a");
                 _output.WriteLine($"\n[ Distribution: {dist} | Population: {pop:N0} ]");
                 _output.WriteLine($"{"Target",-20} | {"Lookup (ns)",11} | {"Lookup (Mops)",13} | {"Insert (Mops)",13} | {"B/key",8}");
                 _output.WriteLine($"{new string('-', 20)}-+-{new string('-', 11)}-+-{new string('-', 13)}-+-{new string('-', 13)}-+-{new string('-', 8)}");
                 _output.WriteLine($"{"ExpanseMap (.NET)",-20} | {(expLookupS * 1e9 / pop),11:F2} | {(toMops / expLookupS),13:F2} | {(toMops / expInsertS),13:F2} | {expBytesPerKey,8:F2}");
-                _output.WriteLine($"{"Dictionary<u64,u64>",-20} | {(dictLookupS * 1e9 / pop),11:F2} | {(toMops / dictLookupS),13:F2} | {(toMops / dictInsertS),13:F2} | {32.0,8:F2}");
+                _output.WriteLine($"{"Dictionary<u64,u64>",-20} | {(dictLookupS * 1e9 / pop),11:F2} | {(toMops / dictLookupS),13:F2} | {(toMops / dictInsertS),13:F2} | {dictMemCell}");
                 _output.WriteLine($"{"ExpanseSet (.NET)",-20} | {(expSetLookupS * 1e9 / pop),11:F2} | {(toMops / expSetLookupS),13:F2} | {(toMops / expSetInsertS),13:F2} | {"—",8}");
                 _output.WriteLine($"{"HashSet<ulong>",-20} | {(setLookupS * 1e9 / pop),11:F2} | {(toMops / setLookupS),13:F2} | {(toMops / setInsertS),13:F2} | {"—",8}");
+                _output.WriteLine($"(sink checksum: 0x{sinkGuard:x})");
             }
         }
 

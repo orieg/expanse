@@ -7,29 +7,22 @@
 const { performance } = require('perf_hooks');
 let WasmExpanseMap, WasmExpanseSet;
 
+// The real wasm module is REQUIRED. Benchmarking a JS fallback here would
+// silently emit `runtime: 'wasm'` rows that measure V8, not Expanse (#373).
 try {
   const pkg = require('../pkg/expanse_wasm.js');
   WasmExpanseMap = pkg.WasmExpanseMap;
   WasmExpanseSet = pkg.WasmExpanseSet;
 } catch (e) {
-  // If not built yet, mock with simple fallback for dry run
-  WasmExpanseMap = class {
-    constructor() { this.m = new Map(); }
-    set(k, v) { this.m.set(k, v); }
-    get(k) { return this.m.get(k); }
-    delete(k) { return this.m.delete(k); }
-    contains(k) { return this.m.has(k); }
-    size() { return BigInt(this.m.size); }
-    clear() { this.m.clear(); }
-  };
-  WasmExpanseSet = class {
-    constructor() { this.s = new Set(); }
-    add(k) { this.s.add(k); }
-    contains(k) { return this.s.has(k); }
-    remove(k) { return this.s.delete(k); }
-    size() { return BigInt(this.s.size); }
-    clear() { this.s.clear(); }
-  };
+  console.error('Error: ../pkg/expanse_wasm.js not found or not loadable — the wasm package is not built.');
+  console.error('Build a Node-requirable package first:');
+  console.error('  wasm-pack build --release --target nodejs crates/expanse-wasm');
+  console.error(`(loader error: ${e.message})`);
+  process.exit(1);
+}
+if (typeof WasmExpanseMap !== 'function' || typeof WasmExpanseSet !== 'function') {
+  console.error('Error: ../pkg/expanse_wasm.js loaded but does not export WasmExpanseMap/WasmExpanseSet.');
+  process.exit(1);
 }
 
 function parseArgs() {
@@ -92,6 +85,10 @@ function runSuite(pop, dist = 'random') {
   const keys = generateKeys(pop, dist);
   const probeKeys = keys.slice().reverse();
 
+  // Lookup sinks escape into this accumulator, which is emitted in the result
+  // (sink_checksum), so the JIT cannot dead-code-eliminate the probed lookups.
+  let sinkGuard = 0n;
+
   // 1. WASM ExpanseMap
   const wasmMap = new WasmExpanseMap();
   const wasmInsertMs = measure(() => {
@@ -104,6 +101,7 @@ function runSuite(pop, dist = 'random') {
       const v = wasmMap.get(probeKeys[i]);
       if (v !== undefined && v !== null) sink ^= BigInt(v);
     }
+    sinkGuard ^= sink;
     return sink;
   });
 
@@ -119,6 +117,7 @@ function runSuite(pop, dist = 'random') {
       const v = jsMap.get(probeKeys[i]);
       if (v !== undefined) sink ^= v;
     }
+    sinkGuard ^= sink;
     return sink;
   });
 
@@ -128,6 +127,7 @@ function runSuite(pop, dist = 'random') {
   return {
     dist,
     pop,
+    sink_checksum: `0x${sinkGuard.toString(16)}`,
     wasm_map: {
       insert_mops: toMops(wasmInsertMs),
       lookup_mops: toMops(wasmLookupMs),

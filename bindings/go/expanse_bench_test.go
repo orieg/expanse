@@ -1,15 +1,29 @@
 package expanse
 
 import (
-	"math/rand"
 	"testing"
 )
 
+// xorShift64 is bit-identical to the XorShift64 used by every other bindings
+// harness (node/wasm/ruby/java/dotnet/python/php): seed 0x0DDB_1A5E_5EED_0001,
+// shifts 13/7/17, logical right shift. Pre-#373 this file used math/rand,
+// so the Go key stream diverged from every other language.
+type xorShift64 struct{ state uint64 }
+
+func (r *xorShift64) next() uint64 {
+	x := r.state
+	x ^= x << 13
+	x ^= x >> 7
+	x ^= x << 17
+	r.state = x
+	return x
+}
+
 func generateBenchmarkKeys(n int) []uint64 {
-	r := rand.New(rand.NewSource(0x0DDB_1A5E_5EED_0001))
+	r := xorShift64{state: 0x0DDB_1A5E_5EED_0001}
 	keys := make([]uint64, n)
 	for i := 0; i < n; i++ {
-		keys[i] = r.Uint64()
+		keys[i] = r.next()
 	}
 	return keys
 }
