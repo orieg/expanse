@@ -293,7 +293,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [set_ops, map_ops, bytesmap_ops, strmap_ops, blobmap_image_corrupt, set32_ops, map32_ops]
+        # Keep in lockstep with fuzz/Cargo.toml [[bin]] targets (fuzz-smoke in
+        # ci.yml discovers them via `cargo fuzz list`; this matrix is hand-listed).
+        target: [set_ops, set_algebra, map_ops, bytesmap_ops, strmap_ops, blobmap_image_corrupt, set32_ops, map32_ops]
     steps:
       - uses: actions/checkout@v7
 
