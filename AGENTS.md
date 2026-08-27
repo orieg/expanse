@@ -31,6 +31,7 @@ Do not scatter architecture notes into arbitrary files. Update the canonical doc
 | Content | Home |
 |---|---|
 | Design / node layouts / roadmap / phase gates | `docs/ARCHITECTURE.md` |
+| Bit-level encoding: `Edge`/`Edge32` fields, tag discriminants, immediate capacity, `ValueSlot`, bitmap rank, OCC version words | `docs/ARCHITECTURE.md` §10 (constants gated by `crates/expanse/tests/test_encoding_reference_sync.rs`) |
 | Algorithms, search kernels, SIMD/SWAR vectorization & visualizer reference | `docs/ALGORITHMS.md` · `docs/architecture_visualizer.html` |
 | Hardware capability reference: ISA primary-source citations, assumption validation, and missed-opportunity analysis | `docs/HARDWARE.md` |
 | C ABI contract, drop-in parity gates, surface, packaging, doc-gap resolutions | `docs/COMPAT.md` |
