@@ -206,8 +206,14 @@ def twin_rows(
     head: dict[str, dict[str, int]],
     origins: dict[str, tuple[str, str]],
     declarations: dict[str, dict[str, Any]],
+    base: dict[str, dict[str, int]] | None = None,
 ) -> list[dict[str, Any]]:
     """One row per declared twin pair that this run measured on both sides.
+
+    Each row carries *both* comparisons a reader needs about one arm — how it
+    moved against the merge base, and where it stands against the competitor
+    baseline over the same input — so the report never asks them to join two
+    tables written in two framings (#421).
 
     Every field is computed from the parsed artifact; nothing here is a
     stamped narrative constant (AGENTS.md 8.2).
@@ -231,15 +237,23 @@ def twin_rows(
             continue
         s_cyc = head[name].get("Estimated Cycles", 0)
         b_cyc = head[peer].get("Estimated Cycles", 0)
+        # Merge-base counterparts. `None` means this run measured no base pass
+        # for the arm — rendered as `new`, never as a fabricated 0%.
+        s_base = (base or {}).get(name, {}).get("Instructions")
+        b_base = (base or {}).get(peer, {}).get("Instructions")
         rows.append(
             {
                 "target": target,
                 "group": group,
                 "arg": arg or "—",
                 "subject": name,
+                "subject_fn": fn,
                 "baseline": peer,
                 "subject_ins": s_ins,
                 "baseline_ins": b_ins,
+                "subject_base_ins": s_base,
+                "baseline_base_ins": b_base,
+                "subject_delta": pct(s_ins, s_base) if s_base else None,
                 "ratio": s_ins / b_ins,
                 "cycles_ratio": (s_cyc / b_cyc) if b_cyc else None,
                 "subject_label": arms.get("subject_label", "Expanse"),
@@ -249,48 +263,138 @@ def twin_rows(
     return rows
 
 
-def ratio_reading(ratio: float, subject_label: str, baseline_label: str) -> str:
-    """The ratio's direction, in words. A bare `4.18x` does not say which way
-    it points; this does."""
-    if ratio >= 1.005:
-        return f"{subject_label} retires **{ratio:.2f}x more** instructions than {baseline_label}"
-    if ratio <= 0.995:
+def baseline_pinned_note(
+    rows: list[dict[str, Any]],
+    base_present: bool,
+    baseline_label: str,
+    base_ref: str,
+) -> str:
+    """One derived sentence about whether the ratio column has one moving side.
+
+    A ratio reads as two-sided by default. When the competitor is a pinned
+    dependency its arm measures identically in both passes, so every movement
+    in the ratio column is our arm's movement — a reader must not think two
+    things are varying. Which case holds is read out of this run's own two
+    passes, never assumed (AGENTS.md 8.2).
+    """
+    denominators = {r["baseline"]: (r["baseline_ins"], r["baseline_base_ins"]) for r in rows}
+    if not denominators:
+        return ""
+    if not base_present:
         return (
-            f"{subject_label} retires **{1.0 / ratio:.2f}x fewer** instructions "
-            f"than {baseline_label}"
+            f"This run has no merge-base pass, so whether the {baseline_label} arms "
+            "moved cannot be established from it. Do not read the ratio column as "
+            "one-sided here."
         )
-    return f"{subject_label} and {baseline_label} are within 0.5% of each other"
+    moved = [(n, b, h) for n, (h, b) in denominators.items() if b is not None and b != h]
+    unknown = [n for n, (_, b) in denominators.items() if b is None]
+    if moved:
+        detail = ", ".join(f"`{n}`: {b:,} → {h:,}" for n, b, h in sorted(moved))
+        return (
+            f"**{len(moved)} {baseline_label} arm(s) moved between the merge-base and "
+            f"head passes** ({detail}). Both sides of the ratio column changed in this "
+            "run, so a movement in it is not attributable to our arm alone. A baseline "
+            "move is a dependency or toolchain fact, not a change this branch made."
+        )
+    if unknown:
+        arm_list = ", ".join(f"`{n}`" for n in sorted(unknown))
+        return (
+            f"**{len(unknown)} {baseline_label} arm(s) have no merge-base counterpart** "
+            f"({arm_list}), so this run cannot show that the ratio column's denominator "
+            "held still. Read those ratios as absolute standings only."
+        )
+    sample_name, (sample_ins, _) = sorted(denominators.items())[0]
+    return (
+        f"**The {baseline_label} side is pinned.** All {len(denominators)} baseline arm(s) "
+        f"measured identically in the merge-base (`{base_ref}`) and head passes — "
+        f"`{sample_name}` is {sample_ins:,} in both — so the ratio column's denominator "
+        "does not vary. Every movement in it is our arm's movement, rescaled; it changes "
+        "otherwise only when the dependency crate or the compiler is bumped."
+    )
 
 
-def render_twins(rows: list[dict[str, Any]]) -> list[str]:
-    """Section 1's symmetric-twin table: the ratio a competitor baseline exists
-    to produce, published rather than left for the reader to compute.
+def render_twins(
+    rows: list[dict[str, Any]],
+    base_ref: str = "origin/main",
+    base_present: bool = False,
+    baseline_ledger: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    """Section 1's symmetric-twin table: one row per Expanse arm, carrying both
+    the merge-base delta and the competitor ratio.
+
+    Split framings were the defect this shape fixes (#421): a delta-framed
+    table and an absolute-framed one, in two places, with nothing marking the
+    switch. Here both columns sit on the same row under their own headers, so
+    neither frame can be carried into the other.
+
+    The ratio is given as a bare number in a labelled column and is never
+    narrated. Prose of the form "Nx more than" states `(N+1)x` the baseline,
+    not `Nx` — it overstates by one multiple of the denominator — and "Nx
+    fewer" is not a defined quantity at all. Both forms shipped here before
+    (#413); a labelled column cannot be misread that way.
 
     Deliberately verdict-free. The ratio is the deliverable; whether a given
     value clears a gate is a separate question with its own metric (#403's
     Track 2 threshold is written for wall-clock, not instructions), and this
     report does not answer it."""
     if not rows:
-        return []
+        # No pair measured on both sides. Any baseline arm this run *did*
+        # measure still has to be inspectable rather than dropped.
+        ledger = render_baseline_ledger(baseline_ledger or [], "Third-party", base_ref)
+        return ledger + [""] if ledger else []
     labels = sorted({(r["subject_label"], r["baseline_label"]) for r in rows})
+    subject_label, baseline_label = labels[0] if len(labels) == 1 else ("Expanse", "baseline")
     pair = " vs ".join(labels[0]) if len(labels) == 1 else "Expanse vs baseline"
-    lines = [
-        f"#### ⚖️ {pair} — symmetric twins (identical inputs, instructions retired)",
-        "",
-        "Both arms of each row are built from the same generated input by the same "
-        "setup function, so the ratio is a like-for-like cost comparison. It is "
-        "**reported, not graded**: instructions are not wall-clock, and no gate in "
-        "this repo is written against this ratio.",
-        "",
-        "| Group | Case | Expanse arm | Instructions | Baseline arm | Instructions | Ratio | Reading |",
-        "|:---|:---|:---|---:|:---|---:|---:|:---|",
-    ]
-    for r in rows:
-        lines.append(
-            f"| `{r['group']}` | `{r['arg']}` | `{r['subject']}` | {r['subject_ins']:,} "
-            f"| `{r['baseline']}` | {r['baseline_ins']:,} | **{r['ratio']:.2f}x** "
-            f"| {ratio_reading(r['ratio'], r['subject_label'], r['baseline_label'])} |"
+    ratio_header = f"vs {baseline_label} (instructions retired, not time)"
+    if base_present:
+        intro = (
+            f"One row per {subject_label} arm, carrying both comparisons: how the arm "
+            f"moved against the merge base, and where it stands against the "
+            f"{baseline_label} arm built from the same generated input by the same setup "
+            "function. The two columns are different questions in different frames — a "
+            "percentage change and an absolute standing — and neither is derived from "
+            "the other."
         )
+        lines = [
+            f"#### ⚖️ {pair} — symmetric twins (identical inputs)",
+            "",
+            intro,
+            "",
+            f"| Group | Case | Arm | Instructions | vs `{base_ref}` | {ratio_header} |",
+            "|:---|:---|:---|---:|---:|---:|",
+        ]
+    else:
+        # No merge-base pass: there is no delta to put beside the ratio, and an
+        # all-`—` column would read as "no change" rather than "not measured".
+        lines = [
+            f"#### ⚖️ {pair} — symmetric twins (identical inputs)",
+            "",
+            f"One row per {subject_label} arm against the {baseline_label} arm built "
+            "from the same generated input by the same setup function. This run has no "
+            f"merge-base pass, so it carries where each arm stands and not how it moved.",
+            "",
+            f"| Group | Case | Arm | Instructions | {ratio_header} |",
+            "|:---|:---|:---|---:|---:|",
+        ]
+    for r in rows:
+        cells = [
+            f"| `{r['group']}` | `{r['arg']}` | `{r['subject_fn']}` | {r['subject_ins']:,} "
+        ]
+        if base_present:
+            delta = fmt_delta(r["subject_delta"]) if r["subject_delta"] is not None else "`new`"
+            cells.append(f"| {delta} ")
+        cells.append(f"| {r['ratio']:.2f}x |")
+        lines.append("".join(cells))
+    note = baseline_pinned_note(rows, base_present, baseline_label, base_ref)
+    if note:
+        lines += ["", note]
+    lines += [
+        "",
+        f"The ratio column is **reported, not graded**: instructions measure how much "
+        f"work a kernel does, not how long it takes, and no gate in this repo is "
+        f"written against it. `vs {baseline_label}` is an exact count ratio over "
+        "identical input — it is not a wall-clock ratio and does not predict one.",
+    ]
     cycles = [r for r in rows if r["cycles_ratio"]]
     if cycles:
         worst = max(cycles, key=lambda r: r["cycles_ratio"])
@@ -301,7 +405,49 @@ def render_twins(rows: list[dict[str, Any]]) -> list[str]:
             f"**{best['cycles_ratio']:.2f}x** (`{best['subject']}`) to "
             f"**{worst['cycles_ratio']:.2f}x** (`{worst['subject']}`).",
         ]
+    lines.extend(render_baseline_ledger(baseline_ledger or [], baseline_label, base_ref))
     lines.append("")
+    return lines
+
+
+def render_baseline_ledger(
+    ledger: list[dict[str, Any]],
+    baseline_label: str,
+    base_ref: str,
+) -> list[str]:
+    """Third-party baseline arms, collapsed: absolute counts kept available but
+    subordinate.
+
+    A baseline is the reference the ratio column divides by, not a subject this
+    branch is answerable for, so it gets no row in the merge-base comparison
+    (#421). Its count still has to be inspectable — that is what this block is.
+    """
+    if not ledger:
+        return []
+    lines = [
+        "",
+        "<details>",
+        f"<summary><b>{baseline_label} baseline arms — absolute instruction counts "
+        f"({len(ledger)} arms)</b></summary>",
+        "",
+        f"Reference arms, not subjects: third-party code this branch does not change. "
+        f"They are excluded from the merge-base comparison and from the regression "
+        f"gate, and appear above only as the denominator of the `vs {baseline_label}` "
+        "column.",
+        "",
+        f"| Baseline arm | Instructions | At merge base `{base_ref}` |",
+        "|:---|---:|---:|",
+    ]
+    for entry in ledger:
+        base_ins = entry.get("base_ins")
+        if base_ins is None:
+            at_base = "not measured"
+        elif base_ins == entry["ins"]:
+            at_base = "identical"
+        else:
+            at_base = f"{base_ins:,}"
+        lines.append(f"| `{entry['name']}` | {entry['ins']:,} | {at_base} |")
+    lines += ["", "</details>"]
     return lines
 
 
@@ -1082,7 +1228,11 @@ def render(
     lines.append(f"### 1. Deterministic Instructions vs Merge Base (`{base_ref}`)")
     lines.append("")
 
-    categories = categorize_benchmarks(all_bench_names, origins)
+    # Third-party baselines are the reference the twin ratio divides by, not
+    # subjects this branch is answerable for. They get no row here; their
+    # absolute counts stay available in the collapsed ledger under the twin
+    # table (#421).
+    categories = categorize_benchmarks(gated_names, origins)
 
     if base:
         for cat_id, cat_title, bench_list in categories:
@@ -1099,16 +1249,6 @@ def render(
                 cyc = metrics.get("Estimated Cycles", 0)
                 n = get_bench_n(name, is_smoke=is_smoke)
                 b = base.get(name)
-
-                # A third-party baseline is not our code. Diffing it against
-                # its own previous build measures a dependency, not this PR,
-                # so the `vs main` columns are not applicable to it.
-                if name in baseline_arms:
-                    ins_op_str = format_ins_per_op(ins, n, bold=False)
-                    lines.append(
-                        f"| ⚪ | `{name}` | {ins:,} | n/a | {ins_op_str} | {cyc:,} | n/a |"
-                    )
-                    continue
 
                 if not b or "Instructions" not in b:
                     ins_op_str = format_ins_per_op(ins, n, bold=False)
@@ -1155,8 +1295,25 @@ def render(
                 lines.append(f"| `{name}` | {ins:,} | {ins_op_str} | {cyc:,} |")
             lines.append("")
 
-    # The competitor ratio the symmetric twins exist to produce.
-    lines.extend(render_twins(twins or []))
+    # The competitor ratio the symmetric twins exist to produce, joined onto
+    # the same row as each arm's merge-base delta.
+    baseline_ledger = [
+        {
+            "name": name,
+            "ins": head[name].get("Instructions", 0),
+            "base_ins": (base or {}).get(name, {}).get("Instructions"),
+        }
+        for name in sorted(baseline_arms)
+        if name in head
+    ]
+    lines.extend(
+        render_twins(
+            twins or [],
+            base_ref=base_ref,
+            base_present=bool(base),
+            baseline_ledger=baseline_ledger,
+        )
+    )
 
     lines.append("---")
     lines.append("")
@@ -1207,6 +1364,13 @@ def render(
     lines.append("")
 
     # Section 5: Cross-Language Bindings & FFI Invariants
+    baseline_legend = (
+        "Third-party baseline arms are not subjects of this comparison — they are not "
+        "our code, not compared to the merge base and not gated; their absolute counts "
+        "are in the collapsed baseline ledger under the symmetric-twin table. "
+        if baseline_ledger
+        else ""
+    )
     lines.extend([
         "### 5. 🌐 Cross-Language Bindings & FFI Invariants",
         "",
@@ -1215,8 +1379,8 @@ def render(
         "- **FFI & Marshalling Overhead**: Tracked against historical baseline in nightly verification runs (`scripts/bench_bindings.py --check-baseline`).",
         "",
         "---",
-        "<sub>🟢 less work · 🔴 more work · = within noise ($< 0.1\\%$) · 🆕 new benchmark · "
-        "⚪ third-party baseline (not our code — not compared to the merge base, not gated). "
+        "<sub>🟢 less work · 🔴 more work · = within noise ($< 0.1\\%$) · 🆕 new benchmark. "
+        + baseline_legend +
         "Instructions reflect exact deterministic computational work vs previous code. Full cross-language benchmarks: <code>docs/BINDINGS_BENCHMARKS.md</code>.</sub>\n",
     ])
 
@@ -1245,10 +1409,15 @@ instructions::cost::map_insert
 
 # A miniature of the search suite: two library_benchmark_group!s, each pairing
 # an Expanse arm with its symmetric Roaring twin over the same input.
+# `expanse_native_and` sits at exactly 1.64x its baseline — the ratio at which
+# the removed "Nx more than" phrasing overstated by 61% (#421).
 SELF_TEST_TWIN_HEAD = """\
 search_instructions::boolean::expanse_and dense:expanse_pair("dense")
-  Instructions:              4000|4000            (No change)
-  Estimated Cycles:          8000|8000            (No change)
+  Instructions:              4000|5000            (-20.00000%)
+  Estimated Cycles:          8000|10000           (-20.00000%)
+search_instructions::boolean::expanse_native_and dense:expanse_pair("dense")
+  Instructions:              1640|N/A             (*********)
+  Estimated Cycles:          3280|N/A             (*********)
 search_instructions::boolean::roaring_and dense:roaring_pair("dense")
   Instructions:              1000|1000            (No change)
   Estimated Cycles:          2500|2500            (No change)
@@ -1258,6 +1427,24 @@ search_instructions::materialize::expanse_materialize dense:expanse_pair("dense"
 search_instructions::materialize::roaring_materialize dense:roaring_pair("dense")
   Instructions:              4000|4000            (No change)
   Estimated Cycles:          8000|8000            (No change)
+"""
+
+# The merge-base pass for the same miniature: `expanse_and` moved,
+# `expanse_materialize` held still, `expanse_native_and` did not exist yet,
+# and both Roaring arms — a pinned dependency — measured identically.
+SELF_TEST_TWIN_BASE = """\
+search_instructions::boolean::expanse_and dense:expanse_pair("dense")
+  Instructions:              5000|N/A             (*********)
+  Estimated Cycles:         10000|N/A             (*********)
+search_instructions::boolean::roaring_and dense:roaring_pair("dense")
+  Instructions:              1000|N/A             (*********)
+  Estimated Cycles:          2500|N/A             (*********)
+search_instructions::materialize::expanse_materialize dense:expanse_pair("dense")
+  Instructions:              1000|N/A             (*********)
+  Estimated Cycles:          2000|N/A             (*********)
+search_instructions::materialize::roaring_materialize dense:roaring_pair("dense")
+  Instructions:              4000|N/A             (*********)
+  Estimated Cycles:          8000|N/A             (*********)
 """
 
 SELF_TEST_ARMS = {
@@ -1270,6 +1457,7 @@ SELF_TEST_ARMS = {
                 "baseline_label": "Roaring",
                 "twins": [
                     {"subject": "expanse_and", "baseline": "roaring_and"},
+                    {"subject": "expanse_native_and", "baseline": "roaring_and"},
                     {"subject": "expanse_materialize", "baseline": "roaring_materialize"},
                 ],
                 "unpaired": [],
@@ -1358,6 +1546,7 @@ def self_test() -> int:
     }
     _, undeclared_now = classify_arms(names, twin_origins, stripped)
     assert undeclared_now == [
+        "expanse_native_and/dense",
         "expanse_materialize/dense",
         "roaring_materialize/dense",
     ], undeclared_now
@@ -1371,45 +1560,107 @@ def self_test() -> int:
     )
     assert "not classified in `.github/bench-suites.json`" in out, out
 
-    # 10. Done-when 1: the Expanse:competitor ratio is published, both
-    #     directions, without hand computation.
-    rows = twin_rows(twin_head, twin_origins, decls)
-    assert {r["arg"] for r in rows} == {"dense"} and len(rows) == 2, rows
+    # 10. #421 done-when 1: one row per Expanse arm carries BOTH the merge-base
+    #     delta and the competitor ratio — the reader never joins two tables
+    #     written in two framings.
+    twin_base = parse(SELF_TEST_TWIN_BASE)
+    rows = twin_rows(twin_head, twin_origins, decls, twin_base)
+    assert {r["arg"] for r in rows} == {"dense"} and len(rows) == 3, rows
     by_subject = {r["subject"]: r for r in rows}
     assert abs(by_subject["expanse_and/dense"]["ratio"] - 4.0) < 1e-9
     assert abs(by_subject["expanse_materialize/dense"]["ratio"] - 0.25) < 1e-9
+    assert abs(by_subject["expanse_native_and/dense"]["ratio"] - 1.64) < 1e-9
+    assert abs(by_subject["expanse_and/dense"]["subject_delta"] + 20.0) < 1e-9
     out = render(
         head=twin_head,
-        base=twin_head,
+        base=twin_base,
         bytes_table=None,
         base_ref="origin/main",
         origins=twin_origins,
         baseline_arms=baselines,
         twins=rows,
     )
-    assert "**4.00x**" in out and "**0.25x**" in out, out
-    # Direction stated in words, both ways — a bare ratio does not say which
-    # way it points.
-    assert "retires **4.00x more** instructions than Roaring" in out, out
-    assert "retires **4.00x fewer** instructions than Roaring" in out, out
-    assert ratio_reading(1.0, "Expanse", "Roaring").endswith("within 0.5% of each other")
+    twin_block = out.split("symmetric twins")[1].split("\n---\n")[0]
+    twin_table = [
+        line
+        for line in twin_block.split("<details>")[0].splitlines()
+        if line.startswith("| `")
+    ]
+    assert len(twin_table) == 3, twin_table
+    joined = next(line for line in twin_table if "`expanse_and`" in line)
+    assert "**-20.00%**" in joined and "4.00x" in joined, joined
+    # Both columns are labelled in one header row, so the frame switch is marked.
+    header = next(line for line in twin_block.splitlines() if line.startswith("| Group"))
+    assert "vs `origin/main`" in header, header
+    assert "vs Roaring (instructions retired, not time)" in header, header
+
+    # 10b. #421 done-when 3: no prose sentence asserts a comparative claim from
+    #      the ratio. "Nx more than" means (N+1)x the baseline, so it overstated
+    #      by one whole multiple of the denominator; "Nx fewer" is not a defined
+    #      quantity at all. Neither form may come back.
+    assert "x more" not in out, out
+    assert "x fewer" not in out, out
+    assert "retires" not in out, out
+    # The 1.64x arm renders as a bare ratio under the labelled column — the
+    # reading that phrasing got wrong by 61%.
+    native = next(line for line in twin_table if "`expanse_native_and`" in line)
+    assert "1.64x" in native, native
+    assert "2.64" not in out, out
     # The ratio is reported, not graded: no pass/fail verdict is invented.
-    twin_block = out.split("symmetric twins")[1].split("---")[0]
     for verdict_marker in ("🟢", "🔴", "🟡", "Pass", "Fail"):
         assert verdict_marker not in twin_block, (verdict_marker, twin_block)
 
-    # 11. Done-when 2: no third-party baseline arm carries a `vs main` column.
+    # 10c. #421 done-when 5: an arm with no merge-base counterpart reads `new`,
+    #      never a fabricated number.
+    assert "| `new` |" in native, native
+    assert by_subject["expanse_native_and/dense"]["subject_delta"] is None
+    # With no merge-base pass at all the delta column is absent rather than a
+    # column of em-dashes that would read as "no change".
+    out_nobase = render(
+        head=twin_head,
+        base=None,
+        bytes_table=None,
+        base_ref="origin/main",
+        origins=twin_origins,
+        baseline_arms=baselines,
+        twins=twin_rows(twin_head, twin_origins, decls),
+    )
+    nobase_block = out_nobase.split("symmetric twins")[1].split("\n---\n")[0]
+    assert "vs `origin/main`" not in nobase_block, nobase_block
+    assert "| Group | Case | Arm | Instructions | vs Roaring" in nobase_block, nobase_block
+    assert "`new`" not in nobase_block, nobase_block
+
+    # 10d. #421 done-when 4: the pinned-baseline caveat sits next to the ratio
+    #      column, and is derived from this run's own two passes.
+    assert "The Roaring side is pinned." in twin_block, twin_block
+    assert "`roaring_and/dense` is 1,000 in both" in twin_block, twin_block
+    assert "Every movement in it is our arm's movement" in twin_block, twin_block
+    # It is not a stamped constant: when a baseline arm does move, the report
+    # says so instead of claiming the denominator held still.
+    moved_base = {k: dict(v) for k, v in twin_base.items()}
+    moved_base["roaring_and/dense"]["Instructions"] = 900
+    moved_rows = twin_rows(twin_head, twin_origins, decls, moved_base)
+    moved_note = baseline_pinned_note(moved_rows, True, "Roaring", "origin/main")
+    assert "is pinned" not in moved_note, moved_note
+    assert "900 → 1,000" in moved_note, moved_note
+    # ... and with no merge-base pass at all it claims neither.
+    no_base_note = baseline_pinned_note(rows, False, "Roaring", "origin/main")
+    assert "is pinned" not in no_base_note, no_base_note
+    assert "no merge-base pass" in no_base_note, no_base_note
+
+    # 11. #421 done-when 2: no third-party baseline arm appears as a subject row.
+    #     Its absolute count stays available, but subordinate.
     section_1 = out.split("### 1.")[1].split("symmetric twins")[0]
     baseline_rows = [
         line
         for line in section_1.splitlines()
         if line.startswith("|") and "`roaring" in line
     ]
-    assert len(baseline_rows) == 2, baseline_rows
-    for line in baseline_rows:
-        assert line.startswith("| ⚪ |"), line
-        assert line.count("| n/a |") == 2, line
-        assert "%" not in line, line
+    assert baseline_rows == [], baseline_rows
+    ledger = out.split("baseline arms — absolute instruction counts")[1]
+    assert "`roaring_and/dense` | 1,000 | identical |" in ledger, ledger
+    assert "`roaring_materialize/dense` | 4,000 | identical |" in ledger, ledger
+    assert "<details>" in twin_block, twin_block
     # ... and a dependency's own drift is never this PR's regression.
     roaring_moved = {k: dict(v) for k, v in twin_head.items()}
     roaring_moved["roaring_and/dense"]["Instructions"] = 100_000
@@ -1439,8 +1690,10 @@ def self_test() -> int:
     )
     assert "0 Regressions" not in out_new, out_new
     assert "Nothing comparable — this run gated nothing" in out_new, out_new
-    # A partially-new run states how much of it was actually compared.
-    assert "0 Regressions** (2/2 arms compared)" in out, out
+    # A partially-new run states how much of it was actually compared, and the
+    # count covers Expanse arms only — a baseline is not an arm we compared.
+    assert "0 Regressions** (2/3 arms compared)" in out, out
+    assert "**1 of 3 Expanse arm(s) are new**" in out, out
 
     # 14. Done-when 5: search arms are sectioned by their declared
     #     library_benchmark_group!, not dumped into "Other & General".
@@ -1518,7 +1771,7 @@ def main() -> int:
     baseline_arms, undeclared = classify_arms(
         list(head_parsed), head_origins, declarations
     )
-    twins = twin_rows(head_parsed, head_origins, declarations)
+    twins = twin_rows(head_parsed, head_origins, declarations, base_parsed)
 
     fatals = head_parse_fatals(head_parsed, base_parsed)
 
