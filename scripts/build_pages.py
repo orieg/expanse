@@ -613,7 +613,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
   <div class="container">
     <div class="hero">
       <div class="badge-bar">
-        <span class="badge badge-green">Pure Rust &bull; #![no_std]</span>
+        <span class="badge badge-green">Pure Rust &bull; no_std capable</span>
         <span class="badge">Rust &bull; Python &bull; Node.js &bull; .NET &bull; C++20 &bull; Java &bull; C ABI &bull; ESP-IDF (ESP32)</span>
         <span class="badge">64-Bit &amp; 32-Bit Embedded</span>
       </div>
