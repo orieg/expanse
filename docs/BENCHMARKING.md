@@ -274,6 +274,122 @@ Making this path win is a redesign — branchless retirement, or fixed-depth ste
 | Full libjudy + ART comparison | Phase 8 remainder | Headline table, dedicated-host runs, driven through the capi surface |
 | Domain comparative suites (search, sorted-set, hash-map) | landed (`docs/benchmarks/*`) | self-contained reproducible suites with pre-registered hypotheses — see "Comparative benchmark suites" below |
 
+## Harness audit: workload shape and claim provenance (#454)
+
+A per-harness inventory of what each benchmark actually measures, and a map from
+every published number to the harness that produced it.
+
+**Why this exists.** The vs-libjudy harness published a figure for months while
+probing 4,096 distinct keys eight times against a 1M-key structure — roughly
+2 MiB against a 30 MiB L3 — and describing the result as memory-latency-bound.
+Repairing it (#457) and re-measuring (#463) moved the deficit from a published
+`1.11x` to a measured `1.031x [1.024, 1.038]`. Fixing it cost one PR. Finding
+out *which published figures depended on it* cost far more, because nothing
+recorded that mapping. This section is that record.
+
+**Read the verification tag on every row.** `[verified: RUN]` means the harness
+was executed and its output observed. `[verified: CODE READ]` means the verdict
+comes from reading the source and is a hypothesis until run. Most rows are the
+latter — that is honest, not a defect of the audit, and it is the difference
+between a file that was exercised and one that was merely inspected.
+
+**Superseded when** every timed arm declares its own workload shape in a
+machine-readable form and a gate asserts it (#453 item A). At that point this
+table is generated rather than maintained, and this section should be replaced
+by a pointer to the generator.
+
+> [!NOTE]
+> Every verdict explicitly distinguishes whether the finding was verified by an actual execution artifact (`[verified: RUN]`), verified by static code audit (`[verified: CODE READ]`), or remains unexecuted (`[STATUS: UNRUN]`).
+
+### Group 1: C-API Benches & Examples (`crates/expanse-capi/`)
+
+| File | Population ($N$) | Probes & Reuse | Hit Rate | Miss Gen Method | Value Dereference | Measured Region | Arm Symmetry | Statistics | Verdict & Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| [`crates/expanse-capi/benches/smoke_instructions.rs`](../crates/expanse-capi/benches/smoke_instructions.rs) | 10k | 10k (shuffled), reuse 1.0 | 100% | None (hits only) | `sink ^= *slot` | Clean (setup in setup) | Self (C ABI) | iai Callgrind exact counts | **PASS** `[verified: RUN (CI callgrind-smoke)]` |
+| [`crates/expanse-capi/benches/vs_stock.rs`](../crates/expanse-capi/benches/vs_stock.rs) | `POP = 30_000`, `POP_BIG = 1_500_000` (L204, 209) | 30k / 1.5M, reuse 1.0 | 100% / mixed | Interleaved keys | `*slot` dereferenced | Deliberately leaks to exclude drop | **Three arms**: `*_expanse` (rlib, LTO-linked), `*_expanse_dl` (dlopen'd cdylib), and `*_stock` (dlopen'd libjudy). `*_expanse_dl` vs `*_stock` is symmetric; `*_expanse` vs `*_stock` is asymmetric (LTO bias). | iai Callgrind exact counts (simulated 8 MiB LL) | **PASS** `[verified: RUN (CI instruction-counts)]`: Carrying both `expanse` and `expanse_dl` isolates LTO delta; 1.5M population is load-bearing in #456. |
+| [`crates/expanse-capi/examples/bench_vs_libjudy.rs`](../crates/expanse-capi/examples/bench_vs_libjudy.rs) | 100k, 1M | $2 \times N$ distinct, reuse 1.0 | 50% | Independent PRNG + membership rejection | `*(pval as *mut Word)` read | Clean (timing outside setup/drop) | Symmetric (`dlopen` vs `dlopen`) | Paired ratio + BCa bootstrap 95% CI | **PASS** `[verified: RUN (reference host, results/baseline_vs_libjudy.json)]`: Gold standard reference after #457. |
+
+---
+
+### Group 2: Core Point/Batch Lookup & Micro-Benches (`crates/expanse/benches/`)
+
+| File | Population ($N$) | Probes & Reuse | Hit Rate | Miss Gen Method | Value Dereference | Measured Region | Arm Symmetry | Statistics | Verdict & Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| [`crates/expanse/benches/instructions.rs`](../crates/expanse/benches/instructions.rs) | 50k | 50k (shuffled), reuse 1.0 | 100% | None | `black_box` on retrieved values | Clean (setup in setup) | Internal trie paths | iai Callgrind exact counts | **PASS** `[verified: RUN (CI instruction-counts)]`: Canonical instruction reference. |
+| [`crates/expanse/benches/smoke_instructions.rs`](../crates/expanse/benches/smoke_instructions.rs) | 10k | 10k, reuse 1.0 | 100% | None | `sink ^= map.get().unwrap_or(0)` | Clean (setup in setup) | Internal trie paths | iai Callgrind exact counts | **PASS** `[verified: RUN (CI callgrind-smoke)]`: Fast smoke gate. |
+| [`crates/expanse/benches/batch_lookup.rs`](../crates/expanse/benches/batch_lookup.rs) | 100k, 4M | 4M (CHUNK 1024 rolling) | 50% | **DEGENERATE XOR**: `k ^ (1<<63) ^ 0xA5` alternating `i % 2` (L72) | `black_box(&out[..CHUNK])` | Clean rolling offset | Symmetric (scalar vs batch lanes) | Criterion estimate | ⚠️ **DEFECT (Class 3)** `[verified: CODE READ]`: Fixed high-bit XOR alternating pattern corrupts batched descent depth (though #467 confirmed not the root of the 40% jump). |
+| [`crates/expanse/benches/compare.rs`](../crates/expanse/benches/compare.rs) | 10k, 1M, 4M | 4096 (10k/1M) / 2M (4M), looped | 50% (set) / 100% (map) | **DEGENERATE XOR**: `k ^ (1<<63) ^ 0x5A` (L58) / `0xA5` (L186) | `black_box(get())` | **LEAKY DROP**: `bench_insert` drops set/map inside `b.iter` (L150, L160, L170) | Asymmetric: SipHash `HashSet` vs `BTree` vs `Expanse` | Criterion estimate | ⚠️ **DEFECT (Class 1, 2, 3, 4, 5)** `[verified: CODE READ]`: 4k probes fit in L1/L2; XOR misses; Drop inside timed insert. |
+| [`crates/expanse/benches/comparative.rs`](../crates/expanse/benches/comparative.rs) | 10k, 100k | Full keys, looped | 100% | None | `black_box(contains)` | Clean | Asymmetric: `u32` keys, Roaring vs Expanse | Criterion estimate | **DEFECT (Class 2, 5)** `[verified: CODE READ]`: Looped hit probes, 32-bit key truncation. |
+| [`crates/expanse/benches/concurrency.rs`](../crates/expanse/benches/concurrency.rs) | 1M (keyspace 2M) | Continuous stream in 500ms window | ~50% | Bounded keyspace random stream | `black_box(sink)` | Clean (`run_window`) | Symmetric across concurrency primitives | Throughput ops/sec | **PASS** `[verified: RUN (reference host, run 33030152085)]`: Corrected in #375 to bounded keyspace. |
+| [`crates/expanse/benches/embedded.rs`](../crates/expanse/benches/embedded.rs) | 500, 2k, 10k | 500, 2k, 10k, looped | 100% | None | `matched += 1` / `sum += v` | **LEAKY DROP**: `bench_sensor_indexing` drops set inside `b.iter` (L35, L46) | Symmetric (BTree vs HashBrown vs Expanse32) | Criterion estimate | ⚠️ **DEFECT (Class 4, 6)** `[verified: CODE READ]`: Drops set in timed loop; does not touch blob payload in scan. |
+
+---
+
+### Group 3: Hashbrown Comparison Suite (`crates/expanse/benches/`)
+
+| File | Population ($N$) | Probes & Reuse | Hit Rate | Miss Gen Method | Value Dereference | Measured Region | Arm Symmetry | Statistics | Verdict & Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| [`crates/expanse/benches/hashbrown_container_dists.rs`](../crates/expanse/benches/hashbrown_container_dists.rs) | 10k, 100k, 500k | Full keys, reuse 1.0 | 100% | None | `black_box(get)` | Clean | Symmetric | Raw ns/op (no CI) | **PASS / MINOR (Class 7)** `[verified: CODE READ]`: Clean timing, missing CI intervals. |
+| [`crates/expanse/benches/hashbrown_memory_alloc.rs`](../crates/expanse/benches/hashbrown_memory_alloc.rs) | 1k to 500k | N/A (Memory) | N/A | N/A | Live bytes tracked | Clean `GlobalAlloc` hook | Symmetric keys | Exact byte count | **PASS** `[verified: CODE READ]`: Deterministic memory allocator census. |
+| [`crates/expanse/benches/hashbrown_native_suite.rs`](../crates/expanse/benches/hashbrown_native_suite.rs) | 10k, 100k, 500k | Sub-slice `iters < pop` sequential index | 100% hit / 100% miss arms | Separate PRNG seed (no membership check) | `black_box(get)` | **LEAKY DROP**: `insert_growing` drops `m` inside `bench_op` (L218, L231, L244) | Symmetric | Raw ns/op (no CI) | ⚠️ **DEFECT (Class 2, 4, 7)** `[verified: CODE READ]`: Sequential sub-slice walk; Drop inside timed insert loop; no CI. |
+| [`crates/expanse/benches/hashbrown_tail_latency.rs`](../crates/expanse/benches/hashbrown_tail_latency.rs) | 100k | 100k inserts | N/A | N/A | Records clamped latency | `Instant::now()` per op (calibrated overhead) | Symmetric | HdrHistogram percentiles | **PASS** `[verified: CODE READ]`: Documented per-op calibration overhead. |
+| [`crates/expanse/benches/hashbrown_ycsb.rs`](../crates/expanse/benches/hashbrown_ycsb.rs) | 100k | 100k ops | Zipfian | Zipfian draw from dataset | `black_box` on op results | Clean | Symmetric | Throughput Mops/s | **PASS** `[verified: CODE READ]`: Consistent with main YCSB suite. |
+
+---
+
+### Group 4: Workloads & Domain Suites (`crates/expanse/benches/`)
+
+| File | Population ($N$) | Probes & Reuse | Hit Rate | Miss Gen Method | Value Dereference | Measured Region | Arm Symmetry | Statistics | Verdict & Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| [`crates/expanse/benches/ycsb.rs`](../crates/expanse/benches/ycsb.rs) | 100k | 100k ops | Zipfian | Zipfian draw from dataset | `black_box(res)` does **NOT** deref payload buffer in `BlobMap`/`BTree` (L479, L540) | Clean | Symmetric predicates (50% key-parity) | Criterion / LatencyStats | ⚠️ **DEFECT (Class 6)** `[verified: CODE READ]`: `Read` op on `ExpanseBlobMap` and `BTreeMap` omits payload cache-line fetch. (See Policy Decision below regarding ratio soundness vs absolute numbers). |
+| [`crates/expanse/benches/large_values.rs`](../crates/expanse/benches/large_values.rs) | 10k, 14k, 50k, 262k | Full scan | Selective $\sigma$ | Uniform meta filter | `view.len()` only in `bench_inline_vs_heap` (L80) & `selectivity_sweep` (L144); fixed in `cold_dram_large` | **LEAKY DROP**: `bench_inline_vs_heap` drops map inside `b.iter` (L43, L58) | Symmetric | Criterion estimate | ⚠️ **DEFECT (Class 4, 6)** `[verified: CODE READ]`: Retains uncorrected `selectivity_sweep` & `inline_vs_heap` beside corrected `cold_dram_large`. |
+| [`crates/expanse/benches/bench_grammar_masks.rs`](../crates/expanse/benches/bench_grammar_masks.rs) | 32k vocab | 32k, looped | 100% | None | `black_box(matches)` | Clean | Symmetric (Roaring vs Expanse) | Raw ns (no CI) | **PASS** `[verified: CODE READ]`: Domain-specific LLM mask benchmark. |
+| [`crates/expanse/benches/bench_llm_datastore.rs`](../crates/expanse/benches/bench_llm_datastore.rs) | 100k tokens | Prefix search | 100% | None | `black_box(search)` | Clean | Symmetric | Raw ns (no CI) | **PASS** `[verified: CODE READ]`: Domain-specific datastore benchmark. |
+| [`crates/expanse/benches/search_boolean.rs`](../crates/expanse/benches/search_boolean.rs) | Synthetic postings | Postings sets | Intersection | N/A | `black_box(result)` | Clean | Symmetric (Roaring vs Expanse) | Raw ms (no CI) | **PASS** `[verified: CODE READ]`: Boolean index evaluation. |
+| [`crates/expanse/benches/search_instructions.rs`](../crates/expanse/benches/search_instructions.rs) | 1k, 10k, 100k | Postings pairs | Intersection | N/A | `black_box(count)` | Clean (setup in setup) | Symmetric | iai Callgrind exact counts | **PASS** `[verified: CODE READ]`: Deterministic boolean instructions. |
+| [`crates/expanse/benches/search_memory.rs`](../crates/expanse/benches/search_memory.rs) | Synthetic postings | N/A (Memory) | N/A | N/A | Live bytes tracked | Clean `GlobalAlloc` hook | Symmetric | Exact byte count | **PASS** `[verified: CODE READ]`: Memory census. |
+| [`crates/expanse/benches/search_wand.rs`](../crates/expanse/benches/search_wand.rs) | 100k postings | Monotonic targets | Skip scan | N/A | `black_box(skipscan)` | Clean | Symmetric (Roaring vs Expanse) | Throughput Mops/s | **PASS** `[verified: CODE READ]`: WAND skip-scan comparison. |
+| [`crates/expanse/benches/search_common/mod.rs`](../crates/expanse/benches/search_common/mod.rs) | Shared helpers | Postings sets | N/A | N/A | `black_box(f())` | Clean | Symmetric | Helper module | **PASS** `[verified: CODE READ]`: Shared helper. |
+| [`crates/expanse/benches/zset_common/mod.rs`](../crates/expanse/benches/zset_common/mod.rs) | Shared helpers | Members/scores | N/A | N/A | `black_box` | Clean | Symmetric | Helper module | **PASS** `[verified: CODE READ]`: Shared helper. |
+| [`crates/expanse/benches/zset_memory.rs`](../crates/expanse/benches/zset_memory.rs) | 10k, 100k | N/A (Memory) | N/A | N/A | Live bytes tracked | Clean `GlobalAlloc` hook | Symmetric (SkipList vs Expanse) | Exact byte count | **PASS** `[verified: CODE READ]`: Memory census. |
+| [`crates/expanse/benches/zset_range.rs`](../crates/expanse/benches/zset_range.rs) | 10k, 100k | Range windows | Range scan | Bounded score window | `black_box((m, sc))` | Clean | Symmetric | Median reduction | **PASS** `[verified: CODE READ]`: Range scan benchmark. |
+| [`crates/expanse/benches/zset_rank.rs`](../crates/expanse/benches/zset_rank.rs) | 10k, 100k | Rank queries | Rank queries | Bounded score window | `black_box(acc)` | Clean | Symmetric | Median reduction | **PASS** `[verified: CODE READ]`: Rank query benchmark. |
+| [`crates/expanse/benches/zset_zadd.rs`](../crates/expanse/benches/zset_zadd.rs) | 10k, 100k | Ops stream | Churn | Bounded score stream | `black_box(len)` | Clean | Symmetric | Median reduction | **PASS** `[verified: CODE READ]`: ZADD churn benchmark. |
+
+---
+
+### Group 5: Standalone Examples & Profile Drivers (`crates/expanse/examples/`)
+
+| File | Population ($N$) | Probes & Reuse | Hit Rate | Miss Gen Method | Value Dereference | Measured Region | Arm Symmetry | Statistics | Verdict & Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| [`crates/expanse/examples/bench_lookup_compare.rs`](../crates/expanse/examples/bench_lookup_compare.rs) | 10k, 100k, 500k, 1M | $\min(N, 1\text{M})$, sampled with replacement | 50% hit / 50% miss | **DEGENERATE XOR**: `hit_k ^ (1<<63) ^ 0x5A5A_...` (L249) | Dereferences `*pval` for JudyL; `black_box(v)` for others | Clean (Instant outside build/drop) | **ASYMMETRIC**: `dlsym` function pointer for JudyL vs static Rust inlining | Raw medians (no BCa CI) | ⚠️ **DEFECT (Class 3, 5, 7)** `[verified: CODE READ]`: Source of `bench_report.py` table; degenerate XOR misses, dynamic fn ptr dispatch bias, no BCa CIs. |
+| [`crates/expanse/examples/bytes_per_key.rs`](../crates/expanse/examples/bytes_per_key.rs) | 10k to 1M | N/A (Memory) | N/A | N/A | `mem_used()` accounting | Clean | Pure 64-bit census | Exact byte count | **PASS** `[verified: RUN (6c63826a)]`: Deterministic memory density census. |
+| [`crates/expanse/examples/bytes_per_key_32.rs`](../crates/expanse/examples/bytes_per_key_32.rs) | 10k | N/A (Memory) | N/A | N/A | `mem_used()` accounting | Clean | Pure 32-bit census | Exact byte count | **PASS** `[verified: RUN (6c63826a)]`: Deterministic 32-bit memory census. |
+| [`crates/expanse/examples/concurrent_scaling.rs`](../crates/expanse/examples/concurrent_scaling.rs) | 1M | Continuous stream in 500ms window | ~50% | Bounded keyspace | `black_box(sink)` | Clean | Symmetric across thread counts | Throughput ops/sec | **PASS** `[verified: CODE READ]`: Multi-threaded scaling driver. |
+| [`crates/expanse/examples/lookup_profile.rs`](../crates/expanse/examples/lookup_profile.rs) | 1M | 1M (shuffled), reuse 1.0 | 100% | None | Accumulates checksum | Clean | Internal attribution only | Diagnostic checksum | **PASS** `[verified: CODE READ]`: Sampling profiler attribution harness. |
+| [`crates/expanse/examples/occ_stats_probe.rs`](../crates/expanse/examples/occ_stats_probe.rs) | 1M | Continuous stream | ~50% | Bounded keyspace | Counted atomic stats | Clean | Protocol event counts | Exact event counters | **PASS** `[verified: CODE READ]`: Deterministic event counter probe. |
+| [`crates/expanse/examples/perf_point_lookup.rs`](../crates/expanse/examples/perf_point_lookup.rs) | 100k, 1M | $2 \times N$ distinct, reuse 1.0 | 50% | Independent PRNG + rejection | Dereferences values | Differential process phase (`probe - build`) | Symmetric across distributions | Intended: PMU hardware counters + BCa CI | **UNRUN / IMPLEMENTED ONLY** `[verified: CODE READ only]`: **Never successfully executed** on reference host (failed on `perf_event_paranoid`, then hybrid-PMU event naming bug open in #466). Has produced zero measured output. |
+| [`crates/expanse/examples/popcnt_probe.rs`](../crates/expanse/examples/popcnt_probe.rs) | N/A | N/A | N/A | N/A | CPUID boolean | Clean | CPUID check | Boolean diagnostic | **PASS** `[verified: RUN (CI popcnt-check)]`: CPUID feature detector probe. |
+
+---
+
+
+Every published performance claim in the documentation has been traced verbatim to its originating document line and harness:
+
+
+| Published Claim / Verbatim Document Citation | Originating File | Status / Verification Finding | Action Required |
+|---|---|---|---|
+| **docs/DATABASE.md (L184, L502)**: `"• Latency: ~4.2–9.8 ns"` and `"~4.2–9.8 ns (clustered/sequential) / up to 38.6 ns (1M uniform-random DRAM)"` | `compare.rs` / `bench_lookup_compare.rs` | ⚠️ **COMPROMISED**: 4096-probe working set in `compare.rs` fit in L1/L2 cache; `bench_lookup_compare.rs` used XOR misses; `bench_cold_dram_lookup` used XOR misses. | Update citation to reflect measured `bench_vs_libjudy.rs` / `vs_stock.rs` numbers (5.39–9.96 ns baseline, ~4.2–7.5 ns on `x86-64-v3`). |
+| **README.md (L37) & docs/BENCHMARKING.md**: JudyL random 1M `get` at `"1.031x, BCa 95% CI [1.024, 1.038]"` | `bench_vs_libjudy.rs` (`results/baseline_vs_libjudy.json`) | ✅ **VERIFIED**: Measured paired BCa CI on quiet host (#463). | None — already accurate. |
+| **docs/BENCHMARKING.md (L1089–L1100)**: `"5.39 ns / 185.4 Mops (clustered), 9.96 ns / 100.4 Mops (random), 5.34 ns / 187.3 Mops (sequential)"` | `vs_stock.rs` / `bench_vs_libjudy.rs` | ✅ **VERIFIED**: Reference host quiet baseline. Teardown excluded from timed loop. | None — exact quiet-host baseline. |
+| **docs/BENCHMARKING.md**: 22 Callgrind Instruction Arms | `crates/expanse/benches/instructions.rs` | ✅ **VERIFIED**: Deterministic instruction counts; iai Callgrind runner. | None — exact instruction baseline. |
+| **docs/DATABASE.md (L516–L526)**: YCSB Workloads A–F Throughput Table | `crates/expanse/benches/ycsb.rs` | ⚠️ **IMPACTED (Values understate cold cost; ratio sound)**: Symmetrical omission preserves relative ratio. Do not retract ratio. | Update `ycsb.rs` runner to touch `view[0]` / `vec[0]` and re-measure absolute figures. |
+| **docs/DATABASE.md (L455)**: RocksDB MemTable Density (1.42x) | `crates/expanse/examples/bytes_per_key.rs` & `ycsb.rs` | ✅ **VERIFIED**: Structural memory accounting. | None — structural byte count. |
+| **docs/design/large-values.md (L1391–L1410)**: Predicate Scan (10.7x @ $\sigma=0.001$, 6.37x @ $\sigma=0.05$) | `crates/expanse/benches/large_values.rs` (`cold_dram_large`) | ✅ **VERIFIED**: Repaired in #355 with payload dereferencing and >LLC arena. | Deprecate/remove legacy uncorrected `selectivity_sweep`. |
+
+---
+
+
 ## Comparative benchmark suites (`docs/benchmarks/`)
 
 Each domain suite is a self-contained directory with the same shape: `README.md`
