@@ -84,6 +84,43 @@ Per-round ratios and every interval are committed in [`results/baseline_vs_libju
 
 Linkage makes almost no difference here: `expanse_rlib` (statically linked, LTO) and `expanse_dl` land at 1.028 and 1.031 on the arm where it would matter most.
 
+### Measured: the batched descent (`get_batch` / `contains_batch`)
+
+Width sweep against the scalar descent over identical probes. Ratios are `width / scalar`; below 1.000 the batched path is faster.
+
+| group | scalar (ns) | `W = 2` (best) | `W = 8` (was default) | verdict at best width |
+|---|---:|---|---:|---|
+| `map_get_batch/cold_dram/4000000` | 39346.3 | 1.015 [1.014, 1.016] | 1.108 | loss |
+| `map_get_batch/warm/100000` | 19350.0 | 0.975 [0.974, 0.976] | 1.378 | win |
+| `set_contains_batch/cold_dram/4000000` | 33778.8 | 1.026 [1.024, 1.032] | 1.128 | loss |
+| `set_contains_batch/warm/100000` | 19083.3 | 0.959 [0.958, 0.959] | 1.550 | win |
+
+*(measured: 12th Gen Intel Core i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0; commit `65fe26b0`; [run 33153486450](https://github.com/orieg/expanse/actions/runs/33153486450). Per-width intervals: [`results/baseline_batch_lookup.json`](../results/baseline_batch_lookup.json).)*
+
+**No width beats the scalar descent on cold DRAM**, which is the arm this machinery exists to serve. `W = 2` is closest at 1.015x and its interval still excludes parity. The previous default of `8` was the worst shipped choice at every population and distribution swept.
+
+Interleaving pays when there are several serialised DRAM misses to overlap. This descent has roughly one — the ladder resolves the upper levels out of cache, so only the terminal access is a genuine long-latency miss. [#455](https://github.com/orieg/expanse/issues/455) reached the same conclusion from emitted code rather than wall clock.
+
+**The cost is branch misprediction, not memory.** The sweep is non-monotonic with a ~40% discontinuity between `W = 2` and `W = 3`. Hardware counters on the reference host, pinned to one P-core, locate it:
+
+| counter | `W = 2` | `W = 3` | delta |
+|---|---:|---:|---:|
+| cycles | 1.989e9 | 2.733e9 | +37.4% |
+| instructions | 3.149e9 | 3.232e9 | +2.7% |
+| L1-dcache-loads | 7.022e8 | 7.024e8 | +0.04% |
+| L1-dcache-load-misses | 2.868e7 | 3.181e7 | +10.9% |
+| **branch-misses** | **2.403e7** | **4.998e7** | **+108%** |
+
+*(measured: reference host, `taskset -c 0`, `cpu_core` PMU only, 20,000 iterations of the warm arm.)*
+
+Mispredictions double while instruction count and L1 traffic stay flat. The 744M extra cycles over 26M extra mispredicts is ~28.6 cycles each — a pipeline flush, plus a little L2 from the L1 delta.
+
+The source is the driver's retirement branch: `step` returns `None` to continue or `Some` to retire, at a depth that varies per key. Two interleaved streams stay within the predictor's reach; three do not. **The interleaving meant to overlap memory stalls instead introduces control flow the front end cannot follow, and it costs more than the stalls it hides.**
+
+Three other explanations were tested and refuted: codegen (emitted `get_batch_width::<W>` grows smoothly on x86-64 — 793, 768, 792, 800, 834 instructions for `W` = 1, 2, 3, 4, 8 — and on AArch64, with a frame growing a uniform 32 bytes per lane); chunk alignment (`CHUNK` is 1024, so the drain runs once per chunk at any width); and the benchmark's own miss distribution (the cliff survives replacing the fixed-XOR misses at `batch_lookup.rs:72` with rejection sampling — 0.987 then 1.411; that defect is real and tracked in [#454](https://github.com/orieg/expanse/issues/454), but it is not this).
+
+Making this path win is a redesign — branchless retirement, or fixed-depth stepping that retires lanes predictably — not a width choice. `BATCH_WIDTH` stays at `8` rather than moving to the best-measured `2`: no width wins on cold DRAM, and the ordering reflects predictor behaviour rather than the mechanism this was built for.
+
 ## Comparison targets
 
 1. **C libjudy** — the headline comparison ("faster than the original, or explain why").

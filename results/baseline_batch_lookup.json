@@ -1,0 +1,316 @@
+{
+  "schema": "expanse.baseline.batch_lookup.v1",
+  "harness": "crates/expanse/benches/batch_lookup.rs",
+  "host": "12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic)",
+  "commit": "65fe26b04664",
+  "ci_run": "https://github.com/orieg/expanse/actions/runs/33153486450",
+  "ci_method": "BCa 95% over criterion per-sample times, scripts/bca_bootstrap.py defaults (2000 resamples, seed 42)",
+  "denominator_arm": "scalar",
+  "note": "Ratios are batch-width / scalar over the same probes. Below 1.000 the batched descent is faster. Shipped default is get::BATCH_WIDTH = 8.",
+  "groups": [
+    {
+      "group": "map_get_batch/cold_dram/4000000",
+      "scalar_ns": 39346.329,
+      "arms": [
+        {
+          "width": "batch/1",
+          "ratio": 1.1123,
+          "ci_lower": 1.1115,
+          "ci_upper": 1.1134,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/10",
+          "ratio": 1.0788,
+          "ci_lower": 1.0779,
+          "ci_upper": 1.0805,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/12",
+          "ratio": 1.0683,
+          "ci_lower": 1.0672,
+          "ci_upper": 1.0702,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/16",
+          "ratio": 1.0593,
+          "ci_lower": 1.0587,
+          "ci_upper": 1.0601,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/2",
+          "ratio": 1.0148,
+          "ci_lower": 1.014,
+          "ci_upper": 1.016,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/3",
+          "ratio": 1.0961,
+          "ci_lower": 1.095,
+          "ci_upper": 1.0975,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/32",
+          "ratio": 1.0506,
+          "ci_lower": 1.0487,
+          "ci_upper": 1.0575,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/4",
+          "ratio": 1.084,
+          "ci_lower": 1.0831,
+          "ci_upper": 1.0852,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/6",
+          "ratio": 1.1243,
+          "ci_lower": 1.1226,
+          "ci_upper": 1.1276,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/8",
+          "ratio": 1.1077,
+          "ci_lower": 1.1068,
+          "ci_upper": 1.1091,
+          "verdict": "loss"
+        }
+      ]
+    },
+    {
+      "group": "map_get_batch/warm/100000",
+      "scalar_ns": 19349.967,
+      "arms": [
+        {
+          "width": "batch/1",
+          "ratio": 0.9999,
+          "ci_lower": 0.9991,
+          "ci_upper": 1.0004,
+          "verdict": "not_a_difference"
+        },
+        {
+          "width": "batch/10",
+          "ratio": 1.3513,
+          "ci_lower": 1.3507,
+          "ci_upper": 1.3521,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/12",
+          "ratio": 1.3406,
+          "ci_lower": 1.34,
+          "ci_upper": 1.3414,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/16",
+          "ratio": 1.3321,
+          "ci_lower": 1.3316,
+          "ci_upper": 1.3324,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/2",
+          "ratio": 0.9746,
+          "ci_lower": 0.9737,
+          "ci_upper": 0.9755,
+          "verdict": "win"
+        },
+        {
+          "width": "batch/3",
+          "ratio": 1.3685,
+          "ci_lower": 1.3672,
+          "ci_upper": 1.3697,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/32",
+          "ratio": 1.2901,
+          "ci_lower": 1.2892,
+          "ci_upper": 1.2919,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/4",
+          "ratio": 1.3293,
+          "ci_lower": 1.3283,
+          "ci_upper": 1.3309,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/6",
+          "ratio": 1.3908,
+          "ci_lower": 1.3902,
+          "ci_upper": 1.3917,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/8",
+          "ratio": 1.3778,
+          "ci_lower": 1.3772,
+          "ci_upper": 1.3788,
+          "verdict": "loss"
+        }
+      ]
+    },
+    {
+      "group": "set_contains_batch/cold_dram/4000000",
+      "scalar_ns": 33778.759,
+      "arms": [
+        {
+          "width": "batch/1",
+          "ratio": 1.2043,
+          "ci_lower": 1.2036,
+          "ci_upper": 1.2056,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/10",
+          "ratio": 1.1134,
+          "ci_lower": 1.1125,
+          "ci_upper": 1.1149,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/12",
+          "ratio": 1.1078,
+          "ci_lower": 1.1066,
+          "ci_upper": 1.1122,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/16",
+          "ratio": 1.0903,
+          "ci_lower": 1.0898,
+          "ci_upper": 1.0913,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/2",
+          "ratio": 1.0256,
+          "ci_lower": 1.0238,
+          "ci_upper": 1.0317,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/3",
+          "ratio": 1.1341,
+          "ci_lower": 1.1331,
+          "ci_upper": 1.1352,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/32",
+          "ratio": 1.0837,
+          "ci_lower": 1.0824,
+          "ci_upper": 1.088,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/4",
+          "ratio": 1.0881,
+          "ci_lower": 1.087,
+          "ci_upper": 1.0901,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/6",
+          "ratio": 1.1446,
+          "ci_lower": 1.1438,
+          "ci_upper": 1.1467,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/8",
+          "ratio": 1.1277,
+          "ci_lower": 1.1272,
+          "ci_upper": 1.1289,
+          "verdict": "loss"
+        }
+      ]
+    },
+    {
+      "group": "set_contains_batch/warm/100000",
+      "scalar_ns": 19083.264,
+      "arms": [
+        {
+          "width": "batch/1",
+          "ratio": 0.9861,
+          "ci_lower": 0.9851,
+          "ci_upper": 0.9872,
+          "verdict": "win"
+        },
+        {
+          "width": "batch/10",
+          "ratio": 1.5307,
+          "ci_lower": 1.5298,
+          "ci_upper": 1.5318,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/12",
+          "ratio": 1.505,
+          "ci_lower": 1.5041,
+          "ci_upper": 1.5067,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/16",
+          "ratio": 1.4418,
+          "ci_lower": 1.441,
+          "ci_upper": 1.4432,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/2",
+          "ratio": 0.9586,
+          "ci_lower": 0.9582,
+          "ci_upper": 0.9593,
+          "verdict": "win"
+        },
+        {
+          "width": "batch/3",
+          "ratio": 1.4082,
+          "ci_lower": 1.4071,
+          "ci_upper": 1.4094,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/32",
+          "ratio": 1.368,
+          "ci_lower": 1.3674,
+          "ci_upper": 1.3687,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/4",
+          "ratio": 1.3931,
+          "ci_lower": 1.392,
+          "ci_upper": 1.3955,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/6",
+          "ratio": 1.5123,
+          "ci_lower": 1.5112,
+          "ci_upper": 1.5137,
+          "verdict": "loss"
+        },
+        {
+          "width": "batch/8",
+          "ratio": 1.5497,
+          "ci_lower": 1.5479,
+          "ci_upper": 1.5514,
+          "verdict": "loss"
+        }
+      ]
+    }
+  ]
+}

@@ -594,12 +594,54 @@ unsafe fn get_map_popcnt(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 
 /// Default interleave width for the batched entries.
 ///
-/// The useful range is bounded above by the core's outstanding-miss budget
-/// (L1 fill buffers / L2 MSHRs — 12 on the reference host's Golden Cove
-/// cores): lanes beyond that cannot add miss overlap and only add
-/// bookkeeping. It is bounded below by 1, which is the scalar path. The
-/// value inside that range is a wall-clock question; `benches/batch_lookup.rs`
-/// sweeps it and `docs/BENCHMARKING.md` records what has been measured.
+/// **Measured: the batched descent does not win where it was designed to.**
+/// The sweep in `benches/batch_lookup.rs` ran on the reference host and
+/// every width loses to the scalar descent on the cold-DRAM arm — the
+/// closest is `W = 2` at 1.015x, BCa 95% CI [1.014, 1.016], which still
+/// excludes parity. Interleaving pays when there are several serialised
+/// DRAM misses to overlap; this descent has roughly one, because the
+/// ladder resolves the upper levels out of cache.
+///
+/// **The cost is branch misprediction, not memory.** The sweep is
+/// non-monotonic with a ~40% discontinuity between `W = 2` and `W = 3`.
+/// Hardware counters on the reference host, pinned to one P-core, locate
+/// it exactly:
+///
+/// | counter | `W = 2` | `W = 3` |
+/// |---|---|---|
+/// | cycles | 1.989e9 | 2.733e9 (+37.4%) |
+/// | instructions | 3.149e9 | 3.232e9 (+2.7%) |
+/// | L1-dcache-loads | 7.022e8 | 7.024e8 (+0.04%) |
+/// | L1-dcache-load-misses | 2.868e7 | 3.181e7 (+10.9%) |
+/// | branch-misses | 2.403e7 | **4.998e7 (+108%)** |
+///
+/// Mispredictions double while instructions and L1 traffic stay flat.
+/// The 744M extra cycles over 26M extra mispredicts is ~28.6 cycles
+/// each — a pipeline flush, plus a little L2 from the L1 delta.
+///
+/// The source is this driver's own retirement branch: `step` returns
+/// `None` to continue or `Some` to retire, at a depth that varies per
+/// key. Two interleaved streams stay inside the predictor's reach;
+/// three do not. So the interleaving that was meant to overlap memory
+/// stalls instead introduces control-flow the front end cannot follow,
+/// and it costs more than the stalls it hides.
+///
+/// Three other explanations were tested and refuted: codegen (emitted
+/// `get_batch_width::<W>` grows smoothly on both x86-64 — 793, 768, 792,
+/// 800, 834 instructions for W = 1, 2, 3, 4, 8 — and AArch64, with a
+/// frame growing a uniform 32 bytes per lane); chunk alignment (`CHUNK`
+/// is 1024, so the drain runs once per chunk at any width); and the
+/// benchmark's miss distribution (the cliff survives replacing the
+/// fixed-XOR misses with rejection sampling, 0.987 then 1.411).
+///
+/// Making this path win is a redesign — branchless retirement, or
+/// fixed-depth stepping that retires lanes predictably — not a width
+/// choice. `8` is retained as the historical default rather than tuned
+/// to `2`, since no width wins on cold DRAM and the ordering reflects
+/// predictor behaviour rather than the mechanism this was built for.
+///
+/// Per-width intervals: `results/baseline_batch_lookup.json`.
+/// *(measured: reference host, commit `65fe26b0`, run 33153486450.)*
 pub const BATCH_WIDTH: usize = 8;
 
 /// One in-flight descent: the edge reached so far, the key being descended,
