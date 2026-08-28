@@ -140,6 +140,12 @@ cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: typ
   blobmap::tests::deferred strmap::tests::deferred bytesmap::tests::deferred
 ```
 
+### Benchmark Changes Require Direct Harness Execution
+`scripts/gate.sh` runs workspace unit/integration tests, but does **not** execute Criterion benchmark harnesses (`benches/*.rs`). Whenever modifying or adding a benchmark or example harness:
+1. Run `cargo test --bench <bench_name> -- --nocapture` to execute all benchmark arms across all configured populations ($N \in [10\text{k}, 1\text{M}]$).
+2. For standalone harnesses, run `cargo run --example <example_name> -- --quick`.
+3. Never tick the PR checklist or mark a harness ready without watching the benchmark execute to completion without panics.
+
 ### Unsafe Code & Undocumented Unsafe Blocks
 - Expanse operates on low-level tagged pointer representations and raw memory layouts.
 - **Every `unsafe` block MUST be preceded by an explicit `// SAFETY:` rationale comment** explaining pointer validity, lifetime guarantees, alignment, and bounds preservation (clippy `undocumented_unsafe_blocks` is on).
@@ -285,6 +291,7 @@ Expanse is an empirical performance project. Autonomous agents interacting with 
 - **Realistic Keyspaces & Hit Rates**: Read benchmarks must specify and test realistic hit rates (e.g. 50% hit / 50% miss), never probing unbounded 64-bit random keys against sparse sets where hit rate is ~0% unless explicitly benchmarking the miss path.
 - **Miss *shape*, not just miss *rate***: A miss probe MUST be drawn from the same generator as the population and rejected on membership. It must **never** be a fixed transform of a present key (`k ^ (1 << 63) ^ 0xA5` and similar). Such a probe lands in a different top-level expanse, shares no prefix with its parent, and therefore **terminates at a systematically different depth than a hit** — so the arm satisfies a stated 50% hit rate while averaging two different descents into one number. Reference form: `miss_keys` in `crates/expanse-capi/examples/bench_vs_libjudy.rs`. Four instances were found in one sweep ([#454](https://github.com/orieg/expanse/issues/454)); this rule exists because the hit-rate rule above was fully complied with in all four.
 - **Measured-Region Hygiene**: Construction, teardown, and `Drop` stay **outside** the timed window. A closure that builds a structure, populates it, and lets it fall out of scope inside `b.iter` / `Instant::now()` is timing deallocation as part of insertion. Use `iter_batched` returning the value, or hoist the build into setup and leak deliberately (as `vs_stock.rs` does). Repaired at least four times in this repository, each time only in the file someone happened to open.
+- **Deterministic Distribution Miss Offsets**: When generating absent keys for structured/monotonic keyspaces (`sequential`, `sparse`), initialize the candidate stream with an offset $\ge N$ (`KeyGen::with_offset(dist, seed, present.len() as u64)`). Starting candidate generation from index 0 collides with the entire inserted population and exhausts sampling budgets at large $N$.
 
 ### 8.7 Provenance & Pre-Registration Integrity
 - **Provenance Tags Required**: Every published number in documentation must carry a provenance tag: `(measured: host, commit)` resolving to a committed JSON artifact or cited CI run.
