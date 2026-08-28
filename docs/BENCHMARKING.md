@@ -18,25 +18,23 @@ Performance claims are this project's reason to exist, so they follow the strict
 
 ## Which instrument fits the change
 
-Two instruments, and the choice is not stylistic — each is blind to what the other measures.
+| The change | Primary instrument |
+|---|---|
+| Removes work — fewer comparisons, fewer allocations, shorter descent, better codegen | Callgrind instruction count |
+| Overlaps or hides stalls — memory-level parallelism, batching, prefetch, TLB/page-size work | Wall clock with BCa 95% CIs on the reference host |
+| Both | Both; state which the claim rests on |
 
-| The change… | Primary instrument | Why |
-|---|---|---|
-| **removes work** — fewer comparisons, fewer allocations, shorter descent, better codegen | **Callgrind instruction count** | Deterministic, reviewable per PR, resolves 0.1% — finer than any timer available here |
-| **overlaps or hides stalls** — memory-level parallelism, batching, prefetch, TLB/page-size work, anything trading instructions for latency | **Wall clock with BCa 95% CIs on the dedicated reference host** | The win is latency the machine hides; the instruction count is flat or *worse* by construction |
-| **does both** | Report both | State which one the claim rests on |
+Callgrind cannot see TLB misses, memory-level parallelism or frequency effects. It is the right instrument because it ignores them, and the wrong one when they are the point. For a latency-hiding change a flat or increased instruction count is the expected shape, not a failed optimisation.
 
-**Callgrind cannot see TLB misses, memory-level parallelism, frequency effects, or anything else the machine hides.** It is the right instrument *because* it ignores them — which makes it the wrong one when they are the point.
+Wall clock is not a licence: the quiet-host and provenance requirements in [Methodology rules](#methodology-rules-binding) apply unchanged. See the `memcmp` episode below — a 7–11% lookup win a second run erased.
 
-The corollary is the part that trips people up: for a latency-hiding change, **a flat or increased instruction count is the expected shape, not a failed optimisation**. Judging such a change on instructions alone will reject a real win. Judging it on wall clock from a contended host will manufacture a fake one — the quiet-host and provenance requirements in [Methodology rules](#methodology-rules-binding) apply unchanged, and the `memcmp` episode recorded below (a 7–11% lookup win a second run erased) is why.
+Three cases in this repo:
 
-Worked cases already in this repo:
+- **Work removed.** The three engine optimisations at §"Instruction counts": 2.3%–17.0% fewer instructions across all 14 arms.
+- **Both true at once.** libexpanse retires 0.55× the instructions of stock libjudy on random 1M lookup and is 1.11× slower in wall clock. The arm is memory-latency-bound, so the work removed is not on the critical path.
+- **Measured negative.** Software prefetch in the descent loops ([HARDWARE.md](HARDWARE.md) §1.5) was a no-op: prefetch distance cannot be predetermined inside a dependent chain. That closes prefetch within one lookup, not overlapping stalls across independent lookups.
 
-- **Work removed:** the three engine optimisations at §"Instruction counts" — 2.3%–17.0% fewer instructions across all 14 arms. Callgrind is the whole claim.
-- **Neither, and instructive:** libexpanse retires **0.55×** the instructions of stock libjudy on random 1M lookup and is **1.11× slower** in wall clock. Both true. The arm is memory-latency-bound, so the work removed is not on the critical path.
-- **Measured negative:** software prefetch in the descent loops ([HARDWARE.md](HARDWARE.md) §1.5) measured as a no-op — prefetch distance cannot be predetermined inside a dependent chain. That result closes prefetch *within* one lookup; it says nothing about overlapping stalls *across* independent lookups.
-
-Instruments this repo has and when they earn their place: `perf stat` counters (dTLB misses, page walks) when the hypothesis is translation rather than data; the LL/RAM columns `vs_stock.rs` already emits when the hypothesis is cache behaviour; `bca_bootstrap.py` for any continuous metric that reaches a published claim.
+Also available: `perf stat` counters (dTLB misses, page walks) when the hypothesis is translation; the LL/RAM columns `vs_stock.rs` emits when it is cache behaviour; `bca_bootstrap.py` for any continuous metric reaching a published claim.
 
 ## Comparison targets
 

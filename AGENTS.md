@@ -175,15 +175,8 @@ On pull requests, maintainers and authorized collaborators can trigger automated
 See `docs/BENCHMARKING.md` §2–3 and `docs/CI.md` for details.
 
 ### Zero-Regression Policy
-- **Fewer instructions is always better** — for a change that removes work. See
-  [Which instrument fits the change](docs/BENCHMARKING.md#which-instrument-fits-the-change):
-  a change that overlaps or hides stalls (memory-level parallelism, batching, prefetch,
-  TLB/page-size work) may retire *more* instructions while measurably lowering latency.
-  For those, wall clock with BCa CIs on the dedicated reference host is the primary
-  instrument and the claim must carry a CI.
-- **The no-regression requirement applies to the paths a change is not targeting.** A new
-  latency-hiding path whose own count rises is not a regression; the existing scalar paths
-  still must not regress, and Callgrind remains the instrument for proving that.
+- **Fewer instructions is always better** — for a change that removes work. A change that overlaps or hides stalls (memory-level parallelism, batching, prefetch, TLB/page-size work) may retire *more* instructions while lowering latency; wall clock with BCa CIs on the reference host is primary for those. See [Which instrument fits the change](docs/BENCHMARKING.md#which-instrument-fits-the-change).
+- **No-regression applies to the paths a change is not targeting.** A new latency-hiding path whose own count rises is not a regression. The existing scalar paths still must not, and Callgrind proves that.
 - **Review policy**: $0.1\%$ is Callgrind's deterministic measurement resolution; any instruction count regression $>0.1\%$ vs baseline main is considered a blocker in review and must be justified in the PR.
 - **Automated CI gate** (distinct from the review threshold): `scripts/perf_report.py --fail-on-regression` fails the job at a $>5\%$ single-worst regression or $\geq 2$ arms regressed above the $0.5\%$ noise floor; the only automated override is a literal `allow-regression: <reason>` line in the PR body.
 - Numbers in docs are tagged `(measured: host, commit)` or `(target)`; follow `docs/BENCHMARKING.md` (interleaved A/B arms, system-load snapshots before/between comparison runs, CI ratios ≠ publishable numbers).
