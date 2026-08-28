@@ -24,6 +24,29 @@ Builds with zero C toolchain dependencies via [`purego`](https://github.com/ebit
   go build -tags expanse_purego .
   ```
 
+> **macOS + `-tags expanse_purego` with cgo enabled requires Go 1.24, or an external link.**
+> The build tag keeps cgo enabled (that is the point of the tag — it forces the
+> purego path on a machine that *has* a C toolchain). Go's internal linker
+> emitted no `LC_UUID` load command on darwin until 1.24, and dyld on macOS 15+
+> refuses to start a cgo-linked binary without one:
+>
+> ```
+> dyld[...]: missing LC_UUID load command
+> signal: abort trap
+> ```
+>
+> It aborts before `main`, so it looks like a binding failure rather than a
+> toolchain one. Measured on macOS 26.4.1 arm64: **1.22 and 1.23 abort; 1.24 and
+> 1.25 are fine.** On Go < 1.24 either link externally —
+>
+> ```bash
+> go build -tags expanse_purego -ldflags=-linkmode=external .
+> ```
+>
+> — or use `CGO_ENABLED=0`, which is unaffected on every version because there
+> is no cgo to link, and is the mode this binding is really for. Linux and
+> Windows are unaffected throughout.
+
 ### 2. CGO Mode (Default with `CGO_ENABLED=1`)
 
 Links `libexpanse.a` statically (or `libexpanse.so` / `.dylib` dynamically) through standard CGO downcalls.
