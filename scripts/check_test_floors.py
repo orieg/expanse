@@ -30,6 +30,20 @@ from typing import Optional, Tuple
 
 MIN_WORKSPACE_TESTS = 300
 
+REQUIRED_TEST_SUITES = [
+    "bindings/go/expanse_test.go",
+    "tests/test_python_bindings.py",
+    "tests/cpp/test_expanse.cpp",
+    "crates/expanse-capi/tests/test_modern_capi.rs",
+    "crates/expanse-capi/tests/test_blobmap_capi.rs",
+    "crates/expanse/tests/proptest_model.rs",
+    "crates/expanse/tests/test_ycsb.rs",
+    "crates/expanse/tests/test_encoding_reference_sync.rs",
+    "crates/expanse/tests/test_visualizer_sync.rs",
+    "crates/expanse/tests/no_heap_churn.rs",
+    "crates/expanse/tests/linearizability.rs",
+]
+
 
 def parse_allow_test_shrink(pr_body: str) -> Optional[str]:
     """Extracts test-shrink override reason from a PR body."""
@@ -92,6 +106,29 @@ def count_workspace_tests(root: Optional[Path] = None) -> Tuple[int, str]:
     return count, ""
 
 
+def check_required_test_suites(root: Path, pr_body: str) -> Tuple[bool, list[str]]:
+    """Verifies that all required test suites exist on disk."""
+    missing = []
+    for rel_path in REQUIRED_TEST_SUITES:
+        if not (root / rel_path).is_file():
+            missing.append(rel_path)
+
+    if not missing:
+        return True, []
+
+    override = parse_allow_test_shrink(pr_body)
+    if override:
+        print(f"⚠️ Required test suite(s) missing ({', '.join(missing)}), but approved via PR override:")
+        print(f"  Rationale: \"{override}\"")
+        return True, missing
+
+    for f in missing:
+        print(f"::error::Required test suite file '{f}' is missing from the repository!")
+    print("If this test suite was intentionally removed or renamed, add an explicit directive to the PR body:")
+    print("  allow-test-shrink: <nonempty reason>")
+    return False, missing
+
+
 def evaluate_test_floor(
     count: int,
     pr_body: str,
@@ -145,6 +182,16 @@ test_blobmap_compact: test
     assert evaluate_test_floor(280, "allow-test-shrink: intentional test consolidation", floor=300) == 0
     assert evaluate_test_floor(280, "", floor=300) == 1
 
+    # 4. Required suites check test
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        tdp = Path(td)
+        ok, missing = check_required_test_suites(tdp, "")
+        assert not ok
+        assert len(missing) == len(REQUIRED_TEST_SUITES)
+        ok_override, _ = check_required_test_suites(tdp, "allow-test-shrink: testing dummy repo")
+        assert ok_override
+
     print("check_test_floors.py --self-test: all checks passed")
     return 0
 
@@ -174,18 +221,25 @@ def main() -> int:
     elif "PR_BODY" in os.environ:
         pr_body = os.environ["PR_BODY"]
 
+    root = Path(__file__).resolve().parent.parent
+
+    suites_ok, _ = check_required_test_suites(root, pr_body)
+
     if args.test_count is not None:
         count = args.test_count
     elif args.test_output_file and os.path.exists(args.test_output_file):
         output = Path(args.test_output_file).read_text(encoding="utf-8")
         count = count_tests_from_output(output)
     else:
-        count, err = count_workspace_tests()
+        count, err = count_workspace_tests(root)
         if err:
             print(f"::error::{err}", file=sys.stderr)
             return 1
 
-    return evaluate_test_floor(count, pr_body, floor=args.floor)
+    floor_ret = evaluate_test_floor(count, pr_body, floor=args.floor)
+    if not suites_ok or floor_ret != 0:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
