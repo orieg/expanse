@@ -55,6 +55,35 @@ Also available: `bca_bootstrap.py` for any continuous metric reaching a publishe
 
 What the simulated columns can and cannot answer is a narrower point, and the one that matters. The runner fixes the modelled hierarchy at I1/D1 32 KiB 8-way and **LL 8 MiB** 16-way, deliberately, so counts stay comparable across machines. That is not the reference host, whose L3 is 30 MiB. The columns answer "how does this behave on a standard modelled hierarchy"; they cannot locate the host's L3 cliff or attribute a wall-clock stall to it. That gap is what `point_lookup_counters` exists for. See [#455](https://github.com/orieg/expanse/issues/455).
 
+### Measured: libexpanse vs stock libjudy
+
+First run of the repaired harness on the reference host. Ratios are `expanse_dl / stock`; below 1.000 means libexpanse is faster. `expanse_dl` is the like-for-like arm — both sides `dlopen`'d through the identical C surface.
+
+| dist | pop | metric | ratio | BCa 95% CI | |
+|---|---:|---|---:|---|---|
+| `sequential` | 100,000 | ins | 0.603 | [0.588, 0.610] | win |
+| `sequential` | 100,000 | get | 1.095 | [0.987, 1.124] | not a difference |
+| `sequential` | 1,000,000 | ins | 0.545 | [0.544, 0.546] | win |
+| `sequential` | 1,000,000 | get | 0.872 | [0.869, 0.877] | win |
+| `random` | 100,000 | ins | 1.009 | [1.005, 1.013] | **loss** |
+| `random` | 100,000 | get | 0.961 | [0.958, 0.964] | win |
+| `random` | 1,000,000 | ins | 0.804 | [0.802, 0.807] | win |
+| `random` | 1,000,000 | get | 1.031 | [1.024, 1.038] | **loss** |
+| `clustered` | 100,000 | ins | 0.979 | [0.974, 0.984] | win |
+| `clustered` | 100,000 | get | 0.919 | [0.917, 0.921] | win |
+| `clustered` | 1,000,000 | ins | 0.933 | [0.932, 0.935] | win |
+| `clustered` | 1,000,000 | get | 0.904 | [0.902, 0.908] | win |
+
+*(measured: 12th Gen Intel Core i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0; commit `4c4e852`; [run 33151981386](https://github.com/orieg/expanse/actions/runs/33151981386); load average 0.16 at start; 15 paired rounds, 50% hit rate, `2 × population` distinct probes at reuse 1.0.)*
+
+Per-round ratios and every interval are committed in [`results/baseline_vs_libjudy.json`](../results/baseline_vs_libjudy.json), so each figure here can be re-derived with `scripts/bca_bootstrap.py` without re-running the benchmark.
+
+**Three arms are real losses** — CI lower bound above 1.000, so parity is excluded: random 1M `get` (1.031), the same arm under `expanse_rlib` (1.028), and random 100k `ins` (1.009). Everything else is a win or indistinguishable.
+
+**The random 1M `get` deficit is 3%, not the ~11% previously published.** That figure came from the harness before its repair — 4,096 probes reused eight times at a 100% hit rate with the value slot never dereferenced. It is superseded, not adjusted: the two numbers do not describe the same workload. [#455](https://github.com/orieg/expanse/issues/455) proposes descent changes scoped against the old figure and should be re-read against this one.
+
+Linkage makes almost no difference here: `expanse_rlib` (statically linked, LTO) and `expanse_dl` land at 1.028 and 1.031 on the arm where it would matter most.
+
 ## Comparison targets
 
 1. **C libjudy** — the headline comparison ("faster than the original, or explain why").
