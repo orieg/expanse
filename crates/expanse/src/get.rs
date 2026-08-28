@@ -130,6 +130,45 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag_byte();
 
+        // Hot-first prefilter: immediates (~70% of random lookups terminate here)
+        // and BranchU (dense inner branch loop) bypass the general match table.
+        if tag >= 0x10 {
+            if tag == 0x7F {
+                return true;
+            }
+            if tag & 0x0F == 0 {
+                let kb = (tag >> 4) as usize;
+                return ((key ^ edge.word0()) & IMM_MASKS[kb]) == 0;
+            }
+            let Some(im) = ImmedType::from_u8(tag) else {
+                debug_assert!(false, "invalid edge tag {:#04x}", tag);
+                return false;
+            };
+            debug_assert_eq!(
+                im.key_bytes(),
+                level,
+                "an immediate's key size is its level"
+            );
+            let payload = edge.imm_payload();
+            return immed_find(im, &payload, key).is_some();
+        } else if tag == 0x04 {
+            let mut b_ptr = edge.node_ptr().cast::<BranchU>();
+            loop {
+                let d = digit(key, level);
+                // SAFETY: pointer-tagged edge → live BranchU with 256 edges.
+                let next_edge = unsafe { &*(*b_ptr).edges.as_ptr().add(d as usize) };
+                level -= 1;
+                let next_tag = next_edge.tag_byte();
+                if next_tag == 0x04 {
+                    b_ptr = next_edge.node_ptr().cast::<BranchU>();
+                } else {
+                    edge = next_edge;
+                    break;
+                }
+            }
+            continue;
+        }
+
         match tag {
             0x00 => return false, // EdgeType::Null
 
@@ -192,23 +231,6 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 level = bl - 1;
             }
 
-            0x04 => {
-                let mut b_ptr = edge.node_ptr().cast::<BranchU>();
-                loop {
-                    let d = digit(key, level);
-                    // SAFETY: pointer-tagged edge → live BranchU with 256 edges.
-                    let next_edge = unsafe { &*(*b_ptr).edges.as_ptr().add(d as usize) };
-                    level -= 1;
-                    let next_tag = next_edge.tag_byte();
-                    if next_tag == 0x04 {
-                        b_ptr = next_edge.node_ptr().cast::<BranchU>();
-                    } else {
-                        edge = next_edge;
-                        break;
-                    }
-                }
-            }
-
             0x0C => {
                 if level > 1 && !decode_matches(edge, key, 1, level) {
                     return false;
@@ -230,30 +252,9 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 return (unsafe { leaf::search(base, pop, lf, key) }).is_some();
             }
 
-            0x7F => {
-                return true;
-            }
-
-            // Single-key immediate fast-paths (Immed1_1 ..= Immed7_1):
-            // The lower nibble (count - 1) is 0, so tag & 0x0F == 0.
-            // Direct 1-cycle XOR + mask lookup bypasses ImmedType::from_u8 validation.
-            0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
-                let kb = (tag >> 4) as usize;
-                return ((key ^ edge.word0()) & IMM_MASKS[kb]) == 0;
-            }
-
             _ => {
-                let Some(im) = ImmedType::from_u8(tag) else {
-                    debug_assert!(false, "invalid edge tag {:#04x}", tag);
-                    return false;
-                };
-                debug_assert_eq!(
-                    im.key_bytes(),
-                    level,
-                    "an immediate's key size is its level"
-                );
-                let payload = edge.imm_payload();
-                return immed_find(im, &payload, key).is_some();
+                debug_assert!(false, "unexpected tag {:#04x} reached match", tag);
+                return false;
             }
         }
     }
@@ -265,6 +266,51 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
     loop {
         debug_assert!((1..=8).contains(&level));
         let tag = edge.tag_byte();
+
+        // Hot-first prefilter: immediates (~70% of random lookups terminate here)
+        // and BranchU (dense inner branch loop) bypass the general match table.
+        if tag >= 0x10 {
+            if tag & 0x0F == 0 {
+                let kb = (tag >> 4) as usize;
+                return if ((key ^ edge.aux_word()) & IMM_MASKS[kb]) == 0 {
+                    Some(edge.word0())
+                } else {
+                    None
+                };
+            }
+            let Some(im) = ImmedType::from_u8(tag) else {
+                debug_assert!(false, "invalid edge tag {:#04x}", tag);
+                return None;
+            };
+            debug_assert_eq!(
+                im.key_bytes(),
+                level,
+                "an immediate's key size is its level"
+            );
+            let kb_usize = im.key_bytes() as usize;
+            let n = im.key_count() as usize;
+            debug_assert!(kb_usize * n <= 7, "map immediates keep keys in aux");
+            let slot = immed_find(im, edge.aux_bytes(), key)?;
+            let vals = edge.node_ptr().cast::<u64>();
+            // SAFETY: multi-key map immediates store a pointer to a live array of `key_count` values in word 0.
+            return Some(unsafe { *vals.add(slot) });
+        } else if tag == 0x04 {
+            let mut b_ptr = edge.node_ptr().cast::<BranchU>();
+            loop {
+                let d = digit(key, level);
+                // SAFETY: pointer-tagged edge → live BranchU with 256 edges.
+                let next_edge = unsafe { &*(*b_ptr).edges.as_ptr().add(d as usize) };
+                level -= 1;
+                let next_tag = next_edge.tag_byte();
+                if next_tag == 0x04 {
+                    b_ptr = next_edge.node_ptr().cast::<BranchU>();
+                } else {
+                    edge = next_edge;
+                    break;
+                }
+            }
+            continue;
+        }
 
         match tag {
             0x00 => return None,
@@ -323,23 +369,6 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 level = bl - 1;
             }
 
-            0x04 => {
-                let mut b_ptr = edge.node_ptr().cast::<BranchU>();
-                loop {
-                    let d = digit(key, level);
-                    // SAFETY: pointer-tagged edge → live BranchU with 256 edges.
-                    let next_edge = unsafe { &*(*b_ptr).edges.as_ptr().add(d as usize) };
-                    level -= 1;
-                    let next_tag = next_edge.tag_byte();
-                    if next_tag == 0x04 {
-                        b_ptr = next_edge.node_ptr().cast::<BranchU>();
-                    } else {
-                        edge = next_edge;
-                        break;
-                    }
-                }
-            }
-
             0x0C => {
                 if level > 1 && !decode_matches(edge, key, 1, level) {
                     return None;
@@ -369,36 +398,9 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 return Some(unsafe { *base.cast::<u64>().add(slot) });
             }
 
-            0x7F => {
-                unreachable!("full-expanse edges are set-flavor only");
-            }
-
-            0x10 | 0x20 | 0x30 | 0x40 | 0x50 | 0x60 | 0x70 => {
-                let kb = (tag >> 4) as usize;
-                return if ((key ^ edge.aux_word()) & IMM_MASKS[kb]) == 0 {
-                    Some(edge.word0())
-                } else {
-                    None
-                };
-            }
-
             _ => {
-                let Some(im) = ImmedType::from_u8(tag) else {
-                    debug_assert!(false, "invalid edge tag {:#04x}", tag);
-                    return None;
-                };
-                debug_assert_eq!(
-                    im.key_bytes(),
-                    level,
-                    "an immediate's key size is its level"
-                );
-                let kb_usize = im.key_bytes() as usize;
-                let n = im.key_count() as usize;
-                debug_assert!(kb_usize * n <= 7, "map immediates keep keys in aux");
-                let slot = immed_find(im, edge.aux_bytes(), key)?;
-                let vals = edge.node_ptr().cast::<u64>();
-                // SAFETY: multi-key map immediates store a pointer to a live array of `key_count` values in word 0.
-                return Some(unsafe { *vals.add(slot) });
+                debug_assert!(false, "unexpected tag {:#04x} reached match", tag);
+                return None;
             }
         }
     }
