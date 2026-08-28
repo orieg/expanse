@@ -2,18 +2,24 @@
 """scripts/check_test_floors.py — Workspace Test Count Floor Gate for Expanse.
 
 Enforces that the total number of workspace unit and integration tests does not
-shrink below a pinned floor (e.g. 300 tests), catching accidental or unreviewed
+shrink below a pinned floor (baseline: 300 tests), catching accidental or unreviewed
 test deletions (such as branches deleting tests alongside reverted code, #458).
 
 Rules:
 - Workspace test count MUST be >= MIN_WORKSPACE_TESTS (pinned baseline: 300).
-- If tests are intentionally consolidated or removed, the PR body MUST include
-  an explicit directive:
+- The floor constant is verified against the base ref (e.g. `origin/main`); a PR
+  that decreases MIN_WORKSPACE_TESTS or fails to resolve the base floor will fail
+  CI unless approved.
+- The margin is deliberately thin (currently 305 tests vs floor of 300) so any
+  substantial test deletion trips the floor immediately.
+- If tests or the floor constant are intentionally consolidated or lowered, the
+  PR body MUST include an explicit directive:
     allow-test-shrink: <nonempty reason>
   (optionally wrapped in an HTML comment `<!-- allow-test-shrink: ... -->`).
 
 Usage:
   python3 scripts/check_test_floors.py
+  python3 scripts/check_test_floors.py --base origin/main
   python3 scripts/check_test_floors.py --pr-body-file pr-body.txt
   python3 scripts/check_test_floors.py --self-test
 """
@@ -129,6 +135,81 @@ def check_required_test_suites(root: Path, pr_body: str) -> Tuple[bool, list[str
     return False, missing
 
 
+def get_base_floor_constant(
+    base_ref: str,
+    script_rel_path: str = "scripts/check_test_floors.py",
+    var_name: str = "MIN_WORKSPACE_TESTS",
+    root: Optional[Path] = None,
+) -> Tuple[Optional[int], str]:
+    """Reads the floor constant from script_rel_path in base_ref using `git show`.
+
+    Returns (floor_int, "") on success.
+    Returns (None, error_message) on any resolution failure, shallow clone failure,
+    missing file, or if the constant is not defined/found in the base ref.
+    Fails loud — never returns (None, "") to avoid failing open.
+    """
+    cwd = str(root) if root else None
+
+    # First check if base_ref exists locally. If not, try to fetch it shallowly.
+    check_ref = subprocess.run(
+        ["git", "rev-parse", "--verify", base_ref],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if check_ref.returncode != 0:
+        remote = "origin"
+        branch = base_ref
+        if base_ref.startswith("origin/"):
+            branch = base_ref[len("origin/"):]
+        fetch_res = subprocess.run(
+            ["git", "fetch", remote, f"{branch}:{base_ref}"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+        recheck = subprocess.run(
+            ["git", "rev-parse", "--verify", base_ref],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+        if recheck.returncode != 0:
+            err_details = (
+                fetch_res.stderr.strip()
+                or check_ref.stderr.strip()
+                or f"fatal: ref '{base_ref}' does not exist"
+            )
+            return None, f"Base ref '{base_ref}' could not be resolved or fetched:\n{err_details}"
+
+    # Read the script content from base_ref
+    show_res = subprocess.run(
+        ["git", "show", f"{base_ref}:{script_rel_path}"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if show_res.returncode != 0:
+        return (
+            None,
+            f"Failed to read '{script_rel_path}' from base ref '{base_ref}':\n{show_res.stderr.strip()}",
+        )
+
+    # Parse constant
+    pattern = re.compile(rf"^[ \t]*{var_name}[ \t]*=[ \t]*(\d+)", re.MULTILINE)
+    match = pattern.search(show_res.stdout)
+    if not match:
+        return (
+            None,
+            f"Floor constant '{var_name}' not found in '{script_rel_path}' on base ref '{base_ref}'",
+        )
+
+    try:
+        return int(match.group(1)), ""
+    except ValueError as e:
+        return None, f"Failed to parse integer floor from '{match.group(1)}': {e}"
+
+
 def evaluate_test_floor(
     count: int,
     pr_body: str,
@@ -192,12 +273,29 @@ test_blobmap_compact: test
         ok_override, _ = check_required_test_suites(tdp, "allow-test-shrink: testing dummy repo")
         assert ok_override
 
+    # 5. Base floor extraction self-tests (Task 2)
+    # Valid ref against HEAD
+    base_fl, base_err = get_base_floor_constant("HEAD", "scripts/check_test_floors.py", "MIN_WORKSPACE_TESTS")
+    assert base_err == "", base_err
+    assert base_fl == 300, base_fl
+
+    # Unresolvable base ref must fail loud with non-empty error string
+    bad_fl, bad_err = get_base_floor_constant("origin/nonexistent-branch-12345-never-exists")
+    assert bad_fl is None
+    assert bad_err != ""
+
+    # Missing constant in file must fail loud with non-empty error string
+    missing_fl, missing_err = get_base_floor_constant("HEAD", "scripts/check_test_floors.py", "NONEXISTENT_CONSTANT_NAME")
+    assert missing_fl is None
+    assert missing_err != ""
+
     print("check_test_floors.py --self-test: all checks passed")
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify that workspace test count satisfies pinned floor")
+    parser.add_argument("--base", help="Base ref to compare floor constant against (default: origin/$GITHUB_BASE_REF or origin/main)")
     parser.add_argument("--floor", type=int, default=MIN_WORKSPACE_TESTS, help=f"Minimum required test count (default: {MIN_WORKSPACE_TESTS})")
     parser.add_argument("--test-count", type=int, help="Precomputed test count (skips cargo test listing)")
     parser.add_argument("--test-output-file", help="Path to file with `cargo test -- --list` output")
@@ -223,6 +321,32 @@ def main() -> int:
 
     root = Path(__file__).resolve().parent.parent
 
+    # Determine base ref
+    base_ref = args.base
+    if not base_ref:
+        if os.environ.get("GITHUB_BASE_REF"):
+            base_ref = f"origin/{os.environ['GITHUB_BASE_REF']}"
+        else:
+            base_ref = "origin/main"
+
+    # Base floor comparison: fail loud if base floor cannot be determined
+    base_floor, err = get_base_floor_constant(base_ref, "scripts/check_test_floors.py", "MIN_WORKSPACE_TESTS", root=root)
+    if err:
+        print(f"::error::{err}", file=sys.stderr)
+        return 1
+
+    effective_floor = args.floor
+    if base_floor is not None and effective_floor < base_floor:
+        override = parse_allow_test_shrink(pr_body)
+        if override:
+            print(f"⚠️ Floor decrease detected (MIN_WORKSPACE_TESTS: {base_floor} -> {effective_floor}), approved via PR override:")
+            print(f"  Rationale: \"{override}\"")
+        else:
+            print(f"::error::Test count floor (MIN_WORKSPACE_TESTS = {effective_floor}) is lower than base ref {base_ref} ({base_floor}) without an explicit override directive.")
+            print("To approve lowering the floor, add an explicit directive to your PR body:")
+            print("  allow-test-shrink: <nonempty reason>")
+            return 1
+
     suites_ok, _ = check_required_test_suites(root, pr_body)
 
     if args.test_count is not None:
@@ -236,7 +360,7 @@ def main() -> int:
             print(f"::error::{err}", file=sys.stderr)
             return 1
 
-    floor_ret = evaluate_test_floor(count, pr_body, floor=args.floor)
+    floor_ret = evaluate_test_floor(count, pr_body, floor=effective_floor)
     if not suites_ok or floor_ret != 0:
         return 1
     return 0

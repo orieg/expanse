@@ -32,7 +32,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 def parse_deletion_rationale(pr_body: str) -> Optional[str]:
@@ -70,8 +70,16 @@ def parse_deletion_rationale(pr_body: str) -> Optional[str]:
     return None
 
 
-def get_git_deleted_files(base_ref: str, head_ref: str = "HEAD", root: Optional[Path] = None) -> List[str]:
-    """Returns the list of deleted files between base_ref and head_ref."""
+def get_git_deleted_files(
+    base_ref: str, head_ref: str = "HEAD", root: Optional[Path] = None
+) -> Tuple[List[str], str]:
+    """Returns (deleted_files, error_message).
+
+    Distinguishes three states:
+    1. Deletions found: returns (non-empty list, "")
+    2. No deletions: returns ([], "")
+    3. Could not determine (command/ref failure): returns ([], "<error message>")
+    """
     cwd = str(root) if root else None
 
     # First check if base_ref exists locally. If not, try to fetch it shallowly.
@@ -87,12 +95,35 @@ def get_git_deleted_files(base_ref: str, head_ref: str = "HEAD", root: Optional[
         branch = base_ref
         if base_ref.startswith("origin/"):
             branch = base_ref[len("origin/"):]
-        subprocess.run(
+        fetch_res = subprocess.run(
             ["git", "fetch", remote, f"{branch}:{base_ref}"],
             cwd=cwd,
             capture_output=True,
             text=True,
         )
+        recheck = subprocess.run(
+            ["git", "rev-parse", "--verify", base_ref],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+        if recheck.returncode != 0:
+            err_details = (
+                fetch_res.stderr.strip()
+                or check_ref.stderr.strip()
+                or f"fatal: ref '{base_ref}' does not exist"
+            )
+            return [], f"Base ref '{base_ref}' could not be resolved or fetched:\n{err_details}"
+
+    # Check if head_ref resolves
+    check_head = subprocess.run(
+        ["git", "rev-parse", "--verify", head_ref],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if check_head.returncode != 0:
+        return [], f"Head ref '{head_ref}' could not be resolved:\n{check_head.stderr.strip()}"
 
     # Find merge base
     mb_res = subprocess.run(
@@ -101,7 +132,14 @@ def get_git_deleted_files(base_ref: str, head_ref: str = "HEAD", root: Optional[
         capture_output=True,
         text=True,
     )
-    diff_target = mb_res.stdout.strip() if mb_res.returncode == 0 and mb_res.stdout.strip() else base_ref
+    if mb_res.returncode != 0:
+        return (
+            [],
+            f"Failed to determine merge-base between '{base_ref}' and '{head_ref}':\n{mb_res.stderr.strip()}",
+        )
+    diff_target = mb_res.stdout.strip()
+    if not diff_target:
+        return [], f"git merge-base returned empty string between '{base_ref}' and '{head_ref}'"
 
     # Run git diff --diff-filter=D --name-only
     res = subprocess.run(
@@ -111,11 +149,13 @@ def get_git_deleted_files(base_ref: str, head_ref: str = "HEAD", root: Optional[
         text=True,
     )
     if res.returncode != 0:
-        # If diff fails (e.g. invalid refs outside git repo), return empty list
-        return []
+        return (
+            [],
+            f"git diff command failed between '{diff_target}' and '{head_ref}':\n{res.stderr.strip()}",
+        )
 
     lines = [line.strip() for line in res.stdout.splitlines() if line.strip()]
-    return lines
+    return lines, ""
 
 
 def run_check(
@@ -150,7 +190,7 @@ def run_check(
 
 
 def self_test() -> int:
-    """Unit self-tests for rationale parsing and edge cases."""
+    """Unit self-tests for rationale parsing, fail-loud git errors, and edge cases."""
     # 1. Valid single-line directives
     assert parse_deletion_rationale("removes: old benchmark script") == "old benchmark script"
     assert parse_deletion_rationale("deletes: obsolete v1 bindings") == "obsolete v1 bindings"
@@ -198,6 +238,18 @@ def self_test() -> int:
     assert run_check(["file1.rs"], "removes: intentional cleanup", "origin/main") == 0
     assert run_check(["file1.rs"], "no rationale here", "origin/main") == 1
 
+    # 7. Fail-loud error propagation tests (Task 1)
+    # Unresolvable base ref must return non-empty error string and empty list
+    bad_files, bad_err = get_git_deleted_files("origin/nonexistent-branch-12345-never-exists")
+    assert bad_files == []
+    assert bad_err != ""
+    assert "could not be resolved" in bad_err.lower() or "not found" in bad_err.lower() or "error" in bad_err.lower()
+
+    # Valid ref comparison against HEAD must return empty error string
+    head_files, head_err = get_git_deleted_files("HEAD", "HEAD")
+    assert head_err == ""
+    assert head_files == []
+
     print("check_deletion_rationale.py --self-test: all checks passed")
     return 0
 
@@ -226,7 +278,11 @@ def main() -> int:
     elif "PR_BODY" in os.environ:
         pr_body = os.environ["PR_BODY"]
 
-    deleted_files = get_git_deleted_files(args.base, args.head)
+    deleted_files, err = get_git_deleted_files(args.base, args.head)
+    if err:
+        print(f"::error::{err}", file=sys.stderr)
+        return 1
+
     return run_check(deleted_files, pr_body, args.base)
 
 
