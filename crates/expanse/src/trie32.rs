@@ -898,7 +898,12 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
             b.edges[n - 1] = Edge32::null();
             b.header.num_edges = (n - 1) as u8;
             let new_n = n - 1;
-            if new_n <= 2 {
+            // Hysteresis band of 1 (#484). Demoting at 2 — `BranchL2_32`'s
+            // exact capacity — rebuilds the node on every toggle across the
+            // boundary. The band is 1 rather than 2 because L6 (64 B) is
+            // only twice L2 (32 B): the rebuild is cheap, so a wider band
+            // would hold dead capacity for little gain.
+            if new_n <= 1 {
                 let total = a.l6(edge_handle(e)).header.pop0;
                 let pairs = branch_pairs(a, e);
                 let old = edge_handle(e);
@@ -916,7 +921,17 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
             b.edges[digit as usize] = Edge32::null();
             b.num_children -= 1;
             let new_n = b.num_children as usize;
-            if new_n <= 6 {
+            // Hysteresis band of 2, wider than the 64-bit engine's uniform
+            // 1, and deliberately so: `BranchU32` is 2080 B against
+            // `BranchL6_32`'s 64 B, a 32x rebuild each way. Demoting at 6 —
+            // L6's exact capacity — meant a workload toggling the 7th branch
+            // digit freed and rebuilt 2 KB per operation, measured at
+            // 2208 -> 192 bytes on a single removal (#484). On the RV32 and
+            // Cortex-M targets this port serves, that is heap fragmentation
+            // rather than mere churn. A band of 2 also absorbs two-key
+            // oscillation, not just one. The bitmap-leaf rung uses a wider
+            // band still (promotes above 64, demotes at 48) for this reason.
+            if new_n <= 4 {
                 let total = a.u(edge_handle(e)).count;
                 let pairs = branch_pairs(a, e);
                 let old = edge_handle(e);
