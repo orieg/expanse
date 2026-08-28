@@ -1611,7 +1611,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -1629,12 +1629,38 @@ jobs:
       - name: Build native libexpanse
         run: cargo build --release -p expanse-capi
 
-      - name: Run Go test suite and benchmarks
+      - name: Run Go test suite and benchmarks (cgo on Unix)
+        if: runner.os != 'Windows'
         run: |
           export LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH"
           export DYLD_LIBRARY_PATH="$PWD/target/release:$DYLD_LIBRARY_PATH"
           export CGO_LDFLAGS_ALLOW=".*"
           cd bindings/go && go test -v -bench=. -benchtime=100ms .
+
+      - name: Run Go test suite and benchmarks (purego CGO_ENABLED=0 on Unix)
+        if: runner.os != 'Windows'
+        run: |
+          export LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="$PWD/target/release:$DYLD_LIBRARY_PATH"
+          export EXPANSE_LIBRARY="$PWD/target/release"
+          cd bindings/go && CGO_ENABLED=0 go test -v -bench=. -benchtime=100ms .
+
+      - name: Run Go test suite (explicit expanse_purego build tag on Unix)
+        if: runner.os != 'Windows'
+        run: |
+          export LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="$PWD/target/release:$DYLD_LIBRARY_PATH"
+          export EXPANSE_LIBRARY="$PWD/target/release"
+          cd bindings/go && go test -tags expanse_purego -v .
+
+      - name: Run Go test suite and benchmarks (purego CGO_ENABLED=0 on Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = "0"
+          $env:EXPANSE_LIBRARY = "${{ github.workspace }}\target\release"
+          cd bindings/go
+          go test -v -bench=. -benchtime=100ms .
 
   ci-gate:
     name: CI Gate / All Checks Passed

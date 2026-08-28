@@ -49,7 +49,7 @@ def _native_lib_path() -> Optional[Path]:
 def parse_args():
     p = argparse.ArgumentParser(description="Unified Expanse Cross-Language Benchmark Suite")
     p.add_argument("--quick", action="store_true", help="Run in quick mode (smaller N)")
-    p.add_argument("--runtimes", nargs="+", help="Specific runtimes to benchmark (node, wasm, go, python, php, ruby, java, dotnet)")
+    p.add_argument("--runtimes", nargs="+", help="Specific runtimes to benchmark (node, wasm, go, go-purego, python, php, ruby, java, dotnet)")
     p.add_argument("--json", action="store_true", help="Emit raw JSON results to stdout")
     p.add_argument("--output", type=str, help="Save markdown report to file")
     p.add_argument("--save-baseline", type=str, help="Save results to baseline JSON file")
@@ -259,6 +259,76 @@ def run_go_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
         },
     }
     return {"runtime": "go", "results": [result]}
+
+
+def run_go_purego_benchmark(quick: bool) -> Optional[Dict[str, Any]]:
+    go_dir = REPO_ROOT / "bindings" / "go"
+    bench_test = go_dir / "expanse_bench_test.go"
+    if not shutil.which("go") or not bench_test.exists():
+        return None
+
+    lib = _native_lib_path()
+    if not lib:
+        print("[WARN] Go (purego) benchmark skipped: libexpanse not built (cargo build --release -p expanse-capi)", file=sys.stderr)
+        return None
+
+    env = os.environ.copy()
+    env["CGO_ENABLED"] = "0"
+    env["EXPANSE_LIBRARY"] = str(lib)
+    env["LD_LIBRARY_PATH"] = f"{RELEASE_DIR}:{env.get('LD_LIBRARY_PATH', '')}"
+    env["DYLD_LIBRARY_PATH"] = f"{RELEASE_DIR}:{env.get('DYLD_LIBRARY_PATH', '')}"
+
+    benchtime = "100ms" if quick else "1s"
+    cmd = ["go", "test", "-run", "^$", "-bench", ".", "-benchmem", f"-benchtime={benchtime}", "."]
+
+    try:
+        proc = subprocess.run(cmd, cwd=go_dir, env=env, capture_output=True, text=True, check=True, timeout=180)
+    except Exception as e:
+        print(f"[WARN] Go (purego) benchmark failed: {e}", file=sys.stderr)
+        return None
+
+    stats = _parse_go_bench_output(proc.stdout)
+    if not stats:
+        print("[WARN] Go (purego) benchmark produced no parseable output", file=sys.stderr)
+        return None
+
+    def stat(name: str, field: str) -> float:
+        return stats.get(name, {}).get(field, 0.0)
+
+    def ns_to_mops(ns: float) -> float:
+        return (1e3 / ns) if ns > 0 else 0.0
+
+    exp_lookup_ns = stat("ExpanseMap_Lookup_Random", "ns_per_op")
+    exp_insert_ns = stat("ExpanseMap_Insert_Random", "ns_per_op")
+    go_lookup_ns = stat("GoMap_Lookup_Random", "ns_per_op")
+    go_insert_ns = stat("GoMap_Insert_Random", "ns_per_op")
+
+    result = {
+        "dist": "random",
+        "pop": 100_000,
+        "pop_configured_not_measured": True,
+        "expanse_map": {
+            "lookup_ns": exp_lookup_ns,
+            "lookup_mops": ns_to_mops(exp_lookup_ns),
+            "insert_mops": ns_to_mops(exp_insert_ns),
+            "lookup_iterations": stat("ExpanseMap_Lookup_Random", "iterations"),
+            "insert_iterations": stat("ExpanseMap_Insert_Random", "iterations"),
+            "bytes_per_key": stat("ExpanseMap_Insert_Random", "bytes_per_op"),
+            "insert_bytes_per_op": stat("ExpanseMap_Insert_Random", "bytes_per_op"),
+            "insert_allocs_per_op": stat("ExpanseMap_Insert_Random", "allocs_per_op"),
+            "lookup_bytes_per_op": stat("ExpanseMap_Lookup_Random", "bytes_per_op"),
+            "lookup_allocs_per_op": stat("ExpanseMap_Lookup_Random", "allocs_per_op"),
+        },
+        "go_map": {
+            "lookup_ns": go_lookup_ns,
+            "lookup_mops": ns_to_mops(go_lookup_ns),
+            "insert_mops": ns_to_mops(go_insert_ns),
+            "lookup_iterations": stat("GoMap_Lookup_Random", "iterations"),
+            "insert_iterations": stat("GoMap_Insert_Random", "iterations"),
+            "bytes_per_key": stat("GoMap_Insert_Random", "bytes_per_op"),
+        },
+    }
+    return {"runtime": "go-purego", "results": [result]}
 
 
 def _extract_json_result(text: str, runtime: str, marker: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -626,6 +696,7 @@ def main():
         "node": run_node_benchmark,
         "wasm": run_wasm_benchmark,
         "go": run_go_benchmark,
+        "go-purego": run_go_purego_benchmark,
         "python": run_python_benchmark,
         "php": run_php_benchmark,
         "ruby": run_ruby_benchmark,

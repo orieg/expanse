@@ -1,3 +1,5 @@
+//go:build cgo && !expanse_purego
+
 package expanse
 
 // #include <stdlib.h>
@@ -60,8 +62,16 @@ func (b *BlobMap) Size() uint64 {
 	return uint64(C.expanse_blob_map_len(b.ptr))
 }
 
+func (b *BlobMap) MemoryUsed() uint64 {
+	return uint64(C.expanse_blob_map_mem_used(b.ptr))
+}
+
 func (b *BlobMap) Clear() {
 	C.expanse_blob_map_clear(b.ptr)
+}
+
+func (b *BlobMap) Compact() bool {
+	return bool(C.expanse_blob_map_compact(b.ptr))
 }
 
 //export goPrunePredicate
@@ -92,7 +102,7 @@ func (b *BlobMap) Prune(predicate func(key uint64, hotMeta uint32) bool) int {
 		}
 	}
 	if count > 0 {
-		C.expanse_blob_map_compact(b.ptr)
+		b.Compact()
 	}
 	return count
 }
