@@ -1005,6 +1005,7 @@ pub(crate) mod bmi2_rt {
 
 /// Runtime CPU feature dispatch for ARM Scalable Vector Extension (SVE) (AArch64 only).
 #[cfg(all(target_arch = "aarch64", feature = "std", not(miri)))]
+#[allow(dead_code)]
 pub(crate) mod sve_rt {
     use core::sync::atomic::{AtomicU8, Ordering};
 
@@ -1032,6 +1033,7 @@ pub(crate) mod sve_rt {
 }
 
 #[cfg(all(target_arch = "aarch64", not(all(feature = "std", not(miri)))))]
+#[allow(dead_code)]
 pub(crate) mod sve_rt {
     #[inline(always)]
     pub(crate) fn available() -> bool {
@@ -1047,6 +1049,7 @@ pub(crate) mod sve_rt {
 }
 
 #[cfg(not(target_arch = "aarch64"))]
+#[allow(dead_code)]
 pub(crate) mod sve_rt {
     #[inline(always)]
     pub(crate) fn available() -> bool {
