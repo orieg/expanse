@@ -49,6 +49,8 @@ class ParityReport:
     python_missing: Set[str] = field(default_factory=set)
     node_covered: Set[str] = field(default_factory=set)
     node_missing: Set[str] = field(default_factory=set)
+    go_covered: Set[str] = field(default_factory=set)
+    go_missing: Set[str] = field(default_factory=set)
     category_breakdown: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
 
@@ -445,6 +447,17 @@ def verify_node_bindings(node_dir: Path, c_symbols: List[CSymbol]) -> Tuple[Set[
     return covered, missing
 
 
+def parse_go_purego(go_path: Path) -> Set[str]:
+    """Parses C symbol names bound via purego in native_purego.go."""
+    if not go_path.exists():
+        return set()
+    text = go_path.read_text(encoding="utf-8")
+    symbols: Set[str] = set()
+    matches = re.findall(r'"(expanse_[a-z0-9_]+)"', text)
+    symbols.update(matches)
+    return symbols
+
+
 def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
     """Builds the full cross-ecosystem ABI parity report."""
     header_path = root / "crates" / "expanse-capi" / "include" / "expanse.h"
@@ -468,6 +481,7 @@ def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
     dotnet_path = root / "bindings" / "dotnet" / "src" / "Expanse.NET" / "Native" / "NativeMethods.cs"
     py_dir = root / "crates" / "expanse-py" / "src"
     node_dir = root / "crates" / "expanse-node" / "src"
+    go_path = root / "bindings" / "go" / "native_purego.go"
 
     c_symbols = parse_c_header(header_path)
     c_symbol_names = {s.name for s in c_symbols}
@@ -476,6 +490,7 @@ def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
     dotnet_symbols = parse_dotnet_pinvoke(dotnet_path)
     py_covered, py_missing = verify_python_bindings(py_dir, c_symbols)
     node_covered, node_missing = verify_node_bindings(node_dir, c_symbols)
+    go_symbols = parse_go_purego(go_path)
 
     report = ParityReport(
         total_c_symbols=len(c_symbols),
@@ -487,6 +502,8 @@ def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
         python_missing=py_missing,
         node_covered=node_covered,
         node_missing=node_missing,
+        go_covered=c_symbol_names.intersection(go_symbols),
+        go_missing=c_symbol_names - go_symbols,
     )
 
     # Category breakdown
@@ -502,6 +519,7 @@ def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
             "dotnet": len(cat_names.intersection(dotnet_symbols)),
             "python": len(cat_names.intersection(py_covered)),
             "node": len(cat_names.intersection(node_covered)),
+            "go": len(cat_names.intersection(go_symbols)),
         }
 
     return c_symbols, report
@@ -528,18 +546,19 @@ def print_text_report(c_symbols: List[CSymbol], report: ParityReport, verbose: b
     print(format_row(".NET C# (P/Invoke NativeMethods)", len(report.dotnet_covered), report.total_c_symbols, report.dotnet_missing))
     print(format_row("Python (PyO3 native classes)", len(report.python_covered), report.total_c_symbols, report.python_missing))
     print(format_row("Node.js (N-API native bindings)", len(report.node_covered), report.total_c_symbols, report.node_missing))
+    print(format_row("Go 1.22+ (purego / cgo)", len(report.go_covered), report.total_c_symbols, report.go_missing))
     print("--------------------------------------------------------------------------------\n")
 
     print("--- Breakdown by Container / Functional Category ---")
-    print(f"{'Category':<32} | {'Total':<6} | {'Java':<6} | {'.NET':<6} | {'Python':<6} | {'Node.js':<6}")
+    print(f"{'Category':<32} | {'Total':<6} | {'Java':<6} | {'.NET':<6} | {'Python':<6} | {'Node':<6} | {'Go':<6}")
     print("--------------------------------------------------------------------------------")
     for cat_name, counts in report.category_breakdown.items():
-        print(f"{cat_name:<32} | {counts['total']:<6} | {counts['java']:<6} | {counts['dotnet']:<6} | {counts['python']:<6} | {counts['node']:<6}")
+        print(f"{cat_name:<32} | {counts['total']:<6} | {counts['java']:<6} | {counts['dotnet']:<6} | {counts['python']:<6} | {counts['node']:<6} | {counts['go']:<6}")
     print("--------------------------------------------------------------------------------\n")
 
-    if verbose or report.java_missing or report.dotnet_missing or report.python_missing or report.node_missing:
+    if verbose or report.java_missing or report.dotnet_missing or report.python_missing or report.node_missing or report.go_missing:
         print("--- Detailed Per-Symbol Coverage Matrix ---")
-        header = f"{'Symbol Name':<36} | {'Java':<6} | {'.NET':<6} | {'Python':<6} | {'Node.js':<6}"
+        header = f"{'Symbol Name':<36} | {'Java':<6} | {'.NET':<6} | {'Python':<6} | {'Node':<6} | {'Go':<6}"
         print(header)
         print("-" * len(header))
         for s in c_symbols:
@@ -547,10 +566,11 @@ def print_text_report(c_symbols: List[CSymbol], report: ParityReport, verbose: b
             d = "✓" if s.name in report.dotnet_covered else "MISSING"
             p = "✓" if s.name in report.python_covered else "MISSING"
             n = "✓" if s.name in report.node_covered else "MISSING"
-            print(f"{s.name:<36} | {j:<6} | {d:<6} | {p:<6} | {n:<6}")
+            g = "✓" if s.name in report.go_covered else "MISSING"
+            print(f"{s.name:<36} | {j:<6} | {d:<6} | {p:<6} | {n:<6} | {g:<6}")
         print("--------------------------------------------------------------------------------\n")
 
-    if report.java_missing or report.dotnet_missing or report.python_missing or report.node_missing:
+    if report.java_missing or report.dotnet_missing or report.python_missing or report.node_missing or report.go_missing:
         print("::error::ABI Parity check failed! Missing symbols detected:")
         if report.java_missing:
             print(f"  Java missing: {sorted(report.java_missing)}")
@@ -560,15 +580,17 @@ def print_text_report(c_symbols: List[CSymbol], report: ParityReport, verbose: b
             print(f"  Python missing: {sorted(report.python_missing)}")
         if report.node_missing:
             print(f"  Node.js missing: {sorted(report.node_missing)}")
+        if report.go_missing:
+            print(f"  Go missing: {sorted(report.go_missing)}")
     else:
-        print(f"✓ All {report.total_c_symbols} libexpanse C ABI symbols are 100% covered across Java, .NET, Python, and Node.js!")
+        print(f"✓ All {report.total_c_symbols} libexpanse C ABI symbols are 100% covered across Java, .NET, Python, Node.js, and Go!")
 
 
 def format_markdown_table(c_symbols: List[CSymbol], report: ParityReport) -> str:
     """Generates GitHub markdown table for docs/COMPAT.md."""
     lines = [
-        "| Container / API Family | C Functions | Java 22+ Panama | .NET P/Invoke | Python (PyO3) | Node.js (N-API) | Feature Parity |",
-        "|---|---|---|---|---|---|---|",
+        "| Container / API Family | C Functions | Java 22+ Panama | .NET P/Invoke | Python (PyO3) | Node.js (N-API) | Go (purego) | Feature Parity |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for cat_name, counts in report.category_breakdown.items():
         total = counts["total"]
@@ -576,10 +598,11 @@ def format_markdown_table(c_symbols: List[CSymbol], report: ParityReport) -> str
         d = f"{counts['dotnet']}/{total}"
         p = f"{counts['python']}/{total}"
         n = f"{counts['node']}/{total}"
-        status = "100% Full Parity" if counts["java"] == total and counts["dotnet"] == total and counts["python"] == total and counts["node"] == total else "Partial"
-        lines.append(f"| `{cat_name}` | {total} | {j} | {d} | {p} | {n} | {status} |")
+        g = f"{counts['go']}/{total}"
+        status = "100% Full Parity" if counts["java"] == total and counts["dotnet"] == total and counts["python"] == total and counts["node"] == total and counts["go"] == total else "Partial"
+        lines.append(f"| `{cat_name}` | {total} | {j} | {d} | {p} | {n} | {g} | {status} |")
 
-    lines.append(f"| **Total C ABI Symbols** | **{report.total_c_symbols}** | **{len(report.java_covered)}/{report.total_c_symbols}** | **{len(report.dotnet_covered)}/{report.total_c_symbols}** | **{len(report.python_covered)}/{report.total_c_symbols}** | **{len(report.node_covered)}/{report.total_c_symbols}** | **100% Complete** |")
+    lines.append(f"| **Total C ABI Symbols** | **{report.total_c_symbols}** | **{len(report.java_covered)}/{report.total_c_symbols}** | **{len(report.dotnet_covered)}/{report.total_c_symbols}** | **{len(report.python_covered)}/{report.total_c_symbols}** | **{len(report.node_covered)}/{report.total_c_symbols}** | **{len(report.go_covered)}/{report.total_c_symbols}** | **100% Complete** |")
     return "\n".join(lines)
 
 
@@ -602,6 +625,7 @@ def main() -> int:
             "dotnet": {"covered": len(report.dotnet_covered), "missing": sorted(list(report.dotnet_missing))},
             "python": {"covered": len(report.python_covered), "missing": sorted(list(report.python_missing))},
             "node": {"covered": len(report.node_covered), "missing": sorted(list(report.node_missing))},
+            "go": {"covered": len(report.go_covered), "missing": sorted(list(report.go_missing))},
             "category_breakdown": report.category_breakdown,
         }
         print(json.dumps(out, indent=2))
@@ -615,6 +639,7 @@ def main() -> int:
         or len(report.dotnet_missing) > 0
         or len(report.python_missing) > 0
         or len(report.node_missing) > 0
+        or len(report.go_missing) > 0
     )
 
     if args.check and has_errors:

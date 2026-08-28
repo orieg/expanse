@@ -374,7 +374,13 @@ The Go binding is consumed directly from the monorepo as a **nested Go module**:
 go get github.com/orieg/expanse/bindings/go@v0.4.1
 ```
 
-Pinned versions resolve via **`bindings/go/vX.Y.Z` tags** (Go's subdirectory-module convention), pushed automatically by the `github-release` job on every release tag. The module wraps `libexpanse` via CGO; build with `cargo build --release -p expanse-capi` available on the library path (see `bindings/go/README.md`).
+Pinned versions resolve via **`bindings/go/vX.Y.Z` tags** (Go's subdirectory-module convention), pushed automatically by the `github-release` job on every release tag.
+
+The module supports two interchangeable build configurations:
+- **CGO Mode** (`CGO_ENABLED=1` default): Links `libexpanse.a` statically or `libexpanse.so` dynamically via standard CGO.
+- **PureGo Mode** (`CGO_ENABLED=0` or `-tags expanse_purego`): 100% CGO-free build powered by `purego` over the shared `libexpanse.{so,dylib,dll}`. Discovers the native library via `EXPANSE_LIBRARY`, standard system loader paths, or embedded caching. Enables static cross-compiled binaries and distroless/scratch container images.
+
+See `bindings/go/README.md` for details.
 
 ---
 

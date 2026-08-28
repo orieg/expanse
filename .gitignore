@@ -32,3 +32,6 @@ __pycache__/
 # Quick-mode (--quick) smoke output of the comparative benchmark suites —
 # scratch data only; committed baselines live in results/ proper (#374)
 docs/benchmarks/*/results/quick/
+
+# Local git worktrees
+/.worktrees/

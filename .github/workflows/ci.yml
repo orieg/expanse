@@ -1619,7 +1619,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -1637,12 +1637,70 @@ jobs:
       - name: Build native libexpanse
         run: cargo build --release -p expanse-capi
 
-      - name: Run Go test suite and benchmarks
+      - name: Run Go test suite and benchmarks (cgo on Unix)
+        if: runner.os != 'Windows'
         run: |
           export LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH"
           export DYLD_LIBRARY_PATH="$PWD/target/release:$DYLD_LIBRARY_PATH"
           export CGO_LDFLAGS_ALLOW=".*"
           cd bindings/go && go test -v -bench=. -benchtime=100ms .
+
+      - name: Run Go test suite and benchmarks (purego CGO_ENABLED=0 on Unix)
+        if: runner.os != 'Windows'
+        run: |
+          export LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="$PWD/target/release:$DYLD_LIBRARY_PATH"
+          export EXPANSE_LIBRARY="$PWD/target/release"
+          cd bindings/go && CGO_ENABLED=0 go test -v -bench=. -benchtime=100ms .
+
+      # This step differs from the one above in leaving cgo *enabled*: it
+      # proves `-tags expanse_purego` selects the purego files even when a C
+      # toolchain is present, which is the documented opt-in mode.
+      #
+      # On macOS that combination needs an external link below Go 1.24. Go's
+      # internal linker emitted no LC_UUID on darwin until 1.24, and dyld on
+      # macOS 15+ aborts a cgo-linked binary that lacks it -- `dyld: missing
+      # LC_UUID load command` / `signal: abort trap` before any test runs.
+      # Measured on macOS 26.4.1 arm64 against libexpanse at this commit:
+      # 1.22.12 FAIL, 1.23.12 FAIL, 1.24.10 PASS, 1.25.6 PASS; with
+      # `-linkmode=external` 1.22.12 PASSes and the binary carries an LC_UUID.
+      # `CGO_ENABLED=0` is unaffected on every version (no cgo to link), which
+      # is why only this step failed. Linux is unaffected throughout.
+      #
+      # The flag is applied only where it is needed, so the default invocation
+      # stays under test everywhere it works. Drop it once the pinned Go is
+      # >= 1.24. bindings/go/README.md documents the same constraint for users.
+      - name: Run Go test suite (explicit expanse_purego build tag on Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          export LD_LIBRARY_PATH="$PWD/target/release:$LD_LIBRARY_PATH"
+          export DYLD_LIBRARY_PATH="$PWD/target/release:$DYLD_LIBRARY_PATH"
+          export EXPANSE_LIBRARY="$PWD/target/release"
+          LDFLAGS=()
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # -n ...p so an unparseable GOVERSION (a devel toolchain) yields an
+            # empty string rather than a non-numeric one: the comparison would
+            # then fail open and skip the flag on a version that needs it.
+            # Absent or < 1.24 both take the flag -- external linking is
+            # harmless on versions that do not need it (verified passing on
+            # 1.25.6), so the safe default is to apply it when unsure.
+            GO_MINOR=$(go env GOVERSION | sed -nE 's/^go1\.([0-9]+).*/\1/p')
+            if [ -z "$GO_MINOR" ] || [ "$GO_MINOR" -lt 24 ]; then
+              echo "Go '$(go env GOVERSION)' on macOS: forcing -linkmode=external for LC_UUID (see comment above)"
+              LDFLAGS=(-ldflags=-linkmode=external)
+            fi
+          fi
+          cd bindings/go && go test -tags expanse_purego "${LDFLAGS[@]}" -v .
+
+      - name: Run Go test suite and benchmarks (purego CGO_ENABLED=0 on Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED = "0"
+          $env:EXPANSE_LIBRARY = "${{ github.workspace }}\target\release"
+          cd bindings/go
+          go test -v -bench=. -benchtime=100ms .
 
   ci-gate:
     name: CI Gate / All Checks Passed

@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+func TestVersion(t *testing.T) {
+	v := Version()
+	if v == "" {
+		t.Fatalf("expected non-empty version string")
+	}
+}
+
 func TestSet(t *testing.T) {
 	s := NewSet()
 	s.Add(10)
@@ -20,6 +27,9 @@ func TestSet(t *testing.T) {
 	if s.Size() != 3 {
 		t.Fatalf("set size should be 3")
 	}
+	if s.MemoryUsed() == 0 {
+		t.Fatalf("set memory used should be > 0")
+	}
 
 	first, ok := s.First()
 	if !ok || first != 10 {
@@ -31,6 +41,15 @@ func TestSet(t *testing.T) {
 		t.Fatalf("next after 10 should be 20, got %d", next)
 	}
 
+	nextAt, ok := s.NextAtOrAfter(10)
+	if !ok || nextAt != 10 {
+		t.Fatalf("next at or after 10 should be 10, got %d", nextAt)
+	}
+	nextAt2, ok := s.NextAtOrAfter(15)
+	if !ok || nextAt2 != 20 {
+		t.Fatalf("next at or after 15 should be 20, got %d", nextAt2)
+	}
+
 	last, ok := s.Last()
 	if !ok || last != 30 {
 		t.Fatalf("last should be 30, got %d", last)
@@ -39,6 +58,15 @@ func TestSet(t *testing.T) {
 	prev, ok := s.Prev(30)
 	if !ok || prev != 20 {
 		t.Fatalf("prev before 30 should be 20, got %d", prev)
+	}
+
+	prevAt, ok := s.PrevAtOrBefore(30)
+	if !ok || prevAt != 30 {
+		t.Fatalf("prev at or before 30 should be 30, got %d", prevAt)
+	}
+	prevAt2, ok := s.PrevAtOrBefore(25)
+	if !ok || prevAt2 != 20 {
+		t.Fatalf("prev at or before 25 should be 20, got %d", prevAt2)
 	}
 
 	if s.Rank(20) != 1 {
@@ -52,6 +80,17 @@ func TestSet(t *testing.T) {
 
 	if s.CountRange(10, 20) != 2 {
 		t.Fatalf("count range [10, 20] should be 2, got %d", s.CountRange(10, 20))
+	}
+
+	// ContainsBatch
+	keys := []uint64{10, 15, 20, 25, 30}
+	present := make([]bool, len(keys))
+	foundCount := s.ContainsBatch(keys, present)
+	if foundCount != 3 {
+		t.Fatalf("expected 3 found keys in batch, got %d", foundCount)
+	}
+	if !present[0] || present[1] || !present[2] || present[3] || !present[4] {
+		t.Fatalf("unexpected present flags from ContainsBatch: %v", present)
 	}
 
 	s.Remove(20)
@@ -81,6 +120,9 @@ func TestMap(t *testing.T) {
 	if !m.Contains(3) {
 		t.Fatalf("contains 3 should be true")
 	}
+	if m.MemoryUsed() == 0 {
+		t.Fatalf("map memory used should be > 0")
+	}
 
 	firstK, firstV, ok := m.First()
 	if !ok || firstK != 1 || firstV != 100 {
@@ -90,6 +132,51 @@ func TestMap(t *testing.T) {
 	nextK, nextV, ok := m.Next(1)
 	if !ok || nextK != 2 || nextV != 200 {
 		t.Fatalf("next failed")
+	}
+
+	nextAtK, nextAtV, ok := m.NextAtOrAfter(1)
+	if !ok || nextAtK != 1 || nextAtV != 100 {
+		t.Fatalf("next at or after 1 failed")
+	}
+
+	lastK, lastV, ok := m.Last()
+	if !ok || lastK != 3 || lastV != 300 {
+		t.Fatalf("last failed")
+	}
+
+	prevK, prevV, ok := m.Prev(3)
+	if !ok || prevK != 2 || prevV != 200 {
+		t.Fatalf("prev failed")
+	}
+
+	prevAtK, prevAtV, ok := m.PrevAtOrBefore(3)
+	if !ok || prevAtK != 3 || prevAtV != 300 {
+		t.Fatalf("prev at or before 3 failed")
+	}
+
+	if m.Rank(2) != 1 {
+		t.Fatalf("rank of 2 should be 1, got %d", m.Rank(2))
+	}
+
+	selK, selV, ok := m.Select(1)
+	if !ok || selK != 2 || selV != 200 {
+		t.Fatalf("select 1 failed: %d, %d", selK, selV)
+	}
+
+	if m.CountRange(1, 2) != 2 {
+		t.Fatalf("count range [1, 2] should be 2, got %d", m.CountRange(1, 2))
+	}
+
+	// GetBatch
+	bKeys := []uint64{1, 2, 4}
+	bVals := make([]uint64, len(bKeys))
+	bFound := make([]bool, len(bKeys))
+	bCount := m.GetBatch(bKeys, bVals, bFound)
+	if bCount != 2 {
+		t.Fatalf("expected 2 found in batch, got %d", bCount)
+	}
+	if !bFound[0] || bVals[0] != 100 || !bFound[1] || bVals[1] != 200 || bFound[2] {
+		t.Fatalf("unexpected GetBatch results: found=%v vals=%v", bFound, bVals)
 	}
 
 	m.Delete(2)
@@ -119,6 +206,40 @@ func TestStrMap(t *testing.T) {
 	if !m.Contains("gamma") {
 		t.Fatalf("contains gamma should be true")
 	}
+	if m.MemoryUsed() == 0 {
+		t.Fatalf("strmap memory used should be > 0")
+	}
+
+	// Navigation
+	firstK, firstV, ok := m.First()
+	if !ok || firstK != "alpha" || firstV != 1 {
+		t.Fatalf("first string failed: %s, %d", firstK, firstV)
+	}
+
+	lastK, lastV, ok := m.Last()
+	if !ok || lastK != "gamma" || lastV != 3 {
+		t.Fatalf("last string failed: %s, %d", lastK, lastV)
+	}
+
+	nextK, nextV, ok := m.Next("alpha")
+	if !ok || nextK != "beta" || nextV != 2 {
+		t.Fatalf("next after alpha failed: %s, %d", nextK, nextV)
+	}
+
+	nextAtK, nextAtV, ok := m.NextAtOrAfter("alpha")
+	if !ok || nextAtK != "alpha" || nextAtV != 1 {
+		t.Fatalf("next at or after alpha failed: %s, %d", nextAtK, nextAtV)
+	}
+
+	prevK, prevV, ok := m.Prev("gamma")
+	if !ok || prevK != "beta" || prevV != 2 {
+		t.Fatalf("prev before gamma failed: %s, %d", prevK, prevV)
+	}
+
+	prevAtK, prevAtV, ok := m.PrevAtOrBefore("gamma")
+	if !ok || prevAtK != "gamma" || prevAtV != 3 {
+		t.Fatalf("prev at or before gamma failed: %s, %d", prevAtK, prevAtV)
+	}
 
 	m.Delete("beta")
 	if m.Contains("beta") {
@@ -139,6 +260,9 @@ func TestBytesMap(t *testing.T) {
 	}
 	if !m.Contains([]byte{0, 1, 2}) {
 		t.Fatalf("contains failed")
+	}
+	if m.MemoryUsed() == 0 {
+		t.Fatalf("bytesmap memory used should be > 0")
 	}
 	m.Delete([]byte{0, 1, 2})
 	if m.Size() != 0 {
@@ -163,6 +287,9 @@ func TestBlobMap(t *testing.T) {
 	if !b.Contains(20) {
 		t.Fatalf("contains failed")
 	}
+	if b.MemoryUsed() == 0 {
+		t.Fatalf("blobmap memory used should be > 0")
+	}
 
 	pruned := b.Prune(func(key uint64, hotMeta uint32) bool {
 		return hotMeta == 1
@@ -180,4 +307,67 @@ func TestBlobMap(t *testing.T) {
 		t.Fatalf("delete failed")
 	}
 	b.Clear()
+}
+
+func TestSyncSet(t *testing.T) {
+	s := NewSyncSet()
+	s.Add(100)
+	s.Add(200)
+
+	if !s.Contains(100) {
+		t.Fatalf("sync set should contain 100")
+	}
+	if s.Contains(300) {
+		t.Fatalf("sync set should not contain 300")
+	}
+	if s.Size() != 2 {
+		t.Fatalf("sync set size should be 2, got %d", s.Size())
+	}
+
+	reader := s.Reader()
+	if !reader.Contains(100) {
+		t.Fatalf("reader should contain 100")
+	}
+	if reader.Contains(300) {
+		t.Fatalf("reader should not contain 300")
+	}
+	reader.Free()
+
+	s.Remove(100)
+	if s.Contains(100) {
+		t.Fatalf("remove failed")
+	}
+	if s.Size() != 1 {
+		t.Fatalf("size after remove should be 1")
+	}
+}
+
+func TestSyncMap(t *testing.T) {
+	m := NewSyncMap()
+	m.Set(10, 1000)
+	m.Set(20, 2000)
+
+	val, ok := m.Get(10)
+	if !ok || val != 1000 {
+		t.Fatalf("get 10 failed: %v, %d", ok, val)
+	}
+	if m.Size() != 2 {
+		t.Fatalf("sync map size should be 2, got %d", m.Size())
+	}
+
+	reader := m.Reader()
+	rVal, rOk := reader.Get(20)
+	if !rOk || rVal != 2000 {
+		t.Fatalf("reader get 20 failed: %v, %d", rOk, rVal)
+	}
+	reader.Free()
+
+	m.Delete(10)
+	_, ok = m.Get(10)
+	if ok {
+		t.Fatalf("delete 10 failed")
+	}
+	if m.Size() != 1 {
+		t.Fatalf("size should be 1")
+	}
 }

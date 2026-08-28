@@ -80,6 +80,14 @@ uint64_t expanse_set_count_below(const expanse_set_t *set, uint64_t key);
 uint64_t expanse_set_count_range(const expanse_set_t *set, uint64_t lo, uint64_t hi);
 bool     expanse_set_by_count(const expanse_set_t *set, uint64_t n, uint64_t *key_out);
 
+/*
+ * Batched membership query with memory-level parallelism prefetching.
+ * Checks membership for `count` keys in `keys`, writing boolean presence (true/false)
+ * into `out_present`. Returns the count of found keys.
+ */
+size_t expanse_set_contains_batch(const expanse_set_t *set, const uint64_t *keys,
+                                  bool *out_present, size_t count);
+
 /* ---- expanse_map_t: ordered uint64_t -> uint64_t map (cf. JudyL) ---- */
 
 typedef struct expanse_map expanse_map_t;
@@ -98,6 +106,14 @@ bool     expanse_map_remove(expanse_map_t *map, uint64_t key, uint64_t *old_out)
 uint64_t expanse_map_len(const expanse_map_t *map);
 size_t   expanse_map_mem_used(const expanse_map_t *map);
 void     expanse_map_clear(expanse_map_t *map);
+
+/*
+ * Batched key lookup with memory-level parallelism prefetching.
+ * Looks up `count` keys in `keys`. For each key found, writes the value into `out_values`
+ * and true into `out_found` (when non-NULL). Returns the count of found keys.
+ */
+size_t expanse_map_get_batch(const expanse_map_t *map, const uint64_t *keys,
+                             uint64_t *out_values, bool *out_found, size_t count);
 
 /*
  * Value slots (classic JudyL convention): _slot returns a writable
