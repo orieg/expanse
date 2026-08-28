@@ -6,11 +6,20 @@ Executes standalone fast comparative benchmark sweeps across key distributions
 and generates GitHub Flavored Markdown comparison tables ready for PR descriptions,
 comments, or documentation.
 
+This harness reports the median of interleaved rounds. A median of three rounds
+is not a sampling distribution, so these tables carry no confidence interval and
+cannot on their own support a §8.4 wall-clock claim. The interval-bearing
+numbers come from the criterion suites, harvested by
+`scripts/bench_baseline.py`; pass `--baseline results/baseline_*.json` to append
+that section here so the PR comment carries the CI alongside the head-to-head
+medians.
+
 Usage:
   python3 scripts/bench_report.py --quick
   python3 scripts/bench_report.py --pop 1000000 --dist all --format markdown
   python3 scripts/bench_report.py --pop 100000 --format json --output report.json
   python3 scripts/bench_report.py --input report.json --format markdown
+  python3 scripts/bench_report.py --input report.json --baseline results/baseline_comparative.json
 """
 
 from __future__ import annotations
@@ -23,6 +32,10 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import bench_baseline  # noqa: E402
 
 
 def get_repo_root() -> Path:
@@ -176,8 +189,15 @@ def derive_summary(results: Dict[str, Any]) -> List[str]:
     ]
 
 
-def render_markdown(data: Dict[str, Any]) -> str:
-    """Formats benchmark results into GitHub Flavored Markdown tables."""
+def render_markdown(
+    data: Dict[str, Any], baseline: Optional[Dict[str, Any]] = None
+) -> str:
+    """Formats benchmark results into GitHub Flavored Markdown tables.
+
+    `baseline` is an optional `scripts/bench_baseline.py` artifact; when given,
+    its BCa interval table is appended so a wall-clock claim in the same comment
+    shows the interval it is gated on (§8.4).
+    """
     pop = data.get("pop", 1_000_000)
     system = data.get("system", {})
     os_name = system.get("os", "unknown")
@@ -262,10 +282,39 @@ def render_markdown(data: Dict[str, Any]) -> str:
     lines.extend(derive_summary(results))
     lines.extend([
         "",
+        "<sub>Medians of interleaved rounds — no sampling distribution, so no confidence "
+        "interval and no §8.4 wall-clock claim rests on this table alone. The "
+        "interval-bearing arms are in the BCa section (<code>scripts/bench_baseline.py</code>), "
+        "when a baseline artifact is supplied.</sub>",
+        "",
         f"<sub>🟢 Faster than baseline · ⚪ Parity (±{PARITY_BAND * 100:.0f}%) · 🔴 Slower than baseline. Generated automatically via <code>scripts/bench_report.py</code>.</sub>\n",
     ])
 
+    if baseline is not None:
+        lines.extend(["", render_baseline_ci_section(baseline)])
+
     return "\n".join(lines)
+
+
+def load_baseline_artifact(path: str | Path) -> Dict[str, Any]:
+    """Loads a `results/baseline_*.json` artifact, failing loudly on a bad schema."""
+    with open(path, "r", encoding="utf-8") as handle:
+        artifact = json.load(handle)
+    if artifact.get("schema") != bench_baseline.SCHEMA:
+        raise ValueError(
+            f"{path}: schema {artifact.get('schema')!r} is not "
+            f"{bench_baseline.SCHEMA!r}; not a bench_baseline artifact"
+        )
+    return artifact
+
+
+def render_baseline_ci_section(artifact: Dict[str, Any]) -> str:
+    """Renders the BCa interval table for a committed baseline artifact.
+
+    Delegates to `bench_baseline.render_markdown` so the report and the gate
+    read the same numbers from the same definition (§8.4).
+    """
+    return bench_baseline.render_markdown(artifact)
 
 
 def render_table(data: Dict[str, Any]) -> str:
@@ -453,6 +502,46 @@ def self_test() -> int:
     # 4. No results at all -> no summary block, not a fabricated one.
     assert derive_summary({}) == []
 
+    # 5. The interleaved-median tables disclaim the interval they do not have,
+    #    and a supplied baseline artifact surfaces its CI in the same report.
+    assert "no confidence interval" in md, md
+    artifact = bench_baseline.build_artifact(
+        [
+            {"id": "map_get/random/1000000/expanse", "samples_ns": [100.0 + i for i in range(40)]},
+            {"id": "map_get/random/1000000/btree", "samples_ns": [140.0 + i for i in range(40)]},
+        ],
+        suite="self-test",
+        host_desc="synthetic fixture host",
+        commit="0" * 40,
+        run_id="self-test",
+        confidence=0.95,
+        num_resamples=1000,
+        seed=42,
+        min_n=3,
+        fixture=True,
+    )
+    md_ci = render_markdown(data, artifact)
+    assert "Wall-Clock BCa Confidence Intervals" in md_ci
+    assert "`map_get/random/1000000/expanse`" in md_ci
+    assert "FIXTURE ARTIFACT" in md_ci, "a fixture artifact must be labelled as one"
+    # Point estimate enclosed by the interval it is printed next to (§8.4).
+    for arm in artifact["arms"]:
+        assert arm["ci_lower_ns"] <= arm["point_ns"] <= arm["ci_upper_ns"], arm
+    # The head-to-head tables are unchanged by the appended section.
+    assert md_ci.startswith(md.split("<sub>Medians of interleaved rounds")[0])
+    # A non-artifact JSON is rejected rather than rendered as an empty CI table.
+    import tempfile as _tempfile
+
+    with _tempfile.TemporaryDirectory() as _tmp:
+        _bad = Path(_tmp) / "not_an_artifact.json"
+        _bad.write_text(json.dumps({"schema": "something.else"}), encoding="utf-8")
+        try:
+            load_baseline_artifact(_bad)
+        except ValueError as exc:
+            assert "not a bench_baseline artifact" in str(exc), exc
+        else:
+            raise AssertionError("a foreign schema must be rejected loudly")
+
     print("bench_report.py --self-test: all checks passed")
     return 0
 
@@ -525,6 +614,15 @@ def main() -> int:
         help="Optional input JSON file with precomputed benchmark results.",
     )
     parser.add_argument(
+        "--baseline",
+        type=str,
+        help=(
+            "Optional results/baseline_*.json from scripts/bench_baseline.py. Appends "
+            "the BCa 95%% CI table so a wall-clock claim in this report shows the "
+            "interval it is gated on (AGENTS.md §8.4)."
+        ),
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="Run unit-style checks on the rendering helpers and exit.",
@@ -535,10 +633,24 @@ def main() -> int:
         return self_test()
     root = get_repo_root()
 
+    baseline_artifact: Optional[Dict[str, Any]] = None
+    if args.baseline:
+        try:
+            baseline_artifact = load_baseline_artifact(args.baseline)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            # Fail loudly (§8.1): a missing or malformed baseline must not
+            # silently render a report with no interval where one was asked for.
+            print(f"Error loading baseline artifact: {exc}", file=sys.stderr)
+            return 1
+
     if args.input:
         with open(args.input, "r", encoding="utf-8") as f:
             data = json.load(f)
-        rendered = render_markdown(data) if args.format == "markdown" else json.dumps(data, indent=2)
+        rendered = (
+            render_markdown(data, baseline_artifact)
+            if args.format == "markdown"
+            else json.dumps(data, indent=2)
+        )
     elif args.extended or args.pop_sweep:
         pops = [int(p.strip()) for p in args.pop_sweep.split(",")] if args.pop_sweep else [10_000, 100_000, 1_000_000]
         pop_reports = []
@@ -600,7 +712,7 @@ def main() -> int:
         elif args.format == "table":
             rendered = render_table(data)
         else:
-            rendered = render_markdown(data)
+            rendered = render_markdown(data, baseline_artifact)
 
     if args.output:
         out_path = Path(args.output)
