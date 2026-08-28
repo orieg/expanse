@@ -101,9 +101,25 @@ Width sweep against the scalar descent over identical probes. Ratios are `width 
 
 Interleaving pays when there are several serialised DRAM misses to overlap. This descent has roughly one — the ladder resolves the upper levels out of cache, so only the terminal access is a genuine long-latency miss. [#455](https://github.com/orieg/expanse/issues/455) reached the same conclusion from emitted code rather than wall clock.
 
-**The width curve itself is not understood, and no width is published as a tuned optimum.** The sweep is non-monotonic, with a ~40% discontinuity between `W = 2` and `W = 3` on the warm control (0.975x then 1.369x). Memory-level parallelism has no cliff at three lanes, so something other than miss overlap dominates the curve's shape. A register-spill explanation was tested and refuted: on AArch64 the emitted `get_batch_width::<W>` grows smoothly — 664, 700, 704, 713, 748 instructions for `W` = 1, 2, 3, 4, 8 — with a frame growing a uniform 32 bytes per lane and no discontinuity. The x86-64 build, which is the architecture these timings came from, was not disassembled; a cross-build for it fails on a dev-dependency. Cause unknown.
+**The cost is branch misprediction, not memory.** The sweep is non-monotonic with a ~40% discontinuity between `W = 2` and `W = 3`. Hardware counters on the reference host, pinned to one P-core, locate it:
 
-`BATCH_WIDTH` therefore stays at `8` rather than moving to the measured-best `2`. A width ordering produced by an unexplained discontinuity is not a basis for tuning. What this run establishes is that **no width wins on cold DRAM**; *which* width loses least is not established.
+| counter | `W = 2` | `W = 3` | delta |
+|---|---:|---:|---:|
+| cycles | 1.989e9 | 2.733e9 | +37.4% |
+| instructions | 3.149e9 | 3.232e9 | +2.7% |
+| L1-dcache-loads | 7.022e8 | 7.024e8 | +0.04% |
+| L1-dcache-load-misses | 2.868e7 | 3.181e7 | +10.9% |
+| **branch-misses** | **2.403e7** | **4.998e7** | **+108%** |
+
+*(measured: reference host, `taskset -c 0`, `cpu_core` PMU only, 20,000 iterations of the warm arm.)*
+
+Mispredictions double while instruction count and L1 traffic stay flat. The 744M extra cycles over 26M extra mispredicts is ~28.6 cycles each — a pipeline flush, plus a little L2 from the L1 delta.
+
+The source is the driver's retirement branch: `step` returns `None` to continue or `Some` to retire, at a depth that varies per key. Two interleaved streams stay within the predictor's reach; three do not. **The interleaving meant to overlap memory stalls instead introduces control flow the front end cannot follow, and it costs more than the stalls it hides.**
+
+Three other explanations were tested and refuted: codegen (emitted `get_batch_width::<W>` grows smoothly on x86-64 — 793, 768, 792, 800, 834 instructions for `W` = 1, 2, 3, 4, 8 — and on AArch64, with a frame growing a uniform 32 bytes per lane); chunk alignment (`CHUNK` is 1024, so the drain runs once per chunk at any width); and the benchmark's own miss distribution (the cliff survives replacing the fixed-XOR misses at `batch_lookup.rs:72` with rejection sampling — 0.987 then 1.411; that defect is real and tracked in [#454](https://github.com/orieg/expanse/issues/454), but it is not this).
+
+Making this path win is a redesign — branchless retirement, or fixed-depth stepping that retires lanes predictably — not a width choice. `BATCH_WIDTH` stays at `8` rather than moving to the best-measured `2`: no width wins on cold DRAM, and the ordering reflects predictor behaviour rather than the mechanism this was built for.
 
 ## Comparison targets
 
