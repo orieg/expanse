@@ -550,21 +550,52 @@ two processes do not cancel exactly, which is why every figure carries a BCa
 95% interval over paired runs rather than a single number, and why the per-run
 values are kept in the JSON artifact so any interval can be recomputed.
 
-Counter availability is probed per event against the host, and the unavailable
-ones are listed in the report rather than left as gaps in the table.
-`cycle_activity.stalls_l3_miss`, `mem_load_retired.l3_miss` and
-`br_misp_retired.all_branches` are Intel-specific and do not exist on other
-microarchitectures. A host where `perf` is absent, or where
-`kernel.perf_event_paranoid` refuses to open a counter, stops the run with the
-cause and the fix named — it never produces a report that reads as complete.
+Counter availability is probed per event against the host **and against the PMU
+the run counts on**, and the unavailable ones are listed in the report rather
+than left as gaps in the table. `cycle_activity.stalls_l3_miss`,
+`mem_load_retired.l3_miss` and `br_misp_retired.all_branches` are Intel-specific
+and do not exist on other microarchitectures; on a hybrid Intel part the first
+two are P-core-only, so availability is a property of the (event, PMU) pair and
+an event the selected PMU serves is never written off because the other PMU
+reported `<not supported>`. A host where `perf` is absent, or where the kernel
+refuses to open a counter, stops the run with the cause and the fix named — it
+never produces a report that reads as complete.
+
+The driver only ever counts a process it starts itself. That is the per-process
+path, which `kernel.perf_event_paranoid = 1` permits; the stricter gate governs
+system-wide counting, which this does not do, so a refused counter and a raised
+paranoid level are not interchangeable diagnoses. An event that `perf` counted
+but whose name the driver could not match is reported as an event-naming
+mismatch and explicitly not as a permissions problem — prescribing `setcap` for
+that case sends the reader to reconfigure a host that was never misconfigured.
+
+**Hybrid CPUs.** The reference host is an Alder-Lake-class part with two core
+PMUs — `cpu_core` (P-cores) and `cpu_atom` (E-cores). `perf` answers one
+requested event with one row per PMU (`cpu_core/instructions/`,
+`cpu_atom/instructions/`) and emits no row under the bare event name. Those two
+rows count two different microarchitectures over two different sets of cores, so
+the driver never sums them: it selects one core PMU (`--pmu`, defaulting to the
+performance-core PMU), confines the workload to that PMU's CPUs with `taskset`,
+reads only that PMU's rows, and names the PMU, its CPU list and the pin command
+in the JSON artifact and in the rendered table header. The pin is what makes the
+number comparable between runs — unpinned, the scheduler is free to move a
+single-threaded workload onto the other core type mid-run, where the selected
+PMU stops counting it and the total silently under-reports. A sibling core PMU
+that reports non-zero work while the pin is in force stops the run: the pin did
+not hold, so the counts straddle two machines and describe neither. Measuring
+the other core type is a separate, separately-labelled run (`--pmu cpu_atom`).
 
 *(unverified until a run on the reference host: `perf` is Linux-only, so on a
 macOS development machine the driver refuses to run rather than approximating
-one. Its CSV parsing, its "an unsupported counter is `None`, never `0`" rule and
-its rendering are covered by `--self-test` and run in the `lint` job; the
-end-to-end path — counter availability on that host, and the size of the
-`probe - build` residual — is settled by the first `point_lookup_counters` run
-and by nothing before it.)*
+one. Covered by `--self-test` against recorded fixtures, and run in the `lint`
+job: CSV parsing including the PMU-qualified event names a hybrid host emits,
+PMU selection and its refusal to guess, the pin-integrity check, the "an
+unsupported counter is `None`, never `0`" rule, the separation of a refused
+counter from an unmatched event name, and the rendering. Settled by the first
+`point_lookup_counters` run on that host and by nothing before it: that
+`taskset` pins as intended under its kernel, the exact CSV `perf` there emits
+for each requested event, per-PMU counter availability, and the size of the
+`probe - build` residual.)*
 
 **What it can answer:** whether a change moves cycles, cache line fills,
 translation misses, stall cycles or branch mispredictions on this path, with an
