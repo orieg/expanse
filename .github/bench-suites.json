@@ -17,7 +17,11 @@
     "             refusal message lists it with its `reason` so the gap is stated",
     "             rather than silent (AGENTS.md 8.1).",
     "  kind       callgrind = needs valgrind + iai-callgrind-runner on the host,",
-    "             checked before anything runs; wallclock = criterion / custom-main.",
+    "             checked before anything runs; wallclock = criterion / custom-main;",
+    "             counters = needs a usable PMU (`perf stat`), checked by opening a",
+    "             real counter before anything runs. The kind drives the workflow's",
+    "             preflight and the Instrument column of the docs table, so a suite",
+    "             cannot be labelled with an instrument it does not use.",
     "  runner     builtin = handled by a named branch of the workflow's case",
     "             statement (dual-pass baselines, report post-processing);",
     "             generic = run straight from `package` + `target` (+ `env`).",
@@ -116,6 +120,13 @@
       "kind": "wallclock",
       "runner": "builtin",
       "summary": "`Sync*` wall-clock scaling instrument on a reduced thread/workload sweep; report-only, never gating."
+    },
+    {
+      "name": "point_lookup_counters",
+      "available": true,
+      "kind": "counters",
+      "runner": "builtin",
+      "summary": "Hardware performance counters (`perf stat`) over the random point-lookup path \u2014 `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be."
     },
     {
       "name": "search_instructions",

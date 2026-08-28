@@ -49,7 +49,9 @@
 use core::ffi::{c_int, c_void};
 #[cfg(target_os = "linux")]
 use iai_callgrind::main;
-use iai_callgrind::{library_benchmark, library_benchmark_group};
+use iai_callgrind::{
+    Callgrind, LibraryBenchmarkConfig, library_benchmark, library_benchmark_group,
+};
 use std::hint::black_box;
 use std::ptr::null_mut;
 
@@ -644,6 +646,46 @@ fn judy1_test_stock(built: Built) -> Word {
     black_box(hits)
 }
 
+/// Callgrind cache + branch simulation, opt-in through `EXPANSE_CACHE_SIM=1`.
+///
+/// `--cache-sim=yes` makes callgrind model a two-level cache and emit the
+/// L1/LL/RAM hit counts `scripts/perf_report.py` already parses;
+/// `--branch-sim=yes` adds the branch-predictor columns. Both route every
+/// memory reference and every branch through a simulator on top of
+/// callgrind's own slowdown, so they are off by default: the regression pass
+/// is gated on instructions retired, needs no other column, and must keep
+/// measuring exactly what it measured before. Turn them on for a diagnostic
+/// pass, never for the gate.
+///
+/// An unrecognised value is fatal rather than ignored. A mistyped
+/// `EXPANSE_CACHE_SIM=yes` that quietly produced an instruction-only run
+/// would be a run published as a cache measurement that never simulated a
+/// cache (`AGENTS.md` section 8.1).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn bench_config() -> LibraryBenchmarkConfig {
+    let mut config = LibraryBenchmarkConfig::default();
+    let requested = match std::env::var("EXPANSE_CACHE_SIM") {
+        Ok(v) => v,
+        Err(std::env::VarError::NotPresent) => String::new(),
+        Err(e) => panic!("EXPANSE_CACHE_SIM is set but unreadable: {e}"),
+    };
+    match requested.as_str() {
+        "" | "0" => {}
+        "1" => {
+            config.tool(Callgrind::with_args([
+                "--cache-sim=yes",
+                "--branch-sim=yes",
+            ]));
+        }
+        other => panic!(
+            "EXPANSE_CACHE_SIM={other} is not a recognised value: use 1 for the \
+             cache + branch simulation pass, or 0 / unset for the default \
+             instruction-only pass"
+        ),
+    }
+    config
+}
+
 library_benchmark_group!(
     name = vs_stock;
     benchmarks =
@@ -665,7 +707,7 @@ library_benchmark_group!(
 );
 
 #[cfg(target_os = "linux")]
-main!(library_benchmark_groups = vs_stock);
+main!(config = bench_config(); library_benchmark_groups = vs_stock);
 
 #[cfg(not(target_os = "linux"))]
 fn main() {
