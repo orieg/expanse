@@ -27,24 +27,30 @@ fn bench_sensor_indexing(c: &mut Criterion) {
 
     // 1. ExpanseSet32 Insert
     group.bench_function(BenchmarkId::new("expanse_set32", n), |b| {
-        b.iter(|| {
-            let mut set = ExpanseSet32::new();
-            for &k in &keys {
-                set.insert(black_box(k));
-            }
-            black_box(set)
-        });
+        b.iter_batched(
+            ExpanseSet32::new,
+            |mut set| {
+                for &k in &keys {
+                    set.insert(black_box(k));
+                }
+                black_box(set)
+            },
+            criterion::BatchSize::PerIteration,
+        );
     });
 
     // 2. BTreeSet Insert
     group.bench_function(BenchmarkId::new("btreeset_u32", n), |b| {
-        b.iter(|| {
-            let mut set = std::collections::BTreeSet::new();
-            for &k in &keys {
-                set.insert(black_box(k));
-            }
-            black_box(set)
-        });
+        b.iter_batched(
+            std::collections::BTreeSet::new,
+            |mut set| {
+                for &k in &keys {
+                    set.insert(black_box(k));
+                }
+                black_box(set)
+            },
+            criterion::BatchSize::PerIteration,
+        );
     });
 
     group.finish();
@@ -120,15 +126,18 @@ fn bench_blobmap32_predicate_scan(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("columnar_hot_meta_scan", n), |b| {
         b.iter(|| {
             let mut matched = 0usize;
+            let mut byte_sum = 0u64;
             blob_map.scan_filtered(
                 black_box(100),
                 black_box(1900),
                 |_k, meta| meta > 80,
-                |_k, _view, _meta| {
+                |_k, view, _meta| {
                     matched += 1;
+                    let bytes = view.as_bytes();
+                    byte_sum += if bytes.is_empty() { 0 } else { bytes[0] as u64 };
                 },
             );
-            black_box(matched)
+            black_box((matched, byte_sum))
         });
     });
 

@@ -38,7 +38,7 @@
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
 use hashbrown::{HashMap as HashBrownMap, HashSet as HashBrownSet};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -205,50 +205,84 @@ impl XorShift {
     }
 }
 
-/// Generates $N$ distinct 64-bit keys for the specified distribution class.
-fn generate_keys(dist: &str, n: usize, seed: u64) -> Vec<u64> {
-    let mut rng = XorShift::new(seed);
-    let mut out = Vec::with_capacity(n);
-    match dist {
-        "sequential" => {
-            out.extend(0..n as u64);
-        }
-        "random" => {
-            out.extend((0..n).map(|_| rng.next()));
-        }
-        "clustered" => {
-            let mut base = 0u64;
-            for i in 0..n as u64 {
-                if i % 256 == 0 {
-                    base = rng.next() & !0xFF;
-                }
-                out.push(base + (i % 256));
-            }
-        }
-        "sparse" => {
-            out.extend((0..n as u64).map(|i| i << 40));
-        }
-        other => panic!("unknown distribution '{other}'"),
-    }
-    out
+/// Key generator structure matching the canonical distribution definitions.
+struct KeyGen<'a> {
+    dist: &'a str,
+    rng: XorShift,
+    i: u64,
+    base: u64,
 }
 
-/// Generates hit and miss probe key sequences.
-fn generate_probes(keys: &[u64], probe_count: usize, seed: u64) -> (Vec<u64>, Vec<u64>) {
+impl<'a> KeyGen<'a> {
+    fn new(dist: &'a str, seed: u64) -> Self {
+        Self {
+            dist,
+            rng: XorShift::new(seed),
+            i: 0,
+            base: 0,
+        }
+    }
+
+    fn next(&mut self) -> u64 {
+        let k = match self.dist {
+            "sequential" => self.i,
+            "random" => self.rng.next(),
+            "clustered" => {
+                if self.i.is_multiple_of(256) {
+                    self.base = self.rng.next() & !0xFF;
+                }
+                self.base + (self.i % 256)
+            }
+            "sparse" => self.i << 40,
+            other => panic!("unknown distribution '{other}'"),
+        };
+        self.i += 1;
+        k
+    }
+}
+
+/// Generates $N$ distinct 64-bit keys for the specified distribution class.
+fn generate_keys(dist: &str, n: usize, seed: u64) -> Vec<u64> {
+    let mut g = KeyGen::new(dist, seed);
+    (0..n).map(|_| g.next()).collect()
+}
+
+/// `n` distinct keys that are absent from `present`, drawn from the same
+/// generator as the population and rejected on membership (AGENTS.md §8.6).
+fn generate_miss_keys(dist: &str, present: &HashSet<u64>, n: usize, seed: u64) -> Vec<u64> {
+    let mut g = KeyGen::new(dist, seed);
+    let mut seen: HashSet<u64> = HashSet::with_capacity(n * 2);
+    let mut out = Vec::with_capacity(n);
+    let budget = n.saturating_mul(64).saturating_add(1024);
+    for _ in 0..budget {
+        if out.len() == n {
+            return out;
+        }
+        let c = g.next();
+        if !present.contains(&c) && seen.insert(c) {
+            out.push(c);
+        }
+    }
+    panic!("{dist}: could not draw {n} distinct absent keys within budget");
+}
+
+/// Generates hit and miss probe key sequences with realistic miss distributions.
+fn generate_probes(
+    dist: &str,
+    keys: &[u64],
+    probe_count: usize,
+    seed: u64,
+) -> (Vec<u64>, Vec<u64>) {
     let mut rng = XorShift::new(seed);
     let n = keys.len();
     let mut hits = Vec::with_capacity(probe_count);
-    let mut misses = Vec::with_capacity(probe_count);
-
     for _ in 0..probe_count {
         let idx = (rng.next() as usize) % n;
-        let hit_k = keys[idx];
-        hits.push(hit_k);
-
-        // Perturb the key with high-bit flip and mask to guarantee misses
-        let miss_k = hit_k ^ (1u64 << 63) ^ 0x5A5A_5A5A_5A5A_5A5Au64;
-        misses.push(miss_k);
+        hits.push(keys[idx]);
     }
+
+    let present: HashSet<u64> = keys.iter().copied().collect();
+    let misses = generate_miss_keys(dist, &present, probe_count, seed ^ 0x51ED_0FF5_C0FF_EE01);
     (hits, misses)
 }
 
@@ -1444,7 +1478,8 @@ fn main() {
 
     for &dist in &config.dists {
         let keys = generate_keys(dist, config.pop, 0x0DDB_1A5E_5EED_0001);
-        let (hit_probes, miss_probes) = generate_probes(&keys, probe_count, 0xBEEF_CAFE_1234_5678);
+        let (hit_probes, miss_probes) =
+            generate_probes(dist, &keys, probe_count, 0xBEEF_CAFE_1234_5678);
 
         // Arms in canonical reporting order. `print_json` maps position to
         // container name, so this order is a contract with the JSON consumer;

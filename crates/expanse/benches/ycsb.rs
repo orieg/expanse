@@ -476,7 +476,11 @@ pub fn run_workload_expanse_blobmap(
         match op {
             YcsbOp::Read(k) => {
                 let res = map.get(k);
-                black_box(res);
+                if let Some((view, _)) = res {
+                    black_box(if view.is_empty() { 0 } else { view[0] });
+                } else {
+                    black_box(0);
+                }
             }
             YcsbOp::Update(k, meta) => {
                 let _ = map.insert(k, payload, meta as u32);
@@ -492,7 +496,8 @@ pub fn run_workload_expanse_blobmap(
                     // Key-parity predicate (see WORKLOAD E note above).
                     |k, _meta| k & 1 == 0,
                     |k, view, meta| {
-                        black_box((k, view.len(), meta));
+                        let b0 = if view.is_empty() { 0 } else { view[0] };
+                        black_box((k, b0, meta));
                         count += 1;
                         count < len
                     },
@@ -537,7 +542,11 @@ pub fn run_workload_btreemap(
         match op {
             YcsbOp::Read(k) => {
                 let res = map.get(&k);
-                black_box(res);
+                if let Some(v) = res {
+                    black_box(if v.is_empty() { 0 } else { v[0] });
+                } else {
+                    black_box(0);
+                }
             }
             YcsbOp::Update(k, _) => {
                 map.insert(k, payload.to_vec().into_boxed_slice());
@@ -551,7 +560,8 @@ pub fn run_workload_btreemap(
                 for (&k, v) in map.range(start_k..=u64::MAX) {
                     // Key-parity predicate (see WORKLOAD E note above).
                     if k & 1 == 0 {
-                        black_box((k, v));
+                        let b0 = if v.is_empty() { 0 } else { v[0] };
+                        black_box((k, b0));
                         count += 1;
                         if count >= len {
                             break;
@@ -611,7 +621,12 @@ pub fn run_workload_skipmap(
         match op {
             YcsbOp::Read(k) => {
                 let res = map.get(&k);
-                black_box(res);
+                if let Some(entry) = res {
+                    let v = entry.value();
+                    black_box(if v.is_empty() { 0 } else { v[0] });
+                } else {
+                    black_box(0);
+                }
             }
             YcsbOp::Update(k, _) => {
                 map.insert(k, payload.to_vec().into_boxed_slice());
@@ -627,7 +642,8 @@ pub fn run_workload_skipmap(
                     let v: &[u8] = entry.value();
                     // Key-parity predicate (see WORKLOAD E note above).
                     if k & 1 == 0 {
-                        black_box((k, v));
+                        let b0 = if v.is_empty() { 0 } else { v[0] };
+                        black_box((k, b0));
                         count += 1;
                         if count >= len {
                             break;

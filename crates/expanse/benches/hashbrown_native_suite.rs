@@ -57,6 +57,29 @@ fn bench_op<F: FnMut()>(mut op: F, warmup_iters: usize, measure_iters: usize) ->
     (ns_per_op, mops)
 }
 
+fn bench_grow_op<F: FnMut() -> R, R>(
+    mut op: F,
+    warmup_iters: usize,
+    measure_iters: usize,
+) -> (f64, f64) {
+    for _ in 0..warmup_iters {
+        let res = op();
+        drop(res);
+    }
+    let mut total_duration = std::time::Duration::ZERO;
+    for _ in 0..measure_iters {
+        let start = Instant::now();
+        let res = op();
+        let elapsed = start.elapsed();
+        total_duration += elapsed;
+        drop(res);
+    }
+    let total_secs = total_duration.as_secs_f64();
+    let ns_per_op = (total_secs * 1e9) / measure_iters as f64;
+    let mops = (measure_iters as f64 / total_secs) / 1e6;
+    (ns_per_op, mops)
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let quick = args.iter().any(|a| a == "--quick");
@@ -209,39 +232,39 @@ fn main() {
         } else {
             2
         };
-        let (ns_grow_exp, _) = bench_op(
+        let (ns_grow_exp, _) = bench_grow_op(
             || {
                 let mut m = ExpanseMap::new();
                 for &k in &keys {
                     m.insert(black_box(k), black_box(k));
                 }
-                black_box(m);
+                m
             },
             1,
             build_reps,
         );
         let mops_grow_exp = (pop as f64 / (ns_grow_exp * 1e-9)) / 1e6;
 
-        let (ns_grow_hb, _) = bench_op(
+        let (ns_grow_hb, _) = bench_grow_op(
             || {
                 let mut m = HashMap::new();
                 for &k in &keys {
                     m.insert(black_box(k), black_box(k));
                 }
-                black_box(m);
+                m
             },
             1,
             build_reps,
         );
         let mops_grow_hb = (pop as f64 / (ns_grow_hb * 1e-9)) / 1e6;
 
-        let (ns_grow_bt, _) = bench_op(
+        let (ns_grow_bt, _) = bench_grow_op(
             || {
                 let mut m = BTreeMap::new();
                 for &k in &keys {
                     m.insert(black_box(k), black_box(k));
                 }
-                black_box(m);
+                m
             },
             1,
             build_reps,
