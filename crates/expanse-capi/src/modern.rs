@@ -56,10 +56,13 @@ unsafe fn write_cstr_buf(key_out: *mut c_char, buf_len: usize, bytes: &[u8]) -> 
 /// legal only for the empty key.
 #[inline]
 unsafe fn bytes<'a>(key: *const c_void, len: usize) -> Option<&'a [u8]> {
+    if len > (isize::MAX as usize) {
+        return None;
+    }
     if key.is_null() {
         return (len == 0).then_some(&[]);
     }
-    // SAFETY: caller guarantees `len` readable bytes at `key`.
+    // SAFETY: caller guarantees `len` readable bytes at `key`; len <= isize::MAX.
     Some(unsafe { core::slice::from_raw_parts(key.cast::<u8>(), len) })
 }
 
@@ -312,8 +315,16 @@ pub unsafe extern "C" fn expanse_set_contains_batch(
     out_present: *mut bool,
     count: usize,
 ) -> usize {
-    if set.is_null() || keys.is_null() || out_present.is_null() || count == 0 {
-        if !out_present.is_null() && count > 0 {
+    if set.is_null()
+        || keys.is_null()
+        || out_present.is_null()
+        || count == 0
+        || count > (isize::MAX as usize / core::mem::size_of::<u64>())
+    {
+        if !out_present.is_null()
+            && count > 0
+            && count <= (isize::MAX as usize / core::mem::size_of::<bool>())
+        {
             // SAFETY: out_present is non-null and valid for count elements per contract.
             unsafe {
                 core::ptr::write_bytes(out_present, 0, count);
@@ -411,8 +422,16 @@ pub unsafe extern "C" fn expanse_map_get_batch(
     out_found: *mut bool,
     count: usize,
 ) -> usize {
-    if map.is_null() || keys.is_null() || out_values.is_null() || count == 0 {
-        if !out_found.is_null() && count > 0 {
+    if map.is_null()
+        || keys.is_null()
+        || out_values.is_null()
+        || count == 0
+        || count > (isize::MAX as usize / core::mem::size_of::<u64>())
+    {
+        if !out_found.is_null()
+            && count > 0
+            && count <= (isize::MAX as usize / core::mem::size_of::<bool>())
+        {
             // SAFETY: out_found is non-null and valid for count elements per contract.
             unsafe {
                 core::ptr::write_bytes(out_found, 0, count);

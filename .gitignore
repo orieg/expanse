@@ -35,3 +35,7 @@ docs/benchmarks/*/results/quick/
 
 # Local git worktrees
 /.worktrees/
+
+# Local agent metadata / plans
+/.claude/
+
