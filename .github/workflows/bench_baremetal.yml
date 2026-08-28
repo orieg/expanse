@@ -1116,6 +1116,37 @@ jobs:
       # failing a run whose numbers are otherwise complete. It is a missing
       # supplement, not a missing result - the ratios themselves are in the
       # comment either way.
+      # `concurrency`, `ycsb` and `comparative` are declared `harness = false`
+      # in crates/expanse/Cargo.toml - custom mains that print their own tables
+      # rather than criterion benchmarks - and the B/key examples are plain
+      # binaries. None of them writes `target/criterion`, so the harvest step
+      # correctly reports "runs no criterion arms" and no `baseline-*.json` is
+      # produced for any of them.
+      #
+      # Without this upload their numbers reach only the PR comment and the step
+      # summary, both of which expire, and a `workflow_dispatch` run has no PR to
+      # comment on at all. A completed `/benchmark concurrency` therefore left
+      # nothing downloadable behind and its cells stayed unfillable (issue #382),
+      # which is how a successful run came to refill nothing.
+      #
+      # Uploading the raw tables makes a published figure from these suites
+      # resolve to an artifact of the run that produced it (AGENTS.md section
+      # 8.7). `ignore` keeps a suite that produces none of these files from
+      # failing over it.
+      - name: Upload non-criterion suite tables
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: suite-tables-${{ needs.resolve.outputs.suite }}-${{ github.run_id }}
+          path: |
+            concurrency.txt
+            ycsb.txt
+            comparative.txt
+            bytes-per-key.txt
+            bytes-per-key-32.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Upload vs-libjudy paired-ratio artifact
         if: always()
         uses: actions/upload-artifact@v7
