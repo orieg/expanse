@@ -8,9 +8,17 @@ Verifies 100% symbol and feature parity of the modern libexpanse C API
   2. .NET C# P/Invoke (`bindings/dotnet/src/Expanse.NET/Native/NativeMethods.cs`)
   3. Python PyO3 (`crates/expanse-py/src/`)
   4. Node.js N-API (`crates/expanse-node/src/`)
+  5. Go purego (`bindings/go/`)
+
+Enforces that the exported C ABI symbol count satisfies the pinned floor
+(baseline: MIN_C_SYMBOLS = 100). The floor constant is verified against the base
+ref (e.g. `origin/main`); any decrease in the constant or reduction in declared
+symbols requires an explicit `allow-symbol-shrink: <reason>` directive in the PR
+body. The zero margin (exactly 100 symbols vs floor of 100) is deliberate: the
+first legitimate deprecation trips the floor and requires an explicit rationale.
 
 Usage:
-  python3 scripts/check_abi_parity.py [--check] [--verbose] [--json] [--markdown]
+  python3 scripts/check_abi_parity.py [--check] [--verbose] [--json] [--markdown] [--base origin/main]
 """
 
 from __future__ import annotations
@@ -19,6 +27,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -635,8 +644,83 @@ def parse_allow_symbol_shrink(pr_body: str) -> Optional[str]:
     return None
 
 
+def get_base_floor_constant(
+    base_ref: str,
+    script_rel_path: str = "scripts/check_abi_parity.py",
+    var_name: str = "MIN_C_SYMBOLS",
+    root: Optional[Path] = None,
+) -> Tuple[Optional[int], str]:
+    """Reads the floor constant from script_rel_path in base_ref using `git show`.
+
+    Returns (floor_int, "") on success.
+    Returns (None, error_message) on any resolution failure, shallow clone failure,
+    missing file, or if the constant is not defined/found in the base ref.
+    Fails loud — never returns (None, "") to avoid failing open.
+    """
+    cwd = str(root) if root else None
+
+    # First check if base_ref exists locally. If not, try to fetch it shallowly.
+    check_ref = subprocess.run(
+        ["git", "rev-parse", "--verify", base_ref],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if check_ref.returncode != 0:
+        remote = "origin"
+        branch = base_ref
+        if base_ref.startswith("origin/"):
+            branch = base_ref[len("origin/"):]
+        fetch_res = subprocess.run(
+            ["git", "fetch", remote, f"{branch}:{base_ref}"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+        recheck = subprocess.run(
+            ["git", "rev-parse", "--verify", base_ref],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+        if recheck.returncode != 0:
+            err_details = (
+                fetch_res.stderr.strip()
+                or check_ref.stderr.strip()
+                or f"fatal: ref '{base_ref}' does not exist"
+            )
+            return None, f"Base ref '{base_ref}' could not be resolved or fetched:\n{err_details}"
+
+    # Read the script content from base_ref
+    show_res = subprocess.run(
+        ["git", "show", f"{base_ref}:{script_rel_path}"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if show_res.returncode != 0:
+        return (
+            None,
+            f"Failed to read '{script_rel_path}' from base ref '{base_ref}':\n{show_res.stderr.strip()}",
+        )
+
+    # Parse constant
+    pattern = re.compile(rf"^[ \t]*{var_name}[ \t]*=[ \t]*(\d+)", re.MULTILINE)
+    match = pattern.search(show_res.stdout)
+    if not match:
+        return (
+            None,
+            f"Floor constant '{var_name}' not found in '{script_rel_path}' on base ref '{base_ref}'",
+        )
+
+    try:
+        return int(match.group(1)), ""
+    except ValueError as e:
+        return None, f"Failed to parse integer floor from '{match.group(1)}': {e}"
+
+
 def self_test() -> int:
-    """Runs internal self-tests for symbol parity and floor checks."""
+    """Runs internal self-tests for symbol parity, fail-loud git errors, and floor checks."""
     # 1. Override parser tests
     assert parse_allow_symbol_shrink("allow-symbol-shrink: deprecated v1 symbols") == "deprecated v1 symbols"
     assert parse_allow_symbol_shrink("<!-- allow-symbol-shrink: removed legacy sync helpers -->") == "removed legacy sync helpers"
@@ -664,6 +748,22 @@ def self_test() -> int:
     finally:
         os.remove(tf_name)
 
+    # 3. Base floor extraction self-tests (Task 2)
+    # Valid ref against HEAD
+    base_fl, base_err = get_base_floor_constant("HEAD", "scripts/check_abi_parity.py", "MIN_C_SYMBOLS")
+    assert base_err == "", base_err
+    assert base_fl == 100, base_fl
+
+    # Unresolvable base ref must fail loud with non-empty error string
+    bad_fl, bad_err = get_base_floor_constant("origin/nonexistent-branch-12345-never-exists")
+    assert bad_fl is None
+    assert bad_err != ""
+
+    # Missing constant in file must fail loud with non-empty error string
+    missing_fl, missing_err = get_base_floor_constant("HEAD", "scripts/check_abi_parity.py", "NONEXISTENT_CONSTANT_NAME")
+    assert missing_fl is None
+    assert missing_err != ""
+
     print("check_abi_parity.py --self-test: all checks passed")
     return 0
 
@@ -674,6 +774,7 @@ def main() -> int:
     parser.add_argument("-v", "--verbose", action="store_true", help="Show verbose per-symbol coverage matrix")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     parser.add_argument("--markdown", action="store_true", help="Output markdown table for documentation")
+    parser.add_argument("--base", help="Base ref to compare floor constant against (default: origin/$GITHUB_BASE_REF or origin/main)")
     parser.add_argument("--floor", type=int, default=MIN_C_SYMBOLS, help=f"Minimum required C ABI symbols (default: {MIN_C_SYMBOLS})")
     parser.add_argument("--pr-body-file", help="Path to file containing PR body text")
     parser.add_argument("--pr-body", help="PR body text as a string")
@@ -696,12 +797,39 @@ def main() -> int:
         pr_body = os.environ["PR_BODY"]
 
     root = get_repo_root()
+
+    # Determine base ref
+    base_ref = args.base
+    if not base_ref:
+        if os.environ.get("GITHUB_BASE_REF"):
+            base_ref = f"origin/{os.environ['GITHUB_BASE_REF']}"
+        else:
+            base_ref = "origin/main"
+
+    # Base floor comparison: fail loud if base floor cannot be determined
+    base_floor, err = get_base_floor_constant(base_ref, "scripts/check_abi_parity.py", "MIN_C_SYMBOLS", root=root)
+    if err:
+        print(f"::error::{err}", file=sys.stderr)
+        return 1
+
+    effective_floor = args.floor
+    if base_floor is not None and effective_floor < base_floor:
+        override = parse_allow_symbol_shrink(pr_body)
+        if override:
+            print(f"⚠️ Floor decrease detected (MIN_C_SYMBOLS: {base_floor} -> {effective_floor}), approved via PR override:")
+            print(f"  Rationale: \"{override}\"")
+        else:
+            print(f"::error::C ABI symbol floor (MIN_C_SYMBOLS = {effective_floor}) is lower than base ref {base_ref} ({base_floor}) without an explicit override directive.")
+            print("To approve lowering the floor, add an explicit directive to your PR body:")
+            print("  allow-symbol-shrink: <nonempty reason>")
+            return 1
+
     c_symbols, report = build_parity_report(root)
 
     if args.json:
         out = {
             "total_c_symbols": report.total_c_symbols,
-            "min_c_symbols_floor": args.floor,
+            "min_c_symbols_floor": effective_floor,
             "java": {"covered": len(report.java_covered), "missing": sorted(list(report.java_missing))},
             "dotnet": {"covered": len(report.dotnet_covered), "missing": sorted(list(report.dotnet_missing))},
             "python": {"covered": len(report.python_covered), "missing": sorted(list(report.python_missing))},
@@ -717,13 +845,13 @@ def main() -> int:
 
     # Floor check
     floor_violation = False
-    if report.total_c_symbols < args.floor:
+    if report.total_c_symbols < effective_floor:
         override = parse_allow_symbol_shrink(pr_body)
         if override:
-            print(f"⚠️ Total C ABI symbols ({report.total_c_symbols}) is below floor ({args.floor}), but approved via PR override:")
+            print(f"⚠️ Total C ABI symbols ({report.total_c_symbols}) is below floor ({effective_floor}), but approved via PR override:")
             print(f"  Rationale: \"{override}\"")
         else:
-            print(f"::error::Total declared C ABI functions ({report.total_c_symbols}) is below the pinned floor of {args.floor}!")
+            print(f"::error::Total declared C ABI functions ({report.total_c_symbols}) is below the pinned floor of {effective_floor}!")
             print("If symbols were intentionally removed or deprecated, add an explicit directive to the PR body:")
             print("  allow-symbol-shrink: <nonempty reason>")
             floor_violation = True
