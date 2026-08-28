@@ -208,7 +208,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | §8.4 BCa 95 % CI lower bound ≥ floor | **tooling** + review | `scripts/bench_baseline.py` harvests criterion `sample.json`, emits `results/baseline_*.json`, renders the interval and gates on it (`--floors` / `--against`, `--fail-on-gate`); a reviewer still decides which arms a claim rests on |
 | §2.1 / §2.2 architectural invariants beyond sizes (no B-tree/hash mutation, no coarse locks, ordered semantics) | **review** | — |
 | §3 clean-room (no LGPL exposure) | **review** (`references/` is gitignored) | — |
-| §8.3 symmetric baselines · §8.6 DCE sinks, realistic hit rates, miss shape & measured-region hygiene · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.9 reporting discipline · §8.10 symmetric-defect triage | **review** | — |
+| §8.3 symmetric baselines · §8.6 DCE sinks, realistic hit rates, miss shape & measured-region hygiene · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.9 reporting discipline | **review** | — |
 | Conventional-commit type · branch naming | **review** | — |
 
 ---
@@ -299,7 +299,3 @@ When reporting, explaining, or documenting benchmark outcomes and performance in
 4. **Unsupported "Optimality" Claims**: Never claim a baseline data structure or routine is globally "optimal" simply because one or two candidate modifications regressed. A negative result establishes only that the tested modifications were worse under those conditions, not that no better design exists.
 
 
-### 8.10 Symmetric Defects: Retract the Absolute, Re-verify the Ratio
-When a measurement defect affects **every arm identically**, the comparative ratio may survive even though the absolute figure does not. Before retracting anything, establish which the published claim actually quotes — retracting a sound ratio is itself an error, and so is silently keeping an absolute now known to be wrong.
-- **Symmetric in structure is not symmetric in magnitude.** Both arms omitting a payload dereference is genuinely symmetric. Both arms dropping their structure inside the timed loop is not: freeing an `ExpanseSet` is not the same work as freeing a `BTreeSet` (different allocation counts, different free patterns). The first licenses keeping the ratio; the second licenses keeping it **provisionally, pending re-measurement**.
-- **Say which you did.** A claim whose absolute was retracted and whose ratio was retained must say so where it is published, with the defect named. A reader cannot otherwise tell a re-verified ratio from an unexamined one.
