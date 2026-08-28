@@ -206,7 +206,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | §8.4 BCa 95 % CI lower bound ≥ floor | **review** | no CI tooling yet — state the interval and its n in the PR |
 | §2.1 / §2.2 architectural invariants beyond sizes (no B-tree/hash mutation, no coarse locks, ordered semantics) | **review** | — |
 | §3 clean-room (no LGPL exposure) | **review** (`references/` is gitignored) | — |
-| §8.3 symmetric baselines · §8.6 DCE sinks & realistic hit rates · §8.7 no in-place backfilling · §8.8 3-commit cadence | **review** | — |
+| §8.3 symmetric baselines · §8.6 DCE sinks & realistic hit rates · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.9 reporting discipline | **review** | — |
 | Conventional-commit type · branch naming | **review** | — |
 
 ---
@@ -281,4 +281,11 @@ Separate research and benchmark spikes into three distinct commits:
 1. **Commit 1 (Math-First)**: Bound functions in committed Python/Rust with reference-pinned unit tests (zero pilot code).
 2. **Commit 2 (Pre-Registration)**: Locked hypothesis, expected losses matrix, and gate taxonomy in markdown/YAML (zero main data).
 3. **Commit 3 (Empirical Data)**: Benchmark scripts, raw JSON, paired CIs, and strict verdict matching pre-registration.
+
+### 8.9 Empirical Analysis & Reporting Discipline (Four Anti-Patterns)
+When reporting, explaining, or documenting benchmark outcomes and performance investigations, avoid four specific failure modes:
+1. **Unmeasured Mechanism Narratives**: Never state internal microarchitectural causes (e.g. BTB transitions, cache-line conflicts, register spills, execution port contention) as factual explanations unless they were explicitly measured with dedicated hardware performance counters (`perf stat -e ...`) or simulators (`callgrind --branch-sim=yes`). An aggregate retired-instruction count or cycle estimate is not an observation of internal microarchitectural sub-events.
+2. **Comparing Measured vs Unmeasured Quantities**: Never claim an optimization "cost more in metric X than it saved in metric Y" if metric Y was an unquantified hypothesis or analytical model rather than a measured metric. State plainly that the cost was measured and large, while the hypothesized benefit was not observed or quantified on the available evidence.
+3. **Inaccurate Encoding & Space Envelopes**: Do not confuse a bounding envelope with a dense packing. When describing key/tag spaces (e.g. `0x00..=0x7F`), distinguish between populated discriminants and unassigned holes/gaps (`0x0D..=0x0F`, `0x72..=0x7E`).
+4. **Unsupported "Optimality" Claims**: Never claim a baseline data structure or routine is globally "optimal" simply because one or two candidate modifications regressed. A negative result establishes only that the tested modifications were worse under those conditions, not that no better design exists.
 
