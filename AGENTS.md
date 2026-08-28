@@ -208,7 +208,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | §8.4 BCa 95 % CI lower bound ≥ floor | **tooling** + review | `scripts/bench_baseline.py` harvests criterion `sample.json`, emits `results/baseline_*.json`, renders the interval and gates on it (`--floors` / `--against`, `--fail-on-gate`); a reviewer still decides which arms a claim rests on |
 | §2.1 / §2.2 architectural invariants beyond sizes (no B-tree/hash mutation, no coarse locks, ordered semantics) | **review** | — |
 | §3 clean-room (no LGPL exposure) | **review** (`references/` is gitignored) | — |
-| §8.3 symmetric baselines · §8.6 DCE sinks & realistic hit rates · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.9 reporting discipline | **review** | — |
+| §8.3 symmetric baselines · §8.6 DCE sinks, realistic hit rates, miss shape & measured-region hygiene · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.9 reporting discipline · §8.10 symmetric-defect triage | **review** | — |
 | Conventional-commit type · branch naming | **review** | — |
 
 ---
@@ -278,6 +278,8 @@ Expanse is an empirical performance project. Autonomous agents interacting with 
 ### 8.6 Realistic Workloads & Dead-Code Elimination (DCE) Sinks
 - **Consume Every Output**: Every timed inner loop must consume its output via `std::hint::black_box`, `b.Fatalf`, or an accumulator sink to prevent compiler Dead-Code Elimination.
 - **Realistic Keyspaces & Hit Rates**: Read benchmarks must specify and test realistic hit rates (e.g. 50% hit / 50% miss), never probing unbounded 64-bit random keys against sparse sets where hit rate is ~0% unless explicitly benchmarking the miss path.
+- **Miss *shape*, not just miss *rate***: A miss probe MUST be drawn from the same generator as the population and rejected on membership. It must **never** be a fixed transform of a present key (`k ^ (1 << 63) ^ 0xA5` and similar). Such a probe lands in a different top-level expanse, shares no prefix with its parent, and therefore **terminates at a systematically different depth than a hit** — so the arm satisfies a stated 50% hit rate while averaging two different descents into one number. Reference form: `miss_keys` in `crates/expanse-capi/examples/bench_vs_libjudy.rs`. Four instances were found in one sweep ([#454](https://github.com/orieg/expanse/issues/454)); this rule exists because the hit-rate rule above was fully complied with in all four.
+- **Measured-Region Hygiene**: Construction, teardown, and `Drop` stay **outside** the timed window. A closure that builds a structure, populates it, and lets it fall out of scope inside `b.iter` / `Instant::now()` is timing deallocation as part of insertion. Use `iter_batched` returning the value, or hoist the build into setup and leak deliberately (as `vs_stock.rs` does). Repaired at least four times in this repository, each time only in the file someone happened to open.
 
 ### 8.7 Provenance & Pre-Registration Integrity
 - **Provenance Tags Required**: Every published number in documentation must carry a provenance tag: `(measured: host, commit)` resolving to a committed JSON artifact or cited CI run.
@@ -296,3 +298,8 @@ When reporting, explaining, or documenting benchmark outcomes and performance in
 3. **Inaccurate Encoding & Space Envelopes**: Do not confuse a bounding envelope with a dense packing. When describing key/tag spaces (e.g. `0x00..=0x7F`), distinguish between populated discriminants and unassigned holes/gaps (`0x0D..=0x0F`, `0x72..=0x7E`).
 4. **Unsupported "Optimality" Claims**: Never claim a baseline data structure or routine is globally "optimal" simply because one or two candidate modifications regressed. A negative result establishes only that the tested modifications were worse under those conditions, not that no better design exists.
 
+
+### 8.10 Symmetric Defects: Retract the Absolute, Re-verify the Ratio
+When a measurement defect affects **every arm identically**, the comparative ratio may survive even though the absolute figure does not. Before retracting anything, establish which the published claim actually quotes — retracting a sound ratio is itself an error, and so is silently keeping an absolute now known to be wrong.
+- **Symmetric in structure is not symmetric in magnitude.** Both arms omitting a payload dereference is genuinely symmetric. Both arms dropping their structure inside the timed loop is not: freeing an `ExpanseSet` is not the same work as freeing a `BTreeSet` (different allocation counts, different free patterns). The first licenses keeping the ratio; the second licenses keeping it **provisionally, pending re-measurement**.
+- **Say which you did.** A claim whose absolute was retracted and whose ratio was retained must say so where it is published, with the defect named. A reader cannot otherwise tell a re-verified ratio from an unexamined one.
