@@ -16,8 +16,7 @@ use crate::types::Key;
 use crate::validate::ExpanseStats;
 use core::ptr::NonNull;
 
-/// Maximum population held in the root leaf before a real trie is built.
-pub const ROOT_LEAF_CAP: usize = 31;
+pub use crate::types::ROOT_LEAF_CAP;
 
 /// Allocation size of a root leaf holding `pop` keys. Class-sized (like
 /// the trie's linear leaves) so consecutive inserts and deletes shift in

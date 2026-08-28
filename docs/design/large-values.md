@@ -29,13 +29,12 @@ This design introduces a unified, zero-copy, cache-conscious large-value archite
 
 | Pillar | Status | Notes |
 |---|---|---|
-| Polymorphic `ValueSlot` (inline ≤7B + `ArenaShort` locator) | **Shipped** | `crates/expanse/src/slot.rs`, `blobmap.rs`. Inline and `ArenaShort` tags are live. |
-| Hot/cold columnar predicate filtering | **Shipped** | 32-bit hot metadata packed alongside the `ArenaShort` locator. `ArenaLong`-backed values (past 16 MiB) have no metadata word and report `hot_meta = 0`. |
-| Chunked slab/arena backing (`BlobArena` / `ExpanseBlobMap`) | **Shipped, wide-offset (>16 MiB)** | `ArenaShort` addresses the first 16 MiB; past that, `alloc_blob` emits `ArenaLong` locators so the arena grows further. Per-payload bound is `chunk_size − 8`, not 4 GiB. |
-| `ArenaLong` (16-bit chunk id + 40-bit offset, >16 MiB) | **Shipped (#244)** | `alloc_blob` produces `ArenaLong` slots (chunk id = arena chunk index, 40-bit intra-chunk offset) once a blob's global offset crosses the 24-bit `ArenaShort` ceiling; `get`/`scan_filtered`/`compact`/save-load all resolve them. Encoding ceiling `65536 × chunk_size`, bounded by a shipped 1 GiB `MAX_ARENA_CAPACITY` safety cap. `External = 0x12` remains reserved. |
+| Polymorphic `ValueSlot` (inline ≤7B + `ArenaMeta` locator) | **Shipped** | `crates/expanse/src/slot.rs`, `blobmap.rs`. Inline and `ArenaMeta` tags are live. |
+| Hot/cold columnar predicate filtering | **Shipped** | 24-bit hot metadata packed alongside the 32-bit arena locator into `ArenaMeta` (`[hot_meta (24) \| locator (32) \| tag (8)]`). Predicates evaluate in-slot without fetching cold DRAM payload cache lines. |
+| Chunked slab/arena backing (`BlobArena` / `ExpanseBlobMap`) | **Shipped** | `BlobArena` manages 16-byte-aligned records addressable up to 64 GiB via 32-bit locator. Per-payload bound is `chunk_size − 8`. |
 | Zero-copy `mmap` / shared-memory IPC (base-relative offsets) | **Not implemented** | No `RelOffset` / `shm_open` / position-independent layout exists; `ExpanseBlobMap::load_from_file` is a full `std::fs::read` + index rebuild, not an mmap. See `docs/DATABASE.md` §6 (roadmap). |
 
-`ArenaLong` multi-chunk mode (>16 MiB) is **shipped** (#244); the arena's encoding ceiling is `65536 × chunk_size`, bounded by a 1 GiB `MAX_ARENA_CAPACITY` safety cap. Sections below that describe "petabyte-scale" arenas, "256 MiB at 16 B alignment" locators, or `mmap`/shared-memory zero-copy remain **design targets**, not shipped behavior.
+The sole arena encoding (`ArenaMeta`, tag `0x10`) provides 24-bit metadata and 32-bit locator addressing up to 64 GiB (bounded by the 1 GiB `MAX_ARENA_CAPACITY` safety cap). Sections below that describe "petabyte-scale" arenas or `mmap`/shared-memory zero-copy remain **design targets**, not shipped behavior.
 
 ---
 
@@ -95,32 +94,20 @@ To resolve this bottleneck without widening the trie's 16-byte `Edge` or alterin
   - Tag encodes payload length (0 to 7 bytes).
   - Zero heap allocations, zero pointer dereferences.
 
-2. Arena Mode (Hot Metadata + 24-bit Arena Offset):
-+------------------------------------+------------------------------+-------------------+
-| Hot Metadata (TTL / Flags / Tenant)| Arena Locator (24 bits)      | Tag (0x10)        |
-| [63:32] (32 bits)                  | [31:8] (24 bits)             | [7:0]             |
-+------------------------------------+------------------------------+-------------------+
-  - 32-bit Hot Metadata: directly filterable without payload dereference.
-  - 24-bit Arena Locator: 16 MiB direct byte offset. (The shipped locator is a raw byte offset; the "256 MiB at 16 B alignment" scheme is *not* implemented.)
+2. Arena Mode (Hot Metadata + 32-bit Arena Locator) — **SHIPPED (`ArenaMeta`)**:
++------------------------------------+------------------------------------------+-------------------+
+| Hot Metadata (TTL / Flags / Tenant)| Arena Locator (32 bits, 16-byte units)   | Tag (0x10)        |
+| [63:40] (24 bits)                  | [39:8] (32 bits)                         | [7:0]             |
++------------------------------------+------------------------------------------+-------------------+
+  - 24-bit Hot Metadata: directly filterable without payload dereference (`ARENA_META_MAX = 0x00FF_FFFF`).
+  - 32-bit Arena Locator: flat global address in 16-byte units addressing up to 64 GiB (`ARENA_ALIGN = 16`).
+  - Sole arena encoding for `ExpanseBlobMap` (`CompactInSlot` layout, #282/#285, #287).
 
-3. Arena Long Mode (> 16 MiB address space / Multi-Chunk) — **SHIPPED (#244)**:
-+-------------------------------------------------------------------+-------------------+
-| Arena Chunk ID (16 bits) | Chunk Byte Offset (40 bits)            | Tag (0x11)        |
-| [63:48]                  | [47:8]                                 | [7:0]             |
-+-------------------------------------------------------------------+-------------------+
-  - Chunk ID = arena chunk index; Chunk Byte Offset = intra-chunk byte offset of
-    the record header. `alloc_blob` emits this locator once a blob's global
-    offset crosses the 24-bit `ArenaShort` ceiling. No metadata word fits
-    alongside it, so `ArenaLong`-backed values report `hot_meta = 0`. Encoding
-    ceiling `65536 × chunk_size`, bounded by the shipped 1 GiB
-    `MAX_ARENA_CAPACITY` safety cap. Petabyte-scale memory-mapped/persistent
-    stores remain a *(target)*.
-
-4. Raw Scalar / Unmanaged Word (Classic JudyL Compatibility):
-+---------------------------------------------------------------------------------------+
-| Uninterpreted 64-bit User Word / Raw Virtual Pointer (Tag bits arbitrary)             |
-| [63:0]                                                                                |
-+---------------------------------------------------------------------------------------+
+3. Raw Scalar / Unmanaged Word (Classic JudyL Compatibility):
++---------------------------------------------------------------------------------------------------+
+| Uninterpreted 64-bit User Word / Raw Virtual Pointer (Tag bits arbitrary)                         |
+| [63:0]                                                                                            |
++---------------------------------------------------------------------------------------------------+
 ```
 
 ### 3.1 Tag Discriminants
@@ -148,11 +135,9 @@ pub enum SlotTag {
     /// Inline payload of 7 bytes (in bits [63:8]).
     Inline7 = 0x07,
 
-    /// Backed by BlobArena: 32-bit hot metadata + 24-bit arena locator.
-    ArenaShort = 0x10,
-    /// Backed by Large/Multi-Chunk Arena: 16-bit chunk ID + 40-bit offset.
-    ArenaLong = 0x11,
-    /// Off-heap / External memory reference.
+    /// Backed by BlobArena: 24-bit hot metadata + 32-bit arena locator (16-byte units).
+    ArenaMeta = 0x10,
+    /// Off-heap / External memory reference (reserved).
     External = 0x12,
 
     /// Soft-deleted tombstone marker.
@@ -172,8 +157,8 @@ pub struct ValueSlot(pub u64);
 
 impl ValueSlot {
     pub const TAG_MASK: u64 = 0xFF;
-    pub const ARENA_OFFSET_MASK: u64 = 0x00FF_FFFF;
-    pub const META_MASK: u64 = 0xFFFF_FFFF_0000_0000;
+    pub const ARENA_META_MASK: u64 = 0x00FF_FFFF;
+    pub const ARENA_META_MAX: u32 = 0x00FF_FFFF;
 
     /// Creates an inline value slot from a byte slice (len <= 7).
     #[inline(always)]
@@ -189,15 +174,15 @@ impl ValueSlot {
         Some(Self(raw))
     }
 
-    /// Creates an arena-backed value slot with 32-bit hot metadata and 24-bit offset.
+    /// Creates an arena-backed value slot with 24-bit hot metadata and 32-bit locator.
     #[inline(always)]
-    pub fn new_arena_short(meta: u32, arena_offset: u32) -> Option<Self> {
-        if arena_offset > 0x00FF_FFFF {
+    pub fn new_arena_meta(meta: u32, locator: u32) -> Option<Self> {
+        if meta > Self::ARENA_META_MAX {
             return None;
         }
-        let raw = (SlotTag::ArenaShort as u64)
-            | ((arena_offset as u64) << 8)
-            | ((meta as u64) << 32);
+        let raw = (SlotTag::ArenaMeta as u64)
+            | ((locator as u64) << 8)
+            | ((meta as u64) << 40);
         Some(Self(raw))
     }
 
@@ -213,8 +198,7 @@ impl ValueSlot {
             0x05 => SlotTag::Inline5,
             0x06 => SlotTag::Inline6,
             0x07 => SlotTag::Inline7,
-            0x10 => SlotTag::ArenaShort,
-            0x11 => SlotTag::ArenaLong,
+            0x10 => SlotTag::ArenaMeta,
             0x12 => SlotTag::External,
             0xFE => SlotTag::Tombstone,
             _ => SlotTag::RawWord,
@@ -233,16 +217,16 @@ impl ValueSlot {
         (buf, len)
     }
 
-    /// Extracts 32-bit hot metadata word.
+    /// Extracts 24-bit hot metadata word (bits [63:40]).
     #[inline(always)]
-    pub fn hot_meta(self) -> u32 {
-        (self.0 >> 32) as u32
+    pub fn arena_meta_meta(self) -> u32 {
+        ((self.0 >> 40) & Self::ARENA_META_MASK) as u32
     }
 
-    /// Extracts 24-bit arena locator.
+    /// Extracts 32-bit arena locator (bits [39:8]).
     #[inline(always)]
-    pub fn arena_offset(self) -> u32 {
-        ((self.0 >> 8) & Self::ARENA_OFFSET_MASK) as u32
+    pub fn arena_meta_locator(self) -> u32 {
+        (self.0 >> 8) as u32
     }
 
     /// Raw uninterpreted integer conversion.

@@ -33,7 +33,7 @@ Naming the project after the mechanism honors the algorithm itself without inher
 
 ## Key Features
 
-- **Pure Rust & Memory Safe**: `#![no_std]` core with zero unsafe memory leaks, zero external runtime dependencies, verified under Miri & Loom.
+- **Pure Rust & Memory Safe**: `#![no_std]` core on 32-bit embedded targets (`std` by default on 64-bit) with zero unsafe memory leaks, zero external runtime dependencies, verified under Miri & Loom.
 - **Fewer Instructions than Stock Judy**: Lower Callgrind instruction counts than original `libjudy` on every measured arm (inserts, lookups, set tests, churn). Wall-clock is a win on sequential and clustered lookup at 1M keys (0.87x, 0.90x) and on insert across every distribution measured; the one real lookup loss is random 1M `get` at **1.031x, BCa 95% CI [1.024, 1.038]** *(measured: reference host, commit `4c4e852`, `results/baseline_vs_libjudy.json`)*. An earlier "~11% slower" figure here came from the harness before its measurement method was repaired and is **superseded** — see [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
 - **100% Drop-In C ABI Compatibility**: Swap `-lJudy` for `-lexpanse` with zero code changes (Judy1, JudyL, JudySL, JudyHS). Passes `php-judy` test suite (221/221) and differential oracle.
 - **Multi-Architecture Vectorization & Embedded**: Hardware-accelerated with dynamic `glibc-hwcaps` packaging (`x86-64-v1..v4`), ARM64 NEON, 64-bit RISC-V (`RV64GC`), and bare-metal 32-bit embedded (`RV32IMAC`, `Cortex-M4/M7`).
@@ -86,8 +86,8 @@ Legacy ↔ modern naming:
 | Component | Original Judy IV (2002) | Expanse (2026) |
 |---|---|---|
 | **Cache-line geometry** | Assumed 128-byte lines | Nodes sized to 64-byte lines (1 or 2 cache lines per node) |
-| **Bit scan / rank** | SWAR bit hacks, unrolled loops | Hardware `POPCNT` / `TZCNT` / `LZCNT` / ARM `cnt` |
-| **Linear search** | Scalar unrolled byte compares | Vectorized SIMD byte scans (AVX2, NEON; AVX-512 not yet implemented) |
+| **Bit scan / rank** | SWAR bit hacks, unrolled loops | Hardware `POPCNT` / `TZCNT` / `LZCNT` / ARM `cnt` (runtime CPUID dispatch on hot read paths; SWAR fallback on generic baseline builds; native in `x86-64-v2`/`v3` packages) |
+| **Linear search** | Scalar unrolled byte compares | Vectorized SIMD byte scans (SSE2 on x86-64, NEON on ARM64; AVX2/AVX-512 not yet implemented) |
 | **Allocation** | Custom 2001 chunk/buddy allocator | High-performance slab page pooling + intrusive freelists |
 | **Pointer layout** | Full 16-byte JP per edge | 16-byte `Edge`: word 0 is the raw untruncated 64-bit pointer, tag and metadata live in word 1 — zero upper-bit stealing, so it stays correct under 57-bit LA57 and 52-bit ARM64 LVA ([encoding reference](docs/ARCHITECTURE.md#10-bit-level-encoding-reference)) |
 | **Concurrency** | Single-threaded, external locks | Lock-free optimistic concurrency control (OCC) for reads |
@@ -102,7 +102,7 @@ Expanse provides modern, hardware-vectorized digital trie primitives tailored fo
 
 - **Inverted Indexes & Posting Lists (`ExpanseSet`)**: Doc-ID tracking at **0.07–0.36 bytes/docID** on clustered/dense sets — denser than Roaring Bitmaps on those distributions — with bitwise set algebra directly over compressed trie edges and $O(\text{depth})$ skip-scan acceleration.
 - **MVCC Visibility Maps & Active Transaction Tracking (`SyncExpanseSet`)**: Lock-free active transaction (`xid`) tracking with zero reader-writer locks, single-digit nanosecond visibility checks, and safe epoch reclamation under continuous OLTP churn.
-- **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: High-cardinality string deduplication and symbol tables using 8-byte cross-chunk path folding, preserving lexicographical order with 70%+ memory reduction on shared URL/path prefixes.
+- **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: High-cardinality string deduplication and symbol tables using 8-byte chunk decomposition and tail collapse, preserving lexicographical order while sharing common prefix nodes.
 - **Secondary Indexes & MemTables (`ExpanseMap` / `ExpanseMemTableRep`)**: Rebalance-free ordered key indexing, **2.9×–14.5× faster point lookups** than `std::collections::BTreeMap` at 1M keys, and full ordered `iter()` faster than `BTreeMap::iter()` for dense keys — sparse-key iteration is still slower, see [docs/DATABASE.md](docs/DATABASE.md) §7.1. Ships an official [RocksDB Pluggable MemTable (`integrations/rocksdb`)](integrations/rocksdb) integration.
 - **Zero-Copy Shared-Memory Analytics** *(roadmap)*: Position-independent base-relative layouts for cross-worker IPC and parallel query execution with zero serialization — a design target; not yet implemented (see [docs/DATABASE.md](docs/DATABASE.md) §6).
 

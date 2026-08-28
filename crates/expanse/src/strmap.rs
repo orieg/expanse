@@ -3,7 +3,7 @@
 //!
 //! Structure (clean-room, designed against the documented JudySL
 //! *semantics* only): a meta-trie of word-map nodes with cross-chunk
-//! path compression ([Issue #84 Item 1](https://github.com/orieg/expanse/issues/84)).
+//! tail collapse ([Issue #84 Item 1](https://github.com/orieg/expanse/issues/84)).
 //! Each branch node is a word-map engine core (`MapCore`, the engine
 //! behind [`crate::map::ExpanseMap`]) keyed by the string's next
 //! **8-byte chunk, packed big-endian**, so the word maps' numeric order
@@ -1339,9 +1339,9 @@ mod tests {
     }
 
     #[test]
-    fn test_cross_chunk_path_compression_split_and_memory() {
+    fn test_cross_chunk_tail_collapse_split_and_memory() {
         let mut map = ExpanseStrMap::new();
-        // Insert a 64-byte key. With path compression, this creates 1 StrNode + 1 StrSuffix.
+        // Insert a 64-byte key. With tail collapse, this creates 1 StrNode + 1 StrSuffix.
         let key1 = b"org.apache.hadoop.fs.azurebfs.services.AbfsClientTestFixture";
         map.insert(key1, 100);
         assert_eq!(map.get(key1), Some(100));

@@ -1350,7 +1350,7 @@ impl MapCore {
     }
 
     /// Returns an iterator over entries in `range` where the hot metadata word
-    /// (bits 63..32 of the 64-bit value slot) satisfies the predicate.
+    /// (bits 63:40 of the 64-bit value slot) satisfies the predicate.
     #[inline(always)]
     pub(crate) fn range_filtered<'a, P>(
         &'a self,
@@ -1361,7 +1361,7 @@ impl MapCore {
         P: FnMut(Key, u32) -> bool + 'a,
     {
         self.range(range).filter(move |&(k, v)| {
-            let meta = (v >> 32) as u32;
+            let meta = ((v >> 40) & crate::slot::ValueSlot::ARENA_META_MASK) as u32;
             predicate(k, meta)
         })
     }
@@ -1379,7 +1379,7 @@ impl MapCore {
         F: FnMut(Key, u64) -> bool,
     {
         for (k, v) in self.range(range) {
-            let meta = (v >> 32) as u32;
+            let meta = ((v >> 40) & crate::slot::ValueSlot::ARENA_META_MASK) as u32;
             if predicate(k, meta) && !callback(k, v) {
                 break;
             }
@@ -1938,7 +1938,7 @@ impl ExpanseMap {
     }
 
     /// Returns an iterator over entries in `range` where the hot metadata word
-    /// (bits 63..32 of the 64-bit value slot) satisfies the predicate.
+    /// (bits 63:40 of the 64-bit value slot) satisfies the predicate.
     pub fn range_filtered<'a, P>(
         &'a self,
         range: core::ops::RangeInclusive<Key>,
@@ -2893,5 +2893,46 @@ mod tests {
                 assert!(s > 0.98 * w as f64, "width {w}: streaming held only {s}");
             }
         }
+    }
+
+    #[test]
+    fn test_map_range_and_scan_filtered_extracts_correct_metadata() {
+        use crate::slot::ValueSlot;
+
+        let mut map = ExpanseMap::new();
+        // Insert values formatted with ValueSlot::new_arena_meta(meta, locator).
+        // meta is 24-bit (bits 63:40), locator is 32-bit (bits 39:8), tag is 0x10.
+        // If locator has bits set in bits 39:32, an incorrect (v >> 32) decoder would pollute
+        // the lower 8 bits of the extracted metadata with the high byte of locator.
+        let meta_target = 0x123456;
+        let locator_with_high_bits = 0xFF00_1234; // bits 39:32 in slot will be 0xFF
+        let slot1 = ValueSlot::new_arena_meta(meta_target, locator_with_high_bits)
+            .expect("valid arena meta");
+        let slot2 = ValueSlot::new_arena_meta(0x654321, 0x0000_5678).expect("valid arena meta");
+
+        map.insert(100, slot1.to_raw());
+        map.insert(200, slot2.to_raw());
+
+        // Test range_filtered
+        let filtered: Vec<(u64, u64)> = map
+            .range_filtered(0..=300, |_k, m| m == meta_target)
+            .collect();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].0, 100);
+        assert_eq!(filtered[0].1, slot1.to_raw());
+
+        // Test scan_filtered
+        let mut scanned = Vec::new();
+        map.scan_filtered(
+            0..=300,
+            |_k, m| m == meta_target,
+            |k, v| {
+                scanned.push((k, v));
+                true
+            },
+        );
+        assert_eq!(scanned.len(), 1);
+        assert_eq!(scanned[0].0, 100);
+        assert_eq!(scanned[0].1, slot1.to_raw());
     }
 }
