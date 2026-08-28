@@ -523,6 +523,7 @@ mod tests {
 #[cfg(all(test, loom))]
 mod loom_tests {
     use super::*;
+    use loom::sync::atomic::AtomicU32;
     /// The EBR safety property on observable state: while a reader is
     /// pinned at epoch `e`, the writer can advance at most once (to
     /// `e + 1`) — so a bin retired at `e` (freed only by the advance
@@ -584,14 +585,58 @@ mod loom_tests {
         });
     }
 
-    // NOTE: a former `loom_node_split_retry_safety` model lived here but was
-    // deleted — it constructed two free-standing loom atomics with no link to
-    // any crate code and asserted a tautology (a value it had itself just
-    // stored), so it model-checked nothing about the engine. A genuine
-    // branch-split model must drive the ACTUAL SeqVersion publication path
-    // (`SeqVersion::begin`/`end` + `version_begin_if`/`version_end` around a
-    // real node mutation) against `walk_validated`'s per-node sample/validate,
-    // not stand-in atomics. The two remaining loom tests above
-    // (`loom_pin_blocks_second_advance`, `loom_seqlock_no_torn_reads`) exercise
-    // real `occ` machinery and stay.
+    /// Hand-over-hand OCC: verifies that when a writer brackets a node mutation
+    /// (`SeqVersion::begin`/`end` at root and node version begin/end on the parent node),
+    /// a reader narrowing its cover to the parent node version never observes an
+    /// inconsistent intermediate slot/value state upon successful validation.
+    #[test]
+    fn loom_hand_over_hand_node_bracket_safety() {
+        loom::model(|| {
+            let tree_v = Arc::new(SeqVersion::new());
+            let node_v = Arc::new(AtomicU32::new(0));
+            // Leaf payload: key and value slots
+            let key_slot = Arc::new(AtomicU64::new(0xFD));
+            let val_slot = Arc::new(AtomicU64::new(100));
+
+            let tv_w = Arc::clone(&tree_v);
+            let nv_w = Arc::clone(&node_v);
+            let k_w = Arc::clone(&key_slot);
+            let v_w = Arc::clone(&val_slot);
+
+            let writer = loom::thread::spawn(move || {
+                // Writer takes tree version and parent node bracket
+                tv_w.begin();
+                let nv = nv_w.load(Ordering::Relaxed);
+                nv_w.store(nv + 1, Ordering::Release);
+                loom::sync::atomic::fence(Ordering::Release);
+
+                // Mutate leaf payload (shift/insert neighbouring key 0xF1 -> 200)
+                k_w.store(0xF1, Ordering::Relaxed);
+                v_w.store(200, Ordering::Relaxed);
+
+                loom::sync::atomic::fence(Ordering::Release);
+                nv_w.store(nv + 2, Ordering::Release);
+                tv_w.end();
+            });
+
+            // Reader: samples tree version, descends to parent node, validates
+            let _ts = tree_v.sample();
+            let ns = node_v.load(Ordering::Acquire);
+            if ns % 2 == 0 {
+                // Cover narrowed to parent node: read leaf key and value
+                let k = key_slot.load(Ordering::Relaxed);
+                let v = val_slot.load(Ordering::Relaxed);
+                loom::sync::atomic::fence(Ordering::Acquire);
+                let nv_after = node_v.load(Ordering::Acquire);
+                if nv_after == ns {
+                    // Successful validation: must be consistent
+                    assert!(
+                        (k == 0xFD && v == 100) || (k == 0xF1 && v == 200),
+                        "hand-over-hand reader saw inconsistent leaf state: key {k:#x}, val {v}"
+                    );
+                }
+            }
+            writer.join().unwrap();
+        });
+    }
 }

@@ -63,6 +63,9 @@ Expanse is fundamentally defined by the **Judy digital tree architecture**. Ever
    - Keys and values $\le$ immediate capacity are packed directly inside the edge or value slot without heap allocation.
 4. **Deterministic, Cache-Conscious Microarchitecture**:
    - 64-byte/128-byte cache-line alignment, vector SIMD byte searches, SWAR/POPCNT rank operations, and branchless linear probing.
+5. **Deterministic Concurrency Invariant Enforcement & Zero Overhead**:
+   - Never rely on probabilistic multi-threaded race timing as the primary verification of synchronization boundaries. Mutation paths under concurrent models (OCC/seqlock/EBR) must carry debug invariant assertions (`assert_bracketed()`) that panic immediately on unbracketed mutations.
+   - Concurrency safeguards must never penalize single-threaded fast paths: suppress bypass conditions structurally (e.g., compile-time paths or clearing acceleration cursors in OCC mutations) rather than adding runtime atomic checks to hot paths.
 
 ### 2.2 Strictly Forbidden Architectural Anti-Patterns (Impedance Mismatches)
 Never propose or graft foreign data structures or complected models onto Expanse:

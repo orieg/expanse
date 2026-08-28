@@ -604,7 +604,8 @@ impl SyncExpanseSet {
     pub fn new() -> Self {
         Self {
             shared: Shared::new(ExpanseSet::new(), |s, c| {
-                s.occ_root().1.defer_to(Arc::clone(c))
+                s.clear_path();
+                s.occ_root().1.defer_to(Arc::clone(c));
             }),
         }
     }
@@ -709,7 +710,8 @@ impl SyncExpanseMap {
     pub fn new() -> Self {
         Self {
             shared: Shared::new(ExpanseMap::new(), |m, c| {
-                m.occ_root().1.defer_to(Arc::clone(c))
+                m.clear_path();
+                m.occ_root().1.defer_to(Arc::clone(c));
             }),
         }
     }
@@ -1715,7 +1717,7 @@ mod tests {
                     while !stop.load(Ordering::Relaxed) {
                         let k = key_of(&mut rng);
                         if let Some(v) = rd.get(k) {
-                            assert_eq!(v, val_of(k), "torn value for {k:#x}");
+                            assert_eq!(v, val_of(k), "wrong-slot value for {k:#x}");
                             hits += 1;
                         }
                     }

@@ -1243,6 +1243,7 @@ impl ExpanseBlobMap {
         for (key, raw_slot) in self.index.iter() {
             fresh.insert(key, raw_slot);
         }
+        fresh.clear_path();
         self.index = fresh;
     }
 
