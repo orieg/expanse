@@ -259,6 +259,8 @@ GitHub Actions runners periodically deprecate older Node.js action runtimes (e.g
    - `actions/setup-python@v7` (Python environment setup)
    - `actions/setup-dotnet@v6` (.NET SDK setup)
    - `actions/setup-java@v6` (JDK / Panama setup)
+   - `actions/setup-go@v7` (Go toolchain for the cgo binding lane)
+   - `actions/cache@v6` (generic cache — nightly fuzz corpus restore)
    - `actions/upload-artifact@v7` / `actions/download-artifact@v8` (v4+ artifact storage)
    - `actions/upload-pages-artifact@v5` / `actions/deploy-pages@v5` (GitHub Pages CD)
    - `dorny/paths-filter@v4` (monorepo subsystem change detection)
@@ -268,7 +270,7 @@ GitHub Actions runners periodically deprecate older Node.js action runtimes (e.g
 ### 12.3 Automated Action Version Auditing
 To audit whether upstream actions have newer releases or runtime migrations available:
 ```bash
-for action in "actions/checkout" "actions/setup-node" "actions/setup-python" "actions/setup-dotnet" "actions/setup-java" "actions/upload-artifact" "actions/download-artifact" "dorny/paths-filter"; do
+for action in "actions/checkout" "actions/setup-node" "actions/setup-python" "actions/setup-dotnet" "actions/setup-java" "actions/setup-go" "actions/cache" "actions/upload-artifact" "actions/download-artifact" "dorny/paths-filter"; do
   echo "$action: $(gh api /repos/$action/releases/latest --jq .tag_name 2>/dev/null || echo 'manual check needed')"
 done
 ```
