@@ -288,6 +288,15 @@
       "summary": "32-bit embedded trie surface (`trie32` / `set32` / `map32` / `blobmap32`)."
     },
     {
+      "name": "batch_lookup",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "batch_lookup",
+      "summary": "Interleave-width sweep for the batched descent, on a cold-DRAM population and a cache-resident control."
+    },
+    {
       "name": "compare",
       "available": true,
       "kind": "wallclock",

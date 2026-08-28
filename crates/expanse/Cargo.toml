@@ -48,6 +48,11 @@ harness = false
 test = false
 
 [[bench]]
+name = "batch_lookup"
+harness = false
+test = false
+
+[[bench]]
 name = "instructions"
 harness = false
 test = false

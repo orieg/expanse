@@ -33,6 +33,19 @@ Three cases in this repo:
 - **Work removed.** The three engine optimisations at §"Instruction counts": 2.3%–17.0% fewer instructions across all 14 arms.
 - **Both true at once.** libexpanse retires 0.55× the instructions of stock libjudy on random 1M lookup and is 1.11× slower in wall clock. The arm is memory-latency-bound, so the work removed is not on the critical path.
 - **Measured negative.** Software prefetch in the descent loops ([HARDWARE.md](HARDWARE.md) §1.5) was a no-op: prefetch distance cannot be predetermined inside a dependent chain. That closes prefetch within one lookup, not overlapping stalls across independent lookups.
+- **Open, and owed.** The batched descent ([ALGORITHMS.md](ALGORITHMS.md) §4c, [#430](https://github.com/orieg/expanse/issues/430)) overlaps those stalls *across* independent lookups. Its mechanism-side quantity — mean descents in flight — is measured and machine-independent; whether that converts into elapsed time is not, and is the second row of the table above. Nothing has been measured for it on the reference host, so **no speed claim for `get_batch` / `contains_batch` is on the record**, and an instruction-count increase on the batched arms is the expected shape rather than a regression. What settles it is `batch_lookup`, either from a maintainer PR comment:
+
+  ```text
+  /benchmark batch_lookup
+  ```
+
+  or directly on the reference host:
+
+  ```bash
+  cargo bench -p expanse-trie --bench batch_lookup
+  ```
+
+  The `scalar` arm in each group is the twin; `batch/1` is the driver at one lane, which separates its bookkeeping from the interleaving. A width wins only if its BCa 95% CI lower bound (`scripts/bca_bootstrap.py`) clears the `scalar` arm on `cold_dram` **and** it does not regress the cache-resident `warm` control — a gain on one bought with a loss on the other is a trade to state, not a win. The `cold_dram` population also sits far past STLB reach, so a result there mixes DRAM latency with page-walk cost ([#431](https://github.com/orieg/expanse/issues/431)); it does not attribute cleanly to DRAM alone.
 
 Also available: `perf stat` counters (dTLB misses, page walks) when the hypothesis is translation; the LL/RAM columns `vs_stock.rs` emits when it is cache behaviour; `bca_bootstrap.py` for any continuous metric reaching a published claim.
 
@@ -423,6 +436,8 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 | `map_ins_slot/*` | Single-walk `JudyLIns` slot insertion | Measures the fused `locate_or_insert` path returning a writable value pointer. |
 | `map_get/*` | Point lookup on prebuilt map | Evaluates pointer descent and leaf probe without measuring structure teardown (`core::mem::forget`). |
 | `set_contains/*` | Point membership on prebuilt set | Evaluates bitset testing and immediate matching. |
+| `map_get_batch/*` | Batched point lookup, same map and probe order as `map_get` | Evaluates the interleaved descent ([ALGORITHMS.md](ALGORITHMS.md) §4c). **A higher count than `map_get` is the expected shape**: the path overlaps dependent misses rather than removing work, so this arm reports the overlap's instruction cost and wall clock decides it. |
+| `set_contains_batch/*` | Batched membership, twin of `set_contains` | As above, set flavor. |
 | `map_churn/*` | Steady-state upsert/insert/delete mix | Crosses capacity-class boundaries in steady state (`k ^ 1` fresh neighbor insertion and removal). |
 | `map_remove/*` | Key removal and tree condensation | Evaluates 1-index hysteresis and node compaction back down the compression ladder. |
 | `map_iterate/*` | Full-order traversal | Measures iterator state machine and stackless trie traversal. |
@@ -528,6 +543,7 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `hashbrown_memory_alloc` | wall-clock | Live-heap and allocation-count comparison against hashbrown. |
 | `large_values` | wall-clock | Blob-arena storage paths for values above the immediate capacity. |
 | `embedded` | wall-clock | 32-bit embedded trie surface (`trie32` / `set32` / `map32` / `blobmap32`). |
+| `batch_lookup` | wall-clock | Interleave-width sweep for the batched descent, on a cold-DRAM population and a cache-resident control. |
 | `compare` | wall-clock | Standing container comparison harness across the core map and set types. |
 
 Bench targets deliberately **not** reachable from a slash command:

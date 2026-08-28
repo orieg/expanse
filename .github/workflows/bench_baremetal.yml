@@ -48,6 +48,7 @@ on:
           - hashbrown_memory_alloc
           - large_values
           - embedded
+          - batch_lookup
           - compare
           # END GENERATED: bench-suites
   issue_comment:
