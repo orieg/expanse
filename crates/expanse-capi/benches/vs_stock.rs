@@ -39,8 +39,15 @@
 //! Instructions are **cost, not time**. Stock libjudy is a mature C
 //! implementation; where we retire more instructions we are doing more
 //! work, but cache behaviour and branch prediction decide how much of
-//! that becomes wall-clock. The `Estimated Cycles` column and the
-//! L1/LL/RAM counts are the closer proxy.
+//! that becomes wall-clock. The `Estimated Cycles` column is the closer
+//! proxy.
+//!
+//! **This harness does not emit L1/LL/RAM counts.** Those require
+//! `--cache-sim=yes`, which is not passed here or in `instructions.rs`;
+//! `Estimated Cycles` is derived from the instruction count alone and is
+//! not a cache measurement. Earlier revisions of this header and of
+//! `docs/BENCHMARKING.md` claimed the columns existed. Enabling the
+//! simulator is https://github.com/orieg/expanse/issues/453.
 //!
 //! Linux/CI only (valgrind, plus `libjudy-dev` for the stock library).
 
@@ -189,7 +196,7 @@ impl XorShift {
 const POP: usize = 30_000;
 
 /// Population for the cache-pressure arm: large enough that the tree
-/// exceeds last-level cache on a typical runner, so LL/RAM hit counts
+/// exceeds last-level cache on a typical runner, so cache-miss counts
 /// become load-bearing rather than rounding.
 const POP_BIG: usize = 1_500_000;
 
@@ -416,7 +423,7 @@ fn judyl_insert_stock(f: Feed) -> Word {
 #[bench::sequential(args = ("sequential",), setup = build_expanse)]
 #[bench::random(args = ("random",), setup = build_expanse)]
 #[bench::clustered(args = ("clustered",), setup = build_expanse)]
-// Cache-pressure arm: exceeds LLC, so LL/RAM hits matter (see POP_BIG).
+// Cache-pressure arm: exceeds LLC (not observable without --cache-sim; see POP_BIG).
 #[bench::random_big(args = ("random_big",), setup = build_expanse)]
 fn judyl_get_expanse(built: Built) -> Word {
     let mut sink = 0usize;
