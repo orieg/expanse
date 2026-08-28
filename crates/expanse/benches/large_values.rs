@@ -35,13 +35,16 @@ fn bench_inline_vs_heap_small_blobs(c: &mut Criterion) {
             BenchmarkId::new("expanse_blobmap_insert", format!("{size}B")),
             &payload,
             |b, p| {
-                b.iter(|| {
-                    let mut map = ExpanseBlobMap::new();
-                    for k in 0..num_keys {
-                        map.insert(k, p, 0).unwrap();
-                    }
-                    black_box(map)
-                });
+                b.iter_batched(
+                    ExpanseBlobMap::new,
+                    |mut map| {
+                        for k in 0..num_keys {
+                            map.insert(k, p, 0).unwrap();
+                        }
+                        black_box(map)
+                    },
+                    criterion::BatchSize::PerIteration,
+                );
             },
         );
 
@@ -50,13 +53,16 @@ fn bench_inline_vs_heap_small_blobs(c: &mut Criterion) {
             BenchmarkId::new("btreemap_heap_insert", format!("{size}B")),
             &payload,
             |b, p| {
-                b.iter(|| {
-                    let mut map = BTreeMap::new();
-                    for k in 0..num_keys {
-                        map.insert(k, p.clone());
-                    }
-                    black_box(map)
-                });
+                b.iter_batched(
+                    BTreeMap::new,
+                    |mut map| {
+                        for k in 0..num_keys {
+                            map.insert(k, p.clone());
+                        }
+                        black_box(map)
+                    },
+                    criterion::BatchSize::PerIteration,
+                );
             },
         );
 
@@ -77,7 +83,7 @@ fn bench_inline_vs_heap_small_blobs(c: &mut Criterion) {
                     let mut sink = 0usize;
                     for k in 0..num_keys {
                         if let Some((view, _)) = blob_map.get(black_box(k)) {
-                            sink += view.len();
+                            sink += if view.is_empty() { 0 } else { view[0] as usize };
                         }
                     }
                     black_box(sink)
@@ -94,7 +100,7 @@ fn bench_inline_vs_heap_small_blobs(c: &mut Criterion) {
                     let mut sink = 0usize;
                     for k in 0..num_keys {
                         if let Some(vec) = btree_map.get(&black_box(k)) {
-                            sink += vec.len();
+                            sink += if vec.is_empty() { 0 } else { vec[0] as usize };
                         }
                     }
                     black_box(sink)
@@ -141,7 +147,7 @@ fn bench_predicate_scan_selectivity_sweep(c: &mut Criterion) {
                     |_key, meta| meta <= threshold,
                     |_key, view, _meta| {
                         matches += 1;
-                        byte_sum += view.len();
+                        byte_sum += if view.is_empty() { 0 } else { view[0] as usize };
                         true
                     },
                 );
@@ -159,7 +165,7 @@ fn bench_predicate_scan_selectivity_sweep(c: &mut Criterion) {
                         && meta <= threshold
                     {
                         matches += 1;
-                        byte_sum += view.len();
+                        byte_sum += if view.is_empty() { 0 } else { view[0] as usize };
                     }
                 }
                 black_box((matches, byte_sum))

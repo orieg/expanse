@@ -175,14 +175,14 @@ To determine whether a tuple is visible to a reading transaction $T_{\text{read}
  │   • Memory: Intrusive Epoch-Based Reclamation (EBR)     │
  └────────────────────────────┬────────────────────────────┘
                               │
-          ┌───────────────────┴───────────────────┐
-          ▼ (Lock-Free Walk)                      ▼ (Lock-Free Walk)
-    Reader Query Thread 1                   Reader Query Thread 2
-    • Pins EBR Epoch                        • Pins EBR Epoch
-    • Samples Node SeqVersion               • Samples Node SeqVersion
-    • Validates Hand-Over-Hand              • Validates Hand-Over-Hand
-    • Latency: ~4.2–9.8 ns                  • Latency: ~4.2–9.8 ns
-    • ZERO Reader-Writer Locks              • ZERO Reader-Writer Locks
+           ┌───────────────────┴───────────────────┐
+           ▼ (Lock-Free Walk)                      ▼ (Lock-Free Walk)
+     Reader Query Thread 1                   Reader Query Thread 2
+     • Pins EBR Epoch                        • Pins EBR Epoch
+     • Samples Node SeqVersion               • Samples Node SeqVersion
+     • Validates Hand-Over-Hand              • Validates Hand-Over-Hand
+     • Non-Blocking Reader Progress          • Non-Blocking Reader Progress
+     • ZERO Reader-Writer Locks              • ZERO Reader-Writer Locks
 ```
 
 ### 3.1 Eliminating Reader-Writer Locks with `SyncExpanseSet`
@@ -490,14 +490,16 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 ## 7. Comparative Benchmark & Decision Matrix
 
 > **Provenance.** The §7.2 YCSB throughput table and the §5.3 RocksDB figures are measured on the dedicated quiet host (Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d) and tagged inline. The §7.1 matrix below keeps **approximate latency ranges** for cross-engine orientation (not host-tagged point measurements); memory-overhead (B/key) columns are deterministic byte accounting. Where §7.1's qualitative ordering conflicts with a §7.2/§5.3 measurement, the measured section governs.
+>
+> ⚠️ **Harness methodology disclosure (#454):** Point lookup latency ranges in §7.1 derived from historical pre-#454 `compare.rs` runs are retained as approximate orienting figures and are marked pending re-measurement on the corrected harnesses.
 
 ### 7.1 Expanse vs Industry Primitives Matrix
 
 | Engine Primitive | Memory Overhead (Clustered) | Point Lookup Latency | Ordered Range Scan | Concurrency Protocol |
 |---|---:|---:|---|---|
-| **`ExpanseSet` (Judy1)** | **0.07–0.36 B/key** | **~4.2–11.8 ns** | $O(\text{depth})$ Skip-Scan | Lock-Free OCC (`SyncExpanseSet`) |
+| **`ExpanseSet` (Judy1)** | **0.07–0.36 B/key** | **~4.2–11.8 ns (pending re-run)** | $O(\text{depth})$ Skip-Scan | Lock-Free OCC (`SyncExpanseSet`) |
 | **Roaring Bitmap** | 0.125–0.65 B/key | ~16.4–24.2 ns | Container Iteration | External RWLock / Mutex |
-| **`ExpanseMap` (JudyL)** | **8.56–16.7 B/key** | **~8.5–38.6 ns** | $O(\text{depth})$ skip-scan† | Lock-Free OCC (`SyncExpanseMap`) |
+| **`ExpanseMap` (JudyL)** | **8.56–16.7 B/key** | **~8.5–38.6 ns (pending re-run)** | $O(\text{depth})$ skip-scan† | Lock-Free OCC (`SyncExpanseMap`) |
 | **`ExpanseBlobMap`** | **171.4–192.4 B/key** (128B blob) | **~41–125 ns** | **Predicate Filter Scan** | Thread-Isolated / Partitioned |
 | **`std::collections::BTreeMap`** | ~32.0–48.0 B/key (192B blob) | ~34.0–62.0 ns | Standard Iteration | External RWLock / Mutex |
 | **`hashbrown::HashMap` (Swiss Table)**| ~18.0–24.0 B/key | ~9.5–18.0 ns | ❌ Unordered ($O(N \log N)$ sort) | Read-Locked / Sharded |
@@ -511,6 +513,8 @@ The `ExpanseMap` point-lookup range's 38.6 ns upper bound is the out-of-cache un
 ### 7.2 Standardized YCSB Workload Analysis ($N = 100,000$, $\theta = 0.99$, 128B Blobs)
 
 The Yahoo! Cloud Serving Benchmark evaluates engine behaviour under real-world access distributions. Throughput derived from criterion median time over 20,000 operations per iteration *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, run [33037221608](https://github.com/orieg/expanse/actions/runs/33037221608), ref `main` post-[#385](https://github.com/orieg/expanse/pull/385), load average 0.07; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`)*:
+
+> ⚠️ **Harness methodology disclosure (#454):** The historical YCSB figures below were measured on a harness where `ExpanseBlobMap`, `BTreeMap`, and `SkipMap` `Read` and `Scan` operations black-boxed slice handles rather than dereferencing payload buffer bytes. Because this omission was symmetric across all competitor arms, the **comparative throughput ratios (e.g. Workload D ~5.0× advantage) are sound and preserved**. Absolute Mops/s and sub-microsecond latency percentiles understate cold DRAM payload line fetches; updated absolute figures with explicit payload dereference (`view[0]` / `vec[0]`) will be re-measured on the reference host.
 
 ```
 Workload Comparison (Throughput in Mops/sec):

@@ -41,6 +41,7 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
+use std::collections::HashSet;
 use std::hint::black_box;
 
 /// XorShift64 with the seeds `compare.rs` uses, so the two harnesses build
@@ -62,16 +63,42 @@ fn random_keys(n: usize) -> Vec<u64> {
     (0..n).map(|_| rng.next()).collect()
 }
 
+/// Draws `n` distinct keys absent from `present` using an independent PRNG stream.
+fn generate_miss_keys(present: &HashSet<u64>, n: usize, seed: u64) -> Vec<u64> {
+    let mut rng = XorShift(seed);
+    let mut seen: HashSet<u64> = HashSet::with_capacity(n * 2);
+    let mut out = Vec::with_capacity(n);
+    let budget = n.saturating_mul(64).saturating_add(1024);
+    for _ in 0..budget {
+        if out.len() == n {
+            return out;
+        }
+        let c = rng.next();
+        if !present.contains(&c) && seen.insert(c) {
+            out.push(c);
+        }
+    }
+    panic!("could not draw {n} distinct absent keys within budget");
+}
+
 /// A 50% hit / 50% miss probe stream, interleaved so no interleave width sees
 /// a uniform run of one or the other (AGENTS.md §8.6).
 fn mixed_probes(keys: &[u64], probe_count: usize) -> Vec<u64> {
     let mut rng = XorShift(0xFEED_FACE_CAFE_BEEF);
-    (0..probe_count)
-        .map(|i| {
-            let k = keys[(rng.next() as usize) % keys.len()];
-            if i % 2 == 0 { k } else { k ^ (1 << 63) ^ 0xA5 }
-        })
-        .collect()
+    let n_hits = probe_count / 2;
+    let n_misses = probe_count - n_hits;
+    let present: HashSet<u64> = keys.iter().copied().collect();
+    let misses = generate_miss_keys(&present, n_misses, 0x51ED_0FF5_C0FF_EE01);
+
+    let mut out = Vec::with_capacity(probe_count);
+    for i in 0..n_hits {
+        let hit = keys[(rng.next() as usize) % keys.len()];
+        out.push(hit);
+        if i < misses.len() {
+            out.push(misses[i]);
+        }
+    }
+    out
 }
 
 /// Probes consumed per timed iteration. Large enough that the driver spends
