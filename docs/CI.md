@@ -215,7 +215,7 @@ Nightly workflows run out of band with no human watching PR checks, so failures 
 - **`--pr-body-file <path>`** — supplies the PR description so approval markers are parsed.
 - **`--max-regression-pct <float>`** — max allowed single-benchmark instruction regression.
 - **`--noise-floor <float>`** — threshold above which an instruction delta is a regression.
-- **`--self-test`** — runs the unit-style checks built into `perf_report.py` / `bench_report.py` (parse, gating, override matching, legend bands) and exits.
+- **`--self-test`** — runs the unit-style checks built into `perf_report.py` / `bench_report.py` (parse, gating, override matching, legend bands, and — for `bench_report.py` — that each ratio column's marker is graded by that column's declared direction and that an unmeasured arm renders as an absence rather than a zero) and exits.
 - **`RUSTFLAGS="--cfg loom"`** — swaps `std::sync::atomic` for Loom permutation-checked atomics.
 - **`-C target-cpu=x86-64-v3`** — enables AVX2/BMI2/POPCNT for the comparative microarchitecture benches.
 
