@@ -108,22 +108,22 @@ func ensureLoaded() {
 	loadOnce.Do(func() {
 		path, err := findLibrary()
 		if err != nil {
-			loadErr = fmt.Errorf("could not find libexpanse: %w", err)
+			loadErr = fmt.Errorf("could not find libexpanse (%s): %w\nHint: Set EXPANSE_LIBRARY=/path/to/%s or build with 'cargo build --release -p expanse-capi'", platformLibName(), err, platformLibName())
 			return
 		}
 		h, err := openPlatformLibrary(path)
 		if err != nil {
-			loadErr = err
+			loadErr = fmt.Errorf("failed to load %q: %w\nHint: Verify the binary architecture matches %s/%s or set EXPANSE_LIBRARY to the correct shared library path", path, err, runtime.GOOS, runtime.GOARCH)
 			return
 		}
 		libHandle = h
 		if err := bindSymbols(h); err != nil {
-			loadErr = err
+			loadErr = fmt.Errorf("failed to bind symbols from %q: %w\nHint: Verify libexpanse was compiled from the matching version of expanse-capi", path, err)
 			return
 		}
 		initCallbacks()
 	})
 	if loadErr != nil {
-		panic(fmt.Sprintf("expanse: failed to initialize purego native library: %v", loadErr))
+		panic(fmt.Sprintf("expanse: failed to initialize purego native library:\n%v", loadErr))
 	}
 }

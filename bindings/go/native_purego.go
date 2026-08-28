@@ -13,114 +13,114 @@ var expanse_version func() string
 
 // Set
 var (
-	expanse_set_new                 func() uintptr
-	expanse_set_free                func(set uintptr)
-	expanse_set_insert              func(set uintptr, key uint64) bool
-	expanse_set_remove              func(set uintptr, key uint64) bool
-	expanse_set_contains            func(set uintptr, key uint64) bool
-	expanse_set_len                 func(set uintptr) uint64
-	expanse_set_mem_used            func(set uintptr) uintptr
-	expanse_set_clear               func(set uintptr)
-	expanse_set_first               func(set uintptr, keyOut *uint64) bool
-	expanse_set_last                func(set uintptr, keyOut *uint64) bool
-	expanse_set_next_at_or_after    func(set uintptr, key uint64, keyOut *uint64) bool
-	expanse_set_next_after          func(set uintptr, key uint64, keyOut *uint64) bool
-	expanse_set_prev_at_or_before   func(set uintptr, key uint64, keyOut *uint64) bool
-	expanse_set_prev_before         func(set uintptr, key uint64, keyOut *uint64) bool
-	expanse_set_count_below         func(set uintptr, key uint64) uint64
-	expanse_set_count_range         func(set uintptr, lo, hi uint64) uint64
-	expanse_set_by_count            func(set uintptr, n uint64, keyOut *uint64) bool
-	expanse_set_contains_batch      func(set uintptr, keys *uint64, outPresent *bool, count uintptr) uintptr
+	expanse_set_new               func() uintptr
+	expanse_set_free              func(set uintptr)
+	expanse_set_insert            func(set uintptr, key uint64) bool
+	expanse_set_remove            func(set uintptr, key uint64) bool
+	expanse_set_contains          func(set uintptr, key uint64) bool
+	expanse_set_len               func(set uintptr) uint64
+	expanse_set_mem_used          func(set uintptr) uintptr
+	expanse_set_clear             func(set uintptr)
+	expanse_set_first             func(set uintptr, keyOut *uint64) bool
+	expanse_set_last              func(set uintptr, keyOut *uint64) bool
+	expanse_set_next_at_or_after  func(set uintptr, key uint64, keyOut *uint64) bool
+	expanse_set_next_after        func(set uintptr, key uint64, keyOut *uint64) bool
+	expanse_set_prev_at_or_before func(set uintptr, key uint64, keyOut *uint64) bool
+	expanse_set_prev_before       func(set uintptr, key uint64, keyOut *uint64) bool
+	expanse_set_count_below       func(set uintptr, key uint64) uint64
+	expanse_set_count_range       func(set uintptr, lo, hi uint64) uint64
+	expanse_set_by_count          func(set uintptr, n uint64, keyOut *uint64) bool
+	expanse_set_contains_batch    func(set uintptr, keys *uint64, outPresent *bool, count uintptr) uintptr
 )
 
 // Map
 var (
-	expanse_map_new                 func() uintptr
-	expanse_map_free                func(mapPtr uintptr)
-	expanse_map_insert              func(mapPtr uintptr, key, value uint64, oldOut *uint64) bool
-	expanse_map_get                 func(mapPtr uintptr, key uint64, valueOut *uint64) bool
-	expanse_map_get_batch           func(mapPtr uintptr, keys *uint64, outValues *uint64, outFound *bool, count uintptr) uintptr
-	expanse_map_remove              func(mapPtr uintptr, key uint64, oldOut *uint64) bool
-	expanse_map_len                 func(mapPtr uintptr) uint64
-	expanse_map_mem_used            func(mapPtr uintptr) uintptr
-	expanse_map_clear               func(mapPtr uintptr)
-	expanse_map_slot                func(mapPtr uintptr, key uint64) *uint64
-	expanse_map_ins_slot            func(mapPtr uintptr, key uint64) *uint64
-	expanse_map_first               func(mapPtr uintptr, keyOut, valueOut *uint64) bool
-	expanse_map_last                func(mapPtr uintptr, keyOut, valueOut *uint64) bool
-	expanse_map_next_at_or_after    func(mapPtr uintptr, key uint64, keyOut, valueOut *uint64) bool
-	expanse_map_next_after          func(mapPtr uintptr, key uint64, keyOut, valueOut *uint64) bool
-	expanse_map_prev_at_or_before   func(mapPtr uintptr, key uint64, keyOut, valueOut *uint64) bool
-	expanse_map_prev_before         func(mapPtr uintptr, key uint64, keyOut, valueOut *uint64) bool
-	expanse_map_count_below         func(mapPtr uintptr, key uint64) uint64
-	expanse_map_count_range         func(mapPtr uintptr, lo, hi uint64) uint64
-	expanse_map_by_count            func(mapPtr uintptr, n uint64, keyOut, valueOut *uint64) bool
+	expanse_map_new               func() uintptr
+	expanse_map_free              func(mapPtr uintptr)
+	expanse_map_insert            func(mapPtr uintptr, key, value uint64, oldOut *uint64) bool
+	expanse_map_get               func(mapPtr uintptr, key uint64, valueOut *uint64) bool
+	expanse_map_get_batch         func(mapPtr uintptr, keys *uint64, outValues *uint64, outFound *bool, count uintptr) uintptr
+	expanse_map_remove            func(mapPtr uintptr, key uint64, oldOut *uint64) bool
+	expanse_map_len               func(mapPtr uintptr) uint64
+	expanse_map_mem_used          func(mapPtr uintptr) uintptr
+	expanse_map_clear             func(mapPtr uintptr)
+	expanse_map_slot              func(mapPtr uintptr, key uint64) *uint64
+	expanse_map_ins_slot          func(mapPtr uintptr, key uint64) *uint64
+	expanse_map_first             func(mapPtr uintptr, keyOut, valueOut *uint64) bool
+	expanse_map_last              func(mapPtr uintptr, keyOut, valueOut *uint64) bool
+	expanse_map_next_at_or_after  func(mapPtr uintptr, key uint64, keyOut, valueOut *uint64) bool
+	expanse_map_next_after        func(mapPtr uintptr, key uint64, keyOut, valueOut *uint64) bool
+	expanse_map_prev_at_or_before func(mapPtr uintptr, key uint64, keyOut, valueOut *uint64) bool
+	expanse_map_prev_before       func(mapPtr uintptr, key uint64, keyOut, valueOut *uint64) bool
+	expanse_map_count_below       func(mapPtr uintptr, key uint64) uint64
+	expanse_map_count_range       func(mapPtr uintptr, lo, hi uint64) uint64
+	expanse_map_by_count          func(mapPtr uintptr, n uint64, keyOut, valueOut *uint64) bool
 )
 
 // BytesMap
 var (
-	expanse_bytesmap_new            func() uintptr
-	expanse_bytesmap_free           func(mapPtr uintptr)
-	expanse_bytesmap_insert         func(mapPtr uintptr, key unsafe.Pointer, len uintptr, value uint64, oldOut *uint64) bool
-	expanse_bytesmap_get            func(mapPtr uintptr, key unsafe.Pointer, len uintptr, valueOut *uint64) bool
-	expanse_bytesmap_remove         func(mapPtr uintptr, key unsafe.Pointer, len uintptr, oldOut *uint64) bool
-	expanse_bytesmap_slot           func(mapPtr uintptr, key unsafe.Pointer, len uintptr) *uint64
-	expanse_bytesmap_ins_slot       func(mapPtr uintptr, key unsafe.Pointer, len uintptr) *uint64
-	expanse_bytesmap_len            func(mapPtr uintptr) uint64
-	expanse_bytesmap_mem_used       func(mapPtr uintptr) uintptr
-	expanse_bytesmap_clear          func(mapPtr uintptr)
+	expanse_bytesmap_new      func() uintptr
+	expanse_bytesmap_free     func(mapPtr uintptr)
+	expanse_bytesmap_insert   func(mapPtr uintptr, key unsafe.Pointer, len uintptr, value uint64, oldOut *uint64) bool
+	expanse_bytesmap_get      func(mapPtr uintptr, key unsafe.Pointer, len uintptr, valueOut *uint64) bool
+	expanse_bytesmap_remove   func(mapPtr uintptr, key unsafe.Pointer, len uintptr, oldOut *uint64) bool
+	expanse_bytesmap_slot     func(mapPtr uintptr, key unsafe.Pointer, len uintptr) *uint64
+	expanse_bytesmap_ins_slot func(mapPtr uintptr, key unsafe.Pointer, len uintptr) *uint64
+	expanse_bytesmap_len      func(mapPtr uintptr) uint64
+	expanse_bytesmap_mem_used func(mapPtr uintptr) uintptr
+	expanse_bytesmap_clear    func(mapPtr uintptr)
 )
 
 // StrMap
 var (
-	expanse_strmap_new                 func() uintptr
-	expanse_strmap_free                func(mapPtr uintptr)
-	expanse_strmap_insert              func(mapPtr uintptr, key unsafe.Pointer, value uint64, oldOut *uint64) bool
-	expanse_strmap_get                 func(mapPtr uintptr, key unsafe.Pointer, valueOut *uint64) bool
-	expanse_strmap_remove              func(mapPtr uintptr, key unsafe.Pointer, oldOut *uint64) bool
-	expanse_strmap_slot                func(mapPtr uintptr, key unsafe.Pointer) *uint64
-	expanse_strmap_ins_slot            func(mapPtr uintptr, key unsafe.Pointer) *uint64
-	expanse_strmap_len                 func(mapPtr uintptr) uint64
-	expanse_strmap_mem_used            func(mapPtr uintptr) uintptr
-	expanse_strmap_clear               func(mapPtr uintptr)
-	expanse_strmap_first               func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
-	expanse_strmap_last                func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
-	expanse_strmap_next_at_or_after    func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
-	expanse_strmap_next_after          func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
-	expanse_strmap_prev_at_or_before   func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
-	expanse_strmap_prev_before         func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
-	expanse_strmap_first_ex            func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
-	expanse_strmap_last_ex             func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
-	expanse_strmap_next_at_or_after_ex func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
-	expanse_strmap_next_after_ex       func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_strmap_new                  func() uintptr
+	expanse_strmap_free                 func(mapPtr uintptr)
+	expanse_strmap_insert               func(mapPtr uintptr, key unsafe.Pointer, value uint64, oldOut *uint64) bool
+	expanse_strmap_get                  func(mapPtr uintptr, key unsafe.Pointer, valueOut *uint64) bool
+	expanse_strmap_remove               func(mapPtr uintptr, key unsafe.Pointer, oldOut *uint64) bool
+	expanse_strmap_slot                 func(mapPtr uintptr, key unsafe.Pointer) *uint64
+	expanse_strmap_ins_slot             func(mapPtr uintptr, key unsafe.Pointer) *uint64
+	expanse_strmap_len                  func(mapPtr uintptr) uint64
+	expanse_strmap_mem_used             func(mapPtr uintptr) uintptr
+	expanse_strmap_clear                func(mapPtr uintptr)
+	expanse_strmap_first                func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
+	expanse_strmap_last                 func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
+	expanse_strmap_next_at_or_after     func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
+	expanse_strmap_next_after           func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
+	expanse_strmap_prev_at_or_before    func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
+	expanse_strmap_prev_before          func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, valueOut *uint64) bool
+	expanse_strmap_first_ex             func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_strmap_last_ex              func(mapPtr uintptr, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_strmap_next_at_or_after_ex  func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_strmap_next_after_ex        func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
 	expanse_strmap_prev_at_or_before_ex func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
-	expanse_strmap_prev_before_ex      func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
+	expanse_strmap_prev_before_ex       func(mapPtr uintptr, key, keyOut unsafe.Pointer, bufLen uintptr, requiredLen *uintptr, valueOut *uint64) int32
 )
 
 // SyncSet
 var (
-	expanse_sync_set_new              func() uintptr
-	expanse_sync_set_free             func(set uintptr)
-	expanse_sync_set_insert           func(set uintptr, key uint64) bool
-	expanse_sync_set_remove           func(set uintptr, key uint64) bool
-	expanse_sync_set_contains         func(set uintptr, key uint64) bool
-	expanse_sync_set_len              func(set uintptr) uint64
-	expanse_sync_set_reader_new       func(set uintptr) uintptr
-	expanse_sync_set_reader_free      func(reader uintptr)
-	expanse_sync_set_reader_contains  func(reader uintptr, key uint64) bool
+	expanse_sync_set_new             func() uintptr
+	expanse_sync_set_free            func(set uintptr)
+	expanse_sync_set_insert          func(set uintptr, key uint64) bool
+	expanse_sync_set_remove          func(set uintptr, key uint64) bool
+	expanse_sync_set_contains        func(set uintptr, key uint64) bool
+	expanse_sync_set_len             func(set uintptr) uint64
+	expanse_sync_set_reader_new      func(set uintptr) uintptr
+	expanse_sync_set_reader_free     func(reader uintptr)
+	expanse_sync_set_reader_contains func(reader uintptr, key uint64) bool
 )
 
 // SyncMap
 var (
-	expanse_sync_map_new              func() uintptr
-	expanse_sync_map_free             func(mapPtr uintptr)
-	expanse_sync_map_insert           func(mapPtr uintptr, key, value uint64, oldOut *uint64) bool
-	expanse_sync_map_get              func(mapPtr uintptr, key uint64, valueOut *uint64) bool
-	expanse_sync_map_remove           func(mapPtr uintptr, key uint64, oldOut *uint64) bool
-	expanse_sync_map_len              func(mapPtr uintptr) uint64
-	expanse_sync_map_reader_new       func(mapPtr uintptr) uintptr
-	expanse_sync_map_reader_free      func(reader uintptr)
-	expanse_sync_map_reader_get       func(reader uintptr, key uint64, valueOut *uint64) bool
+	expanse_sync_map_new         func() uintptr
+	expanse_sync_map_free        func(mapPtr uintptr)
+	expanse_sync_map_insert      func(mapPtr uintptr, key, value uint64, oldOut *uint64) bool
+	expanse_sync_map_get         func(mapPtr uintptr, key uint64, valueOut *uint64) bool
+	expanse_sync_map_remove      func(mapPtr uintptr, key uint64, oldOut *uint64) bool
+	expanse_sync_map_len         func(mapPtr uintptr) uint64
+	expanse_sync_map_reader_new  func(mapPtr uintptr) uintptr
+	expanse_sync_map_reader_free func(reader uintptr)
+	expanse_sync_map_reader_get  func(reader uintptr, key uint64, valueOut *uint64) bool
 )
 
 // BlobView layout matching ExpanseBlobView in expanse.h
