@@ -82,6 +82,46 @@ PROVENANCE_FILES = ("docs/BENCHMARKING.md", "README.md", "docs/DATABASE.md", "do
 PROVENANCE_GLOBS = ("docs/benchmarks/*/README.md",)
 
 
+# AGENTS.md 8.9: a microarchitectural mechanism named in prose is a claim about
+# a counter, and a counter claim needs a counter. These are the terms that assert
+# one. "cache" alone is not here - describing a cache hierarchy is not claiming a
+# measurement of one; "cache-miss-bound" is.
+MECHANISM_TERMS = re.compile(
+    r"\b("
+    r"memory[- ]latency[- ]bound|latency[- ]bound|bandwidth[- ]bound|"
+    r"cache[- ]miss[- ]bound|miss[- ]bound|"
+    r"branch[- ]misprediction|mispredict(?:s|ed|ion)?[- ]bound|"
+    r"TLB[- ]bound|page[- ]walk[- ]bound|"
+    r"memory[- ]level parallelism|MLP[- ]bound|"
+    r"fill[- ]buffer[- ]bound|MSHR[- ]bound|"
+    r"front[- ]end bound|back[- ]end bound|stall(?:ed|ing)? on (?:L[123]|DRAM|memory)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Evidence that a counter was actually read. A provenance tag alone does not
+# qualify - it says a number was measured, not that this mechanism was.
+# Naming a mechanism in order to say something does NOT measure it is not a
+# claim about that mechanism - it is a statement about an instrument's limits,
+# which is the honest thing this rule wants more of, not less.
+MECHANISM_NEGATION = re.compile(
+    r"(cannot see|can(?:'|\u2019)?t see|does not (?:see|measure|model|capture)|"
+    r"blind to|ignores?|invisible to|no counter|unable to (?:see|measure))",
+    re.IGNORECASE,
+)
+
+MECHANISM_EVIDENCE = re.compile(
+    r"(perf stat|perf_counters|point_lookup_counters|hardware counter|counters? (?:on|show|locate|say)|"
+    r"branch-misses|branch_misses|L1-dcache|LLC-load|dTLB|cycle_activity|"
+    r"mem_load_retired|cpu_core/|cpu_atom/|"
+    r"--cache-sim|callgrind.*(?:LL|RAM) |"
+    r"results/baseline_|"
+    r"\bunmeasured\b|\bnot measured\b|\bhypothesis\b|\bunverified\b|"
+    r"\bretracted\b|\bcause unknown\b|\bconjecture\b)",
+    re.IGNORECASE,
+)
+
+
 def tracked_markdown(root: Path) -> list[Path]:
     out = subprocess.run(
         ["git", "ls-files", "--", "*.md", "docs/**/*.md", ".github/**/*.md"],
@@ -156,6 +196,49 @@ def check_provenance(lines: list[str]) -> list[int]:
     return []
 
 
+def check_mechanism_claims(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """A named microarchitectural mechanism must have counter evidence, or be
+    explicitly marked unmeasured, within its own paragraph.
+
+    Scoped to the paragraph rather than the line because the evidence is
+    usually the sentence after the claim, and to the paragraph rather than the
+    file because a document may measure one mechanism and speculate about
+    another. Hedging counts as evidence: saying "hypothesis" or "cause unknown"
+    is exactly the honest form this rule wants, so it must not be punished.
+    """
+    out: list[tuple[int, str]] = []
+    paras: list[list[tuple[int, str]]] = []
+    para: list[tuple[int, str]] = []
+    for n, text in lines:
+        if text.strip():
+            para.append((n, text))
+        else:
+            if para:
+                paras.append(para)
+            para = []
+    if para:
+        paras.append(para)
+
+    def flush_at(idx: int) -> None:
+        para = paras[idx]
+        # The claim's own paragraph plus the next one: an evidence table or a
+        # counter list almost always follows the sentence that makes the claim,
+        # and splitting them is a formatting choice, not a substantive one.
+        window = para + (paras[idx + 1] if idx + 1 < len(paras) else [])
+        joined = " ".join(t for _, t in window)
+        if MECHANISM_EVIDENCE.search(joined) or MECHANISM_NEGATION.search(joined):
+            return
+        for n, text in para:
+            m = MECHANISM_TERMS.search(text)
+            if m:
+                out.append((n, m.group(0)))
+                return
+
+    for idx in range(len(paras)):
+        flush_at(idx)
+    return out
+
+
 def scan_text(path_label: str, text: str, denylist: list[str], provenance: bool) -> tuple[int, int]:
     lines = text.splitlines()
     kept = strip_fences(lines)
@@ -165,6 +248,9 @@ def scan_text(path_label: str, text: str, denylist: list[str], provenance: bool)
         fatal += 1
     for n, what in check_pii(kept, denylist):
         print(f"::error file={path_label},line={n}::{what} — AGENTS.md §7 forbids PII / local-infrastructure identifiers")
+        fatal += 1
+    for n, what in check_mechanism_claims(kept):
+        print(f"::error file={path_label},line={n}::mechanism claim ({what!r}) with no counter evidence in its paragraph — AGENTS.md §8.9 wants a counter, a `results/baseline_*` reference, or an explicit 'unmeasured' / 'hypothesis' / 'cause unknown' qualifier")
         fatal += 1
     warnings = 0
     if provenance:
@@ -200,6 +286,13 @@ def self_test() -> int:
     two = "| a | ns |\n|---|---|\n| x | 1 ns |\n\ntext\n\n| b | ns |\n|---|---|\n| y | 2 ns |\n"
     _, w = scan_text("t.md", two, deny, True); assert w == 1, "one warning per untagged file, not per table"
     _, w = scan_text("t.md", "| cap | value |\n|---|---|\n| ordered | yes |\n", deny, True); assert w == 0, "no unit-bearing cell"
+    # §8.9 mechanism claims. The first case is the defect this rule exists for:
+    # it shipped in docs/BENCHMARKING.md and was retracted in #456.
+    fatal, _ = scan_text("t.md", "The arm is memory-latency-bound, so the work removed is off the critical path.\n", deny, False); assert fatal == 1, "mechanism claim without evidence must fire"
+    fatal, _ = scan_text("t.md", "Callgrind cannot see TLB misses or memory-level parallelism.\n", deny, False); assert fatal == 0, "naming a mechanism an instrument cannot see is not a claim"
+    fatal, _ = scan_text("t.md", "The cost is branch misprediction. Hardware counters locate it:\n\n| cpu_core/branch-misses/ | 2.4e7 |\n", deny, False); assert fatal == 0, "evidence in the following paragraph must count"
+    fatal, _ = scan_text("t.md", "An MLP story predicts smooth growth; cause unknown.\n", deny, False); assert fatal == 0, "an honest hedge must not be punished"
+    fatal, _ = scan_text("t.md", "```\nmemory-latency-bound\n```\n", deny, False); assert fatal == 0, "fenced code is exempt"
     print("check_docs_hygiene.py --self-test: all checks passed")
     return 0
 
