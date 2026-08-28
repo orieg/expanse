@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass, field
@@ -606,14 +607,93 @@ def format_markdown_table(c_symbols: List[CSymbol], report: ParityReport) -> str
     return "\n".join(lines)
 
 
+MIN_C_SYMBOLS = 100
+
+
+def parse_allow_symbol_shrink(pr_body: str) -> Optional[str]:
+    """Extracts symbol-shrink override reason from a PR body."""
+    if not pr_body:
+        return None
+
+    pattern = re.compile(
+        r"^[ \t]*(?:<!--[ \t]*)?allow-symbol-shrink:[ \t]*([^\n]+)",
+        re.IGNORECASE | re.MULTILINE,
+    )
+
+    for match in pattern.finditer(pr_body):
+        reason = match.group(1).strip()
+        reason = re.sub(r"(?:-->|`)+\s*$", "", reason).strip()
+        if not reason:
+            continue
+        lower = reason.lower()
+        if lower.startswith("<reason>") or lower.startswith("<rationale>"):
+            continue
+        if lower in ("todo", "tbd", "none", "n/a", "null"):
+            continue
+        return reason
+
+    return None
+
+
+def self_test() -> int:
+    """Runs internal self-tests for symbol parity and floor checks."""
+    # 1. Override parser tests
+    assert parse_allow_symbol_shrink("allow-symbol-shrink: deprecated v1 symbols") == "deprecated v1 symbols"
+    assert parse_allow_symbol_shrink("<!-- allow-symbol-shrink: removed legacy sync helpers -->") == "removed legacy sync helpers"
+    assert parse_allow_symbol_shrink("  allow-symbol-shrink: indented reason") == "indented reason"
+    assert parse_allow_symbol_shrink("allow-symbol-shrink: <reason>") is None
+    assert parse_allow_symbol_shrink("allow-symbol-shrink: TODO") is None
+    assert parse_allow_symbol_shrink("allow-symbol-shrink:") is None
+    assert parse_allow_symbol_shrink("mentioning allow-symbol-shrink: mid-sentence") is None
+
+    # 2. Mock C header parse
+    mock_header = """
+    /* --- Set --- */
+    bool expanse_set_insert(expanse_set_t *set, uint64_t key);
+    bool expanse_set_remove(expanse_set_t *set, uint64_t key);
+    """
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".h", delete=False) as tf:
+        tf.write(mock_header)
+        tf_name = tf.name
+    try:
+        symbols = parse_c_header(Path(tf_name))
+        assert len(symbols) == 2
+        assert symbols[0].name == "expanse_set_insert"
+        assert symbols[1].name == "expanse_set_remove"
+    finally:
+        os.remove(tf_name)
+
+    print("check_abi_parity.py --self-test: all checks passed")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="libexpanse C ABI Symbol Parity Linter")
     parser.add_argument("--check", action="store_true", default=True, help="Validate 100% parity and exit non-zero on mismatch")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show verbose per-symbol coverage matrix")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
     parser.add_argument("--markdown", action="store_true", help="Output markdown table for documentation")
+    parser.add_argument("--floor", type=int, default=MIN_C_SYMBOLS, help=f"Minimum required C ABI symbols (default: {MIN_C_SYMBOLS})")
+    parser.add_argument("--pr-body-file", help="Path to file containing PR body text")
+    parser.add_argument("--pr-body", help="PR body text as a string")
+    parser.add_argument("--self-test", action="store_true", help="Run internal self-tests and exit")
 
     args = parser.parse_args()
+
+    if args.self_test:
+        return self_test()
+
+    pr_body = ""
+    if args.pr_body:
+        pr_body = args.pr_body
+    elif args.pr_body_file and os.path.exists(args.pr_body_file):
+        try:
+            pr_body = Path(args.pr_body_file).read_text(encoding="utf-8")
+        except Exception as e:
+            print(f"::warning::Failed to read PR body file '{args.pr_body_file}': {e}", file=sys.stderr)
+    elif "PR_BODY" in os.environ:
+        pr_body = os.environ["PR_BODY"]
 
     root = get_repo_root()
     c_symbols, report = build_parity_report(root)
@@ -621,6 +701,7 @@ def main() -> int:
     if args.json:
         out = {
             "total_c_symbols": report.total_c_symbols,
+            "min_c_symbols_floor": args.floor,
             "java": {"covered": len(report.java_covered), "missing": sorted(list(report.java_missing))},
             "dotnet": {"covered": len(report.dotnet_covered), "missing": sorted(list(report.dotnet_missing))},
             "python": {"covered": len(report.python_covered), "missing": sorted(list(report.python_missing))},
@@ -634,12 +715,26 @@ def main() -> int:
     else:
         print_text_report(c_symbols, report, verbose=args.verbose)
 
+    # Floor check
+    floor_violation = False
+    if report.total_c_symbols < args.floor:
+        override = parse_allow_symbol_shrink(pr_body)
+        if override:
+            print(f"⚠️ Total C ABI symbols ({report.total_c_symbols}) is below floor ({args.floor}), but approved via PR override:")
+            print(f"  Rationale: \"{override}\"")
+        else:
+            print(f"::error::Total declared C ABI functions ({report.total_c_symbols}) is below the pinned floor of {args.floor}!")
+            print("If symbols were intentionally removed or deprecated, add an explicit directive to the PR body:")
+            print("  allow-symbol-shrink: <nonempty reason>")
+            floor_violation = True
+
     has_errors = (
         len(report.java_missing) > 0
         or len(report.dotnet_missing) > 0
         or len(report.python_missing) > 0
         or len(report.node_missing) > 0
         or len(report.go_missing) > 0
+        or floor_violation
     )
 
     if args.check and has_errors:
