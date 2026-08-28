@@ -215,6 +215,18 @@ only from those re-measured tables.
 
 To generate instant head-to-head benchmark comparison tables ready for PR descriptions and documentation, use `scripts/bench_report.py`. The tool executes a fast standalone Rust harness (`crates/expanse/examples/bench_lookup_compare.rs`) comparing `ExpanseMap`, `hashbrown::HashMap`, `std::collections::BTreeMap`, and stock `libjudy` across key distributions.
 
+Every arm is measured over `--rounds` rounds and reduced by the per-metric
+median, and the arms' execution order is rotated once per round so no arm is
+permanently pinned to the coldest position — rule 1 of
+[Methodology rules (binding)](#methodology-rules-binding). The rotation covers
+every position evenly only when `--rounds` is a multiple of the arm count (3 or
+4 arms depending on whether stock `libjudy` is loadable), so at the default it
+reduces the residual position bias rather than cancelling it. The harness
+records the round count it actually ran in its
+JSON (`"rounds"`), and the generated report's methodology line is rendered from
+that field rather than stamped, so the two cannot drift apart. The harness
+rejects any argument it does not recognise (exit `2`) rather than ignoring it.
+
 ### Usage
 
 ```bash
@@ -253,7 +265,7 @@ python3 scripts/bench_report.py --pop 100000 --format json --output bench_result
 | `--dist <dist>` | Key distribution (`sequential`, `random`, `clustered`, `sparse`, `all`) | `all` |
 | `--format <fmt>` | Output format (`markdown`, `json`, `table`) | `markdown` |
 | `--output <file>` | Output destination file path | `stdout` |
-| `--rounds <N>` | Interleaved benchmark rounds (median reported) | `3` |
+| `--rounds <N>` | Interleaved benchmark rounds per arm, per-metric median reported (arm order rotates each round) | `3` |
 | `--input <file>` | Render tables from precomputed JSON artifact | `None` |
 | `--baseline <file>` | Append the BCa interval table from a `results/baseline_*.json` (see below) | `None` |
 | `--self-test` | Run unit-style checks on the rendering helpers (parity band vs legend, derived summary) and exit | `false` |

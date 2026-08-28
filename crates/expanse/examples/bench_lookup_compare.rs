@@ -17,11 +17,21 @@
 //! - Full iteration latency (`ms`) and throughput (`Mops/s`)
 //! - Memory footprint (`bytes/key`)
 //!
+//! # Methodology
+//! Every arm is measured over `--rounds` interleaved rounds and reduced by the
+//! per-metric median. The execution order of the arms is rotated once per round
+//! so no arm is permanently pinned to the first (coldest) position and runner
+//! drift cancels in the reported ratios — the interleaved-A/B rule of
+//! `docs/BENCHMARKING.md`, and the same shape as
+//! `crates/expanse-capi/examples/bench_vs_libjudy.rs`. The rotation covers every
+//! position evenly only when `--rounds` is a multiple of the arm count.
+//!
 //! # Usage
 //! ```bash
 //! cargo run --release -p expanse-trie --example bench_lookup_compare
 //! cargo run --release -p expanse-trie --example bench_lookup_compare -- --quick
 //! cargo run --release -p expanse-trie --example bench_lookup_compare -- --pop 500000
+//! cargo run --release -p expanse-trie --example bench_lookup_compare -- --rounds 5
 //! cargo run --release -p expanse-trie --example bench_lookup_compare -- --set
 //! ```
 
@@ -315,6 +325,39 @@ struct ContainerResult {
     range_throughput_mops: f64,
     bytes_per_key: f64,
     is_ordered_iter: bool,
+}
+
+/// Median of a sample, upper-middle element for even counts.
+///
+/// Matches `crates/expanse-capi/examples/bench_vs_libjudy.rs` so both harnesses
+/// reduce interleaved rounds the same way.
+fn median(mut v: Vec<f64>) -> f64 {
+    v.sort_by(f64::total_cmp);
+    v[v.len() / 2]
+}
+
+/// Reduces one container's per-round measurements to a single result by taking
+/// the per-metric median across rounds.
+///
+/// `name`, `is_ordered_iter` and `bytes_per_key` are deterministic for a fixed
+/// key set, so they are carried through from the first round rather than being
+/// re-derived.
+fn median_result(rounds: &[ContainerResult]) -> ContainerResult {
+    let med = |f: fn(&ContainerResult) -> f64| median(rounds.iter().map(f).collect());
+    ContainerResult {
+        name: rounds[0].name,
+        hit_latency_ns: med(|r| r.hit_latency_ns),
+        hit_throughput_mops: med(|r| r.hit_throughput_mops),
+        miss_latency_ns: med(|r| r.miss_latency_ns),
+        miss_throughput_mops: med(|r| r.miss_throughput_mops),
+        insert_latency_ns: med(|r| r.insert_latency_ns),
+        insert_throughput_mops: med(|r| r.insert_throughput_mops),
+        iter_latency_ms: med(|r| r.iter_latency_ms),
+        iter_throughput_mops: med(|r| r.iter_throughput_mops),
+        range_throughput_mops: med(|r| r.range_throughput_mops),
+        bytes_per_key: rounds[0].bytes_per_key,
+        is_ordered_iter: rounds[0].is_ordered_iter,
+    }
 }
 
 /// Benchmarks `ExpanseMap`.
@@ -1179,12 +1222,39 @@ fn print_distribution_report(dist: &str, pop: usize, results: &[ContainerResult]
     }
 }
 
+/// Interleaved rounds per arm when `--rounds` is not given.
+///
+/// Kept in lockstep with the `--rounds` default in `scripts/bench_report.py`,
+/// which drives this harness, and with the documented default in
+/// `docs/BENCHMARKING.md`.
+const DEFAULT_ROUNDS: usize = 3;
+
 /// Benchmark configuration options.
 struct Config {
     pop: usize,
     dists: Vec<&'static str>,
     is_set: bool,
     is_json: bool,
+    rounds: usize,
+}
+
+/// Reports a command-line usage error and exits non-zero.
+///
+/// Argument handling fails loudly rather than ignoring what it does not
+/// understand: a flag that is advertised but silently dropped reports a
+/// measurement nobody asked for (AGENTS.md §8.1).
+fn arg_error(msg: &str) -> ! {
+    eprintln!("error: {msg}");
+    eprintln!("Run with --help for usage.");
+    std::process::exit(2);
+}
+
+/// Parses a positive integer argument value, exiting on anything else.
+fn parse_positive(flag: &str, raw: &str) -> usize {
+    match raw.replace('_', "").parse::<usize>() {
+        Ok(0) | Err(_) => arg_error(&format!("{flag} expects a positive integer, got '{raw}'")),
+        Ok(val) => val,
+    }
 }
 
 /// Parses command-line arguments.
@@ -1195,39 +1265,47 @@ fn parse_args() -> Config {
     let mut dists = Vec::new();
     let mut is_set = false;
     let mut is_json = false;
+    let mut rounds = DEFAULT_ROUNDS;
 
     let args: Vec<String> = std::env::args().collect();
     let mut i = 1;
+    // Reads the value that follows a `--flag <value>` argument.
+    let next_value = |i: &mut usize, flag: &str| -> String {
+        *i += 1;
+        match args.get(*i) {
+            Some(val) => val.clone(),
+            None => arg_error(&format!("{flag} requires a value")),
+        }
+    };
     while i < args.len() {
-        let arg = &args[i];
+        let arg = args[i].clone();
         if arg == "--quick" || arg == "-q" {
             quick = true;
         } else if arg == "--json" {
             is_json = true;
         } else if arg == "--pop" || arg == "-n" {
-            if i + 1 < args.len() {
-                i += 1;
-                if let Ok(val) = args[i].replace('_', "").parse::<usize>() {
-                    pop = val;
-                    custom_pop = true;
-                }
-            }
+            let raw = next_value(&mut i, &arg);
+            pop = parse_positive(&arg, &raw);
+            custom_pop = true;
         } else if let Some(val_str) = arg.strip_prefix("--pop=") {
-            if let Ok(val) = val_str.replace('_', "").parse::<usize>() {
-                pop = val;
-                custom_pop = true;
-            }
+            pop = parse_positive("--pop", val_str);
+            custom_pop = true;
+        } else if arg == "--rounds" {
+            let raw = next_value(&mut i, &arg);
+            rounds = parse_positive(&arg, &raw);
+        } else if let Some(val_str) = arg.strip_prefix("--rounds=") {
+            rounds = parse_positive("--rounds", val_str);
         } else if arg == "--dist" || arg == "-d" {
-            if i + 1 < args.len() {
-                i += 1;
-                match args[i].as_str() {
-                    "sequential" => dists.push("sequential"),
-                    "random" => dists.push("random"),
-                    "clustered" => dists.push("clustered"),
-                    "sparse" => dists.push("sparse"),
-                    "all" => {}
-                    other => eprintln!("Warning: unknown distribution '{other}', ignoring"),
-                }
+            let raw = next_value(&mut i, &arg);
+            match raw.as_str() {
+                "sequential" => dists.push("sequential"),
+                "random" => dists.push("random"),
+                "clustered" => dists.push("clustered"),
+                "sparse" => dists.push("sparse"),
+                "all" => {}
+                other => arg_error(&format!(
+                    "unknown distribution '{other}' (expected sequential, random, clustered, sparse, all)"
+                )),
             }
         } else if arg == "--set" {
             is_set = true;
@@ -1244,10 +1322,15 @@ fn parse_args() -> Config {
             println!(
                 "  --dist <D>, -d <D>     Target distribution (sequential, random, clustered, sparse, all)"
             );
+            println!(
+                "  --rounds <N>           Interleaved rounds per arm, median reported (default: {DEFAULT_ROUNDS})"
+            );
             println!("  --set                  Run ExpanseSet comparison instead of ExpanseMap");
             println!("  --json                 Output machine-readable JSON");
             println!("  --help, -h             Print help information");
             std::process::exit(0);
+        } else {
+            arg_error(&format!("unknown argument '{arg}'"));
         }
         i += 1;
     }
@@ -1265,6 +1348,7 @@ fn parse_args() -> Config {
         dists,
         is_set,
         is_json,
+        rounds,
     }
 }
 
@@ -1273,6 +1357,7 @@ fn print_json(
     dists: &[&str],
     summary_rows: &[(&str, Vec<ContainerResult>)],
     is_set: bool,
+    rounds: usize,
 ) {
     let mut out = String::new();
     out.push_str("{\n");
@@ -1283,6 +1368,7 @@ fn print_json(
     out.push_str("  },\n");
     out.push_str(&format!("  \"pop\": {pop},\n"));
     out.push_str(&format!("  \"is_set\": {is_set},\n"));
+    out.push_str(&format!("  \"rounds\": {rounds},\n"));
     out.push_str("  \"distributions\": [");
     for (i, d) in dists.iter().enumerate() {
         if i > 0 {
@@ -1336,8 +1422,8 @@ fn main() {
         );
         println!(" Instant Comparative Benchmark Harness: {headline}");
         println!(
-            " Population: N = {} keys | Zero statistical warmup overhead (<2s target)",
-            config.pop
+            " Population: N = {} keys | {} interleaved round(s), per-metric median reported",
+            config.pop, config.rounds
         );
         println!(
             "============================================================================================================"
@@ -1360,28 +1446,56 @@ fn main() {
         let keys = generate_keys(dist, config.pop, 0x0DDB_1A5E_5EED_0001);
         let (hit_probes, miss_probes) = generate_probes(&keys, probe_count, 0xBEEF_CAFE_1234_5678);
 
-        let mut results = if config.is_set {
+        // Arms in canonical reporting order. `print_json` maps position to
+        // container name, so this order is a contract with the JSON consumer;
+        // only the *execution* order below rotates.
+        // The libjudy arm is only pushed on unix targets.
+        #[cfg_attr(not(unix), allow(unused_mut))]
+        let mut arms: Vec<Box<dyn Fn() -> ContainerResult + '_>> = if config.is_set {
             vec![
-                bench_expanse_set(&keys, &hit_probes, &miss_probes),
-                bench_hashbrown_set(&keys, &hit_probes, &miss_probes),
-                bench_btreeset(&keys, &hit_probes, &miss_probes),
+                Box::new(|| bench_expanse_set(&keys, &hit_probes, &miss_probes)),
+                Box::new(|| bench_hashbrown_set(&keys, &hit_probes, &miss_probes)),
+                Box::new(|| bench_btreeset(&keys, &hit_probes, &miss_probes)),
             ]
         } else {
             vec![
-                bench_expanse_map(&keys, &hit_probes, &miss_probes),
-                bench_hashbrown_map(&keys, &hit_probes, &miss_probes),
-                bench_btreemap(&keys, &hit_probes, &miss_probes),
+                Box::new(|| bench_expanse_map(&keys, &hit_probes, &miss_probes)),
+                Box::new(|| bench_hashbrown_map(&keys, &hit_probes, &miss_probes)),
+                Box::new(|| bench_btreemap(&keys, &hit_probes, &miss_probes)),
             ]
         };
 
         #[cfg(unix)]
         if let Some(ref stock) = stock_opt {
             if config.is_set {
-                results.push(bench_judy1(stock, &keys, &hit_probes, &miss_probes));
+                arms.push(Box::new(|| {
+                    bench_judy1(stock, &keys, &hit_probes, &miss_probes)
+                }));
             } else {
-                results.push(bench_judyl(stock, &keys, &hit_probes, &miss_probes));
+                arms.push(Box::new(|| {
+                    bench_judyl(stock, &keys, &hit_probes, &miss_probes)
+                }));
             }
         }
+
+        let mut per_arm: Vec<Vec<ContainerResult>> = (0..arms.len())
+            .map(|_| Vec::with_capacity(config.rounds))
+            .collect();
+        for round in 0..config.rounds {
+            // Rotate which arm goes first each round. Running a fixed arm from
+            // the coldest position every time is a systematic bias, not noise,
+            // and no number of rounds averages it out.
+            //
+            // The rotation only covers every position evenly when `rounds` is a
+            // multiple of the arm count; at the default 3 rounds against 4 arms
+            // it reduces the position bias rather than cancelling it. Pass a
+            // multiple of the arm count when the residual matters.
+            for offset in 0..arms.len() {
+                let idx = (round + offset) % arms.len();
+                per_arm[idx].push((arms[idx])());
+            }
+        }
+        let results: Vec<ContainerResult> = per_arm.iter().map(|r| median_result(r)).collect();
 
         if !config.is_json {
             print_distribution_report(dist, config.pop, &results);
@@ -1390,7 +1504,13 @@ fn main() {
     }
 
     if config.is_json {
-        print_json(config.pop, &config.dists, &summary_rows, config.is_set);
+        print_json(
+            config.pop,
+            &config.dists,
+            &summary_rows,
+            config.is_set,
+            config.rounds,
+        );
         return;
     }
 

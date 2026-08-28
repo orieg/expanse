@@ -189,6 +189,38 @@ def derive_summary(results: Dict[str, Any]) -> List[str]:
     ]
 
 
+def describe_rounds(data: Dict[str, Any]) -> str:
+    """Describes the harness's round methodology from the artifact itself.
+
+    The round count is reported by the harness (`"rounds"` in its JSON), never
+    assumed here: a stamped constant would keep asserting a methodology after
+    the harness stopped implementing it, which is exactly how `--rounds` came
+    to be documented while the harness silently ignored it. Artifacts predating
+    the field get no round claim at all rather than a fabricated one.
+    """
+    rounds = data.get("rounds")
+    if not isinstance(rounds, int) or rounds < 1:
+        return "Round count not reported by this artifact."
+    if rounds == 1:
+        return "Single execution round per arm (no median)."
+    return f"{rounds} interleaved execution rounds per arm, per-metric median reported."
+
+
+def rounds_footer_lead(data: Dict[str, Any]) -> str:
+    """Names what the tables hold, for the no-confidence-interval footer.
+
+    Derived from the artifact for the same reason as `describe_rounds`: the
+    footer's "medians of interleaved rounds" is a methodology claim, and a
+    single-round run has no median to report.
+    """
+    rounds = data.get("rounds")
+    if not isinstance(rounds, int) or rounds < 1:
+        return "These measurements"
+    if rounds == 1:
+        return "Single-round measurements"
+    return f"Medians of {rounds} interleaved rounds"
+
+
 def render_markdown(
     data: Dict[str, Any], baseline: Optional[Dict[str, Any]] = None
 ) -> str:
@@ -208,7 +240,7 @@ def render_markdown(
         "## ⚡ Head-to-Head Benchmark Comparison Report",
         "",
         f"> **Target Population**: $N = {pop:,}$ keys · **System**: `{os_name}/{arch}`",
-        "> **Methodology**: Interleaved execution rounds, median reported. Latency in ns/op (lower is better), throughput in Mops/s (higher is better).",
+        f"> **Methodology**: {describe_rounds(data)} Latency in ns/op (lower is better), throughput in Mops/s (higher is better).",
         "",
     ]
 
@@ -282,7 +314,7 @@ def render_markdown(
     lines.extend(derive_summary(results))
     lines.extend([
         "",
-        "<sub>Medians of interleaved rounds — no sampling distribution, so no confidence "
+        f"<sub>{rounds_footer_lead(data)} — no sampling distribution, so no confidence "
         "interval and no §8.4 wall-clock claim rests on this table alone. The "
         "interval-bearing arms are in the BCa section (<code>scripts/bench_baseline.py</code>), "
         "when a baseline artifact is supplied.</sub>",
@@ -528,7 +560,7 @@ def self_test() -> int:
     for arm in artifact["arms"]:
         assert arm["ci_lower_ns"] <= arm["point_ns"] <= arm["ci_upper_ns"], arm
     # The head-to-head tables are unchanged by the appended section.
-    assert md_ci.startswith(md.split("<sub>Medians of interleaved rounds")[0])
+    assert md_ci.startswith(md.split(f"<sub>{rounds_footer_lead(data)}")[0])
     # A non-artifact JSON is rejected rather than rendered as an empty CI table.
     import tempfile as _tempfile
 
@@ -541,6 +573,30 @@ def self_test() -> int:
             assert "not a bench_baseline artifact" in str(exc), exc
         else:
             raise AssertionError("a foreign schema must be rejected loudly")
+    # 6. The methodology line and the footer lead are derived from the artifact,
+    #    never stamped — that stamping is how `--rounds` stayed documented while
+    #    the harness ignored it.
+    assert describe_rounds({"rounds": 5}) == (
+        "5 interleaved execution rounds per arm, per-metric median reported."
+    )
+    assert describe_rounds({"rounds": 1}) == "Single execution round per arm (no median)."
+    # An artifact that reports no round count must not have one invented for it.
+    for absent in ({}, {"rounds": None}, {"rounds": 0}, {"rounds": "3"}):
+        assert describe_rounds(absent) == "Round count not reported by this artifact.", absent
+    assert rounds_footer_lead({"rounds": 3}) == "Medians of 3 interleaved rounds"
+    assert rounds_footer_lead({"rounds": 1}) == "Single-round measurements"
+    assert rounds_footer_lead({}) == "These measurements"
+    md_5 = render_markdown({**data, "rounds": 5})
+    assert "5 interleaved execution rounds" in md_5
+    assert "Medians of 5 interleaved rounds" in md_5
+    # A single-round artifact must not be described as a median of rounds.
+    md_1 = render_markdown({**data, "rounds": 1})
+    assert "interleaved" not in md_1, md_1
+    assert "Medians" not in md_1, md_1
+    # An artifact carrying no round count gets no round claim at all.
+    assert "interleaved" not in render_markdown(data), (
+        "a report whose artifact carries no round count must not claim interleaved rounds"
+    )
 
     print("bench_report.py --self-test: all checks passed")
     return 0
