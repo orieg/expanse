@@ -127,6 +127,15 @@ precondition. On an OoO core the hint issues too late to hide the miss and the e
 µop is pure overhead. (SW prefetch *can* still help the RocksDB sequential-scan path
 #197, where stride is regular and distance is known.)
 
+*Scope of the finding:* this closes prefetch **inside one descent**, where the
+precondition genuinely cannot be met. It does not reach across *independent*
+lookups, whose chains have no dependency on one another — the batched descent
+([ALGORITHMS.md](ALGORITHMS.md) §4c, [#430](https://github.com/orieg/expanse/issues/430))
+issues its hint W-1 lane visits before it is consumed, which is a
+pre-determined distance. That is a different case, not a rebuttal of this one,
+and it is unmeasured: no wall-clock result for it exists on the reference host
+yet, so this section still records the only prefetch measurement there is.
+
 ### 1.6 LA57 / 5-level paging / 57-bit VA — **VALIDATED** (Intel side)
 
 *Usage:* `docs/ARCHITECTURE.md` §9 (why Expanse never steals bits 48–63 of a pointer).

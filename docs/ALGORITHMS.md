@@ -262,6 +262,46 @@ Two points the numbers carry that the summary does not:
 
 **The mechanism is wrong for its target.** The saving was ALU and load latency on the descent — largely hidden behind the ~5 dependent DRAM misses per random lookup that `docs/BENCHMARKING.md` attributes the 1.11×-vs-stock loss to. The cost is instructions on every arm, including the cache-resident ones the engine already wins. [#430](https://github.com/orieg/expanse/issues/430) targets the same weak arm by overlapping those misses across independent lookups; it does not touch the tag space and cannot incur this cost class.
 
+## 4c. Batched descent — overlapping misses across independent lookups
+
+`ExpanseMap::get_batch` / `ExpanseSet::contains_batch` answer N keys by advancing N descents **one level at a time** rather than running each to completion. `get.rs` keeps the single-key `walk_set_impl` / `walk_map_impl` exactly as they are: the batched driver is a separate `step_set` / `step_map` state machine, and nothing in it is reachable from the scalar walk. That separation is not tidiness — the tag-dispatch site is shared by every operation that decodes a tag, and both attempts to add structure there ([#433](https://github.com/orieg/expanse/pull/433), [#441](https://github.com/orieg/expanse/pull/441)) were paid for by inserts, churn, `strmap` and `bytesmap` as well as lookups.
+
+### Why the prefetch negative does not close this
+
+[HARDWARE.md](HARDWARE.md) §1.5 records software prefetch in the descent loops as a measured no-op, and gives the correct reason: level *n+1*'s address is not known until level *n*'s load returns, so the prefetch distance cannot be pre-determined and the Intel Optimization Manual §6.2 precondition is violated. That closes prefetch **inside one lookup**.
+
+It says nothing about N *independent* lookups. Their chains have no dependency on each other, so while lane *i* waits on its node load, lanes *i+1 … i+W-1* can issue theirs. The hint the batched driver issues is a different case from §1.5's: it is consumed W-1 lane visits of real work later, which *is* a pre-determined distance.
+
+### Driver shape
+
+One `step_*` call advances one lane by one branch level and returns either "descend again" or a terminal result. The driver holds `W` lanes and visits them round-robin; **a lane that terminates is refilled from the key stream immediately**, so the width — and with it the number of chains in flight — is held until the input is exhausted, and only the final drain runs narrow. `BranchU` is the one place the two walks differ in shape: the scalar walk chains consecutive `BranchU` levels inside its own loop, which is right there and wrong here, because yielding after each level is exactly what lets the other lanes issue their loads.
+
+The earlier form ([#294](https://github.com/orieg/expanse/pull/294)) ran fixed groups of 8 to completion, so a group could not advance past its deepest lane and its parallelism decayed as its shallow lanes finished.
+
+### Chain length and lanes in flight
+
+*(measured: deterministic lane-step count — `cargo test -p expanse-trie --release --lib batch_lane_occupancy_profile_cold_dram -- --ignored --nocapture`; arithmetic over the trie's own chain lengths, no timing, so the numbers are machine-independent; commit with this section)*
+
+4,000,000 random keys, 200,000 probes at a 50% hit rate — the population of `compare.rs`'s cold-DRAM arm:
+
+| | |
+|---|---|
+| Chain length | 3 levels (39.5%), 4 levels (60.5%); mean **3.61** |
+| Mean lanes in flight, `W = 8` | **7.21** refilling per group of 8 · **8.00** refilling from the stream |
+| Mean lanes in flight, `W = 32` | **28.84** per group · **32.00** from the stream |
+
+Two things follow, and neither is a speed claim.
+
+First, a *level* is not a *miss*. A `BranchB` level issues two dependent loads — the node, then the subexpanse subarray — inside one lane visit, and those two do not overlap with each other. Chain length in levels is therefore a lower bound on dependent loads per descent, which is why 3.61 levels is consistent with [BENCHMARKING.md](BENCHMARKING.md)'s attribution of the random-lookup gap to roughly five dependent misses. Splitting the `BranchB` hop across two lane visits would overlap that pair as well; it is not done here.
+
+Second, the refill is worth about 11% more lanes in flight at every width on this population, because chain lengths are tightly concentrated (only two distinct values) and the per-group form loses the difference between them. On a 100,000-key population, where essentially every chain is exactly 3 levels, the two forms are within 0.5% of each other — the refill earns nothing there.
+
+### What is not established
+
+Lanes in flight is the mechanism's own currency, not the user's. Whether more chains in flight converts into less elapsed time depends on how many of those loads actually miss to DRAM and on the core's outstanding-miss budget (L1 fill buffers / L2 MSHRs), neither of which this measurement sees. **The width is therefore shipped as a swept parameter**, `expanse_trie::get::BATCH_WIDTH`, and `benches/batch_lookup.rs` sweeps `W ∈ {1,2,3,4,6,8,10,12,16,32}` on the cold-DRAM population and on a cache-resident control. That sweep is wall clock and belongs on the reference host — see [BENCHMARKING.md](BENCHMARKING.md). Until it has run, no speed claim for the batched path is on the record.
+
+---
+
 ## 5. Benchmark Arm Mapping Reference
 
 | Traversal Path / Node Kernel | Primary Benchmark Arm in `benches/instructions.rs` |
