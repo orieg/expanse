@@ -86,7 +86,10 @@ pub unsafe extern "C" fn expanse_blob_map_insert(
             return false;
         }
     } else {
-        // SAFETY: data is non-null and valid for len bytes per caller contract.
+        if len > (isize::MAX as usize) {
+            return false;
+        }
+        // SAFETY: data is non-null and valid for len bytes per caller contract; len <= isize::MAX.
         unsafe { core::slice::from_raw_parts(data, len) }
     };
     map_ref.insert(key, slice, hot_meta).is_ok()

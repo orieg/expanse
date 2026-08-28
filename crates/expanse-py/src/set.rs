@@ -239,7 +239,9 @@ impl ExpanseSet {
 
 impl Default for ExpanseSet {
     fn default() -> Self {
-        Self::new(None).unwrap()
+        Self {
+            inner: InnerSet::new(),
+        }
     }
 }
 

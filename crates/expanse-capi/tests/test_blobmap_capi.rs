@@ -201,5 +201,12 @@ fn test_capi_null_safety() {
         assert!(!expanse_blob_map_compact(core::ptr::null_mut()));
         expanse_blob_map_clear(core::ptr::null_mut());
         expanse_blob_map_free(core::ptr::null_mut());
+
+        // Bounds safety: length > isize::MAX
+        let map = expanse_blob_map_new(4096);
+        let dummy_ptr = 0x1000 as *const u8;
+        let huge_len = (isize::MAX as usize) + 1;
+        assert!(!expanse_blob_map_insert(map, 10, dummy_ptr, huge_len, 0));
+        expanse_blob_map_free(map);
     }
 }
