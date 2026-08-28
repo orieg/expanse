@@ -51,6 +51,10 @@ BENCH_N_MAP: Dict[str, int] = {
     # Point Queries & Lookups
     "map_get": 50_000,
     "set_contains": 50_000,
+    # Batched descent (#430): same probe count as their scalar twins, so the
+    # per-key columns are directly comparable.
+    "map_get_batch": 50_000,
+    "set_contains_batch": 50_000,
     "map32_get": 500,
     # Range Scans & Ordered Traversal (100 windows * 100 span = 10,000 keys)
     "map_range": 10_000,
@@ -87,7 +91,15 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
     (
         "point_queries",
         "#### 🔍 Point Queries & Lookups",
-        {"map_get", "set_contains", "map32_get", "judyl_get", "judy1_test"},
+        {
+            "map_get",
+            "set_contains",
+            "map_get_batch",
+            "set_contains_batch",
+            "map32_get",
+            "judyl_get",
+            "judy1_test",
+        },
     ),
     (
         "range_scans",

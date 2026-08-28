@@ -204,6 +204,47 @@ fn map_get(built: (ExpanseMap, Vec<u64>)) -> u64 {
     black_box(sink)
 }
 
+// The batched descent (#430) over the same map and the same probe order as
+// `map_get`, so the two arms are directly comparable.
+//
+// A HIGHER count here is the expected shape, not a regression. Batching
+// overlaps dependent misses across independent lookups rather than removing
+// work; per `docs/BENCHMARKING.md` ("Which instrument fits the change") the
+// instrument that decides it is wall clock. This arm reports what the overlap
+// costs in retired instructions; it is not the verdict.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_map)]
+fn map_get_batch(built: (ExpanseMap, Vec<u64>)) -> u64 {
+    let (map, probes) = built;
+    // Stack-resident and hoisted out of the loop: the measured region is the
+    // descent, not an allocation.
+    let mut out = [None::<u64>; 256];
+    let mut sink = 0u64;
+    for chunk in probes.chunks(256) {
+        map.get_batch(chunk, &mut out[..chunk.len()]);
+        for v in &out[..chunk.len()] {
+            sink ^= v.unwrap_or(0);
+        }
+    }
+    // Leaked for the same reason as `map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// Set-flavor twin of `map_get_batch`, against `set_contains`.
+#[library_benchmark]
+#[bench::random(args = ("random",), setup = built_set)]
+fn set_contains_batch(built: (ExpanseSet, Vec<u64>)) -> u64 {
+    let (set, probes) = built;
+    let mut out = [false; 256];
+    let mut hits = 0u64;
+    for chunk in probes.chunks(256) {
+        hits += set.contains_batch(chunk, &mut out[..chunk.len()]) as u64;
+    }
+    core::mem::forget(set);
+    black_box(hits)
+}
+
 #[library_benchmark]
 #[bench::random(args = ("random",), setup = built_set)]
 fn set_contains(built: (ExpanseSet, Vec<u64>)) -> u64 {
@@ -534,6 +575,8 @@ library_benchmark_group!(
         map_ins_slot,
         map_get,
         set_contains,
+        map_get_batch,
+        set_contains_batch,
         map_churn,
         map_remove,
         map_iterate,
