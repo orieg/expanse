@@ -122,6 +122,44 @@ MECHANISM_EVIDENCE = re.compile(
 )
 
 
+# AGENTS.md 8.4: a claim over a continuous / sampling metric passes iff the BCa
+# CI lower bound clears the floor, not iff the point estimate does. A published
+# wall-clock ratio with no interval beside it is therefore an unfinished claim.
+#
+# Deliberately NARROW. It fires only on a ratio that is unambiguously about
+# elapsed time or throughput - the same line must carry a wall-clock unit or a
+# faster/slower word. Deterministic metrics are exempt by the same section:
+# Callgrind instruction counts and byte-per-key accounting are exact integers
+# with zero variance, so an interval on them would be meaningless.
+WALLCLOCK_RATIO = re.compile(r"(?<![\w.])\d+(?:\.\d+)?\s*(?:x|×)\b", re.IGNORECASE)
+
+WALLCLOCK_CONTEXT = re.compile(
+    r"(\bns\b|µs|\bus\b|\bms\b|ops/s|Mops|M/s|latency|throughput|"
+    r"faster|slower|speedup|wall.?clock)",
+    re.IGNORECASE,
+)
+
+# Exact-by-construction metrics: an interval is not merely unnecessary, it is
+# wrong. Callgrind counts and byte accounting do not vary between runs.
+DETERMINISTIC_METRIC = re.compile(
+    r"(instruction|callgrind|\bIr\b|B/key|B/k|bytes/key|byte accounting|"
+    r"symbol|deterministic|inst\b|density|"
+    r"memory|footprint|\bKB/|\bMB/|\bB/|resident|allocat|\bRAM\b|heap)",
+    re.IGNORECASE,
+)
+
+# What discharges the claim: an interval, a committed artifact it re-derives
+# from, or an explicit statement that no interval exists.
+INTERVAL_EVIDENCE = re.compile(
+    r"(\[\s*\d+(?:\.\d+)?\s*,\s*\d+(?:\.\d+)?\s*\]|"
+    r"\bBCa\b|confidence interval|\bCI\b|bca_bootstrap|"
+    r"results/baseline_|"
+    r"\bno interval\b|\bunsourced\b|\bsuperseded\b|\bretracted\b|"
+    r"\bindicative\b|\bunmeasured\b|\bprovisional\b|pending re-measurement)",
+    re.IGNORECASE,
+)
+
+
 def tracked_markdown(root: Path) -> list[Path]:
     out = subprocess.run(
         ["git", "ls-files", "--", "*.md", "docs/**/*.md", ".github/**/*.md"],
@@ -239,6 +277,45 @@ def check_mechanism_claims(lines: list[tuple[int, str]]) -> list[tuple[int, str]
     return out
 
 
+def check_interval_claims(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """A published wall-clock ratio must carry an interval, an artifact it
+    re-derives from, or an explicit statement that it has neither.
+
+    Paragraph-scoped, matching the mechanism rule: the interval is usually the
+    next cell or the sentence after. Deterministic metrics are skipped, since
+    §8.4 makes an interval on an exact integer meaningless rather than missing.
+    """
+    out: list[tuple[int, str]] = []
+    paras: list[list[tuple[int, str]]] = []
+    para: list[tuple[int, str]] = []
+    for n, text in lines:
+        if text.strip():
+            para.append((n, text))
+        else:
+            if para:
+                paras.append(para)
+            para = []
+    if para:
+        paras.append(para)
+
+    for idx, para in enumerate(paras):
+        window = para + (paras[idx + 1] if idx + 1 < len(paras) else [])
+        joined = " ".join(t for _, t in window)
+        if INTERVAL_EVIDENCE.search(joined):
+            continue
+        for n, text in para:
+            if not WALLCLOCK_RATIO.search(text):
+                continue
+            if not WALLCLOCK_CONTEXT.search(text):
+                continue
+            if DETERMINISTIC_METRIC.search(text):
+                continue
+            m = WALLCLOCK_RATIO.search(text)
+            out.append((n, m.group(0)))
+            break
+    return out
+
+
 def scan_text(path_label: str, text: str, denylist: list[str], provenance: bool) -> tuple[int, int]:
     lines = text.splitlines()
     kept = strip_fences(lines)
@@ -251,6 +328,9 @@ def scan_text(path_label: str, text: str, denylist: list[str], provenance: bool)
         fatal += 1
     for n, what in check_mechanism_claims(kept):
         print(f"::error file={path_label},line={n}::mechanism claim ({what!r}) with no counter evidence in its paragraph — AGENTS.md §8.9 wants a counter, a `results/baseline_*` reference, or an explicit 'unmeasured' / 'hypothesis' / 'cause unknown' qualifier")
+        fatal += 1
+    for n, what in check_interval_claims(kept):
+        print(f"::error file={path_label},line={n}::wall-clock ratio ({what!r}) published with no interval in its paragraph — AGENTS.md §8.4 gates continuous metrics on the BCa CI lower bound; cite `[lo, hi]`, a `results/baseline_*` artifact, or state plainly that no interval exists")
         fatal += 1
     warnings = 0
     if provenance:
@@ -293,6 +373,14 @@ def self_test() -> int:
     fatal, _ = scan_text("t.md", "The cost is branch misprediction. Hardware counters locate it:\n\n| cpu_core/branch-misses/ | 2.4e7 |\n", deny, False); assert fatal == 0, "evidence in the following paragraph must count"
     fatal, _ = scan_text("t.md", "An MLP story predicts smooth growth; cause unknown.\n", deny, False); assert fatal == 0, "an honest hedge must not be punished"
     fatal, _ = scan_text("t.md", "```\nmemory-latency-bound\n```\n", deny, False); assert fatal == 0, "fenced code is exempt"
+    # §8.4 wall-clock intervals. Narrow by design: deterministic metrics are
+    # exempt because an interval on an exact integer is wrong, not missing.
+    fatal, _ = scan_text("t.md", "Point lookups are 2.9x faster than BTreeMap at 1M keys.\n", deny, False); assert fatal == 1, "bare wall-clock ratio must fire"
+    fatal, _ = scan_text("t.md", "Random 1M get is 1.031x, BCa 95% CI [1.024, 1.038].\n", deny, False); assert fatal == 0, "an interval discharges the claim"
+    fatal, _ = scan_text("t.md", "libexpanse retires 0.55x the instructions of stock (Callgrind).\n", deny, False); assert fatal == 0, "instruction counts are exact"
+    fatal, _ = scan_text("t.md", "Grammar masks: Roaring wins 2.66x lower RAM at 1.9M/s.\n", deny, False); assert fatal == 0, "memory ratios are exact accounting"
+    fatal, _ = scan_text("t.md", "The layout is [values: u64 x C][keys: L x C] at 10 ns.\n", deny, False); assert fatal == 0, "a type layout is not a ratio"
+    fatal, _ = scan_text("t.md", "It was 1.11x slower; that figure is superseded.\n", deny, False); assert fatal == 0, "an explicit retraction discharges it"
     print("check_docs_hygiene.py --self-test: all checks passed")
     return 0
 
