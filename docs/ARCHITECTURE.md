@@ -374,6 +374,8 @@ with `IMMED_PAYLOAD_BYTES = 15` (`crates/expanse/src/types.rs:82`). The raw valu
 
 Valid tag-byte counts *(gated)*: 14 structural + 37 immediate = 51 of 256.
 
+The structural and immediate tags fall inside the 7-bit envelope `0x00..=0x7F` (with unused gaps at `0x0D..=0x0F` and `0x72..=0x7E`). Two attempts to expand tag dispatch (#433 hot-first prefilter at +4% to +9%, and #441 seven `BranchL3` level-specialised tags at +26% to +44%) showed that adding dispatch arms or branching costs significantly more in retired instructions across all operations than any unquantified ALU or load latency it was intended to save.
+
 #### 10.3.3 32-bit tag spaces
 
 `Tag32` (`crates/expanse/src/types32.rs:59`), the design-document enumeration:

@@ -73,6 +73,7 @@ Expanse uses an adaptive least-compressed-form ladder with **1-index hysteresis*
      - For $KB = 4, \text{pop} = 4$: 128-bit vector compare (`_mm_cmpeq_epi32`).
      - For remaining populations: $O(\log N)$ binary probe with unrolled midpoint steps.
    - `EdgeTag::Branch*`: Decode digit at current level (`key >> (8 * (level - 1)) & 0xFF`), scan branch digits, and descend.
+   > **Dispatch Structure & Tag Space Findings**: Two attempts to add structure to tag dispatch measured worse in instruction counts, at costs scaling with the number of arms added: the hot-first prefilter (#433) at +4% to +9%, and seven `BranchL3` level-specialised tags (#441) at +26% to +44% across 15 arms. The cost falls on every operation that decodes a tag — inserts, churn, `strmap`, and `bytesmap` regressed too, though none could benefit from a constant digit shift. The intended saving was ALU and load latency, which was never quantified; the measured instruction cost is large. On the available evidence, adding arms to tag dispatch is not worth the arithmetic it removes.
 3. **OCC Read Validation**: If concurrent mode, verify seqlock version matches without write-lock bit.
 
 ### 3.2 Key Mutation (`insert` / `mutate_map`)
