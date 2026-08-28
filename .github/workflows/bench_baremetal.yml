@@ -532,6 +532,11 @@ jobs:
           BENCH_PACKAGE: ${{ needs.resolve.outputs.bench_package }}
           BENCH_TARGET: ${{ needs.resolve.outputs.bench_target }}
           BENCH_ENV: ${{ needs.resolve.outputs.bench_env }}
+          # Anonymized CPU/kernel description derived in `sysinfo` (never a
+          # hostname) plus this run's URL: the two provenance fields §8.7
+          # requires on every published wall-clock number.
+          HOST_DESC: ${{ steps.sysinfo.outputs.host_desc }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
           export LD_LIBRARY_PATH="$HOME/.local/lib:$LD_LIBRARY_PATH"
@@ -673,6 +678,11 @@ jobs:
           # PASS 2: Head Branch (Candidate)
           # ====================================================================
           echo "=== [Pass 2] Benchmarking Head Ref: $REF ==="
+          # This runner keeps target/ between jobs, so target/criterion can hold
+          # arms from an earlier suite at an earlier commit. The harvest below
+          # excludes anything older than this stamp rather than stamping stale
+          # numbers with this run's commit.
+          CRITERION_SINCE=$(date +%s)
           git checkout "$REF"
           cargo build --release -p expanse-capi
           export EXPANSE_CDYLIB="$PWD/target/release/libexpanse.so"
@@ -779,6 +789,44 @@ jobs:
           fi
 
           # ====================================================================
+          # Wall-Clock BCa Confidence Intervals
+          # ====================================================================
+          # Criterion has always written per-sample data to
+          # target/criterion/**/new/sample.json; nothing read it, so no
+          # wall-clock claim could be gated on an interval (#403 Track 0).
+          # Harvest it here into the artifact shape `results/baseline_*.json`
+          # uses, and render the interval table into the same comment as the
+          # rest of the report. Callgrind-only suites produce no criterion
+          # directory and are skipped explicitly rather than silently.
+          if [ -d target/criterion ]; then
+            echo "=== Harvesting criterion samples -> BCa 95% CIs ==="
+            python3 scripts/bench_baseline.py --harvest \
+              --criterion-dir target/criterion \
+              --newer-than "$CRITERION_SINCE" \
+              --allow-empty \
+              --suite "$SUITE" \
+              --host-desc "$HOST_DESC" \
+              --run-id "$RUN_URL" \
+              --out "baseline-$SUITE.json" \
+              > wallclock-ci.md
+            # --allow-empty writes nothing when the suite ran no criterion arms
+            # (a Callgrind-only suite on a runner whose target/ still holds
+            # another suite's output); drop the empty render with it.
+            if [ ! -f "baseline-$SUITE.json" ]; then
+              rm -f wallclock-ci.md
+            else
+              # Fold it into head-to-head.md so it reaches the comment through
+              # the existing --head-to-head path as well as the fallback below.
+              if [ -f head-to-head.md ]; then
+                printf '\n' >> head-to-head.md
+              fi
+              cat wallclock-ci.md >> head-to-head.md
+            fi
+          else
+            echo "No target/criterion directory: suite '$SUITE' runs no criterion arms, so no wall-clock interval is claimed."
+          fi
+
+          # ====================================================================
           # Report Generation Step
           # ====================================================================
           # The sticky comment must not print a Base Ref for a comparison
@@ -856,15 +904,19 @@ jobs:
             # leaving the report content on stdout and the comment empty.
             {
               echo "BENCH_REPORT<<EOF"
+              # head-to-head.md carries the comparative tables and, when the
+              # suite has criterion arms, the BCa interval table appended above.
+              # Emitted once here so every suite shape reaches the comment with
+              # its interval, not only the `comparative` branch below.
+              if [ -f head-to-head.md ]; then
+                cat head-to-head.md
+                echo ""
+              fi
               if [ -f head-vs-stock.txt ]; then
                 echo '```text'
                 cat head-vs-stock.txt
                 echo '```'
               elif [ -f comparative.txt ]; then
-                if [ -f head-to-head.md ]; then
-                  cat head-to-head.md
-                  echo ""
-                fi
                 echo '```text'
                 cat comparative.txt
                 echo '```'
@@ -918,6 +970,20 @@ jobs:
               cat system-load.md >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
+
+      # The baseline artifact is the committable half of a wall-clock claim
+      # (AGENTS.md section 8.7): a published interval must resolve to a
+      # committed `results/baseline_*.json`. The runner cannot commit to a
+      # protected branch, so the artifact is uploaded and the maintainer moves
+      # it into `results/` in the PR that makes the claim.
+      - name: Upload wall-clock baseline artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wallclock-baseline-${{ needs.resolve.outputs.suite }}-${{ github.run_id }}
+          path: baseline-*.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       # Terminal comment. `if: always()` so every outcome overwrites this
       # suite's own pending marker: a permanent ⏳ is exactly the "renders as

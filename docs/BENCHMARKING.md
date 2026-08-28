@@ -242,8 +242,146 @@ python3 scripts/bench_report.py --pop 100000 --format json --output bench_result
 | `--output <file>` | Output destination file path | `stdout` |
 | `--rounds <N>` | Interleaved benchmark rounds (median reported) | `3` |
 | `--input <file>` | Render tables from precomputed JSON artifact | `None` |
+| `--baseline <file>` | Append the BCa interval table from a `results/baseline_*.json` (see below) | `None` |
 | `--self-test` | Run unit-style checks on the rendering helpers (parity band vs legend, derived summary) and exit | `false` |
 
+This harness reports the **median of interleaved rounds**. A median of three
+rounds is not a sampling distribution, so its tables carry no confidence
+interval and cannot on their own support a rule-12 wall-clock claim; the report
+says so in print. The interval-bearing arms come from the criterion suites via
+`scripts/bench_baseline.py`, and `--baseline` folds that table into the same
+report.
+
+## Wall-clock baselines and CI gating (`scripts/bench_baseline.py`)
+
+Rule 12 gates a wall-clock claim on a BCa interval, and rule 15 requires the
+number to resolve to a committed artifact. `scripts/bench_baseline.py` is the
+path between them:
+
+```
+target/criterion/**/<run>/sample.json   ->  per-iteration samples
+                                        ->  BCa 95% CI (scripts/bca_bootstrap.py)
+                                        ->  results/baseline_<suite>.json
+                                        ->  interval table in the PR comment
+                                        ->  gate on the interval, not the point
+```
+
+### Where the samples come from
+
+Criterion 0.8 writes four files per arm under
+`target/criterion/<directory_name>/<run>/`, where `<run>` is `new` for a plain
+`cargo bench` and the `--save-baseline` name otherwise (criterion copies `new/`
+into the saved directory verbatim):
+
+| File | Contents |
+|---|---|
+| `benchmark.json` | `group_id`, `function_id`, `value_str`, `throughput`, `full_id`, `directory_name`, `title` |
+| `sample.json` | `sampling_mode` (`Linear`/`Flat`), `iters[]`, `times[]` — **the raw data** |
+| `estimates.json` | `mean`/`median`/`median_abs_dev`/`slope`/`std_dev`, each with criterion's own bootstrap interval |
+| `tukey.json` | four outlier fences |
+
+`times[i]` is the wall time for `iters[i]` iterations, so the per-iteration
+sample is `times[i] / iters[i]` — the same quotient criterion analyses
+internally. The harvest therefore reproduces criterion's own
+`mean.point_estimate` exactly, and asserts that equality per arm: a mismatch
+means the on-disk layout moved, and the harvest fails rather than publishing an
+interval over misparsed numbers. **No bench had to change to expose samples** —
+criterion has always written `sample.json`; nothing read it.
+
+### The artifact
+
+`results/baseline_<suite>.json` (`schema: expanse.baseline.v1`) records, per
+arm: the raw `samples_ns`, `n`, `sampling_mode`, the point estimate, the BCa
+bounds and width, criterion's own interval for cross-reference, and a `status`.
+Above it sit `provenance` (anonymised `host_description`, `commit`, `run_id`,
+load average at harvest) and `statistics` (estimator, method, `confidence`,
+`num_resamples`, `seed`, `min_n`). The raw samples are kept deliberately: they
+make the interval recomputable by anyone with the file, which is what turns a
+provenance tag into a verifiable one. `--summary-only` drops them and forfeits
+that.
+
+`results/quick/` and `results/scratch/` are gitignored per rule 13; the tool
+additionally refuses to write a `--fixture` artifact to a canonical
+`results/baseline_*.json` path.
+
+### Gating
+
+Verdicts are exactly the rule-12 vocabulary. For a `higher_is_better` metric a
+claim passes iff the **CI lower bound** clears the floor; for `lower_is_better`
+(criterion's ns/iter) the same rule applied to the interval's unfavourable end
+is: pass iff the **CI upper bound** clears the ceiling. Neither gates on the
+point estimate.
+
+| Verdict | When |
+|---|---|
+| `PASS` | the interval's unfavourable bound clears the threshold |
+| `INTERMEDIATE_floor_within_ci` | the point clears it, the interval spans it |
+| `BOUNDARY_RESULT` | the point does not clear it, the interval spans it |
+| `FAIL` | the whole interval is on the failing side |
+| `INSUFFICIENT_SAMPLES` | `n` below `--min-n`; reported, never silently passed |
+
+A head-vs-baseline speedup is a ratio of two independently sampled means, so
+`--against` uses a two-sample BCa (`bca_bootstrap_ratio_ci`) and gates the
+speedup's CI lower bound against `--floor-speedup`. Speedup is defined so
+higher is always better, which makes rule 12 apply verbatim.
+
+`--num-resamples` below 1,000 is rejected rather than defaulted around, and
+`n < 3` cannot form a jackknife at all — both surface as errors or an explicit
+`INSUFFICIENT_SAMPLES` row.
+
+### Stale arms on a persistent runner
+
+The bare-metal runner keeps `target/` between jobs, so `target/criterion` can
+hold arms from an earlier suite at an earlier commit. `--newer-than <epoch>`
+excludes anything predating the run and names what it skipped; the workflow
+stamps that timestamp at the start of the head pass. `--allow-empty` then lets a
+suite with no criterion arms say so and write nothing, instead of failing or
+publishing someone else's numbers under this run's commit.
+
+### Usage
+
+```bash
+# on the reference host, after `cargo bench` has run a criterion suite
+python3 scripts/bench_baseline.py --harvest \
+    --criterion-dir target/criterion \
+    --suite comparative \
+    --host-desc "<CPU model> (<threads> threads, <L3> L3, <kernel>)" \
+    --run-id "<CI run URL>" \
+    --out results/baseline_comparative.json
+
+# render the interval table
+python3 scripts/bench_baseline.py --input results/baseline_comparative.json
+
+# gate declared claims, non-zero exit on anything that is not PASS
+python3 scripts/bench_baseline.py --input results/baseline_comparative.json \
+    --floors docs/benchmarks/floors/<issue>.json --fail-on-gate
+
+# gate a head run's speedup against the committed baseline
+python3 scripts/bench_baseline.py --input head.json \
+    --against results/baseline_comparative.json --floor-speedup 1.05 --fail-on-gate
+```
+
+A floors file declares what the gate stands behind:
+
+```json
+{"floors": [{"arm": "map_get/random/1000000/expanse",
+             "direction": "lower_is_better",
+             "threshold_ns": 95.0,
+             "claim": "point lookup stays under the 95 ns/iter ceiling"}]}
+```
+
+A floor naming an arm the run did not produce is a `FAIL`, not a skip.
+
+### Populating a baseline
+
+`/bench comparative` (or any suite with criterion arms) harvests automatically:
+the bare-metal workflow runs the harvest after the benches, folds the interval
+table into the PR comment, and uploads `baseline-<suite>.json` as a workflow
+artifact. The maintainer downloads it, moves it to
+`results/baseline_<suite>.json`, and commits it in the PR that makes the claim —
+the runner cannot commit to a protected branch. `host_description` comes from
+the runner's own `lscpu`/`uname` (CPU model and kernel, never a hostname) and
+`run_id` is the run URL, satisfying rule 15 on both halves.
 
 ## Reading perf results in a PR
 
