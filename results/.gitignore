@@ -1,0 +1,6 @@
+# AGENTS.md §8.5 — scratch isolation. Quick, smoke and developmental sweeps
+# write here and are never committed; the canonical, citable baselines are the
+# tracked `results/baseline_*.json` artifacts next to this file, produced by
+# `scripts/bench_baseline.py --harvest` on the dedicated reference host.
+quick/
+scratch/
