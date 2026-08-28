@@ -15,7 +15,7 @@ Named for Judy's defining structural invariant: **partitioning digital trees by 
 **Both 64-bit and 32-bit targets are supported.** The 64-bit engine is the primary surface; a parallel real 32-bit trie (`trie32`/`set32`/`map32`/`blobmap32`, shipped in #230) compiles unconditionally, and on 32-bit targets the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, etc.). `lib.rs` carries a `compile_error!` that fires only on targets that are **neither** 64- nor 32-bit.
 
 ### Workspace Structure
-- **`crates/expanse`** (`package: expanse-trie`): Core algorithmic engine `#![no_std]` (with `extern crate alloc`).
+- **`crates/expanse`** (`package: expanse-trie`): Core algorithmic engine. **`std` by default, `no_std` supported** — `default = ["std"]`, and `lib.rs` is `#![cfg_attr(not(feature = "std"), no_std)]` with `extern crate alloc`. The `no_std` build is not aspirational: CI runs `cargo check -p expanse-trie --no-default-features` against `riscv32imac`, `riscv32imc` and `thumbv7em-none-eabihf`, so a change that needs `std` must sit behind `#[cfg(feature = "std")]` or it breaks those targets.
 - **`crates/expanse-capi`** (`package: expanse-capi`): C ABI shared (`libexpanse.so` / `expanse.dll` / `libexpanse.dylib`) and static (`libexpanse.a` / `expanse.lib`) libraries providing both modern `expanse_*` and legacy `Judy*` symbols.
 - **`crates/expanse-py`**: PyO3 native Python extension.
 - **`crates/expanse-node`**: napi native Node.js addon.

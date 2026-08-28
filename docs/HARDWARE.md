@@ -345,6 +345,17 @@ POPCNT-based `Bitmap256` rank/select is the correct design choice**; a PEXT path
 minimum need a Zen1/Zen2 exclusion. (The "~300-cycle" figure sometimes quoted for
 PEXT/PDEP is *not* substantiated — the measured value is 18–19 cycles.)
 
+**Detection consequence.** That exclusion is why `bmi2_rt::detect` reads raw CPUID leaves rather than using
+`is_x86_feature_detected!`. The macro answers only *is BMI2 present*; the exclusion needs *present, but this
+is an AMD family where `PEXT`/`PDEP` are microcoded* — a vendor string from leaf 0 plus a family check. No
+feature-flag query can express that, so raw leaves are required on any target where BMI2 dispatch runs.
+
+Two knock-on effects, both intended. Raw CPUID is `asm!`, which Miri cannot execute, so the detect modules
+are `#[cfg(all(target_arch = "x86_64", not(miri)))]` with `available() -> false` stubs under Miri — the
+portable path is what Miri verifies (#468). And `is_x86_feature_detected!` is `std`-only, so raw CPUID also
+keeps the x86-64 dispatch usable in a `no_std` build; that is a smaller reason than the family check, and
+not the one to cite.
+
 ---
 
 ## 7. References
