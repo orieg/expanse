@@ -213,7 +213,7 @@ adoption must be measured per-microarch and guarded.
 
 ### 2.6 GitHub-hosted AArch64 runner capability census (Neoverse N2 / Cobalt 100) — **VALIDATED**
 
-*Context:* Issue #397 established the `test-aarch64` native execution and Callgrind tracking lane on GitHub-hosted ARM64 Linux runners (`ubuntu-24.04-arm`).
+*Context:* Issue #397 established the `test-aarch64` native execution and Callgrind regression-gating lane on GitHub-hosted ARM64 Linux runners (`ubuntu-24.04-arm`).
 
 *Runner hardware census* — everything in this list is read from the runner by the `test-aarch64` job, which **asserts** the first three so a fleet rotation fails the job rather than silently invalidating this section *(measured: GitHub `ubuntu-24.04-arm` runner, [run 33124978928](https://github.com/orieg/expanse/actions/runs/33124978928), ref `ci/aarch64-execution-lane-397`)*:
 
@@ -308,7 +308,7 @@ capability census & 64-byte cache line (§2.6), 32-byte embedded alignment for c
 - `bits.rs` NEON SAFETY comment — "NEON guaranteed by Rust's aarch64 `+neon` baseline;
   FEAT_AdvSIMD is architecturally optional but universally present" (§2.1).
 
-**Documentation status:** ESP-IDF component package, RV32 bare-metal cross-compilation lanes, and AArch64 native execution / Callgrind tracking documented in `README.md`, `docs/PACKAGING.md`, `docs/CI.md`, and `components/expanse/README.md`.
+**Documentation status:** ESP-IDF component package, RV32 bare-metal cross-compilation lanes, and AArch64 native execution / Callgrind regression gating documented in `README.md`, `docs/PACKAGING.md`, `docs/CI.md`, and `components/expanse/README.md`.
 
 ---
 
