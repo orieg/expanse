@@ -276,6 +276,33 @@ JSON (`"rounds"`), and the generated report's methodology line is rendered from
 that field rather than stamped, so the two cannot drift apart. The harness
 rejects any argument it does not recognise (exit `2`) rather than ignoring it.
 
+### Reading the generated tables
+
+Each distribution renders two tables rather than one nine-column row (#450):
+
+- **Measurements** — absolute values, one row per container, every header
+  carrying its unit *and* its direction (`ns` and `B/key` are lower-better,
+  `Mops/s` is higher-better). Point-lookup throughput is not printed alongside
+  point-lookup latency: they are reciprocals of one measurement pointing in
+  opposite directions, and the latency column is the one the comparison divides.
+- **Point-lookup comparison** — one row per baseline, so the baseline anchor is
+  the row label instead of a `Baseline` cell that moves column-to-column.
+
+Every ratio is `subject ÷ baseline` in the baseline's own unit, and the header
+says so — the same division as `results/baseline_vs_libjudy.json`
+(`"denominator_arm": "stock"`), so a figure means the same thing here and in
+[Measured: libexpanse vs stock libjudy](#measured-libexpanse-vs-stock-libjudy).
+On a lower-is-better column a ratio **below** 1.000 is the win; the marker is
+chosen from the column's declared direction, never from whether the ratio
+exceeds 1. An arm the run did not measure renders as *not measured* — never as
+`0.00`, and never as a figure carried in from another run (§8.1).
+
+These tables carry no confidence interval (median of interleaved rounds is not
+a sampling distribution), so a ratio inside the ±5% parity band is marked
+parity here even where the BCa interval in `results/baseline_vs_libjudy.json`
+resolves the same arm to a loss. Pass `--baseline results/baseline_*.json` to
+append the interval-bearing section.
+
 ### Usage
 
 ```bash
@@ -317,7 +344,7 @@ python3 scripts/bench_report.py --pop 100000 --format json --output bench_result
 | `--rounds <N>` | Interleaved benchmark rounds per arm, per-metric median reported (arm order rotates each round) | `3` |
 | `--input <file>` | Render tables from precomputed JSON artifact | `None` |
 | `--baseline <file>` | Append the BCa interval table from a `results/baseline_*.json` (see below) | `None` |
-| `--self-test` | Run unit-style checks on the rendering helpers (parity band vs legend, derived summary) and exit | `false` |
+| `--self-test` | Run unit-style checks on the rendering helpers (parity band vs legend, ratio direction and marker grading, unmeasured-arm rendering, derived summary) and exit | `false` |
 
 This harness reports the **median of interleaved rounds**. A median of three
 rounds is not a sampling distribution, so its tables carry no confidence

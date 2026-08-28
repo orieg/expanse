@@ -111,65 +111,166 @@ def run_benchmark_harness(
 # Parity band shared by the ratio markers and the printed legend ("⚪ Parity
 # (±5%)"). The code and the legend must agree: the legend is the published
 # contract, and a wider band would hide real losses behind a parity marker.
+# The band is applied to the reported ratio itself, so "±5%" means the printed
+# `subject ÷ baseline` sits inside [0.95, 1.05] — the same interval the legend
+# names.
 PARITY_BAND = 0.05
+
+# Rendered in place of any cell whose input the run did not supply. A missing
+# input must never reach the reader as a number, and `0.00` is a number (§8.1).
+NOT_MEASURED = "*not measured*"
+
+# Column-direction labels. Every header that carries a measurement carries one
+# of these, because the row mixes ns (lower better), Mops/s (higher better) and
+# B/key (lower better) and nothing else marks the switch (#450, problem 2).
+LOWER_BETTER = "lower better"
+HIGHER_BETTER = "higher better"
+
+# Markers, and the word each one stands for. The word is derived from the
+# classification, never written per row.
+MARKERS = {"win": "🟢", "parity": "⚪", "loss": "🔴"}
+
+
+def ratio_header(subject: str, baseline: str, unit: str, lower_is_better: bool) -> str:
+    """Spells the division out in the column header, the way `perf_report.py`
+    does for the symmetric-twin table.
+
+    A bare ratio under an explicit division cannot be read backwards. Left
+    implicit, `1.11x` in this table meant "Expanse 11% faster" while the same
+    figure for the same operation against the same competitor meant "11%
+    slower" in `docs/BENCHMARKING.md` (#450, problem 1). The division here is
+    subject-over-baseline, matching `results/baseline_vs_libjudy.json`
+    (`"denominator_arm": "stock"`), so one number now reads one way repo-wide.
+    """
+    direction = LOWER_BETTER if lower_is_better else HIGHER_BETTER
+    side = "faster" if lower_is_better else "better"
+    hand = "below" if lower_is_better else "above"
+    return (
+        f"{subject} &divide; {baseline} ({unit}, {direction}; "
+        f"{hand} 1.000 = {subject} {side})"
+    )
 
 
 def classify_ratio(
-    expanse_val: float,
+    subject_val: float,
     baseline_val: float,
-    higher_is_better: bool = True,
+    lower_is_better: bool,
     noise_floor: float = PARITY_BAND,
 ) -> Optional[Tuple[str, float]]:
-    """Classifies a measured pair as ('win'|'parity'|'loss', ratio), or None
-    when either side is missing/non-positive."""
-    if expanse_val <= 0.0 or baseline_val <= 0.0:
+    """Classifies a measured pair as ('win'|'parity'|'loss', subject/baseline).
+
+    The returned ratio is always `subject / baseline`, whatever the metric
+    measures — that is the division the column header names, so the printed
+    number cannot be read backwards.
+
+    Whether that ratio is a win is a *separate* question, and it is answered by
+    `lower_is_better` alone: on a latency or bytes-per-key column the win is a
+    ratio below 1, on a throughput column it is a ratio above 1. Grading by
+    "above 1 is good" inverts the marker on every lower-is-better column, which
+    is why this argument is required rather than defaulted.
+
+    Returns None when either side is missing or non-positive: a pair that was
+    not measured must not render as a ratio (§8.1).
+    """
+    if subject_val <= 0.0 or baseline_val <= 0.0:
         return None
-    if higher_is_better:
-        ratio = expanse_val / baseline_val
-    else:
-        ratio = baseline_val / expanse_val
-    if ratio >= (1.0 + noise_floor):
+    ratio = subject_val / baseline_val
+    # Margin in the metric's own direction: positive means the subject is ahead.
+    margin = (1.0 - ratio) if lower_is_better else (ratio - 1.0)
+    if margin >= noise_floor:
         return "win", ratio
-    if ratio <= (1.0 - noise_floor):
+    if margin <= -noise_floor:
         return "loss", ratio
     return "parity", ratio
 
 
-def fmt_speedup(
-    expanse_val: float,
+def fmt_ratio(
+    subject_val: float,
     baseline_val: float,
-    higher_is_better: bool = True,
+    lower_is_better: bool,
     noise_floor: float = PARITY_BAND,
 ) -> str:
-    """Computes and formats a speedup multiplier."""
-    classified = classify_ratio(expanse_val, baseline_val, higher_is_better, noise_floor)
+    """Formats `subject / baseline` with the marker its column's direction earns."""
+    classified = classify_ratio(subject_val, baseline_val, lower_is_better, noise_floor)
     if classified is None:
-        return "—"
+        return NOT_MEASURED
     kind, ratio = classified
-    if kind == "win":
-        return f"**{ratio:.2f}x** 🟢"
-    if kind == "loss":
-        return f"{ratio:.2f}x 🔴"
-    return f"{ratio:.2f}x ⚪"
+    number = f"**{ratio:.3f}x**" if kind == "win" else f"{ratio:.3f}x"
+    return f"{number} {MARKERS[kind]}"
+
+
+def fmt_verdict(
+    subject_val: float,
+    baseline_val: float,
+    lower_is_better: bool,
+    subject_label: str,
+    noise_floor: float = PARITY_BAND,
+) -> str:
+    """Spells the classification out in words, so the marker is not the only
+    thing carrying the direction."""
+    classified = classify_ratio(subject_val, baseline_val, lower_is_better, noise_floor)
+    if classified is None:
+        return NOT_MEASURED
+    kind, _ = classified
+    if kind == "parity":
+        return f"{MARKERS[kind]} parity (±{noise_floor * 100:.0f}%)"
+    word = ("faster" if kind == "win" else "slower") if lower_is_better else (
+        "ahead" if kind == "win" else "behind"
+    )
+    return f"{MARKERS[kind]} {subject_label} {word}"
+
+
+def fmt_metric(
+    container: Dict[str, Any], key: str, *, digits: int = 2, bold: bool = False
+) -> str:
+    """Formats one measured metric, or says it was not measured.
+
+    `container.get(key, 0.0)` used to render an absent metric as `0.00`, which
+    reads as a measurement of zero rather than as an absence (§8.1).
+    """
+    value = container.get(key)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return NOT_MEASURED
+    value = float(value)
+    if value != value or value <= 0.0:  # NaN or non-positive
+        return NOT_MEASURED
+    text = f"{value:.{digits}f}"
+    return f"**{text}**" if bold else text
+
+
+SUBJECT_LABEL = "`ExpanseMap`"
+
+# Competitor arms in reporting order: JSON key, printed label. The subject
+# (`expanse`) is not in this list.
+BASELINE_ARMS = [
+    ("btree", "`std::BTreeMap`"),
+    ("hashbrown", "`hashbrown::HashMap`"),
+    ("libjudy", "`libjudy (stock JudyL)`"),
+]
+
+
+def _lookup_ns(container: Optional[Dict[str, Any]]) -> float:
+    """Point-lookup latency, or 0.0 when the arm did not report one. 0.0 is
+    only ever used as the "no pair" sentinel `classify_ratio` rejects; it is
+    never printed (that is what `fmt_metric` is for)."""
+    if not isinstance(container, dict):
+        return 0.0
+    value = container.get("lookup_ns")
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
 
 
 def derive_summary(results: Dict[str, Any]) -> List[str]:
     """Derives win/parity/loss counts for point-lookup latency strictly from
     the parsed results. No prose beyond the tallies: the tables carry the data."""
-    baselines = [
-        ("btree", "`std::BTreeMap`"),
-        ("hashbrown", "`hashbrown::HashMap`"),
-        ("libjudy", "`libjudy (stock JudyL)`"),
-    ]
     lines: List[str] = []
-    for key, label in baselines:
+    for key, label in BASELINE_ARMS:
         tally = {"win": 0, "parity": 0, "loss": 0}
         total = 0
         for res in results.values():
-            exp_lkp = res.get("expanse", {}).get("lookup_ns", 0.0)
-            other = res.get(key) or {}
             classified = classify_ratio(
-                exp_lkp, other.get("lookup_ns", 0.0), higher_is_better=False
+                _lookup_ns(res.get("expanse")),
+                _lookup_ns(res.get(key)),
+                lower_is_better=True,
             )
             if classified is None:
                 continue
@@ -240,74 +341,88 @@ def render_markdown(
         "## ⚡ Head-to-Head Benchmark Comparison Report",
         "",
         f"> **Target Population**: $N = {pop:,}$ keys · **System**: `{os_name}/{arch}`",
-        f"> **Methodology**: {describe_rounds(data)} Latency in ns/op (lower is better), throughput in Mops/s (higher is better).",
+        f"> **Methodology**: {describe_rounds(data)}",
+        "> **Reading the columns**: every measurement header carries its unit and its "
+        f"direction (`ns` and `B/key` are {LOWER_BETTER}, `Mops/s` is {HIGHER_BETTER}). "
+        "Every ratio header names the division it prints, and each ratio is graded by "
+        "its own column's direction — not by whether it exceeds 1.",
         "",
     ]
 
-    has_libjudy = any(
-        res.get("libjudy") is not None for res in results.values()
-    )
-
     for dist, res in results.items():
         exp = res.get("expanse", {})
-        hashb = res.get("hashbrown", {})
-        btree = res.get("btree", {})
-        judy = res.get("libjudy")
 
         lines.extend([
             f"### Distribution: `{dist}`",
             "",
+            "**Measurements** — absolute values only, one row per container.",
+            "",
+            f"| Container | Point Lookup (ns, {LOWER_BETTER}) | Cold Insert (Mops/s, {HIGHER_BETTER}) "
+            f"| Full Iter (Mops/s, {HIGHER_BETTER}) | Range Scan (Mops/s, {HIGHER_BETTER}) "
+            f"| Memory (B/key, {LOWER_BETTER}) |",
+            "|---|---:|---:|---:|---:|---:|",
         ])
 
-        if has_libjudy and judy is not None:
+        # Point-lookup throughput (`lookup_mops`) is the reciprocal of
+        # `lookup_ns` — one measurement rendered twice, in two units, pointing
+        # in opposite directions (#450, problem 3). The latency column is kept
+        # because it is what the comparison table below divides.
+        lines.append(
+            f"| **{SUBJECT_LABEL}** | {fmt_metric(exp, 'lookup_ns', bold=True)} "
+            f"| {fmt_metric(exp, 'insert_mops', bold=True)} | {fmt_metric(exp, 'iter_mops', bold=True)} "
+            f"| {fmt_metric(exp, 'range_mops', bold=True)} | {fmt_metric(exp, 'bytes_per_key', bold=True)} |"
+        )
+        for key, label in BASELINE_ARMS:
+            arm = res.get(key)
+            if not isinstance(arm, dict):
+                continue
+            # Range scan is not an operation these containers expose; that is a
+            # structural absence, distinct from a metric this run did not take.
+            range_cell = (
+                "*N/A (unsupported)*"
+                if key in ("hashbrown", "libjudy")
+                else fmt_metric(arm, "range_mops")
+            )
+            lines.append(
+                f"| {label} | {fmt_metric(arm, 'lookup_ns')} | {fmt_metric(arm, 'insert_mops')} "
+                f"| {fmt_metric(arm, 'iter_mops')} | {range_cell} | {fmt_metric(arm, 'bytes_per_key')} |"
+            )
+
+        lines.extend([
+            "",
+            "**Point-lookup comparison** — one row per baseline, one division, named in "
+            "the header. Interleaving three comparisons into one row put the `Baseline` "
+            "cell in a different column for each competitor and made the reader "
+            "re-anchor per column (#450, problem 4).",
+            "",
+            f"| Baseline | Baseline point lookup (ns, {LOWER_BETTER}) "
+            f"| {ratio_header(SUBJECT_LABEL, 'baseline', 'point-lookup ns', lower_is_better=True)} "
+            f"| Result |",
+            "|---|---:|---:|---|",
+        ])
+
+        exp_lkp = _lookup_ns(exp)
+        for key, label in BASELINE_ARMS:
+            arm = res.get(key)
+            if not isinstance(arm, dict):
+                # No live source for this arm in this run. It gets a stated
+                # absence, never a number carried in from anywhere else (§8.1).
+                lines.append(f"| {label} | {NOT_MEASURED} | {NOT_MEASURED} | {NOT_MEASURED} |")
+                continue
+            base_lkp = _lookup_ns(arm)
+            lines.append(
+                f"| {label} | {fmt_metric(arm, 'lookup_ns')} "
+                f"| {fmt_ratio(exp_lkp, base_lkp, lower_is_better=True)} "
+                f"| {fmt_verdict(exp_lkp, base_lkp, True, SUBJECT_LABEL)} |"
+            )
+
+        absent = [label for key, label in BASELINE_ARMS if not isinstance(res.get(key), dict)]
+        if absent:
             lines.extend([
-                "| Target | Point Lookup (ns) | Lookup (Mops/s) | Cold Insert (Mops/s) | Full Iter (Mops/s) | Range Scan (Mops/s) | Memory (B/key) | Lookup vs BTree | Lookup vs hash | Lookup vs libjudy |",
-                "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+                "",
+                f"<sub>Not measured in this run: {', '.join(absent)}. The arm produced no "
+                "result for this distribution, so it carries no ratio.</sub>",
             ])
-
-            exp_lkp = exp.get("lookup_ns", 0.0)
-            hash_lkp = hashb.get("lookup_ns", 0.0)
-            btree_lkp = btree.get("lookup_ns", 0.0)
-            judy_lkp = judy.get("lookup_ns", 0.0)
-
-            ratio_btree = fmt_speedup(exp_lkp, btree_lkp, higher_is_better=False)
-            ratio_hash = fmt_speedup(exp_lkp, hash_lkp, higher_is_better=False)
-            ratio_judy = fmt_speedup(exp_lkp, judy_lkp, higher_is_better=False)
-
-            lines.append(
-                f"| **`ExpanseMap`** | **{exp.get('lookup_ns', 0.0):.2f}** | **{exp.get('lookup_mops', 0.0):.2f}** | **{exp.get('insert_mops', 0.0):.2f}** | **{exp.get('iter_mops', 0.0):.2f}** | **{exp.get('range_mops', 0.0):.2f}** | **{exp.get('bytes_per_key', 0.0):.2f}** | {ratio_btree} | {ratio_hash} | {ratio_judy} |"
-            )
-            lines.append(
-                f"| `hashbrown::HashMap` | {hashb.get('lookup_ns', 0.0):.2f} | {hashb.get('lookup_mops', 0.0):.2f} | {hashb.get('insert_mops', 0.0):.2f} | {hashb.get('iter_mops', 0.0):.2f} | *N/A (unsupported)* | {hashb.get('bytes_per_key', 0.0):.2f} | — | Baseline | — |"
-            )
-            lines.append(
-                f"| `std::BTreeMap` | {btree.get('lookup_ns', 0.0):.2f} | {btree.get('lookup_mops', 0.0):.2f} | {btree.get('insert_mops', 0.0):.2f} | {btree.get('iter_mops', 0.0):.2f} | {btree.get('range_mops', 0.0):.2f} | {btree.get('bytes_per_key', 0.0):.2f} | Baseline | — | — |"
-            )
-            lines.append(
-                f"| `libjudy (stock JudyL)` | {judy.get('lookup_ns', 0.0):.2f} | {judy.get('lookup_mops', 0.0):.2f} | {judy.get('insert_mops', 0.0):.2f} | {judy.get('iter_mops', 0.0):.2f} | — | {judy.get('bytes_per_key', 0.0):.2f} | — | — | Baseline |"
-            )
-        else:
-            lines.extend([
-                "| Target | Point Lookup (ns) | Lookup (Mops/s) | Cold Insert (Mops/s) | Full Iter (Mops/s) | Range Scan (Mops/s) | Memory (B/key) | Lookup vs BTree | Lookup vs hash |",
-                "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
-            ])
-
-            exp_lkp = exp.get("lookup_ns", 0.0)
-            hash_lkp = hashb.get("lookup_ns", 0.0)
-            btree_lkp = btree.get("lookup_ns", 0.0)
-
-            ratio_btree = fmt_speedup(exp_lkp, btree_lkp, higher_is_better=False)
-            ratio_hash = fmt_speedup(exp_lkp, hash_lkp, higher_is_better=False)
-
-            lines.append(
-                f"| **`ExpanseMap`** | **{exp.get('lookup_ns', 0.0):.2f}** | **{exp.get('lookup_mops', 0.0):.2f}** | **{exp.get('insert_mops', 0.0):.2f}** | **{exp.get('iter_mops', 0.0):.2f}** | **{exp.get('range_mops', 0.0):.2f}** | **{exp.get('bytes_per_key', 0.0):.2f}** | {ratio_btree} | {ratio_hash} |"
-            )
-            lines.append(
-                f"| `hashbrown::HashMap` | {hashb.get('lookup_ns', 0.0):.2f} | {hashb.get('lookup_mops', 0.0):.2f} | {hashb.get('insert_mops', 0.0):.2f} | {hashb.get('iter_mops', 0.0):.2f} | *N/A (unsupported)* | {hashb.get('bytes_per_key', 0.0):.2f} | — | Baseline |"
-            )
-            lines.append(
-                f"| `std::BTreeMap` | {btree.get('lookup_ns', 0.0):.2f} | {btree.get('lookup_mops', 0.0):.2f} | {btree.get('insert_mops', 0.0):.2f} | {btree.get('iter_mops', 0.0):.2f} | {btree.get('range_mops', 0.0):.2f} | {btree.get('bytes_per_key', 0.0):.2f} | Baseline | — |"
-            )
 
         lines.append("")
 
@@ -319,7 +434,11 @@ def render_markdown(
         "interval-bearing arms are in the BCa section (<code>scripts/bench_baseline.py</code>), "
         "when a baseline artifact is supplied.</sub>",
         "",
-        f"<sub>🟢 Faster than baseline · ⚪ Parity (±{PARITY_BAND * 100:.0f}%) · 🔴 Slower than baseline. Generated automatically via <code>scripts/bench_report.py</code>.</sub>\n",
+        f"<sub>🟢 subject ahead · ⚪ parity (±{PARITY_BAND * 100:.0f}%) · 🔴 subject behind. "
+        "Every ratio is <code>subject &divide; baseline</code> in the baseline's own unit, as "
+        "its header states, and the marker is chosen by that column's direction — on a "
+        "latency column the win is a ratio below 1. Generated automatically via "
+        "<code>scripts/bench_report.py</code>.</sub>\n",
     ])
 
     if baseline is not None:
@@ -361,34 +480,36 @@ def render_table(data: Dict[str, Any]) -> str:
         f"================================================================================",
     ]
 
+    def cell(container: Dict[str, Any], key: str, width: int) -> str:
+        text = fmt_metric(container, key)
+        return f"{('n/m' if text == NOT_MEASURED else text):>{width}}"
+
+    arms = [("expanse", "ExpanseMap"), ("hashbrown", "hashbrown (HashMap)"),
+            ("btree", "BTreeMap (std)"), ("libjudy", "libjudy (stock)")]
+
     for dist, res in results.items():
         lines.append(f"\n[ Distribution: {dist} ]")
+        # Units and directions in the header; `Lookup (Mops)` dropped as the
+        # reciprocal of `Lookup (ns)` (#450, problems 2 and 3).
         lines.append(
-            f"{'Target':<22} | {'Lookup (ns)':>11} | {'Lookup (Mops)':>13} | {'Insert (Mops)':>13} | {'Iter (Mops)':>11} | {'Range (Mops)':>12} | {'B/key':>7}"
+            f"{'Container':<22} | {'Lookup ns v':>13} | {'Insert Mops ^':>13}"
+            f" | {'Iter Mops ^':>13} | {'Range Mops ^':>13} | {'B/key v':>9}"
         )
-        lines.append(f"{'-'*22}-+-{'-'*11}-+-{'-'*13}-+-{'-'*13}-+-{'-'*11}-+-{'-'*12}-+-{'-'*7}")
+        lines.append(f"{'-' * 22}-+-{'-' * 13}-+-{'-' * 13}-+-{'-' * 13}-+-{'-' * 13}-+-{'-' * 9}")
 
-        exp = res.get("expanse", {})
-        lines.append(
-            f"{'ExpanseMap':<22} | {exp.get('lookup_ns', 0.0):>11.2f} | {exp.get('lookup_mops', 0.0):>13.2f} | {exp.get('insert_mops', 0.0):>13.2f} | {exp.get('iter_mops', 0.0):>11.2f} | {exp.get('range_mops', 0.0):>12.2f} | {exp.get('bytes_per_key', 0.0):>7.2f}"
-        )
-
-        hashb = res.get("hashbrown", {})
-        lines.append(
-            f"{'hashbrown (HashMap)':<22} | {hashb.get('lookup_ns', 0.0):>11.2f} | {hashb.get('lookup_mops', 0.0):>13.2f} | {hashb.get('insert_mops', 0.0):>13.2f} | {hashb.get('iter_mops', 0.0):>11.2f} | {'N/A':>12} | {hashb.get('bytes_per_key', 0.0):>7.2f}"
-        )
-
-        btree = res.get("btree", {})
-        lines.append(
-            f"{'BTreeMap (std)':<22} | {btree.get('lookup_ns', 0.0):>11.2f} | {btree.get('lookup_mops', 0.0):>13.2f} | {btree.get('insert_mops', 0.0):>13.2f} | {btree.get('iter_mops', 0.0):>11.2f} | {btree.get('range_mops', 0.0):>12.2f} | {btree.get('bytes_per_key', 0.0):>7.2f}"
-        )
-
-        if judy := res.get("libjudy"):
+        for key, label in arms:
+            arm = res.get(key)
+            if not isinstance(arm, dict):
+                continue
+            range_cell = f"{'N/A':>13}" if key in ("hashbrown", "libjudy") else cell(arm, "range_mops", 13)
             lines.append(
-                f"{'libjudy (stock)':<22} | {judy.get('lookup_ns', 0.0):>11.2f} | {judy.get('lookup_mops', 0.0):>13.2f} | {judy.get('insert_mops', 0.0):>13.2f} | {judy.get('iter_mops', 0.0):>11.2f} | {'—':>12} | {judy.get('bytes_per_key', 0.0):>7.2f}"
+                f"{label:<22} | {cell(arm, 'lookup_ns', 13)} | {cell(arm, 'insert_mops', 13)}"
+                f" | {cell(arm, 'iter_mops', 13)} | {range_cell} | {cell(arm, 'bytes_per_key', 9)}"
             )
 
-    lines.append("\n================================================================================\n")
+    lines.append("")
+    lines.append("  v = lower is better   ^ = higher is better   n/m = not measured   N/A = unsupported")
+    lines.append("================================================================================\n")
     return "\n".join(lines)
 
 
@@ -401,41 +522,75 @@ def render_extended_pop_markdown(pop_reports: List[Dict[str, Any]]) -> str:
         "",
     ]
 
-    dists = ["sequential", "random", "clustered"]
+    lines.append(
+        "> Measurement headers carry unit and direction; ratio headers name the division "
+        "they print, and each ratio is graded by its own column's direction."
+    )
+    lines.append("")
+
+    # Distributions come from the artifacts, not from a stamped list: a
+    # `--dist random` sweep must not render three headers and two empty tables.
+    dists: List[str] = []
+    for data in pop_reports:
+        for dist in data.get("results", {}):
+            if dist not in dists:
+                dists.append(dist)
 
     for dist in dists:
         lines.extend([
             f"### Distribution: `{dist}` Scaling Matrix",
             "",
-            "| Population ($N$) | Container | Point Lookup (ns) | Lookup (Mops/s) | Cold Insert (Mops/s) | Full Iter (Mops/s) | Range Scan (Mops/s) | Memory (B/key) | vs libjudy | vs BTreeMap |",
-            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+            "**Measurements**",
+            "",
+            f"| Population ($N$) | Container | Point Lookup (ns, {LOWER_BETTER}) "
+            f"| Cold Insert (Mops/s, {HIGHER_BETTER}) | Full Iter (Mops/s, {HIGHER_BETTER}) "
+            f"| Range Scan (Mops/s, {HIGHER_BETTER}) | Memory (B/key, {LOWER_BETTER}) |",
+            "|---|---|---:|---:|---:|---:|---:|",
+        ])
+
+        containers = [("expanse", f"**{SUBJECT_LABEL}**", True)] + [
+            (key, label, False) for key, label in BASELINE_ARMS if key != "hashbrown"
+        ]
+
+        for data in pop_reports:
+            pop_label = f"**{data.get('pop', 0):,}**"
+            res = data.get("results", {}).get(dist, {})
+            for key, label, bold in containers:
+                arm = res.get(key)
+                if not isinstance(arm, dict):
+                    continue
+                range_cell = (
+                    "*N/A (unsupported)*" if key == "libjudy" else fmt_metric(arm, "range_mops", bold=bold)
+                )
+                lines.append(
+                    f"| {pop_label} | {label} | {fmt_metric(arm, 'lookup_ns', bold=bold)} "
+                    f"| {fmt_metric(arm, 'insert_mops', bold=bold)} | {fmt_metric(arm, 'iter_mops', bold=bold)} "
+                    f"| {range_cell} | {fmt_metric(arm, 'bytes_per_key', bold=bold)} |"
+                )
+
+        lines.extend([
+            "",
+            "**Point-lookup comparison**",
+            "",
+            f"| Population ($N$) | Baseline | Baseline point lookup (ns, {LOWER_BETTER}) "
+            f"| {ratio_header(SUBJECT_LABEL, 'baseline', 'point-lookup ns', lower_is_better=True)} |",
+            "|---|---|---:|---:|",
         ])
 
         for data in pop_reports:
-            pop = data.get("pop", 0)
+            pop_label = f"**{data.get('pop', 0):,}**"
             res = data.get("results", {}).get(dist, {})
-            exp = res.get("expanse", {})
-            judy = res.get("libjudy", {})
-            btree = res.get("btree", {})
-
-            exp_lkp = exp.get("lookup_ns", 0.0)
-            judy_lkp = judy.get("lookup_ns", 0.0) if judy else 0.0
-            btree_lkp = btree.get("lookup_ns", 0.0) if btree else 0.0
-
-            ratio_judy = fmt_speedup(exp_lkp, judy_lkp, higher_is_better=False) if judy else "—"
-            ratio_btree = fmt_speedup(exp_lkp, btree_lkp, higher_is_better=False) if btree else "—"
-
-            pop_label = f"**{pop:,}**"
-            lines.append(
-                f"| {pop_label} | **`ExpanseMap`** | **{exp.get('lookup_ns', 0.0):.2f}** | **{exp.get('lookup_mops', 0.0):.2f}** | **{exp.get('insert_mops', 0.0):.2f}** | **{exp.get('iter_mops', 0.0):.2f}** | **{exp.get('range_mops', 0.0):.2f}** | **{exp.get('bytes_per_key', 0.0):.2f}** | {ratio_judy} | {ratio_btree} |"
-            )
-            if judy:
+            exp_lkp = _lookup_ns(res.get("expanse"))
+            for key, label in BASELINE_ARMS:
+                if key == "hashbrown":
+                    continue
+                arm = res.get(key)
+                if not isinstance(arm, dict):
+                    lines.append(f"| {pop_label} | {label} | {NOT_MEASURED} | {NOT_MEASURED} |")
+                    continue
                 lines.append(
-                    f"| {pop_label} | `libjudy (JudyL)` | {judy.get('lookup_ns', 0.0):.2f} | {judy.get('lookup_mops', 0.0):.2f} | {judy.get('insert_mops', 0.0):.2f} | {judy.get('iter_mops', 0.0):.2f} | — | {judy.get('bytes_per_key', 0.0):.2f} | Baseline | — |"
-                )
-            if btree:
-                lines.append(
-                    f"| {pop_label} | `std::BTreeMap` | {btree.get('lookup_ns', 0.0):.2f} | {btree.get('lookup_mops', 0.0):.2f} | {btree.get('insert_mops', 0.0):.2f} | {btree.get('iter_mops', 0.0):.2f} | {btree.get('range_mops', 0.0):.2f} | {btree.get('bytes_per_key', 0.0):.2f} | — | Baseline |"
+                    f"| {pop_label} | {label} | {fmt_metric(arm, 'lookup_ns')} "
+                    f"| {fmt_ratio(exp_lkp, _lookup_ns(arm), lower_is_better=True)} |"
                 )
 
         lines.append("")
@@ -450,11 +605,18 @@ def render_arch_sweep_markdown(arch_reports: List[Dict[str, Any]]) -> str:
         "",
         "> Evaluates instruction set features: `baseline` (generic x86-64-v1) vs `x86-64-v2` (+POPCNT) vs `x86-64-v3` (+AVX2/BMI2) vs `native`.",
         "",
-        "| Distribution | Target CPU | Expanse Lookup (ns) | Expanse Lookup (Mops) | Expanse Insert (Mops) | vs Baseline Lookup | vs Stock JudyL |",
-        "|---|---|---:|---:|---:|---:|---:|",
+        f"| Distribution | Target CPU | Expanse Lookup (ns, {LOWER_BETTER}) "
+        f"| Expanse Insert (Mops/s, {HIGHER_BETTER}) "
+        f"| {ratio_header('this arm', 'first CPU arm', 'point-lookup ns', lower_is_better=True)} "
+        f"| {ratio_header(SUBJECT_LABEL, '`libjudy (stock JudyL)`', 'point-lookup ns', lower_is_better=True)} |",
+        "|---|---|---:|---:|---:|---:|",
     ]
 
-    dists = ["sequential", "random", "clustered"]
+    dists: List[str] = []
+    for data in arch_reports:
+        for dist in data.get("results", {}):
+            if dist not in dists:
+                dists.append(dist)
 
     for dist in dists:
         baseline_ns: Optional[float] = None
@@ -463,24 +625,35 @@ def render_arch_sweep_markdown(arch_reports: List[Dict[str, Any]]) -> str:
             cpu = data.get("target_cpu", "baseline")
             res = data.get("results", {}).get(dist, {})
             exp = res.get("expanse", {})
-            judy = res.get("libjudy", {})
+            judy = res.get("libjudy")
 
-            exp_lkp = exp.get("lookup_ns", 0.0)
-            judy_lkp = judy.get("lookup_ns", 0.0) if judy else 0.0
+            exp_lkp = _lookup_ns(exp)
 
             if baseline_ns is None:
                 baseline_ns = exp_lkp
-                vs_base = "Baseline"
+                vs_base = "reference arm (1.000x)"
             else:
-                vs_base = fmt_speedup(exp_lkp, baseline_ns, higher_is_better=False)
+                vs_base = fmt_ratio(exp_lkp, baseline_ns, lower_is_better=True)
 
-            vs_judy = fmt_speedup(exp_lkp, judy_lkp, higher_is_better=False) if judy else "—"
-
-            lines.append(
-                f"| `{dist}` | `{cpu}` | **{exp_lkp:.2f}** | **{exp.get('lookup_mops', 0.0):.2f}** | **{exp.get('insert_mops', 0.0):.2f}** | {vs_base} | {vs_judy} |"
+            vs_judy = (
+                fmt_ratio(exp_lkp, _lookup_ns(judy), lower_is_better=True)
+                if isinstance(judy, dict)
+                else NOT_MEASURED
             )
 
-    lines.append("")
+            lines.append(
+                f"| `{dist}` | `{cpu}` | {fmt_metric(exp, 'lookup_ns', bold=True)} "
+                f"| {fmt_metric(exp, 'insert_mops', bold=True)} | {vs_base} | {vs_judy} |"
+            )
+
+    lines.extend([
+        "",
+        f"<sub>🟢 subject ahead · ⚪ parity (±{PARITY_BAND * 100:.0f}%) · 🔴 subject behind, "
+        "graded on the latency direction each header states. "
+        f"{NOT_MEASURED} means the arm produced no result in this run — never a "
+        "figure carried in from elsewhere.</sub>",
+        "",
+    ])
     return "\n".join(lines)
 
 
@@ -488,11 +661,57 @@ def self_test() -> int:
     """Unit-style checks for the pure rendering helpers. No cargo required."""
     # 1. Legend/band agreement: the parity band is the ±5% the legend prints.
     assert abs(PARITY_BAND - 0.05) < 1e-12, "parity band must match the printed ±5% legend"
-    # lower-is-better latency pairs: 104 vs 100 is inside the band, 106/94 are not.
-    assert fmt_speedup(100.0, 104.0, higher_is_better=False).endswith("⚪")
-    assert fmt_speedup(100.0, 106.0, higher_is_better=False).endswith("🟢")
-    assert fmt_speedup(106.0, 100.0, higher_is_better=False).endswith("🔴")
-    assert fmt_speedup(0.0, 100.0, higher_is_better=False) == "—"
+
+    # 1a. The reported ratio is always subject/baseline, whichever way the
+    #     metric points. This is what the column header names.
+    assert classify_ratio(50.0, 100.0, lower_is_better=True)[1] == 0.5
+    assert classify_ratio(50.0, 100.0, lower_is_better=False)[1] == 0.5
+    assert classify_ratio(200.0, 100.0, lower_is_better=True)[1] == 2.0
+
+    # 1b. Direction, not magnitude, decides the marker. The same ratio must
+    #     grade opposite ways on a lower-better and a higher-better column —
+    #     this is the sign inversion that put a 🟢 on a latency ratio above 1.
+    assert classify_ratio(110.0, 100.0, lower_is_better=True)[0] == "loss"
+    assert classify_ratio(110.0, 100.0, lower_is_better=False)[0] == "win"
+    assert classify_ratio(90.0, 100.0, lower_is_better=True)[0] == "win"
+    assert classify_ratio(90.0, 100.0, lower_is_better=False)[0] == "loss"
+    # A latency ratio above 1 is a loss and must be marked as one.
+    assert fmt_ratio(110.0, 100.0, lower_is_better=True) == "1.100x 🔴"
+    assert fmt_ratio(90.0, 100.0, lower_is_better=True) == "**0.900x** 🟢"
+    # The same numbers on a throughput column flip both marker and grade.
+    assert fmt_ratio(110.0, 100.0, lower_is_better=False) == "**1.100x** 🟢"
+    assert fmt_ratio(90.0, 100.0, lower_is_better=False) == "0.900x 🔴"
+    # Words agree with the marker.
+    assert fmt_verdict(110.0, 100.0, True, "`ExpanseMap`") == "🔴 `ExpanseMap` slower"
+    assert fmt_verdict(90.0, 100.0, True, "`ExpanseMap`") == "🟢 `ExpanseMap` faster"
+    assert fmt_verdict(100.0, 100.0, True, "`ExpanseMap`") == "⚪ parity (±5%)"
+
+    # 1c. Parity band applies to the printed ratio: [0.95, 1.05] is parity.
+    assert classify_ratio(104.0, 100.0, lower_is_better=True)[0] == "parity"
+    assert classify_ratio(96.0, 100.0, lower_is_better=True)[0] == "parity"
+    assert classify_ratio(105.0, 100.0, lower_is_better=True)[0] == "loss"
+    assert classify_ratio(95.0, 100.0, lower_is_better=True)[0] == "win"
+
+    # 1d. An unmeasured pair is stated as such, never rendered as a ratio or a 0.
+    assert classify_ratio(0.0, 100.0, lower_is_better=True) is None
+    assert fmt_ratio(0.0, 100.0, lower_is_better=True) == NOT_MEASURED
+    assert fmt_ratio(100.0, 0.0, lower_is_better=True) == NOT_MEASURED
+    assert fmt_verdict(0.0, 100.0, True, "`ExpanseMap`") == NOT_MEASURED
+
+    # 1e. A missing or absurd metric is an absence, not a measurement of zero.
+    assert fmt_metric({}, "lookup_ns") == NOT_MEASURED
+    assert fmt_metric({"lookup_ns": 0.0}, "lookup_ns") == NOT_MEASURED
+    assert fmt_metric({"lookup_ns": None}, "lookup_ns") == NOT_MEASURED
+    assert fmt_metric({"lookup_ns": "25.30"}, "lookup_ns") == NOT_MEASURED
+    assert fmt_metric({"lookup_ns": 25.3}, "lookup_ns") == "25.30"
+    assert fmt_metric({"lookup_ns": 25.3}, "lookup_ns", bold=True) == "**25.30**"
+
+    # 1f. Every ratio header states its division and its direction.
+    header = ratio_header("`ExpanseMap`", "baseline", "point-lookup ns", lower_is_better=True)
+    assert "&divide;" in header, header
+    assert "lower better" in header and "below 1.000" in header, header
+    up = ratio_header("`ExpanseMap`", "baseline", "Mops/s", lower_is_better=False)
+    assert "higher better" in up and "above 1.000" in up, up
 
     # 2. Summary is derived strictly from the parsed results.
     data = {
@@ -530,6 +749,42 @@ def self_test() -> int:
         assert fabricated not in md, f"hardcoded findings prose leaked into report: {fabricated!r}"
     assert "Measured Summary" in md
     assert "±5%" in md
+
+    # 3a. Rendered table: the division is in the header, the units carry their
+    #     direction, and the reciprocal pair is gone (#450, problems 1-3).
+    assert "`ExpanseMap` &divide; baseline (point-lookup ns, lower better" in md, md
+    assert "Lookup vs BTree" not in md and "vs libjudy" not in md.replace("&divide;", ""), md
+    assert f"Point Lookup (ns, {LOWER_BETTER})" in md
+    assert f"Cold Insert (Mops/s, {HIGHER_BETTER})" in md
+    assert f"Memory (B/key, {LOWER_BETTER})" in md
+    assert "Lookup (Mops/s)" not in md, "the ns/Mops reciprocal pair must be rendered once"
+    # 3b. The baseline anchor is the row label now, not a `Baseline` cell that
+    #     moves column-to-column and forces the reader to re-anchor per column.
+    body_rows = [ln for ln in md.splitlines() if ln.startswith(("| `", "| **"))]
+    assert not any(
+        cell.strip() == "Baseline" for ln in body_rows for cell in ln.split("|")
+    ), "no data cell may carry a bare `Baseline` anchor"
+
+    # 3c. End-to-end direction check on the fixture above. `random` has Expanse
+    #     at 30 ns against libjudy's 27 ns -> ratio 1.111, a LOSS; `sequential`
+    #     has 10 ns against 11 ns -> 0.909, a WIN. The losing ratio exceeds 1,
+    #     which is exactly the shape that used to be marked 🟢.
+    assert "| 1.111x 🔴 | 🔴 `ExpanseMap` slower |" in md, md
+    assert "| **0.909x** 🟢 | 🟢 `ExpanseMap` faster |" in md, md
+
+    # 3d. An arm with no live source in this run renders as an absence, never
+    #     as a number from another run or a zero (§8.1).
+    no_judy = {k: {a: v for a, v in res.items() if a != "libjudy"} for k, res in data["results"].items()}
+    md_no_judy = render_markdown({**data, "results": no_judy})
+    assert "libjudy" in md_no_judy, "an unavailable arm must still be named"
+    assert f"| `libjudy (stock JudyL)` | {NOT_MEASURED} | {NOT_MEASURED} | {NOT_MEASURED} |" in md_no_judy
+    assert "Not measured in this run: `libjudy (stock JudyL)`" in md_no_judy
+    assert not any(
+        cell.strip().strip("*") in ("0.00", "0.000x")
+        for ln in md_no_judy.splitlines()
+        if ln.startswith("|")
+        for cell in ln.split("|")
+    ), "an absent arm must not render as a zero measurement"
 
     # 4. No results at all -> no summary block, not a fabricated one.
     assert derive_summary({}) == []
@@ -597,6 +852,48 @@ def self_test() -> int:
     assert "interleaved" not in render_markdown(data), (
         "a report whose artifact carries no round count must not claim interleaved rounds"
     )
+
+    # 7. The sweep tables carry the same contract: division in the header,
+    #    direction-graded markers, no reciprocal pair, no stamped distribution
+    #    list. They were rendered by the same inverted-sign helper and had no
+    #    coverage at all before.
+    sweep = [
+        {"pop": 10_000, "results": {"random": {
+            "expanse": {"lookup_ns": 30.0, "insert_mops": 20.0},
+            "btree": {"lookup_ns": 60.0},
+            "libjudy": {"lookup_ns": 27.0},
+        }}},
+    ]
+    md_sweep = render_extended_pop_markdown(sweep)
+    assert "&divide;" in md_sweep and "below 1.000" in md_sweep, md_sweep
+    assert "Lookup (Mops/s)" not in md_sweep, md_sweep
+    assert "| 1.111x 🔴 |" in md_sweep, md_sweep       # slower than libjudy
+    assert "| **0.500x** 🟢 |" in md_sweep, md_sweep   # faster than BTreeMap
+    # Only the distributions the artifacts carry get a table.
+    assert "`sequential`" not in md_sweep, "distribution list must come from the artifacts"
+
+    arch = [
+        {"target_cpu": "baseline", "results": {"random": {
+            "expanse": {"lookup_ns": 40.0}, "libjudy": {"lookup_ns": 27.0}}}},
+        {"target_cpu": "x86-64-v3", "results": {"random": {
+            "expanse": {"lookup_ns": 30.0}, "libjudy": {"lookup_ns": 27.0}}}},
+    ]
+    md_arch = render_arch_sweep_markdown(arch)
+    assert "&divide;" in md_arch and "below 1.000" in md_arch, md_arch
+    assert "reference arm (1.000x)" in md_arch, md_arch
+    assert "**0.750x** 🟢" in md_arch, md_arch  # v3 faster than the reference arm
+    assert "1.111x 🔴" in md_arch, md_arch      # still slower than stock JudyL
+    # A run with no stock arm states the absence rather than printing a ratio.
+    md_arch_nojudy = render_arch_sweep_markdown(
+        [{"target_cpu": "baseline", "results": {"random": {"expanse": {"lookup_ns": 40.0}}}}]
+    )
+    assert NOT_MEASURED in md_arch_nojudy, md_arch_nojudy
+
+    # 8. The terminal table marks direction and drops the reciprocal too.
+    txt = render_table(data)
+    assert "Lookup ns v" in txt and "Insert Mops ^" in txt, txt
+    assert "Lookup (Mops" not in txt, txt
+    assert "n/m = not measured" in txt, txt
 
     print("bench_report.py --self-test: all checks passed")
     return 0
@@ -702,11 +999,14 @@ def main() -> int:
     if args.input:
         with open(args.input, "r", encoding="utf-8") as f:
             data = json.load(f)
-        rendered = (
-            render_markdown(data, baseline_artifact)
-            if args.format == "markdown"
-            else json.dumps(data, indent=2)
-        )
+        # `--input --format table` used to fall through to JSON, silently
+        # emitting a format the caller did not ask for.
+        if args.format == "markdown":
+            rendered = render_markdown(data, baseline_artifact)
+        elif args.format == "table":
+            rendered = render_table(data)
+        else:
+            rendered = json.dumps(data, indent=2)
     elif args.extended or args.pop_sweep:
         pops = [int(p.strip()) for p in args.pop_sweep.split(",")] if args.pop_sweep else [10_000, 100_000, 1_000_000]
         pop_reports = []
