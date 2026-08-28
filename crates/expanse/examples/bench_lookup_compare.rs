@@ -215,10 +215,14 @@ struct KeyGen<'a> {
 
 impl<'a> KeyGen<'a> {
     fn new(dist: &'a str, seed: u64) -> Self {
+        Self::with_offset(dist, seed, 0)
+    }
+
+    fn with_offset(dist: &'a str, seed: u64, offset: u64) -> Self {
         Self {
             dist,
             rng: XorShift::new(seed),
-            i: 0,
+            i: offset,
             base: 0,
         }
     }
@@ -250,7 +254,7 @@ fn generate_keys(dist: &str, n: usize, seed: u64) -> Vec<u64> {
 /// `n` distinct keys that are absent from `present`, drawn from the same
 /// generator as the population and rejected on membership (AGENTS.md §8.6).
 fn generate_miss_keys(dist: &str, present: &HashSet<u64>, n: usize, seed: u64) -> Vec<u64> {
-    let mut g = KeyGen::new(dist, seed);
+    let mut g = KeyGen::with_offset(dist, seed, present.len() as u64);
     let mut seen: HashSet<u64> = HashSet::with_capacity(n * 2);
     let mut out = Vec::with_capacity(n);
     let budget = n.saturating_mul(64).saturating_add(1024);

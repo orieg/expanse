@@ -74,6 +74,8 @@ Point lookup throughput (Mops/sec) evaluated across standard key geometries ($N 
 ### Pillar 5: Native Hashbrown Criterion Suite Port
 Point query hit/miss and dynamic growth throughput ported from `hashbrown/benches/bench.rs` (chart shows the largest population band, $N = 500,000$; the $10^4$/$10^5$ bands are in `results/baseline_native.json`):
 
+> ⚠️ **Harness methodology disclosure (#454):** The historical growth throughput curves in `results/baseline_native.json` and rendered in the chart below were recorded on a harness where container destruction (`Drop::drop`) occurred inside the timed loop. The harness was remediated in #454 via `bench_grow_op` to measure only insertion; historical figures are retained as baseline pending full re-measurement on the quiet host.
+
 ![Native Criterion Port Throughput](results/bench_native_throughput.svg)
 
 ---
