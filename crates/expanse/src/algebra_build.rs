@@ -172,7 +172,7 @@ unsafe fn build_branch(a: &NodeAlloc, level: u8, digits: &[u8], children: &[Edge
             b.edges[..m].copy_from_slice(children);
             b.hdr.refresh_presence();
         }
-        Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8())
+        Edge::new_node(node.as_ptr().cast(), EdgeType::branch_l3_tag(level))
     } else if m <= BRANCH_L7_CAP {
         let node = a.alloc_node_zeroed::<BranchL7>();
         // SAFETY: `node` is a fresh, exclusively-owned zeroed BranchL7.
@@ -298,7 +298,7 @@ unsafe fn wrap_u_narrow(
         (*node.as_ptr()).hdr.refresh_presence();
         (*node.as_ptr()).edges[0] = child_u;
     }
-    let mut e = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
+    let mut e = Edge::new_node(node.as_ptr().cast(), EdgeType::branch_l3_tag(bl + 1));
     if bl + 1 < slot_level {
         mutate::write_decode(&mut e, bl + 1, slot_level, rep_key);
     }
@@ -470,14 +470,14 @@ unsafe fn collect_subtree_keys(edge: &Edge, level: u8, base: u64, out: &mut Vec<
     }
 }
 
-/// Deep-copies a branch node (children recursively) at form-level `bl`.
+/// Clones an entire branch subtree.
 ///
 /// # Safety
 ///
 /// `edge` references a live branch of type `t` at form-level `bl`.
 unsafe fn clone_branch(a: &NodeAlloc, edge: &Edge, t: EdgeType, bl: u8) -> Edge {
     match t {
-        EdgeType::BranchL3 => {
+        t if t.is_branch_l3() => {
             // SAFETY: live BranchL3.
             let src = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
             let node = a.alloc_node_zeroed::<BranchL3>();
@@ -566,7 +566,7 @@ unsafe fn clone_branch(a: &NodeAlloc, edge: &Edge, t: EdgeType, bl: u8) -> Edge 
 /// `top` references a live level-8 branch.
 pub(crate) unsafe fn tree_pop(top: &Edge) -> u64 {
     match top.tag() {
-        Some(EdgeTag::Structural(EdgeType::BranchL3)) => {
+        Some(EdgeTag::Structural(t)) if t.is_branch_l3() => {
             // SAFETY: live BranchL3 pointer.
             let b = unsafe { &*top.node_ptr().cast::<BranchL3>() };
             let mut pop = 0u64;
@@ -867,7 +867,7 @@ unsafe fn branch_accessor<'e>(edge: &'e Edge, level: u8) -> BranchAccessor<'e> {
             };
             BranchAccessor::B { b, skipping_pd }
         }
-        Some(EdgeTag::Structural(EdgeType::BranchL3)) => {
+        Some(EdgeTag::Structural(t)) if t.is_branch_l3() => {
             // SAFETY: live BranchL3 pointer.
             let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
             let skipping_pd = if b.hdr.level < level {

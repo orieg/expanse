@@ -210,11 +210,19 @@ pub(crate) unsafe fn walk_validated<const MAP: bool>(
                     return Ok(None);
                 }
 
-                EdgeType::BranchL3 | EdgeType::BranchL7 => {
+                EdgeType::BranchL3
+                | EdgeType::BranchL7
+                | EdgeType::BranchL3L2
+                | EdgeType::BranchL3L3
+                | EdgeType::BranchL3L4
+                | EdgeType::BranchL3L5
+                | EdgeType::BranchL3L6
+                | EdgeType::BranchL3L7
+                | EdgeType::BranchL3L8 => {
                     // The edge copy was validated when it was loaded; its
                     // node pointer is EBR-live.
                     let node = edge.node_ptr();
-                    let is_l3 = matches!(t, EdgeType::BranchL3);
+                    let is_l3 = t.is_branch_l3();
                     let vp: *const u32 = if is_l3 {
                         // SAFETY: EBR-live node; field projection only.
                         unsafe { &raw const (*node.cast::<BranchL3>()).hdr.version }

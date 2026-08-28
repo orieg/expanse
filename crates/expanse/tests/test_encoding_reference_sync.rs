@@ -816,7 +816,7 @@ fn test_immediate_tag_space_totals() {
         }
     }
     assert_eq!(
-        structural, 14,
+        structural, 21,
         "structural tag count published in section 10.3.2"
     );
     assert_eq!(

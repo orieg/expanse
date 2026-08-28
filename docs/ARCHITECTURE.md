@@ -357,10 +357,17 @@ Declared at `crates/expanse/src/types.rs:90`, decoded by `EdgeType::from_u8` (`c
 | `Leaf7` | 0x0B | linear leaf, 7-byte key remainders |
 | `LeafB1` | 0x0C | level-1 bitmap leaf: 256-bit mask over the final key byte |
 | `FullExpanse` | 0x7F | set flavor only: every key in this subexpanse is present, no node allocated |
+| `BranchL3L2` | 0x82 | one-line linear branch (L3) at level 2 |
+| `BranchL3L3` | 0x83 | one-line linear branch (L3) at level 3 |
+| `BranchL3L4` | 0x84 | one-line linear branch (L3) at level 4 |
+| `BranchL3L5` | 0x85 | one-line linear branch (L3) at level 5 |
+| `BranchL3L6` | 0x86 | one-line linear branch (L3) at level 6 |
+| `BranchL3L7` | 0x87 | one-line linear branch (L3) at level 7 |
+| `BranchL3L8` | 0x88 | one-line linear branch (L3) at level 8 |
 
 <!-- /ENCODING-TABLE -->
 
-`is_branch` (`crates/expanse/src/types.rs:156`) is true for `0x01..=0x04`; `is_leaf` (`crates/expanse/src/types.rs:166`) is true for `0x05..=0x0C`. `FullExpanse` is neither, and `leaf_key_bytes` (`crates/expanse/src/types.rs:184`) returns `Some(n)` only for `Leaf1..Leaf7`.
+`is_branch` (`crates/expanse/src/types.rs:156`) is true for `0x01..=0x04` and `0x82..=0x88`; `is_leaf` (`crates/expanse/src/types.rs:166`) is true for `0x05..=0x0C`. `FullExpanse` is neither, and `leaf_key_bytes` (`crates/expanse/src/types.rs:184`) returns `Some(n)` only for `Leaf1..Leaf7`.
 
 #### 10.3.2 Immediate tags (64-bit)
 
@@ -370,9 +377,9 @@ Immediate tags occupy a nibble-packed space disjoint from the structural bytes: 
 1 <= key_bytes <= 7   and   1 <= key_count   and   key_bytes * key_count <= IMMED_PAYLOAD_BYTES
 ```
 
-with `IMMED_PAYLOAD_BYTES = 15` (`crates/expanse/src/types.rs:82`). The raw values therefore span `0x10..=0x71`, never colliding with `0x00..=0x0C` or `0x7F`. `EdgeTag` (`crates/expanse/src/types.rs:267`) unifies both spaces and is total: every one of the 256 bytes decodes as structural, immediate, or invalid, never two of those.
+with `IMMED_PAYLOAD_BYTES = 15` (`crates/expanse/src/types.rs:82`). The raw values therefore span `0x10..=0x71`, never colliding with `0x00..=0x0C`, `0x7F`, or `0x82..=0x88`. `EdgeTag` (`crates/expanse/src/types.rs:267`) unifies both spaces and is total: every one of the 256 bytes decodes as structural, immediate, or invalid, never two of those.
 
-Valid tag-byte counts *(gated)*: 14 structural + 37 immediate = 51 of 256.
+Valid tag-byte counts *(gated)*: 21 structural + 37 immediate = 58 of 256.
 
 #### 10.3.3 32-bit tag spaces
 

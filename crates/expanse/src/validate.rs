@@ -95,7 +95,16 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
         ) => stats.node_counts.leaf_linear += 1,
         EdgeTag::Structural(EdgeType::LeafB1) => stats.node_counts.leaf_bitmap += 1,
         EdgeTag::Structural(EdgeType::FullExpanse) => stats.node_counts.full_expanse += 1,
-        EdgeTag::Structural(EdgeType::BranchL3) => stats.node_counts.branch_l3 += 1,
+        EdgeTag::Structural(
+            EdgeType::BranchL3
+            | EdgeType::BranchL3L2
+            | EdgeType::BranchL3L3
+            | EdgeType::BranchL3L4
+            | EdgeType::BranchL3L5
+            | EdgeType::BranchL3L6
+            | EdgeType::BranchL3L7
+            | EdgeType::BranchL3L8,
+        ) => stats.node_counts.branch_l3 += 1,
         EdgeTag::Structural(EdgeType::BranchL7) => stats.node_counts.branch_l7 += 1,
         EdgeTag::Structural(EdgeType::BranchB) => stats.node_counts.branch_b += 1,
         EdgeTag::Structural(EdgeType::BranchU) => stats.node_counts.branch_u += 1,
@@ -106,7 +115,17 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
     // Branch form level: below the slot level only behind a narrow pointer
     let bl = match tag {
         EdgeTag::Structural(
-            t @ (EdgeType::BranchL3 | EdgeType::BranchL7 | EdgeType::BranchB | EdgeType::BranchU),
+            t @ (EdgeType::BranchL3
+            | EdgeType::BranchL7
+            | EdgeType::BranchB
+            | EdgeType::BranchU
+            | EdgeType::BranchL3L2
+            | EdgeType::BranchL3L3
+            | EdgeType::BranchL3L4
+            | EdgeType::BranchL3L5
+            | EdgeType::BranchL3L6
+            | EdgeType::BranchL3L7
+            | EdgeType::BranchL3L8),
         ) => {
             // SAFETY: validated branch tag
             let bl = unsafe { branch_form_level(edge, t, level) };
@@ -121,6 +140,13 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             }
             if matches!(t, EdgeType::BranchU) && bl != level {
                 return Err("uncompressed branches never skip".into());
+            }
+            if t.as_u8() >= 0x82 && t.as_u8() <= 0x88 && (t.as_u8() & 0x0F) != bl {
+                return Err(format!(
+                    "specialized branch tag {:#04x} disagrees with form level {}",
+                    t.as_u8(),
+                    bl
+                ));
             }
             bl
         }
@@ -257,8 +283,18 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             }
             pow256(level)
         }
-        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
-            let is_l3 = matches!(t, EdgeType::BranchL3);
+        EdgeTag::Structural(
+            t @ (EdgeType::BranchL3
+            | EdgeType::BranchL7
+            | EdgeType::BranchL3L2
+            | EdgeType::BranchL3L3
+            | EdgeType::BranchL3L4
+            | EdgeType::BranchL3L5
+            | EdgeType::BranchL3L6
+            | EdgeType::BranchL3L7
+            | EdgeType::BranchL3L8),
+        ) => {
+            let is_l3 = t.is_branch_l3();
             let ptr = edge.node_ptr();
             if ptr.is_null() {
                 return Err("branch edge has null node pointer".into());
@@ -380,14 +416,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
         }
     };
 
-    if bl <= 7
-        && matches!(
-            tag,
-            EdgeTag::Structural(
-                EdgeType::BranchL3 | EdgeType::BranchL7 | EdgeType::BranchB | EdgeType::BranchU
-            )
-        )
-        && edge.pop0(bl) + 1 != pop
+    if bl <= 7 && matches!(tag, EdgeTag::Structural(t) if t.is_branch()) && edge.pop0(bl) + 1 != pop
     {
         return Err(format!(
             "branch pop0 disagrees with subtree: {} != {}",

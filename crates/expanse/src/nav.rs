@@ -45,7 +45,9 @@ unsafe fn edge_pop(edge: &Edge, level: u8) -> u64 {
             edge.pop0(t.leaf_key_bytes().expect("leaf tag")) + 1
         }
         EdgeTag::Structural(EdgeType::LeafB1) => edge.pop0(1) + 1,
-        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7 | EdgeType::BranchB)) => {
+        EdgeTag::Structural(t)
+            if t.is_branch_l3() || t == EdgeType::BranchL7 || t == EdgeType::BranchB =>
+        {
             // SAFETY: live branch per this function's contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
             edge.pop0(bl) + 1
@@ -235,7 +237,17 @@ pub(crate) unsafe fn next<const MAP: bool>(
             Some((suffix, 0))
         }
 
-        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+        EdgeTag::Structural(
+            t @ (EdgeType::BranchL3
+            | EdgeType::BranchL7
+            | EdgeType::BranchL3L2
+            | EdgeType::BranchL3L3
+            | EdgeType::BranchL3L4
+            | EdgeType::BranchL3L5
+            | EdgeType::BranchL3L6
+            | EdgeType::BranchL3L7
+            | EdgeType::BranchL3L8),
+        ) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
             let (dv, shift): (u64, u32) = if bl < level {
@@ -258,7 +270,7 @@ pub(crate) unsafe fn next<const MAP: bool>(
             let d = digit(suffix, bl);
             // SAFETY: live branch per contract.
             let (num, digits, edges_ptr) = unsafe {
-                if matches!(t, EdgeType::BranchL3) {
+                if t.is_branch_l3() {
                     let b = &*edge.node_ptr().cast::<BranchL3>();
                     (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
                 } else {
@@ -455,7 +467,17 @@ pub(crate) unsafe fn prev<const MAP: bool>(
             Some((suffix.min(pow256(level) - 1), 0))
         }
 
-        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+        EdgeTag::Structural(
+            t @ (EdgeType::BranchL3
+            | EdgeType::BranchL7
+            | EdgeType::BranchL3L2
+            | EdgeType::BranchL3L3
+            | EdgeType::BranchL3L4
+            | EdgeType::BranchL3L5
+            | EdgeType::BranchL3L6
+            | EdgeType::BranchL3L7
+            | EdgeType::BranchL3L8),
+        ) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
             let (dv, shift): (u64, u32) = if bl < level {
@@ -478,7 +500,7 @@ pub(crate) unsafe fn prev<const MAP: bool>(
             let d = digit(suffix, bl);
             // SAFETY: live branch per contract.
             let (num, digits, edges_ptr) = unsafe {
-                if matches!(t, EdgeType::BranchL3) {
+                if t.is_branch_l3() {
                     let b = &*edge.node_ptr().cast::<BranchL3>();
                     (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
                 } else {
@@ -652,7 +674,17 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
             suffix
         }
 
-        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+        EdgeTag::Structural(
+            t @ (EdgeType::BranchL3
+            | EdgeType::BranchL7
+            | EdgeType::BranchL3L2
+            | EdgeType::BranchL3L3
+            | EdgeType::BranchL3L4
+            | EdgeType::BranchL3L5
+            | EdgeType::BranchL3L6
+            | EdgeType::BranchL3L7
+            | EdgeType::BranchL3L8),
+        ) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
             let (dv, shift): (u64, u32) = if bl < level {
@@ -676,7 +708,7 @@ pub(crate) unsafe fn count_below<const MAP: bool>(edge: &Edge, suffix: u64, leve
             let d = digit(suffix, bl);
             // SAFETY: live branch per contract.
             let (num, digits, edges_ptr) = unsafe {
-                if matches!(t, EdgeType::BranchL3) {
+                if t.is_branch_l3() {
                     let b = &*edge.node_ptr().cast::<BranchL3>();
                     (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
                 } else {
@@ -845,7 +877,17 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
             (n, 0)
         }
 
-        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+        EdgeTag::Structural(
+            t @ (EdgeType::BranchL3
+            | EdgeType::BranchL7
+            | EdgeType::BranchL3L2
+            | EdgeType::BranchL3L3
+            | EdgeType::BranchL3L4
+            | EdgeType::BranchL3L5
+            | EdgeType::BranchL3L6
+            | EdgeType::BranchL3L7
+            | EdgeType::BranchL3L8),
+        ) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { crate::mutate::branch_form_level(edge, t, level) };
             let (dv, shift): (u64, u32) = if bl < level {
@@ -858,7 +900,7 @@ pub(crate) unsafe fn by_count<const MAP: bool>(edge: &Edge, n: u64, level: u8) -
             };
             // SAFETY: live branch per contract.
             let (num, digits, edges_ptr) = unsafe {
-                if matches!(t, EdgeType::BranchL3) {
+                if t.is_branch_l3() {
                     let b = &*edge.node_ptr().cast::<BranchL3>();
                     (b.hdr.num as usize, b.hdr.digits, b.edges.as_ptr())
                 } else {

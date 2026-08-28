@@ -349,7 +349,17 @@ impl<const MAP: bool> RawIter<MAP> {
                     return;
                 }
 
-                EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                EdgeTag::Structural(
+                    t @ (EdgeType::BranchL3
+                    | EdgeType::BranchL7
+                    | EdgeType::BranchL3L2
+                    | EdgeType::BranchL3L3
+                    | EdgeType::BranchL3L4
+                    | EdgeType::BranchL3L5
+                    | EdgeType::BranchL3L6
+                    | EdgeType::BranchL3L7
+                    | EdgeType::BranchL3L8),
+                ) => {
                     // SAFETY: live branch per contract.
                     let bl = unsafe { crate::mutate::branch_form_level(&cur_edge, t, cur_level) };
                     let dv = if bl < cur_level {
@@ -363,7 +373,7 @@ impl<const MAP: bool> RawIter<MAP> {
                         cur_prefix
                     };
 
-                    if matches!(t, EdgeType::BranchL3) {
+                    if t.is_branch_l3() {
                         // SAFETY: live BranchL3 pointer.
                         let b = unsafe { &*cur_edge.node_ptr().cast::<BranchL3>() };
                         let num = b.hdr.num;
@@ -733,7 +743,17 @@ impl<const MAP: bool> RawIter<MAP> {
                     return;
                 }
 
-                EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                EdgeTag::Structural(
+                    t @ (EdgeType::BranchL3
+                    | EdgeType::BranchL7
+                    | EdgeType::BranchL3L2
+                    | EdgeType::BranchL3L3
+                    | EdgeType::BranchL3L4
+                    | EdgeType::BranchL3L5
+                    | EdgeType::BranchL3L6
+                    | EdgeType::BranchL3L7
+                    | EdgeType::BranchL3L8),
+                ) => {
                     // SAFETY: live branch per contract.
                     let bl = unsafe { crate::mutate::branch_form_level(&cur_edge, t, cur_level) };
                     let dv = if bl < cur_level {
@@ -760,7 +780,7 @@ impl<const MAP: bool> RawIter<MAP> {
                         return;
                     }
 
-                    let (num, digits, edges_ptr, ptr_raw) = if matches!(t, EdgeType::BranchL3) {
+                    let (num, digits, edges_ptr, ptr_raw) = if t.is_branch_l3() {
                         // SAFETY: cur_edge is a live BranchL3 pointer.
                         let b = unsafe { &*cur_edge.node_ptr().cast::<BranchL3>() };
                         (
@@ -792,7 +812,7 @@ impl<const MAP: bool> RawIter<MAP> {
                         // SAFETY: slot 0 is valid for non-empty branch.
                         let next_child = unsafe { *edges_ptr };
 
-                        if matches!(t, EdgeType::BranchL3) {
+                        if t.is_branch_l3() {
                             self.stack[self.depth] = StackFrame {
                                 kind: BranchKind::L3 {
                                     ptr: ptr_raw.cast(),
@@ -841,7 +861,7 @@ impl<const MAP: bool> RawIter<MAP> {
                         // SAFETY: slot < num and edges_ptr has num entries.
                         let next_child = unsafe { *edges_ptr.add(slot) };
 
-                        if matches!(t, EdgeType::BranchL3) {
+                        if t.is_branch_l3() {
                             self.stack[self.depth] = StackFrame {
                                 kind: BranchKind::L3 {
                                     ptr: ptr_raw.cast(),
@@ -1487,7 +1507,17 @@ impl<const MAP: bool> RawIter<MAP> {
                     return;
                 }
 
-                EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                EdgeTag::Structural(
+                    t @ (EdgeType::BranchL3
+                    | EdgeType::BranchL7
+                    | EdgeType::BranchL3L2
+                    | EdgeType::BranchL3L3
+                    | EdgeType::BranchL3L4
+                    | EdgeType::BranchL3L5
+                    | EdgeType::BranchL3L6
+                    | EdgeType::BranchL3L7
+                    | EdgeType::BranchL3L8),
+                ) => {
                     // SAFETY: live branch per contract.
                     let bl = unsafe { crate::mutate::branch_form_level(&cur_edge, t, cur_level) };
                     let dv = if bl < cur_level {
@@ -1501,7 +1531,7 @@ impl<const MAP: bool> RawIter<MAP> {
                         cur_prefix
                     };
 
-                    if matches!(t, EdgeType::BranchL3) {
+                    if t.is_branch_l3() {
                         // SAFETY: live BranchL3 pointer.
                         let b = unsafe { &*cur_edge.node_ptr().cast::<BranchL3>() };
                         let num = b.hdr.num;
@@ -1870,7 +1900,17 @@ impl<const MAP: bool> RawIter<MAP> {
                     return;
                 }
 
-                EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+                EdgeTag::Structural(
+                    t @ (EdgeType::BranchL3
+                    | EdgeType::BranchL7
+                    | EdgeType::BranchL3L2
+                    | EdgeType::BranchL3L3
+                    | EdgeType::BranchL3L4
+                    | EdgeType::BranchL3L5
+                    | EdgeType::BranchL3L6
+                    | EdgeType::BranchL3L7
+                    | EdgeType::BranchL3L8),
+                ) => {
                     // SAFETY: live branch per contract.
                     let bl = unsafe { crate::mutate::branch_form_level(&cur_edge, t, cur_level) };
                     let dv = if bl < cur_level {
@@ -1904,7 +1944,7 @@ impl<const MAP: bool> RawIter<MAP> {
                         return;
                     }
 
-                    let (num, digits, edges_ptr, ptr_raw) = if matches!(t, EdgeType::BranchL3) {
+                    let (num, digits, edges_ptr, ptr_raw) = if t.is_branch_l3() {
                         // SAFETY: cur_edge is a live BranchL3 pointer.
                         let b = unsafe { &*cur_edge.node_ptr().cast::<BranchL3>() };
                         (
@@ -1941,7 +1981,7 @@ impl<const MAP: bool> RawIter<MAP> {
                     // SAFETY: slot < num and edges_ptr has num entries.
                     let next_child = unsafe { *edges_ptr.add(slot) };
 
-                    if matches!(t, EdgeType::BranchL3) {
+                    if t.is_branch_l3() {
                         self.stack[self.depth] = StackFrame {
                             kind: BranchKind::L3 {
                                 ptr: ptr_raw.cast(),

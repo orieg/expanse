@@ -168,7 +168,7 @@ pub(crate) unsafe fn child_by_digit(edge: &Edge, level: u8, d: u8) -> Edge {
                 None => Edge::NULL,
             }
         }
-        EdgeType::BranchL3 => {
+        t if t.is_branch_l3() => {
             // SAFETY: live BranchL3 pointer.
             let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
             let bl = b.hdr.level;
@@ -364,7 +364,7 @@ unsafe fn intersection_branch(ea: &Edge, eb: &Edge, level: u8) -> u64 {
                 };
             }
         }
-        EdgeType::BranchL3 => {
+        t if t.is_branch_l3() => {
             // SAFETY: live BranchL3 pointer.
             let b = unsafe { &*eb.node_ptr().cast::<BranchL3>() };
             for i in 0..b.hdr.num as usize {

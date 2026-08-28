@@ -486,7 +486,8 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     // SAFETY: node is freshly allocated zeroed BranchL3 memory.
                     unsafe {
                         (*node.as_ptr()).hdr.level = level;
-                        *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
+                        *edge =
+                            Edge::new_node(node.as_ptr().cast(), EdgeType::branch_l3_tag(level));
                     }
                     continue;
                 }
@@ -503,7 +504,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 }
             }
 
-            0x01 => {
+            0x01 | 0x82..=0x88 => {
                 debug_assert!(level >= 2);
                 // SAFETY: edge points to a live BranchL3 node; raw pointer derivations avoid creating unique references over parent edges.
                 unsafe {
@@ -946,7 +947,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                                 (*node.as_ptr()).hdr.level = bl;
                                 *edge = Edge::new_node(
                                     node.as_ptr().cast(),
-                                    EdgeType::BranchL3.as_u8(),
+                                    EdgeType::branch_l3_tag(bl),
                                 );
                                 if bl < level {
                                     write_decode(&mut *edge, bl, level, entries[0].0);
@@ -1192,7 +1193,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     unsafe {
                         (*node.as_ptr()).hdr.level = level;
                     }
-                    *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
+                    *edge = Edge::new_node(node.as_ptr().cast(), EdgeType::branch_l3_tag(level));
                     // SAFETY: forwarded contract; edge is now a branch.
                     continue;
                 }
@@ -1548,7 +1549,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                                 (*node.as_ptr()).hdr.level = bl;
                             }
                             *edge =
-                                Edge::new_node(node.as_ptr().cast(), EdgeType::BranchL3.as_u8());
+                                Edge::new_node(node.as_ptr().cast(), EdgeType::branch_l3_tag(bl));
                             if bl < level {
                                 write_decode(edge, bl, level, entries[0].0);
                             }
@@ -1657,7 +1658,17 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 unreachable!("full-expanse edges are set-flavor only")
             }
 
-            EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+            EdgeTag::Structural(
+                t @ (EdgeType::BranchL3
+                | EdgeType::BranchL7
+                | EdgeType::BranchL3L2
+                | EdgeType::BranchL3L3
+                | EdgeType::BranchL3L4
+                | EdgeType::BranchL3L5
+                | EdgeType::BranchL3L6
+                | EdgeType::BranchL3L7
+                | EdgeType::BranchL3L8),
+            ) => {
                 debug_assert!(level >= 2);
                 // SAFETY: live branch per contract.
                 let bl = unsafe { branch_form_level(edge, t, level) };
@@ -1668,7 +1679,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     continue;
                 }
                 let d = digit(key, bl);
-                let is_l3 = matches!(t, EdgeType::BranchL3);
+                let is_l3 = t.is_branch_l3();
                 // SAFETY: live branch per contract.
                 let (found, num) = unsafe {
                     if is_l3 {
@@ -2237,14 +2248,24 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
             unreachable!("full-expanse edges are set-flavor only")
         }
 
-        EdgeTag::Structural(t @ (EdgeType::BranchL3 | EdgeType::BranchL7)) => {
+        EdgeTag::Structural(
+            t @ (EdgeType::BranchL3
+            | EdgeType::BranchL7
+            | EdgeType::BranchL3L2
+            | EdgeType::BranchL3L3
+            | EdgeType::BranchL3L4
+            | EdgeType::BranchL3L5
+            | EdgeType::BranchL3L6
+            | EdgeType::BranchL3L7
+            | EdgeType::BranchL3L8),
+        ) => {
             // SAFETY: live branch per contract.
             let bl = unsafe { branch_form_level(edge, t, level) };
             if bl < level && !crate::get::decode_matches(edge, key, bl, level) {
                 return None;
             }
             let d = digit(key, bl);
-            let is_l3 = matches!(t, EdgeType::BranchL3);
+            let is_l3 = t.is_branch_l3();
             // SAFETY: live branch per contract.
             let removed = unsafe {
                 if is_l3 {

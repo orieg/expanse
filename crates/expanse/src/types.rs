@@ -117,6 +117,20 @@ pub enum EdgeType {
     /// Fully populated subexpanse (set flavor): all keys present, no node
     /// needed.
     FullExpanse = 0x7F,
+    /// Linear branch (L3) at level 2.
+    BranchL3L2 = 0x82,
+    /// Linear branch (L3) at level 3.
+    BranchL3L3 = 0x83,
+    /// Linear branch (L3) at level 4.
+    BranchL3L4 = 0x84,
+    /// Linear branch (L3) at level 5.
+    BranchL3L5 = 0x85,
+    /// Linear branch (L3) at level 6.
+    BranchL3L6 = 0x86,
+    /// Linear branch (L3) at level 7.
+    BranchL3L7 = 0x87,
+    /// Linear branch (L3) at level 8.
+    BranchL3L8 = 0x88,
 }
 
 impl EdgeType {
@@ -139,6 +153,13 @@ impl EdgeType {
             0x0B => Some(Self::Leaf7),
             0x0C => Some(Self::LeafB1),
             0x7F => Some(Self::FullExpanse),
+            0x82 => Some(Self::BranchL3L2),
+            0x83 => Some(Self::BranchL3L3),
+            0x84 => Some(Self::BranchL3L4),
+            0x85 => Some(Self::BranchL3L5),
+            0x86 => Some(Self::BranchL3L6),
+            0x87 => Some(Self::BranchL3L7),
+            0x88 => Some(Self::BranchL3L8),
             _ => None,
         }
     }
@@ -156,8 +177,46 @@ impl EdgeType {
     pub const fn is_branch(self) -> bool {
         matches!(
             self,
-            Self::BranchL3 | Self::BranchL7 | Self::BranchB | Self::BranchU
+            Self::BranchL3
+                | Self::BranchL7
+                | Self::BranchB
+                | Self::BranchU
+                | Self::BranchL3L2
+                | Self::BranchL3L3
+                | Self::BranchL3L4
+                | Self::BranchL3L5
+                | Self::BranchL3L6
+                | Self::BranchL3L7
+                | Self::BranchL3L8
         )
+    }
+
+    /// True for BranchL3 (unspecialized or per-level).
+    #[inline]
+    #[must_use]
+    pub const fn is_branch_l3(self) -> bool {
+        matches!(
+            self,
+            Self::BranchL3
+                | Self::BranchL3L2
+                | Self::BranchL3L3
+                | Self::BranchL3L4
+                | Self::BranchL3L5
+                | Self::BranchL3L6
+                | Self::BranchL3L7
+                | Self::BranchL3L8
+        )
+    }
+
+    /// Tag byte for a BranchL3 at `level` (2..=8).
+    #[inline]
+    #[must_use]
+    pub const fn branch_l3_tag(level: u8) -> u8 {
+        if level >= 2 && level <= 8 {
+            0x80 | level
+        } else {
+            0x01
+        }
     }
 
     /// True for the linear and bitmap leaf flavors.
@@ -333,6 +392,13 @@ mod tests {
             EdgeType::Leaf7,
             EdgeType::LeafB1,
             EdgeType::FullExpanse,
+            EdgeType::BranchL3L2,
+            EdgeType::BranchL3L3,
+            EdgeType::BranchL3L4,
+            EdgeType::BranchL3L5,
+            EdgeType::BranchL3L6,
+            EdgeType::BranchL3L7,
+            EdgeType::BranchL3L8,
         ];
         for t in all {
             assert_eq!(EdgeType::from_u8(t.as_u8()), Some(t));
@@ -358,9 +424,9 @@ mod tests {
                 assert_eq!(EdgeTag::from_u8(raw), None);
             }
         }
-        // 14 structural tags + all (key_bytes, count) combos with
+        // 21 structural tags + all (key_bytes, count) combos with
         // key_bytes * count <= 15: 15 + 7 + 5 + 3 + 3 + 2 + 2 = 37.
-        assert_eq!(valid, 14 + 37);
+        assert_eq!(valid, 21 + 37);
     }
 
     #[test]

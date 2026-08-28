@@ -156,6 +156,157 @@ unsafe fn walk_set_impl(edge: &Edge, key: Key, level: u8) -> bool {
                 level = bl - 1;
             }
 
+            0x82 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                if level > 2 && !decode_matches(edge, key, 2, level) {
+                    return false;
+                }
+                let d = ((key >> 8) & 0xFF) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return false;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 1;
+            }
+
+            0x83 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                if level > 3 && !decode_matches(edge, key, 3, level) {
+                    return false;
+                }
+                let d = ((key >> 16) & 0xFF) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return false;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 2;
+            }
+
+            0x84 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                if level > 4 && !decode_matches(edge, key, 4, level) {
+                    return false;
+                }
+                let d = ((key >> 24) & 0xFF) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return false;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 3;
+            }
+
+            0x85 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                if level > 5 && !decode_matches(edge, key, 5, level) {
+                    return false;
+                }
+                let d = ((key >> 32) & 0xFF) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return false;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 4;
+            }
+
+            0x86 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                if level > 6 && !decode_matches(edge, key, 6, level) {
+                    return false;
+                }
+                let d = ((key >> 40) & 0xFF) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return false;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 5;
+            }
+
+            0x87 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                if level > 7 && !decode_matches(edge, key, 7, level) {
+                    return false;
+                }
+                let d = ((key >> 48) & 0xFF) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return false;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 6;
+            }
+
+            0x88 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                let d = (key >> 56) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return false;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 7;
+            }
+
             0x02 => {
                 // SAFETY: pointer-tagged edge → live BranchL7.
                 let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
@@ -290,6 +441,157 @@ unsafe fn walk_map_impl(edge: &Edge, key: Key, level: u8) -> Option<u64> {
                 // SAFETY: `slot < 3` accesses a valid child edge pointer.
                 edge = unsafe { &*b.edges.as_ptr().add(slot) };
                 level = bl - 1;
+            }
+
+            0x82 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                if level > 2 && !decode_matches(edge, key, 2, level) {
+                    return None;
+                }
+                let d = ((key >> 8) & 0xFF) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return None;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 1;
+            }
+
+            0x83 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                if level > 3 && !decode_matches(edge, key, 3, level) {
+                    return None;
+                }
+                let d = ((key >> 16) & 0xFF) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return None;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 2;
+            }
+
+            0x84 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                if level > 4 && !decode_matches(edge, key, 4, level) {
+                    return None;
+                }
+                let d = ((key >> 24) & 0xFF) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return None;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 3;
+            }
+
+            0x85 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                if level > 5 && !decode_matches(edge, key, 5, level) {
+                    return None;
+                }
+                let d = ((key >> 32) & 0xFF) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return None;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 4;
+            }
+
+            0x86 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                if level > 6 && !decode_matches(edge, key, 6, level) {
+                    return None;
+                }
+                let d = ((key >> 40) & 0xFF) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return None;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 5;
+            }
+
+            0x87 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                if level > 7 && !decode_matches(edge, key, 7, level) {
+                    return None;
+                }
+                let d = ((key >> 48) & 0xFF) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return None;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 6;
+            }
+
+            0x88 => {
+                // SAFETY: pointer-tagged edge → live BranchL3.
+                let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+                let d = (key >> 56) as u8;
+                let num = b.hdr.num as usize;
+                let slot = if b.hdr.digits[0] == d {
+                    0
+                } else if num > 1 && b.hdr.digits[1] == d {
+                    1
+                } else if num > 2 && b.hdr.digits[2] == d {
+                    2
+                } else {
+                    return None;
+                };
+                // SAFETY: slot < 3 accesses a valid child edge pointer.
+                edge = unsafe { &*b.edges.as_ptr().add(slot) };
+                level = 7;
             }
 
             0x02 => {
@@ -652,7 +954,7 @@ unsafe fn walk_set_batch_chunk(root_edge: &Edge, keys: &[Key], out: &mut [bool],
                     lane.found = false;
                     active -= 1;
                 }
-                0x01 => {
+                0x01 | 0x82..=0x88 => {
                     // SAFETY: pointer-tagged edge -> live BranchL3.
                     let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
                     let bl = b.hdr.level;
@@ -845,7 +1147,7 @@ unsafe fn walk_map_batch_chunk(root_edge: &Edge, keys: &[Key], out: &mut [Option
                     lane.found = false;
                     active -= 1;
                 }
-                0x01 => {
+                0x01 | 0x82..=0x88 => {
                     // SAFETY: pointer-tagged edge -> live BranchL3.
                     let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
                     let bl = b.hdr.level;
@@ -1154,7 +1456,7 @@ unsafe fn locate_slot_impl(
         match tag {
             0x00 => return None, // Null
 
-            0x01 => {
+            0x01 | 0x82..=0x88 => {
                 // SAFETY: live branch per contract; the child edge pointer
                 // derives from the raw node pointer.
                 unsafe {
