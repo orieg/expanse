@@ -42,12 +42,18 @@
 //! that becomes wall-clock. The `Estimated Cycles` column is the closer
 //! proxy.
 //!
-//! **This harness does not emit L1/LL/RAM counts.** Those require
-//! `--cache-sim=yes`, which is not passed here or in `instructions.rs`;
-//! `Estimated Cycles` is derived from the instruction count alone and is
-//! not a cache measurement. Earlier revisions of this header and of
-//! `docs/BENCHMARKING.md` claimed the columns existed. Enabling the
-//! simulator is https://github.com/orieg/expanse/issues/453.
+//! This harness does emit L1/LL/RAM counts. An earlier revision of this
+//! header said it did not, on the grounds that `--cache-sim=yes` was not
+//! passed; the runner sets `CACHE_SIM = true` as a default, so simulation
+//! has always been on. `Estimated Cycles` is `L1 + 5*LL + 35*RAM`, which
+//! is why it has never equalled `Instructions`. The flag is now stated
+//! explicitly below so a dependency bump cannot turn it off silently.
+//!
+//! The modelled hierarchy is fixed at I1/D1 32 KiB 8-way and LL 8 MiB
+//! 16-way, for cross-machine comparability. It is not the reference
+//! host's 30 MiB L3, so these columns cannot locate that host's L3 cliff.
+//! Hardware counters for that are the `point_lookup_counters` suite; see
+//! https://github.com/orieg/expanse/issues/455.
 //!
 //! Linux/CI only (valgrind, plus `libjudy-dev` for the stock library).
 

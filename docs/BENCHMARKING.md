@@ -49,7 +49,11 @@ Three cases in this repo:
 
   The `scalar` arm in each group is the twin; `batch/1` is the driver at one lane, which separates its bookkeeping from the interleaving. A width wins only if its BCa 95% CI lower bound (`scripts/bca_bootstrap.py`) clears the `scalar` arm on `cold_dram` **and** it does not regress the cache-resident `warm` control — a gain on one bought with a loss on the other is a trade to state, not a win. The `cold_dram` population also sits far past STLB reach, so a result there mixes DRAM latency with page-walk cost ([#431](https://github.com/orieg/expanse/issues/431)); it does not attribute cleanly to DRAM alone.
 
-Also available: `bca_bootstrap.py` for any continuous metric reaching a published claim. **Not yet available, despite previous claims here:** `perf stat` counters (no invocation exists in this repository) and Callgrind cache columns (neither `vs_stock.rs` nor `instructions.rs` passes `--cache-sim=yes`, so those columns are not produced). Enabling them is [#453](https://github.com/orieg/expanse/issues/453); until then no cache or translation hypothesis in this repository is measured.
+Also available: `bca_bootstrap.py` for any continuous metric reaching a published claim; the Callgrind L1/LL/RAM columns, which do exist; and `perf stat` counters via the `point_lookup_counters` suite.
+
+**Correction.** A previous revision of this paragraph said the cache columns "are not produced" because neither harness passes `--cache-sim=yes`. That was wrong. `iai-callgrind-runner` sets `CACHE_SIM = true` as a default, so cache simulation has been on in every run this repository has ever made — which is why `Estimated Cycles` (`L1 + 5·LL + 35·RAM`) has always differed from `Instructions`. The harnesses now state the flag rather than inherit it, so a dependency bump cannot silently turn the instrument off.
+
+What the simulated columns can and cannot answer is a narrower point, and the one that matters. The runner fixes the modelled hierarchy at I1/D1 32 KiB 8-way and **LL 8 MiB** 16-way, deliberately, so counts stay comparable across machines. That is not the reference host, whose L3 is 30 MiB. The columns answer "how does this behave on a standard modelled hierarchy"; they cannot locate the host's L3 cliff or attribute a wall-clock stall to it. That gap is what `point_lookup_counters` exists for. See [#455](https://github.com/orieg/expanse/issues/455).
 
 ## Comparison targets
 
