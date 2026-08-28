@@ -66,7 +66,7 @@
       "available": true,
       "kind": "callgrind",
       "runner": "builtin",
-      "summary": "Default for a bare `/bench`: dual-pass Callgrind over `instructions` and `vs_stock`, the two B/key examples, and the fast comparative sweep."
+      "summary": "Default for a bare `/bench`: dual-pass Callgrind over `instructions` and `vs_stock`, the two B/key examples, the paired `bench_vs_libjudy` wall-clock comparison, and the fast comparative sweep."
     },
     {
       "name": "extended",
@@ -88,6 +88,13 @@
       "kind": "callgrind",
       "runner": "builtin",
       "summary": "Core deterministic Callgrind instruction counters plus the 64-bit and 32-bit B/key examples, dual-pass against the base ref."
+    },
+    {
+      "name": "vs_libjudy",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Paired wall-clock comparison of `libexpanse` against a dlopen'd stock libjudy through the identical C surface, arms interleaved per round (`bench_vs_libjudy`)."
     },
     {
       "name": "comparative",
