@@ -22,7 +22,7 @@ Performance claims are this project's reason to exist, so they follow the strict
 |---|---|
 | Removes work — fewer comparisons, fewer allocations, shorter descent, better codegen | Callgrind instruction count |
 | Overlaps or hides stalls — memory-level parallelism, batching, prefetch, TLB/page-size work | Wall clock with BCa 95% CIs on the reference host |
-| Changes what memory is touched, not how much work is done — node layout, address-dependency chains, terminal search shape | Hardware counters (`/benchmark point_lookup_counters`) and Callgrind cache simulation (`EXPANSE_CACHE_SIM=1`); see [Hardware counters and cache simulation](#hardware-counters-and-cache-simulation) |
+| Changes what memory is touched, not how much work is done — node layout, address-dependency chains, terminal search shape | Hardware counters on the reference host (`/benchmark point_lookup_counters`); Callgrind's modelled cache columns for the machine-independent half; see [Hardware counters and cache simulation](#hardware-counters-and-cache-simulation) |
 | Both | Both; state which the claim rests on |
 
 Callgrind cannot see TLB misses, memory-level parallelism or frequency effects. It is the right instrument because it ignores them, and the wrong one when they are the point. For a latency-hiding change a flat or increased instruction count is the expected shape, not a failed optimisation.
@@ -425,63 +425,70 @@ the runner's own `lscpu`/`uname` (CPU model and kernel, never a hostname) and
 
 ## Hardware counters and cache simulation
 
-Two instruments, both added by
-[#455](https://github.com/orieg/expanse/issues/455) R0 and
-[#453](https://github.com/orieg/expanse/issues/453) C. Before them the repo had
-neither: no `perf stat` invocation existed anywhere in it, and no Callgrind
-harness passed `--cache-sim=yes`, so no cache or translation hypothesis here had
-ever been measured. Both are diagnostics. Neither gates anything.
+### What the Callgrind harnesses actually simulate
 
-### Callgrind cache and branch simulation (`EXPANSE_CACHE_SIM=1`)
+[#453](https://github.com/orieg/expanse/issues/453) recorded that neither
+`instructions.rs` nor `vs_stock.rs` passes `--cache-sim=yes`, and concluded the
+L1/LL/RAM columns had never existed. The first half is true of the harness
+sources. The conclusion is not: **iai-callgrind's runner defaults cache
+simulation on** — `defaults::CACHE_SIM = true` in `iai-callgrind-runner`, which
+this workspace pins at 0.16 — so callgrind has been running with it the whole
+time. The columns are in `perf_report.py`'s *Callgrind-Modeled Memory Hierarchy
+Simulation* section of every PR comment, and `Estimated Cycles` has been the
+weighted `L1 hits + 5·LL hits + 35·RAM hits` figure rather than a copy of the
+instruction count, which is what the two columns differing shows.
 
-`crates/expanse/benches/instructions.rs` and
-`crates/expanse-capi/benches/vs_stock.rs` pass `--cache-sim=yes --branch-sim=yes`
-to callgrind when `EXPANSE_CACHE_SIM=1` is set, and nothing otherwise:
+Both harnesses now pass `--cache-sim=yes` explicitly. That changes no number and
+costs nothing — it is the value already in force — and it stops the instrument
+being an inherited dependency default that a version bump could flip silently.
+
+The simulated hierarchy is fixed by the runner and is **not the host's**:
+
+| Level | Modelled as |
+|---|---|
+| I1 / D1 | 32 KiB, 8-way, 64-byte lines |
+| LL | 8 MiB, 16-way, 64-byte lines |
+
+Fixed sizes are deliberate — they are what makes a count comparable between a
+CI runner and the reference host. They are also the boundary of what this
+instrument can be asked. A question about a *real* last-level cache — where the
+L3 cliff sits on a 30 MiB part, whether a population straddles it
+([#455](https://github.com/orieg/expanse/issues/455)) — is not answerable from a
+model of an 8 MiB one. That needs hardware counters.
+
+### Branch simulation (`EXPANSE_BRANCH_SIM=1`)
+
+`--branch-sim=yes` has no runner default and is opt-in:
 
 ```bash
-# default: instructions retired only - what the regression gate reads
+# default: the modelled cache columns, no branch-predictor columns
 cargo bench --bench instructions -p expanse-trie
 
-# diagnostic: adds the modelled cache and branch columns
-EXPANSE_CACHE_SIM=1 cargo bench --bench instructions -p expanse-trie
+# diagnostic: adds Bc / Bcm / Bi / Bim
+EXPANSE_BRANCH_SIM=1 cargo bench --bench instructions -p expanse-trie
 ```
 
-| Mode | What callgrind collects |
-|---|---|
-| default (variable unset, or `0`) | instructions retired only — `Ir`, and the `Estimated Cycles` derived from it |
-| `EXPANSE_CACHE_SIM=1` | the above, plus data reads and writes, the L1/LL/RAM hit counts, and the branch-predictor counters |
-
-The simulation is off by default because it routes every memory reference and
-every branch through a simulator on top of callgrind's own slowdown. Leaving it
-on would change the run time of the gate without changing what the gate reads:
-instruction counts are identical in both modes, so the regression comparison is
-byte-for-byte the one it was before the switch existed. `scripts/perf_report.py`
-already parses `L1 Hits` / `LL Hits` / `RAM Hits` and renders them under
-*Callgrind-Modeled Memory Hierarchy Simulation*; with the simulator off those
-counts are absent from its input and that table is empty, which is what it has
-always been. An unrecognised value of the variable is fatal rather than ignored
-— a mistyped `EXPANSE_CACHE_SIM=yes` that quietly produced an instruction-only
-run would be a run published as a cache measurement that never simulated a
-cache.
-
-One consequence to keep straight: `Estimated Cycles` is
-`L1 hits + 5·LL hits + 35·RAM hits`, so with the simulator off it collapses to
-the instruction count and with it on it becomes the weighted figure rule 0c
-describes. The two modes' `Estimated Cycles` are not comparable to each other.
-`Ir` is.
+It is off by default because it adds a predictor simulation on top of
+callgrind's own slowdown and the regression pass needs no branch column: that
+pass is gated on instructions retired, which are identical either way. An
+unrecognised value of the variable is fatal rather than ignored — a mistyped
+`EXPANSE_BRANCH_SIM=yes` that quietly produced a run with no branch columns
+would be a run published as a misprediction measurement that never simulated a
+predictor.
 
 *(unverified until a run on the reference host: neither valgrind nor callgrind
-runs on arm64 macOS, so the exact column set iai-callgrind renders in the
-simulated mode has not been observed here — only the flags it passes. The first
-`EXPANSE_CACHE_SIM=1` run on that host settles it, and this table is what should
-be checked against.)*
+runs on arm64 macOS, so the exact column set iai-callgrind renders with branch
+simulation on has not been observed here — only the flag it passes. The
+cache-simulation half above is not a prediction: it is read off the CI
+comment.)*
 
-**What it can answer:** whether a change moves modelled cache traffic, in a
-number that is exact and reproducible. **What it cannot:** anything about the
-real machine. Callgrind's model is a two-level inclusive cache with no
-prefetcher, no memory-level parallelism, no TLB and no frequency scaling. Rule
-0c already says the derived cycle estimate is an alarm and not an adjudicator;
-the same applies to every column the simulator adds.
+**What Callgrind simulation can answer:** whether a change moves modelled cache
+traffic, exactly and reproducibly, on a hierarchy that is the same everywhere.
+**What it cannot:** anything about the real machine. The model has no
+prefetcher, no memory-level parallelism, no TLB, no frequency scaling, and an LL
+that is not the host's. Rule 0c already says the derived cycle estimate is an
+alarm and not an adjudicator; the same applies to every column the simulator
+produces.
 
 ### Hardware counters (`scripts/perf_counters.py`)
 
