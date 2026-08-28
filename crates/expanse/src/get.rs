@@ -594,13 +594,29 @@ unsafe fn get_map_popcnt(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 
 /// Default interleave width for the batched entries.
 ///
-/// The useful range is bounded above by the core's outstanding-miss budget
-/// (L1 fill buffers / L2 MSHRs — 12 on the reference host's Golden Cove
-/// cores): lanes beyond that cannot add miss overlap and only add
-/// bookkeeping. It is bounded below by 1, which is the scalar path. The
-/// value inside that range is a wall-clock question; `benches/batch_lookup.rs`
-/// sweeps it and `docs/BENCHMARKING.md` records what has been measured.
-pub const BATCH_WIDTH: usize = 8;
+/// **Measured, and the news is bad for this path.** The sweep in
+/// `benches/batch_lookup.rs` ran on the reference host and every width
+/// loses to the scalar descent on the cold-DRAM arm this machinery exists
+/// to serve — `W = 2` comes closest at 1.015x with a BCa 95% CI of
+/// [1.014, 1.016], which still excludes parity. The previous default of 8
+/// was the worst shipped choice: 1.108x on cold-DRAM map lookups and up to
+/// 1.550x on the warm control.
+///
+/// `2` is set here because it is the measured optimum at every population
+/// and distribution swept, not because batching wins. It does not, where
+/// it was supposed to.
+///
+/// The result also inverts the mechanism. Batching helps slightly on the
+/// **warm** control (0.975x map, 0.959x set) and hurts on **cold DRAM**,
+/// which is the opposite of a miss-overlap story: the chain is
+/// miss-shallow rather than miss-parallelism-starved, so there is too
+/// little serialised latency to overlap and the driver's bookkeeping is
+/// never repaid. Same conclusion the descent analysis reached from the
+/// other direction — see <https://github.com/orieg/expanse/issues/455>.
+///
+/// Per-width intervals: `results/baseline_batch_lookup.json`.
+/// *(measured: reference host, commit `65fe26b0`, run 33153486450.)*
+pub const BATCH_WIDTH: usize = 2;
 
 /// One in-flight descent: the edge reached so far, the key being descended,
 /// and the number of undecoded low key bytes that edge covers.

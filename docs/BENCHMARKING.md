@@ -84,6 +84,25 @@ Per-round ratios and every interval are committed in [`results/baseline_vs_libju
 
 Linkage makes almost no difference here: `expanse_rlib` (statically linked, LTO) and `expanse_dl` land at 1.028 and 1.031 on the arm where it would matter most.
 
+### Measured: the batched descent (`get_batch` / `contains_batch`)
+
+Width sweep against the scalar descent over identical probes. Ratios are `width / scalar`; below 1.000 the batched path is faster.
+
+| group | scalar (ns) | `W = 2` (best) | `W = 8` (was default) | verdict at best width |
+|---|---:|---|---:|---|
+| `map_get_batch/cold_dram/4000000` | 39346.3 | 1.015 [1.014, 1.016] | 1.108 | loss |
+| `map_get_batch/warm/100000` | 19350.0 | 0.975 [0.974, 0.976] | 1.378 | win |
+| `set_contains_batch/cold_dram/4000000` | 33778.8 | 1.026 [1.024, 1.032] | 1.128 | loss |
+| `set_contains_batch/warm/100000` | 19083.3 | 0.959 [0.958, 0.959] | 1.550 | win |
+
+*(measured: 12th Gen Intel Core i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0; commit `65fe26b0`; [run 33153486450](https://github.com/orieg/expanse/actions/runs/33153486450). Per-width intervals: [`results/baseline_batch_lookup.json`](../results/baseline_batch_lookup.json).)*
+
+**No width beats the scalar descent on cold DRAM**, which is the arm this machinery exists to serve. `W = 2` is closest at 1.015x and its interval still excludes parity. The previous default of `8` was the worst shipped choice at every population and distribution swept.
+
+**The result inverts the mechanism.** Batching helps slightly on the *warm* control and hurts on *cold DRAM* — the opposite of a miss-overlap story. Interleaving lanes pays when there are several serialised DRAM misses to overlap; a 1M-key random descent has roughly one, because the ladder resolves the upper levels out of cache. There is too little serialised latency to overlap and the driver's bookkeeping is never repaid. The descent analysis in [#455](https://github.com/orieg/expanse/issues/455) reached the same conclusion from emitted code rather than wall clock.
+
+`BATCH_WIDTH` is now `2` because that is the measured optimum, not because the batched path wins. It does not, where it was designed to.
+
 ## Comparison targets
 
 1. **C libjudy** — the headline comparison ("faster than the original, or explain why").
