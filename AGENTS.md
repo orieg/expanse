@@ -214,7 +214,8 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | §8.4 BCa 95 % CI lower bound ≥ floor | **tooling** + review | `scripts/bench_baseline.py` harvests criterion `sample.json`, emits `results/baseline_*.json`, renders the interval and gates on it (`--floors` / `--against`, `--fail-on-gate`); a reviewer still decides which arms a claim rests on |
 | §2.1 / §2.2 architectural invariants beyond sizes (no B-tree/hash mutation, no coarse locks, ordered semantics) | **review** | — |
 | §3 clean-room (no LGPL exposure) | **review** (`references/` is gitignored) | — |
-| §8.3 symmetric baselines · §8.6 DCE sinks, realistic hit rates, miss shape & measured-region hygiene · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.9 reporting discipline · §8.10 retract don't re-estimate · PR checklist truthfulness | **review** | — |
+| §8.3 symmetric baselines · §8.6 DCE sinks, realistic hit rates, miss shape & measured-region hygiene · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.10 retract don't re-estimate · PR checklist truthfulness | **review** | — |
+| §8.9 mechanism claims carry a counter (`memory-latency-bound`, `branch misprediction`, `MLP`, `TLB`, …) | **CI (fatal)** | `check_docs_hygiene.py` — paragraph-scoped; satisfied by a counter name, a `results/baseline_*` reference, or an explicit `unmeasured` / `hypothesis` / `cause unknown` qualifier |
 | Conventional-commit type · branch naming | **review** | — |
 
 ---
