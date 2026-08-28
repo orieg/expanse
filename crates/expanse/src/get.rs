@@ -594,29 +594,32 @@ unsafe fn get_map_popcnt(edge: &Edge, key: Key, level: u8) -> Option<u64> {
 
 /// Default interleave width for the batched entries.
 ///
-/// **Measured, and the news is bad for this path.** The sweep in
-/// `benches/batch_lookup.rs` ran on the reference host and every width
-/// loses to the scalar descent on the cold-DRAM arm this machinery exists
-/// to serve — `W = 2` comes closest at 1.015x with a BCa 95% CI of
-/// [1.014, 1.016], which still excludes parity. The previous default of 8
-/// was the worst shipped choice: 1.108x on cold-DRAM map lookups and up to
-/// 1.550x on the warm control.
+/// **Measured: the batched descent does not win where it was designed to.**
+/// The sweep in `benches/batch_lookup.rs` ran on the reference host and
+/// every width loses to the scalar descent on the cold-DRAM arm — the
+/// closest is `W = 2` at 1.015x, BCa 95% CI [1.014, 1.016], which still
+/// excludes parity. Interleaving pays when there are several serialised
+/// DRAM misses to overlap; this descent has roughly one, because the
+/// ladder resolves the upper levels out of cache.
 ///
-/// `2` is set here because it is the measured optimum at every population
-/// and distribution swept, not because batching wins. It does not, where
-/// it was supposed to.
+/// **The width curve is not understood, so this constant is not tuned to
+/// it.** The sweep is non-monotonic with a ~40% discontinuity between
+/// `W = 2` and `W = 3` on the warm control (0.975x then 1.369x). Memory-
+/// level parallelism has no cliff at three lanes, so something other than
+/// miss overlap dominates. A register-spill explanation was tested and
+/// refuted: on AArch64 the emitted `get_batch_width::<W>` grows smoothly
+/// (664, 700, 704, 713, 748 instructions for W = 1, 2, 3, 4, 8) with a
+/// frame that grows 32 bytes per lane and no discontinuity anywhere. The
+/// x86-64 build was not disassembled. Cause unknown.
 ///
-/// The result also inverts the mechanism. Batching helps slightly on the
-/// **warm** control (0.975x map, 0.959x set) and hurts on **cold DRAM**,
-/// which is the opposite of a miss-overlap story: the chain is
-/// miss-shallow rather than miss-parallelism-starved, so there is too
-/// little serialised latency to overlap and the driver's bookkeeping is
-/// never repaid. Same conclusion the descent analysis reached from the
-/// other direction — see <https://github.com/orieg/expanse/issues/455>.
+/// The value stays `8` rather than moving to the measured-best `2`,
+/// because a width ordering produced by an unexplained discontinuity is
+/// not a basis for tuning. What is established is that no width wins on
+/// cold DRAM; which width loses least is not.
 ///
 /// Per-width intervals: `results/baseline_batch_lookup.json`.
 /// *(measured: reference host, commit `65fe26b0`, run 33153486450.)*
-pub const BATCH_WIDTH: usize = 2;
+pub const BATCH_WIDTH: usize = 8;
 
 /// One in-flight descent: the edge reached so far, the key being descended,
 /// and the number of undecoded low key bytes that edge covers.

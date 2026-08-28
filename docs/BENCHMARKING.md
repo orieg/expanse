@@ -99,9 +99,11 @@ Width sweep against the scalar descent over identical probes. Ratios are `width 
 
 **No width beats the scalar descent on cold DRAM**, which is the arm this machinery exists to serve. `W = 2` is closest at 1.015x and its interval still excludes parity. The previous default of `8` was the worst shipped choice at every population and distribution swept.
 
-**The result inverts the mechanism.** Batching helps slightly on the *warm* control and hurts on *cold DRAM* — the opposite of a miss-overlap story. Interleaving lanes pays when there are several serialised DRAM misses to overlap; a 1M-key random descent has roughly one, because the ladder resolves the upper levels out of cache. There is too little serialised latency to overlap and the driver's bookkeeping is never repaid. The descent analysis in [#455](https://github.com/orieg/expanse/issues/455) reached the same conclusion from emitted code rather than wall clock.
+Interleaving pays when there are several serialised DRAM misses to overlap. This descent has roughly one — the ladder resolves the upper levels out of cache, so only the terminal access is a genuine long-latency miss. [#455](https://github.com/orieg/expanse/issues/455) reached the same conclusion from emitted code rather than wall clock.
 
-`BATCH_WIDTH` is now `2` because that is the measured optimum, not because the batched path wins. It does not, where it was designed to.
+**The width curve itself is not understood, and no width is published as a tuned optimum.** The sweep is non-monotonic, with a ~40% discontinuity between `W = 2` and `W = 3` on the warm control (0.975x then 1.369x). Memory-level parallelism has no cliff at three lanes, so something other than miss overlap dominates the curve's shape. A register-spill explanation was tested and refuted: on AArch64 the emitted `get_batch_width::<W>` grows smoothly — 664, 700, 704, 713, 748 instructions for `W` = 1, 2, 3, 4, 8 — with a frame growing a uniform 32 bytes per lane and no discontinuity. The x86-64 build, which is the architecture these timings came from, was not disassembled; a cross-build for it fails on a dev-dependency. Cause unknown.
+
+`BATCH_WIDTH` therefore stays at `8` rather than moving to the measured-best `2`. A width ordering produced by an unexplained discontinuity is not a basis for tuning. What this run establishes is that **no width wins on cold DRAM**; *which* width loses least is not established.
 
 ## Comparison targets
 
