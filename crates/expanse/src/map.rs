@@ -191,12 +191,14 @@ impl MapCore {
     }
 
     /// Look up a batch of `keys` simultaneously, writing values into `out`.
-    ///
-    /// When the root is a multi-level digital trie, `get_batch` interleaves key descents
-    /// across CPU Line Fill Buffers in chunks of 8 keys and issues software prefetch hints
-    /// on branch nodes to overlap DRAM memory latency.
     #[inline]
     pub(crate) fn get_batch(&self, keys: &[Key], out: &mut [Option<u64>]) {
+        self.get_batch_width::<{ get::BATCH_WIDTH }>(keys, out);
+    }
+
+    /// [`MapCore::get_batch`] at an explicit interleave width.
+    #[inline]
+    pub(crate) fn get_batch_width<const W: usize>(&self, keys: &[Key], out: &mut [Option<u64>]) {
         assert_eq!(
             keys.len(),
             out.len(),
@@ -217,7 +219,7 @@ impl MapCore {
             Root::Tree { top, .. } => {
                 // SAFETY: tree satisfies lookup invariants.
                 unsafe {
-                    get::get_map_batch(top, keys, out, 8);
+                    get::get_map_batch_w::<W>(top, keys, out, 8);
                 }
             }
         }
@@ -249,10 +251,15 @@ impl MapCore {
         }
 
         let mut found_count = 0;
-        let mut tmp_opts = [None; 8];
+        // Scratch chunk, not the interleave width: the driver refills a
+        // retired lane from the rest of the chunk, so a chunk boundary is
+        // where the width has to drain. Sized well above `get::BATCH_WIDTH`
+        // so those drains are a small fraction of the work.
+        const SCRATCH: usize = 64;
+        let mut tmp_opts = [None; SCRATCH];
         let mut offset = 0;
 
-        for (k_chunk, v_chunk) in keys.chunks(8).zip(out_values.chunks_mut(8)) {
+        for (k_chunk, v_chunk) in keys.chunks(SCRATCH).zip(out_values.chunks_mut(SCRATCH)) {
             let chunk_len = k_chunk.len();
             let opt_sub = &mut tmp_opts[..chunk_len];
             self.get_batch(k_chunk, opt_sub);
@@ -1702,12 +1709,27 @@ impl ExpanseMap {
 
     /// Look up a batch of `keys` simultaneously, writing values into `out`.
     ///
-    /// When the root is a multi-level digital trie, `get_batch` interleaves key descents
-    /// across CPU Line Fill Buffers in chunks of 8 keys and issues software prefetch hints
-    /// on branch nodes to overlap DRAM memory latency.
+    /// Results are identical to calling [`ExpanseMap::get`] on each key. When
+    /// the root is a multi-level digital trie the descents are advanced one
+    /// level at a time, [`get::BATCH_WIDTH`] of them interleaved, so their
+    /// dependent misses can be outstanding together instead of serialising —
+    /// see the batched-descent notes on `get`. Nothing in that path is shared
+    /// with the single-key walk.
     #[inline]
     pub fn get_batch(&self, keys: &[Key], out: &mut [Option<u64>]) {
         self.core.get_batch(keys, out);
+    }
+
+    /// [`ExpanseMap::get_batch`] at an explicit interleave width.
+    ///
+    /// Which width overlaps the most misses without exceeding the core's
+    /// outstanding-miss budget is a wall-clock question, so this entry exists
+    /// for `benches/batch_lookup.rs` to sweep `W` against one build. Not a
+    /// stable API: use [`ExpanseMap::get_batch`].
+    #[doc(hidden)]
+    #[inline]
+    pub fn get_batch_width<const W: usize>(&self, keys: &[Key], out: &mut [Option<u64>]) {
+        self.core.get_batch_width::<W>(keys, out);
     }
 
     /// Look up a batch of `keys`, writing found values into `out_values` and presence flags
@@ -2636,6 +2658,230 @@ mod tests {
                 }
             }
             assert_eq!(found_count, expected_found);
+        }
+    }
+
+    /// Deterministic xorshift64, so a profile is reproducible across hosts.
+    fn xs64(state: &mut u64) -> u64 {
+        let mut x = *state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        *state = x;
+        x
+    }
+
+    /// `get_batch` must agree with `get` at every interleave width, not only
+    /// the shipping one: the width is a tuning knob and a knob that can
+    /// change an answer is not a tuning knob.
+    #[test]
+    fn batch_width_parity_with_single_get() {
+        let mut st = 0x243F_6A88_85A3_08D3u64;
+        let mut map = ExpanseMap::new();
+        let mut present = Vec::new();
+        for _ in 0..40_000 {
+            let k = xs64(&mut st);
+            map.insert(k, k ^ 0x5DEE_CE66);
+            present.push(k);
+        }
+        // Half hits, half misses, interleaved so no width sees a uniform run.
+        let mut probes = Vec::new();
+        for (i, &k) in present.iter().take(4_000).enumerate() {
+            probes.push(k);
+            probes.push(k.wrapping_add(1).wrapping_mul(0x9E37_79B9_7F4A_7C15) | (i as u64 & 1));
+        }
+        let expect: Vec<Option<u64>> = probes.iter().map(|&k| map.get(k)).collect();
+
+        macro_rules! check {
+            ($($w:literal),*) => {$({
+                let mut out = vec![Some(0); probes.len()];
+                map.get_batch_width::<$w>(&probes, &mut out);
+                assert_eq!(out, expect, "map get_batch_width::<{}> disagrees with get", $w);
+                // Short slices exercise the priming and drain paths, where the
+                // driver runs below its nominal width.
+                for len in [0usize, 1, 2, 3, $w - 1, $w, $w + 1, 2 * $w + 3] {
+                    let len = len.min(probes.len());
+                    let mut short = vec![Some(0); len];
+                    map.get_batch_width::<$w>(&probes[..len], &mut short);
+                    assert_eq!(short[..], expect[..len], "len {} at width {}", len, $w);
+                }
+            })*};
+        }
+        check!(1, 2, 3, 4, 5, 8, 12, 16, 24, 32, 64);
+    }
+
+    /// The same parity requirement for the set flavor.
+    #[test]
+    fn batch_width_parity_with_single_contains() {
+        use crate::set::ExpanseSet;
+        let mut st = 0x13198A2E_03707344u64;
+        let mut set = ExpanseSet::new();
+        let mut present = Vec::new();
+        for _ in 0..40_000 {
+            let k = xs64(&mut st);
+            set.insert(k);
+            present.push(k);
+        }
+        let mut probes = Vec::new();
+        for (i, &k) in present.iter().take(4_000).enumerate() {
+            probes.push(k);
+            probes.push(k.wrapping_add(1).wrapping_mul(0x9E37_79B9_7F4A_7C15) | (i as u64 & 1));
+        }
+        let expect: Vec<bool> = probes.iter().map(|&k| set.contains(k)).collect();
+        let expect_count = expect.iter().filter(|&&b| b).count();
+
+        macro_rules! check {
+            ($($w:literal),*) => {$({
+                let mut out = vec![false; probes.len()];
+                let n = set.contains_batch_width::<$w>(&probes, &mut out);
+                assert_eq!(out, expect, "set contains_batch_width::<{}> disagrees", $w);
+                assert_eq!(n, expect_count);
+            })*};
+        }
+        check!(1, 2, 3, 4, 5, 8, 12, 16, 24, 32, 64);
+    }
+
+    /// Measures the quantity the batched path exists to raise: how many
+    /// independent descents are in flight at once.
+    ///
+    /// This is arithmetic over the trie's own chain lengths — deterministic,
+    /// machine-independent, and free of any timing — so it can be checked
+    /// here rather than on a quiet host. What it does **not** establish is
+    /// that lanes in flight convert into wall clock: a lane step is a
+    /// dependent node load, but only the ones that miss to DRAM cost the
+    /// latency this is meant to overlap, and the conversion is bounded above
+    /// by the core's outstanding-miss budget. That measurement is
+    /// `benches/batch_lookup.rs` on the reference host.
+    ///
+    /// The assertion is the ordering the driver was changed for: refilling a
+    /// retired lane from the key stream holds the width, where running fixed
+    /// chunks to completion lets it decay to the chunk's deepest lane.
+    #[test]
+    fn batch_lane_occupancy_profile() {
+        lane_occupancy_profile(100_000, 10_000);
+    }
+
+    /// The same instrument at the population `benches/compare.rs`'s
+    /// cold-DRAM arm uses, where the trie is deep enough and the working set
+    /// far enough past the LLC for the chain length to be the one the
+    /// batched path is trying to overlap. Ignored by default: building 4M
+    /// keys is not a unit test.
+    ///
+    /// `cargo test -p expanse-trie --release --lib lane_occupancy_cold_dram -- --ignored --nocapture`
+    #[test]
+    #[ignore = "4M-key population; run explicitly in release"]
+    fn batch_lane_occupancy_profile_cold_dram() {
+        lane_occupancy_profile(4_000_000, 100_000);
+    }
+
+    fn lane_occupancy_profile(pop: usize, probe_pairs: usize) {
+        let mut st = 0xA409_3822_299F_31D0u64;
+        let mut map = ExpanseMap::new();
+        let mut present = Vec::new();
+        for _ in 0..pop {
+            let k = xs64(&mut st);
+            map.insert(k, !k);
+            present.push(k);
+        }
+        // 50% hit / 50% miss, the realistic read mix AGENTS.md §8.6 asks for.
+        let mut probes = Vec::new();
+        for i in 0..probe_pairs {
+            probes.push(present[i * 7 % present.len()]);
+            probes.push(xs64(&mut st));
+        }
+
+        let Root::Tree { top, .. } = &map.core.root else {
+            panic!("100k random keys must build a tree root");
+        };
+        let depths: Vec<u32> = probes
+            .iter()
+            // SAFETY: `top` roots a live tree covering 8 undecoded key bytes.
+            .map(|&k| unsafe { crate::get::descent_steps_map(top, k, 8) })
+            .collect();
+        let total_steps: u64 = depths.iter().map(|&d| d as u64).sum();
+
+        // The #294 policy: fixed groups, each run to completion.
+        fn chunked(depths: &[u32], w: usize) -> f64 {
+            let mut sweeps = 0u64;
+            let mut steps = 0u64;
+            for c in depths.chunks(w) {
+                sweeps += u64::from(*c.iter().max().unwrap());
+                steps += c.iter().map(|&d| u64::from(d)).sum::<u64>();
+            }
+            steps as f64 / sweeps as f64
+        }
+
+        // This driver: a retired lane takes the next key immediately.
+        fn streaming(depths: &[u32], w: usize) -> f64 {
+            let mut lanes: Vec<u32> = Vec::with_capacity(w);
+            let mut next = 0usize;
+            while lanes.len() < w && next < depths.len() {
+                lanes.push(depths[next]);
+                next += 1;
+            }
+            let (mut sweeps, mut steps) = (0u64, 0u64);
+            while !lanes.is_empty() {
+                sweeps += 1;
+                let mut i = 0;
+                while i < lanes.len() {
+                    lanes[i] -= 1;
+                    steps += 1;
+                    if lanes[i] == 0 {
+                        if next < depths.len() {
+                            lanes[i] = depths[next];
+                            next += 1;
+                            i += 1;
+                        } else {
+                            let last = lanes.pop().expect("non-empty");
+                            if i < lanes.len() {
+                                lanes[i] = last;
+                            }
+                        }
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+            steps as f64 / sweeps as f64
+        }
+
+        let mean_depth = total_steps as f64 / depths.len() as f64;
+        let mut hist = [0usize; 16];
+        for &d in &depths {
+            hist[(d as usize).min(15)] += 1;
+        }
+        std::println!(
+            "batch lane occupancy: pop {}, {} probes, mean chain length {:.2} levels",
+            present.len(),
+            depths.len(),
+            mean_depth
+        );
+        std::println!(
+            "  chain-length histogram: {:?}",
+            hist.iter()
+                .enumerate()
+                .filter(|&(_, &c)| c > 0)
+                .map(|(d, &c)| (d, c))
+                .collect::<Vec<_>>()
+        );
+        std::println!("  W  chunked(#294)  streaming(this)  of W");
+        for &w in &[1usize, 2, 4, 8, 12, 16, 24, 32] {
+            let c = chunked(&depths, w);
+            let s = streaming(&depths, w);
+            std::println!(
+                "{:3}  {:12.2}  {:15.2}  {:5.1}%",
+                w,
+                c,
+                s,
+                100.0 * s / w as f64
+            );
+            assert!(s >= c - 1e-9, "width {w}: streaming {s} below chunked {c}");
+            assert!(s <= w as f64 + 1e-9, "width {w}: streaming {s} above W");
+            if w > 1 {
+                // A width that does not actually hold its lanes is a width in
+                // name only; this is the property the refill exists for.
+                assert!(s > 0.98 * w as f64, "width {w}: streaming held only {s}");
+            }
         }
     }
 }

@@ -181,11 +181,26 @@ impl ExpanseSet {
     /// Performs batched membership queries for a slice of `keys`, writing boolean presence
     /// flags into `out`. Returns the number of found keys.
     ///
-    /// When the root is a multi-level digital trie, `contains_batch` interleaves key descents
-    /// across CPU Line Fill Buffers in chunks of 8 keys and issues software prefetch hints
-    /// on branch nodes to overlap DRAM memory latency.
+    /// Results are identical to calling [`ExpanseSet::contains`] on each key.
+    /// When the root is a multi-level digital trie the descents are advanced
+    /// one level at a time, [`get::BATCH_WIDTH`] of them interleaved, so their
+    /// dependent misses can be outstanding together instead of serialising —
+    /// see the batched-descent notes on `get`. Nothing in that path is shared
+    /// with the single-key walk.
     #[inline]
     pub fn contains_batch(&self, keys: &[Key], out: &mut [bool]) -> usize {
+        self.contains_batch_width::<{ get::BATCH_WIDTH }>(keys, out)
+    }
+
+    /// [`ExpanseSet::contains_batch`] at an explicit interleave width.
+    ///
+    /// Which width overlaps the most misses without exceeding the core's
+    /// outstanding-miss budget is a wall-clock question, so this entry exists
+    /// for `benches/batch_lookup.rs` to sweep `W` against one build. Not a
+    /// stable API: use [`ExpanseSet::contains_batch`].
+    #[doc(hidden)]
+    #[inline]
+    pub fn contains_batch_width<const W: usize>(&self, keys: &[Key], out: &mut [bool]) -> usize {
         assert_eq!(
             keys.len(),
             out.len(),
@@ -213,7 +228,7 @@ impl ExpanseSet {
             Root::Tree { top, .. } => {
                 // SAFETY: tree satisfies lookup invariants.
                 unsafe {
-                    get::test_set_batch(top, keys, out, 8);
+                    get::test_set_batch_w::<W>(top, keys, out, 8);
                 }
                 out.iter().filter(|&&b| b).count()
             }
