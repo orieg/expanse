@@ -979,6 +979,8 @@ entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
 
 Expanse beats `BTreeSet` on every distribution (1.6×–9.2×); beats `HashSet` on sequential/clustered but is ~1.6×–2.3× slower on random/sparse cold builds.
 
+> ⚠️ **Harness methodology update (#454):** The historical `set_insert_build` figures above were measured on a harness that executed `Drop::drop` inside the timed closure across all three arms. Because `Drop` was executed symmetrically, the relative speedup ratios over `BTreeSet` are structurally preserved (though refined once teardown is excluded via `b.iter_batched`). Absolute cold-build durations understate pure insertion throughput and will be re-measured on the reference host.
+
 **`ExpanseSet` vs `RoaringBitmap` (`comparative.rs`, 100k)**:
 
 | op | sparse | clustered | dense |
