@@ -208,7 +208,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | §8.4 BCa 95 % CI lower bound ≥ floor | **tooling** + review | `scripts/bench_baseline.py` harvests criterion `sample.json`, emits `results/baseline_*.json`, renders the interval and gates on it (`--floors` / `--against`, `--fail-on-gate`); a reviewer still decides which arms a claim rests on |
 | §2.1 / §2.2 architectural invariants beyond sizes (no B-tree/hash mutation, no coarse locks, ordered semantics) | **review** | — |
 | §3 clean-room (no LGPL exposure) | **review** (`references/` is gitignored) | — |
-| §8.3 symmetric baselines · §8.6 DCE sinks, realistic hit rates, miss shape & measured-region hygiene · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.9 reporting discipline | **review** | — |
+| §8.3 symmetric baselines · §8.6 DCE sinks, realistic hit rates, miss shape & measured-region hygiene · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.9 reporting discipline · §8.10 retract don't re-estimate · PR checklist truthfulness | **review** | — |
 | Conventional-commit type · branch naming | **review** | — |
 
 ---
@@ -239,6 +239,11 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 5. Every published number carries `(measured: host, commit)` resolving to a committed artifact — with n and the CI where §8.4 applies. Losing cells are published too.
 6. Canonical doc updated (§1 hierarchy) — no new standalone `.md`.
 7. Prose check: no time estimates, no hostnames/home paths, impersonal voice.
+
+**PR Checklist & Claim Truthfulness (Non-Negotiable):**
+- **Checklist boxes must match the PR diff**: Never tick a PR template checkbox unless the git diff contains the corresponding proof. Specifically:
+  - Do NOT tick `[x] Canonical doc updated` unless `git diff --name-only` includes at least one canonical `.md` file from §1.
+  - Do NOT tick `[x] Callgrind instruction counts` without running and pasting the `perf_report.py` table or explicitly noting why the change is exempt (e.g. non-hot-path / docs only).
 
 ### Privacy & Local Infrastructure
 
@@ -298,4 +303,17 @@ When reporting, explaining, or documenting benchmark outcomes and performance in
 3. **Inaccurate Encoding & Space Envelopes**: Do not confuse a bounding envelope with a dense packing. When describing key/tag spaces (e.g. `0x00..=0x7F`), distinguish between populated discriminants and unassigned holes/gaps (`0x0D..=0x0F`, `0x72..=0x7E`).
 4. **Unsupported "Optimality" Claims**: Never claim a baseline data structure or routine is globally "optimal" simply because one or two candidate modifications regressed. A negative result establishes only that the tested modifications were worse under those conditions, not that no better design exists.
 
+### 8.10 Benchmark Harness Remediation & Downstream Claims Protocol
+When modifying or correcting any existing benchmark or example harness:
+1. **Trace Downstream Citations First**: Identify every document (`README.md`, `docs/BENCHMARKING.md`, `docs/DATABASE.md`, `docs/design/*.md`) quoting numbers from the modified harness.
+2. **Retract, Don't Re-estimate (Anti-Backfilling Rule)**:
+   - Any document edit in a remediation PR MUST either:
+     a) Carry a fresh, verifiable `(measured: host, commit)` provenance tag from an actual execution of the *fixed* harness on the target host, OR
+     b) Explicitly state `(unsourced pending re-measurement)` or `(pending re-run)`.
+   - **Never backfill numbers from adjacent benchmarks, different populations, or different concurrency regimes** to avoid an empty cell or plausible placeholder. Doing so commits a provenance violation (§8.7) and risks category errors (e.g. substituting single-threaded latency into concurrent reader diagrams).
+3. **Apply the Ratio vs. Absolute Framework**:
+   - **Ratio-Quoting Claims**: If the harness defect was structurally symmetric across all competitor arms (e.g., symmetric omission of payload dereferencing), comparative throughput/latency ratios remain structurally sound. Retain the ratio with an explicit `⚠️ Harness methodology disclosure` note.
+   - **Absolute-Quoting Claims**: If the claim quotes absolute nanoseconds, throughput, or memory under a contaminated timed region or shallow miss pattern, mark the absolute number as pending re-measurement.
+   - **Deallocation Magnitude Asymmetry**: When competitor arms construct and drop in a timed closure, the contaminant is *structurally symmetric in presence* but *asymmetric in magnitude* across data structures (slab arena page free vs recursive per-node heap deallocation vs single buffer free). Isolate teardown via `b.iter_batched` rather than assuming symmetric cancellation.
+4. **Atomic PR Inclusion**: The canonical documentation disclosures and retractions MUST be committed and included in the exact same pull request as the harness code changes.
 
