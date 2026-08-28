@@ -59,90 +59,6 @@ pub mod portable {
         }
         None
     }
-
-    /// Finds the first index `i < len` with `hay[i] >= needle` in an 8-byte sorted buffer.
-    #[must_use]
-    pub const fn lower_bound_8_u8(hay: &[u8; 8], len: usize, needle: u8) -> usize {
-        let len = if len < 8 { len } else { 8 };
-        let mut i = 0;
-        while i < len {
-            if hay[i] >= needle {
-                return i;
-            }
-            i += 1;
-        }
-        len
-    }
-
-    /// Finds the first index `i < len` with `hay[i] >= needle` in a 16-byte sorted buffer.
-    #[must_use]
-    pub const fn lower_bound_16_u8(hay: &[u8; 16], len: usize, needle: u8) -> usize {
-        let len = if len < 16 { len } else { 16 };
-        let mut i = 0;
-        while i < len {
-            if hay[i] >= needle {
-                return i;
-            }
-            i += 1;
-        }
-        len
-    }
-
-    /// Finds the first index `i < len` with `hay[i] == needle` in an 8-element `u16` buffer.
-    #[must_use]
-    pub const fn search_8_u16(hay: &[u16; 8], len: usize, needle: u16) -> Option<usize> {
-        let len = if len < 8 { len } else { 8 };
-        let mut i = 0;
-        while i < len {
-            if hay[i] == needle {
-                return Some(i);
-            }
-            i += 1;
-        }
-        None
-    }
-
-    /// Finds the first index `i < len` with `hay[i] >= needle` in an 8-element `u16` sorted buffer.
-    #[must_use]
-    pub const fn lower_bound_8_u16(hay: &[u16; 8], len: usize, needle: u16) -> usize {
-        let len = if len < 8 { len } else { 8 };
-        let mut i = 0;
-        while i < len {
-            if hay[i] >= needle {
-                return i;
-            }
-            i += 1;
-        }
-        len
-    }
-
-    /// Finds the first index `i < len` with `hay[i] == needle` in a 4-element `u32` buffer.
-    #[must_use]
-    pub const fn search_4_u32(hay: &[u32; 4], len: usize, needle: u32) -> Option<usize> {
-        let len = if len < 4 { len } else { 4 };
-        let mut i = 0;
-        while i < len {
-            if hay[i] == needle {
-                return Some(i);
-            }
-            i += 1;
-        }
-        None
-    }
-
-    /// Finds the first index `i < len` with `hay[i] >= needle` in a 4-element `u32` sorted buffer.
-    #[must_use]
-    pub const fn lower_bound_4_u32(hay: &[u32; 4], len: usize, needle: u32) -> usize {
-        let len = if len < 4 { len } else { 4 };
-        let mut i = 0;
-        while i < len {
-            if hay[i] >= needle {
-                return i;
-            }
-            i += 1;
-        }
-        len
-    }
 }
 
 /// Finds the first index `i < len` with `hay[i] == needle` in a 16-byte
@@ -159,12 +75,7 @@ pub fn find_byte_16(hay: &[u8; 16], len: usize, needle: u8) -> Option<usize> {
     }
     #[cfg(all(target_arch = "aarch64", not(miri)))]
     {
-        if sve_rt::available() {
-            // SAFETY: hay points to 16 readable bytes; SVE availability verified by sve_rt.
-            unsafe { find_byte_sve(hay.as_ptr(), len.min(16), needle) }
-        } else {
-            find_byte_16_neon(hay, len, needle)
-        }
+        find_byte_16_neon(hay, len, needle)
     }
     #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
     {
@@ -228,204 +139,6 @@ fn find_byte_16_neon(hay: &[u8; 16], len: usize, needle: u8) -> Option<usize> {
     }
 }
 
-#[cfg(all(target_arch = "aarch64", not(miri)))]
-#[inline(always)]
-pub(crate) unsafe fn find_byte_sve(hay: *const u8, len: usize, needle: u8) -> Option<usize> {
-    if len == 0 {
-        return None;
-    }
-    let idx: usize;
-    // SAFETY: caller guarantees hay is valid for reads of `len` bytes (clamped to allocation).
-    // SVE availability is verified by the caller / sve_rt before invocation.
-    unsafe {
-        core::arch::asm!(
-            ".arch_extension sve",
-            "whilelt p0.b, xzr, {len}",
-            "ld1b z0.b, p0/z, [{hay}]",
-            "dup z1.b, {needle:w}",
-            "cmpeq p1.b, p0/z, z0.b, z1.b",
-            "brkb p2.b, p0/z, p1.b",
-            "cntp {idx}, p0, p2.b",
-            len = in(reg) len,
-            hay = in(reg) hay,
-            needle = in(reg) needle,
-            idx = out(reg) idx,
-            out("p0") _,
-            out("p1") _,
-            out("p2") _,
-            out("z0") _,
-            out("z1") _,
-            options(pure, readonly, nostack),
-        );
-    }
-    if idx < len { Some(idx) } else { None }
-}
-
-#[cfg(all(target_arch = "aarch64", not(miri)))]
-#[inline(always)]
-pub(crate) unsafe fn lower_bound_sve_u8(hay: *const u8, len: usize, needle: u8) -> usize {
-    if len == 0 {
-        return 0;
-    }
-    let idx: usize;
-    // SAFETY: caller guarantees hay points to `len` readable bytes sorted in ascending order.
-    // SVE availability is verified by the caller / sve_rt before invocation.
-    unsafe {
-        core::arch::asm!(
-            ".arch_extension sve",
-            "whilelt p0.b, xzr, {len}",
-            "ld1b z0.b, p0/z, [{hay}]",
-            "dup z1.b, {needle:w}",
-            "cmphs p1.b, p0/z, z0.b, z1.b",
-            "brkb p2.b, p0/z, p1.b",
-            "cntp {idx}, p0, p2.b",
-            len = in(reg) len,
-            hay = in(reg) hay,
-            needle = in(reg) needle,
-            idx = out(reg) idx,
-            out("p0") _,
-            out("p1") _,
-            out("p2") _,
-            out("z0") _,
-            out("z1") _,
-            options(pure, readonly, nostack),
-        );
-    }
-    idx
-}
-
-#[cfg(all(target_arch = "aarch64", not(miri)))]
-#[inline(always)]
-pub(crate) unsafe fn search_sve_u16(hay: *const u8, len: usize, needle: u16) -> Option<usize> {
-    if len == 0 {
-        return None;
-    }
-    let idx: usize;
-    // SAFETY: caller guarantees hay points to `len * 2` readable bytes.
-    // SVE availability is verified by the caller / sve_rt before invocation.
-    unsafe {
-        core::arch::asm!(
-            ".arch_extension sve",
-            "whilelt p0.h, xzr, {len}",
-            "ld1h z0.h, p0/z, [{hay}]",
-            "dup z1.h, {needle:w}",
-            "cmpeq p1.h, p0/z, z0.h, z1.h",
-            "brkb p2.b, p0/z, p1.b",
-            "cntp {idx}, p0, p2.h",
-            len = in(reg) len,
-            hay = in(reg) hay,
-            needle = in(reg) needle,
-            idx = out(reg) idx,
-            out("p0") _,
-            out("p1") _,
-            out("p2") _,
-            out("z0") _,
-            out("z1") _,
-            options(pure, readonly, nostack),
-        );
-    }
-    if idx < len { Some(idx) } else { None }
-}
-
-#[cfg(all(target_arch = "aarch64", not(miri)))]
-#[inline(always)]
-pub(crate) unsafe fn lower_bound_sve_u16(hay: *const u8, len: usize, needle: u16) -> usize {
-    if len == 0 {
-        return 0;
-    }
-    let idx: usize;
-    // SAFETY: caller guarantees hay points to `len * 2` readable bytes sorted in ascending order.
-    // SVE availability is verified by the caller / sve_rt before invocation.
-    unsafe {
-        core::arch::asm!(
-            ".arch_extension sve",
-            "whilelt p0.h, xzr, {len}",
-            "ld1h z0.h, p0/z, [{hay}]",
-            "dup z1.h, {needle:w}",
-            "cmphs p1.h, p0/z, z0.h, z1.h",
-            "brkb p2.b, p0/z, p1.b",
-            "cntp {idx}, p0, p2.h",
-            len = in(reg) len,
-            hay = in(reg) hay,
-            needle = in(reg) needle,
-            idx = out(reg) idx,
-            out("p0") _,
-            out("p1") _,
-            out("p2") _,
-            out("z0") _,
-            out("z1") _,
-            options(pure, readonly, nostack),
-        );
-    }
-    idx
-}
-
-#[cfg(all(target_arch = "aarch64", not(miri)))]
-#[inline(always)]
-pub(crate) unsafe fn search_sve_u32(hay: *const u8, len: usize, needle: u32) -> Option<usize> {
-    if len == 0 {
-        return None;
-    }
-    let idx: usize;
-    // SAFETY: caller guarantees hay points to `len * 4` readable bytes.
-    // SVE availability is verified by the caller / sve_rt before invocation.
-    unsafe {
-        core::arch::asm!(
-            ".arch_extension sve",
-            "whilelt p0.s, xzr, {len}",
-            "ld1w z0.s, p0/z, [{hay}]",
-            "dup z1.s, {needle:w}",
-            "cmpeq p1.s, p0/z, z0.s, z1.s",
-            "brkb p2.b, p0/z, p1.b",
-            "cntp {idx}, p0, p2.s",
-            len = in(reg) len,
-            hay = in(reg) hay,
-            needle = in(reg) needle,
-            idx = out(reg) idx,
-            out("p0") _,
-            out("p1") _,
-            out("p2") _,
-            out("z0") _,
-            out("z1") _,
-            options(pure, readonly, nostack),
-        );
-    }
-    if idx < len { Some(idx) } else { None }
-}
-
-#[cfg(all(target_arch = "aarch64", not(miri)))]
-#[inline(always)]
-pub(crate) unsafe fn lower_bound_sve_u32(hay: *const u8, len: usize, needle: u32) -> usize {
-    if len == 0 {
-        return 0;
-    }
-    let idx: usize;
-    // SAFETY: caller guarantees hay points to `len * 4` readable bytes sorted in ascending order.
-    // SVE availability is verified by the caller / sve_rt before invocation.
-    unsafe {
-        core::arch::asm!(
-            ".arch_extension sve",
-            "whilelt p0.s, xzr, {len}",
-            "ld1w z0.s, p0/z, [{hay}]",
-            "dup z1.s, {needle:w}",
-            "cmphs p1.s, p0/z, z0.s, z1.s",
-            "brkb p2.b, p0/z, p1.b",
-            "cntp {idx}, p0, p2.s",
-            len = in(reg) len,
-            hay = in(reg) hay,
-            needle = in(reg) needle,
-            idx = out(reg) idx,
-            out("p0") _,
-            out("p1") _,
-            out("p2") _,
-            out("z0") _,
-            out("z1") _,
-            options(pure, readonly, nostack),
-        );
-    }
-    idx
-}
-
 /// Finds the first index `i < len` with `hay[i] == needle` in an 8-byte
 /// buffer (compact branch headers; `len` is clamped to 8).
 #[inline]
@@ -465,32 +178,27 @@ pub fn find_byte_8(hay: &[u8; 8], len: usize, needle: u8) -> Option<usize> {
     }
     #[cfg(all(target_arch = "aarch64", not(miri)))]
     {
-        if sve_rt::available() {
-            // SAFETY: hay points to 8 readable bytes; SVE availability verified by sve_rt.
-            unsafe { find_byte_sve(hay.as_ptr(), len, needle) }
+        use core::arch::aarch64::{
+            vceq_u8, vdup_n_u8, vget_lane_u64, vld1_u8, vreinterpret_u64_u8,
+        };
+        // SAFETY: NEON guaranteed by Rust's aarch64 `+neon` baseline —
+        // FEAT_AdvSIMD is architecturally optional but universally present
+        // (docs/HARDWARE.md §2.1); reads 8 bytes from hay.
+        let mask = unsafe {
+            let t = vdup_n_u8(needle);
+            let h = vld1_u8(hay.as_ptr());
+            let eq = vceq_u8(t, h);
+            vget_lane_u64::<0>(vreinterpret_u64_u8(eq))
+        };
+        let active_mask = if len < 8 {
+            mask & ((1u64 << (len * 8)) - 1)
         } else {
-            use core::arch::aarch64::{
-                vceq_u8, vdup_n_u8, vget_lane_u64, vld1_u8, vreinterpret_u64_u8,
-            };
-            // SAFETY: NEON guaranteed by Rust's aarch64 `+neon` baseline —
-            // FEAT_AdvSIMD is architecturally optional but universally present
-            // (docs/HARDWARE.md §2.1); reads 8 bytes from hay.
-            let mask = unsafe {
-                let t = vdup_n_u8(needle);
-                let h = vld1_u8(hay.as_ptr());
-                let eq = vceq_u8(t, h);
-                vget_lane_u64::<0>(vreinterpret_u64_u8(eq))
-            };
-            let active_mask = if len < 8 {
-                mask & ((1u64 << (len * 8)) - 1)
-            } else {
-                mask
-            };
-            if active_mask == 0 {
-                None
-            } else {
-                Some((active_mask.trailing_zeros() / 8) as usize)
-            }
+            mask
+        };
+        if active_mask == 0 {
+            None
+        } else {
+            Some((active_mask.trailing_zeros() / 8) as usize)
         }
     }
     #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
@@ -530,13 +238,8 @@ pub(crate) unsafe fn search_16_u8(hay: *const u8, len: usize, needle: u8) -> Opt
     }
     #[cfg(all(target_arch = "aarch64", not(miri)))]
     {
-        if sve_rt::available() {
-            // SAFETY: caller guarantees 16 readable bytes; SVE availability verified by sve_rt.
-            unsafe { find_byte_sve(hay, len.min(16), needle) }
-        } else {
-            // SAFETY: caller guarantees 16 readable bytes.
-            unsafe { find_byte_16_neon(&*(hay as *const [u8; 16]), len, needle) }
-        }
+        // SAFETY: caller guarantees 16 readable bytes.
+        unsafe { find_byte_16_neon(&*(hay as *const [u8; 16]), len, needle) }
     }
     #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
     {
@@ -585,22 +288,7 @@ pub(crate) unsafe fn lower_bound_8_u8(hay: *const u8, len: usize, needle: u8) ->
             mask.count_ones() as usize
         }
     }
-    #[cfg(all(target_arch = "aarch64", not(miri)))]
-    {
-        if sve_rt::available() {
-            // SAFETY: caller guarantees 8 readable bytes; SVE availability verified by sve_rt.
-            unsafe { lower_bound_sve_u8(hay, len.min(8), needle) }
-        } else {
-            for i in 0..len.min(8) {
-                // SAFETY: i < 8 is within the 8 readable bytes.
-                if unsafe { *hay.add(i) } >= needle {
-                    return i;
-                }
-            }
-            len.min(8)
-        }
-    }
-    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    #[cfg(any(miri, not(target_arch = "x86_64")))]
     {
         for i in 0..len.min(8) {
             // SAFETY: i < 8 is within the 8 readable bytes.
@@ -635,22 +323,7 @@ pub(crate) unsafe fn lower_bound_16_u8(hay: *const u8, len: usize, needle: u8) -
             mask.count_ones() as usize
         }
     }
-    #[cfg(all(target_arch = "aarch64", not(miri)))]
-    {
-        if sve_rt::available() {
-            // SAFETY: caller guarantees 16 readable bytes; SVE availability verified by sve_rt.
-            unsafe { lower_bound_sve_u8(hay, len.min(16), needle) }
-        } else {
-            for i in 0..len.min(16) {
-                // SAFETY: i < 16 is within the 16 readable bytes.
-                if unsafe { *hay.add(i) } >= needle {
-                    return i;
-                }
-            }
-            len.min(16)
-        }
-    }
-    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    #[cfg(any(miri, not(target_arch = "x86_64")))]
     {
         for i in 0..len.min(16) {
             // SAFETY: i < 16 is within the 16 readable bytes.
@@ -688,23 +361,7 @@ pub(crate) unsafe fn search_8_u16(hay: *const u8, len: usize, needle: u16) -> Op
             }
         }
     }
-    #[cfg(all(target_arch = "aarch64", not(miri)))]
-    {
-        if sve_rt::available() {
-            // SAFETY: caller guarantees 16 readable bytes (8 x u16); SVE availability verified by sve_rt.
-            unsafe { search_sve_u16(hay, len.min(8), needle) }
-        } else {
-            for i in 0..len.min(8) {
-                // SAFETY: i < 8 is within the 16 readable bytes.
-                let val = unsafe { (hay.add(i * 2) as *const u16).read_unaligned() };
-                if val == needle {
-                    return Some(i);
-                }
-            }
-            None
-        }
-    }
-    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    #[cfg(any(miri, not(target_arch = "x86_64")))]
     {
         for i in 0..len.min(8) {
             // SAFETY: i < 8 is within the 16 readable bytes.
@@ -740,23 +397,7 @@ pub(crate) unsafe fn lower_bound_8_u16(hay: *const u8, len: usize, needle: u16) 
             (mask.count_ones() / 2) as usize
         }
     }
-    #[cfg(all(target_arch = "aarch64", not(miri)))]
-    {
-        if sve_rt::available() {
-            // SAFETY: caller guarantees 16 readable bytes (8 x u16); SVE availability verified by sve_rt.
-            unsafe { lower_bound_sve_u16(hay, len.min(8), needle) }
-        } else {
-            for i in 0..len.min(8) {
-                // SAFETY: i < 8 is within the 16 readable bytes.
-                let val = unsafe { (hay.add(i * 2) as *const u16).read_unaligned() };
-                if val >= needle {
-                    return i;
-                }
-            }
-            len.min(8)
-        }
-    }
-    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    #[cfg(any(miri, not(target_arch = "x86_64")))]
     {
         for i in 0..len.min(8) {
             // SAFETY: i < 8 is within the 16 readable bytes.
@@ -795,23 +436,7 @@ pub(crate) unsafe fn search_4_u32(hay: *const u8, len: usize, needle: u32) -> Op
             }
         }
     }
-    #[cfg(all(target_arch = "aarch64", not(miri)))]
-    {
-        if sve_rt::available() {
-            // SAFETY: caller guarantees 16 readable bytes (4 x u32); SVE availability verified by sve_rt.
-            unsafe { search_sve_u32(hay, len.min(4), needle) }
-        } else {
-            for i in 0..len.min(4) {
-                // SAFETY: i < 4 is within the 16 readable bytes.
-                let val = unsafe { (hay.add(i * 4) as *const u32).read_unaligned() };
-                if val == needle {
-                    return Some(i);
-                }
-            }
-            None
-        }
-    }
-    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    #[cfg(any(miri, not(target_arch = "x86_64")))]
     {
         for i in 0..len.min(4) {
             // SAFETY: i < 4 is within the 16 readable bytes.
@@ -847,23 +472,7 @@ pub(crate) unsafe fn lower_bound_4_u32(hay: *const u8, len: usize, needle: u32) 
             (mask.count_ones() / 4) as usize
         }
     }
-    #[cfg(all(target_arch = "aarch64", not(miri)))]
-    {
-        if sve_rt::available() {
-            // SAFETY: caller guarantees 16 readable bytes (4 x u32); SVE availability verified by sve_rt.
-            unsafe { lower_bound_sve_u32(hay, len.min(4), needle) }
-        } else {
-            for i in 0..len.min(4) {
-                // SAFETY: i < 4 is within the 16 readable bytes.
-                let val = unsafe { (hay.add(i * 4) as *const u32).read_unaligned() };
-                if val >= needle {
-                    return i;
-                }
-            }
-            len.min(4)
-        }
-    }
-    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    #[cfg(any(miri, not(target_arch = "x86_64")))]
     {
         for i in 0..len.min(4) {
             // SAFETY: i < 4 is within the 16 readable bytes.
@@ -1000,60 +609,6 @@ pub(crate) mod bmi2_rt {
         let fast_bmi2 = has_bmi2 && (!is_amd || family >= 0x19);
         STATE.store(if fast_bmi2 { 2 } else { 1 }, Ordering::Relaxed);
         fast_bmi2
-    }
-}
-
-/// Runtime CPU feature dispatch for ARM Scalable Vector Extension (SVE) (AArch64 only).
-#[cfg(all(target_arch = "aarch64", feature = "std", not(miri)))]
-#[allow(dead_code)]
-pub(crate) mod sve_rt {
-    use core::sync::atomic::{AtomicU8, Ordering};
-
-    static STATE: AtomicU8 = AtomicU8::new(0);
-
-    #[inline(always)]
-    pub(crate) fn available() -> bool {
-        let s = STATE.load(Ordering::Relaxed);
-        if s == 2 {
-            true
-        } else if s == 1 {
-            false
-        } else {
-            detect()
-        }
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn detect() -> bool {
-        let yes = std::arch::is_aarch64_feature_detected!("sve");
-        STATE.store(if yes { 2 } else { 1 }, Ordering::Relaxed);
-        yes
-    }
-}
-
-#[cfg(all(target_arch = "aarch64", not(all(feature = "std", not(miri)))))]
-#[allow(dead_code)]
-pub(crate) mod sve_rt {
-    #[inline(always)]
-    pub(crate) fn available() -> bool {
-        #[cfg(all(target_feature = "sve", not(miri)))]
-        {
-            true
-        }
-        #[cfg(not(all(target_feature = "sve", not(miri))))]
-        {
-            false
-        }
-    }
-}
-
-#[cfg(not(target_arch = "aarch64"))]
-#[allow(dead_code)]
-pub(crate) mod sve_rt {
-    #[inline(always)]
-    pub(crate) fn available() -> bool {
-        false
     }
 }
 
@@ -1758,14 +1313,8 @@ mod tests {
                 .position(|&b| b >= needle_u8)
                 .unwrap_or(len.min(16));
             assert_eq!(actual_lb, expected_lb, "lower_bound_16_u8 parity");
-            assert_eq!(
-                actual_lb,
-                portable::lower_bound_16_u8(&buf, len, needle_u8),
-                "lower_bound_16_u8 portable parity"
-            );
 
             // sorted lower_bound_8_u8
-            let buf_8: [u8; 8] = buf[..8].try_into().unwrap();
             // SAFETY: buf is at least 8 bytes sorted.
             let actual_lb_8 = unsafe { lower_bound_8_u8(buf.as_ptr(), len_8, needle_u8) };
             let expected_lb_8 = buf[..len_8.min(8)]
@@ -1773,21 +1322,12 @@ mod tests {
                 .position(|&b| b >= needle_u8)
                 .unwrap_or(len_8.min(8));
             assert_eq!(actual_lb_8, expected_lb_8, "lower_bound_8_u8 parity");
-            assert_eq!(
-                actual_lb_8,
-                portable::lower_bound_8_u8(&buf_8, len_8, needle_u8),
-                "lower_bound_8_u8 portable parity"
-            );
 
             // search_8_u16
             let needle_u16 = rng.next() as u16;
             let len_u16 = (rng.next() % 9) as usize;
             // SAFETY: buf is 16 bytes (8 x u16).
             let actual_u16 = unsafe { search_8_u16(buf.as_ptr(), len_u16, needle_u16) };
-            let mut u16_raw = [0u16; 8];
-            for i in 0..8 {
-                u16_raw[i] = u16::from_ne_bytes([buf[i * 2], buf[i * 2 + 1]]);
-            }
             let mut expected_u16 = None;
             for i in 0..len_u16.min(8) {
                 let val = u16::from_ne_bytes([buf[i * 2], buf[i * 2 + 1]]);
@@ -1797,11 +1337,6 @@ mod tests {
                 }
             }
             assert_eq!(actual_u16, expected_u16, "search_8_u16 parity");
-            assert_eq!(
-                actual_u16,
-                portable::search_8_u16(&u16_raw, len_u16, needle_u16),
-                "search_8_u16 portable parity"
-            );
 
             // sorted lower_bound_8_u16
             let mut u16_arr = [0u16; 8];
@@ -1823,26 +1358,12 @@ mod tests {
                 .position(|&v| v >= needle_u16)
                 .unwrap_or(len_u16.min(8));
             assert_eq!(actual_lb_u16, expected_lb_u16, "lower_bound_8_u16 parity");
-            assert_eq!(
-                actual_lb_u16,
-                portable::lower_bound_8_u16(&u16_arr, len_u16, needle_u16),
-                "lower_bound_8_u16 portable parity"
-            );
 
             // search_4_u32
             let needle_u32 = rng.next() as u32;
             let len_u32 = (rng.next() % 5) as usize;
             // SAFETY: buf is 16 bytes (4 x u32).
             let actual_u32 = unsafe { search_4_u32(buf.as_ptr(), len_u32, needle_u32) };
-            let mut u32_raw = [0u32; 4];
-            for i in 0..4 {
-                u32_raw[i] = u32::from_ne_bytes([
-                    buf[i * 4],
-                    buf[i * 4 + 1],
-                    buf[i * 4 + 2],
-                    buf[i * 4 + 3],
-                ]);
-            }
             let mut expected_u32 = None;
             for i in 0..len_u32.min(4) {
                 let val = u32::from_ne_bytes([
@@ -1857,11 +1378,6 @@ mod tests {
                 }
             }
             assert_eq!(actual_u32, expected_u32, "search_4_u32 parity");
-            assert_eq!(
-                actual_u32,
-                portable::search_4_u32(&u32_raw, len_u32, needle_u32),
-                "search_4_u32 portable parity"
-            );
 
             // sorted lower_bound_4_u32
             let mut u32_arr = [0u32; 4];
@@ -1890,11 +1406,6 @@ mod tests {
                 .position(|&v| v >= needle_u32)
                 .unwrap_or(len_u32.min(4));
             assert_eq!(actual_lb_u32, expected_lb_u32, "lower_bound_4_u32 parity");
-            assert_eq!(
-                actual_lb_u32,
-                portable::lower_bound_4_u32(&u32_arr, len_u32, needle_u32),
-                "lower_bound_4_u32 portable parity"
-            );
         }
     }
 
