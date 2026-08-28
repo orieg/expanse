@@ -208,11 +208,15 @@ jobs:
 
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / docs hygiene / bench suites / man pages)
+      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / docs hygiene / bench suites / man pages)
         run: |
           python3 scripts/perf_report.py --self-test
           python3 scripts/bench_report.py --self-test
           python3 scripts/bench_baseline.py --self-test
+          # perf_counters.py needs a PMU to collect anything, but its CSV
+          # parser, its "unsupported counter is None, never 0" rule and its
+          # derived rendering are all checkable without one.
+          python3 scripts/perf_counters.py --self-test
           python3 scripts/check_docs_hygiene.py --self-test
           python3 scripts/check_bench_suites.py --self-test
           python3 scripts/check_man_pages.py --self-test

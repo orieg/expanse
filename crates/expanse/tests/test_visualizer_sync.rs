@@ -1432,3 +1432,64 @@ fn test_benchmarking_md_density_table_matches_engine() {
         }
     }
 }
+/// A doc or harness may only advertise Callgrind cache columns if some
+/// harness actually passes `--cache-sim=yes`.
+///
+/// `docs/BENCHMARKING.md` and `vs_stock.rs` both promised L1/LL/RAM columns
+/// while neither Callgrind harness enabled the simulator, so a cache
+/// hypothesis could be stated as if it had been measured. The columns are
+/// fine to advertise once the flag is set; this asserts the two move
+/// together. Same shape as the retracted-figure gate above: the repo gates
+/// published values, and this gates the instrument behind them.
+#[test]
+fn test_cache_columns_claimed_only_if_cache_sim_enabled() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+
+    let harnesses = [
+        "crates/expanse-capi/benches/vs_stock.rs",
+        "crates/expanse/benches/instructions.rs",
+    ];
+    // Only a real argument counts. The flag also appears in the retraction
+    // comments explaining that it is *not* passed, and matching those would
+    // let the gate declare itself satisfied by its own prose.
+    let enabled = harnesses.iter().any(|h| {
+        std::fs::read_to_string(root.join(h))
+            .unwrap_or_else(|e| panic!("gate cannot read {h}: {e}"))
+            .lines()
+            .any(|l| {
+                let t = l.trim_start();
+                !t.starts_with("//") && t.contains("--cache-sim=yes")
+            })
+    });
+    if enabled {
+        return;
+    }
+
+    // Phrases that assert the columns exist, as opposed to naming a cache
+    // level in prose. Retraction text is allowed to mention them.
+    let banned = ["L1/LL/RAM count", "LL/RAM hit", "LL/RAM column"];
+    let mut hits = Vec::new();
+    for f in ["docs/BENCHMARKING.md"].iter().chain(harnesses.iter()) {
+        let text = std::fs::read_to_string(root.join(f))
+            .unwrap_or_else(|e| panic!("gate cannot read {f}: {e}"));
+        for (i, line) in text.lines().enumerate() {
+            let lower = line.to_ascii_lowercase();
+            let retracting = lower.contains("does not emit")
+                || lower.contains("not yet available")
+                || lower.contains("claimed the columns");
+            if !retracting && banned.iter().any(|b| line.contains(b)) {
+                hits.push(format!("{f}:{}: {}", i + 1, line.trim()));
+            }
+        }
+    }
+    assert!(
+        hits.is_empty(),
+        "no harness passes --cache-sim=yes, but these claim cache columns exist:\n  {}\n\
+         Either pass --cache-sim=yes in a Callgrind harness or drop the claim.",
+        hits.join("\n  ")
+    );
+}

@@ -110,14 +110,14 @@ func (s *Set) ContainsBatch(keys []uint64, outPresent []bool) uint64 {
 	if count == 0 {
 		return 0
 	}
-	var keysPtr *uint64
-	var presentPtr *bool
-	if len(keys) > 0 {
-		keysPtr = &keys[0]
+	if len(outPresent) < count {
+		count = len(outPresent)
 	}
-	if len(outPresent) > 0 {
-		presentPtr = &outPresent[0]
+	if count == 0 {
+		return 0
 	}
+	keysPtr := &keys[0]
+	presentPtr := &outPresent[0]
 	return uint64(expanse_set_contains_batch(s.ptr, keysPtr, presentPtr, uintptr(count)))
 }
 

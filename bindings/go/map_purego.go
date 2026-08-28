@@ -119,15 +119,18 @@ func (m *Map) GetBatch(keys []uint64, outValues []uint64, outFound []bool) uint6
 	if count == 0 {
 		return 0
 	}
-	var keysPtr *uint64
-	var valuesPtr *uint64
+	if len(outValues) < count {
+		count = len(outValues)
+	}
+	if outFound != nil && len(outFound) < count {
+		count = len(outFound)
+	}
+	if count == 0 {
+		return 0
+	}
+	keysPtr := &keys[0]
+	valuesPtr := &outValues[0]
 	var foundPtr *bool
-	if len(keys) > 0 {
-		keysPtr = &keys[0]
-	}
-	if len(outValues) > 0 {
-		valuesPtr = &outValues[0]
-	}
 	if len(outFound) > 0 {
 		foundPtr = &outFound[0]
 	}

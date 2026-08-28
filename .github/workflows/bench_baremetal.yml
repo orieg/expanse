@@ -29,9 +29,11 @@ on:
           - extended
           - vs_stock
           - instructions
+          - vs_libjudy
           - comparative
           - ycsb
           - concurrency
+          - point_lookup_counters
           - search_instructions
           - smoke_instructions
           - search_boolean
@@ -584,6 +586,74 @@ jobs:
             done
           fi
 
+          # Fail fast if the suite compares against stock libjudy and the host
+          # has none. The probe is `dlopen` itself - ctypes.CDLL resolves with
+          # the same LD_LIBRARY_PATH and ldconfig search the harness gets - so
+          # this answers the question the benchmark will ask, rather than a
+          # weaker proxy for it. A missing stock library must stop the run with
+          # a named cause, never be skipped into a report that looks complete
+          # (AGENTS.md section 8.1).
+          case "$SUITE" in
+            vs_stock|vs_libjudy|all|extended) NEEDS_LIBJUDY=1 ;;
+            *) NEEDS_LIBJUDY=0 ;;
+          esac
+          if [ "$NEEDS_LIBJUDY" = "1" ]; then
+            if python3 -c "import ctypes; ctypes.CDLL('libJudy.so.1')" 2>/dev/null; then
+              echo "stock libjudy: libJudy.so.1"
+            elif python3 -c "import ctypes; ctypes.CDLL('libJudy.so')" 2>/dev/null; then
+              echo "stock libjudy: libJudy.so"
+            else
+              echo "::error::Suite '$SUITE' compares against stock libjudy, but dlopen resolved neither libJudy.so.1 nor libJudy.so on this runner. Install stock libjudy (libjudy-dev, or a local build reachable through LD_LIBRARY_PATH) before re-triggering. No benchmark was run and no numbers were produced."
+              echo "fail_reason=missing_libjudy" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+          fi
+
+          # Fail fast if the suite needs hardware performance counters and the
+          # host will not hand them over. The probe opens a real counter over a
+          # real process: `perf` on PATH answers a weaker question, and answers
+          # it wrongly wherever `perf_event_paranoid` forbids the open. Driven
+          # by the manifest's `kind`, so declaring a counters suite arms this
+          # without a second edit here. A refused counter stops the run with a
+          # named cause; it is never skipped into a report that looks complete
+          # (AGENTS.md section 8.1).
+          if [ "$SUITE_KIND" = "counters" ]; then
+            if ! command -v perf >/dev/null 2>&1; then
+              echo "::error::Suite '$SUITE' needs hardware performance counters, but 'perf' is not installed on this runner. Install the kernel's matching tools package (linux-tools-common plus linux-tools-\$(uname -r) on Debian/Ubuntu, perf on Fedora/RHEL) before re-triggering. No benchmark was run and no numbers were produced."
+              echo "fail_reason=missing_perf_tool" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            PARANOID="$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo unreadable)"
+            if ! perf stat -x, -e instructions -o /dev/null -- true >/dev/null 2>&1; then
+              echo "::error::Suite '$SUITE' needs hardware performance counters, but 'perf stat -e instructions' could not open one on this runner (kernel.perf_event_paranoid=$PARANOID). Grant the capability (sudo setcap cap_perfmon,cap_sys_ptrace,cap_syslog=ep \$(command -v perf)) or lower the gate (sudo sysctl -w kernel.perf_event_paranoid=1), then re-trigger. A virtualised host may expose no PMU at all, in which case the counters have to be collected on bare metal. No benchmark was run and no numbers were produced."
+              echo "fail_reason=missing_perf_counters" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            echo "hardware counters: perf usable (kernel.perf_event_paranoid=$PARANOID)"
+          fi
+
+          # The flagship wall-clock comparison. `bench_vs_libjudy` is a custom
+          # main under examples/, not a `[[bench]]` target, so the manifest's
+          # `generic` runner (`cargo bench --bench <target> -p <package>`)
+          # cannot reach it; it is invoked here and shared by every suite that
+          # runs it, rather than copied into each case arm.
+          #
+          # EXPANSE_BENCH_RATIOS_JSON asks the harness for its per-round paired
+          # ratios, from which the BCa interval behind the published figure can
+          # be re-derived. A checkout whose harness does not read that variable
+          # ignores it and simply writes no file; the upload step is set to
+          # tolerate that rather than fail the run.
+          run_vs_libjudy() {
+            local ratios="$PWD/target/bench/vs-libjudy-ratios.json"
+            mkdir -p "$(dirname "$ratios")"
+            # target/ survives between jobs on this runner, so a previous
+            # run's ratios must not be uploaded under this run's provenance.
+            rm -f "$ratios"
+            EXPANSE_BENCH_RATIOS_JSON="$ratios" \
+              cargo run --release -p expanse-capi --example bench_vs_libjudy \
+              | tee vs-libjudy.txt
+          }
+
           # Host-wide benchmark lock (docs/BENCHMARKING.md, methodology rule
           # 8): one suite at a time per machine, across every checkout.
           # `mkdir` is atomic; the lock names its owner so a refused start
@@ -684,6 +754,10 @@ jobs:
           # excludes anything older than this stamp rather than stamping stale
           # numbers with this run's commit.
           CRITERION_SINCE=$(date +%s)
+          # Same reason, for the plain-text outputs this step folds into the
+          # report: a file left by an earlier suite must not be published
+          # under this run's suite and commit.
+          rm -f vs-libjudy.txt
           git checkout "$REF"
           cargo build --release -p expanse-capi
           export EXPANSE_CDYLIB="$PWD/target/release/libexpanse.so"
@@ -744,9 +818,32 @@ jobs:
 
                 cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
                 cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
+                run_vs_libjudy
 
                 cargo bench --bench comparative -p expanse-trie | tee comparative.txt
                 python3 scripts/bench_report.py --extended --arch-sweep --format markdown | tee head-to-head.md
+                ;;
+              "vs_libjudy")
+                # Wall-clock only: no Callgrind pass, and no criterion arms,
+                # so this suite claims nothing about instruction counts.
+                run_vs_libjudy
+                ;;
+              "point_lookup_counters")
+                # Hardware counters over the random point-lookup path
+                # (#455 R0). Diagnostic only: nothing here gates, and the
+                # suite runs no Callgrind pass, so it claims nothing about
+                # instruction counts. The driver repeats its own preflight
+                # against the built workload and exits non-zero on a refused
+                # counter rather than emitting a table with silent gaps.
+                cargo build --release -p expanse-trie --example perf_point_lookup
+                python3 scripts/perf_counters.py \
+                  --pops 262144,1048576,4194304 \
+                  --runs 10 \
+                  --host-desc "$HOST_DESC" \
+                  --commit "$(git rev-parse HEAD)" \
+                  --run-id "$RUN_URL" \
+                  --out "perf-counters-$SUITE.json" \
+                  | tee head-to-head.md
                 ;;
               "ycsb")
                 cargo bench --bench ycsb -p expanse-trie | tee ycsb.txt
@@ -773,6 +870,7 @@ jobs:
 
                 cargo run --release -p expanse-trie --example bytes_per_key | tee bytes-per-key.txt
                 cargo run --release -p expanse-trie --example bytes_per_key_32 | tee bytes-per-key-32.txt
+                run_vs_libjudy
 
                 cargo bench --bench comparative -p expanse-trie | tee comparative.txt
                 python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
@@ -787,6 +885,25 @@ jobs:
                 exit 1
                 ;;
             esac
+          fi
+
+          # ====================================================================
+          # libexpanse vs stock libjudy
+          # ====================================================================
+          # Folded into head-to-head.md in one place rather than in each case
+          # arm, so every suite that runs the comparison reaches the PR comment
+          # through the same path - the `--head-to-head` argument to
+          # perf_report.py when the suite also has instruction counters, and
+          # the fallback body when it does not.
+          if [ -f vs-libjudy.txt ]; then
+            {
+              echo ""
+              echo "### libexpanse vs stock libjudy (paired wall-clock, arms interleaved per round)"
+              echo ""
+              echo '```text'
+              cat vs-libjudy.txt
+              echo '```'
+            } >> head-to-head.md
           fi
 
           # ====================================================================
@@ -966,6 +1083,11 @@ jobs:
               echo '```text' >> "$GITHUB_STEP_SUMMARY"
               cat bench-output.txt >> "$GITHUB_STEP_SUMMARY"
               echo '```' >> "$GITHUB_STEP_SUMMARY"
+            elif [ -f head-to-head.md ]; then
+              # A suite whose whole output is markdown already - `vs_libjudy`
+              # is the first - would otherwise leave the summary with a
+              # heading and no numbers under it.
+              cat head-to-head.md >> "$GITHUB_STEP_SUMMARY"
             fi
             if [ -f system-load.md ]; then
               cat system-load.md >> "$GITHUB_STEP_SUMMARY"
@@ -983,6 +1105,37 @@ jobs:
         with:
           name: wallclock-baseline-${{ needs.resolve.outputs.suite }}-${{ github.run_id }}
           path: baseline-*.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # The per-round paired ratios behind the vs-libjudy figure, so its BCa
+      # interval can be re-derived from the same run that published it rather
+      # than trusted as a summary line (AGENTS.md sections 8.4 and 8.7). The
+      # harness writes this only when it honours EXPANSE_BENCH_RATIOS_JSON; on
+      # a checkout that does not, there is no file and `ignore` keeps that from
+      # failing a run whose numbers are otherwise complete. It is a missing
+      # supplement, not a missing result - the ratios themselves are in the
+      # comment either way.
+      - name: Upload vs-libjudy paired-ratio artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: vs-libjudy-ratios-${{ needs.resolve.outputs.suite }}-${{ github.run_id }}
+          path: target/bench/vs-libjudy-ratios.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # The per-run counter values behind every interval in the counters
+      # report, so a claim built on them is recomputable from the same run
+      # that published it rather than trusted as a summary line (AGENTS.md
+      # sections 8.4 and 8.7). Only the counters suite writes one; `ignore`
+      # keeps every other suite from failing over a file it never produces.
+      - name: Upload hardware-counter artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-counters-${{ needs.resolve.outputs.suite }}-${{ github.run_id }}
+          path: perf-counters-*.json
           if-no-files-found: ignore
           retention-days: 30
 
@@ -1090,6 +1243,15 @@ jobs:
                   '',
                   'Re-trigger once the holder finishes.',
                 ].join('\n');
+              } else if (reason === 'missing_libjudy') {
+                label = 'refused';
+                cause = `The run was **refused before any benchmark started**: suite \`${suite}\` compares against stock libjudy, but \`dlopen\` resolved neither \`libJudy.so.1\` nor \`libJudy.so\` on the runner. Install stock libjudy (\`libjudy-dev\`, or a local build reachable through \`LD_LIBRARY_PATH\`) before re-triggering. No numbers were produced.`;
+              } else if (reason === 'missing_perf_tool') {
+                label = 'refused';
+                cause = `The run was **refused before any benchmark started**: suite \`${suite}\` reads hardware performance counters, but \`perf\` is not installed on the runner. Install the kernel's matching tools package (\`linux-tools-common\` plus \`linux-tools-$(uname -r)\` on Debian/Ubuntu, \`perf\` on Fedora/RHEL) before re-triggering. No numbers were produced.`;
+              } else if (reason === 'missing_perf_counters') {
+                label = 'refused';
+                cause = `The run was **refused before any benchmark started**: suite \`${suite}\` reads hardware performance counters, but \`perf stat -e instructions\` could not open one on the runner. Grant the capability (\`sudo setcap cap_perfmon,cap_sys_ptrace,cap_syslog=ep $(command -v perf)\`) or lower \`kernel.perf_event_paranoid\`, then re-trigger. A virtualised host may expose no PMU at all, in which case the counters have to come from bare metal. No numbers were produced.`;
               } else if (reason.startsWith('missing_tool:')) {
                 label = 'refused';
                 const tool = reason.slice('missing_tool:'.length);

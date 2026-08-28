@@ -32,7 +32,9 @@ use expanse_trie::strmap::ExpanseStrMap;
 use expanse_trie::{ExpanseBlobMap32, ExpanseMap32, ExpanseSet32, Key32};
 #[cfg(target_os = "linux")]
 use iai_callgrind::main;
-use iai_callgrind::{library_benchmark, library_benchmark_group};
+use iai_callgrind::{
+    Callgrind, LibraryBenchmarkConfig, library_benchmark, library_benchmark_group,
+};
 use std::hint::black_box;
 
 struct XorShift(u64);
@@ -567,6 +569,53 @@ fn bytesmap_churn(built: (ExpanseBytesMap<DetHasher>, Vec<Vec<u8>>)) -> u64 {
     black_box(sink)
 }
 
+/// Callgrind simulator settings for this harness.
+///
+/// **`--cache-sim=yes` is stated here, not inherited.** iai-callgrind's runner
+/// already defaults it on (`iai-callgrind-runner` `defaults::CACHE_SIM = true`),
+/// which is why the L1/LL/RAM hit counts `scripts/perf_report.py` renders have
+/// been in every PR comment all along. Passing it explicitly changes no number
+/// and costs nothing; it makes the harness say which instrument it uses instead
+/// of depending on a dependency default that a version bump could flip.
+///
+/// The simulated cache is fixed by the runner and is **not this machine's**:
+/// I1 and D1 are 32 KiB 8-way, LL is 8 MiB 16-way, 64-byte lines. Fixed sizes
+/// are what make the counts comparable across hosts, and they are also why a
+/// question about a real last-level cache — where the L3 cliff sits on the
+/// reference host, for instance — cannot be answered here. That needs hardware
+/// counters (`scripts/perf_counters.py`).
+///
+/// **`--branch-sim=yes` is opt-in through `EXPANSE_BRANCH_SIM=1`.** It has no
+/// runner default, and it adds a branch-predictor simulation on top of
+/// callgrind's own slowdown, so the regression pass — gated on instructions
+/// retired, needing no branch column — leaves it off and measures exactly what
+/// it measured before. Instruction counts are unaffected either way.
+///
+/// An unrecognised value is fatal rather than ignored. A mistyped
+/// `EXPANSE_BRANCH_SIM=yes` that quietly produced a run with no branch columns
+/// would be a run published as a misprediction measurement that never simulated
+/// a predictor (`AGENTS.md` section 8.1).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn bench_config() -> LibraryBenchmarkConfig {
+    let mut config = LibraryBenchmarkConfig::default();
+    let mut args = vec!["--cache-sim=yes"];
+    let requested = match std::env::var("EXPANSE_BRANCH_SIM") {
+        Ok(v) => v,
+        Err(std::env::VarError::NotPresent) => String::new(),
+        Err(e) => panic!("EXPANSE_BRANCH_SIM is set but unreadable: {e}"),
+    };
+    match requested.as_str() {
+        "" | "0" => {}
+        "1" => args.push("--branch-sim=yes"),
+        other => panic!(
+            "EXPANSE_BRANCH_SIM={other} is not a recognised value: use 1 to add the \
+             branch-predictor simulation, or 0 / unset to leave it off"
+        ),
+    }
+    config.tool(Callgrind::with_args(args));
+    config
+}
+
 library_benchmark_group!(
     name = cost;
     benchmarks =
@@ -600,7 +649,7 @@ library_benchmark_group!(
 );
 
 #[cfg(target_os = "linux")]
-main!(library_benchmark_groups = cost, range_cost);
+main!(config = bench_config(); library_benchmark_groups = cost, range_cost);
 
 #[cfg(not(target_os = "linux"))]
 fn main() {

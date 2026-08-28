@@ -371,3 +371,240 @@ func TestSyncMap(t *testing.T) {
 		t.Fatalf("size should be 1")
 	}
 }
+
+func TestBoundaryKeys(t *testing.T) {
+	minKey := uint64(0)
+	maxKey := ^uint64(0) // 0xFFFFFFFFFFFFFFFF
+
+	// Set
+	s := NewSet()
+	defer s.Free()
+
+	s.Add(minKey)
+	s.Add(maxKey)
+
+	if !s.Contains(minKey) || !s.Contains(maxKey) {
+		t.Fatalf("set should contain minKey and maxKey")
+	}
+	if s.Size() != 2 {
+		t.Fatalf("expected size 2, got %d", s.Size())
+	}
+	if s.Rank(maxKey) != 1 {
+		t.Fatalf("rank of maxKey should be 1, got %d", s.Rank(maxKey))
+	}
+	firstK, ok := s.First()
+	if !ok || firstK != minKey {
+		t.Fatalf("firstKey should be minKey, got %d", firstK)
+	}
+	lastK, ok := s.Last()
+	if !ok || lastK != maxKey {
+		t.Fatalf("lastKey should be maxKey, got %d", lastK)
+	}
+
+	// Map
+	m := NewMap()
+	defer m.Free()
+
+	m.Set(minKey, 111)
+	m.Set(maxKey, 999)
+
+	v0, ok0 := m.Get(minKey)
+	vMax, okMax := m.Get(maxKey)
+	if !ok0 || v0 != 111 || !okMax || vMax != 999 {
+		t.Fatalf("map boundary key retrieval failed: (0: %d, %v), (max: %d, %v)", v0, ok0, vMax, okMax)
+	}
+	if m.CountRange(0, maxKey) != 2 {
+		t.Fatalf("count range [0, maxKey] should be 2, got %d", m.CountRange(0, maxKey))
+	}
+}
+
+func TestEmptyCollections(t *testing.T) {
+	s := NewSet()
+	defer s.Free()
+
+	if s.Size() != 0 {
+		t.Fatalf("new set size should be 0")
+	}
+	if _, ok := s.First(); ok {
+		t.Fatalf("First on empty set should return false")
+	}
+	if _, ok := s.Last(); ok {
+		t.Fatalf("Last on empty set should return false")
+	}
+	if _, ok := s.Next(0); ok {
+		t.Fatalf("Next on empty set should return false")
+	}
+	if _, ok := s.Prev(0); ok {
+		t.Fatalf("Prev on empty set should return false")
+	}
+	if s.ContainsBatch(nil, nil) != 0 {
+		t.Fatalf("ContainsBatch on nil should return 0")
+	}
+
+	m := NewMap()
+	defer m.Free()
+
+	if m.Size() != 0 {
+		t.Fatalf("new map size should be 0")
+	}
+	if _, _, ok := m.First(); ok {
+		t.Fatalf("First on empty map should return false")
+	}
+	if _, _, ok := m.Last(); ok {
+		t.Fatalf("Last on empty map should return false")
+	}
+	if _, _, ok := m.Next(0); ok {
+		t.Fatalf("Next on empty map should return false")
+	}
+	if _, _, ok := m.Prev(0); ok {
+		t.Fatalf("Prev on empty map should return false")
+	}
+	if m.GetBatch(nil, nil, nil) != 0 {
+		t.Fatalf("GetBatch on nil should return 0")
+	}
+
+	sm := NewStrMap()
+	defer sm.Free()
+
+	if sm.Size() != 0 {
+		t.Fatalf("new strmap size should be 0")
+	}
+	if _, _, ok := sm.First(); ok {
+		t.Fatalf("First on empty strmap should return false")
+	}
+	if _, _, ok := sm.Last(); ok {
+		t.Fatalf("Last on empty strmap should return false")
+	}
+}
+
+func TestBatchBoundsSafety(t *testing.T) {
+	m := NewMap()
+	defer m.Free()
+
+	for i := uint64(0); i < 50; i++ {
+		m.Set(i, i*10)
+	}
+
+	keys := []uint64{5, 10, 15, 20}
+
+	// Case 1: outValues shorter than keys -> should safely process min(len(keys), len(outValues))
+	shortValues := make([]uint64, 2)
+	shortFound := make([]bool, 2)
+	count := m.GetBatch(keys, shortValues, shortFound)
+	if count != 2 {
+		t.Fatalf("expected count 2 for truncated slices, got %d", count)
+	}
+	if shortValues[0] != 50 || shortValues[1] != 100 || !shortFound[0] || !shortFound[1] {
+		t.Fatalf("unexpected short batch results: %v, %v", shortValues, shortFound)
+	}
+
+	// Set batch
+	s := NewSet()
+	defer s.Free()
+	for i := uint64(0); i < 50; i++ {
+		s.Add(i)
+	}
+	shortPresent := make([]bool, 2)
+	sCount := s.ContainsBatch(keys, shortPresent)
+	if sCount != 2 {
+		t.Fatalf("expected set count 2 for truncated slices, got %d", sCount)
+	}
+}
+
+func TestStrMapEdgeCases(t *testing.T) {
+	m := NewStrMap()
+	defer m.Free()
+
+	// Empty string key
+	m.Set("", 42)
+	val, ok := m.Get("")
+	if !ok || val != 42 {
+		t.Fatalf("empty string key lookup failed: %v, %d", ok, val)
+	}
+
+	// Long key (1024 chars)
+	longKey := string(bytes.Repeat([]byte("a"), 1024))
+	m.Set(longKey, 1024)
+	lVal, lOk := m.Get(longKey)
+	if !lOk || lVal != 1024 {
+		t.Fatalf("long string key lookup failed: %v, %d", lOk, lVal)
+	}
+
+	// Navigation with long key
+	firstK, _, ok := m.First()
+	if !ok || firstK != "" {
+		t.Fatalf("expected first key to be empty string, got %q", firstK)
+	}
+	lastK, _, ok := m.Last()
+	if !ok || lastK != longKey {
+		t.Fatalf("expected last key to be longKey")
+	}
+}
+
+func TestConcurrentSyncMapStress(t *testing.T) {
+	m := NewSyncMap()
+	defer m.Free()
+
+	// Pre-populate
+	for i := uint64(0); i < 1000; i++ {
+		m.Set(i, i*100)
+	}
+
+	done := make(chan struct{})
+	readers := 4
+
+	// Spawn readers
+	for r := 0; r < readers; r++ {
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					reader := m.Reader()
+					for k := uint64(0); k < 100; k++ {
+						if val, ok := reader.Get(k); ok {
+							_ = val
+						}
+					}
+					reader.Free()
+				}
+			}
+		}()
+	}
+
+	// Perform writes
+	for i := uint64(1000); i < 2000; i++ {
+		m.Set(i, i*100)
+		if i%2 == 0 {
+			m.Delete(i - 1000)
+		}
+	}
+
+	close(done)
+}
+
+func TestBlobMapCompaction(t *testing.T) {
+	b := NewBlobMap(0)
+	defer b.Clear()
+
+	// Large payload (64 KB)
+	largeData := bytes.Repeat([]byte("X"), 65536)
+	b.Set(100, largeData, 42)
+
+	out, meta, ok := b.Get(100)
+	if !ok || len(out) != 65536 || meta != 42 {
+		t.Fatalf("large blob retrieval failed: ok=%v len=%d meta=%d", ok, len(out), meta)
+	}
+
+	// MemoryUsed and Compact
+	memBefore := b.MemoryUsed()
+	if memBefore == 0 {
+		t.Fatalf("memory before compact should be > 0")
+	}
+	b.Compact()
+	memAfter := b.MemoryUsed()
+	if memAfter == 0 {
+		t.Fatalf("memory after compact should be > 0")
+	}
+}

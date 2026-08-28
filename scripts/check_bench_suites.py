@@ -41,7 +41,7 @@ BEGIN = "BEGIN GENERATED: bench-suites"
 END = "END GENERATED: bench-suites"
 
 REQUIRED_FIELDS = ("name", "available", "kind", "runner", "summary")
-KINDS = ("callgrind", "wallclock")
+KINDS = ("callgrind", "wallclock", "counters")
 RUNNERS = ("builtin", "generic")
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -145,7 +145,10 @@ def render_docs_table(manifest: dict) -> list[str]:
         name = f"`{s['name']}`"
         for a in sorted(alias_of.get(s["name"], [])):
             name += f" (alias `{a}`)"
-        instrument = "Callgrind" if s["kind"] == "callgrind" else "wall-clock"
+        instrument = {
+            "callgrind": "Callgrind",
+            "counters": "`perf stat`",
+        }.get(s["kind"], "wall-clock")
         out.append(f"| {name} | {instrument} | {s['summary']} |")
 
     gaps = [s for s in manifest["suites"] if not s.get("available")]
@@ -414,6 +417,17 @@ def self_test() -> int:
 
     m = json.loads(json.dumps(base)); m["suites"][0]["kind"] = "guesswork"
     assert any("kind" in e for e in errs(m)), "kind vocabulary"
+
+    # A `counters` suite is a third instrument, not a wall-clock one wearing a
+    # different name: the docs table has to say which instrument produced the
+    # numbers, which is the doc-vs-reality gap #453 records.
+    m = json.loads(json.dumps(base))
+    m["suites"].append(
+        {"name": "counter_demo", "available": True, "kind": "counters", "runner": "builtin", "summary": "s"}
+    )
+    assert errs(m) == [], errs(m)
+    table = "\n".join(render_docs_table(m))
+    assert "| `counter_demo` | `perf stat` |" in table, table
 
     # The #410 shape: `search_instructions` contains `instructions`, so the two
     # must be reported as a containing pair — the exact case an `includes()`
