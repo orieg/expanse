@@ -517,7 +517,7 @@ pub struct Bitmap256 {
 /// base A64 has no scalar popcount (scalar `CNT` needs FEAT_CSSC, Armv8.9+;
 /// see docs/HARDWARE.md §2.2).
 /// Runtime CPU feature dispatch for hardware POPCNT (x86-64 only).
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", not(miri)))]
 pub(crate) mod popcnt_rt {
     use core::sync::atomic::{AtomicU8, Ordering};
 
@@ -551,6 +551,16 @@ pub(crate) mod popcnt_rt {
     }
 }
 
+/// Under Miri, inline assembly (CPUID) is unsupported. Always report false so
+/// execution falls back to the verified portable SWAR path.
+#[cfg(all(target_arch = "x86_64", miri))]
+pub(crate) mod popcnt_rt {
+    #[inline(always)]
+    pub(crate) fn available() -> bool {
+        false
+    }
+}
+
 /// Runtime CPU feature dispatch for hardware BMI2 PDEP/PEXT (x86-64 only).
 ///
 /// **Microarchitecture exclusion**: On AMD Zen 1 and Zen 2 (Family 17h and 15h),
@@ -558,7 +568,7 @@ pub(crate) mod popcnt_rt {
 /// On those microarchitectures, `available()` returns `false` so execution
 /// automatically falls back to the fast 2 KB `SELECT_LUT` table. AMD Zen 3+
 /// (Family 19h+) and Intel Haswell+ execute `PDEP` in hardware (1 cycle).
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", not(miri)))]
 pub(crate) mod bmi2_rt {
     use core::sync::atomic::{AtomicU8, Ordering};
 
