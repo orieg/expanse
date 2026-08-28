@@ -325,13 +325,21 @@ jobs:
       - name: Assert capi drop-in artifacts exist (Unix)
         if: runner.os != 'Windows'
         run: |
-          shopt -s nullglob
-          arts=(target/debug/libexpanse.{so,dylib} target/debug/libexpanse.a)
-          if [ ${#arts[@]} -lt 2 ]; then
-            echo "::error::expected cdylib + staticlib capi artifacts, found: ${arts[*]:-none}"
+          # `libexpanse.{so,dylib}` is BRACE expansion, not a glob: it yields
+          # literal words with no metacharacters, so `nullglob` cannot drop the
+          # ones that do not exist and the array was always 3 long. The count
+          # test could never fail — verified against an empty directory.
+          # Test each path instead, and require the cdylib for this platform.
+          cdylib="target/debug/libexpanse.so"
+          [ "$RUNNER_OS" = "macOS" ] && cdylib="target/debug/libexpanse.dylib"
+          missing=()
+          [ -f "$cdylib" ] || missing+=("$cdylib")
+          [ -f target/debug/libexpanse.a ] || missing+=("target/debug/libexpanse.a")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::missing capi drop-in artifact(s): ${missing[*]}"
             exit 1
           fi
-          echo "capi artifacts present: ${arts[*]}"
+          echo "capi artifacts present: $cdylib target/debug/libexpanse.a"
         shell: bash
 
       - name: Run C++20 Header Tests (Unix)
@@ -339,6 +347,147 @@ jobs:
         run: |
           c++ -std=c++20 -Iinclude tests/cpp/test_expanse.cpp target/debug/libexpanse.a -lpthread -ldl -lm -o /tmp/test_cpp
           /tmp/test_cpp
+
+  test-aarch64:
+    name: Core / AArch64 Linux Tests & Callgrind (Neoverse N2)
+    needs: [detect-changes]
+    # `perf-tooling` (perf_report.py, bench_report.py) is deliberately not here:
+    # this job runs neither script, so gating on it spun the whole ARM lane for
+    # PRs it cannot say anything about. `rust-src` covers what it does build.
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    env:
+      # AGENTS.md §5 gate 4: the randomized model test at heavy iterations
+      # (proptest's default is 256 cases).
+      PROPTEST_CASES: "500"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Step 0 capability census: record what the runner exposes (Neoverse core,
+      # SVE/SVE2 flags, CTR_EL0-derived cache line).
+      - name: Hardware Capability Census (lscpu, /proc/cpuinfo, CTR_EL0 cache-line)
+        shell: bash
+        run: |
+          echo "=== uname ==="
+          uname -a
+          echo "=== lscpu ==="
+          lscpu || true
+          echo "=== /proc/cpuinfo (AArch64 core & features) ==="
+          grep -E '^(processor|BogoMIPS|Features|CPU implementer|CPU architecture|CPU variant|CPU part|CPU revision|model name)' /proc/cpuinfo || cat /proc/cpuinfo
+          echo "=== Cache Line Size ==="
+          if [ -f /sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size ]; then
+            echo "L1d coherency_line_size: $(cat /sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size) bytes"
+          fi
+          getconf LEVEL1_DCACHE_LINESIZE 2>/dev/null && echo "getconf LEVEL1_DCACHE_LINESIZE: $(getconf LEVEL1_DCACHE_LINESIZE) bytes" || true
+          echo "=== SVE / SVE2 Feature Status ==="
+          grep -q '\bsve\b' /proc/cpuinfo && echo "SVE: present" || echo "SVE: absent"
+          grep -q '\bsve2\b' /proc/cpuinfo && echo "SVE2: present" || echo "SVE2: absent"
+
+          # Assert, do not merely print. docs/HARDWARE.md §2.6 publishes this
+          # census as fact and this job is named for the core; if GitHub rotates
+          # the ubuntu-24.04-arm fleet to a different part (Cobalt 200, an
+          # Ampere Altra with no SVE), a print-only step stays green while the
+          # docs and the Callgrind counts silently describe other hardware.
+          # AGENTS.md §8.1: the degradation must surface, not pass.
+          echo "=== Census assertions ==="
+          fail=0
+          part=$(awk -F': ' '/^CPU part/{print $2; exit}' /proc/cpuinfo)
+          line=$(cat /sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size)
+          if [ "$part" != "0xd49" ]; then
+            echo "::error::CPU part is $part, expected 0xd49 (Neoverse-N2). The runner fleet changed: re-take the census, update docs/HARDWARE.md §2.6 and this job's name before trusting its numbers."
+            fail=1
+          fi
+          if [ "$line" != "64" ]; then
+            echo "::error::L1d coherency_line_size is $line, expected 64 — docs/HARDWARE.md §2.4/§2.6 assert 64 B on Neoverse."
+            fail=1
+          fi
+          if ! grep -q '\bsve2\b' /proc/cpuinfo; then
+            echo "::error::SVE2 absent — docs/HARDWARE.md §2.6 records it as exposed on this runner."
+            fail=1
+          fi
+          [ "$fail" -eq 0 ] && echo "census matches docs/HARDWARE.md §2.6 (part=$part, line=${line}B, sve2 present)"
+          exit "$fail"
+
+      - name: Build
+        run: cargo build --workspace --exclude expanse-php
+
+      # Step 1: Execute full workspace test suite and NEON SIMD parity tests natively on AArch64.
+      - name: Test (AArch64 workspace & NEON SIMD parity)
+        run: cargo test --workspace --exclude expanse-php
+
+      - name: Assert C ABI drop-in artifacts exist
+        shell: bash
+        run: |
+          # See the note in the `test` job: the brace-expansion form this was
+          # copied from could never fail. This lane is Linux, so the cdylib is
+          # always the .so.
+          missing=()
+          [ -f target/debug/libexpanse.so ] || missing+=("target/debug/libexpanse.so")
+          [ -f target/debug/libexpanse.a ] || missing+=("target/debug/libexpanse.a")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::missing capi drop-in artifact(s): ${missing[*]}"
+            exit 1
+          fi
+          echo "capi artifacts present: target/debug/libexpanse.so target/debug/libexpanse.a"
+
+      - name: Run C++20 Header Tests
+        run: |
+          c++ -std=c++20 -Iinclude tests/cpp/test_expanse.cpp target/debug/libexpanse.a -lpthread -ldl -lm -o /tmp/test_cpp
+          /tmp/test_cpp
+
+      # Step 2: Extend Callgrind instruction tracking to AArch64 (roadmap bullet docs/CI.md §11).
+      - name: Install valgrind
+        timeout-minutes: 8
+        run: |
+          if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
+          for i in 1 2 3; do
+            timeout 120 sudo apt-get update || true
+            if timeout 120 sudo apt-get install -y valgrind; then exit 0; fi
+            echo "apt attempt $i failed; retrying in 15s"
+            sleep 15
+          done
+          exit 1
+
+      - name: Install iai-callgrind-runner
+        run: |
+          VERSION=$(cargo metadata --format-version 1 --locked | python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='iai-callgrind'))")
+          echo "iai-callgrind resolved to $VERSION"
+          cargo install iai-callgrind-runner --version "$VERSION"
+
+      - name: Build release artifacts
+        run: cargo build --release -p expanse-trie -p expanse-capi
+
+      - name: Run Callgrind Fast Smoke Instructions Benchmark (AArch64)
+        shell: bash
+        run: |
+          cargo bench --bench smoke_instructions -p expanse-trie | tee aarch64-smoke-instructions.txt
+
+      - name: Summarize AArch64 Instruction Counts
+        if: always()
+        shell: bash
+        run: |
+          # §8.1: never render a partial or absent measurement as a clean
+          # result. These counts are tracked, not gated — there is no baseline
+          # on this platform and no perf_report.py regression guard — so say so
+          # rather than let a reader take the table for a passing gate.
+          if [ ! -f aarch64-smoke-instructions.txt ]; then
+            echo '> ### ⚠️ NO AARCH64 COUNTS — the Callgrind benchmark produced no output' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "${{ job.status }}" != "success" ]; then
+            echo '> ### ⚠️ PARTIAL — a step failed; the counts below may be truncated' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo '### AArch64 Callgrind Instruction Counts (Neoverse N2)' >> "$GITHUB_STEP_SUMMARY"
+          echo '_Tracked, not gated: no baseline or regression guard on this platform yet._' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat aarch64-smoke-instructions.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
   test-riscv64:
     name: Cross / RV64GC Cross-Compile (Linux)
     needs: [detect-changes]
@@ -1450,6 +1599,7 @@ jobs:
       - man-examples
       - docs-lint
       - test
+      - test-aarch64
       - test-musl
       - test-riscv64
       - test-rv32
