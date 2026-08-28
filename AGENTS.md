@@ -216,6 +216,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | §3 clean-room (no LGPL exposure) | **review** (`references/` is gitignored) | — |
 | §8.3 symmetric baselines · §8.6 DCE sinks, realistic hit rates, miss shape & measured-region hygiene · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.10 retract don't re-estimate · PR checklist truthfulness | **review** | — |
 | §8.9 mechanism claims carry a counter (`memory-latency-bound`, `branch misprediction`, `MLP`, `TLB`, …) | **CI (fatal)** | `check_docs_hygiene.py` — paragraph-scoped; satisfied by a counter name, a `results/baseline_*` reference, or an explicit `unmeasured` / `hypothesis` / `cause unknown` qualifier |
+| §8.4 a published wall-clock ratio carries its interval | **CI (fatal)** | `check_docs_hygiene.py` — paragraph-scoped; satisfied by `[lo, hi]`, a `results/baseline_*` artifact, or an explicit `superseded` / `unsourced` / `provisional`. Deterministic metrics (Callgrind counts, byte accounting, memory) are exempt — an interval on an exact integer is wrong, not missing |
 | Conventional-commit type · branch naming | **review** | — |
 
 ---
