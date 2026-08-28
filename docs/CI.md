@@ -105,7 +105,7 @@ graph TD
 | `test-java` | Bindings / Java 22+ Panama (matrix) | Project Panama FFM binding tests. |
 | `test-ruby` | Bindings / Ruby (matrix) | magnus / C ABI extension tests. |
 | `test-wasm` | Bindings / WebAssembly (wasm32) | `wasm32` binding build/test. |
-| `test-go` | Bindings / Go (matrix) | CGO binding tests. |
+| `test-go` | Bindings / Go (matrix) | Go binding tests across CGO, purego (`CGO_ENABLED=0`), and explicit `-tags expanse_purego` on Linux, macOS, and Windows. |
 
 ### Integrations
 | Job | Name | Role |
