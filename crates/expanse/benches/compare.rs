@@ -177,6 +177,67 @@ fn bench_insert(c: &mut Criterion) {
     }
 }
 
+/// Wide probe sets for cold-DRAM measurement (>LLC working set).
+fn cold_probes(keys: &[u64], probe_count: usize) -> (Vec<u64>, Vec<u64>) {
+    let mut rng = XorShift(0xFEED_FACE_CAFE_BEEF);
+    let hits: Vec<u64> = (0..probe_count)
+        .map(|_| keys[(rng.next() as usize) % keys.len()])
+        .collect();
+    let misses: Vec<u64> = hits.iter().map(|k| k ^ (1 << 63) ^ 0xA5).collect();
+    (hits, misses)
+}
+
+/// Cold-DRAM random point lookup benchmark.
+///
+/// Designed to strictly exceed the reference host's 30 MiB Last-Level Cache (LLC)
+/// across all evaluated data structures:
+/// - `ExpanseMap` @ 16.70 B/key (gated) × 4,000,000 keys ≈ 66.8 MiB (~2.2× LLC)
+/// - `std::BTreeMap` @ ~36.5 B/key × 4,000,000 keys ≈ 146.0 MiB (~4.8× LLC)
+/// - `hashbrown::HashMap` @ ~33.2 B/key × 4,000,000 keys ≈ 132.8 MiB (~4.4× LLC)
+/// - Probe array: 2,097,152 keys × 8 B = 16.8 MiB
+///
+/// Total working set (>83 MiB) guarantees 100% DRAM traversal stalls.
+fn bench_cold_dram_lookup(c: &mut Criterion) {
+    let pop = 4_000_000;
+    let ks = keys("random", pop);
+    // 2,097,152 probes (16.8 MiB) randomly distributed across the 4M key expanse.
+    let (hits, misses) = cold_probes(&ks, 2_097_152);
+
+    let mut expanse_map = ExpanseMap::new();
+    let mut btree_map = BTreeMap::new();
+    let mut hash_map = HashMap::new();
+    for &k in &ks {
+        expanse_map.insert(k, !k);
+        btree_map.insert(k, !k);
+        hash_map.insert(k, !k);
+    }
+
+    let mut g = c.benchmark_group(format!("map_get_cold_dram/random/{pop}"));
+    g.sample_size(10);
+    for (case, probe) in [("hit", &hits), ("miss", &misses)] {
+        let mut i = 0;
+        g.bench_with_input(BenchmarkId::new("expanse", case), probe, |b, p| {
+            b.iter(|| {
+                i = (i + 1) % p.len();
+                black_box(expanse_map.get(black_box(p[i])))
+            })
+        });
+        g.bench_with_input(BenchmarkId::new("btree", case), probe, |b, p| {
+            b.iter(|| {
+                i = (i + 1) % p.len();
+                black_box(btree_map.get(&black_box(p[i])))
+            })
+        });
+        g.bench_with_input(BenchmarkId::new("hash", case), probe, |b, p| {
+            b.iter(|| {
+                i = (i + 1) % p.len();
+                black_box(hash_map.get(&black_box(p[i])))
+            })
+        });
+    }
+    g.finish();
+}
+
 fn bench_iter(c: &mut Criterion) {
     for dist in DISTS {
         for pop in [10_000, 1_000_000] {
@@ -216,6 +277,7 @@ criterion_group!(
     benches,
     bench_set_lookup,
     bench_map_lookup,
+    bench_cold_dram_lookup,
     bench_insert,
     bench_iter
 );
