@@ -57,12 +57,17 @@ python3 scripts/check_abi_parity.py
 python3 scripts/check_ci_gate.py
 python3 scripts/check_bench_suites.py
 python3 scripts/check_man_pages.py
+python3 scripts/check_deletion_rationale.py
+python3 scripts/check_test_floors.py
 python3 scripts/perf_report.py --self-test
 python3 scripts/bench_report.py --self-test
 python3 scripts/check_docs_hygiene.py --self-test
 python3 scripts/check_bench_suites.py --self-test
 python3 scripts/check_man_pages.py --self-test
 python3 scripts/check_man_examples.py --self-test
+python3 scripts/check_abi_parity.py --self-test
+python3 scripts/check_deletion_rationale.py --self-test
+python3 scripts/check_test_floors.py --self-test
 
 # Verifying the documented example output needs libexpanse built; the CI
 # man-examples job always runs it. Locally it is opt-in, so `gate.sh` stays

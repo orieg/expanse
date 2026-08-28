@@ -198,6 +198,8 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | Instruction regression (>5 % worst, or ≥2 arms >0.5 %) + `allow-regression:` override | **CI** | `instruction-counts`, `callgrind-smoke` → `scripts/perf_report.py` |
 | Memory density ceilings | **CI** | `memory-budget` |
 | C ABI symbol parity · version lockstep · gate completeness · report-script self-tests | **CI** | `lint` job scripts |
+| File deletions require `removes:` / `deletes:` rationale in PR body | **CI** | `lint` job → `scripts/check_deletion_rationale.py` |
+| Exported C symbol floor (≥100) · workspace test count floor (≥300) | **CI** | `lint` job → `scripts/check_abi_parity.py`, `scripts/check_test_floors.py` |
 | Black-box parity vs stock `libjudy` | **CI** | `differential-oracle`, `php-judy-*` |
 | Doc↔code constant sync (visualizer) | **CI** | `tests/test_visualizer_sync.rs` |
 | No time estimates · no PII/home paths/LAN IPs in docs and PR body | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |
@@ -219,8 +221,12 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 - **Protected `main` Branch** (ruleset `main-protection`): direct pushes to `main` are rejected. All merges require:
   - A Pull Request (`gh pr create --base main`). The ruleset currently requires **0 approving reviews** — the enforced gate is the status check below, so self-merging a green PR is permitted; request a review when the change is architectural, touches `unsafe`, or moves a published number.
   - **A single required status check — `CI Gate / All Checks Passed`** (the `ci-gate` rollup job that `needs:` every other `ci.yml` job and fails if any failed or was cancelled; a `lint` step plus the gate's own self-check parse `ci.yml` and assert no job id is missing from its `needs`). Because the ruleset requires only the rollup context, renaming a *non-gate* CI job does not require editing the ruleset; only renaming `ci-gate` itself would.
+  - **Branches must be up to date before merging** (enforced by the repository ruleset).
   - No force-push, no deletion, no bypass actors.
   - Workflow: branch → push → `gh pr create` → watch checks → `gh pr merge`.
+- **Worktree & Branch Hygiene (Never Soft-Reset Across Moving Base Refs)**:
+  - **Never `git reset --soft <moving-ref>` followed by `git add -A`** in agent workflows. If `origin/main` has advanced since a worktree or branch was created, running a soft reset to the new `origin/main` while the working tree contains an older checkout causes `git add -A` to stage **unintentional deletions of all files added on `main` in the interim** (#458).
+  - To bring work up to date with `main`, always `git rebase origin/main` or apply your changes cleanly to a fresh branch off current `origin/main`.
 - **Impersonal GitHub prose.** Issue/PR/review text is published from the maintainer's own account: state what changed, where (commit SHA / file path / issue ref), and status — no external-collaboration framing, no self-attribution, no `@`-mentioning or thanking the maintainer.
 - **No agent/session trailers** in commit messages (`Claude-Session:`, `Co-Authored-By:` for tools, etc.).
 
@@ -229,9 +235,10 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 1. `scripts/gate.sh` is green (fmt · clippy · tests with `PROPTEST_CASES=500` · repo scripts · docs hygiene); add `--miri` when the change touches `unsafe` or node layout.
 2. Every new `unsafe` block has a `// SAFETY:` rationale; new public items are documented.
 3. Hot-path change? Say so, and paste the `perf_report.py` table from `instruction-counts`; anything >0.1 % needs a justification, anything over the automated thresholds needs a literal `allow-regression: <reason>` line plus a Performance Trade-off Disclosure.
-4. Every published number carries `(measured: host, commit)` resolving to a committed artifact — with n and the CI where §8.4 applies. Losing cells are published too.
-5. Canonical doc updated (§1 hierarchy) — no new standalone `.md`.
-6. Prose check: no time estimates, no hostnames/home paths, impersonal voice.
+4. Deleting tracked files? Add an explicit `removes: <reason>` or `deletes: <reason>` line in the PR body (`scripts/check_deletion_rationale.py` fails without it).
+5. Every published number carries `(measured: host, commit)` resolving to a committed artifact — with n and the CI where §8.4 applies. Losing cells are published too.
+6. Canonical doc updated (§1 hierarchy) — no new standalone `.md`.
+7. Prose check: no time estimates, no hostnames/home paths, impersonal voice.
 
 ### Privacy & Local Infrastructure
 

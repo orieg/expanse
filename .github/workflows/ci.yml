@@ -163,8 +163,12 @@ jobs:
     if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      PR_BODY: ${{ github.event.pull_request.body }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -183,6 +187,13 @@ jobs:
 
       - name: Verify C ABI Symbol Parity Across All Bindings
         run: python3 scripts/check_abi_parity.py
+
+      - name: Verify Tracked File Deletion Rationale
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/check_deletion_rationale.py --base "origin/${{ github.base_ref }}"
+
+      - name: Verify Workspace Test Count Floor
+        run: python3 scripts/check_test_floors.py
 
       - name: Verify CI Gate Completeness
         run: python3 scripts/check_ci_gate.py
@@ -208,7 +219,7 @@ jobs:
 
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / docs hygiene / bench suites / man pages)
+      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / docs hygiene / bench suites / man pages / abi parity / deletions / test floors)
         run: |
           python3 scripts/perf_report.py --self-test
           python3 scripts/bench_report.py --self-test
@@ -220,6 +231,9 @@ jobs:
           python3 scripts/check_docs_hygiene.py --self-test
           python3 scripts/check_bench_suites.py --self-test
           python3 scripts/check_man_pages.py --self-test
+          python3 scripts/check_abi_parity.py --self-test
+          python3 scripts/check_deletion_rationale.py --self-test
+          python3 scripts/check_test_floors.py --self-test
 
       # bca_bootstrap.py is the estimator every wall-clock gate rests on; its
       # unit tests pin reference values and were not executed anywhere until
