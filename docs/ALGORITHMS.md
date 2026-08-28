@@ -228,6 +228,40 @@ When compiled with `x86-64-v3` (AVX2, BMI2, POPCNT), Expanse replaces runtime di
 
 ---
 
+## 4b. Tag dispatch: the measurements
+
+The finding and its consequence are stated in §3.1 ("Dispatch Structure & Tag Space Findings"). The per-arm figures are here so a future proposal can be sized against them.
+
+**Hot-first prefilter** ([#433](https://github.com/orieg/expanse/pull/433)) — one branch added ahead of the match table:
+
+| arm | delta |
+|---|---:|
+| `map_get/sequential` | +9.35% |
+| `map_get/random` | +9.10% |
+| `set_contains/random` | +8.21% |
+| `map_get/clustered` | +7.61% |
+| `map_get/linear_leaf` | +5.11% |
+| `map_get/dense_leaf` | +4.38% |
+
+**`BranchL3` level-specialised tags** ([#441](https://github.com/orieg/expanse/pull/441)) — seven tags (`0x82..=0x88`), one branch form only:
+
+| arm | head | base | delta |
+|---|---:|---:|---:|
+| `set_contains/clustered` | 1,303,720 | 906,296 | +43.85% |
+| `map_get/clustered` | 1,392,503 | 1,017,623 | +36.84% |
+| `set_contains/random` | 1,507,683 | 1,111,724 | +35.62% |
+| `set_contains/sequential` | 1,383,103 | 1,023,119 | +35.18% |
+| `map_get/random` | 1,506,998 | 1,141,290 | +32.04% |
+| `map_get/sequential` | 1,560,993 | 1,230,993 | +26.81% |
+
+15 arms regressed in total; `strmap`, `bytesmap`, insert and churn moved 0.8%–6.2%.
+
+Two points the numbers carry that the summary does not:
+
+**Cost scales with arms added.** One branch cost 4–9%; seven tags cost 26–44%. #403's Step 2 proposes 21 tags across ~10 files. #441 was deliberately scoped to a single branch form as a cheap probe, and cost one PR rather than ten files to establish this.
+
+**The mechanism is wrong for its target.** The saving was ALU and load latency on the descent — largely hidden behind the ~5 dependent DRAM misses per random lookup that `docs/BENCHMARKING.md` attributes the 1.11×-vs-stock loss to. The cost is instructions on every arm, including the cache-resident ones the engine already wins. [#430](https://github.com/orieg/expanse/issues/430) targets the same weak arm by overlapping those misses across independent lookups; it does not touch the tag space and cannot incur this cost class.
+
 ## 5. Benchmark Arm Mapping Reference
 
 | Traversal Path / Node Kernel | Primary Benchmark Arm in `benches/instructions.rs` |
