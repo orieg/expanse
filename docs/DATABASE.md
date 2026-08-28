@@ -275,7 +275,7 @@ Traditional hash table dictionaries (`std::unordered_map`, Swiss Tables) store f
 
 `ExpanseStrMap` implements a meta-trie of word-map nodes chunking strings into **8-byte big-endian words**:
 - **Numeric Order Equals Lexicographical Order**: Because 8-byte chunks are packed big-endian (`u64::from_be_bytes`), standard 64-bit integer sorting in the underlying `ExpanseMap` preserves byte-for-byte ASCII/UTF-8 lexicographical sort order.
-- **Cross-Chunk Path Compression**: Unbranched intermediate string paths are collapsed directly into `StrSuffix` leaves, eliminating redundant intermediate branch allocations.
+- **Cross-Chunk Tail Collapse**: Unbranched terminal string paths are collapsed directly into `StrSuffix` leaves, eliminating redundant intermediate branch allocations.
 
 ### 4.2 Zero-Copy Columnar String Dictionary Block
 
@@ -567,6 +567,6 @@ F (50% Read, 50% RMW)        18.82 Mops/s         14.73 Mops/s          4.35 Mop
 Expanse provides modern database engines with a unified, high-performance family of digital trie data structures:
 - **Search & Inverted Indexes**: Sub-15ns boolean queries with 0.07–0.36 B/docID memory packing.
 - **MVCC Engine Visibility**: Zero-lock concurrent reader validation scaling near-linearly on hit-bearing read workloads at 16 threads — 884.5 M ops/s (11.42×) `SyncExpanseSet`, 424.1 M ops/s (11.40×) `SyncExpanseMap`, 133.8 M ops/s (11.48×) `SyncExpanseBytesMap`, 82.9 M ops/s (11.84×) `SyncExpanseStrMap` — vs coarse-mutex baselines collapsing to 0.14×–0.45× *(measured: reference host — Intel i9-12900F, run [33030152085](https://github.com/orieg/expanse/actions/runs/33030152085), ref `5fb03aa3`)*. Write-mixed workloads are the single-writer design's weak regime (0.12×–0.55× at 50/50) — see §3.2.
-- **Columnar Symbol Dictionaries**: 70%+ memory reduction on shared-prefix strings via 8-byte big-endian cross-chunk path folding.
+- **Columnar Symbol Dictionaries**: Deduplicated string storage on shared-prefix strings via 8-byte big-endian chunk decomposition and tail collapse.
 - **MemTables & Secondary Indexes**: Rebalance-free $O(\text{depth})$ ordered key indexing with fast point/prefix lookups (full ordered iteration is faster than a B-tree for dense keys, still slower on sparse keys — see §7.1†).
 - **Shared Memory IPC** *(roadmap — not implemented; see §6)*: Zero-deserialization analytical query sharing across multi-worker engine processes.

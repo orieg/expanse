@@ -30,7 +30,7 @@ Two further compressions: **narrow pointers** (a JP records skipped common bytes
 | Component | Judy IV | Expanse | Why |
 |---|---|---|---|
 | Cache lines | 128-byte assumption | All nodes exactly 64 B or 128 B, 64-aligned | One node traversal = 1–2 line fills, never a straddle |
-| Bit scan/rank | SWAR + lookup tables | `u64::count_ones`/`trailing_zeros` | Single-cycle on AArch64 (`cnt`/`rbit`). **On x86-64 `popcnt` is NOT in the base target**: without `-C target-cpu=x86-64-v2` (or `+popcnt`) these lower to a ~12-15 instruction SWAR sequence. No target-cpu is set today, so every benchmark and shipped artifact takes the software path — an open item, not a delivered advantage |
+| Bit scan/rank | SWAR + lookup tables | `u64::count_ones`/`trailing_zeros` | Single-cycle on AArch64 (`cnt`/`rbit`). On x86-64 runtime CPUID dispatch selects `popcnt` and BMI2 `pdep` on hot read paths, with a portable SWAR fallback on generic baseline builds; native instructions in `glibc-hwcaps` packages (`x86-64-v2`/`v3`) |
 | Byte search | Unrolled scalar compares | SIMD splat-compare-movemask (SSE2/NEON via `core::arch`, portable fallback) | 16–64 bytes per compare, no branchy loop |
 | Allocator | Custom word-bucket chunk allocator | Intrusive 4 KiB `SlabPage` freelist arena with 62 size classes and $O(1)$ static `RAW_CLASS_TABLE` lookup, cache-line aligned, byte-exact accounting | Recycling is a freelist head swap with no size search or coalescing pass, so it neither fragments the heap nor scales with population; retiring 25% fewer instructions than stock Judy on `judyl_churn/random` (38,679,495 vs 51,572,661; instructions retired, not wall clock — [`docs/visualizer_data.json`](visualizer_data.json)) |
 | Edge representation | 16 B hybrid pointer stealing | Dual-word 16 B Edge: Word 0 holds raw unmasked 64-bit pointer / immediate; Word 1 holds aux + tag | Full 57-bit (PML5/LA57) & 52-bit (ARM64-LVA) virtual address safety with zero upper-bit pointer stealing |
@@ -177,7 +177,7 @@ Expanse is architecturally suited as a high-density, low-latency primitive acros
 
 - **Inverted Indexes & Posting Lists (`ExpanseSet`)**: Tracks 64-bit document IDs at **0.07–0.36 bytes/docID** on clustered/dense sets (outperforming Roaring Bitmaps) with bitwise set algebra executed directly over compressed trie edges and $O(\text{depth})$ skip-scans (`next_at_or_after`).
 - **MVCC Visibility Maps & Active Transaction Tracking (`SyncExpanseSet`)**: Provides lock-free reader validation over active transaction IDs (`xid`) with zero reader-writer locks, single-digit nanosecond point lookups, and epoch-based safe reclamation under continuous OLTP commit/vacuum churn.
-- **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: Maps high-cardinality strings to 32/64-bit symbol IDs using 8-byte big-endian cross-chunk path folding, preserving lexicographical sort order while eliminating redundant prefix storage (70%+ memory reduction on URLs and paths).
+- **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: Maps high-cardinality strings to 32/64-bit symbol IDs using 8-byte big-endian chunk decomposition and tail collapse, preserving lexicographical sort order while sharing common prefix nodes.
 - **Secondary Indexes & MemTables (`ExpanseMap`)**: Serves as a rebalance-free LSM MemTable and secondary index engine with contiguous 64-byte SIMD leaf scans. Full ordered `iter()` is **faster than `BTreeMap::iter()` for dense key distributions** at 1M keys — sequential 0.7×, clustered 0.8×, random 0.5× (2× faster) the time of `BTreeMap::iter()`, after #245's stack-based zero-allocation iterator. **Sparse-key iteration remains ~4.7× slower**, a structural residual tracked in [#270](https://github.com/orieg/expanse/issues/270). *(measured: reference host — Intel i9-12900F, 24 threads, commit 46529f19, `benches/compare.rs`)*
 - **Zero-Copy Shared-Memory Analytics**: Off-heap / mmap base-relative layouts enable cross-worker zero-serialization analytics for parallel multi-process query execution.
 
@@ -571,6 +571,10 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `BRANCH_L3_CAP` | 3 | `crates/expanse/src/types.rs:71` |
 | `BRANCH_L7_CAP` | 7 | `crates/expanse/src/types.rs:74` |
 | `BITMAP_TO_UNCOMPRESSED_THRESHOLD` | 192 | `crates/expanse/src/types.rs:78` |
+| `LEAF1_CAP` | 25 | `crates/expanse/src/types.rs:86` |
+| `LEAFB1_DOWN` | 21 | `crates/expanse/src/types.rs:89` |
+| `LEAF_CAP` | 32 | `crates/expanse/src/types.rs:93` |
+| `ROOT_LEAF_CAP` | 31 | `crates/expanse/src/types.rs:96` |
 | `CACHE_LINE` | 64 | `crates/expanse/src/types.rs:43` |
 | `RAW_ALIGN` | 16 | `crates/expanse/src/types.rs:58` |
 | `size_of::<BranchHeader>()` | 16 | `crates/expanse/src/node.rs:565` |

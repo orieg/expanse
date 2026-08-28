@@ -11,11 +11,9 @@
 //! shrink: each conversion runs one index later than its grow twin
 //! ```
 //!
-//! v1 restrictions (matching the lookup engine): mutation never creates
-//! narrow pointers — a sparse chain is a chain of one-child linear
-//! branches, and every child sits exactly one level below its parent. The
-//! original's level-skipping compression returns together with the
-//! per-level tag redesign it requires.
+//! Narrow pointers (level skipping): mutation preserves and splits narrow
+//! pointers via `split_skip` and `wrap_skip_level` when keys diverge from
+//! skipped prefixes, eliminating single-child branch chains.
 //!
 //! Population bookkeeping: every edge at level ≤ 7 carries its subtree's
 //! `pop0`; the level-8 total lives in the owning tree (`ExpanseSet`), the
@@ -29,15 +27,8 @@ use crate::alloc::NodeAlloc;
 use crate::leaf;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
 use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit};
+pub(crate) use crate::types::{LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN};
 
-/// Linear-leaf population cap at level 1; overflow converts to a bitmap
-/// leaf (the published design converts at populations above ~25).
-pub(crate) const LEAF1_CAP: usize = 25;
-/// Bitmap leaf demotes to linear leaf when population drops below this floor.
-pub(crate) const LEAFB1_DOWN: usize = 21;
-/// Linear-leaf population cap at levels 2..=7; overflow cascades into a
-/// branch. 32 seven-byte keys = 224 B, a handful of cache lines.
-pub(crate) const LEAF_CAP: usize = 32;
 /// Bitmap branch upgrades to uncompressed at this many populated digits.
 pub(crate) const BRANCHB_UP: usize = crate::types::BITMAP_TO_UNCOMPRESSED_THRESHOLD;
 

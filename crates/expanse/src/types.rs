@@ -81,6 +81,20 @@ pub const BITMAP_TO_UNCOMPRESSED_THRESHOLD: usize = 192;
 /// (payload word + decode/pop bytes, excluding the 1-byte type tag).
 pub const IMMED_PAYLOAD_BYTES: usize = 15;
 
+/// Linear-leaf population cap at level 1; overflow converts to a bitmap
+/// leaf (the published design converts at populations above ~25).
+pub const LEAF1_CAP: usize = 25;
+
+/// Bitmap leaf demotes to linear leaf when population drops below this floor.
+pub const LEAFB1_DOWN: usize = 21;
+
+/// Linear-leaf population cap at levels 2..=7; overflow cascades into a
+/// branch. 32 seven-byte keys = 224 B, a handful of cache lines.
+pub const LEAF_CAP: usize = 32;
+
+/// Maximum population stored in a root leaf before cascading into an edge tree.
+pub const ROOT_LEAF_CAP: usize = 31;
+
 /// Structural edge type tags: branches and pointed-to leaves.
 ///
 /// Immediate tags (keys packed inside the edge) use a separate nibble-packed

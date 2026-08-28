@@ -78,7 +78,15 @@ UNIT_TOKEN = re.compile(
     r"\d+(?:[.,]\d+)?\s*(?:ns|µs|us|ms|ops/s|Mops/s|M ops/s|M/s|B/key|B/k|bytes/key|GB|MB|KiB|MiB)\b|\d+(?:\.\d+)?\s*×",
 )
 PROVENANCE_TAG = re.compile(r"\((?:measured|target|projected|unverified|retracted|pending)", re.IGNORECASE)
-PROVENANCE_FILES = ("docs/BENCHMARKING.md", "README.md", "docs/DATABASE.md", "docs/BINDINGS_BENCHMARKS.md")
+PROVENANCE_FILES = (
+    "docs/BENCHMARKING.md",
+    "README.md",
+    "docs/DATABASE.md",
+    "docs/BINDINGS_BENCHMARKS.md",
+    "docs/ARCHITECTURE.md",
+    "docs/ALGORITHMS.md",
+    "docs/design/large-values.md",
+)
 PROVENANCE_GLOBS = ("docs/benchmarks/*/README.md",)
 
 

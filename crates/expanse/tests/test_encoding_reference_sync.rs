@@ -47,7 +47,8 @@ use expanse_trie::slot::{SlotTag, ValueSlot};
 use expanse_trie::slot32::{SlotTag32, ValueSlot32};
 use expanse_trie::types::{
     BITMAP_TO_UNCOMPRESSED_THRESHOLD, BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP, CACHE_LINE,
-    EdgeTag, EdgeType, IMMED_PAYLOAD_BYTES, ImmedType, MAX_LEVEL, RAW_ALIGN,
+    EdgeTag, EdgeType, IMMED_PAYLOAD_BYTES, ImmedType, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, MAX_LEVEL,
+    RAW_ALIGN, ROOT_LEAF_CAP,
 };
 use expanse_trie::types32::{CACHE_LINE_32, Edge32, MAX_LEVEL_32, Tag32};
 
@@ -229,6 +230,10 @@ fn pinned_constants() -> BTreeMap<&'static str, u64> {
         "BITMAP_TO_UNCOMPRESSED_THRESHOLD",
         BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64,
     );
+    m.insert("LEAF1_CAP", LEAF1_CAP as u64);
+    m.insert("LEAFB1_DOWN", LEAFB1_DOWN as u64);
+    m.insert("LEAF_CAP", LEAF_CAP as u64);
+    m.insert("ROOT_LEAF_CAP", ROOT_LEAF_CAP as u64);
     m.insert("CACHE_LINE", CACHE_LINE as u64);
     m.insert("RAW_ALIGN", RAW_ALIGN as u64);
 
