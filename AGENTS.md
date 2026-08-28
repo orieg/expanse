@@ -175,7 +175,8 @@ On pull requests, maintainers and authorized collaborators can trigger automated
 See `docs/BENCHMARKING.md` §2–3 and `docs/CI.md` for details.
 
 ### Zero-Regression Policy
-- **Fewer instructions is always better.**
+- **Fewer instructions is always better** — for a change that removes work. A change that overlaps or hides stalls (memory-level parallelism, batching, prefetch, TLB/page-size work) may retire *more* instructions while lowering latency; wall clock with BCa CIs on the reference host is primary for those. See [Which instrument fits the change](docs/BENCHMARKING.md#which-instrument-fits-the-change).
+- **No-regression applies to the paths a change is not targeting.** A new latency-hiding path whose own count rises is not a regression. The existing scalar paths still must not, and Callgrind proves that.
 - **Review policy**: $0.1\%$ is Callgrind's deterministic measurement resolution; any instruction count regression $>0.1\%$ vs baseline main is considered a blocker in review and must be justified in the PR.
 - **Automated CI gate** (distinct from the review threshold): `scripts/perf_report.py --fail-on-regression` fails the job at a $>5\%$ single-worst regression or $\geq 2$ arms regressed above the $0.5\%$ noise floor; the only automated override is a literal `allow-regression: <reason>` line in the PR body.
 - Numbers in docs are tagged `(measured: host, commit)` or `(target)`; follow `docs/BENCHMARKING.md` (interleaved A/B arms, system-load snapshots before/between comparison runs, CI ratios ≠ publishable numbers).
@@ -258,6 +259,9 @@ Expanse is an empirical performance project. Autonomous agents interacting with 
 - **Symmetric Memory Accounting**: When measuring memory, report live resident heap via allocator instrumentation (`TrackingAlloc`/`GlobalAlloc`) across all arms, or explicitly disclose any platform-level asymmetry.
 
 ### 8.4 Metric-Scoped Statistical Gating
+> Which instrument a given change should be measured with is decided in
+> [`docs/BENCHMARKING.md`](docs/BENCHMARKING.md#which-instrument-fits-the-change).
+> This section governs how a claim is gated once the instrument is chosen.
 - **Continuous / Sampling Metrics**: Claims over wall-clock execution or continuous sampling distributions pass iff the **BCa 95% bootstrap CI lower bound $\ge$ floor** (≥1,000 resamples), NOT iff point estimate $\ge$ floor. Point estimates and CIs must use identical definitions (e.g. macro-mean with macro-CI) so the point estimate is always enclosed within the interval. Overlapping intervals must be labeled `BOUNDARY_RESULT` or `INTERMEDIATE_floor_within_ci`.
 - **Deterministic Instruction Counters**: Exact Callgrind instruction counts (the primary regression instrument) are exact integers with zero variance, evaluated strictly against the deterministic threshold contract.
 

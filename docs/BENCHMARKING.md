@@ -16,6 +16,26 @@ Performance claims are this project's reason to exist, so they follow the strict
 | Memory footprint | bytes/key at population checkpoints, via allocator instrumentation (counting `GlobalAlloc` wrapper), cross-checked against `MemUsed` |
 | Scan throughput | keys/s for full-order iteration |
 
+## Which instrument fits the change
+
+| The change | Primary instrument |
+|---|---|
+| Removes work — fewer comparisons, fewer allocations, shorter descent, better codegen | Callgrind instruction count |
+| Overlaps or hides stalls — memory-level parallelism, batching, prefetch, TLB/page-size work | Wall clock with BCa 95% CIs on the reference host |
+| Both | Both; state which the claim rests on |
+
+Callgrind cannot see TLB misses, memory-level parallelism or frequency effects. It is the right instrument because it ignores them, and the wrong one when they are the point. For a latency-hiding change a flat or increased instruction count is the expected shape, not a failed optimisation.
+
+Wall clock is not a licence: the quiet-host and provenance requirements in [Methodology rules](#methodology-rules-binding) apply unchanged. See the `memcmp` episode below — a 7–11% lookup win a second run erased.
+
+Three cases in this repo:
+
+- **Work removed.** The three engine optimisations at §"Instruction counts": 2.3%–17.0% fewer instructions across all 14 arms.
+- **Both true at once.** libexpanse retires 0.55× the instructions of stock libjudy on random 1M lookup and is 1.11× slower in wall clock. The arm is memory-latency-bound, so the work removed is not on the critical path.
+- **Measured negative.** Software prefetch in the descent loops ([HARDWARE.md](HARDWARE.md) §1.5) was a no-op: prefetch distance cannot be predetermined inside a dependent chain. That closes prefetch within one lookup, not overlapping stalls across independent lookups.
+
+Also available: `perf stat` counters (dTLB misses, page walks) when the hypothesis is translation; the LL/RAM columns `vs_stock.rs` emits when it is cache behaviour; `bca_bootstrap.py` for any continuous metric reaching a published claim.
+
 ## Comparison targets
 
 1. **C libjudy** — the headline comparison ("faster than the original, or explain why").
