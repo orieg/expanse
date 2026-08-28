@@ -33,6 +33,7 @@ on:
           - comparative
           - ycsb
           - concurrency
+          - point_lookup_counters
           - search_instructions
           - smoke_instructions
           - search_boolean
@@ -608,6 +609,29 @@ jobs:
             fi
           fi
 
+          # Fail fast if the suite needs hardware performance counters and the
+          # host will not hand them over. The probe opens a real counter over a
+          # real process: `perf` on PATH answers a weaker question, and answers
+          # it wrongly wherever `perf_event_paranoid` forbids the open. Driven
+          # by the manifest's `kind`, so declaring a counters suite arms this
+          # without a second edit here. A refused counter stops the run with a
+          # named cause; it is never skipped into a report that looks complete
+          # (AGENTS.md section 8.1).
+          if [ "$SUITE_KIND" = "counters" ]; then
+            if ! command -v perf >/dev/null 2>&1; then
+              echo "::error::Suite '$SUITE' needs hardware performance counters, but 'perf' is not installed on this runner. Install the kernel's matching tools package (linux-tools-common plus linux-tools-\$(uname -r) on Debian/Ubuntu, perf on Fedora/RHEL) before re-triggering. No benchmark was run and no numbers were produced."
+              echo "fail_reason=missing_perf_tool" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            PARANOID="$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo unreadable)"
+            if ! perf stat -x, -e instructions -o /dev/null -- true >/dev/null 2>&1; then
+              echo "::error::Suite '$SUITE' needs hardware performance counters, but 'perf stat -e instructions' could not open one on this runner (kernel.perf_event_paranoid=$PARANOID). Grant the capability (sudo setcap cap_perfmon,cap_sys_ptrace,cap_syslog=ep \$(command -v perf)) or lower the gate (sudo sysctl -w kernel.perf_event_paranoid=1), then re-trigger. A virtualised host may expose no PMU at all, in which case the counters have to be collected on bare metal. No benchmark was run and no numbers were produced."
+              echo "fail_reason=missing_perf_counters" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            echo "hardware counters: perf usable (kernel.perf_event_paranoid=$PARANOID)"
+          fi
+
           # The flagship wall-clock comparison. `bench_vs_libjudy` is a custom
           # main under examples/, not a `[[bench]]` target, so the manifest's
           # `generic` runner (`cargo bench --bench <target> -p <package>`)
@@ -803,6 +827,23 @@ jobs:
                 # Wall-clock only: no Callgrind pass, and no criterion arms,
                 # so this suite claims nothing about instruction counts.
                 run_vs_libjudy
+                ;;
+              "point_lookup_counters")
+                # Hardware counters over the random point-lookup path
+                # (#455 R0). Diagnostic only: nothing here gates, and the
+                # suite runs no Callgrind pass, so it claims nothing about
+                # instruction counts. The driver repeats its own preflight
+                # against the built workload and exits non-zero on a refused
+                # counter rather than emitting a table with silent gaps.
+                cargo build --release -p expanse-trie --example perf_point_lookup
+                python3 scripts/perf_counters.py \
+                  --pops 262144,1048576,4194304 \
+                  --runs 10 \
+                  --host-desc "$HOST_DESC" \
+                  --commit "$(git rev-parse HEAD)" \
+                  --run-id "$RUN_URL" \
+                  --out "perf-counters-$SUITE.json" \
+                  | tee head-to-head.md
                 ;;
               "ycsb")
                 cargo bench --bench ycsb -p expanse-trie | tee ycsb.txt
@@ -1084,6 +1125,20 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+      # The per-run counter values behind every interval in the counters
+      # report, so a claim built on them is recomputable from the same run
+      # that published it rather than trusted as a summary line (AGENTS.md
+      # sections 8.4 and 8.7). Only the counters suite writes one; `ignore`
+      # keeps every other suite from failing over a file it never produces.
+      - name: Upload hardware-counter artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-counters-${{ needs.resolve.outputs.suite }}-${{ github.run_id }}
+          path: perf-counters-*.json
+          if-no-files-found: ignore
+          retention-days: 30
+
       # Terminal comment. `if: always()` so every outcome overwrites this
       # suite's own pending marker: a permanent ⏳ is exactly the "renders as
       # still working" shape AGENTS.md section 8.1 forbids. The failure branch
@@ -1191,6 +1246,12 @@ jobs:
               } else if (reason === 'missing_libjudy') {
                 label = 'refused';
                 cause = `The run was **refused before any benchmark started**: suite \`${suite}\` compares against stock libjudy, but \`dlopen\` resolved neither \`libJudy.so.1\` nor \`libJudy.so\` on the runner. Install stock libjudy (\`libjudy-dev\`, or a local build reachable through \`LD_LIBRARY_PATH\`) before re-triggering. No numbers were produced.`;
+              } else if (reason === 'missing_perf_tool') {
+                label = 'refused';
+                cause = `The run was **refused before any benchmark started**: suite \`${suite}\` reads hardware performance counters, but \`perf\` is not installed on the runner. Install the kernel's matching tools package (\`linux-tools-common\` plus \`linux-tools-$(uname -r)\` on Debian/Ubuntu, \`perf\` on Fedora/RHEL) before re-triggering. No numbers were produced.`;
+              } else if (reason === 'missing_perf_counters') {
+                label = 'refused';
+                cause = `The run was **refused before any benchmark started**: suite \`${suite}\` reads hardware performance counters, but \`perf stat -e instructions\` could not open one on the runner. Grant the capability (\`sudo setcap cap_perfmon,cap_sys_ptrace,cap_syslog=ep $(command -v perf)\`) or lower \`kernel.perf_event_paranoid\`, then re-trigger. A virtualised host may expose no PMU at all, in which case the counters have to come from bare metal. No numbers were produced.`;
               } else if (reason.startsWith('missing_tool:')) {
                 label = 'refused';
                 const tool = reason.slice('missing_tool:'.length);

@@ -22,6 +22,7 @@ Performance claims are this project's reason to exist, so they follow the strict
 |---|---|
 | Removes work — fewer comparisons, fewer allocations, shorter descent, better codegen | Callgrind instruction count |
 | Overlaps or hides stalls — memory-level parallelism, batching, prefetch, TLB/page-size work | Wall clock with BCa 95% CIs on the reference host |
+| Changes what memory is touched, not how much work is done — node layout, address-dependency chains, terminal search shape | Hardware counters on the reference host (`/benchmark point_lookup_counters`); Callgrind's modelled cache columns for the machine-independent half; see [Hardware counters and cache simulation](#hardware-counters-and-cache-simulation) |
 | Both | Both; state which the claim rests on |
 
 Callgrind cannot see TLB misses, memory-level parallelism or frequency effects. It is the right instrument because it ignores them, and the wrong one when they are the point. For a latency-hiding change a flat or increased instruction count is the expected shape, not a failed optimisation.
@@ -171,6 +172,20 @@ Also available: `bca_bootstrap.py` for any continuous metric reaching a publishe
     claims ceilings, and expected loss matrices must never be backfilled or
     reconciled in place with observed results; unexpected outcomes must be
     published honestly under their strict pre-registered verdict label.
+16. **Random point-lookup work is exempt from the `Ir` gate.** The instruction
+    count stays the gate everywhere else — insert, churn, `strmap`, `bytesmap`,
+    the search and sorted-set kernels — and stays reported on the lookup arms.
+    It does not decide them. The two mechanisms
+    [#455](https://github.com/orieg/expanse/issues/455) documents on that path
+    change cache line fills and intra-lookup address dependencies: removing a
+    serialised address dependency adds no instructions and removes none, and
+    one of the proposed fixes retires roughly twice the instructions by design.
+    `Ir` cannot see the benefit and can only see the cost, so gating on it
+    rejects the class of change the workload needs. A random point-lookup claim
+    is decided by hardware counters and wall clock, both with intervals; the
+    `Ir` number is published beside it as cost, not as verdict. Scope is exactly
+    the random arms of `map_get`, `set_contains` and their C-ABI twins — an
+    instruction regression anywhere else is a regression.
 
 ## Bench matrix
 
@@ -409,6 +424,121 @@ the runner cannot commit to a protected branch. `host_description` comes from
 the runner's own `lscpu`/`uname` (CPU model and kernel, never a hostname) and
 `run_id` is the run URL, satisfying rule 15 on both halves.
 
+## Hardware counters and cache simulation
+
+### What the Callgrind harnesses actually simulate
+
+[#453](https://github.com/orieg/expanse/issues/453) recorded that neither
+`instructions.rs` nor `vs_stock.rs` passes `--cache-sim=yes`, and concluded the
+L1/LL/RAM columns had never existed. The first half is true of the harness
+sources. The conclusion is not: **iai-callgrind's runner defaults cache
+simulation on** — `defaults::CACHE_SIM = true` in `iai-callgrind-runner`, which
+this workspace pins at 0.16 — so callgrind has been running with it the whole
+time. The columns are in `perf_report.py`'s *Callgrind-Modeled Memory Hierarchy
+Simulation* section of every PR comment, and `Estimated Cycles` has been the
+weighted `L1 hits + 5·LL hits + 35·RAM hits` figure rather than a copy of the
+instruction count, which is what the two columns differing shows.
+
+Both harnesses now pass `--cache-sim=yes` explicitly. That changes no number and
+costs nothing — it is the value already in force — and it stops the instrument
+being an inherited dependency default that a version bump could flip silently.
+
+The simulated hierarchy is fixed by the runner and is **not the host's**:
+
+| Level | Modelled as |
+|---|---|
+| I1 / D1 | 32 KiB, 8-way, 64-byte lines |
+| LL | 8 MiB, 16-way, 64-byte lines |
+
+Fixed sizes are deliberate — they are what makes a count comparable between a
+CI runner and the reference host. They are also the boundary of what this
+instrument can be asked. A question about a *real* last-level cache — where the
+L3 cliff sits on a 30 MiB part, whether a population straddles it
+([#455](https://github.com/orieg/expanse/issues/455)) — is not answerable from a
+model of an 8 MiB one. That needs hardware counters.
+
+### Branch simulation (`EXPANSE_BRANCH_SIM=1`)
+
+`--branch-sim=yes` has no runner default and is opt-in:
+
+```bash
+# default: the modelled cache columns, no branch-predictor columns
+cargo bench --bench instructions -p expanse-trie
+
+# diagnostic: adds Bc / Bcm / Bi / Bim
+EXPANSE_BRANCH_SIM=1 cargo bench --bench instructions -p expanse-trie
+```
+
+It is off by default because it adds a predictor simulation on top of
+callgrind's own slowdown and the regression pass needs no branch column: that
+pass is gated on instructions retired, which are identical either way. An
+unrecognised value of the variable is fatal rather than ignored — a mistyped
+`EXPANSE_BRANCH_SIM=yes` that quietly produced a run with no branch columns
+would be a run published as a misprediction measurement that never simulated a
+predictor.
+
+*(unverified until a run on the reference host: neither valgrind nor callgrind
+runs on arm64 macOS, so the exact column set iai-callgrind renders with branch
+simulation on has not been observed here — only the flag it passes. The
+cache-simulation half above is not a prediction: it is read off the CI
+comment.)*
+
+**What Callgrind simulation can answer:** whether a change moves modelled cache
+traffic, exactly and reproducibly, on a hierarchy that is the same everywhere.
+**What it cannot:** anything about the real machine. The model has no
+prefetcher, no memory-level parallelism, no TLB, no frequency scaling, and an LL
+that is not the host's. Rule 0c already says the derived cycle estimate is an
+alarm and not an adjudicator; the same applies to every column the simulator
+produces.
+
+### Hardware counters (`scripts/perf_counters.py`)
+
+`perf stat` over the random point-lookup path, on the bare-metal reference host:
+
+```text
+/benchmark point_lookup_counters
+```
+
+or directly on that host, after `cargo build --release -p expanse-trie --example perf_point_lookup`:
+
+```bash
+python3 scripts/perf_counters.py --pops 262144,1048576,4194304 --runs 10
+```
+
+The workload is `crates/expanse/examples/perf_point_lookup.rs`: uniform-random
+64-bit keys, every key probed once per pass in an order that is not the build
+order, at 100% and 50% hit rates, with misses drawn from an independent PRNG
+stream and checked absent. `perf stat` counts a whole process and cannot
+bracket a region inside one the way iai-callgrind's `setup =` does, so the
+binary runs in two phases — `build` stops after the structure and the probe
+vector are built, `probe` continues into the probe loop — and the driver
+reports `probe - build`. That differencing is the instrument's main limitation:
+two processes do not cancel exactly, which is why every figure carries a BCa
+95% interval over paired runs rather than a single number, and why the per-run
+values are kept in the JSON artifact so any interval can be recomputed.
+
+Counter availability is probed per event against the host, and the unavailable
+ones are listed in the report rather than left as gaps in the table.
+`cycle_activity.stalls_l3_miss`, `mem_load_retired.l3_miss` and
+`br_misp_retired.all_branches` are Intel-specific and do not exist on other
+microarchitectures. A host where `perf` is absent, or where
+`kernel.perf_event_paranoid` refuses to open a counter, stops the run with the
+cause and the fix named — it never produces a report that reads as complete.
+
+*(unverified until a run on the reference host: `perf` is Linux-only, so on a
+macOS development machine the driver refuses to run rather than approximating
+one. Its CSV parsing, its "an unsupported counter is `None`, never `0`" rule and
+its rendering are covered by `--self-test` and run in the `lint` job; the
+end-to-end path — counter availability on that host, and the size of the
+`probe - build` residual — is settled by the first `point_lookup_counters` run
+and by nothing before it.)*
+
+**What it can answer:** whether a change moves cycles, cache line fills,
+translation misses, stall cycles or branch mispredictions on this path, with an
+interval. **What it cannot:** decide anything by itself. Counters are sampled,
+not deterministic; a claim needs the interval, and per rule 2 a contaminated
+host invalidates the run regardless of what the counters say.
+
 ## Reading perf results in a PR
 
 Every pull request gets a single updating comment from the `instruction-counts` job, featuring three distinct comparisons:
@@ -541,6 +671,7 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `comparative` | wall-clock | Wall-clock head-to-head against hashbrown / BTreeMap, with the `bench_report.py --quick` markdown table. |
 | `ycsb` | wall-clock | YCSB core workloads on the 64-bit map. |
 | `concurrency` | wall-clock | `Sync*` wall-clock scaling instrument on a reduced thread/workload sweep; report-only, never gating. |
+| `point_lookup_counters` | `perf stat` | Hardware performance counters (`perf stat`) over the random point-lookup path — `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be. |
 | `search_instructions` | Callgrind | Callgrind instruction counters for the inverted-index search kernels, dual-pass against the base ref. |
 | `smoke_instructions` | Callgrind | Scaled-down Callgrind smoke counters, dual-pass against the base ref. The same instrument as the `callgrind-smoke` CI job, on the reference host. |
 | `search_boolean` | wall-clock | Boolean posting-list intersection and union against the search baselines. |
