@@ -250,6 +250,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 5. Every published number carries `(measured: host, commit)` resolving to a committed artifact — with n and the CI where §8.4 applies. Losing cells are published too.
 6. Canonical doc updated (§1 hierarchy) — no new standalone `.md`.
 7. Prose check: no time estimates, no hostnames/home paths, impersonal voice.
+8. Withdrawing or rewriting un-baselined numbers? State explicitly in the PR body whether the claim is **formally retracted** or **deferred pending re-measurement** (§8.10).
 
 **PR Checklist & Claim Truthfulness (Non-Negotiable):**
 - **Checklist boxes must match the PR diff**: Never tick a PR template checkbox unless the git diff contains the corresponding proof. Specifically:
@@ -323,6 +324,9 @@ When modifying or correcting any existing benchmark or example harness:
      a) Carry a fresh, verifiable `(measured: host, commit)` provenance tag from an actual execution of the *fixed* harness on the target host, OR
      b) Explicitly state `(unsourced pending re-measurement)` or `(pending re-run)`.
    - **Never backfill numbers from adjacent benchmarks, different populations, or different concurrency regimes** to avoid an empty cell or plausible placeholder. Doing so commits a provenance violation (§8.7) and risks category errors (e.g. substituting single-threaded latency into concurrent reader diagrams).
+   - **Distinguish Formal Retraction vs. Deferred Re-Measurement**: When an un-baselined or inaccurate quantitative claim is removed or rewritten to describe the mechanism without numbers:
+     - State explicitly in the PR body and commit whether the number is **formally retracted as unsourced / invalidated** (the claim is dead), or **withheld pending measurement** (a specific benchmark run / baseline is planned to produce a replacement figure).
+     - Never leave a rewritten section ambiguous between "the claim is settled" and "the number is temporarily absent".
 3. **Apply the Ratio vs. Absolute Framework**:
    - **Ratio-Quoting Claims**: If the harness defect was structurally symmetric across all competitor arms (e.g., symmetric omission of payload dereferencing), comparative throughput/latency ratios remain structurally sound. Retain the ratio with an explicit `⚠️ Harness methodology disclosure` note.
    - **Absolute-Quoting Claims**: If the claim quotes absolute nanoseconds, throughput, or memory under a contaminated timed region or shallow miss pattern, mark the absolute number as pending re-measurement.
