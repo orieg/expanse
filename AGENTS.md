@@ -203,7 +203,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | No time estimates · no PII/home paths/LAN IPs in docs and PR body | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |
 | Provenance tags on published numbers (§8.7) | **CI (advisory warning)** + review | `docs-lint` heuristic; reviewer confirms the artifact |
 | §6 review threshold (>0.1 % instructions) | **review** | `perf_report.py` renders it; a human decides |
-| §8.4 BCa 95 % CI lower bound ≥ floor | **review** | no CI tooling yet — state the interval and its n in the PR |
+| §8.4 BCa 95 % CI lower bound ≥ floor | **tooling** + review | `scripts/bench_baseline.py` harvests criterion `sample.json`, emits `results/baseline_*.json`, renders the interval and gates on it (`--floors` / `--against`, `--fail-on-gate`); a reviewer still decides which arms a claim rests on |
 | §2.1 / §2.2 architectural invariants beyond sizes (no B-tree/hash mutation, no coarse locks, ordered semantics) | **review** | — |
 | §3 clean-room (no LGPL exposure) | **review** (`references/` is gitignored) | — |
 | §8.3 symmetric baselines · §8.6 DCE sinks & realistic hit rates · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.9 reporting discipline | **review** | — |
