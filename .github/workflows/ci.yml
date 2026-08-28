@@ -208,13 +208,21 @@ jobs:
 
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / docs hygiene / bench suites / man pages)
+      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / docs hygiene / bench suites / man pages)
         run: |
           python3 scripts/perf_report.py --self-test
           python3 scripts/bench_report.py --self-test
+          python3 scripts/bench_baseline.py --self-test
           python3 scripts/check_docs_hygiene.py --self-test
           python3 scripts/check_bench_suites.py --self-test
           python3 scripts/check_man_pages.py --self-test
+
+      # bca_bootstrap.py is the estimator every wall-clock gate rests on; its
+      # unit tests pin reference values and were not executed anywhere until
+      # the harvest pipeline gave them a consumer (#403 Track 0).
+      - name: BCa Bootstrap Unit Tests
+        working-directory: scripts
+        run: python3 -m unittest test_bca_bootstrap -v
 
   msrv:
     name: Core / MSRV 1.88 Build
