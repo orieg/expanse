@@ -351,10 +351,11 @@ jobs:
   test-aarch64:
     name: Core / AArch64 Linux Tests & Callgrind (Neoverse N2)
     needs: [detect-changes]
-    # `perf-tooling` (perf_report.py, bench_report.py) is deliberately not here:
-    # this job runs neither script, so gating on it spun the whole ARM lane for
-    # PRs it cannot say anything about. `rust-src` covers what it does build.
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    # `perf-tooling` is back in this condition as of the Callgrind gate below:
+    # the job now runs perf_report.py, so a change to that script must be
+    # exercised here too. (It was dropped when the lane only printed counts and
+    # genuinely ran neither report script.)
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.perf-tooling == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     env:
@@ -362,7 +363,11 @@ jobs:
       # (proptest's default is 256 cases).
       PROPTEST_CASES: "500"
     steps:
+      # fetch-depth: 0 — the merge-base baseline pass below needs history, the
+      # same as the x86 `callgrind-smoke` job it mirrors.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -462,31 +467,73 @@ jobs:
       - name: Build release artifacts
         run: cargo build --release -p expanse-trie -p expanse-capi
 
-      - name: Run Callgrind Fast Smoke Instructions Benchmark (AArch64)
+      # The merge-base pass is what turns these counts from a printed table
+      # into a baseline. Non-fatal by design (`|| true`, mirroring
+      # `callgrind-smoke`): a base commit that does not build must not block
+      # the PR — perf_report.py renders a loud NO BASELINE section instead.
+      - name: Callgrind Fast Smoke (merge base, AArch64)
+        if: github.event_name == 'pull_request'
         shell: bash
         run: |
-          cargo bench --bench smoke_instructions -p expanse-trie | tee aarch64-smoke-instructions.txt
+          git config --global --add safe.directory "$PWD"
+          MERGE_BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD 2>/dev/null || echo "")
+          if [ -n "$MERGE_BASE" ]; then
+            echo "Benchmarking AArch64 smoke merge base $MERGE_BASE against origin/${{ github.base_ref }}..."
+            git checkout "$MERGE_BASE"
+            cargo bench --bench smoke_instructions -p expanse-trie -- --save-baseline=aarch64_smoke_base | tee aarch64-base-smoke-counts.txt || true
+            git checkout -
+          fi
 
-      - name: Summarize AArch64 Instruction Counts
-        if: always()
+      - name: Run Callgrind Fast Smoke Instructions Benchmark (AArch64)
+        # shell: bash implies pipefail: a crashed bench must fail the step, not
+        # exit 0 through tee and let the guard report a clean run.
         shell: bash
         run: |
-          # §8.1: never render a partial or absent measurement as a clean
-          # result. These counts are tracked, not gated — there is no baseline
-          # on this platform and no perf_report.py regression guard — so say so
-          # rather than let a reader take the table for a passing gate.
+          if [ -f aarch64-base-smoke-counts.txt ]; then
+            cargo bench --bench smoke_instructions -p expanse-trie -- --baseline=aarch64_smoke_base | tee aarch64-smoke-instructions.txt
+          else
+            cargo bench --bench smoke_instructions -p expanse-trie | tee aarch64-smoke-instructions.txt
+          fi
+
+      - name: Generate AArch64 Report and Enforce Regression Guard
+        if: always()
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        shell: bash
+        run: |
+          # AGENTS.md §8.1: no output means the bench never ran — fail loudly
+          # rather than skip the guard and exit 0.
           if [ ! -f aarch64-smoke-instructions.txt ]; then
-            echo '> ### ⚠️ NO AARCH64 COUNTS — the Callgrind benchmark produced no output' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            echo "::error::AArch64 regression guard did not run — missing aarch64-smoke-instructions.txt"
+            exit 1
           fi
-          if [ "${{ job.status }}" != "success" ]; then
-            echo '> ### ⚠️ PARTIAL — a step failed; the counts below may be truncated' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s' "$PR_BODY" > pr-body.txt
+          BASE_ARGS=""
+          if [ -f aarch64-base-smoke-counts.txt ]; then
+            BASE_ARGS="--base aarch64-base-smoke-counts.txt --base-ref origin/${{ github.base_ref }}"
           fi
-          echo '### AArch64 Callgrind Instruction Counts (Neoverse N2)' >> "$GITHUB_STEP_SUMMARY"
-          echo '_Tracked, not gated: no baseline or regression guard on this platform yet._' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cat aarch64-smoke-instructions.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # The report body is platform-neutral, so name the platform above it:
+          # this summary sits alongside the x86 one and the two are otherwise
+          # indistinguishable.
+          echo '## 🧮 AArch64 (Neoverse N2) — Callgrind Fast Smoke' >> "$GITHUB_STEP_SUMMARY"
+          # `set +e` around the guard on purpose: the runner shell carries -e,
+          # so a failing perf_report.py would abort the step before the report
+          # was appended and the reader would get ::error:: annotations with no
+          # table to read them against. Capture the status, publish the report
+          # either way, then exit with it.
+          set +e
+          python3 scripts/perf_report.py \
+            --head aarch64-smoke-instructions.txt \
+            $BASE_ARGS \
+            --pr-body-file pr-body.txt \
+            --fail-on-regression \
+            --max-regression-pct 5.0 > aarch64-smoke-report.md
+          status=$?
+          set -e
+          if [ -s aarch64-smoke-report.md ]; then
+            cat aarch64-smoke-report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
 
   test-riscv64:
     name: Cross / RV64GC Cross-Compile (Linux)
