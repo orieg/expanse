@@ -883,10 +883,13 @@ unsafe fn bytesmap_handle_mut<'a>(pparray: *mut *mut c_void) -> &'a mut ExpanseB
 /// Reads the (index, length) byte-string argument. A null index is only
 /// legal for a zero-length string.
 unsafe fn hs_key<'a>(index: *const c_void, length: Word) -> Option<&'a [u8]> {
+    if length > (isize::MAX as usize) {
+        return None;
+    }
     if index.is_null() {
         return (length == 0).then_some(&[]);
     }
-    // SAFETY: caller passes `length` readable bytes per the C contract.
+    // SAFETY: caller passes `length` readable bytes per the C contract; length <= isize::MAX.
     Some(unsafe { core::slice::from_raw_parts(index.cast::<u8>(), length) })
 }
 

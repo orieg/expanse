@@ -297,7 +297,9 @@ impl ExpanseMap {
 
 impl Default for ExpanseMap {
     fn default() -> Self {
-        Self::new(None).unwrap()
+        Self {
+            inner: InnerMap::new(),
+        }
     }
 }
 
