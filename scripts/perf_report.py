@@ -474,13 +474,23 @@ def parse_allow_regression(pr_body: str) -> str | None:
     """Extracts a regression-override reason from a PR body.
 
     Only the strict `allow-regression: <nonempty reason>` form (optionally
-    inside an HTML comment) is accepted — colon plus a reason on the same
-    line. A bare `allow-regression` substring, `perf-override: approved`, or
-    a quoted copy of the policy text (`allow-regression: <reason>`) does NOT
-    approve anything: a PR quoting the docs must never silently pass the gate.
+    inside an HTML comment) is accepted — the directive must *begin its own
+    line*, then a colon plus a reason on that same line. A bare
+    `allow-regression` substring, `perf-override: approved`, or a quoted copy
+    of the policy text (`allow-regression: <reason>`) does NOT approve
+    anything: a PR quoting the docs must never silently pass the gate.
+
+    The line anchor is load-bearing, not cosmetic. Without it any prose
+    mention arms the override, because the reason group swallows the rest of
+    the line: a PR describing this very mechanism in a markdown table cell
+    (``| with `allow-regression:` in the PR body | exit 0 |``) parsed as the
+    reason "` in the PR body | exit 0 |" and silently approved every
+    regression on every perf gate in the run. Found that way, on #437.
     """
     for match in re.finditer(
-        r"(?:<!--\s*)?allow-regression:[ \t]*([^\n]+)", pr_body, re.IGNORECASE
+        r"^[ \t]*(?:<!--[ \t]*)?allow-regression:[ \t]*([^\n]+)",
+        pr_body,
+        re.IGNORECASE | re.MULTILINE,
     ):
         reason = match.group(1).strip()
         # Strip trailing HTML-comment close / stray backticks from inline quoting.
@@ -1510,6 +1520,26 @@ def self_test() -> int:
     assert parse_allow_regression("we may need allow-regression at some point") is None
     assert parse_allow_regression("add `allow-regression: <reason>` to the PR body.") is None
     assert parse_allow_regression("allow-regression:") is None
+    # The directive must begin its own line. These are all prose *about* the
+    # override, and none may arm it. The table-cell case is the exact string
+    # from #437's PR body, which did arm it before the anchor was added; keep
+    # it verbatim so the hole cannot reopen.
+    assert (
+        parse_allow_regression(
+            "| same, with `allow-regression:` in the PR body | exit 0, approved |"
+        )
+        is None
+    )
+    assert parse_allow_regression("the `allow-regression: <reason>` override works") is None
+    assert parse_allow_regression("see allow-regression: policy in AGENTS.md") is None
+    # ...while the real forms still work, including indented and comment-wrapped.
+    assert (
+        parse_allow_regression("  allow-regression: indented but standalone")
+        == "indented but standalone"
+    )
+    assert (
+        parse_allow_regression("intro\n<!-- allow-regression: wrapped -->\noutro") == "wrapped"
+    )
     assert parse_allow_regression("perf-override: approved") is None
     # A quoted policy line must not shadow a real approval further down.
     assert parse_allow_regression(
