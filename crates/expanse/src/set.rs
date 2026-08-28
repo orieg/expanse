@@ -77,6 +77,14 @@ impl ExpanseSet {
         }
     }
 
+    #[inline(always)]
+    pub(crate) fn clear_path(&self) {
+        // SAFETY: path is an internal cursor whose state is reset through UnsafeCell.
+        unsafe {
+            (*self.path.get()).clear();
+        }
+    }
+
     /// Number of keys in the set.
     #[must_use]
     pub fn len(&self) -> u64 {
@@ -338,6 +346,7 @@ impl ExpanseSet {
                 let prefix = key >> 8;
                 let path = self.path.get_mut();
                 if path.prefix == prefix {
+                    self.alloc.assert_bracketed();
                     if !path.leaf.is_null() {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmap1 pointer.

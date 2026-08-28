@@ -464,6 +464,7 @@ impl MapCore {
             Root::Tree { top, pop } => {
                 let prefix = key >> 8;
                 if path.prefix == prefix {
+                    alloc.assert_bracketed();
                     if !path.leaf.is_null() {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmapL pointer.
@@ -820,6 +821,7 @@ impl MapCore {
             Root::Tree { top, pop } => {
                 let prefix = key >> 8;
                 if path.prefix == prefix {
+                    alloc.assert_bracketed();
                     if !path.leaf.is_null() {
                         let d = (key & 0xFF) as u8;
                         // SAFETY: path holds valid live LeafBitmapL pointer.
@@ -1670,6 +1672,14 @@ impl ExpanseMap {
         // SAFETY: path is an internal cursor whose state is flushed through UnsafeCell.
         unsafe {
             (*self.path.get()).flush();
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn clear_path(&self) {
+        // SAFETY: path is an internal cursor whose state is reset through UnsafeCell.
+        unsafe {
+            (*self.path.get()).clear();
         }
     }
 

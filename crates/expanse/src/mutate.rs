@@ -1616,6 +1616,9 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                     continue;
                 }
                 let k = key_low(key, kb);
+                // Phase 7 coverage invariant (see alloc::assert_bracketed):
+                // linear leaves carry no version; the parent's bracket does.
+                a.assert_bracketed();
                 let base = edge.node_ptr();
                 let pos = if pop > 0 {
                     // SAFETY: pop > 0 guarantees slot pop - 1 is in-bounds.
@@ -1641,18 +1644,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                     // SAFETY: class capacity spare per the check.
                     unsafe { leaf::set_insert_at(base, kb, pop, pos, k) };
                     edge.set_pop0(kb, pop as u64);
-                    if kb == 1 && level == 1 {
-                        path.prefix = key >> 8;
-                        path.leaf = core::ptr::null_mut();
-                        path.leaf1 = base;
-                        path.terminal_pop = (pop + 1) as u16;
-                        path.edges[0] = edge as *mut Edge;
-                        path.levels[0] = 1;
-                        path.depth = 1;
-                        path.pending_pop = 0;
-                    } else {
-                        path.clear();
-                    }
+                    path.clear();
                     return true;
                 }
                 let old_ptr = base;
@@ -1678,18 +1670,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                             old_size,
                         );
                     }
-                    if kb == 1 && level == 1 {
-                        path.prefix = key >> 8;
-                        path.leaf = core::ptr::null_mut();
-                        path.leaf1 = new.as_ptr();
-                        path.terminal_pop = (pop + 1) as u16;
-                        path.edges[0] = edge as *mut Edge;
-                        path.levels[0] = 1;
-                        path.depth = 1;
-                        path.pending_pop = 0;
-                    } else {
-                        path.clear();
-                    }
+                    path.clear();
                     return true;
                 }
                 // Slow path (form conversion). A skipping leaf's keys are
@@ -1738,16 +1719,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                         *edge = Edge::new_node(ptr.as_ptr().cast(), EdgeType::LeafB1.as_u8());
                         edge.set_pop0(1, keys.len() as u64 - 1);
                         write_decode(edge, 1, level, keys[0]);
-                        if level == 1 {
-                            path.prefix = key >> 8;
-                            path.leaf = ptr.as_ptr();
-                            path.leaf1 = core::ptr::null_mut();
-                            path.terminal_pop = keys.len() as u16;
-                            path.edges[0] = edge as *mut Edge;
-                            path.levels[0] = 1;
-                            path.depth = 1;
-                            path.pending_pop = 0;
-                        }
+                        path.clear();
                     } else {
                         // Cascade: an empty branch at the divergence level (a
                         // narrow pointer when that sits below the slot; the
@@ -1814,16 +1786,7 @@ unsafe fn insert_with_path_occ<const OCC: bool>(
                     path.clear();
                 } else {
                     edge.set_pop0(1, pop as u64 - 1);
-                    if level == 1 {
-                        path.prefix = key >> 8;
-                        path.leaf = edge.node_ptr().cast::<LeafBitmap1>();
-                        path.leaf1 = core::ptr::null_mut();
-                        path.terminal_pop = pop as u16;
-                        path.edges[0] = edge as *mut Edge;
-                        path.levels[0] = 1;
-                        path.depth = 1;
-                        path.pending_pop = 0;
-                    }
+                    path.clear();
                 }
                 return true;
             }

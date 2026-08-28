@@ -1387,6 +1387,9 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                     continue;
                 }
                 let k = key_low(key, kb);
+                // Phase 7 coverage invariant (see alloc::assert_bracketed):
+                // linear leaves carry no version; the parent's bracket does.
+                a.assert_bracketed();
                 let base = edge.node_ptr();
                 // SAFETY: map_keys_offset(pop) is within the live map leaf allocation.
                 let keys_ptr = unsafe { base.add(leaf::map_keys_offset(pop)) };
@@ -1427,18 +1430,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                             // SAFETY: class capacity spare per the check.
                             unsafe { leaf::map_insert_at(base, kb, pop, pos, k, val) };
                             edge.set_pop0(kb, pop as u64);
-                            if kb == 1 && level == 1 {
-                                path.prefix = key >> 8;
-                                path.leaf = core::ptr::null_mut();
-                                path.leaf1 = base;
-                                path.terminal_pop = (pop + 1) as u16;
-                                path.edges[0] = edge as *mut Edge;
-                                path.levels[0] = 1;
-                                path.depth = 1;
-                                path.pending_pop = 0;
-                            } else {
-                                path.clear();
-                            }
+                            path.clear();
                             // SAFETY: freshly shifted value area.
                             return (None, unsafe { base.cast::<u64>().add(pos) });
                         }
@@ -1470,18 +1462,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                                     leaf::size_map(kb, pop),
                                 );
                             }
-                            if kb == 1 && level == 1 {
-                                path.prefix = key >> 8;
-                                path.leaf = core::ptr::null_mut();
-                                path.leaf1 = new.as_ptr();
-                                path.terminal_pop = (pop + 1) as u16;
-                                path.edges[0] = edge as *mut Edge;
-                                path.levels[0] = 1;
-                                path.depth = 1;
-                                path.pending_pop = 0;
-                            } else {
-                                path.clear();
-                            }
+                            path.clear();
                             // SAFETY: slot `pos` of the fresh value area.
                             return (None, unsafe { new.as_ptr().cast::<u64>().add(pos) });
                         }
@@ -1524,16 +1505,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                             let prefix_key = entries[0].0;
                             build_bitmap_leaf_map(a, edge, &low);
                             write_decode(edge, 1, level, prefix_key);
-                            if level == 1 {
-                                path.prefix = key >> 8;
-                                path.leaf = edge.node_ptr().cast::<LeafBitmapL>();
-                                path.leaf1 = core::ptr::null_mut();
-                                path.terminal_pop = entries.len() as u16;
-                                path.edges[0] = edge as *mut Edge;
-                                path.levels[0] = 1;
-                                path.depth = 1;
-                                path.pending_pop = 0;
-                            }
+                            path.clear();
                         } else {
                             // Cascade: an empty branch at the divergence level
                             // (a narrow pointer when that sits below the slot;
@@ -1639,16 +1611,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 node.bitmap.set(d);
                 let pop0 = edge.pop0(1);
                 edge.set_pop0(1, pop0 + 1);
-                if level == 1 {
-                    path.prefix = key >> 8;
-                    path.leaf = edge.node_ptr().cast::<LeafBitmapL>();
-                    path.leaf1 = core::ptr::null_mut();
-                    path.terminal_pop = (pop0 + 2) as u16;
-                    path.edges[0] = edge as *mut Edge;
-                    path.levels[0] = 1;
-                    path.depth = 1;
-                    path.pending_pop = 0;
-                }
+                path.clear();
                 // SAFETY: the value now lives at this subarray rank.
                 return (None, unsafe { node.values[sub].add(rank) });
             }
