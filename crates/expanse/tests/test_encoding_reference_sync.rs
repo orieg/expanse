@@ -48,9 +48,9 @@ use expanse_trie::node32::{
 use expanse_trie::slot::{SlotTag, ValueSlot};
 use expanse_trie::slot32::{SlotTag32, ValueSlot32};
 use expanse_trie::types::{
-    BITMAP_TO_UNCOMPRESSED_THRESHOLD, BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP, CACHE_LINE,
-    EdgeTag, EdgeType, IMMED_PAYLOAD_BYTES, ImmedType, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, MAX_LEVEL,
-    RAW_ALIGN, ROOT_LEAF_CAP,
+    BITMAP_TO_UNCOMPRESSED_THRESHOLD, BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP,
+    BRANCHB_TO_L7_DOWN, CACHE_LINE, EdgeTag, EdgeType, IMMED_PAYLOAD_BYTES, ImmedType, LEAF_CAP,
+    LEAF1_CAP, LEAFB1_DOWN, MAX_LEVEL, RAW_ALIGN, ROOT_LEAF_CAP,
 };
 use expanse_trie::types32::{CACHE_LINE_32, Edge32, MAX_LEVEL_32, Tag32};
 
@@ -228,6 +228,7 @@ fn pinned_constants() -> BTreeMap<&'static str, u64> {
     m.insert("BRANCH_FANOUT", BRANCH_FANOUT as u64);
     m.insert("BRANCH_L3_CAP", BRANCH_L3_CAP as u64);
     m.insert("BRANCH_L7_CAP", BRANCH_L7_CAP as u64);
+    m.insert("BRANCHB_TO_L7_DOWN", BRANCHB_TO_L7_DOWN as u64);
     m.insert(
         "BITMAP_TO_UNCOMPRESSED_THRESHOLD",
         BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64,

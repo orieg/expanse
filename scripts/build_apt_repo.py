@@ -387,9 +387,10 @@ def build_apt_repo(
 <body>
 """ + make_nav(version, "apt", base="../") + """
 
+  <main>
   <div class="container">
     <h1>Expanse APT Repository <span class="badge">v""" + version + """</span></h1>
-    <p style="color: var(--text-muted);">Official Debian and Ubuntu package repository for <strong><a href="https://github.com/orieg/expanse">Expanse</a></strong> &mdash; clean-room, pure-Rust Judy arrays modernized for modern 64-bit microarchitectures.</p>
+    <p style="color: var(--text-muted);">Official Debian and Ubuntu package repository for <strong><a href="https://github.com/orieg/expanse">Expanse</a></strong> &mdash; clean-room, pure-Rust Judy arrays for 64-bit and 32-bit microarchitectures.</p>
 
     <div class="card">
       <h2>Quick Setup</h2>
@@ -460,9 +461,18 @@ sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat</code></pre>
     </div>
 
     <footer>
+      <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.85rem;">
+        Judy &amp; Systems Ecosystem:
+        <a href="https://orieg.github.io/judy-cache/">Judy Cache PSR-16</a> &bull;
+        <a href="https://orieg.github.io/php-judy/">PHP Judy</a> &bull;
+        <a href="https://orieg.github.io/judy-polyfill/">Judy Polyfill</a> &bull;
+        <a href="https://orieg.github.io/expanse/">Expanse Engine</a> &bull;
+        <a href="https://orieg.github.io/">Nicolas Brousse (Hub)</a>
+      </p>
       <p>Maintained by <a href="https://nicolas.brousse.info/">Nicolas Brousse</a> &bull; <a href="https://github.com/orieg/expanse">GitHub</a> &bull; <a href="https://crates.io/crates/expanse-trie">Crates.io</a> &bull; <a href="../rpm/">RPM Repo</a></p>
     </footer>
   </div>
+  </main>
 
   """ + THEME_TOGGLE_JS + """
   """ + SITE_JS + """

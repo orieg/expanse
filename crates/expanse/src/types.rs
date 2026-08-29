@@ -73,6 +73,9 @@ pub const BRANCH_L3_CAP: usize = 3;
 /// Capacity of the two-cache-line linear branch (16-byte header + 7 edges).
 pub const BRANCH_L7_CAP: usize = 7;
 
+/// Demotion threshold from BranchB to BranchL7 (1-index hysteresis band: 7 up / 6 down).
+pub const BRANCHB_TO_L7_DOWN: usize = 6;
+
 /// Populated-subexpanse count at which a bitmap branch converts to an
 /// uncompressed (flat 256-slot) branch.
 pub const BITMAP_TO_UNCOMPRESSED_THRESHOLD: usize = 192;

@@ -9,8 +9,8 @@
 
 use expanse_trie::set::ROOT_LEAF_CAP;
 use expanse_trie::types::{
-    BITMAP_TO_UNCOMPRESSED_THRESHOLD, BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP, CACHE_LINE,
-    MAX_LEVEL, RAW_ALIGN,
+    BITMAP_TO_UNCOMPRESSED_THRESHOLD, BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP,
+    BRANCHB_TO_L7_DOWN, CACHE_LINE, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, MAX_LEVEL, RAW_ALIGN,
 };
 use std::fs;
 use std::path::Path;
@@ -47,10 +47,14 @@ fn test_visualizer_constants_sync() {
     assert_eq!(ROOT_LEAF_CAP, 31, "ROOT_LEAF_CAP should be 31");
     assert_eq!(BRANCH_L3_CAP, 3, "BRANCH_L3_CAP should be 3");
     assert_eq!(BRANCH_L7_CAP, 7, "BRANCH_L7_CAP should be 7");
+    assert_eq!(BRANCHB_TO_L7_DOWN, 6, "BRANCHB_TO_L7_DOWN should be 6");
     assert_eq!(
         BITMAP_TO_UNCOMPRESSED_THRESHOLD, 192,
         "BITMAP_TO_UNCOMPRESSED_THRESHOLD should be 192"
     );
+    assert_eq!(LEAF1_CAP, 25, "LEAF1_CAP should be 25");
+    assert_eq!(LEAFB1_DOWN, 21, "LEAFB1_DOWN should be 21");
+    assert_eq!(LEAF_CAP, 32, "LEAF_CAP should be 32");
     assert_eq!(MAX_LEVEL, 8, "MAX_LEVEL should be 8");
     assert_eq!(BRANCH_FANOUT, 256, "BRANCH_FANOUT should be 256");
     assert_eq!(CACHE_LINE, 64, "CACHE_LINE should be 64");
@@ -84,74 +88,137 @@ fn test_visualizer_constants_sync() {
     );
 
     // 3. Verify JSON data file contains matching ladder definitions
-    assert!(
-        json_content.contains(r#""ROOT_LEAF_CAP": 31"#),
-        "JSON must contain ROOT_LEAF_CAP: 31"
+    let json_val: serde_json::Value =
+        serde_json::from_str(&json_content).expect("parse visualizer_data.json");
+    let node_ladder = json_val
+        .get("node_ladder")
+        .and_then(|v| v.as_object())
+        .expect("node_ladder object in visualizer_data.json");
+
+    assert_eq!(
+        node_ladder.get("ROOT_LEAF_CAP").and_then(|v| v.as_u64()),
+        Some(ROOT_LEAF_CAP as u64)
     );
-    assert!(
-        json_content.contains(r#""BRANCH_L3_CAP": 3"#),
-        "JSON must contain BRANCH_L3_CAP: 3"
+    assert_eq!(
+        node_ladder.get("BRANCH_L3_CAP").and_then(|v| v.as_u64()),
+        Some(BRANCH_L3_CAP as u64)
     );
-    assert!(
-        json_content.contains(r#""BRANCH_L7_CAP": 7"#),
-        "JSON must contain BRANCH_L7_CAP: 7"
+    assert_eq!(
+        node_ladder.get("BRANCH_L7_CAP").and_then(|v| v.as_u64()),
+        Some(BRANCH_L7_CAP as u64)
     );
-    assert!(
-        json_content.contains(r#""BRANCHB_UP": 192"#),
-        "JSON must contain BRANCHB_UP: 192"
+    assert_eq!(
+        node_ladder
+            .get("BRANCHB_TO_L7_DOWN")
+            .and_then(|v| v.as_u64()),
+        Some(BRANCHB_TO_L7_DOWN as u64)
     );
-    assert!(
-        json_content.contains(r#""MAX_LEVEL": 8"#),
-        "JSON must contain MAX_LEVEL: 8"
+    assert_eq!(
+        node_ladder.get("BRANCHB_UP").and_then(|v| v.as_u64()),
+        Some(BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64)
     );
-    assert!(
-        json_content.contains(r#""BRANCH_L2_CAP_32": 2"#),
-        "JSON must contain BRANCH_L2_CAP_32: 2"
+    assert_eq!(
+        node_ladder.get("LEAF1_CAP").and_then(|v| v.as_u64()),
+        Some(LEAF1_CAP as u64)
     );
-    assert!(
-        json_content.contains(r#""BRANCH_L6_CAP_32": 6"#),
-        "JSON must contain BRANCH_L6_CAP_32: 6"
+    assert_eq!(
+        node_ladder.get("LEAFB1_DOWN").and_then(|v| v.as_u64()),
+        Some(LEAFB1_DOWN as u64)
     );
-    assert!(
-        json_content.contains(r#""BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32": 192"#),
-        "JSON must contain BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32: 192"
+    assert_eq!(
+        node_ladder.get("LEAF_CAP").and_then(|v| v.as_u64()),
+        Some(LEAF_CAP as u64)
     );
-    assert!(
-        json_content.contains(r#""BRANCH_U_DOWN_32": 190"#),
-        "JSON must contain BRANCH_U_DOWN_32: 190"
+    assert_eq!(
+        node_ladder.get("BRANCH_FANOUT").and_then(|v| v.as_u64()),
+        Some(BRANCH_FANOUT as u64)
     );
-    assert!(
-        json_content.contains(r#""BRANCH_B_DOWN_32": 5"#),
-        "JSON must contain BRANCH_B_DOWN_32: 5"
+    assert_eq!(
+        node_ladder.get("MAX_LEVEL").and_then(|v| v.as_u64()),
+        Some(MAX_LEVEL as u64)
     );
-    assert!(
-        json_content.contains(r#""BRANCH_L6_DOWN_32": 1"#),
-        "JSON must contain BRANCH_L6_DOWN_32: 1"
+
+    assert_eq!(
+        node_ladder.get("BRANCH_L2_CAP_32").and_then(|v| v.as_u64()),
+        Some(expanse_trie::types32::BRANCH_L2_CAP_32 as u64)
     );
-    assert!(
-        json_content.contains(r#""SET_LEAF_MAX_32": 24"#),
-        "JSON must contain SET_LEAF_MAX_32: 24"
+    assert_eq!(
+        node_ladder.get("BRANCH_L6_CAP_32").and_then(|v| v.as_u64()),
+        Some(expanse_trie::types32::BRANCH_L6_CAP_32 as u64)
     );
-    assert!(
-        json_content.contains(r#""SET_BITMAP_ENTER_32": 64"#),
-        "JSON must contain SET_BITMAP_ENTER_32: 64"
+    assert_eq!(
+        node_ladder
+            .get("BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32")
+            .and_then(|v| v.as_u64()),
+        Some(expanse_trie::types32::BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32 as u64)
     );
-    assert!(
-        json_content.contains(r#""SET_BITMAP_LEAVE_32": 48"#),
-        "JSON must contain SET_BITMAP_LEAVE_32: 48"
+    assert_eq!(
+        node_ladder.get("BRANCH_U_DOWN_32").and_then(|v| v.as_u64()),
+        Some(expanse_trie::types32::BRANCH_U_DOWN_32 as u64)
     );
-    assert!(
-        json_content.contains(r#""MAP_LEAF_MAX_32": 16"#),
-        "JSON must contain MAP_LEAF_MAX_32: 16"
+    assert_eq!(
+        node_ladder.get("BRANCH_B_DOWN_32").and_then(|v| v.as_u64()),
+        Some(expanse_trie::types32::BRANCH_B_DOWN_32 as u64)
     );
-    assert!(
-        json_content.contains(r#""MAP_BITMAP_ENTER_32": 64"#),
-        "JSON must contain MAP_BITMAP_ENTER_32: 64"
+    assert_eq!(
+        node_ladder.get("BRANCH_L6_DOWN_32").and_then(|v| v.as_u64()),
+        Some(expanse_trie::types32::BRANCH_L6_DOWN_32 as u64)
     );
-    assert!(
-        json_content.contains(r#""MAP_BITMAP_LEAVE_32": 48"#),
-        "JSON must contain MAP_BITMAP_LEAVE_32: 48"
+    assert_eq!(
+        node_ladder.get("SET_LEAF_MAX_32").and_then(|v| v.as_u64()),
+        Some(expanse_trie::types32::SET_LEAF_MAX_32 as u64)
     );
+    assert_eq!(
+        node_ladder.get("SET_BITMAP_ENTER_32").and_then(|v| v.as_u64()),
+        Some(expanse_trie::types32::SET_BITMAP_ENTER_32 as u64)
+    );
+    assert_eq!(
+        node_ladder.get("SET_BITMAP_LEAVE_32").and_then(|v| v.as_u64()),
+        Some(expanse_trie::types32::SET_BITMAP_LEAVE_32 as u64)
+    );
+    assert_eq!(
+        node_ladder.get("MAP_LEAF_MAX_32").and_then(|v| v.as_u64()),
+        Some(expanse_trie::types32::MAP_LEAF_MAX_32 as u64)
+    );
+    assert_eq!(
+        node_ladder.get("MAP_BITMAP_ENTER_32").and_then(|v| v.as_u64()),
+        Some(expanse_trie::types32::MAP_BITMAP_ENTER_32 as u64)
+    );
+    assert_eq!(
+        node_ladder.get("MAP_BITMAP_LEAVE_32").and_then(|v| v.as_u64()),
+        Some(expanse_trie::types32::MAP_BITMAP_LEAVE_32 as u64)
+    );
+
+    let expected_keys = [
+        "ROOT_LEAF_CAP",
+        "BRANCH_L3_CAP",
+        "BRANCH_L7_CAP",
+        "BRANCHB_TO_L7_DOWN",
+        "BRANCHB_UP",
+        "LEAF1_CAP",
+        "LEAFB1_DOWN",
+        "LEAF_CAP",
+        "BRANCH_FANOUT",
+        "MAX_LEVEL",
+        "BRANCH_L2_CAP_32",
+        "BRANCH_L6_CAP_32",
+        "BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32",
+        "BRANCH_U_DOWN_32",
+        "BRANCH_B_DOWN_32",
+        "BRANCH_L6_DOWN_32",
+        "SET_LEAF_MAX_32",
+        "SET_BITMAP_ENTER_32",
+        "SET_BITMAP_LEAVE_32",
+        "MAP_LEAF_MAX_32",
+        "MAP_BITMAP_ENTER_32",
+        "MAP_BITMAP_LEAVE_32",
+    ];
+    for key in node_ladder.keys() {
+        assert!(
+            expected_keys.contains(&key.as_str()),
+            "unexpected key {key} in node_ladder"
+        );
+    }
 
     // 4. Verify 32-bit embedded constants
     assert_eq!(expanse_trie::types32::MAX_LEVEL_32, 4);
@@ -1444,7 +1511,7 @@ fn test_retracted_figures_absent_from_markdown() {
     ];
 
     let mut offenders = Vec::new();
-    for path in markdown_docs() {
+    for path in published_docs() {
         // Skip rulebook files that define the rules
         let p_str = path.to_string_lossy();
         if p_str.ends_with("AGENTS.md")
@@ -1454,7 +1521,7 @@ fn test_retracted_figures_absent_from_markdown() {
             continue;
         }
 
-        let text = fs::read_to_string(&path).expect("read markdown doc");
+        let text = fs::read_to_string(&path).expect("read doc");
         let lines: Vec<&str> = text.lines().collect();
         for (idx, line) in lines.iter().enumerate() {
             let lower = line.to_lowercase();
@@ -1489,7 +1556,7 @@ fn test_retracted_figures_absent_from_markdown() {
     }
     assert!(
         offenders.is_empty(),
-        "retracted figures republished in markdown without a retraction marker:\n{}\n\n\
+        "retracted figures republished in docs without a retraction marker:\n{}\n\n\
          AGENTS.md section 8.7 forbids in-place backfilling. Either drop the figure or \
          state, within three lines, that it was withdrawn and what replaced it.",
         offenders.join("\n")
@@ -1500,8 +1567,8 @@ fn test_retracted_figures_absent_from_markdown() {
     );
 }
 
-/// Every tracked markdown doc: `README.md`, `AGENTS.md`, plus `docs/**/*.md`, `crates/**/*.md`, `bindings/**/*.md`, `integrations/**/*.md`, `.github/**/*.md`.
-fn markdown_docs() -> Vec<std::path::PathBuf> {
+/// Every tracked markdown doc + `docs/architecture_visualizer.html`.
+fn published_docs() -> Vec<std::path::PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         let Ok(entries) = fs::read_dir(dir) else {
             return;
@@ -1520,7 +1587,11 @@ fn markdown_docs() -> Vec<std::path::PathBuf> {
         }
     }
     let root = repo_root();
-    let mut out = vec![root.join("README.md"), root.join("AGENTS.md")];
+    let mut out = vec![
+        root.join("README.md"),
+        root.join("AGENTS.md"),
+        root.join("docs").join("architecture_visualizer.html"),
+    ];
     for sub in &["docs", "crates", "bindings", "integrations", ".github"] {
         walk(&root.join(sub), &mut out);
     }
