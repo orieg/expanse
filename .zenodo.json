@@ -13,11 +13,18 @@
   "language": "eng",
   "keywords": [
     "judy-array",
-    "radix-tree",
-    "trie",
-    "data-structures",
-    "rust",
     "libjudy",
-    "associative-array"
+    "radix-tree",
+    "digital-tree",
+    "trie",
+    "sparse-array",
+    "ordered-map",
+    "associative-array",
+    "c-api",
+    "no-std",
+    "embedded",
+    "simd",
+    "data-structures",
+    "rust"
   ]
 }

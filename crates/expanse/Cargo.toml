@@ -2,8 +2,8 @@
 name = "expanse-trie"
 version = "0.5.0"
 description = "Expanse: clean-room, pure-Rust Judy arrays (expanse-partitioned digital tries) for 64-bit and 32-bit targets"
-keywords = ["judy", "libjudy", "trie", "radix", "sparse"]
-categories = ["data-structures"]
+keywords = ["judy", "libjudy", "radix-trie", "trie", "sparse-array"]
+categories = ["data-structures", "no-std"]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
