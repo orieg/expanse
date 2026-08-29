@@ -441,20 +441,20 @@ Expanse provides an official pluggable MemTable implementation for RocksDB (`int
 
 rocksdb::Options options;
 // 1.42x higher key density in RAM vs a fair skiplist baseline (measured);
-// fewer SSTable flushes is inferred (target), scan-speed ratio pending re-run
+// fewer SSTable flushes is inferred (target); scan speed measured at 3.82x
 options.memtable_factory = rocksdb::NewExpanseMemTableRepFactory(
     /*leaf_capacity=*/64,
     /*enable_prefix_trie=*/true
 );
 ```
 
-**Architectural Benefits in RocksDB LSM Storage** *(memory density: deterministic seeded byte accounting against the fair variable-height skiplist baseline, at the [#372](https://github.com/orieg/expanse/issues/372) fix commit — Apple M1, 8 cores, Apple clang 21, `-O3`, load-immune, reproduced twice. Throughput cells: reference host — Intel i9-12900F, commit 7d87dff7 — measured against the retracted strawman skiplist baseline and therefore pending re-run)*:
+**Architectural Benefits in RocksDB LSM Storage** *(memory density: deterministic seeded byte accounting against the fair variable-height skiplist baseline, at the [#372](https://github.com/orieg/expanse/issues/372) fix commit — Apple M1, 8 cores, Apple clang 21, `-O3`, load-immune, reproduced twice. Throughput cells: **re-measured** against the fair variable-height skiplist baseline — reference host, Intel i9-12900F, 24 threads, commit `7644c2b6`, load average 0.28 at start and 0.02 at end, `integrations/rocksdb` `make bench`. The baseline reports 18.7 B/entry, not the retracted 146.7 B/entry fat-node strawman, so these cells now stand on the same footing as the density figure)*:
 
 ![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](./assets/bench_rocksdb.svg)
 
 1. **1.42× Higher In-Memory Key Density**: leaf blocks store entry pointers in contiguous 64-byte aligned spans at **13.2 B/entry vs 18.7 B/entry** for a fair variable-height skiplist (1.26 MB vs 1.8 MB for 100k entries). *The earlier "11.1×" headline is retracted ([#372](https://github.com/orieg/expanse/issues/372))*: its 146.7 B/entry baseline came from a strawman node embedding all 16 tower pointers statically, where a real `InlineSkipList`-style node costs 8 B (key ptr) + height×8 B. **Honest framing:** `VectorRep` (unordered append vector) measures *denser than Expanse* in the same table — **10.5 vs 13.2 B/entry**; the Expanse edge is specifically over the ordered skiplist.
 2. **Fewer L0 SSTable Flushes** *(inferred (target) — not measured; no `db_bench` artifact)*: higher density should fit more user data per memtable budget and reduce flush frequency, but the effect scales with the 1.42× density edge and has not been measured.
-3. **Faster Sequential Scans** *(ratio pending re-run)*: intrusive sibling leaf chaining measured **151.4 Mops/s vs 16.2 Mops/s** (`prefixscan`), point lookups **276 ns/op vs 539 ns/op**, and inserts **4.65 vs 2.41 Mops/s** on the reference host. The SkipList arm ran the retracted fat-node layout, which degrades its cache locality, so every vs-SkipList ratio here awaits a quiet-host re-run against the fair baseline. `VectorRep` scans faster still (618 Mops/s) but cannot serve ordered seeks.
+3. **Faster Sequential Scans**: intrusive sibling leaf chaining measures **188.2 Mops/s vs 49.3 Mops/s** (`prefixscan`, 3.82x), point lookups **259.8 ns/op vs 383.7 ns/op** (1.47x), range seeks **3.70 vs 2.45 Mops/s** (1.51x), and inserts **4.50 vs 3.15 Mops/s** (1.43x) on the reference host. *(re-measured against the fair variable-height baseline; the earlier figures — 151.4 vs 16.2 Mops/s, 276 vs 539 ns/op — were taken against the retracted strawman and are superseded.)* The SkipList arm ran the retracted fat-node layout, which degrades its cache locality, so every vs-SkipList ratio here awaits a quiet-host re-run against the fair baseline. `VectorRep` scans faster still (618 Mops/s) but cannot serve ordered seeks.
 4. **Zero-Copy Batch Scan Extraction**: `ScanBatch` extracts keys and values at **111.8 Mops/s** with zero redundant varint re-parsing *(measured: reference host, commit 7d87dff7; no skiplist comparison involved)*.
 
 See [`integrations/rocksdb/README.md`](../integrations/rocksdb/README.md) for full benchmarks, configuration options, and build instructions.
@@ -499,9 +499,9 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 
 | Engine Primitive | Memory Overhead (Clustered) | Point Lookup Latency | Ordered Range Scan | Concurrency Protocol |
 |---|---:|---:|---|---|
-| **`ExpanseSet` (Judy1)** | **0.07–0.36 B/key** | **~4.2–11.8 ns (pending re-run)** | $O(\text{depth})$ Skip-Scan | Lock-Free OCC (`SyncExpanseSet`) |
+| **`ExpanseSet` (Judy1)** | **0.07–0.36 B/key** | **3.6–35.8 ns** | $O(\text{depth})$ Skip-Scan | Lock-Free OCC (`SyncExpanseSet`) |
 | **Roaring Bitmap** | 0.125–0.65 B/key | ~16.4–24.2 ns | Container Iteration | External RWLock / Mutex |
-| **`ExpanseMap` (JudyL)** | **8.56–16.7 B/key** | **~8.5–38.6 ns (pending re-run)** | $O(\text{depth})$ skip-scan† | Lock-Free OCC (`SyncExpanseMap`) |
+| **`ExpanseMap` (JudyL)** | **8.56–16.7 B/key** | **7.1–50.8 ns** | $O(\text{depth})$ skip-scan† | Lock-Free OCC (`SyncExpanseMap`) |
 | **`ExpanseBlobMap`** | **171.4–192.4 B/key** (128B blob) | **~41–125 ns** | **Predicate Filter Scan** | Thread-Isolated / Partitioned |
 | **`std::collections::BTreeMap`** | ~32.0–48.0 B/key (192B blob) | ~34.0–62.0 ns | Standard Iteration | External RWLock / Mutex |
 | **`hashbrown::HashMap` (Swiss Table)**| ~18.0–24.0 B/key | ~9.5–18.0 ns | ❌ Unordered ($O(N \log N)$ sort) | Read-Locked / Sharded |
