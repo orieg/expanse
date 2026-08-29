@@ -185,28 +185,28 @@
 
     <!-- Grid lines -->
     <line x1="30" y1="45" x2="260" y2="45" class="grid"/>
-    <text x="24" y="48" class="t-axis-label" text-anchor="end">80M</text>
+    <text x="24" y="48" class="t-axis-label" text-anchor="end">50M</text>
 
     <line x1="30" y1="115" x2="260" y2="115" class="grid"/>
-    <text x="24" y="118" class="t-axis-label" text-anchor="end">40M</text>
+    <text x="24" y="118" class="t-axis-label" text-anchor="end">25M</text>
 
     <line x1="30" y1="185" x2="260" y2="185" class="axis"/>
     <text x="24" y="188" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="185" class="axis"/>
 
     <!-- Bar 1: Expanse -->
-    <rect x="45" y="151.1" width="55" height="33.9" class="b-expanse" rx="2"/>
-    <text x="72.5" y="145.1" class="t-val-accent" text-anchor="middle">20.1M</text>
+    <rect x="45" y="128.2" width="55" height="56.8" class="b-expanse" rx="2"/>
+    <text x="72.5" y="122.2" class="t-val-accent" text-anchor="middle">21.0M</text>
     <text x="72.5" y="202" class="t-bar-label" text-anchor="middle">Expanse</text>
 
     <!-- Bar 2: Hashbrown -->
-    <rect x="120" y="88.2" width="55" height="96.8" class="b-hashbrown" rx="2"/>
-    <text x="147.5" y="82.2" class="t-val-blue" text-anchor="middle">57.4M</text>
+    <rect x="120" y="82.4" width="55" height="102.6" class="b-hashbrown" rx="2"/>
+    <text x="147.5" y="76.4" class="t-val-blue" text-anchor="middle">38.0M</text>
     <text x="147.5" y="202" class="t-bar-label" text-anchor="middle">hashbrown</text>
 
     <!-- Bar 3: BTreeMap -->
-    <rect x="195" y="167.7" width="55" height="17.3" class="b-btree" rx="2"/>
-    <text x="222.5" y="161.7" class="t-val-muted" text-anchor="middle">10.2M</text>
+    <rect x="195" y="156.0" width="55" height="29.0" class="b-btree" rx="2"/>
+    <text x="222.5" y="150.0" class="t-val-muted" text-anchor="middle">10.7M</text>
     <text x="222.5" y="202" class="t-bar-label" text-anchor="middle">BTreeMap</text>
   </g>
 
