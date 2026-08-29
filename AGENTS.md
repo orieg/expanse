@@ -368,6 +368,6 @@ When modifying or correcting any existing benchmark or example harness:
      - Different workloads: `(workloads differ: <id_a> vs <id_b>)`
      - Documented honest retraction / differentiation fallback markers: `different experiment`, `different workload`, `not comparable`, `retracted`, `superseded`, `neither half describes`, `two halves are different`.
    - Enforced mechanically by `scripts/check_docs_hygiene.py`.
-
-
-
+3. **Cross-Metric Claim Detection & Gate Test Pinning**:
+   - **Cross-metric sentence scope**: Paired figure detection must cover both direct `A vs B` comparators and multi-metric sentences combining figures from distinct metric domains (instructions, wall-clock time, throughput, memory density) without a unifying workload tag. Narrative juxtaposition of disjoint metrics (e.g. "retires 0.55× instructions ... and is 1.11× slower in wall clock" or "2.66× lower RAM at 1.9M ops/s") is the primary mechanism of cross-experiment complection.
+   - **Pin the motivating defect**: Any linter or hygiene gate guarding against misleading comparative prose MUST include the verbatim historical failure/retraction sentence in its fail-then-pass unit test suite. If the gate passes while ignoring the originating failure, it is measuring the wrong invariant.
