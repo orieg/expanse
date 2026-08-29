@@ -346,4 +346,12 @@ When modifying or correcting any existing benchmark or example harness:
    - When an integration test verifies non-code artifacts (e.g. visualizer datasets), create a scoped filter (`visualizer:`) gating only the test job. Never widen `rust-src:` to non-compiled files, which needlessly triggers Miri, ASan, fuzzing, Callgrind, and cross-compilation lanes.
 4. **Symlink Deduplication**:
    - Scripts and tests walking tracked files must deduplicate paths by canonical `realpath` to prevent triple-scanning symlinked documentation (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`).
+5. **CI Token Provisioning & Visible Degradation (Fail-Open with Notice)**:
+   - When a gate or hygiene script queries authenticated APIs (e.g. `gh issue view`), ensure the workflow job `env:` explicitly supplies the required token (`GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}`).
+   - When execution degrades (e.g. on fork PRs where secrets are stripped, or in offline dev environments), fail open safely to allow contributions without breakage, but **must emit visible notices naming the specific unverified items** (e.g. `::notice::GitHub API unavailable (or GH_TOKEN unset) — status check skipped for issue(s): #...`). Never report silent success when a check was bypassed (§8.1).
+6. **Local Test Exclusion Disclosure**:
+   - In walkthroughs, PR verification records, and review summaries, if a command narrows the workspace test suite (e.g. `cargo test --workspace --exclude ...`) due to host toolchain/runtime prerequisites (PHP headers, Python dynamic linking), explicitly state the exclusions and rationale rather than presenting the narrowed command as satisfying the full workspace gate.
+7. **Span-Level Multi-Issue Disambiguation**:
+   - In referential integrity checkers, evaluate all issue citations within the relevant sentence/span. If at least one cited issue is `OPEN`, the statement is satisfied (e.g. "updating from closed #384 to open #382"). Only flag violations if all cited issues in the span are closed.
+
 
