@@ -94,7 +94,7 @@ unsafe fn read_record(
 /// Magic identifier for Expanse binary image files ("EXPANSE\0").
 pub const EXPANSE_MAGIC: [u8; 8] = *b"EXPANSE\0";
 /// Current format version for relocatable ExpanseBlobMap images.
-pub const EXPANSE_FORMAT_VERSION: u32 = 1;
+pub const EXPANSE_FORMAT_VERSION: u32 = 2;
 
 /// Relocatable 64-byte binary image file header.
 #[repr(C)]
@@ -102,7 +102,7 @@ pub const EXPANSE_FORMAT_VERSION: u32 = 1;
 pub struct BlobMapFileHeader {
     /// Magic string `EXPANSE\0`.
     pub magic: [u8; 8],
-    /// Format version (`1`).
+    /// Format version (`2`).
     pub version: u32,
     /// Format flags (reserved, 0).
     pub flags: u32,
@@ -123,20 +123,28 @@ pub struct BlobMapFileHeader {
 /// A typed view of a retrieved value payload.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BlobView<'a> {
-    /// Inlined value (<= 7 bytes) borrowing directly from leaf value slot memory.
+    /// Inlined uncompressed value (<= 7 bytes) borrowing directly from leaf value slot memory.
     Inline(&'a [u8]),
     /// Arena-allocated value borrowing directly from an arena slab.
     Arena(&'a [u8]),
+    /// Compressed inlined value decoded into a fixed 16-byte buffer.
+    CompressedInline {
+        /// Decompressed byte buffer.
+        buf: [u8; 16],
+        /// Length of valid decompressed bytes.
+        len: u8,
+    },
 }
 
 impl<'a> BlobView<'a> {
     /// Returns the underlying byte slice.
     #[inline(always)]
     #[must_use]
-    pub fn as_bytes(&self) -> &'a [u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         match self {
             BlobView::Inline(slice) => slice,
             BlobView::Arena(slice) => slice,
+            BlobView::CompressedInline { buf, len } => &buf[..*len as usize],
         }
     }
 
@@ -154,11 +162,14 @@ impl<'a> BlobView<'a> {
         self.len() == 0
     }
 
-    /// Returns `true` if the payload is stored inline in the value slot.
+    /// Returns `true` if the payload is stored inline in the value slot (raw or compressed).
     #[inline(always)]
     #[must_use]
     pub fn is_inline(&self) -> bool {
-        matches!(self, BlobView::Inline(_))
+        matches!(
+            self,
+            BlobView::Inline(_) | BlobView::CompressedInline { .. }
+        )
     }
 
     /// Returns `true` if the payload is stored in the slab arena.
@@ -1090,6 +1101,10 @@ impl ExpanseBlobMap {
         if data.len() <= 7 {
             let slot = ValueSlot::new_inline(data).ok_or(ArenaError::AllocationFailed)?;
             self.index.insert(key, slot.to_raw());
+        } else if hot_meta == 0
+            && let Some(slot) = crate::codec::try_compress_inline(data)
+        {
+            self.index.insert(key, slot.to_raw());
         } else {
             // Validate the metadata envelope *before* allocating arena bytes, so a
             // rejected insert leaves no orphaned payload behind.
@@ -1108,7 +1123,7 @@ impl ExpanseBlobMap {
 
     /// Point lookup returning a zero-copy [`BlobView`] and the 32-bit hot metadata word.
     ///
-    /// Inline (`<= 7` byte) payloads do not store metadata; their returned
+    /// Inline (`<= 7` byte raw or compressed) payloads do not store metadata; their returned
     /// `hot_meta` is always `0`.
     #[must_use]
     pub fn get<'a>(&'a self, key: Key) -> Option<(BlobView<'a>, u32)> {
@@ -1116,7 +1131,8 @@ impl ExpanseBlobMap {
         // SAFETY: slot_ptr points to the live 64-bit value slot inside self.index.
         let raw_slot = unsafe { *slot_ptr.as_ptr() };
         let slot = ValueSlot::from_raw(raw_slot);
-        match slot.tag() {
+        let tag = slot.tag();
+        match tag {
             SlotTag::Inline0
             | SlotTag::Inline1
             | SlotTag::Inline2
@@ -1125,7 +1141,7 @@ impl ExpanseBlobMap {
             | SlotTag::Inline5
             | SlotTag::Inline6
             | SlotTag::Inline7 => {
-                let len = slot.tag() as u8 as usize;
+                let len = tag as u8 as usize;
                 // SAFETY: In little-endian representation, byte offsets 1..=len contain
                 // the inline payload bytes. The slot memory is owned by self.index and
                 // valid for lifetime 'a.
@@ -1139,6 +1155,17 @@ impl ExpanseBlobMap {
                 let meta = slot.arena_meta_meta();
                 let slice = self.arena.resolve_meta(slot.arena_meta_locator())?;
                 Some((BlobView::Arena(slice), meta))
+            }
+            _ if tag.is_compressed_inline() => {
+                let mut buf = [0u8; 16];
+                let decoded_len = crate::codec::decompress_inline(slot, &mut buf)?;
+                Some((
+                    BlobView::CompressedInline {
+                        buf,
+                        len: decoded_len as u8,
+                    },
+                    0,
+                ))
             }
             _ => None,
         }
@@ -1157,7 +1184,7 @@ impl ExpanseBlobMap {
     /// Executes a range scan with a predicate evaluated against hot metadata
     /// before dereferencing cold payload cache lines.
     ///
-    /// Inline (`<= 7` byte) payloads have no stored metadata; the predicate and
+    /// Inline (`<= 7` byte raw or compressed) payloads have no stored metadata; the predicate and
     /// callback see `hot_meta == 0` for them.
     pub fn scan_filtered<P, F>(
         &self,
@@ -1208,6 +1235,16 @@ impl ExpanseBlobMap {
                     // compaction) is skipped, exactly as `get` would return `None`.
                     None => continue,
                 },
+                _ if tag.is_compressed_inline() => {
+                    let mut buf = [0u8; 16];
+                    let Some(decoded_len) = crate::codec::decompress_inline(slot, &mut buf) else {
+                        continue;
+                    };
+                    BlobView::CompressedInline {
+                        buf,
+                        len: decoded_len as u8,
+                    }
+                }
                 // Non-inline / non-arena tags carry no payload — skipped, matching
                 // `get`'s `_ => None` arm.
                 _ => continue,

@@ -1080,8 +1080,10 @@ impl BlobReadGuard<'_> {
             let raw = found?;
             let slot = ValueSlot::from_raw(raw);
             let tag = slot.tag();
-            if tag.is_inline() {
-                let (buf, len) = slot.inline_payload();
+            if tag.is_raw_inline() {
+                let (raw_buf, len) = slot.inline_payload();
+                let mut buf = [0u8; 16];
+                buf[..7].copy_from_slice(&raw_buf);
                 return Some((
                     SyncBlobView::Inline {
                         buf,
@@ -1089,6 +1091,18 @@ impl BlobReadGuard<'_> {
                     },
                     0,
                 ));
+            }
+            if tag.is_compressed_inline() {
+                let mut buf = [0u8; 16];
+                if let Some(len) = crate::codec::decompress_inline(slot, &mut buf) {
+                    return Some((
+                        SyncBlobView::Inline {
+                            buf,
+                            len: len as u8,
+                        },
+                        0,
+                    ));
+                }
             }
             if tag != SlotTag::ArenaMeta {
                 // Mirrors `ExpanseBlobMap::get`: non-payload tags read as
@@ -1138,7 +1152,7 @@ impl BlobReadGuard<'_> {
 /// A validated payload view obtained through a [`BlobReadGuard`].
 ///
 /// `Inline` payloads are decoded **by value** from the validated slot word
-/// (they are at most 7 bytes; copying beats exposing racy leaf-slot memory).
+/// (they are at most 7 raw bytes or 8-14 compressed bytes; copying beats exposing racy leaf-slot memory).
 /// `Arena` payloads borrow the epoch-pinned slab bytes zero-copy. `Owned` is
 /// the bounded-retry fallback, copied under the writer lock.
 #[derive(Clone, Debug)]
@@ -1146,8 +1160,8 @@ pub enum SyncBlobView<'g> {
     /// Inline payload decoded from the value-slot word.
     Inline {
         /// Payload bytes; only the first `len` are meaningful.
-        buf: [u8; 7],
-        /// Meaningful prefix length of `buf` (≤ 7).
+        buf: [u8; 16],
+        /// Meaningful prefix length of `buf` (≤ 16).
         len: u8,
     },
     /// Zero-copy borrow of an epoch-pinned arena record.

@@ -5,7 +5,7 @@
 //! in-place garbage collection.
 
 use core::ffi::c_void;
-use expanse_trie::blobmap::ExpanseBlobMap;
+use expanse_trie::blobmap::{BlobView, ExpanseBlobMap};
 
 /// C representation of a retrieved blob payload view.
 ///
@@ -112,10 +112,12 @@ pub unsafe extern "C" fn expanse_blob_map_remove(map: *mut ExpanseBlobMap, key: 
 /// Looks up a key, writing the zero-copy view to `out_view` if present.
 /// Returns `true` if found.
 ///
-/// The written [`ExpanseBlobView::ptr`] borrows into the map and is valid only
-/// until the next structural mutation of `map` (any
-/// insert/remove/clear/compact/free); using it after that is undefined. Copy
-/// the bytes out first if they must outlive the next mutation.
+/// For uncompressed inline (<= 7 bytes) and arena-allocated values, the written
+/// [`ExpanseBlobView::ptr`] borrows into the map and is valid until the next
+/// structural mutation of `map` (any insert/remove/clear/compact/free).
+/// For compressed inline values, [`ExpanseBlobView::ptr`] is `NULL` and `is_inline`
+/// is `true`; callers should use [`expanse_blob_map_get_into`] to decompress into
+/// caller-owned memory.
 ///
 /// # Safety
 ///
@@ -133,15 +135,64 @@ pub unsafe extern "C" fn expanse_blob_map_get(
     if let Some((view, meta)) = map_ref.get(key) {
         if !out_view.is_null() {
             let is_inline = view.is_inline();
-            let bytes = view.as_bytes();
+            let (ptr, len) = match view {
+                BlobView::Inline(slice) => (slice.as_ptr(), slice.len()),
+                BlobView::Arena(slice) => (slice.as_ptr(), slice.len()),
+                BlobView::CompressedInline { len, .. } => (core::ptr::null(), len as usize),
+            };
             // SAFETY: out_view is non-null and writable per contract.
             unsafe {
                 *out_view = ExpanseBlobView {
-                    ptr: bytes.as_ptr(),
-                    len: bytes.len(),
+                    ptr,
+                    len,
                     hot_meta: meta,
                     is_inline,
                 };
+            }
+        }
+        true
+    } else {
+        false
+    }
+}
+
+/// Looks up a key, copying the payload into `buf` (up to `buf_len`).
+/// Returns `true` if the key was found.
+///
+/// If `out_len` is non-null, writes the actual full length of the payload.
+/// If `out_meta` is non-null, writes the 24-bit hot metadata (0 for inline).
+///
+/// # Safety
+///
+/// `map` must be a valid non-null handle. `buf` must be writable for `buf_len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_blob_map_get_into(
+    map: *const ExpanseBlobMap,
+    key: u64,
+    buf: *mut u8,
+    buf_len: usize,
+    out_len: *mut usize,
+    out_meta: *mut u32,
+) -> bool {
+    // SAFETY: map is null or points to a live ExpanseBlobMap per caller contract.
+    let Some(map_ref) = (unsafe { map.as_ref() }) else {
+        return false;
+    };
+    if let Some((view, meta)) = map_ref.get(key) {
+        let bytes = view.as_bytes();
+        if !out_len.is_null() {
+            // SAFETY: out_len is non-null and writable per contract.
+            unsafe { *out_len = bytes.len() };
+        }
+        if !out_meta.is_null() {
+            // SAFETY: out_meta is non-null and writable per contract.
+            unsafe { *out_meta = meta };
+        }
+        if !buf.is_null() && buf_len > 0 {
+            let copy_len = bytes.len().min(buf_len);
+            // SAFETY: buf is valid for writes of buf_len bytes; copy_len <= buf_len.
+            unsafe {
+                core::ptr::copy_nonoverlapping(bytes.as_ptr(), buf, copy_len);
             }
         }
         true
@@ -191,9 +242,14 @@ pub unsafe extern "C" fn expanse_blob_map_scan_filtered(
         |key, view, meta| {
             count += 1;
             if let Some(cb) = callback {
+                let (ptr, len) = match view {
+                    BlobView::Inline(slice) => (slice.as_ptr(), slice.len()),
+                    BlobView::Arena(slice) => (slice.as_ptr(), slice.len()),
+                    BlobView::CompressedInline { ref buf, len } => (buf.as_ptr(), len as usize),
+                };
                 let c_view = ExpanseBlobView {
-                    ptr: view.as_bytes().as_ptr(),
-                    len: view.len(),
+                    ptr,
+                    len,
                     hot_meta: meta,
                     is_inline: view.is_inline(),
                 };
