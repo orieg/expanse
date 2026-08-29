@@ -109,7 +109,7 @@ MAIN_CSS = """
       padding: 0 1.5rem;
     }
     .hero {
-      padding: 5rem 0 3.5rem;
+      padding: 4.5rem 0 3rem;
       text-align: center;
     }
     .badge-bar {
@@ -124,7 +124,7 @@ MAIN_CSS = """
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
-      padding: 0.3rem 0.75rem;
+      padding: 0.35rem 0.85rem;
       font-size: 0.8rem;
       font-weight: 600;
       border-radius: 20px;
@@ -138,27 +138,29 @@ MAIN_CSS = """
       background: rgba(16, 185, 129, 0.08);
     }
     .hero h1 {
-      font-size: clamp(2rem, 5vw, 3.25rem);
+      font-size: clamp(2rem, 5vw, 3.2rem);
       font-weight: 800;
-      letter-spacing: -0.03em;
+      letter-spacing: -0.025em;
       color: var(--heading);
-      line-height: 1.15;
+      line-height: 1.12;
       margin-bottom: 1.25rem;
       overflow-wrap: break-word;
       word-break: normal;
+      text-wrap: balance;
     }
     .hero p {
-      font-size: 1.15rem;
+      font-size: 1.125rem;
       color: var(--text-muted);
       max-width: 780px;
-      margin: 0 auto 2.5rem;
-      line-height: 1.6;
+      margin: 0 auto 1rem;
+      line-height: 1.64;
     }
     .hero-actions {
       display: flex;
       justify-content: center;
-      gap: 1rem;
+      gap: 0.75rem;
       flex-wrap: wrap;
+      margin: 1.75rem 0 2.25rem;
     }
     .btn {
       display: inline-flex;
@@ -190,6 +192,29 @@ MAIN_CSS = """
       background: var(--btn-secondary-hover);
       border-color: var(--accent);
     }
+    .hero-stats {
+      display: flex;
+      justify-content: center;
+      gap: 2.5rem;
+      flex-wrap: wrap;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      margin-top: 1rem;
+    }
+    .stat-item {
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--heading);
+      line-height: 1.1;
+    }
+    .stat-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+    }
     section {
       padding: 3.5rem 0;
       border-top: 1px solid var(--border);
@@ -200,7 +225,7 @@ MAIN_CSS = """
     }
     .section-tag {
       text-transform: uppercase;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       letter-spacing: 0.1em;
       font-weight: 700;
       color: var(--accent);
@@ -212,13 +237,158 @@ MAIN_CSS = """
       font-weight: 700;
       color: var(--heading);
       letter-spacing: -0.02em;
+      text-wrap: balance;
     }
     .section-desc {
       color: var(--text-muted);
-      max-width: 650px;
+      max-width: 680px;
       margin: 0.5rem auto 0;
-      font-size: 1rem;
+      font-size: 0.95rem;
+      line-height: 1.6;
     }
+
+    /* Density Grid */
+    .density-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    .density-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+    .density-header {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      line-height: 1.4;
+      min-height: 2.5rem;
+    }
+    .density-val-wrap {
+      display: flex;
+      align-items: baseline;
+      gap: 0.35rem;
+      margin-top: 0.75rem;
+    }
+    .density-val {
+      font-size: 1.85rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .density-unit {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .density-bar-wrap {
+      height: 5px;
+      border-radius: 3px;
+      background: var(--card-inner);
+      margin-top: 0.85rem;
+      overflow: hidden;
+    }
+    .density-bar {
+      height: 5px;
+      border-radius: 3px;
+    }
+    .density-detail {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 0.75rem;
+      line-height: 1.45;
+    }
+    .density-callout {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1.25rem;
+      padding: 1rem 1.25rem;
+      border-radius: 8px;
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      align-items: flex-start;
+    }
+    .density-callout-bar {
+      width: 3px;
+      border-radius: 2px;
+      background: var(--accent);
+      align-self: stretch;
+      flex-shrink: 0;
+    }
+    .density-callout-text {
+      font-size: 0.88rem;
+      line-height: 1.65;
+      color: var(--text);
+    }
+
+    /* Qualify Section */
+    .qualify-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.25rem;
+      margin-top: 1.5rem;
+    }
+    .qualify-card {
+      background: var(--card-bg);
+      border-radius: 10px;
+      padding: 1.5rem 1.75rem;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+    .qualify-card-reach {
+      border: 1px solid rgba(16, 185, 129, 0.35);
+    }
+    .qualify-card-other {
+      border: 1px solid var(--border);
+    }
+    .qualify-header {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 1rem;
+    }
+    .qualify-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--heading);
+      margin: 0;
+    }
+    .qualify-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      color: var(--text);
+    }
+    .qualify-list li {
+      position: relative;
+      padding-left: 1.25rem;
+    }
+    .qualify-card-reach .qualify-list li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: var(--accent-green);
+      font-size: 1.2rem;
+      line-height: 1.2;
+    }
+    .qualify-card-other .qualify-list li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: var(--text-muted);
+      font-size: 1.2rem;
+      line-height: 1.2;
+    }
+
     .quote-box {
       background: var(--quote-bg);
       border: 1px solid var(--border);
@@ -303,82 +473,123 @@ MAIN_CSS = """
       font-size: 1rem;
       max-width: 600px;
     }
+
+    /* Benchmarks Cards */
     .bench-container {
-      margin: 2rem 0;
+      margin: 1.5rem 0;
       display: flex;
       flex-direction: column;
-      gap: 2rem;
+      gap: 1.5rem;
     }
-    .bench-wrapper {
-      background: var(--bench-bg);
+    .bench-card {
+      background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 1.25rem;
-      overflow-x: auto;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
     }
-    .bench-wrapper svg {
+    .bench-card-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 1.1rem 1.4rem 0.8rem;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .bench-card-left {
+      flex: 1;
+      min-width: 260px;
+    }
+    .bench-card-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--heading);
+      text-transform: uppercase;
+    }
+    .bench-card-caption {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+      line-height: 1.5;
+      max-width: 680px;
+    }
+    .bench-card-prov {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-align: right;
+      white-space: nowrap;
+    }
+    .chart-surface {
+      padding: 0 1rem 1rem;
+      overflow-x: auto;
+    }
+    .chart-surface svg {
       width: 100%;
       height: auto;
       display: block;
       min-width: 540px;
     }
-    /* SVG Chart Theme Recolor Rules */
-    [data-theme="light"] .bench-wrapper svg .bg { fill: #ffffff !important; }
-    [data-theme="light"] .bench-wrapper svg .border { stroke: #d0d7de !important; }
-    [data-theme="light"] .bench-wrapper svg .grid { stroke: #eaeef2 !important; }
-    [data-theme="light"] .bench-wrapper svg .axis { stroke: #afb8c1 !important; }
-    [data-theme="light"] .bench-wrapper svg .divider { stroke: #eaeef2 !important; }
-    [data-theme="light"] .bench-wrapper svg .t-chart-title,
-    [data-theme="light"] .bench-wrapper svg .t-title { fill: #57606a !important; }
-    [data-theme="light"] .bench-wrapper svg .t-chart-sub,
-    [data-theme="light"] .bench-wrapper svg .t-sub { fill: #8c959f !important; }
-    [data-theme="light"] .bench-wrapper svg .t-unit-header,
-    [data-theme="light"] .bench-wrapper svg .t-unit { fill: #57606a !important; }
-    [data-theme="light"] .bench-wrapper svg .t-axis-label,
-    [data-theme="light"] .bench-wrapper svg .t-tick { fill: #57606a !important; }
-    [data-theme="light"] .bench-wrapper svg .t-bar-label,
-    [data-theme="light"] .bench-wrapper svg .t-legend { fill: #1f2328 !important; }
-    [data-theme="light"] .bench-wrapper svg .t-val-accent,
-    [data-theme="light"] .bench-wrapper svg .t-tag { fill: #1a7f37 !important; }
-    [data-theme="light"] .bench-wrapper svg .t-val-blue { fill: #0969da !important; }
-    [data-theme="light"] .bench-wrapper svg .t-val-muted { fill: #656d76 !important; }
-    [data-theme="light"] .bench-wrapper svg .b-expanse { fill: #1a7f37 !important; }
-    [data-theme="light"] .bench-wrapper svg .b-roaring,
-    [data-theme="light"] .bench-wrapper svg .b-btreemap { fill: #0969da !important; }
-    [data-theme="light"] .bench-wrapper svg .b-other,
-    [data-theme="light"] .bench-wrapper svg .b-skipmap { fill: #d0d7de !important; }
-    [data-theme="light"] .bench-wrapper svg .line-occ { stroke: #1a7f37 !important; }
-    [data-theme="light"] .bench-wrapper svg .dot-occ { fill: #1a7f37 !important; stroke: #ffffff !important; }
-    [data-theme="light"] .bench-wrapper svg .line-linear { stroke: #8c959f !important; }
 
-    [data-theme="dark"] .bench-wrapper svg .bg { fill: #0d1117; }
-    [data-theme="dark"] .bench-wrapper svg .border { stroke: #30363d; }
-    [data-theme="dark"] .bench-wrapper svg .grid { stroke: #21262d; }
-    [data-theme="dark"] .bench-wrapper svg .axis { stroke: #484f58; }
-    [data-theme="dark"] .bench-wrapper svg .divider { stroke: #21262d; }
-    [data-theme="dark"] .bench-wrapper svg .t-chart-title,
-    [data-theme="dark"] .bench-wrapper svg .t-title { fill: #8b949e; }
-    [data-theme="dark"] .bench-wrapper svg .t-chart-sub,
-    [data-theme="dark"] .bench-wrapper svg .t-sub { fill: #6e7681; }
-    [data-theme="dark"] .bench-wrapper svg .t-unit-header,
-    [data-theme="dark"] .bench-wrapper svg .t-unit { fill: #8b949e; }
-    [data-theme="dark"] .bench-wrapper svg .t-axis-label,
-    [data-theme="dark"] .bench-wrapper svg .t-tick { fill: #8b949e; }
-    [data-theme="dark"] .bench-wrapper svg .t-bar-label,
-    [data-theme="dark"] .bench-wrapper svg .t-legend { fill: #c9d1d9; }
-    [data-theme="dark"] .bench-wrapper svg .t-val-accent,
-    [data-theme="dark"] .bench-wrapper svg .t-tag { fill: #3fb950; }
-    [data-theme="dark"] .bench-wrapper svg .t-val-blue { fill: #58a6ff; }
-    [data-theme="dark"] .bench-wrapper svg .t-val-muted { fill: #8b949e; }
-    [data-theme="dark"] .bench-wrapper svg .b-expanse { fill: #2ea043; }
-    [data-theme="dark"] .bench-wrapper svg .b-roaring,
-    [data-theme="dark"] .bench-wrapper svg .b-btreemap { fill: #1f6feb; }
-    [data-theme="dark"] .bench-wrapper svg .b-other,
-    [data-theme="dark"] .bench-wrapper svg .b-skipmap { fill: #30363d; }
-    [data-theme="dark"] .bench-wrapper svg .line-occ { stroke: #2ea043; }
-    [data-theme="dark"] .bench-wrapper svg .dot-occ { fill: #2ea043; stroke: #0d1117; }
-    [data-theme="dark"] .bench-wrapper svg .line-linear { stroke: #6e7681; }
+    /* SVG Chart Theme Recolor Rules */
+    [data-theme="light"] .chart-surface svg .bg { fill: #ffffff !important; }
+    [data-theme="light"] .chart-surface svg .border { stroke: #d0d7de !important; }
+    [data-theme="light"] .chart-surface svg .grid { stroke: #eaeef2 !important; }
+    [data-theme="light"] .chart-surface svg .axis { stroke: #afb8c1 !important; }
+    [data-theme="light"] .chart-surface svg .divider { stroke: #eaeef2 !important; }
+    [data-theme="light"] .chart-surface svg .t-chart-title,
+    [data-theme="light"] .chart-surface svg .t-title { fill: #57606a !important; }
+    [data-theme="light"] .chart-surface svg .t-chart-sub,
+    [data-theme="light"] .chart-surface svg .t-sub { fill: #8c959f !important; }
+    [data-theme="light"] .chart-surface svg .t-unit-header,
+    [data-theme="light"] .chart-surface svg .t-unit { fill: #57606a !important; }
+    [data-theme="light"] .chart-surface svg .t-axis-label,
+    [data-theme="light"] .chart-surface svg .t-tick { fill: #57606a !important; }
+    [data-theme="light"] .chart-surface svg .t-bar-label,
+    [data-theme="light"] .chart-surface svg .t-legend { fill: #1f2328 !important; }
+    [data-theme="light"] .chart-surface svg .t-val-accent,
+    [data-theme="light"] .chart-surface svg .t-tag { fill: #1a7f37 !important; }
+    [data-theme="light"] .chart-surface svg .t-val-blue { fill: #0969da !important; }
+    [data-theme="light"] .chart-surface svg .t-val-muted { fill: #656d76 !important; }
+    [data-theme="light"] .chart-surface svg .b-expanse { fill: #1a7f37 !important; }
+    [data-theme="light"] .chart-surface svg .b-roaring,
+    [data-theme="light"] .chart-surface svg .b-btreemap { fill: #0969da !important; }
+    [data-theme="light"] .chart-surface svg .b-other,
+    [data-theme="light"] .chart-surface svg .b-skipmap { fill: #d0d7de !important; }
+    [data-theme="light"] .chart-surface svg .line-occ { stroke: #1a7f37 !important; }
+    [data-theme="light"] .chart-surface svg .dot-occ { fill: #1a7f37 !important; stroke: #ffffff !important; }
+    [data-theme="light"] .chart-surface svg .line-linear { stroke: #8c959f !important; }
+
+    [data-theme="dark"] .chart-surface svg .bg { fill: #0d1117; }
+    [data-theme="dark"] .chart-surface svg .border { stroke: #30363d; }
+    [data-theme="dark"] .chart-surface svg .grid { stroke: #21262d; }
+    [data-theme="dark"] .chart-surface svg .axis { stroke: #484f58; }
+    [data-theme="dark"] .chart-surface svg .divider { stroke: #21262d; }
+    [data-theme="dark"] .chart-surface svg .t-chart-title,
+    [data-theme="dark"] .chart-surface svg .t-title { fill: #8b949e; }
+    [data-theme="dark"] .chart-surface svg .t-chart-sub,
+    [data-theme="dark"] .chart-surface svg .t-sub { fill: #6e7681; }
+    [data-theme="dark"] .chart-surface svg .t-unit-header,
+    [data-theme="dark"] .chart-surface svg .t-unit { fill: #8b949e; }
+    [data-theme="dark"] .chart-surface svg .t-axis-label,
+    [data-theme="dark"] .chart-surface svg .t-tick { fill: #8b949e; }
+    [data-theme="dark"] .chart-surface svg .t-bar-label,
+    [data-theme="dark"] .chart-surface svg .t-legend { fill: #c9d1d9; }
+    [data-theme="dark"] .chart-surface svg .t-val-accent,
+    [data-theme="dark"] .chart-surface svg .t-tag { fill: #3fb950; }
+    [data-theme="dark"] .chart-surface svg .t-val-blue { fill: #58a6ff; }
+    [data-theme="dark"] .chart-surface svg .t-val-muted { fill: #8b949e; }
+    [data-theme="dark"] .chart-surface svg .b-expanse { fill: #2ea043; }
+    [data-theme="dark"] .chart-surface svg .b-roaring,
+    [data-theme="dark"] .chart-surface svg .b-btreemap { fill: #1f6feb; }
+    [data-theme="dark"] .chart-surface svg .b-other,
+    [data-theme="dark"] .chart-surface svg .b-skipmap { fill: #30363d; }
+    [data-theme="dark"] .chart-surface svg .line-occ { stroke: #2ea043; }
+    [data-theme="dark"] .chart-surface svg .dot-occ { fill: #2ea043; stroke: #0d1117; }
+    [data-theme="dark"] .chart-surface svg .line-linear { stroke: #6e7681; }
+
+    /* Install Section */
     .install-box {
       background: var(--card-inner);
       border: 1px solid var(--border);
@@ -386,44 +597,59 @@ MAIN_CSS = """
       overflow: hidden;
       margin-top: 1.5rem;
     }
-    .install-nav {
-      display: flex;
+    .install-groups-header {
+      padding: 1.1rem 1.4rem 0.5rem;
       background: var(--card-bg);
       border-bottom: 1px solid var(--border);
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
     }
-    @media (min-width: 769px) {
-      .install-nav { flex-wrap: wrap; }
+    .install-group {
+      margin-bottom: 0.85rem;
     }
-    @media (max-width: 768px) {
-      .install-nav {
-        scrollbar-width: none;
-        -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 32px), transparent 100%);
-        mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 32px), transparent 100%);
-      }
-      .install-nav::-webkit-scrollbar { display: none; }
-      .install-nav.at-end {
-        -webkit-mask-image: none;
-        mask-image: none;
-      }
+    .install-group-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+    .install-group-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
     }
     .tab-btn {
-      padding: 0.85rem 1.5rem;
-      background: none;
-      border: none;
-      color: var(--text-muted);
-      font-size: 0.9rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.45rem 0.85rem;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      color: var(--text);
+      font-size: 0.82rem;
       font-weight: 600;
       cursor: pointer;
-      border-bottom: 2px solid transparent;
       white-space: nowrap;
       transition: all 0.15s ease;
     }
+    .tab-btn:hover {
+      border-color: var(--accent);
+    }
     .tab-btn.active {
       color: var(--accent);
-      border-bottom-color: var(--accent);
-      background: var(--tab-active-bg);
+      border-color: var(--accent);
+      background: var(--nav-pill-bg);
+    }
+    .pill-new {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: rgba(16, 185, 129, 0.16);
+      color: var(--accent-green);
     }
     .install-panel { padding: 1.5rem; }
     pre {
@@ -485,14 +711,16 @@ MAIN_CSS = """
       .hero { padding: 3rem 0 2rem; }
       .hero h1 {
         font-size: 1.35rem !important; line-height: 1.3 !important; hyphens: none !important; -webkit-hyphens: none !important;
-        line-height: 1.25 !important;
         padding: 0 0.25rem;
       }
-      .hero p { font-size: 1rem !important; margin-bottom: 1.75rem !important; }
+      .hero p { font-size: 1rem !important; margin-bottom: 1.5rem !important; }
       .hero-actions { flex-direction: column; width: 100%; }
       .hero-actions .btn { width: 100%; }
+      .hero-stats { gap: 1.25rem; }
       .badge-bar { gap: 0.35rem !important; }
       .badge { font-size: 0.72rem !important; padding: 0.25rem 0.55rem !important; }
+      .density-grid { grid-template-columns: 1fr; }
+      .qualify-grid { grid-template-columns: 1fr; }
       .spotlight { flex-direction: column; text-align: center; padding: 1.5rem; }
       .spotlight-content p { font-size: 0.95rem; }
       .quote-box { padding: 1.25rem; }
@@ -612,166 +840,344 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
 
   <main>
     <div class="container">
-    <div class="hero">
-      <div class="badge-bar">
-        <span class="badge badge-green">Pure Rust &bull; no_std capable</span>
-        <span class="badge">Rust &bull; Python &bull; Node.js &bull; .NET &bull; C++20 &bull; Java &bull; C ABI &bull; ESP-IDF (ESP32)</span>
-        <span class="badge">64-Bit &amp; 32-Bit Embedded</span>
-      </div>
-      <h1>Expanse — memory-compact Judy arrays and 256-ary radix tries</h1>
-      <p>Clean-room pure-Rust implementation of digital trees for 64-bit and 32-bit microarchitectures with zero-allocation immediates, SWAR/SIMD vectorization, and lock-free OCC reader concurrency.</p>
-      <div class="hero-actions">
-        <a href="#benchmarks" class="btn btn-primary" style="background: linear-gradient(135deg, #38bdf8, #2563eb); color: #ffffff;">&#9889; Performance Benchmarks &#8595;</a>
-        <a href="./visualizer.html" class="btn btn-secondary">Architecture Visualizer &#8594;</a>
-        <a href="#quickstart" class="btn btn-secondary">Quickstart</a>
-        <a href="https://github.com/orieg/expanse" class="btn btn-secondary">GitHub</a>
+      <div class="hero">
+        <div class="badge-bar">
+          <span class="badge" style="border-color: var(--nav-pill-border); background: var(--nav-pill-bg); color: var(--accent);">Cortex-M &amp; RISC-V to server</span>
+          <span class="badge">Pure Rust &bull; no_std</span>
+          <span class="badge badge-green">MIT OR Apache-2.0</span>
+        </div>
+        <h1>Judy arrays in pure Rust, rebuilt for modern hardware</h1>
+        <p style="font-size: 1.15rem; line-height: 1.64; max-width: 780px; margin: 0 auto 1rem;">
+          Sparse, ordered maps and sets that <strong style="color: var(--heading);">cost what your keys cost</strong>. Keys decompose one byte per level into a 256-ary digital tree, and every node reshapes to match how crowded that byte&rsquo;s range is &mdash; so memory tracks the ranges you populate, not the number of keys, and never a pre-sized table.
+        </p>
+        <p style="font-size: 0.95rem; line-height: 1.6; max-width: 760px; margin: 0 auto 1.5rem; color: var(--text-muted);">
+          Sorted iteration, range scans and rank over integers, strings and byte slices &mdash; with cache-line-aligned nodes, SIMD/SWAR search and lock-free reader concurrency. One engine from a 32-bit MCU to a server, reachable from <strong style="color: var(--heading);">nine languages</strong> over a stable C ABI.
+        </p>
+        <div class="hero-actions">
+          <a href="#quickstart" class="btn btn-primary" style="background: linear-gradient(135deg, #38bdf8, #2563eb); color: #ffffff;">Quickstart &#8595;</a>
+          <a href="./visualizer.html" class="btn btn-secondary">Architecture Visualizer &#8594;</a>
+          <a href="#benchmarks" class="btn btn-secondary">Benchmarks</a>
+          <a href="https://github.com/orieg/expanse" class="btn btn-secondary">GitHub</a>
+        </div>
+        <div class="hero-stats">
+          <div class="stat-item">
+            <div class="stat-value">0.67 B/key</div>
+            <div class="stat-label">clustered timestamps, 32-bit</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">9 languages</div>
+            <div class="stat-label">over one C ABI</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">no_std</div>
+            <div class="stat-label">32-bit and 64-bit targets</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">lock-free</div>
+            <div class="stat-label">OCC reader concurrency</div>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
 
-  <section>
+    <section id="density">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Why It Is Called Expanse</span>
+          <h2 class="section-title">Cost follows how your keys cluster, not how many you have</h2>
+          <p class="section-desc">Same structure, same code, four real key shapes. Dense ranges collapse into bitmaps and immediates; sparse ones never allocate the space between.</p>
+        </div>
+
+        <div class="density-grid">
+          <div class="density-card">
+            <div class="density-header">Clustered sensor timestamps (10k keys)</div>
+            <div class="density-val-wrap">
+              <span class="density-val" style="color: var(--accent-green);">0.67</span>
+              <span class="density-unit">B/key</span>
+            </div>
+            <div class="density-bar-wrap">
+              <div class="density-bar" style="background: var(--accent-green); width: 4%;"></div>
+            </div>
+            <div class="density-detail">Level 1 bitset, 0 B pointer overhead (ExpanseSet32)</div>
+          </div>
+
+          <div class="density-card">
+            <div class="density-header">IPv4 /24 subnet routing (2k keys)</div>
+            <div class="density-val-wrap">
+              <span class="density-val" style="color: var(--accent);">9.38</span>
+              <span class="density-unit">B/key</span>
+            </div>
+            <div class="density-bar-wrap">
+              <div class="density-bar" style="background: var(--accent); width: 56%;"></div>
+            </div>
+            <div class="density-detail">LeafBitmapL with 4B value slots (ExpanseMap32)</div>
+          </div>
+
+          <div class="density-card">
+            <div class="density-header">Sparse CAN-bus 29-bit IDs (500 keys)</div>
+            <div class="density-val-wrap">
+              <span class="density-val" style="color: #8b5cf6;">12.61</span>
+              <span class="density-unit">B/key</span>
+            </div>
+            <div class="density-bar-wrap">
+              <div class="density-bar" style="background: #8b5cf6; width: 75%;"></div>
+            </div>
+            <div class="density-detail">8-byte Edge32 with zero-span bypass (ExpanseSet32)</div>
+          </div>
+
+          <div class="density-card">
+            <div class="density-header">Uniform-random 64-bit (1M keys)</div>
+            <div class="density-val-wrap">
+              <span class="density-val" style="color: var(--badge-near);">16.70</span>
+              <span class="density-unit">B/key</span>
+            </div>
+            <div class="density-bar-wrap">
+              <div class="density-bar" style="background: var(--badge-near); width: 100%;"></div>
+            </div>
+            <div class="density-detail">Worst case: deep uncompressed branches (ExpanseMap)</div>
+          </div>
+        </div>
+
+        <div class="density-callout">
+          <div class="density-callout-bar"></div>
+          <div class="density-callout-text">
+            <strong style="color: var(--heading);">Ten thousand clustered timestamps cost 6.7&nbsp;KB &mdash; under a byte each.</strong> Five hundred CAN-bus identifiers scattered across a 29-bit space cost 12.6 bytes each, because there is nothing to share. That spread is the design working, not a caveat: a pre-sized table charges you for the empty space between keys, and this does not.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="qualify">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Before You Adopt</span>
+          <h2 class="section-title">Is this the right structure for you?</h2>
+          <p class="section-desc">Two lists answer it in ten seconds, naming the alternatives by name.</p>
+        </div>
+
+        <div class="qualify-grid">
+          <div class="qualify-card qualify-card-reach">
+            <div class="qualify-header">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <h3 class="qualify-title">Reach for Expanse when</h3>
+            </div>
+            <ul class="qualify-list">
+              <li>Your keys are <strong style="color: var(--heading);">clustered or sequential</strong> &mdash; timestamps, IDs, addresses, offsets.</li>
+              <li><strong style="color: var(--heading);">Memory is the binding constraint</strong>, not raw lookup throughput.</li>
+              <li>You need <strong style="color: var(--heading);">ordered</strong> iteration, range scans or rank &mdash; not just point lookup.</li>
+              <li>You are on a <strong style="color: var(--heading);">32-bit MCU</strong> and a hash table's load factor costs too much SRAM.</li>
+              <li>You want <strong style="color: var(--heading);">one engine across nine languages</strong> rather than a per-language reimplementation.</li>
+            </ul>
+          </div>
+
+          <div class="qualify-card qualify-card-other">
+            <div class="qualify-header">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <h3 class="qualify-title">Use something else when</h3>
+            </div>
+            <ul class="qualify-list">
+              <li>Uniform-random point lookup is your hot path &mdash; <strong style="color: var(--heading);">hashbrown</strong> wins that, and random keys are a trie&rsquo;s worst case (16.70 B/key against 0.67 for clustered).</li>
+              <li>You never iterate in order &mdash; <strong style="color: var(--heading);">HashMap</strong> is simpler and faster, and ordering is most of what you are paying for here.</li>
+              <li>You need a <strong style="color: var(--heading);">concurrent writer</strong> workload; on a 50/50 mix every single-writer arm loses throughput as threads are added (0.12&times;&ndash;0.55&times;). <strong style="color: var(--heading);">DashMap</strong> wins that regime.</li>
+              <li>Your keys are long, high-entropy strings with no shared prefixes &mdash; the trie's structure buys you nothing.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Design Philosophy</span>
+          <h2 class="section-title">Why &ldquo;Expanse&rdquo;?</h2>
+          <p class="section-desc">Partitioning digital trees by key <em>expanse</em>, rather than population.</p>
+        </div>
+
+        <p style="color: var(--text); max-width: 860px; margin: 0 auto 1.5rem; line-height: 1.7;">
+          Expanse is the Judy design's own defining term &mdash; so central that the published descriptions stop to define it before anything else, and use it as the precise contrast with population-partitioned trees (B-trees, binary trees):
+        </p>
+
+        <div class="quote-box">
+          <div class="quote-text">&ldquo;Expanse, population, and density are not commonly used terms in tree search literature, so let's define them here: Expanse is a range of possible keys [&hellip;]&rdquo;</div>
+          <div class="quote-author">&mdash; Doug Baskins, <em>A 10-Minute Description of How Judy Arrays Work and Why They Are So Fast</em> (2002)</div>
+        </div>
+
+        <div class="quote-box">
+          <div class="quote-text">&ldquo;A digital tree divides up the population (index set) uniformly by expanse (dividing and redividing the initial expanse evenly), while other methods, such as b-trees, divide up the population by the distribution of the population itself.&rdquo;</div>
+          <div class="quote-author">&mdash; Alan Silverstein, <em>Judy IV Shop Manual</em> (2002), &ldquo;Digital Trees&rdquo;</div>
+        </div>
+
+        <p style="color: var(--text-muted); max-width: 860px; margin: 1.5rem auto 0; font-size: 0.95rem; line-height: 1.6;">
+          Naming the project after the underlying mechanism honors the algorithm itself without inheriting legacy C codebase baggage. Expanse is developed with <strong>strict clean-room discipline</strong>: zero exposure to LGPL source code, adhering exclusively to published design specifications and black-box differential test suites.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Core Engine</span>
+          <h2 class="section-title">Architectural Highlights</h2>
+          <p class="section-desc">Engineered for cache-line density, hardware SIMD lanes, and lock-free multi-core throughput.</p>
+        </div>
+
+        <div class="grid-3">
+          <div class="card">
+            <div class="card-icon">&#9889;</div>
+            <h3 class="card-title">Zero-Alloc Immediates</h3>
+            <p class="card-p">Up to 7 keys in sets and up to 3 key-value pairs in maps are packed directly inside tagged 64-bit edge words, bypassing heap allocation entirely for small collections.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">&#9881;</div>
+            <h3 class="card-title">Adaptive Compression Ladder</h3>
+            <p class="card-p">Trie branches dynamically morph between Linear leaves (sorted key arrays), Bitmap leaves (64-bit subexpanse bitboards), and full uncompressed 256-way digital branches.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">&#128640;</div>
+            <h3 class="card-title">Lock-Free OCC Concurrency</h3>
+            <p class="card-p"><code>SyncExpanseMap</code> and <code>SyncExpanseSet</code> employ epoch-based optimistic concurrency control (OCC). Readers perform lock-free traversals with zero reader-lock cache-line bouncing.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">&#127919;</div>
+            <h3 class="card-title">SIMD &amp; SWAR Acceleration</h3>
+            <p class="card-p">Search kernels utilize vector instructions (AVX2, AVX-512, ARM NEON) with bitwise SWAR fallbacks, scanning linear leaves in single clock cycles.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">&#128230;</div>
+            <h3 class="card-title">glibc-hwcaps Multi-Arch</h3>
+            <p class="card-p">Debian and RPM packages provide optimized runtime libraries automatically selected by the dynamic loader for <code>x86-64-v2</code>, <code>v3</code> (AVX2), and <code>v4</code> (AVX-512).</p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">&#128279;</div>
+            <h3 class="card-title">Drop-in Judy C ABI Parity</h3>
+            <p class="card-p">Provides 100% C ABI compatibility with stock <code>libjudy</code> (<code>Judy1</code>, <code>JudyL</code>, <code>JudySL</code>, <code>JudyHS</code>) alongside modern, type-safe <code>expanse_*</code> C interfaces.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">&#127793;</div>
+            <h3 class="card-title">32-Bit Embedded (#![no_std])</h3>
+            <p class="card-p">Compact 8-byte <code>Edge32</code> layout saving 50% structural SRAM on ARM Cortex-M and RISC-V RV32 microcontrollers, with 32-byte cache alignment and zero-alloc inlined payloads.</p>
+          </div>
+
+          <div class="card">
+            <div class="card-icon">&#128451;</div>
+            <h3 class="card-title">Database Engine Subsystems</h3>
+            <p class="card-p">MVCC visibility scans, string interning dictionaries, and an <code>ExpanseBlobMap</code> slab arena for variable-length values &mdash; plus a RocksDB MemTable plugin.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Design Philosophy</span>
-        <h2 class="section-title">Why &ldquo;Expanse&rdquo;?</h2>
-        <p class="section-desc">Partitioning digital trees by key <em>expanse</em>, rather than population.</p>
-      </div>
-
-      <p style="color: var(--text); max-width: 860px; margin: 0 auto 1.5rem; line-height: 1.7;">
-        Expanse is the Judy design's own defining term &mdash; so central that the published descriptions stop to define it before anything else, and use it as the precise contrast with population-partitioned trees (B-trees, binary trees):
-      </p>
-
-      <div class="quote-box">
-        <div class="quote-text">&ldquo;Expanse, population, and density are not commonly used terms in tree search literature, so let's define them here: Expanse is a range of possible keys [&hellip;]&rdquo;</div>
-        <div class="quote-author">&mdash; Doug Baskins, <em>A 10-Minute Description of How Judy Arrays Work and Why They Are So Fast</em> (2002)</div>
-      </div>
-
-      <div class="quote-box">
-        <div class="quote-text">&ldquo;A digital tree divides up the population (index set) uniformly by expanse (dividing and redividing the initial expanse evenly), while other methods, such as b-trees, divide up the population by the distribution of the population itself.&rdquo;</div>
-        <div class="quote-author">&mdash; Alan Silverstein, <em>Judy IV Shop Manual</em> (2002), &ldquo;Digital Trees&rdquo;</div>
-      </div>
-
-      <p style="color: var(--text-muted); max-width: 860px; margin: 1.5rem auto 0; font-size: 0.95rem; line-height: 1.6;">
-        Naming the project after the underlying mechanism honors the algorithm itself without inheriting legacy C codebase baggage. Expanse is developed with <strong>strict clean-room discipline</strong>: zero exposure to LGPL source code, adhering exclusively to published design specifications and black-box differential test suites.
-      </p>
-    </div>
-  </section>
-
-  <section>
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Core Engine</span>
-        <h2 class="section-title">Architectural Highlights</h2>
-        <p class="section-desc">Engineered for cache-line density, hardware SIMD lanes, and lock-free multi-core throughput.</p>
-      </div>
-
-      <div class="grid-3">
-        <div class="card">
-          <div class="card-icon">&#9889;</div>
-          <h3 class="card-title">Zero-Alloc Immediates</h3>
-          <p class="card-p">Up to 7 keys in sets and up to 3 key-value pairs in maps are packed directly inside tagged 64-bit edge words, bypassing heap allocation entirely for small collections.</p>
+      <div class="spotlight">
+        <div class="spotlight-content">
+          <h3>Explore the Interactive Data Visualizer</h3>
+          <p>Inspect tagged pointer layouts, simulate dynamic compression transitions across the ladder, and step through branch bitboard operations in real-time.</p>
         </div>
-
-        <div class="card">
-          <div class="card-icon">&#9881;</div>
-          <h3 class="card-title">Adaptive Compression Ladder</h3>
-          <p class="card-p">Trie branches dynamically morph between Linear leaves (sorted key arrays), Bitmap leaves (64-bit subexpanse bitboards), and full uncompressed 256-way digital branches.</p>
-        </div>
-
-        <div class="card">
-          <div class="card-icon">&#128640;</div>
-          <h3 class="card-title">Lock-Free OCC Concurrency</h3>
-          <p class="card-p"><code>SyncExpanseMap</code> and <code>SyncExpanseSet</code> employ epoch-based optimistic concurrency control (OCC). Readers perform lock-free traversals with zero reader-lock cache-line bouncing.</p>
-        </div>
-
-        <div class="card">
-          <div class="card-icon">&#127919;</div>
-          <h3 class="card-title">SIMD &amp; SWAR Acceleration</h3>
-          <p class="card-p">Search kernels utilize vector instructions (AVX2, AVX-512, ARM NEON) with bitwise SWAR fallbacks, scanning linear leaves in single clock cycles.</p>
-        </div>
-
-        <div class="card">
-          <div class="card-icon">&#128230;</div>
-          <h3 class="card-title">glibc-hwcaps Multi-Arch</h3>
-          <p class="card-p">Debian and RPM packages provide optimized runtime libraries automatically selected by the dynamic loader for <code>x86-64-v2</code>, <code>v3</code> (AVX2), and <code>v4</code> (AVX-512).</p>
-        </div>
-
-        <div class="card">
-          <div class="card-icon">&#128279;</div>
-          <h3 class="card-title">Drop-in Judy C ABI Parity</h3>
-          <p class="card-p">Provides 100% C ABI compatibility with stock <code>libjudy</code> (<code>Judy1</code>, <code>JudyL</code>, <code>JudySL</code>, <code>JudyHS</code>) alongside modern, type-safe <code>expanse_*</code> C interfaces.</p>
-        </div>
-
-        <div class="card">
-          <div class="card-icon">&#127793;</div>
-          <h3 class="card-title">32-Bit Embedded (#![no_std])</h3>
-          <p class="card-p">Compact 8-byte <code>Edge32</code> layout saving 50% structural SRAM on ARM Cortex-M and RISC-V RV32 microcontrollers, with 32-byte cache alignment and zero-alloc inlined payloads.</p>
-        </div>
-
-        <div class="card">
-          <div class="card-icon">&#128451;</div>
-          <h3 class="card-title">Database Engine Subsystems</h3>
-          <p class="card-p">MVCC visibility scans, string interning dictionaries, and an <code>ExpanseBlobMap</code> slab arena for variable-length values &mdash; plus a RocksDB MemTable plugin.</p>
-        </div>
+        <a href="./visualizer.html" class="btn btn-primary" style="white-space: nowrap;">Launch Visualizer &#8594;</a>
       </div>
     </div>
-  </section>
 
-  <div class="container">
-    <div class="spotlight">
-      <div class="spotlight-content">
-        <h3>Explore the Interactive Data Visualizer</h3>
-        <p>Inspect tagged pointer layouts, simulate dynamic compression transitions across the ladder, and step through branch bitboard operations in real-time.</p>
-      </div>
-      <a href="./visualizer.html" class="btn btn-primary" style="white-space: nowrap;">Launch Visualizer &#8594;</a>
-    </div>
-  </div>
-
-  <section id="benchmarks">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Performance</span>
-        <h2 class="section-title">Measured Micro-Benchmarks</h2>
-        <p class="section-desc">Deterministic instruction counting and latency benchmarks against industry data structures.</p>
-      </div>
-
-      <div class="bench-container">
-        <div class="bench-wrapper">
-          BENCH_COMP_SVG_PLACEHOLDER
+    <section id="benchmarks">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Measured, on a Quiet Reference Host</span>
+          <h2 class="section-title">Benchmarks</h2>
+          <p class="section-desc">The same three charts already on the page &mdash; given titles, a one-line read, and provenance a reader can resolve.</p>
         </div>
-        <div class="bench-wrapper">
-          BENCH_CONC_SVG_PLACEHOLDER
-        </div>
-        <div class="bench-wrapper">
-          BENCH_YCSB_SVG_PLACEHOLDER
+
+        <div class="bench-container">
+          <div class="bench-card">
+            <div class="bench-card-header">
+              <div class="bench-card-left">
+                <div class="bench-card-title">VS STD &amp; THIRD-PARTY COLLECTIONS</div>
+                <div class="bench-card-caption">Insert, random lookup and clustered lookup at 100k&ndash;1M keys. Clustered lookup is the win; <strong style="color: var(--heading);">random lookup is a measured loss to HashSet</strong> and is published as such.</div>
+              </div>
+              <div class="bench-card-prov">harness compare.rs<br>commit 695b98d</div>
+            </div>
+            <div class="chart-surface">
+              BENCH_COMP_SVG_PLACEHOLDER
+            </div>
+          </div>
+
+          <div class="bench-card">
+            <div class="bench-card-header">
+              <div class="bench-card-left">
+                <div class="bench-card-title">CONCURRENT READ SCALING</div>
+                <div class="bench-card-caption">SyncExpanseMap OCC reader scaling vs rwlock/mutex. Zero reader cache-line bouncing; <strong style="color: var(--heading);">50/50 write mix degrades under concurrent contention</strong>.</div>
+              </div>
+              <div class="bench-card-prov">harness concurrency.rs<br>CI run 33030152085</div>
+            </div>
+            <div class="chart-surface">
+              BENCH_CONC_SVG_PLACEHOLDER
+            </div>
+          </div>
+
+          <div class="bench-card">
+            <div class="bench-card-header">
+              <div class="bench-card-left">
+                <div class="bench-card-title">YCSB KEY-VALUE WORKLOADS</div>
+                <div class="bench-card-caption">Workloads A, B, C, D, F. <strong style="color: var(--heading);">Workload E (short range scans) is a measured loss to BTreeMap</strong> with symmetric predicates.</div>
+              </div>
+              <div class="bench-card-prov">harness ycsb.rs<br>commit 43b46f38</div>
+            </div>
+            <div class="chart-surface">
+              BENCH_YCSB_SVG_PLACEHOLDER
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section id="quickstart">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Ecosystem &amp; Distribution</span>
-        <h2 class="section-title">Installation &amp; Quickstart Hub</h2>
-        <p class="section-desc">Zero-cost bindings and native packages across Rust, Python, Node.js/Bun, .NET/C#, C++20, Java, C ABI, RocksDB, Linux APT/RPM repos, and PHP.</p>
-      </div>
-
-      <div class="install-box">
-        <div class="install-nav" role="tablist" aria-label="Installation targets">
-          <button class="tab-btn active" role="tab" data-tab="tab-cargo" aria-selected="true" onclick="switchTab('tab-cargo')">Rust (Cargo)</button>
-          <button class="tab-btn" role="tab" data-tab="tab-python" aria-selected="false" onclick="switchTab('tab-python')">Python (PyPI)</button>
-          <button class="tab-btn" role="tab" data-tab="tab-node" aria-selected="false" onclick="switchTab('tab-node')">Node.js / Bun (npm)</button>
-          <button class="tab-btn" role="tab" data-tab="tab-dotnet" aria-selected="false" onclick="switchTab('tab-dotnet')">.NET / C# (NuGet)</button>
-          <button class="tab-btn" role="tab" data-tab="tab-cpp" aria-selected="false" onclick="switchTab('tab-cpp')">C++20 (Header-Only)</button>
-          <button class="tab-btn" role="tab" data-tab="tab-c" aria-selected="false" onclick="switchTab('tab-c')">C ABI (expanse.h)</button>
-          <button class="tab-btn" role="tab" data-tab="tab-apt" aria-selected="false" onclick="switchTab('tab-apt')">Debian / Ubuntu (APT)</button>
-          <button class="tab-btn" role="tab" data-tab="tab-rpm" aria-selected="false" onclick="switchTab('tab-rpm')">RHEL / Fedora (RPM)</button>
-          <button class="tab-btn" role="tab" data-tab="tab-java" aria-selected="false" onclick="switchTab('tab-java')">Java / JVM (Maven)</button>
-          <button class="tab-btn" role="tab" data-tab="tab-rocksdb" aria-selected="false" onclick="switchTab('tab-rocksdb')">RocksDB MemTable</button>
-          <button class="tab-btn" role="tab" data-tab="tab-php" aria-selected="false" onclick="switchTab('tab-php')">PHP (Composer &amp; PIE)</button>
-          <button class="tab-btn" role="tab" data-tab="tab-espidf" aria-selected="false" onclick="switchTab('tab-espidf')">ESP-IDF (ESP32)</button>
+    <section id="quickstart">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Ecosystem &amp; Distribution</span>
+          <h2 class="section-title">Install</h2>
+          <p class="section-desc">Native packages and zero-cost bindings. Pick your target.</p>
         </div>
+
+        <div class="install-box">
+          <div class="install-groups-header" role="tablist" aria-label="Installation targets">
+            <div class="install-group">
+              <div class="install-group-label">Languages</div>
+              <div class="install-group-items">
+                <button class="tab-btn active" role="tab" data-tab="tab-cargo" aria-selected="true" onclick="switchTab('tab-cargo')">Rust</button>
+                <button class="tab-btn" role="tab" data-tab="tab-python" aria-selected="false" onclick="switchTab('tab-python')">Python</button>
+                <button class="tab-btn" role="tab" data-tab="tab-node" aria-selected="false" onclick="switchTab('tab-node')">Node.js / Bun</button>
+                <button class="tab-btn" role="tab" data-tab="tab-dotnet" aria-selected="false" onclick="switchTab('tab-dotnet')">.NET / C#</button>
+                <button class="tab-btn" role="tab" data-tab="tab-cpp" aria-selected="false" onclick="switchTab('tab-cpp')">C++20</button>
+                <button class="tab-btn" role="tab" data-tab="tab-java" aria-selected="false" onclick="switchTab('tab-java')">Java / JVM</button>
+                <button class="tab-btn" role="tab" data-tab="tab-php" aria-selected="false" onclick="switchTab('tab-php')">PHP</button>
+                <button class="tab-btn" role="tab" data-tab="tab-go" aria-selected="false" onclick="switchTab('tab-go')">Go <span class="pill-new">NEW</span></button>
+                <button class="tab-btn" role="tab" data-tab="tab-ruby" aria-selected="false" onclick="switchTab('tab-ruby')">Ruby <span class="pill-new">NEW</span></button>
+                <button class="tab-btn" role="tab" data-tab="tab-wasm" aria-selected="false" onclick="switchTab('tab-wasm')">WebAssembly <span class="pill-new">NEW</span></button>
+              </div>
+            </div>
+
+            <div class="install-group">
+              <div class="install-group-label">System packages</div>
+              <div class="install-group-items">
+                <button class="tab-btn" role="tab" data-tab="tab-apt" aria-selected="false" onclick="switchTab('tab-apt')">Debian / Ubuntu</button>
+                <button class="tab-btn" role="tab" data-tab="tab-rpm" aria-selected="false" onclick="switchTab('tab-rpm')">RHEL / Fedora</button>
+                <button class="tab-btn" role="tab" data-tab="tab-c" aria-selected="false" onclick="switchTab('tab-c')">C ABI &mdash; expanse.h</button>
+              </div>
+            </div>
+
+            <div class="install-group" style="margin-bottom: 0.35rem;">
+              <div class="install-group-label">Integrations</div>
+              <div class="install-group-items">
+                <button class="tab-btn" role="tab" data-tab="tab-rocksdb" aria-selected="false" onclick="switchTab('tab-rocksdb')">RocksDB MemTable</button>
+                <button class="tab-btn" role="tab" data-tab="tab-espidf" aria-selected="false" onclick="switchTab('tab-espidf')">ESP-IDF (ESP32)</button>
+              </div>
+            </div>
+          </div>
 
         <div id="tab-cargo" class="install-panel" role="tabpanel">
           <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Add core Expanse engine to your <code>Cargo.toml</code>:</p>
@@ -995,6 +1401,74 @@ $val = $map-&gt;get(42);
 // 1:1 legacy php-judy drop-in compatibility
 $judy = new Judy(Judy::INT_TO_INT);
 $judy[42] = 999;</code></pre>
+        </div>
+
+        <div id="tab-go" class="install-panel" role="tabpanel" style="display: none;">
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Add the Go module to your project (PureGo and CGO bindings for 64-bit and 32-bit embedded):</p>
+          <pre><code>go get github.com/orieg/expanse/bindings/go/v0.5.0</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Go (Maps, Sets, and Slab-Backed BlobMaps):</p>
+          <pre><code>package main
+
+import (
+    "fmt"
+    "github.com/orieg/expanse/bindings/go/v0.5.0"
+)
+
+func main() {
+    m := expanse.NewMap()
+    defer m.Close()
+
+    m.Insert(42, 100)
+    if val, ok := m.Get(42); ok {
+        fmt.Printf("Found key 42 -> %d\n", val)
+    }
+
+    // Off-heap blob map with 32-bit hot metadata
+    bm := expanse.NewBlobMap()
+    defer bm.Close()
+    bm.Insert(1001, []byte("payload data"), 0x2A)
+    if data, meta, ok := bm.Get(1001); ok {
+        fmt.Printf("Blob: %s, meta: 0x%X\n", string(data), meta)
+    }
+}</code></pre>
+        </div>
+
+        <div id="tab-ruby" class="install-panel" role="tabpanel" style="display: none;">
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install the official Ruby gem from RubyGems (native C extension with Rice/Magnus integration):</p>
+          <pre><code>gem install expanse -v 0.5.0
+# Or in Gemfile: gem 'expanse', '~&gt; 0.5.0'</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in Ruby:</p>
+          <pre><code>require 'expanse'
+
+# Integer word map with zero-allocation immediates
+map = Expanse::Map.new
+map[42] = 100
+puts "Key 42: #{map[42]}"
+
+# Bitmap-backed integer set with O(depth) rank/select
+set = Expanse::Set.new
+set.add(1001)
+set.add(1002)
+puts "Contains 1001: #{set.include?(1001)}"
+puts "Rank: #{set.rank(1002)}"</code></pre>
+        </div>
+
+        <div id="tab-wasm" class="install-panel" role="tabpanel" style="display: none;">
+          <p style="margin-bottom: 0.75rem; color: var(--text-muted);">Install the official WebAssembly package via npm / unpkg (wasm-bindgen with zero-allocation memory views):</p>
+          <pre><code>npm install @orieg/expanse-wasm
+# or: bun add @orieg/expanse-wasm / pnpm add @orieg/expanse-wasm</code></pre>
+          <p style="margin-top: 1rem; margin-bottom: 0.75rem; color: var(--text-muted);">Usage example in JavaScript / TypeScript (Node.js &amp; Browser):</p>
+          <pre><code>import { ExpanseMap, ExpanseSet } from '@orieg/expanse-wasm';
+
+// Zero-allocation digital trie in WebAssembly
+const map = new ExpanseMap();
+map.insert(42n, 100n);
+console.log(`Found: ${map.get(42n)}`);
+
+// Bitmap bitset with instant membership test
+const set = new ExpanseSet();
+set.insert(1001n);
+console.log(`Contains 1001: ${set.contains(1001n)}`);</code></pre>
         </div>
 
         <div id="tab-espidf" class="install-panel" role="tabpanel" style="display: none;">
