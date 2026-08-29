@@ -1,7 +1,10 @@
 cff-version: 1.2.0
-message: "If you use Expanse, please cite it using the metadata in this file. Once the project has a Zenodo record, cite its concept DOI (all versions) or the version DOI of the release you used."
+message: "If you use Expanse, please cite it using the metadata in this file. Cite the concept DOI below to refer to the project as a whole; cite the version DOI under identifiers to refer to a specific release."
 title: "Expanse: clean-room, pure-Rust Judy arrays with a drop-in libjudy-compatible C ABI"
 type: software
+version: 0.5.0
+date-released: 2026-08-29
+doi: "10.5281/zenodo.22152112"
 abstract: "Expanse is a clean-room, pure-Rust implementation of Judy arrays — sparse, dynamic associative structures built as 256-ary digital tries partitioned by key range (expanse) rather than by population — modernized for current 64-bit and 32-bit embedded microarchitectures. It ships libexpanse, a high-performance drop-in C ABI replacement for libjudy, plus Go, Node.js, .NET and Python bindings."
 authors:
   - family-names: "Brousse"
@@ -20,9 +23,10 @@ keywords:
   - rust
   - libjudy
   - associative-array
-# Add once the Zenodo integration has minted them (first Release after enabling):
-# doi: "10.5281/zenodo.XXXXXXX"          # concept DOI (all versions)
-# identifiers:
-#   - type: doi
-#     value: "10.5281/zenodo.XXXXXXX"
-#     description: "Concept DOI (all versions)"
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.22152112"
+    description: "Concept DOI — all versions; always resolves to the latest release"
+  - type: doi
+    value: "10.5281/zenodo.22152113"
+    description: "Version DOI — v0.5.0"
