@@ -9,7 +9,8 @@
     (function() {
       'use strict';
       if (window.__expanseApplyTheme) { return; }
-      var KEY = 'expanse-theme';
+      var KEY = 'orieg-theme';
+      var LEGACY_KEY = 'expanse-theme';
       var LABELS = {
         system: 'Color theme: system (click to switch to light)',
         light: 'Color theme: light (click to switch to dark)',
@@ -17,7 +18,7 @@
       };
       function stored() {
         try {
-          var v = localStorage.getItem(KEY);
+          var v = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY);
           return (v === 'light' || v === 'dark') ? v : null;
         } catch (e) { return null; }
       }
@@ -955,13 +956,13 @@
     <div class="container">
       <div class="hero">
         <div class="badge-bar">
-          <span class="badge" style="border-color: var(--nav-pill-border); background: var(--nav-pill-bg); color: var(--accent);">Cortex-M &amp; RISC-V to server</span>
+          <span class="badge" style="border-color: var(--nav-pill-border); background: var(--nav-pill-bg); color: var(--accent);">32-bit MCU to 64-bit server</span>
           <span class="badge">Pure Rust &bull; no_std</span>
           <span class="badge badge-green">MIT OR Apache-2.0</span>
         </div>
         <h1>Judy arrays in pure Rust, rebuilt for modern hardware</h1>
         <p style="font-size: 1.15rem; line-height: 1.64; max-width: 780px; margin: 0 auto 1rem;">
-          Sparse, ordered maps and sets that <strong style="color: var(--heading);">cost what your keys cost</strong>. Keys decompose one byte per level into a 256-ary digital tree, and every node reshapes to match how crowded that byte&rsquo;s range is &mdash; so memory tracks the ranges you populate, not the number of keys, and never a pre-sized table.
+          Sparse, ordered maps and sets that <strong style="color: var(--heading);">cost what your keys cost</strong> &mdash; memory follows the key ranges you populate, not how many keys you have.
         </p>
         <p style="font-size: 0.95rem; line-height: 1.6; max-width: 760px; margin: 0 auto 1.5rem; color: var(--text-muted);">
           Sorted iteration, range scans and rank over integers, strings and byte slices &mdash; with cache-line-aligned nodes, SIMD/SWAR search and lock-free reader concurrency. One engine from a 32-bit MCU to a server, reachable from <strong style="color: var(--heading);">nine languages</strong> over a stable C ABI.
@@ -2392,7 +2393,7 @@ void app_main(void) {
   <footer>
     <div class="container">
       <p style="margin-bottom: 0.75rem;">
-        <span class="badge" style="font-size: 0.78rem;">Release v0.5.0</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/bfa6aae"><code>bfa6aae</code></a> &bull; Built on 2026-08-29
+        <span class="badge" style="font-size: 0.78rem;">Release v0.5.0</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/17caf12"><code>17caf12</code></a> &bull; Built on 2026-08-29
       </p>
       <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.85rem;">
         Judy &amp; Systems Ecosystem:
@@ -2427,14 +2428,20 @@ void app_main(void) {
   </script>
   <script>
     function toggleTheme() {
-      var KEY = 'expanse-theme';
+      var KEY = 'orieg-theme';
+      var LEGACY_KEY = 'expanse-theme';
       var v = null;
-      try { v = localStorage.getItem(KEY); } catch (e) {}
+      try { v = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY); } catch (e) {}
       var mode = (v === 'light' || v === 'dark') ? v : 'system';
       var next = mode === 'system' ? 'light' : (mode === 'light' ? 'dark' : 'system');
       try {
-        if (next === 'system') { localStorage.removeItem(KEY); }
-        else { localStorage.setItem(KEY, next); }
+        if (next === 'system') {
+          localStorage.removeItem(KEY);
+          localStorage.removeItem(LEGACY_KEY);
+        } else {
+          localStorage.setItem(KEY, next);
+          localStorage.removeItem(LEGACY_KEY);
+        }
       } catch (e) {}
       if (window.__expanseApplyTheme) { window.__expanseApplyTheme(); }
     }

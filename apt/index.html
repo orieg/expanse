@@ -8,7 +8,8 @@
     (function() {
       'use strict';
       if (window.__expanseApplyTheme) { return; }
-      var KEY = 'expanse-theme';
+      var KEY = 'orieg-theme';
+      var LEGACY_KEY = 'expanse-theme';
       var LABELS = {
         system: 'Color theme: system (click to switch to light)',
         light: 'Color theme: light (click to switch to dark)',
@@ -16,7 +17,7 @@
       };
       function stored() {
         try {
-          var v = localStorage.getItem(KEY);
+          var v = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY);
           return (v === 'light' || v === 'dark') ? v : null;
         } catch (e) { return null; }
       }
@@ -524,14 +525,20 @@ sudo apt-get install -y libexpanse1 libexpanse-dev libjudy-compat</code></pre>
 
   <script>
     function toggleTheme() {
-      var KEY = 'expanse-theme';
+      var KEY = 'orieg-theme';
+      var LEGACY_KEY = 'expanse-theme';
       var v = null;
-      try { v = localStorage.getItem(KEY); } catch (e) {}
+      try { v = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY); } catch (e) {}
       var mode = (v === 'light' || v === 'dark') ? v : 'system';
       var next = mode === 'system' ? 'light' : (mode === 'light' ? 'dark' : 'system');
       try {
-        if (next === 'system') { localStorage.removeItem(KEY); }
-        else { localStorage.setItem(KEY, next); }
+        if (next === 'system') {
+          localStorage.removeItem(KEY);
+          localStorage.removeItem(LEGACY_KEY);
+        } else {
+          localStorage.setItem(KEY, next);
+          localStorage.removeItem(LEGACY_KEY);
+        }
       } catch (e) {}
       if (window.__expanseApplyTheme) { window.__expanseApplyTheme(); }
     }
