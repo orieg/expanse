@@ -1116,6 +1116,13 @@ jobs:
       # failing a run whose numbers are otherwise complete. It is a missing
       # supplement, not a missing result - the ratios themselves are in the
       # comment either way.
+      # `bench-output.txt` is the generic runner's own tee target, so listing
+      # it covers every `runner: generic` suite in one line rather than by
+      # enumeration. That matters: the first version of this step listed the
+      # builtin suites' tee targets and missed the generic ones entirely, so
+      # `/benchmark hashbrown_native_suite` completed green and uploaded
+      # nothing — the same failure this step exists to fix, one layer over.
+      #
       # `concurrency`, `ycsb` and `comparative` are declared `harness = false`
       # in crates/expanse/Cargo.toml - custom mains that print their own tables
       # rather than criterion benchmarks - and the B/key examples are plain
@@ -1143,6 +1150,7 @@ jobs:
             ycsb.txt
             comparative.txt
             bytes-per-key.txt
+            bench-output.txt
             bytes-per-key-32.txt
           if-no-files-found: ignore
           retention-days: 30
