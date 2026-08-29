@@ -1,6 +1,6 @@
 [package]
 name = "expanse-node"
-version = "0.4.1"
+version = "0.5.0"
 description = "Native Node.js / Bun / Deno bindings for Expanse modern Judy arrays and digital tries via napi-rs"
 keywords = ["judy", "trie", "napi", "nodejs", "data-structures"]
 categories = ["api-bindings", "data-structures"]
@@ -21,7 +21,7 @@ napi-build = "2.4"
 [dependencies]
 napi = { version = "2.16", default-features = false, features = ["napi6", "async", "compat-mode"] }
 napi-derive = "2.16"
-expanse-trie = { version = "0.4.1", path = "../expanse" }
+expanse-trie = { version = "0.5.0", path = "../expanse" }
 
 [lints]
 workspace = true

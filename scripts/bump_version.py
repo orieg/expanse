@@ -279,6 +279,10 @@ PIN_WINDOWS_BUNDLE = re.compile(r"(expanse-v)([0-9]+\.[0-9]+\.[0-9]+)(-x86_64-pc
 PIN_MAVEN_SNIPPET = re.compile(r"(<version>)([^<]+)(</version>)")
 PIN_ESP_IDF = re.compile(r'(version: "\^)([^"]+)(")')
 PIN_NUGET_PACKAGEREF = re.compile(r'(<PackageReference Include="Orieg\.Expanse" Version=")([^"]+)(")')
+# Go modules resolve by git tag, so the install snippet must track the release.
+PIN_GO_MODULE = re.compile(
+    r"(go get github\.com/orieg/expanse/bindings/go@v)(\d[^\s]*)(\s|$)", re.MULTILINE
+)
 
 
 class DocPinsHandler(ManifestHandler):
@@ -448,9 +452,18 @@ def get_handlers(root: Path) -> List[ManifestHandler]:
             ],
         ),
         DocPinsHandler(
+            "bindings/go/README.md",
+            "bindings/go/README.md (version pins)",
+            [("go-module", PIN_GO_MODULE)],
+        ),
+        DocPinsHandler(
             "docs/PACKAGING.md",
             "docs/PACKAGING.md (version pins)",
-            [("nuget-packageref", PIN_NUGET_PACKAGEREF), ("esp-idf", PIN_ESP_IDF)],
+            [
+                ("nuget-packageref", PIN_NUGET_PACKAGEREF),
+                ("esp-idf", PIN_ESP_IDF),
+                ("go-module", PIN_GO_MODULE),
+            ],
         ),
         DocPinsHandler(
             "docs/bindings/java.md",

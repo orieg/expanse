@@ -1,6 +1,6 @@
 {
   "name": "@orieg/expanse",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Clean-room, pure-Rust modern Judy arrays and digital tries with cache-line-tuned node geometries, inline value packing, slab arenas, and OCC concurrency for Node.js, Bun, and Deno.",
   "main": "index.js",
   "types": "index.d.ts",
@@ -12,10 +12,10 @@
     "LICENSE-APACHE"
   ],
   "optionalDependencies": {
-    "@orieg/expanse-linux-x64-gnu": "0.4.1",
-    "@orieg/expanse-darwin-x64": "0.4.1",
-    "@orieg/expanse-darwin-arm64": "0.4.1",
-    "@orieg/expanse-win32-x64-msvc": "0.4.1"
+    "@orieg/expanse-linux-x64-gnu": "0.5.0",
+    "@orieg/expanse-darwin-x64": "0.5.0",
+    "@orieg/expanse-darwin-arm64": "0.5.0",
+    "@orieg/expanse-win32-x64-msvc": "0.5.0"
   },
   "scripts": {
     "test": "node test.js",
