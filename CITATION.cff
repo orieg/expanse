@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use Expanse, please cite it using the metadata in this file. Cite the concept DOI below to refer to the project as a whole; cite the version DOI under identifiers to refer to a specific release."
-title: "Expanse: Judy arrays in Rust with a libjudy-compatible C ABI"
+title: "Expanse: clean-room Judy arrays in Rust with a drop-in libjudy C ABI"
 type: software
 version: 0.5.0
 date-released: 2026-08-29
