@@ -66,6 +66,10 @@ Expanse is fundamentally defined by the **Judy digital tree architecture**. Ever
 5. **Deterministic Concurrency Invariant Enforcement & Zero Overhead**:
    - Never rely on probabilistic multi-threaded race timing as the primary verification of synchronization boundaries. Mutation paths under concurrent models (OCC/seqlock/EBR) must carry debug invariant assertions (`assert_bracketed()`) that panic immediately on unbracketed mutations.
    - Concurrency safeguards must never penalize single-threaded fast paths: suppress bypass conditions structurally (e.g., compile-time paths or clearing acceleration cursors in OCC mutations) rather than adding runtime atomic checks to hot paths.
+6. **Structural Derivation of Paired Hysteresis & Ladder Thresholds**:
+   - Never define paired demotion or exit thresholds as independent integer literals (e.g. writing `pub const BRANCH_B_DOWN_32: usize = 5;` when `BRANCH_L6_CAP_32 = 6`).
+   - Demotion and exit thresholds MUST be expressed as derived arithmetic expressions from the primary capacity/entry constants (e.g. `pub const BRANCH_B_DOWN_32: usize = BRANCH_L6_CAP_32 - 1;`, `pub const MAP_BITMAP_LEAVE_32: usize = MAP_BITMAP_ENTER_32 - 16;`).
+   - This makes the hysteresis relationship structural and prevents silent band decay when primary capacity constants are modified.
 
 ### 2.2 Strictly Forbidden Architectural Anti-Patterns (Impedance Mismatches)
 Never propose or graft foreign data structures or complected models onto Expanse:
@@ -306,6 +310,7 @@ Expanse is an empirical performance project. Autonomous agents interacting with 
 
 ### 8.7 Provenance & Pre-Registration Integrity
 - **Provenance Tags Required**: Every published number in documentation must carry a provenance tag: `(measured: host, commit)` resolving to a committed JSON artifact or cited CI run.
+- **Compiler Codegen & Assembly Provenance**: Claims comparing compiler instruction lowering or assembly counts (e.g. ISA extensions like Zbb/NEON vs software SWAR loops) must cite the exact reproduction invocation (`cargo rustc -p <crate> --lib --target <target> --release -- --emit asm`), toolchain version (`rustc X.Y.Z`), and target features.
 - **No In-Place Backfilling**: Pre-registration sections, hypotheses, claims ceilings, and expected loss matrices must **never be reconciled in place** with observed outcomes. When an empirical result refutes a pre-registered hypothesis or reveals an unexpected loss, report the outcome honestly with its strict verdict label.
 
 ### 8.8 The 3-Commit Cadence for Research Spikes
@@ -371,3 +376,5 @@ When modifying or correcting any existing benchmark or example harness:
 3. **Cross-Metric Claim Detection & Gate Test Pinning**:
    - **Cross-metric sentence scope**: Paired figure detection must cover both direct `A vs B` comparators and multi-metric sentences combining figures from distinct metric domains (instructions, wall-clock time, throughput, memory density) without a unifying workload tag. Narrative juxtaposition of disjoint metrics (e.g. "retires 0.55× instructions ... and is 1.11× slower in wall clock" or "2.66× lower RAM at 1.9M ops/s") is the primary mechanism of cross-experiment complection.
    - **Pin the motivating defect**: Any linter or hygiene gate guarding against misleading comparative prose MUST include the verbatim historical failure/retraction sentence in its fail-then-pass unit test suite. If the gate passes while ignoring the originating failure, it is measuring the wrong invariant.
+4. **Exhaustive Node Ladder Synchronization (#509)**:
+   - Every capacity, demotion floor, and hysteresis constant in `types.rs` and `types32.rs` must be published in `docs/visualizer_data.json`'s `node_ladder` and asserted by `crates/expanse/tests/test_visualizer_sync.rs` so unanchored engine constants cannot exist.
