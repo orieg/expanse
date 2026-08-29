@@ -279,6 +279,9 @@ PIN_WINDOWS_BUNDLE = re.compile(r"(expanse-v)([0-9]+\.[0-9]+\.[0-9]+)(-x86_64-pc
 PIN_MAVEN_SNIPPET = re.compile(r"(<version>)([^<]+)(</version>)")
 PIN_ESP_IDF = re.compile(r'(version: "\^)([^"]+)(")')
 PIN_NUGET_PACKAGEREF = re.compile(r'(<PackageReference Include="Orieg\.Expanse" Version=")([^"]+)(")')
+# CITATION.cff `version:` is validated against the workspace by
+# scripts/validate_citation.py, so it has to move with the bump.
+PIN_CFF_VERSION = re.compile(r"(^version: )(\d[^\s]*)($)", re.MULTILINE)
 # Go modules resolve by git tag, so the install snippet must track the release.
 PIN_GO_MODULE = re.compile(
     r"(go get github\.com/orieg/expanse/bindings/go@v)(\d[^\s]*)(\s|$)", re.MULTILINE
@@ -450,6 +453,11 @@ def get_handlers(root: Path) -> List[ManifestHandler]:
                 ("maven-snippet", PIN_MAVEN_SNIPPET),
                 ("esp-idf", PIN_ESP_IDF),
             ],
+        ),
+        DocPinsHandler(
+            "CITATION.cff",
+            "CITATION.cff (version pin)",
+            [("version", PIN_CFF_VERSION)],
         ),
         DocPinsHandler(
             "bindings/go/README.md",

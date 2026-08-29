@@ -122,6 +122,11 @@ jobs:
               - '*.md'
               - 'scripts/**'
               - 'website/**'
+              # The citation record is machine-checked by
+              # scripts/validate_citation.py; without these entries an edit
+              # to either file skips the job that validates it.
+              - 'CITATION.cff'
+              - '.zenodo.json'
             ruby:
               - 'bindings/ruby/**'
               - 'include/**'
@@ -310,6 +315,12 @@ jobs:
         run: |
           printf '%s' "$PR_BODY" > pr-body.txt
           python3 scripts/check_docs_hygiene.py --pr-body-file pr-body.txt
+
+      - name: Validate the citation record (CITATION.cff / .zenodo.json)
+        shell: bash
+        run: |
+          python3 -m pip install --quiet --disable-pip-version-check pyyaml
+          python3 scripts/validate_citation.py
 
   test:
     name: Core / Workspace Tests (${{ matrix.os }})
