@@ -5,7 +5,7 @@ Native Go 1.22+ bindings for `libexpanse`, providing zero-GC off-heap ordered ma
 ## Installation
 
 ```bash
-go get github.com/orieg/expanse/bindings/go@v0.4.1
+go get github.com/orieg/expanse/bindings/go@v0.5.0
 ```
 
 ## Build Modes

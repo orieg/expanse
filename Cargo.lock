@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "expanse-capi"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "expanse-trie",
  "iai-callgrind",
@@ -656,7 +656,7 @@ dependencies = [
 
 [[package]]
 name = "expanse-node"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "expanse-trie",
  "napi",
@@ -666,7 +666,7 @@ dependencies = [
 
 [[package]]
 name = "expanse-php"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "expanse-trie",
  "ext-php-rs",
@@ -674,7 +674,7 @@ dependencies = [
 
 [[package]]
 name = "expanse-py"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "expanse-trie",
  "pyo3",
@@ -682,7 +682,7 @@ dependencies = [
 
 [[package]]
 name = "expanse-trie"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "criterion",
  "crossbeam-skiplist",
@@ -700,7 +700,7 @@ dependencies = [
 
 [[package]]
 name = "expanse-wasm"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "console_error_panic_hook",
  "expanse-trie",

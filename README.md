@@ -237,7 +237,7 @@ Expanse provides first-class support for 32-bit embedded microprocessors (`Expan
 ### 1. Rust / Cargo (64-Bit & 32-Bit)
 ```toml
 [dependencies]
-expanse-trie = "0.4.1"
+expanse-trie = "0.5.0"
 ```
 
 ```rust
@@ -386,7 +386,7 @@ gcc legacy.c -lJudy -o legacy
 ```
 
 ### 7. Windows MSVC / vcpkg / NuGet
-- **Release Bundle**: `expanse-v0.4.1-x86_64-pc-windows-msvc.zip` with DLL, import lib, and headers.
+- **Release Bundle**: `expanse-v0.5.0-x86_64-pc-windows-msvc.zip` with DLL, import lib, and headers.
 - **vcpkg**: `vcpkg install expanse` using `extra/vcpkg/`.
 - **NuGet**: Visual Studio C++ package template in `extra/nuget/`.
 
@@ -419,7 +419,7 @@ See [docs/bindings/python.md](docs/bindings/python.md) for full Python documenta
 <dependency>
     <groupId>io.github.orieg</groupId>
     <artifactId>expanse-java</artifactId>
-    <version>0.4.1</version>
+    <version>0.5.0</version>
 </dependency>
 ```
 
@@ -517,7 +517,7 @@ Add `expanse` to your ESP-IDF project's `main/idf_component.yml`:
 ```yaml
 dependencies:
   expanse:
-    version: "^0.4.1"
+    version: "^0.5.0"
 ```
 Or clone directly into your project's `components/` directory:
 ```bash
