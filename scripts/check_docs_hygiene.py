@@ -146,15 +146,33 @@ RETRACTION_MARKERS = re.compile(
 )
 
 # --- fatal: paired figures & workload shape requirement ----------------------
-PAIRED_FIGURES_PAT = re.compile(
+PAIRED_VS_PAT = re.compile(
     r"(?:\b\d+(?:\.\d+)?\s*(?:ns|µs|us|ms|s|B/key|B/k|bytes/key|B/docID|bits/docID|B/tok|B/entry|Mops/s|M ops/s|M/s|Minst|M inst|inst|tps|M\b)\b(?:\*\*)?\s*(?:vs\.?|vs|against)\s*(?:\*\*)?\d+(?:\.\d+)?|\b\d+(?:\.\d+)?\b(?:\*\*)?\s*(?:vs\.?|vs|against)\s*(?:\*\*)?\d+(?:\.\d+)?\s*(?:ns|µs|us|ms|s|B/key|B/k|bytes/key|B/docID|bits/docID|B/tok|B/entry|Mops/s|M ops/s|M/s|Minst|M inst|inst|tps|M\b)\b)",
+    re.IGNORECASE,
+)
+INSTRUCTION_METRIC_PAT = re.compile(
+    r"(?:\b\d+(?:\.\d+)?\s*(?:x|×)\s*(?:the\s+)?instructions?\b|\b\d+(?:\.\d+)?\s*(?:M\s*inst|Minst|inst|instructions?|instruction-retired|Ir)\b|\b\d+(?:\.\d+)?%\s*(?:fewer|more)?\s*instructions?\b)",
+    re.IGNORECASE,
+)
+TIME_METRIC_PAT = re.compile(
+    r"(?:\b\d+(?:\.\d+)?\s*(?:ns|µs|us|ms|s)\b|\b\d+(?:\.\d+)?\s*(?:x|×)\s*(?:faster|slower|speedup)?\s*(?:in\s+)?wall[- ]?clock\b|wall[- ]?clock(?:\s+latency)?\s*(?:of\s*)?\d+(?:\.\d+)?\s*(?:ns|µs|us|ms|s|x|×)|\b\d+(?:\.\d+)?\s*(?:x|×)\s*(?:faster|slower)\b)",
+    re.IGNORECASE,
+)
+THROUGHPUT_METRIC_PAT = re.compile(
+    r"(?:\b\d+(?:\.\d+)?\s*(?:Mops/s|M ops/s|Mops|tps|M/s|ops/s|items/sec|inserts/sec)\b)",
+    re.IGNORECASE,
+)
+MEMORY_METRIC_PAT = re.compile(
+    r"(?:\b\d+(?:\.\d+)?\s*(?:B/key|B/k|bytes/key|B/docID|bits/docID|B/tok|B/entry|B/state)\b|\b\d+(?:\.\d+)?\s*(?:x|×)\s*(?:lower|higher|less|more)?\s*(?:RAM|memory|heap|footprint)\b|\b\d+(?:\.\d+)?\s*(?:MB|MiB|GB|GiB|KB|KiB)\s*(?:RAM|heap|memory|live heap)\b)",
     re.IGNORECASE,
 )
 WORKLOAD_TAG_PAT = re.compile(r"(?:[\(\[]|;\s*|\b)workload:\s*`?([a-zA-Z0-9_-]+)`?\b", re.IGNORECASE)
 WORKLOAD_DIFF_PAT = re.compile(r"(?:[\(\[]|;\s*|\b)workloads\s+differ:\s*`?([a-zA-Z0-9_-]+)`?\s+vs\s+`?([a-zA-Z0-9_-]+)`?\b", re.IGNORECASE)
 PAIRED_FALLBACK_PAT = re.compile(
     r"\b(different\s+experiment|different\s+workload|not\s+comparable|retracted|superseded|"
-    r"neither\s+half\s+describes|two\s+halves\s+are\s+different|historical\s+record|pre-#\d+)\b",
+    r"neither\s+half\s+describes|two\s+halves\s+are\s+different|historical\s+record|pre-#\d+|"
+    r"unmeasured|unverified|definitional|no\s+arm\s+on\s+which\s+both\s+were\s+observed|"
+    r"strawman|target|\(target\)|until\s+measured|pending\s+(?:fair-baseline\s+)?re-run)\b",
     re.IGNORECASE,
 )
 
@@ -445,7 +463,8 @@ def check_paired_figures(lines: list[tuple[int, str]], path_label: str = "") -> 
             if ALLOW_MARKER in text:
                 continue
             
-            for m in PAIRED_FIGURES_PAT.finditer(text):
+            # Check 1: Direct "A vs B" comparison
+            for m in PAIRED_VS_PAT.finditer(text):
                 if has_workload_tag:
                     continue
                 # Line-level context check
@@ -458,6 +477,27 @@ def check_paired_figures(lines: list[tuple[int, str]], path_label: str = "") -> 
                     continue
                 hits.append((n, m.group(0).strip()))
                 break
+            
+            # Check 2: Cross-metric / multi-metric pairing in one sentence/clause
+            sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\|", text) if s.strip()]
+            for s in sentences:
+                if has_workload_tag:
+                    continue
+                if (
+                    WORKLOAD_TAG_PAT.search(s)
+                    or WORKLOAD_DIFF_PAT.search(s)
+                    or PAIRED_FALLBACK_PAT.search(s)
+                ):
+                    continue
+                has_inst = bool(INSTRUCTION_METRIC_PAT.search(s))
+                has_time = bool(TIME_METRIC_PAT.search(s))
+                has_tput = bool(THROUGHPUT_METRIC_PAT.search(s))
+                has_mem = bool(MEMORY_METRIC_PAT.search(s))
+                classes_count = sum([has_inst, has_time, has_tput, has_mem])
+                if classes_count >= 2:
+                    if not any(h[0] == n for h in hits):
+                        hits.append((n, s))
+                        break
 
     return hits
 
@@ -624,6 +664,18 @@ def self_test() -> int:
     assert fatal == 0, "table cell with workload tag must pass"
     fatal, _ = scan_text("t.md", "| op | latency |\n|---|---|\n| get | 12.2 ns vs 22.4 ns |\n", deny, False, reg)
     assert fatal >= 1, "table cell without workload tag must fail"
+
+    # Cross-metric paired claims (the motivating #453 / #487 defect)
+    fatal, _ = scan_text("t.md", "libexpanse retires 0.55x the instructions of stock libjudy on random 1M lookup and is 1.11x slower in wall clock.\n", deny, False, reg)
+    assert fatal >= 1, "un-tagged instruction + wall-clock paired claim (ASCII x) must fail"
+    fatal, _ = scan_text("t.md", "libexpanse retires 0.55× the instructions of stock libjudy on random 1M lookup and is 1.11× slower in wall clock.\n", deny, False, reg)
+    assert fatal >= 1, "un-tagged instruction + wall-clock paired claim (Unicode ×) must fail"
+    fatal, _ = scan_text("t.md", "Retracted (workloads differ: capi_vs_stock vs capi_bench_vs_libjudy): libexpanse retires 0.55× the instructions of stock libjudy on random 1M lookup and is 1.11× slower in wall clock.\n", deny, False, reg)
+    assert fatal == 0, "retracted instruction + wall-clock paired claim with workloads differ must pass"
+    fatal, _ = scan_text("t.md", "Achieves 2.66x lower RAM at 1.9M ops/s.\n", deny, False, reg)
+    assert fatal >= 1, "un-tagged cross-metric RAM + throughput claim must fail"
+    fatal, _ = scan_text("t.md", "Achieves 2.66x lower RAM at 1.9M ops/s (workload: domain_grammar_masks).\n", deny, False, reg)
+    assert fatal == 0, "cross-metric claim with workload tag must pass"
 
     # Superseded figure tests with Unicode × (U+00D7) and lookaround boundaries
     fatal, _ = scan_text("t.md", "Random lookup 1M is 1.11× slower than stock JudyL.\n", deny, False, reg)
