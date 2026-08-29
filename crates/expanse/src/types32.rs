@@ -63,13 +63,13 @@ pub const BRANCH_L6_CAP_32: usize = 6;
 pub const BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32: usize = 192;
 
 /// Demotion threshold for `BranchU32` back to `BranchB32` (<= 190 child edges, band of 2).
-pub const BRANCH_U_DOWN_32: usize = 190;
+pub const BRANCH_U_DOWN_32: usize = BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32 - 2;
 
 /// Demotion threshold for `BranchB32` back to `BranchL6_32` (<= 5 child edges, band of 1).
-pub const BRANCH_B_DOWN_32: usize = 5;
+pub const BRANCH_B_DOWN_32: usize = BRANCH_L6_CAP_32 - 1;
 
 /// Demotion threshold for `BranchL6_32` back to `BranchL2_32` (<= 1 child edge, band of 1).
-pub const BRANCH_L6_DOWN_32: usize = 1;
+pub const BRANCH_L6_DOWN_32: usize = BRANCH_L2_CAP_32 - 1;
 
 /// Maximum population for a set linear leaf at level >= 2 before converting to a branch.
 pub const SET_LEAF_MAX_32: usize = 24;
@@ -78,7 +78,7 @@ pub const SET_LEAF_MAX_32: usize = 24;
 pub const SET_BITMAP_ENTER_32: usize = 64;
 
 /// Population threshold where a `LeafBitmap1_32` set leaf demotes to a linear leaf (band of 16).
-pub const SET_BITMAP_LEAVE_32: usize = 48;
+pub const SET_BITMAP_LEAVE_32: usize = SET_BITMAP_ENTER_32 - 16;
 
 /// Maximum population for a map linear leaf at level >= 2 before converting to a branch.
 pub const MAP_LEAF_MAX_32: usize = 16;
@@ -87,7 +87,7 @@ pub const MAP_LEAF_MAX_32: usize = 16;
 pub const MAP_BITMAP_ENTER_32: usize = 64;
 
 /// Population threshold where a `LeafBitmapL_32` map leaf demotes to a linear leaf (band of 16).
-pub const MAP_BITMAP_LEAVE_32: usize = 48;
+pub const MAP_BITMAP_LEAVE_32: usize = MAP_BITMAP_ENTER_32 - 16;
 
 /// Tag discriminants for `Edge32`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

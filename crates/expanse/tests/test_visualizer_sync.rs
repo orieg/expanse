@@ -104,6 +104,54 @@ fn test_visualizer_constants_sync() {
         json_content.contains(r#""MAX_LEVEL": 8"#),
         "JSON must contain MAX_LEVEL: 8"
     );
+    assert!(
+        json_content.contains(r#""BRANCH_L2_CAP_32": 2"#),
+        "JSON must contain BRANCH_L2_CAP_32: 2"
+    );
+    assert!(
+        json_content.contains(r#""BRANCH_L6_CAP_32": 6"#),
+        "JSON must contain BRANCH_L6_CAP_32: 6"
+    );
+    assert!(
+        json_content.contains(r#""BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32": 192"#),
+        "JSON must contain BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32: 192"
+    );
+    assert!(
+        json_content.contains(r#""BRANCH_U_DOWN_32": 190"#),
+        "JSON must contain BRANCH_U_DOWN_32: 190"
+    );
+    assert!(
+        json_content.contains(r#""BRANCH_B_DOWN_32": 5"#),
+        "JSON must contain BRANCH_B_DOWN_32: 5"
+    );
+    assert!(
+        json_content.contains(r#""BRANCH_L6_DOWN_32": 1"#),
+        "JSON must contain BRANCH_L6_DOWN_32: 1"
+    );
+    assert!(
+        json_content.contains(r#""SET_LEAF_MAX_32": 24"#),
+        "JSON must contain SET_LEAF_MAX_32: 24"
+    );
+    assert!(
+        json_content.contains(r#""SET_BITMAP_ENTER_32": 64"#),
+        "JSON must contain SET_BITMAP_ENTER_32: 64"
+    );
+    assert!(
+        json_content.contains(r#""SET_BITMAP_LEAVE_32": 48"#),
+        "JSON must contain SET_BITMAP_LEAVE_32: 48"
+    );
+    assert!(
+        json_content.contains(r#""MAP_LEAF_MAX_32": 16"#),
+        "JSON must contain MAP_LEAF_MAX_32: 16"
+    );
+    assert!(
+        json_content.contains(r#""MAP_BITMAP_ENTER_32": 64"#),
+        "JSON must contain MAP_BITMAP_ENTER_32: 64"
+    );
+    assert!(
+        json_content.contains(r#""MAP_BITMAP_LEAVE_32": 48"#),
+        "JSON must contain MAP_BITMAP_LEAVE_32: 48"
+    );
 
     // 4. Verify 32-bit embedded constants
     assert_eq!(expanse_trie::types32::MAX_LEVEL_32, 4);
