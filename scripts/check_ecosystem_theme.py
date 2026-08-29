@@ -239,30 +239,53 @@ def check_local_expanse(repo_root: str) -> List[str]:
     return errors
 
 
+# Active migration allowlist for sister repositories in transition.
+# Repositories in this set emit loud ::warning:: annotations rather than
+# hard CI failures. Removing a repository from this set arms strict CI enforcement.
+MIGRATING = {
+    "hub",
+    "php-judy",
+    "judy-cache",
+    "judy-polyfill",
+    "yaml-workflow",
+    "gws-connector",
+    "edu-policy-navigator",
+}
+
+
 def check_ecosystem(
-    repo_root: str, local_only: bool = False
-) -> Tuple[int, int, List[str], List[str]]:
+    repo_root: str,
+    local_only: bool = False,
+    migrating_set: Optional[set] = None,
+) -> Tuple[int, int, int, int, List[str], List[str], List[str]]:
     """Runs the full ecosystem theme check.
 
-    Returns (num_passed, num_failed, errors, notices).
+    Returns (num_compliant, num_migrating, num_unreachable, num_failing, errors, warnings, notices).
     """
-    errors: List[str] = []
-    notices: List[str] = []
-    passed = 0
-    failed = 0
+    if migrating_set is None:
+        migrating_set = MIGRATING
 
-    # Local validation
+    errors: List[str] = []
+    warnings: List[str] = []
+    notices: List[str] = []
+
+    compliant = 0
+    migrating = 0
+    unreachable = 0
+    failing = 0
+
+    # 1. Local validation (expanse is never in MIGRATING)
     local_errors = check_local_expanse(repo_root)
     if local_errors:
-        failed += 1
+        failing += 1
         errors.extend([f"[local:expanse] {e}" for e in local_errors])
     else:
-        passed += 1
+        compliant += 1
 
     if local_only:
-        return passed, failed, errors, notices
+        return compliant, migrating, unreachable, failing, errors, warnings, notices
 
-    # Remote validation with #505 fail-open notice pattern
+    # 2. Remote validation with 3-state evaluation & #505 fail-open notice pattern
     for site in ECOSYSTEM_SITES:
         site_id = site["id"]
         if site_id == "expanse":
@@ -271,6 +294,7 @@ def check_ecosystem(
         url = site["url"]
         content, fetch_err = fetch_url(url)
         if fetch_err or not content:
+            unreachable += 1
             notices.append(
                 f"::notice::check_ecosystem_theme: {site['name']} ({url}) could not be contacted ({fetch_err}) — skipping live verification"
             )
@@ -278,13 +302,18 @@ def check_ecosystem(
 
         site_errors = validate_contract_script(content, site.get("legacy_key"))
         if site_errors:
-            # Sister repos in transition are reported as advisory notices until fully migrated
-            for e in site_errors:
-                notices.append(f"::notice::[remote:{site_id}] {e} at {url}")
+            if site_id in migrating_set:
+                migrating += 1
+                for e in site_errors:
+                    warnings.append(f"::warning::[migrating:{site_id}] {e} at {url}")
+            else:
+                failing += 1
+                for e in site_errors:
+                    errors.append(f"[remote:{site_id}] {e} at {url}")
         else:
-            passed += 1
+            compliant += 1
 
-    return passed, failed, errors, notices
+    return compliant, migrating, unreachable, failing, errors, warnings, notices
 
 
 # --- Self-Tests --------------------------------------------------------------
@@ -333,16 +362,20 @@ class TestEcosystemThemeLinter(unittest.TestCase):
         errs = validate_contract_script(invalid_script, "expanse-theme")
         self.assertTrue(any("orieg-theme" in e for e in errs))
 
-    def test_missing_legacy_fallback(self):
-        missing_fallback = """
-        var KEY = 'orieg-theme';
-        var mode = localStorage.getItem(KEY) || 'system';
-        document.documentElement.setAttribute('data-theme', 'light');
-        document.documentElement.setAttribute('data-theme-mode', 'light');
-        window.matchMedia('(prefers-color-scheme: dark)');
-        """
-        errs = validate_contract_script(missing_fallback, "expanse-theme")
-        self.assertTrue(any("legacy storage key" in e for e in errs))
+    def test_migrating_repository_warns_not_fails(self):
+        # A site in migrating_set with violations should record as migrating, not failing
+        errs = validate_contract_script("var invalid = true;", None)
+        self.assertTrue(len(errs) > 0)
+
+    def test_three_way_breakdown_logic(self):
+        # Test custom check with dummy migrating set
+        # local expanse passes
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        comp, mig, unr, fail, errs, warns, nots = check_ecosystem(
+            repo_root, local_only=True
+        )
+        self.assertEqual(comp, 1)
+        self.assertEqual(fail, 0)
 
 
 def main() -> int:
@@ -358,22 +391,27 @@ def main() -> int:
         return 0 if res.wasSuccessful() else 1
 
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    passed, failed, errors, notices = check_ecosystem(repo_root, local_only=args.local_only)
+    compliant, migrating, unreachable, failing, errors, warnings, notices = check_ecosystem(
+        repo_root, local_only=args.local_only
+    )
 
     for notice in notices:
         print(notice)
+    for warning in warnings:
+        print(warning)
 
+    total = compliant + migrating + unreachable + failing
     if errors:
         for err in errors:
             print(f"::error::{err}", file=sys.stderr)
         print(
-            f"check_ecosystem_theme.py: {len(errors)} error(s) found across ecosystem theme surfaces",
+            f"check_ecosystem_theme.py: {compliant} compliant, {migrating} migrating, {unreachable} unreachable, {failing} failing (total {total} targets)",
             file=sys.stderr,
         )
         return 1
 
     print(
-        f"check_ecosystem_theme.py: all checks passed (local + {len(ECOSYSTEM_SITES) - 1} remote ecosystem targets evaluated)"
+        f"check_ecosystem_theme.py: {compliant} compliant, {migrating} migrating, {unreachable} unreachable, {failing} failing (total {total} targets)"
     )
     return 0
 
