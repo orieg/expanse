@@ -26,14 +26,15 @@
   "keywords": [
     "judy",
     "judy-array",
+    "libjudy",
     "trie",
     "radix-tree",
     "sparse-set",
     "sparse-map",
+    "ordered-map",
     "napi",
     "occ",
     "concurrency",
-    "high-performance",
     "data-structures"
   ],
   "author": "Nicolas Brousse <nicolas@brousse.info>",

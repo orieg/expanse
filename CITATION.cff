@@ -17,12 +17,19 @@ repository-code: "https://github.com/orieg/expanse"
 url: "https://github.com/orieg/expanse"
 keywords:
   - judy-array
+  - libjudy
   - radix-tree
+  - digital-tree
   - trie
+  - sparse-array
+  - ordered-map
+  - associative-array
+  - c-api
+  - no-std
+  - embedded
+  - simd
   - data-structures
   - rust
-  - libjudy
-  - associative-array
 identifiers:
   - type: doi
     value: "10.5281/zenodo.22152112"

@@ -1,4 +1,4 @@
-"""Expanse: Modern Judy arrays and high-performance digital tries in Python.
+"""Expanse: Judy arrays and digital tries in Python.
 
 Expanse provides cache-line-tuned, 64-bit Judy array data structures
 reimplemented from first principles in clean-room pure Rust:
