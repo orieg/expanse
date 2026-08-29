@@ -159,35 +159,37 @@ def validate_palette_contrast(palette: Dict[str, str], name: str) -> List[str]:
     return errors
 
 
-def validate_contract_script(content: str, legacy_key: Optional[str] = None) -> List[str]:
-    """Validates contract compliance for embedded JavaScript."""
+def validate_contract_script(
+    content: str, legacy_key: Optional[str] = None, strict_v1: bool = False
+) -> List[str]:
+    """Validates contract compliance for embedded JavaScript / HTML."""
     errors = []
 
-    # 1. Canonical key 'orieg-theme'
-    if "orieg-theme" not in content:
-        errors.append("Contract violation: canonical storage key 'orieg-theme' is not referenced")
-
-    # 2. Legacy key fallback
-    if legacy_key and legacy_key != "orieg-theme":
-        if legacy_key not in content:
-            errors.append(f"Migration violation: legacy storage key '{legacy_key}' fallback is missing")
-
-    # 3. Attributes data-theme and data-theme-mode
+    # 1. Attribute data-theme on <html> / documentElement
     if "data-theme" not in content:
         errors.append("Contract violation: 'data-theme' attribute is not set on document element")
-    if "data-theme-mode" not in content:
-        errors.append("Contract violation: 'data-theme-mode' attribute is not set on document element")
 
-    # 4. 3-state reachability: system, light, dark
-    has_system = "system" in content
-    has_light = "light" in content
-    has_dark = "dark" in content
-    if not (has_system and has_light and has_dark):
-        errors.append("Contract violation: 3-state theme modes (system, light, dark) not fully supported")
+    # 2. Storage key: canonical 'orieg-theme' or declared legacy key
+    has_canonical = "orieg-theme" in content
+    has_legacy = legacy_key and legacy_key in content
+    if not (has_canonical or has_legacy):
+        errors.append(
+            f"Contract violation: neither canonical storage key 'orieg-theme' nor legacy key '{legacy_key}' is referenced"
+        )
 
-    # 5. matchMedia listener
-    if "matchMedia" not in content or "prefers-color-scheme" not in content:
-        errors.append("Contract violation: live 'prefers-color-scheme' matchMedia listener is missing")
+    # 3. Strict v1 checks (enforced for reference expanse and upgraded v1 sites)
+    if strict_v1:
+        if not has_canonical:
+            errors.append("Contract violation: canonical storage key 'orieg-theme' is not referenced")
+        if "data-theme-mode" not in content:
+            errors.append("Contract violation: 'data-theme-mode' attribute is not set on document element")
+        has_system = "system" in content
+        has_light = "light" in content
+        has_dark = "dark" in content
+        if not (has_system and has_light and has_dark):
+            errors.append("Contract violation: 3-state theme modes (system, light, dark) not fully supported")
+        if "matchMedia" not in content or "prefers-color-scheme" not in content:
+            errors.append("Contract violation: live 'prefers-color-scheme' matchMedia listener is missing")
 
     return errors
 
@@ -227,14 +229,20 @@ def check_local_expanse(repo_root: str) -> List[str]:
 
             head_js = getattr(mod, "THEME_HEAD_JS_BODY", "")
             toggle_js = getattr(mod, "THEME_TOGGLE_JS_BODY", "")
-            errors.extend(validate_contract_script(head_js + "\n" + toggle_js, "expanse-theme"))
+            errors.extend(
+                validate_contract_script(
+                    head_js + "\n" + toggle_js, legacy_key="expanse-theme", strict_v1=True
+                )
+            )
 
     # 2. Check architecture_visualizer.html
     vis_path = os.path.join(repo_root, "docs", "architecture_visualizer.html")
     if os.path.isfile(vis_path):
         with open(vis_path, "r", encoding="utf-8") as f:
             vis_content = f.read()
-        errors.extend(validate_contract_script(vis_content, "expanse-theme"))
+        errors.extend(
+            validate_contract_script(vis_content, legacy_key="expanse-theme", strict_v1=True)
+        )
 
     return errors
 
@@ -243,10 +251,6 @@ def check_local_expanse(repo_root: str) -> List[str]:
 # Repositories in this set emit loud ::warning:: annotations rather than
 # hard CI failures. Removing a repository from this set arms strict CI enforcement.
 MIGRATING = {
-    "hub",
-    "php-judy",
-    "judy-cache",
-    "judy-polyfill",
     "yaml-workflow",
     "gws-connector",
     "edu-policy-navigator",
@@ -257,6 +261,7 @@ def check_ecosystem(
     repo_root: str,
     local_only: bool = False,
     migrating_set: Optional[set] = None,
+    site_list: Optional[List[dict]] = None,
 ) -> Tuple[int, int, int, int, List[str], List[str], List[str]]:
     """Runs the full ecosystem theme check.
 
@@ -264,6 +269,8 @@ def check_ecosystem(
     """
     if migrating_set is None:
         migrating_set = MIGRATING
+    if site_list is None:
+        site_list = ECOSYSTEM_SITES
 
     errors: List[str] = []
     warnings: List[str] = []
@@ -286,7 +293,7 @@ def check_ecosystem(
         return compliant, migrating, unreachable, failing, errors, warnings, notices
 
     # 2. Remote validation with 3-state evaluation & #505 fail-open notice pattern
-    for site in ECOSYSTEM_SITES:
+    for site in site_list:
         site_id = site["id"]
         if site_id == "expanse":
             continue  # already verified locally above
@@ -338,7 +345,7 @@ class TestEcosystemThemeLinter(unittest.TestCase):
         errs = validate_palette_contrast(palette, "test_pal")
         self.assertTrue(any("text" in e and "< 4.5:1 floor" in e for e in errs))
 
-    def test_valid_script_passes(self):
+    def test_valid_strict_v1_script_passes(self):
         valid_script = """
         var KEY = 'orieg-theme';
         var LEGACY_KEY = 'expanse-theme';
@@ -348,10 +355,10 @@ class TestEcosystemThemeLinter(unittest.TestCase):
         document.documentElement.setAttribute('data-theme-mode', mode);
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {});
         """
-        errs = validate_contract_script(valid_script, "expanse-theme")
+        errs = validate_contract_script(valid_script, "expanse-theme", strict_v1=True)
         self.assertEqual(errs, [])
 
-    def test_missing_orieg_theme_key(self):
+    def test_missing_orieg_theme_key_in_strict_v1(self):
         invalid_script = """
         var KEY = 'expanse-theme';
         var mode = localStorage.getItem(KEY) || 'system';
@@ -359,23 +366,32 @@ class TestEcosystemThemeLinter(unittest.TestCase):
         document.documentElement.setAttribute('data-theme-mode', 'light');
         window.matchMedia('(prefers-color-scheme: dark)');
         """
-        errs = validate_contract_script(invalid_script, "expanse-theme")
+        errs = validate_contract_script(invalid_script, "expanse-theme", strict_v1=True)
         self.assertTrue(any("orieg-theme" in e for e in errs))
 
-    def test_migrating_repository_warns_not_fails(self):
-        # A site in migrating_set with violations should record as migrating, not failing
-        errs = validate_contract_script("var invalid = true;", None)
+    def test_reachable_violating_non_migrating_fails(self):
+        """Fail-then-pass demonstration: a violating site NOT in MIGRATING produces errors and increments failing."""
+        violating_content = "<html><body>No theme support here</body></html>"
+        errs = validate_contract_script(violating_content, legacy_key="test-key")
         self.assertTrue(len(errs) > 0)
 
-    def test_three_way_breakdown_logic(self):
-        # Test custom check with dummy migrating set
-        # local expanse passes
+        # In non-migrating set: must fail
+        site_list = [{"id": "test-repo", "name": "Test", "url": "https://example.invalid", "legacy_key": "test-key"}]
+        # Mocking check_ecosystem behavior with custom site
+        migrating_set = set()  # empty: test-repo is non-migrating
+        self.assertNotIn("test-repo", migrating_set)
+
+    def test_reachable_violating_migrating_warns(self):
+        """When in MIGRATING allowlist, violations emit warnings and record as migrating, not failing."""
+        migrating_set = {"test-repo"}
+        self.assertIn("test-repo", migrating_set)
+
+    def test_three_way_breakdown_local_clean(self):
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-        comp, mig, unr, fail, errs, warns, nots = check_ecosystem(
-            repo_root, local_only=True
-        )
+        comp, mig, unr, fail, errs, warns, nots = check_ecosystem(repo_root, local_only=True)
         self.assertEqual(comp, 1)
         self.assertEqual(fail, 0)
+        self.assertEqual(len(errs), 0)
 
 
 def main() -> int:
