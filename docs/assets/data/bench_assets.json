@@ -63,9 +63,9 @@
 
   "ycsb": {
     "meta": {
-      "source": "benches/ycsb.rs, post-#385 re-measurement",
+      "source": "benches/ycsb.rs, post-#470 payload-dereference repair",
       "host": "reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, idle",
-      "run": "33037221608",
+      "run": "33219093994",
       "config": "N = 100,000, Zipfian theta = 0.99, 128B blobs, seed 0x1234_5678_9ABC, criterion median throughput",
       "retraction": "The Workload E figure published under #375 (ExpanseBlobMap 13.2 Mops/s, '7.3x speedup' over SkipMap) is retracted. Re-measured under #385, Workload E INVERTS: BTreeMap wins it."
     },
@@ -73,16 +73,16 @@
     "engines": ["ExpanseMap (u64)", "ExpanseBlobMap (128B)", "BTreeMap (128B)", "SkipMap (128B)"],
     "kinds": ["expanse", "expanse_blob", "btree", "skipmap"],
     "workloads": [
-      { "id": "A", "desc": "50% Read / 50% Update", "mops": [20.66, 20.38, 4.26, 1.90] },
-      { "id": "B", "desc": "95% Read / 5% Update", "mops": [23.27, 21.21, 4.42, 2.54] },
-      { "id": "C", "desc": "100% Read", "mops": [23.61, 21.26, 4.44, 1.98] },
-      { "id": "D", "desc": "95% Read-Latest / 5% Insert", "mops": [23.02, 21.50, 4.28, 1.93] },
-      { "id": "F", "desc": "50% Read / 50% Read-Modify-Write", "mops": [18.82, 14.73, 4.35, 1.81] }
+      { "id": "A", "desc": "50% Read / 50% Update", "mops": [20.49, 20.235, 4.25, 1.903] },
+      { "id": "B", "desc": "95% Read / 5% Update", "mops": [23.016, 21.269, 4.429, 2.566] },
+      { "id": "C", "desc": "100% Read", "mops": [23.469, 21.405, 4.428, 1.941] },
+      { "id": "D", "desc": "95% Read-Latest / 5% Insert", "mops": [22.797, 21.488, 4.238, 1.888] },
+      { "id": "F", "desc": "50% Read / 50% Read-Modify-Write", "mops": [18.659, 14.685, 4.362, 1.76] }
     ],
     "workload_e": {
       "id": "E",
       "desc": "95% Short Range Scan / 5% Insert",
-      "mops": [0.830, 0.657, 1.289, 0.305],
+      "mops": [0.857, 0.693, 1.259, 0.276],
       "note": "Plotted on its own axis: every arm is an order of magnitude below A-D/F, and BTreeMap wins."
     }
   }
