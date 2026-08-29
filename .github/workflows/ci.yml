@@ -308,6 +308,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
+      # GitHub token for gh CLI issue state checks in check_docs_hygiene.py
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Comma-separated private hostnames to reject in docs/PR text. A SECRET,
       # not a variable: Actions echoes job `env:` values into the run log, which
       # is public on this repository, and only secrets are masked (`***`). A

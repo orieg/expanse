@@ -153,6 +153,7 @@ PENDING_PATTERN = re.compile(
 )
 
 _ISSUE_STATUS_CACHE: dict[int, str] = {}
+_SKIPPED_ISSUE_CHECKS: set[int] = set()
 
 
 def get_issue_status(issue_num: int) -> str:
@@ -171,8 +172,9 @@ def get_issue_status(issue_num: int) -> str:
                 return status
     except Exception:
         pass
-    # Fallback when gh CLI is unavailable or offline
+    # Fallback when gh CLI is unavailable or offline (e.g. fork PRs with no GH_TOKEN)
     _ISSUE_STATUS_CACHE[issue_num] = "UNKNOWN"
+    _SKIPPED_ISSUE_CHECKS.add(issue_num)
     return "UNKNOWN"
 
 
@@ -641,6 +643,10 @@ def main() -> int:
     if args.pr_body_file and os.path.exists(args.pr_body_file):
         f, _ = scan_text("PR body", Path(args.pr_body_file).read_text(encoding="utf-8", errors="replace"), denylist, provenance=False, registry=registry)
         fatal += f
+
+    if _SKIPPED_ISSUE_CHECKS:
+        skipped_str = ", ".join(f"#{num}" for num in sorted(_SKIPPED_ISSUE_CHECKS))
+        print(f"::notice::GitHub API unavailable (or GH_TOKEN unset) — open/closed status check skipped for issue(s): {skipped_str}")
 
     print(f"check_docs_hygiene.py: {fatal} fatal finding(s), {warnings} advisory warning(s)")
     return 1 if fatal else 0
