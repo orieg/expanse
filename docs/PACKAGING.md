@@ -325,6 +325,7 @@ Expanse is *intended* to be distributed on [NuGet.org](https://www.nuget.org) as
 Expanse provides a unified dual-driver distribution for PHP 8.1–8.5+:
 - **Composer / Packagist (library)**: [`orieg/expanse`](https://packagist.org/packages/orieg/expanse) — pure-PHP userland package, subsplit from `bindings/php` to [`github.com/orieg/expanse-php-library`](https://github.com/orieg/expanse-php-library).
 - **PIE (extension)**: `pie install orieg/expanse-extension` — native Zend extension compiled locally from Rust (`ext-php-rs`), subsplit from `crates/expanse-php` to [`github.com/orieg/php-expanse`](https://github.com/orieg/php-expanse). Follows the MongoDB two-package convention (library = bare name, extension = `-extension`).
+- **Release path**: both packages are published by the `subsplit.yml` mirror workflow on a `v*` tag — **not** by the release DAG in `release.yml`, which contains no PHP step. Packagist ingests from the mirror repositories by webhook, so a green subsplit run means the mirrors were updated, not that Packagist serves the new version. Verify both package pages after a release ([#498](https://github.com/orieg/expanse/issues/498)).
 - **Zero-Install FFI Fallback**: Automatically activates `\FFI` downcalls into `libexpanse` when native extension compilation is unavailable.
 - **Quickstart**:
   ```bash
@@ -385,7 +386,7 @@ See `bindings/go/README.md` for details.
 ---
 
 ### 2.14 Multi-Ecosystem Version Synchronization (`scripts/bump_version.py`)
-Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, Java/Maven/Gradle, PHP/Composer/PIE, and Ruby/Gems) spanning 16 canonical manifests. Publication status differs per registry (see the per-ecosystem sections: crates.io / npm (+wasm) / PyPI / NuGet / RubyGems / PHP-Packagist all wired into the anchor-first release DAG; Go pinned via nested-module tags; Java/Maven not yet built or published). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
+Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, Java/Maven/Gradle, PHP/Composer/PIE, and Ruby/Gems) spanning 16 canonical manifests. Publication status differs per registry (see the per-ecosystem sections: crates.io / npm (+wasm) / PyPI / NuGet / RubyGems wired into the anchor-first release DAG; PHP/Packagist published out-of-band by the `subsplit.yml` mirror workflow, whose success confirms the mirrors were pushed but not that Packagist ingested the version ([#498](https://github.com/orieg/expanse/issues/498)); Go pinned via nested-module tags; Java/Maven not yet built or published). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
 
 #### Synchronized Manifests:
 | Manifest File | Section / Key | Description |

@@ -26,6 +26,23 @@ jobs:
     name: Mirror / bindings/php -> orieg/expanse-php-library
     runs-on: ubuntu-latest
     steps:
+      # A tag push is a publish path: a missing key must fail, never report
+      # success having mirrored nothing (AGENTS.md 8.1). On main a missing key
+      # is tolerable (forks, unconfigured clones) and only warns.
+      - name: Preflight / require the deploy key on tag pushes
+        run: |
+          if [[ -n "${SSH_KEY}" ]]; then
+            echo "PHP_LIBRARY_SUBSPLIT_SSH_KEY configured; mirroring the library."
+            exit 0
+          fi
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "::error::PHP_LIBRARY_SUBSPLIT_SSH_KEY is not configured, so ${GITHUB_REF_NAME} cannot be mirrored to orieg/expanse-php-library. Packagist would keep serving the previous version while the release reported success."
+            exit 1
+          fi
+          echo "::warning::PHP_LIBRARY_SUBSPLIT_SSH_KEY not configured; skipping the library mirror (not a tag push)."
+        env:
+          SSH_KEY: ${{ secrets.PHP_LIBRARY_SUBSPLIT_SSH_KEY }}
+
       - name: Checkout monorepo
         uses: actions/checkout@v7
         with:
@@ -61,16 +78,28 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.PHP_LIBRARY_SUBSPLIT_SSH_KEY }}
 
-      - name: Skip notification
-        if: ${{ env.SSH_KEY == '' }}
-        run: echo "PHP_LIBRARY_SUBSPLIT_SSH_KEY secret not configured; skipping the library mirror."
-        env:
-          SSH_KEY: ${{ secrets.PHP_LIBRARY_SUBSPLIT_SSH_KEY }}
 
   subsplit-php-extension:
     name: Mirror / crates/expanse-php -> orieg/php-expanse
     runs-on: ubuntu-latest
     steps:
+      # A tag push is a publish path: a missing key must fail, never report
+      # success having mirrored nothing (AGENTS.md 8.1). On main a missing key
+      # is tolerable (forks, unconfigured clones) and only warns.
+      - name: Preflight / require the deploy key on tag pushes
+        run: |
+          if [[ -n "${SSH_KEY}" ]]; then
+            echo "PHP_SUBSPLIT_SSH_KEY configured; mirroring the extension."
+            exit 0
+          fi
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "::error::PHP_SUBSPLIT_SSH_KEY is not configured, so ${GITHUB_REF_NAME} cannot be mirrored to orieg/php-expanse. Packagist would keep serving the previous version while the release reported success."
+            exit 1
+          fi
+          echo "::warning::PHP_SUBSPLIT_SSH_KEY not configured; skipping the extension mirror (not a tag push)."
+        env:
+          SSH_KEY: ${{ secrets.PHP_SUBSPLIT_SSH_KEY }}
+
       - name: Checkout monorepo
         uses: actions/checkout@v7
         with:
@@ -106,8 +135,3 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.PHP_SUBSPLIT_SSH_KEY }}
 
-      - name: Skip notification
-        if: ${{ env.SSH_KEY == '' }}
-        run: echo "PHP_SUBSPLIT_SSH_KEY secret not configured; skipping the extension mirror."
-        env:
-          SSH_KEY: ${{ secrets.PHP_SUBSPLIT_SSH_KEY }}
