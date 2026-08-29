@@ -168,7 +168,9 @@ fn test_visualizer_constants_sync() {
         Some(expanse_trie::types32::BRANCH_B_DOWN_32 as u64)
     );
     assert_eq!(
-        node_ladder.get("BRANCH_L6_DOWN_32").and_then(|v| v.as_u64()),
+        node_ladder
+            .get("BRANCH_L6_DOWN_32")
+            .and_then(|v| v.as_u64()),
         Some(expanse_trie::types32::BRANCH_L6_DOWN_32 as u64)
     );
     assert_eq!(
@@ -176,11 +178,15 @@ fn test_visualizer_constants_sync() {
         Some(expanse_trie::types32::SET_LEAF_MAX_32 as u64)
     );
     assert_eq!(
-        node_ladder.get("SET_BITMAP_ENTER_32").and_then(|v| v.as_u64()),
+        node_ladder
+            .get("SET_BITMAP_ENTER_32")
+            .and_then(|v| v.as_u64()),
         Some(expanse_trie::types32::SET_BITMAP_ENTER_32 as u64)
     );
     assert_eq!(
-        node_ladder.get("SET_BITMAP_LEAVE_32").and_then(|v| v.as_u64()),
+        node_ladder
+            .get("SET_BITMAP_LEAVE_32")
+            .and_then(|v| v.as_u64()),
         Some(expanse_trie::types32::SET_BITMAP_LEAVE_32 as u64)
     );
     assert_eq!(
@@ -188,11 +194,15 @@ fn test_visualizer_constants_sync() {
         Some(expanse_trie::types32::MAP_LEAF_MAX_32 as u64)
     );
     assert_eq!(
-        node_ladder.get("MAP_BITMAP_ENTER_32").and_then(|v| v.as_u64()),
+        node_ladder
+            .get("MAP_BITMAP_ENTER_32")
+            .and_then(|v| v.as_u64()),
         Some(expanse_trie::types32::MAP_BITMAP_ENTER_32 as u64)
     );
     assert_eq!(
-        node_ladder.get("MAP_BITMAP_LEAVE_32").and_then(|v| v.as_u64()),
+        node_ladder
+            .get("MAP_BITMAP_LEAVE_32")
+            .and_then(|v| v.as_u64()),
         Some(expanse_trie::types32::MAP_BITMAP_LEAVE_32 as u64)
     );
 
