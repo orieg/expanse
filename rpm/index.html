@@ -76,6 +76,8 @@
       --badge-bg: #111827;
       --badge-border: #1f293d;
       --badge-text: #38bdf8;
+      --badge-near: #facc15;
+      --badge-gap: #f87171;
       --spotlight-bg: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
       --spotlight-border: rgba(99, 102, 241, 0.4);
       --tab-active-bg: rgba(56, 189, 248, 0.05);
@@ -109,6 +111,8 @@
       --badge-bg: #ffffff;
       --badge-border: #e2e8f0;
       --badge-text: #0284c7;
+      --badge-near: #b45309;
+      --badge-gap: #be123c;
       --spotlight-bg: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 50%, #f0fdf4 100%);
       --spotlight-border: rgba(99, 102, 241, 0.3);
       --tab-active-bg: rgba(2, 132, 199, 0.08);
@@ -399,7 +403,7 @@
         <span class="theme-icon-moon" aria-hidden="true">&#9790;</span>
       </button>
     </div>
-    <div class="nav-scroll">
+    <nav class="nav-scroll" aria-label="Site">
       <ul class="nav-links">
         <li><a href="../">Home</a></li>
         <li><a href="../#benchmarks">Benchmarks</a></li>
@@ -414,9 +418,10 @@
         <span class="theme-icon-sun" aria-hidden="true">&#9728;</span>
         <span class="theme-icon-moon" aria-hidden="true">&#9790;</span>
       </button>
-    </div>
+    </nav>
   </header>
 
+  <main>
   <div class="container">
     <h1>Expanse RPM Repository <span class="badge">v0.4.0</span></h1>
     <p style="color: var(--text-muted);">Official YUM / DNF repository for <strong><a href="https://github.com/orieg/expanse">Expanse</a></strong> across Enterprise Linux: RHEL 8/9/10, CentOS Stream, Fedora, Rocky Linux, AlmaLinux, and Amazon Linux 2023.</p>
@@ -515,9 +520,18 @@ sudo dnf install -y libexpanse libexpanse-devel libjudy-compat</code></pre>
     </div>
 
     <footer>
+      <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.85rem;">
+        Judy &amp; Systems Ecosystem:
+        <a href="https://orieg.github.io/judy-cache/">Judy Cache PSR-16</a> &bull;
+        <a href="https://orieg.github.io/php-judy/">PHP Judy</a> &bull;
+        <a href="https://orieg.github.io/judy-polyfill/">Judy Polyfill</a> &bull;
+        <a href="https://orieg.github.io/expanse/">Expanse Engine</a> &bull;
+        <a href="https://orieg.github.io/">Nicolas Brousse (Hub)</a>
+      </p>
       <p>Maintained by <a href="https://nicolas.brousse.info/">Nicolas Brousse</a> &bull; <a href="https://github.com/orieg/expanse">GitHub</a> &bull; <a href="https://crates.io/crates/expanse-trie">Crates.io</a> &bull; <a href="../apt/">APT Repo</a></p>
     </footer>
   </div>
+  </main>
 
   <script>
     function toggleTheme() {

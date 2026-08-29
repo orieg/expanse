@@ -77,6 +77,8 @@
       --badge-bg: #111827;
       --badge-border: #1f293d;
       --badge-text: #38bdf8;
+      --badge-near: #facc15;
+      --badge-gap: #f87171;
       --spotlight-bg: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
       --spotlight-border: rgba(99, 102, 241, 0.4);
       --tab-active-bg: rgba(56, 189, 248, 0.05);
@@ -110,6 +112,8 @@
       --badge-bg: #ffffff;
       --badge-border: #e2e8f0;
       --badge-text: #0284c7;
+      --badge-near: #b45309;
+      --badge-gap: #be123c;
       --spotlight-bg: linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 50%, #f0fdf4 100%);
       --spotlight-border: rgba(99, 102, 241, 0.3);
       --tab-active-bg: rgba(2, 132, 199, 0.08);
@@ -701,7 +705,7 @@
         <span class="theme-icon-moon" aria-hidden="true">&#9790;</span>
       </button>
     </div>
-    <div class="nav-scroll">
+    <nav class="nav-scroll" aria-label="Site">
       <ul class="nav-links">
         <li><a href="./" class="active">Home</a></li>
         <li><a href="./#benchmarks">Benchmarks</a></li>
@@ -716,10 +720,11 @@
         <span class="theme-icon-sun" aria-hidden="true">&#9728;</span>
         <span class="theme-icon-moon" aria-hidden="true">&#9790;</span>
       </button>
-    </div>
+    </nav>
   </header>
 
-  <div class="container">
+  <main>
+    <div class="container">
     <div class="hero">
       <div class="badge-bar">
         <span class="badge badge-green">Pure Rust &bull; no_std capable</span>
@@ -727,7 +732,7 @@
         <span class="badge">64-Bit &amp; 32-Bit Embedded</span>
       </div>
       <h1>Expanse — memory-compact Judy arrays and 256-ary radix tries</h1>
-      <p>Clean-room pure-Rust implementation of digital trees modernized for modern 64-bit microarchitectures with zero-allocation immediates, SWAR/SIMD vectorization, and lock-free OCC reader concurrency.</p>
+      <p>Clean-room pure-Rust implementation of digital trees for 64-bit and 32-bit microarchitectures with zero-allocation immediates, SWAR/SIMD vectorization, and lock-free OCC reader concurrency.</p>
       <div class="hero-actions">
         <a href="#benchmarks" class="btn btn-primary" style="background: linear-gradient(135deg, #38bdf8, #2563eb); color: #ffffff;">&#9889; Performance Benchmarks &#8595;</a>
         <a href="./visualizer.html" class="btn btn-secondary">Architecture Visualizer &#8594;</a>
@@ -1906,11 +1911,20 @@ void app_main(void) {
       </div>
     </div>
   </section>
+  </main>
 
   <footer>
     <div class="container">
       <p style="margin-bottom: 0.75rem;">
-        <span class="badge" style="font-size: 0.78rem;">Release v0.5.0</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/3e9257d"><code>3e9257d</code></a> &bull; Built on 2026-08-29
+        <span class="badge" style="font-size: 0.78rem;">Release v0.5.0</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/8174e17"><code>8174e17</code></a> &bull; Built on 2026-08-29
+      </p>
+      <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.85rem;">
+        Judy &amp; Systems Ecosystem:
+        <a href="https://orieg.github.io/judy-cache/">Judy Cache PSR-16</a> &bull;
+        <a href="https://orieg.github.io/php-judy/">PHP Judy</a> &bull;
+        <a href="https://orieg.github.io/judy-polyfill/">Judy Polyfill</a> &bull;
+        <a href="https://orieg.github.io/expanse/">Expanse Engine</a> &bull;
+        <a href="https://orieg.github.io/">Nicolas Brousse (Hub)</a>
       </p>
       <p>
         <strong>Expanse</strong> is open source software released under dual MIT / Apache-2.0 licenses.<br>
