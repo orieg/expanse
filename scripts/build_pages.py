@@ -600,8 +600,8 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Expanse — Modern Judy Arrays & Digital Tree Engine in Rust</title>
-  <meta name="description" content="Clean-room, pure-Rust Judy arrays modernized for 64-bit microarchitectures with zero-allocation immediates, SWAR/SIMD vectorization, and lock-free OCC concurrency.">
+  <title>Expanse — Judy arrays in Rust, drop-in libjudy C ABI</title>
+  <meta name="description" content="Clean-room, pure-Rust Judy arrays for 64-bit and 32-bit embedded targets. libexpanse is a drop-in C ABI replacement for libjudy. Zero-allocation immediates, SWAR/SIMD vectorization, lock-free OCC concurrency. MIT OR Apache-2.0.">
   """ + THEME_HEAD_JS + """
   <style>
 """ + THEME_CSS_VARS + BASE_CSS + NAV_CSS + THEME_TOGGLE_CSS + COPY_BTN_CSS + MAIN_CSS + """
@@ -617,7 +617,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
         <span class="badge">Rust &bull; Python &bull; Node.js &bull; .NET &bull; C++20 &bull; Java &bull; C ABI &bull; ESP-IDF (ESP32)</span>
         <span class="badge">64-Bit &amp; 32-Bit Embedded</span>
       </div>
-      <h1>Modern Judy Arrays &amp; High-Performance Digital Tree Engine</h1>
+      <h1>Expanse — Judy Arrays &amp; Digital Tree Engine in Rust</h1>
       <p>Clean-room pure-Rust implementation of digital trees modernized for modern 64-bit microarchitectures with zero-allocation immediates, SWAR/SIMD vectorization, and lock-free OCC reader concurrency.</p>
       <div class="hero-actions">
         <a href="#benchmarks" class="btn btn-primary" style="background: linear-gradient(135deg, #38bdf8, #2563eb); color: #ffffff;">&#9889; Performance Benchmarks &#8595;</a>
