@@ -249,11 +249,17 @@ clz / ctz live only in the **Zbb** extension: Bitmanip v1.0.0 §2.16 `cpop` (p.3
 GCC builtin `__builtin_popcount` is implemented by `cpop` on RV32"*), §2.14 `clz`
 (p.28), §2.18 `ctz` (p.32). Zbb ratified Nov 2021.
 
-*Verdict:* **CI's RV32 target is `riscv32imac-unknown-none-elf` (no Zbb)** and RV64 is
-`riscv64gc` (no Zbb); the RFC never mentions the bit-count gap. → On the shipped 32-bit
-config, **all 37 popcount/clz/ctz sites in the hot `trie32` path lower to software**.
-Note: Zbb `clz`/`ctz` return XLEN on zero input, matching Rust's semantics — no
-correctness issue, purely a codegen/perf gap.
+*Verdict:* **CI's baseline RV32 target is `riscv32imac-unknown-none-elf` (no Zbb)** and RV64 is
+`riscv64gc` (no Zbb). On baseline RV32I/RV32IMAC, **all 37 popcount/clz/ctz sites in the hot `trie32` path lower to software** (a 26-instruction SWAR sequence for `u64::count_ones` across two 32-bit halves, or software CLZ/CTZ loops).
+
+When building with `RUSTFLAGS="-C target-feature=+zbb"` on Zbb-capable hardware *(verified: `rustc 1.88.0`, `cargo rustc -p expanse-trie --lib --target riscv32imac-unknown-none-elf --release -- --emit asm`)*:
+- `u32::count_ones` lowers directly to single-instruction `cpop rd, rs`.
+- `u64::count_ones` on RV32 (XLEN = 32) lowers to 2 `cpop` instructions + 1 `add` (`cpop a0, a0; cpop a1, a1; add a0, a0, a1` — 3 instructions total vs 26 instructions in software SWAR).
+- `leading_zeros` lowers to single-instruction `clz rd, rs`.
+- `trailing_zeros` lowers to single-instruction `ctz rd, rs`.
+- Bitwise logic-with-negate (`andn`, `orn`, `xnor`) and min/max (`min`, `max`, `minu`, `maxu`) lower to single instructions.
+
+Zbb `clz`/`ctz` return XLEN (32) on zero input, matching Rust's semantics exactly. `#![no_std]` embedded targets do not support runtime extension discovery, so compile-time dispatch via `target-feature=+zbb` is the standard delivery mechanism, guarded by CI's `test-rv32-zbb` compilation lane.
 
 ### 3.2 32-bit address space (Sv32) — **VALIDATED**
 

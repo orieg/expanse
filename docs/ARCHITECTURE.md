@@ -378,7 +378,7 @@ The structural and immediate tags fall inside the 7-bit envelope `0x00..=0x7F` (
 
 #### 10.3.3 32-bit tag spaces
 
-`Tag32` (`crates/expanse/src/types32.rs:59`), the design-document enumeration:
+`Tag32` (`crates/expanse/src/types32.rs:95`), the design-document enumeration:
 
 <!-- ENCODING-TABLE tag32 -->
 
@@ -393,6 +393,7 @@ The structural and immediate tags fall inside the 7-bit envelope `0x00..=0x7F` (
 | `BranchL6` | 0x06 |
 | `BranchB` | 0x07 |
 | `BranchU` | 0x08 |
+| `LeafBitmapL` | 0x09 |
 | `ImmedSet` | 0x10 |
 | `ImmedMap` | 0x11 |
 | `ValueSlotInline` | 0x20 |
@@ -404,7 +405,7 @@ The structural and immediate tags fall inside the 7-bit envelope `0x00..=0x7F` (
 
 `Tag32::from_u8` maps every unlisted byte to `Custom`, so `Custom` is a catch-all rather than a reserved value.
 
-The tags the shipped 32-bit engine actually writes are module-private constants in `crates/expanse/src/trie32.rs:107`–`120`. They are gated by a source scan rather than by symbol reference, because the engine deliberately keeps them private:
+The tags the shipped 32-bit engine actually writes are module-private constants in `crates/expanse/src/trie32.rs:114`–`129`. They are gated by a source scan rather than by symbol reference, because the engine deliberately keeps them private:
 
 <!-- ENCODING-TABLE trie32_tags -->
 
@@ -417,6 +418,8 @@ The tags the shipped 32-bit engine actually writes are module-private constants 
 | `T_BITMAP` | 4 | `LeafBitmap1_32` |
 | `T_SET_LEAF_BASE` | 4 | set linear leaf tag is `T_SET_LEAF_BASE + key_bytes`, so 5..=8 |
 | `T_MAP_LEAF_BASE` | 8 | map linear leaf tag is `T_MAP_LEAF_BASE + key_bytes`, so 9..=12 |
+| `T_B` | 13 | `BranchB32` |
+| `T_MAP_BITMAP` | 14 | `LeafBitmapL_32` |
 | `T_SET_IMMED_BASE` | 0x40 | set immediate tag is `0x40 \| ((key_bytes - 1) << 3) \| (key_count - 1)`, so 0x40..=0x5F |
 | `T_MAP_IMMED_BASE` | 0x60 | map immediate tag is `0x60 \| (key_bytes - 1)`, single entry only, so 0x60..=0x62 |
 
@@ -605,15 +608,17 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `MAX_ARENA_CHUNKS` | 65536 | `crates/expanse/src/blobmap.rs:457` |
 | `MAX_ARENA_CAPACITY` | 1073741824 | `crates/expanse/src/blobmap.rs:468` |
 | `DEFAULT_CHUNK_SIZE` | 2097152 | `crates/expanse/src/blobmap.rs:440` |
-| `size_of::<Edge32>()` | 8 | `crates/expanse/src/types32.rs:137` |
-| `align_of::<Edge32>()` | 4 | `crates/expanse/src/types32.rs:138` |
+| `size_of::<Edge32>()` | 8 | `crates/expanse/src/types32.rs:176` |
+| `align_of::<Edge32>()` | 4 | `crates/expanse/src/types32.rs:177` |
 | `MAX_LEVEL_32` | 4 | `crates/expanse/src/types32.rs:18` |
 | `CACHE_LINE_32` | 32 | `crates/expanse/src/types32.rs:27` |
 | `size_of::<BranchHeader32>()` | 8 | `crates/expanse/src/node32.rs:23` |
 | `size_of::<BranchL2_32>()` | 32 | `crates/expanse/src/node32.rs:53` |
 | `size_of::<BranchL6_32>()` | 64 | `crates/expanse/src/node32.rs:100` |
-| `size_of::<BranchU32>()` | 2080 | `crates/expanse/src/node32.rs:149` |
-| `size_of::<LeafBitmap1_32>()` | 64 | `crates/expanse/src/node32.rs:170` |
+| `size_of::<BranchB32>()` | 96 | `crates/expanse/src/node32.rs:149` |
+| `size_of::<BranchU32>()` | 2080 | `crates/expanse/src/node32.rs:187` |
+| `size_of::<LeafBitmap1_32>()` | 64 | `crates/expanse/src/node32.rs:219` |
+| `size_of::<LeafBitmapL_32>()` | 96 | `crates/expanse/src/node32.rs:311` |
 | `size_of::<ValueSlot32>()` | 4 | `crates/expanse/src/slot32.rs:47` |
 | `ValueSlot32::TAG_MASK` | 0xFF | `crates/expanse/src/slot32.rs:51` |
 | `ValueSlot32::ARENA_OFFSET_MASK` | 0xFFF00 | `crates/expanse/src/slot32.rs:54` |

@@ -127,6 +127,44 @@ impl BranchL6_32 {
     }
 }
 
+/// Bitmap branch: 256-bit presence mask + 8 packed Edge32 subarrays
+/// (**96 bytes** = 3x 32-byte cache lines).
+#[derive(Clone, Copy)]
+#[repr(C, align(32))]
+pub struct BranchB32 {
+    /// 256-bit presence bitmap (32 bytes).
+    pub bitmap: [u64; 4],
+    /// 8 subarray indices/pointers for the 32-digit subexpanses (32 bytes).
+    pub subarrays: [u32; 8],
+    /// Cached population counts for each subexpanse (16 bytes).
+    pub pop_counts: [u16; 8],
+    /// OCC Version counter (4 bytes).
+    pub version: u32,
+    /// Node level (1 byte).
+    pub level: u8,
+    /// Alignment padding to 96 bytes (11 bytes).
+    pub _pad: [u8; 11],
+}
+
+const _: () = assert!(core::mem::size_of::<BranchB32>() == 96);
+const _: () = assert!(core::mem::align_of::<BranchB32>() == 32);
+
+impl BranchB32 {
+    /// Create an empty bitmap branch at `level`.
+    #[inline(always)]
+    #[must_use]
+    pub const fn new(level: u8) -> Self {
+        Self {
+            bitmap: [0; 4],
+            subarrays: [0; 8],
+            pop_counts: [0; 8],
+            version: 0,
+            level,
+            _pad: [0; 11],
+        }
+    }
+}
+
 /// Uncompressed branch: a flat page of 256 child edges direct-indexed by
 /// digit (**2080 bytes** = 65x 32-byte cache lines). A 50% structural
 /// reduction versus the 64-bit `BranchU` (256 x 16B edges + 64B header =
@@ -178,6 +216,9 @@ pub struct LeafBitmap1_32 {
     pub _pad: u8,
 }
 
+const _: () = assert!(core::mem::size_of::<LeafBitmap1_32>() == 64);
+const _: () = assert!(core::mem::align_of::<LeafBitmap1_32>() == 32);
+
 impl LeafBitmap1_32 {
     /// Create a new empty bitmap leaf.
     #[inline(always)]
@@ -193,37 +234,39 @@ impl LeafBitmap1_32 {
     /// Test if bit is set.
     #[inline(always)]
     pub fn test(&self, bit: u8) -> bool {
-        let word_idx = (bit / 64) as usize;
-        let bit_idx = bit % 64;
-        (self.bitmap[word_idx] & (1 << bit_idx)) != 0
+        let word_idx = (bit >> 6) as usize;
+        let mask = 1u64 << (bit & 63);
+        (self.bitmap[word_idx] & mask) != 0
     }
 
     /// Set a bit in the bitmap, returning true if bit was newly set.
     #[inline(always)]
     pub fn set(&mut self, bit: u8) -> bool {
-        let word_idx = (bit / 64) as usize;
-        let bit_idx = bit % 64;
-        let mask = 1 << bit_idx;
-        let was_set = (self.bitmap[word_idx] & mask) != 0;
-        if !was_set {
-            self.bitmap[word_idx] |= mask;
+        let word_idx = (bit >> 6) as usize;
+        let mask = 1u64 << (bit & 63);
+        let prev = self.bitmap[word_idx];
+        if (prev & mask) == 0 {
+            self.bitmap[word_idx] = prev | mask;
             self.pop0 += 1;
+            true
+        } else {
+            false
         }
-        !was_set
     }
 
     /// Clear a bit in the bitmap, returning true if bit was removed.
     #[inline(always)]
     pub fn unset(&mut self, bit: u8) -> bool {
-        let word_idx = (bit / 64) as usize;
-        let bit_idx = bit % 64;
-        let mask = 1 << bit_idx;
-        let was_set = (self.bitmap[word_idx] & mask) != 0;
-        if was_set {
-            self.bitmap[word_idx] &= !mask;
+        let word_idx = (bit >> 6) as usize;
+        let mask = 1u64 << (bit & 63);
+        let prev = self.bitmap[word_idx];
+        if (prev & mask) != 0 {
+            self.bitmap[word_idx] = prev & !mask;
             self.pop0 -= 1;
+            true
+        } else {
+            false
         }
-        was_set
     }
 }
 
@@ -249,6 +292,61 @@ impl fmt::Debug for LeafBitmap1_32 {
     }
 }
 
+/// 256-Bit Map Bitmap Leaf for Level 1 (JudyLMap32 leaf, **96 bytes** = 3x 32-byte cache lines).
+#[derive(Clone, Copy)]
+#[repr(C, align(32))]
+pub struct LeafBitmapL_32 {
+    /// 256-bit bitmask (32 bytes = 1 cache line).
+    pub bitmap: [u64; 4],
+    /// 8 subarray indices/pointers for the 32-digit value subarrays (32 bytes).
+    pub subarrays: [u32; 8],
+    /// Population count in this leaf (pop0 = count - 1).
+    pub pop0: u16,
+    /// Level (always 1).
+    pub level: u8,
+    /// Padding to 96 bytes (29 bytes).
+    pub _pad: [u8; 29],
+}
+
+const _: () = assert!(core::mem::size_of::<LeafBitmapL_32>() == 96);
+const _: () = assert!(core::mem::align_of::<LeafBitmapL_32>() == 32);
+
+impl LeafBitmapL_32 {
+    /// Create a new empty map bitmap leaf.
+    #[inline(always)]
+    pub const fn new() -> Self {
+        Self {
+            bitmap: [0; 4],
+            subarrays: [0; 8],
+            pop0: 0,
+            level: 1,
+            _pad: [0; 29],
+        }
+    }
+}
+
+impl Default for LeafBitmapL_32 {
+    #[inline(always)]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for LeafBitmapL_32 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LeafBitmapL_32")
+            .field("pop", &(self.pop0 + 1))
+            .field(
+                "bitmap",
+                &format_args!(
+                    "[0x{:016X}, 0x{:016X}, 0x{:016X}, 0x{:016X}]",
+                    self.bitmap[0], self.bitmap[1], self.bitmap[2], self.bitmap[3]
+                ),
+            )
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,8 +356,16 @@ mod tests {
         assert_eq!(core::mem::size_of::<BranchHeader32>(), 8);
         assert_eq!(core::mem::size_of::<BranchL2_32>(), 32);
         assert_eq!(core::mem::size_of::<BranchL6_32>(), 64);
+        assert_eq!(core::mem::size_of::<BranchB32>(), 96);
+        assert_eq!(core::mem::size_of::<BranchU32>(), 2080);
+        assert_eq!(core::mem::size_of::<LeafBitmap1_32>(), 64);
+        assert_eq!(core::mem::size_of::<LeafBitmapL_32>(), 96);
         assert_eq!(core::mem::align_of::<BranchL2_32>(), 32);
         assert_eq!(core::mem::align_of::<BranchL6_32>(), 32);
+        assert_eq!(core::mem::align_of::<BranchB32>(), 32);
+        assert_eq!(core::mem::align_of::<BranchU32>(), 32);
+        assert_eq!(core::mem::align_of::<LeafBitmap1_32>(), 32);
+        assert_eq!(core::mem::align_of::<LeafBitmapL_32>(), 32);
     }
 
     #[test]

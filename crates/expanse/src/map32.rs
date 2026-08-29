@@ -586,4 +586,56 @@ mod tests {
             differential(seed, OPS, 0x000F_FFFF);
         }
     }
+
+    /// A workload toggling entries across the `MapLeaf(1)` -> `LeafBitmapL_32`
+    /// boundary must not rebuild the node on every single operation.
+    ///
+    /// `MapLeaf(1)` promotes to `LeafBitmapL_32` on the 65th entry (`MAP_BITMAP_ENTER_32 = 64`).
+    /// `LeafBitmapL_32` uses Band 16 hysteresis: demotes to `MapLeaf(1)` at <= 48 entries (`MAP_BITMAP_LEAVE_32 = 48`).
+    #[test]
+    fn map_bitmap_leaf_boundary_toggle_keeps_node_form() {
+        let key = |rem: u32| 0x0100_0000 | rem;
+        let mut map = ExpanseMap32::new();
+
+        // 64 keys sharing a prefix: a populated 1-byte MapLeaf.
+        for rem in 0..64u32 {
+            map.insert(key(rem), rem * 10);
+        }
+        let at_64 = map.mem_used();
+
+        // 65th key exceeds MapLeaf(1) capacity and promotes to LeafBitmapL_32 (MapBitmap).
+        map.insert(key(64), 640);
+        let at_65 = map.mem_used();
+        assert!(
+            at_65 > at_64,
+            "expected promotion to LeafBitmapL_32 (MapBitmap); {at_64} -> {at_65}"
+        );
+
+        // Removing 65th key leaves 64 entries. With Band 16 hysteresis,
+        // it stays as LeafBitmapL_32 (demotes only at <= 48).
+        assert_eq!(map.remove(key(64)), Some(640));
+        let after_64_left = map.mem_used();
+        assert!(
+            after_64_left > at_64,
+            "node should keep LeafBitmapL_32 form at 64 entries (demotes at <= 48); at_64={at_64}, after={after_64_left}"
+        );
+
+        // Remove down to 49 entries: still LeafBitmapL_32.
+        for rem in 49..64u32 {
+            assert!(map.remove(key(rem)).is_some());
+        }
+        let at_49 = map.mem_used();
+        assert!(
+            at_49 >= 96,
+            "node should keep LeafBitmapL_32 header at 49 entries"
+        );
+
+        // Removing the 49th entry leaves 48 entries: demotes to MapLeaf(1)!
+        assert!(map.remove(key(48)).is_some());
+        let at_48 = map.mem_used();
+        assert!(
+            at_48 < at_49,
+            "expected demotion to MapLeaf(1) at <= 48 entries; {at_49} -> {at_48}"
+        );
+    }
 }
