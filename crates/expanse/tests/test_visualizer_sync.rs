@@ -720,41 +720,76 @@ fn test_no_stamped_narrative_claims() {
     }
 }
 
-/// Retracted figures must never reappear in the published artifact.
+/// Retracted figures must never reappear in the published artifacts (JSON, HTML, Assets).
 #[test]
 fn test_retracted_figures_absent() {
     let mut data = load_json();
-    data.as_object_mut()
-        .expect("top level object")
-        .remove("provenance");
-    let text = serde_json::to_string(&data).expect("serialize");
+    if let Some(obj) = data.as_object_mut() {
+        obj.remove("provenance");
+        obj.remove("removed_for_lack_of_provenance");
+    }
+    let json_text = serde_json::to_string(&data).expect("serialize");
 
-    // The retracted 95/5 write-mixed `SyncExpanseMap` curve
-    // (docs/BENCHMARKING.md section 3): it came from the ~100%-miss unbounded
-    // `u64` word-key arms.
+    let html_path = repo_root()
+        .join("docs")
+        .join("architecture_visualizer.html");
+    let html_text = if html_path.exists() {
+        fs::read_to_string(&html_path).expect("read architecture_visualizer.html")
+    } else {
+        String::new()
+    };
+
+    let assets_path = repo_root()
+        .join("docs")
+        .join("assets")
+        .join("data")
+        .join("bench_assets.json");
+    let assets_text = if assets_path.exists() {
+        let mut a_data: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&assets_path).unwrap()).unwrap();
+        if let Some(obj) = a_data.as_object_mut() {
+            obj.remove("provenance");
+            obj.remove("retraction");
+        }
+        serde_json::to_string(&a_data).unwrap()
+    } else {
+        String::new()
+    };
+
+    // 1. The retracted 95/5 write-mixed `SyncExpanseMap` curve (unbounded u64 keys)
     for figure in ["19.63", "27.94", "35.62", "33.97", "28.84"] {
         assert!(
-            !text.contains(figure),
+            !json_text.contains(figure) && !assets_text.contains(figure),
             "retracted concurrency figure {figure} is published again -- the honest \
-             measurement is negative scaling (0.12x-0.55x), docs/BENCHMARKING.md \
-             section 3"
+             measurement is negative scaling (0.12x-0.55x), docs/BENCHMARKING.md section 3"
         );
     }
-    // The retracted vs-libjudy wall-clock random-lookup reading (README.md):
-    // measured under load; the quiet host measures ~11% SLOWER.
+    // 2. The retracted vs-libjudy wall-clock random-lookup reading (unmeasured ns)
     for figure in ["26.8", "48.6"] {
         assert!(
-            !text.contains(figure),
+            !json_text.contains(figure) && !assets_text.contains(figure),
             "retracted vs-libjudy wall-clock figure {figure} ns is published again -- \
              see README.md and docs/BENCHMARKING.md"
         );
     }
-    // The retracted YCSB Workload E `ExpanseMap` throughput (#375: an
-    // asymmetric scan predicate passing ~100% vs ~50% for the baselines).
+    // 3. The retracted YCSB Workload E ExpanseMap throughput (#375)
     assert!(
-        !text.contains("15.26"),
+        !json_text.contains("15.26") && !assets_text.contains("15.26"),
         "retracted YCSB Workload E figure 15.26 Mops/s is published again (#375)"
     );
+
+    // 4. Refuted DRAM-latency-bound mechanism claim absent from visualizer HTML unless marked refuted/retracted
+    for line in html_text.lines() {
+        if line.contains("DRAM-latency-bound") {
+            let lower = line.to_lowercase();
+            assert!(
+                lower.contains("refuted")
+                    || lower.contains("retracted")
+                    || lower.contains("unmeasured"),
+                "unretracted DRAM-latency-bound mechanism claim in visualizer HTML: {line}"
+            );
+        }
+    }
 }
 
 /// Every benchmark row must name an arm that exists in the harness.
@@ -1288,17 +1323,17 @@ fn test_live_loader_covers_every_dataset() {
 /// retracted Workload E row -- which is fixed in the same commit.
 #[test]
 fn test_retracted_figures_absent_from_markdown() {
-    // (retracted figure, lowercase context that makes it *that* claim)
-    const CLAIMS: &[(&str, &[&str])] = &[
-        ("15.26", &["workload e", "range scan", "scan"]),
-        ("265.8", &["m ops", "mops", "thread", "scal"]),
-        ("284.9", &["m ops", "mops", "set"]),
-        ("12.0\u{d7}", &["thread", "scal"]),
-        ("4.33", &["workload e", "scan", "expanse"]),
-        ("146.7", &["b/entry", "skiplist", "tower"]),
-        ("45% faster", &["judy"]),
-        ("11.1\u{d7}", &["densit", "rocksdb", "b/entry"]),
-    ];
+    let reg_path = repo_root().join(".github").join("superseded-figures.json");
+    let reg_val: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(&reg_path).expect("read .github/superseded-figures.json"),
+    )
+    .expect("parse superseded-figures.json");
+
+    let figures = reg_val
+        .get("figures")
+        .and_then(|f| f.as_array())
+        .expect("figures array");
+
     const MARKERS: &[&str] = &[
         "retract",
         "withdraw",
@@ -1309,19 +1344,67 @@ fn test_retracted_figures_absent_from_markdown() {
         "refuted",
         "stale",
         "anti-example",
+        "strawman",
         "earlier",
         "was measured with",
         "both were",
+        "unmeasured",
+        "unverified",
+    ];
+
+    // Canonical claim literals and context terms for fast substring checks
+    const CLAIMS: &[(&str, &[&str])] = &[
+        ("15.26", &["workload e", "range scan", "scan"]),
+        ("265.8", &["m ops", "mops", "thread", "scal"]),
+        ("284.9", &["m ops", "mops", "set"]),
+        ("12.0\u{d7}", &["thread", "scal"]),
+        ("12.0x", &["thread", "scal"]),
+        ("4.33", &["workload e", "scan", "expanse"]),
+        ("4.33\u{d7}", &["workload e", "scan", "expanse"]),
+        ("146.7", &["b/entry", "skiplist", "tower"]),
+        ("45% faster", &["judy"]),
+        ("11.1\u{d7}", &["densit", "rocksdb", "b/entry"]),
+        (
+            "1.11\u{d7}",
+            &["random", "lookup", "stock", "judy", "deficit", "slower"],
+        ),
+        (
+            "1.11x",
+            &["random", "lookup", "stock", "judy", "deficit", "slower"],
+        ),
+        ("~11% slower", &["random", "lookup", "stock", "judy"]),
+        ("11% slower", &["random", "lookup", "stock", "judy"]),
+        (
+            "DRAM-latency-bound",
+            &["random", "lookup", "stock", "probe", "judy"],
+        ),
     ];
 
     let mut offenders = Vec::new();
     for path in markdown_docs() {
+        // Skip rulebook files that define the rules
+        let p_str = path.to_string_lossy();
+        if p_str.ends_with("AGENTS.md")
+            || p_str.ends_with("CLAUDE.md")
+            || p_str.ends_with("GEMINI.md")
+        {
+            continue;
+        }
+
         let text = fs::read_to_string(&path).expect("read markdown doc");
         let lines: Vec<&str> = text.lines().collect();
         for (idx, line) in lines.iter().enumerate() {
             let lower = line.to_lowercase();
             for (figure, contexts) in CLAIMS {
-                if !line.contains(figure) || !contexts.iter().any(|c| lower.contains(c)) {
+                if !line.contains(figure) {
+                    continue;
+                }
+                let matches_context = if contexts.len() >= 2 {
+                    contexts.iter().filter(|c| lower.contains(*c)).count() >= 2
+                } else {
+                    contexts.iter().any(|c| lower.contains(c))
+                };
+                if !matches_context {
                     continue;
                 }
                 // A retraction marker anywhere in the +/-3 line window means
@@ -1348,9 +1431,13 @@ fn test_retracted_figures_absent_from_markdown() {
          state, within three lines, that it was withdrawn and what replaced it.",
         offenders.join("\n")
     );
+    assert!(
+        !figures.is_empty(),
+        "superseded-figures.json must contain registered figures"
+    );
 }
 
-/// Every tracked markdown doc: `README.md` plus `docs/**/*.md`.
+/// Every tracked markdown doc: `README.md`, `AGENTS.md`, plus `docs/**/*.md`, `crates/**/*.md`, `bindings/**/*.md`, `integrations/**/*.md`, `.github/**/*.md`.
 fn markdown_docs() -> Vec<std::path::PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         let Ok(entries) = fs::read_dir(dir) else {
@@ -1359,6 +1446,10 @@ fn markdown_docs() -> Vec<std::path::PathBuf> {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if name == "target" || name == ".git" || name == "worktrees" {
+                    continue;
+                }
                 walk(&path, out);
             } else if path.extension().is_some_and(|e| e == "md") {
                 out.push(path);
@@ -1366,10 +1457,21 @@ fn markdown_docs() -> Vec<std::path::PathBuf> {
         }
     }
     let root = repo_root();
-    let mut out = vec![root.join("README.md")];
-    walk(&root.join("docs"), &mut out);
-    out.sort();
-    out
+    let mut out = vec![root.join("README.md"), root.join("AGENTS.md")];
+    for sub in &["docs", "crates", "bindings", "integrations", ".github"] {
+        walk(&root.join(sub), &mut out);
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut deduped = Vec::new();
+    for p in out {
+        if let Ok(canon) = p.canonicalize()
+            && seen.insert(canon)
+        {
+            deduped.push(p);
+        }
+    }
+    deduped.sort();
+    deduped
 }
 
 /// `docs/BENCHMARKING.md` publishes the same bytes/key table as

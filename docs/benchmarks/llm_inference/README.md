@@ -25,7 +25,7 @@ All benchmark timings below were measured on an **Apple M1 laptop (8-core, arm64
 | **(a) Static Datastore RAM (1M)** | Static Window Index: 12.0 B/tok (11.44 MB) | ExpanseStrMap: 259.2 B/tok (247.23 MB) | **21.6× memory overhead for Expanse** (Expected loss vs static contiguous index) | **Pre-registered Loss** |
 | **(a) Dynamic Ingestion (1M tokens)** | Static Rebuild: 163.1 ms | ExpanseStrMap: 452,932 inserts/s | **Expanse wins continuous ingestion whenever batch B < 73,859** | **Expanse Win** |
 | **(b) Grammar Mask RAM (2,000 states)** | Dense Bitmask: 30.61 MB | Roaring: 11.50 MB / ExpanseSet: 127.64 MB | **Roaring wins 2.66× lower RAM** across sparse grammar DFA states | **Roaring Win** |
-| **(b) Grammar Full-Vocab Apply** | Dense Bitmask: not measured (prior cell was a dead-code-eliminated loop; re-run pending) | ExpanseSet: 1.9 µs (Top-100 SIMD intersect) | **Dense expected to win raw apply by construction; Roaring/Expanse win candidate filtering** | **Expected Loss (measurement pending)** |
+| **(b) Grammar Full-Vocab Apply** | Dense Bitmask: not measured (prior cell was a dead-code-eliminated loop; re-run pending [#382](https://github.com/orieg/expanse/issues/382)) | ExpanseSet: 1.9 µs (Top-100 SIMD intersect) | **Dense expected to win raw apply by construction; Roaring/Expanse win candidate filtering** | **Expected Loss (measurement pending [#382](https://github.com/orieg/expanse/issues/382))** |
 | **(c) KV-Block Table RAM (1M blocks)** | collections.OrderedDict: 219.92 MB (tracemalloc peak, CPython object costs) | ExpanseMap Table: 23.19 MB (native bytes + idealized 8 B/entry side map) | **9.48× lower RAM** — cross-accounting comparison, treat as indicative | **Expanse Win (accounting-asymmetric; see Pillar E caveat)** |
 | **(c) KV-Block Rank Eviction** | OrderedDict twin not measured — with monotonic touch timestamps, pop-until-cutoff is O(evicted), not O(N) | ExpanseMap: 2.16M items/sec (`count_below()` + range prune) | **Native rank pruning measured; baseline cell pending a symmetric twin** | **Definitional (twin pending)** |
 
@@ -111,7 +111,7 @@ Evaluating per-DFA-state allowed-token sets over a 128,000 vocabulary across 2,0
 
 | Mask Representation | Total RAM (2,000 states) | Projected RAM (20,000 states) | Memory Reduction | Full-Vocab Apply Latency | Top-100 SIMD Intersect |
 |---|---|---|---|---|---|
-| **Dense Bitmask (`[u64]` Array)** | 30.61 MB (16.0 KB/state) | 306.1 MB | 1.0× (Baseline) | not measured (prior cell was dead-code-eliminated; re-run pending) | N/A (Linear scan) |
+| **Dense Bitmask (`[u64]` Array)** | 30.61 MB (16.0 KB/state) | 306.1 MB | 1.0× (Baseline) | not measured (prior cell was dead-code-eliminated; re-run pending [#382](https://github.com/orieg/expanse/issues/382)) | N/A (Linear scan) |
 | **`RoaringBitmap` (Compressed)** | 11.50 MB (5.7 KB/state) | 115.0 MB | **2.66× lower RAM** | 0.8 µs | **634.6 ns** |
 | **`ExpanseSet` (Judy Digital Trie)** | 127.64 MB (63.8 KB/state) | 1,276.4 MB | 4.2× higher RAM | 1.2 µs | **1,949.2 ns** |
 

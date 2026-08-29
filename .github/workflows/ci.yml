@@ -22,6 +22,7 @@ jobs:
       rust-src: ${{ steps.filter.outputs.rust-src }}
       tooling: ${{ steps.filter.outputs.tooling }}
       perf-tooling: ${{ steps.filter.outputs.perf-tooling }}
+      visualizer: ${{ steps.filter.outputs.visualizer }}
       python: ${{ steps.filter.outputs.python }}
       node: ${{ steps.filter.outputs.node }}
       dotnet: ${{ steps.filter.outputs.dotnet }}
@@ -75,10 +76,19 @@ jobs:
               - 'scripts/**'
               - '.github/workflows/**'
               - '.github/bench-suites.json'
+              - '.github/superseded-figures.json'
               # `lint` runs check_man_pages.py, so a man-page-only PR must run
               # it. Kept out of `rust-src`: troff edits compile nothing, and
               # gating the safety lane on them would undo #412.
               - 'man/**'
+            # Narrow filter for visualizer dataset and visualizer HTML edits to
+            # trigger workspace unit/integration tests (test_visualizer_sync.rs)
+            # without triggering the expensive safety lane (Miri, ASan, fuzz).
+            visualizer:
+              - 'docs/visualizer_data.json'
+              - 'docs/architecture_visualizer.html'
+              - 'docs/assets/data/bench_assets.json'
+              - '.github/superseded-figures.json'
             # The genuine tooling->Rust coupling, scoped to it: these two
             # report scripts are executed by `instruction-counts` and
             # `callgrind-smoke`, so they gate those two jobs specifically
@@ -165,7 +175,7 @@ jobs:
   lint:
     name: Core / Linter & Formatting
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.tooling == 'true' || needs.detect-changes.outputs.visualizer == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -298,6 +308,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
+      # GitHub token for gh CLI issue state checks in check_docs_hygiene.py
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # Comma-separated private hostnames to reject in docs/PR text. A SECRET,
       # not a variable: Actions echoes job `env:` values into the run log, which
       # is public on this repository, and only secrets are masked (`***`). A
@@ -325,7 +337,7 @@ jobs:
   test:
     name: Core / Workspace Tests (${{ matrix.os }})
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.visualizer == 'true' || github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
