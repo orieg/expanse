@@ -393,6 +393,37 @@ def self_test() -> int:
     return 0
 
 
+# docs/architecture_visualizer.html is published to the SITE ROOT as
+# visualizer.html (scripts/build_pages.py), and no markdown is copied beside
+# it. A relative .md href therefore resolves to a 404 for every visitor, while
+# still working when the file is opened from the docs/ directory locally --
+# which is why five of them shipped. The links that broke were the provenance
+# links out of the retraction disclaimer: the one path a skeptical reader has
+# to check a withdrawn number.
+RELATIVE_DOC_LINK = re.compile(r'href="(?!https?://|#|mailto:)([A-Za-z0-9_./-]+\.md)"')
+ROOT_PUBLISHED_HTML = ("docs/architecture_visualizer.html",)
+
+
+def check_published_html_links(root: Path) -> int:
+    """Relative markdown links in root-published HTML are 404s once deployed."""
+    fatal = 0
+    for rel in ROOT_PUBLISHED_HTML:
+        path = root / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for num, line in enumerate(text.splitlines(), 1):
+            for target in RELATIVE_DOC_LINK.findall(line):
+                fatal += 1
+                print(
+                    f"::error file={rel},line={num}::relative link `{target}` 404s on the "
+                    f"published site: this file deploys to the site root, where no markdown "
+                    f"sits beside it. Use "
+                    f"https://github.com/orieg/expanse/blob/main/docs/{target}"
+                )
+    return fatal
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pr-body-file", help="also scan this file as PR-body prose (fatal checks only)")
@@ -412,6 +443,7 @@ def main() -> int:
         f, w = scan_text(path.relative_to(root).as_posix(), path.read_text(encoding="utf-8", errors="replace"), denylist, provenance=not args.no_provenance and wants_provenance(root, path))
         fatal += f
         warnings += w
+    fatal += check_published_html_links(root)
     if args.pr_body_file and os.path.exists(args.pr_body_file):
         f, _ = scan_text("PR body", Path(args.pr_body_file).read_text(encoding="utf-8", errors="replace"), denylist, provenance=False)
         fatal += f
