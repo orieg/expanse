@@ -619,3 +619,43 @@ jobs:
           else
             npm publish ./crates/expanse-wasm/pkg --access public --provenance
           fi
+
+  # Every publish job above reports success when its upload command exits
+  # zero -- not when the registry actually serves the version. v0.5.0 shipped
+  # with all publish jobs green and was only confirmed complete by querying
+  # the registries by hand afterwards. This job makes that query part of the
+  # release, so an upload that silently did not land fails the run.
+  #
+  # Skipped on the dry-run canary, which publishes nothing.
+  verify-registries:
+    name: Verify / Registries Serve the Release
+    needs:
+      - publish-crates
+      - publish-npm
+      - publish-wasm
+      - publish-gem
+      - package-nuget
+      - github-release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      # Retries with backoff: registries ingest asynchronously, and the PHP
+      # library was absent from Packagist minutes after the v0.5.0 tag and
+      # present later. Absence only counts once the budget is exhausted.
+      - name: Assert every registry serves ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/verify_release_registries.py \
+            --version "${GITHUB_REF_NAME}" \
+            --attempts 6 --delay 30 --max-delay 240
