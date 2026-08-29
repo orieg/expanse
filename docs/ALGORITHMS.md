@@ -260,7 +260,7 @@ Two points the numbers carry that the summary does not:
 
 **Cost scales with arms added.** One branch cost 4–9%; seven tags cost 26–44%. #403's Step 2 proposes 21 tags across ~10 files. #441 was deliberately scoped to a single branch form as a cheap probe, and cost one PR rather than ten files to establish this.
 
-**The mechanism is wrong for its target.** The saving was ALU and load latency on the descent — largely hidden behind the ~5 dependent DRAM misses per random lookup that `docs/BENCHMARKING.md` attributes the 1.11×-vs-stock loss to. The cost is instructions on every arm, including the cache-resident ones the engine already wins. [#430](https://github.com/orieg/expanse/issues/430) targets the same weak arm by overlapping those misses across independent lookups; it does not touch the tag space and cannot incur this cost class.
+**The mechanism is wrong for its target.** The saving was ALU and load latency on the descent — largely hidden behind the descent latency of the random-lookup arm, whose measured loss vs stock is 1.031× (BCa 95% CI [1.024, 1.038]). The "~5 dependent DRAM misses per random lookup" reading once given here is **refuted**: a counter run records 0.042 LLC misses per probe against 2.74 branch mispredicts per probe ([#480](https://github.com/orieg/expanse/issues/480)). The cost is instructions on every arm, including the cache-resident ones the engine already wins. [#430](https://github.com/orieg/expanse/issues/430) targets the same weak arm by overlapping those misses across independent lookups; it does not touch the tag space and cannot incur this cost class.
 
 ## 4c. Batched descent — overlapping misses across independent lookups
 
