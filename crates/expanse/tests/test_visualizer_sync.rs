@@ -10,7 +10,8 @@
 use expanse_trie::set::ROOT_LEAF_CAP;
 use expanse_trie::types::{
     BITMAP_TO_UNCOMPRESSED_THRESHOLD, BRANCH_FANOUT, BRANCH_L3_CAP, BRANCH_L7_CAP,
-    BRANCHB_TO_L7_DOWN, CACHE_LINE, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, MAX_LEVEL, RAW_ALIGN,
+    BRANCHB_TO_L7_DOWN, BRANCHU_TO_B_DOWN, CACHE_LINE, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, MAX_LEVEL,
+    RAW_ALIGN,
 };
 use std::fs;
 use std::path::Path;
@@ -118,6 +119,12 @@ fn test_visualizer_constants_sync() {
         Some(BITMAP_TO_UNCOMPRESSED_THRESHOLD as u64)
     );
     assert_eq!(
+        node_ladder
+            .get("BRANCHU_TO_B_DOWN")
+            .and_then(|v| v.as_u64()),
+        Some(BRANCHU_TO_B_DOWN as u64)
+    );
+    assert_eq!(
         node_ladder.get("LEAF1_CAP").and_then(|v| v.as_u64()),
         Some(LEAF1_CAP as u64)
     );
@@ -195,6 +202,7 @@ fn test_visualizer_constants_sync() {
         "BRANCH_L7_CAP",
         "BRANCHB_TO_L7_DOWN",
         "BRANCHB_UP",
+        "BRANCHU_TO_B_DOWN",
         "LEAF1_CAP",
         "LEAFB1_DOWN",
         "LEAF_CAP",

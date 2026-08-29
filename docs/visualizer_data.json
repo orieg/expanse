@@ -40,6 +40,7 @@
     "BRANCH_L7_CAP": 7,
     "BRANCHB_TO_L7_DOWN": 6,
     "BRANCHB_UP": 192,
+    "BRANCHU_TO_B_DOWN": 191,
     "LEAF1_CAP": 25,
     "LEAFB1_DOWN": 21,
     "LEAF_CAP": 32,

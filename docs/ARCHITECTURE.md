@@ -568,17 +568,18 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `align_of::<Edge>()` | 8 | `crates/expanse/src/node.rs:557` |
 | `offset_of!(Edge, aux)` | 8 | `crates/expanse/src/node.rs:558` |
 | `offset_of!(Edge, tag)` | 15 | `crates/expanse/src/node.rs:559` |
-| `IMMED_PAYLOAD_BYTES` | 15 | `crates/expanse/src/types.rs:85` |
 | `MAX_LEVEL` | 8 | `crates/expanse/src/types.rs:61` |
 | `BRANCH_FANOUT` | 256 | `crates/expanse/src/types.rs:64` |
 | `BRANCH_L3_CAP` | 3 | `crates/expanse/src/types.rs:71` |
 | `BRANCH_L7_CAP` | 7 | `crates/expanse/src/types.rs:74` |
 | `BRANCHB_TO_L7_DOWN` | 6 | `crates/expanse/src/types.rs:77` |
 | `BITMAP_TO_UNCOMPRESSED_THRESHOLD` | 192 | `crates/expanse/src/types.rs:81` |
-| `LEAF1_CAP` | 25 | `crates/expanse/src/types.rs:89` |
-| `LEAFB1_DOWN` | 21 | `crates/expanse/src/types.rs:92` |
-| `LEAF_CAP` | 32 | `crates/expanse/src/types.rs:96` |
-| `ROOT_LEAF_CAP` | 31 | `crates/expanse/src/types.rs:99` |
+| `BRANCHU_TO_B_DOWN` | 191 | `crates/expanse/src/types.rs:84` |
+| `IMMED_PAYLOAD_BYTES` | 15 | `crates/expanse/src/types.rs:88` |
+| `LEAF1_CAP` | 25 | `crates/expanse/src/types.rs:92` |
+| `LEAFB1_DOWN` | 21 | `crates/expanse/src/types.rs:95` |
+| `LEAF_CAP` | 32 | `crates/expanse/src/types.rs:99` |
+| `ROOT_LEAF_CAP` | 31 | `crates/expanse/src/types.rs:102` |
 | `CACHE_LINE` | 64 | `crates/expanse/src/types.rs:43` |
 | `RAW_ALIGN` | 16 | `crates/expanse/src/types.rs:58` |
 | `size_of::<BranchHeader>()` | 16 | `crates/expanse/src/node.rs:565` |

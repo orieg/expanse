@@ -2133,7 +2133,7 @@
       level: "Levels 2..=8",
       algo: "Direct array index `edges[digit]` (O(1)). Zero branch mispredicts.",
       promo: "Maximum fanout form for digital trie routing.",
-      demote: "Demotes to BranchB when fanout <= 191 (downgrade_u_to_b: 192 up / 191 down)."
+      demote: "Demotes to BranchB when fanout <= 191 (BRANCHU_TO_B_DOWN hysteresis: 192 up / 191 down)."
     },
     immed: {
       title: "Immediate Edge (Set/Map)",
