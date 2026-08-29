@@ -27,6 +27,7 @@
 //!    Uninterpreted 64-bit machine word.
 
 /// Discriminant tag indicating how a [`ValueSlot`] is formatted.
+#[non_exhaustive]
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum SlotTag {
@@ -64,6 +65,27 @@ pub enum SlotTag {
     /// **Reserved / not yet implemented.** No code path produces or consumes it.
     External = 0x12,
 
+    /// 8-byte integer with upper zero byte compressed into 56 bits.
+    CompressedZeroTrim8 = 0x20,
+    /// 8-character 6-bit packed alphanumeric string.
+    CompressedAlnum8 = 0x22,
+    /// 9-character 6-bit packed alphanumeric string.
+    CompressedAlnum9 = 0x23,
+    /// 8-digit 4-bit packed numeric decimal string.
+    CompressedNibble8 = 0x28,
+    /// 9-digit 4-bit packed numeric decimal string.
+    CompressedNibble9 = 0x29,
+    /// 10-digit 4-bit packed numeric decimal string.
+    CompressedNibble10 = 0x2A,
+    /// 11-digit 4-bit packed numeric decimal string.
+    CompressedNibble11 = 0x2B,
+    /// 12-digit 4-bit packed numeric decimal string.
+    CompressedNibble12 = 0x2C,
+    /// 13-digit 4-bit packed numeric decimal string.
+    CompressedNibble13 = 0x2D,
+    /// 14-digit 4-bit packed numeric decimal string.
+    CompressedNibble14 = 0x2E,
+
     /// Soft-deleted tombstone marker.
     Tombstone = 0xFE,
     /// Raw uninterpreted 64-bit word (unmanaged).
@@ -86,23 +108,59 @@ impl SlotTag {
             0x07 => Self::Inline7,
             0x10 => Self::ArenaMeta,
             0x12 => Self::External,
+            0x20 => Self::CompressedZeroTrim8,
+            0x22 => Self::CompressedAlnum8,
+            0x23 => Self::CompressedAlnum9,
+            0x28 => Self::CompressedNibble8,
+            0x29 => Self::CompressedNibble9,
+            0x2A => Self::CompressedNibble10,
+            0x2B => Self::CompressedNibble11,
+            0x2C => Self::CompressedNibble12,
+            0x2D => Self::CompressedNibble13,
+            0x2E => Self::CompressedNibble14,
             0xFE => Self::Tombstone,
             _ => Self::RawWord,
         }
     }
 
-    /// Returns `true` if the tag represents an inline byte payload (0..=7 bytes).
+    /// Returns `true` if the tag represents an uncompressed raw inline byte payload (0..=7 bytes).
     #[inline(always)]
     #[must_use]
-    pub const fn is_inline(self) -> bool {
+    pub const fn is_raw_inline(self) -> bool {
         (self as u8) <= 0x07
     }
 
-    /// Returns the length of the inline payload, if inline.
+    /// Returns `true` if the tag represents a compressed inline byte payload.
+    #[inline(always)]
+    #[must_use]
+    pub const fn is_compressed_inline(self) -> bool {
+        matches!(
+            self,
+            Self::CompressedZeroTrim8
+                | Self::CompressedAlnum8
+                | Self::CompressedAlnum9
+                | Self::CompressedNibble8
+                | Self::CompressedNibble9
+                | Self::CompressedNibble10
+                | Self::CompressedNibble11
+                | Self::CompressedNibble12
+                | Self::CompressedNibble13
+                | Self::CompressedNibble14
+        )
+    }
+
+    /// Returns `true` if the tag represents an inline byte payload (raw 0..=7 bytes or compressed).
+    #[inline(always)]
+    #[must_use]
+    pub const fn is_inline(self) -> bool {
+        self.is_raw_inline() || self.is_compressed_inline()
+    }
+
+    /// Returns the length of the inline payload, if raw uncompressed inline.
     #[inline(always)]
     #[must_use]
     pub const fn inline_len(self) -> Option<usize> {
-        if self.is_inline() {
+        if self.is_raw_inline() {
             Some(self as u8 as usize)
         } else {
             None
@@ -375,5 +433,30 @@ mod tests {
             }
         }
         assert_eq!(pred_indices, vec![0, 2, 4, 6, 8, 10, 12, 14]);
+    }
+
+    #[test]
+    fn compressed_tags_decode_and_classify() {
+        let compressed_tags = [
+            (0x20, SlotTag::CompressedZeroTrim8),
+            (0x22, SlotTag::CompressedAlnum8),
+            (0x23, SlotTag::CompressedAlnum9),
+            (0x28, SlotTag::CompressedNibble8),
+            (0x29, SlotTag::CompressedNibble9),
+            (0x2A, SlotTag::CompressedNibble10),
+            (0x2B, SlotTag::CompressedNibble11),
+            (0x2C, SlotTag::CompressedNibble12),
+            (0x2D, SlotTag::CompressedNibble13),
+            (0x2E, SlotTag::CompressedNibble14),
+        ];
+
+        for (byte, expected_tag) in compressed_tags {
+            let tag = SlotTag::from_u8(byte);
+            assert_eq!(tag, expected_tag);
+            assert!(tag.is_compressed_inline());
+            assert!(tag.is_inline());
+            assert!(!tag.is_raw_inline());
+            assert_eq!(tag.inline_len(), None);
+        }
     }
 }

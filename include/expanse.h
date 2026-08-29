@@ -328,6 +328,15 @@ bool expanse_blob_map_get(
     ExpanseBlobView *out_view
 );
 
+bool expanse_blob_map_get_into(
+    const ExpanseBlobMap *map,
+    uint64_t key,
+    uint8_t *buf,
+    size_t buf_len,
+    size_t *out_len,
+    uint32_t *out_meta
+);
+
 size_t expanse_blob_map_scan_filtered(
     const ExpanseBlobMap *map,
     uint64_t start_key,

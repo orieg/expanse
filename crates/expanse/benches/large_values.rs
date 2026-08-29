@@ -510,12 +510,87 @@ fn bench_arena_compaction_churn(c: &mut Criterion) {
     g.finish();
 }
 
+type ValueGenerator = Box<dyn Fn(u64) -> Vec<u8>>;
+
+/// Benchmark throughput and allocation comparisons for compressible payloads:
+/// ExpanseBlobMap compressed inlines (zero heap allocation, zero arena allocation)
+/// vs ExpanseBlobMap arena allocation.
+fn bench_compressed_inline_vs_arena(c: &mut Criterion) {
+    let mut g = c.benchmark_group("compressed_inline_vs_arena");
+    let num_keys = 10_000u64;
+
+    let workloads: [(&str, ValueGenerator); 3] = [
+        (
+            "trim8_integers",
+            Box::new(|k| (k & 0x0000_FFFF_FFFF_FFFF).to_le_bytes().to_vec()),
+        ),
+        (
+            "nibble4_timestamps",
+            Box::new(|k| {
+                format!("{:014}", 20260000000000u64 + (k % 9000000000000u64)).into_bytes()
+            }),
+        ),
+        (
+            "alnum6_slugs",
+            Box::new(|k| format!("usr_{:04}", k % 10000).into_bytes()),
+        ),
+    ];
+
+    for (name, generator) in &workloads {
+        let entries: Vec<(u64, Vec<u8>)> = (0..num_keys).map(|k| (k, generator(k))).collect();
+
+        // 1. ExpanseBlobMap compressed inline (hot_meta = 0)
+        g.bench_with_input(
+            BenchmarkId::new("expanse_compressed_inline_get", *name),
+            &entries,
+            |b, items| {
+                let mut map = ExpanseBlobMap::new();
+                for (k, data) in items {
+                    map.insert(*k, data, 0).unwrap();
+                }
+                b.iter(|| {
+                    let mut sink = 0usize;
+                    for (k, _) in items {
+                        if let Some((view, _)) = map.get(*k) {
+                            sink = sink.wrapping_add(view.len());
+                        }
+                    }
+                    black_box(sink)
+                });
+            },
+        );
+
+        // 2. ExpanseBlobMap arena (hot_meta = 1, forces arena allocation)
+        g.bench_with_input(
+            BenchmarkId::new("expanse_arena_get", *name),
+            &entries,
+            |b, items| {
+                let mut map = ExpanseBlobMap::new();
+                for (k, data) in items {
+                    map.insert(*k, data, 1).unwrap();
+                }
+                b.iter(|| {
+                    let mut sink = 0usize;
+                    for (k, _) in items {
+                        if let Some((view, _)) = map.get(*k) {
+                            sink = sink.wrapping_add(view.len());
+                        }
+                    }
+                    black_box(sink)
+                });
+            },
+        );
+    }
+    g.finish();
+}
+
 criterion_group!(
     benches,
     bench_inline_vs_heap_small_blobs,
     bench_predicate_scan_selectivity_sweep,
     bench_predicate_scan_cold_dram_sweep,
     bench_predicate_scan_cold_dram_large,
-    bench_arena_compaction_churn
+    bench_arena_compaction_churn,
+    bench_compressed_inline_vs_arena
 );
 criterion_main!(benches);

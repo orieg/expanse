@@ -4,8 +4,9 @@ use core::ffi::c_void;
 use expanse::blobmap::{
     ExpanseBlobView, expanse_blob_map_clear, expanse_blob_map_compact,
     expanse_blob_map_contains_key, expanse_blob_map_free, expanse_blob_map_get,
-    expanse_blob_map_insert, expanse_blob_map_len, expanse_blob_map_mem_used, expanse_blob_map_new,
-    expanse_blob_map_remove, expanse_blob_map_scan_filtered,
+    expanse_blob_map_get_into, expanse_blob_map_insert, expanse_blob_map_len,
+    expanse_blob_map_mem_used, expanse_blob_map_new, expanse_blob_map_remove,
+    expanse_blob_map_scan_filtered,
 };
 
 #[test]
@@ -207,6 +208,130 @@ fn test_capi_null_safety() {
         let dummy_ptr = 0x1000 as *const u8;
         let huge_len = (isize::MAX as usize) + 1;
         assert!(!expanse_blob_map_insert(map, 10, dummy_ptr, huge_len, 0));
+        expanse_blob_map_free(map);
+    }
+}
+
+#[test]
+fn test_capi_blob_map_compressed_inline_and_get_into() {
+    // SAFETY: Testing C ABI get_into and compressed inlines with valid handles.
+    unsafe {
+        let map = expanse_blob_map_new(64 * 1024);
+        assert!(!map.is_null());
+
+        // 1. Raw inline (4 bytes)
+        assert!(expanse_blob_map_insert(map, 1, b"raw4".as_ptr(), 4, 0));
+
+        // 2. Compressed inline (Nibble4: 14 decimal digits)
+        assert!(expanse_blob_map_insert(
+            map,
+            2,
+            b"20260829125825".as_ptr(),
+            14,
+            0
+        ));
+
+        // 3. Compressed inline (Alnum6: 8-char slug)
+        assert!(expanse_blob_map_insert(map, 3, b"usr_1001".as_ptr(), 8, 0));
+
+        // 4. Arena value with metadata (14 digits but hot_meta = 500)
+        assert!(expanse_blob_map_insert(
+            map,
+            4,
+            b"20260829125825".as_ptr(),
+            14,
+            500
+        ));
+
+        // Test expanse_blob_map_get on compressed inlines
+        let mut view = ExpanseBlobView {
+            ptr: core::ptr::null(),
+            len: 0,
+            hot_meta: 0,
+            is_inline: false,
+        };
+
+        // Key 2 (compressed Nibble4): get sets is_inline = true, ptr = null, len = 14
+        assert!(expanse_blob_map_get(map, 2, &mut view));
+        assert!(view.is_inline);
+        assert_eq!(view.len, 14);
+        assert_eq!(view.hot_meta, 0);
+        assert!(view.ptr.is_null());
+
+        // Key 4 (arena with metadata): get sets is_inline = false, ptr != null, len = 14, hot_meta = 500
+        assert!(expanse_blob_map_get(map, 4, &mut view));
+        assert!(!view.is_inline);
+        assert_eq!(view.len, 14);
+        assert_eq!(view.hot_meta, 500);
+        assert!(!view.ptr.is_null());
+
+        // Test expanse_blob_map_get_into on all 4 keys
+        let mut buf = [0u8; 32];
+        let mut out_len = 0usize;
+        let mut out_meta = 0u32;
+
+        // Key 1 (raw inline)
+        assert!(expanse_blob_map_get_into(
+            map,
+            1,
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut out_len,
+            &mut out_meta
+        ));
+        assert_eq!(out_len, 4);
+        assert_eq!(out_meta, 0);
+        assert_eq!(&buf[..4], b"raw4");
+
+        // Key 2 (compressed Nibble4)
+        assert!(expanse_blob_map_get_into(
+            map,
+            2,
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut out_len,
+            &mut out_meta
+        ));
+        assert_eq!(out_len, 14);
+        assert_eq!(out_meta, 0);
+        assert_eq!(&buf[..14], b"20260829125825");
+
+        // Key 3 (compressed Alnum6)
+        assert!(expanse_blob_map_get_into(
+            map,
+            3,
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut out_len,
+            &mut out_meta
+        ));
+        assert_eq!(out_len, 8);
+        assert_eq!(out_meta, 0);
+        assert_eq!(&buf[..8], b"usr_1001");
+
+        // Key 4 (arena)
+        assert!(expanse_blob_map_get_into(
+            map,
+            4,
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut out_len,
+            &mut out_meta
+        ));
+        assert_eq!(out_len, 14);
+        assert_eq!(out_meta, 500);
+        assert_eq!(&buf[..14], b"20260829125825");
+
+        // Non-existent key
+        assert!(!expanse_blob_map_get_into(
+            map,
+            999,
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut out_len,
+            &mut out_meta
+        ));
+
         expanse_blob_map_free(map);
     }
 }

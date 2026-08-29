@@ -50,6 +50,8 @@ pub mod blobmap;
 #[cfg(target_pointer_width = "64")]
 pub mod bytesmap;
 #[cfg(target_pointer_width = "64")]
+pub mod codec;
+#[cfg(target_pointer_width = "64")]
 pub mod cursor;
 #[cfg(target_pointer_width = "64")]
 pub mod get;
