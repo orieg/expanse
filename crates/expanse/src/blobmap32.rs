@@ -269,9 +269,24 @@ impl ExpanseBlobMap32 {
                 };
                 pred(k, meta)
             },
-            |k, _raw| {
-                if let Some((view, meta)) = self.get(k) {
-                    cb(k, view, meta);
+            |k, raw| {
+                let slot = ValueSlot32::from_raw(raw);
+                match slot.tag() {
+                    SlotTag32::Inline0
+                    | SlotTag32::Inline1
+                    | SlotTag32::Inline2
+                    | SlotTag32::Inline3 => {
+                        let (payload, len) = slot.inline_payload();
+                        cb(k, BlobView32::Inline(payload, len as u8), 0);
+                    }
+                    SlotTag32::Arena => {
+                        let offset = slot.slab_offset() as usize;
+                        let meta = slot.hot_meta();
+                        if let Some(Some(vec)) = self.arena.get(offset) {
+                            cb(k, BlobView32::Arena(vec.as_slice()), meta);
+                        }
+                    }
+                    SlotTag32::RawWord => {}
                 }
             },
         );

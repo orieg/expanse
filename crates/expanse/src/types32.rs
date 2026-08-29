@@ -162,7 +162,7 @@ impl From<u8> for Tag32 {
 /// Compact 8-byte Edge descriptor for 32-bit targets.
 ///
 /// Halves structural pointer overhead from 16 bytes (64-bit) to 8 bytes (32-bit).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct Edge32 {
     /// Word 0 (4 bytes): Child node pointer OR 32-bit payload.

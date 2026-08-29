@@ -743,6 +743,14 @@ fn make_map_bitmap(a: &mut Arena, entries: &[(u32, u32)]) -> Edge32 {
     node_edge(h, T_MAP_BITMAP)
 }
 
+#[inline(always)]
+fn bitmap_sub_rank(word: u64, digit: u8) -> usize {
+    let bit64 = digit & 63;
+    let sub_base = (digit & 32) as u32;
+    let bit_mask = 1u64 << bit64;
+    (word & ((bit_mask - 1) & (!0u64 << sub_base))).count_ones() as usize
+}
+
 fn read_map_bitmap(a: &Arena, e: &Edge32) -> Vec<(u32, u32)> {
     let data = a.map_bitmap(edge_handle(e));
     let mut entries = Vec::with_capacity((data.header.pop0 + 1) as usize);
@@ -751,10 +759,8 @@ fn read_map_bitmap(a: &Arena, e: &Edge32) -> Vec<(u32, u32)> {
         while word != 0 {
             let bit = word.trailing_zeros() as usize;
             let digit = (w * 64 + bit) as u8;
+            let rank = bitmap_sub_rank(data.header.bitmap[w], digit);
             let sub = (digit >> 5) as usize;
-            let bit32 = (digit & 31) as u32;
-            let sub_word = (data.header.bitmap[sub / 2] >> ((sub % 2) * 32)) as u32;
-            let rank = (sub_word & ((1u32 << bit32) - 1)).count_ones() as usize;
             let val = data.subarrays[sub].as_ref().unwrap()[rank];
             entries.push((digit as u32, val));
             word &= word - 1;
@@ -810,30 +816,44 @@ fn branch_add_keys(a: &mut Arena, e: &Edge32, delta: i64) {
 }
 
 /// Child edge at `digit`, if present.
+#[inline]
 fn branch_child(a: &Arena, e: &Edge32, digit: u8) -> Option<Edge32> {
     match kind(e) {
         Kind::BranchL2 => {
             let b = a.l2(edge_handle(e));
             let n = b.header.num_edges as usize;
-            (0..n).find(|&i| b.digits[i] == digit).map(|i| b.edges[i])
+            if n > 0 && b.digits[0] == digit {
+                Some(b.edges[0])
+            } else if n > 1 && b.digits[1] == digit {
+                Some(b.edges[1])
+            } else {
+                None
+            }
         }
         Kind::BranchL6 => {
             let b = a.l6(edge_handle(e));
             let n = b.header.num_edges as usize;
-            (0..n).find(|&i| b.digits[i] == digit).map(|i| b.edges[i])
+            for i in 0..n {
+                if b.digits[i] == digit {
+                    return Some(b.edges[i]);
+                }
+            }
+            None
         }
         Kind::BranchB => {
             let b = a.b(edge_handle(e));
             let w = (digit >> 6) as usize;
-            let bit64 = digit & 63;
-            if (b.header.bitmap[w] & (1u64 << bit64)) == 0 {
+            let word = b.header.bitmap[w];
+            let bit_mask = 1u64 << (digit & 63);
+            if (word & bit_mask) == 0 {
                 return None;
             }
+            let rank = bitmap_sub_rank(word, digit);
             let sub = (digit >> 5) as usize;
-            let bit32 = (digit & 31) as u32;
-            let sub_word = (b.header.bitmap[sub / 2] >> ((sub % 2) * 32)) as u32;
-            let rank = (sub_word & ((1u32 << bit32) - 1)).count_ones() as usize;
-            b.subarrays[sub].as_ref().map(|s| s[rank])
+            b.subarrays[sub]
+                .as_deref()
+                .and_then(|s| s.get(rank))
+                .copied()
         }
         Kind::BranchU => {
             let b = a.u(edge_handle(e));
@@ -845,16 +865,18 @@ fn branch_child(a: &Arena, e: &Edge32, digit: u8) -> Option<Edge32> {
 }
 
 /// Overwrite the (already-present) child edge at `digit`.
+#[inline]
 fn branch_set_child(a: &mut Arena, e: &Edge32, digit: u8, child: Edge32) {
     match kind(e) {
         Kind::BranchL2 => {
             let b = a.l2_mut(edge_handle(e));
             let n = b.header.num_edges as usize;
-            for i in 0..n {
-                if b.digits[i] == digit {
-                    b.edges[i] = child;
-                    return;
-                }
+            if n > 0 && b.digits[0] == digit {
+                b.edges[0] = child;
+                return;
+            } else if n > 1 && b.digits[1] == digit {
+                b.edges[1] = child;
+                return;
             }
             unreachable!("branch_set_child: digit not present");
         }
@@ -871,11 +893,11 @@ fn branch_set_child(a: &mut Arena, e: &Edge32, digit: u8, child: Edge32) {
         }
         Kind::BranchB => {
             let b = a.b_mut(edge_handle(e));
+            let w = (digit >> 6) as usize;
+            let word = b.header.bitmap[w];
+            let rank = bitmap_sub_rank(word, digit);
             let sub = (digit >> 5) as usize;
-            let bit32 = (digit & 31) as u32;
-            let sub_word = (b.header.bitmap[sub / 2] >> ((sub % 2) * 32)) as u32;
-            let rank = (sub_word & ((1u32 << bit32) - 1)).count_ones() as usize;
-            b.subarrays[sub].as_mut().expect("live subarray")[rank] = child;
+            b.subarrays[sub].as_deref_mut().expect("live subarray")[rank] = child;
         }
         Kind::BranchU => {
             a.u_mut(edge_handle(e)).edges[digit as usize] = child;
@@ -884,47 +906,204 @@ fn branch_set_child(a: &mut Arena, e: &Edge32, digit: u8, child: Edge32) {
     }
 }
 
-/// Collect all `(digit, child)` pairs of a branch in ascending digit order.
-fn branch_pairs(a: &Arena, e: &Edge32) -> Vec<(u8, Edge32)> {
+#[inline]
+fn branch_first_child(a: &Arena, e: &Edge32) -> Option<(u8, Edge32)> {
+    match kind(e) {
+        Kind::BranchL2 => {
+            let b = a.l2(edge_handle(e));
+            (b.header.num_edges > 0).then(|| (b.digits[0], b.edges[0]))
+        }
+        Kind::BranchL6 => {
+            let b = a.l6(edge_handle(e));
+            (b.header.num_edges > 0).then(|| (b.digits[0], b.edges[0]))
+        }
+        Kind::BranchB => {
+            let b = a.b(edge_handle(e));
+            for w in 0..4usize {
+                let word = b.header.bitmap[w];
+                if word != 0 {
+                    let bit = word.trailing_zeros() as usize;
+                    let digit = (w * 64 + bit) as u8;
+                    let rank = bitmap_sub_rank(word, digit);
+                    let sub = (digit >> 5) as usize;
+                    let child = b.subarrays[sub].as_ref().unwrap()[rank];
+                    return Some((digit, child));
+                }
+            }
+            None
+        }
+        Kind::BranchU => {
+            let b = a.u(edge_handle(e));
+            for d in 0..256usize {
+                let c = b.edges[d];
+                if !c.is_null() {
+                    return Some((d as u8, c));
+                }
+            }
+            None
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[inline]
+fn branch_last_child(a: &Arena, e: &Edge32) -> Option<(u8, Edge32)> {
     match kind(e) {
         Kind::BranchL2 => {
             let b = a.l2(edge_handle(e));
             let n = b.header.num_edges as usize;
-            (0..n).map(|i| (b.digits[i], b.edges[i])).collect()
+            (n > 0).then(|| (b.digits[n - 1], b.edges[n - 1]))
         }
         Kind::BranchL6 => {
             let b = a.l6(edge_handle(e));
             let n = b.header.num_edges as usize;
-            (0..n).map(|i| (b.digits[i], b.edges[i])).collect()
+            (n > 0).then(|| (b.digits[n - 1], b.edges[n - 1]))
         }
         Kind::BranchB => {
             let b = a.b(edge_handle(e));
-            let mut pairs = Vec::with_capacity(b.num_children as usize);
+            for w in (0..4usize).rev() {
+                let word = b.header.bitmap[w];
+                if word != 0 {
+                    let bit = 63 - word.leading_zeros() as usize;
+                    let digit = (w * 64 + bit) as u8;
+                    let rank = bitmap_sub_rank(word, digit);
+                    let sub = (digit >> 5) as usize;
+                    let child = b.subarrays[sub].as_ref().unwrap()[rank];
+                    return Some((digit, child));
+                }
+            }
+            None
+        }
+        Kind::BranchU => {
+            let b = a.u(edge_handle(e));
+            for d in (0..256usize).rev() {
+                let c = b.edges[d];
+                if !c.is_null() {
+                    return Some((d as u8, c));
+                }
+            }
+            None
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[inline]
+fn branch_for_each_child<F>(a: &Arena, e: &Edge32, mut f: F)
+where
+    F: FnMut(u8, Edge32) -> bool,
+{
+    match kind(e) {
+        Kind::BranchL2 => {
+            let b = a.l2(edge_handle(e));
+            let n = b.header.num_edges as usize;
+            for i in 0..n {
+                if !f(b.digits[i], b.edges[i]) {
+                    break;
+                }
+            }
+        }
+        Kind::BranchL6 => {
+            let b = a.l6(edge_handle(e));
+            let n = b.header.num_edges as usize;
+            for i in 0..n {
+                if !f(b.digits[i], b.edges[i]) {
+                    break;
+                }
+            }
+        }
+        Kind::BranchB => {
+            let b = a.b(edge_handle(e));
             for w in 0..4usize {
                 let mut word = b.header.bitmap[w];
                 while word != 0 {
                     let bit = word.trailing_zeros() as usize;
                     let digit = (w * 64 + bit) as u8;
+                    let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
                     let sub = (digit >> 5) as usize;
-                    let bit32 = (digit & 31) as u32;
-                    let sub_word = (b.header.bitmap[sub / 2] >> ((sub % 2) * 32)) as u32;
-                    let rank = (sub_word & ((1u32 << bit32) - 1)).count_ones() as usize;
                     let child = b.subarrays[sub].as_ref().unwrap()[rank];
-                    pairs.push((digit, child));
+                    if !f(digit, child) {
+                        return;
+                    }
                     word &= word - 1;
                 }
             }
-            pairs
         }
         Kind::BranchU => {
             let b = a.u(edge_handle(e));
-            (0..256usize)
-                .filter(|&d| !b.edges[d].is_null())
-                .map(|d| (d as u8, b.edges[d]))
-                .collect()
+            for d in 0..256usize {
+                let c = b.edges[d];
+                if !c.is_null() && !f(d as u8, c) {
+                    return;
+                }
+            }
         }
         _ => unreachable!(),
     }
+}
+
+#[inline]
+fn branch_for_each_child_rev<F>(a: &Arena, e: &Edge32, mut f: F)
+where
+    F: FnMut(u8, Edge32) -> bool,
+{
+    match kind(e) {
+        Kind::BranchL2 => {
+            let b = a.l2(edge_handle(e));
+            let n = b.header.num_edges as usize;
+            for i in (0..n).rev() {
+                if !f(b.digits[i], b.edges[i]) {
+                    break;
+                }
+            }
+        }
+        Kind::BranchL6 => {
+            let b = a.l6(edge_handle(e));
+            let n = b.header.num_edges as usize;
+            for i in (0..n).rev() {
+                if !f(b.digits[i], b.edges[i]) {
+                    break;
+                }
+            }
+        }
+        Kind::BranchB => {
+            let b = a.b(edge_handle(e));
+            for w in (0..4usize).rev() {
+                let mut word = b.header.bitmap[w];
+                while word != 0 {
+                    let bit = 63 - word.leading_zeros() as usize;
+                    let digit = (w * 64 + bit) as u8;
+                    let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
+                    let sub = (digit >> 5) as usize;
+                    let child = b.subarrays[sub].as_ref().unwrap()[rank];
+                    if !f(digit, child) {
+                        return;
+                    }
+                    word &= !(1u64 << bit);
+                }
+            }
+        }
+        Kind::BranchU => {
+            let b = a.u(edge_handle(e));
+            for d in (0..256usize).rev() {
+                let c = b.edges[d];
+                if !c.is_null() && !f(d as u8, c) {
+                    return;
+                }
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// Collect all `(digit, child)` pairs of a branch in ascending digit order.
+fn branch_pairs(a: &Arena, e: &Edge32) -> Vec<(u8, Edge32)> {
+    let mut pairs = Vec::new();
+    branch_for_each_child(a, e, |d, c| {
+        pairs.push((d, c));
+        true
+    });
+    pairs
 }
 
 fn make_l2(a: &mut Arena, level: u8, pairs: &[(u8, Edge32)], total: u32) -> Edge32 {
@@ -1068,12 +1247,11 @@ fn branch_insert_new(a: &mut Arena, e: &mut Edge32, digit: u8, child: Edge32, ke
                 if n < BRANCH_B_TO_UNCOMPRESSED {
                     let w = (digit >> 6) as usize;
                     let bit64 = digit & 63;
-                    debug_assert!((b.header.bitmap[w] & (1u64 << bit64)) == 0);
-                    b.header.bitmap[w] |= 1u64 << bit64;
+                    let bit_mask = 1u64 << bit64;
+                    debug_assert!((b.header.bitmap[w] & bit_mask) == 0);
+                    let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
+                    b.header.bitmap[w] |= bit_mask;
                     let sub = (digit >> 5) as usize;
-                    let bit32 = (digit & 31) as u32;
-                    let sub_word = (b.header.bitmap[sub / 2] >> ((sub % 2) * 32)) as u32;
-                    let rank = (sub_word & ((1u32 << bit32) - 1)).count_ones() as usize;
 
                     let old_sub_len = b.subarrays[sub].as_ref().map_or(0, |s| s.len());
                     let mut new_sub = Vec::with_capacity(old_sub_len + 1);
@@ -1119,21 +1297,23 @@ fn insert_pair_sorted(pairs: &mut Vec<(u8, Edge32)>, digit: u8, child: Edge32) {
     pairs.insert(pos, (digit, child));
 }
 
-/// Remove the structurally-empty child at `digit` (its subtree is now
-/// null). The total-key count has already been decremented by the caller.
-/// Frees or demotes the branch as its child count shrinks; sets `*e` to
-/// null if the branch becomes empty.
+/// Remove `(digit, child)` from a branch. Returns `true` if the branch
+/// was modified. The caller is responsible for freeing the child node
+/// if applicable.
 fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
     let level = branch_level(a, e);
     match kind(e) {
         Kind::BranchL2 => {
             let b = a.l2_mut(edge_handle(e));
             let n = b.header.num_edges as usize;
-            let mut pos = 0;
-            while pos < n && b.digits[pos] != digit {
-                pos += 1;
+            let mut pos = None;
+            for i in 0..n {
+                if b.digits[i] == digit {
+                    pos = Some(i);
+                    break;
+                }
             }
-            debug_assert!(pos < n);
+            let pos = pos.expect("branch_remove_digit: digit not present");
             for i in pos..n - 1 {
                 b.digits[i] = b.digits[i + 1];
                 b.edges[i] = b.edges[i + 1];
@@ -1143,18 +1323,21 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
             b.header.num_edges = (n - 1) as u8;
             if n - 1 == 0 {
                 let old = edge_handle(e);
-                a.free(old);
                 *e = Edge32::null();
+                a.free(old);
             }
         }
         Kind::BranchL6 => {
             let b = a.l6_mut(edge_handle(e));
             let n = b.header.num_edges as usize;
-            let mut pos = 0;
-            while pos < n && b.digits[pos] != digit {
-                pos += 1;
+            let mut pos = None;
+            for i in 0..n {
+                if b.digits[i] == digit {
+                    pos = Some(i);
+                    break;
+                }
             }
-            debug_assert!(pos < n);
+            let pos = pos.expect("branch_remove_digit: digit not present");
             for i in pos..n - 1 {
                 b.digits[i] = b.digits[i + 1];
                 b.edges[i] = b.edges[i + 1];
@@ -1181,12 +1364,11 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
                 let b = a.b_mut(edge_handle(e));
                 let w = (digit >> 6) as usize;
                 let bit64 = digit & 63;
-                debug_assert!((b.header.bitmap[w] & (1u64 << bit64)) != 0);
+                let bit_mask = 1u64 << bit64;
+                debug_assert!((b.header.bitmap[w] & bit_mask) != 0);
+                let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
                 let sub = (digit >> 5) as usize;
-                let bit32 = (digit & 31) as u32;
-                let sub_word = (b.header.bitmap[sub / 2] >> ((sub % 2) * 32)) as u32;
-                let rank = (sub_word & ((1u32 << bit32) - 1)).count_ones() as usize;
-                b.header.bitmap[w] &= !(1u64 << bit64);
+                b.header.bitmap[w] &= !bit_mask;
                 b.header.pop_counts[sub] -= 1;
                 b.num_children -= 1;
 
@@ -1257,29 +1439,36 @@ pub(crate) fn subtree_count(a: &Arena, e: &Edge32) -> usize {
     }
 }
 
-pub(crate) fn set_contains(a: &Arena, e: &Edge32, kb: u8, rem: u32) -> bool {
-    match kind(e) {
-        Kind::Null => false,
-        Kind::SetImmed { kb: _, count } => {
-            let (keys, n) = set_immed_keys(e, kb, count);
-            keys[..n].binary_search(&rem).is_ok()
-        }
-        Kind::SetLeaf(_) => {
-            let pop = edge_pop(e);
-            let buf = a.leaf(edge_handle(e));
-            leaf_lower_bound(buf, pop, kb, rem)
-                .map(|pos| pos < pop && read_rem(buf, pos, kb as usize) == rem)
-                .unwrap_or(false)
-        }
-        Kind::Bitmap => a.bitmap(edge_handle(e)).test(rem as u8),
-        Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
-            let d = digit_at(rem, kb);
-            match branch_child(a, e, d) {
-                Some(c) => set_contains(a, &c, kb - 1, child_rem(rem, kb)),
-                None => false,
+pub(crate) fn set_contains(a: &Arena, e: &Edge32, mut kb: u8, mut rem: u32) -> bool {
+    let mut edge = *e;
+    loop {
+        match kind(&edge) {
+            Kind::Null => return false,
+            Kind::SetImmed { kb: _, count } => {
+                let (keys, n) = set_immed_keys(&edge, kb, count);
+                return keys[..n].binary_search(&rem).is_ok();
             }
+            Kind::SetLeaf(_) => {
+                let pop = edge_pop(&edge);
+                let buf = a.leaf(edge_handle(&edge));
+                return leaf_lower_bound(buf, pop, kb, rem)
+                    .map(|pos| pos < pop && read_rem(buf, pos, kb as usize) == rem)
+                    .unwrap_or(false);
+            }
+            Kind::Bitmap => return a.bitmap(edge_handle(&edge)).test(rem as u8),
+            Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+                let d = digit_at(rem, kb);
+                match branch_child(a, &edge, d) {
+                    Some(c) => {
+                        edge = c;
+                        rem = child_rem(rem, kb);
+                        kb -= 1;
+                    }
+                    None => return false,
+                }
+            }
+            _ => return false,
         }
-        _ => false,
     }
 }
 
@@ -1362,9 +1551,12 @@ pub(crate) fn set_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
             let cr = child_rem(rem, kb);
             match branch_child(a, e, d) {
                 Some(mut child) => {
+                    let old_child = child;
                     let inserted = set_insert(a, &mut child, kb - 1, cr);
                     if inserted {
-                        branch_set_child(a, e, d, child);
+                        if child != old_child {
+                            branch_set_child(a, e, d, child);
+                        }
                         branch_add_keys(a, e, 1);
                     }
                     inserted
@@ -1470,50 +1662,57 @@ pub(crate) fn set_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
 // MAP operations
 // ---------------------------------------------------------------------------
 
-pub(crate) fn map_get(a: &Arena, e: &Edge32, kb: u8, rem: u32) -> Option<u32> {
-    match kind(e) {
-        Kind::Null => None,
-        Kind::MapImmed { kb: _ } => {
-            if map_immed_rem(e, kb) == rem {
-                Some(map_immed_val(e))
-            } else {
-                None
+pub(crate) fn map_get(a: &Arena, e: &Edge32, mut kb: u8, mut rem: u32) -> Option<u32> {
+    let mut edge = *e;
+    loop {
+        match kind(&edge) {
+            Kind::Null => return None,
+            Kind::MapImmed { kb: _ } => {
+                return if map_immed_rem(&edge, kb) == rem {
+                    Some(map_immed_val(&edge))
+                } else {
+                    None
+                };
             }
-        }
-        Kind::MapLeaf(_) => {
-            let pop = edge_pop(e);
-            let cap = cap_class(pop);
-            let buf = a.leaf(edge_handle(e));
-            let keys_off = 4 * cap;
-            let pos = leaf_lower_bound(&buf[keys_off..], pop, kb, rem)?;
-            if pos < pop && read_rem(&buf[keys_off..], pos, kb as usize) == rem {
-                let mut vb = [0u8; 4];
-                vb.copy_from_slice(&buf[pos * 4..pos * 4 + 4]);
-                Some(u32::from_le_bytes(vb))
-            } else {
-                None
+            Kind::MapLeaf(_) => {
+                let pop = edge_pop(&edge);
+                let cap = cap_class(pop);
+                let buf = a.leaf(edge_handle(&edge));
+                let keys_off = 4 * cap;
+                let pos = leaf_lower_bound(&buf[keys_off..], pop, kb, rem)?;
+                return if pos < pop && read_rem(&buf[keys_off..], pos, kb as usize) == rem {
+                    let mut vb = [0u8; 4];
+                    vb.copy_from_slice(&buf[pos * 4..pos * 4 + 4]);
+                    Some(u32::from_le_bytes(vb))
+                } else {
+                    None
+                };
             }
-        }
-        Kind::MapBitmap => {
-            let b = a.map_bitmap(edge_handle(e));
-            let digit = rem as u8;
-            let w = (digit >> 6) as usize;
-            let bit64 = digit & 63;
-            if (b.header.bitmap[w] & (1u64 << bit64)) == 0 {
-                return None;
+            Kind::MapBitmap => {
+                let b = a.map_bitmap(edge_handle(&edge));
+                let digit = rem as u8;
+                let w = (digit >> 6) as usize;
+                let word = b.header.bitmap[w];
+                let bit_mask = 1u64 << (digit & 63);
+                if (word & bit_mask) == 0 {
+                    return None;
+                }
+                let rank = bitmap_sub_rank(word, digit);
+                let sub = (digit >> 5) as usize;
+                return b.subarrays[sub]
+                    .as_deref()
+                    .and_then(|s| s.get(rank))
+                    .copied();
             }
-            let sub = (digit >> 5) as usize;
-            let bit32 = (digit & 31) as u32;
-            let sub_word = (b.header.bitmap[sub / 2] >> ((sub % 2) * 32)) as u32;
-            let rank = (sub_word & ((1u32 << bit32) - 1)).count_ones() as usize;
-            b.subarrays[sub].as_ref().map(|s| s[rank])
+            Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+                let d = digit_at(rem, kb);
+                let c = branch_child(a, &edge, d)?;
+                edge = c;
+                rem = child_rem(rem, kb);
+                kb -= 1;
+            }
+            _ => return None,
         }
-        Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
-            let d = digit_at(rem, kb);
-            let c = branch_child(a, e, d)?;
-            map_get(a, &c, kb - 1, child_rem(rem, kb))
-        }
-        _ => None,
     }
 }
 
@@ -1590,17 +1789,16 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
                 let b = a.map_bitmap_mut(edge_handle(e));
                 let digit = rem as u8;
                 let w = (digit >> 6) as usize;
-                let bit64 = digit & 63;
+                let word = b.header.bitmap[w];
+                let bit_mask = 1u64 << (digit & 63);
+                let rank = bitmap_sub_rank(word, digit);
                 let sub = (digit >> 5) as usize;
-                let bit32 = (digit & 31) as u32;
-                let sub_word = (b.header.bitmap[sub / 2] >> ((sub % 2) * 32)) as u32;
-                let rank = (sub_word & ((1u32 << bit32) - 1)).count_ones() as usize;
-                if (b.header.bitmap[w] & (1u64 << bit64)) != 0 {
+                if (word & bit_mask) != 0 {
                     let old = b.subarrays[sub].as_ref().unwrap()[rank];
                     b.subarrays[sub].as_mut().unwrap()[rank] = val;
                     (Some(old), false)
                 } else {
-                    b.header.bitmap[w] |= 1u64 << bit64;
+                    b.header.bitmap[w] |= bit_mask;
                     b.header.pop0 += 1;
                     let old_sub_len = b.subarrays[sub].as_ref().map_or(0, |s| s.len());
                     let mut new_sub = Vec::with_capacity(old_sub_len + 1);
@@ -1625,8 +1823,11 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
             let cr = child_rem(rem, kb);
             match branch_child(a, e, d) {
                 Some(mut child) => {
+                    let old_child = child;
                     let old = map_insert(a, &mut child, kb - 1, cr, val);
-                    branch_set_child(a, e, d, child);
+                    if child != old_child {
+                        branch_set_child(a, e, d, child);
+                    }
                     if old.is_none() {
                         branch_add_keys(a, e, 1);
                     }
@@ -1683,15 +1884,14 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
                 let b = a.map_bitmap_mut(edge_handle(e));
                 let digit = rem as u8;
                 let w = (digit >> 6) as usize;
-                let bit64 = digit & 63;
-                if (b.header.bitmap[w] & (1u64 << bit64)) == 0 {
+                let word = b.header.bitmap[w];
+                let bit_mask = 1u64 << (digit & 63);
+                if (word & bit_mask) == 0 {
                     return None;
                 }
+                let rank = bitmap_sub_rank(word, digit);
                 let sub = (digit >> 5) as usize;
-                let bit32 = (digit & 31) as u32;
-                let sub_word = (b.header.bitmap[sub / 2] >> ((sub % 2) * 32)) as u32;
-                let rank = (sub_word & ((1u32 << bit32) - 1)).count_ones() as usize;
-                b.header.bitmap[w] &= !(1u64 << bit64);
+                b.header.bitmap[w] &= !bit_mask;
                 let existing = b.subarrays[sub].take().expect("live subarray");
                 let old_val = existing[rank];
                 if existing.len() > 1 {
@@ -1779,9 +1979,8 @@ pub(crate) fn first(a: &Arena, e: &Edge32, kb: u8) -> Option<u32> {
             bitmap_first_ge_raw(&a.map_bitmap(edge_handle(e)).header.bitmap, 0).map(u32::from)
         }
         Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
-            let pairs = branch_pairs(a, e);
-            let (d, c) = pairs.first()?;
-            first(a, c, kb - 1).map(|cr| combine(*d, cr, kb))
+            let (d, c) = branch_first_child(a, e)?;
+            first(a, &c, kb - 1).map(|cr| combine(d, cr, kb))
         }
     }
 }
@@ -1816,9 +2015,8 @@ pub(crate) fn last(a: &Arena, e: &Edge32, kb: u8) -> Option<u32> {
             bitmap_last_le_raw(&a.map_bitmap(edge_handle(e)).header.bitmap, 255).map(u32::from)
         }
         Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
-            let pairs = branch_pairs(a, e);
-            let (d, c) = pairs.last()?;
-            last(a, c, kb - 1).map(|cr| combine(*d, cr, kb))
+            let (d, c) = branch_last_child(a, e)?;
+            last(a, &c, kb - 1).map(|cr| combine(d, cr, kb))
         }
     }
 }
@@ -1871,22 +2069,25 @@ pub(crate) fn next(a: &Arena, e: &Edge32, kb: u8, after: u32) -> Option<u32> {
         Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
             let da = digit_at(after, kb);
             let ca = child_rem(after, kb);
-            let pairs = branch_pairs(a, e);
-            for &(d, c) in &pairs {
+            let mut result = None;
+            branch_for_each_child(a, e, |d, c| {
                 if d < da {
-                    continue;
+                    return true;
                 }
                 if d == da {
                     if let Some(cr) = next(a, &c, kb - 1, ca) {
-                        return Some(combine(d, cr, kb));
+                        result = Some(combine(d, cr, kb));
+                        return false;
                     }
                 } else {
                     if let Some(cr) = first(a, &c, kb - 1) {
-                        return Some(combine(d, cr, kb));
+                        result = Some(combine(d, cr, kb));
+                        return false;
                     }
                 }
-            }
-            None
+                true
+            });
+            result
         }
     }
 }
@@ -1941,22 +2142,25 @@ pub(crate) fn prev(a: &Arena, e: &Edge32, kb: u8, before: u32) -> Option<u32> {
         Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
             let db = digit_at(before, kb);
             let cb = child_rem(before, kb);
-            let pairs = branch_pairs(a, e);
-            for &(d, c) in pairs.iter().rev() {
+            let mut result = None;
+            branch_for_each_child_rev(a, e, |d, c| {
                 if d > db {
-                    continue;
+                    return true;
                 }
                 if d == db {
                     if let Some(cr) = prev(a, &c, kb - 1, cb) {
-                        return Some(combine(d, cr, kb));
+                        result = Some(combine(d, cr, kb));
+                        return false;
                     }
                 } else {
                     if let Some(cr) = last(a, &c, kb - 1) {
-                        return Some(combine(d, cr, kb));
+                        result = Some(combine(d, cr, kb));
+                        return false;
                     }
                 }
-            }
-            None
+                true
+            });
+            result
         }
     }
 }
@@ -2004,9 +2208,12 @@ pub(crate) fn count_range(a: &Arena, e: &Edge32, kb: u8, lo: u32, hi: u32) -> us
             let r_hi = child_rem(hi, kb);
             let full = rem_mask(kb - 1);
             let mut total = 0;
-            for (d, c) in branch_pairs(a, e) {
-                if d < d_lo || d > d_hi {
-                    continue;
+            branch_for_each_child(a, e, |d, c| {
+                if d < d_lo {
+                    return true;
+                }
+                if d > d_hi {
+                    return false;
                 }
                 total += if d == d_lo && d == d_hi {
                     count_range(a, &c, kb - 1, r_lo, r_hi)
@@ -2017,7 +2224,8 @@ pub(crate) fn count_range(a: &Arena, e: &Edge32, kb: u8, lo: u32, hi: u32) -> us
                 } else {
                     subtree_count(a, &c)
                 };
-            }
+                true
+            });
             total
         }
     }
@@ -2060,22 +2268,23 @@ pub(crate) fn map_for_each_range(
         }
         Kind::MapBitmap => {
             let b = a.map_bitmap(edge_handle(e));
-            let lo_u8 = lo.min(255) as u8;
-            let hi_u8 = hi.min(255) as u8;
             if lo <= 255 {
-                for digit in lo_u8..=hi_u8 {
-                    let w = (digit >> 6) as usize;
-                    let bit64 = digit & 63;
-                    if (b.header.bitmap[w] & (1u64 << bit64)) != 0 {
-                        let sub = (digit >> 5) as usize;
-                        let bit32 = (digit & 31) as u32;
-                        let sub_word = (b.header.bitmap[sub / 2] >> ((sub % 2) * 32)) as u32;
-                        let rank = (sub_word & ((1u32 << bit32) - 1)).count_ones() as usize;
-                        let val = b.subarrays[sub].as_ref().unwrap()[rank];
-                        f(digit as u32, val);
-                    }
-                    if digit == 255 {
-                        break;
+                let lo_u8 = lo as u8;
+                let hi_u8 = hi.min(255) as u8;
+                let w_lo = (lo_u8 >> 6) as usize;
+                let w_hi = (hi_u8 >> 6) as usize;
+                for w in w_lo..=w_hi {
+                    let mut word = b.header.bitmap[w];
+                    while word != 0 {
+                        let bit = word.trailing_zeros() as usize;
+                        let digit = (w * 64 + bit) as u8;
+                        if digit >= lo_u8 && digit <= hi_u8 {
+                            let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
+                            let sub = (digit >> 5) as usize;
+                            let val = b.subarrays[sub].as_ref().unwrap()[rank];
+                            f(digit as u32, val);
+                        }
+                        word &= word - 1;
                     }
                 }
             }
@@ -2086,9 +2295,12 @@ pub(crate) fn map_for_each_range(
             let r_lo = child_rem(lo, kb);
             let r_hi = child_rem(hi, kb);
             let full = rem_mask(kb - 1);
-            for (d, c) in branch_pairs(a, e) {
-                if d < d_lo || d > d_hi {
-                    continue;
+            branch_for_each_child(a, e, |d, c| {
+                if d < d_lo {
+                    return true;
+                }
+                if d > d_hi {
+                    return false;
                 }
                 let (clo, chi) = if d == d_lo && d == d_hi {
                     (r_lo, r_hi)
@@ -2099,10 +2311,10 @@ pub(crate) fn map_for_each_range(
                 } else {
                     (0, full)
                 };
-                // Re-thread the caller's closure with the reconstructed key.
                 let mut g = |cr: u32, v: u32| f(combine(d, cr, kb), v);
                 map_for_each_range(a, &c, kb - 1, clo, chi, &mut g);
-            }
+                true
+            });
         }
         _ => {}
     }
