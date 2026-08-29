@@ -79,6 +79,21 @@ Never propose or graft foreign data structures or complected models onto Expanse
 - ❌ **Global Locking or Coarse Mutexes**: Concurrency must adhere strictly to lock-free Optimistic Concurrency Control (OCC seqlock version bracketing + Epoch-Based Reclamation), preserving single-threaded zero-overhead performance.
 - ❌ **Breaking Legacy C ABI Parity**: Modern `expanse_*` capabilities extend the engine, but must never distort or compromise the zero-overhead C ABI parity for legacy `Judy1*`, `JudyL*`, `JudySL*`, and `JudyHS*` symbols.
 
+### 2.3 The 5-Subsystem Audit Rule for Tagged Machine-Word Changes
+Whenever adding, expanding, or modifying tagged machine-word descriptors (`Edge`, `Edge32`, `ValueSlot`, `ValueSlot32`, `SlotTag`, `Tag32`):
+A representation change is **never local to the trie/slot definitions**. Every representation PR and plan MUST explicitly audit and verify all five dependent subsystems:
+1. **OCC Concurrency Protocol (`sync.rs`, `occ.rs`)**: Reader guards (`SyncBlobReaderGuard`, `SyncMapReaderGuard`) must decode the new tags within the seqlock validation bracket. Unknown or unhandled tags must never silently return `None` or report present keys as absent.
+2. **Columnar Metadata Invariants (`hot_meta`, `scan_filtered`)**: Slot conversions or inlining must never destroy metadata. If an inline representation lacks metadata bits, enforce a strict gate: promote to inline **only when metadata is unpopulated (`hot_meta == 0`)**; otherwise spill to `ArenaMeta`.
+3. **Binary Image Serialization (`EXPANSE_FORMAT_VERSION`, `save_to_file`/`load_from_file`)**: Binary formats containing new discriminants must bump the format version and explicitly reject unsupported tags with an error on load.
+4. **C ABI Pointer Lifetime Contracts (`expanse-capi`, `include/expanse.h`, `docs/COMPAT.md`)**: Pointers documented as "valid until next mutation" must never be faked with thread-local single buffers or sized ring buffers. Provide caller-owned destination buffers (`get_into`) for dynamically decoded payloads.
+5. **Language Binding Surfaces (`expanse-py`, `expanse-node`, `expanse-wasm`, `expanse-php`)**: Verify that all binding extraction, iteration, and pruning routines consume decoded views without dropping keys.
+6. **Semver Protection**: Public discriminant enums (`SlotTag`) MUST carry `#[non_exhaustive]`.
+
+### 2.4 Anti-Pattern: Sized Ring Buffers for Invariant Contracts
+Never introduce a rotating ring buffer (e.g. 16 or 32 slots) to satisfy an API contract that guarantees pointer validity until the next structural mutation.
+- A fixed-size ring buffer does not uphold the contract; it creates a latent memory corruption defect that triggers silently on iteration $N+1$.
+- If a payload must be dynamically decoded/decompressed and cannot borrow directly from node or slab memory, provide an explicit caller-allocated destination buffer API (`*_get_into(..., buf, buf_len)`), or formally amend the API contract in `docs/COMPAT.md` and headers.
+
 ---
 
 ## 3. Clean-Room Discipline (Strict & Non-Negotiable)
@@ -378,3 +393,10 @@ When modifying or correcting any existing benchmark or example harness:
    - **Pin the motivating defect**: Any linter or hygiene gate guarding against misleading comparative prose MUST include the verbatim historical failure/retraction sentence in its fail-then-pass unit test suite. If the gate passes while ignoring the originating failure, it is measuring the wrong invariant.
 4. **Exhaustive Node Ladder Synchronization (#509)**:
    - Every capacity, demotion floor, and hysteresis constant in `types.rs` and `types32.rs` must be published in `docs/visualizer_data.json`'s `node_ladder` and asserted by `crates/expanse/tests/test_visualizer_sync.rs` so unanchored engine constants cannot exist.
+
+### 8.13 Mathematical Pigeonhole Bounds & Low-Entropy Workload Qualification
+When proposing in-register compression or inlining of multi-byte values into machine-word payload bits (e.g. 56 bits):
+1. **Derive the Theoretical Uniform Ceiling First**: Compute $T \times 2^{\text{payload\_bits}} / 2^{\text{source\_bits}}$ before writing engine code. Uniform random data cannot compress; any viable codec operates strictly on low-entropy subspaces (e.g. ASCII digits, alphanumeric slugs, small integers).
+2. **Phase 0 Empirical Crossover Gate (§8.8 Commit 1)**: Pre-register an offline evaluation harness over named, committed datasets with a strict promotion rate floor (e.g. $\ge 70\%$) and hardware counter ceiling (`branch-misses` / `perf stat -e branch-misses`, [#480](https://github.com/orieg/expanse/issues/480)). If real datasets do not clear the crossover, terminate honestly with a negative finding at near-zero cost.
+3. **Workload-Shape Qualification (#487 / §8.12)**: Empirical promotion figures MUST be qualified by their exact workload ID (e.g. `(workload: value_compression_alnum_slug)`); never assert broad general promotion from domain-specific datasets.
+
