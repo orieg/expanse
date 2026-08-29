@@ -617,7 +617,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
         <span class="badge">Rust &bull; Python &bull; Node.js &bull; .NET &bull; C++20 &bull; Java &bull; C ABI &bull; ESP-IDF (ESP32)</span>
         <span class="badge">64-Bit &amp; 32-Bit Embedded</span>
       </div>
-      <h1>Expanse — Judy Arrays &amp; Digital Tree Engine in Rust</h1>
+      <h1>Expanse — memory-compact Judy arrays and 256-ary radix tries</h1>
       <p>Clean-room pure-Rust implementation of digital trees modernized for modern 64-bit microarchitectures with zero-allocation immediates, SWAR/SIMD vectorization, and lock-free OCC reader concurrency.</p>
       <div class="hero-actions">
         <a href="#benchmarks" class="btn btn-primary" style="background: linear-gradient(135deg, #38bdf8, #2563eb); color: #ffffff;">&#9889; Performance Benchmarks &#8595;</a>
