@@ -1,7 +1,7 @@
 {
-  "title": "Expanse: clean-room, pure-Rust Judy arrays with a drop-in libjudy-compatible C ABI",
+  "title": "Expanse: Judy arrays in Rust with a libjudy-compatible C ABI",
   "upload_type": "software",
-  "description": "<p>Expanse is a clean-room, pure-Rust implementation of Judy arrays — sparse, dynamic associative structures built as 256-ary digital tries partitioned by key range (<em>expanse</em>) rather than by population — modernized for current 64-bit and 32-bit embedded microarchitectures. It ships <code>libexpanse</code>, a high-performance drop-in C ABI replacement for <code>libjudy</code>, plus Go, Node.js, .NET and Python bindings.</p><p>Dual-licensed MIT OR Apache-2.0. This record lists Apache-2.0 because Zenodo accepts a single licence identifier; the MIT option applies equally (see LICENSE-MIT in the archived source).</p>",
+  "description": "<p>Expanse is a clean-room, pure-Rust implementation of Judy arrays — sparse, dynamic associative structures built as 256-ary digital tries partitioned by key range (<em>expanse</em>) rather than by population — targeting 64-bit and 32-bit embedded microarchitectures. It ships <code>libexpanse</code>, a high-performance drop-in C ABI replacement for <code>libjudy</code>, plus C++, Go, Java, .NET, Node.js, PHP, Python, Ruby and WebAssembly bindings.</p><p>Dual-licensed MIT OR Apache-2.0. This record lists Apache-2.0 because Zenodo accepts a single licence identifier; the MIT option applies equally (see LICENSE-MIT in the archived source).</p>",
   "creators": [
     {
       "name": "Brousse, Nicolas",
