@@ -1,27 +1,27 @@
-Package: libexpanse1
-Version: 0.4.1
+Package: libexpanse-dev
+Version: 0.5.0
 Architecture: riscv64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine: modern Judy replacement
-Filename: pool/main/libexpanse1_0.4.1_riscv64.deb
-Size: 400720
-SHA256: 0e76efeb274541bf91f18be50784b0d7266fcb3f6f58ac2b60533c2a676d36cd
+Filename: pool/main/libexpanse-dev_0.5.0_riscv64.deb
+Size: 6301344
+SHA256: 4a32dee154f095e6d89a14b957c3fc8620304dde9235322b9125d99cd30ba0f8
 
 Package: libjudy-compat
-Version: 0.4.1
+Version: 0.5.0
 Architecture: riscv64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine: modern Judy replacement
-Filename: pool/main/libjudy-compat_0.4.1_riscv64.deb
-Size: 630
-SHA256: be303b6d5577f8ffb928b9ff6b45895c8da36ff9df4dd2ee4d76bd8d2b8af19c
+Filename: pool/main/libjudy-compat_0.5.0_riscv64.deb
+Size: 7788
+SHA256: 171e882e226afbc475c93b3a766e0764d422b1b4431d9ab5727255c71f69074a
 
-Package: libexpanse-dev
-Version: 0.4.1
+Package: libexpanse1
+Version: 0.5.0
 Architecture: riscv64
 Maintainer: Nicolas Brousse <nicolas@brousse.info>
 Description: Expanse trie engine: modern Judy replacement
-Filename: pool/main/libexpanse-dev_0.4.1_riscv64.deb
-Size: 5724998
-SHA256: a38415c50de6c76a5e7833867aaaceb881ea8e7d5025556c69960561718ae759
+Filename: pool/main/libexpanse1_0.5.0_riscv64.deb
+Size: 413914
+SHA256: 830a8cdffd64da75ed0e31971ce2f6ff3a618be663c79db35e0bc9dd046c2961
 
