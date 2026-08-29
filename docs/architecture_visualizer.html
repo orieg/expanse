@@ -738,6 +738,111 @@
     /* Views container */
     .view-content { display: none; }
     .view-content.active { display: block; }
+
+    /* Showcase & Battle Simulator Styles */
+    .btn-share {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 10px;
+      color: var(--heading);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s ease;
+    }
+    .btn-share:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .battle-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 14px;
+    }
+    @media (max-width: 860px) {
+      .battle-grid { grid-template-columns: 1fr; }
+    }
+    .battle-col {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .battle-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+      margin-bottom: 12px;
+    }
+    .battle-step-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      transition: all 0.2s ease;
+    }
+    .battle-step-item.active {
+      border-color: var(--accent);
+      background: rgba(56, 189, 248, 0.08);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.15);
+    }
+    .battle-step-item.stall {
+      border-color: var(--badge-gap, #f87171);
+      background: rgba(248, 113, 113, 0.08);
+    }
+    .battle-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      font-family: ui-monospace, monospace;
+    }
+    .bus-anim-wrap {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 14px;
+    }
+    .life-canvas-wrap {
+      position: relative;
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-top: 12px;
+    }
+    .life-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .life-stat-box {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      text-align: center;
+    }
+    .showcase-subview { display: none; }
+    .showcase-subview.active { display: block; }
   </style>
 </head>
 <body>
@@ -753,7 +858,7 @@
   </div>
 
   <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-    <!-- Primary 3-Mode View Switcher -->
+    <!-- Primary 4-Mode View Switcher -->
     <div class="view-switcher" role="tablist" aria-label="Visualizer Views">
       <button class="view-btn active" id="btn-view-dag" role="tab" aria-selected="true" aria-controls="view-dag" onclick="switchView('dag')">
         <span>⚡ Architecture & Dynamic DAG</span>
@@ -763,6 +868,31 @@
       </button>
       <button class="view-btn" id="btn-view-bench" role="tab" aria-selected="false" aria-controls="view-bench" onclick="switchView('bench')">
         <span>📊 Benchmark Matrix & Census</span>
+      </button>
+      <button class="view-btn" id="btn-view-showcases" role="tab" aria-selected="false" aria-controls="view-showcases" onclick="switchView('showcases')">
+        <span>🎮 Interactive Showcases</span>
+      </button>
+    </div>
+
+    <!-- Presets & Share View Menu -->
+    <div class="preset-bar" style="display:flex; align-items:center; gap:6px; background:var(--card-inner); padding:4px 8px; border-radius:6px; border:1px solid var(--border);">
+      <label for="preset-select" style="font-size:11px; color:var(--text-muted); font-weight:600; margin:0;">Preset:</label>
+      <select id="preset-select" onchange="applyPreset(this.value)" style="padding:3px 6px; font-size:11.5px; border-radius:4px; background:var(--card-bg); border:1px solid var(--border); color:var(--heading);">
+        <option value="dag">⚡ Architecture DAG (Default)</option>
+        <option value="cache-battle">⚔️ Demo C: Cache Line Hop Battle</option>
+        <option value="sparse-life">🧬 Demo E: Infinite Sparse Life Arena</option>
+        <option value="imm-15">⚡ Level 1 Immediate (15 Keys, 0 B Heap)</option>
+        <option value="bitmap-leaf">📈 Bitmap Leaf (POPCNT / SIMD)</option>
+        <option value="full-expanse">🌟 Full Expanse (256 Keys, 0 B Heap)</option>
+        <option value="branch-ladder">🪜 Branch Ladder Hysteresis (7↑/6↓, 192↑/191↓)</option>
+        <option value="arm64-zbb">⚙️ AArch64 NEON &amp; RISC-V Zbb</option>
+        <option value="occ-concurrency">🔒 Lock-Free OCC Reader Concurrency</option>
+        <option value="embedded-32">📟 32-Bit Embedded Ladder &amp; MCUs</option>
+        <option value="ycsb-loss">📉 YCSB Workload E Loss (Honest Framing)</option>
+        <option value="stock-parity">📊 Stock Parity &amp; Loss Matrix</option>
+      </select>
+      <button id="btn-share-view" class="btn-share" onclick="shareCurrentView()" title="Copy URL link with current active preset">
+        <span id="share-icon">🔗</span> <span id="share-text">Share</span>
       </button>
     </div>
   </div>
@@ -1413,6 +1543,233 @@
   </div>
   <div style="font-size:11px; color:var(--text-muted); margin-top:12px;">
     ISA guarantees for these kernels (SSE2/NEON/POPCNT/Zbb), the 64-byte cache-line and 57-bit VA assumptions, and missed-opportunity analysis are cited against primary-source manuals in <a href="https://github.com/orieg/expanse/blob/main/docs/HARDWARE.md" style="color:var(--accent); text-decoration:none;">docs/HARDWARE.md</a>.
+  </div>
+</div>
+
+<!-- =================================================================== -->
+<!-- VIEW 4: INTERACTIVE SHOWCASES & SIMULATORS                         -->
+<!-- =================================================================== -->
+<div class="view-content" id="view-showcases" role="tabpanel" aria-labelledby="btn-view-showcases">
+  <div class="card" style="margin-bottom:14px; background:var(--card-bg); border-left:4px solid var(--accent-purple);">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <div>
+        <strong style="color:var(--text-bright); font-size:14px;">🎮 Interactive Architectural Showcases &amp; Simulators</strong>
+        <p style="color:var(--text-muted); font-size:12px; margin-top:2px; line-height:1.45;">
+          Explorable browser-based simulations comparing Judy digital tree traversal and sparse 64-bit coordinate models against pointer-chasing trees and dense grids.
+        </p>
+      </div>
+      <div class="view-switcher" style="margin:0;">
+        <button type="button" class="view-btn active" id="btn-showcase-cache" onclick="switchShowcase('cache')">
+          <span>⚔️ Demo C: Cache Line Hop Battle</span>
+        </button>
+        <button type="button" class="view-btn" id="btn-showcase-life" onclick="switchShowcase('life')">
+          <span>🧬 Demo E: Infinite Sparse Life Arena</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SHOWCASE 1: DEMO C (CACHE LINE FILL & POINTER HOP BATTLE) -->
+  <div class="showcase-subview active" id="showcase-cache">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+        <div>
+          <div class="card-title" style="margin:0;">
+            <span>⚔️ Cache Line Fill &amp; Pointer Hop Battle (Side-by-Side Simulator)</span>
+          </div>
+          <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+            Simulating key descent memory access patterns: <strong>Expanse 64B cache-aligned nodes with inlined/popcount ranking</strong> vs. <strong>heap pointer chasing in B-Trees &amp; Red-Black Trees</strong>.
+          </p>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <label for="battle-key-select" style="font-size:11px; color:var(--text-muted); font-weight:600;">Key Target:</label>
+          <select id="battle-key-select" onchange="loadBattleKey(this.value)" style="padding:4px 8px; font-size:11.5px; border-radius:4px; background:var(--card-inner); border:1px solid var(--border); color:var(--heading);">
+            <option value="0x00000000DEADBEEF" selected>0x00000000DEADBEEF (Clustered 32-bit)</option>
+            <option value="0x123456789ABCDEF0">0x123456789ABCDEF0 (High-Entropy 64-bit)</option>
+            <option value="0x000000000000002A">0x000000000000002A (Immediate 1-Key, 0B Heap)</option>
+            <option value="0x0A00000100000050">0x0A00000100000050 (IPv4 /24 Subnet Gateway)</option>
+          </select>
+          <button type="button" class="btn-share" id="btn-battle-step" onclick="stepBattle()">
+            <span>➡️ Step Lookup</span>
+          </button>
+          <button type="button" class="btn-share" id="btn-battle-play" onclick="toggleBattleAuto()">
+            <span id="battle-play-icon">▶️</span> <span id="battle-play-text">Animate Battle</span>
+          </button>
+          <button type="button" class="btn-share" onclick="resetBattle()">
+            <span>🔄 Reset</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Side-by-Side Simulation Columns -->
+      <div class="battle-grid">
+        <!-- Left: Expanse Digital Tree -->
+        <div class="battle-col">
+          <div class="battle-header">
+            <div>
+              <strong style="color:var(--accent); font-size:13px;">🌲 Expanse Modern Digital Tree</strong>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Digital radix decomposition + 64B cache line alignment</div>
+            </div>
+            <span class="battle-badge" style="background:rgba(16,185,129,0.15); color:var(--accent-green);" id="expanse-status-badge">Ready</span>
+          </div>
+
+          <div id="expanse-steps-container">
+            <!-- Dynamic steps rendered by JS -->
+          </div>
+
+          <div class="life-stats-grid" style="margin-top:14px;">
+            <div class="life-stat-box">
+              <div class="metric-label">Cache Lines Fetched</div>
+              <div class="metric-val blue" id="battle-exp-cache">1 line (64B)</div>
+              <div class="metric-sub win">Zero redundant fills</div>
+            </div>
+            <div class="life-stat-box">
+              <div class="metric-label">Pointer Dereferences</div>
+              <div class="metric-val green" id="battle-exp-ptrs">0 hops</div>
+              <div class="metric-sub win">Direct byte index / POPCNT</div>
+            </div>
+            <div class="life-stat-box">
+              <div class="metric-label">Estimated Mem Latency</div>
+              <div class="metric-val" style="color:var(--accent-green);" id="battle-exp-lat">~14 ns</div>
+              <div class="metric-sub win">L1/L2 Cache Resident</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Comparison Pointer-Chasing Tree -->
+        <div class="battle-col">
+          <div class="battle-header">
+            <div>
+              <strong style="color:var(--accent-orange); font-size:13px;">⛓️ Pointer-Chasing Tree (B-Tree / Red-Black)</strong>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Non-contiguous heap node allocations + pointer dereferencing</div>
+            </div>
+            <span class="battle-badge" style="background:rgba(249,115,22,0.15); color:var(--accent-orange);" id="btree-status-badge">Ready</span>
+          </div>
+
+          <div id="btree-steps-container">
+            <!-- Dynamic steps rendered by JS -->
+          </div>
+
+          <div class="life-stats-grid" style="margin-top:14px;">
+            <div class="life-stat-box">
+              <div class="metric-label">Cache Lines Fetched</div>
+              <div class="metric-val orange" id="battle-btree-cache">4 lines (256B)</div>
+              <div class="metric-sub" style="color:var(--badge-gap,#f87171);">4x memory bus traffic</div>
+            </div>
+            <div class="life-stat-box">
+              <div class="metric-label">Pointer Dereferences</div>
+              <div class="metric-val" style="color:var(--badge-gap,#f87171);" id="battle-btree-ptrs">4 hops</div>
+              <div class="metric-sub" style="color:var(--badge-gap,#f87171);">Scattered heap pointers</div>
+            </div>
+            <div class="life-stat-box">
+              <div class="metric-label">Estimated Mem Latency</div>
+              <div class="metric-val" style="color:var(--badge-gap,#f87171);" id="battle-btree-lat">~85 ns</div>
+              <div class="metric-sub" style="color:var(--badge-gap,#f87171);">L3 Miss / DRAM Stalls</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bus Animation Canvas -->
+      <div class="bus-anim-wrap">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div style="font-size:12px; font-weight:700; color:var(--heading);">🚌 System Memory Bus &amp; Cache Hierarchy Traffic (Modeled)</div>
+          <div style="font-size:11px; color:var(--text-muted);" id="bus-summary-text">64-byte bursts across L1 &rarr; L2 &rarr; L3 &rarr; DRAM</div>
+        </div>
+        <canvas id="bus-canvas" width="900" height="90" style="width:100%; height:90px; border-radius:6px; background:var(--card-inner);"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- SHOWCASE 2: DEMO E (THE INFINITE SPARSE LIFE ARENA) -->
+  <div class="showcase-subview" id="showcase-life">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+        <div>
+          <div class="card-title" style="margin:0;">
+            <span>🧬 The Infinite Sparse Life Arena (64-Bit Digital Coordinate Space)</span>
+          </div>
+          <p style="font-size:12px; color:var(--text-muted); margin-top:4px; max-width:850px;">
+            Educational visualization demonstrating Conway's Game of Life simulated on an infinite 64-bit coordinate plane. Demonstrates why <strong>sparse spatial digital trees</strong> scale unbounded over empty space while flat grids run out of memory.
+          </p>
+        </div>
+        <!-- Preset Patterns -->
+        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+          <span style="font-size:11px; color:var(--text-muted); font-weight:600;">Patterns:</span>
+          <button type="button" class="chip-btn" onclick="loadLifePattern('gun')">Gosper Gun</button>
+          <button type="button" class="chip-btn" onclick="loadLifePattern('pulsar')">Pulsar</button>
+          <button type="button" class="chip-btn" onclick="loadLifePattern('rpent')">R-pentomino</button>
+          <button type="button" class="chip-btn" onclick="loadLifePattern('acorn')">Acorn</button>
+          <button type="button" class="chip-btn" onclick="loadLifePattern('gliders')">Glider Fleet</button>
+        </div>
+      </div>
+
+      <!-- Controls & Performance Toolbar -->
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; background:var(--card-bg); padding:10px 14px; border-radius:8px; border:1px solid var(--border); margin-bottom:12px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button type="button" class="btn-share" id="btn-life-play" onclick="toggleLifeSimulation()" style="background:var(--accent-blue); color:#fff; border-color:transparent;">
+            <span id="life-play-icon">▶️</span> <span id="life-play-text">Start Simulation</span>
+          </button>
+          <button type="button" class="btn-share" onclick="stepLifeSimulation()">
+            <span>⏭️ Single Step</span>
+          </button>
+          <button type="button" class="btn-share" onclick="clearLifeGrid()">
+            <span>🗑️ Clear Grid</span>
+          </button>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:16px;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <label for="life-speed" style="font-size:11px; color:var(--text-muted); font-weight:600; margin:0;">Speed:</label>
+            <input type="range" id="life-speed" min="1" max="60" value="20" oninput="updateLifeSpeed(this.value)" style="width:90px;">
+            <span id="life-speed-val" style="font-size:11px; font-family:ui-monospace, monospace; color:var(--accent);">20 fps</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <label for="life-zoom" style="font-size:11px; color:var(--text-muted); font-weight:600; margin:0;">Zoom:</label>
+            <button type="button" class="btn-share" onclick="zoomLife(1.2)" style="padding:2px 8px;">➕</button>
+            <button type="button" class="btn-share" onclick="zoomLife(0.8)" style="padding:2px 8px;">➖</button>
+            <button type="button" class="btn-share" onclick="resetLifeView()" style="padding:2px 8px;">Center</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Canvas Viewport -->
+      <div class="life-canvas-wrap">
+        <canvas id="life-canvas" width="980" height="460" style="width:100%; height:460px; display:block; cursor:crosshair;"></canvas>
+        <div style="position:absolute; bottom:8px; right:12px; font-size:10px; color:rgba(255,255,255,0.4); pointer-events:none; background:rgba(0,0,0,0.5); padding:2px 6px; border-radius:4px;">
+          Click / Drag on canvas to toggle living cells · Infinite 64-bit Plane
+        </div>
+      </div>
+
+      <!-- Realtime Spatial Memory Metrics -->
+      <div class="life-stats-grid" style="margin-top:12px;">
+        <div class="life-stat-box">
+          <div class="metric-label">Generations</div>
+          <div class="metric-val blue" id="life-gen-count">0</div>
+          <div class="metric-sub" id="life-step-time">0.0 ms / gen</div>
+        </div>
+        <div class="life-stat-box">
+          <div class="metric-label">Live Population</div>
+          <div class="metric-val green" id="life-pop-count">0 cells</div>
+          <div class="metric-sub win" id="life-density-sub">Sparse distribution</div>
+        </div>
+        <div class="life-stat-box">
+          <div class="metric-label">Expanse 64-bit Memory</div>
+          <div class="metric-val purple" id="life-exp-mem">0 B</div>
+          <div class="metric-sub win">~0.12 B / cell (bitsets)</div>
+        </div>
+        <div class="life-stat-box">
+          <div class="metric-label">Dense Array Grid (2⁶⁴)</div>
+          <div class="metric-val" style="color:var(--badge-gap,#f87171);">10³⁸ Bytes</div>
+          <div class="metric-sub" style="color:var(--badge-gap,#f87171);">💥 Impossible (OOM)</div>
+        </div>
+        <div class="life-stat-box">
+          <div class="metric-label">Standard JS Map/Set</div>
+          <div class="metric-val orange" id="life-js-mem">0 B</div>
+          <div class="metric-sub" style="color:var(--badge-gap,#f87171);">48 B / cell + GC churn</div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2622,6 +2979,11 @@
       }
     }
 
+    const presetSelect = document.getElementById('preset-select');
+    if (presetSelect && ['dag', 'modern', 'bench'].includes(viewName)) {
+      presetSelect.value = viewName;
+    }
+
     if (viewName === 'dag') {
       const btn = document.getElementById('btn-view-dag');
       if (btn) {
@@ -2637,6 +2999,14 @@
         btn.setAttribute('aria-selected', 'true');
       }
       document.getElementById('view-modern').classList.add('active');
+    } else if (viewName === 'showcases') {
+      const btn = document.getElementById('btn-view-showcases');
+      if (btn) {
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+      }
+      document.getElementById('view-showcases').classList.add('active');
+      initShowcases();
     } else {
       const btn = document.getElementById('btn-view-bench');
       if (btn) {
@@ -3723,13 +4093,866 @@
   }
   checkLiveDataSource();
 
-  // Initialize
+  // --- INTERACTIVE SHOWCASES (DEMO C & DEMO E) & PRESET ROUTER ------------
+
+  let showcasesInitialized = false;
+  let activeShowcase = 'cache';
+
+  function initShowcases() {
+    if (!showcasesInitialized) {
+      showcasesInitialized = true;
+      renderBattleSteps();
+      initLifeArena();
+    }
+    if (activeShowcase === 'cache') {
+      drawBusCanvas();
+    } else {
+      drawLifeCanvas();
+    }
+  }
+
+  function switchShowcase(subviewName, updateHash = true) {
+    activeShowcase = subviewName;
+    document.querySelectorAll('#view-showcases .view-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.showcase-subview').forEach(s => s.classList.remove('active'));
+
+    const btn = document.getElementById(subviewName === 'cache' ? 'btn-showcase-cache' : 'btn-showcase-life');
+    const view = document.getElementById(subviewName === 'cache' ? 'showcase-cache' : 'showcase-life');
+    if (btn) btn.classList.add('active');
+    if (view) view.classList.add('active');
+
+    const presetSelect = document.getElementById('preset-select');
+    if (presetSelect) {
+      presetSelect.value = subviewName === 'cache' ? 'cache-battle' : 'sparse-life';
+    }
+
+    if (updateHash) {
+      const targetHash = subviewName === 'cache' ? '#cache-battle' : '#sparse-life';
+      if (window.location.hash !== targetHash) {
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search + targetHash);
+        } else {
+          window.location.hash = targetHash;
+        }
+      }
+    }
+
+    if (subviewName === 'cache') {
+      drawBusCanvas();
+    } else {
+      initLifeArena();
+    }
+  }
+
+  // --- DEMO C: CACHE LINE FILL & POINTER HOP BATTLE ENGINE ------------------
+
+  const BATTLE_SCENARIOS = {
+    '0x00000000DEADBEEF': {
+      label: '0x00000000DEADBEEF (Clustered 32-bit uint)',
+      expanse: {
+        cacheLines: '1 line (64B)',
+        ptrs: '0 hops',
+        lat: '~14 ns',
+        steps: [
+          { name: '1. Root Level 8 Bypass', desc: 'Zero-span bypass skips empty high bytes (0x00000000) directly to active expanse.', status: 'hit', cache: '0B' },
+          { name: '2. Subarray Node Access', desc: 'Fetches single 64B cache-aligned LeafBitmapL node directly in L1 cache.', status: 'active', cache: '64B (L1)' },
+          { name: '3. Single-Cycle POPCNT', desc: 'Computes value slot in 1 CPU cycle via POPCNT on bitmap chunk. Key found.', status: 'hit', cache: '0B' }
+        ]
+      },
+      btree: {
+        cacheLines: '4 lines (256B)',
+        ptrs: '4 hops',
+        lat: '~85 ns',
+        steps: [
+          { name: '1. Root Node Fill', desc: 'Pointer load to root node (heap 0x7fa120). 64B cache line fill.', status: 'active', cache: '64B (L2)' },
+          { name: '2. Branch Node Deref', desc: 'Binary search inside branch node, loads pointer to child index 2.', status: 'stall', cache: '64B (L3 Stall)' },
+          { name: '3. Intermediate Deref', desc: 'Pointer dereference to intermediate page (heap 0x7fa890).', status: 'stall', cache: '64B (DRAM Stall)' },
+          { name: '4. Leaf Slot Search', desc: 'Searches sorted keys array in leaf page to extract value word.', status: 'active', cache: '64B (L2)' }
+        ]
+      }
+    },
+    '0x123456789ABCDEF0': {
+      label: '0x123456789ABCDEF0 (High-Entropy 64-bit)',
+      expanse: {
+        cacheLines: '2 lines (128B)',
+        ptrs: '1 hop',
+        lat: '~22 ns',
+        steps: [
+          { name: '1. BranchL7 Node Fetch', desc: 'High-fanout upper branch byte (0x12) decoded in 64B node.', status: 'active', cache: '64B (L1)' },
+          { name: '2. Intermediate BranchB', desc: 'Traverses bitmap branch with 1 index hop to Level 1.', status: 'hit', cache: '0B' },
+          { name: '3. Terminal Leaf Value', desc: 'Inlined POPCNT rank lookup in terminal leaf.', status: 'active', cache: '64B (L2)' }
+        ]
+      },
+      btree: {
+        cacheLines: '5 lines (320B)',
+        ptrs: '5 hops',
+        lat: '~115 ns',
+        steps: [
+          { name: '1. Root Node Fill', desc: 'Root pointer dereference.', status: 'active', cache: '64B (L2)' },
+          { name: '2. Branch Level 1', desc: 'First branch pointer chase across scattered heap address.', status: 'stall', cache: '64B (L3 Stall)' },
+          { name: '3. Branch Level 2', desc: 'Second branch pointer chase incurring DRAM queue latency.', status: 'stall', cache: '64B (DRAM Stall)' },
+          { name: '4. Branch Level 3', desc: 'Deep branch page traversal.', status: 'stall', cache: '64B (DRAM Stall)' },
+          { name: '5. Leaf Extraction', desc: 'Leaf node sorted binary search.', status: 'active', cache: '64B (L2)' }
+        ]
+      }
+    },
+    '0x000000000000002A': {
+      label: '0x000000000000002A (Immediate 1-Key, 0B Heap)',
+      expanse: {
+        cacheLines: '0 lines (Inlined)',
+        ptrs: '0 hops',
+        lat: '~4 ns',
+        steps: [
+          { name: '1. Tag Discriminant Check', desc: 'Root Edge tag matches Immediate payload (tag = IMMED).', status: 'hit', cache: '0B' },
+          { name: '2. Inlined Payload Unpack', desc: 'Key and Value unpacked directly from 16-byte Edge descriptor without any heap allocation or cache fill.', status: 'hit', cache: '0B (Inlined)' }
+        ]
+      },
+      btree: {
+        cacheLines: '3 lines (192B)',
+        ptrs: '2 hops',
+        lat: '~65 ns',
+        steps: [
+          { name: '1. Root Heap Deref', desc: 'Loads root node pointer from heap.', status: 'active', cache: '64B (L2)' },
+          { name: '2. Leaf Heap Deref', desc: 'Loads leaf page pointer from heap.', status: 'stall', cache: '64B (L3 Stall)' },
+          { name: '3. Value Slot Read', desc: 'Reads value slot in leaf node.', status: 'active', cache: '64B (L2)' }
+        ]
+      }
+    },
+    '0x0A00000100000050': {
+      label: '0x0A00000100000050 (IPv4 /24 Subnet Gateway)',
+      expanse: {
+        cacheLines: '1 line (64B)',
+        ptrs: '0 hops',
+        lat: '~12 ns',
+        steps: [
+          { name: '1. /24 Prefix Match', desc: 'Decomposes 10.0.0.x subnet prefix with zero-span skip.', status: 'hit', cache: '0B' },
+          { name: '2. Subnet LeafBitmapL', desc: 'Direct 64B cache line hit for the entire /24 host table.', status: 'active', cache: '64B (L1)' },
+          { name: '3. Host POPCNT Rank', desc: 'Extracts gateway port and MAC word in 1 cycle.', status: 'hit', cache: '0B' }
+        ]
+      },
+      btree: {
+        cacheLines: '4 lines (256B)',
+        ptrs: '4 hops',
+        lat: '~90 ns',
+        steps: [
+          { name: '1. Root Lookup', desc: 'Root pointer load.', status: 'active', cache: '64B (L2)' },
+          { name: '2. Prefix Level 1', desc: 'Pointer chase to subnet index node.', status: 'stall', cache: '64B (L3 Stall)' },
+          { name: '3. Prefix Level 2', desc: 'Pointer chase to host page.', status: 'stall', cache: '64B (DRAM Stall)' },
+          { name: '4. Host Slot Scan', desc: 'Leaf node binary search.', status: 'active', cache: '64B (L2)' }
+        ]
+      }
+    }
+  };
+
+  let currentBattleKey = '0x00000000DEADBEEF';
+  let battleStepIndex = 0;
+  let battleAutoInterval = null;
+
+  function loadBattleKey(keyHex) {
+    currentBattleKey = keyHex;
+    resetBattle();
+  }
+
+  function renderBattleSteps() {
+    const sc = BATTLE_SCENARIOS[currentBattleKey] || BATTLE_SCENARIOS['0x00000000DEADBEEF'];
+    const expContainer = document.getElementById('expanse-steps-container');
+    const btreeContainer = document.getElementById('btree-steps-container');
+    if (!expContainer || !btreeContainer) return;
+
+    document.getElementById('battle-exp-cache').textContent = sc.expanse.cacheLines;
+    document.getElementById('battle-exp-ptrs').textContent = sc.expanse.ptrs;
+    document.getElementById('battle-exp-lat').textContent = sc.expanse.lat;
+
+    document.getElementById('battle-btree-cache').textContent = sc.btree.cacheLines;
+    document.getElementById('battle-btree-ptrs').textContent = sc.btree.ptrs;
+    document.getElementById('battle-btree-lat').textContent = sc.btree.lat;
+
+    expContainer.innerHTML = sc.expanse.steps.map((st, idx) => {
+      const isActive = idx === battleStepIndex;
+      const isDone = idx < battleStepIndex;
+      const cls = isActive ? 'battle-step-item active' : 'battle-step-item';
+      const badgeBg = isDone || isActive ? 'var(--accent-green)' : 'var(--border)';
+      const badgeText = isDone ? '✓' : (idx + 1);
+      return `<div class="${cls}">
+        <div style="width:20px; height:20px; border-radius:50%; background:${badgeBg}; color:#fff; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0;">${badgeText}</div>
+        <div style="flex:1;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <strong style="color:var(--heading);">${st.name}</strong>
+            <span class="battle-badge" style="background:rgba(56,189,248,0.1); color:var(--accent);">${st.cache}</span>
+          </div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${st.desc}</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    btreeContainer.innerHTML = sc.btree.steps.map((st, idx) => {
+      const isActive = idx === battleStepIndex;
+      const isDone = idx < battleStepIndex;
+      const isStall = st.status === 'stall';
+      const cls = isActive ? (isStall ? 'battle-step-item stall' : 'battle-step-item active') : 'battle-step-item';
+      const badgeBg = isDone || isActive ? (isStall ? 'var(--badge-gap,#f87171)' : 'var(--accent-orange)') : 'var(--border)';
+      const badgeText = isDone ? '✓' : (idx + 1);
+      return `<div class="${cls}">
+        <div style="width:20px; height:20px; border-radius:50%; background:${badgeBg}; color:#fff; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0;">${badgeText}</div>
+        <div style="flex:1;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <strong style="color:var(--heading);">${st.name}</strong>
+            <span class="battle-badge" style="background:rgba(249,115,22,0.1); color:var(--accent-orange);">${st.cache}</span>
+          </div>
+          <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${st.desc}</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    const expBadge = document.getElementById('expanse-status-badge');
+    const btreeBadge = document.getElementById('btree-status-badge');
+    if (battleStepIndex >= sc.expanse.steps.length) {
+      if (expBadge) { expBadge.textContent = 'Resolved (L1 Hit)'; expBadge.style.background = 'rgba(16,185,129,0.2)'; }
+    } else {
+      if (expBadge) { expBadge.textContent = 'Step ' + (battleStepIndex + 1); expBadge.style.background = 'rgba(16,185,129,0.15)'; }
+    }
+
+    if (battleStepIndex >= sc.btree.steps.length) {
+      if (btreeBadge) { btreeBadge.textContent = 'Resolved (~' + sc.btree.lat + ')'; }
+    } else {
+      if (btreeBadge) { btreeBadge.textContent = 'Step ' + (battleStepIndex + 1); }
+    }
+
+    drawBusCanvas();
+  }
+
+  function stepBattle() {
+    const sc = BATTLE_SCENARIOS[currentBattleKey] || BATTLE_SCENARIOS['0x00000000DEADBEEF'];
+    const maxSteps = Math.max(sc.expanse.steps.length, sc.btree.steps.length);
+    battleStepIndex++;
+    if (battleStepIndex >= maxSteps) {
+      if (battleAutoInterval) {
+        clearInterval(battleAutoInterval);
+        battleAutoInterval = null;
+        updateBattlePlayBtn();
+      }
+    }
+    renderBattleSteps();
+  }
+
+  function resetBattle() {
+    if (battleAutoInterval) {
+      clearInterval(battleAutoInterval);
+      battleAutoInterval = null;
+      updateBattlePlayBtn();
+    }
+    battleStepIndex = 0;
+    renderBattleSteps();
+  }
+
+  function toggleBattleAuto() {
+    if (battleAutoInterval) {
+      clearInterval(battleAutoInterval);
+      battleAutoInterval = null;
+    } else {
+      const sc = BATTLE_SCENARIOS[currentBattleKey] || BATTLE_SCENARIOS['0x00000000DEADBEEF'];
+      const maxSteps = Math.max(sc.expanse.steps.length, sc.btree.steps.length);
+      if (battleStepIndex >= maxSteps) {
+        battleStepIndex = 0;
+      }
+      battleAutoInterval = setInterval(() => {
+        stepBattle();
+      }, 900);
+    }
+    updateBattlePlayBtn();
+  }
+
+  function updateBattlePlayBtn() {
+    const icon = document.getElementById('battle-play-icon');
+    const text = document.getElementById('battle-play-text');
+    if (icon && text) {
+      if (battleAutoInterval) {
+        icon.textContent = '⏸️';
+        text.textContent = 'Pause Battle';
+      } else {
+        icon.textContent = '▶️';
+        text.textContent = 'Animate Battle';
+      }
+    }
+  }
+
+  function drawBusCanvas() {
+    const canvas = document.getElementById('bus-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const isLight = isLightThemeActive();
+    const lineCol = isLight ? '#cbd5e1' : '#334155';
+    const textCol = isLight ? '#64748b' : '#94a3b8';
+
+    const tiers = [
+      { name: 'L1 Cache (64B)', x: 120, col: '#10b981' },
+      { name: 'L2 Cache (512KB)', x: 340, col: '#38bdf8' },
+      { name: 'L3 Cache (16MB)', x: 560, col: '#f59e0b' },
+      { name: 'Main DRAM (DDR5)', x: 780, col: '#f87171' }
+    ];
+
+    // Bus backbone
+    ctx.beginPath();
+    ctx.strokeStyle = lineCol;
+    ctx.lineWidth = 4;
+    ctx.moveTo(60, 45);
+    ctx.lineTo(w - 60, 45);
+    ctx.stroke();
+
+    // Tiers
+    tiers.forEach((t, i) => {
+      ctx.fillStyle = isLight ? '#f1f5f9' : '#1e293b';
+      ctx.strokeStyle = t.col;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(t.x - 65, 20, 130, 50, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = isLight ? '#0f172a' : '#f8fafc';
+      ctx.font = 'bold 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(t.name, t.x, 42);
+
+      const activeExp = (i === 0 && battleStepIndex > 0) || (i === 1 && battleStepIndex > 1);
+      const activeBtree = (i >= 2 && battleStepIndex >= 2);
+      ctx.font = '10px monospace';
+      if (activeExp) {
+        ctx.fillStyle = '#10b981';
+        ctx.fillText('⚡ Expanse Hit', t.x, 58);
+      } else if (activeBtree) {
+        ctx.fillStyle = '#f87171';
+        ctx.fillText('⏳ B-Tree Stall', t.x, 58);
+      } else {
+        ctx.fillStyle = textCol;
+        ctx.fillText('Idle', t.x, 58);
+      }
+    });
+  }
+
+  // --- DEMO E: THE INFINITE SPARSE LIFE ARENA ENGINE ------------------------
+
+  class InfiniteSparseLife {
+    constructor() {
+      this.chunks = new Map();
+      this.generation = 0;
+      this.zoom = 1.0;
+      this.panX = 0;
+      this.panY = 0;
+      this.cellSize = 12;
+      this.isRunning = false;
+      this.timer = null;
+      this.fps = 20;
+    }
+
+    clear() {
+      this.chunks.clear();
+      this.generation = 0;
+    }
+
+    setCell(x, y, alive = true) {
+      const cx = Math.floor(x / 16);
+      const cy = Math.floor(y / 16);
+      const lx = ((x % 16) + 16) % 16;
+      const ly = ((y % 16) + 16) % 16;
+      const bitIndex = ly * 16 + lx;
+      const wordIdx = Math.floor(bitIndex / 32);
+      const bitOffset = bitIndex % 32;
+
+      const key = `${cx},${cy}`;
+      if (!this.chunks.has(key)) {
+        if (!alive) return;
+        this.chunks.set(key, new Uint32Array(8));
+      }
+      const data = this.chunks.get(key);
+      if (alive) {
+        data[wordIdx] |= (1 << bitOffset);
+      } else {
+        data[wordIdx] &= ~(1 << bitOffset);
+        let empty = true;
+        for (let i = 0; i < 8; i++) {
+          if (data[i] !== 0) { empty = false; break; }
+        }
+        if (empty) this.chunks.delete(key);
+      }
+    }
+
+    getCell(x, y) {
+      const cx = Math.floor(x / 16);
+      const cy = Math.floor(y / 16);
+      const lx = ((x % 16) + 16) % 16;
+      const ly = ((y % 16) + 16) % 16;
+      const bitIndex = ly * 16 + lx;
+      const wordIdx = Math.floor(bitIndex / 32);
+      const bitOffset = bitIndex % 32;
+
+      const key = `${cx},${cy}`;
+      const data = this.chunks.get(key);
+      if (!data) return 0;
+      return (data[wordIdx] & (1 << bitOffset)) ? 1 : 0;
+    }
+
+    countLiveCells() {
+      let count = 0;
+      for (const [, data] of this.chunks.entries()) {
+        for (let i = 0; i < 8; i++) {
+          let v = data[i];
+          v = v - ((v >> 1) & 0x55555555);
+          v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
+          count += (((v + (v >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24;
+        }
+      }
+      return count;
+    }
+
+    step() {
+      const t0 = performance.now();
+      const nextChunks = new Map();
+      const neighborCounts = new Map();
+
+      for (const [key, data] of this.chunks.entries()) {
+        const [scx, scy] = key.split(',').map(Number);
+        for (let ly = 0; ly < 16; ly++) {
+          for (let lx = 0; lx < 16; lx++) {
+            const bitIndex = ly * 16 + lx;
+            const wordIdx = Math.floor(bitIndex / 32);
+            const bitOffset = bitIndex % 32;
+            if (data[wordIdx] & (1 << bitOffset)) {
+              const gx = scx * 16 + lx;
+              const gy = scy * 16 + ly;
+              for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                  if (dx === 0 && dy === 0) continue;
+                  const nx = gx + dx;
+                  const ny = gy + dy;
+                  const nkey = `${nx},${ny}`;
+                  neighborCounts.set(nkey, (neighborCounts.get(nkey) || 0) + 1);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      for (const [posKey, count] of neighborCounts.entries()) {
+        const [x, y] = posKey.split(',').map(Number);
+        const wasAlive = this.getCell(x, y);
+        if (count === 3 || (wasAlive && count === 2)) {
+          const cx = Math.floor(x / 16);
+          const cy = Math.floor(y / 16);
+          const lx = ((x % 16) + 16) % 16;
+          const ly = ((y % 16) + 16) % 16;
+          const bitIndex = ly * 16 + lx;
+          const wordIdx = Math.floor(bitIndex / 32);
+          const bitOffset = bitIndex % 32;
+
+          const key = `${cx},${cy}`;
+          if (!nextChunks.has(key)) {
+            nextChunks.set(key, new Uint32Array(8));
+          }
+          nextChunks.get(key)[wordIdx] |= (1 << bitOffset);
+        }
+      }
+
+      this.chunks = nextChunks;
+      this.generation++;
+      const dt = performance.now() - t0;
+      return dt;
+    }
+
+    loadPattern(name) {
+      this.clear();
+      if (name === 'gun') {
+        const pts = [
+          [26,1],[24,2],[26,2],[14,3],[15,3],[22,3],[23,3],[36,3],[37,3],
+          [13,4],[17,4],[22,4],[23,4],[36,4],[37,4],[2,5],[3,5],[12,5],
+          [18,5],[22,5],[23,5],[2,6],[3,6],[12,6],[16,6],[18,6],[19,6],
+          [24,6],[26,6],[12,7],[18,7],[26,7],[13,8],[17,8],[14,9],[15,9]
+        ];
+        pts.forEach(([x,y]) => this.setCell(x - 20, y - 5, true));
+      } else if (name === 'pulsar') {
+        const p = [
+          [2,4],[2,5],[2,6],[2,10],[2,11],[2,12],
+          [7,4],[7,5],[7,6],[7,10],[7,11],[7,12],
+          [9,4],[9,5],[9,6],[9,10],[9,11],[9,12],
+          [14,4],[14,5],[14,6],[14,10],[14,11],[14,12],
+          [4,2],[5,2],[6,2],[10,2],[11,2],[12,2],
+          [4,7],[5,7],[6,7],[10,7],[11,7],[12,7],
+          [4,9],[5,9],[6,9],[10,9],[11,9],[12,9],
+          [4,14],[5,14],[6,14],[10,14],[11,14],[12,14]
+        ];
+        p.forEach(([x,y]) => this.setCell(x - 8, y - 8, true));
+      } else if (name === 'rpent') {
+        [[1,0],[2,0],[0,1],[1,1],[1,2]].forEach(([x,y]) => this.setCell(x, y, true));
+      } else if (name === 'acorn') {
+        [[1,0],[3,1],[0,2],[1,2],[4,2],[5,2],[6,2]].forEach(([x,y]) => this.setCell(x - 3, y - 1, true));
+      } else if (name === 'gliders') {
+        const g = [[1,0],[2,1],[0,2],[1,2],[2,2]];
+        g.forEach(([x,y]) => {
+          this.setCell(x - 25, y - 15, true);
+          this.setCell(x + 10, y - 10, true);
+          this.setCell(x - 15, y + 10, true);
+          this.setCell(x + 20, y + 15, true);
+        });
+      }
+    }
+  }
+
+  let lifeSim = null;
+  let isDraggingLife = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+
+  function initLifeArena() {
+    if (!lifeSim) {
+      lifeSim = new InfiniteSparseLife();
+      lifeSim.loadPattern('gun');
+    }
+    const canvas = document.getElementById('life-canvas');
+    if (canvas && !canvas._initHandlers) {
+      canvas._initHandlers = true;
+      canvas.addEventListener('mousedown', onLifeMouseDown);
+      canvas.addEventListener('mousemove', onLifeMouseMove);
+      window.addEventListener('mouseup', onLifeMouseUp);
+      canvas.addEventListener('wheel', onLifeWheel, { passive: false });
+    }
+    renderLifeStats(0);
+    drawLifeCanvas();
+  }
+
+  function onLifeMouseDown(e) {
+    if (!lifeSim) return;
+    const canvas = document.getElementById('life-canvas');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    if (e.button === 0 && !e.altKey && !e.shiftKey) {
+      // Toggle cell
+      const effCell = lifeSim.cellSize * lifeSim.zoom;
+      const worldX = Math.floor((mx - canvas.width / 2 - lifeSim.panX) / effCell);
+      const worldY = Math.floor((my - canvas.height / 2 - lifeSim.panY) / effCell);
+      const current = lifeSim.getCell(worldX, worldY);
+      lifeSim.setCell(worldX, worldY, !current);
+      renderLifeStats(0);
+      drawLifeCanvas();
+    } else {
+      // Pan
+      isDraggingLife = true;
+      dragStartX = e.clientX - lifeSim.panX;
+      dragStartY = e.clientY - lifeSim.panY;
+    }
+  }
+
+  function onLifeMouseMove(e) {
+    if (isDraggingLife && lifeSim) {
+      lifeSim.panX = e.clientX - dragStartX;
+      lifeSim.panY = e.clientY - dragStartY;
+      drawLifeCanvas();
+    }
+  }
+
+  function onLifeMouseUp() {
+    isDraggingLife = false;
+  }
+
+  function onLifeWheel(e) {
+    if (!lifeSim) return;
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
+    zoomLife(zoomFactor);
+  }
+
+  function zoomLife(factor) {
+    if (!lifeSim) return;
+    lifeSim.zoom = Math.max(0.2, Math.min(5.0, lifeSim.zoom * factor));
+    drawLifeCanvas();
+  }
+
+  function resetLifeView() {
+    if (!lifeSim) return;
+    lifeSim.zoom = 1.0;
+    lifeSim.panX = 0;
+    lifeSim.panY = 0;
+    drawLifeCanvas();
+  }
+
+  function loadLifePattern(name) {
+    if (!lifeSim) return;
+    lifeSim.loadPattern(name);
+    resetLifeView();
+    renderLifeStats(0);
+    drawLifeCanvas();
+  }
+
+  function clearLifeGrid() {
+    if (!lifeSim) return;
+    lifeSim.clear();
+    renderLifeStats(0);
+    drawLifeCanvas();
+  }
+
+  function stepLifeSimulation() {
+    if (!lifeSim) return;
+    const dt = lifeSim.step();
+    renderLifeStats(dt);
+    drawLifeCanvas();
+  }
+
+  function toggleLifeSimulation() {
+    if (!lifeSim) return;
+    lifeSim.isRunning = !lifeSim.isRunning;
+    const icon = document.getElementById('life-play-icon');
+    const text = document.getElementById('life-play-text');
+    const btn = document.getElementById('btn-life-play');
+
+    if (lifeSim.isRunning) {
+      if (icon) icon.textContent = '⏸️';
+      if (text) text.textContent = 'Pause';
+      if (btn) btn.style.background = 'var(--accent-orange)';
+      runLifeLoop();
+    } else {
+      if (icon) icon.textContent = '▶️';
+      if (text) text.textContent = 'Start Simulation';
+      if (btn) btn.style.background = 'var(--accent-blue)';
+      if (lifeSim.timer) {
+        clearTimeout(lifeSim.timer);
+        lifeSim.timer = null;
+      }
+    }
+  }
+
+  function runLifeLoop() {
+    if (!lifeSim || !lifeSim.isRunning) return;
+    const dt = lifeSim.step();
+    renderLifeStats(dt);
+    drawLifeCanvas();
+    const delay = Math.max(10, 1000 / lifeSim.fps);
+    lifeSim.timer = setTimeout(runLifeLoop, delay);
+  }
+
+  function updateLifeSpeed(val) {
+    if (!lifeSim) return;
+    lifeSim.fps = parseInt(val, 10) || 20;
+    const speedVal = document.getElementById('life-speed-val');
+    if (speedVal) speedVal.textContent = lifeSim.fps + ' fps';
+  }
+
+  function renderLifeStats(dt) {
+    if (!lifeSim) return;
+    const pop = lifeSim.countLiveCells();
+    const chunks = lifeSim.chunks.size;
+    const expMemBytes = chunks * 32;
+    const jsMemBytes = pop * 48;
+
+    const genEl = document.getElementById('life-gen-count');
+    const popEl = document.getElementById('life-pop-count');
+    const dtEl = document.getElementById('life-step-time');
+    const expMemEl = document.getElementById('life-exp-mem');
+    const jsMemEl = document.getElementById('life-js-mem');
+    const densEl = document.getElementById('life-density-sub');
+
+    if (genEl) genEl.textContent = lifeSim.generation.toLocaleString();
+    if (popEl) popEl.textContent = pop.toLocaleString() + ' cells';
+    if (dtEl) dtEl.textContent = dt.toFixed(2) + ' ms / gen';
+    if (expMemEl) expMemEl.textContent = expMemBytes < 1024 ? expMemBytes + ' B' : (expMemBytes / 1024).toFixed(1) + ' KiB';
+    if (jsMemEl) jsMemEl.textContent = jsMemBytes < 1024 ? jsMemBytes + ' B' : (jsMemBytes / 1024).toFixed(1) + ' KiB';
+    if (densEl) {
+      if (chunks > 0 && pop > 0) {
+        const bytesPerCell = (expMemBytes / pop).toFixed(2);
+        densEl.textContent = `~${bytesPerCell} B/cell (${chunks} chunk${chunks > 1 ? 's' : ''})`;
+      } else {
+        densEl.textContent = 'Empty grid (0 chunks)';
+      }
+    }
+  }
+
+  function drawLifeCanvas() {
+    const canvas = document.getElementById('life-canvas');
+    if (!canvas || !lifeSim) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const isLight = isLightThemeActive();
+    const bgCol = isLight ? '#f8fafc' : '#090d16';
+    const gridCol = isLight ? '#e2e8f0' : '#1e293b';
+    const chunkBorderCol = isLight ? 'rgba(56, 189, 248, 0.4)' : 'rgba(56, 189, 248, 0.25)';
+    const cellCol = isLight ? '#059669' : '#10b981';
+
+    ctx.fillStyle = bgCol;
+    ctx.fillRect(0, 0, w, h);
+
+    const effCell = lifeSim.cellSize * lifeSim.zoom;
+    const originX = w / 2 + lifeSim.panX;
+    const originY = h / 2 + lifeSim.panY;
+
+    // Draw coordinate axes
+    ctx.strokeStyle = isLight ? '#cbd5e1' : '#334155';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, originY);
+    ctx.lineTo(w, originY);
+    ctx.moveTo(originX, 0);
+    ctx.lineTo(originX, h);
+    ctx.stroke();
+
+    // Draw active chunks & cells
+    for (const [key, data] of lifeSim.chunks.entries()) {
+      const [scx, scy] = key.split(',').map(Number);
+      const chunkPixelX = originX + scx * 16 * effCell;
+      const chunkPixelY = originY + scy * 16 * effCell;
+      const chunkSize = 16 * effCell;
+
+      // Visibility clipping
+      if (chunkPixelX + chunkSize < 0 || chunkPixelX > w || chunkPixelY + chunkSize < 0 || chunkPixelY > h) {
+        continue;
+      }
+
+      // Chunk bounding box (Expanse 256-bit tile)
+      ctx.strokeStyle = chunkBorderCol;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(chunkPixelX, chunkPixelY, chunkSize, chunkSize);
+
+      // Render cells in chunk
+      ctx.fillStyle = cellCol;
+      for (let ly = 0; ly < 16; ly++) {
+        for (let lx = 0; lx < 16; lx++) {
+          const bitIndex = ly * 16 + lx;
+          const wordIdx = Math.floor(bitIndex / 32);
+          const bitOffset = bitIndex % 32;
+          if (data[wordIdx] & (1 << bitOffset)) {
+            const px = chunkPixelX + lx * effCell;
+            const py = chunkPixelY + ly * effCell;
+            ctx.fillRect(px + 1, py + 1, effCell - 1.5, effCell - 1.5);
+          }
+        }
+      }
+    }
+  }
+
+  // --- PRESET ROUTING & SHARE VIEW LOGIC -------------------------------------
+
+  function applyPreset(presetName) {
+    if (presetName === 'dag') {
+      switchView('dag');
+    } else if (presetName === 'cache-battle') {
+      switchView('showcases');
+      switchShowcase('cache');
+    } else if (presetName === 'sparse-life') {
+      switchView('showcases');
+      switchShowcase('life');
+    } else if (presetName === 'imm-15') {
+      switchView('dag');
+      popSlider.value = 0;
+      update();
+    } else if (presetName === 'bitmap-leaf') {
+      switchView('dag');
+      popSlider.value = 3;
+      update();
+    } else if (presetName === 'full-expanse') {
+      switchView('dag');
+      popSlider.value = 10;
+      update();
+    } else if (presetName === 'branch-ladder') {
+      switchView('dag');
+      popSlider.value = 9;
+      update();
+    } else if (presetName === 'arm64-zbb') {
+      switchView('dag');
+      archSelect.value = 'neon';
+      update();
+    } else if (presetName === 'occ-concurrency') {
+      switchView('modern');
+      const el = document.getElementById('occ-card') || document.querySelector('.card:has(#occ-status)');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    } else if (presetName === 'embedded-32') {
+      switchView('bench');
+      const el = document.getElementById('embedded32-table-card');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    } else if (presetName === 'ycsb-loss') {
+      switchView('bench');
+      const el = document.getElementById('ycsb-table-card');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    } else if (presetName === 'stock-parity') {
+      switchView('bench');
+      const el = document.getElementById('stock-parity-table-card');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  function shareCurrentView() {
+    const url = window.location.origin + window.location.pathname + window.location.hash;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(() => {
+        const shareText = document.getElementById('share-text');
+        const shareIcon = document.getElementById('share-icon');
+        if (shareText && shareIcon) {
+          shareText.textContent = 'Copied!';
+          shareIcon.textContent = '✅';
+          setTimeout(() => {
+            shareText.textContent = 'Share';
+            shareIcon.textContent = '🔗';
+          }, 2000);
+        }
+      }).catch(() => {
+        prompt('Copy visualizer view link:', url);
+      });
+    } else {
+      prompt('Copy visualizer view link:', url);
+    }
+  }
+
+  // --- INITIALIZATION & URL HASH ROUTER --------------------------------------
+
   function handleUrlHash() {
     const hash = (window.location.hash || '').toLowerCase();
     if (hash === '#bench' || hash === '#benchmarks' || hash === '#benchmark') {
       switchView('bench', false);
     } else if (hash === '#modern' || hash === '#architecture' || hash === '#arch') {
       switchView('modern', false);
+    } else if (hash === '#showcases' || hash === '#showcase') {
+      switchView('showcases', false);
+    } else if (hash === '#cache-battle' || hash === '#battle' || hash === '#demo-c') {
+      switchView('showcases', false);
+      switchShowcase('cache', false);
+    } else if (hash === '#sparse-life' || hash === '#life' || hash === '#demo-e') {
+      switchView('showcases', false);
+      switchShowcase('life', false);
+    } else if (hash === '#imm-15') {
+      switchView('dag', false);
+      popSlider.value = 0;
+      update();
+    } else if (hash === '#bitmap-leaf') {
+      switchView('dag', false);
+      popSlider.value = 3;
+      update();
+    } else if (hash === '#full-expanse') {
+      switchView('dag', false);
+      popSlider.value = 10;
+      update();
+    } else if (hash === '#branch-ladder') {
+      switchView('dag', false);
+      popSlider.value = 9;
+      update();
+    } else if (hash === '#arm64-zbb') {
+      switchView('dag', false);
+      archSelect.value = 'neon';
+      update();
+    } else if (hash === '#occ-concurrency') {
+      switchView('modern', false);
+    } else if (hash === '#embedded-32') {
+      switchView('bench', false);
+    } else if (hash === '#ycsb-loss') {
+      switchView('bench', false);
+    } else if (hash === '#stock-parity') {
+      switchView('bench', false);
     } else {
       switchView('dag', false);
       update();
@@ -3740,7 +4963,11 @@
   handleUrlHash();
 
   window.addEventListener('hashchange', handleUrlHash);
-  window.addEventListener('resize', drawHierarchyConnections);
+  window.addEventListener('resize', () => {
+    drawHierarchyConnections();
+    if (activeShowcase === 'cache') drawBusCanvas();
+    else drawLifeCanvas();
+  });
 </script>
 
 </body>
