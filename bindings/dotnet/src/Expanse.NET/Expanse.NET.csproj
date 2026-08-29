@@ -10,7 +10,7 @@
     <!-- Package Metadata -->
     <PackageId>Orieg.Expanse</PackageId>
     <Title>Expanse.NET</Title>
-    <Description>High-performance, cache-line-tuned modern Judy arrays and off-heap zero-GC associative collections for .NET 8.0 and .NET 9.0+ powered by libexpanse.</Description>
+    <Description>Cache-line-tuned Judy arrays and off-heap zero-GC associative collections for .NET 8.0 and .NET 9.0+, powered by libexpanse.</Description>
     <Version>0.5.0</Version>
     <PackageVersion>0.5.0</PackageVersion>
     <AssemblyVersion>0.5.0</AssemblyVersion>
@@ -20,7 +20,7 @@
     <PackageProjectUrl>https://github.com/orieg/expanse</PackageProjectUrl>
     <RepositoryUrl>https://github.com/orieg/expanse.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>trie;map;bitset;blobmap;concurrency;lock-free;high-performance;native;interop</PackageTags>
+    <PackageTags>judy;libjudy;trie;radix-tree;map;bitset;blobmap;ordered-map;concurrency;lock-free;native;interop</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
 
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

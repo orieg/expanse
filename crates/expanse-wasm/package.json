@@ -2,6 +2,18 @@
   "name": "@orieg/expanse-wasm",
   "version": "0.5.0",
   "description": "WebAssembly bindings for expanse-trie (Edge runtimes & browsers)",
+  "keywords": [
+    "judy",
+    "judy-array",
+    "libjudy",
+    "trie",
+    "radix-tree",
+    "sparse-map",
+    "ordered-map",
+    "wasm",
+    "webassembly",
+    "data-structures"
+  ],
   "main": "expanse_wasm.js",
   "types": "index.d.ts",
   "module": "expanse_wasm_bg.js",

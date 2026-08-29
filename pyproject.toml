@@ -10,7 +10,7 @@ readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
 authors = [{ name = "Nicolas Brousse", email = "nicolas@brousse.info" }]
 requires-python = ">=3.8"
-keywords = ["judy", "trie", "sparse-set", "sparse-map", "data-structures", "concurrency", "lock-free", "occ"]
+keywords = ["judy", "libjudy", "trie", "radix-tree", "sparse-set", "sparse-map", "ordered-map", "data-structures", "concurrency", "lock-free", "occ"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
