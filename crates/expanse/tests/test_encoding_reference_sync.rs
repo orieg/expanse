@@ -42,7 +42,9 @@ use expanse_trie::blobmap::{
 use expanse_trie::node::{
     BranchB, BranchHeader, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL,
 };
-use expanse_trie::node32::{BranchHeader32, BranchL2_32, BranchL6_32, BranchU32, LeafBitmap1_32};
+use expanse_trie::node32::{
+    BranchB32, BranchHeader32, BranchL2_32, BranchL6_32, BranchU32, LeafBitmap1_32, LeafBitmapL_32,
+};
 use expanse_trie::slot::{SlotTag, ValueSlot};
 use expanse_trie::slot32::{SlotTag32, ValueSlot32};
 use expanse_trie::types::{
@@ -321,10 +323,15 @@ fn pinned_constants() -> BTreeMap<&'static str, u64> {
     );
     m.insert("size_of::<BranchL2_32>()", size_of::<BranchL2_32>() as u64);
     m.insert("size_of::<BranchL6_32>()", size_of::<BranchL6_32>() as u64);
+    m.insert("size_of::<BranchB32>()", size_of::<BranchB32>() as u64);
     m.insert("size_of::<BranchU32>()", size_of::<BranchU32>() as u64);
     m.insert(
         "size_of::<LeafBitmap1_32>()",
         size_of::<LeafBitmap1_32>() as u64,
+    );
+    m.insert(
+        "size_of::<LeafBitmapL_32>()",
+        size_of::<LeafBitmapL_32>() as u64,
     );
     m.insert("size_of::<ValueSlot32>()", size_of::<ValueSlot32>() as u64);
     m.insert("ValueSlot32::TAG_MASK", u64::from(ValueSlot32::TAG_MASK));

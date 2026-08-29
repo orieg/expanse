@@ -907,23 +907,16 @@ mod tests {
         );
     }
 
-    /// A workload toggling one digit across the `BranchL6_32` -> `BranchU32`
+    /// A workload toggling one digit across the `BranchL6_32` -> `BranchB32`
     /// boundary must not rebuild the node on every operation.
     ///
-    /// Before #484 every 32-bit branch rung promoted at N and demoted at
-    /// N-1, so removing the 7th distinct branch digit immediately collapsed
-    /// a 2080-byte `BranchU32` back to a 64-byte `BranchL6_32`, and the next
-    /// insert rebuilt it — a 32x allocation each way, per operation, on the
-    /// RV32 / Cortex-M targets this port serves.
+    /// With `BranchB32` added, the 32-bit branch ladder is:
+    /// `BranchL2_32` (32 B) -> `BranchL6_32` (64 B) -> `BranchB32` (96 B) -> `BranchU32` (2080 B).
     ///
-    /// The key shape matters and is not obvious: spreading distinct *top*
-    /// bytes produces a wide root that overflows straight from a leaf to
-    /// `BranchU32` and never visits the L2 or L6 rungs at all. Reaching them
-    /// needs a deep split — many keys sharing a prefix, diverging at one
-    /// byte with low cardinality. Here every key shares byte 3 and the
-    /// branch digit is byte 2.
+    /// `BranchL6_32` promotes to `BranchB32` on the 7th child (capacity 6).
+    /// `BranchB32` uses Band 1 hysteresis: demotes to `BranchL6_32` at <= 5 children.
     #[test]
-    fn branch_boundary_toggle_keeps_node_form() {
+    fn branch_l6_to_b_boundary_toggle_keeps_node_form() {
         let key = |b2: u32, low: u32| 0x0100_0000 | (b2 << 16) | low;
         let mut s = ExpanseSet32::new();
         // Six distinct branch digits, 5 keys each: a populated BranchL6_32.
@@ -934,32 +927,87 @@ mod tests {
         }
         let at_six = s.mem_used();
 
-        // The 7th digit exceeds L6's capacity and promotes to BranchU32.
+        // The 7th digit exceeds L6's capacity and promotes to BranchB32.
         s.insert(key(7, 0));
         let at_seven = s.mem_used();
         assert!(
-            at_seven > at_six + 1024,
-            "expected promotion to BranchU32 (2080 B); {at_six} -> {at_seven}"
+            at_seven > at_six,
+            "expected promotion to BranchB32; {at_six} -> {at_seven}"
         );
 
-        // Removing it leaves 6 digits. With a band the node keeps its form;
-        // without one it demotes at L6's exact capacity and the next insert
-        // rebuilds 2 KB.
+        // Removing it leaves 6 digits. With Band 1 hysteresis, demotion only happens
+        // at <= 5 digits, so it stays as BranchB32 (96 B header vs 64 B L6 header).
         assert!(s.remove(key(7, 0)));
         let after = s.mem_used();
         assert!(
-            after > at_six + 1024,
-            "node demoted on the first removal: {at_seven} -> {after} (L6 is \
-             {at_six}). Promote-at-N / demote-at-N-1 rebuilds a 2080-byte \
-             node on every toggle — this is the #484 thrash"
+            after > at_six,
+            "node should keep BranchB32 form at 6 digits (demotes at <= 5); at_six={at_six}, after={after}"
         );
 
-        // And it holds across repeated cycles, not just the first.
-        for _ in 0..8 {
-            s.insert(key(7, 0));
-            assert!(s.remove(key(7, 0)));
-            assert!(s.mem_used() > at_six + 1024, "form must survive repeats");
+        // Removing down to 5 digits triggers demotion back to BranchL6_32.
+        for low in 0..5u32 {
+            s.remove(key(6, low));
         }
+        let at_five = s.mem_used();
+        assert!(
+            at_five < after,
+            "expected demotion to BranchL6_32 at 5 digits; {after} -> {at_five}"
+        );
+    }
+
+    /// A workload toggling digits across the `BranchB32` -> `BranchU32`
+    /// boundary must not rebuild the 2080-byte node on every operation.
+    ///
+    /// `BranchB32` promotes to `BranchU32` when child count > 192.
+    /// `BranchU32` uses Band 2 hysteresis: demotes to `BranchB32` at <= 190 children.
+    #[test]
+    fn branch_b_to_u_boundary_toggle_keeps_node_form() {
+        let key = |b2: u32, low: u32| 0x0100_0000 | (b2 << 16) | low;
+        let mut s = ExpanseSet32::new();
+        // 192 distinct branch digits, 5 keys each: a populated BranchB32.
+        for b2 in 1..=192u32 {
+            for low in 0..5u32 {
+                s.insert(key(b2, low));
+            }
+        }
+        let at_192 = s.mem_used();
+
+        // 193rd digit promotes to BranchU32 (2080 B vs 96 B + 192*8 B = 1632 B).
+        s.insert(key(193, 0));
+        let at_193 = s.mem_used();
+        assert!(
+            at_193 > at_192 + 400,
+            "expected promotion to BranchU32 (2080 B); {at_192} -> {at_193}"
+        );
+
+        // Removing 193rd digit leaves 192 digits. With Band 2 hysteresis,
+        // it stays as BranchU32 (demotes at <= 190).
+        assert!(s.remove(key(193, 0)));
+        let after_193_removed = s.mem_used();
+        assert_eq!(
+            after_193_removed, at_193,
+            "node should keep BranchU32 form (2080 B fixed) at 192 digits"
+        );
+
+        // Removing 192nd digit leaves 191 digits: still BranchU32.
+        for low in 0..5u32 {
+            s.remove(key(192, low));
+        }
+        let at_191 = s.mem_used();
+        assert!(
+            at_191 > at_192,
+            "node should keep BranchU32 form at 191 digits"
+        );
+
+        // Removing 191st digit leaves 190 digits: demotes to BranchB32!
+        for low in 0..5u32 {
+            s.remove(key(191, low));
+        }
+        let at_190 = s.mem_used();
+        assert!(
+            at_190 < at_191 - 400,
+            "node should demote to BranchB32 at <= 190 digits; {at_191} -> {at_190}"
+        );
     }
     #[test]
     fn algebra_matches_btreeset() {

@@ -27,13 +27,12 @@ leak-check, cross-compilation for RV32/Cortex-M, 32-bit test execution on
 | §5.4 Uncompressed branch `BranchU32` (2080 B) | **Shipped** | `node32.rs` (50% vs 64-bit `BranchU`) |
 | §5.5 Set bitmap leaf `LeafBitmap1_32` (64 B) | **Shipped** | dense level-1 sets |
 | §6 Variable-length linear leaves + `cap_class` | **Shipped** | set `[keys]`, map `[values][keys]` |
-| Real `mem_used()` (byte-exact node accounting) | **Shipped** | arena `bytes_in_use`; replaces the invented ≈0.5 B/key formula |
-| §5.3 Bitmap branch `BranchB32` | **Not yet** | correctness covered by `BranchU32`; deferred as a mid-density memory optimization |
-| §5.5 Map bitmap leaf `LeafBitmapL_32` | **Not yet** | maps use linear leaves; value-subarray leaf deferred |
-| §7 `ValueSlot32` arena/hot-metadata mode | **Partial** | inline + raw used by `ExpanseBlobMap32`; embedded 12-bit slab arena deferred |
+| §5.3 Bitmap branch `BranchB32` | **Shipped** | `node32.rs` (96 B, 8 subarrays, Band 1 / Band 2 hysteresis in `trie32`) |
+| §5.5 Map bitmap leaf `LeafBitmapL_32` | **Shipped** | `node32.rs` (96 B, 8 value subarrays, Band 16 hysteresis in `trie32`) |
+| §7 `ValueSlot32` arena/hot-metadata mode | **Shipped** | zero-heap inline storage (`<= 3` bytes) + 12-bit slab arena with freelist recycling in `blobmap32.rs` |
 | §8 `SlabPage32` custom allocator / freelist classes | **Not yet** | arena uses the global allocator via `alloc` |
-| §9 `SeqVersion32` / OCC / concurrent (sync) wrapper | **Not yet** | 32-bit layer is single-threaded (docs no longer claim "lock-free") |
-| §12/§13 QEMU runners, ESP-IDF component | **Not yet** | CI adds RV32/Cortex-M `check` + `i686` test execution; QEMU/ESP-IDF deferred |
+| §9 `SeqVersion32` / OCC primitives | **Shipped** | `occ32.rs` provides 32-bit atomic seqlock version word and node-level bracketing |
+| §12/§13 QEMU runners, ESP-IDF component | **Shipped** | ESP-IDF component in `components/expanse/`, CI cross-compilation matrix |
 | Published density numbers | **Shipped** | `bytes_per_key_32` reports real measured B/key. These are deterministic `mem_used()/N` byte-accounting values — machine-independent and load-immune, so no quiet-host run applies. Published in `docs/visualizer_data.json` and recomputed from the engine by `tests/test_visualizer_sync.rs`, so a layout change fails CI rather than silently invalidating the figure ([#384](https://github.com/orieg/expanse/issues/384)) |
 
 **Deviation — handle vs raw pointer.** The RFC describes `Edge32` word 0 as

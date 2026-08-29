@@ -109,6 +109,21 @@ fn test_visualizer_constants_sync() {
     assert_eq!(expanse_trie::types32::MAX_LEVEL_32, 4);
     assert_eq!(expanse_trie::types32::CACHE_LINE_32, 32);
     assert_eq!(core::mem::size_of::<expanse_trie::types32::Edge32>(), 8);
+    assert_eq!(expanse_trie::types32::BRANCH_L2_CAP_32, 2);
+    assert_eq!(expanse_trie::types32::BRANCH_L6_CAP_32, 6);
+    assert_eq!(
+        expanse_trie::types32::BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32,
+        192
+    );
+    assert_eq!(expanse_trie::types32::BRANCH_U_DOWN_32, 190);
+    assert_eq!(expanse_trie::types32::BRANCH_B_DOWN_32, 5);
+    assert_eq!(expanse_trie::types32::BRANCH_L6_DOWN_32, 1);
+    assert_eq!(expanse_trie::types32::SET_LEAF_MAX_32, 24);
+    assert_eq!(expanse_trie::types32::SET_BITMAP_ENTER_32, 64);
+    assert_eq!(expanse_trie::types32::SET_BITMAP_LEAVE_32, 48);
+    assert_eq!(expanse_trie::types32::MAP_LEAF_MAX_32, 16);
+    assert_eq!(expanse_trie::types32::MAP_BITMAP_ENTER_32, 64);
+    assert_eq!(expanse_trie::types32::MAP_BITMAP_LEAVE_32, 48);
     assert!(
         json_content.contains("embedded_32bit_benchmarks"),
         "JSON must contain embedded_32bit_benchmarks section"

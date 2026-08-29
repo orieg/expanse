@@ -53,6 +53,42 @@ pub const fn mask_below32(key: Key32, level: u8) -> Key32 {
     }
 }
 
+/// Maximum capacity of a `BranchL2_32` node (2 child edges).
+pub const BRANCH_L2_CAP_32: usize = 2;
+
+/// Maximum capacity of a `BranchL6_32` node (6 child edges).
+pub const BRANCH_L6_CAP_32: usize = 6;
+
+/// Threshold where a `BranchB32` bitmap branch promotes to a `BranchU32` uncompressed branch (> 192 child edges).
+pub const BRANCH_B_TO_UNCOMPRESSED_THRESHOLD_32: usize = 192;
+
+/// Demotion threshold for `BranchU32` back to `BranchB32` (<= 190 child edges, band of 2).
+pub const BRANCH_U_DOWN_32: usize = 190;
+
+/// Demotion threshold for `BranchB32` back to `BranchL6_32` (<= 5 child edges, band of 1).
+pub const BRANCH_B_DOWN_32: usize = 5;
+
+/// Demotion threshold for `BranchL6_32` back to `BranchL2_32` (<= 1 child edge, band of 1).
+pub const BRANCH_L6_DOWN_32: usize = 1;
+
+/// Maximum population for a set linear leaf at level >= 2 before converting to a branch.
+pub const SET_LEAF_MAX_32: usize = 24;
+
+/// Population threshold where a level-1 set linear leaf converts to `LeafBitmap1_32`.
+pub const SET_BITMAP_ENTER_32: usize = 64;
+
+/// Population threshold where a `LeafBitmap1_32` set leaf demotes to a linear leaf (band of 16).
+pub const SET_BITMAP_LEAVE_32: usize = 48;
+
+/// Maximum population for a map linear leaf at level >= 2 before converting to a branch.
+pub const MAP_LEAF_MAX_32: usize = 16;
+
+/// Population threshold where a level-1 map linear leaf converts to `LeafBitmapL_32`.
+pub const MAP_BITMAP_ENTER_32: usize = 64;
+
+/// Population threshold where a `LeafBitmapL_32` map leaf demotes to a linear leaf (band of 16).
+pub const MAP_BITMAP_LEAVE_32: usize = 48;
+
 /// Tag discriminants for `Edge32`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -75,6 +111,8 @@ pub enum Tag32 {
     BranchB = 0x07,
     /// Uncompressed 256-edge branch.
     BranchU = 0x08,
+    /// Level 1 Map Bitmap Leaf (256-bit mask + 8 value subarrays).
+    LeafBitmapL = 0x09,
     /// In-edge immediate set (1..=7 keys packed in 7 bytes).
     ImmedSet = 0x10,
     /// In-edge immediate map (1 key + 1 value packed in edge).
@@ -103,6 +141,7 @@ impl Tag32 {
             0x06 => Tag32::BranchL6,
             0x07 => Tag32::BranchB,
             0x08 => Tag32::BranchU,
+            0x09 => Tag32::LeafBitmapL,
             0x10 => Tag32::ImmedSet,
             0x11 => Tag32::ImmedMap,
             0x20 => Tag32::ValueSlotInline,

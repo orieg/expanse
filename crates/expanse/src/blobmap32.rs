@@ -3,22 +3,15 @@
 //! Integrates `ValueSlot32` with embedded slab arenas for variable-length payload storage
 //! and columnar hot metadata range filtering on 32-bit targets per `docs/design/32-bit-embedded.md`.
 //!
-//! ## Current-implementation limits
+//! ## Implementation characteristics
 //!
-//! - The slab offset packed into `ValueSlot32` is **12 bits**, so at most
-//!   `0x0FFF` (4095) arena entries are addressable; `insert` returns
-//!   [`BlobMap32Error::OffsetOverflow`] once the arena grows past that instead
-//!   of truncating the offset (which previously silently corrupted lookups).
-//! - Hot metadata is likewise 12 bits; a value `> 0x0FFF` on an arena payload
-//!   returns [`BlobMap32Error::MetaOverflow`].
-//! - **Every** payload, including `<= 3`-byte "inline" ones, currently occupies
-//!   an arena `Vec<u8>` slot — inline storage is *not* zero-heap in this
-//!   implementation; the tag records the length and the slot holds the arena
-//!   index. (A future revision may store `<= 3`-byte payloads without a heap
-//!   allocation.)
-//! - `remove` and overwrite only drop the index entry; the arena entry they
-//!   pointed to is **never reclaimed** (the arena grows monotonically until the
-//!   map is dropped).
+//! - **Zero-heap inlining**: Payloads `<= 3` bytes are packed directly into `ValueSlot32`
+//!   (in bits 31:8, with low byte storing `len`) with 0 heap allocations and 0 arena slots.
+//! - **Freelist recycling**: Arena slab indices for `> 3`-byte payloads are recycled via an
+//!   internal freelist upon removal and overwrite.
+//! - **12-bit addressable slab**: At most `0x0FFF` (4095) live arena entries are addressable;
+//!   `insert` returns [`BlobMap32Error::OffsetOverflow`] when all 4096 arena slots are exhausted.
+//! - **12-bit hot metadata**: Columnar metadata `> 0x0FFF` returns [`BlobMap32Error::MetaOverflow`].
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -56,10 +49,8 @@ impl std::error::Error for BlobMap32Error {}
 /// View into a stored blob payload in `ExpanseBlobMap32`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum BlobView32<'a> {
-    /// A `<= 3`-byte payload tagged inline. Note: in the current
-    /// implementation the bytes still live in the arena (not zero-heap); the
-    /// tag only records that the payload is short.
-    Inline(&'a [u8]),
+    /// A `<= 3`-byte payload stored directly inside `ValueSlot32` with zero heap allocation.
+    Inline([u8; 3], u8),
     /// Arena payload stored in the arena slab.
     Arena(&'a [u8]),
 }
@@ -67,9 +58,9 @@ pub enum BlobView32<'a> {
 impl<'a> BlobView32<'a> {
     /// Returns the byte slice of this payload view.
     #[inline(always)]
-    pub fn as_bytes(&self) -> &'a [u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         match self {
-            BlobView32::Inline(slice) => slice,
+            BlobView32::Inline(buf, len) => &buf[..*len as usize],
             BlobView32::Arena(slice) => slice,
         }
     }
@@ -85,6 +76,33 @@ impl<'a> BlobView32<'a> {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Check if the payload is stored inline in the value slot.
+    #[inline(always)]
+    pub fn is_inline(&self) -> bool {
+        matches!(self, BlobView32::Inline(..))
+    }
+
+    /// Check if the payload is stored in the arena.
+    #[inline(always)]
+    pub fn is_arena(&self) -> bool {
+        matches!(self, BlobView32::Arena(..))
+    }
+}
+
+impl<'a> core::ops::Deref for BlobView32<'a> {
+    type Target = [u8];
+    #[inline(always)]
+    fn deref(&self) -> &Self::Target {
+        self.as_bytes()
+    }
+}
+
+impl<'a> AsRef<[u8]> for BlobView32<'a> {
+    #[inline(always)]
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
 }
 
 impl<'a> fmt::Debug for BlobView32<'a> {
@@ -98,7 +116,9 @@ pub struct ExpanseBlobMap32 {
     /// 32-bit trie index storing `ValueSlot32` as raw words.
     index: ExpanseMap32,
     /// Storage for arena payloads (> 3 bytes).
-    arena: Vec<Vec<u8>>,
+    arena: Vec<Option<Vec<u8>>>,
+    /// Freelist for recycling deallocated arena slab indices.
+    freelist: Vec<u16>,
 }
 
 impl ExpanseBlobMap32 {
@@ -109,6 +129,21 @@ impl ExpanseBlobMap32 {
         Self {
             index: ExpanseMap32::new(),
             arena: Vec::new(),
+            freelist: Vec::new(),
+        }
+    }
+
+    fn alloc_arena_slot(&mut self, data: &[u8]) -> Result<u16, BlobMap32Error> {
+        if let Some(free_idx) = self.freelist.pop() {
+            self.arena[free_idx as usize] = Some(data.to_vec());
+            Ok(free_idx)
+        } else {
+            let offset = self.arena.len();
+            if offset > 0x0FFF {
+                return Err(BlobMap32Error::OffsetOverflow);
+            }
+            self.arena.push(Some(data.to_vec()));
+            Ok(offset as u16)
         }
     }
 
@@ -119,32 +154,48 @@ impl ExpanseBlobMap32 {
     /// Returns [`BlobMap32Error::OffsetOverflow`] if the arena has already
     /// grown to the 12-bit slab-offset ceiling (`0x0FFF` entries), or
     /// [`BlobMap32Error::MetaOverflow`] if `hot_meta > 0x0FFF` for an
-    /// arena-backed (`> 3`-byte) payload. Both are validated *before* any
-    /// truncation, so an out-of-range value can never silently corrupt a slot
-    /// (this replaces a former `.expect()` panic on `offset as u16` overflow).
+    /// arena-backed (`> 3`-byte) payload.
     pub fn insert(&mut self, key: Key32, data: &[u8], hot_meta: u16) -> Result<(), BlobMap32Error> {
-        // Validate the arena index against the 12-bit slab-offset field BEFORE
-        // truncating it to u16 — the arena is shared by inline and arena
-        // payloads, so any entry past 0x0FFF would overflow the field.
-        let offset = self.arena.len();
-        if offset > 0x0FFF {
-            return Err(BlobMap32Error::OffsetOverflow);
-        }
-        if data.len() > 3 && hot_meta > 0x0FFF {
-            return Err(BlobMap32Error::MetaOverflow);
-        }
-        let offset = offset as u16;
-        self.arena.push(data.to_vec());
         if data.len() <= 3 {
-            let slot_val = (data.len() as u32) | ((offset as u32) << 8);
-            self.index.insert(key, slot_val);
+            // Zero-heap inlining into ValueSlot32
+            let slot = ValueSlot32::new_inline(data).expect("data.len() <= 3");
+            if let Some(old_raw) = self.index.insert(key, slot.to_raw()) {
+                let old_slot = ValueSlot32::from_raw(old_raw);
+                if old_slot.tag() == SlotTag32::Arena {
+                    let offset = old_slot.slab_offset() as usize;
+                    if offset < self.arena.len() {
+                        self.arena[offset] = None;
+                        self.freelist.push(offset as u16);
+                    }
+                }
+            }
+            Ok(())
         } else {
-            // Validated above; `ok_or` keeps this panic-free regardless.
+            if hot_meta > 0x0FFF {
+                return Err(BlobMap32Error::MetaOverflow);
+            }
+            let old_raw = self.index.get(key);
+            let offset = if let Some(raw) = old_raw {
+                let old_slot = ValueSlot32::from_raw(raw);
+                if old_slot.tag() == SlotTag32::Arena {
+                    let off = old_slot.slab_offset() as usize;
+                    if off < self.arena.len() {
+                        self.arena[off] = Some(data.to_vec());
+                        off as u16
+                    } else {
+                        self.alloc_arena_slot(data)?
+                    }
+                } else {
+                    self.alloc_arena_slot(data)?
+                }
+            } else {
+                self.alloc_arena_slot(data)?
+            };
             let slot =
                 ValueSlot32::new_arena(hot_meta, offset).ok_or(BlobMap32Error::OffsetOverflow)?;
             self.index.insert(key, slot.to_raw());
+            Ok(())
         }
-        Ok(())
     }
 
     /// Lookup a blob payload and its associated hot metadata.
@@ -153,18 +204,14 @@ impl ExpanseBlobMap32 {
         let slot = ValueSlot32::from_raw(raw);
         match slot.tag() {
             SlotTag32::Inline0 | SlotTag32::Inline1 | SlotTag32::Inline2 | SlotTag32::Inline3 => {
-                let offset = (slot.to_raw() >> 8) as usize;
-                if offset < self.arena.len() {
-                    Some((BlobView32::Inline(&self.arena[offset]), 0))
-                } else {
-                    None
-                }
+                let (payload, len) = slot.inline_payload();
+                Some((BlobView32::Inline(payload, len as u8), 0))
             }
             SlotTag32::Arena => {
                 let offset = slot.slab_offset() as usize;
                 let meta = slot.hot_meta();
-                if offset < self.arena.len() {
-                    Some((BlobView32::Arena(&self.arena[offset]), meta))
+                if let Some(Some(vec)) = self.arena.get(offset) {
+                    Some((BlobView32::Arena(vec.as_slice()), meta))
                 } else {
                     None
                 }
@@ -173,12 +220,21 @@ impl ExpanseBlobMap32 {
         }
     }
 
-    /// Remove a blob entry by key.
-    ///
-    /// Only the index entry is dropped; the arena slot it referenced is **not**
-    /// reclaimed (see the module-level note on monotonic arena growth).
+    /// Remove a blob entry by key, recycling any arena slot back to the freelist.
     pub fn remove(&mut self, key: Key32) -> bool {
-        self.index.remove(key).is_some()
+        if let Some(old_raw) = self.index.remove(key) {
+            let old_slot = ValueSlot32::from_raw(old_raw);
+            if old_slot.tag() == SlotTag32::Arena {
+                let offset = old_slot.slab_offset() as usize;
+                if offset < self.arena.len() {
+                    self.arena[offset] = None;
+                    self.freelist.push(offset as u16);
+                }
+            }
+            true
+        } else {
+            false
+        }
     }
 
     /// Returns the number of live blob records.
@@ -237,28 +293,68 @@ mod tests {
     fn test_blobmap32_inline_and_arena() {
         let mut map = ExpanseBlobMap32::new();
 
-        // Inline payloads (<= 3 bytes)
+        // Inline payloads (<= 3 bytes) - 0 arena allocations
         map.insert(1, b"a", 0).unwrap();
         map.insert(2, b"ab", 0).unwrap();
         map.insert(3, b"abc", 0).unwrap();
+        assert_eq!(
+            map.arena.len(),
+            0,
+            "inline payloads must not allocate in arena"
+        );
 
         // Arena payloads (> 3 bytes)
         map.insert(100, b"large payload in arena", 0xABC).unwrap();
+        assert_eq!(map.arena.len(), 1);
 
         assert_eq!(map.len(), 4);
 
         let (v1, _) = map.get(1).unwrap();
         assert_eq!(v1.as_bytes(), b"a");
+        assert!(v1.is_inline());
 
         let (v2, _) = map.get(2).unwrap();
         assert_eq!(v2.as_bytes(), b"ab");
+        assert!(v2.is_inline());
 
         let (v3, _) = map.get(3).unwrap();
         assert_eq!(v3.as_bytes(), b"abc");
+        assert!(v3.is_inline());
 
         let (v100, meta) = map.get(100).unwrap();
         assert_eq!(v100.as_bytes(), b"large payload in arena");
+        assert!(v100.is_arena());
         assert_eq!(meta, 0xABC);
+    }
+
+    #[test]
+    fn test_blobmap32_freelist_recycling() {
+        let mut map = ExpanseBlobMap32::new();
+
+        // Insert 3 arena payloads
+        map.insert(10, b"payload-1", 10).unwrap();
+        map.insert(20, b"payload-2", 20).unwrap();
+        map.insert(30, b"payload-3", 30).unwrap();
+        assert_eq!(map.arena.len(), 3);
+        assert_eq!(map.freelist.len(), 0);
+
+        // Remove key 20
+        assert!(map.remove(20));
+        assert_eq!(map.freelist.len(), 1);
+        assert_eq!(map.get(20), None);
+
+        // Insert key 40 (should reuse slot 1)
+        map.insert(40, b"payload-4", 40).unwrap();
+        assert_eq!(
+            map.arena.len(),
+            3,
+            "freelist recycling should not expand arena"
+        );
+        assert_eq!(map.freelist.len(), 0);
+
+        let (v40, meta40) = map.get(40).unwrap();
+        assert_eq!(v40.as_bytes(), b"payload-4");
+        assert_eq!(meta40, 40);
     }
 
     #[test]
@@ -295,13 +391,15 @@ mod tests {
         assert_eq!(map.len(), 0);
 
         // Filling past the 12-bit slab-offset ceiling returns OffsetOverflow
-        // instead of panicking on an `offset as u16` truncation.
         for i in 0..=0x0FFFu32 {
-            map.insert(i, b"x", 0).unwrap();
+            map.insert(i, b"arena-payload", 0).unwrap();
         }
         assert_eq!(
-            map.insert(0x1000, b"x", 0),
+            map.insert(0x1000, b"arena-payload", 0),
             Err(BlobMap32Error::OffsetOverflow)
         );
+
+        // But inline payloads can still be inserted without arena slots!
+        assert!(map.insert(0x2000, b"abc", 0).is_ok());
     }
 }
