@@ -47,7 +47,7 @@ must not be presented as pre-registered).
 | **Pillar B: Static Search** | Static Longest Match Latency | **Static Window Index** | **Expected Loss**: Contiguous array binary search beats pointer-chasing trie descent. |
 | **Pillar B: Incremental Update** | Streaming Tokens / sec | **ExpanseStrMap** | **Expected Win**: 452k–621k streaming inserts/sec vs 163.1 ms static full rebuilds. |
 | **Pillar B: Crossover Curve** | Batch Update Frequency $B$ | **ExpanseStrMap** | **Expected Win**: Expanse wins whenever update batches contain $B < 73{,}859$ tokens (at 1M scale). |
-| **Pillar D: Full-Vocab Apply** | Mask Apply Latency | **Dense Bitmask** | **Expected Loss** (by construction). The previously published <0.1 µs figure came from a dead-code-eliminated loop; measurement pending re-run. |
+| **Pillar D: Full-Vocab Apply** | Mask Apply Latency | **Dense Bitmask** | **Expected Loss** (by construction). The previously published <0.1 µs figure came from a dead-code-eliminated loop; measurement pending re-run ([#382](https://github.com/orieg/expanse/issues/382)). |
 | **Pillar D: Mask Cache RAM** | RAM across DFA states | **RoaringBitmap** | **Expected Win**: Dense uses 30.6 MB (2,000 states); Roaring (11.5 MB) wins 2.66× lower RAM. |
 | **Pillar D: Top-100 Intersect** | Candidate ∩ Allowed Set | **RoaringBitmap & ExpanseSet** | Fast candidate filtering (0.6–1.9 µs) via native SIMD set algebra (#339). |
 | **Pillar E: Prefix-Cache RAM** | Block Table RAM (1M blocks) | **ExpanseMap Table** | **Expected Win**: 9.48x lower RAM vs `OrderedDict` (23.2 MB vs 219.9 MB) — cross-accounting comparison (tracemalloc peak vs native bytes + idealized side map); see README caveat. |

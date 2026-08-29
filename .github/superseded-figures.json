@@ -1,0 +1,83 @@
+{
+  "_comment": [
+    "Single source of truth for all superseded and retracted performance figures, strawman numbers, and refuted mechanism claims.",
+    "Asserted across all tracked markdown, HTML visualizer, JSON datasets, and benchmark docs by scripts/check_docs_hygiene.py and crates/expanse/tests/test_visualizer_sync.rs."
+  ],
+  "figures": [
+    {
+      "id": "vs_stock_random_1m_deficit",
+      "patterns": [
+        "(?<![\\w.])~11%\\s*slower",
+        "(?<![\\w.])11%\\s*slower",
+        "(?<![\\w.])~11%\\s*\\(1\\.11[x\u00d7]\\)",
+        "(?<![\\w.])1\\.11[x\u00d7]\\s*slower",
+        "(?<![\\w.])1\\.11\\s*[x\u00d7](?!\\w)"
+      ],
+      "context": ["random", "lookup", "stock", "judy", "libjudy", "deficit", "slower"],
+      "replacement": "1.031\u00d7, BCa 95% CI [1.024, 1.038] (results/baseline_vs_libjudy.json)",
+      "provenance": "#463, #495",
+      "rationale": "Pre-repair random 1M lookup deficit measured under load; quiet host measures 1.031x"
+    },
+    {
+      "id": "vs_stock_unmeasured_wallclock_ns",
+      "patterns": [
+        "(?<![\\w.])26\\.8\\s*ns\\b",
+        "(?<![\\w.])48\\.6\\s*ns\\b",
+        "(?<![\\w.])45%\\s*faster\\b"
+      ],
+      "context": ["judy", "stock", "judyl_get", "random_big", "faster than stock"],
+      "replacement": "Retracted as unmeasured rescaled instruction counts (~5.52 instr/ns)",
+      "provenance": "#384, #495",
+      "rationale": "Wall-clock ns figures were rescaled instruction counts, never actually measured"
+    },
+    {
+      "id": "syncexpanse_concurrency_scaling_curve",
+      "patterns": [
+        "(?<![\\w.])12\\.0\\s*[x\u00d7](?!\\w)",
+        "(?<![\\w.])265\\.8\\s*(?:Mops|M\\s*ops|M/s)\\b",
+        "(?<![\\w.])284\\.9\\s*(?:Mops|M\\s*ops|M/s)\\b"
+      ],
+      "array_sequence": ["19.63", "27.94", "35.62", "33.97", "28.84"],
+      "context": ["syncexpanse", "thread", "concurrency", "scaling", "mops", "m ops", "curve"],
+      "replacement": "Bounded keyspace measurement (0.12x-0.55x negative scaling on 50/50 mix, 11.4x on read-only)",
+      "provenance": "#375, #383",
+      "rationale": "Probed unbounded random u64 keys measuring near-100%-miss descent walk"
+    },
+    {
+      "id": "ycsb_workload_e_asymmetric_predicate",
+      "patterns": [
+        "(?<![\\w.])15\\.26\\s*(?:Mops|M\\s*ops|M/s|ops/s)\\b",
+        "(?<![\\w.])4\\.33\\s*(?:Mops|M\\s*ops|M/s|[x\u00d7])(?!\\w)",
+        "(?<![\\w.])7\\.3\\s*[x\u00d7]\\s*(?:speedup)?(?!\\w)",
+        "(?<![\\w.])13\\.2\\s*(?:Mops|M\\s*ops|M/s)\\b"
+      ],
+      "context": ["workload e", "ycsb", "range scan", "scan", "expanseblobmap", "skipmap"],
+      "replacement": "Workload E re-measured with symmetric predicate (BTreeMap wins Workload E)",
+      "provenance": "#375, #385, #470",
+      "rationale": "Asymmetric scan predicate passed ~100% vs ~50% for baselines; 13.2 B/entry for RocksDB is valid and exempt"
+    },
+    {
+      "id": "rocksdb_strawman_skiplist_density",
+      "patterns": [
+        "(?<![\\w.])146\\.7\\s*(?:B/entry|B/k|bytes/entry|B/key)\\b",
+        "(?<![\\w.])(?:~|≈)?\\s*11(?:\\.11?)?\\s*[x\u00d7](?!\\w)"
+      ],
+      "context": ["rocksdb", "skiplist", "tower", "density", "b/entry", "strawman"],
+      "replacement": "13.2 B/entry vs 18.7 B/entry (1.42\u00d7 higher density)",
+      "provenance": "#372",
+      "rationale": "Strawman static 16-pointer tower baseline vs fair variable-height skiplist"
+    },
+    {
+      "id": "vs_stock_refuted_dram_latency_bound",
+      "patterns": [
+        "\\bDRAM-latency-bound\\b",
+        "\\bDRAM-latency\\b",
+        "\\bstall(?:ed|ing)? on DRAM\\b"
+      ],
+      "context": ["random", "lookup", "stock", "judy", "probe", "expanse"],
+      "replacement": "Unmeasured mechanism tracked in #480 (hardware counter shows 0.042 LLC misses vs 2.74 branch mispredicts)",
+      "provenance": "#480, #495",
+      "rationale": "LLC miss count is near zero, refuting memory latency bottleneck"
+    }
+  ]
+}
