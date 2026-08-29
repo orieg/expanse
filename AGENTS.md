@@ -220,6 +220,9 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | §8.3 symmetric baselines · §8.6 DCE sinks, realistic hit rates, miss shape & measured-region hygiene · §8.7 no in-place backfilling · §8.8 3-commit cadence · §8.10 retract don't re-estimate · PR checklist truthfulness | **review** | — |
 | §8.9 mechanism claims carry a counter (`memory-latency-bound`, `branch misprediction`, `MLP`, `TLB`, …) | **CI (fatal)** | `check_docs_hygiene.py` — paragraph-scoped; satisfied by a counter name, a `results/baseline_*` reference, or an explicit `unmeasured` / `hypothesis` / `cause unknown` qualifier |
 | §8.4 a published wall-clock ratio carries its interval | **CI (fatal)** | `check_docs_hygiene.py` — paragraph-scoped; satisfied by `[lo, hi]`, a `results/baseline_*` artifact, or an explicit `superseded` / `unsourced` / `provisional`. Deterministic metrics (Callgrind counts, byte accounting, memory) are exempt — an interval on an exact integer is wrong, not missing |
+| Retracted/superseded figures absent across all published surfaces (Markdown, HTML, JSON, assets) | **CI** | `lint` & `docs-lint` jobs → `scripts/check_docs_hygiene.py`, `crates/expanse/tests/test_visualizer_sync.rs` (driven by `.github/superseded-figures.json`) |
+| Pending/unverified measurement cells cite OPEN tracking issues | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |
+| Visualizer data/HTML synchronization with engine | **CI** | `test` job (gated by narrow `visualizer:` path filter) → `tests/test_visualizer_sync.rs` |
 | Conventional-commit type · branch naming | **review** | — |
 
 ---
@@ -332,4 +335,15 @@ When modifying or correcting any existing benchmark or example harness:
    - **Absolute-Quoting Claims**: If the claim quotes absolute nanoseconds, throughput, or memory under a contaminated timed region or shallow miss pattern, mark the absolute number as pending re-measurement.
    - **Deallocation Magnitude Asymmetry**: When competitor arms construct and drop in a timed closure, the contaminant is *structurally symmetric in presence* but *asymmetric in magnitude* across data structures (slab arena page free vs recursive per-node heap deallocation vs single buffer free). Isolate teardown via `b.iter_batched` rather than assuming symmetric cancellation.
 4. **Atomic PR Inclusion**: The canonical documentation disclosures and retractions MUST be committed and included in the exact same pull request as the harness code changes.
+
+### 8.11 Gate Regex & CI Path-Filter Hygiene
+1. **Non-ASCII & Symbol Lookaround Boundaries**:
+   - `\b` asserts word boundaries strictly for `\w` (`[a-zA-Z0-9_]`). Never use `\b` adjacent to Unicode multiplication signs (`×` / `\u00d7`), tildes (`~`), or symbols.
+   - Use lookaround assertions: `(?<![\w.])...(?!\w)`.
+2. **Mandatory Unit Anchoring**:
+   - In integrity gates matching performance figures, require unit suffixes (`Mops`, `ns`, `B/entry`). Never use optional unit groups that degrade to bare numeric substrings.
+3. **Narrow CI Path Filtering**:
+   - When an integration test verifies non-code artifacts (e.g. visualizer datasets), create a scoped filter (`visualizer:`) gating only the test job. Never widen `rust-src:` to non-compiled files, which needlessly triggers Miri, ASan, fuzzing, Callgrind, and cross-compilation lanes.
+4. **Symlink Deduplication**:
+   - Scripts and tests walking tracked files must deduplicate paths by canonical `realpath` to prevent triple-scanning symlinked documentation (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`).
 

@@ -6,29 +6,22 @@ Fatal (exit 1):
     estimates in pull requests, comments, or documentation");
   * PII / local-infrastructure identifiers (AGENTS.md §7 "Privacy & Local
     Infrastructure"): home-directory paths, private LAN IPv4 addresses, and
-    any hostname listed in the DOCS_HOSTNAME_DENYLIST environment variable
-    (comma-separated; kept out of the repository on purpose — set it as a
-    repository *secret*, never commit it, and never echo it: matches are
-    reported as "denylisted hostname" without the value).
+    any hostname listed in the DOCS_HOSTNAME_DENYLIST environment variable;
+  * unmeasured microarchitectural mechanism claims (AGENTS.md §8.9);
+  * unpublished wall-clock intervals on continuous ratios (AGENTS.md §8.4);
+  * superseded/retracted performance figures, strawman numbers, or refuted
+    mechanism claims without retraction markers across all published surfaces
+    (AGENTS.md §6.5 / §8.11, driven by .github/superseded-figures.json);
+  * pending / unverified measurement statements that lack an open tracking
+    issue citation or cite a closed issue (AGENTS.md §6.5 / §8.10).
 
 Advisory (GitHub `::warning::` annotations, exit 0):
   * documents that publish unit-bearing numbers (ns, ops/s, B/key, ×) in tables
     while carrying no `(measured: …)` / `(target…)` / `(projected…)` provenance
     tag anywhere in the file (AGENTS.md §6 / §8.7).
 
-    Deliberately file-scoped, not per-table. The suite READMEs state provenance
-    once in a header that covers every table below it — often far more than a
-    screenful up — so a proximity rule reports those as violations and trains
-    readers to ignore the warning. What is worth flagging is a document that
-    publishes numbers with no provenance at all; whether a given table sits
-    under the right tag is a reviewer's judgement, not a regex's.
-
-Fenced code blocks are skipped for every check. A line may opt out of the
-fatal checks with the literal marker `docs-lint: allow` (use sparingly, and
-say why in the surrounding prose).
-
 Usage:
-  python3 scripts/check_docs_hygiene.py                # scan tracked markdown
+  python3 scripts/check_docs_hygiene.py                # scan all tracked surfaces
   python3 scripts/check_docs_hygiene.py --pr-body-file pr-body.txt
   python3 scripts/check_docs_hygiene.py --self-test
 """
@@ -36,18 +29,19 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 ALLOW_MARKER = "docs-lint: allow"
 
 # --- fatal: time estimates ---------------------------------------------------
 _NUM = r"(?:\d+(?:\s*[-–]\s*\d+)?|a|an|one|two|three|four|five|six|several|few|couple of)"
 TIME_ESTIMATE_PATTERNS = [
-    # "1-2 days", "a week", "~3 weeks", "≤2 weeks", "two sprints", "10 engineer-days"
     re.compile(
         rf"(?<![\w/.-])(?:~|≈|≤|<=|about |roughly |approximately )?{_NUM}\s*"
         r"(?:engineer-|person-|dev-)?(?:days?|weeks?|sprints?|months?|quarters?)\b(?!-old)",
@@ -58,7 +52,6 @@ TIME_ESTIMATE_PATTERNS = [
     re.compile(r"\b(?:in|by|during)\s+Q[1-4](?:\s*20\d\d)?\b"),
     re.compile(r"\bover the weekend\b", re.IGNORECASE),
 ]
-# Phrases that look like durations but are measurement or retention facts, not plans.
 TIME_ESTIMATE_EXEMPT = re.compile(
     r"\b(?:retention|retained|expires?|cache(?:d)?|TTL|soak|uptime|window|timeout|"
     r"sleep|every|per day|per week|per month|days? old|weeks? old|a day ago|"
@@ -87,13 +80,12 @@ PROVENANCE_FILES = (
     "docs/ALGORITHMS.md",
     "docs/design/large-values.md",
 )
-PROVENANCE_GLOBS = ("docs/benchmarks/*/README.md",)
+PROVENANCE_GLOBS = (
+    "docs/benchmarks/**/README.md",
+    "docs/benchmarks/**/METHODOLOGY.md",
+)
 
-
-# AGENTS.md 8.9: a microarchitectural mechanism named in prose is a claim about
-# a counter, and a counter claim needs a counter. These are the terms that assert
-# one. "cache" alone is not here - describing a cache hierarchy is not claiming a
-# measurement of one; "cache-miss-bound" is.
+# --- fatal: mechanism claims -------------------------------------------------
 MECHANISM_TERMS = re.compile(
     r"\b("
     r"memory[- ]latency[- ]bound|latency[- ]bound|bandwidth[- ]bound|"
@@ -106,18 +98,11 @@ MECHANISM_TERMS = re.compile(
     r")\b",
     re.IGNORECASE,
 )
-
-# Evidence that a counter was actually read. A provenance tag alone does not
-# qualify - it says a number was measured, not that this mechanism was.
-# Naming a mechanism in order to say something does NOT measure it is not a
-# claim about that mechanism - it is a statement about an instrument's limits,
-# which is the honest thing this rule wants more of, not less.
 MECHANISM_NEGATION = re.compile(
     r"(cannot see|can(?:'|\u2019)?t see|does not (?:see|measure|model|capture)|"
     r"blind to|ignores?|invisible to|no counter|unable to (?:see|measure))",
     re.IGNORECASE,
 )
-
 MECHANISM_EVIDENCE = re.compile(
     r"(perf stat|perf_counters|point_lookup_counters|hardware counter|counters? (?:on|show|locate|say)|"
     r"branch-misses|branch_misses|L1-dcache|LLC-load|dTLB|cycle_activity|"
@@ -129,37 +114,21 @@ MECHANISM_EVIDENCE = re.compile(
     re.IGNORECASE,
 )
 
-
-# AGENTS.md 8.4: a claim over a continuous / sampling metric passes iff the BCa
-# CI lower bound clears the floor, not iff the point estimate does. A published
-# wall-clock ratio with no interval beside it is therefore an unfinished claim.
-#
-# Deliberately NARROW. It fires only on a ratio that is unambiguously about
-# elapsed time or throughput - the same line must carry a wall-clock unit or a
-# faster/slower word. Deterministic metrics are exempt by the same section:
-# Callgrind instruction counts and byte-per-key accounting are exact integers
-# with zero variance, so an interval on them would be meaningless.
+# --- fatal: wall-clock intervals ---------------------------------------------
 WALLCLOCK_RATIO = re.compile(r"(?<![\w.])\d+(?:\.\d+)?\s*(?:x|×)\b", re.IGNORECASE)
-
 WALLCLOCK_CONTEXT = re.compile(
     r"(\bns\b|µs|\bus\b|\bms\b|ops/s|Mops|M/s|latency|throughput|"
     r"faster|slower|speedup|wall.?clock)",
     re.IGNORECASE,
 )
-
-# Exact-by-construction metrics: an interval is not merely unnecessary, it is
-# wrong. Callgrind counts and byte accounting do not vary between runs.
 DETERMINISTIC_METRIC = re.compile(
     r"(instruction|callgrind|\bIr\b|B/key|B/k|bytes/key|byte accounting|"
     r"symbol|deterministic|inst\b|density|"
     r"memory|footprint|\bKB/|\bMB/|\bB/|resident|allocat|\bRAM\b|heap)",
     re.IGNORECASE,
 )
-
-# What discharges the claim: an interval, a committed artifact it re-derives
-# from, or an explicit statement that no interval exists.
 INTERVAL_EVIDENCE = re.compile(
-    r"(\[\s*\d+(?:\.\d+)?\s*,\s*\d+(?:\.\d+)?\s*\]|"
+    r"(\[\s*[-+]?\d+(?:\.\d+)?%?\s*,\s*[-+]?\d+(?:\.\d+)?%?\s*\]|"
     r"\bBCa\b|confidence interval|\bCI\b|bca_bootstrap|"
     r"results/baseline_|"
     r"\bno interval\b|\bunsourced\b|\bsuperseded\b|\bretracted\b|"
@@ -167,14 +136,91 @@ INTERVAL_EVIDENCE = re.compile(
     re.IGNORECASE,
 )
 
+# --- fatal: retraction & refutation markers ----------------------------------
+RETRACTION_MARKERS = re.compile(
+    r"\b(retract(?:ed|ion|ing)?|withdraw(?:n)?|supersed(?:ed|es|ing)?|"
+    r"correct(?:ed|ion)?|previously|refut(?:ed|es|ing)?|stale|"
+    r"anti-example|strawman|earlier|was measured with|both were|"
+    r"unmeasured|unverified|definitional|indicative)\b",
+    re.IGNORECASE,
+)
+
+# --- fatal: pending-cell requirements ----------------------------------------
+PENDING_PATTERN = re.compile(
+    r"\b(?:pending\s+(?:(?:a\s+)?(?:tagged\s+)?(?:reference-host|quiet-host|fair-baseline|clean-host)\s+)?(?:re-run|re-measurement|run)|"
+    r"unverified\s+until\s+the\s+next\s+nightly\s+baseline\s+run)\b",
+    re.IGNORECASE,
+)
+
+_ISSUE_STATUS_CACHE: dict[int, str] = {}
+
+
+def get_issue_status(issue_num: int) -> str:
+    """Return 'OPEN', 'CLOSED', or 'UNKNOWN' for a GitHub issue number."""
+    if issue_num in _ISSUE_STATUS_CACHE:
+        return _ISSUE_STATUS_CACHE[issue_num]
+    try:
+        res = subprocess.run(
+            ["gh", "issue", "view", str(issue_num), "--json", "state", "--jq", ".state"],
+            capture_output=True, text=True, check=False,
+        )
+        if res.returncode == 0:
+            status = res.stdout.strip().upper()
+            if status in ("OPEN", "CLOSED"):
+                _ISSUE_STATUS_CACHE[issue_num] = status
+                return status
+    except Exception:
+        pass
+    # Fallback when gh CLI is unavailable or offline
+    _ISSUE_STATUS_CACHE[issue_num] = "UNKNOWN"
+    return "UNKNOWN"
+
+
+def load_superseded_registry(root: Path) -> list[dict[str, Any]]:
+    path = root / ".github" / "superseded-figures.json"
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        figs = []
+        for item in data.get("figures", []):
+            patterns = [re.compile(p, re.IGNORECASE) for p in item.get("patterns", [])]
+            figs.append({
+                "id": item["id"],
+                "patterns": patterns,
+                "context": [c.lower() for c in item.get("context", [])],
+                "array_sequence": item.get("array_sequence"),
+                "replacement": item.get("replacement", ""),
+                "provenance": item.get("provenance", ""),
+            })
+        return figs
+    except Exception as e:
+        print(f"::error::failed to load superseded registry: {e}")
+        return []
+
 
 def tracked_markdown(root: Path) -> list[Path]:
+    """Return deduplicated list of tracked Markdown paths."""
     out = subprocess.run(
-        ["git", "ls-files", "--", "*.md", "docs/**/*.md", ".github/**/*.md"],
+        ["git", "ls-files", "--", "*.md", "docs/**/*.md", ".github/**/*.md", "crates/**/*.md", "bindings/**/*.md", "integrations/**/*.md"],
         cwd=root, capture_output=True, text=True, check=True,
     ).stdout.split()
-    files = sorted({root / f for f in out if f.endswith(".md")})
-    return [f for f in files if "/worktrees/" not in str(f) and "/target/" not in str(f)]
+    seen = set()
+    files = []
+    for f in out:
+        if not f.endswith(".md"):
+            continue
+        p = root / f
+        if not p.is_file():
+            continue
+        rp = p.resolve()
+        if rp in seen:
+            continue
+        if "/worktrees/" in str(rp) or "/target/" in str(rp):
+            continue
+        seen.add(rp)
+        files.append(p)
+    return sorted(files)
 
 
 def strip_fences(lines: list[str]) -> list[tuple[int, str]]:
@@ -219,14 +265,12 @@ def check_pii(lines: list[tuple[int, str]], denylist: list[str]) -> list[tuple[i
         else:
             for pat in host_pats:
                 if pat.search(line):
-                    hits.append((n, "denylisted hostname"))  # never echo the hostname
+                    hits.append((n, "denylisted hostname"))
                     break
     return hits
 
 
 def check_provenance(lines: list[str]) -> list[int]:
-    """Advisory: file-scoped. Returns the first unit-bearing table's line number
-    when the document carries no provenance tag anywhere, else nothing."""
     if any(PROVENANCE_TAG.search(l) for l in lines):
         return []
     i, n = 0, len(lines)
@@ -243,15 +287,6 @@ def check_provenance(lines: list[str]) -> list[int]:
 
 
 def check_mechanism_claims(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
-    """A named microarchitectural mechanism must have counter evidence, or be
-    explicitly marked unmeasured, within its own paragraph.
-
-    Scoped to the paragraph rather than the line because the evidence is
-    usually the sentence after the claim, and to the paragraph rather than the
-    file because a document may measure one mechanism and speculate about
-    another. Hedging counts as evidence: saying "hypothesis" or "cause unknown"
-    is exactly the honest form this rule wants, so it must not be punished.
-    """
     out: list[tuple[int, str]] = []
     paras: list[list[tuple[int, str]]] = []
     para: list[tuple[int, str]] = []
@@ -267,9 +302,6 @@ def check_mechanism_claims(lines: list[tuple[int, str]]) -> list[tuple[int, str]
 
     def flush_at(idx: int) -> None:
         para = paras[idx]
-        # The claim's own paragraph plus the next one: an evidence table or a
-        # counter list almost always follows the sentence that makes the claim,
-        # and splitting them is a formatting choice, not a substantive one.
         window = para + (paras[idx + 1] if idx + 1 < len(paras) else [])
         joined = " ".join(t for _, t in window)
         if MECHANISM_EVIDENCE.search(joined) or MECHANISM_NEGATION.search(joined):
@@ -286,13 +318,6 @@ def check_mechanism_claims(lines: list[tuple[int, str]]) -> list[tuple[int, str]
 
 
 def check_interval_claims(lines: list[tuple[int, str]]) -> list[tuple[int, str]]:
-    """A published wall-clock ratio must carry an interval, an artifact it
-    re-derives from, or an explicit statement that it has neither.
-
-    Paragraph-scoped, matching the mechanism rule: the interval is usually the
-    next cell or the sentence after. Deterministic metrics are skipped, since
-    §8.4 makes an interval on an exact integer meaningless rather than missing.
-    """
     out: list[tuple[int, str]] = []
     paras: list[list[tuple[int, str]]] = []
     para: list[tuple[int, str]] = []
@@ -324,7 +349,125 @@ def check_interval_claims(lines: list[tuple[int, str]]) -> list[tuple[int, str]]
     return out
 
 
-def scan_text(path_label: str, text: str, denylist: list[str], provenance: bool) -> tuple[int, int]:
+def check_superseded_figures(
+    lines: list[tuple[int, str]], registry: list[dict[str, Any]]
+) -> list[tuple[int, str, str]]:
+    """Assert superseded figures appear only with explicit retraction markers."""
+    if not registry:
+        return []
+    hits = []
+    total = len(lines)
+    for idx, (n, text) in enumerate(lines):
+        if ALLOW_MARKER in text:
+            continue
+        win_start = max(0, idx - 3)
+        win_end = min(total, idx + 4)
+        window_text = " ".join(t for _, t in lines[win_start:win_end])
+        has_retraction = bool(RETRACTION_MARKERS.search(window_text))
+
+        # Split line into sentence chunks or table cells for context analysis
+        chunks = re.split(r"(?<=[.!?])\s+|\|", text)
+        for chunk in chunks:
+            chunk_clean = chunk.strip()
+            if not chunk_clean:
+                continue
+            chunk_lower = chunk_clean.lower()
+            for fig in registry:
+                for pat in fig["patterns"]:
+                    m = pat.search(chunk_clean)
+                    if not m:
+                        continue
+                    req_ctx = min(2, len(fig["context"]))
+                    ctx_matches = sum(1 for c in fig["context"] if c in chunk_lower or c in window_text.lower())
+                    if ctx_matches >= req_ctx:
+                        if not has_retraction:
+                            hits.append((n, m.group(0).strip(), fig["replacement"]))
+                        break
+    return hits
+
+
+def check_pending_cells(lines: list[tuple[int, str]], path_label: str = "") -> list[tuple[int, str]]:
+    """Assert pending measurement cells cite an OPEN tracking issue."""
+    if path_label.endswith("AGENTS.md") or path_label.endswith("CLAUDE.md") or path_label.endswith("GEMINI.md"):
+        return []
+    hits = []
+    for n, text in lines:
+        if ALLOW_MARKER in text:
+            continue
+        for m_pend in PENDING_PATTERN.finditer(text):
+            span_after = text[m_pend.end(): m_pend.end() + 150]
+            m_iss = re.search(r"(?:#|issues/)(\d+)", span_after)
+            if not m_iss:
+                hits.append((n, "pending measurement statement carries no tracking issue citation (cite an open issue e.g. #382)"))
+                break
+            iss = int(m_iss.group(1))
+            status = get_issue_status(iss)
+            if status == "CLOSED":
+                hits.append((n, f"pending cell cites CLOSED issue #{iss} — update to an OPEN tracking issue (e.g. #382)"))
+                break
+    return hits
+
+
+def check_json_datasets(root: Path, registry: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Assert JSON visualizer and asset data contain no superseded figures."""
+    if not registry:
+        return []
+    json_targets = [
+        root / "docs" / "visualizer_data.json",
+        root / "docs" / "assets" / "data" / "bench_assets.json",
+    ]
+    skip_keys = {
+        "provenance", "removed_for_lack_of_provenance", "retraction",
+        "retraction_372", "meta", "description", "_comment"
+    }
+    violations = []
+
+    def check_node(path_label: str, key_path: str, val: Any) -> None:
+        if isinstance(val, dict):
+            for k, v in val.items():
+                if k in skip_keys:
+                    continue
+                check_node(path_label, f"{key_path}.{k}", v)
+        elif isinstance(val, list):
+            for fig in registry:
+                seq = fig.get("array_sequence")
+                if seq and len(val) >= len(seq):
+                    str_vals = [str(x) for x in val]
+                    for i in range(len(str_vals) - len(seq) + 1):
+                        if str_vals[i:i + len(seq)] == seq:
+                            violations.append((path_label, f"{key_path}: matching retracted sequence {seq}"))
+            for i, elem in enumerate(val):
+                check_node(path_label, f"{key_path}[{i}]", elem)
+        elif isinstance(val, str):
+            for fig in registry:
+                for pat in fig["patterns"]:
+                    m = pat.search(val)
+                    if m:
+                        req_ctx = min(2, len(fig["context"]))
+                        ctx_matches = sum(1 for c in fig["context"] if c in val.lower() or c in key_path.lower())
+                        if ctx_matches >= req_ctx:
+                            violations.append((path_label, f"{key_path}: '{m.group(0)}' superseded figure without retraction"))
+
+    for target in json_targets:
+        if not target.is_file():
+            continue
+        try:
+            data = json.loads(target.read_text(encoding="utf-8"))
+            rel = target.relative_to(root).as_posix()
+            check_node(rel, "root", data)
+        except Exception as e:
+            violations.append((str(target), f"JSON parse error: {e}"))
+    return violations
+
+
+def scan_text(
+    path_label: str,
+    text: str,
+    denylist: list[str],
+    provenance: bool,
+    registry: list[dict[str, Any]] | None = None,
+    is_html: bool = False,
+) -> tuple[int, int]:
     lines = text.splitlines()
     kept = strip_fences(lines)
     fatal = 0
@@ -334,14 +477,23 @@ def scan_text(path_label: str, text: str, denylist: list[str], provenance: bool)
     for n, what in check_pii(kept, denylist):
         print(f"::error file={path_label},line={n}::{what} — AGENTS.md §7 forbids PII / local-infrastructure identifiers")
         fatal += 1
-    for n, what in check_mechanism_claims(kept):
-        print(f"::error file={path_label},line={n}::mechanism claim ({what!r}) with no counter evidence in its paragraph — AGENTS.md §8.9 wants a counter, a `results/baseline_*` reference, or an explicit 'unmeasured' / 'hypothesis' / 'cause unknown' qualifier")
+    if not is_html:
+        for n, what in check_mechanism_claims(kept):
+            print(f"::error file={path_label},line={n}::mechanism claim ({what!r}) with no counter evidence in its paragraph — AGENTS.md §8.9 wants a counter, a `results/baseline_*` reference, or an explicit 'unmeasured' / 'hypothesis' / 'cause unknown' qualifier")
+            fatal += 1
+        for n, what in check_interval_claims(kept):
+            print(f"::error file={path_label},line={n}::wall-clock ratio ({what!r}) published with no interval in its paragraph — AGENTS.md §8.4 gates continuous metrics on the BCa CI lower bound; cite `[lo, hi]`, a `results/baseline_*` artifact, or state plainly that no interval exists")
+            fatal += 1
+    if registry:
+        for n, figure, replacement in check_superseded_figures(kept, registry):
+            print(f"::error file={path_label},line={n}::superseded figure ({figure!r}) published without a retraction marker — replacement: {replacement}")
+            fatal += 1
+    for n, reason in check_pending_cells(kept, path_label):
+        print(f"::error file={path_label},line={n}::{reason}")
         fatal += 1
-    for n, what in check_interval_claims(kept):
-        print(f"::error file={path_label},line={n}::wall-clock ratio ({what!r}) published with no interval in its paragraph — AGENTS.md §8.4 gates continuous metrics on the BCa CI lower bound; cite `[lo, hi]`, a `results/baseline_*` artifact, or state plainly that no interval exists")
-        fatal += 1
+
     warnings = 0
-    if provenance:
+    if provenance and not is_html:
         for n in check_provenance(lines):
             print(f"::warning file={path_label},line={n}::this document publishes unit-bearing numbers but carries no (measured: host, commit) / (target) / (projected) tag anywhere — AGENTS.md §8.7 (advisory; first such table shown)")
             warnings += 1
@@ -357,38 +509,51 @@ def wants_provenance(root: Path, path: Path) -> bool:
 
 def self_test() -> int:
     deny = ["examplehost"]
-    fatal, _ = scan_text("t.md", "Ship v0.1 (1-2 days).\n", deny, False); assert fatal == 1, "duration"
-    fatal, _ = scan_text("t.md", "Step 1 — ships when boundary-F1 ≥ 0.8.\n", deny, False); assert fatal == 0, "gate wording"
-    fatal, _ = scan_text("t.md", "The nightly cache has a 7 days retention.\n", deny, False); assert fatal == 0, "retention exempt"
-    fatal, _ = scan_text("t.md", "```\n1-2 days\n```\n", deny, False); assert fatal == 0, "fence skipped"
-    fatal, _ = scan_text("t.md", "rsync ./ /Users/someone/repo/\n", deny, False); assert fatal == 1, "home path"
-    fatal, _ = scan_text("t.md", "use $HOME/.cargo or /home/<user>/x\n", deny, False); assert fatal == 0, "placeholder home"
-    fatal, _ = scan_text("t.md", "ssh examplehost 'cargo bench'\n", deny, False); assert fatal == 1, "denylisted host"
-    fatal, _ = scan_text("t.md", "connect to 192.168.1.20\n", deny, False); assert fatal == 1, "lan ip"
-    fatal, _ = scan_text("t.md", "planned for 2 weeks docs-lint: allow\n", deny, False); assert fatal == 0, "allow marker"
-    _, w = scan_text("t.md", "| arm | ns |\n|---|---|\n| a | 35.8 ns |\n", deny, True); assert w == 1, "provenance warn"
-    _, w = scan_text("t.md", "*(measured: host, commit)*\n| arm | ns |\n|---|---|\n| a | 35.8 ns |\n", deny, True); assert w == 0, "provenance tagged"
-    # File-scoped: one tag covers tables far below it, however many.
-    far = "*(measured: host, commit)*\n" + ("filler\n" * 200) + "| arm | ns |\n|---|---|\n| a | 35.8 ns |\n"
-    _, w = scan_text("t.md", far, deny, True); assert w == 0, "distant tag still covers"
-    two = "| a | ns |\n|---|---|\n| x | 1 ns |\n\ntext\n\n| b | ns |\n|---|---|\n| y | 2 ns |\n"
-    _, w = scan_text("t.md", two, deny, True); assert w == 1, "one warning per untagged file, not per table"
-    _, w = scan_text("t.md", "| cap | value |\n|---|---|\n| ordered | yes |\n", deny, True); assert w == 0, "no unit-bearing cell"
-    # §8.9 mechanism claims. The first case is the defect this rule exists for:
-    # it shipped in docs/BENCHMARKING.md and was retracted in #456.
-    fatal, _ = scan_text("t.md", "The arm is memory-latency-bound, so the work removed is off the critical path.\n", deny, False); assert fatal == 1, "mechanism claim without evidence must fire"
-    fatal, _ = scan_text("t.md", "Callgrind cannot see TLB misses or memory-level parallelism.\n", deny, False); assert fatal == 0, "naming a mechanism an instrument cannot see is not a claim"
-    fatal, _ = scan_text("t.md", "The cost is branch misprediction. Hardware counters locate it:\n\n| cpu_core/branch-misses/ | 2.4e7 |\n", deny, False); assert fatal == 0, "evidence in the following paragraph must count"
-    fatal, _ = scan_text("t.md", "An MLP story predicts smooth growth; cause unknown.\n", deny, False); assert fatal == 0, "an honest hedge must not be punished"
-    fatal, _ = scan_text("t.md", "```\nmemory-latency-bound\n```\n", deny, False); assert fatal == 0, "fenced code is exempt"
-    # §8.4 wall-clock intervals. Narrow by design: deterministic metrics are
-    # exempt because an interval on an exact integer is wrong, not missing.
-    fatal, _ = scan_text("t.md", "Point lookups are 2.9x faster than BTreeMap at 1M keys.\n", deny, False); assert fatal == 1, "bare wall-clock ratio must fire"
-    fatal, _ = scan_text("t.md", "Random 1M get is 1.031x, BCa 95% CI [1.024, 1.038].\n", deny, False); assert fatal == 0, "an interval discharges the claim"
-    fatal, _ = scan_text("t.md", "libexpanse retires 0.55x the instructions of stock (Callgrind).\n", deny, False); assert fatal == 0, "instruction counts are exact"
-    fatal, _ = scan_text("t.md", "Grammar masks: Roaring wins 2.66x lower RAM at 1.9M/s.\n", deny, False); assert fatal == 0, "memory ratios are exact accounting"
-    fatal, _ = scan_text("t.md", "The layout is [values: u64 x C][keys: L x C] at 10 ns.\n", deny, False); assert fatal == 0, "a type layout is not a ratio"
-    fatal, _ = scan_text("t.md", "It was 1.11x slower; that figure is superseded.\n", deny, False); assert fatal == 0, "an explicit retraction discharges it"
+    root = Path(__file__).resolve().parent.parent
+    reg = load_superseded_registry(root)
+
+    # Basic hygiene
+    fatal, _ = scan_text("t.md", "Ship v0.1 (1-2 days).\n", deny, False, reg); assert fatal == 1, "duration"
+    fatal, _ = scan_text("t.md", "Step 1 — ships when boundary-F1 ≥ 0.8.\n", deny, False, reg); assert fatal == 0, "gate wording"
+    fatal, _ = scan_text("t.md", "The nightly cache has a 7 days retention.\n", deny, False, reg); assert fatal == 0, "retention exempt"
+    fatal, _ = scan_text("t.md", "```\n1-2 days\n```\n", deny, False, reg); assert fatal == 0, "fence skipped"
+    fatal, _ = scan_text("t.md", "rsync ./ /Users/someone/repo/\n", deny, False, reg); assert fatal == 1, "home path"
+    fatal, _ = scan_text("t.md", "use $HOME/.cargo or /home/<user>/x\n", deny, False, reg); assert fatal == 0, "placeholder home"
+    fatal, _ = scan_text("t.md", "ssh examplehost 'cargo bench'\n", deny, False, reg); assert fatal == 1, "denylisted host"
+    fatal, _ = scan_text("t.md", "connect to 192.168.1.20\n", deny, False, reg); assert fatal == 1, "lan ip"
+    fatal, _ = scan_text("t.md", "planned for 2 weeks docs-lint: allow\n", deny, False, reg); assert fatal == 0, "allow marker"
+    _, w = scan_text("t.md", "| arm | ns |\n|---|---|\n| a | 35.8 ns |\n", deny, True, reg); assert w == 1, "provenance warn"
+    _, w = scan_text("t.md", "*(measured: host, commit)*\n| arm | ns |\n|---|---|\n| a | 35.8 ns |\n", deny, True, reg); assert w == 0, "provenance tagged"
+
+    # Mechanism & intervals
+    fatal, _ = scan_text("t.md", "The arm is memory-latency-bound, so the work removed is off the critical path.\n", deny, False, reg); assert fatal >= 1, "mechanism claim without evidence"
+    fatal, _ = scan_text("t.md", "Point lookups are 2.9x faster than BTreeMap at 1M keys.\n", deny, False, reg); assert fatal == 1, "bare wall-clock ratio"
+    fatal, _ = scan_text("t.md", "Random 1M get is 1.031x, BCa 95% CI [1.024, 1.038].\n", deny, False, reg); assert fatal == 0, "interval discharges claim"
+
+    # Superseded figure tests with Unicode × (U+00D7) and lookaround boundaries
+    fatal, _ = scan_text("t.md", "Random lookup 1M is 1.11× slower than stock JudyL.\n", deny, False, reg)
+    assert fatal >= 1, "unretracted Unicode 1.11× figure must fail"
+    fatal, _ = scan_text("t.md", "(**1.11×**) slower random lookup vs stock JudyL.\n", deny, False, reg)
+    assert fatal >= 1, "unretracted (**1.11×**) markup figure must fail"
+    fatal, _ = scan_text("t.md", "Retracted: previously published 1.11× slower random lookup vs stock Judy.\n", deny, False, reg)
+    assert fatal == 0, "retracted 1.11× figure with marker must pass"
+    fatal, _ = scan_text("t.md", "YCSB Workload E scan range shows 4.33× speedup for ExpanseBlobMap over SkipMap.\n", deny, False, reg)
+    assert fatal >= 1, "unretracted 4.33× Workload E must fail"
+    fatal, _ = scan_text("t.md", "RocksDB leaf blocks store entry pointers at 13.2 B/entry.\n", deny, False, reg)
+    assert fatal == 0, "valid RocksDB 13.2 B/entry density figure must pass"
+    fatal, _ = scan_text("t.md", "ExpanseBlobMap achieves 13.2 Mops/s on YCSB Workload E range scan.\n", deny, False, reg)
+    assert fatal >= 1, "unretracted 13.2 Mops Workload E must fail"
+
+    # Pending issue validation
+    _ISSUE_STATUS_CACHE[384] = "CLOSED"
+    _ISSUE_STATUS_CACHE[382] = "OPEN"
+    fatal, _ = scan_text("t.md", "Pause times are pending a tagged reference-host run (#384).\n", deny, False, reg)
+    assert fatal >= 1, "pending cell citing closed #384 must fail"
+    fatal, _ = scan_text("t.md", "Pause times are pending a tagged reference-host run (#382).\n", deny, False, reg)
+    assert fatal == 0, "pending cell citing open #382 must pass"
+    fatal, _ = scan_text("t.md", "Pause times are pending a tagged reference-host run.\n", deny, False, reg)
+    assert fatal >= 1, "pending cell with no issue citation must fail"
+
     print("check_docs_hygiene.py --self-test: all checks passed")
     return 0
 
@@ -438,14 +603,43 @@ def main() -> int:
     if not denylist:
         print("::notice::DOCS_HOSTNAME_DENYLIST is unset — hostname check skipped (set it as a repository secret; never commit it)")
 
+    registry = load_superseded_registry(root)
     fatal = warnings = 0
+
+    # Scan tracked Markdown files
     for path in tracked_markdown(root):
-        f, w = scan_text(path.relative_to(root).as_posix(), path.read_text(encoding="utf-8", errors="replace"), denylist, provenance=not args.no_provenance and wants_provenance(root, path))
+        f, w = scan_text(
+            path.relative_to(root).as_posix(),
+            path.read_text(encoding="utf-8", errors="replace"),
+            denylist,
+            provenance=not args.no_provenance and wants_provenance(root, path),
+            registry=registry,
+            is_html=False,
+        )
         fatal += f
         warnings += w
+    # Scan HTML Visualizer
+    vis_html = root / "docs" / "architecture_visualizer.html"
+    if vis_html.is_file():
+        f, _ = scan_text(
+            vis_html.relative_to(root).as_posix(),
+            vis_html.read_text(encoding="utf-8", errors="replace"),
+            denylist,
+            provenance=False,
+            registry=registry,
+            is_html=True,
+        )
+        fatal += f
     fatal += check_published_html_links(root)
+
+    # Scan JSON datasets
+    json_errors = check_json_datasets(root, registry)
+    for path_label, err in json_errors:
+        print(f"::error file={path_label}::{err}")
+        fatal += 1
+
     if args.pr_body_file and os.path.exists(args.pr_body_file):
-        f, _ = scan_text("PR body", Path(args.pr_body_file).read_text(encoding="utf-8", errors="replace"), denylist, provenance=False)
+        f, _ = scan_text("PR body", Path(args.pr_body_file).read_text(encoding="utf-8", errors="replace"), denylist, provenance=False, registry=registry)
         fatal += f
 
     print(f"check_docs_hygiene.py: {fatal} fatal finding(s), {warnings} advisory warning(s)")

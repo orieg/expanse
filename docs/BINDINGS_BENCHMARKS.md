@@ -8,7 +8,7 @@ This benchmark suite measures head-to-head lookup latency, insertion throughput,
 
 ## Ecosystem Baseline Matrix
 
-Every row below names the harness that backs it. Cells marked **(target)** are design goals, not measurements. No memory-advantage multipliers are quoted here: the harness estate shipped with silent-fallback and hardcoded-constant defects (#373, fixed on this branch), so all cross-language memory comparisons are **unverified until the next nightly baseline run** completes on the repaired harnesses. Verified numbers will live in the nightly `bindings-baseline` artifact, not in this file.
+Every row below names the harness that backs it. Cells marked **(target)** are design goals, not measurements. No memory-advantage multipliers are quoted here: the harness estate shipped with silent-fallback and hardcoded-constant defects (#373, fixed on this branch), so all cross-language memory comparisons are **unverified until the next nightly baseline run** ([#382](https://github.com/orieg/expanse/issues/382)) completes on the repaired harnesses. Verified numbers will live in the nightly `bindings-baseline` artifact, not in this file.
 
 | Runtime Environment | Expanse Target | Industry Baseline | Harness | Memory Comparison Status |
 |:---|:---|:---|:---|:---|
