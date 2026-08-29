@@ -842,13 +842,13 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
     <div class="container">
       <div class="hero">
         <div class="badge-bar">
-          <span class="badge" style="border-color: var(--nav-pill-border); background: var(--nav-pill-bg); color: var(--accent);">Cortex-M &amp; RISC-V to server</span>
+          <span class="badge" style="border-color: var(--nav-pill-border); background: var(--nav-pill-bg); color: var(--accent);">32-bit MCU to 64-bit server</span>
           <span class="badge">Pure Rust &bull; no_std</span>
           <span class="badge badge-green">MIT OR Apache-2.0</span>
         </div>
         <h1>Judy arrays in pure Rust, rebuilt for modern hardware</h1>
         <p style="font-size: 1.15rem; line-height: 1.64; max-width: 780px; margin: 0 auto 1rem;">
-          Sparse, ordered maps and sets that <strong style="color: var(--heading);">cost what your keys cost</strong>. Keys decompose one byte per level into a 256-ary digital tree, and every node reshapes to match how crowded that byte&rsquo;s range is &mdash; so memory tracks the ranges you populate, not the number of keys, and never a pre-sized table.
+          Sparse, ordered maps and sets that <strong style="color: var(--heading);">cost what your keys cost</strong> &mdash; memory follows the key ranges you populate, not how many keys you have.
         </p>
         <p style="font-size: 0.95rem; line-height: 1.6; max-width: 760px; margin: 0 auto 1.5rem; color: var(--text-muted);">
           Sorted iteration, range scans and rank over integers, strings and byte slices &mdash; with cache-line-aligned nodes, SIMD/SWAR search and lock-free reader concurrency. One engine from a 32-bit MCU to a server, reachable from <strong style="color: var(--heading);">nine languages</strong> over a stable C ABI.

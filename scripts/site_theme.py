@@ -16,7 +16,8 @@ toggle scripts so it works standalone; build_pages.py asserts the copies have
 not drifted from the canonical bodies below.
 """
 
-THEME_STORAGE_KEY = "expanse-theme"
+THEME_STORAGE_KEY = "orieg-theme"
+THEME_LEGACY_KEY = "expanse-theme"
 
 # Palette single-source: THEME_CSS_VARS and the namespaced visualizer nav bundle
 # are both generated from these dicts.
@@ -289,7 +290,8 @@ COPY_BTN_CSS = """
 THEME_HEAD_JS_BODY = """    (function() {
       'use strict';
       if (window.__expanseApplyTheme) { return; }
-      var KEY = 'expanse-theme';
+      var KEY = 'orieg-theme';
+      var LEGACY_KEY = 'expanse-theme';
       var LABELS = {
         system: 'Color theme: system (click to switch to light)',
         light: 'Color theme: light (click to switch to dark)',
@@ -297,7 +299,7 @@ THEME_HEAD_JS_BODY = """    (function() {
       };
       function stored() {
         try {
-          var v = localStorage.getItem(KEY);
+          var v = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY);
           return (v === 'light' || v === 'dark') ? v : null;
         } catch (e) { return null; }
       }
@@ -334,14 +336,20 @@ THEME_HEAD_JS_BODY = """    (function() {
 THEME_HEAD_JS = "<script>\n" + THEME_HEAD_JS_BODY + "  </script>"
 
 THEME_TOGGLE_JS_BODY = """    function toggleTheme() {
-      var KEY = 'expanse-theme';
+      var KEY = 'orieg-theme';
+      var LEGACY_KEY = 'expanse-theme';
       var v = null;
-      try { v = localStorage.getItem(KEY); } catch (e) {}
+      try { v = localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY); } catch (e) {}
       var mode = (v === 'light' || v === 'dark') ? v : 'system';
       var next = mode === 'system' ? 'light' : (mode === 'light' ? 'dark' : 'system');
       try {
-        if (next === 'system') { localStorage.removeItem(KEY); }
-        else { localStorage.setItem(KEY, next); }
+        if (next === 'system') {
+          localStorage.removeItem(KEY);
+          localStorage.removeItem(LEGACY_KEY);
+        } else {
+          localStorage.setItem(KEY, next);
+          localStorage.removeItem(LEGACY_KEY);
+        }
       } catch (e) {}
       if (window.__expanseApplyTheme) { window.__expanseApplyTheme(); }
     }

@@ -54,6 +54,7 @@ fi
 step "4/6 repository consistency scripts (as in the CI lint job)"
 python3 scripts/bump_version.py --check
 python3 scripts/check_abi_parity.py
+python3 scripts/check_ecosystem_theme.py --local-only
 python3 scripts/check_ci_gate.py
 python3 scripts/check_bench_suites.py
 python3 scripts/check_bench_shapes.py
@@ -63,6 +64,7 @@ python3 scripts/check_test_floors.py
 python3 scripts/perf_report.py --self-test
 python3 scripts/bench_report.py --self-test
 python3 scripts/check_docs_hygiene.py --self-test
+python3 scripts/check_ecosystem_theme.py --self-test
 python3 scripts/check_bench_suites.py --self-test
 python3 scripts/check_bench_shapes.py --self-test
 python3 scripts/check_man_pages.py --self-test
