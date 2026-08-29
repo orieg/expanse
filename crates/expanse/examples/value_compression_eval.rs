@@ -371,7 +371,7 @@ fn main() {
         }
     }
 
-    println!("\n=== Gate Verdict ===");
+    println!("\n=== Phase 0 Gate 1: Promotion Rate & Correctness ===");
     if all_passed {
         println!("PASS: Phase 0 promotion rate criteria satisfied on all targeted shapes.");
         println!(
@@ -380,7 +380,127 @@ fn main() {
         println!("  - Round-trip error count: 0 across all 500,000 samples.");
         println!("  - Uniform random negative controls respect theoretical pigeonhole ceilings.");
     } else {
-        println!("FAIL: Phase 0 gate criteria not satisfied.");
+        println!("FAIL: Phase 0 promotion rate criteria not satisfied.");
         std::process::exit(1);
     }
+
+    println!("\n=== Phase 0 Gate 2: Lookup Throughput & Dispatch Cost ===");
+    evaluate_lookup_throughput();
+}
+
+fn evaluate_lookup_throughput() {
+    use expanse_trie::blobmap::ExpanseBlobMap;
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let n = 50_000u64;
+    let iterations = 20;
+
+    // 1. Raw inline (4B integer bytes)
+    let mut map_raw = ExpanseBlobMap::new();
+    for k in 0..n {
+        let val = (k as u32).to_le_bytes();
+        map_raw.insert(k, &val, 0).unwrap();
+    }
+
+    // 2. Compressed inline (14B decimal timestamp string, hot_meta = 0)
+    let mut map_comp = ExpanseBlobMap::new();
+    for k in 0..n {
+        let val = format!("{:014}", 20260000000000u64 + (k % 9000000000000u64)).into_bytes();
+        map_comp.insert(k, &val, 0).unwrap();
+    }
+
+    // 3. Arena spilled (14B decimal timestamp string, hot_meta = 1)
+    let mut map_arena = ExpanseBlobMap::new();
+    for k in 0..n {
+        let val = format!("{:014}", 20260000000000u64 + (k % 9000000000000u64)).into_bytes();
+        map_arena.insert(k, &val, 1).unwrap();
+    }
+
+    // Warm-up
+    for k in 0..n {
+        black_box(map_raw.get(k));
+        black_box(map_comp.get(k));
+        black_box(map_arena.get(k));
+    }
+
+    // Measure Raw Inline
+    let start = Instant::now();
+    let mut sink_raw = 0usize;
+    for _ in 0..iterations {
+        for k in 0..n {
+            if let Some((view, _)) = map_raw.get(black_box(k)) {
+                sink_raw = sink_raw.wrapping_add(view.len());
+            }
+        }
+    }
+    let dur_raw = start.elapsed();
+    black_box(sink_raw);
+
+    // Measure Compressed Inline
+    let start = Instant::now();
+    let mut sink_comp = 0usize;
+    for _ in 0..iterations {
+        for k in 0..n {
+            if let Some((view, _)) = map_comp.get(black_box(k)) {
+                sink_comp = sink_comp.wrapping_add(view.len());
+            }
+        }
+    }
+    let dur_comp = start.elapsed();
+    black_box(sink_comp);
+
+    // Measure Arena Spilled
+    let start = Instant::now();
+    let mut sink_arena = 0usize;
+    for _ in 0..iterations {
+        for k in 0..n {
+            if let Some((view, _)) = map_arena.get(black_box(k)) {
+                sink_arena = sink_arena.wrapping_add(view.len());
+            }
+        }
+    }
+    let dur_arena = start.elapsed();
+    black_box(sink_arena);
+
+    let total_lookups = (n * iterations as u64) as f64;
+    let ns_per_lookup_raw = dur_raw.as_nanos() as f64 / total_lookups;
+    let ns_per_lookup_comp = dur_comp.as_nanos() as f64 / total_lookups;
+    let ns_per_lookup_arena = dur_arena.as_nanos() as f64 / total_lookups;
+
+    let mops_raw = (total_lookups / dur_raw.as_secs_f64()) / 1_000_000.0;
+    let mops_comp = (total_lookups / dur_comp.as_secs_f64()) / 1_000_000.0;
+    let mops_arena = (total_lookups / dur_arena.as_secs_f64()) / 1_000_000.0;
+
+    let dispatch_overhead_pct =
+        (ns_per_lookup_comp - ns_per_lookup_raw) / ns_per_lookup_raw * 100.0;
+
+    println!(
+        "| {:<28} | {:>12} | {:>14} | {:>14} |",
+        "Storage Flavor", "Throughput", "Latency (ns)", "vs Raw Overhead"
+    );
+    println!("|{:-<30}|{:-<14}|{:-<16}|{:-<18}|", "", "", "", "");
+    println!(
+        "| {:<28} | {:>8.2} Mop/s | {:>11.2} ns | {:>16} |",
+        "Raw Inline (4B)", mops_raw, ns_per_lookup_raw, "0.00% (baseline)"
+    );
+    println!(
+        "| {:<28} | {:>8.2} Mop/s | {:>11.2} ns | {:>13.2}% |",
+        "Compressed Inline (14B)", mops_comp, ns_per_lookup_comp, dispatch_overhead_pct
+    );
+    println!(
+        "| {:<28} | {:>8.2} Mop/s | {:>11.2} ns | {:>16} |",
+        "Arena Spilled (14B)", mops_arena, ns_per_lookup_arena, "—"
+    );
+
+    println!("\n=== Gate 2 Verdict ===");
+    assert!(
+        dispatch_overhead_pct <= 5.0,
+        "Compressed inline dispatch overhead ({:.2}%) must be <= 5.0% vs raw uncompressed inline",
+        dispatch_overhead_pct
+    );
+    println!(
+        "PASS: Compressed inline lookup throughput is {:.2} Mop/s ({:.2} ns/op), with only {:.2}% dispatch overhead vs raw inline (well within the <= 5.0% pre-registered ceiling).",
+        mops_comp, ns_per_lookup_comp, dispatch_overhead_pct
+    );
 }
