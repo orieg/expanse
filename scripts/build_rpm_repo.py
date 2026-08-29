@@ -304,6 +304,7 @@ repo_gpgcheck=0
 <body>
 """ + make_nav(version, "rpm", base="../") + """
 
+  <main>
   <div class="container">
     <h1>Expanse RPM Repository <span class="badge">v""" + version + """</span></h1>
     <p style="color: var(--text-muted);">Official YUM / DNF repository for <strong><a href="https://github.com/orieg/expanse">Expanse</a></strong> across Enterprise Linux: RHEL 8/9/10, CentOS Stream, Fedora, Rocky Linux, AlmaLinux, and Amazon Linux 2023.</p>
@@ -388,9 +389,18 @@ sudo dnf install -y libexpanse libexpanse-devel libjudy-compat</code></pre>
     </div>
 
     <footer>
+      <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.85rem;">
+        Judy &amp; Systems Ecosystem:
+        <a href="https://orieg.github.io/judy-cache/">Judy Cache PSR-16</a> &bull;
+        <a href="https://orieg.github.io/php-judy/">PHP Judy</a> &bull;
+        <a href="https://orieg.github.io/judy-polyfill/">Judy Polyfill</a> &bull;
+        <a href="https://orieg.github.io/expanse/">Expanse Engine</a> &bull;
+        <a href="https://orieg.github.io/">Nicolas Brousse (Hub)</a>
+      </p>
       <p>Maintained by <a href="https://nicolas.brousse.info/">Nicolas Brousse</a> &bull; <a href="https://github.com/orieg/expanse">GitHub</a> &bull; <a href="https://crates.io/crates/expanse-trie">Crates.io</a> &bull; <a href="../apt/">APT Repo</a></p>
     </footer>
   </div>
+  </main>
 
   """ + THEME_TOGGLE_JS + """
   """ + SITE_JS + """

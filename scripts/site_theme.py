@@ -45,6 +45,8 @@ _DARK_PALETTE = {
     "badge-bg": "#111827",
     "badge-border": "#1f293d",
     "badge-text": "#38bdf8",
+    "badge-near": "#facc15",
+    "badge-gap": "#f87171",
     "spotlight-bg": "linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)",
     "spotlight-border": "rgba(99, 102, 241, 0.4)",
     "tab-active-bg": "rgba(56, 189, 248, 0.05)",
@@ -77,6 +79,8 @@ _LIGHT_PALETTE = {
     "badge-bg": "#ffffff",
     "badge-border": "#e2e8f0",
     "badge-text": "#0284c7",
+    "badge-near": "#b45309",
+    "badge-gap": "#be123c",
     "spotlight-bg": "linear-gradient(135deg, #f0f9ff 0%, #e0e7ff 50%, #f0fdf4 100%)",
     "spotlight-border": "rgba(99, 102, 241, 0.3)",
     "tab-active-bg": "rgba(2, 132, 199, 0.08)",
@@ -418,14 +422,14 @@ def make_nav(version: str, active: str, base: str = "./") -> str:
       </a>
       {_TOGGLE_BUTTON.format(variant="mobile")}
     </div>
-    <div class="nav-scroll">
+    <nav class="nav-scroll" aria-label="Site">
       <ul class="nav-links">
 {items}
         <li><a href="https://github.com/orieg/expanse/blob/main/docs/ARCHITECTURE.md">Docs</a></li>
         <li><a href="https://github.com/orieg/expanse" class="nav-pill">GitHub &bull; {version}</a></li>
       </ul>
       {_TOGGLE_BUTTON.format(variant="desktop")}
-    </div>
+    </nav>
   </header>"""
 
 

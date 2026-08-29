@@ -610,7 +610,8 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
 <body>
 """ + nav_html + """
 
-  <div class="container">
+  <main>
+    <div class="container">
     <div class="hero">
       <div class="badge-bar">
         <span class="badge badge-green">Pure Rust &bull; no_std capable</span>
@@ -618,7 +619,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
         <span class="badge">64-Bit &amp; 32-Bit Embedded</span>
       </div>
       <h1>Expanse — memory-compact Judy arrays and 256-ary radix tries</h1>
-      <p>Clean-room pure-Rust implementation of digital trees modernized for modern 64-bit microarchitectures with zero-allocation immediates, SWAR/SIMD vectorization, and lock-free OCC reader concurrency.</p>
+      <p>Clean-room pure-Rust implementation of digital trees for 64-bit and 32-bit microarchitectures with zero-allocation immediates, SWAR/SIMD vectorization, and lock-free OCC reader concurrency.</p>
       <div class="hero-actions">
         <a href="#benchmarks" class="btn btn-primary" style="background: linear-gradient(135deg, #38bdf8, #2563eb); color: #ffffff;">&#9889; Performance Benchmarks &#8595;</a>
         <a href="./visualizer.html" class="btn btn-secondary">Architecture Visualizer &#8594;</a>
@@ -1078,10 +1079,19 @@ void app_main(void) {
       </div>
     </div>
   </section>
+  </main>
 
   <footer>
     <div class="container">
 """ + footer_meta + """
+      <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.85rem;">
+        Judy &amp; Systems Ecosystem:
+        <a href="https://orieg.github.io/judy-cache/">Judy Cache PSR-16</a> &bull;
+        <a href="https://orieg.github.io/php-judy/">PHP Judy</a> &bull;
+        <a href="https://orieg.github.io/judy-polyfill/">Judy Polyfill</a> &bull;
+        <a href="https://orieg.github.io/expanse/">Expanse Engine</a> &bull;
+        <a href="https://orieg.github.io/">Nicolas Brousse (Hub)</a>
+      </p>
       <p>
         <strong>Expanse</strong> is open source software released under dual MIT / Apache-2.0 licenses.<br>
         Maintained by <a href="https://nicolas.brousse.info/">Nicolas Brousse</a> &bull; <a href="https://github.com/orieg/expanse">GitHub</a> &bull; <a href="https://crates.io/crates/expanse-trie">Crates.io</a> &bull; <a href="./apt/">APT Repo</a> &bull; <a href="./rpm/">RPM Repo</a>

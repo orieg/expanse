@@ -83,6 +83,8 @@
       --comp-banner-bg: #1e1b4b;
       --comp-banner-border: #4338ca;
       --comp-banner-text: #c7d2fe;
+      --badge-near: #facc15;
+      --badge-gap: #f87171;
     }
 
     [data-theme="light"] {
@@ -118,6 +120,8 @@
       --comp-banner-bg: #e0e7ff;
       --comp-banner-border: #818cf8;
       --comp-banner-text: #312e81;
+      --badge-near: #b45309;
+      --badge-gap: #be123c;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -717,8 +721,10 @@
     .data-table th.center, .data-table td.center { text-align: center; }
     .win-text { color: var(--accent-green); font-weight: 600; }
     .badge-win { color: var(--accent-green); font-weight: 700; }
-    .badge-near { color: #facc15; font-weight: 700; }
-    .badge-gap { color: #f87171; font-weight: 600; }
+    .badge-near { color: var(--badge-near, #facc15); font-weight: 700; }
+    .badge-gap { color: var(--badge-gap, #f87171); font-weight: 600; }
+    .delta-win { color: var(--accent-green); font-weight: 600; }
+    .delta-reg { color: var(--badge-gap, #f87171); font-weight: 600; }
     .code-tag {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       padding: 2px 5px;
@@ -747,24 +753,39 @@
 
   <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
     <!-- Primary 3-Mode View Switcher -->
-    <div class="view-switcher">
-      <button class="view-btn active" id="btn-view-dag" onclick="switchView('dag')">
+    <div class="view-switcher" role="tablist" aria-label="Visualizer Views">
+      <button class="view-btn active" id="btn-view-dag" role="tab" aria-selected="true" aria-controls="view-dag" onclick="switchView('dag')">
         <span>⚡ Architecture & Dynamic DAG</span>
       </button>
-      <button class="view-btn" id="btn-view-modern" onclick="switchView('modern')">
+      <button class="view-btn" id="btn-view-modern" role="tab" aria-selected="false" aria-controls="view-modern" onclick="switchView('modern')">
         <span>🏗️ Modern Features & ValueSlots</span>
       </button>
-      <button class="view-btn" id="btn-view-bench" onclick="switchView('bench')">
+      <button class="view-btn" id="btn-view-bench" role="tab" aria-selected="false" aria-controls="view-bench" onclick="switchView('bench')">
         <span>📊 Benchmark Matrix & Census</span>
       </button>
     </div>
   </div>
 </header>
 
+<main>
+
 <!-- =================================================================== -->
 <!-- VIEW 1: ARCHITECTURE & DYNAMIC EXECUTION DAG                       -->
 <!-- =================================================================== -->
-<div class="view-content active" id="view-dag">
+<div class="view-content active" id="view-dag" role="tabpanel" aria-labelledby="btn-view-dag">
+  <!-- Two-Clocks Honesty Banner (D4) -->
+  <div class="card" style="margin-bottom:14px; border-left: 4px solid var(--accent); background: var(--card-bg); padding: 12px 16px;">
+    <div style="display:flex; align-items:flex-start; gap:10px;">
+      <span style="font-size:18px; line-height:1.2;">⚖️</span>
+      <div>
+        <strong style="color:var(--text-bright); font-size:13px;">Two-Clocks Measurement Model (Modeled vs. Measured)</strong>
+        <p style="color:var(--text-muted); font-size:12px; margin-top:2px; line-height:1.45;">
+          This interactive DAG simulates the <strong>structural execution pipeline</strong> (active trie depth, algorithm branch paths, and theoretical instruction ceilings) derived from <code class="code-tag">crates/expanse/src/mutate.rs</code>. Exact cycle and instruction measurements in the Benchmark tab are recorded independently via Valgrind/Callgrind harnesses (<code class="code-tag">crates/expanse/benches/instructions.rs</code>) on dedicated quiet hardware. Modeled estimates guide structural understanding; Callgrind counts are deterministic empirical truth.
+        </p>
+      </div>
+    </div>
+  </div>
+
   <div class="layout">
     <!-- Sidebar: Workload Controls & Realtime Estimation -->
     <aside>
@@ -878,7 +899,7 @@
     </aside>
 
     <!-- Main DAG & Pipeline -->
-    <main>
+    <div>
       <div class="card">
         <div id="comp-banner" class="comparison-banner">
           <div>
@@ -1058,15 +1079,15 @@
           </div>
         </div>
       </div>
-    </main>
+    </div>
   </div>
 </div>
 
 
 <!-- =================================================================== -->
-<!-- VIEW 3: MODERN ARCHITECTURE & POLYMORPHIC VALUE SLOTS               -->
+<!-- VIEW 2: MODERN ARCHITECTURE & POLYMORPHIC VALUE SLOTS               -->
 <!-- =================================================================== -->
-<div class="view-content" id="view-modern">
+<div class="view-content" id="view-modern" role="tabpanel" aria-labelledby="btn-view-modern">
   <div class="card">
     <div class="card-title">
       <span>🧬 Polymorphic 64-Bit Value Slots (<code>ValueSlot</code>)</span>
@@ -1115,17 +1136,18 @@
 </div>
 
 <!-- =================================================================== -->
-<!-- VIEW 2: BENCHMARK INTELLIGENCE & MEMORY CENSUS                      -->
+<!-- VIEW 3: BENCHMARK INTELLIGENCE & MEMORY CENSUS                      -->
 <!-- =================================================================== -->
-<div class="view-content" id="view-bench">
+<div class="view-content" id="view-bench" role="tabpanel" aria-labelledby="btn-view-bench">
   <!-- Headline C-ABI Drop-In Benchmark Matrix -->
   <div class="card">
     <div class="card-title">
       <span>🏛️ Drop-In C-Compat ABI Benchmark Matrix: libexpanse.so vs Stock libjudy (Legacy C)</span>
       <div style="display:flex; gap:8px;">
-        <select id="stock-filter-flavor" onchange="renderStockVsExpanseTable()" style="width:170px; padding:4px 8px; font-size:11px;">
+        <select id="stock-filter-flavor" onchange="renderStockVsExpanseTable()" style="width:180px; padding:4px 8px; font-size:11px;">
           <option value="all">All Operations (11)</option>
-          <option value="wins">🟢 Wins & Parity (≤ 1.25x)</option>
+          <option value="wins">🟢 Wins (Ratio &lt; 1.00x)</option>
+          <option value="gaps">🔴 Gaps & Parity Deficits</option>
           <option value="JudyL">JudyL (Map)</option>
           <option value="Judy1">Judy1 (Set)</option>
         </select>
@@ -1440,6 +1462,8 @@
     </div>
   </div>
 </div>
+
+</main>
 
 <script>
   /**
@@ -2093,11 +2117,11 @@
       subtitle: "Bitmap-indexed branch router for medium fanout densities.",
       size: "64B node (256-bit Bitmap256 + 8 subarray pointers) + child edges",
       layout: "Bitmap256, pop_counts[8], subarrays[8] (capacity class sized)",
-      cap: "8..180 child expanses",
+      cap: "8..192 child expanses",
       level: "Levels 2..=8",
       algo: "Hardware POPCNT rank indexing into 8 subexpanse child edge arrays.",
-      promo: "Upgrades to BranchU when fanout > 180 (BRANCHB_UP).",
-      demote: "Demotes to BranchL7 when fanout <= 6 (BRANCHB_DOWN hysteresis)."
+      promo: "Upgrades to BranchU when fanout > 192 (BITMAP_TO_UNCOMPRESSED_THRESHOLD / BRANCHB_UP).",
+      demote: "Demotes to BranchL7 when fanout <= 6 (BRANCHB_TO_L7_DOWN hysteresis: 7 up / 6 down)."
     },
     branch_u: {
       title: "Branch U (Uncompressed Branch)",
@@ -2105,11 +2129,11 @@
       subtitle: "Flat 256-entry array for high-density branch fanouts.",
       size: "2048 Bytes (256 x 16-byte Edges)",
       layout: "Flat continuous array of 256 child Edge descriptors",
-      cap: "181..256 child expanses",
+      cap: "193..256 child expanses",
       level: "Levels 2..=8",
       algo: "Direct array index `edges[digit]` (O(1)). Zero branch mispredicts.",
       promo: "Maximum fanout form for digital trie routing.",
-      demote: "Demotes to BranchB when fanout <= 160 (BRANCHU_DOWN hysteresis)."
+      demote: "Demotes to BranchB when fanout <= 191 (BRANCHU_TO_B_DOWN hysteresis: 192 up / 191 down)."
     },
     immed: {
       title: "Immediate Edge (Set/Map)",
@@ -2141,11 +2165,11 @@
       subtitle: "High-density 256-bit bitmask leaf with subexpanse value arrays.",
       size: "Set: 32B node; Map: 96B node + 8 value subarrays",
       layout: "Bitmap256 (4x u64 words) + 8 value subarray pointers",
-      cap: "26..256 keys",
+      cap: "22..256 keys",
       level: "Level 1 (Terminal byte 0x00..0xFF)",
       algo: "Hardware POPCNT rank indexing + BMI2 `_pext_u64` acceleration. 0.07–0.36 B/key dense storage.",
       promo: "Set promotes to FullExpanse at pop = 256.",
-      demote: "Demotes to LinearLeaf1 at pop = 25 (1-index hysteresis)."
+      demote: "Demotes to LinearLeaf1 at pop <= 21 (LEAFB1_DOWN: 25 up / 21 down, 4-index hysteresis band)."
     },
     full_expanse: {
       title: "Full Expanse (Set only)",
@@ -2580,7 +2604,10 @@
   };
 
   function switchView(viewName, updateHash = true) {
-    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.view-btn').forEach(b => {
+      b.classList.remove('active');
+      b.setAttribute('aria-selected', 'false');
+    });
     document.querySelectorAll('.view-content').forEach(c => c.classList.remove('active'));
 
     if (updateHash) {
@@ -2595,14 +2622,26 @@
     }
 
     if (viewName === 'dag') {
-      document.getElementById('btn-view-dag').classList.add('active');
+      const btn = document.getElementById('btn-view-dag');
+      if (btn) {
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+      }
       document.getElementById('view-dag').classList.add('active');
       drawHierarchyConnections();
     } else if (viewName === 'modern') {
-      document.getElementById('btn-view-modern').classList.add('active');
+      const btn = document.getElementById('btn-view-modern');
+      if (btn) {
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+      }
       document.getElementById('view-modern').classList.add('active');
     } else {
-      document.getElementById('btn-view-bench').classList.add('active');
+      const btn = document.getElementById('btn-view-bench');
+      if (btn) {
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+      }
       document.getElementById('view-bench').classList.add('active');
       renderStockVsExpanseTable();
       renderYcsbTable();
@@ -2824,7 +2863,10 @@
 
     const filtered = STOCK_VS_EXPANSE_DATA.filter(item => {
       if (filter === 'wins') {
-        return item.is_win || parseFloat(item.ratio_so) <= 1.25;
+        return item.is_win;
+      }
+      if (filter === 'gaps') {
+        return !item.is_win || parseFloat(item.ratio_so) >= 1.00;
       }
       if (filter === 'JudyL' || filter === 'Judy1') {
         return item.flavor === filter;
@@ -2835,6 +2877,10 @@
     tbody.innerHTML = filtered.map(item => {
       const ratioNum = parseFloat(item.ratio_so);
       const ratioClass = ratioNum < 1.00 ? 'badge-win' : (ratioNum <= 1.25 ? 'badge-near' : 'badge-gap');
+      const deltaClass = item.hw_delta && item.hw_delta.startsWith('-') ? 'delta-win' : 'delta-reg';
+      const v1Str = typeof item.expanse_so_v1 === 'number' ? item.expanse_so_v1.toLocaleString() : (item.expanse_so_v1 || '—');
+      const v3Str = typeof item.expanse_so_v3 === 'number' ? item.expanse_so_v3.toLocaleString() : (item.expanse_so_v3 || '—');
+      const stockStr = typeof item.stock_libjudy === 'number' ? item.stock_libjudy.toLocaleString() : (item.stock_libjudy || '—');
       return `
         <tr>
           <td class="center" style="font-size:14px;">${item.status}</td>
@@ -2842,11 +2888,11 @@
           <td><span class="code-tag">${item.flavor}</span></td>
           <td>${item.dist}</td>
           <td class="num">${item.pop}</td>
-          <td class="num">${item.expanse_so_v1.toLocaleString()}</td>
-          <td class="num" style="color:var(--accent); font-weight:600;">${item.expanse_so_v3.toLocaleString()}</td>
-          <td class="num" style="color:var(--text-muted);">${item.stock_libjudy.toLocaleString()}</td>
+          <td class="num">${v1Str}</td>
+          <td class="num" style="color:var(--accent); font-weight:600;">${v3Str}</td>
+          <td class="num" style="color:var(--text-muted);">${stockStr}</td>
           <td class="num ${ratioClass}"><strong>${item.ratio_so}</strong></td>
-          <td class="num win-text"><strong>${item.hw_delta}</strong></td>
+          <td class="num ${deltaClass}"><strong>${item.hw_delta}</strong></td>
         </tr>
       `;
     }).join('');
@@ -3135,7 +3181,7 @@
     let baselineInstr = 0;
     let mem = "8.6 B/k";
     let cache = "1 line (64B)";
-    let hwAcc = "-4.8% v3";
+    let hwAcc = "x86-64-v3 (AVX2/BMI2)";
 
     const is32Bit = arch === "rv32" || arch === "cortex_m" || arch === "esp32";
 
@@ -3216,13 +3262,13 @@
       else cache = "6-8 lines (L3 / DRAM)";
     }
 
-    // 5. Hardware acceleration delta
-    if (arch === "v3") hwAcc = "-12.11% (AVX2/BMI2)";
-    else if (arch === "neon") hwAcc = "-6.45% (AArch64 NEON)";
+    // 5. Hardware acceleration profile
+    if (arch === "v3") hwAcc = "x86-64-v3 (AVX2/BMI2)";
+    else if (arch === "neon") hwAcc = "AArch64 NEON";
     else if (arch === "rv32") hwAcc = "Bare-Metal RV32IMAC";
-    else if (arch === "cortex_m") hwAcc = "32B Cache (Cortex-M7)";
-    else if (arch === "esp32") hwAcc = "ESP32 SRAM (Edge32 8B)";
-    else hwAcc = "Baseline (x86-64-v1)";
+    else if (arch === "cortex_m") hwAcc = "Cortex-M7 (32B Line)";
+    else if (arch === "esp32") hwAcc = "ESP32 SRAM (Edge32)";
+    else hwAcc = "x86-64-v1 Baseline";
 
     // 6. Build execution pipeline trace steps
     // Step A: Root Tag extraction or OCC acquire
