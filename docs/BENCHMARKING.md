@@ -1145,7 +1145,9 @@ entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
 
 Expanse beats `BTreeSet` on every distribution (1.6×–9.2×); beats `HashSet` on sequential/clustered but is ~1.6×–2.3× slower on random/sparse cold builds.
 
-> ⚠️ **Harness methodology update (#454):** The historical `set_insert_build` figures above were measured on a harness that executed `Drop::drop` inside the timed closure across all three arms. Because deallocation work differs across allocator free patterns (not magnitude-symmetric), both absolute build durations and comparative ratios stand **provisionally, pending re-measurement** on the corrected `b.iter_batched` harness.
+> ✅ **Re-measured (#382).** The `set_insert_build` figures above were originally taken on a harness that executed `Drop::drop` inside the timed closure across all three arms. Because deallocation work differs by allocator free pattern, AGENTS.md §8.10 classed the ratios **provisional** rather than sound — structurally symmetric, but not magnitude-symmetric — and required re-measurement rather than assuming they held.
+>
+> They held. Re-run on the corrected `iter_batched` harness, all four ratios land within **±2.5%** of the published values: sequential 0.109 → 0.111, random 0.560 → 0.549, clustered 0.227 → 0.230, sparse 0.644 → 0.641 *(measured: 12th Gen Intel Core i9-12900F, 24 threads, 30 MiB L3, Linux 6.8.0; commit `9244de91`; [run 33219099007](https://github.com/orieg/expanse/actions/runs/33219099007)).* The absolute build durations are lower than the originals by the deallocation cost that is no longer timed.
 
 **`ExpanseSet` vs `RoaringBitmap` (`comparative.rs`, 100k)**:
 

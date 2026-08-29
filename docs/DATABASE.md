@@ -491,7 +491,9 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 
 > **Provenance.** The §7.2 YCSB throughput table and the §5.3 RocksDB figures are measured on the dedicated quiet host (Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d) and tagged inline. The §7.1 matrix below keeps **approximate latency ranges** for cross-engine orientation (not host-tagged point measurements); memory-overhead (B/key) columns are deterministic byte accounting. Where §7.1's qualitative ordering conflicts with a §7.2/§5.3 measurement, the measured section governs.
 >
-> ⚠️ **Harness methodology disclosure (#454):** Point lookup latency ranges in §7.1 derived from historical pre-#454 `compare.rs` runs are retained as approximate orienting figures and are marked pending re-measurement on the corrected harnesses.
+> ✅ **Re-measured (#382).** The YCSB throughput figures were originally taken on a harness whose `Read` path never dereferenced the payload, so every arm was billed for index traversal only. The omission was symmetric across `ExpanseBlobMap`, `BTreeMap` and `SkipMap`, so AGENTS.md §8.10 retained the **ratios** and retracted the **absolutes**.
+>
+> Both halves are now confirmed on the corrected harness: A 4.76×, B 4.80×, C 4.83×, D 5.07×, F 3.37× against `BTreeMap` (published range was ~5.0×), and 8.29×–11.38× against `SkipMap` (published ~8.1–11.1×). Workload E remains a loss at 0.69 vs 1.26 Melem/s. Absolute throughput is now 20–21 Mops/s rather than the previously published ~21–23, the difference being the payload cache-line fetch that is now paid *(measured: reference host, commit `9244de91`, [run 33219093994](https://github.com/orieg/expanse/actions/runs/33219093994)).*
 
 ### 7.1 Expanse vs Industry Primitives Matrix
 
