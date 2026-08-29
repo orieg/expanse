@@ -1079,7 +1079,7 @@
         <div style="font-size:11px; font-weight:700; color:var(--accent); text-transform:uppercase;">⚡ Inline Payload (0..7 Bytes)</div>
         <div style="font-family:ui-monospace, monospace; font-size:11px; color:#38bdf8; margin:4px 0;">[payload_byte_6..0 (56b) | tag (8b)]</div>
         <div style="font-size:11px; color:var(--text-muted);">
-          Small strings and byte payloads (UUIDs, status codes, short IDs) are stored <strong>directly inside the 64-bit leaf slot</strong> with 0 heap allocation. Measured 7-byte-payload lookup: <strong>5.68 ns vs 29.00 ns for <code>BTreeMap&lt;u64, Vec&lt;u8&gt;&gt;</code> (5.10×)</strong> — <a href="design/large-values.md" style="color:var(--accent);">docs/design/large-values.md</a> §10.3.
+          Small strings and byte payloads (UUIDs, status codes, short IDs) are stored <strong>directly inside the 64-bit leaf slot</strong> with 0 heap allocation. Measured 7-byte-payload lookup: <strong>5.68 ns vs 29.00 ns for <code>BTreeMap&lt;u64, Vec&lt;u8&gt;&gt;</code> (5.10×)</strong> — <a href="https://github.com/orieg/expanse/blob/main/docs/design/large-values.md" style="color:var(--accent);">docs/design/large-values.md</a> §10.3.
         </div>
       </div>
       <div style="background:var(--card-inner); border:1px solid var(--border); border-radius:8px; padding:12px;">
@@ -1132,10 +1132,10 @@
       </div>
     </div>
     <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
-      Source: <code class="code-tag">crates/expanse-capi/benches/vs_stock.rs</code> (<a href="BENCHMARKING.md" style="color:var(--accent); text-decoration:none;">docs/BENCHMARKING.md</a>). Drop-in ABI comparison under Valgrind/Callgrind on identical key streams. <span class="badge-win">Ratio = ours ÷ stock (Ratio &lt; 1.00x means libexpanse retires fewer instructions).</span>
+      Source: <code class="code-tag">crates/expanse-capi/benches/vs_stock.rs</code> (<a href="https://github.com/orieg/expanse/blob/main/docs/BENCHMARKING.md" style="color:var(--accent); text-decoration:none;">docs/BENCHMARKING.md</a>). Drop-in ABI comparison under Valgrind/Callgrind on identical key streams. <span class="badge-win">Ratio = ours ÷ stock (Ratio &lt; 1.00x means libexpanse retires fewer instructions).</span>
     </div>
     <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
-      <strong>These are instructions retired, not wall clock.</strong> Fewer instructions does not imply a lower latency: on the quiet reference host libexpanse measures <strong>1.031× slower</strong> (BCa 95% CI [1.024, 1.038]) on random 1M lookup while winning sequential/clustered insert and lookup. An earlier <strong>~11% (1.11×)</strong> figure published here predates the harness repair and is <strong>superseded</strong>, not adjusted. The wall-clock figures once published in this table (&ldquo;45% faster than Stock Judy&rdquo;, 26.8 ns vs 48.6 ns on <code>judyl_get/random_big</code>) were never measured &mdash; they are these instruction counts rescaled by a single constant (~5.52 instr/ns fits both arms to 0.26%) &mdash; and are <strong>retracted</strong>. Instruction ratios are not timings: 0.55&times; instructions and a 1.031&times; wall-clock loss are simultaneously true. Why random costs more than sequential is <strong>unmeasured</strong>; a counter run on this arm records 0.042 LLC misses per probe against 2.74 branch mispredicts per probe, so the DRAM-latency-bound reading once given here is <strong>refuted</strong> — the open mechanism is tracked in <a href="https://github.com/orieg/expanse/issues/480" style="color:var(--accent);">#480</a>. See <a href="BENCHMARKING.md" style="color:var(--accent);">docs/BENCHMARKING.md</a>.
+      <strong>These are instructions retired, not wall clock.</strong> Fewer instructions does not imply a lower latency: on the quiet reference host libexpanse measures <strong>1.031× slower</strong> (BCa 95% CI [1.024, 1.038]) on random 1M lookup while winning sequential/clustered insert and lookup. An earlier <strong>~11% (1.11×)</strong> figure published here predates the harness repair and is <strong>superseded</strong>, not adjusted. The wall-clock figures once published in this table (&ldquo;45% faster than Stock Judy&rdquo;, 26.8 ns vs 48.6 ns on <code>judyl_get/random_big</code>) were never measured &mdash; they are these instruction counts rescaled by a single constant (~5.52 instr/ns fits both arms to 0.26%) &mdash; and are <strong>retracted</strong>. Instruction ratios are not timings: 0.55&times; instructions and a 1.031&times; wall-clock loss are simultaneously true. Why random costs more than sequential is <strong>unmeasured</strong>; a counter run on this arm records 0.042 LLC misses per probe against 2.74 branch mispredicts per probe, so the DRAM-latency-bound reading once given here is <strong>refuted</strong> — the open mechanism is tracked in <a href="https://github.com/orieg/expanse/issues/480" style="color:var(--accent);">#480</a>. See <a href="https://github.com/orieg/expanse/blob/main/docs/BENCHMARKING.md" style="color:var(--accent);">docs/BENCHMARKING.md</a>.
     </div>
 
     <div class="data-table-wrapper">
@@ -1313,7 +1313,7 @@
       <span class="badge-pill green">Deterministic allocator accounting</span>
     </div>
     <div style="font-size:12px; color:var(--text-muted); margin-bottom:8px;">
-      Source: <code class="code-tag">crates/expanse/examples/bytes_per_key_32.rs</code> (<a href="design/32-bit-embedded.md" style="color:var(--accent); text-decoration:none;">docs/design/32-bit-embedded.md</a>). Every cell is <code class="code-tag">mem_used() / N</code> on the real 32-bit trie — deterministic and machine-independent, and recomputed from the engine by <code class="code-tag">tests/test_visualizer_sync.rs</code>. <span class="badge-near">No comparative baseline is published: none is measured.</span>
+      Source: <code class="code-tag">crates/expanse/examples/bytes_per_key_32.rs</code> (<a href="https://github.com/orieg/expanse/blob/main/docs/design/32-bit-embedded.md" style="color:var(--accent); text-decoration:none;">docs/design/32-bit-embedded.md</a>). Every cell is <code class="code-tag">mem_used() / N</code> on the real 32-bit trie — deterministic and machine-independent, and recomputed from the engine by <code class="code-tag">tests/test_visualizer_sync.rs</code>. <span class="badge-near">No comparative baseline is published: none is measured.</span>
     </div>
     <div class="data-table-wrapper">
       <table class="data-table">
@@ -1389,7 +1389,7 @@
     </div>
   </div>
   <div style="font-size:11px; color:var(--text-muted); margin-top:12px;">
-    ISA guarantees for these kernels (SSE2/NEON/POPCNT/Zbb), the 64-byte cache-line and 57-bit VA assumptions, and missed-opportunity analysis are cited against primary-source manuals in <a href="HARDWARE.md" style="color:var(--accent); text-decoration:none;">docs/HARDWARE.md</a>.
+    ISA guarantees for these kernels (SSE2/NEON/POPCNT/Zbb), the 64-byte cache-line and 57-bit VA assumptions, and missed-opportunity analysis are cited against primary-source manuals in <a href="https://github.com/orieg/expanse/blob/main/docs/HARDWARE.md" style="color:var(--accent); text-decoration:none;">docs/HARDWARE.md</a>.
   </div>
 </div>
 
