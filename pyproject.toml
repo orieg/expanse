@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "expanse-trie"
 version = "0.5.0"
-description = "High-performance Judy array and digital trie engine for Python (clean-room Rust implementation)"
+description = "Judy array and digital trie engine for Python (clean-room Rust implementation)"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
 authors = [{ name = "Nicolas Brousse", email = "nicolas@brousse.info" }]
