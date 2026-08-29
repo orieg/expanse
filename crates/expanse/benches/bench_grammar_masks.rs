@@ -9,6 +9,22 @@
 //! 1. Live heap memory footprint across 2,000 DFA states (sparse 0.015%, medium 1.0%, dense 10.0%).
 //! 2. Full-vocab mask apply latency.
 //! 3. Top-k candidate intersection latency (k in [50, 100, 500]).
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `domain_grammar_masks` |
+//! | `group` | 4 |
+//! | `population` | 32k vocab |
+//! | `probes_and_reuse` | 32k, looped |
+//! | `hit_rate` | 100% |
+//! | `miss_gen_method` | None |
+//! | `value_dereference` | `black_box(matches)` |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Symmetric (Roaring vs Expanse) |
+//! | `statistics` | Raw ns (no CI) |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Domain-specific LLM mask benchmark. |
 #![allow(missing_docs)]
 
 use expanse_trie::ExpanseSet;

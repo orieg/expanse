@@ -37,6 +37,22 @@
 //! ```text
 //! cargo bench -p expanse-trie --bench batch_lookup
 //! ```
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `core_batch_lookup` |
+//! | `group` | 2 |
+//! | `population` | 100k, 4M |
+//! | `probes_and_reuse` | 4M (CHUNK 1024 rolling) |
+//! | `hit_rate` | 50% |
+//! | `miss_gen_method` | **DEGENERATE XOR**: `k ^ (1<<63) ^ 0xA5` alternating `i % 2` (L72) |
+//! | `value_dereference` | `black_box(&out[..CHUNK])` |
+//! | `measured_region` | Clean rolling offset |
+//! | `arm_symmetry` | Symmetric (scalar vs batch lanes) |
+//! | `statistics` | Criterion estimate |
+//! | `verdict` | ✅ **RESOLVED in #470 — was DEFECT (Class 3)** `[verified: CODE READ]`: Fixed high-bit XOR alternating pattern corrupts batched descent depth (though #467 confirmed not the root of the 40% jump). |
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use expanse_trie::map::ExpanseMap;

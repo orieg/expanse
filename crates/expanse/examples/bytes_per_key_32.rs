@@ -12,6 +12,22 @@
 //! apply to them. They are published in `docs/visualizer_data.json` and
 //! recomputed from the engine by `tests/test_visualizer_sync.rs`, so the
 //! published figure cannot drift from the code.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `example_bytes_per_key_32` |
+//! | `group` | 5 |
+//! | `population` | 10k |
+//! | `probes_and_reuse` | N/A (Memory) |
+//! | `hit_rate` | N/A |
+//! | `miss_gen_method` | N/A |
+//! | `value_dereference` | `mem_used()` accounting |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Pure 32-bit census |
+//! | `statistics` | Exact byte count |
+//! | `verdict` | **PASS** `[verified: RUN (6c63826a)]`: Deterministic 32-bit memory census. |
 
 use expanse_trie::{ExpanseBlobMap32, ExpanseMap32, ExpanseSet32, Key32};
 

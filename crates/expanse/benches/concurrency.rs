@@ -9,6 +9,22 @@
 //! string and `DashMap` arms — same keys, same distribution — so the
 //! unordered hash-keyed wrapper is directly comparable to `DashMap` and to
 //! the ordered cascade it sidesteps.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `core_concurrency` |
+//! | `group` | 2 |
+//! | `population` | 1M (keyspace 2M) |
+//! | `probes_and_reuse` | Continuous stream in 500ms window |
+//! | `hit_rate` | ~50% |
+//! | `miss_gen_method` | Bounded keyspace random stream |
+//! | `value_dereference` | `black_box(sink)` |
+//! | `measured_region` | Clean (`run_window`) |
+//! | `arm_symmetry` | Symmetric across concurrency primitives |
+//! | `statistics` | Throughput ops/sec |
+//! | `verdict` | **PASS** `[verified: RUN (reference host, run 33030152085)]`: Corrected in #375 to bounded keyspace. |
 
 use crossbeam_skiplist::SkipMap;
 use dashmap::DashMap;

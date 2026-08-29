@@ -12,6 +12,22 @@
 //! Requires valgrind, which does not support arm64 macOS — these run on Linux
 //! (the `instruction-counts` CI job). Locally on Linux:
 //! `cargo bench -p expanse-trie --bench search_instructions`.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `domain_search_instructions` |
+//! | `group` | 4 |
+//! | `population` | 1k, 10k, 100k |
+//! | `probes_and_reuse` | Postings pairs |
+//! | `hit_rate` | Intersection |
+//! | `miss_gen_method` | N/A |
+//! | `value_dereference` | `black_box(count)` |
+//! | `measured_region` | Clean (setup in setup) |
+//! | `arm_symmetry` | Symmetric |
+//! | `statistics` | iai Callgrind exact counts |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Deterministic boolean instructions. |
 #![allow(missing_docs)]
 
 use expanse_trie::set::ExpanseSet;

@@ -4,6 +4,22 @@
 //! timing involved, so it is immune to machine load.
 //!
 //! Run: `cargo run --release -p expanse-trie --example bytes_per_key`
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `example_bytes_per_key` |
+//! | `group` | 5 |
+//! | `population` | 10k to 1M |
+//! | `probes_and_reuse` | N/A (Memory) |
+//! | `hit_rate` | N/A |
+//! | `miss_gen_method` | N/A |
+//! | `value_dereference` | `mem_used()` accounting |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Pure 64-bit census |
+//! | `statistics` | Exact byte count |
+//! | `verdict` | **PASS** `[verified: RUN (6c63826a)]`: Deterministic memory density census. |
 
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;

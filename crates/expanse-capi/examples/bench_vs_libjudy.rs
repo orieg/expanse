@@ -20,16 +20,19 @@
 //!
 //! [#453]: https://github.com/orieg/expanse/issues/453
 //!
-//! | property | value |
+//! | Property | Value |
 //! |---|---|
-//! | populations | 100,000 and 1,000,000 keys, three distributions |
-//! | value written per key | `!key`, one `Word` in the JudyL value slot |
-//! | distinct probe keys | `2 × population` — every populated key once, plus an equal number of distinct absent keys |
-//! | probe reuse factor | **1.0** — each probe key is looked up exactly once per timed pass |
-//! | hit rate | **50%** (AGENTS.md §8.6) |
-//! | probe order | Fisher-Yates shuffled, so hits and misses interleave and the order differs from insert order |
-//! | dereferenced | **yes** — the returned slot is read and the *value* is accumulated; a null (miss) return is skipped |
-//! | timed region | the insert loop and the probe loop only; key generation, miss generation, shuffling, `MemUsed` and `JudyLFreeArray` are all outside it |
+//! | `workload_id` | `capi_bench_vs_libjudy` |
+//! | `group` | 1 |
+//! | `population` | 100k, 1M |
+//! | `probes_and_reuse` | $2 \times N$ distinct, reuse 1.0 |
+//! | `hit_rate` | 50% |
+//! | `miss_gen_method` | Independent PRNG + membership rejection |
+//! | `value_dereference` | `*(pval as *mut Word)` read |
+//! | `measured_region` | Clean (timing outside setup/drop) |
+//! | `arm_symmetry` | Symmetric (`dlopen` vs `dlopen`) |
+//! | `statistics` | Paired ratio + BCa bootstrap 95% CI |
+//! | `verdict` | **PASS** `[verified: RUN (reference host, results/baseline_vs_libjudy.json)]`: Gold standard reference after #457. |
 //!
 //! The probe set is sized from the population on purpose. It used to be
 //! 4,096 keys sampled *with replacement* and walked eight times: ~4,096

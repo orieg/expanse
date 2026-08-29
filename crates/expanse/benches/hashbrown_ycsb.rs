@@ -8,6 +8,22 @@
 //! - Workload D (95% Read, 5% Insert Latest)
 //! - Workload E (95% Short Range Scan, 5% Insert) -> Disqualifies hashbrown
 //! - Workload F (50% Read, 50% Read-Modify-Write)
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `hashbrown_ycsb` |
+//! | `group` | 3 |
+//! | `population` | 100k |
+//! | `probes_and_reuse` | 100k ops |
+//! | `hit_rate` | Zipfian |
+//! | `miss_gen_method` | Zipfian draw from dataset |
+//! | `value_dereference` | `black_box` on op results |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Symmetric |
+//! | `statistics` | Throughput Mops/s |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Consistent with main YCSB suite. |
 
 use expanse_trie::map::ExpanseMap;
 use hashbrown::HashMap;

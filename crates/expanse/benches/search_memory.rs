@@ -18,6 +18,22 @@
 //! containers. On dense/clustered data CRoaring's run containers would compress
 //! further; this suite does not claim a win over CRoaring, only over the
 //! pure-Rust `roaring` crate that ships as a dependency here. See METHODOLOGY.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `domain_search_memory` |
+//! | `group` | 4 |
+//! | `population` | Synthetic postings |
+//! | `probes_and_reuse` | N/A (Memory) |
+//! | `hit_rate` | N/A |
+//! | `miss_gen_method` | N/A |
+//! | `value_dereference` | Live bytes tracked |
+//! | `measured_region` | Clean `GlobalAlloc` hook |
+//! | `arm_symmetry` | Symmetric |
+//! | `statistics` | Exact byte count |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Memory census. |
 #![allow(missing_docs)]
 
 use expanse_trie::set::ExpanseSet;

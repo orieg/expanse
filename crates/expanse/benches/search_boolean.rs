@@ -25,6 +25,22 @@
 //! pays more edge decodes per op. The cells where the structural walk is
 //! plausibly competitive are the **skewed-size AND** (a tiny list probed into a
 //! huge one) and the **skewed-dense / Zipfian** shapes.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `domain_search_boolean` |
+//! | `group` | 4 |
+//! | `population` | Synthetic postings |
+//! | `probes_and_reuse` | Postings sets |
+//! | `hit_rate` | Intersection |
+//! | `miss_gen_method` | N/A |
+//! | `value_dereference` | `black_box(result)` |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Symmetric (Roaring vs Expanse) |
+//! | `statistics` | Raw ms (no CI) |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Boolean index evaluation. |
 #![allow(missing_docs)]
 
 use serde_json::json;

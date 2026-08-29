@@ -18,6 +18,22 @@
 //! # Distribution Parameters
 //! - Key count: $N = 100,000$
 //! - Zipfian skew parameter: $\theta = 0.99$
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `workload_ycsb` |
+//! | `group` | 4 |
+//! | `population` | 100k |
+//! | `probes_and_reuse` | 100k ops |
+//! | `hit_rate` | Zipfian |
+//! | `miss_gen_method` | Zipfian draw from dataset |
+//! | `value_dereference` | `black_box(res)` does **NOT** deref payload buffer in `BlobMap`/`BTree` (L479, L540) |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Symmetric predicates (50% key-parity) |
+//! | `statistics` | Criterion / LatencyStats |
+//! | `verdict` | ✅ **RESOLVED in #470 — was DEFECT (Class 6)** `[verified: CODE READ]`: `Read` op on `ExpanseBlobMap` and `BTreeMap` omits payload cache-line fetch. (See Policy Decision below regarding ratio soundness vs absolute numbers). |
 
 use crossbeam_skiplist::SkipMap;
 use expanse_trie::blobmap::ExpanseBlobMap;

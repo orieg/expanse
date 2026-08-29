@@ -16,6 +16,22 @@
 //!   via Expanse `by_count` vs skip-list span descent.
 //!
 //! Measured region: only the query loop. Query streams built in setup (rule 0).
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `domain_zset_rank` |
+//! | `group` | 4 |
+//! | `population` | 10k, 100k |
+//! | `probes_and_reuse` | Rank queries |
+//! | `hit_rate` | Rank queries |
+//! | `miss_gen_method` | Bounded score window |
+//! | `value_dereference` | `black_box(acc)` |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Symmetric |
+//! | `statistics` | Median reduction |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Rank query benchmark. |
 
 #[path = "zset_common/mod.rs"]
 mod zset_common;

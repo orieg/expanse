@@ -19,6 +19,22 @@
 //!
 //! Measured region: only the query loop. Set construction and query streams
 //! are built in setup (rule 0).
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `domain_zset_range` |
+//! | `group` | 4 |
+//! | `population` | 10k, 100k |
+//! | `probes_and_reuse` | Range windows |
+//! | `hit_rate` | Range scan |
+//! | `miss_gen_method` | Bounded score window |
+//! | `value_dereference` | `black_box((m, sc))` |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Symmetric |
+//! | `statistics` | Median reduction |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Range scan benchmark. |
 
 #[path = "zset_common/mod.rs"]
 mod zset_common;

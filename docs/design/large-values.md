@@ -813,7 +813,7 @@ Phase-1 re-lookup inefficiency, next paragraph), not because its metadata read
 got cheaper. The crossover sits near σ ≈ 0.05–0.2.
 
 **Anomaly investigated — Phase-1 is 1.8× slower than the naive payload-fetch arm
-at σ=1.0 (9.57 ms vs 5.40 ms), and slower than the sidecar at σ≥0.20. Root cause:
+at σ=1.0 (9.57 ms vs 5.40 ms; workload: `workload_large_values`), and slower than the sidecar at σ≥0.20. Root cause:
 a redundant trie re-descent in the shipped `scan_filtered`, NOT a harness
 artifact.** The loop `for (key, raw_slot) in self.index.range(range)` already
 holds `raw_slot` (the locator), but on **every match** it calls `self.get(key)`,
@@ -897,7 +897,7 @@ Sidecar compaction rewrites the dense `offsets[]` and skips the per-record
 random-access trie value-slot rewrite Phase-1 performs — a measured ~1.4× win.
 
 **Write path — `sidecar_write_path` (H6): CONFIRMED, ≈ parity.** 50 k inserts:
-Phase-1 1.518 ms vs sidecar 1.582 ms (**sidecar 1.04× slower** — the extra dense
+Phase-1 1.518 ms vs sidecar 1.582 ms (**sidecar 1.04× slower**; workload: `workload_large_values` — the extra dense
 `Vec` pushes; negligible).
 
 **Inverted index — `inverted_index` (H7): CONFIRMED.** 262 k corpus:
@@ -1338,8 +1338,8 @@ Per Expanse development rules, development proceeds in strict sequential phases 
 
 ### 10.3 Measured status *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/large_values.rs`, criterion medians)*
 
-- **`inline_vs_heap_small_blobs`** — `ExpanseBlobMap` (inline value slots) vs `BTreeMap<u64, Vec<u8>>` (heap), 7-byte payload: **insert 199.5 µs vs 587.1 µs (2.9× faster)**, **get 56.8 µs vs 290.0 µs (5.1× faster)** (0-byte payload: 2.3× / 5.1×). Insert is just under the RFC's `>3×` target; get comfortably clears it. Zero-heap-allocation for ≤7-byte payloads is a structural property (inline slots), separately asserted by unit tests.
-- **`predicate_scan_selectivity_sweep`** (original, mismatched baseline) — target `>10× at σ≤0.05` is **not demonstrated by this bench**; the `columnar_filtered_scan` (`scan_filtered`) arm is **~2× slower** than the `naive_unfiltered_deref` arm at every selectivity (e.g. σ=0.001: 741 µs vs 367 µs). The baseline is the problem: it uses a raw `get()` loop (different, cheaper traversal than `scan_filtered`) and reads only the payload *length* on a match, so it never touches payload bytes — both arms avoid cold-payload loads and the pushdown has nothing to win, while the traversal-cost mismatch makes the columnar arm look slower.
+- **`inline_vs_heap_small_blobs`** — `ExpanseBlobMap` (inline value slots) vs `BTreeMap<u64, Vec<u8>>` (heap), 7-byte payload (workload: `workload_large_values`): **insert 199.5 µs vs 587.1 µs (2.9× faster)**, **get 56.8 µs vs 290.0 µs (5.1× faster)** (0-byte payload: 2.3× / 5.1×). Insert is just under the RFC's `>3×` target; get comfortably clears it. Zero-heap-allocation for ≤7-byte payloads is a structural property (inline slots), separately asserted by unit tests.
+- **`predicate_scan_selectivity_sweep`** (original, mismatched baseline) — target `>10× at σ≤0.05` is **not demonstrated by this bench**; the `columnar_filtered_scan` (`scan_filtered`) arm is **~2× slower** than the `naive_unfiltered_deref` arm at every selectivity (e.g. σ=0.001: 741 µs vs 367 µs; workload: `workload_large_values`). The baseline is the problem: it uses a raw `get()` loop (different, cheaper traversal than `scan_filtered`) and reads only the payload *length* on a match, so it never touches payload bytes — both arms avoid cold-payload loads and the pushdown has nothing to win, while the traversal-cost mismatch makes the columnar arm look slower.
 
 - **`predicate_scan_cold_dram_sweep`** (falsifiable variant, corrected baseline) — *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, commit `43b46f38`; criterion medians)*. Both arms share the identical `scan_filtered` traversal (so the trie-walk cost cancels) and the naive arm touches **every** payload byte while the columnar arm touches only matches. With that fix the pushdown **is** faster, not slower — **but it does not reach `>10×`, and cannot on the current engine:**
 
@@ -1390,7 +1390,7 @@ Per Expanse development rules, development proceeds in strict sequential phases 
   | 0.20  | 964.2 µs | 4.040 ms | 4.19× | 5.4× |
   | 1.0   | 4.068 ms | 4.199 ms | 1.03× | 1.0× |
 
-  **Status against the pre-registered `>10× at σ≤0.05` target: NOT met at σ=0.05.** The honest columnar-vs-naive speedup is lower than the pre-#355 row reported, because that row's denominator double-counted the descent the fix removes from *both* arms. The target is cleared at **σ=0.001 (10.7×)** but at **σ=0.05 the honest advantage is 6.37×**, not 10.3× — the pushdown genuinely skips ~95% of cold payloads there, but against an honest touch-all baseline that is ~6.4×; the extra headroom in the old number was shared re-descent overhead inflating the denominator. The exact ≥10× crossover lies **between σ=0.001 and σ=0.05 and was not pinned by this sweep** (the cold-DRAM bench samples σ ∈ {0.001, 0.05, 0.20, 1.0}), so "met at σ≤0.01" is inferred, not measured. Absolute columnar scan time also improved once matches no longer re-descend (σ=1.0: **8.86 ms → 4.07 ms**; at σ=1.0 the columnar arm now equals the naive touch-all floor within noise, 4.068 vs 4.199 ms). No get/insert path was touched (CI Callgrind zero-regression clean); the `naive_unfiltered_deref` `get()`-loop arm of `predicate_scan_selectivity_sweep` is unchanged A vs B (1.00×), confirming the change is localized to `scan_filtered`. See §5.6.5 / #355.
+  **Status against the pre-registered `>10× at σ≤0.05` target: NOT met at σ=0.05.** The honest columnar-vs-naive speedup is lower than the pre-#355 row reported, because that row's denominator double-counted the descent the fix removes from *both* arms. The target is cleared at **σ=0.001 (10.7×)** but at **σ=0.05 the honest advantage is 6.37×**, not 10.3× — the pushdown genuinely skips ~95% of cold payloads there, but against an honest touch-all baseline that is ~6.4×; the extra headroom in the old number was shared re-descent overhead inflating the denominator. The exact ≥10× crossover lies **between σ=0.001 and σ=0.05 and was not pinned by this sweep** (the cold-DRAM bench samples σ ∈ {0.001, 0.05, 0.20, 1.0}), so "met at σ≤0.01" is inferred, not measured. Absolute columnar scan time also improved once matches no longer re-descend (σ=1.0: **8.86 ms → 4.07 ms**; at σ=1.0 the columnar arm now equals the naive touch-all floor within noise, 4.068 vs 4.199 ms; workload: `workload_large_values`). No get/insert path was touched (CI Callgrind zero-regression clean); the `naive_unfiltered_deref` `get()`-loop arm of `predicate_scan_selectivity_sweep` is unchanged A vs B (1.00×), confirming the change is localized to `scan_filtered`. See §5.6.5 / #355.
 
   > ⚠️ **Harness methodology update (#454):** The historical `bench_inline_vs_heap_small_blobs` and `bench_predicate_scan_selectivity_sweep` benchmarks were updated in #454 to dereference payload bytes (`view[0]` / `vec[0]`) and isolate container teardown (`b.iter_batched`), ensuring realistic DRAM cache-line fills and clean timed regions. The primary cold-DRAM gate above (`bench_predicate_scan_cold_dram_large`) already dereferenced payload bytes per #355.
 - **`arena_compaction_churn`** — compaction over 20k entries: ~475 µs after a 50%-delete churn, ~200 µs after 80%-delete (informational; no target).

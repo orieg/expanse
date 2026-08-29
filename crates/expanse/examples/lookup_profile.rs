@@ -13,6 +13,22 @@
 //! the loop ran, and to spot order-of-magnitude changes while iterating.
 //!
 //! Run: `cargo run --release -p expanse-trie --example lookup_profile [dist] [seconds]`
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `example_lookup_profile` |
+//! | `group` | 5 |
+//! | `population` | 1M |
+//! | `probes_and_reuse` | 1M (shuffled), reuse 1.0 |
+//! | `hit_rate` | 100% |
+//! | `miss_gen_method` | None |
+//! | `value_dereference` | Accumulates checksum |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Internal attribution only |
+//! | `statistics` | Diagnostic checksum |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Sampling profiler attribution harness. |
 
 use expanse_trie::map::ExpanseMap;
 use std::time::{Duration, Instant};

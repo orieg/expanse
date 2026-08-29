@@ -3,6 +3,22 @@
 //! Measures per-operation latency percentiles during dynamic un-preallocated table growth:
 //! - P50, P75, P90, P95, P99, P99.9, P99.99, Max
 //! - Captures the SwissTable table-doubling rehash cliff vs Expanse local subexpanse growth.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `hashbrown_tail_latency` |
+//! | `group` | 3 |
+//! | `population` | 100k |
+//! | `probes_and_reuse` | 100k inserts |
+//! | `hit_rate` | N/A |
+//! | `miss_gen_method` | N/A |
+//! | `value_dereference` | Records clamped latency |
+//! | `measured_region` | `Instant::now()` per op (calibrated overhead) |
+//! | `arm_symmetry` | Symmetric |
+//! | `statistics` | HdrHistogram percentiles |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Documented per-op calibration overhead. |
 
 use expanse_trie::map::ExpanseMap;
 use hashbrown::HashMap;

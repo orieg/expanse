@@ -7,6 +7,22 @@
 //! - iter_all (full container iteration)
 //!
 //! Supports standalone execution with `--json` for automated script collection.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `hashbrown_native_suite` |
+//! | `group` | 3 |
+//! | `population` | 10k, 100k, 500k |
+//! | `probes_and_reuse` | Sub-slice `iters < pop` sequential index |
+//! | `hit_rate` | 100% hit / 100% miss arms |
+//! | `miss_gen_method` | Separate PRNG seed (no membership check) |
+//! | `value_dereference` | `black_box(get)` |
+//! | `measured_region` | **LEAKY DROP**: `insert_growing` drops `m` inside `bench_op` (L218, L231, L244) |
+//! | `arm_symmetry` | Symmetric |
+//! | `statistics` | Raw ns/op (no CI) |
+//! | `verdict` | ✅ **RESOLVED in #470 — was DEFECT (Class 2, 4, 7)** `[verified: CODE READ]`: Sequential sub-slice walk; Drop inside timed insert loop; no CI. |
 
 use expanse_trie::map::ExpanseMap;
 use hashbrown::HashMap;
