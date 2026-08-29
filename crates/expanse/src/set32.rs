@@ -907,6 +907,60 @@ mod tests {
         );
     }
 
+    /// A workload toggling one digit across the `BranchL6_32` -> `BranchU32`
+    /// boundary must not rebuild the node on every operation.
+    ///
+    /// Before #484 every 32-bit branch rung promoted at N and demoted at
+    /// N-1, so removing the 7th distinct branch digit immediately collapsed
+    /// a 2080-byte `BranchU32` back to a 64-byte `BranchL6_32`, and the next
+    /// insert rebuilt it — a 32x allocation each way, per operation, on the
+    /// RV32 / Cortex-M targets this port serves.
+    ///
+    /// The key shape matters and is not obvious: spreading distinct *top*
+    /// bytes produces a wide root that overflows straight from a leaf to
+    /// `BranchU32` and never visits the L2 or L6 rungs at all. Reaching them
+    /// needs a deep split — many keys sharing a prefix, diverging at one
+    /// byte with low cardinality. Here every key shares byte 3 and the
+    /// branch digit is byte 2.
+    #[test]
+    fn branch_boundary_toggle_keeps_node_form() {
+        let key = |b2: u32, low: u32| 0x0100_0000 | (b2 << 16) | low;
+        let mut s = ExpanseSet32::new();
+        // Six distinct branch digits, 5 keys each: a populated BranchL6_32.
+        for b2 in 1..=6u32 {
+            for low in 0..5u32 {
+                s.insert(key(b2, low));
+            }
+        }
+        let at_six = s.mem_used();
+
+        // The 7th digit exceeds L6's capacity and promotes to BranchU32.
+        s.insert(key(7, 0));
+        let at_seven = s.mem_used();
+        assert!(
+            at_seven > at_six + 1024,
+            "expected promotion to BranchU32 (2080 B); {at_six} -> {at_seven}"
+        );
+
+        // Removing it leaves 6 digits. With a band the node keeps its form;
+        // without one it demotes at L6's exact capacity and the next insert
+        // rebuilds 2 KB.
+        assert!(s.remove(key(7, 0)));
+        let after = s.mem_used();
+        assert!(
+            after > at_six + 1024,
+            "node demoted on the first removal: {at_seven} -> {after} (L6 is \
+             {at_six}). Promote-at-N / demote-at-N-1 rebuilds a 2080-byte \
+             node on every toggle — this is the #484 thrash"
+        );
+
+        // And it holds across repeated cycles, not just the first.
+        for _ in 0..8 {
+            s.insert(key(7, 0));
+            assert!(s.remove(key(7, 0)));
+            assert!(s.mem_used() > at_six + 1024, "form must survive repeats");
+        }
+    }
     #[test]
     fn algebra_matches_btreeset() {
         for seed in [7u64, 42, 1234] {

@@ -693,7 +693,7 @@ Development proceeds in strict, sequential engineering phases with measurable ve
                                             v
 +---------------------------------------------------------------------------------------+
 | PHASE 3: 32-Bit Mutation & Leaf Search Engine (`ExpanseSet32` & `ExpanseMap32`)       |
-| - Implement 4-level descent, insert/remove cascade ladders, and hysteresis            |
+| - Implement 4-level descent, insert/remove cascade ladders, and hysteresis on the bitmap-leaf rung (branch-rung hysteresis landed later, in #484)            |
 | - Proptest differential verification against `BTreeSet<u32>` and `BTreeMap<u32, u32>` |
 | - Gate: 10,000 randomized proptest cases pass without invariant violations            |
 +-------------------------------------------+-------------------------------------------+
