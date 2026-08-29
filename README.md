@@ -10,6 +10,7 @@
 [![Architectures](https://img.shields.io/badge/arch-x86--64%20%7C%20aarch64%20%7C%20riscv64%20%7C%20riscv32%20%7C%20arm--cortex--m-blueviolet.svg?style=flat-square)](#platform-support)
 [![MSRV](https://img.shields.io/badge/MSRV-1.88%2B%20(Edition%202024)-informational.svg?style=flat-square)](Cargo.toml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg?style=flat-square)](LICENSE-MIT)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22152112.svg)](https://doi.org/10.5281/zenodo.22152112)
 
 A **clean-room, pure-Rust implementation of Judy arrays**, modernized for modern 64-bit and 32-bit embedded microarchitectures, with **`libexpanse` — a high-performance, drop-in C ABI replacement for `libjudy`**.
 
@@ -553,6 +554,33 @@ The original Judy C library is LGPL. **No code from it has been consulted or por
 - Alan Silverstein, [*Judy IV Shop Manual*](https://judy.sourceforge.net/doc/shop_interm.pdf) (Hewlett-Packard, 2002)
 
 C API compatibility is defined by the documented API contract (man pages, published documentation) and validated by black-box differential testing. Licensed under **MIT OR Apache-2.0**.
+
+---
+
+## Citation
+
+Expanse is archived on Zenodo. Machine-readable metadata is in [`CITATION.cff`](CITATION.cff); GitHub renders it under **Cite this repository**.
+
+Two DOIs are minted. Cite the **concept DOI** for the project as a whole — it always resolves to the latest release — or a **version DOI** to pin the exact release you used:
+
+| Scope | DOI |
+|---|---|
+| Concept (all versions) | [`10.5281/zenodo.22152112`](https://doi.org/10.5281/zenodo.22152112) |
+| v0.5.0 | [`10.5281/zenodo.22152113`](https://doi.org/10.5281/zenodo.22152113) |
+
+```bibtex
+@software{brousse_expanse,
+  author  = {Brousse, Nicolas},
+  title   = {{Expanse: clean-room, pure-Rust Judy arrays with a
+             drop-in libjudy-compatible C ABI}},
+  year    = {2026},
+  version = {0.5.0},
+  doi     = {10.5281/zenodo.22152112},
+  url     = {https://github.com/orieg/expanse}
+}
+```
+
+If your claim depends on a measured number, cite the version DOI rather than the concept DOI: figures are re-measured between releases, and several changed in v0.5.0.
 
 ---
 
