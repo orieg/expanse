@@ -203,6 +203,9 @@ jobs:
       - name: Verify C ABI Symbol Parity Across All Bindings
         run: python3 scripts/check_abi_parity.py
 
+      - name: Verify Ecosystem Theme Contract v1 Compliance
+        run: python3 scripts/check_ecosystem_theme.py
+
       - name: Verify Tracked File Deletion Rationale
         if: github.event_name == 'pull_request'
         run: python3 scripts/check_deletion_rationale.py --base "origin/${{ github.base_ref }}"
@@ -237,7 +240,7 @@ jobs:
 
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / docs hygiene / bench suites / bench shapes / man pages / abi parity / deletions / test floors)
+      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors)
         run: |
           python3 scripts/perf_report.py --self-test
           python3 scripts/bench_report.py --self-test
@@ -247,6 +250,7 @@ jobs:
           # derived rendering are all checkable without one.
           python3 scripts/perf_counters.py --self-test
           python3 scripts/check_docs_hygiene.py --self-test
+          python3 scripts/check_ecosystem_theme.py --self-test
           python3 scripts/check_bench_suites.py --self-test
           python3 scripts/check_bench_shapes.py --self-test
           python3 scripts/check_man_pages.py --self-test
