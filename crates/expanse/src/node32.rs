@@ -234,37 +234,39 @@ impl LeafBitmap1_32 {
     /// Test if bit is set.
     #[inline(always)]
     pub fn test(&self, bit: u8) -> bool {
-        let word_idx = (bit / 64) as usize;
-        let bit_idx = bit % 64;
-        (self.bitmap[word_idx] & (1 << bit_idx)) != 0
+        let word_idx = (bit >> 6) as usize;
+        let mask = 1u64 << (bit & 63);
+        (self.bitmap[word_idx] & mask) != 0
     }
 
     /// Set a bit in the bitmap, returning true if bit was newly set.
     #[inline(always)]
     pub fn set(&mut self, bit: u8) -> bool {
-        let word_idx = (bit / 64) as usize;
-        let bit_idx = bit % 64;
-        let mask = 1 << bit_idx;
-        let was_set = (self.bitmap[word_idx] & mask) != 0;
-        if !was_set {
-            self.bitmap[word_idx] |= mask;
+        let word_idx = (bit >> 6) as usize;
+        let mask = 1u64 << (bit & 63);
+        let prev = self.bitmap[word_idx];
+        if (prev & mask) == 0 {
+            self.bitmap[word_idx] = prev | mask;
             self.pop0 += 1;
+            true
+        } else {
+            false
         }
-        !was_set
     }
 
     /// Clear a bit in the bitmap, returning true if bit was removed.
     #[inline(always)]
     pub fn unset(&mut self, bit: u8) -> bool {
-        let word_idx = (bit / 64) as usize;
-        let bit_idx = bit % 64;
-        let mask = 1 << bit_idx;
-        let was_set = (self.bitmap[word_idx] & mask) != 0;
-        if was_set {
-            self.bitmap[word_idx] &= !mask;
+        let word_idx = (bit >> 6) as usize;
+        let mask = 1u64 << (bit & 63);
+        let prev = self.bitmap[word_idx];
+        if (prev & mask) != 0 {
+            self.bitmap[word_idx] = prev & !mask;
             self.pop0 -= 1;
+            true
+        } else {
+            false
         }
-        was_set
     }
 }
 

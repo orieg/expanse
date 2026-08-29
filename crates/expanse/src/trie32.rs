@@ -850,10 +850,7 @@ fn branch_child(a: &Arena, e: &Edge32, digit: u8) -> Option<Edge32> {
             }
             let rank = bitmap_sub_rank(word, digit);
             let sub = (digit >> 5) as usize;
-            b.subarrays[sub]
-                .as_deref()
-                .and_then(|s| s.get(rank))
-                .copied()
+            b.subarrays[sub].as_ref().map(|s| s[rank])
         }
         Kind::BranchU => {
             let b = a.u(edge_handle(e));
@@ -897,7 +894,7 @@ fn branch_set_child(a: &mut Arena, e: &Edge32, digit: u8, child: Edge32) {
             let word = b.header.bitmap[w];
             let rank = bitmap_sub_rank(word, digit);
             let sub = (digit >> 5) as usize;
-            b.subarrays[sub].as_deref_mut().expect("live subarray")[rank] = child;
+            b.subarrays[sub].as_mut().expect("live subarray")[rank] = child;
         }
         Kind::BranchU => {
             a.u_mut(edge_handle(e)).edges[digit as usize] = child;
@@ -1699,10 +1696,7 @@ pub(crate) fn map_get(a: &Arena, e: &Edge32, mut kb: u8, mut rem: u32) -> Option
                 }
                 let rank = bitmap_sub_rank(word, digit);
                 let sub = (digit >> 5) as usize;
-                return b.subarrays[sub]
-                    .as_deref()
-                    .and_then(|s| s.get(rank))
-                    .copied();
+                return b.subarrays[sub].as_ref().map(|s| s[rank]);
             }
             Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
                 let d = digit_at(rem, kb);

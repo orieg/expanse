@@ -618,7 +618,7 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `size_of::<BranchB32>()` | 96 | `crates/expanse/src/node32.rs:149` |
 | `size_of::<BranchU32>()` | 2080 | `crates/expanse/src/node32.rs:187` |
 | `size_of::<LeafBitmap1_32>()` | 64 | `crates/expanse/src/node32.rs:219` |
-| `size_of::<LeafBitmapL_32>()` | 96 | `crates/expanse/src/node32.rs:309` |
+| `size_of::<LeafBitmapL_32>()` | 96 | `crates/expanse/src/node32.rs:311` |
 | `size_of::<ValueSlot32>()` | 4 | `crates/expanse/src/slot32.rs:47` |
 | `ValueSlot32::TAG_MASK` | 0xFF | `crates/expanse/src/slot32.rs:51` |
 | `ValueSlot32::ARENA_OFFSET_MASK` | 0xFFF00 | `crates/expanse/src/slot32.rs:54` |
