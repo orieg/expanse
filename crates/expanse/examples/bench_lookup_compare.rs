@@ -34,6 +34,22 @@
 //! cargo run --release -p expanse-trie --example bench_lookup_compare -- --rounds 5
 //! cargo run --release -p expanse-trie --example bench_lookup_compare -- --set
 //! ```
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `example_bench_lookup_compare` |
+//! | `group` | 5 |
+//! | `population` | 10k, 100k, 500k, 1M |
+//! | `probes_and_reuse` | $\min(N, 1\text{M})$, sampled with replacement |
+//! | `hit_rate` | 50% hit / 50% miss |
+//! | `miss_gen_method` | **DEGENERATE XOR**: `hit_k ^ (1<<63) ^ 0x5A5A_...` (L249) |
+//! | `value_dereference` | Dereferences `*pval` for JudyL; `black_box(v)` for others |
+//! | `measured_region` | Clean (Instant outside build/drop) |
+//! | `arm_symmetry` | **ASYMMETRIC**: `dlsym` function pointer for JudyL vs static Rust inlining |
+//! | `statistics` | Raw medians (no BCa CI) |
+//! | `verdict` | ✅ **RESOLVED in #470 — was DEFECT (Class 3, 5, 7)** `[verified: CODE READ]`: Source of `bench_report.py` table; degenerate XOR misses, dynamic fn ptr dispatch bias, no BCa CIs. |
 
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;

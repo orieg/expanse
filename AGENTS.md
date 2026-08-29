@@ -221,6 +221,8 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | §8.9 mechanism claims carry a counter (`memory-latency-bound`, `branch misprediction`, `MLP`, `TLB`, …) | **CI (fatal)** | `check_docs_hygiene.py` — paragraph-scoped; satisfied by a counter name, a `results/baseline_*` reference, or an explicit `unmeasured` / `hypothesis` / `cause unknown` qualifier |
 | §8.4 a published wall-clock ratio carries its interval | **CI (fatal)** | `check_docs_hygiene.py` — paragraph-scoped; satisfied by `[lo, hi]`, a `results/baseline_*` artifact, or an explicit `superseded` / `unsourced` / `provisional`. Deterministic metrics (Callgrind counts, byte accounting, memory) are exempt — an interval on an exact integer is wrong, not missing |
 | Retracted/superseded figures absent across all published surfaces (Markdown, HTML, JSON, assets) | **CI** | `lint` & `docs-lint` jobs → `scripts/check_docs_hygiene.py`, `crates/expanse/tests/test_visualizer_sync.rs` (driven by `.github/superseded-figures.json`) |
+| Benchmark workload shape declarations (11 required fields) & docs sync | **CI** | `lint` job → `scripts/check_bench_shapes.py` |
+| Paired performance figures carry a shared workload ID (§8.12) | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |
 | Pending/unverified measurement cells cite OPEN tracking issues | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |
 | Visualizer data/HTML synchronization with engine | **CI** | `test` job (gated by narrow `visualizer:` path filter) → `tests/test_visualizer_sync.rs` |
 | Conventional-commit type · branch naming | **review** | — |
@@ -353,5 +355,19 @@ When modifying or correcting any existing benchmark or example harness:
    - In walkthroughs, PR verification records, and review summaries, if a command narrows the workspace test suite (e.g. `cargo test --workspace --exclude ...`) due to host toolchain/runtime prerequisites (PHP headers, Python dynamic linking), explicitly state the exclusions and rationale rather than presenting the narrowed command as satisfying the full workspace gate.
 7. **Span-Level Multi-Issue Disambiguation**:
    - In referential integrity checkers, evaluate all issue citations within the relevant sentence/span. If at least one cited issue is `OPEN`, the statement is satisfied (e.g. "updating from closed #384 to open #382"). Only flag violations if all cited issues in the span are closed.
+
+### 8.12 Workload Shapes & Paired Figures Integrity
+1. **Workload Shape Declarations on All Timed Harnesses**:
+   - Every timed benchmark and example harness MUST declare a `# Workload shape` table in its module doc comment with all 11 required fields: `workload_id`, `group`, `population`, `probes_and_reuse`, `hit_rate`, `miss_gen_method`, `value_dereference`, `measured_region`, `arm_symmetry`, `statistics`, and `verdict`.
+   - Workload IDs must be globally unique across all harnesses.
+   - Non-executable helper modules (e.g. `search_common/mod.rs`, `zset_common/mod.rs`) that lack entry points (`fn main`, `criterion_group!`, `main!`) are excluded from standalone shape requirements.
+   - Enforced mechanically by `scripts/check_bench_shapes.py`, which synchronizes audit tables in `docs/BENCHMARKING.md`.
+2. **Paired Figures Require Shared Workload Identification**:
+   - Any comparative figure or ratio quoted in prose or tables comparing two systems/arms (e.g. "11.9 ns vs 108.9 ns") MUST carry a machine-readable workload tag in its paragraph/span:
+     - Same workload: `(workload: <id>)`
+     - Different workloads: `(workloads differ: <id_a> vs <id_b>)`
+     - Documented honest retraction / differentiation fallback markers: `different experiment`, `different workload`, `not comparable`, `retracted`, `superseded`, `neither half describes`, `two halves are different`.
+   - Enforced mechanically by `scripts/check_docs_hygiene.py`.
+
 
 

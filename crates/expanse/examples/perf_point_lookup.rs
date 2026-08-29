@@ -32,7 +32,7 @@
 //! and allocator state do not cancel exactly. That is why the driver
 //! publishes an interval over repeated runs rather than a single number.
 //!
-//! **Workload shape** (`EXPANSE_PERF_*`, all optional):
+//! **Workload configuration** (`EXPANSE_PERF_*`, all optional):
 //!
 //! | Variable | Default | Meaning |
 //! |---|---|---|
@@ -41,6 +41,22 @@
 //! | `EXPANSE_PERF_POP` | `1000000` | keys inserted |
 //! | `EXPANSE_PERF_HIT_PCT` | `100` | percent of probes that are present keys |
 //! | `EXPANSE_PERF_PASSES` | `1` | passes over the probe vector |
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `example_perf_point_lookup` |
+//! | `group` | 5 |
+//! | `population` | 1M (configurable via `EXPANSE_PERF_POP`) |
+//! | `probes_and_reuse` | 1M distinct per pass, reuse 1.0 |
+//! | `hit_rate` | 100% default (configurable via `EXPANSE_PERF_HIT_PCT`) |
+//! | `miss_gen_method` | Independent PRNG + membership rejection |
+//! | `value_dereference` | `sink ^= *pval` |
+//! | `measured_region` | Phase differencing (`probe - build`) |
+//! | `arm_symmetry` | Twin to Callgrind `core_instructions` |
+//! | `statistics` | `perf stat` hardware counters |
+//! | `verdict` | **PASS** `[verified: RUN (reference host, results/baseline_perf_counters.json)]`: Gold standard hardware counter reference. |
 //!
 //! Distinct probes equal the population — every key probed once per pass,
 //! in an order that is not the build order, so the working set is the whole

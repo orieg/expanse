@@ -19,6 +19,22 @@
 //! never re-descends; when targets are sparse (large strides, deep skips over
 //! a big list) Expanse's fixed O(depth) skip is expected to win because it does
 //! not scan the skipped blocks. Both regimes are measured below.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `domain_search_wand` |
+//! | `group` | 4 |
+//! | `population` | 100k postings |
+//! | `probes_and_reuse` | Monotonic targets |
+//! | `hit_rate` | Skip scan |
+//! | `miss_gen_method` | N/A |
+//! | `value_dereference` | `black_box(skipscan)` |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Symmetric (Roaring vs Expanse) |
+//! | `statistics` | Throughput Mops/s |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: WAND skip-scan comparison. |
 #![allow(missing_docs)]
 
 use rand::rngs::StdRng;

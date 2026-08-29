@@ -51,7 +51,7 @@ must not be presented as pre-registered).
 | **Pillar D: Mask Cache RAM** | RAM across DFA states | **RoaringBitmap** | **Expected Win**: Dense uses 30.6 MB (2,000 states); Roaring (11.5 MB) wins 2.66× lower RAM. |
 | **Pillar D: Top-100 Intersect** | Candidate ∩ Allowed Set | **RoaringBitmap & ExpanseSet** | Fast candidate filtering (0.6–1.9 µs) via native SIMD set algebra (#339). |
 | **Pillar E: Prefix-Cache RAM** | Block Table RAM (1M blocks) | **ExpanseMap Table** | **Expected Win**: 9.48x lower RAM vs `OrderedDict` (23.2 MB vs 219.9 MB) — cross-accounting comparison (tracemalloc peak vs native bytes + idealized side map); see README caveat. |
-| **Pillar E: Touch Throughput** | LRU Touch (`move_to_end`) | **OrderedDict** | **Expected Loss**: O(1) doubly-linked list pointer swings beat trie mutation (15.28M vs 2.04M tps at 1M in the committed run). |
+| **Pillar E: Touch Throughput** | LRU Touch (`move_to_end`) | **OrderedDict** | **Expected Loss**: O(1) doubly-linked list pointer swings beat trie mutation (15.28M vs 2.04M tps at 1M in the committed run; workload: `bench_llm_datastore`). |
 | **Pillar E: Rank Eviction** | Evict Below Timestamp | **ExpanseMap** | Native `count_below()` prunes at **1.98M–2.16M items/sec**. The OrderedDict cell is definitional, not measured: monotonic touch timestamps make pop-until-cutoff O(evicted), so a symmetric twin is pending before this counts as a measured win. |
 
 ---

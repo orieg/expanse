@@ -20,6 +20,22 @@
 //! hashbrown table) include capacity overshoot from doubling/power-of-two
 //! growth — up to ~2x live data — which *inflates* the baseline's
 //! bytes/member relative to Expanse's exactly-sized node allocations.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `domain_zset_memory` |
+//! | `group` | 4 |
+//! | `population` | 10k, 100k |
+//! | `probes_and_reuse` | N/A (Memory) |
+//! | `hit_rate` | N/A |
+//! | `miss_gen_method` | N/A |
+//! | `value_dereference` | Live bytes tracked |
+//! | `measured_region` | Clean `GlobalAlloc` hook |
+//! | `arm_symmetry` | Symmetric (SkipList vs Expanse) |
+//! | `statistics` | Exact byte count |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Memory census. |
 
 #[path = "zset_common/mod.rs"]
 mod zset_common;

@@ -49,6 +49,22 @@
 //! is why it has never equalled `Instructions`. The flag is now stated
 //! explicitly below so a dependency bump cannot turn it off silently.
 //!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `capi_vs_stock` |
+//! | `group` | 1 |
+//! | `population` | `POP = 30_000`, `POP_BIG = 1_500_000` (L204, 209) |
+//! | `probes_and_reuse` | 30k / 1.5M, reuse 1.0 |
+//! | `hit_rate` | 100% / mixed |
+//! | `miss_gen_method` | Interleaved keys |
+//! | `value_dereference` | `*slot` dereferenced |
+//! | `measured_region` | Deliberately leaks to exclude drop |
+//! | `arm_symmetry` | **Three arms**: `*_expanse` (rlib, LTO-linked), `*_expanse_dl` (dlopen'd cdylib), and `*_stock` (dlopen'd libjudy). `*_expanse_dl` vs `*_stock` is symmetric; `*_expanse` vs `*_stock` is asymmetric (LTO bias). |
+//! | `statistics` | iai Callgrind exact counts (simulated 8 MiB LL) |
+//! | `verdict` | **PASS** `[verified: RUN (CI instruction-counts)]`: Carrying both `expanse` and `expanse_dl` isolates LTO delta; 1.5M population is load-bearing in #456. |
+//!
 //! The modelled hierarchy is fixed at I1/D1 32 KiB 8-way and LL 8 MiB
 //! 16-way, for cross-machine comparability. It is not the reference
 //! host's 30 MiB L3, so these columns cannot locate that host's L3 cliff.

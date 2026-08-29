@@ -19,6 +19,22 @@
 //! Requires valgrind, which does not support arm64 macOS — these run on
 //! Linux, in the `instruction-counts` CI job. Locally:
 //! `cargo bench --bench instructions` on a Linux host.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `core_instructions` |
+//! | `group` | 2 |
+//! | `population` | 50k |
+//! | `probes_and_reuse` | 50k (shuffled), reuse 1.0 |
+//! | `hit_rate` | 100% |
+//! | `miss_gen_method` | None |
+//! | `value_dereference` | `black_box` on retrieved values |
+//! | `measured_region` | Clean (setup in setup) |
+//! | `arm_symmetry` | Internal trie paths |
+//! | `statistics` | iai Callgrind exact counts |
+//! | `verdict` | **PASS** `[verified: RUN (CI instruction-counts)]`: Canonical instruction reference. |
 
 // The `library_benchmark` macro expands to modules that carry no docs of
 // their own; the workspace `missing_docs` lint does not apply to a bench

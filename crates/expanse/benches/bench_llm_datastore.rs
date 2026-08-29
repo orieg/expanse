@@ -9,6 +9,22 @@
 //! 2. Static longest-match query latency.
 //! 3. Continuous incremental insertion throughput vs Static Index full rebuild.
 //! 4. Identification of the crossover batch size B_crossover.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `domain_llm_datastore` |
+//! | `group` | 4 |
+//! | `population` | 100k tokens |
+//! | `probes_and_reuse` | Prefix search |
+//! | `hit_rate` | 100% |
+//! | `miss_gen_method` | None |
+//! | `value_dereference` | `black_box(search)` |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Symmetric |
+//! | `statistics` | Raw ns (no CI) |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Domain-specific datastore benchmark. |
 #![allow(missing_docs)]
 
 use expanse_trie::strmap::ExpanseStrMap;

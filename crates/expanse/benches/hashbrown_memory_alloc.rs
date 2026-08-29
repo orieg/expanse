@@ -3,6 +3,22 @@
 //! Uses a custom GlobalAlloc hook to track exact live heap bytes allocated
 //! for ExpanseMap vs hashbrown::HashMap vs std::collections::BTreeMap across
 //! population scales: 10^3, 10^4, 10^5, 5*10^5.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `hashbrown_memory_alloc` |
+//! | `group` | 3 |
+//! | `population` | 1k to 500k |
+//! | `probes_and_reuse` | N/A (Memory) |
+//! | `hit_rate` | N/A |
+//! | `miss_gen_method` | N/A |
+//! | `value_dereference` | Live bytes tracked |
+//! | `measured_region` | Clean `GlobalAlloc` hook |
+//! | `arm_symmetry` | Symmetric keys |
+//! | `statistics` | Exact byte count |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Deterministic memory allocator census. |
 
 use expanse_trie::map::ExpanseMap;
 use hashbrown::HashMap;

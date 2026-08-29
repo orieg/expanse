@@ -145,6 +145,19 @@ RETRACTION_MARKERS = re.compile(
     re.IGNORECASE,
 )
 
+# --- fatal: paired figures & workload shape requirement ----------------------
+PAIRED_FIGURES_PAT = re.compile(
+    r"(?:\b\d+(?:\.\d+)?\s*(?:ns|µs|us|ms|s|B/key|B/k|bytes/key|B/docID|bits/docID|B/tok|B/entry|Mops/s|M ops/s|M/s|Minst|M inst|inst|tps|M\b)\b(?:\*\*)?\s*(?:vs\.?|vs|against)\s*(?:\*\*)?\d+(?:\.\d+)?|\b\d+(?:\.\d+)?\b(?:\*\*)?\s*(?:vs\.?|vs|against)\s*(?:\*\*)?\d+(?:\.\d+)?\s*(?:ns|µs|us|ms|s|B/key|B/k|bytes/key|B/docID|bits/docID|B/tok|B/entry|Mops/s|M ops/s|M/s|Minst|M inst|inst|tps|M\b)\b)",
+    re.IGNORECASE,
+)
+WORKLOAD_TAG_PAT = re.compile(r"(?:[\(\[]|;\s*|\b)workload:\s*`?([a-zA-Z0-9_-]+)`?\b", re.IGNORECASE)
+WORKLOAD_DIFF_PAT = re.compile(r"(?:[\(\[]|;\s*|\b)workloads\s+differ:\s*`?([a-zA-Z0-9_-]+)`?\s+vs\s+`?([a-zA-Z0-9_-]+)`?\b", re.IGNORECASE)
+PAIRED_FALLBACK_PAT = re.compile(
+    r"\b(different\s+experiment|different\s+workload|not\s+comparable|retracted|superseded|"
+    r"neither\s+half\s+describes|two\s+halves\s+are\s+different|historical\s+record|pre-#\d+)\b",
+    re.IGNORECASE,
+)
+
 # --- fatal: pending-cell requirements ----------------------------------------
 PENDING_PATTERN = re.compile(
     r"\b(?:pending\s+(?:(?:a\s+)?(?:tagged\s+)?(?:reference-host|quiet-host|fair-baseline|clean-host)\s+)?(?:re-run|re-measurement|run)|"
@@ -388,6 +401,67 @@ def check_superseded_figures(
     return hits
 
 
+def check_paired_figures(lines: list[tuple[int, str]], path_label: str = "") -> list[tuple[int, str]]:
+    """Assert paired performance figures in prose share a workload ID or declare differentiation."""
+    if path_label.endswith("AGENTS.md") or path_label.endswith("CLAUDE.md") or path_label.endswith("GEMINI.md"):
+        return []
+    hits = []
+    
+    # Process paragraph by paragraph
+    paras: list[list[tuple[int, str]]] = []
+    para: list[tuple[int, str]] = []
+    in_generated_table = False
+
+    for n, text in lines:
+        if "<!-- BEGIN HARNESS AUDIT TABLE" in text:
+            in_generated_table = True
+        if "<!-- END HARNESS AUDIT TABLE" in text:
+            in_generated_table = False
+            continue
+        if in_generated_table:
+            continue
+
+        if text.strip():
+            para.append((n, text))
+        else:
+            if para:
+                paras.append(para)
+            para = []
+    if para:
+        paras.append(para)
+
+    for para in paras:
+        para_text = " ".join(t for _, t in para)
+        if ALLOW_MARKER in para_text or "allow-unpaired-figures" in para_text:
+            continue
+        
+        has_workload_tag = bool(
+            WORKLOAD_TAG_PAT.search(para_text)
+            or WORKLOAD_DIFF_PAT.search(para_text)
+            or PAIRED_FALLBACK_PAT.search(para_text)
+        )
+        
+        for n, text in para:
+            if ALLOW_MARKER in text:
+                continue
+            
+            for m in PAIRED_FIGURES_PAT.finditer(text):
+                if has_workload_tag:
+                    continue
+                # Line-level context check
+                line_ctx = text[max(0, m.start() - 50): min(len(text), m.end() + 100)]
+                if (
+                    WORKLOAD_TAG_PAT.search(line_ctx)
+                    or WORKLOAD_DIFF_PAT.search(line_ctx)
+                    or PAIRED_FALLBACK_PAT.search(line_ctx)
+                ):
+                    continue
+                hits.append((n, m.group(0).strip()))
+                break
+
+    return hits
+
+
 def check_pending_cells(lines: list[tuple[int, str]], path_label: str = "") -> list[tuple[int, str]]:
     """Assert pending measurement cells cite an OPEN tracking issue."""
     if path_label.endswith("AGENTS.md") or path_label.endswith("CLAUDE.md") or path_label.endswith("GEMINI.md"):
@@ -488,6 +562,9 @@ def scan_text(
         for n, what in check_interval_claims(kept):
             print(f"::error file={path_label},line={n}::wall-clock ratio ({what!r}) published with no interval in its paragraph — AGENTS.md §8.4 gates continuous metrics on the BCa CI lower bound; cite `[lo, hi]`, a `results/baseline_*` artifact, or state plainly that no interval exists")
             fatal += 1
+        for n, what in check_paired_figures(kept, path_label):
+            print(f"::error file={path_label},line={n}::paired performance figures ({what!r}) without a shared workload ID — AGENTS.md §8.12 requires (workload: <id>) or (workloads differ: <id_a> vs <id_b>)")
+            fatal += 1
     if registry:
         for n, figure, replacement in check_superseded_figures(kept, registry):
             print(f"::error file={path_label},line={n}::superseded figure ({figure!r}) published without a retraction marker — replacement: {replacement}")
@@ -533,6 +610,20 @@ def self_test() -> int:
     fatal, _ = scan_text("t.md", "The arm is memory-latency-bound, so the work removed is off the critical path.\n", deny, False, reg); assert fatal >= 1, "mechanism claim without evidence"
     fatal, _ = scan_text("t.md", "Point lookups are 2.9x faster than BTreeMap at 1M keys.\n", deny, False, reg); assert fatal == 1, "bare wall-clock ratio"
     fatal, _ = scan_text("t.md", "Random 1M get is 1.031x, BCa 95% CI [1.024, 1.038].\n", deny, False, reg); assert fatal == 0, "interval discharges claim"
+
+    # Paired figures (§8.12)
+    fatal, _ = scan_text("t.md", "Sequential lookup is 11.9 ns vs 108.9 ns at 1M keys.\n", deny, False, reg)
+    assert fatal >= 1, "bare paired figures without workload tag must fail"
+    fatal, _ = scan_text("t.md", "Sequential lookup is 11.9 ns vs 108.9 ns at 1M keys (workload: core_compare).\n", deny, False, reg)
+    assert fatal == 0, "paired figures with shared workload tag must pass"
+    fatal, _ = scan_text("t.md", "Retracted (workloads differ: a vs b): 11.9 ns vs 108.9 ns.\n", deny, False, reg)
+    assert fatal == 0, "paired figures with workloads differ tag must pass"
+    fatal, _ = scan_text("t.md", "Retracted: the two halves are different experiments (11.9 ns vs 108.9 ns).\n", deny, False, reg)
+    assert fatal == 0, "paired figures with explicit retraction must pass"
+    fatal, _ = scan_text("t.md", "| op | latency |\n|---|---|\n| get | 12.2 ns vs 22.4 ns (workload: capi_vs_stock) |\n", deny, False, reg)
+    assert fatal == 0, "table cell with workload tag must pass"
+    fatal, _ = scan_text("t.md", "| op | latency |\n|---|---|\n| get | 12.2 ns vs 22.4 ns |\n", deny, False, reg)
+    assert fatal >= 1, "table cell without workload tag must fail"
 
     # Superseded figure tests with Unicode × (U+00D7) and lookaround boundaries
     fatal, _ = scan_text("t.md", "Random lookup 1M is 1.11× slower than stock JudyL.\n", deny, False, reg)

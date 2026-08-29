@@ -12,6 +12,22 @@
 //! measured memory density is reported separately by the
 //! `bytes_per_key_32` example. Per `docs/BENCHMARKING.md`, criterion ratios
 //! here are not publishable numbers.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `core_embedded` |
+//! | `group` | 2 |
+//! | `population` | 500, 2k, 10k |
+//! | `probes_and_reuse` | 500, 2k, 10k, looped |
+//! | `hit_rate` | 100% |
+//! | `miss_gen_method` | None |
+//! | `value_dereference` | `matched += 1` / `sum += v` |
+//! | `measured_region` | **LEAKY DROP**: `bench_sensor_indexing` drops set inside `b.iter` (L35, L46) |
+//! | `arm_symmetry` | Symmetric (BTree vs HashBrown vs Expanse32) |
+//! | `statistics` | Criterion estimate |
+//! | `verdict` | ✅ **RESOLVED in #470 — was DEFECT (Class 4, 6)** `[verified: CODE READ]`: Drops set in timed loop; does not touch blob payload in scan. |
 
 use std::collections::BTreeMap;
 use std::hint::black_box;

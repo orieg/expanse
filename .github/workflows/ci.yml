@@ -220,6 +220,9 @@ jobs:
       - name: Verify Benchmark Suite Manifest Sync
         run: python3 scripts/check_bench_suites.py
 
+      - name: Verify Benchmark Workload Shape Declarations & Docs Sync
+        run: python3 scripts/check_bench_shapes.py
+
       # check_man_pages.py skips its troff lint when mandoc is absent, and the
       # runner image does not ship it — without this install the advertised
       # lint silently never runs.
@@ -234,7 +237,7 @@ jobs:
 
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / docs hygiene / bench suites / man pages / abi parity / deletions / test floors)
+      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / docs hygiene / bench suites / bench shapes / man pages / abi parity / deletions / test floors)
         run: |
           python3 scripts/perf_report.py --self-test
           python3 scripts/bench_report.py --self-test
@@ -245,6 +248,7 @@ jobs:
           python3 scripts/perf_counters.py --self-test
           python3 scripts/check_docs_hygiene.py --self-test
           python3 scripts/check_bench_suites.py --self-test
+          python3 scripts/check_bench_shapes.py --self-test
           python3 scripts/check_man_pages.py --self-test
           python3 scripts/check_abi_parity.py --self-test
           python3 scripts/check_deletion_rationale.py --self-test

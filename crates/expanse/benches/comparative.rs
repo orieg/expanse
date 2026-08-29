@@ -1,4 +1,20 @@
 //! Comparative benchmarking of Expanse vs standard and third-party collections.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `core_comparative` |
+//! | `group` | 2 |
+//! | `population` | 10k, 100k |
+//! | `probes_and_reuse` | Full keys, looped |
+//! | `hit_rate` | 100% |
+//! | `miss_gen_method` | None |
+//! | `value_dereference` | `black_box(contains)` |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Asymmetric: `u32` keys, Roaring vs Expanse |
+//! | `statistics` | Criterion estimate |
+//! | `verdict` | **DEFECT (Class 2, 5)** `[verified: CODE READ]`: Looped hit probes, 32-bit key truncation. |
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use expanse_trie::map::ExpanseMap;

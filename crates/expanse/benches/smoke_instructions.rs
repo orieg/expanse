@@ -2,6 +2,22 @@
 //!
 //! Provides deterministic instruction and cache-miss metrics in <20s for CI
 //! gating against regressions.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `core_smoke_instructions` |
+//! | `group` | 2 |
+//! | `population` | 10k |
+//! | `probes_and_reuse` | 10k, reuse 1.0 |
+//! | `hit_rate` | 100% |
+//! | `miss_gen_method` | None |
+//! | `value_dereference` | `sink ^= map.get().unwrap_or(0)` |
+//! | `measured_region` | Clean (setup in setup) |
+//! | `arm_symmetry` | Internal trie paths |
+//! | `statistics` | iai Callgrind exact counts |
+//! | `verdict` | **PASS** `[verified: RUN (CI callgrind-smoke)]`: Fast smoke gate. |
 
 #![allow(missing_docs)]
 

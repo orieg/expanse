@@ -98,7 +98,7 @@ Evaluating `ExpanseStrMap` (1 key per token position) vs a Static Sorted Window 
 | **1M tokens** | 11.44 MB (12.0 B/tok) | 247.23 MB (259.2 B/tok) | **21.6× (Loss)** | 452,932 tps | 163.1 ms | **B < 73,859 tokens** |
 
 * **Winning Regimes**:
-  - **Static Index Win**: Static memory footprint is 21.6x–24.7x smaller (12 B vs 259–296 B per token) and static query latency is faster.
+  - **Static Index Win**: Static memory footprint is 21.6x–24.7x smaller (12 B vs 259–296 B per token; workload: `bench_llm_datastore`) and static query latency is faster.
   - **Expanse Win (Dynamic & Incremental Ingestion)**: When serving dynamic multi-turn sessions where tokens arrive continuously, periodic static index rebuilds take 163.1 ms at 1M tokens. Expanse sustains **452k–621k streaming inserts/sec**, winning whenever update batches contain fewer than 73k tokens.
 
 ---

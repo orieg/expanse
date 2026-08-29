@@ -13,6 +13,22 @@
 //!
 //! Measured region: only the operation loop. Member permutations, score
 //! streams, and pre-population are built in setup and excluded (rule 0).
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `domain_zset_zadd` |
+//! | `group` | 4 |
+//! | `population` | 10k, 100k |
+//! | `probes_and_reuse` | Ops stream |
+//! | `hit_rate` | Churn |
+//! | `miss_gen_method` | Bounded score stream |
+//! | `value_dereference` | `black_box(len)` |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Symmetric |
+//! | `statistics` | Median reduction |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: ZADD churn benchmark. |
 
 #[path = "zset_common/mod.rs"]
 mod zset_common;

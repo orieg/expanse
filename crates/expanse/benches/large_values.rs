@@ -2,6 +2,22 @@
 //! - Inline vs Heap allocation for small blobs (0..=7 bytes)
 //! - Columnar hot-metadata predicate scan selectivity sweep
 //! - Slab arena compaction & GC churn
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `workload_large_values` |
+//! | `group` | 4 |
+//! | `population` | 10k, 14k, 50k, 262k |
+//! | `probes_and_reuse` | Full scan |
+//! | `hit_rate` | Selective $\sigma$ |
+//! | `miss_gen_method` | Uniform meta filter |
+//! | `value_dereference` | `view.len()` only in `bench_inline_vs_heap` (L80) & `selectivity_sweep` (L144); fixed in `cold_dram_large` |
+//! | `measured_region` | **LEAKY DROP**: `bench_inline_vs_heap` drops map inside `b.iter` (L43, L58) |
+//! | `arm_symmetry` | Symmetric |
+//! | `statistics` | Criterion estimate |
+//! | `verdict` | ✅ **RESOLVED in #470 — was DEFECT (Class 4, 6)** `[verified: CODE READ]`: Retains uncorrected `selectivity_sweep` & `inline_vs_heap` beside corrected `cold_dram_large`. |
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use expanse_trie::blobmap::ExpanseBlobMap;

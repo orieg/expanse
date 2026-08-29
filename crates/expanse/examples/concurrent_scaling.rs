@@ -8,6 +8,22 @@
 //! host, load snapshots) before reading anything into the numbers.
 //!
 //! Run: `cargo run --release -p expanse-trie --example concurrent_scaling`
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `example_concurrent_scaling` |
+//! | `group` | 5 |
+//! | `population` | 1M |
+//! | `probes_and_reuse` | Continuous stream in 500ms window |
+//! | `hit_rate` | ~50% |
+//! | `miss_gen_method` | Bounded keyspace |
+//! | `value_dereference` | `black_box(sink)` |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Symmetric across thread counts |
+//! | `statistics` | Throughput ops/sec |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Multi-threaded scaling driver. |
 
 use expanse_trie::sync::SyncExpanseMap;
 use std::sync::Arc;

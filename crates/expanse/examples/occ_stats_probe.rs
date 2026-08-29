@@ -19,6 +19,22 @@
 //! cargo run --release -p expanse-trie --features occ-stats --example occ_stats_probe
 //! ```
 //! Env knobs: `PROBE_THREADS` (csv), `PROBE_READ_PCT` (csv), `PROBE_MS`.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `example_occ_stats_probe` |
+//! | `group` | 5 |
+//! | `population` | 1M |
+//! | `probes_and_reuse` | Continuous stream |
+//! | `hit_rate` | ~50% |
+//! | `miss_gen_method` | Bounded keyspace |
+//! | `value_dereference` | Counted atomic stats |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Protocol event counts |
+//! | `statistics` | Exact event counters |
+//! | `verdict` | **PASS** `[verified: CODE READ]`: Deterministic event counter probe. |
 
 use expanse_trie::occ_stats::{self, NAMES, NUM_STATS};
 use expanse_trie::sync::SyncExpanseMap;

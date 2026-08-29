@@ -2,6 +2,22 @@
 //!
 //! Provides deterministic instruction and cache-miss metrics for libexpanse
 //! C ABI entry points (JudyLIns, JudyLGet, Judy1Set, Judy1Test) in <20s.
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `capi_smoke_instructions` |
+//! | `group` | 1 |
+//! | `population` | 10k |
+//! | `probes_and_reuse` | 10k (shuffled), reuse 1.0 |
+//! | `hit_rate` | 100% |
+//! | `miss_gen_method` | None (hits only) |
+//! | `value_dereference` | `sink ^= *slot` |
+//! | `measured_region` | Clean (setup in setup) |
+//! | `arm_symmetry` | Self (C ABI) |
+//! | `statistics` | iai Callgrind exact counts |
+//! | `verdict` | **PASS** `[verified: RUN (CI callgrind-smoke)]` |
 
 #![allow(missing_docs)]
 

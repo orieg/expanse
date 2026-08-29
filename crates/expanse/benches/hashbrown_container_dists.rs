@@ -6,6 +6,22 @@
 //! 2. Dense Sequential (0..N)
 //! 3. Sparse Clustered / Stride
 //! 4. Zipfian Skewed (s = 0.99)
+//!
+//! # Workload shape
+//!
+//! | Property | Value |
+//! |---|---|
+//! | `workload_id` | `hashbrown_container_dists` |
+//! | `group` | 3 |
+//! | `population` | 10k, 100k, 500k |
+//! | `probes_and_reuse` | Full keys, reuse 1.0 |
+//! | `hit_rate` | 100% |
+//! | `miss_gen_method` | None |
+//! | `value_dereference` | `black_box(get)` |
+//! | `measured_region` | Clean |
+//! | `arm_symmetry` | Symmetric |
+//! | `statistics` | Raw ns/op (no CI) |
+//! | `verdict` | **PASS / MINOR (Class 7)** `[verified: CODE READ]`: Clean timing, missing CI intervals. |
 
 use expanse_trie::map::ExpanseMap;
 use hashbrown::HashMap;
