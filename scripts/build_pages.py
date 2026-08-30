@@ -303,27 +303,45 @@ MAIN_CSS = """
       margin-top: 0.75rem;
       line-height: 1.45;
     }
-    .density-callout {
-      display: flex;
-      gap: 1rem;
-      margin-top: 1.25rem;
-      padding: 1rem 1.25rem;
-      border-radius: 8px;
-      background: var(--card-inner);
+    .concept-card {
+      background: var(--card-bg);
       border: 1px solid var(--border);
-      align-items: flex-start;
+      border-radius: 10px;
+      padding: 1.35rem 1.5rem;
+      margin-top: 1.5rem;
+      margin-bottom: 1.25rem;
+      border-left: 4px solid var(--accent);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
     }
-    .density-callout-bar {
-      width: 3px;
-      border-radius: 2px;
-      background: var(--accent);
-      align-self: stretch;
-      flex-shrink: 0;
-    }
-    .density-callout-text {
-      font-size: 0.88rem;
+    .concept-quote {
+      font-size: 0.95rem;
+      font-style: italic;
+      color: var(--heading);
       line-height: 1.65;
+      margin-bottom: 0.75rem;
+    }
+    .concept-cite {
+      font-size: 0.8rem;
+      font-style: normal;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+    }
+    .glossary-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      padding-top: 0.9rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.84rem;
       color: var(--text);
+      line-height: 1.5;
+    }
+    .glossary-item {
+      flex: 1;
+      min-width: 220px;
+    }
+    .glossary-item strong {
+      color: var(--heading);
     }
 
     /* Qualify Section */
@@ -389,27 +407,6 @@ MAIN_CSS = """
       line-height: 1.2;
     }
 
-    .quote-box {
-      background: var(--quote-bg);
-      border: 1px solid var(--border);
-      border-left: 4px solid var(--accent);
-      border-radius: 8px;
-      padding: 1.75rem 2rem;
-      margin: 1.5rem 0;
-    }
-    .quote-text {
-      font-size: 1.05rem;
-      font-style: italic;
-      color: var(--text);
-      margin-bottom: 0.75rem;
-      line-height: 1.6;
-    }
-    .quote-author {
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--accent);
-      text-align: right;
-    }
     .grid-3 {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -723,8 +720,6 @@ MAIN_CSS = """
       .qualify-grid { grid-template-columns: 1fr; }
       .spotlight { flex-direction: column; text-align: center; padding: 1.5rem; }
       .spotlight-content p { font-size: 0.95rem; }
-      .quote-box { padding: 1.25rem; }
-      .quote-text { font-size: 0.95rem !important; }
       .card { padding: 1.25rem; }
       .install-panel { padding: 1rem; }
     }
@@ -848,7 +843,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
         </div>
         <h1>Judy arrays in pure Rust, rebuilt for modern hardware</h1>
         <p style="font-size: 1.15rem; line-height: 1.64; max-width: 780px; margin: 0 auto 1rem;">
-          Sparse, ordered maps and sets that <strong style="color: var(--heading);">cost what your keys cost</strong> &mdash; memory follows the key ranges you populate, not how many keys you have.
+          Sparse, ordered maps and sets with <strong style="color: var(--heading);">adaptive density</strong> &mdash; memory follows the key ranges you populate, never pre-sized tables or fixed buckets.
         </p>
         <p style="font-size: 0.95rem; line-height: 1.6; max-width: 760px; margin: 0 auto 1.5rem; color: var(--text-muted);">
           Sorted iteration, range scans and rank over integers, strings and byte slices &mdash; with cache-line-aligned nodes, SIMD/SWAR search and lock-free reader concurrency. One engine from a 32-bit MCU to a server, reachable from <strong style="color: var(--heading);">nine languages</strong> over a stable C ABI.
@@ -884,8 +879,28 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
       <div class="container">
         <div class="section-header">
           <span class="section-tag">Why It Is Called Expanse</span>
-          <h2 class="section-title">Cost follows how your keys cluster, not how many you have</h2>
-          <p class="section-desc">Same structure, same code, four real key shapes. Dense ranges collapse into bitmaps and immediates; sparse ones never allocate the space between.</p>
+          <h2 class="section-title">Partitioning by key expanse, rather than population</h2>
+          <p class="section-desc">Comparison trees (B-trees, red-black trees) divide nodes by key population count. Judy digital trees divide uniformly by key digit ranges &mdash; an architectural invariant where memory scales strictly with populated density rather than table sizing.</p>
+        </div>
+
+        <div class="concept-card">
+          <blockquote class="concept-quote">
+            &ldquo;Expanse, population, and density are not commonly used terms in tree search literature, so let&rsquo;s define them here: <strong>Expanse</strong> is a range of possible keys. <strong>Population</strong> is the number of keys actually stored in that expanse. <strong>Density</strong> is the population divided by the expanse.&rdquo;
+          </blockquote>
+          <div class="concept-cite">
+            &mdash; Doug Baskins, <em>A 10-Minute Description of How Judy Arrays Work</em> (2002) &bull; Alan Silverstein, <em>Judy IV Shop Manual</em>
+          </div>
+          <div class="glossary-row">
+            <div class="glossary-item">
+              <strong>Expanse:</strong> The numerical key span covered by a node (from 2<sup>64</sup> at the tree root down to 256 for a single 1-byte level).
+            </div>
+            <div class="glossary-item">
+              <strong>Population:</strong> The count of keys present in that span. Subtrees with population &le; 15 pack immediately with 0 heap bytes.
+            </div>
+            <div class="glossary-item">
+              <strong>Density (pop / expanse):</strong> Governs adaptive compression &mdash; nodes reshape automatically between Linear, Bitmap, and Uncompressed forms.
+            </div>
+          </div>
         </div>
 
         <div class="density-grid">
@@ -898,7 +913,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
             <div class="density-bar-wrap">
               <div class="density-bar" style="background: var(--accent-green); width: 4%;"></div>
             </div>
-            <div class="density-detail">Level 1 bitset, 0 B pointer overhead (ExpanseSet32)</div>
+            <div class="density-detail">Dense subexpanse: Level 1 bitset with 0 B pointer overhead (ExpanseSet32)</div>
           </div>
 
           <div class="density-card">
@@ -910,7 +925,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
             <div class="density-bar-wrap">
               <div class="density-bar" style="background: var(--accent); width: 56%;"></div>
             </div>
-            <div class="density-detail">LeafBitmapL with 4B value slots (ExpanseMap32)</div>
+            <div class="density-detail">Clustered subnet: LeafBitmapL with packed 4B value slots (ExpanseMap32)</div>
           </div>
 
           <div class="density-card">
@@ -922,7 +937,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
             <div class="density-bar-wrap">
               <div class="density-bar" style="background: #8b5cf6; width: 75%;"></div>
             </div>
-            <div class="density-detail">8-byte Edge32 with zero-span bypass (ExpanseSet32)</div>
+            <div class="density-detail">Sparse expanse: 8-byte Edge32 with zero-span bypass (ExpanseSet32)</div>
           </div>
 
           <div class="density-card">
@@ -934,14 +949,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
             <div class="density-bar-wrap">
               <div class="density-bar" style="background: var(--badge-near); width: 100%;"></div>
             </div>
-            <div class="density-detail">Worst case: deep uncompressed branches (ExpanseMap)</div>
-          </div>
-        </div>
-
-        <div class="density-callout">
-          <div class="density-callout-bar"></div>
-          <div class="density-callout-text">
-            <strong style="color: var(--heading);">Ten thousand clustered timestamps cost 6.7&nbsp;KB &mdash; under a byte each.</strong> Five hundred CAN-bus identifiers scattered across a 29-bit space cost 12.6 bytes each, because there is nothing to share. That spread is the design working, not a caveat: a pre-sized table charges you for the empty space between keys, and this does not.
+            <div class="density-detail">Worst-case dispersion: deep uncompressed branches (ExpanseMap)</div>
           </div>
         </div>
       </div>
@@ -986,33 +994,6 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
       </div>
     </section>
 
-    <section>
-      <div class="container">
-        <div class="section-header">
-          <span class="section-tag">Design Philosophy</span>
-          <h2 class="section-title">Why &ldquo;Expanse&rdquo;?</h2>
-          <p class="section-desc">Partitioning digital trees by key <em>expanse</em>, rather than population.</p>
-        </div>
-
-        <p style="color: var(--text); max-width: 860px; margin: 0 auto 1.5rem; line-height: 1.7;">
-          Expanse is the Judy design's own defining term &mdash; so central that the published descriptions stop to define it before anything else, and use it as the precise contrast with population-partitioned trees (B-trees, binary trees):
-        </p>
-
-        <div class="quote-box">
-          <div class="quote-text">&ldquo;Expanse, population, and density are not commonly used terms in tree search literature, so let's define them here: Expanse is a range of possible keys [&hellip;]&rdquo;</div>
-          <div class="quote-author">&mdash; Doug Baskins, <em>A 10-Minute Description of How Judy Arrays Work and Why They Are So Fast</em> (2002)</div>
-        </div>
-
-        <div class="quote-box">
-          <div class="quote-text">&ldquo;A digital tree divides up the population (index set) uniformly by expanse (dividing and redividing the initial expanse evenly), while other methods, such as b-trees, divide up the population by the distribution of the population itself.&rdquo;</div>
-          <div class="quote-author">&mdash; Alan Silverstein, <em>Judy IV Shop Manual</em> (2002), &ldquo;Digital Trees&rdquo;</div>
-        </div>
-
-        <p style="color: var(--text-muted); max-width: 860px; margin: 1.5rem auto 0; font-size: 0.95rem; line-height: 1.6;">
-          Naming the project after the underlying mechanism honors the algorithm itself without inheriting legacy C codebase baggage. Expanse is developed with <strong>strict clean-room discipline</strong>: zero exposure to LGPL source code, adhering exclusively to published design specifications and black-box differential test suites.
-        </p>
-      </div>
-    </section>
 
     <section>
       <div class="container">
