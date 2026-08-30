@@ -207,6 +207,8 @@ See `docs/BENCHMARKING.md` §2–3 and `docs/CI.md` for details.
 - **No-regression applies to the paths a change is not targeting.** A new latency-hiding path whose own count rises is not a regression. The existing scalar paths still must not, and Callgrind proves that.
 - **Review policy**: $0.1\%$ is Callgrind's deterministic measurement resolution; any instruction count regression $>0.1\%$ vs baseline main is considered a blocker in review and must be justified in the PR.
 - **Automated CI gate** (distinct from the review threshold): `scripts/perf_report.py --fail-on-regression` fails the job at a $>5\%$ single-worst regression or $\geq 2$ arms regressed above the $0.5\%$ noise floor; the only automated override is a literal `allow-regression: <reason>` line in the PR body.
+- **An `allow-regression:` reason must be sourced.** The reason must carry a **resolvable citation** — a CI run URL or a committed artifact path — and every number stated in it must appear in that source. It must name the arms it approves. An override whose citation is missing or unresolvable is **void**: `perf_report.py` leaves the gate armed, reports why, and the regression stands unapproved regardless of the gate's colour. §8.7 already requires published numbers to resolve to an artifact; the override line was the one place a number decided a gate outcome while exempt from that. On #524 an unsourced reason claiming a 45.6% misprediction win — a figure absent from the run it cited, and comparing a `hit=100` arm against a `hit=50` baseline — turned the gate green over 25 regressions, worst +48.33%. The like-for-like figure was 5.8%.
+- **An exemption is not an override.** Where a regressed arm falls under a documented gate exemption (`docs/BENCHMARKING.md` rule 16 — the random arms of `map_get`, `set_contains` and their C-ABI twins), cite the rule and say so; do not open an override. Conflating the two hides which instrument is actually load-bearing, and the exemption's scope is narrow — an instruction regression on any other arm is a regression.
 - **No Speculative `allow-regression:` Directives**: Never add an `allow-regression: <reason>` directive speculatively or in anticipation of a potential failure.
   - Run the benchmark suite or let CI evaluate the change first. If all Callgrind suites pass with 0 regressions (or within the automated threshold), no override line should appear in the PR body.
   - For arms exceeding the §6 review threshold (0.1%) but below the automated gate (5.0%), disclose the arm and its microarchitectural justification directly in the PR body (e.g. fixed inlining trade-off on scan workloads) rather than applying an unneeded automated override.
@@ -227,6 +229,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | Tier-1 Miri (UB, provenance, borrows) · ASan · loom · fuzz smoke | **CI** | `miri`, `test-asan`, `loom`, `fuzz-smoke` |
 | Node/edge layout invariants (§2.1 sizes, offsets, alignment) | **compile time** | `const _: () = { assert!(…) }` in `node.rs`, `types32.rs` |
 | Instruction regression (>5 % worst, or ≥2 arms >0.5 %) + `allow-regression:` override | **CI** | `instruction-counts`, `callgrind-smoke` → `scripts/perf_report.py` |
+| `allow-regression:` reason carries a resolvable citation (run URL or artifact path) | **CI (fatal)** | `scripts/perf_report.py` — an unsourced reason is void, the gate stays armed and reports why; pinned by `--self-test` |
 | Memory density ceilings | **CI** | `memory-budget` |
 | C ABI symbol parity · version lockstep · gate completeness · report-script self-tests | **CI** | `lint` job scripts |
 | File deletions require `removes:` / `deletes:` rationale in PR body | **CI** | `lint` job → `scripts/check_deletion_rationale.py` |
@@ -272,7 +275,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 
 1. `scripts/gate.sh` is green (fmt · clippy · tests with `PROPTEST_CASES=500` · repo scripts · docs hygiene); add `--miri` when the change touches `unsafe` or node layout.
 2. Every new `unsafe` block has a `// SAFETY:` rationale; new public items are documented.
-3. Hot-path change? Say so, and paste the `perf_report.py` table from `instruction-counts`; anything >0.1 % needs a justification, anything over the automated thresholds needs a literal `allow-regression: <reason>` line plus a Performance Trade-off Disclosure.
+3. Hot-path change? Say so, and paste the `perf_report.py` table from `instruction-counts`; anything >0.1 % needs a justification, anything over the automated thresholds needs a literal `allow-regression: <reason>` line — whose reason must cite a CI run URL or a committed artifact path that its numbers appear in, or it is void — plus a Performance Trade-off Disclosure.
 4. Deleting tracked files? Add an explicit `removes: <reason>` or `deletes: <reason>` line in the PR body (`scripts/check_deletion_rationale.py` fails without it).
 5. Every published number carries `(measured: host, commit)` resolving to a committed artifact — with n and the CI where §8.4 applies. Losing cells are published too.
 6. Canonical doc updated (§1 hierarchy) — no new standalone `.md`.
