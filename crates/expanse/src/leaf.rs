@@ -61,7 +61,7 @@ pub const fn map_keys_offset(pop: usize) -> usize {
 /// # Safety
 ///
 /// `keys` must be valid for reads of `key_bytes * pop` bytes.
-#[inline]
+#[inline(always)]
 #[must_use]
 #[allow(dead_code)]
 pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, needle: u64) -> usize {
@@ -87,7 +87,7 @@ pub(crate) unsafe fn lower_bound(keys: *const u8, pop: usize, key_bytes: u8, nee
 /// # Safety
 ///
 /// `keys` must be valid for reads of `key_bytes * pop` bytes.
-#[inline]
+#[inline(always)]
 pub(crate) unsafe fn locate(
     keys: *const u8,
     pop: usize,
@@ -140,7 +140,7 @@ pub(crate) unsafe fn locate_fixed<const KB: usize>(
 /// # Safety
 ///
 /// `keys` must be valid for reads of `KB * pop` bytes.
-#[inline]
+#[inline(always)]
 pub(crate) unsafe fn lower_bound_fixed<const KB: usize>(
     keys: *const u8,
     pop: usize,
@@ -162,84 +162,35 @@ pub(crate) unsafe fn lower_bound_fixed<const KB: usize>(
     } else if KB == 4 && (3..=4).contains(&pop) {
         // SAFETY: cap_class(pop >= 3) * 4 is 16, so keys holds at least 16 bytes.
         unsafe { crate::bits::lower_bound_4_u32(keys, pop, needle as u32) }
-    } else if pop <= 4 {
-        if pop == 0 {
-            0
-        } else if KB == 1 {
-            let n = needle as u8;
-            // SAFETY: keys is valid for pop bytes.
-            let c0 = unsafe { (*keys < n) as usize };
-            if pop == 1 {
-                c0
-            } else if pop == 2 {
-                // SAFETY: keys holds 2 bytes.
-                c0 + unsafe { (*keys.add(1) < n) as usize }
-            } else if pop == 3 {
-                // SAFETY: keys holds 3 bytes.
-                c0 + unsafe { (*keys.add(1) < n) as usize } + unsafe { (*keys.add(2) < n) as usize }
-            } else {
-                // SAFETY: keys holds 4 bytes.
-                c0 + unsafe { (*keys.add(1) < n) as usize }
-                    + unsafe { (*keys.add(2) < n) as usize }
-                    + unsafe { (*keys.add(3) < n) as usize }
+    } else if pop <= 32 {
+        // Branchless parallel-load linear scan: issues all loads independently
+        // without data-dependent serial pointer chasing, eliminating branch
+        // mispredictions on uniform-random lookups (#480).
+        let mut count = 0usize;
+        let mut i = 0usize;
+        while i + 4 <= pop {
+            // SAFETY: i + 3 < pop, caller guarantees pop * KB readable bytes.
+            unsafe {
+                let k0 = crate::mutate::read_packed_fixed::<KB>(keys, i);
+                let k1 = crate::mutate::read_packed_fixed::<KB>(keys, i + 1);
+                let k2 = crate::mutate::read_packed_fixed::<KB>(keys, i + 2);
+                let k3 = crate::mutate::read_packed_fixed::<KB>(keys, i + 3);
+                count += (k0 < needle) as usize
+                    + (k1 < needle) as usize
+                    + (k2 < needle) as usize
+                    + (k3 < needle) as usize;
             }
-        } else if KB == 2 {
-            let n = needle as u16;
-            // SAFETY: keys holds at least 2 bytes.
-            let c0 = unsafe { ((keys as *const u16).read_unaligned() < n) as usize };
-            if pop == 1 {
-                c0
-            } else if pop == 2 {
-                // SAFETY: keys holds 4 bytes.
-                c0 + unsafe { ((keys.add(2) as *const u16).read_unaligned() < n) as usize }
-            } else if pop == 3 {
-                // SAFETY: keys holds 6 bytes.
-                c0 + unsafe { ((keys.add(2) as *const u16).read_unaligned() < n) as usize }
-                    + unsafe { ((keys.add(4) as *const u16).read_unaligned() < n) as usize }
-            } else {
-                // SAFETY: keys holds 8 bytes.
-                c0 + unsafe { ((keys.add(2) as *const u16).read_unaligned() < n) as usize }
-                    + unsafe { ((keys.add(4) as *const u16).read_unaligned() < n) as usize }
-                    + unsafe { ((keys.add(6) as *const u16).read_unaligned() < n) as usize }
-            }
-        } else if KB == 4 {
-            let n = needle as u32;
-            // SAFETY: keys holds at least 4 bytes.
-            let c0 = unsafe { ((keys as *const u32).read_unaligned() < n) as usize };
-            if pop == 1 {
-                c0
-            } else if pop == 2 {
-                // SAFETY: keys holds 8 bytes.
-                c0 + unsafe { ((keys.add(4) as *const u32).read_unaligned() < n) as usize }
-            } else if pop == 3 {
-                // SAFETY: keys holds 12 bytes.
-                c0 + unsafe { ((keys.add(4) as *const u32).read_unaligned() < n) as usize }
-                    + unsafe { ((keys.add(8) as *const u32).read_unaligned() < n) as usize }
-            } else {
-                // SAFETY: keys holds 16 bytes.
-                c0 + unsafe { ((keys.add(4) as *const u32).read_unaligned() < n) as usize }
-                    + unsafe { ((keys.add(8) as *const u32).read_unaligned() < n) as usize }
-                    + unsafe { ((keys.add(12) as *const u32).read_unaligned() < n) as usize }
-            }
-        } else {
-            // SAFETY: keys holds pop * KB bytes.
-            let c0 = unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 0) < needle) as usize };
-            if pop == 1 {
-                c0
-            } else if pop == 2 {
-                // SAFETY: keys holds 2 entries.
-                c0 + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 1) < needle) as usize }
-            } else if pop == 3 {
-                // SAFETY: keys holds 3 entries.
-                c0 + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 1) < needle) as usize }
-                    + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 2) < needle) as usize }
-            } else {
-                // SAFETY: keys holds 4 entries.
-                c0 + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 1) < needle) as usize }
-                    + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 2) < needle) as usize }
-                    + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 3) < needle) as usize }
-            }
+            i += 4;
         }
+        while i < pop {
+            // SAFETY: i < pop, caller guarantees pop * KB readable bytes.
+            unsafe {
+                let k = crate::mutate::read_packed_fixed::<KB>(keys, i);
+                count += (k < needle) as usize;
+            }
+            i += 1;
+        }
+        count
     } else {
         let (mut lo, mut hi) = (0usize, pop);
         while lo < hi {
@@ -632,69 +583,6 @@ pub(crate) unsafe fn search_fixed<const KB: usize>(
             crate::bits::search_8_u16(keys, 8, key as u16)
         } else if KB == 4 && pop == 4 {
             crate::bits::search_4_u32(keys, 4, key as u32)
-        } else if pop <= 4 {
-            let needle = crate::mutate::key_low(key, KB as u8);
-            if KB == 1 {
-                let n = needle as u8;
-                if pop >= 1 && *keys == n {
-                    return Some(0);
-                }
-                if pop >= 2 && *keys.add(1) == n {
-                    return Some(1);
-                }
-                if pop >= 3 && *keys.add(2) == n {
-                    return Some(2);
-                }
-                if pop >= 4 && *keys.add(3) == n {
-                    return Some(3);
-                }
-                return None;
-            }
-            if KB == 2 {
-                let n = needle as u16;
-                if pop >= 1 && (keys as *const u16).read_unaligned() == n {
-                    return Some(0);
-                }
-                if pop >= 2 && (keys.add(2) as *const u16).read_unaligned() == n {
-                    return Some(1);
-                }
-                if pop >= 3 && (keys.add(4) as *const u16).read_unaligned() == n {
-                    return Some(2);
-                }
-                if pop >= 4 && (keys.add(6) as *const u16).read_unaligned() == n {
-                    return Some(3);
-                }
-                return None;
-            }
-            if KB == 4 {
-                let n = needle as u32;
-                if pop >= 1 && (keys as *const u32).read_unaligned() == n {
-                    return Some(0);
-                }
-                if pop >= 2 && (keys.add(4) as *const u32).read_unaligned() == n {
-                    return Some(1);
-                }
-                if pop >= 3 && (keys.add(8) as *const u32).read_unaligned() == n {
-                    return Some(2);
-                }
-                if pop >= 4 && (keys.add(12) as *const u32).read_unaligned() == n {
-                    return Some(3);
-                }
-                return None;
-            }
-            if pop >= 1 && crate::mutate::read_packed_fixed::<KB>(keys, 0) == needle {
-                return Some(0);
-            }
-            if pop >= 2 && crate::mutate::read_packed_fixed::<KB>(keys, 1) == needle {
-                return Some(1);
-            }
-            if pop >= 3 && crate::mutate::read_packed_fixed::<KB>(keys, 2) == needle {
-                return Some(2);
-            }
-            if pop >= 4 && crate::mutate::read_packed_fixed::<KB>(keys, 3) == needle {
-                return Some(3);
-            }
-            None
         } else {
             let needle = crate::mutate::key_low(key, KB as u8);
             let pos = lower_bound_fixed::<KB>(keys, pop, needle);
@@ -712,7 +600,7 @@ pub(crate) unsafe fn search_fixed<const KB: usize>(
 /// # Safety
 ///
 /// `keys` must be valid for reads of `key_bytes * pop` bytes.
-#[inline]
+#[inline(always)]
 #[must_use]
 pub unsafe fn search(keys: *const u8, pop: usize, key_bytes: u8, key: Key) -> Option<usize> {
     debug_assert!((1..=7).contains(&key_bytes));
