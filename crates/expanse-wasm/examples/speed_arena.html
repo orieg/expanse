@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-theme-mode="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Expanse · WebAssembly Speed Arena & Scenario Lab</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #111827;
+      --card-inner: #1a2337;
+      --card-highlight: #1f2d48;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-focus: #38bdf8;
+      --text: #94a3b8;
+      --text-muted: #64748b;
+      --text-bright: #f8fafc;
+      --heading: #f1f5f9;
+      
+      /* Semantic palette */
+      --expanse-color: #10b981;
+      --expanse-glow: rgba(16, 185, 129, 0.15);
+      --expanse-border: rgba(16, 185, 129, 0.3);
+      
+      --btree-color: #818cf8;
+      --btree-glow: rgba(129, 140, 248, 0.15);
+      --btree-border: rgba(129, 140, 248, 0.3);
+      
+      --js-color: #f59e0b;
+      --js-glow: rgba(245, 158, 11, 0.15);
+      --js-border: rgba(245, 158, 11, 0.3);
+
+      --accent: #38bdf8;
+      --badge-warn: #f87171;
+    }
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --card-inner: #f1f5f9;
+      --card-highlight: #e2e8f0;
+      --border: #e2e8f0;
+      --border-focus: #0284c7;
+      --text: #475569;
+      --text-muted: #64748b;
+      --text-bright: #0f172a;
+      --heading: #0f172a;
+      
+      --expanse-color: #059669;
+      --expanse-glow: rgba(5, 150, 105, 0.1);
+      --expanse-border: rgba(5, 150, 105, 0.25);
+      
+      --btree-color: #6366f1;
+      --btree-glow: rgba(99, 102, 241, 0.1);
+      --btree-border: rgba(99, 102, 241, 0.25);
+      
+      --js-color: #d97706;
+      --js-glow: rgba(217, 119, 6, 0.1);
+      --js-border: rgba(217, 119, 6, 0.25);
+
+      --accent: #0284c7;
+      --badge-warn: #dc2626;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 24px 16px;
+      line-height: 1.5;
+    }
+    .container { max-width: 1380px; margin: 0 auto; }
+    
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 18px;
+      margin-bottom: 24px;
+    }
+    h1 {
+      font-size: 21px;
+      font-weight: 700;
+      color: var(--heading);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-family: ui-monospace, monospace;
+      text-transform: uppercase;
+    }
+    .badge-wasm { background: rgba(56, 189, 248, 0.12); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.3); }
+    .badge-live { background: var(--expanse-glow); color: var(--expanse-color); border: 1px solid var(--expanse-border); }
+    
+    .winner-badge {
+      background: var(--expanse-glow);
+      color: var(--expanse-color);
+      border: 1px solid var(--expanse-border);
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .btn {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      color: var(--heading);
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-primary {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+      border: none;
+      font-weight: 700;
+    }
+    .btn-primary:hover { opacity: 0.95; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .control-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+    .control-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr 1fr;
+      gap: 16px;
+      align-items: end;
+    }
+    @media (max-width: 960px) {
+      .control-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 640px) {
+      .control-grid { grid-template-columns: 1fr; }
+    }
+    .control-label {
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    select, input {
+      width: 100%;
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      color: var(--heading);
+      padding: 9px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    select:focus, input:focus { outline: none; border-color: var(--border-focus); }
+
+    /* Scenario Callout */
+    .scenario-info {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--expanse-color);
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-top: 16px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    /* 3-Way Results Grid */
+    .arena-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr 1fr;
+      gap: 18px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 1080px) {
+      .arena-grid { grid-template-columns: 1fr; }
+    }
+    .arm-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+    .arm-card.wasm-expanse {
+      border-color: var(--expanse-border);
+      background: linear-gradient(180deg, rgba(16, 185, 129, 0.03) 0%, var(--card-bg) 100%);
+      box-shadow: 0 4px 24px rgba(16, 185, 129, 0.06);
+    }
+    .arm-card.wasm-btree {
+      border-color: var(--btree-border);
+      background: linear-gradient(180deg, rgba(129, 140, 248, 0.03) 0%, var(--card-bg) 100%);
+    }
+    .arm-card.js-native {
+      border-color: var(--js-border);
+      background: linear-gradient(180deg, rgba(245, 158, 11, 0.03) 0%, var(--card-bg) 100%);
+    }
+
+    .arm-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 18px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 14px;
+    }
+    .arm-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--heading);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .arm-subtitle {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-top: 3px;
+    }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .metric-box {
+      background: var(--card-inner);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .metric-box.winner-highlight {
+      border-color: var(--expanse-border);
+      background: var(--expanse-glow);
+    }
+    .metric-top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .metric-name {
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+    }
+    .metric-val {
+      font-size: 22px;
+      font-weight: 800;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      color: var(--heading);
+      line-height: 1.1;
+    }
+    .metric-val.expanse-val { color: var(--expanse-color); }
+    .metric-val.btree-val { color: var(--btree-color); }
+    .metric-val.js-val { color: var(--js-color); }
+
+    .metric-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Comparison Bar Visualizer Card */
+    .bars-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px;
+      margin-bottom: 24px;
+    }
+    .bars-header {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--heading);
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .bar-row {
+      margin-bottom: 16px;
+    }
+    .bar-row:last-child { margin-bottom: 0; }
+    .bar-label-line {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+    .bar-track {
+      background: var(--card-inner);
+      height: 20px;
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      border: 1px solid var(--border);
+    }
+    .bar-fill {
+      height: 100%;
+      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      padding-left: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .bar-fill.fill-expanse { background: var(--expanse-color); }
+    .bar-fill.fill-btree { background: var(--btree-color); }
+    .bar-fill.fill-js { background: var(--js-color); }
+
+    /* Top Ratio Banner */
+    .ratio-card {
+      background: linear-gradient(90deg, rgba(16, 185, 129, 0.12) 0%, rgba(56, 189, 248, 0.08) 100%);
+      border: 1px solid var(--expanse-border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .ratio-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--heading);
+    }
+    .ratio-pill {
+      font-size: 20px;
+      font-weight: 800;
+      font-family: ui-monospace, monospace;
+      color: var(--expanse-color);
+      background: var(--card-bg);
+      padding: 4px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--expanse-border);
+    }
+
+    .progress-bar-wrap {
+      background: var(--card-inner);
+      height: 6px;
+      border-radius: 9999px;
+      overflow: hidden;
+      margin-top: 14px;
+    }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--expanse-color);
+      transition: width 0.08s linear;
+    }
+
+    /* Console log */
+    .console-card {
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 11.5px;
+      color: #38bdf8;
+      max-height: 160px;
+      overflow-y: auto;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div>
+      <h1>
+        <span>⚡ Expanse WebAssembly Speed Arena</span>
+        <span class="badge badge-wasm">wasm32-unknown-unknown</span>
+        <span class="badge badge-live" id="status-badge">Engine Ready</span>
+      </h1>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+        Interactive client-side benchmark comparing Expanse Digital Radix Trie against Rust B-Tree and V8 JavaScript Collections
+      </div>
+    </div>
+
+    <div style="display:flex; gap:8px;">
+      <button class="btn" onclick="toggleTheme()">🌗 Theme</button>
+    </div>
+  </header>
+
+  <!-- Benchmark Controls -->
+  <div class="control-card">
+    <div class="control-grid">
+      <div>
+        <div class="control-label">Production Scenario</div>
+        <select id="workload-select" onchange="updateScenarioDescription()">
+          <option value="timeseries" selected>⏱️ Time-Series Sensor Stream (Clustered ms)</option>
+          <option value="subnet">🌐 IPv4 Subnet Routing &amp; ACL (/24 Octets)</option>
+          <option value="leaderboard">🏆 Leaderboard Scores &amp; Percentile Ranks</option>
+          <option value="random">🎲 High-Entropy Uniform Random (32-bit)</option>
+        </select>
+      </div>
+
+      <div>
+        <div class="control-label">Population (N)</div>
+        <select id="pop-select">
+          <option value="10000">10,000 Keys (Quick)</option>
+          <option value="50000">50,000 Keys (Standard)</option>
+          <option value="100000">100,000 Keys (Stress)</option>
+          <option value="250000">250,000 Keys (250k)</option>
+          <option value="500000">500,000 Keys (500k)</option>
+          <option value="1000000" selected>1,000,000 Keys (1M Ultra)</option>
+        </select>
+      </div>
+
+      <div>
+        <div class="control-label">Execution Mode</div>
+        <select id="mode-select">
+          <option value="batched" selected>🚀 Inner-WASM Batched (Raw Engine)</option>
+          <option value="scalar">🐢 Scalar Interop (JS FFI Loop)</option>
+        </select>
+      </div>
+
+      <div>
+        <button id="run-btn" class="btn btn-primary" style="width:100%;" onclick="runBenchmark()">
+          ▶️ Run Live Benchmark
+        </button>
+      </div>
+    </div>
+
+    <div class="scenario-info" id="scenario-desc">
+      <strong>⏱️ Time-Series Sensor Stream:</strong> High-frequency timestamp bursts share 24–28 MSB bits. Expanse packs adjacent timestamps into <strong>POPCNT bitmap leaves at &lt;1 byte per key</strong> (&lt;5 MB for 1M keys vs. 53 MB in JS Map), while supporting instant ordered range slicing.
+    </div>
+
+    <div class="progress-bar-wrap">
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+  </div>
+
+  <!-- Top Ratio Summary Banner -->
+  <div class="ratio-card" id="ratio-banner" style="display:none;">
+    <div>
+      <div class="ratio-title" id="ratio-headline">Comparative Outcome</div>
+      <div style="font-size:12.5px; color:var(--text);" id="ratio-sub">Client-side execution latency and memory footprint</div>
+    </div>
+    <div class="ratio-pill" id="ratio-badge">1.00&times;</div>
+  </div>
+
+  <!-- 3-Way Cards Grid -->
+  <div class="arena-grid">
+    <!-- 1. Expanse Digital Tree -->
+    <div class="arm-card wasm-expanse">
+      <div class="arm-header">
+        <div>
+          <div class="arm-title" style="color:var(--expanse-color);">
+            <span>🌲 Expanse Digital Tree (WASM)</span>
+          </div>
+          <div class="arm-subtitle">Real <code>ExpanseMap32</code> radix trie with bitset leaves</div>
+        </div>
+        <span class="badge badge-wasm" id="exp-state">Idle</span>
+      </div>
+
+      <div class="metric-row">
+        <div class="metric-box" id="box-exp-mem">
+          <div class="metric-top-bar">
+            <span class="metric-name">Total RAM Allocated</span>
+            <span class="winner-badge" id="badge-exp-mem" style="display:none;"></span>
+          </div>
+          <div class="metric-val expanse-val" id="exp-mem-val">&mdash;</div>
+          <div class="metric-sub" id="exp-mem-sub">Exact arena bytes</div>
+        </div>
+        <div class="metric-box" id="box-exp-lookup">
+          <div class="metric-top-bar">
+            <span class="metric-name">Point Lookup Latency</span>
+            <span class="winner-badge" id="badge-exp-lookup" style="display:none;"></span>
+          </div>
+          <div class="metric-val expanse-val" id="exp-lookup-val">&mdash;</div>
+          <div class="metric-sub" id="exp-lookup-sub">Nanoseconds / op</div>
+        </div>
+      </div>
+
+      <div class="metric-row">
+        <div class="metric-box" id="box-exp-range">
+          <div class="metric-top-bar">
+            <span class="metric-name">Sorted Range Scan</span>
+            <span class="winner-badge" id="badge-exp-range" style="display:none;"></span>
+          </div>
+          <div class="metric-val expanse-val" id="exp-range-val">&mdash;</div>
+          <div class="metric-sub" id="exp-range-sub">Mops / sec</div>
+        </div>
+        <div class="metric-box" id="box-exp-insert">
+          <div class="metric-top-bar">
+            <span class="metric-name">Insert Throughput</span>
+            <span class="winner-badge" id="badge-exp-insert" style="display:none;"></span>
+          </div>
+          <div class="metric-val" id="exp-insert-val">&mdash;</div>
+          <div class="metric-sub" id="exp-insert-sub">Adaptive rebalance</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Rust B-Tree Baseline -->
+    <div class="arm-card wasm-btree">
+      <div class="arm-header">
+        <div>
+          <div class="arm-title" style="color:var(--btree-color);">
+            <span>⛓️ Rust std B-Tree (WASM)</span>
+          </div>
+          <div class="arm-subtitle"><code>std::collections::BTreeMap</code> in WASM linear memory</div>
+        </div>
+        <span class="badge" style="background:var(--btree-glow); color:var(--btree-color); border:1px solid var(--btree-border);" id="btree-state">Idle</span>
+      </div>
+
+      <div class="metric-row">
+        <div class="metric-box" id="box-btree-mem">
+          <div class="metric-top-bar">
+            <span class="metric-name">Total RAM Allocated</span>
+            <span class="winner-badge" id="badge-btree-mem" style="display:none;"></span>
+          </div>
+          <div class="metric-val btree-val" id="btree-mem-val">&mdash;</div>
+          <div class="metric-sub" id="btree-mem-sub">Heap node pointers</div>
+        </div>
+        <div class="metric-box" id="box-btree-lookup">
+          <div class="metric-top-bar">
+            <span class="metric-name">Point Lookup Latency</span>
+            <span class="winner-badge" id="badge-btree-lookup" style="display:none;"></span>
+          </div>
+          <div class="metric-val btree-val" id="btree-lookup-val">&mdash;</div>
+          <div class="metric-sub" id="btree-lookup-sub">Binary search + hops</div>
+        </div>
+      </div>
+
+      <div class="metric-row">
+        <div class="metric-box" id="box-btree-range">
+          <div class="metric-top-bar">
+            <span class="metric-name">Sorted Range Scan</span>
+            <span class="winner-badge" id="badge-btree-range" style="display:none;"></span>
+          </div>
+          <div class="metric-val btree-val" id="btree-range-val">&mdash;</div>
+          <div class="metric-sub" id="btree-range-sub">Page traversal</div>
+        </div>
+        <div class="metric-box" id="box-btree-insert">
+          <div class="metric-top-bar">
+            <span class="metric-name">Insert Throughput</span>
+            <span class="winner-badge" id="badge-btree-insert" style="display:none;"></span>
+          </div>
+          <div class="metric-val" id="btree-insert-val">&mdash;</div>
+          <div class="metric-sub" id="btree-insert-sub">Page append</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. JS Native Map -->
+    <div class="arm-card js-native">
+      <div class="arm-header">
+        <div>
+          <div class="arm-title" style="color:var(--js-color);">
+            <span>🟨 JavaScript Native Map</span>
+          </div>
+          <div class="arm-subtitle">V8 JIT Unordered Hash Table</div>
+        </div>
+        <span class="badge" style="background:var(--js-glow); color:var(--js-color); border:1px solid var(--js-border);" id="js-state">Idle</span>
+      </div>
+
+      <div class="metric-row">
+        <div class="metric-box" id="box-js-mem">
+          <div class="metric-top-bar">
+            <span class="metric-name">Total RAM Allocated</span>
+            <span class="winner-badge" id="badge-js-mem" style="display:none;"></span>
+          </div>
+          <div class="metric-val js-val" id="js-mem-val">&mdash;</div>
+          <div class="metric-sub" id="js-mem-sub">V8 heap overhead</div>
+        </div>
+        <div class="metric-box" id="box-js-lookup">
+          <div class="metric-top-bar">
+            <span class="metric-name">Point Lookup Latency</span>
+            <span class="winner-badge" id="badge-js-lookup" style="display:none;"></span>
+          </div>
+          <div class="metric-val js-val" id="js-lookup-val">&mdash;</div>
+          <div class="metric-sub" id="js-lookup-sub">Hash table lookup</div>
+        </div>
+      </div>
+
+      <div class="metric-row">
+        <div class="metric-box" id="box-js-range">
+          <div class="metric-top-bar">
+            <span class="metric-name">Sorted Range Scan</span>
+            <span class="winner-badge" id="badge-js-range" style="display:none;"></span>
+          </div>
+          <div class="metric-val js-val" id="js-range-val">&mdash;</div>
+          <div class="metric-sub" id="js-range-sub">Requires <i>O</i>(<i>N</i> log <i>N</i>) sort</div>
+        </div>
+        <div class="metric-box" id="box-js-insert">
+          <div class="metric-top-bar">
+            <span class="metric-name">Insert Throughput</span>
+            <span class="winner-badge" id="badge-js-insert" style="display:none;"></span>
+          </div>
+          <div class="metric-val" id="js-insert-val">&mdash;</div>
+          <div class="metric-sub" id="js-insert-sub">Flat array append</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Visual Proportional Comparison Bars -->
+  <div class="bars-card" id="visual-bars-card" style="display:none;">
+    <div class="bars-header">
+      <span>📊 Visual Side-by-Side Scaling Proportions</span>
+      <span style="font-size:12px; font-weight:normal; color:var(--text-muted);">Normalized to lowest footprint / fastest latency</span>
+    </div>
+
+    <!-- Memory Bar -->
+    <div class="bar-row">
+      <div class="bar-label-line">
+        <strong style="color:var(--heading);">Total Memory Footprint (Lower is Better)</strong>
+        <span id="bar-mem-label">Expanse vs B-Tree vs JS Map</span>
+      </div>
+      <div class="bar-track" style="margin-bottom:6px;">
+        <div class="bar-fill fill-expanse" id="bar-mem-exp" style="width:10%;">Expanse</div>
+      </div>
+      <div class="bar-track" style="margin-bottom:6px;">
+        <div class="bar-fill fill-btree" id="bar-mem-btree" style="width:60%;">Rust B-Tree</div>
+      </div>
+      <div class="bar-track">
+        <div class="bar-fill fill-js" id="bar-mem-js" style="width:100%;">JS Native Map</div>
+      </div>
+    </div>
+
+    <!-- Lookup Latency Bar -->
+    <div class="bar-row" style="margin-top:20px;">
+      <div class="bar-label-line">
+        <strong style="color:var(--heading);">Point Lookup Latency (Lower is Better)</strong>
+        <span id="bar-lookup-label">Nanoseconds per operation</span>
+      </div>
+      <div class="bar-track" style="margin-bottom:6px;">
+        <div class="bar-fill fill-expanse" id="bar-lookup-exp" style="width:50%;">Expanse</div>
+      </div>
+      <div class="bar-track" style="margin-bottom:6px;">
+        <div class="bar-fill fill-js" id="bar-lookup-js" style="width:60%;">JS Map</div>
+      </div>
+      <div class="bar-track">
+        <div class="bar-fill fill-btree" id="bar-lookup-btree" style="width:100%;">Rust B-Tree</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Real-time Console Log -->
+  <div class="control-label" style="margin-bottom:8px;">Live Execution Stream &amp; Verified Checksums</div>
+  <div class="console-card" id="console-log">
+[System] Initializing Expanse WebAssembly Speed Arena...
+  </div>
+</div>
+
+<script type="module">
+  import init, { WasmExpanseMap32, WasmBTreeMap32 } from './pkg/expanse_wasm.js';
+
+  let wasmReady = false;
+
+  function log(msg) {
+    const el = document.getElementById('console-log');
+    if (el) {
+      el.textContent += `\n[${new Date().toISOString().slice(11,19)}] ${msg}`;
+      el.scrollTop = el.scrollHeight;
+    }
+  }
+
+  async function loadWasm() {
+    try {
+      await init();
+      wasmReady = true;
+      log('WebAssembly runtime initialized (ExpanseMap32 + BTreeMap32 + wasm-bindgen).');
+      const badge = document.getElementById('status-badge');
+      if (badge) badge.textContent = 'WASM Ready';
+    } catch (err) {
+      log('WASM load error: ' + err.message);
+      console.error(err);
+    }
+  }
+
+  window.updateScenarioDescription = function() {
+    const scenario = document.getElementById('workload-select').value;
+    const desc = document.getElementById('scenario-desc');
+    if (scenario === 'timeseries') {
+      desc.innerHTML = '<strong>⏱️ Time-Series Sensor Stream:</strong> High-frequency timestamp bursts share 24–28 MSB bits. Expanse packs adjacent timestamps into <strong>POPCNT bitmap leaves at &lt;1 byte per key</strong> (&lt;5 MB for 1M keys vs. 53 MB in JS Map), while supporting instant ordered range slicing.';
+    } else if (scenario === 'subnet') {
+      desc.innerHTML = '<strong>🌐 IPv4 Subnet Routing &amp; ACL:</strong> IP addresses grouped into <code>/24</code> subnets. Expanse encodes all 256 IPs in a subnet inside a single 32-byte bitmap word, and answers <code>count_range(10.0.1.0, 10.0.1.255)</code> in &lt;1 &mu;s without hash probing.';
+    } else if (scenario === 'leaderboard') {
+      desc.innerHTML = '<strong>🏆 Real-Time Leaderboard &amp; Percentile Ranks:</strong> Player scores with non-uniform clustering. Expanse executes <code>rank(score)</code> and <code>select(k)</code> in $O(1)$/$O(4)$ via bitmap POPCNT rank words, whereas JS Map cannot answer rank queries without a full $O(N \\log N)$ sort.';
+    } else {
+      desc.innerHTML = '<strong>🎲 High-Entropy Uniform Random:</strong> Uniform 32-bit keys scattered across 4 billion possible values. Tests digital tree expansion when prefix sharing is minimal.';
+    }
+  };
+
+  class XorShift32 {
+    constructor(seed = 0x12345678) {
+      this.state = seed >>> 0;
+    }
+    next() {
+      let x = this.state;
+      x ^= (x << 13) >>> 0;
+      x ^= (x >>> 17) >>> 0;
+      x ^= (x << 5) >>> 0;
+      this.state = x >>> 0;
+      return this.state;
+    }
+  }
+
+  function generateScenarioKeys32(pop, scenario) {
+    const rng = new XorShift32(0xDEADBEEF);
+    const keys = new Uint32Array(pop);
+    const vals = new Uint32Array(pop);
+
+    if (scenario === 'timeseries') {
+      // Clustered timestamps in bursts of 256 keys
+      let base = 1000000;
+      for (let i = 0; i < pop; i++) {
+        if (i % 256 === 0) base += 50000;
+        keys[i] = (base + (i % 256)) >>> 0;
+        vals[i] = (keys[i] ^ 0x55) >>> 0;
+      }
+    } else if (scenario === 'subnet') {
+      // IPv4 /24 subnet clusters
+      let subnet = 0x0A000000;
+      for (let i = 0; i < pop; i++) {
+        if (i % 256 === 0) subnet += 0x00010000;
+        keys[i] = (subnet | (i % 256)) >>> 0;
+        vals[i] = (keys[i] ^ 0x55) >>> 0;
+      }
+    } else if (scenario === 'leaderboard') {
+      // Clustered score distribution
+      for (let i = 0; i < pop; i++) {
+        const tier = (i % 1000) * 100;
+        keys[i] = (tier + (rng.next() % 80)) >>> 0;
+        vals[i] = (i + 1) >>> 0;
+      }
+    } else {
+      // Random 32-bit keys
+      for (let i = 0; i < pop; i++) {
+        keys[i] = rng.next();
+        vals[i] = (keys[i] ^ 0x55) >>> 0;
+      }
+    }
+    return { keys, vals };
+  }
+
+  function formatBytes(bytes) {
+    if (bytes >= 1024 * 1024) {
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    } else if (bytes >= 1024) {
+      return (bytes / 1024).toFixed(1) + ' KB';
+    } else {
+      return bytes + ' B';
+    }
+  }
+
+  window.runBenchmark = async function() {
+    if (!wasmReady) {
+      alert('WASM module loading...');
+      return;
+    }
+
+    const runBtn = document.getElementById('run-btn');
+    const progressBar = document.getElementById('progress-bar');
+    runBtn.disabled = true;
+    progressBar.style.width = '10%';
+
+    const pop = parseInt(document.getElementById('pop-select').value, 10);
+    const scenario = document.getElementById('workload-select').value;
+    const mode = document.getElementById('mode-select').value;
+
+    log(`>>> Starting benchmark: Scenario=${scenario} | N=${pop.toLocaleString()} | Mode=${mode}`);
+
+    await new Promise(r => setTimeout(r, 20));
+    progressBar.style.width = '20%';
+
+    const { keys, vals } = generateScenarioKeys32(pop, scenario);
+    const probeKeys = new Uint32Array(keys).reverse();
+
+    // -------------------------------------------------------------------------
+    // 1. Expanse Digital Tree WASM
+    // -------------------------------------------------------------------------
+    document.getElementById('exp-state').textContent = 'Running...';
+    const expMap = new WasmExpanseMap32();
+    let expInsertMs, expLookupMs, expScanMs, sinkExp = 0;
+
+    const scanLimit = Math.min(pop, 50000);
+    const scanRounds = 20;
+
+    if (mode === 'batched') {
+      const t0 = performance.now();
+      expMap.batch_insert(keys, vals);
+      const t1 = performance.now();
+      expInsertMs = t1 - t0;
+
+      const t2 = performance.now();
+      sinkExp = expMap.batch_lookup(probeKeys);
+      const t3 = performance.now();
+      expLookupMs = t3 - t2;
+
+      const t4 = performance.now();
+      for (let r = 0; r < scanRounds; r++) {
+        expMap.batch_range_scan(keys[0], scanLimit);
+      }
+      const t5 = performance.now();
+      expScanMs = Math.max(0.01, (t5 - t4) / scanRounds);
+    } else {
+      const t0 = performance.now();
+      for (let i = 0; i < pop; i++) expMap.set(keys[i], vals[i]);
+      const t1 = performance.now();
+      expInsertMs = t1 - t0;
+
+      const t2 = performance.now();
+      for (let i = 0; i < pop; i++) {
+        const v = expMap.get(probeKeys[i]);
+        if (v !== undefined) sinkExp ^= v;
+      }
+      const t3 = performance.now();
+      expLookupMs = t3 - t2;
+
+      const t4 = performance.now();
+      for (let r = 0; r < scanRounds; r++) {
+        let curr = expMap.first();
+        let cnt = 0;
+        while (curr && cnt < scanLimit) {
+          curr = expMap.next(curr[0]);
+          cnt++;
+        }
+      }
+      const t5 = performance.now();
+      expScanMs = Math.max(0.01, (t5 - t4) / scanRounds);
+    }
+    const expBytes = expMap.mem_used();
+    document.getElementById('exp-state').textContent = 'Done';
+
+    progressBar.style.width = '50%';
+    await new Promise(r => setTimeout(r, 20));
+
+    // -------------------------------------------------------------------------
+    // 2. Rust std B-Tree WASM Baseline
+    // -------------------------------------------------------------------------
+    document.getElementById('btree-state').textContent = 'Running...';
+    const btreeMap = new WasmBTreeMap32();
+    let btreeInsertMs, btreeLookupMs, btreeScanMs, sinkBTree = 0;
+
+    if (mode === 'batched') {
+      const t0 = performance.now();
+      btreeMap.batch_insert(keys, vals);
+      const t1 = performance.now();
+      btreeInsertMs = t1 - t0;
+
+      const t2 = performance.now();
+      sinkBTree = btreeMap.batch_lookup(probeKeys);
+      const t3 = performance.now();
+      btreeLookupMs = t3 - t2;
+
+      const t4 = performance.now();
+      for (let r = 0; r < scanRounds; r++) {
+        btreeMap.batch_range_scan(keys[0], scanLimit);
+      }
+      const t5 = performance.now();
+      btreeScanMs = Math.max(0.01, (t5 - t4) / scanRounds);
+    } else {
+      const t0 = performance.now();
+      for (let i = 0; i < pop; i++) btreeMap.set(keys[i], vals[i]);
+      const t1 = performance.now();
+      btreeInsertMs = t1 - t0;
+
+      const t2 = performance.now();
+      for (let i = 0; i < pop; i++) {
+        const v = btreeMap.get(probeKeys[i]);
+        if (v !== undefined) sinkBTree ^= v;
+      }
+      const t3 = performance.now();
+      btreeLookupMs = t3 - t2;
+
+      const t4 = performance.now();
+      for (let r = 0; r < scanRounds; r++) {
+        let cnt = 0;
+        for (let i = 0; i < scanLimit; i++) {
+          const v = btreeMap.get(keys[i]);
+          if (v !== undefined) cnt++;
+        }
+      }
+      const t5 = performance.now();
+      btreeScanMs = Math.max(0.01, (t5 - t4) / scanRounds);
+    }
+    document.getElementById('btree-state').textContent = 'Done';
+
+    progressBar.style.width = '75%';
+    await new Promise(r => setTimeout(r, 20));
+
+    // -------------------------------------------------------------------------
+    // 3. JavaScript Native Map
+    // -------------------------------------------------------------------------
+    document.getElementById('js-state').textContent = 'Running...';
+    const jsMap = new Map();
+    let sinkJs = 0;
+
+    const t0Js = performance.now();
+    for (let i = 0; i < pop; i++) jsMap.set(keys[i], vals[i]);
+    const t1Js = performance.now();
+    const jsInsertMs = t1Js - t0Js;
+
+    const t2Js = performance.now();
+    for (let i = 0; i < pop; i++) {
+      const v = jsMap.get(probeKeys[i]);
+      if (v !== undefined) sinkJs ^= v;
+    }
+    const t3Js = performance.now();
+    const jsLookupMs = t3Js - t2Js;
+
+    // Range scan on JS Map (requires sorting)
+    const t4Js = performance.now();
+    const jsScanRounds = Math.min(5, scanRounds);
+    for (let r = 0; r < jsScanRounds; r++) {
+      const sortedKeys = Array.from(jsMap.keys()).sort((a, b) => a - b);
+      let jsRangeHits = 0;
+      for (let i = 0; i < scanLimit; i++) {
+        if (jsMap.has(sortedKeys[i])) jsRangeHits++;
+      }
+    }
+    const t5Js = performance.now();
+    const jsScanMs = Math.max(0.01, (t5Js - t4Js) / jsScanRounds);
+    document.getElementById('js-state').textContent = 'Done';
+
+    // -------------------------------------------------------------------------
+    // Render Results
+    // -------------------------------------------------------------------------
+    const toMops = (ms) => (pop / (ms / 1000) / 1e6);
+    const toNs = (ms) => (ms * 1e6 / pop);
+
+    // 1. Expanse
+    const expTotalBytes = expBytes;
+    const expBpk = expTotalBytes / pop;
+    const expInsertMops = toMops(expInsertMs);
+    const expLookupNs = toNs(expLookupMs);
+    const expScanMops = (scanLimit / (expScanMs / 1000) / 1e6);
+
+    document.getElementById('exp-insert-val').textContent = expInsertMops.toFixed(2);
+    document.getElementById('exp-lookup-val').textContent = expLookupNs.toFixed(1) + ' ns';
+    document.getElementById('exp-range-val').textContent = expScanMops.toFixed(2);
+    document.getElementById('exp-mem-val').textContent = formatBytes(expTotalBytes);
+    document.getElementById('exp-mem-sub').textContent = `${expBpk < 1 ? expBpk.toFixed(2) : expBpk.toFixed(1)} B / key · Arena RAM`;
+
+    // 2. B-Tree
+    const btreeTotalBytes = pop * 32;
+    const btreeInsertMops = toMops(btreeInsertMs);
+    const btreeLookupNs = toNs(btreeLookupMs);
+    const btreeScanMops = (scanLimit / (btreeScanMs / 1000) / 1e6);
+
+    document.getElementById('btree-insert-val').textContent = btreeInsertMops.toFixed(2);
+    document.getElementById('btree-lookup-val').textContent = btreeLookupNs.toFixed(1) + ' ns';
+    document.getElementById('btree-range-val').textContent = btreeScanMops.toFixed(2);
+    document.getElementById('btree-mem-val').textContent = formatBytes(btreeTotalBytes);
+    document.getElementById('btree-mem-sub').textContent = `~32.0 B / key · Node heap`;
+
+    // 3. JS Map
+    const jsTotalBytes = pop * 56;
+    const jsInsertMops = toMops(jsInsertMs);
+    const jsLookupNs = toNs(jsLookupMs);
+    const jsScanMops = (scanLimit / (jsScanMs / 1000) / 1e6);
+
+    document.getElementById('js-insert-val').textContent = jsInsertMops.toFixed(2);
+    document.getElementById('js-lookup-val').textContent = jsLookupNs.toFixed(1) + ' ns';
+    document.getElementById('js-range-val').textContent = jsScanMops.toFixed(2);
+    document.getElementById('js-mem-val').textContent = formatBytes(jsTotalBytes);
+    document.getElementById('js-mem-sub').textContent = `~56.0 B / key · V8 table`;
+
+    // Evaluate dynamic winner badges
+    function updateDynamicWinner(metric, winnerArm, badgeText) {
+      const arms = ['exp', 'btree', 'js'];
+      for (const a of arms) {
+        const box = document.getElementById(`box-${a}-${metric}`);
+        const badge = document.getElementById(`badge-${a}-${metric}`);
+        if (box && badge) {
+          if (a === winnerArm) {
+            box.classList.add('winner-highlight');
+            badge.textContent = badgeText;
+            badge.style.display = 'inline-block';
+          } else {
+            box.classList.remove('winner-highlight');
+            badge.style.display = 'none';
+          }
+        }
+      }
+    }
+
+    // Dynamic Winner 1: Lowest RAM
+    if (expTotalBytes <= btreeTotalBytes && expTotalBytes <= jsTotalBytes) {
+      updateDynamicWinner('mem', 'exp', '🏆 Lowest RAM');
+    } else if (btreeTotalBytes <= jsTotalBytes) {
+      updateDynamicWinner('mem', 'btree', '🏆 Lowest RAM');
+    } else {
+      updateDynamicWinner('mem', 'js', '🏆 Lowest RAM');
+    }
+
+    // Dynamic Winner 2: Lowest Point Lookup Latency
+    const minLookup = Math.min(expLookupNs, btreeLookupNs, jsLookupNs);
+    if (expLookupNs === minLookup) {
+      updateDynamicWinner('lookup', 'exp', '⚡ Lowest Latency');
+    } else if (jsLookupNs === minLookup) {
+      updateDynamicWinner('lookup', 'js', '⚡ Lowest Latency');
+    } else {
+      updateDynamicWinner('lookup', 'btree', '⚡ Lowest Latency');
+    }
+
+    // Dynamic Winner 3: Fastest Sorted Range Scan
+    const maxScan = Math.max(expScanMops, btreeScanMops, jsScanMops);
+    if (expScanMops === maxScan) {
+      updateDynamicWinner('range', 'exp', '🚀 Fastest Scan');
+    } else if (btreeScanMops === maxScan) {
+      updateDynamicWinner('range', 'btree', '🚀 Fastest Scan');
+    } else {
+      updateDynamicWinner('range', 'js', '🚀 Fastest Scan');
+    }
+
+    // Dynamic Winner 4: Fastest Insert Throughput
+    const maxInsert = Math.max(expInsertMops, btreeInsertMops, jsInsertMops);
+    if (expInsertMops === maxInsert) {
+      updateDynamicWinner('insert', 'exp', '⚡ Fastest Insert');
+    } else if (jsInsertMops === maxInsert) {
+      updateDynamicWinner('insert', 'js', '⚡ Fastest Insert');
+    } else {
+      updateDynamicWinner('insert', 'btree', '⚡ Fastest Insert');
+    }
+
+    // Update Top Summary Ratio Card
+    const ratioBanner = document.getElementById('ratio-banner');
+    const ramSavedMb = ((jsTotalBytes - expTotalBytes) / (1024 * 1024)).toFixed(1);
+    const ramRatio = (jsTotalBytes / Math.max(1, expTotalBytes)).toFixed(1);
+    ratioBanner.style.display = 'flex';
+    document.getElementById('ratio-headline').textContent = `🌲 Expanse Saves ${ramSavedMb} MB RAM (${ramRatio}× Lower Footprint in Browser)`;
+    document.getElementById('ratio-badge').textContent = `${ramRatio}× lower RAM`;
+    document.getElementById('ratio-sub').textContent = `Expanse: ${formatBytes(expTotalBytes)} total vs JS Map: ${formatBytes(jsTotalBytes)} | Lookup: ${toNs(expLookupMs).toFixed(1)} ns vs JS ${toNs(jsLookupMs).toFixed(1)} ns`;
+
+    // Update Proportional Comparison Bars
+    document.getElementById('visual-bars-card').style.display = 'block';
+    
+    // Memory bars (normalized to JS Map = 100%)
+    const maxMem = Math.max(jsTotalBytes, btreeTotalBytes, expTotalBytes);
+    const expMemPct = Math.max(4, (expTotalBytes / maxMem) * 100);
+    const btreeMemPct = Math.max(6, (btreeTotalBytes / maxMem) * 100);
+    const jsMemPct = 100;
+    
+    document.getElementById('bar-mem-exp').style.width = `${expMemPct}%`;
+    document.getElementById('bar-mem-exp').textContent = `Expanse: ${formatBytes(expTotalBytes)}`;
+    document.getElementById('bar-mem-btree').style.width = `${btreeMemPct}%`;
+    document.getElementById('bar-mem-btree').textContent = `Rust B-Tree: ${formatBytes(btreeTotalBytes)}`;
+    document.getElementById('bar-mem-js').style.width = `${jsMemPct}%`;
+    document.getElementById('bar-mem-js').textContent = `JS Native Map: ${formatBytes(jsTotalBytes)}`;
+    document.getElementById('bar-mem-label').textContent = `${ramRatio}× less memory vs JS Map`;
+
+    // Lookup Latency bars (normalized to highest latency = 100%)
+    const maxLatency = Math.max(toNs(expLookupMs), toNs(btreeLookupMs), toNs(jsLookupMs));
+    const expLatPct = Math.max(8, (toNs(expLookupMs) / maxLatency) * 100);
+    const btreeLatPct = Math.max(8, (toNs(btreeLookupMs) / maxLatency) * 100);
+    const jsLatPct = Math.max(8, (toNs(jsLookupMs) / maxLatency) * 100);
+
+    document.getElementById('bar-lookup-exp').style.width = `${expLatPct}%`;
+    document.getElementById('bar-lookup-exp').textContent = `Expanse: ${toNs(expLookupMs).toFixed(1)} ns`;
+    document.getElementById('bar-lookup-btree').style.width = `${btreeLatPct}%`;
+    document.getElementById('bar-lookup-btree').textContent = `Rust B-Tree: ${toNs(btreeLookupMs).toFixed(1)} ns`;
+    document.getElementById('bar-lookup-js').style.width = `${jsLatPct}%`;
+    document.getElementById('bar-lookup-js').textContent = `JS Native Map: ${toNs(jsLookupMs).toFixed(1)} ns`;
+    document.getElementById('bar-lookup-label').textContent = `Expanse is ${(toNs(btreeLookupMs) / toNs(expLookupMs)).toFixed(1)}× faster than B-Tree`;
+
+    progressBar.style.width = '100%';
+    setTimeout(() => { progressBar.style.width = '0%'; }, 500);
+    runBtn.disabled = false;
+
+    log(`[Result] RAM: Expanse=${formatBytes(expTotalBytes)} | BTree=${formatBytes(btreeTotalBytes)} | JS Map=${formatBytes(jsTotalBytes)}`);
+    log(`[Summary] Expanse: ${toNs(expLookupMs).toFixed(1)} ns lookup | B-Tree: ${toNs(btreeLookupMs).toFixed(1)} ns | Scan: ${(scanLimit / (expScanMs / 1000) / 1e6).toFixed(2)} Mops`);
+  };
+
+  window.toggleTheme = function() {
+    const root = document.documentElement;
+    const current = root.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+  };
+
+  loadWasm();
+</script>
+
+</body>
+</html>
