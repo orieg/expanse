@@ -512,6 +512,35 @@ def parse_allow_regression(pr_body: str) -> str | None:
     return None
 
 
+# A citation that locates a measurement: a CI run URL, or a repo-relative path
+# to a committed artifact. A bare commit SHA does not qualify — it names a
+# revision, not a measurement of it.
+CITATION = re.compile(
+    r"https?://github\.com/[\w.-]+/[\w.-]+/actions/runs/\d+"
+    r"|(?:results|docs|crates|scripts|benches)/[\w./-]+\.(?:json|txt|csv|md|svg)",
+    re.IGNORECASE,
+)
+
+
+def override_citation(reason: str) -> str | None:
+    """The resolvable citation in an `allow-regression:` reason, if any.
+
+    AGENTS.md §6 admits the override only when its reason carries a citation
+    that locates the measurement behind it — a CI run URL or a committed
+    artifact path — so every number the reason states can be checked against
+    a source. §8.7 already requires that of published numbers; the override
+    line was the one place a number decided a gate outcome while exempt.
+
+    Unsourced prose approves nothing. On #524 the reason
+    "reduces random lookup branch mispredictions by 45.6% (1.49 vs 2.74 per
+    probe)" turned the gate green over 25 regressions, worst +48.33%; the
+    count behind that figure appears in no run, and it compared a hit=100 arm
+    against a hit=50 baseline. The like-for-like value was -5.8%.
+    """
+    match = CITATION.search(reason)
+    return match.group(0) if match else None
+
+
 def head_parse_fatals(
     head: dict[str, dict[str, int]],
     base: dict[str, dict[str, int]] | None,
@@ -1022,6 +1051,7 @@ def check_regressions(
     allowed: bool = False,
     allow_reason: str | None = None,
     baseline_arms: set[str] | None = None,
+    void_reason: str | None = None,
 ) -> tuple[bool, list[str]]:
     """Evaluates if head introduces unacceptable instruction regressions vs base.
 
@@ -1062,12 +1092,24 @@ def check_regressions(
             messages.append(f"> - `{name}`: {fmt_delta(d_ins, is_bold=False)} ({ins:,} vs {b_ins:,})")
         return False, messages
 
-    messages.append(
-        f"> [!CAUTION]\n"
-        f"> **Performance regression detected**: {len(regressions)} benchmark(s) regressed > {noise_floor}% "
-        f"(worst: {worst:+.2f}%, threshold: {max_regression_pct}%).\n"
-        f"> To approve an intentional regression, add `allow-regression: <reason>` to the PR body.\n>"
-    )
+    if void_reason:
+        messages.append(
+            f"> [!CAUTION]\n"
+            f"> **Regression override is void — no resolvable citation**: {len(regressions)} benchmark(s) "
+            f"regressed > {noise_floor}% (worst: {worst:+.2f}%, threshold: {max_regression_pct}%).\n"
+            f"> An `allow-regression:` line is present but its reason cites no CI run URL and no committed "
+            f"artifact path, so the numbers in it cannot be checked (AGENTS.md \u00a76, \u00a78.7). "
+            f"The regression stands unapproved.\n"
+            f"> Reason as given: {void_reason}\n>"
+        )
+    else:
+        messages.append(
+            f"> [!CAUTION]\n"
+            f"> **Performance regression detected**: {len(regressions)} benchmark(s) regressed > {noise_floor}% "
+            f"(worst: {worst:+.2f}%, threshold: {max_regression_pct}%).\n"
+            f"> To approve an intentional regression, add `allow-regression: <reason>` to the PR body. The "
+            f"reason must cite a CI run URL or a committed artifact path that its numbers appear in.\n>"
+        )
     for name, d_ins, ins, b_ins in sorted(regressions, key=lambda x: -x[1]):
         messages.append(f"> - `{name}`: {fmt_delta(d_ins, is_bold=False)} ({ins:,} vs {b_ins:,})")
 
@@ -1558,6 +1600,41 @@ def self_test() -> int:
         "docs say `allow-regression: <reason>`\n\nallow-regression: OCC hardening cost"
     ) == "OCC hardening cost"
 
+    # 4b. An override reason must cite a run or an artifact (#527). Prose that
+    # states a number without a source approves nothing — the #524 shape.
+    assert override_citation(
+        "#480 trade: reduces random lookup branch mispredictions by 45.6% "
+        "(1.49 vs 2.74 per probe) via independent L1 loads"
+    ) is None
+    assert override_citation("intentional SIMD trade-off") is None
+    assert override_citation("approved by review") is None
+    assert (
+        override_citation("TLB win, run https://github.com/orieg/expanse/actions/runs/33325789949")
+        == "https://github.com/orieg/expanse/actions/runs/33325789949"
+    )
+    assert override_citation("paired CI in results/baseline_vs_libjudy.json")  == "results/baseline_vs_libjudy.json"
+    # A bare SHA names a revision, not a measurement of it.
+    assert override_citation("measured at commit 4c4e852") is None
+
+    # An unsourced override leaves the gate armed and says why.
+    regressed_head = {"map_get/random": {"Instructions": 1_480_000}}
+    regressed_base = {"map_get/random": {"Instructions": 1_000_000}}
+    failed, msgs = check_regressions(
+        regressed_head, regressed_base, allowed=False, void_reason="45.6% faster, trust me"
+    )
+    assert failed is True
+    assert "Regression override is void" in "\n".join(msgs)
+    assert "45.6% faster, trust me" in "\n".join(msgs)
+    # A cited override still approves.
+    failed, msgs = check_regressions(
+        regressed_head,
+        regressed_base,
+        allowed=True,
+        allow_reason="TLB win, run https://github.com/orieg/expanse/actions/runs/1",
+    )
+    assert failed is False
+    assert "override acknowledged" in "\n".join(msgs)
+
     # 5. Baseline degradation is loud, not a quiet chip.
     out = render(head=head, base=None, bytes_table=None, base_ref="origin/main", base_requested=True)
     assert "NO BASELINE — regression gate did not run" in out
@@ -1842,12 +1919,17 @@ def main() -> int:
     # form only; a bare substring or quoted policy text approves nothing).
     allowed = args.allow_regression
     allow_reason = args.allow_regression_reason
+    void_reason: str | None = None
     if args.pr_body_file:
         pr_body = read(args.pr_body_file) or ""
         reason = parse_allow_regression(pr_body)
         if reason:
-            allowed = True
-            allow_reason = reason
+            if override_citation(reason):
+                allowed = True
+                allow_reason = reason
+            else:
+                # Present but unsourced: the gate stays armed and says why.
+                void_reason = reason
 
     has_violation, reg_messages = check_regressions(
         head_parsed,
@@ -1856,6 +1938,7 @@ def main() -> int:
         allowed=allowed,
         allow_reason=allow_reason,
         baseline_arms=baseline_arms,
+        void_reason=void_reason,
     )
 
     is_smoke = args.smoke or "smoke" in args.head.lower()
