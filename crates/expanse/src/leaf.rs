@@ -162,7 +162,7 @@ pub(crate) unsafe fn lower_bound_fixed<const KB: usize>(
     } else if KB == 4 && (3..=4).contains(&pop) {
         // SAFETY: cap_class(pop >= 3) * 4 is 16, so keys holds at least 16 bytes.
         unsafe { crate::bits::lower_bound_4_u32(keys, pop, needle as u32) }
-    } else if pop <= 32 {
+    } else if pop <= 16 {
         // Branchless parallel-load linear scan: issues all loads independently
         // without data-dependent serial pointer chasing, eliminating branch
         // mispredictions on uniform-random lookups (#480).
