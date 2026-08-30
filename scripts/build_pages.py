@@ -303,27 +303,45 @@ MAIN_CSS = """
       margin-top: 0.75rem;
       line-height: 1.45;
     }
-    .density-callout {
-      display: flex;
-      gap: 1rem;
-      margin-top: 1.25rem;
-      padding: 1rem 1.25rem;
-      border-radius: 8px;
-      background: var(--card-inner);
+    .concept-card {
+      background: var(--card-bg);
       border: 1px solid var(--border);
-      align-items: flex-start;
+      border-radius: 10px;
+      padding: 1.35rem 1.5rem;
+      margin-top: 1.5rem;
+      margin-bottom: 1.25rem;
+      border-left: 4px solid var(--accent);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
     }
-    .density-callout-bar {
-      width: 3px;
-      border-radius: 2px;
-      background: var(--accent);
-      align-self: stretch;
-      flex-shrink: 0;
-    }
-    .density-callout-text {
-      font-size: 0.88rem;
+    .concept-quote {
+      font-size: 0.95rem;
+      font-style: italic;
+      color: var(--heading);
       line-height: 1.65;
+      margin-bottom: 0.75rem;
+    }
+    .concept-cite {
+      font-size: 0.8rem;
+      font-style: normal;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+    }
+    .glossary-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      padding-top: 0.9rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.84rem;
       color: var(--text);
+      line-height: 1.5;
+    }
+    .glossary-item {
+      flex: 1;
+      min-width: 220px;
+    }
+    .glossary-item strong {
+      color: var(--heading);
     }
 
     /* Qualify Section */
@@ -884,8 +902,28 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
       <div class="container">
         <div class="section-header">
           <span class="section-tag">Why It Is Called Expanse</span>
-          <h2 class="section-title">Cost follows how your keys cluster, not how many you have</h2>
-          <p class="section-desc">Same structure, same code, four real key shapes. Dense ranges collapse into bitmaps and immediates; sparse ones never allocate the space between.</p>
+          <h2 class="section-title">Partitioning by key expanse, rather than population</h2>
+          <p class="section-desc">Comparison trees (B-trees, red-black trees) divide nodes by key population count. Judy digital trees divide uniformly by key digit ranges &mdash; an architectural invariant where memory scales strictly with populated density rather than table sizing.</p>
+        </div>
+
+        <div class="concept-card">
+          <blockquote class="concept-quote">
+            &ldquo;Expanse, population, and density are not commonly used terms in tree search literature, so let&rsquo;s define them here: <strong>Expanse</strong> is a range of possible keys. <strong>Population</strong> is the number of keys actually stored in that expanse. <strong>Density</strong> is the population divided by the expanse.&rdquo;
+          </blockquote>
+          <div class="concept-cite">
+            &mdash; Doug Baskins, <em>A 10-Minute Description of How Judy Arrays Work</em> (2002) &bull; Alan Silverstein, <em>Judy IV Shop Manual</em>
+          </div>
+          <div class="glossary-row">
+            <div class="glossary-item">
+              <strong>Expanse:</strong> The numerical key span covered by a node (from 2<sup>64</sup> at the tree root down to 256 for a single 1-byte level).
+            </div>
+            <div class="glossary-item">
+              <strong>Population:</strong> The count of keys present in that span. Subtrees with population &le; 15 pack immediately with 0 heap bytes.
+            </div>
+            <div class="glossary-item">
+              <strong>Density (pop / expanse):</strong> Governs adaptive compression &mdash; nodes reshape automatically between Linear, Bitmap, and Uncompressed forms.
+            </div>
+          </div>
         </div>
 
         <div class="density-grid">
@@ -898,7 +936,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
             <div class="density-bar-wrap">
               <div class="density-bar" style="background: var(--accent-green); width: 4%;"></div>
             </div>
-            <div class="density-detail">Level 1 bitset, 0 B pointer overhead (ExpanseSet32)</div>
+            <div class="density-detail">Dense subexpanse: Level 1 bitset with 0 B pointer overhead (ExpanseSet32)</div>
           </div>
 
           <div class="density-card">
@@ -910,7 +948,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
             <div class="density-bar-wrap">
               <div class="density-bar" style="background: var(--accent); width: 56%;"></div>
             </div>
-            <div class="density-detail">LeafBitmapL with 4B value slots (ExpanseMap32)</div>
+            <div class="density-detail">Clustered subnet: LeafBitmapL with packed 4B value slots (ExpanseMap32)</div>
           </div>
 
           <div class="density-card">
@@ -922,7 +960,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
             <div class="density-bar-wrap">
               <div class="density-bar" style="background: #8b5cf6; width: 75%;"></div>
             </div>
-            <div class="density-detail">8-byte Edge32 with zero-span bypass (ExpanseSet32)</div>
+            <div class="density-detail">Sparse expanse: 8-byte Edge32 with zero-span bypass (ExpanseSet32)</div>
           </div>
 
           <div class="density-card">
@@ -934,14 +972,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
             <div class="density-bar-wrap">
               <div class="density-bar" style="background: var(--badge-near); width: 100%;"></div>
             </div>
-            <div class="density-detail">Worst case: deep uncompressed branches (ExpanseMap)</div>
-          </div>
-        </div>
-
-        <div class="density-callout">
-          <div class="density-callout-bar"></div>
-          <div class="density-callout-text">
-            <strong style="color: var(--heading);">Ten thousand clustered timestamps cost 6.7&nbsp;KB &mdash; under a byte each.</strong> Five hundred CAN-bus identifiers scattered across a 29-bit space cost 12.6 bytes each, because there is nothing to share. That spread is the design working, not a caveat: a pre-sized table charges you for the empty space between keys, and this does not.
+            <div class="density-detail">Worst-case dispersion: deep uncompressed branches (ExpanseMap)</div>
           </div>
         </div>
       </div>
