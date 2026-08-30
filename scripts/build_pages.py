@@ -407,27 +407,6 @@ MAIN_CSS = """
       line-height: 1.2;
     }
 
-    .quote-box {
-      background: var(--quote-bg);
-      border: 1px solid var(--border);
-      border-left: 4px solid var(--accent);
-      border-radius: 8px;
-      padding: 1.75rem 2rem;
-      margin: 1.5rem 0;
-    }
-    .quote-text {
-      font-size: 1.05rem;
-      font-style: italic;
-      color: var(--text);
-      margin-bottom: 0.75rem;
-      line-height: 1.6;
-    }
-    .quote-author {
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--accent);
-      text-align: right;
-    }
     .grid-3 {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -741,8 +720,6 @@ MAIN_CSS = """
       .qualify-grid { grid-template-columns: 1fr; }
       .spotlight { flex-direction: column; text-align: center; padding: 1.5rem; }
       .spotlight-content p { font-size: 0.95rem; }
-      .quote-box { padding: 1.25rem; }
-      .quote-text { font-size: 0.95rem !important; }
       .card { padding: 1.25rem; }
       .install-panel { padding: 1rem; }
     }
@@ -1017,33 +994,6 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
       </div>
     </section>
 
-    <section>
-      <div class="container">
-        <div class="section-header">
-          <span class="section-tag">Design Philosophy</span>
-          <h2 class="section-title">Why &ldquo;Expanse&rdquo;?</h2>
-          <p class="section-desc">Partitioning digital trees by key <em>expanse</em>, rather than population.</p>
-        </div>
-
-        <p style="color: var(--text); max-width: 860px; margin: 0 auto 1.5rem; line-height: 1.7;">
-          Expanse is the Judy design's own defining term &mdash; so central that the published descriptions stop to define it before anything else, and use it as the precise contrast with population-partitioned trees (B-trees, binary trees):
-        </p>
-
-        <div class="quote-box">
-          <div class="quote-text">&ldquo;Expanse, population, and density are not commonly used terms in tree search literature, so let's define them here: Expanse is a range of possible keys [&hellip;]&rdquo;</div>
-          <div class="quote-author">&mdash; Doug Baskins, <em>A 10-Minute Description of How Judy Arrays Work and Why They Are So Fast</em> (2002)</div>
-        </div>
-
-        <div class="quote-box">
-          <div class="quote-text">&ldquo;A digital tree divides up the population (index set) uniformly by expanse (dividing and redividing the initial expanse evenly), while other methods, such as b-trees, divide up the population by the distribution of the population itself.&rdquo;</div>
-          <div class="quote-author">&mdash; Alan Silverstein, <em>Judy IV Shop Manual</em> (2002), &ldquo;Digital Trees&rdquo;</div>
-        </div>
-
-        <p style="color: var(--text-muted); max-width: 860px; margin: 1.5rem auto 0; font-size: 0.95rem; line-height: 1.6;">
-          Naming the project after the underlying mechanism honors the algorithm itself without inheriting legacy C codebase baggage. Expanse is developed with <strong>strict clean-room discipline</strong>: zero exposure to LGPL source code, adhering exclusively to published design specifications and black-box differential test suites.
-        </p>
-      </div>
-    </section>
 
     <section>
       <div class="container">
