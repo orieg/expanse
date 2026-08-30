@@ -146,6 +146,19 @@ pub(crate) unsafe fn lower_bound_fixed<const KB: usize>(
     pop: usize,
     needle: u64,
 ) -> usize {
+    if pop == 0 {
+        return 0;
+    }
+    if pop == 1 {
+        // SAFETY: pop == 1, keys holds at least KB bytes.
+        return unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 0) < needle) as usize };
+    }
+    if pop == 2 {
+        // SAFETY: pop == 2, keys holds at least 2 * KB bytes.
+        let c0 = unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 0) < needle) as usize };
+        // SAFETY: pop == 2, keys holds at least 2 * KB bytes.
+        return c0 + unsafe { (crate::mutate::read_packed_fixed::<KB>(keys, 1) < needle) as usize };
+    }
     // Every vectorized branch below must satisfy: cap_class(pop) * KB >=
     // the kernel's fixed load width (see `simd_gates_within_cap_class`).
     // cap_class rounds to multiples of FOUR, so pop 9..=12 only guarantees
@@ -573,18 +586,64 @@ pub(crate) unsafe fn search_fixed<const KB: usize>(
     pop: usize,
     key: Key,
 ) -> Option<usize> {
+    if pop == 0 {
+        return None;
+    }
+    let needle = crate::mutate::key_low(key, KB as u8);
+    if pop == 1 {
+        // SAFETY: pop == 1, keys holds at least KB bytes.
+        if unsafe { crate::mutate::read_packed_fixed::<KB>(keys, 0) } == needle {
+            return Some(0);
+        }
+        return None;
+    }
+    if pop == 2 {
+        // SAFETY: pop == 2, keys holds at least 2 * KB bytes.
+        unsafe {
+            if crate::mutate::read_packed_fixed::<KB>(keys, 0) == needle {
+                return Some(0);
+            }
+            if crate::mutate::read_packed_fixed::<KB>(keys, 1) == needle {
+                return Some(1);
+            }
+        }
+        return None;
+    }
     // SAFETY: caller guarantees keys holds at least KB * pop readable bytes in its class allocation.
     unsafe {
         if KB == 1 && pop == 16 {
-            crate::bits::search_16_u8(keys, 16, key as u8)
+            crate::bits::search_16_u8(keys, 16, needle as u8)
         } else if KB == 1 && pop == 8 {
-            crate::bits::search_8_u8(keys, 8, key as u8)
+            crate::bits::search_8_u8(keys, 8, needle as u8)
         } else if KB == 2 && pop == 8 {
-            crate::bits::search_8_u16(keys, 8, key as u16)
+            crate::bits::search_8_u16(keys, 8, needle as u16)
         } else if KB == 4 && pop == 4 {
-            crate::bits::search_4_u32(keys, 4, key as u32)
+            crate::bits::search_4_u32(keys, 4, needle as u32)
+        } else if KB == 1 && pop <= 4 {
+            let n = needle as u8;
+            for i in 0..pop {
+                if *keys.add(i) == n {
+                    return Some(i);
+                }
+            }
+            None
+        } else if KB == 2 && pop <= 4 {
+            let n = needle as u16;
+            for i in 0..pop {
+                if (keys.add(i * 2) as *const u16).read_unaligned() == n {
+                    return Some(i);
+                }
+            }
+            None
+        } else if KB == 4 && pop <= 4 {
+            let n = needle as u32;
+            for i in 0..pop {
+                if (keys.add(i * 4) as *const u32).read_unaligned() == n {
+                    return Some(i);
+                }
+            }
+            None
         } else {
-            let needle = crate::mutate::key_low(key, KB as u8);
             let pos = lower_bound_fixed::<KB>(keys, pop, needle);
             if pos < pop && crate::mutate::read_packed_fixed::<KB>(keys, pos) == needle {
                 Some(pos)
