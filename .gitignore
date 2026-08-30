@@ -38,4 +38,5 @@ docs/benchmarks/*/results/quick/
 
 # Local agent metadata / plans
 /.claude/
+/scratch/
 
