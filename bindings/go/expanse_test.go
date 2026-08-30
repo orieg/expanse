@@ -2,6 +2,7 @@ package expanse
 
 import (
 	"bytes"
+	"sync"
 	"testing"
 )
 
@@ -552,10 +553,13 @@ func TestConcurrentSyncMapStress(t *testing.T) {
 
 	done := make(chan struct{})
 	readers := 4
+	var wg sync.WaitGroup
 
 	// Spawn readers
 	for r := 0; r < readers; r++ {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for {
 				select {
 				case <-done:
@@ -582,6 +586,7 @@ func TestConcurrentSyncMapStress(t *testing.T) {
 	}
 
 	close(done)
+	wg.Wait()
 }
 
 func TestBlobMapCompaction(t *testing.T) {

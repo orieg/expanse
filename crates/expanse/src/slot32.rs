@@ -46,6 +46,11 @@ impl From<u8> for SlotTag32 {
 #[repr(transparent)]
 pub struct ValueSlot32(pub u32);
 
+const _: () = {
+    assert!(core::mem::size_of::<ValueSlot32>() == 4);
+    assert!(core::mem::align_of::<ValueSlot32>() == 4);
+};
+
 impl ValueSlot32 {
     /// Discriminant tag mask (lowest 8 bits).
     pub const TAG_MASK: u32 = 0x0000_00FF;

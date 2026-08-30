@@ -491,11 +491,11 @@ Pinning tests for these numbers live in `crates/expanse/src/types.rs:367` (`imme
 
 `from_u8` maps every unlisted byte to `RawWord`, so `RawWord` is the catch-all; `is_inline` (`crates/expanse/src/slot.rs:155`) is simply `tag <= 0x07`, and `inline_len` (`crates/expanse/src/slot.rs:162`) returns the tag itself as the length.
 
-**Inline encoding** *(gated)*. `ValueSlot::new_inline` (`crates/expanse/src/slot.rs:189`) writes `raw = len | Σ bytes[i] << (8 * (i + 1))`: the length is the tag byte, and the payload occupies bits 63:8 little-endian. The payload is the whole word above the tag, which is precisely why an inline slot carries **no metadata field** — `ExpanseBlobMap` ignores the `hot_meta` argument for payloads of ≤ 7 bytes and reports their metadata as `0` (`crates/expanse/src/blobmap.rs:27`–`33`, `crates/expanse/src/blobmap.rs:1090`). No cold fetch is needed for them in any case: the payload is already in the slot.
+**Inline encoding** *(gated)*. `ValueSlot::new_inline` (`crates/expanse/src/slot.rs:194`) writes `raw = len | Σ bytes[i] << (8 * (i + 1))`: the length is the tag byte, and the payload occupies bits 63:8 little-endian. The payload is the whole word above the tag, which is precisely why an inline slot carries **no metadata field** — `ExpanseBlobMap` ignores the `hot_meta` argument for payloads of ≤ 7 bytes and reports their metadata as `0` (`crates/expanse/src/blobmap.rs:27`–`33`, `crates/expanse/src/blobmap.rs:1090`). No cold fetch is needed for them in any case: the payload is already in the slot.
 
 This is also where `ExpanseBlobMap` puts small payloads — in the leaf's value slot, **not** inside an edge.
 
-**`ArenaMeta` encoding** *(gated)*. `ValueSlot::new_arena_meta` (`crates/expanse/src/slot.rs:210`) writes
+**`ArenaMeta` encoding** *(gated)*. `ValueSlot::new_arena_meta` (`crates/expanse/src/slot.rs:215`) writes
 
 ```
 raw = (hot_meta << 40) | (locator << 8) | 0x10
@@ -505,12 +505,12 @@ raw = (hot_meta << 40) | (locator << 8) | 0x10
   bits  7: 0   tag        0x10
 ```
 
-`hot_meta` above the 24-bit field is rejected (`None`), never truncated. `arena_meta_meta` (`crates/expanse/src/slot.rs:242`) and `arena_meta_locator` (`crates/expanse/src/slot.rs:250`) read the two fields back; `with_arena_meta_meta` (`crates/expanse/src/slot.rs:258`) rewrites the metadata in place without disturbing the locator. This is the sole arena encoding — there is no metadata-less spill form, so a predicate over metadata is always evaluable in-slot.
+`hot_meta` above the 24-bit field is rejected (`None`), never truncated. `arena_meta_meta` (`crates/expanse/src/slot.rs:247`) and `arena_meta_locator` (`crates/expanse/src/slot.rs:255`) read the two fields back; `with_arena_meta_meta` (`crates/expanse/src/slot.rs:263`) rewrites the metadata in place without disturbing the locator. This is the sole arena encoding — there is no metadata-less spill form, so a predicate over metadata is always evaluable in-slot.
 
 **Locator arithmetic** *(gated)*. The locator is not a chunk/offset pair; it is a flat global address in 16-byte units:
 
 ```
-locator      = global_offset / ARENA_ALIGN          (ARENA_ALIGN = 16)
+locator       = global_offset / ARENA_ALIGN          (ARENA_ALIGN = 16)
 global_offset = locator * ARENA_ALIGN
 ```
 
@@ -531,7 +531,7 @@ global_offset = locator * ARENA_ALIGN
 
 <!-- /ENCODING-TABLE -->
 
-Both arena fields are **12 bits wide**: `ARENA_OFFSET_MASK = 0x000F_FF00` at shift 8 and `ARENA_META_MASK = 0xFFF0_0000` at shift 20 (`crates/expanse/src/slot32.rs:54`–`61`), and `ValueSlot32::new_arena` (`crates/expanse/src/slot32.rs:114`) rejects either argument above `0x0FFF`. 12 bits of metadata and 4096 addressable slab entries — not the 16 bits some older prose claimed.
+Both arena fields are **12 bits wide**: `ARENA_OFFSET_MASK = 0x000F_FF00` at shift 8 and `ARENA_META_MASK = 0xFFF0_0000` at shift 20 (`crates/expanse/src/slot32.rs:59`–`66`), and `ValueSlot32::new_arena` (`crates/expanse/src/slot32.rs:119`) rejects either argument above `0x0FFF`. 12 bits of metadata and 4096 addressable slab entries — not the 16 bits some older prose claimed.
 
 ### 10.6 Bitmap structures
 
@@ -612,9 +612,9 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `offset_of!(LeafBitmapL, version)` | 96 | `crates/expanse/src/node.rs:529` |
 | `size_of::<Bitmap256>()` | 32 | `crates/expanse/src/node.rs:576` |
 | `size_of::<ValueSlot>()` | 8 | `crates/expanse/src/slot.rs:174` |
-| `ValueSlot::TAG_MASK` | 0xFF | `crates/expanse/src/slot.rs:178` |
-| `ValueSlot::ARENA_META_MASK` | 0xFFFFFF | `crates/expanse/src/slot.rs:180` |
-| `ValueSlot::ARENA_META_MAX` | 16777215 | `crates/expanse/src/slot.rs:182` |
+| `ValueSlot::TAG_MASK` | 0xFF | `crates/expanse/src/slot.rs:183` |
+| `ValueSlot::ARENA_META_MASK` | 0xFFFFFF | `crates/expanse/src/slot.rs:185` |
+| `ValueSlot::ARENA_META_MAX` | 16777215 | `crates/expanse/src/slot.rs:187` |
 | `ARENA_ALIGN` | 16 | `crates/expanse/src/blobmap.rs:456` |
 | `ARENA_META_CEILING` | 68719476736 | `crates/expanse/src/blobmap.rs:461` |
 | `MAX_ARENA_CHUNKS` | 65536 | `crates/expanse/src/blobmap.rs:468` |
@@ -632,11 +632,11 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `size_of::<LeafBitmap1_32>()` | 64 | `crates/expanse/src/node32.rs:219` |
 | `size_of::<LeafBitmapL_32>()` | 96 | `crates/expanse/src/node32.rs:311` |
 | `size_of::<ValueSlot32>()` | 4 | `crates/expanse/src/slot32.rs:47` |
-| `ValueSlot32::TAG_MASK` | 0xFF | `crates/expanse/src/slot32.rs:51` |
-| `ValueSlot32::ARENA_OFFSET_MASK` | 0xFFF00 | `crates/expanse/src/slot32.rs:54` |
-| `ValueSlot32::ARENA_OFFSET_SHIFT` | 8 | `crates/expanse/src/slot32.rs:56` |
-| `ValueSlot32::ARENA_META_MASK` | 0xFFF00000 | `crates/expanse/src/slot32.rs:59` |
-| `ValueSlot32::ARENA_META_SHIFT` | 20 | `crates/expanse/src/slot32.rs:61` |
+| `ValueSlot32::TAG_MASK` | 0xFF | `crates/expanse/src/slot32.rs:56` |
+| `ValueSlot32::ARENA_OFFSET_MASK` | 0xFFF00 | `crates/expanse/src/slot32.rs:59` |
+| `ValueSlot32::ARENA_OFFSET_SHIFT` | 8 | `crates/expanse/src/slot32.rs:61` |
+| `ValueSlot32::ARENA_META_MASK` | 0xFFF00000 | `crates/expanse/src/slot32.rs:64` |
+| `ValueSlot32::ARENA_META_SHIFT` | 20 | `crates/expanse/src/slot32.rs:66` |
 
 <!-- /ENCODING-CONSTANTS -->
 

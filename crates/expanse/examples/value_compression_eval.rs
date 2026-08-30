@@ -371,7 +371,7 @@ fn main() {
         }
     }
 
-    println!("\n=== Gate Verdict ===");
+    println!("\n=== Phase 0 Gate 1: Promotion Rate & Correctness ===");
     if all_passed {
         println!("PASS: Phase 0 promotion rate criteria satisfied on all targeted shapes.");
         println!(
@@ -380,7 +380,137 @@ fn main() {
         println!("  - Round-trip error count: 0 across all 500,000 samples.");
         println!("  - Uniform random negative controls respect theoretical pigeonhole ceilings.");
     } else {
-        println!("FAIL: Phase 0 gate criteria not satisfied.");
+        println!("FAIL: Phase 0 promotion rate criteria not satisfied.");
         std::process::exit(1);
     }
+
+    println!("\n=== Phase 0 Gate 2: Diagnostic Lookup Throughput & Dispatch Cost ===");
+    evaluate_lookup_throughput();
+}
+
+fn evaluate_lookup_throughput() {
+    use expanse_trie::blobmap::ExpanseBlobMap;
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let n = 50_000u64;
+    let rounds = 10;
+    let lookups_per_round = 20;
+
+    // 1. Raw inline (4B integer bytes)
+    let mut map_raw = ExpanseBlobMap::new();
+    for k in 0..n {
+        let val = (k as u32).to_le_bytes();
+        map_raw.insert(k, &val, 0).unwrap();
+    }
+
+    // 2. Compressed inline (14B decimal timestamp string, hot_meta = 0)
+    let mut map_comp = ExpanseBlobMap::new();
+    for k in 0..n {
+        let val = format!("{:014}", 20260000000000u64 + (k % 9000000000000u64)).into_bytes();
+        map_comp.insert(k, &val, 0).unwrap();
+    }
+
+    // 3. Arena spilled (14B decimal timestamp string, hot_meta = 1)
+    let mut map_arena = ExpanseBlobMap::new();
+    for k in 0..n {
+        let val = format!("{:014}", 20260000000000u64 + (k % 9000000000000u64)).into_bytes();
+        map_arena.insert(k, &val, 1).unwrap();
+    }
+
+    // Warm-up
+    for k in 0..n {
+        black_box(map_raw.get(k));
+        black_box(map_comp.get(k));
+        black_box(map_arena.get(k));
+    }
+
+    let mut raw_latencies = Vec::with_capacity(rounds);
+    let mut comp_latencies = Vec::with_capacity(rounds);
+    let mut arena_latencies = Vec::with_capacity(rounds);
+
+    // Interleaved rounds to balance thermal and scheduling variance
+    for _ in 0..rounds {
+        // Measure Raw Inline
+        let start = Instant::now();
+        let mut sink_raw = 0usize;
+        for _ in 0..lookups_per_round {
+            for k in 0..n {
+                if let Some((view, _)) = map_raw.get(black_box(k)) {
+                    sink_raw = sink_raw.wrapping_add(view.len());
+                }
+            }
+        }
+        let dur_raw = start.elapsed();
+        black_box(sink_raw);
+        raw_latencies.push(dur_raw.as_nanos() as f64 / (n * lookups_per_round as u64) as f64);
+
+        // Measure Compressed Inline
+        let start = Instant::now();
+        let mut sink_comp = 0usize;
+        for _ in 0..lookups_per_round {
+            for k in 0..n {
+                if let Some((view, _)) = map_comp.get(black_box(k)) {
+                    sink_comp = sink_comp.wrapping_add(view.len());
+                }
+            }
+        }
+        let dur_comp = start.elapsed();
+        black_box(sink_comp);
+        comp_latencies.push(dur_comp.as_nanos() as f64 / (n * lookups_per_round as u64) as f64);
+
+        // Measure Arena Spilled
+        let start = Instant::now();
+        let mut sink_arena = 0usize;
+        for _ in 0..lookups_per_round {
+            for k in 0..n {
+                if let Some((view, _)) = map_arena.get(black_box(k)) {
+                    sink_arena = sink_arena.wrapping_add(view.len());
+                }
+            }
+        }
+        let dur_arena = start.elapsed();
+        black_box(sink_arena);
+        arena_latencies.push(dur_arena.as_nanos() as f64 / (n * lookups_per_round as u64) as f64);
+    }
+
+    let mean = |xs: &[f64]| xs.iter().sum::<f64>() / xs.len() as f64;
+    let raw_mean = mean(&raw_latencies);
+    let comp_mean = mean(&comp_latencies);
+    let arena_mean = mean(&arena_latencies);
+
+    let raw_mops = 1_000.0 / raw_mean;
+    let comp_mops = 1_000.0 / comp_mean;
+    let arena_mops = 1_000.0 / arena_mean;
+
+    let dispatch_overhead_pct = (comp_mean - raw_mean) / raw_mean * 100.0;
+
+    println!(
+        "| {:<28} | {:>12} | {:>14} | {:>16} |",
+        "Storage Flavor", "Throughput", "Mean Latency", "vs Raw Delta"
+    );
+    println!("|{:-<30}|{:-<14}|{:-<16}|{:-<18}|", "", "", "", "");
+    println!(
+        "| {:<28} | {:>8.2} Mop/s | {:>11.2} ns | {:>16} |",
+        "Raw Inline (4B)", raw_mops, raw_mean, "0.00% (baseline)"
+    );
+    println!(
+        "| {:<28} | {:>8.2} Mop/s | {:>11.2} ns | {:>15.2}% |",
+        "Compressed Inline (14B)", comp_mops, comp_mean, dispatch_overhead_pct
+    );
+    println!(
+        "| {:<28} | {:>8.2} Mop/s | {:>11.2} ns | {:>16} |",
+        "Arena Spilled (14B)", arena_mops, arena_mean, "—"
+    );
+
+    println!("\n=== Gate 2 Diagnostic Summary ===");
+    println!(
+        "Local measured dispatch delta: {:+.2}% ({:.2} ns raw vs {:.2} ns compressed across {} interleaved rounds).",
+        dispatch_overhead_pct, raw_mean, comp_mean, rounds
+    );
+    println!(
+        "Note: Per AGENTS.md §8.4, wall-clock continuous metrics require BCa 95% bootstrap CIs\n\
+         on the isolated bare-metal reference host (`/bench`); local point estimates are sensitive\n\
+         to co-resident CPU load and scheduling jitter."
+    );
 }

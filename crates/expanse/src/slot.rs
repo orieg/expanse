@@ -173,6 +173,11 @@ impl SlotTag {
 #[repr(transparent)]
 pub struct ValueSlot(pub u64);
 
+const _: () = {
+    assert!(core::mem::size_of::<ValueSlot>() == 8);
+    assert!(core::mem::align_of::<ValueSlot>() == 8);
+};
+
 impl ValueSlot {
     /// Mask for the 8-bit discriminant tag (`bits [7:0]`).
     pub const TAG_MASK: u64 = 0xFF;
