@@ -207,6 +207,9 @@ See `docs/BENCHMARKING.md` §2–3 and `docs/CI.md` for details.
 - **No-regression applies to the paths a change is not targeting.** A new latency-hiding path whose own count rises is not a regression. The existing scalar paths still must not, and Callgrind proves that.
 - **Review policy**: $0.1\%$ is Callgrind's deterministic measurement resolution; any instruction count regression $>0.1\%$ vs baseline main is considered a blocker in review and must be justified in the PR.
 - **Automated CI gate** (distinct from the review threshold): `scripts/perf_report.py --fail-on-regression` fails the job at a $>5\%$ single-worst regression or $\geq 2$ arms regressed above the $0.5\%$ noise floor; the only automated override is a literal `allow-regression: <reason>` line in the PR body.
+- **No Speculative `allow-regression:` Directives**: Never add an `allow-regression: <reason>` directive speculatively or in anticipation of a potential failure.
+  - Run the benchmark suite or let CI evaluate the change first. If all Callgrind suites pass with 0 regressions (or within the automated threshold), no override line should appear in the PR body.
+  - For arms exceeding the §6 review threshold (0.1%) but below the automated gate (5.0%), disclose the arm and its microarchitectural justification directly in the PR body (e.g. fixed inlining trade-off on scan workloads) rather than applying an unneeded automated override.
 - Numbers in docs are tagged `(measured: host, commit)` or `(target)`; follow `docs/BENCHMARKING.md` (interleaved A/B arms, system-load snapshots before/between comparison runs, CI ratios ≠ publishable numbers).
 - No time estimates in pull requests, comments, or documentation.
 
@@ -305,6 +308,10 @@ Expanse is an empirical performance project. Autonomous agents interacting with 
 - **Symmetric Selectivity & Workload Predicates**: Multi-structure comparisons must evaluate identical filter selectivity across all arms (e.g. matching 50% predicate pass rates across Expanse and competitors in YCSB Workload E).
 - **Symmetric PRNGs**: Cross-language comparisons must use identical PRNG algorithms and seeds (e.g. matching XorShift64 algorithms and seeds across Rust, Python, Go, Node, PHP, Java, and .NET).
 - **Symmetric Memory Accounting**: When measuring memory, report live resident heap via allocator instrumentation (`TrackingAlloc`/`GlobalAlloc`) across all arms, or explicitly disclose any platform-level asymmetry.
+- **Symmetric Workload Parameters in Comparative Claims**:
+  - When comparing a candidate against a previously established baseline (e.g. from an issue or prior run), all workload parameters—specifically **population ($N$)**, **hit rate ($H$)**, and **key distribution**—MUST be identical.
+  - Never compare an optimized arm at 100% hit rate against a baseline measured at 50% hit rate to claim a larger delta. If the baseline was measured at `pop=1M, hit=50`, only the candidate's `pop=1M, hit=50` arm is the valid comparator.
+  - Arms at other hit rates or populations may be reported for broader context, but must be explicitly labeled as non-comparable to the baseline.
 
 ### 8.4 Metric-Scoped Statistical Gating
 > Which instrument a given change should be measured with is decided in
@@ -339,12 +346,15 @@ Separate research and benchmark spikes into three distinct commits:
 2. **Commit 2 (Pre-Registration)**: Locked hypothesis, expected losses matrix, and gate taxonomy in markdown/YAML (zero main data).
 3. **Commit 3 (Empirical Data)**: Benchmark scripts, raw JSON, paired CIs, and strict verdict matching pre-registration.
 
-### 8.9 Empirical Analysis & Reporting Discipline (Four Anti-Patterns)
-When reporting, explaining, or documenting benchmark outcomes and performance investigations, avoid four specific failure modes:
+### 8.9 Empirical Analysis & Reporting Discipline (Five Anti-Patterns & Principles)
+When reporting, explaining, or documenting benchmark outcomes and performance investigations, avoid specific failure modes and uphold empirical discipline:
 1. **Unmeasured Mechanism Narratives**: Never state internal microarchitectural causes (e.g. BTB transitions, cache-line conflicts, register spills, execution port contention) as factual explanations unless they were explicitly measured with dedicated hardware performance counters (`perf stat -e ...`) or simulators (`callgrind --branch-sim=yes`). An aggregate retired-instruction count or cycle estimate is not an observation of internal microarchitectural sub-events.
 2. **Comparing Measured vs Unmeasured Quantities**: Never claim an optimization "cost more in metric X than it saved in metric Y" if metric Y was an unquantified hypothesis or analytical model rather than a measured metric. State plainly that the cost was measured and large, while the hypothesized benefit was not observed or quantified on the available evidence.
 3. **Inaccurate Encoding & Space Envelopes**: Do not confuse a bounding envelope with a dense packing. When describing key/tag spaces (e.g. `0x00..=0x7F`), distinguish between populated discriminants and unassigned holes/gaps (`0x0D..=0x0F`, `0x72..=0x7E`).
 4. **Unsupported "Optimality" Claims**: Never claim a baseline data structure or routine is globally "optimal" simply because one or two candidate modifications regressed. A negative result establishes only that the tested modifications were worse under those conditions, not that no better design exists.
+5. **Raw Counter Extraction & Historical Baseline Qualification**:
+   - Misprediction and PMU counter figures quoted in PR bodies, audits, or docs MUST be extracted verbatim from the artifact's raw event row (e.g. `br_misp_retired.all_branches` or `dTLB-load-misses`) divided by the exact probe count, accompanied by the BCa 95% bootstrap interval.
+   - When comparing against a historical baseline point estimate lacking a confidence interval, explicitly disclose that the comparison is **not a §8.4 paired claim** (which requires both arms measured with CIs in a concurrent base-ref sweep) and note when the counter harness is declared diagnostic.
 
 ### 8.10 Benchmark Harness Remediation & Downstream Claims Protocol
 When modifying or correcting any existing benchmark or example harness:
