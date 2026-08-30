@@ -312,6 +312,11 @@ Expanse is an empirical performance project. Autonomous agents interacting with 
 > This section governs how a claim is gated once the instrument is chosen.
 - **Continuous / Sampling Metrics**: Claims over wall-clock execution or continuous sampling distributions pass iff the **BCa 95% bootstrap CI lower bound $\ge$ floor** (≥1,000 resamples), NOT iff point estimate $\ge$ floor. Point estimates and CIs must use identical definitions (e.g. macro-mean with macro-CI) so the point estimate is always enclosed within the interval. Overlapping intervals must be labeled `BOUNDARY_RESULT` or `INTERMEDIATE_floor_within_ci`.
 - **Deterministic Instruction Counters**: Exact Callgrind instruction counts (the primary regression instrument) are exact integers with zero variance, evaluated strictly against the deterministic threshold contract.
+- **No Hard Panics on Local Continuous Point Estimates in Examples/Harnesses**:
+  - Never wire an example binary, diagnostic script, or local integration harness to `assert!` or `panic!` on continuous wall-clock point estimates (e.g. throughput ratios, latency deltas).
+  - Un-isolated dev machines suffer CPU frequency scaling, thermal throttling, and OS scheduling jitter. Point estimates on such hosts exhibit spurious sign flips (e.g. negative overhead on extra work) or wide spreads that cannot discriminate tight thresholds.
+  - Hard assertions (`assert!`, `panic!`, `assert_eq!`) belong strictly on **deterministic invariants**: layout `size_of`/`align_of`, round-trip error counts ($= 0$), exact byte accounting, and deterministic integer counters.
+  - Local diagnostic harnesses must report observed sample stats with clear disclosures: `⚠️ Local diagnostic sample; continuous wall-clock gating requires BCa 95% bootstrap CIs on the quiet reference host per AGENTS.md §8.4`.
 
 ### 8.5 In-Repo Gitignored Scratch Path Isolation
 - **No Baseline Pollution**: Quick, smoke, or developmental sweeps (`--quick`) must write strictly to gitignored scratch paths (e.g. `results/quick/` or `scratch/`) and must **never** overwrite canonical committed `results/baseline_*.json` or committed SVGs.
@@ -398,5 +403,7 @@ When modifying or correcting any existing benchmark or example harness:
 When proposing in-register compression or inlining of multi-byte values into machine-word payload bits (e.g. 56 bits):
 1. **Derive the Theoretical Uniform Ceiling First**: Compute $T \times 2^{\text{payload\_bits}} / 2^{\text{source\_bits}}$ before writing engine code. Uniform random data cannot compress; any viable codec operates strictly on low-entropy subspaces (e.g. ASCII digits, alphanumeric slugs, small integers).
 2. **Phase 0 Empirical Crossover Gate (§8.8 Commit 1)**: Pre-register an offline evaluation harness over named, committed datasets with a strict promotion rate floor (e.g. $\ge 70\%$) and hardware counter ceiling (`branch-misses` / `perf stat -e branch-misses`, [#480](https://github.com/orieg/expanse/issues/480)). If real datasets do not clear the crossover, terminate honestly with a negative finding at near-zero cost.
-3. **Workload-Shape Qualification (#487 / §8.12)**: Empirical promotion figures MUST be qualified by their exact workload ID (e.g. `(workload: value_compression_alnum_slug)`); never assert broad general promotion from domain-specific datasets.
+3. **Decouple Deterministic Census from Continuous Throughput Gating**: Phase 0 evaluation harnesses gate deterministically on mathematical correctness (0 round-trip errors) and promotion ratios against theoretical ceilings. Throughput and dispatch cost validation is gated on the reference host via Criterion/BCa CIs, never via hard panics on local wall-clock point estimates.
+4. **Workload-Shape Qualification (#487 / §8.12)**: Empirical promotion figures MUST be qualified by their exact workload ID (e.g. `(workload: value_compression_alnum_slug)`); never assert broad general promotion from domain-specific datasets.
+
 
