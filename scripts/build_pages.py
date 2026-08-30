@@ -848,7 +848,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
         </div>
         <h1>Judy arrays in pure Rust, rebuilt for modern hardware</h1>
         <p style="font-size: 1.15rem; line-height: 1.64; max-width: 780px; margin: 0 auto 1rem;">
-          Sparse, ordered maps and sets that <strong style="color: var(--heading);">cost what your keys cost</strong> &mdash; memory follows the key ranges you populate, not how many keys you have.
+          Sparse, ordered maps and sets with <strong style="color: var(--heading);">adaptive density</strong> &mdash; memory follows the key ranges you populate, never pre-sized tables or fixed buckets.
         </p>
         <p style="font-size: 0.95rem; line-height: 1.6; max-width: 760px; margin: 0 auto 1.5rem; color: var(--text-muted);">
           Sorted iteration, range scans and rank over integers, strings and byte slices &mdash; with cache-line-aligned nodes, SIMD/SWAR search and lock-free reader concurrency. One engine from a 32-bit MCU to a server, reachable from <strong style="color: var(--heading);">nine languages</strong> over a stable C ABI.
