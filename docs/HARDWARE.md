@@ -36,6 +36,7 @@ present" back to the exact manual section that justifies it.
 | 64-byte cache-line packing | ✅ fixed 64 B | ⚠️ **not architectural (Apple = 128 B)** | n/a | 32 B (M7/ESP32); M0–M4 cacheless |
 | Wide address space | LA57 / 57-bit ✅ | — | Sv32 (RV32) | — |
 | Software prefetch (#242) | hint, no-op on OoO ✅ removed | `PRFM` hint (impl-defined) | — | — |
+| TLB reach (4 KiB vs 2 MiB vs 16 KiB) | ⚠️ 4 KiB STLB deficit @ 1M keys (#431) | ⚠️ 4 KiB deficit on Neoverse; ✅ 16 KiB default on Apple | ❌ (no MMU / Sv32) | ❌ (no MMU) |
 
 Legend: ✅ assumption validated · ⚠️ assumption is a risk or lowers to software.
 
@@ -149,6 +150,35 @@ detection `CPUID.(07H,0):ECX[16] LA57` — Vol 2 p.331.
 allocations < 47-bit by default" is a **Linux kernel policy** (`Documentation/arch/x86/
 x86_64/5level-paging.rst`), not an Intel-manual fact.
 
+### 1.7 TLB reach & page translation — ⚠️ DEFICIT ON 4 KiB PAGES AT 1M+ RANDOM KEYS (unmeasured on reference host, #431)
+
+*Usage:* `crates/expanse/src/alloc.rs` — allocations for size classes $\le 256$ bytes carve from 4 KiB slab pages (`SLAB_PAGE_SIZE = 4096`), backed by standard system allocation.
+
+*Source:* Intel SDM Vol 3A (253668) §4.10 "Paging and Translation-Lookaside Buffers (TLBs)" (PDF p.117); Intel Optimization Manual (248966-049) §2.1.2 "Golden Cove Microarchitecture Memory Subsystem" (PDF p.48) and §6.3 (p.238):
+- **Intel Golden Cove (Alder Lake P-core) TLB hierarchy:**
+  - L1 data TLB (dTLB): 96 entries for 4 KiB translations (reach: 384 KiB); 32 entries for 2 MiB / 4 MiB translations (reach: 64 MiB); 4 entries for 1 GiB translations (reach: 4 GiB).
+  - L2 shared TLB (STLB): 2,048 entries for 4 KiB and 2 MiB translations (partitioned/shared across sizes).
+  - 4 KiB page translation reach: $2048 \times 4\text{ KiB} = 8,192\text{ KiB} = 8.192\text{ MB}$.
+  - 2 MiB huge page translation reach: $2048 \times 2\text{ MiB} = 4,096\text{ MiB} = 4\text{ GiB}$.
+- **AMD Zen 3 / Zen 4 TLB hierarchy:** L1 dTLB: 64 entries (4K); L2 STLB: 2,048 entries (4K) $\implies$ identical 8.192 MB translation reach at 4 KiB pages (Agner Fog microarchitecture guide).
+
+*Footprint & Working Set Arithmetic:*
+- `ExpanseMap` @ 1,000,000 uniform-random 64-bit keys consumes **16.70 MB** ($16.70\text{ B/key}$, gated by `test_memory_budget_matches_engine`).
+- At 4 KiB pages, 16.70 MB spans **4,077 pages**.
+- 4,077 pages exceed the 2,048-entry STLB reach by **$\approx 2.0\times$**.
+- Random point lookups (`map_get/random`) traverse 3–5 tree levels (`BranchB` $\to$ `BranchB` $\to$ `Leaf`) across nodes dispersed over the 4,077 pages. Because keys are uniform-random, accesses scatter across the working set: each descent risks an STLB miss and a hardware page table walk (up to 4 PML4/PDPT/PD/PT memory lookups) stacked on top of data cache misses.
+- At 2 MiB pages, the entire 16.70 MB working set spans only **8–9 pages**, fitting completely within the 32-entry L1 2M-dTLB (100% TLB residency).
+
+*Interaction with Cache Hierarchy (#428, #455):*
+At 1M keys, the trie is simultaneously **L3 cache-resident** (16.7 MB against 30 MiB L3 on the i9-12900F reference host) and **over STLB reach** (16.7 MB against 8.2 MB). A lookup benchmark at this population showing a memory effect may be measuring translation latency rather than DRAM latency. This compounds the mechanism investigated in [#455](https://github.com/orieg/expanse/issues/455) (stall-side line fills on random lookup).
+
+*Density & Huge-Page Trade-off Invariant:*
+Backing the slab arena with 2 MiB pages (`madvise(MADV_HUGEPAGE)` on Linux or 2 MiB aligned maps) is architecturally contained in `alloc.rs` (no node layout or `Edge`/`ValueSlot` changes). However, default-on 2 MiB pages would introduce catastrophic memory amplification for sparse and clustered keys:
+- Sequential keys consume 0.07–0.36 B/key. A map holding 1,000 sequential keys requires ~70 bytes; backing it with an eager 2 MiB page represents a **$28,500\times$ footprint bloat**.
+- Consequently, huge-page backing must remain an opt-in configuration or employ progressive slab growth ($4\text{ KiB} \to 64\text{ KiB} \to 2\text{ MiB}$) as the tree expands past 1M keys.
+
+*Status:* Unmeasured on reference host; diagnostic counter `dTLB-load-misses` in `scripts/perf_counters.py` tracks translation misses under open issues [#431](https://github.com/orieg/expanse/issues/431) and [#455](https://github.com/orieg/expanse/issues/455).
+
 ---
 
 ## 2. AArch64 (Arm / Apple Silicon)
@@ -232,6 +262,14 @@ adoption must be measured per-microarch and guarded.
 - **SVE / SVE2 status:** `sve`, `sve2`, `sveaes`, `svesha3`, `svesm4`, `svei8mm`, `svebf16` are **exposed in `/proc/cpuinfo`**. Vector length is not measured by the census; 128-bit is the Neoverse-N2 spec figure. SVE leaf scanning was implemented and **reverted** (#434 / this PR) after it measured as a regression on this very lane; the capability stays **testable** here (§6) — the hardware is available — but **no SVE code path exists yet**: `is_aarch64_feature_detected!` appears nowhere in `crates/`, and nothing in the lane exercises SVE. §6's standing caveat, that SVE is absent on Apple M-series, is unchanged by this.
 - **FEAT_CSSC status:** no `cssc` flag in the runner's `Features` line, as expected (CSSC is Armv8.9/v9.4+; scalar popcount/CTZ continue lowering to NEON / `RBIT`+`CLZ`).
 
+### 2.7 TLB hierarchy & page granule variance (Neoverse vs Apple Silicon) — **VALIDATED**
+
+*Source:* Arm ARM (DDI 0487M.c) §D24.2; Arm Neoverse N2 TRM (102099_0000_02_en) §A3.2 "TLB organization" (L1 D-TLB 48 entries, L2 TLB 2,048 entries); Apple Silicon macOS kernel default `PAGE_SIZE = 16384` (16 KiB) with 3,072–4,096 L2 TLB entries (*secondary source, see §8*).
+
+*Verdict:*
+- **Linux AArch64 (Neoverse N2 @ 4 KiB pages):** 2,048 L2 TLB entries provide an 8.192 MB translation reach. At 1M keys (16.70 MB working set spanning 4,077 pages), Neoverse N2 faces the same $\approx 2\times$ STLB reach deficit as x86-64.
+- **Apple Silicon (macOS @ 16 KiB pages):** Because macOS uses 16 KiB base pages, the 16.70 MB working set spans only **~1,044 pages**. With a 3,072–4,096 entry L2 TLB, the translation reach is **48–64 MB** — fully enclosing the 1M-key trie natively without huge pages.
+
 ---
 
 ## 3. RISC-V (RV64 + RV32)
@@ -310,6 +348,10 @@ capability census & 64-byte cache line (§2.6), 32-byte embedded alignment for c
   Neoverse-N2 runner measuring 64 B (§2.6) confirms the assumption on that part;
   it says nothing about Apple Silicon, which is where the premise fails and which
   remains untested — so the finding stands at full weight.
+- ⚠️ **4 KiB TLB translation reach at 1M+ keys (§1.7, §2.7)** — at 1M uniform-random keys,
+  the 16.70 MB working set spans 4,077 pages (4 KiB), exceeding the 2,048-entry L2 STLB on
+  x86-64 and Neoverse N2 by ~2×. Apple Silicon avoids this due to 16 KiB native pages
+  (48–64 MB reach). Tracked under open issue [#431](https://github.com/orieg/expanse/issues/431).
 - ⚠️ **RV32 popcount/clz/ctz (§3.1)** — software on base `riscv32imac`; enabled with `+zbb` lane in CI.
 
 **Recommended code-comment precision fixes (non-behavioral):**
@@ -333,6 +375,7 @@ capability census & 64-byte cache line (§2.6), 32-byte embedded alignment for c
 |---|---|---|---|
 | **RV32 `+zbb`** build profile | 37 popcount/clz/ctz sites → single `cpop`/`clz`/`ctz` | **High** (concrete, spec-cited) — **shipped**: `test-rv32-zbb` CI lane builds with `-C target-feature=+zbb`; codegen verified (see docs/design/32-bit-embedded.md §2.3) | embedded parts may predate Zbb — keep SW fallback |
 | **AVX-512 VPOPCNTDQ** for `Bitmap256` rank | 4×u64 bitmap → one `_mm256_popcnt_epi64` | Moderate, benchmark-gated | AVX-512 license **downclock** (Opt. Manual p.76,81) |
+| **Huge-page slab backing / `MADV_HUGEPAGE`** | 1M+ random keys (reduces 4,077 pages → 8 pages, eliminating STLB misses) | Moderate (opt-in / progressive) | $28,500\times$ memory bloat on sparse/clustered 1k keys if default-on; must be opt-in or adaptive ([#431](https://github.com/orieg/expanse/issues/431)) |
 | **AVX2** 32-byte leaf scan | KB≥2 / wider sorted leaves | Low–moderate | leaves rarely > 16 lanes before bitmap switch |
 | **FEAT_CSSC** scalar bit-manip (AArch64) | `count_ones`/`ctz` → single scalar op | Moderate (future) | Armv8.9+ (Neoverse-class); nightly/asm only today |
 | **SVE / SVE2** VL-agnostic scan (AArch64) | additive fast leaf scan on Neoverse/Graviton | **Tried and reverted — measured negative** | implemented in #434, reverted after the AArch64 lane measured `map_get/sequential` **+9.19%**, `map_get/random` **+9.86%**, `set_contains/random` **+7.73%** *(measured: GitHub AArch64 runner Neoverse-N2, jobs 98711354227 → 98737273484; x86 byte-identical across the same commits, so the change is arch-local)*. Mechanism: the adaptive ladder promotes to bitmap before linear leaves grow, so `whilelt`/`brkb`/`cntp` setup is paid per scan over ≤16 elements and never amortises. **The same argument applies to any wide-vector leaf scan**, including the AVX2 row below. Needs runtime detection (none exists yet: no `is_aarch64_feature_detected!` in `crates/`); hardware **exposed** on the GitHub AArch64 runner (§2.6) so it is now testable, absent on Apple M-series |
@@ -382,6 +425,7 @@ All PDFs cached under `docs/research/hardware/` (git-ignored); re-download from 
 - Arm Architecture Reference Manual for A-profile, DDI 0487, issue M.c (2026-06-26,
   17,145 pp) — `documentation-service.arm.com` (`documentation/ddi0487/latest`).
 - Arm Neon Intrinsics Reference for ACLE, IHI 0073, issue G (2020Q3).
+- Arm Neoverse N2 Technical Reference Manual, 102099, issue 0000-02 (2021).
 
 **RISC-V:**
 - RISC-V Instruction Set Manual Vol I: Unprivileged Architecture, v20240411 (ratified).
@@ -406,6 +450,11 @@ are **arithmetic/policy**, not primary-manual facts, and are labeled as such abo
   docs (`hw.cachelinesize`), the LLVM/Clang M4 feature list, and community measurement
   (mimalloc PR #419). The *architectural* claim (line size is IMPLEMENTATION DEFINED,
   read `CTR_EL0`) is fully primary-sourced (§2.4).
+- **Apple Silicon 16 KiB base page size & L2 TLB entry count** — sourced from Apple developer
+  docs, macOS `sysctl hw.pagesize`, and community microbenchmarking (Asahi Linux / Dougall
+  Johnson tables); secondary source (§2.7).
+- **AMD Zen 3/4 L2 STLB capacity (2,048 entries)** — sourced from Agner Fog's
+  microarchitecture tables and AMD APM Vol 2 §5.4.
 - **"SSE2 mandatory in x86-64"** — a real guarantee, but sourced from the x86-64 psABI /
   Rust target spec, **not** a verbatim sentence in the (2005/2016-revision) Intel/AMD
   Vol 1 manuals consulted (§1.1).
