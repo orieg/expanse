@@ -2806,7 +2806,21 @@ pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edg
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::ptr::NonNull;
     use std::sync::Arc;
+
+    struct TestAllocGuard<'a> {
+        alloc: &'a NodeAlloc,
+        ptr: NonNull<u8>,
+        size: usize,
+    }
+
+    impl Drop for TestAllocGuard<'_> {
+        fn drop(&mut self) {
+            // SAFETY: ptr was allocated with size on alloc and is freed once on drop/unwind.
+            unsafe { self.alloc.free_bytes(self.ptr, self.size) };
+        }
+    }
 
     /// Negative control (§2.3, #479): exercises `a.assert_bracketed()` at
     /// `insert_with_path_flat` (case 0x05, Leaf1 in-place shift).
@@ -2817,7 +2831,14 @@ mod tests {
         let alloc = NodeAlloc::new();
         alloc.defer_to(Arc::new(crate::occ::Collector::new()));
 
-        let ptr = alloc.alloc_bytes(leaf::size_set(1, 3));
+        let size = leaf::size_set(1, 3);
+        let ptr = alloc.alloc_bytes(size);
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr,
+            size,
+        };
+
         // SAFETY: freshly allocated leaf has capacity for 3 entries.
         unsafe {
             let p = ptr.as_ptr();
@@ -2840,7 +2861,14 @@ mod tests {
         let alloc = NodeAlloc::new();
         alloc.defer_to(Arc::new(crate::occ::Collector::new()));
 
-        let ptr = alloc.alloc_bytes(leaf::size_set(1, 3));
+        let size = leaf::size_set(1, 3);
+        let ptr = alloc.alloc_bytes(size);
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr,
+            size,
+        };
+
         // SAFETY: freshly allocated leaf has capacity for 3 entries.
         unsafe {
             let p = ptr.as_ptr();
@@ -2868,7 +2896,14 @@ mod tests {
         let alloc = NodeAlloc::new();
         alloc.defer_to(Arc::new(crate::occ::Collector::new()));
 
-        let ptr = alloc.alloc_bytes(leaf::size_set(2, 3));
+        let size = leaf::size_set(2, 3);
+        let ptr = alloc.alloc_bytes(size);
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr,
+            size,
+        };
+
         // SAFETY: freshly allocated leaf has capacity for 3 2-byte entries.
         unsafe {
             let p = ptr.as_ptr();
@@ -2891,7 +2926,14 @@ mod tests {
         let alloc = NodeAlloc::new();
         alloc.defer_to(Arc::new(crate::occ::Collector::new()));
 
-        let ptr = alloc.alloc_bytes(leaf::size_set(2, 3));
+        let size = leaf::size_set(2, 3);
+        let ptr = alloc.alloc_bytes(size);
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr,
+            size,
+        };
+
         // SAFETY: freshly allocated leaf has capacity for 3 2-byte entries.
         unsafe {
             let p = ptr.as_ptr();

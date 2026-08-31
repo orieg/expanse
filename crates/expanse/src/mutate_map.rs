@@ -2417,7 +2417,21 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::ptr::NonNull;
     use std::sync::Arc;
+
+    struct TestAllocGuard<'a> {
+        alloc: &'a NodeAlloc,
+        ptr: NonNull<u8>,
+        size: usize,
+    }
+
+    impl Drop for TestAllocGuard<'_> {
+        fn drop(&mut self) {
+            // SAFETY: ptr was allocated with size on alloc and is freed once on drop/unwind.
+            unsafe { self.alloc.free_bytes(self.ptr, self.size) };
+        }
+    }
 
     /// Negative control (§2.3, #479): exercises `a.assert_bracketed()` at
     /// `map_insert_with_path_flat` (case 0x05..=0x0B, Leaf1..Leaf7 in-place shift).
@@ -2428,7 +2442,14 @@ mod tests {
         let alloc = NodeAlloc::new();
         alloc.defer_to(Arc::new(crate::occ::Collector::new()));
 
-        let ptr = alloc.alloc_bytes(leaf::size_map(1, 3));
+        let size = leaf::size_map(1, 3);
+        let ptr = alloc.alloc_bytes(size);
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr,
+            size,
+        };
+
         // SAFETY: freshly allocated map leaf has capacity for 3 entries.
         unsafe {
             let vals = ptr.as_ptr().cast::<u64>();
@@ -2455,7 +2476,14 @@ mod tests {
         let alloc = NodeAlloc::new();
         alloc.defer_to(Arc::new(crate::occ::Collector::new()));
 
-        let ptr = alloc.alloc_bytes(leaf::size_map(1, 3));
+        let size = leaf::size_map(1, 3);
+        let ptr = alloc.alloc_bytes(size);
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr,
+            size,
+        };
+
         // SAFETY: freshly allocated map leaf has capacity for 3 entries.
         unsafe {
             let vals = ptr.as_ptr().cast::<u64>();
@@ -2489,7 +2517,14 @@ mod tests {
         let alloc = NodeAlloc::new();
         alloc.defer_to(Arc::new(crate::occ::Collector::new()));
 
-        let val_ptr = alloc.alloc_bytes(map_immed_val_size(3)).cast::<u64>();
+        let size = map_immed_val_size(3);
+        let val_ptr = alloc.alloc_bytes(size).cast::<u64>();
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr: val_ptr.cast(),
+            size,
+        };
+
         // SAFETY: freshly allocated value array holds 3 entries.
         unsafe {
             val_ptr.as_ptr().add(0).write(10);
@@ -2516,7 +2551,14 @@ mod tests {
         let alloc = NodeAlloc::new();
         alloc.defer_to(Arc::new(crate::occ::Collector::new()));
 
-        let val_ptr = alloc.alloc_bytes(map_immed_val_size(3)).cast::<u64>();
+        let size = map_immed_val_size(3);
+        let val_ptr = alloc.alloc_bytes(size).cast::<u64>();
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr: val_ptr.cast(),
+            size,
+        };
+
         // SAFETY: freshly allocated value array holds 3 entries.
         unsafe {
             val_ptr.as_ptr().add(0).write(10);
@@ -2550,7 +2592,14 @@ mod tests {
         let alloc = NodeAlloc::new();
         alloc.defer_to(Arc::new(crate::occ::Collector::new()));
 
-        let val_ptr = alloc.alloc_bytes(map_immed_val_size(3)).cast::<u64>();
+        let size = map_immed_val_size(3);
+        let val_ptr = alloc.alloc_bytes(size).cast::<u64>();
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr: val_ptr.cast(),
+            size,
+        };
+
         // SAFETY: freshly allocated value array holds 3 entries.
         unsafe {
             val_ptr.as_ptr().add(0).write(10);
@@ -2579,7 +2628,14 @@ mod tests {
         let alloc = NodeAlloc::new();
         alloc.defer_to(Arc::new(crate::occ::Collector::new()));
 
-        let val_ptr = alloc.alloc_bytes(map_immed_val_size(3)).cast::<u64>();
+        let size = map_immed_val_size(3);
+        let val_ptr = alloc.alloc_bytes(size).cast::<u64>();
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr: val_ptr.cast(),
+            size,
+        };
+
         // SAFETY: freshly allocated value array holds 3 entries.
         unsafe {
             val_ptr.as_ptr().add(0).write(10);
