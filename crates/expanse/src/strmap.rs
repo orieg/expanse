@@ -27,9 +27,21 @@
 
 use crate::alloc::NodeAlloc;
 use crate::map::MapCore;
+#[cfg(feature = "std")]
 use crate::occ::Collector;
 use core::ptr::NonNull;
-use std::sync::{Arc, OnceLock};
+use core_alloc::boxed::Box;
+#[cfg(feature = "std")]
+use core_alloc::sync::Arc;
+use core_alloc::vec;
+use core_alloc::vec::Vec;
+#[cfg(feature = "std")]
+use std::sync::OnceLock;
+
+#[cfg(feature = "std")]
+type DeferHandle<'a> = Option<&'a Arc<Collector>>;
+#[cfg(not(feature = "std"))]
+type DeferHandle<'a> = Option<&'a ()>;
 
 const CHUNK: usize = 8;
 const TAG_SUFFIX: u64 = 1;
@@ -84,7 +96,8 @@ struct StrNode {
 /// retired through the epoch collector when it is — a reader that
 /// validated the tagged pointer at an earlier snapshot may still be
 /// reading the (write-once) shell and byte buffer under its pin.
-fn dispose_suffix(ptr: *mut StrSuffix, defer: Option<&Arc<Collector>>) {
+fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>) {
+    #[cfg(feature = "std")]
     match defer {
         None => {
             // SAFETY: caller unlinked `ptr`; this is the last reference.
@@ -117,6 +130,11 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: Option<&Arc<Collector>>) {
             );
         }
     }
+    #[cfg(not(feature = "std"))]
+    {
+        let _ = defer;
+        drop(unsafe { Box::from_raw(ptr) });
+    }
 }
 
 /// Disposes one unlinked node whose continuation children the caller
@@ -131,12 +149,13 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: Option<&Arc<Collector>>) {
 /// the deferred `NodeAlloc` and retire to the collector, so pinned
 /// readers keep their memory; the shell then frees (or retires) exactly
 /// once with the layout it was allocated with.
-fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: Option<&Arc<Collector>>) {
+fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
     // SAFETY: caller unlinked `ptr` and is the exclusive writer; the map
     // interior is cleared exactly once here and never touched again (in
     // deferred mode the shell memory stays mapped for pinned readers,
     // whose validation rejects whatever they read from it).
     unsafe { (*ptr).map.clear_pathless(alloc) };
+    #[cfg(feature = "std")]
     match defer {
         None => {
             // SAFETY: last reference; the owning `Box` (created by
@@ -155,6 +174,11 @@ fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: Option<&Arc<Collect
             );
         }
     }
+    #[cfg(not(feature = "std"))]
+    {
+        let _ = defer;
+        drop(unsafe { Box::from_raw(ptr) });
+    }
 }
 
 /// Disposes a whole unlinked subtree. Iterative like every other walk in
@@ -162,7 +186,7 @@ fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: Option<&Arc<Collect
 /// exactly the deep chains this module's teardown exists to survive
 /// (`StrNode` has no `Drop`, so both the immediate and the deferred
 /// arm run this same explicit worklist).
-fn dispose_tree(root: *mut StrNode, alloc: &NodeAlloc, defer: Option<&Arc<Collector>>) {
+fn dispose_tree(root: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
     let mut stack: Vec<*mut StrNode> = vec![root];
     while let Some(p) = stack.pop() {
         // Queue children and dispose suffixes while iterating (the
@@ -448,7 +472,7 @@ impl StrNode {
         key: &[u8],
         off: usize,
         alloc: &NodeAlloc,
-        defer: Option<&Arc<Collector>>,
+        defer: DeferHandle<'_>,
     ) -> Option<u64> {
         let mut path: Vec<(*mut StrNode, u64)> = Vec::new();
         let mut node: *mut StrNode = &raw mut *self;
@@ -550,6 +574,7 @@ pub struct ExpanseStrMap {
     /// may still hold pointers into them); the shared `alloc` is deferred
     /// to the same collector, so sub-map interior frees and mutation
     /// brackets participate too.
+    #[cfg(feature = "std")]
     deferred: OnceLock<Arc<Collector>>,
 }
 
@@ -569,8 +594,21 @@ impl ExpanseStrMap {
             root: None,
             pop: 0,
             alloc: NodeAlloc::new(),
+            #[cfg(feature = "std")]
             deferred: OnceLock::new(),
         }
+    }
+
+    #[inline(always)]
+    #[cfg(feature = "std")]
+    fn defer_handle(&self) -> Option<Arc<Collector>> {
+        self.deferred.get().cloned()
+    }
+
+    #[inline(always)]
+    #[cfg(not(feature = "std"))]
+    fn defer_handle(&self) -> Option<()> {
+        None
     }
 
     /// Switches this map to deferred reclamation through `collector`,
@@ -588,6 +626,7 @@ impl ExpanseStrMap {
     ///
     /// `pub(crate)` deliberately — only the `sync` wrapper drives a
     /// collector's epochs (see `BlobArena::defer_to` for the rationale).
+    #[cfg(feature = "std")]
     pub(crate) fn defer_to(&self, collector: Arc<Collector>) {
         assert!(
             self.root.is_none(),
@@ -643,7 +682,7 @@ impl ExpanseStrMap {
         chunk: u64,
         old: *mut StrSuffix,
         alloc: &NodeAlloc,
-        defer: Option<&Arc<Collector>>,
+        defer: DeferHandle<'_>,
     ) -> *mut StrNode {
         let mut child = Box::new(StrNode::new());
         // SAFETY: `old` is the live suffix being split; every borrow here
@@ -675,7 +714,7 @@ impl ExpanseStrMap {
     /// Inserts `key → val`; returns the replaced value if present.
     pub fn insert(&mut self, key: &[u8], val: u64) -> Option<u64> {
         Self::assert_key(key);
-        let defer = self.deferred.get().cloned();
+        let defer = self.defer_handle();
         // Field-level borrows on purpose: `node` must borrow only
         // `self.root` so `self.pop` and `self.alloc` stay reachable in
         // the loop.
@@ -738,7 +777,7 @@ impl ExpanseStrMap {
     /// `JudySLIns` contract. Valid until the next structural mutation.
     pub fn ins_slot(&mut self, key: &[u8]) -> NonNull<u64> {
         Self::assert_key(key);
-        let defer = self.deferred.get().cloned();
+        let defer = self.defer_handle();
         // Field-level borrows on purpose: `node` must borrow only
         // `self.root` so `self.pop` and `self.alloc` stay reachable in
         // the loop.
@@ -846,6 +885,7 @@ impl ExpanseStrMap {
     /// reclamation ([`Self::defer_to`]), and the caller must hold an epoch
     /// pin for the whole call — every pointer read under a still-valid
     /// cover then references EBR-live memory.
+    #[cfg(feature = "std")]
     pub(crate) unsafe fn get_validated(
         &self,
         key: &[u8],
@@ -898,6 +938,9 @@ impl ExpanseStrMap {
                 }
                 return Ok(matched.then_some(value));
             }
+            if !ver.validate(snap) {
+                return Err(Retry);
+            }
             node = unpack_child(v);
             off += CHUNK;
         }
@@ -934,7 +977,7 @@ impl ExpanseStrMap {
     /// Removes `key`; returns its value if it was present.
     pub fn remove(&mut self, key: &[u8]) -> Option<u64> {
         Self::assert_key(key);
-        let defer = self.deferred.get().cloned();
+        let defer = self.defer_handle();
         let alloc = &self.alloc;
         let root = self.root.as_deref_mut()?;
         let removed = root.remove(key, 0, alloc, defer.as_ref())?;
@@ -1008,7 +1051,11 @@ impl ExpanseStrMap {
                 // suffixes — then dispose of the subtree (retired through
                 // the collector when shared).
                 let bytes = self.alloc.bytes_in_use() as u64 + root.shell_bytes();
-                dispose_tree(Box::into_raw(root), &self.alloc, self.deferred.get());
+                dispose_tree(
+                    Box::into_raw(root),
+                    &self.alloc,
+                    self.defer_handle().as_ref(),
+                );
                 debug_assert_eq!(self.alloc.bytes_in_use(), 0);
                 bytes
             }
@@ -1159,9 +1206,10 @@ mod tests {
     /// routes unlinked allocations through the epoch collector, and
     /// everything drains without leaks or double frees.
     #[test]
+    #[cfg(feature = "std")]
     fn deferred_strmap_dispose_round_trip() {
         use crate::occ::Collector;
-        use std::sync::Arc;
+        use core_alloc::sync::Arc;
 
         let collector = Arc::new(Collector::new());
         let mut m = ExpanseStrMap::new();

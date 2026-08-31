@@ -12,10 +12,15 @@ use crate::mutate;
 use crate::mutate_map;
 use crate::node::Edge;
 use crate::set::ROOT_LEAF_CAP;
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
 use crate::sync::RootSnapshot;
 use crate::types::Key;
 use crate::validate::ExpanseStats;
 use core::ptr::NonNull;
+#[cfg(not(feature = "std"))]
+use core_alloc::format;
+#[cfg(not(feature = "std"))]
+use core_alloc::string::String;
 
 #[derive(Clone, Copy)]
 enum Root {
@@ -682,6 +687,7 @@ impl MapCore {
     /// Phase 7 (occ): by-value root snapshot for the validated concurrent
     /// read walk (see `ExpanseSet::occ_root`).
     #[inline(always)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn occ_snapshot(&self) -> RootSnapshot {
         match self.root {
             Root::Empty => RootSnapshot::Empty,
@@ -1676,6 +1682,7 @@ impl ExpanseMap {
     }
 
     #[inline(always)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn clear_path(&self) {
         // SAFETY: path is an internal cursor whose state is reset through UnsafeCell.
         unsafe {
@@ -1784,6 +1791,7 @@ impl ExpanseMap {
 
     /// Phase 7 (occ): by-value root snapshot + allocation handle for
     /// the validated concurrent read walk (see `ExpanseSet::occ_root`).
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn occ_root(&self) -> (RootSnapshot, &NodeAlloc) {
         (self.core.occ_snapshot(), &self.alloc)
     }

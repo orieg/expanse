@@ -31,8 +31,7 @@
 //! Rust API (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(not(feature = "std"))]
-extern crate alloc;
+extern crate alloc as core_alloc;
 
 #[cfg(not(any(target_pointer_width = "64", target_pointer_width = "32")))]
 compile_error!("expanse supports 64-bit and 32-bit targets");
@@ -79,7 +78,7 @@ pub mod set;
 pub mod slot;
 #[cfg(target_pointer_width = "64")]
 pub mod strmap;
-#[cfg(target_pointer_width = "64")]
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
 pub mod sync;
 #[cfg(target_pointer_width = "64")]
 pub mod types;

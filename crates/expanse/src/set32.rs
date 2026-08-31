@@ -15,8 +15,7 @@ use core::default::Default;
 use core::fmt;
 use core::option::Option;
 
-extern crate alloc;
-use alloc::vec::Vec;
+use core_alloc::vec::Vec;
 
 use crate::trie32::{self, Arena};
 use crate::types32::{Edge32, Key32};
