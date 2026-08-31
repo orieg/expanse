@@ -2534,4 +2534,91 @@ mod tests {
         m.clear();
         drop(m);
     }
+
+    /// Negative invariant control (#477, #479): verifies that if an unbracketed
+    /// mutation is attempted on an OCC-enabled ExpanseMap (simulating a path-cache
+    /// bypass that skipped parent version bracketing), the engine panics deterministically.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "node interior mutated outside any version bracket")]
+    fn negative_control_map_unbracketed_bypass_panics() {
+        let mut map = ExpanseMap::new();
+        map.occ_root()
+            .1
+            .defer_to(Arc::new(crate::occ::Collector::new()));
+
+        // Populate under a bracket until it transitions to a multi-level tree
+        map.occ_root().1.bracket_enter();
+        for k in 0..40u64 {
+            map.insert(k, k * 10);
+        }
+        map.occ_root().1.bracket_leave();
+
+        // Simulate a warm path cache matching the next insert's prefix
+        map.path_mut().prefix = 0;
+
+        // An unbracketed insert with matching prefix takes the fast path and must panic
+        map.insert(50, 500);
+    }
+
+    /// Negative invariant control (#477, #479): the set twin of the test above.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "node interior mutated outside any version bracket")]
+    fn negative_control_set_unbracketed_bypass_panics() {
+        let mut set = ExpanseSet::new();
+        set.occ_root()
+            .1
+            .defer_to(Arc::new(crate::occ::Collector::new()));
+
+        // Populate under a bracket until it transitions to a multi-level tree
+        set.occ_root().1.bracket_enter();
+        for k in 0..40u64 {
+            set.insert(k);
+        }
+        set.occ_root().1.bracket_leave();
+
+        // Simulate a warm path cache matching the next insert's prefix
+        set.path_mut().prefix = 0;
+
+        // An unbracketed insert with matching prefix takes the fast path and must panic
+        set.insert(50);
+    }
+
+    /// Positive companion: when properly bracketed, map mutations covered
+    /// by an active bracket succeed quietly.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn bracketed_map_insert_is_quiet_when_covered() {
+        let mut map = ExpanseMap::new();
+        map.occ_root()
+            .1
+            .defer_to(Arc::new(crate::occ::Collector::new()));
+
+        map.occ_root().1.bracket_enter();
+        for k in 0..40u64 {
+            map.insert(k, k * 10);
+        }
+        map.path_mut().prefix = 0;
+        map.insert(50, 500);
+        map.occ_root().1.bracket_leave();
+    }
+
+    /// Positive companion: set twin of the test above.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn bracketed_set_insert_is_quiet_when_covered() {
+        let mut set = ExpanseSet::new();
+        set.occ_root()
+            .1
+            .defer_to(Arc::new(crate::occ::Collector::new()));
+
+        set.occ_root().1.bracket_enter();
+        for k in 0..40u64 {
+            set.insert(k);
+        }
+        set.path_mut().prefix = 0;
+        set.insert(50);
+        set.occ_root().1.bracket_leave();
+    }
 }

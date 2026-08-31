@@ -1788,6 +1788,12 @@ impl ExpanseMap {
         (self.core.occ_snapshot(), &self.alloc)
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn path_mut(&mut self) -> &mut crate::mutate_map::InsertPathMap {
+        self.path.get_mut()
+    }
+
     /// Membership test.
     #[must_use]
     pub fn contains_key(&self, key: Key) -> bool {

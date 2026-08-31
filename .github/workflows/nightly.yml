@@ -125,9 +125,77 @@ jobs:
           components: rust-src
       - uses: Swatinem/rust-cache@v2
       - name: Run Sync* suite under ThreadSanitizer
-        run: cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync::
+        run: |
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync::
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test linearizability --test test_blobmap
         env:
           RUSTFLAGS: "-Zsanitizer=thread"
+
+      - name: Report or Update Nightly Failure Issue
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = '🚨 [Nightly CI Failure] ThreadSanitizer (TSan) Verification Failed on main';
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'nightly-failure'
+            });
+
+            const existing = issues.find(i => i.title.includes('ThreadSanitizer'));
+            const body = [
+              '### Nightly Verification Failure Alert',
+              '',
+              `- **Commit**: [${context.sha}](${context.payload.repository?.html_url}/commit/${context.sha})`,
+              `- **Workflow Run**: [View Failed Run Logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              '- **Failing Target**: `ThreadSanitizer (TSan) Sync* / linearizability / blobmap tests`',
+              '',
+              '#### Local Reproduction Commands:',
+              '```bash',
+              'RUSTFLAGS="-Zsanitizer=thread" cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync::',
+              'RUSTFLAGS="-Zsanitizer=thread" cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test linearizability --test test_blobmap',
+              '```'
+            ].join('\n');
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `⚠️ Nightly run still failing on commit ${context.sha}. [View Run](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['bug', 'nightly-failure', 'automated-triage']
+              });
+            }
+
+      - name: Comment on Nightly Issue on Success
+        if: success() && github.event_name == 'schedule'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'nightly-failure'
+            });
+            const existing = issues.find(i => i.title.includes('ThreadSanitizer'));
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `🟢 Nightly run passed on commit ${context.sha} (not auto-closing: TSan race findings require manual inspection/triage per #479).`
+              });
+            }
 
   bench-report:
     runs-on: ubuntu-latest

@@ -427,6 +427,12 @@ impl ExpanseSet {
         (snap, &self.alloc)
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn path_mut(&mut self) -> &mut crate::mutate::InsertPath {
+        self.path.get_mut()
+    }
+
     /// Removes `key`; returns `true` if it was present.
     pub fn remove(&mut self, key: Key) -> bool {
         self.path.get_mut().clear();

@@ -1099,6 +1099,7 @@ unsafe fn insert_with_path_flat(
                 };
                 let cap = LEAF1_CAP;
                 if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
+                    a.assert_bracketed();
                     // SAFETY: base has spare class capacity; set_insert_at_fixed shifts in-place.
                     unsafe {
                         leaf::set_insert_at_fixed::<1>(base, pop, pos, k);
@@ -1242,6 +1243,7 @@ unsafe fn insert_with_path_flat(
                 };
                 let cap = LEAF_CAP;
                 if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
+                    a.assert_bracketed();
                     // SAFETY: base has spare class capacity; set_insert_at shifts in-place.
                     unsafe {
                         leaf::set_insert_at(base, kb, pop, pos, k);
@@ -2799,4 +2801,154 @@ pub(crate) unsafe fn free_subtree<const MAP: bool>(a: &NodeAlloc, edge: &mut Edg
         }
     }
     *edge = Edge::NULL;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::ptr::NonNull;
+    use std::sync::Arc;
+
+    struct TestAllocGuard<'a> {
+        alloc: &'a NodeAlloc,
+        ptr: NonNull<u8>,
+        size: usize,
+    }
+
+    impl Drop for TestAllocGuard<'_> {
+        fn drop(&mut self) {
+            // SAFETY: ptr was allocated with size on alloc and is freed once on drop/unwind.
+            unsafe { self.alloc.free_bytes(self.ptr, self.size) };
+        }
+    }
+
+    /// Negative control (§2.3, #479): exercises `a.assert_bracketed()` at
+    /// `insert_with_path_flat` (case 0x05, Leaf1 in-place shift).
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "node interior mutated outside any version bracket")]
+    fn negative_control_flat_leaf1_inplace_panics_unbracketed() {
+        let alloc = NodeAlloc::new();
+        alloc.defer_to(Arc::new(crate::occ::Collector::new()));
+
+        let size = leaf::size_set(1, 3);
+        let ptr = alloc.alloc_bytes(size);
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr,
+            size,
+        };
+
+        // SAFETY: freshly allocated leaf has capacity for 3 entries.
+        unsafe {
+            let p = ptr.as_ptr();
+            *p.add(0) = 0x02;
+            *p.add(1) = 0x05;
+            *p.add(2) = 0x09;
+        }
+        let mut edge = Edge::new_node(ptr.as_ptr(), EdgeType::Leaf1.as_u8());
+        edge.set_pop0(1, 2); // pop0 = 2 => pop = 3
+
+        let mut path = InsertPath::empty();
+        // SAFETY: edge is a valid Leaf1 node.
+        unsafe { insert_with_path_flat(&alloc, &mut edge, 0x07, 1, &mut path) };
+    }
+
+    /// Positive companion: covered Leaf1 in-place mutation succeeds quietly.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn positive_control_flat_leaf1_inplace_quiet_when_covered() {
+        let alloc = NodeAlloc::new();
+        alloc.defer_to(Arc::new(crate::occ::Collector::new()));
+
+        let size = leaf::size_set(1, 3);
+        let ptr = alloc.alloc_bytes(size);
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr,
+            size,
+        };
+
+        // SAFETY: freshly allocated leaf has capacity for 3 entries.
+        unsafe {
+            let p = ptr.as_ptr();
+            *p.add(0) = 0x02;
+            *p.add(1) = 0x05;
+            *p.add(2) = 0x09;
+        }
+        let mut edge = Edge::new_node(ptr.as_ptr(), EdgeType::Leaf1.as_u8());
+        edge.set_pop0(1, 2); // pop0 = 2 => pop = 3
+
+        let mut path = InsertPath::empty();
+        alloc.bracket_enter();
+        // SAFETY: edge is a valid Leaf1 node.
+        let inserted = unsafe { insert_with_path_flat(&alloc, &mut edge, 0x07, 1, &mut path) };
+        alloc.bracket_leave();
+        assert!(inserted);
+    }
+
+    /// Negative control (§2.3, #479): exercises `a.assert_bracketed()` at
+    /// `insert_with_path_flat` (case 0x06..=0x0B, Leaf2..Leaf7 in-place shift).
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "node interior mutated outside any version bracket")]
+    fn negative_control_flat_leaf2_inplace_panics_unbracketed() {
+        let alloc = NodeAlloc::new();
+        alloc.defer_to(Arc::new(crate::occ::Collector::new()));
+
+        let size = leaf::size_set(2, 3);
+        let ptr = alloc.alloc_bytes(size);
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr,
+            size,
+        };
+
+        // SAFETY: freshly allocated leaf has capacity for 3 2-byte entries.
+        unsafe {
+            let p = ptr.as_ptr();
+            write_packed(p, 0, 2, 0x0102);
+            write_packed(p, 1, 2, 0x0105);
+            write_packed(p, 2, 2, 0x0109);
+        }
+        let mut edge = Edge::new_node(ptr.as_ptr(), EdgeType::Leaf2.as_u8());
+        edge.set_pop0(2, 2); // pop0 = 2 => pop = 3
+
+        let mut path = InsertPath::empty();
+        // SAFETY: edge is a valid Leaf2 node.
+        unsafe { insert_with_path_flat(&alloc, &mut edge, 0x0107, 2, &mut path) };
+    }
+
+    /// Positive companion: covered Leaf2 in-place mutation succeeds quietly.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn positive_control_flat_leaf2_inplace_quiet_when_covered() {
+        let alloc = NodeAlloc::new();
+        alloc.defer_to(Arc::new(crate::occ::Collector::new()));
+
+        let size = leaf::size_set(2, 3);
+        let ptr = alloc.alloc_bytes(size);
+        let _guard = TestAllocGuard {
+            alloc: &alloc,
+            ptr,
+            size,
+        };
+
+        // SAFETY: freshly allocated leaf has capacity for 3 2-byte entries.
+        unsafe {
+            let p = ptr.as_ptr();
+            write_packed(p, 0, 2, 0x0102);
+            write_packed(p, 1, 2, 0x0105);
+            write_packed(p, 2, 2, 0x0109);
+        }
+        let mut edge = Edge::new_node(ptr.as_ptr(), EdgeType::Leaf2.as_u8());
+        edge.set_pop0(2, 2); // pop0 = 2 => pop = 3
+
+        let mut path = InsertPath::empty();
+        alloc.bracket_enter();
+        // SAFETY: edge is a valid Leaf2 node.
+        let inserted = unsafe { insert_with_path_flat(&alloc, &mut edge, 0x0107, 2, &mut path) };
+        alloc.bracket_leave();
+        assert!(inserted);
+    }
 }
