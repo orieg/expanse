@@ -1051,6 +1051,29 @@ jobs:
               > baremetal-report.md
           fi
 
+          # Per-run Callgrind artifact (#382 item 8). `bench_baseline.py
+          # --harvest` covers criterion suites, but an iai-callgrind suite
+          # writes no `target/criterion`, so the Callgrind and `vs_stock`
+          # tables in docs/visualizer_data.json resolved to a test rather than
+          # to a run. Emitted per bench output that exists, and non-fatal for
+          # the same reason the harvest is: a completed measurement must not be
+          # lost to its post-processing (#449).
+          for pair in "head-instructions.txt:instructions" "head-vs-stock.txt:vs_stock"; do
+            src="${pair%%:*}"; name="${pair##*:}"
+            [ -f "$src" ] || continue
+            if python3 scripts/perf_report.py \
+              --head "$src" \
+              --emit-json "callgrind-$name.json" \
+              --suite "$name" \
+              --host-desc "$HOST_DESC" \
+              --commit "$(git rev-parse HEAD)" \
+              --run-id "$RUN_URL" > /dev/null; then
+              echo "wrote callgrind-$name.json"
+            else
+              echo "::warning::Callgrind artifact for '$name' could not be emitted from $src; the benchmark output itself is uploaded unchanged."
+            fi
+          done
+
           if [ -f baremetal-report.md ]; then
             if [ -f system-load.md ]; then
               cat system-load.md >> baremetal-report.md
@@ -1142,6 +1165,15 @@ jobs:
       # committed `results/baseline_*.json`. The runner cannot commit to a
       # protected branch, so the artifact is uploaded and the maintainer moves
       # it into `results/` in the PR that makes the claim.
+      - name: Upload Callgrind counts artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: callgrind-counts-${{ needs.resolve.outputs.suite }}-${{ github.run_id }}
+          path: callgrind-*.json
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Upload wall-clock baseline artifact
         if: always()
         uses: actions/upload-artifact@v7
