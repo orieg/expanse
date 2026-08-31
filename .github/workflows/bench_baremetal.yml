@@ -886,10 +886,21 @@ jobs:
                 # stood marked pending for want of a harness (#546), and they
                 # are load-sensitive, so they need this host rather than a
                 # shared runner.
-                python3 -m pip install --quiet --upgrade pip
-                python3 -m pip install --quiet "maturin>=1.5,<2.0"
-                python3 -m pip install --quiet .
-                python3 bindings/python/bench_concurrency.py \
+                # The reference host's system python3 ships without pip
+                # (`/usr/bin/python3: No module named pip`, run 33437883131),
+                # so build in a throwaway venv rather than assuming a
+                # pip-bearing interpreter or mutating the host's site-packages.
+                BENCH_VENV="$PWD/target/bench-venv"
+                rm -rf "$BENCH_VENV"
+                if ! python3 -m venv "$BENCH_VENV" 2>/dev/null; then
+                  echo "::error::Suite '$SUITE' builds the pyo3 extension and needs a virtual environment, but 'python3 -m venv' failed on this runner. Install the venv module (python3-venv on Debian/Ubuntu) before re-triggering. No benchmark was run and no numbers were produced."
+                  echo "fail_reason=missing_python_venv" >> "$GITHUB_OUTPUT"
+                  exit 1
+                fi
+                "$BENCH_VENV/bin/python" -m pip install --quiet --upgrade pip
+                "$BENCH_VENV/bin/python" -m pip install --quiet "maturin>=1.5,<2.0"
+                "$BENCH_VENV/bin/python" -m pip install --quiet .
+                "$BENCH_VENV/bin/python" bindings/python/bench_concurrency.py \
                   --out baseline-python_concurrency.json | tee python-concurrency.txt
                 ;;
               "rocksdb")
@@ -1448,6 +1459,9 @@ jobs:
               } else if (reason === 'missing_libjudy') {
                 label = 'refused';
                 cause = `The run was **refused before any benchmark started**: suite \`${suite}\` compares against stock libjudy, but \`dlopen\` resolved neither \`libJudy.so.1\` nor \`libJudy.so\` on the runner. Install stock libjudy (\`libjudy-dev\`, or a local build reachable through \`LD_LIBRARY_PATH\`) before re-triggering. No numbers were produced.`;
+              } else if (reason === 'missing_python_venv') {
+                label = 'refused';
+                cause = `The run was **refused before any benchmark started**: suite \`${suite}\` builds the pyo3 extension and needs a virtual environment, but \`python3 -m venv\` failed on the runner. Install the venv module (\`python3-venv\` on Debian/Ubuntu) before re-triggering. No numbers were produced.`;
               } else if (reason === 'missing_perf_tool') {
                 label = 'refused';
                 cause = `The run was **refused before any benchmark started**: suite \`${suite}\` reads hardware performance counters, but \`perf\` is not installed on the runner. Install the kernel's matching tools package (\`linux-tools-common\` plus \`linux-tools-$(uname -r)\` on Debian/Ubuntu, \`perf\` on Fedora/RHEL) before re-triggering. No numbers were produced.`;
