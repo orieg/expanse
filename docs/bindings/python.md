@@ -12,7 +12,7 @@
 - **Zero-Overhead Memory Compaction**: Consumes as low as **0.07–0.36 bytes/key** on clustered integer sets *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a — deterministic byte accounting)*, versus tens of bytes/key for Python's standard `set` and `dict`.
 - **Cache-Line Aligned Digital Tries**: $O(\text{depth})$ traversals (at most 8 digit steps for 64-bit keys) keeping branch and leaf evaluations within 64-byte L1 cache lines.
 - **Ordered Traversal & Range Scans**: Native sorted iteration, $O(\text{depth})$ `first()`, `last()`, `next_at_or_after()`, `prev_at_or_before()`, rank (`count_below`), and select (`by_count`) without maintaining secondary index trees.
-- **GIL-Free Optimistic Concurrency Control (OCC)**: `SyncExpanseSet` and `SyncExpanseMap` release the Python GIL (`py.detach`, pyo3 0.29's renamed `allow_threads`) during queries, so multiple Python `threading` / `ThreadPoolExecutor` workers execute reads concurrently across cores with zero read locks. (Multi-core throughput scaling figures are load-sensitive and pending a clean-host re-measurement, [#382](https://github.com/orieg/expanse/issues/382).)
+- **GIL-Free Optimistic Concurrency Control (OCC)**: `SyncExpanseSet` and `SyncExpanseMap` release the Python GIL (`py.detach`, pyo3 0.29's renamed `allow_threads`) during queries, so multiple Python `threading` / `ThreadPoolExecutor` workers execute reads concurrently across cores with zero read locks. (Multi-core throughput scaling figures are load-sensitive and pending a clean-host re-measurement, [#546](https://github.com/orieg/expanse/issues/546).)
 - **Strict Typing & IDE Support**: Full PEP 561 compliance (`py.typed` and `__init__.pyi` stubs) for mypy, Pyright, and IDE autocompletion.
 
 ---
@@ -202,7 +202,7 @@ In standard CPython, multithreaded CPU-bound data lookups often serialize on the
 
 1. **Lock-Free Reads**: Query operations (`contains`, `get`, `len`, `is_empty`) validate version seqlocks and read concurrently without holding mutexes or the Python GIL.
 2. **Serialized Writes**: Mutations (`insert`, `remove`) synchronize internally while allowing readers to proceed optimistically.
-3. **Multi-Core Reads**: Multiple Python threads execute reads across CPU cores without GIL serialization or lock contention. (Absolute scaling factors are load-sensitive and pending a clean-host re-measurement, [#382](https://github.com/orieg/expanse/issues/382).)
+3. **Multi-Core Reads**: Multiple Python threads execute reads across CPU cores without GIL serialization or lock contention. (Absolute scaling factors are load-sensitive and pending a clean-host re-measurement, [#546](https://github.com/orieg/expanse/issues/546).)
 
 ### Multithreaded Concurrency Example:
 
