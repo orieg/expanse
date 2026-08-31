@@ -297,6 +297,13 @@
       "summary": "Blob-arena storage paths for values above the immediate capacity."
     },
     {
+      "name": "rocksdb",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "RocksDB pluggable MemTable: fillrandom / readrandom / seek / scan and RAM bytes-per-key against a fair variable-height skiplist baseline (`integrations/rocksdb`, C++ built against release libexpanse)."
+    },
+    {
       "name": "embedded",
       "available": true,
       "kind": "wallclock",
