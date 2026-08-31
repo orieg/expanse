@@ -6,6 +6,9 @@ use crate::mutate::{
 };
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
 use crate::types::{EdgeTag, EdgeType, ImmedType};
+use core_alloc::format;
+use core_alloc::string::String;
+use core_alloc::vec::Vec;
 
 const BRANCH_L3_CAP: usize = 3;
 const BRANCH_L7_CAP: usize = 7;

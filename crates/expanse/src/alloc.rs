@@ -38,12 +38,17 @@
 //! The tree itself is single-writer; Phase 7's concurrent wrappers add
 //! shared readers, so the counters are (relaxed) atomics.
 
+#[cfg(feature = "std")]
 use crate::occ::Collector;
 use crate::types::{CACHE_LINE, RAW_ALIGN};
+use core::alloc::Layout;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
-use std::alloc::{Layout, alloc_zeroed, dealloc, handle_alloc_error};
-use std::sync::{Arc, OnceLock};
+use core_alloc::alloc::{alloc_zeroed, dealloc, handle_alloc_error};
+#[cfg(feature = "std")]
+use core_alloc::sync::Arc;
+#[cfg(feature = "std")]
+use std::sync::OnceLock;
 
 #[repr(C)]
 pub(crate) struct FreeBlock {
@@ -183,6 +188,7 @@ pub struct NodeAlloc {
     live_allocs: AtomicUsize,
     /// Phase 7: when set, frees are retired to the collector instead of
     /// released — concurrent readers may still hold the pointers.
+    #[cfg(feature = "std")]
     deferred: OnceLock<Arc<Collector>>,
     /// Debug-only: how many node version brackets are open on this
     /// tree's mutation stack (see [`Self::assert_bracketed`]).
@@ -202,6 +208,7 @@ impl Default for NodeAlloc {
         Self {
             bytes_in_use: AtomicUsize::new(0),
             live_allocs: AtomicUsize::new(0),
+            #[cfg(feature = "std")]
             deferred: OnceLock::new(),
             #[cfg(debug_assertions)]
             bracket_depth: AtomicUsize::new(0),
@@ -305,11 +312,15 @@ impl NodeAlloc {
                 return NonNull::new(raw).expect("non-null free block");
             }
 
+            #[cfg(feature = "std")]
             let mut raw = if let Some(c) = self.deferred.get() {
                 c.pop_freelist(class)
             } else {
                 core::ptr::null_mut()
             };
+
+            #[cfg(not(feature = "std"))]
+            let mut raw: *mut u8 = core::ptr::null_mut();
 
             if raw.is_null() && bytes <= 256 && !self.occ_enabled() {
                 // Pre-populate freelist from an intrusive 4KB slab page
@@ -380,6 +391,7 @@ impl NodeAlloc {
             .fetch_sub(accounted_size, Ordering::Relaxed);
         self.live_allocs.fetch_sub(1, Ordering::Relaxed);
 
+        #[cfg(feature = "std")]
         if let Some(c) = self.deferred.get() {
             // Deferred mode: the structure no longer references `ptr`,
             // but pinned readers may — reclamation waits out the grace
@@ -431,7 +443,14 @@ impl NodeAlloc {
     /// (single-threaded trees skip those fences entirely).
     #[inline]
     pub(crate) fn occ_enabled(&self) -> bool {
-        self.deferred.get().is_some()
+        #[cfg(feature = "std")]
+        {
+            self.deferred.get().is_some()
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            false
+        }
     }
 
     /// Debug-only bracket bookkeeping (see [`Self::assert_bracketed`]).
@@ -448,40 +467,46 @@ impl NodeAlloc {
 
     /// Asserts the Phase 7 coverage invariant at a mutation site: **every
     /// mutation of a node's interior happens with an enclosing node's
-    /// version bracket open**, so a concurrent reader validating against
-    /// that node's version cannot miss it.
+    /// version bracket open**, unless the tree is single-threaded (where
+    /// OCC is inactive).
     ///
-    /// Terminal nodes (leaves, bitmap leaves) carry no version of their
-    /// own; readers validate their payloads against the parent branch's
-    /// version, which is exactly why the parent's bracket must still be
-    /// open while a leaf is being rewritten. Checked only in debug
-    /// builds, and only for concurrently shared trees — a single-threaded
-    /// tree has no readers to protect.
-    #[inline]
+    /// Panics under `debug_assertions` if called with `bracket_depth == 0`
+    /// on a shared tree. Single-threaded trees never fail this check.
+    #[cfg(debug_assertions)]
     pub(crate) fn assert_bracketed(&self) {
-        #[cfg(debug_assertions)]
-        debug_assert!(
-            !self.occ_enabled() || self.bracket_depth.load(Ordering::Relaxed) > 0,
-            "node interior mutated outside any version bracket: a concurrent \
-             reader could observe it mid-write"
-        );
+        if self.occ_enabled() {
+            assert!(
+                self.bracket_depth.load(Ordering::Relaxed) > 0,
+                "node interior mutated outside any version bracket"
+            );
+        }
     }
 
-    /// Switches this handle to deferred reclamation through `collector`,
-    /// permanently (Phase 7 concurrent wrappers call this once at
-    /// construction). Idempotent for the same collector; a second call
-    /// with a different collector is a bug and panics.
+    /// Non-debug stub: compiled out in release builds.
+    #[cfg(not(debug_assertions))]
+    #[inline(always)]
+    pub(crate) fn assert_bracketed(&self) {}
+
+    /// Switches this allocator to deferred reclamation through
+    /// `collector`, permanently. Free calls from this point on route
+    /// through `collector.retire` instead of returning immediately to
+    /// freelists or the system allocator.
     ///
-    /// Must be called **before this handle has slab-carved memory** — i.e.
-    /// on a freshly created tree, before any allocation. A non-OCC
-    /// allocator serves ≤ 256-byte blocks out of intrusive slab pages;
-    /// those blocks are freed wholesale with their page and must never be
-    /// `dealloc`ed individually, but deferred mode retires every free to
+    /// Idempotent: calling with the same collector handle is a no-op;
+    /// calling with a different collector panics.
+    ///
+    /// # Slabs and migration
+    ///
+    /// `defer_to` requires an allocator that has **never allocated from
+    /// 4KB slab pages** (i.e. was deferred before any node was created,
+    /// or has only ever performed allocations above the slab ceiling).
+    /// Slab-carved blocks share a 4KB page and cannot be retired to
     /// the collector, which frees blocks individually after the grace
     /// period. Migrating a slab-using allocator therefore aborts in the
     /// allocator later; wrap populated structures by **rebuilding** them
     /// through a pre-deferred allocator instead (see the `sync` wrappers'
     /// `From` impls).
+    #[cfg(feature = "std")]
     pub fn defer_to(&self, collector: Arc<Collector>) {
         // Hard assert (not debug): the failure mode this guards is silent
         // heap corruption in release builds, and this is a cold once-per-
@@ -548,9 +573,14 @@ impl NodeAlloc {
 mod tests {
     use super::*;
     use crate::node::{BranchB, BranchL3, BranchU};
+    #[cfg(feature = "std")]
     use crate::occ::Collector;
+    #[cfg(feature = "std")]
+    use core_alloc::sync::Arc;
+    use core_alloc::vec::Vec;
 
     #[test]
+    #[cfg(feature = "std")]
     #[cfg(debug_assertions)]
     #[should_panic(expected = "outside any version bracket")]
     fn negative_control_bracket_assert_must_fire() {
@@ -558,7 +588,7 @@ mod tests {
         // to work. A concurrently-shared tree with no bracket open must
         // trip the Phase 7 coverage check.
         let a = NodeAlloc::new();
-        a.defer_to(std::sync::Arc::new(crate::occ::Collector::new()));
+        a.defer_to(Arc::new(crate::occ::Collector::new()));
         a.assert_bracketed();
     }
 
@@ -576,6 +606,7 @@ mod tests {
     /// concurrent churn tests reach the same code but Miri does not run
     /// them.
     #[test]
+    #[cfg(feature = "std")]
     fn deferred_free_round_trips_both_alignments() {
         let collector = Arc::new(Collector::new());
         let a = NodeAlloc::new();
@@ -604,12 +635,13 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn bracket_assert_is_quiet_when_covered() {
         // Single-threaded trees have no readers: never trips.
         let a = NodeAlloc::new();
         a.assert_bracketed();
         // Shared tree with a bracket open: also fine.
-        a.defer_to(std::sync::Arc::new(crate::occ::Collector::new()));
+        a.defer_to(Arc::new(crate::occ::Collector::new()));
         let mut version = 0u32;
         crate::occ::version_begin_if::<true>(&a, &mut version);
         a.assert_bracketed();
@@ -718,6 +750,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn occ_collector_freelist_recycling_round_trip() {
         let collector = Arc::new(Collector::new());
         let a = NodeAlloc::new();

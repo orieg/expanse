@@ -11,10 +11,14 @@ use crate::alloc::NodeAlloc;
 use crate::get;
 use crate::mutate;
 use crate::node::Edge;
+#[cfg(all(target_pointer_width = "64", feature = "std"))]
 use crate::sync::RootSnapshot;
 use crate::types::Key;
 use crate::validate::ExpanseStats;
 use core::ptr::NonNull;
+use core_alloc::format;
+use core_alloc::string::String;
+use core_alloc::vec::Vec;
 
 pub use crate::types::ROOT_LEAF_CAP;
 
@@ -77,6 +81,7 @@ impl ExpanseSet {
     }
 
     #[inline(always)]
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn clear_path(&self) {
         // SAFETY: path is an internal cursor whose state is reset through UnsafeCell.
         unsafe {
@@ -415,6 +420,7 @@ impl ExpanseSet {
     /// Phase 7 (occ): a by-value snapshot of the root state plus the
     /// allocation handle, for the validated concurrent read walk. The
     /// snapshot may be torn mid-mutation; `sync` validates before use.
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) fn occ_root(&self) -> (RootSnapshot, &NodeAlloc) {
         let snap = match self.root {
             Root::Empty => RootSnapshot::Empty,

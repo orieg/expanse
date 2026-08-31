@@ -15,9 +15,11 @@
 //! Under `--cfg loom` the atomics and sync types swap to loom's, and the
 //! `loom_` tests model-check writer/reader/reclamation interleavings.
 
+#[cfg(all(not(loom), feature = "std"))]
+use core::sync::atomic::{AtomicPtr, AtomicUsize};
 #[cfg(not(loom))]
-use core::sync::atomic::{AtomicPtr, AtomicU64, AtomicUsize, Ordering, fence};
-#[cfg(not(loom))]
+use core::sync::atomic::{AtomicU64, Ordering, fence};
+#[cfg(all(not(loom), feature = "std"))]
 use std::sync::Mutex;
 
 #[cfg(loom)]
@@ -25,12 +27,16 @@ use loom::sync::Mutex;
 #[cfg(loom)]
 use loom::sync::atomic::{AtomicPtr, AtomicU64, AtomicUsize, Ordering, fence};
 
-// `Arc` stays std's in both builds: loom's would infect every consumer's
-// signature, and the model only needs to explore the atomics/locks.
-use std::sync::Arc;
-
+#[cfg(feature = "std")]
+use core::alloc::Layout;
+#[cfg(feature = "std")]
 use core::ptr::NonNull;
-use std::alloc::{Layout, dealloc};
+#[cfg(feature = "std")]
+use core_alloc::alloc::dealloc;
+#[cfg(feature = "std")]
+use core_alloc::sync::Arc;
+#[cfg(feature = "std")]
+use core_alloc::vec::Vec;
 
 /// A seqlock word: even = stable, odd = mutation in progress.
 ///
@@ -160,12 +166,17 @@ pub(crate) fn version_end(v: &mut u32) {
     unsafe { core::ptr::write_volatile(v, cur + 1) };
 }
 
-/// Reader: samples a node version; `None` while a mutation is in
+/// Reader: loads a node's seqlock version word, returning `None` if
+/// torn (odd). Node versions are `u32` (half-words; see Phase 7 node
+/// layouts).
+///
+/// Returns `Some(even)` on a consistent snapshot; `None` if a write is in
 /// progress (odd).
 ///
 /// # Safety
 ///
 /// `ptr` must point at a live node's version field (EBR-pinned).
+#[cfg(feature = "std")]
 pub(crate) unsafe fn node_sample(ptr: *const u32) -> Option<u32> {
     // SAFETY: valid, aligned version field per contract.
     let a = unsafe { core::sync::atomic::AtomicU32::from_ptr(ptr.cast_mut()) };
@@ -179,6 +190,7 @@ pub(crate) unsafe fn node_sample(ptr: *const u32) -> Option<u32> {
 /// # Safety
 ///
 /// Same contract as [`node_sample`].
+#[cfg(feature = "std")]
 pub(crate) unsafe fn node_validate(ptr: *const u32, snap: u32) -> bool {
     fence(Ordering::Acquire);
     // SAFETY: valid, aligned version field per contract.
@@ -189,14 +201,18 @@ pub(crate) unsafe fn node_validate(ptr: *const u32, snap: u32) -> bool {
 /// Number of epoch garbage bins. A retired node becomes freeable once
 /// the global epoch has advanced twice past its retirement epoch: every
 /// reader pinned at retirement time has since unpinned.
+#[cfg(feature = "std")]
 const BINS: usize = 3;
 
 /// A reader-registration slot: the epoch the reader is pinned at, or
 /// [`INACTIVE`].
+#[cfg(feature = "std")]
 type Slot = AtomicUsize;
 
+#[cfg(feature = "std")]
 const INACTIVE: usize = usize::MAX;
 
+#[cfg(feature = "std")]
 #[derive(Debug)]
 struct Garbage {
     ptr: NonNull<u8>,
@@ -209,13 +225,16 @@ struct Garbage {
 
 // SAFETY: a retired allocation is exclusively owned by the collector —
 // no live reference remains once its grace period elapses.
+#[cfg(feature = "std")]
 unsafe impl Send for Garbage {}
 
+#[cfg(feature = "std")]
 use crate::alloc::{CLASS_SPECS, FreeBlock, NUM_CLASSES, class_for};
 
 /// Epoch-based reclamation for one tree: readers pin the current epoch
 /// around each walk; retired allocations wait two epoch advances before
 /// they are freed, so a pinned reader can never observe freed memory.
+#[cfg(feature = "std")]
 #[derive(Debug)]
 pub struct Collector {
     epoch: AtomicUsize,
@@ -225,12 +244,14 @@ pub struct Collector {
     retained_bytes: AtomicUsize,
 }
 
+#[cfg(feature = "std")]
 impl Default for Collector {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(feature = "std")]
 impl Collector {
     /// A fresh collector at epoch 0 with no registered readers.
     #[must_use]
@@ -262,6 +283,9 @@ impl Collector {
                 .compare_exchange_weak(head, next, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
+                let bytes = CLASS_SPECS[class].0;
+                // SAFETY: zero out the reused memory before returning.
+                unsafe { core::ptr::write_bytes(head.cast::<u8>(), 0, bytes) };
                 return head.cast::<u8>();
             }
         }
@@ -388,6 +412,7 @@ impl Collector {
     }
 }
 
+#[cfg(feature = "std")]
 impl Drop for Collector {
     fn drop(&mut self) {
         // Last owner: no readers remain by definition.
@@ -406,6 +431,7 @@ impl Drop for Collector {
     }
 }
 
+#[cfg(feature = "std")]
 fn free_raw(ptr: NonNull<u8>, bytes: usize, align: usize) {
     let layout = Layout::from_size_align(bytes, align).expect("valid retired layout");
     // SAFETY: retired allocations come from `NodeAlloc` (same
@@ -416,11 +442,13 @@ fn free_raw(ptr: NonNull<u8>, bytes: usize, align: usize) {
 
 /// A registered reader handle. Cheap to pin/unpin per operation; not
 /// `Sync` — one per reading thread.
+#[cfg(feature = "std")]
 pub struct Reader {
     collector: Arc<Collector>,
     slot: Arc<Slot>,
 }
 
+#[cfg(feature = "std")]
 impl Reader {
     /// Pins the current epoch for the duration of the returned guard:
     /// nothing retired from here on is freed while the guard lives.
@@ -452,6 +480,7 @@ impl Reader {
     }
 }
 
+#[cfg(feature = "std")]
 impl Drop for Reader {
     fn drop(&mut self) {
         // Deregister: drop the slot from the registry so a departed
@@ -466,10 +495,12 @@ impl Drop for Reader {
 }
 
 /// An active pin; dropping it unpins the reader.
+#[cfg(feature = "std")]
 pub struct Pin<'a> {
     slot: &'a Slot,
 }
 
+#[cfg(feature = "std")]
 impl Drop for Pin<'_> {
     fn drop(&mut self) {
         self.slot.store(INACTIVE, Ordering::Release);

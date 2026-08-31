@@ -33,12 +33,7 @@
 //! allocation is never narrower than the keys it holds — is asserted by
 //! `cap_class_never_underallocates`.
 
-#[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, vec::Vec};
-#[cfg(feature = "std")]
-use std::boxed::Box;
-#[cfg(feature = "std")]
-use std::vec::Vec;
+use core_alloc::{boxed::Box, vec::Vec};
 
 use core::ops::FnMut;
 use core::option::Option::{self, None, Some};

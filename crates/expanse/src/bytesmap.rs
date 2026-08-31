@@ -16,10 +16,51 @@
 //! valid until the next structural mutation of the map.
 
 use crate::map::ExpanseMap;
+#[cfg(feature = "std")]
 use crate::occ::Collector;
+use core::hash::BuildHasher;
 use core::ptr::NonNull;
-use std::hash::{BuildHasher, RandomState};
-use std::sync::{Arc, OnceLock};
+use core_alloc::boxed::Box;
+#[cfg(feature = "std")]
+use core_alloc::sync::Arc;
+use core_alloc::vec;
+use core_alloc::vec::Vec;
+#[cfg(feature = "std")]
+use std::sync::OnceLock;
+
+/// Default build hasher type: [`std::hash::RandomState`] under `std`, or [`core::hash::BuildHasherDefault<FnvHasher>`] in `no_std`.
+#[cfg(feature = "std")]
+pub type DefaultBuildHasher = std::hash::RandomState;
+
+/// Deterministic 64-bit FNV-1a hasher for `no_std` environments.
+#[cfg(not(feature = "std"))]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FnvHasher(u64);
+
+#[cfg(not(feature = "std"))]
+impl core::hash::Hasher for FnvHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut hash = if self.0 == 0 {
+            0xcbf29ce484222325
+        } else {
+            self.0
+        };
+        for &byte in bytes {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        self.0 = hash;
+    }
+}
+
+/// Default build hasher type: [`std::hash::RandomState`] under `std`, or [`core::hash::BuildHasherDefault<FnvHasher>`] in `no_std`.
+#[cfg(not(feature = "std"))]
+pub type DefaultBuildHasher = core::hash::BuildHasherDefault<FnvHasher>;
 
 /// One collision-bucket entry: the exact key bytes and the value word.
 type Entry = (Box<[u8]>, u64);
@@ -56,6 +97,7 @@ const BUCKET_OVERHEAD: usize = size_of::<Bucket>();
 /// (`class_for` accepts only `RAW_ALIGN`/`CACHE_LINE`), so the
 /// collector frees it through `free_raw` with the exact original
 /// `Box<[u8]>` layout.
+#[cfg(feature = "std")]
 fn dispose_key(key: Box<[u8]>, defer: Option<&Arc<Collector>>) {
     match defer {
         Some(c) if !key.is_empty() => {
@@ -65,6 +107,12 @@ fn dispose_key(key: Box<[u8]>, defer: Option<&Arc<Collector>>) {
         }
         _ => drop(key),
     }
+}
+
+#[cfg(not(feature = "std"))]
+#[inline(always)]
+fn dispose_key(key: Box<[u8]>, _defer: Option<&()>) {
+    drop(key);
 }
 
 /// Disposes an unlinked bucket. `own_keys` says whether the entries'
@@ -79,6 +127,7 @@ fn dispose_key(key: Box<[u8]>, defer: Option<&Arc<Collector>>) {
 /// - entry buffer: `Layout::array::<Entry>(capacity)` — capacity, not
 ///   length, is the allocated size;
 /// - shell: `Layout::new::<Bucket>()`.
+#[cfg(feature = "std")]
 fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, defer: Option<&Arc<Collector>>) {
     match defer {
         None => {
@@ -130,12 +179,24 @@ fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, defer: Option<&Arc<Collector
     }
 }
 
+#[cfg(not(feature = "std"))]
+fn dispose_bucket(ptr: *mut Bucket, own_keys: bool, _defer: Option<&()>) {
+    // SAFETY: caller unlinked `ptr`; this is the last reference.
+    let mut bucket = unsafe { Box::from_raw(ptr) };
+    if !own_keys {
+        // SAFETY: 0 <= capacity; skips the moved-out entries.
+        unsafe { bucket.set_len(0) };
+    }
+    drop(bucket);
+}
+
 /// A sparse, dynamic, **unordered** map from byte strings to `u64`
 /// values (compat: JudyHS).
 ///
-/// Hashing uses [`RandomState`] (per-map seeding, hash-flood resistant);
-/// use [`ExpanseBytesMap::with_hasher`] to pin a deterministic hasher.
-pub struct ExpanseBytesMap<S: BuildHasher = RandomState> {
+/// Under `feature = "std"`, hashing uses [`RandomState`] (per-map seeding, hash-flood resistant).
+/// In `no_std`, hashing defaults to deterministic 64-bit FNV-1a.
+/// Use [`ExpanseBytesMap::with_hasher`] to pin a custom hasher.
+pub struct ExpanseBytesMap<S: BuildHasher = DefaultBuildHasher> {
     /// hash → `Box<Bucket>` pointer, stored as the map value word.
     map: ExpanseMap,
     hasher: S,
@@ -148,18 +209,19 @@ pub struct ExpanseBytesMap<S: BuildHasher = RandomState> {
     /// readers may still hold pointers into them), and the hash trie's
     /// `NodeAlloc` is deferred so its frees and mutation brackets
     /// participate too.
+    #[cfg(feature = "std")]
     deferred: OnceLock<Arc<Collector>>,
 }
 
-impl ExpanseBytesMap<RandomState> {
-    /// Creates an empty map with a freshly seeded hasher.
+impl ExpanseBytesMap<DefaultBuildHasher> {
+    /// Creates an empty map with the default hasher.
     #[must_use]
     pub fn new() -> Self {
-        Self::with_hasher(RandomState::new())
+        Self::with_hasher(DefaultBuildHasher::default())
     }
 }
 
-impl Default for ExpanseBytesMap<RandomState> {
+impl Default for ExpanseBytesMap<DefaultBuildHasher> {
     fn default() -> Self {
         Self::new()
     }
@@ -175,8 +237,21 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
             hasher,
             len: 0,
             extra_bytes: 0,
+            #[cfg(feature = "std")]
             deferred: OnceLock::new(),
         }
+    }
+
+    #[inline(always)]
+    #[cfg(feature = "std")]
+    fn defer_handle(&self) -> Option<Arc<Collector>> {
+        self.deferred.get().cloned()
+    }
+
+    #[inline(always)]
+    #[cfg(not(feature = "std"))]
+    fn defer_handle(&self) -> Option<()> {
+        None
     }
 
     /// Switches this map to deferred reclamation through `collector`,
@@ -191,6 +266,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     ///
     /// `pub(crate)` deliberately — only the `sync` wrapper drives a
     /// collector's epochs (see `BlobArena::defer_to` for the rationale).
+    #[cfg(feature = "std")]
     pub(crate) fn defer_to(&self, collector: Arc<Collector>) {
         assert!(
             self.len == 0 && self.map.is_empty(),
@@ -272,6 +348,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     /// reclamation ([`Self::defer_to`]), and the caller must hold an
     /// epoch pin for the whole call — every pointer read under a
     /// still-valid cover then references EBR-live memory.
+    #[cfg(all(target_pointer_width = "64", feature = "std"))]
     pub(crate) unsafe fn get_validated(
         &self,
         key: &[u8],
@@ -335,7 +412,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
     /// the compat `JudyHSIns` contract. Valid until the next structural
     /// mutation.
     pub fn ins_slot(&mut self, key: &[u8]) -> NonNull<u64> {
-        let defer = self.deferred.get().cloned();
+        let defer = self.defer_handle();
         let h = self.hasher.hash_one(key);
         let slot = self.map.ins_slot(h);
         // SAFETY: `ins_slot` hands out the live (zero-initialized when
@@ -410,7 +487,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
 
     /// Removes `key`; returns its value if it was present.
     pub fn remove(&mut self, key: &[u8]) -> Option<u64> {
-        let defer = self.deferred.get().cloned();
+        let defer = self.defer_handle();
         let h = self.hasher.hash_one(key);
         let word = self.map.get(h)?;
         let old = word as *mut Bucket;
@@ -466,7 +543,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
 
     /// Removes every key and releases all memory.
     pub fn clear(&mut self) {
-        let defer = self.deferred.get().cloned();
+        let defer = self.defer_handle();
         let buckets: Vec<u64> = self.map.iter().map(|(_, word)| word).collect();
         // Unlink everything from the trie first (its nodes free/retire
         // through its own `NodeAlloc`), then dispose of the buckets.
@@ -593,9 +670,10 @@ mod tests {
     /// without leaks or double frees. The degenerate hasher forces every
     /// key into one bucket so the replacement paths actually run.
     #[test]
+    #[cfg(feature = "std")]
     fn deferred_bytesmap_dispose_round_trip() {
         use crate::occ::Collector;
-        use std::sync::Arc;
+        use core_alloc::sync::Arc;
 
         let collector = Arc::new(Collector::new());
         let mut m = ExpanseBytesMap::with_hasher(Degenerate);
@@ -653,9 +731,10 @@ mod tests {
     /// restructure must not change single-threaded semantics, with real
     /// hashing and with every key forced into one collision bucket.
     #[test]
+    #[cfg(feature = "std")]
     fn deferred_model_round_trips() {
         use crate::occ::Collector;
-        use std::sync::Arc;
+        use core_alloc::sync::Arc;
 
         let collector = Arc::new(Collector::new());
         let m = ExpanseBytesMap::new();

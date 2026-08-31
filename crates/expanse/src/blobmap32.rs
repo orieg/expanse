@@ -13,10 +13,7 @@
 //!   `insert` returns [`BlobMap32Error::OffsetOverflow`] when all 4096 arena slots are exhausted.
 //! - **12-bit hot metadata**: Columnar metadata `> 0x0FFF` returns [`BlobMap32Error::MetaOverflow`].
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-#[cfg(feature = "std")]
-use std::vec::Vec;
+use core_alloc::vec::Vec;
 
 use core::fmt;
 use core::option::Option::{self, None, Some};

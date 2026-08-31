@@ -33,12 +33,23 @@
 //! so a metadata predicate never needs a cold-DRAM fetch for them regardless.
 
 use crate::map::ExpanseMap;
+#[cfg(feature = "std")]
 use crate::occ::Collector;
 use crate::slot::{SlotTag, ValueSlot};
 use crate::types::Key;
+use core::alloc::Layout;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicPtr, Ordering};
-use std::sync::{Arc, OnceLock};
+use core::sync::atomic::AtomicPtr;
+#[cfg(feature = "std")]
+use core::sync::atomic::Ordering;
+#[cfg(feature = "std")]
+use core_alloc::alloc::{alloc, handle_alloc_error};
+use core_alloc::alloc::{alloc_zeroed, dealloc};
+#[cfg(feature = "std")]
+use core_alloc::sync::Arc;
+use core_alloc::vec::Vec;
+#[cfg(feature = "std")]
+use std::sync::OnceLock;
 
 /// Packed 8-byte record header preceding every arena payload.
 #[repr(C, packed)]
@@ -245,7 +256,7 @@ impl core::fmt::Display for ArenaError {
     }
 }
 
-impl std::error::Error for ArenaError {}
+impl core::error::Error for ArenaError {}
 
 /// Summary statistics from an in-place arena garbage collection and compaction run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -283,10 +294,10 @@ impl ArenaChunk {
         if capacity == 0 || capacity > Self::MAX_CHUNK_CAPACITY {
             return Err(ArenaError::AllocationFailed);
         }
-        let layout = std::alloc::Layout::from_size_align(capacity, 16)
-            .map_err(|_| ArenaError::AllocationFailed)?;
+        let layout =
+            Layout::from_size_align(capacity, 16).map_err(|_| ArenaError::AllocationFailed)?;
         // SAFETY: Allocating memory with 16-byte alignment.
-        let raw = unsafe { std::alloc::alloc_zeroed(layout) };
+        let raw = unsafe { alloc_zeroed(layout) };
         let ptr = NonNull::new(raw).ok_or(ArenaError::AllocationFailed)?;
         Ok(Self {
             ptr,
@@ -424,6 +435,7 @@ impl ArenaChunk {
     /// collector for deferred freeing instead of dropping it — pinned readers
     /// may still hold pointers into it. Consumes the chunk without running its
     /// `Drop` (the collector frees the memory after the grace period).
+    #[cfg(feature = "std")]
     pub(crate) fn retire_into(self, collector: &Collector) {
         let ptr = self.ptr;
         let capacity = self.capacity;
@@ -434,10 +446,10 @@ impl ArenaChunk {
 
 impl Drop for ArenaChunk {
     fn drop(&mut self) {
-        let layout = std::alloc::Layout::from_size_align(self.capacity, 16).unwrap();
+        let layout = Layout::from_size_align(self.capacity, 16).unwrap();
         // SAFETY: self.ptr was allocated with this exact layout.
         unsafe {
-            std::alloc::dealloc(self.ptr.as_ptr(), layout);
+            dealloc(self.ptr.as_ptr(), layout);
         }
     }
 }
@@ -539,8 +551,8 @@ fn table_bytes(len: usize) -> usize {
 /// (8) deliberately matches no collector size class ([`crate::alloc::RAW_ALIGN`]
 /// is 16), so retired tables always go through a plain deferred `dealloc`.
 #[inline]
-fn table_layout(len: usize) -> std::alloc::Layout {
-    std::alloc::Layout::from_size_align(table_bytes(len), core::mem::align_of::<ChunkTable>())
+fn table_layout(len: usize) -> Layout {
+    Layout::from_size_align(table_bytes(len), core::mem::align_of::<ChunkTable>())
         .expect("valid chunk table layout")
 }
 
@@ -560,6 +572,7 @@ fn table_layout(len: usize) -> std::alloc::Layout {
 /// mode, and the caller must hold an epoch pin taken before loading it: the
 /// table and every chunk it references are then EBR-live, so all reads stay
 /// within live allocations even when the table has been superseded.
+#[cfg(feature = "std")]
 pub(crate) unsafe fn resolve_meta_in_table(
     table: *const ChunkTable,
     locator: u32,
@@ -623,6 +636,7 @@ pub struct BlobArena {
     /// tables are retired to the collector instead of freed — concurrent
     /// readers may still hold pointers into them. Mirrors
     /// [`crate::alloc::NodeAlloc`]'s deferred mode.
+    #[cfg(feature = "std")]
     deferred: OnceLock<Arc<Collector>>,
     /// RCU-published [`ChunkTable`] for lock-free readers; null unless
     /// deferred mode has published one. Republished whole on every
@@ -653,6 +667,7 @@ impl BlobArena {
             live_bytes: 0,
             generation: 1,
             max_capacity: MAX_ARENA_CAPACITY,
+            #[cfg(feature = "std")]
             deferred: OnceLock::new(),
             reader_table: AtomicPtr::new(core::ptr::null_mut()),
         }
@@ -671,6 +686,7 @@ impl BlobArena {
     /// the public [`ExpanseBlobMap::arena`] accessor would retire whole
     /// chunks into bins nothing ever advances (unbounded growth), and the
     /// different-collector panic would be reachable from safe code.
+    #[cfg(feature = "std")]
     pub(crate) fn defer_to(&self, collector: Arc<Collector>) {
         let stored = self.deferred.get_or_init(|| Arc::clone(&collector));
         assert!(
@@ -683,6 +699,7 @@ impl BlobArena {
     /// Current published chunk table (null when not in deferred mode or
     /// when the arena has no chunks). Readers must hold an epoch pin taken
     /// before this load — see [`resolve_meta_in_table`].
+    #[cfg(feature = "std")]
     pub(crate) fn reader_table(&self) -> *const ChunkTable {
         self.reader_table.load(Ordering::Acquire)
     }
@@ -692,47 +709,50 @@ impl BlobArena {
     /// unless deferred mode is on. Publishing an empty chunk set stores
     /// null. Must run *before* any chunk dropped by the change is retired.
     fn republish_table(&self) {
-        let Some(collector) = self.deferred.get() else {
-            return;
-        };
-        let new_table: *mut ChunkTable = if self.chunks.is_empty() {
-            core::ptr::null_mut()
-        } else {
-            let len = self.chunks.len();
-            let layout = table_layout(len);
-            // SAFETY: non-zero-size layout; every byte is initialized below.
-            let raw = unsafe { std::alloc::alloc(layout) };
-            let Some(table) = NonNull::new(raw.cast::<ChunkTable>()) else {
-                std::alloc::handle_alloc_error(layout)
+        #[cfg(feature = "std")]
+        {
+            let Some(collector) = self.deferred.get() else {
+                return;
             };
-            // SAFETY: fresh allocation of `table_bytes(len)` bytes: header
-            // first, then `len` ChunkRef entries.
-            unsafe {
-                table.as_ptr().write(ChunkTable {
-                    len,
-                    chunk_size: self.chunk_size,
-                });
-                let entries = table
-                    .as_ptr()
-                    .cast::<u8>()
-                    .add(core::mem::size_of::<ChunkTable>())
-                    .cast::<ChunkRef>();
-                for (i, chunk) in self.chunks.iter().enumerate() {
-                    entries.add(i).write(ChunkRef {
-                        ptr: chunk.ptr.as_ptr(),
-                        capacity: chunk.capacity,
-                        generation: chunk.generation,
+            let new_table: *mut ChunkTable = if self.chunks.is_empty() {
+                core::ptr::null_mut()
+            } else {
+                let len = self.chunks.len();
+                let layout = table_layout(len);
+                // SAFETY: non-zero-size layout; every byte is initialized below.
+                let raw = unsafe { alloc(layout) };
+                let Some(table) = NonNull::new(raw.cast::<ChunkTable>()) else {
+                    handle_alloc_error(layout)
+                };
+                // SAFETY: fresh allocation of `table_bytes(len)` bytes: header
+                // first, then `len` ChunkRef entries.
+                unsafe {
+                    table.as_ptr().write(ChunkTable {
+                        len,
+                        chunk_size: self.chunk_size,
                     });
+                    let entries = table
+                        .as_ptr()
+                        .cast::<u8>()
+                        .add(core::mem::size_of::<ChunkTable>())
+                        .cast::<ChunkRef>();
+                    for (i, chunk) in self.chunks.iter().enumerate() {
+                        entries.add(i).write(ChunkRef {
+                            ptr: chunk.ptr.as_ptr(),
+                            capacity: chunk.capacity,
+                            generation: chunk.generation,
+                        });
+                    }
                 }
+                table.as_ptr()
+            };
+            let old = self.reader_table.swap(new_table, Ordering::AcqRel);
+            if let Some(old) = NonNull::new(old) {
+                // SAFETY: `old` was published by this arena; its `len` header
+                // field is immutable, giving back the exact allocation size.
+                let bytes = table_bytes(unsafe { (*old.as_ptr()).len });
+                collector.retire(old.cast::<u8>(), bytes, core::mem::align_of::<ChunkTable>());
             }
-            table.as_ptr()
-        };
-        let old = self.reader_table.swap(new_table, Ordering::AcqRel);
-        if let Some(old) = NonNull::new(old) {
-            // SAFETY: `old` was published by this arena; its `len` header
-            // field is immutable, giving back the exact allocation size.
-            let bytes = table_bytes(unsafe { (*old.as_ptr()).len });
-            collector.retire(old.cast::<u8>(), bytes, core::mem::align_of::<ChunkTable>());
         }
     }
 
@@ -741,9 +761,10 @@ impl BlobArena {
     /// hold pointers into them), dropped (freed immediately) otherwise.
     /// In deferred mode the caller must have republished the reader table
     /// first, so no new reader can reach these chunks.
-    fn dispose_chunks(&self, chunks: Vec<ArenaChunk>) {
+    fn dispose_chunks(&self, _chunks: Vec<ArenaChunk>) {
+        #[cfg(feature = "std")]
         if let Some(collector) = self.deferred.get() {
-            for chunk in chunks {
+            for chunk in _chunks {
                 chunk.retire_into(collector);
             }
         }
@@ -1018,7 +1039,7 @@ impl Drop for BlobArena {
             // `table_layout(len)`; its `len` header field is immutable.
             unsafe {
                 let layout = table_layout((*table.as_ptr()).len);
-                std::alloc::dealloc(table.cast::<u8>().as_ptr(), layout);
+                dealloc(table.cast::<u8>().as_ptr(), layout);
             }
         }
     }
@@ -1273,6 +1294,7 @@ impl ExpanseBlobMap {
     /// never be retired to the collector (see `NodeAlloc::defer_to`); the
     /// old index (and its slab pages, wholesale) is freed here. Arena
     /// payloads are untouched — the raw `ValueSlot` words carry over.
+    #[cfg(feature = "std")]
     pub(crate) fn rebuild_index_deferred(&mut self, collector: &Arc<Collector>) {
         let fresh = ExpanseMap::new();
         fresh.occ_root().1.defer_to(Arc::clone(collector));
@@ -1285,6 +1307,7 @@ impl ExpanseBlobMap {
     }
 
     /// Serializes the blob map to a writer in relocatable binary image format.
+    #[cfg(feature = "std")]
     pub fn save_to_writer<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<usize> {
         let entry_count = self.index.len();
         let index_offset = 64u64;
@@ -1346,6 +1369,7 @@ impl ExpanseBlobMap {
     }
 
     /// Saves the blob map to a file at the given path.
+    #[cfg(feature = "std")]
     pub fn save_to_file<P: AsRef<std::path::Path>>(&self, path: P) -> std::io::Result<usize> {
         let mut file = std::fs::File::create(path)?;
         self.save_to_writer(&mut file)
@@ -1522,6 +1546,7 @@ impl ExpanseBlobMap {
     /// This reads the whole file into memory (`std::fs::read`) and rebuilds the
     /// index entry-by-entry — it is not a memory map, hence `load_from_file`
     /// rather than the former `mmap_file` name.
+    #[cfg(feature = "std")]
     pub fn load_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, ArenaError> {
         let bytes = std::fs::read(path).map_err(|_| ArenaError::CorruptedHeader)?;
         Self::from_bytes_slice(&bytes)
@@ -1543,6 +1568,9 @@ impl Default for ExpanseBlobMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core_alloc::format;
+    use core_alloc::vec;
+    use core_alloc::vec::Vec;
 
     /// Phase 7 (issue #219): deferred-mode round trip — single-threaded and
     /// Miri-clean. Chunks dropped by compaction and `clear` are retired
@@ -1550,6 +1578,7 @@ mod tests {
     /// bytes), the RCU chunk table tracks every chunk-set change, and
     /// everything drains without leaks or double frees.
     #[test]
+    #[cfg(feature = "std")]
     fn deferred_arena_retires_chunks_and_tables() {
         let collector = Arc::new(Collector::new());
         let mut arena = BlobArena::new(4096);
@@ -1719,7 +1748,8 @@ mod tests {
     }
 
     #[test]
-    fn relocatable_binary_image_roundtrip() {
+    #[cfg(feature = "std")]
+    fn test_binary_serialization_and_deserialization_roundtrip() {
         let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
 
         // Mix of inline (0..7 bytes) and arena payloads (>7 bytes)
@@ -1767,7 +1797,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(miri))]
+    #[cfg(all(not(miri), feature = "std"))]
     fn load_from_file_save_and_load_roundtrip() {
         let temp_dir = std::env::temp_dir();
         let path = temp_dir.join("expanse_test_load_from_file.bin");
@@ -1829,6 +1859,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn corrupted_image_non_uniform_chunk_cap_rejected() {
         let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
         map.insert(1, &[0xCD; 1000], 7).unwrap();
@@ -1856,6 +1887,7 @@ mod tests {
     /// bounds by capacity and depends on it. A crafted image declaring
     /// generation 0 must therefore be rejected at load.
     #[test]
+    #[cfg(feature = "std")]
     fn corrupted_image_generation_zero_rejected() {
         let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
         map.insert(1, &[0xCD; 1000], 7).unwrap();
@@ -1997,6 +2029,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn save_load_roundtrip_preserves_generation() {
         let mut map = ExpanseBlobMap::with_chunk_size(64 * 1024);
         for i in 0..40u64 {
@@ -2114,6 +2147,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn arena_meta_save_load_roundtrip_multi_chunk() {
         let mut map = ExpanseBlobMap::with_chunk_size(4096);
         for k in 0..6u64 {

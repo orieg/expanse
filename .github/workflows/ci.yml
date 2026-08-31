@@ -692,6 +692,25 @@ jobs:
       - name: Check Cortex-M4 Core
         run: cargo check -p expanse-trie --no-default-features --target thumbv7em-none-eabihf
 
+  test-x86_64-none:
+    name: Cross / x86_64 Bare-Metal Cross-Compile (x86_64-unknown-none)
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Target
+        run: rustup target add x86_64-unknown-none
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check x86_64 Bare-Metal Core
+        run: cargo check -p expanse-trie --no-default-features --target x86_64-unknown-none
+
   test-i686:
     name: Cross / i686 32-bit Test Execution (Linux)
     needs: [detect-changes]
@@ -1797,6 +1816,7 @@ jobs:
       - test-rv32-zbb
       - test-esp32c3
       - test-cortex-m
+      - test-x86_64-none
       - test-i686
       - miri
       - test-asan

@@ -28,6 +28,7 @@ use crate::leaf;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
 use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit};
 pub(crate) use crate::types::{LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN};
+use core_alloc::vec::Vec;
 
 /// Bitmap branch upgrades to uncompressed at this many populated digits.
 pub(crate) const BRANCHB_UP: usize = crate::types::BITMAP_TO_UNCOMPRESSED_THRESHOLD;
