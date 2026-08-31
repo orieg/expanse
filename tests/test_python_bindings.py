@@ -574,3 +574,36 @@ def test_blobmap_scan_filtered_reraises_callback_error():
 
     with pytest.raises(ValueError, match="boom in predicate"):
         bm.scan_filtered(0, 9, bad_predicate, None)
+
+
+def test_sync_map_get_many_matches_per_call_get():
+    """`get_many` must return exactly what repeated `get` returns, in order.
+
+    It exists to amortise the GIL handoff across a batch (#554), which is only
+    a valid optimisation if it computes the same thing. Mixed hits and misses,
+    duplicates, and an empty batch are all included because a batched path is
+    where an off-by-one or a silently dropped tail hides.
+    """
+    m = SyncExpanseMap()
+    for k in range(0, 2000, 2):  # even keys only, so odds are real misses
+        m.insert(k, k * 7)
+
+    probes = [0, 1, 998, 999, 1000, 1999, 2000, 5000, 998]
+    assert m.get_many(probes) == [m.get(k) for k in probes]
+
+    # Every key present.
+    hits = list(range(0, 200, 2))
+    assert m.get_many(hits) == [k * 7 for k in hits]
+
+    # Every key absent.
+    assert m.get_many([1, 3, 5, 7]) == [None, None, None, None]
+
+    # Empty batch is not an error.
+    assert m.get_many([]) == []
+
+    # A batch larger than the internal chunking still returns one result per
+    # key, in order — the tail is where a chunked loop drops entries.
+    big = list(range(0, 9000))
+    out = m.get_many(big)
+    assert len(out) == len(big)
+    assert out == [m.get(k) for k in big]
