@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -48,6 +49,21 @@ THROUGHPUT = re.compile(r"^\s+([A-Za-z]\w*(?:\s*\([^)]+\))?):\s+([\d.]+)\s+Mops/
 DENSITY = re.compile(r"^\s+([A-Za-z]\w*):\s+[\d.]+\s*MB\s+\(([\d.]+)\s*B/entry\)")
 
 SUBJECT = "ExpanseMemTable"
+
+
+def _load_average() -> list[float] | None:
+    """The host's 1/5/15-minute load average, or None where unavailable.
+
+    `bench_baseline.py` records this in every criterion artifact and this
+    harvester did not, so a rocksdb interval could not be checked against the
+    contention that produced it. Local benchmark hygiene turns on exactly that
+    number: an interval measured beside a busy neighbour is tight and wrong,
+    and without the figure a reader has to take the quiet host on trust.
+    """
+    try:
+        return [round(v, 2) for v in os.getloadavg()]
+    except (OSError, AttributeError):
+        return None
 
 
 def parse_round(text: str) -> tuple[dict[str, dict[str, float]], dict[str, float]]:
@@ -165,6 +181,7 @@ def build(
             "commit": commit,
             "run_id": run_id,
             "rounds": len(parsed),
+            "load_average_at_harvest": _load_average(),
             "generated_by": "scripts/rocksdb_bench_harvest.py",
             "source": "repeated `make -C integrations/rocksdb bench` invocations",
         },
@@ -221,6 +238,10 @@ def self_test() -> int:
     art = build(rounds, "test host", "abc1234", "run/1")
     assert art["schema"] == SCHEMA and art["kind"] == "wall_clock_bca"
     assert art["provenance"]["rounds"] == 5
+    # Contention is part of a wall-clock artifact's provenance: an interval
+    # measured beside a busy neighbour is tight and wrong.
+    la = art["provenance"]["load_average_at_harvest"]
+    assert la is None or (len(la) == 3 and all(isinstance(v, float) for v in la)), la
     for a in art["arms"]:
         assert a["ci_lower"] <= a["point"] <= a["ci_upper"], a
         assert a["n"] == 5, a
