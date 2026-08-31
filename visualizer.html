@@ -2786,7 +2786,52 @@
         "speedup": "1.00x",
         "arena_regime": "warm (L3-resident): 14 MiB arena < 30 MiB L3"
       }
-    ]
+    ],
+    "arena_gc_compaction": {
+      "rows": [
+        {
+          "churn": "50% of entries deleted",
+          "entries": 5000,
+          "pause_us": 127.06,
+          "ci_lower_us": 121.79,
+          "ci_upper_us": 141.6,
+          "ci_rel_width_pct": 15.6,
+          "n": 100,
+          "note": "interval is wide relative to the others (15.6%); treat the point estimate as indicative and the bound as the claim"
+        },
+        {
+          "churn": "50% of entries deleted",
+          "entries": 20000,
+          "pause_us": 371.43,
+          "ci_lower_us": 364.99,
+          "ci_upper_us": 376.48,
+          "ci_rel_width_pct": 3.1,
+          "n": 100
+        },
+        {
+          "churn": "80% of entries deleted",
+          "entries": 5000,
+          "pause_us": 72.32,
+          "ci_lower_us": 71.45,
+          "ci_upper_us": 73.21,
+          "ci_rel_width_pct": 2.4,
+          "n": 100
+        },
+        {
+          "churn": "80% of entries deleted",
+          "entries": 20000,
+          "pause_us": 157.92,
+          "ci_lower_us": 154.88,
+          "ci_upper_us": 160.51,
+          "ci_rel_width_pct": 3.6,
+          "n": 100
+        }
+      ],
+      "statistic": "mean ns/iteration, BCa 95% bootstrap (2000 resamples, seed 42), n=100 per arm",
+      "harness": "crates/expanse/benches/large_values.rs::arena_compaction_churn",
+      "artifact": "results/baseline_large_values.json",
+      "source": "measured: reference host — 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic), run 33359817925, commit 4c1fead4, load average 1.44 at harvest"
+    }
   };
 
   let EMBEDDED_32BIT_BENCHMARKS_DATA = {
@@ -2953,20 +2998,32 @@
       });
     }
 
-    // Arena GC compaction pause times were published here without a host tag
-    // or a committed artifact and are withdrawn rather than carried forward
-    // (issue #384). The harness arm exists (benches/large_values.rs
-    // `arena_compaction_churn`); the numbers need a tagged reference-host run.
-    rows.push(`
-      <tr>
-        <td><strong>Arena GC Compaction</strong></td>
-        <td class="num" style="color:var(--text-muted);">—</td>
-        <td class="num" style="color:var(--text-muted);">—</td>
-        <td class="num" style="color:var(--text-muted);">—</td>
-        <td class="num" style="color:var(--text-muted);">—</td>
-        <td style="font-size:11px; color:var(--text-muted);">Pending re-measurement on the reference host — <code>benches/large_values.rs::arena_compaction_churn</code> (<a href="https://github.com/orieg/expanse/issues/382" style="color:var(--accent);">#382</a>).</td>
-      </tr>
-    `);
+    // Withdrawn by #384 for want of a host tag and a committed artifact;
+    // republished from a tagged reference-host run with BCa intervals and
+    // results/baseline_large_values.json committed alongside (#382 item 7).
+    // Every cell below is read from the data, never stamped here.
+    if (LARGE_VALUE_BENCHMARKS_DATA.arena_gc_compaction) {
+      const gc = LARGE_VALUE_BENCHMARKS_DATA.arena_gc_compaction;
+      gc.rows.forEach(item => {
+        rows.push(`
+          <tr>
+            <td><strong>Arena GC Compaction</strong> — ${item.churn}</td>
+            <td class="num" style="color:var(--accent); font-weight:700;">${item.pause_us} &micro;s</td>
+            <td class="num" style="color:var(--text-muted);">[${item.ci_lower_us}, ${item.ci_upper_us}]</td>
+            <td class="num" style="color:var(--text-muted);">${item.entries.toLocaleString()} entries</td>
+            <td class="num">n = ${item.n}</td>
+            <td style="font-size:11px; color:var(--text-muted);">BCa 95% CI, ${item.ci_rel_width_pct}% wide${item.note ? ' — ' + item.note : ''}</td>
+          </tr>
+        `);
+      });
+      rows.push(`
+        <tr>
+          <td colspan="6" style="font-size:11px; color:var(--text-muted); padding-top:4px;">
+            ${gc.statistic}. Harness <code>${gc.harness}</code>; artifact <code>${gc.artifact}</code>. ${gc.source}.
+          </td>
+        </tr>
+      `);
+    }
 
     tbody.innerHTML = rows.join('');
   }
