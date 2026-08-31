@@ -328,6 +328,27 @@ impl SyncExpanseMap {
         })
     }
 
+    /// Looks up many keys under a **single** GIL release, returning one
+    /// `Optional[int]` per key in order.
+    ///
+    /// `get` releases and reacquires the GIL around a lookup that takes tens of
+    /// nanoseconds, so the handoff costs more than the work and concurrent
+    /// callers convoy on reacquisition. Removing the per-call reader
+    /// registration (#554, PR #555) bought 16.6% single-thread and did not move
+    /// scaling at all — measured 0.02x at 16 threads before and after — which
+    /// is what pointed at the detach itself rather than anything under it.
+    ///
+    /// Batching is the lever that per-call work does not have: one detach
+    /// amortised over the whole batch. Keys are collected under the GIL
+    /// (touching Python objects requires it), the lookups run detached through
+    /// this thread's cached reader, and the results are handed back after.
+    pub fn get_many(&self, py: Python<'_>, keys: &Bound<'_, PyAny>) -> PyResult<Vec<Option<u64>>> {
+        let mut batch: Vec<u64> = Vec::new();
+        for_each_u64_key(keys, |k| batch.push(k))?;
+        Ok(py
+            .detach(|| with_map_reader(&self.inner, |r| batch.iter().map(|&k| r.get(k)).collect())))
+    }
+
     /// String representation.
     pub fn __repr__(&self, py: Python<'_>) -> String {
         let len = self.__len__(py);
