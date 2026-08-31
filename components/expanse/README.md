@@ -60,7 +60,8 @@ void app_main(void) {
     uint32_t sensor_val = 42;
     expanse_map_insert(map, can_id, sensor_val);
 
-    // Point lookup (sub-15ns deterministic trie traversal)
+    // Point lookup (deterministic O(depth) trie traversal; no latency figure is
+// published for this component — nothing measures it on an ESP target yet)
     uint32_t val = 0;
     if (expanse_map_get(map, can_id, &val)) {
         ESP_LOGI(TAG, "Lookup match: CAN ID 0x%08X -> Value %u", can_id, (unsigned int)val);
