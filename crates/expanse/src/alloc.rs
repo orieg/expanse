@@ -441,16 +441,19 @@ impl NodeAlloc {
     /// True once this tree is shared through a Phase 7 concurrent
     /// wrapper: the mutation engine then maintains per-node OCC versions
     /// (single-threaded trees skip those fences entirely).
+    #[cfg(feature = "std")]
     #[inline]
     pub(crate) fn occ_enabled(&self) -> bool {
-        #[cfg(feature = "std")]
-        {
-            self.deferred.get().is_some()
-        }
-        #[cfg(not(feature = "std"))]
-        {
-            false
-        }
+        self.deferred.get().is_some()
+    }
+
+    /// True once this tree is shared through a Phase 7 concurrent
+    /// wrapper: the mutation engine then maintains per-node OCC versions
+    /// (single-threaded trees skip those fences entirely).
+    #[cfg(not(feature = "std"))]
+    #[inline]
+    pub(crate) fn occ_enabled(&self) -> bool {
+        false
     }
 
     /// Debug-only bracket bookkeeping (see [`Self::assert_bracketed`]).
@@ -467,25 +470,24 @@ impl NodeAlloc {
 
     /// Asserts the Phase 7 coverage invariant at a mutation site: **every
     /// mutation of a node's interior happens with an enclosing node's
-    /// version bracket open**, unless the tree is single-threaded (where
-    /// OCC is inactive).
+    /// version bracket open**, so a concurrent reader validating against
+    /// that node's version cannot miss it.
     ///
-    /// Panics under `debug_assertions` if called with `bracket_depth == 0`
-    /// on a shared tree. Single-threaded trees never fail this check.
-    #[cfg(debug_assertions)]
+    /// Terminal nodes (leaves, bitmap leaves) carry no version of their
+    /// own; readers validate their payloads against the parent branch's
+    /// version, which is exactly why the parent's bracket must still be
+    /// open while a leaf is being rewritten. Checked only in debug
+    /// builds, and only for concurrently shared trees — a single-threaded
+    /// tree has no readers to protect.
+    #[inline]
     pub(crate) fn assert_bracketed(&self) {
-        if self.occ_enabled() {
-            assert!(
-                self.bracket_depth.load(Ordering::Relaxed) > 0,
-                "node interior mutated outside any version bracket"
-            );
-        }
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            !self.occ_enabled() || self.bracket_depth.load(Ordering::Relaxed) > 0,
+            "node interior mutated outside any version bracket: a concurrent \
+             reader could observe it mid-write"
+        );
     }
-
-    /// Non-debug stub: compiled out in release builds.
-    #[cfg(not(debug_assertions))]
-    #[inline(always)]
-    pub(crate) fn assert_bracketed(&self) {}
 
     /// Switches this allocator to deferred reclamation through
     /// `collector`, permanently. Free calls from this point on route
