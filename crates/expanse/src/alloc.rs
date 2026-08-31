@@ -32,6 +32,8 @@
 //! slab pages, embedding an intrusive `SlabPage` header and pre-slicing
 //! the remaining capacity into local freelist blocks. This avoids system
 //! `libc` `malloc`/`free` overhead on tree growth and churn.
+//! See `docs/HARDWARE.md` §1.7 and [#431](https://github.com/orieg/expanse/issues/431)
+//! for the 4KB page granularity and STLB reach trade-offs at 1M+ keys.
 //!
 //! The tree itself is single-writer; Phase 7's concurrent wrappers add
 //! shared readers, so the counters are (relaxed) atomics.
