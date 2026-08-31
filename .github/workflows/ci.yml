@@ -1672,7 +1672,6 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@nightly
         with:
-          targets: wasm64-unknown-unknown
           components: rust-src
 
       - uses: Swatinem/rust-cache@v2
