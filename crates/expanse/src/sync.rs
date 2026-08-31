@@ -740,6 +740,21 @@ impl SyncExpanseMap {
         }
     }
 
+    /// A reader that owns its handle on the map, for callers that cannot hold
+    /// a borrow — a `#[pyclass]`, a thread-local, anything outliving the call.
+    ///
+    /// Registers once, so a loop through it pays none of the per-lookup
+    /// registry locking that [`Self::get`] does (#554). One reader owns one
+    /// epoch slot and its pins are not reentrant, so give each thread its own
+    /// rather than sharing one.
+    #[must_use]
+    pub fn owned_reader(self: &Arc<Self>) -> OwnedMapReader {
+        OwnedMapReader {
+            map: Arc::clone(self),
+            reader: self.shared.collector.register(),
+        }
+    }
+
     /// One-shot lookup (registers a throwaway reader; use
     /// [`Self::reader`] in hot loops).
     #[must_use]
@@ -773,26 +788,60 @@ pub struct MapReader<'a> {
     reader: Reader,
 }
 
+/// The validated walk shared by [`MapReader`] and [`OwnedMapReader`].
+///
+/// Split out so the borrowing and owning readers cannot drift: both are the
+/// same protocol, differing only in how they hold the map (#554).
+fn map_get_with(map: &SyncExpanseMap, reader: &Reader, key: Key) -> Option<u64> {
+    let shared = &map.shared;
+    crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
+    for _ in 0..MAX_RETRIES {
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
+        let _pin = reader.pin();
+        let snap = shared.version.sample();
+        // SAFETY: pinned + freshly sampled version; the walk validates every
+        // load (see `walk_validated`).
+        let root = unsafe { (*shared.inner.get()).occ_root().0 };
+        // SAFETY: same pin + snapshot contract as the line above.
+        if let Ok(r) = unsafe { walk_validated::<true>(root, key, &shared.version, snap) } {
+            return r;
+        }
+    }
+    crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
+    shared.read_locked(|m| m.get(key))
+}
+
+/// A reader that **owns** its map handle instead of borrowing it.
+///
+/// [`MapReader`] borrows, which makes it impossible to cache: a `#[pyclass]`,
+/// a thread-local, or any struct outliving the call cannot hold it. Without a
+/// cacheable reader every binding lookup went through the one-shot
+/// [`SyncExpanseMap::get`], which registers a throwaway reader — two
+/// acquisitions of the collector's registry mutex per lookup, plus an O(n)
+/// `retain` on drop. Concurrent Python readers serialised on that and scaled
+/// to 0.02x at 16 threads, worse than a GIL-bound `dict` (#554).
+///
+/// One [`Reader`] owns a single epoch slot and its pins are not reentrant, so
+/// an `OwnedMapReader` must not be shared between threads: give each thread
+/// its own.
+pub struct OwnedMapReader {
+    map: Arc<SyncExpanseMap>,
+    reader: Reader,
+}
+
+impl OwnedMapReader {
+    /// Lock-free lookup, without the per-call registry lock `get` pays.
+    #[must_use]
+    pub fn get(&self, key: Key) -> Option<u64> {
+        map_get_with(&self.map, &self.reader, key)
+    }
+}
+
 impl MapReader<'_> {
     /// Lock-free lookup.
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
-        let shared = &self.map.shared;
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadOps);
-        for _ in 0..MAX_RETRIES {
-            crate::occ_stats::bump(crate::occ_stats::Stat::ReadAttempts);
-            let _pin = self.reader.pin();
-            let snap = shared.version.sample();
-            // SAFETY: pinned + freshly sampled version; the walk
-            // validates every load (see `walk_validated`).
-            let root = unsafe { (*shared.inner.get()).occ_root().0 };
-            // SAFETY: same pin + snapshot contract as the line above.
-            if let Ok(r) = unsafe { walk_validated::<true>(root, key, &shared.version, snap) } {
-                return r;
-            }
-        }
-        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
-        shared.read_locked(|m| m.get(key))
+        map_get_with(self.map, &self.reader, key)
     }
 }
 
@@ -1623,6 +1672,55 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
 
 #[cfg(all(test, not(miri)))]
 mod tests {
+
+    /// An `OwnedMapReader` must agree with the one-shot `get` it replaces, and
+    /// must register exactly once however many lookups go through it — that
+    /// second property is the point of #554, where per-call registration
+    /// serialised concurrent Python readers to 0.02x at 16 threads.
+    #[test]
+    fn owned_reader_matches_one_shot_get_and_registers_once() {
+        let map = Arc::new(SyncExpanseMap::new());
+        for k in 0..500u64 {
+            map.insert(k, k * 3);
+        }
+
+        let before = map.shared.collector.registered_readers();
+        let reader = map.owned_reader();
+        assert_eq!(
+            map.shared.collector.registered_readers(),
+            before + 1,
+            "constructing an owned reader registers exactly one slot"
+        );
+
+        // Correctness first. `map.get` is the one-shot form and registers per
+        // call by design, so the registration baseline is taken *after* this.
+        for k in 0..500u64 {
+            assert_eq!(reader.get(k), map.get(k), "owned reader disagrees at {k}");
+        }
+        assert_eq!(reader.get(9_999), None, "absent key must miss");
+
+        let regs_before_loop = map.shared.collector.registrations();
+        for k in 0..500u64 {
+            assert_eq!(reader.get(k), Some(k * 3));
+        }
+        // Registry *size* cannot catch a regression here: a one-shot `get`
+        // registers and deregisters inside the call, so the size is back to
+        // where it started by the time this runs. Counting `register` calls is
+        // what distinguishes a cached reader from a per-lookup one.
+        assert_eq!(
+            map.shared.collector.registrations(),
+            regs_before_loop,
+            "lookups through an owned reader must not call register() — that \
+             per-call registration is the contention #554 removed"
+        );
+
+        drop(reader);
+        assert_eq!(
+            map.shared.collector.registered_readers(),
+            before,
+            "dropping the owned reader deregisters its slot"
+        );
+    }
     use super::*;
     use std::collections::BTreeMap;
     use std::sync::atomic::{AtomicBool, Ordering};

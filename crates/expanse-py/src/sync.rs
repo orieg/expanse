@@ -1,11 +1,41 @@
 //! PyO3 wrappers for SyncExpanseMap and SyncExpanseSet (GIL-free multithreaded concurrent structures).
 
 use crate::buffer::{for_each_u64_key, for_each_u64_pair};
+use expanse_trie::sync::OwnedMapReader;
 use expanse_trie::sync::{SyncExpanseMap as InnerSyncMap, SyncExpanseSet as InnerSyncSet};
 use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
 use pyo3::types::PyDictMethods;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+// Per-thread reader cache (#554).
+//
+// `SyncExpanseMap::get` is the one-shot form: it registers a throwaway reader,
+// which takes the collector's registry mutex to push a slot and takes it again
+// on drop to `retain` the slot out. Paying that twice per lookup made concurrent
+// Python readers serialise on a process-wide lock — measured at 0.02x scaling on
+// 16 threads, worse than a GIL-bound `dict` (run 33447136200).
+//
+// A reader owns one epoch slot and its pins are not reentrant, so the cache is
+// thread-local rather than shared: each thread registers once and reuses it.
+// Keyed by the map's `Arc` address so several maps in one thread each get their
+// own, and entries are dropped when the map is.
+thread_local! {
+    static MAP_READERS: RefCell<HashMap<usize, OwnedMapReader>> = RefCell::new(HashMap::new());
+}
+
+/// Runs `f` against this thread's cached reader for `map`, registering on first
+/// use. Falls back to nothing else: every read path should route through here.
+fn with_map_reader<R>(map: &Arc<InnerSyncMap>, f: impl FnOnce(&OwnedMapReader) -> R) -> R {
+    let key = Arc::as_ptr(map) as usize;
+    MAP_READERS.with(|c| {
+        let mut cache = c.borrow_mut();
+        let reader = cache.entry(key).or_insert_with(|| map.owned_reader());
+        f(reader)
+    })
+}
 
 /// A thread-safe, concurrent 64-bit integer map with optimistic concurrency control (OCC).
 ///
@@ -82,7 +112,8 @@ impl SyncExpanseMap {
     /// Look up `key` releasing the GIL, returning `default` (or None) if absent.
     #[pyo3(signature = (key, default=None))]
     pub fn get(&self, py: Python<'_>, key: u64, default: Option<u64>) -> Option<u64> {
-        py.detach(|| self.inner.get(key)).or(default)
+        py.detach(|| with_map_reader(&self.inner, |r| r.get(key)))
+            .or(default)
     }
 
     /// Inserts `key -> val` releasing the GIL; returns the previous value, if any.
