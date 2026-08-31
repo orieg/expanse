@@ -29,6 +29,20 @@ console.log(set.contains(42n)); // true
 - `WasmExpanseBytesMap`: `&[u8]` to `u64` map
 - `WasmExpanseBlobMap`: `u64` to `&[u8]` map with hot metadata
 
+## WebAssembly Memory64 (`wasm64-unknown-unknown`) Support
+
+Expanse supports 64-bit WebAssembly linear memory (`Memory64`), allowing the full 64-bit raw pointer engine (`ExpanseMap`, `ExpanseSet`, 16-byte `Edge` descriptors) to run directly inside WebAssembly runtimes supporting 64-bit memory spaces (e.g. Node.js with `--experimental-wasm-memory64` or modern V8 / Wasm runtimes).
+
+To build for `wasm64-unknown-unknown`:
+```sh
+cargo +nightly build -p expanse-wasm --target wasm64-unknown-unknown -Z build-std=std,panic_abort
+```
+
+To run the Node.js Memory64 runtime smoke test:
+```sh
+node crates/expanse-wasm/tests/test_wasm64_smoke.js
+```
+
 ## Interactive In-Browser Speed Arena
 
 An interactive client-side benchmark comparing `WasmExpanseMap32` against Rust `BTreeMap` and native JavaScript `Map` is included in [`examples/speed_arena.html`](examples/speed_arena.html).
@@ -40,4 +54,3 @@ wasm-pack build crates/expanse-wasm --target web --out-dir crates/expanse-wasm/e
 python3 -m http.server 8080 --directory crates/expanse-wasm/examples
 ```
 Open `http://localhost:8080/speed_arena.html`.
-

@@ -105,6 +105,7 @@ graph TD
 | `test-java` | Bindings / Java 22+ Panama (matrix) | Project Panama FFM binding tests. |
 | `test-ruby` | Bindings / Ruby (matrix) | magnus / C ABI extension tests. |
 | `test-wasm` | Bindings / WebAssembly (wasm32) | `wasm32` binding build/test. |
+| `test-wasm64` | Bindings / WebAssembly (wasm64 Memory64 Experimental) | `wasm64-unknown-unknown` build-std check and Node.js Memory64 runtime smoke test. |
 | `test-go` | Bindings / Go (matrix) | Go binding tests across CGO, purego (`CGO_ENABLED=0`), and explicit `-tags expanse_purego` on Linux, macOS, and Windows. |
 
 ### Integrations
@@ -115,7 +116,7 @@ graph TD
 ### Rollup gate
 | Job | Name | Role |
 |---|---|---|
-| `ci-gate` | CI Gate / All Checks Passed | Runs `if: always()`, `needs:` all 34 other jobs, treats cleanly-skipped jobs as passing, and runs the completeness self-check. The **only** required branch-protection context. |
+| `ci-gate` | CI Gate / All Checks Passed | Runs `if: always()`, `needs:` all 35 other jobs, treats cleanly-skipped jobs as passing, and runs the completeness self-check. The **only** required branch-protection context. |
 
 ---
 

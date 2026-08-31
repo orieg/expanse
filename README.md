@@ -215,6 +215,8 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 | **RISC-V 32-Bit (RV32)** | `riscv32imac-unknown-none-elf` | `#![no_std]` staticlib / embedded crate ([design #109](docs/design/32-bit-embedded.md)) |
 | **ARM Cortex-M (M4/M7)** | `thumbv7em-none-eabihf` | `#![no_std]` staticlib / embedded crate ([design #109](docs/design/32-bit-embedded.md)) |
 | **Espressif ESP32 (ESP-IDF / RV32)** | `riscv32imc-esp-espidf` / `riscv32imc-unknown-none-elf` | ESP-IDF Component (`components/expanse/`), `#![no_std]` ([docs](components/expanse/README.md)) |
+| **WebAssembly (wasm32)** | `wasm32-unknown-unknown` | npm `@orieg/expanse-wasm` (`WasmExpanseMap32`, `WasmExpanseSet32`) |
+| **WebAssembly Memory64 (wasm64)** | `wasm64-unknown-unknown` | 64-bit engine (`ExpanseMap`, `ExpanseSet`), Node.js Memory64 (`--experimental-wasm-memory64`) |
 
 ---
 

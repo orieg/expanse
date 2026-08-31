@@ -201,9 +201,15 @@ impl Default for WasmBTreeSet32 {
     }
 }
 
-/// Legacy 64-bit Set Wrapper.
+#[cfg(target_pointer_width = "64")]
+use expanse_trie::set::ExpanseSet;
+
+/// 64-bit Set Wrapper (ExpanseSet on wasm64 / 64-bit targets, BTreeSet fallback on 32-bit).
 #[wasm_bindgen]
 pub struct WasmExpanseSet {
+    #[cfg(target_pointer_width = "64")]
+    inner: ExpanseSet,
+    #[cfg(not(target_pointer_width = "64"))]
     inner: BTreeSet<u64>,
 }
 
@@ -211,25 +217,62 @@ pub struct WasmExpanseSet {
 impl WasmExpanseSet {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        Self {
-            inner: BTreeSet::new(),
+        #[cfg(target_pointer_width = "64")]
+        {
+            Self {
+                inner: ExpanseSet::new(),
+            }
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            Self {
+                inner: BTreeSet::new(),
+            }
         }
     }
 
     pub fn add(&mut self, key: u64) -> bool {
-        self.inner.insert(key)
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.inner.insert(key)
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            self.inner.insert(key)
+        }
     }
 
     pub fn remove(&mut self, key: u64) -> bool {
-        self.inner.remove(&key)
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.inner.remove(key)
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            self.inner.remove(&key)
+        }
     }
 
     pub fn contains(&self, key: u64) -> bool {
-        self.inner.contains(&key)
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.inner.contains(key)
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            self.inner.contains(&key)
+        }
     }
 
     pub fn size(&self) -> u64 {
-        self.inner.len() as u64
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.inner.len()
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            self.inner.len() as u64
+        }
     }
 
     pub fn clear(&mut self) {
@@ -237,48 +280,105 @@ impl WasmExpanseSet {
     }
 
     pub fn first(&self) -> Option<u64> {
-        self.inner.iter().next().copied()
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.inner.first()
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            self.inner.iter().next().copied()
+        }
     }
 
     pub fn last(&self) -> Option<u64> {
-        self.inner.iter().next_back().copied()
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.inner.last()
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            self.inner.iter().next_back().copied()
+        }
     }
 
     #[wasm_bindgen(js_name = next)]
     pub fn next_after(&self, key: u64) -> Option<u64> {
-        use std::ops::Bound::Excluded;
-        self.inner
-            .range((Excluded(key), std::ops::Bound::Unbounded))
-            .next()
-            .copied()
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.inner.next_after(key)
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            use std::ops::Bound::Excluded;
+            self.inner
+                .range((Excluded(key), std::ops::Bound::Unbounded))
+                .next()
+                .copied()
+        }
     }
 
     #[wasm_bindgen(js_name = prev)]
     pub fn prev_before(&self, key: u64) -> Option<u64> {
-        use std::ops::Bound::Excluded;
-        self.inner
-            .range((std::ops::Bound::Unbounded, Excluded(key)))
-            .next_back()
-            .copied()
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.inner.prev_before(key)
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            use std::ops::Bound::Excluded;
+            self.inner
+                .range((std::ops::Bound::Unbounded, Excluded(key)))
+                .next_back()
+                .copied()
+        }
     }
 
     pub fn rank(&self, key: u64) -> u64 {
-        self.inner.range(..key).count() as u64
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.inner.count_below(key)
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            self.inner.range(..key).count() as u64
+        }
     }
 
     pub fn select(&self, k: u64) -> Option<u64> {
-        self.inner.iter().nth(k as usize).copied()
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.inner.by_count(k)
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            self.inner.iter().nth(k as usize).copied()
+        }
     }
 
     #[wasm_bindgen(js_name = countRange)]
     pub fn count_range(&self, start: u64, end: u64) -> u64 {
-        self.inner.range(start..=end).count() as u64
+        #[cfg(target_pointer_width = "64")]
+        {
+            self.inner.count_range(start..=end)
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            self.inner.range(start..=end).count() as u64
+        }
     }
 
     #[wasm_bindgen(js_name = toArray)]
     pub fn to_array(&self) -> BigUint64Array {
-        let items: Vec<u64> = self.inner.iter().copied().collect();
-        BigUint64Array::from(&items[..])
+        #[cfg(target_pointer_width = "64")]
+        {
+            let items: Vec<u64> = self.inner.iter().collect();
+            BigUint64Array::from(&items[..])
+        }
+        #[cfg(not(target_pointer_width = "64"))]
+        {
+            let items: Vec<u64> = self.inner.iter().copied().collect();
+            BigUint64Array::from(&items[..])
+        }
     }
 }
 
