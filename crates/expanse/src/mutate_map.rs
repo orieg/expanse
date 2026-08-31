@@ -2413,3 +2413,194 @@ pub(crate) unsafe fn map_remove<const OCC: bool>(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    /// Negative control (§2.3, #479): exercises `a.assert_bracketed()` at
+    /// `map_insert_with_path_flat` (case 0x05..=0x0B, Leaf1..Leaf7 in-place shift).
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "node interior mutated outside any version bracket")]
+    fn negative_control_map_flat_leaf1_inplace_panics_unbracketed() {
+        let alloc = NodeAlloc::new();
+        alloc.defer_to(Arc::new(crate::occ::Collector::new()));
+
+        let ptr = alloc.alloc_bytes(leaf::size_map(1, 3));
+        // SAFETY: freshly allocated map leaf has capacity for 3 entries.
+        unsafe {
+            let vals = ptr.as_ptr().cast::<u64>();
+            vals.add(0).write(10);
+            vals.add(1).write(20);
+            vals.add(2).write(30);
+            let keys = ptr.as_ptr().add(leaf::map_keys_offset(3));
+            *keys.add(0) = 0x02;
+            *keys.add(1) = 0x05;
+            *keys.add(2) = 0x09;
+        }
+        let mut edge = Edge::new_node(ptr.as_ptr(), EdgeType::Leaf1.as_u8());
+        edge.set_pop0(1, 2); // pop0 = 2 => pop = 3
+
+        let mut path = InsertPathMap::empty();
+        // SAFETY: edge is a valid Leaf1 map node.
+        unsafe { map_insert_with_path_flat::<false>(&alloc, &mut edge, 0x07, 25, 1, &mut path) };
+    }
+
+    /// Positive companion: covered map Leaf1 in-place mutation succeeds quietly.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn positive_control_map_flat_leaf1_inplace_quiet_when_covered() {
+        let alloc = NodeAlloc::new();
+        alloc.defer_to(Arc::new(crate::occ::Collector::new()));
+
+        let ptr = alloc.alloc_bytes(leaf::size_map(1, 3));
+        // SAFETY: freshly allocated map leaf has capacity for 3 entries.
+        unsafe {
+            let vals = ptr.as_ptr().cast::<u64>();
+            vals.add(0).write(10);
+            vals.add(1).write(20);
+            vals.add(2).write(30);
+            let keys = ptr.as_ptr().add(leaf::map_keys_offset(3));
+            *keys.add(0) = 0x02;
+            *keys.add(1) = 0x05;
+            *keys.add(2) = 0x09;
+        }
+        let mut edge = Edge::new_node(ptr.as_ptr(), EdgeType::Leaf1.as_u8());
+        edge.set_pop0(1, 2); // pop0 = 2 => pop = 3
+
+        let mut path = InsertPathMap::empty();
+        alloc.bracket_enter();
+        // SAFETY: edge is a valid Leaf1 map node.
+        let (old, _slot) = unsafe {
+            map_insert_with_path_flat::<false>(&alloc, &mut edge, 0x07, 25, 1, &mut path)
+        };
+        alloc.bracket_leave();
+        assert_eq!(old, None);
+    }
+
+    /// Negative control (§2.3, #479): exercises `a.assert_bracketed()` at
+    /// `map_insert_with_path_flat` (map immediate in-place shift).
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "node interior mutated outside any version bracket")]
+    fn negative_control_map_flat_immed_inplace_panics_unbracketed() {
+        let alloc = NodeAlloc::new();
+        alloc.defer_to(Arc::new(crate::occ::Collector::new()));
+
+        let val_ptr = alloc.alloc_bytes(map_immed_val_size(3)).cast::<u64>();
+        // SAFETY: freshly allocated value array holds 3 entries.
+        unsafe {
+            val_ptr.as_ptr().add(0).write(10);
+            val_ptr.as_ptr().add(1).write(20);
+            val_ptr.as_ptr().add(2).write(30);
+        }
+        let im = ImmedType::new(1, 3).expect("immed");
+        let mut edge = Edge::new_node(val_ptr.as_ptr().cast(), im.as_u8());
+        let mut aux = [0u8; 7];
+        aux[0] = 0x02;
+        aux[1] = 0x05;
+        aux[2] = 0x09;
+        edge.set_aux_bytes(aux);
+
+        let mut path = InsertPathMap::empty();
+        // SAFETY: edge is a valid immediate node.
+        unsafe { map_insert_with_path_flat::<false>(&alloc, &mut edge, 0x07, 25, 1, &mut path) };
+    }
+
+    /// Positive companion: covered map flat immediate in-place shift succeeds quietly.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn positive_control_map_flat_immed_inplace_quiet_when_covered() {
+        let alloc = NodeAlloc::new();
+        alloc.defer_to(Arc::new(crate::occ::Collector::new()));
+
+        let val_ptr = alloc.alloc_bytes(map_immed_val_size(3)).cast::<u64>();
+        // SAFETY: freshly allocated value array holds 3 entries.
+        unsafe {
+            val_ptr.as_ptr().add(0).write(10);
+            val_ptr.as_ptr().add(1).write(20);
+            val_ptr.as_ptr().add(2).write(30);
+        }
+        let im = ImmedType::new(1, 3).expect("immed");
+        let mut edge = Edge::new_node(val_ptr.as_ptr().cast(), im.as_u8());
+        let mut aux = [0u8; 7];
+        aux[0] = 0x02;
+        aux[1] = 0x05;
+        aux[2] = 0x09;
+        edge.set_aux_bytes(aux);
+
+        let mut path = InsertPathMap::empty();
+        alloc.bracket_enter();
+        // SAFETY: edge is a valid immediate node.
+        let (old, _slot) = unsafe {
+            map_insert_with_path_flat::<false>(&alloc, &mut edge, 0x07, 25, 1, &mut path)
+        };
+        alloc.bracket_leave();
+        assert_eq!(old, None);
+    }
+
+    /// Negative control (§2.3, #479): exercises `a.assert_bracketed()` at
+    /// `map_insert_with_path_occ` (map immediate in-place shift).
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "node interior mutated outside any version bracket")]
+    fn negative_control_map_occ_immed_inplace_panics_unbracketed() {
+        let alloc = NodeAlloc::new();
+        alloc.defer_to(Arc::new(crate::occ::Collector::new()));
+
+        let val_ptr = alloc.alloc_bytes(map_immed_val_size(3)).cast::<u64>();
+        // SAFETY: freshly allocated value array holds 3 entries.
+        unsafe {
+            val_ptr.as_ptr().add(0).write(10);
+            val_ptr.as_ptr().add(1).write(20);
+            val_ptr.as_ptr().add(2).write(30);
+        }
+        let im = ImmedType::new(1, 3).expect("immed");
+        let mut edge = Edge::new_node(val_ptr.as_ptr().cast(), im.as_u8());
+        let mut aux = [0u8; 7];
+        aux[0] = 0x02;
+        aux[1] = 0x05;
+        aux[2] = 0x09;
+        edge.set_aux_bytes(aux);
+
+        let mut path = InsertPathMap::empty();
+        // SAFETY: edge is a valid immediate node.
+        unsafe {
+            map_insert_with_path_occ::<false, true>(&alloc, &mut edge, 0x07, 25, 1, &mut path)
+        };
+    }
+
+    /// Positive companion: covered map occ immediate in-place shift succeeds quietly.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn positive_control_map_occ_immed_inplace_quiet_when_covered() {
+        let alloc = NodeAlloc::new();
+        alloc.defer_to(Arc::new(crate::occ::Collector::new()));
+
+        let val_ptr = alloc.alloc_bytes(map_immed_val_size(3)).cast::<u64>();
+        // SAFETY: freshly allocated value array holds 3 entries.
+        unsafe {
+            val_ptr.as_ptr().add(0).write(10);
+            val_ptr.as_ptr().add(1).write(20);
+            val_ptr.as_ptr().add(2).write(30);
+        }
+        let im = ImmedType::new(1, 3).expect("immed");
+        let mut edge = Edge::new_node(val_ptr.as_ptr().cast(), im.as_u8());
+        let mut aux = [0u8; 7];
+        aux[0] = 0x02;
+        aux[1] = 0x05;
+        aux[2] = 0x09;
+        edge.set_aux_bytes(aux);
+
+        let mut path = InsertPathMap::empty();
+        alloc.bracket_enter();
+        // SAFETY: edge is a valid immediate node.
+        let (old, _slot) = unsafe {
+            map_insert_with_path_occ::<false, true>(&alloc, &mut edge, 0x07, 25, 1, &mut path)
+        };
+        alloc.bracket_leave();
+        assert_eq!(old, None);
+    }
+}
