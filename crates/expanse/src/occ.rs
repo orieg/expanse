@@ -242,6 +242,8 @@ pub struct Collector {
     bins: [Mutex<Vec<Garbage>>; BINS],
     freelists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
     retained_bytes: AtomicUsize,
+    #[cfg(test)]
+    registrations: core::sync::atomic::AtomicU64,
 }
 
 #[cfg(feature = "std")]
@@ -266,6 +268,8 @@ impl Collector {
             ],
             freelists: core::array::from_fn(|_| AtomicPtr::new(core::ptr::null_mut())),
             retained_bytes: AtomicUsize::new(0),
+            #[cfg(test)]
+            registrations: core::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -294,6 +298,8 @@ impl Collector {
     /// Registers a reader; the returned handle pins/unpins cheaply.
     #[must_use]
     pub fn register(self: &Arc<Self>) -> Reader {
+        #[cfg(test)]
+        self.registrations.fetch_add(1, Ordering::Relaxed);
         let slot = Arc::new(Slot::new(INACTIVE));
         self.readers
             .lock()
@@ -382,6 +388,22 @@ impl Collector {
     #[must_use]
     pub fn retained_bytes(&self) -> usize {
         self.retained_bytes.load(Ordering::Relaxed)
+    }
+
+    /// Number of registered reader slots. Test-only observability: the #554
+    /// regression guard asserts a cached reader does not grow this per lookup.
+    #[cfg(test)]
+    pub(crate) fn registered_readers(&self) -> usize {
+        self.readers.lock().expect("reader registry poisoned").len()
+    }
+
+    /// Cumulative `register` calls. Registry *size* cannot catch a one-shot
+    /// lookup — it registers and deregisters inside the call, so the size is
+    /// unchanged by the time a test looks. Counting the calls is what actually
+    /// distinguishes a cached reader from a per-lookup one (#554).
+    #[cfg(test)]
+    pub(crate) fn registrations(&self) -> u64 {
+        self.registrations.load(Ordering::Relaxed)
     }
 
     /// Current epoch. Test-only observability, so `sync`'s write-batching
