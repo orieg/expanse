@@ -20,6 +20,8 @@ validated before writing (same discipline as
 from __future__ import annotations
 
 import json
+import math
+from typing import Iterable
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -100,6 +102,36 @@ STYLE = """
 """
 
 
+def nice_axis_max(values: "Iterable[float]") -> float:
+    """Smallest round ceiling that leaves the tallest bar ~80-95% of the panel.
+
+    Steps through a 1/1.2/1.5/2/2.5/3/4/5/6/7/8/10 ladder times a power of ten,
+    so the axis lands on a label a reader can divide in their head and the
+    mid-tick is always exactly half of it. The ladder is deliberately finer
+    than 1/2/5: on this data a coarse one jumped 614 M/s to a 1000 axis, which
+    wastes as much of the panel as the stamped ceiling it replaced.
+    """
+    peak = max(values)
+    if peak <= 0:
+        raise ValueError("axis needs at least one positive value")
+    target = peak / 0.9
+    exp = math.floor(math.log10(target))
+    for mult in (1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0):
+        candidate = mult * (10.0**exp)
+        if candidate >= target:
+            return candidate
+    return 10.0 ** (exp + 1)
+
+
+def axis_label(value: float, unit: str) -> str:
+    """Renders an axis tick the way each panel's unit is written."""
+    if unit == "M":
+        return f"{value:g}M"
+    if unit == "B":
+        return f"{value:g} B"
+    return f"{value:g} ns"
+
+
 def bar(x: int, value: float, axis_max: float, css: str, val_text: str, val_css: str,
         label: str, caption: str, caption_win: bool) -> str:
     """One bar + value label + name label + caption, in panel-local coords."""
@@ -146,16 +178,18 @@ def main() -> int:
     ram_saving = (1.0 - ram["expanse"] / ram["skiplist"]) * 100.0
     lat_speedup = lat["skiplist"] / lat["expanse"]
 
-    # Axis maxima chosen so every value fits with headroom; adjust here if a
-    # future run overflows (the assert below will catch it).
-    scan_max, ram_max, lat_max = 700.0, 160.0, 600.0
-    for vals, amax in ((scan, scan_max), (ram, ram_max), (lat, lat_max)):
-        overflow = [v for v in vals.values() if v > amax]
-        assert not overflow, f"value(s) {overflow} exceed axis max {amax}; raise the axis"
+    # Axis maxima are derived from the data, not stamped. They used to be
+    # hardcoded, and the RAM panel's 160 B ceiling was sized for the strawman
+    # skiplist node's ~146.7 B/entry (#372). Once that baseline was retracted
+    # and re-measured at 18.7 B/entry the tallest bar filled about an eighth of
+    # the panel, so the chart read as mostly white space and the three
+    # candidates were visually indistinguishable. A stamped axis silently
+    # outlives the numbers it was scaled for; a derived one cannot.
+    scan_max, ram_max, lat_max = (nice_axis_max(v.values()) for v in (scan, ram, lat))
 
     p1 = panel(
         30, "Sequential Scan", f"{keys:,} keys prefixscan (higher is better)",
-        "&#9650; Throughput (M ops / sec)", scan_max, "700M", "350M",
+        "&#9650; Throughput (M ops / sec)", scan_max, axis_label(scan_max, "M"), axis_label(scan_max / 2, "M"),
         bar(BAR_X[0], scan["expanse"], scan_max, "b-expanse",
             f'{scan["expanse"]:.1f} M/s', "t-val-accent", "Expanse",
             f"{scan_speedup:.1f}&#215; speedup", True)
@@ -169,7 +203,7 @@ def main() -> int:
     p2 = panel(
         340, "RAM Footprint per Entry",
         f'{keys:,} keys ({data["meta"]["key_bytes"]}B key / {data["meta"]["value_bytes"]}B val) (lower is better)',
-        "&#9660; Indexing Overhead (Bytes / key)", ram_max, "160 B", "80 B",
+        "&#9660; Indexing Overhead (Bytes / key)", ram_max, axis_label(ram_max, "B"), axis_label(ram_max / 2, "B"),
         bar(BAR_X[0], ram["expanse"], ram_max, "b-expanse",
             f'{ram["expanse"]:.1f} B', "t-val-accent", "Expanse",
             f"-{ram_saving:.1f}% RAM", True)
@@ -182,7 +216,7 @@ def main() -> int:
     )
     p3 = panel(
         665, "Point Lookup Latency", "readrandom single-key query (lower is better)",
-        "&#9660; Query Latency (ns / op)", lat_max, "600 ns", "300 ns",
+        "&#9660; Query Latency (ns / op)", lat_max, axis_label(lat_max, "ns"), axis_label(lat_max / 2, "ns"),
         bar(BAR_X[0], lat["expanse"], lat_max, "b-expanse",
             f'{lat["expanse"]:.0f} ns', "t-val-accent", "Expanse",
             f"{lat_speedup:.2f}&#215; faster", True)
