@@ -1,0 +1,566 @@
+{
+  "schema": "expanse.baseline.v1",
+  "kind": "callgrind_counts",
+  "suite": "instructions",
+  "provenance": {
+    "host_description": "12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic)",
+    "commit": "7af324080454b3f116fc82d7c3196a806dafada7",
+    "run_id": "https://github.com/orieg/expanse/actions/runs/33415643997",
+    "generated_by": "scripts/perf_report.py --emit-json",
+    "source": "iai-callgrind stdout, parsed by perf_report.parse_full"
+  },
+  "statistics": {
+    "estimator": "exact counts retired under Valgrind/Callgrind",
+    "method": "deterministic instrumentation, not sampling",
+    "interval": null,
+    "why_no_interval": "Callgrind counts are exact integers with zero run-to-run variance. AGENTS.md \u00a78.4 scopes CI requirements to continuous and sampling metrics; an interval here would be wrong, not missing."
+  },
+  "arms": [
+    {
+      "id": "blobmap32_scan/ipv4_routes",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 500424,
+        "Instructions": 341840,
+        "L1 Hits": 498279,
+        "LL Hits": 191,
+        "RAM Hits": 34,
+        "Total read+write": 498504
+      }
+    },
+    {
+      "id": "bytesmap_churn/routes",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 267529616,
+        "Instructions": 194958396,
+        "L1 Hits": 259573006,
+        "LL Hits": 561230,
+        "RAM Hits": 147156,
+        "Total read+write": 260281392
+      }
+    },
+    {
+      "id": "bytesmap_get/routes",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 44609379,
+        "Instructions": 29611510,
+        "L1 Hits": 37923514,
+        "LL Hits": 345238,
+        "RAM Hits": 141705,
+        "Total read+write": 38410457
+      }
+    },
+    {
+      "id": "bytesmap_insert/routes",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 142316882,
+        "Instructions": 100539181,
+        "L1 Hits": 134599232,
+        "LL Hits": 292602,
+        "RAM Hits": 178704,
+        "Total read+write": 135070538
+      }
+    },
+    {
+      "id": "map32_get/can_dispatch",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 165093,
+        "Instructions": 132673,
+        "L1 Hits": 164673,
+        "LL Hits": 0,
+        "RAM Hits": 12,
+        "Total read+write": 164685
+      }
+    },
+    {
+      "id": "map_churn/random",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 89349357,
+        "Instructions": 63651517,
+        "L1 Hits": 88315887,
+        "LL Hits": 162825,
+        "RAM Hits": 6267,
+        "Total read+write": 88484979
+      }
+    },
+    {
+      "id": "map_get/clustered",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 7756904,
+        "Instructions": 5619904,
+        "L1 Hits": 7288219,
+        "LL Hits": 93555,
+        "RAM Hits": 26,
+        "Total read+write": 7381800
+      }
+    },
+    {
+      "id": "map_get/dense_leaf",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 14137062,
+        "Instructions": 10811448,
+        "L1 Hits": 12966582,
+        "LL Hits": 233809,
+        "RAM Hits": 41,
+        "Total read+write": 13200432
+      }
+    },
+    {
+      "id": "map_get/linear_leaf",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 13028622,
+        "Instructions": 9750097,
+        "L1 Hits": 11752002,
+        "LL Hits": 255079,
+        "RAM Hits": 35,
+        "Total read+write": 12007116
+      }
+    },
+    {
+      "id": "map_get/random",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 8597609,
+        "Instructions": 6262255,
+        "L1 Hits": 7864909,
+        "LL Hits": 146358,
+        "RAM Hits": 26,
+        "Total read+write": 8011293
+      }
+    },
+    {
+      "id": "map_get/sequential",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 9198986,
+        "Instructions": 6950208,
+        "L1 Hits": 8763316,
+        "LL Hits": 86973,
+        "RAM Hits": 23,
+        "Total read+write": 8850312
+      }
+    },
+    {
+      "id": "map_get_batch/random",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 11805135,
+        "Instructions": 8705020,
+        "L1 Hits": 10981595,
+        "LL Hits": 164344,
+        "RAM Hits": 52,
+        "Total read+write": 11145991
+      }
+    },
+    {
+      "id": "map_ins_slot/random",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 39275719,
+        "Instructions": 26465191,
+        "L1 Hits": 37264119,
+        "LL Hits": 203114,
+        "RAM Hits": 28458,
+        "Total read+write": 37495691
+      }
+    },
+    {
+      "id": "map_insert/clustered",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 27121911,
+        "Instructions": 19348991,
+        "L1 Hits": 26752361,
+        "LL Hits": 8929,
+        "RAM Hits": 9283,
+        "Total read+write": 26770573
+      }
+    },
+    {
+      "id": "map_insert/dense_leaf",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 37640835,
+        "Instructions": 26396124,
+        "L1 Hits": 37061460,
+        "LL Hits": 15845,
+        "RAM Hits": 14290,
+        "Total read+write": 37091595
+      }
+    },
+    {
+      "id": "map_insert/linear_leaf",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 37646865,
+        "Instructions": 25982533,
+        "L1 Hits": 36966205,
+        "LL Hits": 23852,
+        "RAM Hits": 16040,
+        "Total read+write": 37006097
+      }
+    },
+    {
+      "id": "map_insert/random",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 40672859,
+        "Instructions": 27304869,
+        "L1 Hits": 38654289,
+        "LL Hits": 205138,
+        "RAM Hits": 28368,
+        "Total read+write": 38887795
+      }
+    },
+    {
+      "id": "map_insert/sequential",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 14269497,
+        "Instructions": 10371154,
+        "L1 Hits": 13880812,
+        "LL Hits": 14100,
+        "RAM Hits": 9091,
+        "Total read+write": 13904003
+      }
+    },
+    {
+      "id": "map_insert/small",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 36461442,
+        "Instructions": 25727122,
+        "L1 Hits": 35962012,
+        "LL Hits": 9733,
+        "RAM Hits": 12879,
+        "Total read+write": 35984624
+      }
+    },
+    {
+      "id": "map_iterate/random",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 6812641,
+        "Instructions": 5263922,
+        "L1 Hits": 6697756,
+        "LL Hits": 22368,
+        "RAM Hits": 87,
+        "Total read+write": 6720211
+      }
+    },
+    {
+      "id": "map_nav/random",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 21046568,
+        "Instructions": 15307856,
+        "L1 Hits": 20307843,
+        "LL Hits": 147374,
+        "RAM Hits": 53,
+        "Total read+write": 20455270
+      }
+    },
+    {
+      "id": "map_range/clustered",
+      "bench_target": "instructions",
+      "group_id": "range_cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 509370,
+        "Instructions": 351379,
+        "L1 Hits": 498055,
+        "LL Hits": 1612,
+        "RAM Hits": 93,
+        "Total read+write": 499760
+      }
+    },
+    {
+      "id": "map_range/random",
+      "bench_target": "instructions",
+      "group_id": "range_cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 101559,
+        "Instructions": 68997,
+        "L1 Hits": 95789,
+        "LL Hits": 468,
+        "RAM Hits": 98,
+        "Total read+write": 96355
+      }
+    },
+    {
+      "id": "map_range/sequential",
+      "bench_target": "instructions",
+      "group_id": "range_cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 592414,
+        "Instructions": 410700,
+        "L1 Hits": 581144,
+        "LL Hits": 1750,
+        "RAM Hits": 72,
+        "Total read+write": 582966
+      }
+    },
+    {
+      "id": "map_remove/random",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 33391089,
+        "Instructions": 24003548,
+        "L1 Hits": 32141339,
+        "LL Hits": 241200,
+        "RAM Hits": 1250,
+        "Total read+write": 32383789
+      }
+    },
+    {
+      "id": "set32_insert/sensor_timestamps",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 19004011,
+        "Instructions": 13899946,
+        "L1 Hits": 18963501,
+        "LL Hits": 66,
+        "RAM Hits": 1148,
+        "Total read+write": 18964715
+      }
+    },
+    {
+      "id": "set_contains/random",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 8265509,
+        "Instructions": 6139084,
+        "L1 Hits": 7651109,
+        "LL Hits": 122614,
+        "RAM Hits": 38,
+        "Total read+write": 7773761
+      }
+    },
+    {
+      "id": "set_contains_batch/random",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 11252348,
+        "Instructions": 8500031,
+        "L1 Hits": 10631783,
+        "LL Hits": 123721,
+        "RAM Hits": 56,
+        "Total read+write": 10755560
+      }
+    },
+    {
+      "id": "set_insert/clustered",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 16330074,
+        "Instructions": 11679166,
+        "L1 Hits": 16226824,
+        "LL Hits": 6811,
+        "RAM Hits": 1977,
+        "Total read+write": 16235612
+      }
+    },
+    {
+      "id": "set_insert/dense_leaf",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 28093591,
+        "Instructions": 19884392,
+        "L1 Hits": 27758851,
+        "LL Hits": 11011,
+        "RAM Hits": 7991,
+        "Total read+write": 27777853
+      }
+    },
+    {
+      "id": "set_insert/linear_leaf",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 27938353,
+        "Instructions": 19751578,
+        "L1 Hits": 27537473,
+        "LL Hits": 16679,
+        "RAM Hits": 9071,
+        "Total read+write": 27563223
+      }
+    },
+    {
+      "id": "set_insert/random",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 32067125,
+        "Instructions": 21992628,
+        "L1 Hits": 30453980,
+        "LL Hits": 171198,
+        "RAM Hits": 21633,
+        "Total read+write": 30646811
+      }
+    },
+    {
+      "id": "set_insert/sequential",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 5249912,
+        "Instructions": 3520628,
+        "L1 Hits": 5155317,
+        "LL Hits": 6557,
+        "RAM Hits": 1766,
+        "Total read+write": 5163640
+      }
+    },
+    {
+      "id": "set_range/clustered",
+      "bench_target": "instructions",
+      "group_id": "range_cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 374522,
+        "Instructions": 267995,
+        "L1 Hits": 370507,
+        "LL Hits": 208,
+        "RAM Hits": 85,
+        "Total read+write": 370800
+      }
+    },
+    {
+      "id": "set_range/random",
+      "bench_target": "instructions",
+      "group_id": "range_cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 109293,
+        "Instructions": 73264,
+        "L1 Hits": 103413,
+        "LL Hits": 399,
+        "RAM Hits": 111,
+        "Total read+write": 103923
+      }
+    },
+    {
+      "id": "set_range/sequential",
+      "bench_target": "instructions",
+      "group_id": "range_cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 314631,
+        "Instructions": 205428,
+        "L1 Hits": 312131,
+        "LL Hits": 87,
+        "RAM Hits": 59,
+        "Total read+write": 312277
+      }
+    },
+    {
+      "id": "strmap_churn/routes",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 166415322,
+        "Instructions": 123082879,
+        "L1 Hits": 163071457,
+        "LL Hits": 668444,
+        "RAM Hits": 47,
+        "Total read+write": 163739948
+      }
+    },
+    {
+      "id": "strmap_get/routes",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 47752937,
+        "Instructions": 35413175,
+        "L1 Hits": 44766327,
+        "LL Hits": 597161,
+        "RAM Hits": 23,
+        "Total read+write": 45363511
+      }
+    },
+    {
+      "id": "strmap_insert/routes",
+      "bench_target": "instructions",
+      "group_id": "cost",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 62938261,
+        "Instructions": 45344512,
+        "L1 Hits": 61452501,
+        "LL Hits": 144328,
+        "RAM Hits": 21832,
+        "Total read+write": 61618661
+      }
+    }
+  ]
+}

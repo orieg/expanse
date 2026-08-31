@@ -1,0 +1,482 @@
+{
+  "schema": "expanse.baseline.v1",
+  "kind": "callgrind_counts",
+  "suite": "vs_stock",
+  "provenance": {
+    "host_description": "12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic)",
+    "commit": "d1fde746fb6ffb607ba3b6f7bea93e6e10cd5c59",
+    "run_id": "https://github.com/orieg/expanse/actions/runs/33422776469",
+    "generated_by": "scripts/perf_report.py --emit-json",
+    "source": "iai-callgrind stdout, parsed by perf_report.parse_full"
+  },
+  "statistics": {
+    "estimator": "exact counts retired under Valgrind/Callgrind",
+    "method": "deterministic instrumentation, not sampling",
+    "interval": null,
+    "why_no_interval": "Callgrind counts are exact integers with zero run-to-run variance. AGENTS.md \u00a78.4 scopes CI requirements to continuous and sampling metrics; an interval here would be wrong, not missing."
+  },
+  "arms": [
+    {
+      "id": "judy1_set_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 10750649,
+        "Instructions": 7544621,
+        "L1 Hits": 10664799,
+        "LL Hits": 4108,
+        "RAM Hits": 1866,
+        "Total read+write": 10670773
+      }
+    },
+    {
+      "id": "judy1_set_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 22138744,
+        "Instructions": 15113472,
+        "L1 Hits": 21207964,
+        "LL Hits": 90144,
+        "RAM Hits": 13716,
+        "Total read+write": 21311824
+      }
+    },
+    {
+      "id": "judy1_set_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 10561257,
+        "Instructions": 7472167,
+        "L1 Hits": 10474882,
+        "LL Hits": 4192,
+        "RAM Hits": 1869,
+        "Total read+write": 10480943
+      }
+    },
+    {
+      "id": "judy1_set_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 21931022,
+        "Instructions": 15095012,
+        "L1 Hits": 20994977,
+        "LL Hits": 91253,
+        "RAM Hits": 13708,
+        "Total read+write": 21099938
+      }
+    },
+    {
+      "id": "judy1_set_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 16430872,
+        "Instructions": 11899704,
+        "L1 Hits": 16397627,
+        "LL Hits": 3982,
+        "RAM Hits": 381,
+        "Total read+write": 16401990
+      }
+    },
+    {
+      "id": "judy1_set_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 25132425,
+        "Instructions": 17259298,
+        "L1 Hits": 24312775,
+        "LL Hits": 90248,
+        "RAM Hits": 10526,
+        "Total read+write": 24413549
+      }
+    },
+    {
+      "id": "judy1_test_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 5335234,
+        "Instructions": 3881373,
+        "L1 Hits": 4989804,
+        "LL Hits": 68855,
+        "RAM Hits": 33,
+        "Total read+write": 5058692
+      }
+    },
+    {
+      "id": "judy1_test_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 5336440,
+        "Instructions": 3881376,
+        "L1 Hits": 4989545,
+        "LL Hits": 69113,
+        "RAM Hits": 38,
+        "Total read+write": 5058696
+      }
+    },
+    {
+      "id": "judy1_test_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 7621534,
+        "Instructions": 5770227,
+        "L1 Hits": 7333179,
+        "LL Hits": 57461,
+        "RAM Hits": 30,
+        "Total read+write": 7390670
+      }
+    },
+    {
+      "id": "judyl_churn_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 53533372,
+        "Instructions": 38087812,
+        "L1 Hits": 52891032,
+        "LL Hits": 92929,
+        "RAM Hits": 5077,
+        "Total read+write": 52989038
+      }
+    },
+    {
+      "id": "judyl_churn_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 54975956,
+        "Instructions": 39089898,
+        "L1 Hits": 54332366,
+        "LL Hits": 93179,
+        "RAM Hits": 5077,
+        "Total read+write": 54430622
+      }
+    },
+    {
+      "id": "judyl_churn_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 77710895,
+        "Instructions": 56295084,
+        "L1 Hits": 77310035,
+        "LL Hits": 79640,
+        "RAM Hits": 76,
+        "Total read+write": 77389751
+      }
+    },
+    {
+      "id": "judyl_get_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 5470312,
+        "Instructions": 3901156,
+        "L1 Hits": 5260777,
+        "LL Hits": 41823,
+        "RAM Hits": 12,
+        "Total read+write": 5302612
+      }
+    },
+    {
+      "id": "judyl_get_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 5795653,
+        "Instructions": 4102807,
+        "L1 Hits": 5391938,
+        "LL Hits": 80673,
+        "RAM Hits": 10,
+        "Total read+write": 5472621
+      }
+    },
+    {
+      "id": "judyl_get_expanse/random_big",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 500062920,
+        "Instructions": 306524528,
+        "L1 Hits": 378547020,
+        "LL Hits": 3077500,
+        "RAM Hits": 3032240,
+        "Total read+write": 384656760
+      }
+    },
+    {
+      "id": "judyl_get_expanse/sequential",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 6369618,
+        "Instructions": 4616068,
+        "L1 Hits": 6163478,
+        "LL Hits": 41137,
+        "RAM Hits": 13,
+        "Total read+write": 6204628
+      }
+    },
+    {
+      "id": "judyl_get_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 5439738,
+        "Instructions": 3901159,
+        "L1 Hits": 5230918,
+        "LL Hits": 41687,
+        "RAM Hits": 11,
+        "Total read+write": 5272616
+      }
+    },
+    {
+      "id": "judyl_get_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 5766607,
+        "Instructions": 4102810,
+        "L1 Hits": 5361697,
+        "LL Hits": 80919,
+        "RAM Hits": 9,
+        "Total read+write": 5442625
+      }
+    },
+    {
+      "id": "judyl_get_expanse_dl/random_big",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 498610920,
+        "Instructions": 306524531,
+        "L1 Hits": 377044295,
+        "LL Hits": 3078993,
+        "RAM Hits": 3033476,
+        "Total read+write": 383156764
+      }
+    },
+    {
+      "id": "judyl_get_expanse_dl/sequential",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 6341620,
+        "Instructions": 4616071,
+        "L1 Hits": 6133050,
+        "LL Hits": 41616,
+        "RAM Hits": 14,
+        "Total read+write": 6174680
+      }
+    },
+    {
+      "id": "judyl_get_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 7588534,
+        "Instructions": 5861565,
+        "L1 Hits": 7382274,
+        "LL Hits": 41077,
+        "RAM Hits": 25,
+        "Total read+write": 7423376
+      }
+    },
+    {
+      "id": "judyl_get_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 8910206,
+        "Instructions": 6769783,
+        "L1 Hits": 8548181,
+        "LL Hits": 72230,
+        "RAM Hits": 25,
+        "Total read+write": 8620436
+      }
+    },
+    {
+      "id": "judyl_get_stock/random_big",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 728506569,
+        "Instructions": 478172566,
+        "L1 Hits": 604008684,
+        "LL Hits": 3054320,
+        "RAM Hits": 3120751,
+        "Total read+write": 610183755
+      }
+    },
+    {
+      "id": "judyl_get_stock/sequential",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 8672902,
+        "Instructions": 6690103,
+        "L1 Hits": 8482107,
+        "LL Hits": 38026,
+        "RAM Hits": 19,
+        "Total read+write": 8520152
+      }
+    },
+    {
+      "id": "judyl_insert_expanse/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 16025550,
+        "Instructions": 11432388,
+        "L1 Hits": 15778045,
+        "LL Hits": 4778,
+        "RAM Hits": 6389,
+        "Total read+write": 15789212
+      }
+    },
+    {
+      "id": "judyl_insert_expanse/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 26012462,
+        "Instructions": 17542175,
+        "L1 Hits": 24834467,
+        "LL Hits": 115486,
+        "RAM Hits": 17159,
+        "Total read+write": 24967112
+      }
+    },
+    {
+      "id": "judyl_insert_expanse/sequential",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 8819179,
+        "Instructions": 6403807,
+        "L1 Hits": 8566769,
+        "LL Hits": 7222,
+        "RAM Hits": 6180,
+        "Total read+write": 8580171
+      }
+    },
+    {
+      "id": "judyl_insert_expanse_dl/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 16120927,
+        "Instructions": 11484836,
+        "L1 Hits": 15870237,
+        "LL Hits": 5457,
+        "RAM Hits": 6383,
+        "Total read+write": 15882077
+      }
+    },
+    {
+      "id": "judyl_insert_expanse_dl/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 26053295,
+        "Instructions": 17711569,
+        "L1 Hits": 24865405,
+        "LL Hits": 117507,
+        "RAM Hits": 17153,
+        "Total read+write": 25000065
+      }
+    },
+    {
+      "id": "judyl_insert_expanse_dl/sequential",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 8852933,
+        "Instructions": 6432822,
+        "L1 Hits": 8609033,
+        "LL Hits": 5464,
+        "RAM Hits": 6188,
+        "Total read+write": 8620685
+      }
+    },
+    {
+      "id": "judyl_insert_stock/clustered",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 18399820,
+        "Instructions": 13367742,
+        "L1 Hits": 18224090,
+        "LL Hits": 4052,
+        "RAM Hits": 4442,
+        "Total read+write": 18232584
+      }
+    },
+    {
+      "id": "judyl_insert_stock/random",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 27770656,
+        "Instructions": 18980488,
+        "L1 Hits": 26744486,
+        "LL Hits": 111273,
+        "RAM Hits": 13423,
+        "Total read+write": 26869182
+      }
+    },
+    {
+      "id": "judyl_insert_stock/sequential",
+      "bench_target": "vs_stock",
+      "group_id": "vs_stock",
+      "unit": "count",
+      "metrics": {
+        "Estimated Cycles": 20355593,
+        "Instructions": 14707234,
+        "L1 Hits": 20178678,
+        "LL Hits": 3911,
+        "RAM Hits": 4496,
+        "Total read+write": 20187085
+      }
+    }
+  ]
+}
