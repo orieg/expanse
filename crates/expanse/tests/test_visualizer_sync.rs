@@ -1380,12 +1380,55 @@ fn test_large_value_rows_derived() {
         );
     }
 
-    // Withdrawn for lack of a tagged host and a committed artifact (#384).
+    // Withdrawn by #384 for lack of a tagged host and a committed artifact;
+    // republished from run 33359817925 once both existed (#382 item 7). The
+    // assertion inverts with the condition: what was "must be absent" is now
+    // "may be present only while the artifact backing it is committed and every
+    // published bound follows from it".
+    let gc = lv
+        .get("arena_gc_compaction")
+        .expect("arena_gc_compaction must be published once its artifact is committed");
+
+    let artifact = s(gc, "artifact");
     assert!(
-        lv.get("arena_gc_compaction").is_none(),
-        "arena GC compaction pause times need a tagged reference-host run before \
-         they are published again (#384)"
+        repo_root().join(artifact).is_file(),
+        "arena_gc_compaction cites {artifact}, which is not committed -- a pause \
+         time must resolve to an artifact of the run that produced it (AGENTS.md 8.7)"
     );
+    assert!(
+        s(gc, "source").contains("run "),
+        "arena_gc_compaction must name the run it was measured on"
+    );
+
+    for row in gc["rows"].as_array().expect("arena_gc_compaction rows") {
+        let label = format!("{} @ {}", s(row, "churn"), row["entries"]);
+        let (point, lo, hi) = (
+            f(row, "pause_us"),
+            f(row, "ci_lower_us"),
+            f(row, "ci_upper_us"),
+        );
+        assert!(lo < hi, "{label}: interval [{lo}, {hi}] is not ordered");
+        assert!(
+            lo <= point && point <= hi,
+            "{label}: point estimate {point} lies outside its own interval [{lo}, {hi}] -- \
+             point and interval must share one definition (AGENTS.md 8.4)"
+        );
+        // The published relative width must follow from the bounds it summarises,
+        // so a hand-edited cell cannot claim a tighter interval than it has.
+        let derived = (hi - lo) / point * 100.0;
+        let published = f(row, "ci_rel_width_pct");
+        assert!(
+            (derived - published).abs() <= 0.1,
+            "{label}: ci_rel_width_pct {published} does not follow from ({hi} - {lo}) / {point}"
+        );
+        // A wide interval must say so rather than reading like the tight ones.
+        if published > 10.0 {
+            assert!(
+                row.get("note").is_some(),
+                "{label}: interval is {published:.1}% wide and carries no note"
+            );
+        }
+    }
 }
 
 /// The HTML's embedded standalone-mode copy must equal the JSON. Two
