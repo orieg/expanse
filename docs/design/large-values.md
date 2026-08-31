@@ -1085,6 +1085,11 @@ both handed to one epoch `Collector` at construction (`BlobArena::defer_to`).
   pinned — including across a full compaction
   (`sync::tests::sync_blob_guard_view_survives_compaction`,
   `blobmap::tests::deferred_arena_retires_chunks_and_tables` (Miri-clean)).
+  Holding `BlobReadGuard` defers epoch advances tree-wide (both arena chunks
+  and trie index nodes) until dropped. Callers keep guards in short-lived lexical
+  blocks; long-lived views use `BlobReader::get` (owned copy) or `view.as_bytes().to_vec()`.
+  Retained garbage under concurrency is observable via `occ_stats` (`retained_bytes`,
+  `retained_hwm`) and `Collector::retained_bytes()` (#525).
 - **Compaction under concurrency.** `compact_with_index` installs the
   compacted chunk set piecewise, republishes the table, then retires the old
   chunks — never `*self = new_arena` (which would free them immediately).

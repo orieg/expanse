@@ -222,6 +222,7 @@ pub struct Collector {
     readers: Mutex<Vec<Arc<Slot>>>,
     bins: [Mutex<Vec<Garbage>>; BINS],
     freelists: [AtomicPtr<FreeBlock>; NUM_CLASSES],
+    retained_bytes: AtomicUsize,
 }
 
 impl Default for Collector {
@@ -243,6 +244,7 @@ impl Collector {
                 Mutex::new(Vec::new()),
             ],
             freelists: core::array::from_fn(|_| AtomicPtr::new(core::ptr::null_mut())),
+            retained_bytes: AtomicUsize::new(0),
         }
     }
 
@@ -286,6 +288,8 @@ impl Collector {
             .lock()
             .expect("garbage bin poisoned")
             .push(Garbage { ptr, bytes, align });
+        self.retained_bytes.fetch_add(bytes, Ordering::Relaxed);
+        crate::occ_stats::record_retire(bytes);
     }
 
     /// Attempts one epoch advance: succeeds when every pinned reader has
@@ -321,6 +325,10 @@ impl Collector {
                 .lock()
                 .expect("garbage bin poisoned"),
         );
+        let freed_bytes: usize = stale.iter().map(|g| g.bytes).sum();
+        self.retained_bytes
+            .fetch_sub(freed_bytes, Ordering::Relaxed);
+        crate::occ_stats::record_reclaim(freed_bytes);
         for g in stale {
             if let Some(class) = class_for(g.bytes, g.align) {
                 let block = g.ptr.as_ptr().cast::<FreeBlock>();
@@ -341,6 +349,12 @@ impl Collector {
         }
     }
 
+    /// Total bytes currently queued across this collector's garbage bins.
+    #[must_use]
+    pub fn retained_bytes(&self) -> usize {
+        self.retained_bytes.load(Ordering::Relaxed)
+    }
+
     /// Current epoch. Test-only observability, so `sync`'s write-batching
     /// policy can assert how often it actually advances.
     // Its only caller — `sync::tests` — is `#[cfg(not(miri))]`, so under
@@ -357,6 +371,10 @@ impl Collector {
     pub(crate) fn drain(&self) {
         for bin in &self.bins {
             let stale = core::mem::take(&mut *bin.lock().expect("garbage bin poisoned"));
+            let freed_bytes: usize = stale.iter().map(|g| g.bytes).sum();
+            self.retained_bytes
+                .fetch_sub(freed_bytes, Ordering::Relaxed);
+            crate::occ_stats::record_reclaim(freed_bytes);
             for g in stale {
                 free_raw(g.ptr, g.bytes, g.align);
             }
@@ -517,6 +535,40 @@ mod tests {
         drop(r1);
         c.try_advance();
         assert_eq!(c.epoch.load(Ordering::Relaxed), epoch_before + 2);
+    }
+
+    #[test]
+    fn collector_retained_bytes_accounting() {
+        crate::occ_stats::reset();
+        let c = Arc::new(Collector::new());
+        assert_eq!(c.retained_bytes(), 0);
+
+        let reader = c.register();
+        let pin = reader.pin();
+
+        c.retire(alloc_test_block(64), 64, TEST_ALIGN);
+        c.retire(alloc_test_block(128), 128, TEST_ALIGN);
+        assert_eq!(c.retained_bytes(), 192);
+
+        // One advance is allowed while pinned at epoch 0 (advances to epoch 1)
+        c.try_advance();
+        assert_eq!(c.retained_bytes(), 192);
+
+        // Subsequent advance refused because reader is lagging at epoch 0
+        c.retire(alloc_test_block(256), 256, TEST_ALIGN);
+        assert_eq!(c.retained_bytes(), 448);
+        c.try_advance();
+        assert_eq!(c.retained_bytes(), 448);
+
+        // Release reader pin: advances can now proceed and reclaim stale bins
+        drop(pin);
+        c.try_advance(); // advances to epoch 2, reclaims epoch 0 blocks (64 + 128 = 192)
+        assert_eq!(c.retained_bytes(), 256);
+        c.try_advance(); // advances to epoch 3, reclaims epoch 1 blocks (256)
+        assert_eq!(c.retained_bytes(), 0);
+
+        drop(reader);
+        c.drain();
     }
 }
 

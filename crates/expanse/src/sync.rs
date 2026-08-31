@@ -977,9 +977,21 @@ fn blob_slot_meta(raw: u64) -> Option<u32> {
 
 impl BlobReader<'_> {
     /// Pins the current epoch: payload borrows obtained through the returned
-    /// guard stay valid (and byte-stable) until the guard drops. Keep guards
-    /// short-lived — a pinned epoch defers all reclamation (retired nodes and
-    /// arena chunks accumulate until the pin is released).
+    /// guard stay valid (and byte-stable) until the guard drops.
+    ///
+    /// # Reclamation Deferral Contract & Lifetime Discipline
+    ///
+    /// Holding a [`BlobReadGuard`] defers epoch reclamation **tree-wide** — both
+    /// for arena chunk slabs and for the underlying radix index trie nodes.
+    /// While the guard is held, concurrent writers continue retiring superseded
+    /// trie nodes and compacted chunks, but `Collector::try_advance` cannot
+    /// advance past the pinned epoch and frees nothing. Under write churn,
+    /// retained garbage accumulates proportionally to mutation volume.
+    ///
+    /// **Best Practice:** Keep guards strictly short-lived within tight lexical
+    /// scopes. For long-lived or asynchronous storage across I/O boundaries,
+    /// prefer [`Self::get`] (which copies to an owned [`Vec<u8>`] and unpins
+    /// immediately) or copy the payload via [`SyncBlobView::as_bytes`].
     ///
     /// Takes `&mut self` because a reader holds a single epoch slot: pins
     /// from one reader must never overlap (dropping any of them would unpin
@@ -1052,6 +1064,17 @@ impl BlobReader<'_> {
 /// `SyncBlobReaderGuard` of issue #219: while it lives, nothing the arena or
 /// index retires is freed, so the [`SyncBlobView`] borrows it hands out stay
 /// valid across concurrent writes and compactions.
+///
+/// # Reclamation Deferral & Memory Growth
+///
+/// Because reclamation is epoch-based (EBR), holding this guard freezes epoch
+/// advances for the **entire map** (both arena chunk slabs and index trie nodes).
+/// Unreclaimed garbage accumulates across writer mutations until this guard drops.
+///
+/// To avoid unbounded memory retention under write churn, do not hold this guard
+/// across slow caller operations, async yields, or network I/O. Use [`BlobReader::get`]
+/// or copy the payload view via `view.as_bytes().to_vec()` when data must outlive
+/// the immediate read scope.
 pub struct BlobReadGuard<'g> {
     map: &'g SyncExpanseBlobMap,
     _pin: Pin<'g>,
@@ -2620,5 +2643,55 @@ mod tests {
         set.path_mut().prefix = 0;
         set.insert(50);
         set.occ_root().1.bracket_leave();
+    }
+
+    /// A long-held `BlobReadGuard` holds an epoch `Pin` that stalls `Collector::try_advance`
+    /// for every concurrent writer, causing retired nodes and chunk memory to accumulate
+    /// as retained garbage until the guard is dropped.
+    #[test]
+    fn blob_read_guard_stalls_reclamation_and_tracks_retained_garbage() {
+        crate::occ_stats::reset();
+        let map = SyncExpanseBlobMap::with_chunk_size(4096);
+        let mut rd = map.reader();
+
+        // Populate with large payload items so arena chunks are used
+        let payload = vec![0xABu8; 128];
+        for k in 0..100u64 {
+            map.insert(k, &payload, 1).unwrap();
+        }
+
+        // Hold a long-lived BlobReadGuard
+        let guard = rd.pin();
+        let (view, meta) = guard.get(10).expect("key present");
+        assert_eq!(view.as_bytes(), &payload[..]);
+        assert_eq!(meta, 1);
+
+        // Perform sustained mutations while guard is held
+        let new_payload = vec![0xCDu8; 256];
+        for k in 0..200u64 {
+            map.insert(k, &new_payload, 2).unwrap();
+        }
+
+        // Retained garbage must be non-zero and tracked
+        let retained_during_stall = map.shared.collector.retained_bytes();
+        assert!(
+            retained_during_stall > 0,
+            "retained garbage must accumulate while guard is held, got {retained_during_stall}"
+        );
+
+        // Now drop the guard
+        drop(guard);
+
+        // Trigger subsequent mutation batches to advance epochs and reclaim
+        for k in 200..300u64 {
+            map.insert(k, &payload, 3).unwrap();
+        }
+
+        // Retained garbage should be drained/reclaimed
+        let retained_after_reclaim = map.shared.collector.retained_bytes();
+        assert!(
+            retained_after_reclaim < retained_during_stall,
+            "retained garbage must decrease after guard drop: before {retained_during_stall}, after {retained_after_reclaim}"
+        );
     }
 }

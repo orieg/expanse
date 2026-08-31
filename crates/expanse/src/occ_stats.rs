@@ -37,10 +37,14 @@ pub enum Stat {
     /// Spin iterations burnt in `SeqVersion::sample` waiting for a
     /// writer's tree-level bracket to close.
     SampleSpins = 6,
+    /// Bytes currently held in collector garbage bins.
+    RetainedGarbageBytes = 7,
+    /// Peak bytes held in collector garbage bins (high-water mark).
+    RetainedGarbageHwm = 8,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 7;
+pub const NUM_STATS: usize = 9;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -51,6 +55,8 @@ pub const NAMES: [&str; NUM_STATS] = [
     "advance_calls",
     "advance_ok",
     "sample_spins",
+    "retained_bytes",
+    "retained_hwm",
 ];
 
 #[cfg(feature = "occ-stats")]
@@ -71,6 +77,62 @@ pub fn bump_by(s: Stat, n: u64) {
     let _ = (s, n);
     #[cfg(feature = "occ-stats")]
     COUNTERS[s as usize].fetch_add(n, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// Records retired garbage bytes and updates the high-water mark. A no-op without `occ-stats`.
+#[inline(always)]
+pub fn record_retire(bytes: usize) {
+    let _ = bytes;
+    #[cfg(feature = "occ-stats")]
+    {
+        let prev = COUNTERS[Stat::RetainedGarbageBytes as usize]
+            .fetch_add(bytes as u64, core::sync::atomic::Ordering::Relaxed);
+        let cur = prev.saturating_add(bytes as u64);
+        let _ = COUNTERS[Stat::RetainedGarbageHwm as usize]
+            .fetch_max(cur, core::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Records reclaimed garbage bytes. A no-op without `occ-stats`.
+#[inline(always)]
+pub fn record_reclaim(bytes: usize) {
+    let _ = bytes;
+    #[cfg(feature = "occ-stats")]
+    {
+        let _ = COUNTERS[Stat::RetainedGarbageBytes as usize].fetch_update(
+            core::sync::atomic::Ordering::Relaxed,
+            core::sync::atomic::Ordering::Relaxed,
+            |val| Some(val.saturating_sub(bytes as u64)),
+        );
+    }
+}
+
+/// Returns the current retained garbage bytes across all collectors. 0 without `occ-stats`.
+#[must_use]
+#[inline(always)]
+pub fn retained_bytes() -> u64 {
+    #[cfg(feature = "occ-stats")]
+    {
+        COUNTERS[Stat::RetainedGarbageBytes as usize].load(core::sync::atomic::Ordering::Relaxed)
+    }
+    #[cfg(not(feature = "occ-stats"))]
+    {
+        0
+    }
+}
+
+/// Returns the peak retained garbage bytes (high-water mark) recorded. 0 without `occ-stats`.
+#[must_use]
+#[inline(always)]
+pub fn retained_hwm() -> u64 {
+    #[cfg(feature = "occ-stats")]
+    {
+        COUNTERS[Stat::RetainedGarbageHwm as usize].load(core::sync::atomic::Ordering::Relaxed)
+    }
+    #[cfg(not(feature = "occ-stats"))]
+    {
+        0
+    }
 }
 
 /// Reads every counter. All zero without `occ-stats`.
