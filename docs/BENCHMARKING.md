@@ -945,6 +945,7 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `hashbrown_container_dists` | wall-clock | Key-distribution sensitivity sweep against hashbrown. |
 | `hashbrown_memory_alloc` | wall-clock | Live-heap and allocation-count comparison against hashbrown. |
 | `large_values` | wall-clock | Blob-arena storage paths for values above the immediate capacity. |
+| `python_concurrency` | wall-clock | Python multi-core read scaling across the pyo3 `py.detach` GIL-releasing path, against a GIL-serialised `dict` twin (`bindings/python/bench_concurrency.py`). |
 | `rocksdb` | wall-clock | RocksDB pluggable MemTable: fillrandom / readrandom / seek / scan and RAM bytes-per-key against a fair variable-height skiplist baseline (`integrations/rocksdb`, C++ built against release libexpanse). |
 | `embedded` | wall-clock | 32-bit embedded trie surface (`trie32` / `set32` / `map32` / `blobmap32`). |
 | `batch_lookup` | wall-clock | Interleave-width sweep for the batched descent, on a cold-DRAM population and a cache-resident control. |
