@@ -29,10 +29,17 @@ use core_alloc::vec::Vec;
 use std::sync::OnceLock;
 
 /// Default build hasher type: [`std::hash::RandomState`] under `std`, or [`core::hash::BuildHasherDefault<FnvHasher>`] in `no_std`.
+///
+/// In `std` builds, [`std::hash::RandomState`] provides per-process randomized keys to resist hash-flooding DoS attacks.
 #[cfg(feature = "std")]
 pub type DefaultBuildHasher = std::hash::RandomState;
 
 /// Deterministic 64-bit FNV-1a hasher for `no_std` environments.
+///
+/// # Security
+///
+/// FNV-1a is deterministic with a fixed basis. When processing untrusted or attacker-controlled keys in `no_std`,
+/// prefer providing a seeded or cryptographically secure [`core::hash::BuildHasher`] via [`ExpanseBytesMap::with_hasher`].
 #[cfg(not(feature = "std"))]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FnvHasher(u64);
@@ -59,6 +66,9 @@ impl core::hash::Hasher for FnvHasher {
 }
 
 /// Default build hasher type: [`std::hash::RandomState`] under `std`, or [`core::hash::BuildHasherDefault<FnvHasher>`] in `no_std`.
+///
+/// In `no_std` builds, this defaults to deterministic 64-bit FNV-1a. If keys are untrusted, supply a custom
+/// [`core::hash::BuildHasher`] via [`ExpanseBytesMap::with_hasher`].
 #[cfg(not(feature = "std"))]
 pub type DefaultBuildHasher = core::hash::BuildHasherDefault<FnvHasher>;
 

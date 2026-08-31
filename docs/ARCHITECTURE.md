@@ -116,7 +116,7 @@ Readers are lock-free and validated; writers serialize on a mutex.
 
 ## 5. Crate structure
 
-`crates/expanse` (package `expanse-trie`) is the core engine. Its principal modules:
+`crates/expanse` (package `expanse-trie`) is the core engine (`std` by default, full `#![no_std]` supported via `default = ["std"]`). Its principal modules:
 
 | Module | Contents |
 |---|---|
@@ -131,7 +131,7 @@ Readers are lock-free and validated; writers serialize on a mutex.
 | `mutate_map` + `map` | Map-flavor engine sharing the branch machinery; `ExpanseMap` |
 | `nav` | Flavor-generic ordered navigation — next/prev/first/last, O(depth) rank via pop0, 0-based select; public iterators and count_range/by_count on both types |
 | `strmap` | `ExpanseStrMap`, a meta-trie of word-map nodes over big-endian 8-byte chunks (numeric order = byte-lexicographic order); backs the exported `JudySL*` |
-| `bytesmap` | `ExpanseBytesMap`, the unordered byte-string map — a 64-bit-hash-keyed `ExpanseMap` over byte-exact collision buckets; backs the exported `JudyHS*` |
+| `bytesmap` | `ExpanseBytesMap`, the unordered byte-string map — a 64-bit-hash-keyed `ExpanseMap` over byte-exact collision buckets; backs the exported `JudyHS*`. In `std` builds, `DefaultBuildHasher` uses process-randomized `RandomState` (DoS-resistant); in `no_std` builds, it defaults to deterministic FNV-1a (supply your own `S: BuildHasher` via `with_hasher` if keys are untrusted). |
 | `slot` | Polymorphic 64-bit `ValueSlot`: inline payloads up to 7 B, or 24-bit hot metadata plus a 32-bit arena locator in one word; columnar predicate filter kernels |
 | `blobmap` | `ExpanseBlobMap` — variable-length payloads: ≤ 7 B inline in the slot, larger ones bump-allocated in 16-byte-aligned `BlobArena` slabs ([design/large-values.md](design/large-values.md)) |
 | `occ` + `sync` | Seqlock/EBR primitives and the `SyncExpanseSet`/`SyncExpanseMap`/`SyncExpanseBlobMap`/`SyncExpanseStrMap`/`SyncExpanseBytesMap` wrappers (§4.1) |
