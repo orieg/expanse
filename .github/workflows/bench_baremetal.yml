@@ -49,6 +49,7 @@ on:
           - hashbrown_container_dists
           - hashbrown_memory_alloc
           - large_values
+          - rocksdb
           - embedded
           - batch_lookup
           - compare
@@ -875,6 +876,17 @@ jobs:
                 cargo bench --bench comparative -p expanse-trie | tee comparative.txt
                 python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
                 ;;
+              "rocksdb")
+                # C++ integration, not a cargo bench target: `make bench` builds
+                # benches/bench_memtable.cc against the release libexpanse the
+                # step already built above (the Makefile's default LIB_DIR is
+                # ../../target/release), then runs it. Fills the scan and lookup
+                # ratio cells left pending by #382 item 5, which had no
+                # dispatchable suite until now and so could only be run by hand
+                # -- a manual run leaves no artifact for a published number to
+                # resolve to (AGENTS.md section 8.7).
+                make -C integrations/rocksdb bench | tee rocksdb.txt
+                ;;
               *)
                 # Unreachable: the resolver only publishes declared suites and
                 # every builtin one has an arm above. If it is ever reached, a
@@ -1191,6 +1203,7 @@ jobs:
             comparative.txt
             bytes-per-key.txt
             bench-output.txt
+            rocksdb.txt
             bytes-per-key-32.txt
             head-instructions.txt
             head-vs-stock.txt
