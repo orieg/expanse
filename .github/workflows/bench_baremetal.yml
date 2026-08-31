@@ -885,7 +885,15 @@ jobs:
                 # dispatchable suite until now and so could only be run by hand
                 # -- a manual run leaves no artifact for a published number to
                 # resolve to (AGENTS.md section 8.7).
-                make -C integrations/rocksdb bench | tee rocksdb.txt
+                # `--no-print-directory`: make's "Entering/Leaving directory"
+                # lines print the runner's absolute working directory, which on
+                # a self-hosted runner contains the OS username
+                # (/home/<user>/actions-runner/...). That output is uploaded as
+                # an artifact and quoted into published cells, and section 7
+                # forbids OS usernames and home-directory paths in anything
+                # committed or published. The compile lines are relative and
+                # carry none. Seen in run 33393355990, the suite's first run.
+                make --no-print-directory -C integrations/rocksdb bench | tee rocksdb.txt
                 ;;
               *)
                 # Unreachable: the resolver only publishes declared suites and
