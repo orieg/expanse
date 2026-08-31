@@ -185,6 +185,12 @@ cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: typ
   - Always bind the raw allocation to an RAII guard struct whose `Drop` implementation calls `alloc.free_bytes(...)`.
   - This guarantees that both normal test completion and panic unwinding (`#[should_panic]`) return the memory to the allocator/collector, preventing LeakSanitizer failures in CI ASan runs.
 
+### `#![no_std]` Algorithmic Fallbacks & Security Property Signposting
+- When providing `#![no_std]` fallbacks for standard library primitives that carry security guarantees (such as process-randomized `std::hash::RandomState` for hash-flooding DoS resistance):
+  1. Treat the fallback (e.g. fixed-basis deterministic FNV-1a) as a **security property change**, not merely an internal implementation detail.
+  2. Document the deterministic behavior, DoS/collision implications, and threat model in both rustdoc and the canonical architecture guide (`docs/ARCHITECTURE.md`).
+  3. Explicitly signpost custom constructor escape hatches (e.g. `with_hasher(S: BuildHasher)`) so callers handling untrusted or attacker-controlled inputs know how to supply a seeded or cryptographically secure hasher.
+
 ---
 
 ## 6. Performance Engineering & Fast Iteration Cycle
