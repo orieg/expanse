@@ -347,22 +347,69 @@ jobs:
           mkdir -p bindings-baseline
           gh run download --repo "${{ github.repository }}" --name bindings-baseline --dir bindings-baseline || true
 
-      - name: Cross-language bindings benchmark & baseline check
+      # Warn-only, matching its concurrency sibling above, and the upload below
+      # runs even when it warns. Both halves are load-bearing:
+      #
+      # `--check-baseline` compares against the most recent `bindings-baseline`
+      # artifact, and a fatal check that ran *before* the upload made the job
+      # destroy the replacement baseline it had just computed. The next night
+      # then downloaded the same stale artifact and failed identically, so the
+      # nightly could not refresh its own baseline: every scheduled run from
+      # 2026-08-27 onward failed at this step with the measurement already
+      # taken and saved (`Saved baseline to bindings-baseline.json`, then exit
+      # 1). That is the shape #449 fixed in the bench workflow — a completed
+      # measurement discarded by its post-processing — with the added twist
+      # that it also blocked its own repair.
+      #
+      # What it was failing on was not a regression. #380 repaired the bindings
+      # harnesses (no silent fallbacks, no fabricated memory constants, one
+      # PRNG) and merged after the last baseline was captured, so the run was
+      # gating the repaired harness against numbers the repair invalidated:
+      # PHP lookup "regressed" 3.57 -> 1.15 Mops because the old figure came
+      # from the pure-PHP fallback driver the harness now refuses, and memory
+      # "regressed" 16.00 -> 23.89 B/key against a 16.00 that was one of the
+      # fabricated constants #380 deleted.
+      #
+      # Cross-language wall-clock throughput on a shared runner is also the
+      # wrong thing to gate hard on: AGENTS.md section 6 says CI ratios are not
+      # publishable numbers, and section 8.4 wants an interval before a
+      # wall-clock delta decides anything. A point-estimate comparison here
+      # reports, it does not adjudicate.
+      - name: Cross-language bindings benchmark & baseline check (warn-only)
         run: |
           CHECK_FLAG=""
           if [ -f bindings-baseline/bindings-baseline.json ]; then
             CHECK_FLAG="--check-baseline bindings-baseline/bindings-baseline.json"
           fi
-          python3 scripts/bench_bindings.py --quick $CHECK_FLAG --save-baseline bindings-baseline.json --output bindings-report.md
+          rc=0
+          python3 scripts/bench_bindings.py --quick $CHECK_FLAG --save-baseline bindings-baseline.json --output bindings-report.md || rc=$?
+          # Warn-only applies to a *finding*, never to a harness that failed to
+          # run. `bench_bindings.py` exits 1 for detected regressions and does so
+          # only after writing the baseline, so the baseline's existence is what
+          # separates "measured, and reports a regression" from "did not
+          # measure". A crash leaves no baseline and stays fatal (section 8.1).
+          if [ "$rc" -ne 0 ]; then
+            if [ -f bindings-baseline.json ]; then
+              echo "::warning::Cross-language bindings baseline check reported regressions (exit $rc); see bindings-report.md in this run's artifacts. The measurement completed and its baseline is uploaded below."
+            else
+              echo "::error::bench_bindings.py exited $rc without producing a baseline — the harness did not complete, so this is a failed run, not a reported regression."
+              exit "$rc"
+            fi
+          fi
           if [ -f bindings-report.md ]; then
             cat bindings-report.md >> bench-report.txt
           fi
 
+      # `if: always()` is what breaks the deadlock: the newly measured baseline
+      # must reach the artifact store even when the step above warned, or the
+      # next run compares against the same stale one and nothing ever refreshes.
       - name: Upload new bindings baseline
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: bindings-baseline
           path: bindings-baseline.json
+          if-no-files-found: warn
 
       - name: Upload report
         uses: actions/upload-artifact@v7
