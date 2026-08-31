@@ -297,6 +297,13 @@
       "summary": "Blob-arena storage paths for values above the immediate capacity."
     },
     {
+      "name": "python_concurrency",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "summary": "Python multi-core read scaling across the pyo3 `py.detach` GIL-releasing path, against a GIL-serialised `dict` twin (`bindings/python/bench_concurrency.py`)."
+    },
+    {
       "name": "rocksdb",
       "available": true,
       "kind": "wallclock",
