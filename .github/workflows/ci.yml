@@ -1663,7 +1663,6 @@ jobs:
   test-wasm64:
     name: Bindings / WebAssembly (wasm64 Memory64 Experimental)
     runs-on: ubuntu-latest
-    continue-on-error: true
     needs: [detect-changes]
     if: needs.detect-changes.outputs.wasm == 'true' || needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
     timeout-minutes: 15
