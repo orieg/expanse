@@ -325,11 +325,9 @@ impl Collector {
                 .lock()
                 .expect("garbage bin poisoned"),
         );
-        let freed_bytes: usize = stale.iter().map(|g| g.bytes).sum();
-        self.retained_bytes
-            .fetch_sub(freed_bytes, Ordering::Relaxed);
-        crate::occ_stats::record_reclaim(freed_bytes);
+        let mut freed_bytes = 0;
         for g in stale {
+            freed_bytes += g.bytes;
             if let Some(class) = class_for(g.bytes, g.align) {
                 let block = g.ptr.as_ptr().cast::<FreeBlock>();
                 loop {
@@ -347,9 +345,16 @@ impl Collector {
                 free_raw(g.ptr, g.bytes, g.align);
             }
         }
+        self.retained_bytes
+            .fetch_sub(freed_bytes, Ordering::Relaxed);
+        crate::occ_stats::record_reclaim(freed_bytes);
     }
 
     /// Total bytes currently queued across this collector's garbage bins.
+    ///
+    /// Measures unreclaimed garbage backlog queued in epoch bins awaiting
+    /// reclamation, not total allocated heap footprint (reclaimed node
+    /// blocks transition to collector size-class freelists for reuse).
     #[must_use]
     pub fn retained_bytes(&self) -> usize {
         self.retained_bytes.load(Ordering::Relaxed)
@@ -371,13 +376,14 @@ impl Collector {
     pub(crate) fn drain(&self) {
         for bin in &self.bins {
             let stale = core::mem::take(&mut *bin.lock().expect("garbage bin poisoned"));
-            let freed_bytes: usize = stale.iter().map(|g| g.bytes).sum();
+            let mut freed_bytes = 0;
+            for g in stale {
+                freed_bytes += g.bytes;
+                free_raw(g.ptr, g.bytes, g.align);
+            }
             self.retained_bytes
                 .fetch_sub(freed_bytes, Ordering::Relaxed);
             crate::occ_stats::record_reclaim(freed_bytes);
-            for g in stale {
-                free_raw(g.ptr, g.bytes, g.align);
-            }
         }
     }
 }

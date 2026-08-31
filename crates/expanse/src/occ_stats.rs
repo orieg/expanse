@@ -37,7 +37,7 @@ pub enum Stat {
     /// Spin iterations burnt in `SeqVersion::sample` waiting for a
     /// writer's tree-level bracket to close.
     SampleSpins = 6,
-    /// Bytes currently held in collector garbage bins.
+    /// Bytes currently held in collector garbage bins (unreclaimed backlog).
     RetainedGarbageBytes = 7,
     /// Peak bytes held in collector garbage bins (high-water mark).
     RetainedGarbageHwm = 8,
