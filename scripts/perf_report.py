@@ -682,6 +682,68 @@ def render_workload_shapes(
     return lines
 
 
+def callgrind_artifact(
+    counts: dict[str, dict[str, int]],
+    origins: dict[str, tuple[str, str]] | None,
+    suite: str,
+    host_desc: str,
+    commit: str,
+    run_id: str,
+) -> dict[str, Any]:
+    """A per-run artifact for a Callgrind suite, parallel to the criterion one.
+
+    `bench_baseline.py --harvest` turns criterion's per-sample data into BCa
+    intervals, but an iai-callgrind suite writes no `target/criterion`, so the
+    Callgrind and `vs_stock` tables in `docs/visualizer_data.json` resolved to
+    a test rather than to a run (#382 item 8). This emits the counts the report
+    already parses, in the same artifact shape, so a published instruction
+    figure resolves to the run that produced it (AGENTS.md §8.7).
+
+    No interval is attached, deliberately. Callgrind counts are exact integers
+    with zero run-to-run variance — §8.4 scopes interval requirements to
+    continuous and sampling metrics, and an interval on an exact count would be
+    wrong rather than missing. The `statistics` block says so rather than
+    leaving a reader to wonder why the field is absent.
+    """
+    arms = []
+    for name in sorted(counts):
+        target, group = (origins or {}).get(name, ("", ""))
+        arms.append(
+            {
+                "id": name,
+                "bench_target": target,
+                "group_id": group,
+                "unit": "count",
+                "metrics": dict(sorted(counts[name].items())),
+            }
+        )
+    return {
+        "schema": "expanse.baseline.v1",
+        "kind": "callgrind_counts",
+        "suite": suite,
+        "provenance": {
+            # Anonymised hardware description, never a hostname (§7 Privacy).
+            "host_description": host_desc,
+            "commit": commit,
+            "run_id": run_id,
+            "generated_by": "scripts/perf_report.py --emit-json",
+            "source": "iai-callgrind stdout, parsed by perf_report.parse_full",
+        },
+        "statistics": {
+            "estimator": "exact counts retired under Valgrind/Callgrind",
+            "method": "deterministic instrumentation, not sampling",
+            "interval": None,
+            "why_no_interval": (
+                "Callgrind counts are exact integers with zero run-to-run "
+                "variance. AGENTS.md §8.4 scopes CI requirements to continuous "
+                "and sampling metrics; an interval here would be wrong, not "
+                "missing."
+            ),
+        },
+        "arms": arms,
+    }
+
+
 def head_parse_fatals(
     head: dict[str, dict[str, int]],
     base: dict[str, dict[str, int]] | None,
@@ -2037,6 +2099,24 @@ def self_test() -> int:
     # Without the ambiguity map it would be — which is why main passes it.
     assert unresolved_shape_targets(list(clash), clash_origins, real_shapes) == ["smoke_instructions"]
 
+    # 13. Callgrind counts emit as a per-run artifact with no interval (#382).
+    art = callgrind_artifact(
+        twin_head, twin_origins, "search_instructions", "test host", "abc1234", "run/1"
+    )
+    assert art["kind"] == "callgrind_counts", art["kind"]
+    assert art["schema"] == "expanse.baseline.v1"
+    assert art["statistics"]["interval"] is None
+    assert "wrong, not" in art["statistics"]["why_no_interval"], art["statistics"]
+    assert art["provenance"]["host_description"] == "test host"
+    ids = [a["id"] for a in art["arms"]]
+    assert ids == sorted(ids), "arms must be ordered so the artifact diffs cleanly"
+    first = art["arms"][0]
+    assert first["bench_target"] == "search_instructions", first
+    assert first["metrics"]["Instructions"] == twin_head[first["id"]]["Instructions"]
+    # Every parsed arm reaches the artifact -- a silently dropped arm would make
+    # a published figure resolve to a run that never measured it.
+    assert len(art["arms"]) == len(twin_head), (len(art["arms"]), len(twin_head))
+
     print("perf_report.py --self-test: all checks passed")
     return 0
 
@@ -2048,6 +2128,11 @@ def main() -> int:
     ap.add_argument("--bytes", help="bytes_per_key output")
     ap.add_argument("--bytes32", help="bytes_per_key_32 output")
     ap.add_argument("--base-ref", default="main")
+    ap.add_argument("--emit-json", help="write a per-run Callgrind counts artifact to this path (#382 item 8)")
+    ap.add_argument("--suite", default="", help="suite name recorded in the emitted artifact")
+    ap.add_argument("--host-desc", default="", help="anonymised host description for the artifact provenance")
+    ap.add_argument("--commit", default="", help="commit the artifact was measured at")
+    ap.add_argument("--run-id", default="", help="CI run URL the artifact was measured in")
     ap.add_argument("--vs-stock", help="vs_stock bench output")
     ap.add_argument("--v3", help="bench output for x86-64-v3")
     ap.add_argument("--head-to-head", help="head-to-head comparison markdown report (bench_report.py)")
@@ -2088,6 +2173,31 @@ def main() -> int:
     v3_text = read(args.v3)
 
     head_parsed, head_origins = parse_full(head_text)
+
+    # Per-run Callgrind artifact (#382 item 8). Written before any gate can
+    # fail: a completed measurement must not be lost to a later failure, which
+    # is the same rule #449 established for the criterion harvest.
+    if args.emit_json:
+        if not head_parsed:
+            print(
+                "::error::--emit-json requested but no benchmark arms parsed from "
+                "--head; refusing to write an empty artifact",
+                file=sys.stderr,
+            )
+            return 1
+        artifact = callgrind_artifact(
+            head_parsed,
+            head_origins,
+            args.suite,
+            args.host_desc,
+            args.commit,
+            args.run_id,
+        )
+        Path(args.emit_json).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.emit_json).write_text(
+            json.dumps(artifact, indent=2) + "\n", encoding="utf-8"
+        )
+        print(f"perf_report.py: wrote {len(artifact['arms'])} arm(s) to {args.emit_json}")
     base_parsed = parse(base_text) if base_text else None
     base_requested = bool(args.base)
 
