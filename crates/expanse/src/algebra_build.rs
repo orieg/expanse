@@ -17,6 +17,7 @@ use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1};
 use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, digit};
 
 use core::mem::MaybeUninit;
+#[cfg(not(feature = "std"))]
 use core_alloc::vec::Vec;
 
 // ===========================================================================

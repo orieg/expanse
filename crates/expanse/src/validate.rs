@@ -6,8 +6,11 @@ use crate::mutate::{
 };
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
 use crate::types::{EdgeTag, EdgeType, ImmedType};
+#[cfg(not(feature = "std"))]
 use core_alloc::format;
+#[cfg(not(feature = "std"))]
 use core_alloc::string::String;
+#[cfg(not(feature = "std"))]
 use core_alloc::vec::Vec;
 
 const BRANCH_L3_CAP: usize = 3;

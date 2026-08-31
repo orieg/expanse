@@ -26,6 +26,7 @@ use crate::mutate::{
 };
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmapL};
 use crate::types::{BRANCH_L3_CAP, BRANCH_L7_CAP, EdgeTag, EdgeType, ImmedType, Key, digit};
+#[cfg(not(feature = "std"))]
 use core_alloc::vec::Vec;
 
 /// Allocation size of an immediate value array holding `n` values (`n >= 2`).

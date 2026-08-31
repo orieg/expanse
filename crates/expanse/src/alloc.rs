@@ -41,14 +41,17 @@
 #[cfg(feature = "std")]
 use crate::occ::Collector;
 use crate::types::{CACHE_LINE, RAW_ALIGN};
-use core::alloc::Layout;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+#[cfg(feature = "std")]
+use std::alloc::{Layout, alloc_zeroed, dealloc, handle_alloc_error};
+#[cfg(feature = "std")]
+use std::sync::{Arc, OnceLock};
+
+#[cfg(not(feature = "std"))]
+use core::alloc::Layout;
+#[cfg(not(feature = "std"))]
 use core_alloc::alloc::{alloc_zeroed, dealloc, handle_alloc_error};
-#[cfg(feature = "std")]
-use core_alloc::sync::Arc;
-#[cfg(feature = "std")]
-use std::sync::OnceLock;
 
 #[repr(C)]
 pub(crate) struct FreeBlock {

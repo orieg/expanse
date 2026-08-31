@@ -17,7 +17,9 @@ use crate::sync::RootSnapshot;
 use crate::types::Key;
 use crate::validate::ExpanseStats;
 use core::ptr::NonNull;
+#[cfg(not(feature = "std"))]
 use core_alloc::format;
+#[cfg(not(feature = "std"))]
 use core_alloc::string::String;
 
 #[derive(Clone, Copy)]
