@@ -977,9 +977,21 @@ fn blob_slot_meta(raw: u64) -> Option<u32> {
 
 impl BlobReader<'_> {
     /// Pins the current epoch: payload borrows obtained through the returned
-    /// guard stay valid (and byte-stable) until the guard drops. Keep guards
-    /// short-lived — a pinned epoch defers all reclamation (retired nodes and
-    /// arena chunks accumulate until the pin is released).
+    /// guard stay valid (and byte-stable) until the guard drops.
+    ///
+    /// # Reclamation Deferral Contract & Lifetime Discipline
+    ///
+    /// Holding a [`BlobReadGuard`] defers epoch reclamation **tree-wide** — both
+    /// for arena chunk slabs and for the underlying radix index trie nodes.
+    /// While the guard is held, concurrent writers continue retiring superseded
+    /// trie nodes and compacted chunks, but `Collector::try_advance` cannot
+    /// advance past the pinned epoch and frees nothing. Under write churn,
+    /// retained garbage accumulates proportionally to mutation volume.
+    ///
+    /// **Best Practice:** Keep guards strictly short-lived within tight lexical
+    /// scopes. For long-lived or asynchronous storage across I/O boundaries,
+    /// prefer [`Self::get`] (which copies to an owned [`Vec<u8>`] and unpins
+    /// immediately) or copy the payload via [`SyncBlobView::as_bytes`].
     ///
     /// Takes `&mut self` because a reader holds a single epoch slot: pins
     /// from one reader must never overlap (dropping any of them would unpin
@@ -1052,6 +1064,17 @@ impl BlobReader<'_> {
 /// `SyncBlobReaderGuard` of issue #219: while it lives, nothing the arena or
 /// index retires is freed, so the [`SyncBlobView`] borrows it hands out stay
 /// valid across concurrent writes and compactions.
+///
+/// # Reclamation Deferral & Memory Growth
+///
+/// Because reclamation is epoch-based (EBR), holding this guard freezes epoch
+/// advances for the **entire map** (both arena chunk slabs and index trie nodes).
+/// Unreclaimed garbage accumulates across writer mutations until this guard drops.
+///
+/// To avoid unbounded memory retention under write churn, do not hold this guard
+/// across slow caller operations, async yields, or network I/O. Use [`BlobReader::get`]
+/// or copy the payload view via `view.as_bytes().to_vec()` when data must outlive
+/// the immediate read scope.
 pub struct BlobReadGuard<'g> {
     map: &'g SyncExpanseBlobMap,
     _pin: Pin<'g>,
@@ -2620,5 +2643,65 @@ mod tests {
         set.path_mut().prefix = 0;
         set.insert(50);
         set.occ_root().1.bracket_leave();
+    }
+
+    /// A long-held `BlobReadGuard` holds an epoch `Pin` that stalls `Collector::try_advance`
+    /// for every concurrent writer, causing retired nodes and chunk memory to accumulate
+    /// as retained garbage.
+    ///
+    /// Discriminates the stall by comparing against an identical unheld arm:
+    /// 1. Both maps receive identical initial populations and identical overwrite write churn.
+    /// 2. Under a held `BlobReadGuard`, epoch advances are refused and retained backlog grows.
+    /// 3. Without a held guard, epoch advances succeed every `ADVANCE_EVERY` writes, keeping backlog bounded.
+    /// 4. `retained_held > retained_unheld` strictly holds.
+    /// 5. Once the guard is dropped and advances resume, `retained_held` drains back to the baseline.
+    #[test]
+    fn blob_read_guard_stalls_reclamation_and_tracks_retained_garbage() {
+        crate::occ_stats::reset();
+        let payload = vec![0xABu8; 128];
+        let new_payload = vec![0xCDu8; 256];
+
+        // 1. Arm with long-held BlobReadGuard
+        let map_held = SyncExpanseBlobMap::with_chunk_size(4096);
+        for k in 0..100u64 {
+            map_held.insert(k, &payload, 1).unwrap();
+        }
+        let mut rd_held = map_held.reader();
+        let guard = rd_held.pin();
+        let (view, meta) = guard.get(10).expect("key present");
+        assert_eq!(view.as_bytes(), &payload[..]);
+        assert_eq!(meta, 1);
+
+        for k in 0..200u64 {
+            map_held.insert(k, &new_payload, 2).unwrap();
+        }
+        let retained_held = map_held.shared.collector.retained_bytes();
+
+        // 2. Twin comparison baseline: identical population and churn, but NO held guard
+        let map_unheld = SyncExpanseBlobMap::with_chunk_size(4096);
+        for k in 0..100u64 {
+            map_unheld.insert(k, &payload, 1).unwrap();
+        }
+        for k in 0..200u64 {
+            map_unheld.insert(k, &new_payload, 2).unwrap();
+        }
+        let retained_unheld = map_unheld.shared.collector.retained_bytes();
+
+        // Discriminates the stall: held guard must retain strictly more than unheld
+        assert!(
+            retained_held > retained_unheld,
+            "held guard must retain strictly more garbage than unheld: held {retained_held}, unheld {retained_unheld}"
+        );
+
+        // 3. Drop the guard: advances on map_held can now drain the backlog
+        drop(guard);
+        for k in 200..300u64 {
+            map_held.insert(k, &payload, 3).unwrap();
+        }
+        let retained_after_drop = map_held.shared.collector.retained_bytes();
+        assert!(
+            retained_after_drop < retained_held,
+            "retained garbage must drop after releasing guard: before {retained_held}, after {retained_after_drop}"
+        );
     }
 }

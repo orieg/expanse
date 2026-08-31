@@ -153,7 +153,7 @@ fn main() {
 
     println!("counters (load-immune): {}", NAMES.join(", "));
     println!(
-        "\n{:>3} {:>5} {:>12} {:>12} {:>10} {:>10} {:>12} {:>10} {:>13}",
+        "\n{:>3} {:>5} {:>12} {:>12} {:>10} {:>10} {:>12} {:>10} {:>10} {:>13}",
         "thr",
         "rd%",
         "read_ops",
@@ -162,17 +162,18 @@ fn main() {
         "fallback%",
         "spins/read",
         "adv_ok%",
+        "hwm(KB)",
         "rd_ops/s(*)"
     );
     for &rp in &read_pcts {
         for &t in &threads {
             let row = run(t, rp, window);
             let s = row.stats;
-            let (rops, atts, fbs, wops, adv_c, adv_ok, spins) =
-                (s[0], s[1], s[2], s[3], s[4], s[5], s[6]);
+            let (rops, atts, fbs, wops, adv_c, adv_ok, spins, _ret_bytes, ret_hwm) =
+                (s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8]);
             let per = |n: u64, d: u64| if d == 0 { 0.0 } else { n as f64 / d as f64 };
             println!(
-                "{:>3} {:>5} {:>12} {:>12} {:>10.3} {:>9.2}% {:>12.3} {:>9.1}% {:>13.0}",
+                "{:>3} {:>5} {:>12} {:>12} {:>10.3} {:>9.2}% {:>12.3} {:>9.1}% {:>10.1} {:>13.0}",
                 row.threads,
                 row.read_pct,
                 rops,
@@ -181,6 +182,7 @@ fn main() {
                 100.0 * per(fbs, rops),
                 per(spins, rops),
                 100.0 * per(adv_ok, adv_c),
+                ret_hwm as f64 / 1024.0,
                 row.read_ops as f64 / row.secs,
             );
             debug_assert_eq!(rops, row.read_ops);
