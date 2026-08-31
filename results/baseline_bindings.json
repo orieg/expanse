@@ -1,0 +1,575 @@
+[
+  {
+    "runtime": "node",
+    "results": [
+      {
+        "dist": "random",
+        "pop": 20000,
+        "sink_checksum": "0x64",
+        "expanse_map": {
+          "insert_mops": 2.8045967340471036,
+          "lookup_mops": 3.266938791778227,
+          "lookup_ns": 306.0969499999999,
+          "iter_mops": 1.1909647695947643,
+          "range_mops": 0.4101823670804378,
+          "bytes_per_key": 22.5272
+        },
+        "js_map": {
+          "insert_mops": 7.265567386321097,
+          "lookup_mops": 10.938836589095867,
+          "lookup_ns": 91.41739999999885,
+          "iter_mops": 96.02089414657468,
+          "bytes_per_key": 217.6684
+        },
+        "expanse_set": {
+          "insert_mops": 4.04713290986831,
+          "lookup_mops": 4.977341895356881,
+          "lookup_ns": 200.91044999999923
+        },
+        "js_set": {
+          "insert_mops": 11.363055298308485,
+          "lookup_mops": 17.344714935273945,
+          "lookup_ns": 57.654449999999706
+        }
+      },
+      {
+        "dist": "sequential",
+        "pop": 20000,
+        "sink_checksum": "0x2774",
+        "expanse_map": {
+          "insert_mops": 3.592990363240545,
+          "lookup_mops": 3.5427631887773634,
+          "lookup_ns": 282.26555000000104,
+          "iter_mops": 1.248148605571494,
+          "range_mops": 1.1107655396096772,
+          "bytes_per_key": 8.5792
+        },
+        "js_map": {
+          "insert_mops": 7.923980500668655,
+          "lookup_mops": 11.70827201125873,
+          "lookup_ns": 85.40969999999959,
+          "iter_mops": 87.59789064279077,
+          "bytes_per_key": 213.4412
+        },
+        "expanse_set": {
+          "insert_mops": 5.76291151510395,
+          "lookup_mops": 5.987029101451714,
+          "lookup_ns": 167.02774999999974
+        },
+        "js_set": {
+          "insert_mops": 10.434045874325992,
+          "lookup_mops": 20.325327186954482,
+          "lookup_ns": 49.19969999999978
+        }
+      },
+      {
+        "dist": "clustered",
+        "pop": 20000,
+        "sink_checksum": "0x2063",
+        "expanse_map": {
+          "insert_mops": 3.3245775043793264,
+          "lookup_mops": 3.1124403306282975,
+          "lookup_ns": 321.29130000000146,
+          "iter_mops": 1.1855864227591348,
+          "range_mops": 1.0963710119505692,
+          "bytes_per_key": 8.6096
+        },
+        "js_map": {
+          "insert_mops": 7.884672472676505,
+          "lookup_mops": 11.809052347167501,
+          "lookup_ns": 84.68079999999816,
+          "iter_mops": 200.69037488965705,
+          "bytes_per_key": null
+        },
+        "expanse_set": {
+          "insert_mops": 5.356071642814286,
+          "lookup_mops": 5.853313619373026,
+          "lookup_ns": 170.8434000000011
+        },
+        "js_set": {
+          "insert_mops": 10.750566958024969,
+          "lookup_mops": 20.81228257668606,
+          "lookup_ns": 48.04854999999861
+        }
+      }
+    ]
+  },
+  {
+    "runtime": "wasm",
+    "results": [
+      {
+        "dist": "random",
+        "pop": 10000,
+        "sink_checksum": "0x0",
+        "wasm_map": {
+          "insert_mops": 4.024710110192538,
+          "lookup_mops": 6.1675399903292965,
+          "lookup_ns": 162.13920000000002
+        },
+        "js_map": {
+          "insert_mops": 8.680954939767197,
+          "lookup_mops": 19.461045797678864,
+          "lookup_ns": 51.38470000000055
+        }
+      },
+      {
+        "dist": "sequential",
+        "pop": 10000,
+        "sink_checksum": "0x0",
+        "wasm_map": {
+          "insert_mops": 6.9837327912094285,
+          "lookup_mops": 7.333254623067022,
+          "lookup_ns": 136.36510000000044
+        },
+        "js_map": {
+          "insert_mops": 8.025540480023558,
+          "lookup_mops": 20.803601519495423,
+          "lookup_ns": 48.06859999999915
+        }
+      }
+    ]
+  },
+  {
+    "runtime": "go",
+    "results": [
+      {
+        "dist": "random",
+        "pop": 100000,
+        "pop_configured_not_measured": true,
+        "expanse_map": {
+          "lookup_ns": 115.3,
+          "lookup_mops": 8.673026886383347,
+          "insert_mops": 5.112474437627812,
+          "lookup_iterations": 997179.0,
+          "insert_iterations": 639608.0,
+          "bytes_per_key": 0.0,
+          "insert_bytes_per_op": 0.0,
+          "insert_allocs_per_op": 0.0,
+          "lookup_bytes_per_op": 8.0,
+          "lookup_allocs_per_op": 1.0
+        },
+        "go_map": {
+          "lookup_ns": 30.5,
+          "lookup_mops": 32.78688524590164,
+          "insert_mops": 11.873664212776063,
+          "lookup_iterations": 3924070.0,
+          "insert_iterations": 1586155.0,
+          "bytes_per_key": 3.0
+        }
+      }
+    ]
+  },
+  {
+    "runtime": "go-purego",
+    "results": [
+      {
+        "dist": "random",
+        "pop": 100000,
+        "pop_configured_not_measured": true,
+        "expanse_map": {
+          "lookup_ns": 658.1,
+          "lookup_mops": 1.51952590791673,
+          "insert_mops": 1.371553970648745,
+          "lookup_iterations": 164396.0,
+          "insert_iterations": 157862.0,
+          "bytes_per_key": 336.0,
+          "insert_bytes_per_op": 336.0,
+          "insert_allocs_per_op": 6.0,
+          "lookup_bytes_per_op": 320.0,
+          "lookup_allocs_per_op": 6.0
+        },
+        "go_map": {
+          "lookup_ns": 29.22,
+          "lookup_mops": 34.22313483915127,
+          "insert_mops": 11.463945890175397,
+          "lookup_iterations": 4069527.0,
+          "insert_iterations": 1604956.0,
+          "bytes_per_key": 3.0
+        }
+      }
+    ]
+  },
+  {
+    "runtime": "python",
+    "results": [
+      {
+        "dist": "random",
+        "pop": 20000,
+        "expanse_map": {
+          "insert_mops": 3.9120271165953344,
+          "lookup_mops": 5.171142851052862,
+          "lookup_ns": 193.38084999844796,
+          "iter_mops": 5.077380548852677,
+          "bytes_per_key": 22.5272
+        },
+        "python_dict": {
+          "insert_mops": 10.760457685556013,
+          "lookup_mops": 7.818354603828607,
+          "lookup_ns": 127.9041499998357,
+          "iter_mops": 28.91886811658978,
+          "bytes_per_key": 73.2652
+        },
+        "expanse_set": {
+          "insert_mops": 5.751542563758556,
+          "lookup_mops": 6.112852425065151,
+          "lookup_ns": 163.58974999945985
+        },
+        "python_set": {
+          "insert_mops": 15.679006829398519,
+          "lookup_mops": 15.022074938929546,
+          "lookup_ns": 66.56870000085746
+        }
+      },
+      {
+        "dist": "sequential",
+        "pop": 20000,
+        "expanse_map": {
+          "insert_mops": 6.997893284296245,
+          "lookup_mops": 7.195963352389448,
+          "lookup_ns": 138.96680000016204,
+          "iter_mops": 6.6884062163548945,
+          "bytes_per_key": 8.5792
+        },
+        "python_dict": {
+          "insert_mops": 17.54453680707595,
+          "lookup_mops": 10.763179378713158,
+          "lookup_ns": 92.90934999910405,
+          "iter_mops": 29.17667791316361,
+          "bytes_per_key": 68.9016
+        },
+        "expanse_set": {
+          "insert_mops": 12.29858000602709,
+          "lookup_mops": 8.736749081734187,
+          "lookup_ns": 114.4590500018694
+        },
+        "python_set": {
+          "insert_mops": 35.52328462517856,
+          "lookup_mops": 18.90405624350554,
+          "lookup_ns": 52.89869999955954
+        }
+      },
+      {
+        "dist": "clustered",
+        "pop": 20000,
+        "expanse_map": {
+          "insert_mops": 4.903703522116007,
+          "lookup_mops": 5.668608070405288,
+          "lookup_ns": 176.41015000151583,
+          "iter_mops": 6.428896087779241,
+          "bytes_per_key": 8.6096
+        },
+        "python_dict": {
+          "insert_mops": 15.017439001144156,
+          "lookup_mops": 8.405409721858394,
+          "lookup_ns": 118.970999997714,
+          "iter_mops": 29.936713789115505,
+          "bytes_per_key": 73.2928
+        },
+        "expanse_set": {
+          "insert_mops": 8.621250779674314,
+          "lookup_mops": 7.003588288477972,
+          "lookup_ns": 142.7839499996253
+        },
+        "python_set": {
+          "insert_mops": 20.51157929964141,
+          "lookup_mops": 15.671254687647778,
+          "lookup_ns": 63.81110000006629
+        }
+      }
+    ]
+  },
+  {
+    "runtime": "php",
+    "driver": "ffi",
+    "results": [
+      {
+        "dist": "random",
+        "pop": 10000,
+        "expanse_map": {
+          "insert_mops": 0.8632093692744941,
+          "lookup_mops": 0.6096503009294851,
+          "lookup_ns": 1640.2845999999997,
+          "bytes_per_key": 23.888
+        },
+        "php_array": {
+          "insert_mops": 13.095261479633594,
+          "lookup_mops": 12.512027186132672,
+          "lookup_ns": 79.9231,
+          "bytes_per_key": 65.5448
+        },
+        "expanse_set": {
+          "insert_mops": 0.9949920062342219,
+          "lookup_mops": 1.1121705153141987,
+          "lookup_ns": 899.1427
+        },
+        "php_set": {
+          "insert_mops": 14.499120628333893,
+          "lookup_mops": 15.614630909161884,
+          "lookup_ns": 64.0425
+        }
+      },
+      {
+        "dist": "sequential",
+        "pop": 10000,
+        "expanse_map": {
+          "insert_mops": 0.9799530994446606,
+          "lookup_mops": 0.6222129913468216,
+          "lookup_ns": 1607.1667000000002,
+          "bytes_per_key": 8.584
+        },
+        "php_array": {
+          "insert_mops": 15.446711163492624,
+          "lookup_mops": 14.066735406113684,
+          "lookup_ns": 71.0897,
+          "bytes_per_key": 26.6328
+        },
+        "expanse_set": {
+          "insert_mops": 1.1357197606947609,
+          "lookup_mops": 1.1257630421899962,
+          "lookup_ns": 888.2864
+        },
+        "php_set": {
+          "insert_mops": 17.06941962266341,
+          "lookup_mops": 16.23007757977083,
+          "lookup_ns": 61.614
+        }
+      },
+      {
+        "dist": "clustered",
+        "pop": 10000,
+        "expanse_map": {
+          "insert_mops": 0.9473783435942302,
+          "lookup_mops": 0.621570909834986,
+          "lookup_ns": 1608.8268999999998,
+          "bytes_per_key": 8.6144
+        },
+        "php_array": {
+          "insert_mops": 13.862972831345845,
+          "lookup_mops": 12.543321496618947,
+          "lookup_ns": 79.7237,
+          "bytes_per_key": 65.5448
+        },
+        "expanse_set": {
+          "insert_mops": 1.087670127923059,
+          "lookup_mops": 1.1145637820269902,
+          "lookup_ns": 897.212
+        },
+        "php_set": {
+          "insert_mops": 14.795941769091572,
+          "lookup_mops": 15.129668826679053,
+          "lookup_ns": 66.0953
+        }
+      }
+    ]
+  },
+  {
+    "runtime": "ruby",
+    "results": [
+      {
+        "dist": "random",
+        "pop": 10000,
+        "expanse_map": {
+          "insert_mops": 0.5607022728695402,
+          "lookup_mops": 0.43581925215905515,
+          "lookup_ns": 2294.5291999974415,
+          "iter_mops": 0.3633237334723963,
+          "bytes_per_key": 23.888
+        },
+        "ruby_hash": {
+          "insert_mops": 4.78536444138546,
+          "lookup_mops": 5.380993148322235,
+          "lookup_ns": 185.83930000204418,
+          "iter_mops": 19.800333438158738,
+          "bytes_per_key": 45.8848,
+          "bytes_per_key_estimated": true
+        },
+        "expanse_set": {
+          "insert_mops": 0.6269929362348702,
+          "lookup_mops": 0.6679683142554551,
+          "lookup_ns": 1497.0769999990807
+        },
+        "ruby_set": {
+          "insert_mops": 5.8864526823841805,
+          "lookup_mops": 7.624421020596466,
+          "lookup_ns": 131.1574999988352
+        }
+      },
+      {
+        "dist": "sequential",
+        "pop": 10000,
+        "expanse_map": {
+          "insert_mops": 0.657705430180624,
+          "lookup_mops": 0.4918214518934024,
+          "lookup_ns": 2033.258200003729,
+          "iter_mops": 0.39820360795535353,
+          "bytes_per_key": 8.584
+        },
+        "ruby_hash": {
+          "insert_mops": 7.298241926428598,
+          "lookup_mops": 9.857062732887961,
+          "lookup_ns": 101.45010000428556,
+          "iter_mops": 19.772145792329603,
+          "bytes_per_key": 45.8848,
+          "bytes_per_key_estimated": true
+        },
+        "expanse_set": {
+          "insert_mops": 0.7144533556614192,
+          "lookup_mops": 0.710228786001116,
+          "lookup_ns": 1407.9969999954756
+        },
+        "ruby_set": {
+          "insert_mops": 8.478183091457545,
+          "lookup_mops": 9.172780324883936,
+          "lookup_ns": 109.0181999984452
+        }
+      },
+      {
+        "dist": "clustered",
+        "pop": 10000,
+        "expanse_map": {
+          "insert_mops": 0.6146281121921389,
+          "lookup_mops": 0.44835013204146573,
+          "lookup_ns": 2230.3996999994524,
+          "iter_mops": 0.37782649640554733,
+          "bytes_per_key": 8.6144
+        },
+        "ruby_hash": {
+          "insert_mops": 4.774012567162638,
+          "lookup_mops": 5.133575638115524,
+          "lookup_ns": 194.7959999995419,
+          "iter_mops": 19.77875484772118,
+          "bytes_per_key": 45.8848,
+          "bytes_per_key_estimated": true
+        },
+        "expanse_set": {
+          "insert_mops": 0.6806671272988293,
+          "lookup_mops": 0.6855977576013694,
+          "lookup_ns": 1458.5812000007081
+        },
+        "ruby_set": {
+          "insert_mops": 7.419542481387358,
+          "lookup_mops": 7.709939731614248,
+          "lookup_ns": 129.7026999964146
+        }
+      }
+    ]
+  },
+  {
+    "runtime": "java",
+    "results": [
+      {
+        "dist": "random",
+        "pop": 10000,
+        "sink_checksum": "0x0",
+        "expanse_map": {
+          "insert_mops": 6.77,
+          "lookup_mops": 7.22,
+          "lookup_ns": 138.42,
+          "bytes_per_key": 23.89
+        },
+        "java_hashmap": {
+          "insert_mops": 9.83,
+          "lookup_mops": 9.74,
+          "lookup_ns": 102.68,
+          "bytes_per_key": 69.35,
+          "bytes_per_key_approximate": true
+        }
+      },
+      {
+        "dist": "sequential",
+        "pop": 10000,
+        "sink_checksum": "0x0",
+        "expanse_map": {
+          "insert_mops": 15.77,
+          "lookup_mops": 10.86,
+          "lookup_ns": 92.08,
+          "bytes_per_key": 8.58
+        },
+        "java_hashmap": {
+          "insert_mops": 11.34,
+          "lookup_mops": 10.82,
+          "lookup_ns": 92.39,
+          "bytes_per_key": 85.94,
+          "bytes_per_key_approximate": true
+        }
+      },
+      {
+        "dist": "clustered",
+        "pop": 10000,
+        "sink_checksum": "0x0",
+        "expanse_map": {
+          "insert_mops": 20.53,
+          "lookup_mops": 31.69,
+          "lookup_ns": 31.55,
+          "bytes_per_key": 8.61
+        },
+        "java_hashmap": {
+          "insert_mops": 32.79,
+          "lookup_mops": 30.98,
+          "lookup_ns": 32.28,
+          "bytes_per_key": 86.56,
+          "bytes_per_key_approximate": true
+        }
+      }
+    ]
+  },
+  {
+    "runtime": "dotnet",
+    "results": [
+      {
+        "dist": "random",
+        "pop": 10000,
+        "sink_checksum": "0x0",
+        "expanse_map": {
+          "insert_mops": 7.58,
+          "lookup_mops": 23.75,
+          "lookup_ns": 42.11,
+          "bytes_per_key": 23.89
+        },
+        "dotnet_dictionary": {
+          "insert_mops": 13.82,
+          "lookup_mops": 12.97,
+          "lookup_ns": 77.08,
+          "bytes_per_key": 28.31,
+          "bytes_per_key_approximate": true
+        }
+      },
+      {
+        "dist": "sequential",
+        "pop": 10000,
+        "sink_checksum": "0x0",
+        "expanse_map": {
+          "insert_mops": 25.91,
+          "lookup_mops": 35.92,
+          "lookup_ns": 27.84,
+          "bytes_per_key": 8.58
+        },
+        "dotnet_dictionary": {
+          "insert_mops": 21.53,
+          "lookup_mops": 19.48,
+          "lookup_ns": 51.34,
+          "bytes_per_key": 28.3,
+          "bytes_per_key_approximate": true
+        }
+      },
+      {
+        "dist": "clustered",
+        "pop": 10000,
+        "sink_checksum": "0x0",
+        "expanse_map": {
+          "insert_mops": 17.6,
+          "lookup_mops": 38.49,
+          "lookup_ns": 25.98,
+          "bytes_per_key": 8.61
+        },
+        "dotnet_dictionary": {
+          "insert_mops": 21.36,
+          "lookup_mops": 19.09,
+          "lookup_ns": 52.38,
+          "bytes_per_key": 28.3,
+          "bytes_per_key_approximate": true
+        }
+      }
+    ]
+  }
+]
