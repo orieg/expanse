@@ -49,6 +49,7 @@ on:
           - hashbrown_container_dists
           - hashbrown_memory_alloc
           - large_values
+          - python_concurrency
           - rocksdb
           - embedded
           - batch_lookup
@@ -877,6 +878,20 @@ jobs:
                 cargo bench --bench comparative -p expanse-trie | tee comparative.txt
                 python3 scripts/bench_report.py --quick --format markdown | tee head-to-head.md
                 ;;
+              "python_concurrency")
+                # The claim under test lives on the Python side of the pyo3
+                # boundary: `benches/concurrency.rs` measures the Rust arms and
+                # never crosses it, which is exactly where the GIL would
+                # serialise. The scaling factors in docs/bindings/python.md
+                # stood marked pending for want of a harness (#546), and they
+                # are load-sensitive, so they need this host rather than a
+                # shared runner.
+                python3 -m pip install --quiet --upgrade pip
+                python3 -m pip install --quiet "maturin>=1.5,<2.0"
+                python3 -m pip install --quiet .
+                python3 bindings/python/bench_concurrency.py \
+                  --out baseline-python_concurrency.json | tee python-concurrency.txt
+                ;;
               "rocksdb")
                 # C++ integration, not a cargo bench target: `make bench` builds
                 # benches/bench_memtable.cc against the release libexpanse the
@@ -1276,6 +1291,7 @@ jobs:
             bytes-per-key.txt
             bench-output.txt
             rocksdb.txt
+            python-concurrency.txt
             rocksdb-round-*.txt
             docs/benchmarks/llm_inference/results/bench_grammar_masks.json
             bytes-per-key-32.txt
