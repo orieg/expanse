@@ -916,33 +916,64 @@ jobs:
           # uses, and render the interval table into the same comment as the
           # rest of the report. Callgrind-only suites produce no criterion
           # directory and are skipped explicitly rather than silently.
+          # This workflow runs from the default branch but benchmarks the
+          # checked-out ref, so the harvester it invokes may not exist there:
+          # `scripts/bench_baseline.py` landed in #445, and any ref cut before
+          # it has none. The first version called it unconditionally, so a
+          # completed run — every arm measured, on the shared bare-metal host —
+          # died in post-processing and discarded its own results (#449, seen on
+          # #444 / run 33144152445).
+          #
+          # A missing or failing harvester is a *degraded* run, not a failed
+          # one: the benchmark output and the head-to-head table are still
+          # valid results. AGENTS.md section 8.1 requires that degradation to
+          # surface prominently rather than either passing silently or
+          # destroying the measurement, so each branch records a status the
+          # terminal comment reports, and none of them fails the step.
+          HARVEST_STATUS=none
           if [ -d target/criterion ]; then
-            echo "=== Harvesting criterion samples -> BCa 95% CIs ==="
-            python3 scripts/bench_baseline.py --harvest \
-              --criterion-dir target/criterion \
-              --newer-than "$CRITERION_SINCE" \
-              --allow-empty \
-              --suite "$SUITE" \
-              --host-desc "$HOST_DESC" \
-              --run-id "$RUN_URL" \
-              --out "baseline-$SUITE.json" \
-              > wallclock-ci.md
-            # --allow-empty writes nothing when the suite ran no criterion arms
-            # (a Callgrind-only suite on a runner whose target/ still holds
-            # another suite's output); drop the empty render with it.
-            if [ ! -f "baseline-$SUITE.json" ]; then
-              rm -f wallclock-ci.md
+            if [ ! -f scripts/bench_baseline.py ]; then
+              HARVEST_STATUS=missing_script
+              echo "::notice::No wall-clock interval artifact: ref '$REF' has no scripts/bench_baseline.py (it landed in #445), so criterion samples could not be harvested. The benchmark itself ran to completion and its numbers are reported."
             else
-              # Fold it into head-to-head.md so it reaches the comment through
-              # the existing --head-to-head path as well as the fallback below.
-              if [ -f head-to-head.md ]; then
-                printf '\n' >> head-to-head.md
+              echo "=== Harvesting criterion samples -> BCa 95% CIs ==="
+              # Non-fatal by construction: a harvester that errors must not
+              # take the completed measurement down with it.
+              if python3 scripts/bench_baseline.py --harvest \
+                --criterion-dir target/criterion \
+                --newer-than "$CRITERION_SINCE" \
+                --allow-empty \
+                --suite "$SUITE" \
+                --host-desc "$HOST_DESC" \
+                --run-id "$RUN_URL" \
+                --out "baseline-$SUITE.json" \
+                > wallclock-ci.md; then
+                # --allow-empty writes nothing when the suite ran no criterion
+                # arms (a Callgrind-only suite on a runner whose target/ still
+                # holds another suite's output); drop the empty render with it.
+                if [ ! -f "baseline-$SUITE.json" ]; then
+                  rm -f wallclock-ci.md
+                  HARVEST_STATUS=empty
+                else
+                  HARVEST_STATUS=ok
+                  # Fold it into head-to-head.md so it reaches the comment
+                  # through the existing --head-to-head path as well as the
+                  # fallback below.
+                  if [ -f head-to-head.md ]; then
+                    printf '\n' >> head-to-head.md
+                  fi
+                  cat wallclock-ci.md >> head-to-head.md
+                fi
+              else
+                HARVEST_STATUS=failed
+                rm -f wallclock-ci.md
+                echo "::warning::Wall-clock interval harvest failed on ref '$REF'; the benchmark ran to completion and its numbers are reported, but no baseline-$SUITE.json interval artifact was produced."
               fi
-              cat wallclock-ci.md >> head-to-head.md
             fi
           else
             echo "No target/criterion directory: suite '$SUITE' runs no criterion arms, so no wall-clock interval is claimed."
           fi
+          echo "harvest_status=$HARVEST_STATUS" >> "$GITHUB_OUTPUT"
 
           # ====================================================================
           # Report Generation Step
@@ -1140,6 +1171,15 @@ jobs:
       # resolve to an artifact of the run that produced it (AGENTS.md section
       # 8.7). `ignore` keeps a suite that produces none of these files from
       # failing over it.
+      #
+      # The builtin suites' own tee targets (`head-*.txt`, `base-*.txt`,
+      # `vs-libjudy.txt`) are listed for the same reason one layer further out:
+      # `if: always()` means this step runs even when the benchmark step failed,
+      # so a run that measured everything and then died in post-processing still
+      # leaves its raw console output downloadable instead of recoverable only
+      # by scraping the job log (#449). The harvest is now non-fatal, so that
+      # path should not be reachable through a missing harvester — but a
+      # completed measurement should not depend on every later step succeeding.
       - name: Upload non-criterion suite tables
         if: always()
         uses: actions/upload-artifact@v7
@@ -1152,6 +1192,12 @@ jobs:
             bytes-per-key.txt
             bench-output.txt
             bytes-per-key-32.txt
+            head-instructions.txt
+            head-vs-stock.txt
+            vs-libjudy.txt
+            base-instructions.txt
+            base-vs-stock.txt
+            base-generic.txt
           if-no-files-found: ignore
           retention-days: 30
 
@@ -1201,6 +1247,7 @@ jobs:
           BENCH_OUTCOME: ${{ steps.bench.outcome }}
           FAIL_REASON: ${{ steps.bench.outputs.fail_reason }}
           LOCK_OWNER: ${{ steps.bench.outputs.lock_owner }}
+          HARVEST_STATUS: ${{ steps.bench.outputs.harvest_status }}
           JOB_STATUS: ${{ job.status }}
         with:
           script: |
@@ -1243,6 +1290,18 @@ jobs:
               if (at >= 0) prior = existing.body.slice(at);
             }
 
+            // A benchmark that ran every arm and then lost its post-processing
+            // is a degraded success, not a failure — the numbers above it are
+            // real. Say which happened rather than leaving the reader to infer
+            // it from a missing table (#449, AGENTS.md section 8.1).
+            const harvest = process.env.HARVEST_STATUS || '';
+            let harvestNote = '';
+            if (harvest === 'missing_script') {
+              harvestNote = `> [!WARNING]\n> **No wall-clock interval artifact.** Ref \`${process.env.HEAD_REF}\` carries no \`scripts/bench_baseline.py\` — it landed in #445, and this ref predates it — so criterion samples could not be harvested into BCa intervals. **The benchmark itself completed and the numbers below are valid**; only the interval table is absent. Rebase onto a base containing #445 to get one.`;
+            } else if (harvest === 'failed') {
+              harvestNote = '> [!WARNING]\n> **No wall-clock interval artifact.** The criterion harvest failed after the benchmark completed. **The numbers below are valid**; only the BCa interval table and the `baseline-*.json` artifact are missing. See the run log for the harvester error.';
+            }
+
             let body;
             if (outcome === 'success' && report) {
               body = [
@@ -1258,6 +1317,7 @@ jobs:
                 '- **Runner**: `self-hosted (baremetal, dedicated reference host)`',
                 `- **Run**: [${context.runId}](${runUrl})`,
                 '',
+                ...(harvestNote ? [harvestNote, ''] : []),
                 report,
                 '',
               ].join('\n');
