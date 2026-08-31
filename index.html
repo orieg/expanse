@@ -2135,22 +2135,22 @@ int main() {
     <text x="0" y="13" class="t-chart-sub">100,000 keys (16B key / 64B val) (lower is better)</text>
     <text x="0" y="29" class="t-unit-header">&#9660; Indexing Overhead (Bytes / key)</text>
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">160 B</text>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">25 B</text>
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">80 B</text>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">12.5 B</text>
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="45" y="182.6" width="50" height="12.4" class="b-expanse" rx="2"/>
-    <text x="70" y="174.1" class="t-val-accent">13.2 B</text>
+    <rect x="45" y="115.8" width="50" height="79.2" class="b-expanse" rx="2"/>
+    <text x="70" y="107.3" class="t-val-accent">13.2 B</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
     <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">-29.4% RAM</text>
-    <rect x="115" y="177.5" width="50" height="17.5" class="b-rocksdb" rx="2"/>
-    <text x="140" y="169.0" class="t-val-blue">18.7 B</text>
+    <rect x="115" y="82.8" width="50" height="112.2" class="b-rocksdb" rx="2"/>
+    <text x="140" y="74.3" class="t-val-blue">18.7 B</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">SkipList</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1.4&#215; memory</text>
-    <rect x="185" y="185.2" width="50" height="9.8" class="b-skipmap" rx="2"/>
-    <text x="210" y="176.7" class="t-val-muted">10.5 B</text>
+    <rect x="185" y="132.0" width="50" height="63.0" class="b-skipmap" rx="2"/>
+    <text x="210" y="123.5" class="t-val-muted">10.5 B</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">read-only</text>
   </g>
@@ -2163,22 +2163,22 @@ int main() {
     <text x="0" y="13" class="t-chart-sub">readrandom single-key query (lower is better)</text>
     <text x="0" y="29" class="t-unit-header">&#9660; Query Latency (ns / op)</text>
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">600 ns</text>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">700 ns</text>
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">300 ns</text>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">350 ns</text>
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="45" y="129.0" width="50" height="66.0" class="b-expanse" rx="2"/>
-    <text x="70" y="120.5" class="t-val-accent">264 ns</text>
+    <rect x="45" y="138.4" width="50" height="56.6" class="b-expanse" rx="2"/>
+    <text x="70" y="129.9" class="t-val-accent">264 ns</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
     <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">1.46&#215; faster</text>
-    <rect x="115" y="98.7" width="50" height="96.3" class="b-rocksdb" rx="2"/>
-    <text x="140" y="90.2" class="t-val-blue">385 ns</text>
+    <rect x="115" y="112.5" width="50" height="82.5" class="b-rocksdb" rx="2"/>
+    <text x="140" y="104.0" class="t-val-blue">385 ns</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">SkipList</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215; baseline</text>
-    <rect x="185" y="58.5" width="50" height="136.5" class="b-skipmap" rx="2"/>
-    <text x="210" y="50.0" class="t-val-muted">546 ns</text>
+    <rect x="185" y="78.0" width="50" height="117.0" class="b-skipmap" rx="2"/>
+    <text x="210" y="69.5" class="t-val-muted">546 ns</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">Vector</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">1.0&#215;</text>
   </g>
@@ -2372,7 +2372,7 @@ void app_main(void) {
   <footer>
     <div class="container">
       <p style="margin-bottom: 0.75rem;">
-        <span class="badge" style="font-size: 0.78rem;">Release v0.5.0</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/7af3240"><code>7af3240</code></a> &bull; Built on 2026-08-31
+        <span class="badge" style="font-size: 0.78rem;">Release v0.5.0</span> &bull; Commit <a href="https://github.com/orieg/expanse/commit/d1fde74"><code>d1fde74</code></a> &bull; Built on 2026-08-31
       </p>
       <p style="margin-bottom: 0.75rem; color: var(--text-muted); font-size: 0.85rem;">
         Judy &amp; Systems Ecosystem:
