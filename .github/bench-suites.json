@@ -342,12 +342,11 @@
     },
     {
       "name": "bench_grammar_masks",
-      "available": false,
+      "available": true,
       "kind": "wallclock",
       "runner": "generic",
       "package": "expanse-trie",
       "target": "bench_grammar_masks",
-      "reason": "part of the same Python-driven pipeline as `bench_llm_datastore` and reports into its JSON artifacts; run `docs/benchmarks/llm_inference/run.sh` instead.",
       "summary": "Grammar-constrained decoding mask cache and set algebra against roaring and dense bitmaps."
     }
   ]

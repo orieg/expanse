@@ -694,11 +694,18 @@ def self_test() -> int:
     # Pending issue validation
     _ISSUE_STATUS_CACHE[384] = "CLOSED"
     _ISSUE_STATUS_CACHE[382] = "OPEN"
-    fatal, _ = scan_text("t.md", "Pause times are pending a tagged reference-host run (#384).\n", deny, False, reg)
+    # These fixtures embed the pending-cell phrasing verbatim, so this file's
+    # own source matches the pattern when the scanner sweeps the repository.
+    # The issue numbers are seeded in the cache above and are arbitrary to the
+    # test, but a real one changes state eventually: #382 was open when these
+    # were written and closed on 2026-08-31, at which point the checker began
+    # failing on its own test data. The marker exempts the source lines from
+    # the sweep without altering the strings under test.
+    fatal, _ = scan_text("t.md", "Pause times are pending a tagged reference-host run (#384).\n", deny, False, reg)  # docs-lint: allow
     assert fatal >= 1, "pending cell citing closed #384 must fail"
-    fatal, _ = scan_text("t.md", "Pause times are pending a tagged reference-host run (#382).\n", deny, False, reg)
+    fatal, _ = scan_text("t.md", "Pause times are pending a tagged reference-host run (#382).\n", deny, False, reg)  # docs-lint: allow
     assert fatal == 0, "pending cell citing open #382 must pass"
-    fatal, _ = scan_text("t.md", "Pause times are pending a tagged reference-host run.\n", deny, False, reg)
+    fatal, _ = scan_text("t.md", "Pause times are pending a tagged reference-host run.\n", deny, False, reg)  # docs-lint: allow
     assert fatal >= 1, "pending cell with no issue citation must fail"
 
     print("check_docs_hygiene.py --self-test: all checks passed")

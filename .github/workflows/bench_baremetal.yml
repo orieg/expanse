@@ -53,6 +53,7 @@ on:
           - embedded
           - batch_lookup
           - compare
+          - bench_grammar_masks
           # END GENERATED: bench-suites
   issue_comment:
     types: [created]
@@ -1276,6 +1277,7 @@ jobs:
             bench-output.txt
             rocksdb.txt
             rocksdb-round-*.txt
+            docs/benchmarks/llm_inference/results/bench_grammar_masks.json
             bytes-per-key-32.txt
             head-instructions.txt
             head-vs-stock.txt

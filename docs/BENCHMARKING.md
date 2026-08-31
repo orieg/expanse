@@ -949,13 +949,13 @@ The suites below are declared once, in [`.github/bench-suites.json`](../.github/
 | `embedded` | wall-clock | 32-bit embedded trie surface (`trie32` / `set32` / `map32` / `blobmap32`). |
 | `batch_lookup` | wall-clock | Interleave-width sweep for the batched descent, on a cold-DRAM population and a cache-resident control. |
 | `compare` | wall-clock | Standing container comparison harness across the core map and set types. |
+| `bench_grammar_masks` | wall-clock | Grammar-constrained decoding mask cache and set algebra against roaring and dense bitmaps. |
 
 Bench targets deliberately **not** reachable from a slash command:
 
 | Target | Why |
 |---|---|
 | `bench_llm_datastore` | needs the generated corpus under `docs/benchmarks/llm_inference/data/`, which is materialized by that suite's Python driver; run `docs/benchmarks/llm_inference/run.sh` instead. |
-| `bench_grammar_masks` | part of the same Python-driven pipeline as `bench_llm_datastore` and reports into its JSON artifacts; run `docs/benchmarks/llm_inference/run.sh` instead. |
 <!-- END GENERATED: bench-suites -->
 
 #### How a request is resolved
