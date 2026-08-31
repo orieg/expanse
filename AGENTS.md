@@ -174,6 +174,17 @@ cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: typ
 - **Stacked Borrows / Tree Borrows Hygiene**: Avoid creating temporary unique references (`&mut *ptr`) from raw pointers where ancestor/subfield borrows exist. Prefer `&raw mut` / `core::ptr::addr_of_mut!` and raw pointer manipulation to avoid invalidating pointer tags in the borrow stack.
 - Every SIMD/intrinsic path has a portable fallback plus a parity test (see `docs/TESTING.md`). Public items are documented (`missing_docs` warns).
 
+### Negative Control Invariant Discrimination (§2.3)
+- When writing negative control tests for internal invariants (e.g. `assert_bracketed()` on in-place mutation branches):
+  1. Verify the prerequisite data-structure state (e.g. capacity class boundaries `cap_class(pop + 1) == cap_class(pop)`) to ensure the execution path actually reaches the guarded branch rather than taking a reallocation or root-level path.
+  2. Perform the §2.3 fail-then-pass demonstration by deleting the guarded assertion and confirming the test fails.
+  3. Inspect the backtrace to ensure the panic originated at the intended site, not at an upstream pre-existing guard.
+
+### Test Fixture RAII Allocation Hygiene (ASan/LSan)
+- When allocating raw node or value buffers by hand in unit test fixtures (e.g. `alloc.alloc_bytes(...)`):
+  - Always bind the raw allocation to an RAII guard struct whose `Drop` implementation calls `alloc.free_bytes(...)`.
+  - This guarantees that both normal test completion and panic unwinding (`#[should_panic]`) return the memory to the allocator/collector, preventing LeakSanitizer failures in CI ASan runs.
+
 ---
 
 ## 6. Performance Engineering & Fast Iteration Cycle
@@ -393,6 +404,12 @@ When modifying or correcting any existing benchmark or example harness:
    - In walkthroughs, PR verification records, and review summaries, if a command narrows the workspace test suite (e.g. `cargo test --workspace --exclude ...`) due to host toolchain/runtime prerequisites (PHP headers, Python dynamic linking), explicitly state the exclusions and rationale rather than presenting the narrowed command as satisfying the full workspace gate.
 7. **Span-Level Multi-Issue Disambiguation**:
    - In referential integrity checkers, evaluate all issue citations within the relevant sentence/span. If at least one cited issue is `OPEN`, the statement is satisfied (e.g. "updating from closed #384 to open #382"). Only flag violations if all cited issues in the span are closed.
+8. **Cargo Test Target Filter Isolation**:
+   - Never combine module-scoped filters with integration test targets in a single invocation (e.g. `cargo test --lib sync:: --test linearizability --test test_blobmap`). Cargo passes the single positional filter to every selected binary, causing integration test binaries to match 0 tests silently.
+   - Split into distinct commands: one for the filtered library suite (`cargo test --lib sync::`) and one for the selected integration test binaries (`cargo test --test linearizability --test test_blobmap`).
+9. **Intermittent Race Triage Policy (Comment vs Auto-Close)**:
+   - Automated issue triage on scheduled/nightly jobs must distinguish between deterministic checkers (Miri, linters, unit tests) and non-deterministic / race-detection checkers (ThreadSanitizer, stress loops).
+   - Non-deterministic checkers must **comment on green runs rather than auto-closing** (`🟢 Nightly run passed on commit ... (not auto-closing: race findings require manual inspection/triage)`). A single green night does not prove an intermittent race was fixed.
 
 ### 8.12 Workload Shapes & Paired Figures Integrity
 1. **Workload Shape Declarations on All Timed Harnesses**:
