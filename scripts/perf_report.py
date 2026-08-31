@@ -541,6 +541,147 @@ def override_citation(reason: str) -> str | None:
     return match.group(0) if match else None
 
 
+def load_shapes_by_stem() -> dict[str, dict[str, str]] | None:
+    """`{harness file stem -> workload shape}`, or None if unavailable.
+
+    iai-callgrind names a bench `<target>::<group>::<bench>` and the target is
+    the harness file stem, so this is the key a measured row joins on: target
+    `search_instructions` resolves to `benches/search_instructions.rs` and
+    thence to workload id `domain_search_instructions` (#487).
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import check_bench_shapes
+
+        return check_bench_shapes.shapes_by_stem(check_bench_shapes.get_repo_root())
+    except Exception:
+        return None
+
+
+def load_ambiguous_stems() -> dict[str, list[str]]:
+    """`{stem -> [workload ids]}` for bench targets that name several harnesses.
+
+    Such a target cannot be joined to one shape, and guessing would state a
+    population and hit rate the number may not have. Reported as ambiguous so
+    the harness or its bench target gets renamed, rather than silently either
+    mislabelled or counted as undeclared.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import check_bench_shapes
+
+        return check_bench_shapes.ambiguous_stems(check_bench_shapes.get_repo_root())
+    except Exception:
+        return {}
+
+
+def unresolved_shape_targets(
+    names: list[str],
+    origins: dict[str, tuple[str, str]] | None,
+    shapes: dict[str, dict[str, str]] | None,
+    ambiguous: dict[str, list[str]] | None = None,
+) -> list[str]:
+    """Bench targets in this report that resolve to no workload declaration.
+
+    §8.1: a number whose shape cannot be resolved must not render as though it
+    had one. A new bench target reaching a published report without a
+    `# Workload shape` table is the condition #487 exists to prevent, so it is
+    fatal rather than a blank cell.
+    """
+    if shapes is None:
+        return []
+    missing = set()
+    for name in names:
+        target = (origins or {}).get(name, ("", ""))[0]
+        if target and target not in shapes and target not in (ambiguous or {}):
+            missing.add(target)
+    return sorted(missing)
+
+
+def ambiguous_shape_targets(
+    names: list[str],
+    origins: dict[str, tuple[str, str]] | None,
+    ambiguous: dict[str, list[str]] | None,
+) -> list[str]:
+    """Targets in this report whose name matches more than one harness."""
+    if not ambiguous:
+        return []
+    hit = set()
+    for name in names:
+        target = (origins or {}).get(name, ("", ""))[0]
+        if target in ambiguous:
+            hit.add(target)
+    return sorted(hit)
+
+
+def render_workload_shapes(
+    names: list[str],
+    origins: dict[str, tuple[str, str]] | None,
+    shapes: dict[str, dict[str, str]] | None,
+    ambiguous: dict[str, list[str]] | None = None,
+) -> list[str]:
+    """The shape of every arm above, so a number is never read out of context.
+
+    Two figures from harnesses whose probe cardinality differed by 366x once
+    read as one observation in this repository's own documentation. The
+    declarations that prevent that now exist and are gated; this renders them
+    beside the numbers they describe (#487, #453 item A).
+    """
+    if shapes is None:
+        return []
+    present: dict[str, str] = {}
+    for name in names:
+        target = (origins or {}).get(name, ("", ""))[0]
+        shape = shapes.get(target) if target else None
+        if shape:
+            present[shape["workload_id"]] = target
+    clashing = [
+        t
+        for t in sorted(ambiguous or {})
+        if any((origins or {}).get(n, ("", ""))[0] == t for n in names)
+    ]
+    if not present and not clashing:
+        return []
+
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from check_bench_shapes import summarize_shape
+    except Exception:
+        return []
+
+    lines = [
+        "<details><summary><b>Workload shapes</b> — what each arm above measures</summary>",
+        "",
+        "| Workload | Population | Probes & reuse | Hit rate | Value dereference |",
+        "|:---|:---|:---|:---|:---|",
+    ]
+    by_stem = {v: k for k, v in present.items()}
+    for target in sorted(by_stem):
+        sh = shapes[target]
+        lines.append(
+            f"| `{sh['workload_id']}` | {sh.get('population', '—')} | "
+            f"{sh.get('probes_and_reuse', '—')} | {sh.get('hit_rate', '—')} | "
+            f"{sh.get('value_dereference', '—')} |"
+        )
+    for target in clashing:
+        lines.append(
+            f"| `{target}` ⚠️ | *ambiguous* | *ambiguous* | *ambiguous* | *ambiguous* |"
+        )
+
+    lines += [
+        "",
+        "<sub>Declared in each harness's <code># Workload shape</code> table and gated by "
+        "<code>scripts/check_bench_shapes.py</code>. Two figures are comparable only when "
+        "their workload rows are (AGENTS.md §8.12). An arm marked <i>ambiguous</i> has a bench "
+        "target name shared by more than one harness, so no shape can be attached to it "
+        "without guessing — rename the target or the harness to resolve it.</sub>",
+        "",
+        "</details>",
+        "",
+    ]
+    return lines
+
+
 def head_parse_fatals(
     head: dict[str, dict[str, int]],
     base: dict[str, dict[str, int]] | None,
@@ -1136,6 +1277,8 @@ def render(
     baseline_arms: set[str] | None = None,
     undeclared_arms: list[str] | None = None,
     twins: list[dict[str, Any]] | None = None,
+    shapes: dict[str, dict[str, str]] | None = None,
+    ambiguous: dict[str, list[str]] | None = None,
 ) -> str:
     # 1. Parse memory density tables and verify compliance
     compliant_64, rows_64 = parse_bytes_64(bytes_table)
@@ -1393,6 +1536,9 @@ def render(
             baseline_ledger=baseline_ledger,
         )
     )
+
+    # Workload shapes for every arm rendered above (#487).
+    lines += render_workload_shapes(all_bench_names, origins, shapes, ambiguous)
 
     lines.append("---")
     lines.append("")
@@ -1853,6 +1999,44 @@ def self_test() -> int:
     assert "#### 📦 Other & General" in out_mixed, out_mixed
     assert "instructions::cost`" not in out_mixed, out_mixed
 
+    # 12. Workload shapes are joined onto measured rows, and a target with no
+    #     declaration is fatal rather than a blank cell (#487, §8.1).
+    real_shapes = load_shapes_by_stem()
+    assert real_shapes, "workload shape declarations must be loadable"
+    assert "search_instructions" in real_shapes, sorted(real_shapes)[:5]
+    # The self-test corpus's target resolves, so the block renders.
+    shape_lines = render_workload_shapes(
+        list(twin_head), twin_origins, real_shapes
+    )
+    assert any("Workload shapes" in l for l in shape_lines), shape_lines
+    assert any("domain_search_instructions" in l for l in shape_lines), shape_lines
+    # fail-then-pass: an undeclared target is reported, not silently dropped.
+    ghost, ghost_origins = parse_full(
+        'ghost_harness::grp::mystery d:x("d")\n  Instructions:              4000|4000            (No change)\n'
+    )
+    assert ghost_origins["mystery/d"][0] == "ghost_harness", ghost_origins
+    assert unresolved_shape_targets(list(ghost), ghost_origins, real_shapes) == ["ghost_harness"]
+    assert unresolved_shape_targets(list(twin_head), twin_origins, real_shapes) == []
+    # An unreadable declaration set resolves to no targets rather than false ones.
+    assert unresolved_shape_targets(list(ghost), ghost_origins, None) == []
+    assert render_workload_shapes(list(ghost), ghost_origins, real_shapes) == []
+    # A target naming two harnesses is reported as ambiguous, never joined to
+    # one of them: core and capi both ship benches/smoke_instructions.rs.
+    amb = load_ambiguous_stems()
+    assert amb.get("smoke_instructions") == ["capi_smoke_instructions", "core_smoke_instructions"], amb
+    clash, clash_origins = parse_full(
+        'smoke_instructions::grp::probe d:x("d")\n  Instructions:              4000|4000            (No change)\n'
+    )
+    assert ambiguous_shape_targets(list(clash), clash_origins, amb) == ["smoke_instructions"]
+    # It renders as explicitly ambiguous rather than being given a shape.
+    amb_lines = render_workload_shapes(list(clash), clash_origins, real_shapes, amb)
+    assert any("ambiguous" in l for l in amb_lines), amb_lines
+    assert not any("core_smoke_instructions" in l for l in amb_lines), amb_lines
+    # ...and is not also miscounted as an undeclared harness.
+    assert unresolved_shape_targets(list(clash), clash_origins, real_shapes, amb) == []
+    # Without the ambiguity map it would be — which is why main passes it.
+    assert unresolved_shape_targets(list(clash), clash_origins, real_shapes) == ["smoke_instructions"]
+
     print("perf_report.py --self-test: all checks passed")
     return 0
 
@@ -1915,6 +2099,42 @@ def main() -> int:
 
     fatals = head_parse_fatals(head_parsed, base_parsed)
 
+    # Every measured arm must resolve to a declared workload shape (#487).
+    # An unreadable declaration set is itself fatal: silently rendering numbers
+    # with no shape is the condition the declarations exist to prevent (§8.1).
+    shapes = load_shapes_by_stem()
+    if shapes is None:
+        fatals.append(
+            "workload shape declarations could not be loaded "
+            "(scripts/check_bench_shapes.py) — every number in this report would "
+            "render with no resolvable workload id"
+        )
+    else:
+        ambiguous = load_ambiguous_stems()
+        clashing = ambiguous_shape_targets(list(head_parsed), head_origins, ambiguous)
+        for target in clashing:
+            # Not fatal: `smoke_instructions` is a live bench target in both
+            # `expanse` and `expanse-capi`, so failing here would break the
+            # smoke gate over a pre-existing naming collision. The report marks
+            # those rows *ambiguous* instead — which satisfies the rule that a
+            # number must not render as though its shape were known — and this
+            # says so in the log so the collision gets renamed deliberately.
+            print(
+                f"::warning::bench target `{target}` names more than one harness "
+                f"({', '.join(ambiguous[target])}); its rows render as ambiguous "
+                "because no shape can be attached without guessing",
+                file=sys.stderr,
+            )
+        missing_shapes = unresolved_shape_targets(
+            list(head_parsed), head_origins, shapes, ambiguous
+        )
+        if missing_shapes:
+            fatals.append(
+                "bench target(s) with no `# Workload shape` declaration: "
+                + ", ".join(f"`{t}`" for t in missing_shapes)
+                + " — add the table to the harness so its numbers carry their shape"
+            )
+
     # Check for PR body override markers (strict `allow-regression: <reason>`
     # form only; a bare substring or quoted policy text approves nothing).
     allowed = args.allow_regression
@@ -1960,6 +2180,8 @@ def main() -> int:
         base_requested=base_requested,
         gate_armed=args.fail_on_regression,
         head_fatals=fatals,
+        shapes=shapes,
+        ambiguous=ambiguous if shapes is not None else None,
         origins=head_origins,
         baseline_arms=baseline_arms,
         undeclared_arms=undeclared,

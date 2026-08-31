@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import glob
 import os
 import re
@@ -184,6 +185,82 @@ def generate_audit_tables(harness_data: List[Tuple[str, Dict[str, str]]]) -> str
     return "\n".join(lines)
 
 
+# Fields that discriminate one workload from another when a number is read out
+# of context. Population and probe cardinality are what made the 366x mismatch
+# in #453 invisible; hit rate and dereference are what made two "lookup" arms
+# non-comparable. Emitted beside every published figure so a reader does not
+# have to open the harness (#487 item A).
+DISCRIMINATING_FIELDS = [
+    "population",
+    "probes_and_reuse",
+    "hit_rate",
+    "value_dereference",
+]
+
+
+def collect_shapes(repo_root: Path) -> Dict[str, Dict[str, str]]:
+    """`{workload_id -> shape}` for every timed harness that declares one.
+
+    Each entry carries `source` (repo-relative path) and `stem` (the file stem)
+    on top of the declared fields. `stem` is the join key reports use:
+    iai-callgrind names a bench `<target>::<group>::<bench>`, and the target is
+    the harness file stem, so `search_instructions` resolves to
+    `benches/search_instructions.rs` and thence to `domain_search_instructions`.
+
+    Parse failures are skipped rather than raised — `--check` is the gate that
+    fails on them, and a report should not die because a declaration regressed.
+    """
+    timed_paths, _ = discover_harnesses(repo_root)
+    shapes: Dict[str, Dict[str, str]] = {}
+    for path in timed_paths:
+        relpath = str(path.relative_to(repo_root))
+        shape, errs = parse_workload_shape(path.read_text(encoding="utf-8"), relpath)
+        if shape is None or errs:
+            continue
+        wid = shape.get("workload_id")
+        if not wid:
+            continue
+        entry = dict(shape)
+        entry["source"] = relpath
+        entry["stem"] = path.stem
+        shapes[wid] = entry
+    return shapes
+
+
+def shapes_by_stem(repo_root: Path) -> Dict[str, Dict[str, str]]:
+    """`{file stem -> shape}` for stems that identify exactly one harness.
+
+    Stems shared by more than one harness are **excluded**, not arbitrarily
+    resolved: `crates/expanse/benches/smoke_instructions.rs` and
+    `crates/expanse-capi/benches/smoke_instructions.rs` both produce the bench
+    target `smoke_instructions`, so a report row naming it could be either.
+    Attaching one of the two shapes would state a population and hit rate the
+    number may not have, which is the failure this whole mechanism exists to
+    prevent. Ambiguous stems come back from `ambiguous_stems` instead, for the
+    caller to report as ambiguous rather than as declared or missing.
+    """
+    grouped = ambiguous_stems(repo_root)
+    return {
+        v["stem"]: v
+        for v in collect_shapes(repo_root).values()
+        if v["stem"] not in grouped
+    }
+
+
+def ambiguous_stems(repo_root: Path) -> Dict[str, List[str]]:
+    """`{file stem -> [workload ids]}` for stems shared by several harnesses."""
+    seen: Dict[str, List[str]] = {}
+    for wid, sh in collect_shapes(repo_root).items():
+        seen.setdefault(sh["stem"], []).append(wid)
+    return {k: sorted(v) for k, v in seen.items() if len(v) > 1}
+
+
+def summarize_shape(shape: Dict[str, str]) -> str:
+    """One-line rendering of the discriminating fields, for report inlining."""
+    parts = [f"{f.replace('_', ' ')} {shape[f]}" for f in DISCRIMINATING_FIELDS if shape.get(f)]
+    return " · ".join(parts)
+
+
 def check_and_generate(repo_root: Path, write: bool = False) -> int:
     timed_paths, helper_paths = discover_harnesses(repo_root)
     print(f"check_bench_shapes.py: {len(timed_paths)} timed harnesses, {len(helper_paths)} helper modules found")
@@ -321,7 +398,31 @@ fn main() {}
     assert "### Group 1: C-API Benches & Examples (`crates/expanse-capi/`)" in tables
     assert "[`crates/expanse/benches/test.rs`](../crates/expanse/benches/test.rs)" in tables
 
-    print("ALL 6 SELF-TESTS PASSED.")
+    # 7. Emit mode: shapes are joinable by file stem and summarise to one line,
+    #    so reports can print a number's shape beside it (#487).
+    shapes = collect_shapes(get_repo_root())
+    assert shapes, "no workload shapes collected"
+    by_stem = shapes_by_stem(get_repo_root())
+    assert "search_instructions" in by_stem, sorted(by_stem)[:5]
+    assert by_stem["search_instructions"]["workload_id"] == "domain_search_instructions"
+    # Every collected entry carries the join key and its source.
+    for wid, sh in shapes.items():
+        assert sh.get("stem"), f"{wid} has no stem"
+        assert sh.get("source", "").endswith(".rs"), f"{wid} has no source path"
+    # A stem shared by two harnesses is excluded from the join, never resolved
+    # to one of them: core and capi both ship benches/smoke_instructions.rs.
+    ambiguous = ambiguous_stems(get_repo_root())
+    assert "smoke_instructions" in ambiguous, ambiguous
+    assert ambiguous["smoke_instructions"] == ["capi_smoke_instructions", "core_smoke_instructions"]
+    assert "smoke_instructions" not in by_stem, "ambiguous stem must not resolve to one harness"
+    assert len(by_stem) == len(shapes) - sum(len(v) for v in ambiguous.values())
+    summary = summarize_shape(shapes["capi_bench_vs_libjudy"])
+    assert "population" in summary and "hit rate" in summary, summary
+    # fail-then-pass: a shape missing every discriminating field summarises to
+    # nothing rather than to a fabricated description.
+    assert summarize_shape({"workload_id": "x"}) == ""
+
+    print("ALL 7 SELF-TESTS PASSED.")
     return 0
 
 
@@ -330,12 +431,18 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="Check declarations and audit table sync (default)")
     parser.add_argument("--write", action="store_true", help="Write generated audit table to docs/BENCHMARKING.md")
     parser.add_argument("--self-test", action="store_true", help="Run unit self-tests")
+    parser.add_argument("--json", action="store_true", help="Emit {workload_id: shape} as JSON for report joining")
     args = parser.parse_args()
 
     if args.self_test:
         return run_self_tests()
 
     repo_root = get_repo_root()
+    if args.json:
+        json.dump(collect_shapes(repo_root), sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+        return 0
+
     return check_and_generate(repo_root, write=args.write)
 
 

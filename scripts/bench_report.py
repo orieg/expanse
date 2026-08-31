@@ -322,6 +322,40 @@ def rounds_footer_lead(data: Dict[str, Any]) -> str:
     return f"Medians of {rounds} interleaved rounds"
 
 
+# The harness every figure in this report comes from. `bench_report.py` runs
+# exactly one (`run_benchmark_harness` -> `--example bench_lookup_compare`), so
+# the workload shape is a property of the whole report rather than per row.
+REPORT_WORKLOAD_ID = "example_bench_lookup_compare"
+
+
+def workload_shape_line(workload_id: str = REPORT_WORKLOAD_ID) -> str:
+    """The declared shape of the harness behind these numbers, for the header.
+
+    A bare `35.8 ns` does not say it came from 4,096 probes at 8x reuse with the
+    pointer never dereferenced. Two figures whose probe cardinality differed by
+    366x once read as one observation in this repository's own documentation;
+    printing the shape beside the number is what stops a reader having to open
+    the harness to find out (#487, #453 item A).
+
+    Returns a loud marker rather than silence when the declaration cannot be
+    resolved: a number rendering as though its shape were known is the failure
+    this exists to prevent (§8.1).
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from check_bench_shapes import collect_shapes, get_repo_root, summarize_shape
+
+        shape = collect_shapes(get_repo_root()).get(workload_id)
+    except Exception:
+        shape = None
+    if not shape:
+        return (
+            f"> **Workload shape**: ⚠️ unresolved — `{workload_id}` has no readable "
+            "`# Workload shape` declaration; these numbers carry no stated shape"
+        )
+    return f"> **Workload shape** (`{workload_id}`): {summarize_shape(shape)}"
+
+
 def render_markdown(
     data: Dict[str, Any], baseline: Optional[Dict[str, Any]] = None
 ) -> str:
@@ -342,6 +376,7 @@ def render_markdown(
         "",
         f"> **Target Population**: $N = {pop:,}$ keys · **System**: `{os_name}/{arch}`",
         f"> **Methodology**: {describe_rounds(data)}",
+        workload_shape_line(),
         "> **Reading the columns**: every measurement header carries its unit and its "
         f"direction (`ns` and `B/key` are {LOWER_BETTER}, `Mops/s` is {HIGHER_BETTER}). "
         "Every ratio header names the division it prints, and each ratio is graded by "
@@ -894,6 +929,21 @@ def self_test() -> int:
     assert "Lookup ns v" in txt and "Insert Mops ^" in txt, txt
     assert "Lookup (Mops" not in txt, txt
     assert "n/m = not measured" in txt, txt
+
+    # 9. Every figure carries its workload shape, and an unresolved one is loud
+    #    rather than blank (#487). A bare `35.8 ns` must never render as though
+    #    its probe count and dereference behaviour were known.
+    shape_line = workload_shape_line()
+    assert shape_line.startswith("> **Workload shape**"), shape_line
+    assert REPORT_WORKLOAD_ID in shape_line, shape_line
+    assert "unresolved" not in shape_line, (
+        "the harness this report runs must have a readable declaration: " + shape_line
+    )
+    # fail-then-pass: an unknown id says so instead of rendering an empty shape.
+    missing_line = workload_shape_line("no_such_workload_id")
+    assert "unresolved" in missing_line and "\u26a0" in missing_line, missing_line
+    md_shape = render_markdown(data)
+    assert "**Workload shape**" in md_shape, md_shape
 
     print("bench_report.py --self-test: all checks passed")
     return 0
