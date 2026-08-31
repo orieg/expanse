@@ -893,7 +893,38 @@ jobs:
                 # forbids OS usernames and home-directory paths in anything
                 # committed or published. The compile lines are relative and
                 # carry none. Seen in run 33393355990, the suite's first run.
-                make --no-print-directory -C integrations/rocksdb bench | tee rocksdb.txt
+                # Five rounds, not one. The C++ bench prints a table per
+                # invocation and computes nothing across runs, so a single
+                # invocation yields point estimates with no sampling
+                # distribution — publishable only as a hedge, which is why
+                # #382 item 5's ratios stayed pending while the deterministic
+                # density figure beside them shipped. `rocksdb_bench_harvest.py`
+                # turns the rounds into BCa intervals in the same
+                # `baseline-*.json` shape the criterion suites use, so the
+                # existing wall-clock baseline upload picks it up unchanged and
+                # a published ratio is gated on its CI lower bound (section 8.4).
+                ROCKSDB_ROUNDS=5
+                ROUND_ARGS=""
+                for i in $(seq 1 "$ROCKSDB_ROUNDS"); do
+                  echo "=== rocksdb round $i/$ROCKSDB_ROUNDS ==="
+                  make --no-print-directory -C integrations/rocksdb bench | tee "rocksdb-round-$i.txt"
+                  ROUND_ARGS="$ROUND_ARGS --round rocksdb-round-$i.txt"
+                done
+                # The last round doubles as the human-readable table.
+                cp "rocksdb-round-$ROCKSDB_ROUNDS.txt" rocksdb.txt
+                # Non-fatal for the reason #449 established: a completed
+                # measurement must not be lost to its post-processing. The
+                # per-round tables upload either way.
+                if python3 scripts/rocksdb_bench_harvest.py \
+                  $ROUND_ARGS \
+                  --out baseline-rocksdb.json \
+                  --host-desc "$HOST_DESC" \
+                  --commit "$(git rev-parse HEAD)" \
+                  --run-id "$RUN_URL"; then
+                  :
+                else
+                  echo "::warning::rocksdb interval harvest failed; the $ROCKSDB_ROUNDS per-round tables are uploaded and the run's numbers stand, but no baseline-rocksdb.json interval artifact was produced."
+                fi
                 ;;
               *)
                 # Unreachable: the resolver only publishes declared suites and
@@ -1244,6 +1275,7 @@ jobs:
             bytes-per-key.txt
             bench-output.txt
             rocksdb.txt
+            rocksdb-round-*.txt
             bytes-per-key-32.txt
             head-instructions.txt
             head-vs-stock.txt
