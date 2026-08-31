@@ -37,6 +37,7 @@ import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 DEFAULT_THREADS = (1, 2, 4, 8, 16)
 DEFAULT_POP = 200_000
@@ -89,7 +90,26 @@ def run_arm(container, probes: list[int], threads: int) -> float:
     return elapsed
 
 
+def _unshadow_installed_package() -> None:
+    """Drop this script's own directory from `sys.path`.
+
+    `bindings/python/expanse_trie/` is a source copy of the package: its
+    `__init__.py` is tracked, but `_expanse.abi3.so` is gitignored and only
+    exists where someone has built in place. Python puts the script's own
+    directory first on `sys.path`, so running this file from a checkout
+    shadows the *installed* extension with a source tree that has no compiled
+    submodule — `ModuleNotFoundError: No module named 'expanse_trie._expanse'`,
+    seen on run 33438701371 after the venv itself was working.
+
+    Removing the entry makes the import resolve to whatever is installed,
+    which is what a benchmark should measure.
+    """
+    here = Path(__file__).resolve().parent
+    sys.path[:] = [p for p in sys.path if p and Path(p).resolve() != here]
+
+
 def build_containers(keys: list[int]):
+    _unshadow_installed_package()
     from expanse_trie import SyncExpanseMap  # noqa: PLC0415
 
     exp = SyncExpanseMap()
@@ -187,6 +207,21 @@ def self_test() -> int:
     # construction; a value other than that means the base was picked wrongly.
     assert abs(arm["1"]["scaling_vs_1t"] - 1.0) < 1e-9, arm["1"]
     assert arm["2"]["scaling_vs_1t"] > 0
+
+    # The import guard must actually remove this file's directory, or the
+    # source copy of `expanse_trie` next to it shadows the installed
+    # extension and the run dies at import (run 33438701371).
+    here = Path(__file__).resolve().parent
+    sys.path.insert(0, str(here))
+    assert any(p and Path(p).resolve() == here for p in sys.path), "fixture failed"
+    _unshadow_installed_package()
+    assert not any(p and Path(p).resolve() == here for p in sys.path), (
+        "script directory still on sys.path — the installed package stays shadowed"
+    )
+    # A sibling package directory really does exist there, so this is not theoretical.
+    assert (here / "expanse_trie" / "__init__.py").is_file(), (
+        "expected the source copy of expanse_trie beside this script"
+    )
 
     print("bench_concurrency.py --self-test: all checks passed")
     return 0
