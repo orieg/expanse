@@ -6,9 +6,9 @@
     "vocab_size": 128000
   },
   "latency_summary": {
-    "dense_full_vocab_apply_ns": 0.0,
-    "expanse_top100_intersect_ns": 1949.17,
-    "roaring_top100_intersect_ns": 634.59
+    "dense_full_vocab_apply_ns": 82365.13,
+    "expanse_top100_intersect_ns": 1007.59,
+    "roaring_top100_intersect_ns": 225.19
   },
   "memory_summary": {
     "dense_bitmask_mb": 30.609130859375,
