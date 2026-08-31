@@ -146,7 +146,7 @@ pub(crate) fn version_begin(v: &mut u32) {
     // SAFETY: plain field write through the exclusive borrow; volatile
     // only pins the store's shape for concurrent atomic readers.
     unsafe { core::ptr::write_volatile(v, cur + 1) };
-    core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+    fence(Ordering::Release);
 }
 
 /// Writer: marks the node mutation complete (odd → even; the release
@@ -155,7 +155,7 @@ pub(crate) fn version_begin(v: &mut u32) {
 pub(crate) fn version_end(v: &mut u32) {
     let cur = *v;
     debug_assert!(cur % 2 == 1, "version_end without begin");
-    core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+    fence(Ordering::Release);
     // SAFETY: as in version_begin.
     unsafe { core::ptr::write_volatile(v, cur + 1) };
 }
@@ -169,7 +169,7 @@ pub(crate) fn version_end(v: &mut u32) {
 pub(crate) unsafe fn node_sample(ptr: *const u32) -> Option<u32> {
     // SAFETY: valid, aligned version field per contract.
     let a = unsafe { core::sync::atomic::AtomicU32::from_ptr(ptr.cast_mut()) };
-    let v = a.load(core::sync::atomic::Ordering::Acquire);
+    let v = a.load(Ordering::Acquire);
     (v % 2 == 0).then_some(v)
 }
 
@@ -180,10 +180,10 @@ pub(crate) unsafe fn node_sample(ptr: *const u32) -> Option<u32> {
 ///
 /// Same contract as [`node_sample`].
 pub(crate) unsafe fn node_validate(ptr: *const u32, snap: u32) -> bool {
-    core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
+    fence(Ordering::Acquire);
     // SAFETY: valid, aligned version field per contract.
     let a = unsafe { core::sync::atomic::AtomicU32::from_ptr(ptr.cast_mut()) };
-    a.load(core::sync::atomic::Ordering::Relaxed) == snap
+    a.load(Ordering::Relaxed) == snap
 }
 
 /// Number of epoch garbage bins. A retired node becomes freeable once
@@ -620,19 +620,29 @@ mod loom_tests {
             });
 
             // Reader: samples tree version, descends to parent node, validates
-            let _ts = tree_v.sample();
+            let ts = tree_v.sample();
             let ns = node_v.load(Ordering::Acquire);
             if ns % 2 == 0 {
                 // Cover narrowed to parent node: read leaf key and value
                 let k = key_slot.load(Ordering::Relaxed);
                 let v = val_slot.load(Ordering::Relaxed);
-                loom::sync::atomic::fence(Ordering::Acquire);
+                fence(Ordering::Acquire);
                 let nv_after = node_v.load(Ordering::Acquire);
                 if nv_after == ns {
                     // Successful validation: must be consistent
                     assert!(
                         (k == 0xFD && v == 100) || (k == 0xF1 && v == 200),
                         "hand-over-hand reader saw inconsistent leaf state: key {k:#x}, val {v}"
+                    );
+                }
+            } else {
+                // Cover retained at tree root: read leaf key and value
+                let k = key_slot.load(Ordering::Relaxed);
+                let v = val_slot.load(Ordering::Relaxed);
+                if tree_v.validate(ts) {
+                    assert!(
+                        (k == 0xFD && v == 100) || (k == 0xF1 && v == 200),
+                        "root-covered reader saw inconsistent leaf state: key {k:#x}, val {v}"
                     );
                 }
             }

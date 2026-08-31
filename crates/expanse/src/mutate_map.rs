@@ -818,6 +818,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                     Err(pos) => {
                         let cap = if kb == 1 { LEAF1_CAP } else { LEAF_CAP };
                         if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
+                            a.assert_bracketed();
                             // SAFETY: class capacity holds pop + 1 entries; in-place shifts and write.
                             unsafe {
                                 leaf::map_insert_at(base, kb, pop, pos, k, val);
@@ -1066,6 +1067,7 @@ unsafe fn map_insert_with_path_flat<const KEEP: bool>(
                 if n < map_immed_max(kb) {
                     let kb_usize = kb as usize;
                     if leaf::cap_class(n + 1) == leaf::cap_class(n) {
+                        a.assert_bracketed();
                         // SAFETY: class capacity holds n + 1 entries; in-place shifts and write; ancestors valid.
                         unsafe {
                             if pos < n {
@@ -1281,6 +1283,7 @@ unsafe fn map_insert_with_path_occ<const KEEP: bool, const OCC: bool>(
                 if n < map_immed_max(kb) {
                     let kb_usize = kb as usize;
                     if leaf::cap_class(n + 1) == leaf::cap_class(n) {
+                        a.assert_bracketed();
                         // Spare class capacity: shift values and keys in-place without reallocating!
                         // SAFETY: class capacity holds n + 1 entries; in-bounds shifts.
                         unsafe {

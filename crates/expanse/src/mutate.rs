@@ -1099,6 +1099,7 @@ unsafe fn insert_with_path_flat(
                 };
                 let cap = LEAF1_CAP;
                 if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
+                    a.assert_bracketed();
                     // SAFETY: base has spare class capacity; set_insert_at_fixed shifts in-place.
                     unsafe {
                         leaf::set_insert_at_fixed::<1>(base, pop, pos, k);
@@ -1242,6 +1243,7 @@ unsafe fn insert_with_path_flat(
                 };
                 let cap = LEAF_CAP;
                 if pop < cap && leaf::cap_class(pop + 1) == leaf::cap_class(pop) {
+                    a.assert_bracketed();
                     // SAFETY: base has spare class capacity; set_insert_at shifts in-place.
                     unsafe {
                         leaf::set_insert_at(base, kb, pop, pos, k);
