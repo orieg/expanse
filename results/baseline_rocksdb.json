@@ -1,0 +1,376 @@
+{
+  "schema": "expanse.baseline.v1",
+  "kind": "wall_clock_bca",
+  "suite": "rocksdb",
+  "fixture": "integrations/rocksdb/benches/bench_memtable.cc",
+  "provenance": {
+    "host_description": "12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic)",
+    "commit": "6cb64b459e753c73b305cddd56fedef1fe31a0e1",
+    "run_id": "https://github.com/orieg/expanse/actions/runs/33398474866",
+    "rounds": 5,
+    "generated_by": "scripts/rocksdb_bench_harvest.py",
+    "source": "repeated `make -C integrations/rocksdb bench` invocations"
+  },
+  "statistics": {
+    "estimator": "mean of per-round throughput (Mops/s)",
+    "method": "BCa bootstrap; two-sample for ratios",
+    "confidence": 0.95,
+    "num_resamples": 2000,
+    "seed": 42,
+    "point_and_interval_share_one_definition": true
+  },
+  "arms": [
+    {
+      "id": "fillrandom/ExpanseMemTable",
+      "benchmark": "fillrandom",
+      "implementation": "ExpanseMemTable",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 4.422,
+      "ci_lower": 4.36,
+      "ci_upper": 4.532,
+      "samples": [
+        4.38,
+        4.35,
+        4.46,
+        4.34,
+        4.58
+      ]
+    },
+    {
+      "id": "fillrandom/SkipListRep",
+      "benchmark": "fillrandom",
+      "implementation": "SkipListRep",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 3.146,
+      "ci_lower": 3.12,
+      "ci_upper": 3.162,
+      "samples": [
+        3.16,
+        3.11,
+        3.16,
+        3.13,
+        3.17
+      ]
+    },
+    {
+      "id": "fillrandom/VectorRep",
+      "benchmark": "fillrandom",
+      "implementation": "VectorRep",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 202.65,
+      "ci_lower": 202.246,
+      "ci_upper": 203.282,
+      "samples": [
+        202.67,
+        202.11,
+        202.58,
+        203.72,
+        202.17
+      ]
+    },
+    {
+      "id": "prefixscan/ExpanseMemTable (Batch)",
+      "benchmark": "prefixscan",
+      "implementation": "ExpanseMemTable (Batch)",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 116.818,
+      "ci_lower": 114.882,
+      "ci_upper": 118.432,
+      "samples": [
+        113.44,
+        116.88,
+        119.68,
+        117.76,
+        116.33
+      ]
+    },
+    {
+      "id": "prefixscan/ExpanseMemTable (Iterator)",
+      "benchmark": "prefixscan",
+      "implementation": "ExpanseMemTable (Iterator)",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 154.184,
+      "ci_lower": 151.168,
+      "ci_upper": 156.15,
+      "samples": [
+        149.16,
+        157.2,
+        155.41,
+        152.95,
+        156.2
+      ]
+    },
+    {
+      "id": "prefixscan/SkipListRep",
+      "benchmark": "prefixscan",
+      "implementation": "SkipListRep",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 46.288,
+      "ci_lower": 44.278,
+      "ci_upper": 47.858,
+      "samples": [
+        42.97,
+        45.17,
+        47.93,
+        49.13,
+        46.24
+      ]
+    },
+    {
+      "id": "prefixscan/VectorRep",
+      "benchmark": "prefixscan",
+      "implementation": "VectorRep",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 614.2,
+      "ci_lower": 553.79,
+      "ci_upper": 634.594,
+      "samples": [
+        533.44,
+        631.89,
+        635.18,
+        635.19,
+        635.3
+      ]
+    },
+    {
+      "id": "readrandom/ExpanseMemTable",
+      "benchmark": "readrandom",
+      "implementation": "ExpanseMemTable",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 3.788,
+      "ci_lower": 3.756,
+      "ci_upper": 3.812,
+      "samples": [
+        3.81,
+        3.8,
+        3.83,
+        3.74,
+        3.76
+      ]
+    },
+    {
+      "id": "readrandom/SkipListRep",
+      "benchmark": "readrandom",
+      "implementation": "SkipListRep",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 2.6,
+      "ci_lower": 2.578,
+      "ci_upper": 2.61,
+      "samples": [
+        2.61,
+        2.61,
+        2.6,
+        2.61,
+        2.57
+      ]
+    },
+    {
+      "id": "readrandom/VectorRep",
+      "benchmark": "readrandom",
+      "implementation": "VectorRep",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 1.828,
+      "ci_lower": 1.822,
+      "ci_upper": 1.83,
+      "samples": [
+        1.82,
+        1.83,
+        1.83,
+        1.83,
+        1.83
+      ]
+    },
+    {
+      "id": "seekrandom/ExpanseMemTable",
+      "benchmark": "seekrandom",
+      "implementation": "ExpanseMemTable",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 3.674,
+      "ci_lower": 3.618,
+      "ci_upper": 3.696,
+      "samples": [
+        3.68,
+        3.69,
+        3.71,
+        3.6,
+        3.69
+      ]
+    },
+    {
+      "id": "seekrandom/SkipListRep",
+      "benchmark": "seekrandom",
+      "implementation": "SkipListRep",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 2.43,
+      "ci_lower": 2.372,
+      "ci_upper": 2.452,
+      "samples": [
+        2.44,
+        2.45,
+        2.46,
+        2.35,
+        2.45
+      ]
+    },
+    {
+      "id": "seekrandom/VectorRep",
+      "benchmark": "seekrandom",
+      "implementation": "VectorRep",
+      "unit": "Mops_per_second",
+      "n": 5,
+      "point": 3.936,
+      "ci_lower": 3.9,
+      "ci_upper": 3.964,
+      "samples": [
+        3.88,
+        3.98,
+        3.97,
+        3.91,
+        3.94
+      ]
+    }
+  ],
+  "ratios": [
+    {
+      "id": "fillrandom/ExpanseMemTable_vs_SkipListRep",
+      "benchmark": "fillrandom",
+      "subject": "ExpanseMemTable",
+      "baseline": "SkipListRep",
+      "unit": "ratio_of_mean_Mops_higher_is_better",
+      "n": 5,
+      "ratio": 1.4056,
+      "ci_lower": 1.3851,
+      "ci_upper": 1.4419,
+      "beats_baseline": true
+    },
+    {
+      "id": "fillrandom/ExpanseMemTable_vs_VectorRep",
+      "benchmark": "fillrandom",
+      "subject": "ExpanseMemTable",
+      "baseline": "VectorRep",
+      "unit": "ratio_of_mean_Mops_higher_is_better",
+      "n": 5,
+      "ratio": 0.0218,
+      "ci_lower": 0.0215,
+      "ci_upper": 0.0224,
+      "beats_baseline": false
+    },
+    {
+      "id": "prefixscan/ExpanseMemTable (Batch)_vs_SkipListRep",
+      "benchmark": "prefixscan",
+      "subject": "ExpanseMemTable (Batch)",
+      "baseline": "SkipListRep",
+      "unit": "ratio_of_mean_Mops_higher_is_better",
+      "n": 5,
+      "ratio": 2.5237,
+      "ci_lower": 2.4207,
+      "ci_upper": 2.6442,
+      "beats_baseline": true
+    },
+    {
+      "id": "prefixscan/ExpanseMemTable (Batch)_vs_VectorRep",
+      "benchmark": "prefixscan",
+      "subject": "ExpanseMemTable (Batch)",
+      "baseline": "VectorRep",
+      "unit": "ratio_of_mean_Mops_higher_is_better",
+      "n": 5,
+      "ratio": 0.1902,
+      "ci_lower": 0.183,
+      "ci_upper": 0.21,
+      "beats_baseline": false
+    },
+    {
+      "id": "prefixscan/ExpanseMemTable (Iterator)_vs_SkipListRep",
+      "benchmark": "prefixscan",
+      "subject": "ExpanseMemTable (Iterator)",
+      "baseline": "SkipListRep",
+      "unit": "ratio_of_mean_Mops_higher_is_better",
+      "n": 5,
+      "ratio": 3.331,
+      "ci_lower": 3.1979,
+      "ci_upper": 3.486,
+      "beats_baseline": true
+    },
+    {
+      "id": "prefixscan/ExpanseMemTable (Iterator)_vs_VectorRep",
+      "benchmark": "prefixscan",
+      "subject": "ExpanseMemTable (Iterator)",
+      "baseline": "VectorRep",
+      "unit": "ratio_of_mean_Mops_higher_is_better",
+      "n": 5,
+      "ratio": 0.251,
+      "ci_lower": 0.2413,
+      "ci_upper": 0.2738,
+      "beats_baseline": false
+    },
+    {
+      "id": "readrandom/ExpanseMemTable_vs_SkipListRep",
+      "benchmark": "readrandom",
+      "subject": "ExpanseMemTable",
+      "baseline": "SkipListRep",
+      "unit": "ratio_of_mean_Mops_higher_is_better",
+      "n": 5,
+      "ratio": 1.4569,
+      "ci_lower": 1.4437,
+      "ci_upper": 1.47,
+      "beats_baseline": true
+    },
+    {
+      "id": "readrandom/ExpanseMemTable_vs_VectorRep",
+      "benchmark": "readrandom",
+      "subject": "ExpanseMemTable",
+      "baseline": "VectorRep",
+      "unit": "ratio_of_mean_Mops_higher_is_better",
+      "n": 5,
+      "ratio": 2.0722,
+      "ci_lower": 2.0547,
+      "ci_upper": 2.0865,
+      "beats_baseline": true
+    },
+    {
+      "id": "seekrandom/ExpanseMemTable_vs_SkipListRep",
+      "benchmark": "seekrandom",
+      "subject": "ExpanseMemTable",
+      "baseline": "SkipListRep",
+      "unit": "ratio_of_mean_Mops_higher_is_better",
+      "n": 5,
+      "ratio": 1.5119,
+      "ci_lower": 1.4918,
+      "ci_upper": 1.5464,
+      "beats_baseline": true
+    },
+    {
+      "id": "seekrandom/ExpanseMemTable_vs_VectorRep",
+      "benchmark": "seekrandom",
+      "subject": "ExpanseMemTable",
+      "baseline": "VectorRep",
+      "unit": "ratio_of_mean_Mops_higher_is_better",
+      "n": 5,
+      "ratio": 0.9334,
+      "ci_lower": 0.9214,
+      "ci_upper": 0.9429,
+      "beats_baseline": false
+    }
+  ],
+  "memory_bytes_per_entry": {
+    "values": {
+      "ExpanseMemTable": 13.2,
+      "SkipListRep": 18.7,
+      "VectorRep": 10.5
+    },
+    "interval": null,
+    "why_no_interval": "Deterministic allocator accounting \u2014 identical in every round, and verified so here. AGENTS.md 8.4 scopes interval requirements to continuous and sampling metrics; an interval on an exact count would be wrong, not missing."
+  }
+}

@@ -1,14 +1,27 @@
 {
   "meta": {
-    "commit": "7d87dff7",
-    "host": "reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8",
+    "commit": "6cb64b45",
+    "host": "reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8",
     "keys": 100000,
     "key_bytes": 16,
     "value_bytes": 64,
-    "method": "benches/bench_memtable.cc built -O3 against release libexpanse.so; median of 3 back-to-back runs on an idle host (load < 0.4)",
-    "retraction_372": "The skiplist arm of the commit-7d87dff7 run used a strawman Node embedding all 16 tower pointers statically (~146.7 B/entry); that density figure and the derived 11.1x headline are retracted (#372). ram_bytes_per_key.skiplist below is re-measured with the fair variable-height node (8 B key ptr + height*8 B tower, E[height]=4/3): deterministic seeded byte accounting, load-immune, reproduced twice (Apple M1, 8 cores, Apple clang 21, -O3, at the #372 fix commit; expanse/vector cells reproduce the 7d87dff7 values byte-for-byte). The wall-clock cells (sequential_scan_mops, readrandom_ns) are still the commit-7d87dff7 measurements taken against the retracted strawman baseline — the skiplist arms are pending a quiet-host re-run with the fair node layout."
+    "method": "benches/bench_memtable.cc built -O3 against release libexpanse.so; 5 rounds, mean with BCa 95% bootstrap intervals (2,000 resamples, seed 42) harvested by scripts/rocksdb_bench_harvest.py into results/baseline_rocksdb.json",
+    "run_id": "https://github.com/orieg/expanse/actions/runs/33398474866",
+    "retraction_372_discharged": "The commit-7d87dff7 run measured its skiplist arm against a strawman Node embedding all 16 tower pointers statically (~146.7 B/entry); that density figure and the derived 11.1x headline were retracted (#372). Density was re-measured first with the fair variable-height node (8 B key ptr + height*8 B tower, E[height]=4/3). The wall-clock cells are now re-measured against that same fair baseline too (run 33398474866, #382 item 5), and every ratio fell: sequential scan from a published ~10x to 3.331x [3.198, 3.486], point lookup to 1.457x [1.444, 1.470]. Nothing here is pending."
   },
-  "sequential_scan_mops": { "expanse": 160.8, "skiplist": 16.4, "vector": 599.0 },
-  "ram_bytes_per_key": { "expanse": 13.2, "skiplist": 18.7, "vector": 10.5 },
-  "readrandom_ns": { "expanse": 273, "skiplist": 541, "vector": 546 }
+  "sequential_scan_mops": {
+    "expanse": 154.18,
+    "skiplist": 46.29,
+    "vector": 614.2
+  },
+  "ram_bytes_per_key": {
+    "expanse": 13.2,
+    "skiplist": 18.7,
+    "vector": 10.5
+  },
+  "readrandom_ns": {
+    "expanse": 264,
+    "skiplist": 385,
+    "vector": 546
+  }
 }
