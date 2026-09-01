@@ -31,6 +31,9 @@ extern crate alloc as core_alloc;
 #[cfg(not(feature = "std"))]
 mod alloc_bridge;
 
+#[cfg(not(feature = "std"))]
+use core_alloc::boxed::Box;
+
 use core::ffi::{c_int, c_void};
 use core::ptr::{NonNull, null_mut};
 #[cfg(feature = "std")]
@@ -162,6 +165,7 @@ unsafe fn set_handle<'a>(parray: *const c_void) -> Option<&'a ExpanseSet> {
     unsafe { parray.cast::<ExpanseSet>().as_ref() }
 }
 
+#[cfg(feature = "std")]
 /// Sets `index`; returns 1 if newly set, 0 if it was already set.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Judy1Set(
@@ -179,6 +183,7 @@ pub unsafe extern "C" fn Judy1Set(
     }
 }
 
+#[cfg(feature = "std")]
 /// Unsets `index`; returns 1 if it was present. An emptied array word
 /// returns to null.
 #[unsafe(no_mangle)]
@@ -206,6 +211,7 @@ pub unsafe extern "C" fn Judy1Unset(
     }
 }
 
+#[cfg(feature = "std")]
 /// Membership test: 1 if `index` is set.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Judy1Test(parray: *const c_void, index: Word, _pj: *mut JError) -> c_int {
@@ -219,6 +225,7 @@ pub unsafe extern "C" fn Judy1Test(parray: *const c_void, index: Word, _pj: *mut
     }
 }
 
+#[cfg(feature = "std")]
 /// Number of set indexes in `index1..=index2`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Judy1Count(
@@ -233,6 +240,7 @@ pub unsafe extern "C" fn Judy1Count(
     }
 }
 
+#[cfg(feature = "std")]
 /// Locates the `nth` (1-based) set index; 1 on success with `*pindex`
 /// updated, 0 if the population is smaller.
 #[unsafe(no_mangle)]
@@ -294,17 +302,21 @@ macro_rules! judy1_nav {
     };
 }
 
+#[cfg(feature = "std")]
 judy1_nav!(
     Judy1First,
     next_at_or_after,
     "Smallest set index >= *pindex."
 );
+#[cfg(feature = "std")]
 judy1_nav!(Judy1Next, next_after, "Smallest set index > *pindex.");
+#[cfg(feature = "std")]
 judy1_nav!(
     Judy1Last,
     prev_at_or_before,
     "Largest set index <= *pindex."
 );
+#[cfg(feature = "std")]
 judy1_nav!(Judy1Prev, prev_before, "Largest set index < *pindex.");
 
 macro_rules! judy1_empty {
@@ -367,6 +379,7 @@ judy1_empty!(
     "Largest unset index < *pindex."
 );
 
+#[cfg(feature = "std")]
 /// Frees the whole array; returns the bytes freed and nulls the word.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Judy1FreeArray(pparray: *mut *mut c_void, pj: *mut JError) -> Word {
@@ -387,6 +400,7 @@ pub unsafe extern "C" fn Judy1FreeArray(pparray: *mut *mut c_void, pj: *mut JErr
     }
 }
 
+#[cfg(feature = "std")]
 /// Heap bytes used by the array (order-of-magnitude contract; see
 /// COMPAT.md non-goals).
 #[unsafe(no_mangle)]
@@ -426,6 +440,7 @@ fn slot_ptr(slot: Option<NonNull<u64>>) -> *mut c_void {
     slot.map_or(null_mut(), |p| p.as_ptr().cast())
 }
 
+#[cfg(feature = "std")]
 /// Inserts `index` (value slot zero-initialized if new) and returns a
 /// writable pointer to its value slot; `PJERR` on error. The slot stays
 /// valid until the next structural mutation.
@@ -449,6 +464,7 @@ pub unsafe extern "C" fn JudyLIns(
     }
 }
 
+#[cfg(feature = "std")]
 /// Deletes `index`; returns 1 if it was present. An emptied array word
 /// returns to null.
 #[unsafe(no_mangle)]
@@ -476,6 +492,7 @@ pub unsafe extern "C" fn JudyLDel(
     }
 }
 
+#[cfg(feature = "std")]
 /// Returns a writable pointer to `index`'s value slot, or null if absent.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn JudyLGet(
@@ -496,6 +513,7 @@ pub unsafe extern "C" fn JudyLGet(
     }
 }
 
+#[cfg(feature = "std")]
 /// Number of keys in `index1..=index2`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn JudyLCount(
@@ -510,6 +528,7 @@ pub unsafe extern "C" fn JudyLCount(
     }
 }
 
+#[cfg(feature = "std")]
 /// Locates the `nth` (1-based) key; returns its value slot and updates
 /// `*pindex`, or null if the population is smaller.
 #[unsafe(no_mangle)]
@@ -571,21 +590,25 @@ macro_rules! judyl_nav {
     };
 }
 
+#[cfg(feature = "std")]
 judyl_nav!(
     JudyLFirst,
     next_at_or_after,
     "Smallest key >= *pindex; returns its value slot."
 );
+#[cfg(feature = "std")]
 judyl_nav!(
     JudyLNext,
     next_after,
     "Smallest key > *pindex; returns its value slot."
 );
+#[cfg(feature = "std")]
 judyl_nav!(
     JudyLLast,
     prev_at_or_before,
     "Largest key <= *pindex; returns its value slot."
 );
+#[cfg(feature = "std")]
 judyl_nav!(
     JudyLPrev,
     prev_before,
@@ -656,6 +679,7 @@ judyl_empty!(
     "Largest absent key < *pindex."
 );
 
+#[cfg(feature = "std")]
 /// Frees the whole array; returns the bytes freed and nulls the word.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn JudyLFreeArray(pparray: *mut *mut c_void, pj: *mut JError) -> Word {
@@ -676,6 +700,7 @@ pub unsafe extern "C" fn JudyLFreeArray(pparray: *mut *mut c_void, pj: *mut JErr
     }
 }
 
+#[cfg(feature = "std")]
 /// Heap bytes used by the array (order-of-magnitude contract).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn JudyLMemUsed(parray: *const c_void) -> Word {
@@ -730,6 +755,7 @@ unsafe fn strmap_handle<'a>(parray: *const c_void) -> Option<&'a mut ExpanseStrM
     unsafe { parray.cast_mut().cast::<ExpanseStrMap>().as_mut() }
 }
 
+#[cfg(feature = "std")]
 /// Inserts `index` (value slot zero-initialized if new) and returns a
 /// writable pointer to its value slot; `PJERR` on error.
 #[unsafe(no_mangle)]
@@ -755,6 +781,7 @@ pub unsafe extern "C" fn JudySLIns(
     }
 }
 
+#[cfg(feature = "std")]
 /// Deletes `index`; returns 1 if it was present. An emptied array word
 /// returns to null.
 #[unsafe(no_mangle)]
@@ -786,6 +813,7 @@ pub unsafe extern "C" fn JudySLDel(
     }
 }
 
+#[cfg(feature = "std")]
 /// Returns a writable pointer to `index`'s value slot, or null if absent.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn JudySLGet(
@@ -838,27 +866,32 @@ macro_rules! judysl_nav {
     };
 }
 
+#[cfg(feature = "std")]
 judysl_nav!(
     JudySLFirst,
     next_at_or_after,
     "Smallest stored string >= *index; returns its value slot."
 );
+#[cfg(feature = "std")]
 judysl_nav!(
     JudySLNext,
     next_after,
     "Smallest stored string > *index; returns its value slot."
 );
+#[cfg(feature = "std")]
 judysl_nav!(
     JudySLLast,
     prev_at_or_before,
     "Largest stored string <= *index; returns its value slot."
 );
+#[cfg(feature = "std")]
 judysl_nav!(
     JudySLPrev,
     prev_before,
     "Largest stored string < *index; returns its value slot."
 );
 
+#[cfg(feature = "std")]
 /// Frees the whole array; returns the bytes freed and nulls the word.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn JudySLFreeArray(pparray: *mut *mut c_void, pj: *mut JError) -> Word {
@@ -906,6 +939,7 @@ unsafe fn hs_key<'a>(index: *const c_void, length: Word) -> Option<&'a [u8]> {
     Some(unsafe { core::slice::from_raw_parts(index.cast::<u8>(), length) })
 }
 
+#[cfg(feature = "std")]
 /// Inserts the byte string (value slot zero-initialized if new) and
 /// returns a writable pointer to its value slot; `PJERR` on error.
 #[unsafe(no_mangle)]
@@ -929,6 +963,7 @@ pub unsafe extern "C" fn JudyHSIns(
     }
 }
 
+#[cfg(feature = "std")]
 /// Returns the value slot of the byte string, or null if absent.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn JudyHSGet(
@@ -950,6 +985,7 @@ pub unsafe extern "C" fn JudyHSGet(
     }
 }
 
+#[cfg(feature = "std")]
 /// Deletes the byte string; returns 1 if it was present. An emptied
 /// array word returns to null.
 #[unsafe(no_mangle)]
@@ -982,6 +1018,7 @@ pub unsafe extern "C" fn JudyHSDel(
     }
 }
 
+#[cfg(feature = "std")]
 /// Frees the whole array; returns the bytes freed (implementation-
 /// defined here — see docs/COMPAT.md doc-gap D4) and nulls the word.
 #[unsafe(no_mangle)]
