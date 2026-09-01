@@ -11,14 +11,12 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
 endif()
 
 # Include directories
-set(EXPANSE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../crates/expanse-capi/include")
-set(EXPANSE_ROOT_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../include")
+set(EXPANSE_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../include")
 set(INTEGRATION_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
 include_directories(
     ${INTEGRATION_INCLUDE_DIR}
     ${EXPANSE_INCLUDE_DIR}
-    ${EXPANSE_ROOT_INCLUDE_DIR}
 )
 
 # Find or specify libexpanse

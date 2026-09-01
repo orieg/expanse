@@ -88,8 +88,8 @@ for HWCAP in x86-64-v2 x86-64-v3 x86-64-v4; do
 done
 
 # Headers
-if [ -d "REPO_ROOT_PLACEHOLDER/crates/expanse-capi/include" ]; then
-    cp REPO_ROOT_PLACEHOLDER/crates/expanse-capi/include/*.h* %{buildroot}/usr/include/
+if [ -d "REPO_ROOT_PLACEHOLDER/include" ]; then
+    cp REPO_ROOT_PLACEHOLDER/include/*.h* %{buildroot}/usr/include/
 elif [ -d "REPO_ROOT_PLACEHOLDER/package/include" ]; then
     cp REPO_ROOT_PLACEHOLDER/package/include/*.h* %{buildroot}/usr/include/
 elif [ -d "DIST_DIR_PLACEHOLDER/include" ]; then

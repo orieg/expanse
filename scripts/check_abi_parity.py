@@ -3,7 +3,7 @@
 scripts/check_abi_parity.py — Automated C ABI Symbol Parity Linter for Expanse.
 
 Verifies 100% symbol and feature parity of the modern libexpanse C API
-(`crates/expanse-capi/include/expanse.h`) across all target language bindings:
+(`include/expanse.h`) across all target language bindings:
   1. Java Panama FFM (`bindings/java/src/main/java/io/github/orieg/expanse/internal/ExpanseNative.java`)
   2. .NET C# P/Invoke (`bindings/dotnet/src/Expanse.NET/Native/NativeMethods.cs`)
   3. Python PyO3 (`crates/expanse-py/src/`)
@@ -177,6 +177,7 @@ PYTHON_FEATURE_MAPPING = {
     "expanse_blob_map_insert": ("blobmap.rs", ["insert", "__setitem__"]),
     "expanse_blob_map_remove": ("blobmap.rs", ["remove", "__delitem__"]),
     "expanse_blob_map_get": ("blobmap.rs", ["get", "__getitem__", "get_bytes"]),
+    "expanse_blob_map_get_into": ("blobmap.rs", ["get", "__getitem__", "get_bytes"]),
     "expanse_blob_map_scan_filtered": ("blobmap.rs", ["get", "len", "contains_key", "inner"]),
     "expanse_blob_map_compact": ("blobmap.rs", ["compact", "inner"]),
     "expanse_blob_map_len": ("blobmap.rs", ["__len__", "len"]),
@@ -298,6 +299,7 @@ NODE_FEATURE_MAPPING = {
     "expanse_blob_map_insert": ("blobmap.rs", ["set", "insert"]),
     "expanse_blob_map_remove": ("blobmap.rs", ["delete", "remove"]),
     "expanse_blob_map_get": ("blobmap.rs", ["get", "get_with_meta", "getWithMeta"]),
+    "expanse_blob_map_get_into": ("blobmap.rs", ["get", "get_with_meta", "getWithMeta"]),
     "expanse_blob_map_scan_filtered": ("blobmap.rs", ["prune", "index", "iter"]),
     "expanse_blob_map_compact": ("blobmap.rs", ["compact"]),
     "expanse_blob_map_len": ("blobmap.rs", ["size", "len"]),
@@ -470,9 +472,14 @@ def parse_go_purego(go_path: Path) -> Set[str]:
 
 def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
     """Builds the full cross-ecosystem ABI parity report."""
-    header_path = root / "crates" / "expanse-capi" / "include" / "expanse.h"
-    if not header_path.exists():
-        header_path = root / "include" / "expanse.h"
+    duplicate_header_dir = root / "crates" / "expanse-capi" / "include"
+    if duplicate_header_dir.exists():
+        raise RuntimeError(
+            f"Duplicate header directory found: {duplicate_header_dir}. "
+            "Canonical public headers must live exclusively in include/ (#563)."
+        )
+
+    header_path = root / "include" / "expanse.h"
 
     java_path = (
         root
@@ -540,7 +547,7 @@ def print_text_report(c_symbols: List[CSymbol], report: ParityReport, verbose: b
     print("================================================================================")
     print("           libexpanse C ABI Multi-Ecosystem Symbol Parity Report                ")
     print("================================================================================")
-    print(f"Canonical C ABI Header: crates/expanse-capi/include/expanse.h")
+    print("Canonical C ABI Header: include/expanse.h")
     print(f"Total Declared C Functions: {report.total_c_symbols}\n")
 
     print("--------------------------------------------------------------------------------")

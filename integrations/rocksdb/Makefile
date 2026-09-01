@@ -4,7 +4,7 @@ CXX ?= clang++
 CXXFLAGS ?= -std=c++20 -O3 -Wall -Wextra -pthread
 
 ROOT_DIR := ../..
-INCLUDE_DIRS := -I./include -I$(ROOT_DIR)/crates/expanse-capi/include -I$(ROOT_DIR)/include
+INCLUDE_DIRS := -I./include -I$(ROOT_DIR)/include
 # Link the RELEASE libexpanse by default: tests and especially benchmarks must
 # never silently measure a debug build (docs/BENCHMARKING.md). Override with
 # `make LIB_DIR=... bench` if you really need a different build.

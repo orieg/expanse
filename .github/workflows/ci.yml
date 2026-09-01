@@ -910,7 +910,7 @@ jobs:
           cargo build --release -p expanse-capi
           PREFIX="$PWD/compat-prefix"
           mkdir -p "$PREFIX/include" "$PREFIX/lib"
-          cp crates/expanse-capi/include/Judy.h "$PREFIX/include/"
+          cp include/Judy.h "$PREFIX/include/"
           cp target/release/libexpanse.so "$PREFIX/lib/libJudy.so"
           echo "JUDY_PREFIX=$PREFIX" >> "$GITHUB_ENV"
 
@@ -956,7 +956,7 @@ jobs:
           cargo build --release -p expanse-capi
           $prefix = "$PWD\compat-prefix"
           New-Item -ItemType Directory -Force -Path "$prefix\include", "$prefix\lib" | Out-Null
-          Copy-Item crates/expanse-capi/include/Judy.h "$prefix\include"
+          Copy-Item include/Judy.h "$prefix\include"
           Copy-Item target/release/expanse.dll.lib "$prefix\lib\libJudy.lib"
           Copy-Item target/release/expanse.dll.lib "$prefix\libJudy.lib"
           Copy-Item target/release/expanse.dll "$prefix"
@@ -1318,7 +1318,7 @@ jobs:
       - name: Modern API smoke (expanse.h)
         run: |
           cargo build --release -p expanse-capi
-          cc crates/expanse-capi/smoke/modern_api_smoke.c -Icrates/expanse-capi/include -Ltarget/release -lexpanse -o modern_smoke
+          cc crates/expanse-capi/smoke/modern_api_smoke.c -Iinclude -Ltarget/release -lexpanse -o modern_smoke
           LD_LIBRARY_PATH="$PWD/target/release" ./modern_smoke
 
       - name: Preload smoke (COMPAT.md gate G4)
@@ -1669,13 +1669,13 @@ jobs:
       - name: Compile and Run MemTable Tests (Standard)
         if: matrix.sanitizer == 'none'
         run: |
-          c++ -std=c++20 -O3 -Iintegrations/rocksdb/include -Icrates/expanse-capi/include -Iinclude \
+          c++ -std=c++20 -O3 -Iintegrations/rocksdb/include -Iinclude \
             integrations/rocksdb/src/expanse_memtable.cc \
             integrations/rocksdb/tests/test_expanse_memtable.cc \
             target/release/libexpanse.a -lpthread -ldl -lm -o /tmp/test_memtable
           /tmp/test_memtable
 
-          c++ -std=c++20 -O3 -Iintegrations/rocksdb/include -Icrates/expanse-capi/include -Iinclude \
+          c++ -std=c++20 -O3 -Iintegrations/rocksdb/include -Iinclude \
             integrations/rocksdb/src/expanse_memtable.cc \
             integrations/rocksdb/tests/test_differential_memtable.cc \
             target/release/libexpanse.a -lpthread -ldl -lm -o /tmp/test_differential
@@ -1684,13 +1684,13 @@ jobs:
       - name: Compile and Run MemTable Tests (ASan / UBSan)
         if: matrix.sanitizer == 'asan-ubsan'
         run: |
-          c++ -std=c++20 -g -fsanitize=address,undefined -Iintegrations/rocksdb/include -Icrates/expanse-capi/include -Iinclude \
+          c++ -std=c++20 -g -fsanitize=address,undefined -Iintegrations/rocksdb/include -Iinclude \
             integrations/rocksdb/src/expanse_memtable.cc \
             integrations/rocksdb/tests/test_expanse_memtable.cc \
             target/release/libexpanse.a -lpthread -ldl -lm -o /tmp/test_memtable_asan
           /tmp/test_memtable_asan
 
-          c++ -std=c++20 -g -fsanitize=address,undefined -Iintegrations/rocksdb/include -Icrates/expanse-capi/include -Iinclude \
+          c++ -std=c++20 -g -fsanitize=address,undefined -Iintegrations/rocksdb/include -Iinclude \
             integrations/rocksdb/src/expanse_memtable.cc \
             integrations/rocksdb/tests/test_differential_memtable.cc \
             target/release/libexpanse.a -lpthread -ldl -lm -o /tmp/test_differential_asan
@@ -1699,7 +1699,7 @@ jobs:
       - name: Compile and Run MemTable Tests (TSan)
         if: matrix.sanitizer == 'tsan'
         run: |
-          c++ -std=c++20 -g -fsanitize=thread -Iintegrations/rocksdb/include -Icrates/expanse-capi/include -Iinclude \
+          c++ -std=c++20 -g -fsanitize=thread -Iintegrations/rocksdb/include -Iinclude \
             integrations/rocksdb/src/expanse_memtable.cc \
             integrations/rocksdb/tests/test_expanse_memtable.cc \
             target/release/libexpanse.a -lpthread -ldl -lm -o /tmp/test_memtable_tsan
