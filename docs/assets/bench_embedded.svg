@@ -101,16 +101,16 @@
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="45" y="76.3" width="50" height="118.7" class="b-expanse" rx="2"/>
-    <text x="70" y="67.8" class="t-val-accent">40</text>
+    <rect x="45" y="73.4" width="50" height="121.6" class="b-expanse" rx="2"/>
+    <text x="70" y="64.9" class="t-val-accent">41</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub" text-anchor="middle">13.9&#215; slower</text>
-    <rect x="115" y="186.5" width="50" height="8.5" class="b-hashmap" rx="2"/>
-    <text x="140" y="178.0" class="t-val-blue">2.8</text>
+    <text x="70" y="228" class="t-chart-sub" text-anchor="middle">14.4&#215; slower</text>
+    <rect x="115" y="186.6" width="50" height="8.4" class="b-hashmap" rx="2"/>
+    <text x="140" y="178.1" class="t-val-blue">2.8</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">HashMap</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">unordered</text>
-    <rect x="185" y="108.6" width="50" height="86.4" class="b-stdmap" rx="2"/>
-    <text x="210" y="100.1" class="t-val-muted">29</text>
+    <rect x="185" y="111.1" width="50" height="83.9" class="b-stdmap" rx="2"/>
+    <text x="210" y="102.6" class="t-val-muted">28</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">ordered</text>
   </g>
@@ -131,13 +131,13 @@
     <rect x="45" y="79.9" width="50" height="115.1" class="b-expanse" rx="2"/>
     <text x="70" y="71.4" class="t-val-accent">11.5</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub" text-anchor="middle">8.1&#215; slower</text>
-    <rect x="115" y="180.8" width="50" height="14.2" class="b-hashmap" rx="2"/>
-    <text x="140" y="172.3" class="t-val-blue">1.4</text>
+    <text x="70" y="228" class="t-chart-sub" text-anchor="middle">8.3&#215; slower</text>
+    <rect x="115" y="181.1" width="50" height="13.9" class="b-hashmap" rx="2"/>
+    <text x="140" y="172.6" class="t-val-blue">1.4</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">HashMap</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">unordered</text>
-    <rect x="185" y="124.7" width="50" height="70.3" class="b-stdmap" rx="2"/>
-    <text x="210" y="116.2" class="t-val-muted">7.0</text>
+    <rect x="185" y="124.8" width="50" height="70.2" class="b-stdmap" rx="2"/>
+    <text x="210" y="116.3" class="t-val-muted">7.0</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">ordered</text>
   </g>
@@ -155,21 +155,21 @@
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="45" y="155.4" width="50" height="39.6" class="b-expanse" rx="2"/>
-    <text x="70" y="146.9" class="t-val-accent">1.06</text>
+    <rect x="45" y="155.8" width="50" height="39.2" class="b-expanse" rx="2"/>
+    <text x="70" y="147.3" class="t-val-accent">1.04</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">batched</text>
-    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">3.0&#215; faster</text>
-    <rect x="115" y="82.5" width="50" height="112.5" class="b-expanse" rx="2"/>
-    <text x="140" y="74.0" class="t-val-accent">3.0</text>
+    <text x="70" y="228" class="t-chart-sub t-win" text-anchor="middle">3.1&#215; faster</text>
+    <rect x="115" y="83.7" width="50" height="111.3" class="b-expanse" rx="2"/>
+    <text x="140" y="75.2" class="t-val-accent">3.0</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">per-key</text>
     <text x="140" y="228" class="t-chart-sub t-win" text-anchor="middle">1.1&#215; faster</text>
-    <rect x="185" y="74.8" width="50" height="120.2" class="b-hashmap" rx="2"/>
-    <text x="210" y="66.3" class="t-val-blue">3.2</text>
+    <rect x="185" y="74.5" width="50" height="120.5" class="b-hashmap" rx="2"/>
+    <text x="210" y="66.0" class="t-val-blue">3.2</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">HashMap</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">scans all 2k</text>
   </g>
 
-  <text x="30" y="262" class="t-chart-sub">Panel 1 derived by scripts/embedded_envelope.py; panels 2-4 measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic) &#183; commit 054e1be60, run 33559804575.</text>
-  <text x="30" y="275" class="t-chart-sub">Expiry scaling: Expanse&#8217;s pass cost follows the stale count; the HashMap sweep follows the tracked count (~68 KiB flat table, L2-resident on this host) &#183; bulk shape (600 of 2,000 expired): remove_range 23.6 &#181;s, per-key loop 68 &#181;s vs sweep 7.1 &#181;s — the linear sweep still wins bulk expiry.</text>
+  <text x="30" y="262" class="t-chart-sub">Panel 1 derived by scripts/embedded_envelope.py; panels 2-4 measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic) &#183; commit 13ee3d923, run 33567182415.</text>
+  <text x="30" y="275" class="t-chart-sub">Expiry scaling: Expanse&#8217;s pass cost follows the stale count; the HashMap sweep follows the tracked count (~68 KiB flat table, L2-resident on this host) &#183; bulk shape (600 of 2,000 expired): remove_range 24.4 &#181;s, per-key loop 68 &#181;s vs sweep 7.0 &#181;s — the linear sweep still wins bulk expiry.</text>
   <text x="30" y="288" class="t-chart-sub">Host caveat: a 30 MiB L3 flatters flat scans; the on-device ESP32-C3/C6 chart is pending the first hardware harvest &#183; BCa 95% CIs in docs/benchmarks/embedded/results.json.</text>
 </svg>

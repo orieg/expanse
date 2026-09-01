@@ -9,14 +9,14 @@
     },
     "wallclock_provenance": {
       "host_description": "12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic)",
-      "commit": "054e1be605ceaf4ebcfc92ca9faa3d55fc65b27f",
-      "run_id": "https://github.com/orieg/expanse/actions/runs/33559804575",
+      "commit": "13ee3d923493853e30d05dc22c9609d453375182",
+      "run_id": "https://github.com/orieg/expanse/actions/runs/33567182415",
       "os": "linux",
       "arch": "x86_64",
       "load_average_at_harvest": [
-        1.78,
-        1.23,
-        0.53
+        1.0,
+        0.66,
+        0.29
       ],
       "generated_by": "scripts/bench_baseline.py",
       "source": "criterion 0.8 sample.json (times[i] / iters[i])"
@@ -33,75 +33,75 @@
   },
   "wallclock_ns": {
     "ingest_expanse": {
-      "point_ns": 79135.79736255163,
-      "ci_lower_ns": 79046.26691622379,
-      "ci_upper_ns": 79233.72606873639,
+      "point_ns": 81064.68898106125,
+      "ci_lower_ns": 80998.0123475797,
+      "ci_upper_ns": 81131.24227881024,
       "status": "OK"
     },
     "ingest_hashmap": {
-      "point_ns": 5699.893220121149,
-      "ci_lower_ns": 5690.490491418238,
-      "ci_upper_ns": 5719.380020547422,
+      "point_ns": 5621.623457230394,
+      "ci_lower_ns": 5615.134796427741,
+      "ci_upper_ns": 5628.096099462633,
       "status": "OK"
     },
     "ingest_btreemap": {
-      "point_ns": 57623.08219126439,
-      "ci_lower_ns": 57587.779964262496,
-      "ci_upper_ns": 57663.18186928178,
+      "point_ns": 55932.40982755975,
+      "ci_lower_ns": 55894.4361916644,
+      "ci_upper_ns": 55976.50957216163,
       "status": "OK"
     },
     "lookup_expanse": {
-      "point_ns": 5756.583957114046,
-      "ci_lower_ns": 5752.553688044534,
-      "ci_upper_ns": 5771.569758707486,
+      "point_ns": 5757.411979577808,
+      "ci_lower_ns": 5754.078144838252,
+      "ci_upper_ns": 5768.129041939029,
       "status": "OK"
     },
     "lookup_hashmap": {
-      "point_ns": 708.3483798103406,
-      "ci_lower_ns": 707.7715052944229,
-      "ci_upper_ns": 709.275980914089,
+      "point_ns": 695.3704352363496,
+      "ci_lower_ns": 695.0769505793116,
+      "ci_upper_ns": 696.1955263692407,
       "status": "OK"
     },
     "lookup_btreemap": {
-      "point_ns": 3514.3598420811177,
-      "ci_lower_ns": 3510.8535866318143,
-      "ci_upper_ns": 3520.815904110744,
+      "point_ns": 3511.3929774346016,
+      "ci_lower_ns": 3508.6820824898664,
+      "ci_upper_ns": 3517.507908681108,
       "status": "OK"
     },
     "evict_bulk_expanse": {
-      "point_ns": 68026.11266729723,
-      "ci_lower_ns": 67992.49720112803,
-      "ci_upper_ns": 68073.21402007485,
+      "point_ns": 67979.95290834748,
+      "ci_lower_ns": 67931.88085790245,
+      "ci_upper_ns": 68072.18614618422,
       "status": "OK"
     },
     "evict_bulk_hashmap": {
-      "point_ns": 7062.360730985661,
-      "ci_lower_ns": 7039.814228697598,
-      "ci_upper_ns": 7088.197095580034,
+      "point_ns": 6979.077287735784,
+      "ci_lower_ns": 6965.897195949668,
+      "ci_upper_ns": 6993.743891214034,
       "status": "OK"
     },
     "evict_steady_expanse": {
-      "point_ns": 2999.270991883243,
-      "ci_lower_ns": 2996.256657706124,
-      "ci_upper_ns": 3006.7836285238627,
+      "point_ns": 2967.971176747091,
+      "ci_lower_ns": 2965.602235281992,
+      "ci_upper_ns": 2970.2577499504787,
       "status": "OK"
     },
     "evict_steady_hashmap": {
-      "point_ns": 3206.142244591614,
-      "ci_lower_ns": 3201.2721282913185,
-      "ci_upper_ns": 3213.207385668564,
+      "point_ns": 3213.0619760533577,
+      "ci_lower_ns": 3208.6197393159423,
+      "ci_upper_ns": 3218.5496732824076,
       "status": "OK"
     },
     "evict_bulk_range_expanse": {
-      "point_ns": 23645.74658004025,
-      "ci_lower_ns": 23639.136998602306,
-      "ci_upper_ns": 23654.805379746787,
+      "point_ns": 24405.28077298749,
+      "ci_lower_ns": 24383.96687117724,
+      "ci_upper_ns": 24430.174783409908,
       "status": "OK"
     },
     "evict_steady_range_expanse": {
-      "point_ns": 1056.355735851437,
-      "ci_lower_ns": 1055.6101683264426,
-      "ci_upper_ns": 1057.136074667449,
+      "point_ns": 1044.2351227870172,
+      "ci_lower_ns": 1043.10632883217,
+      "ci_upper_ns": 1045.9257990678402,
       "status": "OK"
     }
   }
