@@ -35,6 +35,22 @@ void *expanse_esp_alloc_spiram(size_t size);
  */
 void expanse_esp_free(void *ptr);
 
+/**
+ * Backing heap for libexpanse itself.
+ *
+ * `libexpanse.a` is built `no_std`; its global allocator imports exactly
+ * these two symbols, so the component must define them or the link fails.
+ * Honours CONFIG_EXPANSE_SRAM_INTERNAL_ONLY: internal DRAM when set, the
+ * default heap otherwise.
+ *
+ * Alignment is handled on the Rust side (trie nodes are 32-byte aligned,
+ * heap_caps_malloc promises 4-8), so these are plain wrappers.
+ */
+void *expanse_host_malloc(size_t size);
+
+/** Frees a pointer returned by expanse_host_malloc(). */
+void expanse_host_free(void *ptr);
+
 #ifdef __cplusplus
 }
 #endif

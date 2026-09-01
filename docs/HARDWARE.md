@@ -329,7 +329,7 @@ RFC; (b) see §4.2.
 
 ### 4.2 Embedded architecture & component packaging
 
-- **ESP-IDF component / ESP32 packaging** (shipped in #268 / #265): The ESP-IDF component lives in `components/expanse/` with `idf_component.yml`, `CMakeLists.txt`, `Kconfig`, and SRAM capability integration (`expanse_esp_alloc_internal`). Bare-metal ESP32-C3 (`riscv32imc-unknown-none-elf`) is checked in CI alongside `riscv32imac` and `thumbv7em`.
+- **ESP-IDF component / ESP32 packaging** (`components/expanse/`, linked in #558): `CMakeLists.txt` builds `libexpanse.a` with cargo for the bare-metal RISC-V target matching `IDF_TARGET` and links it; `src/expanse_esp_idf.c` defines the `expanse_host_malloc`/`expanse_host_free` pair the `no_std` global allocator imports, routed to `MALLOC_CAP_INTERNAL` under `CONFIG_EXPANSE_SRAM_INTERNAL_ONLY`. RISC-V parts only — the Xtensa ESP32/S2/S3 have no mainline rustc target and the configure step fails loudly for them. Bare-metal ESP32-C3 (`riscv32imc-unknown-none-elf`) is checked in CI — engine, C ABI staticlib, and an assertion that the archive resolves against nothing but that host pair — alongside `riscv32imac` and `thumbv7em`. No ESP-IDF link is exercised in CI; the component build is unverified until an ESP-IDF lane or on-hardware run covers it.
 - **CI cross-compilation matrix**: Bare-metal RV32 (`riscv32imac-unknown-none-elf`, with and without `+zbb`), ESP32-C3 (`riscv32imc-unknown-none-elf`), and Arm Cortex-M4 (`thumbv7em-none-eabihf`) are verified on every PR.
 
 ---

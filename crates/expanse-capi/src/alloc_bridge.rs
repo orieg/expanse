@@ -1,9 +1,11 @@
 //! Bare-metal allocator and panic bridge for the `no_std` staticlib (#558).
 //!
 //! `expanse-trie` is `no_std + alloc`, so a bare-metal link needs a
-//! `#[global_allocator]`. The host supplies it: on ESP-IDF the C side already
-//! wraps `heap_caps_malloc` in `components/expanse/src/expanse_esp_idf.c`, and
-//! any other target can provide the same two symbols.
+//! `#[global_allocator]`. The host supplies the memory: this bridge imports
+//! `expanse_host_malloc`/`expanse_host_free` and the link fails without them,
+//! which is the intended failure — a bare-metal libexpanse has no heap of its
+//! own. `components/expanse/src/expanse_esp_idf.c` defines the pair over
+//! `heap_caps_malloc`; any other host provides the same two symbols.
 //!
 //! **Alignment is not optional here.** Every 32-bit branch and leaf node is
 //! `#[repr(C, align(32))]` with a compile-time assert (`node32.rs`), while
@@ -23,7 +25,7 @@ unsafe extern "C" {
     fn expanse_host_free(ptr: *mut u8);
 }
 
-/// Bytes reserved ahead of every block to store thehost pointer for `dealloc`.
+/// Bytes reserved ahead of every block to store the host pointer for `dealloc`.
 const HEADER: usize = core::mem::size_of::<usize>();
 
 /// Routes Rust allocations to the host's `malloc`/`free`, honouring alignment.

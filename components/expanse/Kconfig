@@ -4,15 +4,10 @@ menu "Expanse Embedded Digital Trie"
         bool "Force Expanse allocations into internal fast DRAM (MALLOC_CAP_INTERNAL)"
         default y
         help
-            When enabled, Expanse trie nodes and leaves are allocated exclusively
-            from internal high-speed DRAM rather than external SPI PSRAM, maximizing
-            cache line throughput and eliminating bus arbitration latency.
-
-    config EXPANSE_DEFAULT_CHUNK_SIZE
-        int "Default embedded slab chunk size (bytes)"
-        default 2048
-        range 512 65536
-        help
-            Chunk allocation size for BlobArena32 in embedded microcontroller workloads.
+            When enabled, libexpanse's allocator draws from internal high-speed
+            DRAM (MALLOC_CAP_INTERNAL) rather than external SPI PSRAM, avoiding
+            bus arbitration latency on the trie's pointer-chasing descent.
+            When disabled, allocations use MALLOC_CAP_DEFAULT. Read by
+            expanse_host_malloc() in src/expanse_esp_idf.c.
 
 endmenu

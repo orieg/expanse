@@ -435,7 +435,11 @@ Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C
 
 ### 2.12 Espressif ESP-IDF Component (`components/expanse`)
 
-Expanse is packaged as a first-class component for the **Espressif ESP-IDF framework** (v5.0+), providing both the modern `expanse_*` C API and the legacy `Judy1*` / `JudyL*` C ABI for 32-bit microcontrollers (ESP32, ESP32-C3, ESP32-C6, ESP32-S3).
+Expanse is packaged as a component for the **Espressif ESP-IDF framework** (v5.0+). `CMakeLists.txt` builds `libexpanse.a` with cargo for the bare-metal RISC-V target matching `IDF_TARGET` and links it against the host-allocator glue in `src/expanse_esp_idf.c`.
+
+**RISC-V parts only** — ESP32-C2/C3 (`riscv32imc-unknown-none-elf`) and ESP32-C6/H2/P4 (`riscv32imac-unknown-none-elf`). The Xtensa ESP32/S2/S3 have no mainline rustc target; the configure step fails with a named error rather than registering a component with no engine behind it.
+
+The component exposes the modern `expanse_*` ordered set/map core and **no `Judy*` symbols** — the legacy drop-in ABI is a 64-bit-only guarantee. See the [surface matrix](COMPAT.md#build-configuration-surface-matrix).
 
 #### Component Structure
 ```
@@ -445,14 +449,17 @@ components/expanse/
 ├── Kconfig                # Menuconfig configuration options
 ├── README.md              # Component documentation and quickstart
 ├── include/
-│   ├── expanse.h          # Modern C API header
-│   ├── Judy.h            # Legacy Judy C ABI compatibility header
-│   └── expanse_esp_idf.h  # Internal SRAM capability allocator helpers
+│   └── expanse_esp_idf.h  # SRAM capability helpers + the host allocator pair
 ├── src/
-│   └── expanse_esp_idf.c  # ESP-IDF heap capability allocation routines
+│   └── expanse_esp_idf.c  # heap_caps_* routines; defines expanse_host_malloc/-_free
 └── test/
     └── test_expanse.c     # Unity test suite for ESP-IDF
 ```
+
+`expanse.h` is not copied here: `CMakeLists.txt` puts the canonical
+`crates/expanse-capi/include` on the include path, so the component cannot
+drift from the shipped header. `Judy.h` is deliberately absent — a 32-bit
+build exports no `Judy*` symbols to back it.
 
 #### Consuming in ESP-IDF Projects
 Add the dependency to your project's `main/idf_component.yml`:

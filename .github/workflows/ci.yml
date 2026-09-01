@@ -678,12 +678,60 @@ jobs:
       # the width-gated surface cannot rot into dead code (#558).
       - name: Build ESP32-C3 (RV32IMC) C ABI staticlib
         run: |
-          cargo build -p expanse-capi --no-default-features \
+          cargo build --release -p expanse-capi --no-default-features \
             --features embedded-panic-handler \
             --target riscv32imc-unknown-none-elf
           cargo clippy -p expanse-capi --no-default-features \
             --features embedded-panic-handler \
             --target riscv32imc-unknown-none-elf -- -D warnings
+
+      # The whole point of the alloc bridge: the archive must reach the
+      # outside world through exactly two host symbols (plus compiler-rt
+      # builtins, which the ESP toolchain supplies). Anything else means a
+      # libc dependency crept in and the ESP-IDF link would break.
+      - name: Assert the bare-metal archive has no libc dependency
+        run: |
+          set -euo pipefail
+          rustup component add llvm-tools
+          NM="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/host: //p')/bin/llvm-nm"
+          AR=target/riscv32imc-unknown-none-elf/release/libexpanse.a
+          "$NM" --undefined-only "$AR" | awk '{print $2}' | sort -u > /tmp/undef.txt
+          "$NM" --defined-only   "$AR" | awk '{print $3}' | sort -u > /tmp/def.txt
+          comm -23 /tmp/undef.txt /tmp/def.txt | { grep -v '^__' || true; } | sort > /tmp/external.txt
+          printf 'expanse_host_free\nexpanse_host_malloc\n' > /tmp/expected.txt
+          if ! diff -u /tmp/expected.txt /tmp/external.txt; then
+            echo "::error::libexpanse.a needs symbols beyond the host allocator pair"
+            exit 1
+          fi
+
+      # Compile a C translation unit against the shipped header at 32-bit
+      # width: proves EXPANSE_WIDE_SURFACE and expanse_word_t resolve the way
+      # docs/COMPAT.md says, and that the narrow call signatures type-check.
+      - name: Type-check the 32-bit C header path
+        run: |
+          set -euo pipefail
+          cat > /tmp/narrow_surface.c <<'CEOF'
+          #include <stdint.h>
+          #include "expanse.h"
+          _Static_assert(sizeof(expanse_word_t) == 4, "32-bit key/value word");
+          _Static_assert(EXPANSE_WIDE_SURFACE == 0, "narrow surface on 32-bit");
+          int probe(void) {
+              expanse_word_t k = 0;
+              expanse_set_t *s = expanse_set_new();
+              expanse_set_insert(s, 1);
+              expanse_set_contains(s, 1);
+              expanse_set_first(s, &k);
+              expanse_set_free(s);
+              expanse_map_t *m = expanse_map_new();
+              expanse_map_insert(m, 1, 2, &k);
+              expanse_map_get(m, 1, &k);
+              expanse_map_free(m);
+              return (int)k;
+          }
+          CEOF
+          clang --target=riscv32-unknown-none-elf -march=rv32imc -mabi=ilp32 \
+            -ffreestanding -fsyntax-only \
+            -Icrates/expanse-capi/include /tmp/narrow_surface.c
 
       # 64-bit bare metal drops only expanse_sync_* (no std::sync); it keeps
       # the whole legacy Judy surface. Guards the pointer-width gates against
