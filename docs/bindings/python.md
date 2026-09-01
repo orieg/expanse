@@ -12,7 +12,7 @@
 - **Zero-Overhead Memory Compaction**: Consumes as low as **0.07–0.36 bytes/key** on clustered integer sets *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a — deterministic byte accounting)*, versus tens of bytes/key for Python's standard `set` and `dict`.
 - **Cache-Line Aligned Digital Tries**: $O(\text{depth})$ traversals (at most 8 digit steps for 64-bit keys) keeping branch and leaf evaluations within 64-byte L1 cache lines.
 - **Ordered Traversal & Range Scans**: Native sorted iteration, $O(\text{depth})$ `first()`, `last()`, `next_at_or_after()`, `prev_at_or_before()`, rank (`count_below`), and select (`by_count`) without maintaining secondary index trees.
-- **GIL-Free Optimistic Concurrency Control (OCC)**: `SyncExpanseSet` and `SyncExpanseMap` release the Python GIL (`py.detach`, pyo3 0.29's renamed `allow_threads`) during queries, so multiple Python `threading` / `ThreadPoolExecutor` workers execute reads concurrently across cores with zero read locks. (Multi-core throughput scaling figures are load-sensitive and pending a clean-host re-measurement, [#546](https://github.com/orieg/expanse/issues/546).)
+- **GIL-Free Optimistic Concurrency Control (OCC)**: `SyncExpanseSet` and `SyncExpanseMap` release the Python GIL (`py.detach`, pyo3 0.29's renamed `allow_threads`) during queries, so multiple Python `threading` / `ThreadPoolExecutor` workers execute reads concurrently across cores with zero read locks. **Which API you call decides whether you get multi-core reads.** Per-call `get` releases and reacquires the GIL around a lookup of tens of nanoseconds, so the handoff costs more than the work and concurrent callers convoy on reacquisition — it measures **0.02×** at 16 threads, below a GIL-bound `dict`. `get_many` amortises one release across the batch and is the form to use for concurrent reads: **1.64× faster single-threaded** and **1.26× at two threads**, beating `dict` at every width measured *(measured: reference host, run [33454057737](https://github.com/orieg/expanse/actions/runs/33454057737), artifact [`results/baseline_python_concurrency.json`](../../results/baseline_python_concurrency.json))*.
 - **Strict Typing & IDE Support**: Full PEP 561 compliance (`py.typed` and `__init__.pyi` stubs) for mypy, Pyright, and IDE autocompletion.
 
 ---
@@ -202,7 +202,18 @@ In standard CPython, multithreaded CPU-bound data lookups often serialize on the
 
 1. **Lock-Free Reads**: Query operations (`contains`, `get`, `len`, `is_empty`) validate version seqlocks and read concurrently without holding mutexes or the Python GIL.
 2. **Serialized Writes**: Mutations (`insert`, `remove`) synchronize internally while allowing readers to proceed optimistically.
-3. **Multi-Core Reads**: Multiple Python threads execute reads across CPU cores without GIL serialization or lock contention. (Absolute scaling factors are load-sensitive and pending a clean-host re-measurement, [#546](https://github.com/orieg/expanse/issues/546).)
+3. **Multi-Core Reads** — through `get_many`, not `get`. Measured on the reference host (200,000 keys, 200,000 probes at 50% hit, 5 rounds, load average 0.77 on 24 cores), Mops/s with scaling against that arm's own single-thread figure:
+
+   | Threads | `get_many` | per-call `get` | `dict` (GIL-bound control) |
+   |---:|---:|---:|---:|
+   | 1 | **10.61** (1.00×) | 6.45 (1.00×) | 8.64 (1.00×) |
+   | 2 | **13.39 (1.26×)** | 2.41 (0.37×) | 7.28 (0.84×) |
+   | 4 | 6.72 (0.63×) | 0.78 (0.12×) | 8.40 (0.97×) |
+   | 16 | 2.88 (0.27×) | 0.12 (0.02×) | 1.76 (0.20×) |
+
+   `get_many` is the only arm that exceeds parity (1.26× at two threads) and it beats the `dict` control at every width. It still falls off past two threads: at 16 threads each worker runs only about three batches, so there is little left to amortise, and assembling the result list is itself GIL-bound Python work. The batch size is not tuned against this run — picking one to flatter the curve would be the mid-execution tuning section 8.7 warns about.
+
+   *(measured: reference host — Intel i9-12900F, 24 threads, run [33454057737](https://github.com/orieg/expanse/actions/runs/33454057737), artifact [`results/baseline_python_concurrency.json`](../../results/baseline_python_concurrency.json))*
 
 ### Multithreaded Concurrency Example:
 
