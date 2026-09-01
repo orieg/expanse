@@ -126,12 +126,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Verify ThreadSanitizer canary catches unsuppressed races (negative control)
         run: |
-          if cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test tsan_canary; then
-            echo "::error::TSan canary passed unexpectedly! Suppressions may be overbroad or TSan is inactive."
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test tsan_canary > canary.log 2>&1 || true
+          cat canary.log
+          if ! grep -q "ThreadSanitizer: data race" canary.log; then
+            echo "::error::TSan canary failed without a ThreadSanitizer data race report (build/link failure?)"
             exit 1
-          else
-            echo "✓ TSan canary correctly caught intentional unsuppressed data race (inverted exit-code check passed)."
           fi
+          echo "✓ TSan canary correctly caught intentional unsuppressed data race (TSan report verified)."
         env:
           RUSTFLAGS: "-Zsanitizer=thread"
           TSAN_OPTIONS: "suppressions=${{ github.workspace }}/.github/tsan-suppressions.txt"
