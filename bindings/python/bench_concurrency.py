@@ -67,6 +67,9 @@ def make_probes(keys: list[int], n: int) -> list[int]:
     return out[:n]
 
 
+BATCH = 4096
+
+
 def _worker(container, probes, lo: int, hi: int) -> int:
     """Sums the values it retrieves so the probe cannot be optimised away."""
     sink = 0
@@ -77,13 +80,30 @@ def _worker(container, probes, lo: int, hi: int) -> int:
     return sink
 
 
-def run_arm(container, probes: list[int], threads: int) -> float:
+def _worker_batched(container, probes, lo: int, hi: int) -> int:
+    """Same work, but through `get_many` — one GIL release per batch.
+
+    The per-call arm above releases and reacquires the GIL around a lookup of
+    tens of nanoseconds. This arm exists to separate the cost of the lookup
+    from the cost of the handoff around it (#554): identical probes, identical
+    order, identical sink, only the batching differs.
+    """
+    sink = 0
+    for start in range(lo, hi, BATCH):
+        chunk = probes[start : min(start + BATCH, hi)]
+        for v in container.get_many(chunk):
+            if v is not None:
+                sink += v
+    return sink
+
+
+def run_arm(container, probes: list[int], threads: int, worker=_worker) -> float:
     """Elapsed seconds for one pass of `probes` split across `threads` workers."""
     n = len(probes)
     bounds = [(i * n // threads, (i + 1) * n // threads) for i in range(threads)]
     t0 = time.perf_counter()
     with ThreadPoolExecutor(max_workers=threads) as pool:
-        sinks = list(pool.map(lambda b: _worker(container, probes, b[0], b[1]), bounds))
+        sinks = list(pool.map(lambda b: worker(container, probes, b[0], b[1]), bounds))
     elapsed = time.perf_counter() - t0
     if sum(sinks) < 0:  # consume the sink; never true, never optimised out
         raise AssertionError("unreachable")
@@ -123,11 +143,18 @@ def measure(pop: int, probe_count: int, thread_counts, rounds: int) -> dict:
     probes = make_probes(keys, probe_count)
     containers = build_containers(keys)
 
+    # `expanse_sync_map_batched` reuses the same container: it is the same
+    # engine reached through `get_many` rather than per-call `get`, so any
+    # difference between the two arms is the GIL handoff, not the index.
+    plan = [(n, c, _worker) for n, c in containers.items()]
+    if hasattr(containers.get("expanse_sync_map"), "get_many"):
+        plan.append(("expanse_sync_map_batched", containers["expanse_sync_map"], _worker_batched))
+
     arms: dict[str, dict] = {}
-    for name, c in containers.items():
+    for name, c, worker in plan:
         per_threads = {}
         for t in thread_counts:
-            samples = [run_arm(c, probes, t) for _ in range(rounds)]
+            samples = [run_arm(c, probes, t, worker) for _ in range(rounds)]
             mops = [len(probes) / s / 1e6 for s in samples]
             per_threads[str(t)] = {
                 "threads": t,
@@ -222,6 +249,29 @@ def self_test() -> int:
     assert (here / "expanse_trie" / "__init__.py").is_file(), (
         "expected the source copy of expanse_trie beside this script"
     )
+
+    # The batched worker must be indistinguishable from the per-call one in
+    # what it computes — same values, same order, same sink. If batching
+    # changed results it would not be a faster measurement of the same thing.
+    class _StubBatched(dict):
+        def get_many(self, ks):
+            return [self.get(k) for k in ks]
+
+    stub = _StubBatched(d)
+    assert _worker_batched(stub, probes, 0, len(probes)) == _worker(stub, probes, 0, len(probes)), (
+        "batched worker disagrees with the per-call worker"
+    )
+    # And it must actually go through get_many, not silently fall back to get.
+    calls = []
+
+    class _Counting(_StubBatched):
+        def get_many(self, ks):
+            calls.append(len(ks))
+            return super().get_many(ks)
+
+    _worker_batched(_Counting(d), probes, 0, len(probes))
+    assert calls, "batched worker never called get_many"
+    assert sum(calls) == len(probes), f"batched worker probed {sum(calls)} of {len(probes)} keys"
 
     print("bench_concurrency.py --self-test: all checks passed")
     return 0
