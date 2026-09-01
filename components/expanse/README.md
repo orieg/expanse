@@ -9,11 +9,21 @@ an ESP-IDF project.
 
 ## Supported targets
 
-| Chip | ISA | Rust target | Status |
-|---|---|---|---|
-| ESP32-C2, ESP32-C3 | RV32IMC | `riscv32imc-unknown-none-elf` | supported |
-| ESP32-C6, ESP32-H2, ESP32-P4 | RV32IMAC | `riscv32imac-unknown-none-elf` | supported |
-| ESP32, ESP32-S2, ESP32-S3 | Xtensa | — | **not supported** |
+| Chip | ISA (HP core) | Harts (HP / LP) | Rust target built | Status |
+|---|---|---|---|---|
+| ESP32-C2 (ESP8684), ESP32-C3 | RV32IMC | 1 / 0 | `riscv32imc-unknown-none-elf` | supported |
+| ESP32-C6 | RV32IMAC | 1 / 1 | `riscv32imac-unknown-none-elf` | supported |
+| ESP32-H2 | RV32IMAC | 1 / 0 | `riscv32imac-unknown-none-elf` | supported |
+| ESP32-P4 | RV32IMAFC (+Zc, Zb) | 2 / 1 | `riscv32imac-unknown-none-elf` (instruction subset) | supported, ABI untested — see below |
+| ESP32, ESP32-S2, ESP32-S3 | Xtensa | — | — | **not supported** |
+
+Every ISA and hart count above is quoted from the part's Espressif datasheet or
+Technical Reference Manual — document revision, section and page — in
+[`docs/HARDWARE.md` §4.3](../../docs/HARDWARE.md#43-espressif-risc-v-per-part-core-inventory--cas-soundness--validated-567).
+That section also records which compare-and-swap mechanism is sound per part;
+the short version is that `portable-atomic`'s `unsafe-assume-single-core` is
+sound on C2/C3/H2 and **unsound on C6 and P4**, which have a second hart on the
+same buses.
 
 The Xtensa parts have no mainline rustc target — building for them needs the
 esp-rs toolchain fork, which this component does not use. `CMakeLists.txt`
@@ -23,8 +33,17 @@ component with no engine behind it.
 `libexpanse.a` is built `no_std` against the *bare-metal* targets, not
 `riscv32imc-esp-espidf`. It makes no libc calls: its allocator reaches memory
 only through `expanse_host_malloc`/`expanse_host_free`, which `src/expanse_esp_idf.c`
-defines over `heap_caps_malloc`. The bare-metal ABI (ilp32, soft float) is what
-the ESP-IDF RISC-V toolchain emits, and the whole thing builds on stable rustc.
+defines over `heap_caps_malloc`. On C2, C3, C6 and H2 the bare-metal ABI (ilp32,
+soft float) is the only one available — none of those cores implements the F
+extension — and the whole thing builds on stable rustc.
+
+**ESP32-P4 caveat.** The P4's HP complex is RV32IMAFC (ESP32-P4 Datasheet
+Pre-release v0.7 §4.1.1.1), so it *does* implement F. This component still
+builds it against `riscv32imac-unknown-none-elf`: a strict instruction subset
+the P4 executes, but not the same float ABI an `imafc` toolchain emits. The
+mainline `riscv32imafc-unknown-none-elf` target exists and is the triple that
+matches the part. No ESP-IDF lane exists in CI, so the P4 link is untested here
+either way — treat it as unverified rather than known-good.
 
 ## What the 32-bit library exports
 

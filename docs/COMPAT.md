@@ -134,6 +134,34 @@ pair rather than a range — so the corresponding C contracts have nothing to
 translate to. `ExpanseStrMap`/`ExpanseBytesMap`/`ExpanseBlobMap` and the
 `sync` module exist only at 64-bit width.
 
+#### The 32-bit concurrent story
+
+The absent `expanse_sync_*` symbols at 32-bit are a **C-surface** gap, not an
+engine gap: the Rust `sync32` module ships `SyncExpanseMap32`/`SyncExpanseSet32`
+(single writer enforced by `split(&mut)`, validated optimistic reads returning
+`Busy`, deferred reclamation drained at reader quiescence). What it does **not**
+have is a C ABI, so no configuration of `libexpanse` exports it.
+
+That wrapper needs **no compare-and-swap**: its whole protocol is atomic
+load/store plus fences (`crates/expanse/src/sync32.rs`), which is why it
+compiles for `riscv32imc-unknown-none-elf` — the ESP32-C2/C3, whose cores
+implement no RISC-V A extension at all. Its single-writer/many-reader contract
+is satisfied **within one hart**.
+
+Which 32-bit parts could carry a concurrent surface, and which
+compare-and-swap mechanism is sound on each, is answered per part from the
+Espressif datasheets and Technical Reference Manuals in
+[docs/HARDWARE.md §4.3](HARDWARE.md#43-espressif-risc-v-per-part-core-inventory--cas-soundness--validated-567).
+The load-bearing results for this document: ESP32-C2, ESP32-C3 and ESP32-H2 are
+single-hart; ESP32-C6 pairs its HP core with an LP RISC-V core that reads and
+writes HP SRAM; ESP32-P4 is dual-core HP plus an LP core reaching L2 SRAM.
+`AtomicU64` is native on none of them — which is why the 32-bit concurrent
+surface is built on `AtomicU32` seqlocks
+([#564](https://github.com/orieg/expanse/issues/564)) — and
+`portable-atomic`'s `unsafe-assume-single-core` — the cheap CAS path — is sound
+on C2/C3/H2 and **unsound on C6 and P4**, so it must never be switched on for
+the Espressif family as a whole.
+
 
 ### Key and value width
 
