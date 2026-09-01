@@ -10,13 +10,27 @@
 //! unordered hash-keyed wrapper is directly comparable to `DashMap` and to
 //! the ordered cascade it sidesteps.
 //!
+//! The `SyncExpanseMap32` arms (issue #573) are the Tier-1 host instrument
+//! for the 32-bit single-writer/many-reader protocol: one writer thread
+//! churns a disjoint key range while `threads` readers probe the stable
+//! range with `try_get`, and each table reports reader throughput plus
+//! the **Busy rate** — the protocol-health number, the share of read
+//! attempts that observed an open write bracket and gave up — and the
+//! writer's refusal count (`ArenaFull`/`ReclaimBacklog`). One table per
+//! writer duty: full duty (every read races a bracket; the ceiling of
+//! the Busy rate) and paced write rates of 1M, 100k and 10k mutations/s
+//! bracketing embedded ingestion rates (a saturated CAN bus is ~10k
+//! frames/s). Report-only like every arm here; a read path degrading to
+//! permanent `Busy` shows up as a collapsed `busy` line, not a failed
+//! gate.
+//!
 //! # Workload shape
 //!
 //! | Property | Value |
 //! |---|---|
 //! | `workload_id` | `core_concurrency` |
 //! | `group` | 2 |
-//! | `population` | 1M (keyspace 2M) |
+//! | `population` | 1M (keyspace 2M); `SyncExpanseMap32` arm: 4,096 stable + 4,096 churn keys (keyspace 8k, 32-bit) |
 //! | `probes_and_reuse` | Continuous stream in 500ms window |
 //! | `hit_rate` | ~50% |
 //! | `miss_gen_method` | Bounded keyspace random stream |
@@ -34,6 +48,7 @@ use expanse_trie::strmap::ExpanseStrMap;
 use expanse_trie::sync::{
     SyncExpanseBlobMap, SyncExpanseBytesMap, SyncExpanseMap, SyncExpanseSet, SyncExpanseStrMap,
 };
+use expanse_trie::sync32::{Busy, SyncExpanseMap32, WriteError};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -543,6 +558,134 @@ fn bench_str_dashmap(ratio_read: u32, readers: usize) -> (f64, f64) {
 /// falling back to `default` when unset. CI uses these knobs
 /// (`EXPANSE_BENCH_THREADS`, `EXPANSE_BENCH_WORKLOADS`) to bound the sweep;
 /// local runs with the variables unset keep the full default sweep.
+/// Stable keys of the `sync32` arm: prefilled once, never mutated, probed
+/// by every reader over a 2× keyspace (~50% hit rate like the 64-bit arms).
+const S32_STABLE: u32 = 4_096;
+/// Churn keys live above the stable range; the writer inserts and removes
+/// them continuously so every reader probe races a live write bracket.
+const S32_CHURN: u32 = 4_096;
+/// Fixed arena for the `sync32` wrapper: comfortably above the node count
+/// an 8k-key `ExpanseMap32` reaches, so `ArenaFull` only ever signals a
+/// reclamation stall (which the `refused` column then reports).
+const S32_NODE_CAP: usize = 16_384;
+const S32_MAX_READERS: usize = 16;
+
+/// Per-thread-count outcome of the `sync32` arm.
+struct Sync32Outcome {
+    read_ops: f64,
+    write_ops: f64,
+    busy: u64,
+    ok: u64,
+    refused: u64,
+}
+
+/// One writer on the churn range — at full duty when `write_rate` is
+/// `None`, otherwise paced to that many mutations per second by spinning
+/// on a deadline — and `readers` readers on the stable range. `readers`
+/// is the table's `threads` column; the writer is an extra thread. Reader
+/// throughput counts only reads that validated; `busy` counts the attempts
+/// abandoned to an open write bracket.
+fn bench_sync32_map(readers: usize, write_rate: Option<u64>) -> Sync32Outcome {
+    assert!(
+        readers <= S32_MAX_READERS,
+        "sync32 arm supports at most {S32_MAX_READERS} readers"
+    );
+    let mut m = SyncExpanseMap32::with_capacity(S32_NODE_CAP, S32_MAX_READERS);
+    let (mut w, mut pool) = m.split();
+    let mut rng = XorShift(0x5CA1_AB1E);
+    for _ in 0..S32_STABLE {
+        let k = (rng.next() % (2 * u64::from(S32_STABLE))) as u32;
+        w.try_insert(k, !k).expect("prefill");
+    }
+
+    let stop = AtomicBool::new(false);
+    let (busy_total, ok_total, refused_total, write_total) = (
+        AtomicU64::new(0),
+        AtomicU64::new(0),
+        AtomicU64::new(0),
+        AtomicU64::new(0),
+    );
+    std::thread::scope(|s| {
+        for i in 0..readers {
+            let mut r = pool.take().expect("reader slot");
+            let stop = &stop;
+            let (busy_total, ok_total) = (&busy_total, &ok_total);
+            s.spawn(move || {
+                let mut rng = XorShift(0x1000 + i as u64);
+                let (mut ok, mut busy) = (0u64, 0u64);
+                let mut sink = 0u32;
+                while !stop.load(Ordering::Relaxed) {
+                    let k = (rng.next() % (2 * u64::from(S32_STABLE))) as u32;
+                    match r.try_get(k) {
+                        Ok(v) => {
+                            sink ^= v.unwrap_or(0);
+                            ok += 1;
+                        }
+                        Err(Busy) => busy += 1,
+                    }
+                }
+                std::hint::black_box(sink);
+                ok_total.fetch_add(ok, Ordering::Relaxed);
+                busy_total.fetch_add(busy, Ordering::Relaxed);
+            });
+        }
+        {
+            let stop = &stop;
+            let (refused_total, write_total) = (&refused_total, &write_total);
+            s.spawn(move || {
+                let mut rng = XorShift(0x5EED_5EED);
+                let (mut writes, mut refused) = (0u64, 0u64);
+                let start = std::time::Instant::now();
+                let period = write_rate.map(|r| Duration::from_secs_f64(1.0 / r as f64));
+                while !stop.load(Ordering::Relaxed) {
+                    if let Some(period) = period {
+                        // Deadline pacing: mutation `n` may not start before
+                        // `start + n * period`, so the rate holds without
+                        // sleeping (whose granularity is coarser than the
+                        // 1 µs period of the 1M/s row).
+                        let deadline = start + period * (writes + refused) as u32;
+                        while std::time::Instant::now() < deadline {
+                            if stop.load(Ordering::Relaxed) {
+                                break;
+                            }
+                            std::hint::spin_loop();
+                        }
+                    }
+                    let k = S32_STABLE + (rng.next() % u64::from(S32_CHURN)) as u32;
+                    let res = if writes % 3 == 2 {
+                        w.try_remove(k).map(|_| ())
+                    } else {
+                        w.try_insert(k, k).map(|_| ())
+                    };
+                    match res {
+                        Ok(()) => writes += 1,
+                        Err(WriteError::ArenaFull | WriteError::ReclaimBacklog) => {
+                            refused += 1;
+                            // A stalled reader blocks reclamation; retrying
+                            // is the documented response, not spinning.
+                            w.try_reclaim();
+                            std::thread::yield_now();
+                        }
+                    }
+                }
+                write_total.fetch_add(writes, Ordering::Relaxed);
+                refused_total.fetch_add(refused, Ordering::Relaxed);
+            });
+        }
+        std::thread::sleep(WINDOW);
+        stop.store(true, Ordering::Relaxed);
+    });
+
+    let ok = ok_total.load(Ordering::Relaxed);
+    Sync32Outcome {
+        read_ops: ok as f64 / WINDOW.as_secs_f64(),
+        write_ops: write_total.load(Ordering::Relaxed) as f64 / WINDOW.as_secs_f64(),
+        busy: busy_total.load(Ordering::Relaxed),
+        ok,
+        refused: refused_total.load(Ordering::Relaxed),
+    }
+}
+
 fn env_csv<T>(name: &str, default: &[T]) -> Vec<T>
 where
     T: Copy + std::str::FromStr,
@@ -658,6 +801,52 @@ fn main() {
                     total / base
                 );
             }
+        }
+    }
+
+    // sync32 arms (issue #573): the roles are fixed by the protocol — one
+    // writer, `threads` readers — so the read-percentage sweep does not
+    // apply; the sweep here is over the writer's duty instead. Rows keep
+    // the parser-compatible four-column shape (`bench_concurrency_check.py`,
+    // one table per duty); the `busy`/`refused` line that follows each row
+    // is the protocol-health telemetry and is not parsed.
+    let duties: [(Option<u64>, &str); 4] = [
+        (None, "writer full duty / N readers try_get"),
+        (Some(1_000_000), "writer 1M/s / N readers try_get"),
+        (Some(100_000), "writer 100k/s / N readers try_get"),
+        (Some(10_000), "writer 10k/s / N readers try_get"),
+    ];
+    for (rate, label) in duties {
+        println!("\n=== SyncExpanseMap32 ({label}) ===");
+        println!(
+            "{:>8} {:>16} {:>16} {:>10}",
+            "threads", "read ops/sec", "write ops/sec", "scale"
+        );
+        let mut base: Option<f64> = None;
+        for &t in &threads_list {
+            if t > S32_MAX_READERS || (t > max_threads && t != 1) {
+                continue;
+            }
+            let o = bench_sync32_map(t, rate);
+            let total = o.read_ops + o.write_ops;
+            let base = *base.get_or_insert(total);
+            println!(
+                "{:>8} {:>16.0} {:>16.0} {:>9.2}x",
+                t,
+                o.read_ops,
+                o.write_ops,
+                total / base
+            );
+            let attempts = o.ok + o.busy;
+            let busy_pct = if attempts == 0 {
+                0.0
+            } else {
+                o.busy as f64 * 100.0 / attempts as f64
+            };
+            println!(
+                "         busy {:>12} of {:>12} attempts ({:>6.3}%)   refused writes {}",
+                o.busy, attempts, busy_pct, o.refused
+            );
         }
     }
 }
