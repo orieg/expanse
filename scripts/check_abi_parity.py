@@ -46,6 +46,10 @@ class CSymbol:
     signature: str
     category: str
     line_number: int
+    # Declared inside a `#if !EXPANSE_WIDE_SURFACE` block: present only in a
+    # 32-bit libexpanse. The bindings target 64-bit hosts, so these are
+    # reported but excluded from binding coverage (#578).
+    narrow_only: bool = False
 
 
 @dataclass
@@ -60,6 +64,7 @@ class ParityReport:
     node_covered: Set[str] = field(default_factory=set)
     node_missing: Set[str] = field(default_factory=set)
     go_covered: Set[str] = field(default_factory=set)
+    narrow_only: List[str] = field(default_factory=list)
     go_missing: Set[str] = field(default_factory=set)
     category_breakdown: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
@@ -309,6 +314,11 @@ NODE_FEATURE_MAPPING = {
 }
 
 
+# `#if !EXPANSE_WIDE_SURFACE` / `#if EXPANSE_WIDE_SURFACE == 0` open the
+# 32-bit-only surface block in expanse.h.
+_NARROW_IF_RE = re.compile(r"^#if\s*(?:!\s*EXPANSE_WIDE_SURFACE|EXPANSE_WIDE_SURFACE\s*==\s*0)\b")
+
+
 def parse_c_header(header_path: Path) -> List[CSymbol]:
     """Parses C function declarations from expanse.h."""
     text = header_path.read_text(encoding="utf-8")
@@ -326,9 +336,25 @@ def parse_c_header(header_path: Path) -> List[CSymbol]:
     # We will iterate line by line or collapse multi-line signatures
     sig_buffer = ""
     start_line = 0
+    # Preprocessor nesting: a stack of booleans, True for the `#if` block
+    # that opens the 32-bit-only surface. Any enclosing True marks a
+    # declaration narrow-only.
+    if_stack: List[bool] = []
 
     for idx, raw_line in enumerate(lines, start=1):
         line = raw_line.strip()
+
+        if line.startswith("#if"):
+            if_stack.append(bool(_NARROW_IF_RE.match(line)))
+            continue
+        if line.startswith("#endif"):
+            if if_stack:
+                if_stack.pop()
+            continue
+        if line.startswith("#else") or line.startswith("#elif"):
+            if if_stack:
+                if_stack[-1] = False
+            continue
 
         # Check for category comments
         if line.startswith("/* ----") or line.startswith("/* ---"):
@@ -365,6 +391,7 @@ def parse_c_header(header_path: Path) -> List[CSymbol]:
                         signature=sig,
                         category=current_category,
                         line_number=start_line,
+                        narrow_only=any(if_stack),
                     )
                 )
 
@@ -532,7 +559,11 @@ def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
     node_dir = root / "crates" / "expanse-node" / "src"
     go_path = root / "bindings" / "go" / "native_purego.go"
 
-    c_symbols = parse_c_header(header_path)
+    all_symbols = parse_c_header(header_path)
+    narrow_only = sorted(s.name for s in all_symbols if s.narrow_only)
+    # Bindings run on 64-bit hosts, where the narrow block does not exist:
+    # coverage is measured over the wide-or-shared surface only.
+    c_symbols = [s for s in all_symbols if not s.narrow_only]
     c_symbol_names = {s.name for s in c_symbols}
 
     java_symbols = parse_java_panama(java_path)
@@ -553,6 +584,7 @@ def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
         node_missing=node_missing,
         go_covered=c_symbol_names.intersection(go_symbols),
         go_missing=c_symbol_names - go_symbols,
+        narrow_only=narrow_only,
     )
 
     # Category breakdown
@@ -580,7 +612,13 @@ def print_text_report(c_symbols: List[CSymbol], report: ParityReport, verbose: b
     print("           libexpanse C ABI Multi-Ecosystem Symbol Parity Report                ")
     print("================================================================================")
     print("Canonical C ABI Header: include/expanse.h")
-    print(f"Total Declared C Functions: {report.total_c_symbols}\n")
+    print(f"Total Declared C Functions: {report.total_c_symbols}")
+    if report.narrow_only:
+        print(
+            f"32-bit-only surface (`!EXPANSE_WIDE_SURFACE`, not bindable from 64-bit hosts, "
+            f"excluded from coverage): {len(report.narrow_only)} — {', '.join(report.narrow_only)}"
+        )
+    print()
 
     print("--------------------------------------------------------------------------------")
     print(f"{'Ecosystem / Binding Layer':<35} | {'Wrapped':<10} | {'Coverage':<10} | {'Status'}")
@@ -651,6 +689,11 @@ def format_markdown_table(c_symbols: List[CSymbol], report: ParityReport) -> str
         status = "100% Full Parity" if counts["java"] == total and counts["dotnet"] == total and counts["python"] == total and counts["node"] == total and counts["go"] == total else "Partial"
         lines.append(f"| `{cat_name}` | {total} | {j} | {d} | {p} | {n} | {g} | {status} |")
 
+    if report.narrow_only:
+        lines.append(
+            f"| 32-bit-only surface (`!EXPANSE_WIDE_SURFACE`) | {len(report.narrow_only)} | — | — | — | — | — | "
+            f"not bindable from 64-bit hosts; excluded from coverage: {', '.join(f'`{n}`' for n in report.narrow_only)} |"
+        )
     lines.append(f"| **Total C ABI Symbols** | **{report.total_c_symbols}** | **{len(report.java_covered)}/{report.total_c_symbols}** | **{len(report.dotnet_covered)}/{report.total_c_symbols}** | **{len(report.python_covered)}/{report.total_c_symbols}** | **{len(report.node_covered)}/{report.total_c_symbols}** | **{len(report.go_covered)}/{report.total_c_symbols}** | **100% Complete** |")
     return "\n".join(lines)
 
@@ -787,6 +830,47 @@ def self_test() -> int:
     finally:
         os.remove(tf_name)
 
+    # 2b. Narrow-surface block: symbols inside `#if !EXPANSE_WIDE_SURFACE`
+    # are tagged narrow_only (through nesting) and nothing else is.
+    mock_narrow = """
+    /* --- Map --- */
+    bool expanse_map_get(const expanse_map_t *map, expanse_word_t key, expanse_word_t *out);
+    #if !EXPANSE_WIDE_SURFACE
+    typedef void (*expanse_map_remove_range_fn)(expanse_word_t key, expanse_word_t value, void *ctx);
+    size_t expanse_map_remove_range(expanse_map_t *map, expanse_word_t lo, expanse_word_t hi,
+                                    expanse_map_remove_range_fn cb, void *ctx);
+    #ifdef SOMETHING_NESTED
+    bool expanse_map_nested_probe(expanse_map_t *map);
+    #endif
+    #endif /* !EXPANSE_WIDE_SURFACE */
+    #if EXPANSE_WIDE_SURFACE
+    uint64_t expanse_map_count_below(const expanse_map_t *map, uint64_t key);
+    #endif
+    #if EXPANSE_WIDE_SURFACE == 0
+    bool expanse_map_narrow_two(expanse_map_t *map);
+    #else
+    bool expanse_map_wide_two(expanse_map_t *map);
+    #endif
+    """
+    with tempfile.NamedTemporaryFile("w", suffix=".h", delete=False) as tf:
+        tf.write(mock_narrow)
+        tf_name = tf.name
+    try:
+        symbols = parse_c_header(Path(tf_name))
+        tags = {sym.name: sym.narrow_only for sym in symbols}
+        assert tags == {
+            "expanse_map_get": False,
+            "expanse_map_remove_range": True,
+            "expanse_map_nested_probe": True,
+            "expanse_map_count_below": False,
+            "expanse_map_narrow_two": True,
+            "expanse_map_wide_two": False,
+        }, tags
+        # The callback typedef is not a function declaration.
+        assert "expanse_map_remove_range_fn" not in tags
+    finally:
+        os.remove(tf_name)
+
     # 3. Base floor extraction self-tests (Task 2)
     # Valid ref against HEAD
     base_fl, base_err = get_base_floor_constant("HEAD", "scripts/check_abi_parity.py", "MIN_C_SYMBOLS")
@@ -879,6 +963,7 @@ def main() -> int:
     if args.json:
         out = {
             "total_c_symbols": report.total_c_symbols,
+            "narrow_only": report.narrow_only,
             "min_c_symbols_floor": effective_floor,
             "java": {"covered": len(report.java_covered), "missing": sorted(list(report.java_missing))},
             "dotnet": {"covered": len(report.dotnet_covered), "missing": sorted(list(report.dotnet_missing))},

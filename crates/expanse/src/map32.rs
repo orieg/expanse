@@ -815,4 +815,42 @@ mod tests {
         assert_eq!(got, [0xFFFF_FFFF]);
         assert_eq!(map.last(), Some((9, 9)));
     }
+
+    /// Regression for the batched bitmap arm (#578, caught by the 32-bit C
+    /// test in CI): a level-1 map bitmap stores `pop0 = count - 1`, so
+    /// removing a whole expanse must not underflow it, and the free /
+    /// demote thresholds are in terms of the remaining count.
+    #[test]
+    fn remove_range_clears_a_whole_map_bitmap_expanse() {
+        let empty = ExpanseMap32::new().mem_used();
+        // > MAP_BITMAP_ENTER keys inside one 256-key expanse -> map bitmap.
+        let mut map = ExpanseMap32::new();
+        for k in 0..100u32 {
+            map.insert(0x0101_0000 + k, k);
+        }
+        let mut n = 0;
+        assert_eq!(
+            map.remove_range(0x0101_0000..=0x0101_00FF, |_, _| n += 1),
+            100
+        );
+        assert_eq!(n, 100);
+        assert!(map.is_empty());
+        assert_eq!(
+            map.mem_used(),
+            empty,
+            "node leak after clearing the expanse"
+        );
+
+        // Partial removal down to exactly one survivor must demote, not free.
+        let mut map = ExpanseMap32::new();
+        for k in 0..100u32 {
+            map.insert(0x0101_0000 + k, k);
+        }
+        assert_eq!(map.remove_range(0x0101_0001..=0x0101_00FF, |_, _| {}), 99);
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get(0x0101_0000), Some(0));
+        assert_eq!(map.first(), Some((0x0101_0000, 0)));
+        assert_eq!(map.remove(0x0101_0000), Some(0));
+        assert_eq!(map.mem_used(), empty);
+    }
 }

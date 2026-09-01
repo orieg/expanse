@@ -2724,7 +2724,7 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
             removed
         }
         Kind::MapBitmap => {
-            let (removed, pop_after, retired) = {
+            let (removed, count_after, retired) = {
                 let b = a.map_bitmap_mut(edge_handle(e));
                 let mut removed = 0usize;
                 let mut retired: [Option<Box<[u32]>>; 8] = core::array::from_fn(|_| None);
@@ -2771,8 +2771,13 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
                     };
                     *slot = Some(existing);
                 }
-                b.header.pop0 -= removed as u16;
-                (removed, b.header.pop0 as usize, retired)
+                // `pop0` is `count - 1` (see `LeafBitmapL32Data`); keep the
+                // count itself in hand so a full clear cannot underflow it.
+                let count_after = b.header.pop0 as usize + 1 - removed;
+                if count_after > 0 {
+                    b.header.pop0 = (count_after - 1) as u16;
+                }
+                (removed, count_after, retired)
             };
             for r in retired {
                 a.retire_vals(r);
@@ -2781,11 +2786,11 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
             if removed == 0 {
                 return 0;
             }
-            if pop_after == 0 {
+            if count_after == 0 {
                 let old = edge_handle(e);
                 a.free(old);
                 *e = Edge32::null();
-            } else if pop_after <= MAP_BITMAP_LEAVE {
+            } else if count_after <= MAP_BITMAP_LEAVE {
                 let entries = read_map_bitmap(a, e);
                 let old = edge_handle(e);
                 *e = if entries.len() == 1 {

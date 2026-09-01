@@ -12,7 +12,6 @@
 
 #[cfg(not(feature = "std"))]
 use crate::core_alloc::boxed::Box;
-#[cfg(target_pointer_width = "64")]
 use core::ffi::c_void;
 use core::ffi::{CStr, c_char};
 use expanse_trie::{ExpanseMap, ExpanseSet};
@@ -508,6 +507,48 @@ pub unsafe extern "C" fn expanse_map_remove(
     // SAFETY: `old_out` null or writable per contract.
     unsafe { put(old_out, v) };
     true
+}
+
+/// Callback for [`expanse_map_remove_range`]: one call per removed entry,
+/// in ascending key order, with the caller's context pointer.
+#[cfg(target_pointer_width = "32")]
+pub type ExpanseMapRemoveRangeFn =
+    unsafe extern "C" fn(key: CWord, value: CWord, user_ctx: *mut c_void);
+
+/// Removes every entry whose key lies in `lo..=hi`, calling `callback`
+/// (when non-null) once per removed entry in ascending key order, and
+/// returns the count removed. Present only in the 32-bit surface
+/// (`EXPANSE_WIDE_SURFACE == 0`): the batched form of the `first`/`remove`
+/// eviction loop, one descent to the range and one structural fix-up per
+/// touched node (#578).
+///
+/// # Safety
+///
+/// `map` must be null or a live handle. `callback`, when non-null, must be
+/// safe to call with `user_ctx` for every removed entry and must not
+/// touch `map` (the call holds it mutably).
+#[cfg(target_pointer_width = "32")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_map_remove_range(
+    map: *mut ExpanseMap,
+    lo: CWord,
+    hi: CWord,
+    callback: Option<ExpanseMapRemoveRangeFn>,
+    user_ctx: *mut c_void,
+) -> usize {
+    if lo > hi {
+        return 0;
+    }
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_mut() }) else {
+        return 0;
+    };
+    m.remove_range(lo..=hi, |k, v| {
+        if let Some(cb) = callback {
+            // SAFETY: callback contract above.
+            unsafe { cb(k, v, user_ctx) };
+        }
+    })
 }
 
 /// Writable pointer to `key`'s value slot, or null if absent. Valid

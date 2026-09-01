@@ -51,14 +51,14 @@ rather than known-good until an on-device build covers it.
 
 ## What the 32-bit library exports
 
-A 32-bit `libexpanse` carries **30 symbols** — the width-parametric ordered
+A 32-bit `libexpanse` carries **31 symbols** — the width-parametric ordered
 core with full bidirectional range navigation:
 
 | Container | Entry points |
 |---|---|
 | identity | `expanse_version` |
 | `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
-| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
+| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_remove_range` (32-bit-only: batched eviction, #578), `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
 
 **There are no `Judy*` symbols in a 32-bit build.** The legacy drop-in ABI is a
 64-bit-only guarantee. So are the byte-string, string, blob and concurrent

@@ -58,7 +58,9 @@ typedef uint64_t expanse_word_t;
  * or concurrent containers — so those symbols are ABSENT from a 32-bit
  * build rather than present and stubbed, and a link error names the gap.
  * The concurrent types additionally need a std build, so they are absent
- * from every no_std libexpanse. docs/COMPAT.md carries the surface matrix.
+ * from every no_std libexpanse. The reverse also exists: a `!EXPANSE_WIDE_SURFACE`
+ * block declares the entry points only the 32-bit engine has, absent from a
+ * 64-bit build in the same way. docs/COMPAT.md carries the surface matrix.
  */
 #if UINTPTR_MAX == 0xFFFFFFFFu
 #define EXPANSE_WIDE_SURFACE 0
@@ -153,6 +155,26 @@ bool expanse_map_prev_at_or_before(const expanse_map_t *map, expanse_word_t key,
                                    expanse_word_t *key_out, expanse_word_t *value_out);
 bool expanse_map_prev_before(const expanse_map_t *map, expanse_word_t key,
                              expanse_word_t *key_out, expanse_word_t *value_out);
+
+#if !EXPANSE_WIDE_SURFACE
+/*
+ * 32-bit-only surface (EXPANSE_WIDE_SURFACE == 0): entry points the 32-bit
+ * engine has and the 64-bit engine does not, absent from a 64-bit build
+ * exactly as the wide surface is absent from a 32-bit one. The language
+ * bindings target 64-bit hosts, so scripts/check_abi_parity.py excludes
+ * this block from binding coverage.
+ *
+ * remove_range: removes every entry whose key lies in [lo, hi], calling
+ * `callback` (when non-NULL) once per removed entry in ascending key order
+ * with `user_ctx`, and returns the count removed. One descent to the range
+ * and one structural fix-up per touched node — the batched form of a
+ * first/remove eviction loop. The callback must not touch `map`.
+ */
+typedef void (*expanse_map_remove_range_fn)(expanse_word_t key, expanse_word_t value,
+                                            void *user_ctx);
+size_t expanse_map_remove_range(expanse_map_t *map, expanse_word_t lo, expanse_word_t hi,
+                                expanse_map_remove_range_fn callback, void *user_ctx);
+#endif /* !EXPANSE_WIDE_SURFACE */
 
 #if EXPANSE_WIDE_SURFACE
 /*

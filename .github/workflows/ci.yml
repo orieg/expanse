@@ -852,6 +852,19 @@ jobs:
       - name: Test expanse-trie (i686, 32-bit std)
         run: cargo test -p expanse-trie --lib --target i686-unknown-linux-gnu
 
+      # The 32-bit-only C surface (`!EXPANSE_WIDE_SURFACE`, #578): the i686
+      # cdylib is the one host-runnable 32-bit libexpanse, so both the
+      # Rust-side test and a C smoke linked with -m32 run here.
+      - name: Test expanse-capi narrow surface (i686)
+        run: cargo test -p expanse-capi --test test_narrow_capi --target i686-unknown-linux-gnu
+
+      - name: Narrow C ABI smoke (i686, -m32)
+        run: |
+          cargo build --release -p expanse-capi --target i686-unknown-linux-gnu
+          cc -m32 crates/expanse-capi/smoke/narrow_api_smoke.c -Iinclude \
+            -Ltarget/i686-unknown-linux-gnu/release -lexpanse -o narrow_smoke
+          LD_LIBRARY_PATH="$PWD/target/i686-unknown-linux-gnu/release" ./narrow_smoke
+
   test-musl:
     name: Cross / Musl Static C ABI (Linux)
     needs: [detect-changes]
