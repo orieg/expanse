@@ -32,7 +32,8 @@ leak-check, cross-compilation for RV32/Cortex-M, 32-bit test execution on
 | §7 `ValueSlot32` arena/hot-metadata mode | **Shipped** | zero-heap inline storage (`<= 3` bytes) + 12-bit slab arena with freelist recycling in `blobmap32.rs` |
 | §8 `SlabPage32` custom allocator / freelist classes | **Not yet** | arena uses the global allocator via `alloc` |
 | §9 `SeqVersion32` / OCC primitives | **Shipped** | `occ32.rs` provides 32-bit atomic seqlock version word and node-level bracketing |
-| §12/§13 QEMU runners, ESP-IDF component | **Shipped** | ESP-IDF component in `components/expanse/`, CI cross-compilation matrix |
+| §11 32-bit `Judy*` C ABI drop-in | **Not shipped** | A 32-bit `libexpanse` exports **no** `Judy*` symbols. `ExpanseMap32`/`ExpanseSet32` have no rank/select (`count_below`/`by_count`) and no value-slot accessors, so `Judy1ByCount`, `JudyLIns` and their siblings have nothing to translate to; `JudySL*`/`JudyHS*` have no 32-bit container at all. Symbols are absent rather than stubbed. Surface matrix: [COMPAT.md](../COMPAT.md#build-configuration-surface-matrix) |
+| §12/§13 QEMU runners, ESP-IDF component | **Shipped** | ESP-IDF component in `components/expanse/` builds and links `libexpanse.a` for the bare-metal RISC-V target matching `IDF_TARGET`; CI cross-compilation matrix covers engine + C ABI staticlib. RISC-V parts only — the Xtensa ESP32/S2/S3 have no mainline rustc target. The CMake integration itself is not exercised in CI (no ESP-IDF lane) |
 | Published density numbers | **Shipped** | `bytes_per_key_32` reports real measured B/key. These are deterministic `mem_used()/N` byte-accounting values — machine-independent and load-immune, so no quiet-host run applies. Published in `docs/visualizer_data.json` and recomputed from the engine by `tests/test_visualizer_sync.rs`, so a layout change fails CI rather than silently invalidating the figure ([#384](https://github.com/orieg/expanse/issues/384)) |
 
 **Deviation — handle vs raw pointer.** The RFC describes `Edge32` word 0 as
@@ -649,7 +650,19 @@ impl SeqVersion32 {
 
 ## 11. C ABI Drop-In Compatibility for 32-Bit Targets
 
-On 32-bit platforms, `sizeof(Word_t) == 4`. `libexpanse` exports the full classic Judy API compiled for 32-bit ABIs:
+> **Status: not shipped, and not currently reachable.** A 32-bit `libexpanse`
+> exports no `Judy*` symbols. What follows is the original RFC proposal, kept
+> for the record.
+>
+> The blocker is engine surface, not packaging. `ExpanseMap32`/`ExpanseSet32`
+> carry no `count_below`/`by_count` and no `get_value_slot`/`ins_slot`, so
+> `Judy1ByCount`, `JudyLIns` and their siblings have no operation to forward
+> to; `JudySL*`/`JudyHS*` have no 32-bit container at all. Shipping a symbol
+> that links but behaves differently is worse than a link error that names the
+> gap, so the whole family is gated out at 32-bit width. Reviving this section
+> means adding those accessors to the 32-bit engine first.
+
+On 32-bit platforms, `sizeof(Word_t) == 4`. The RFC proposed that `libexpanse` export the full classic Judy API compiled for 32-bit ABIs:
 
 ```c
 // 32-bit Judy.h compatibility definitions
