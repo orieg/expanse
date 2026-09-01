@@ -21,7 +21,7 @@ Drop-in compatibility is officially verified for:
 - **AArch64** (Linux, macOS)
 - **RISC-V 64-bit (RV64GC)** (Linux, cross-compiled)
 
-All verified targets are 64-bit (LP64 or LLP64). 32-bit drop-in compatibility is not currently verified; the 32-bit engine ships through the native Rust and `expanse_*` C surfaces instead (see [design/32-bit-embedded.md](design/32-bit-embedded.md)).
+All verified targets are 64-bit (LP64 or LLP64). **32-bit builds carry no `Judy*` symbols at all** — drop-in compatibility is a 64-bit-only guarantee. The 32-bit engine ships through the native Rust and `expanse_*` C surfaces instead; see the [build-configuration surface matrix](#build-configuration-surface-matrix) below and [design/32-bit-embedded.md](design/32-bit-embedded.md).
 
 ### hwcaps sub-packages (x86-64-v2 and x86-64-v3)
 
@@ -94,6 +94,57 @@ Shipped header `crates/expanse-capi/include/Judy.h` additionally provides, sourc
 - **`Judy1MemUsed`/`JudyLMemUsed` byte equality.** Internal geometry differs (64-byte-line nodes, different allocator). Guarantee: same order of magnitude and monotonic behavior — not the same number. Documented in the shipped header.
 - **Internal structure equality** — no attempt to match libjudy's node layouts, only its observable behavior.
 - **`JErrno` legacy globals** beyond what the documented macro layer requires.
+
+## Build-configuration surface matrix
+
+`libexpanse` builds in three configurations, and they do not export the same
+symbol set. Omitted entry points are **absent**, never present-and-stubbed: a
+`Judy*` or `expanse_*` symbol that links but behaves differently is worse than
+one that does not link, and a link error names the gap at build time.
+
+| Configuration | Cargo invocation | Exported C symbols |
+|---|---|---|
+| 64-bit, `std` (default) | `cargo build -p expanse-capi` | 145 |
+| 64-bit, `no_std` | `--no-default-features` | 127 |
+| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 22 |
+
+(Counts measured from `llvm-nm --defined-only` on the built artifacts at
+commit `6e68c9a0`; reproduce with the invocations above.)
+
+**64-bit `no_std` drops only the concurrent containers** — the 18
+`expanse_sync_*` entry points. `expanse_trie::sync` needs `std::sync`, so a
+bare-metal 64-bit build has no one-writer/many-reader surface. Everything
+else, the entire legacy `Judy*` drop-in included, is present and unchanged.
+
+**32-bit drops the legacy `Judy*` families entirely**, plus the byte-string,
+string, blob and concurrent containers, plus rank/select, value-slot
+accessors and the `_at_or_after`/`_after`/`_at_or_before`/`_before`
+navigation. What ships is the width-parametric ordered core:
+
+| Container | 32-bit entry points |
+|---|---|
+| identity | `expanse_version` |
+| `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last` |
+| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_first`, `_last` |
+
+The cause is engine surface, not a deliberate reduction: `ExpanseMap32` /
+`ExpanseSet32` are real tries, but they carry no `count_below`/`by_count`,
+no `get_value_slot`/`ins_slot`, and their `count_range` takes a `(start, end)`
+pair rather than a range — so the corresponding C contracts have nothing to
+translate to. `ExpanseStrMap`/`ExpanseBytesMap`/`ExpanseBlobMap` and the
+`sync` module exist only at 64-bit width.
+
+### Key and value width
+
+Keys and values in the modern surface are **one machine word**, matching both
+classic Judy's `Word_t` and the engine's own invariant that a value slot is a
+single machine word (`docs/ARCHITECTURE.md`). `expanse.h` typedefs
+`expanse_word_t` accordingly — `uint64_t` on 64-bit targets, `uint32_t` on
+32-bit ones — and defines `EXPANSE_WIDE_SURFACE` so a C consumer can compile
+against either library from the same header. **The 64-bit ABI is unchanged**:
+`expanse_word_t` is `uint64_t` there, so every existing signature keeps its
+type. Counts (`_len`, `_count_below`, `_count_range`, and `by_count`'s `n`)
+stay `uint64_t` at both widths — they are populations, not keys.
 
 ## New capabilities
 

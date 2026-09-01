@@ -673,6 +673,32 @@ jobs:
       - name: Check ESP32-C3 (RV32IMC) Core
         run: cargo check -p expanse-trie --no-default-features --target riscv32imc-unknown-none-elf
 
+      # The bare-metal libexpanse staticlib: `build`, not `check`, so the
+      # archive actually links, and clippy at the repo's -D warnings bar so
+      # the width-gated surface cannot rot into dead code (#558).
+      - name: Build ESP32-C3 (RV32IMC) C ABI staticlib
+        run: |
+          cargo build -p expanse-capi --no-default-features \
+            --features embedded-panic-handler \
+            --target riscv32imc-unknown-none-elf
+          cargo clippy -p expanse-capi --no-default-features \
+            --features embedded-panic-handler \
+            --target riscv32imc-unknown-none-elf -- -D warnings
+
+      # 64-bit bare metal drops only expanse_sync_* (no std::sync); it keeps
+      # the whole legacy Judy surface. Guards the pointer-width gates against
+      # being conflated with the `std` ones. Surface matrix: docs/COMPAT.md.
+      - name: Add x86_64 bare-metal target
+        run: rustup target add x86_64-unknown-none
+
+      - name: Build 64-bit bare-metal C ABI staticlib
+        run: |
+          cargo build -p expanse-capi --no-default-features \
+            --features embedded-panic-handler --target x86_64-unknown-none
+          cargo clippy -p expanse-capi --no-default-features \
+            --features embedded-panic-handler \
+            --target x86_64-unknown-none -- -D warnings
+
   test-cortex-m:
     name: Cross / ARM Cortex-M4 Cross-Compile (Bare-Metal)
     needs: [detect-changes]

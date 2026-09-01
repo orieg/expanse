@@ -10,16 +10,29 @@
 //! Slot pointers follow the classic JudyL contract: valid until the next
 //! structural mutation of the container.
 
-use core::ffi::{CStr, c_char, c_void};
-use expanse_trie::bytesmap::ExpanseBytesMap;
-use expanse_trie::map::ExpanseMap;
-use expanse_trie::set::ExpanseSet;
-use expanse_trie::strmap::ExpanseStrMap;
-use expanse_trie::sync::{MapReader, SetReader, SyncExpanseMap, SyncExpanseSet};
+#[cfg(not(feature = "std"))]
+use crate::core_alloc::boxed::Box;
+#[cfg(target_pointer_width = "64")]
+use core::ffi::c_void;
+use core::ffi::{CStr, c_char};
+use expanse_trie::{ExpanseMap, ExpanseSet};
+
+/// The engine's key/value word as the C API sees it.
+///
+/// The modern surface is pointer-width parametric, exactly as classic
+/// Judy's `Word_t` is: a value slot is one machine word (AGENTS.md §2.1,
+/// invariant 2), so a 64-bit build speaks `uint64_t` and a 32-bit build
+/// speaks `uint32_t`. `include/expanse.h` typedefs `expanse_word_t` to
+/// match. The 64-bit ABI is unchanged by this alias.
+#[cfg(target_pointer_width = "64")]
+pub type CWord = u64;
+/// See the 64-bit [`CWord`].
+#[cfg(target_pointer_width = "32")]
+pub type CWord = u32;
 
 /// Writes `v` through `out` when `out` is non-null.
 #[inline]
-unsafe fn put(out: *mut u64, v: u64) {
+unsafe fn put<T>(out: *mut T, v: T) {
     if !out.is_null() {
         // SAFETY: non-null, caller-provided writable u64 per the C contract.
         unsafe { *out = v };
@@ -27,6 +40,7 @@ unsafe fn put(out: *mut u64, v: u64) {
 }
 
 /// Reads a NUL-terminated C string argument into a byte slice.
+#[cfg(target_pointer_width = "64")]
 #[inline]
 unsafe fn cstr<'a>(key: *const c_char) -> Option<&'a [u8]> {
     if key.is_null() {
@@ -39,6 +53,7 @@ unsafe fn cstr<'a>(key: *const c_char) -> Option<&'a [u8]> {
 
 /// Copies a byte slice plus terminating NUL into the caller's buffer.
 /// Returns false if the buffer is too small.
+#[cfg(target_pointer_width = "64")]
 #[inline]
 unsafe fn write_cstr_buf(key_out: *mut c_char, buf_len: usize, bytes: &[u8]) -> bool {
     if key_out.is_null() || buf_len <= bytes.len() {
@@ -54,6 +69,7 @@ unsafe fn write_cstr_buf(key_out: *mut c_char, buf_len: usize, bytes: &[u8]) -> 
 
 /// Reads a `(pointer, length)` byte-string argument. A null pointer is
 /// legal only for the empty key.
+#[cfg(target_pointer_width = "64")]
 #[inline]
 unsafe fn bytes<'a>(key: *const c_void, len: usize) -> Option<&'a [u8]> {
     if len > (isize::MAX as usize) {
@@ -105,7 +121,7 @@ macro_rules! container {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $len(h: *const $rust) -> u64 {
             // SAFETY: null or live handle per contract.
-            unsafe { h.as_ref() }.map_or(0, <$rust>::len)
+            unsafe { h.as_ref() }.map_or(0, |c| c.len() as u64)
         }
 
         #[doc = concat!("Heap bytes used by the ", $what, " (0 for a null handle).")]
@@ -134,8 +150,17 @@ macro_rules! container {
     };
 }
 
+// The byte-string, string and concurrent containers exist only on 64-bit
+// targets, so their entry points live in a width-gated child module
+// rather than behind ~40 individual attributes (#558).
+#[cfg(target_pointer_width = "64")]
+#[path = "modern_wide.rs"]
+mod wide;
+#[cfg(target_pointer_width = "64")]
+pub use wide::*;
+
 // ---------------------------------------------------------------------
-// expanse_set_t — ordered set of u64 keys (cf. Judy1)
+// expanse_set_t — ordered set of machine-word keys (cf. Judy1)
 // ---------------------------------------------------------------------
 
 container!(
@@ -154,7 +179,7 @@ container!(
 ///
 /// `set` must be null or a live handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_set_insert(set: *mut ExpanseSet, key: u64) -> bool {
+pub unsafe extern "C" fn expanse_set_insert(set: *mut ExpanseSet, key: CWord) -> bool {
     // SAFETY: null or live handle per contract.
     unsafe { set.as_mut() }.is_some_and(|s| s.insert(key))
 }
@@ -165,7 +190,7 @@ pub unsafe extern "C" fn expanse_set_insert(set: *mut ExpanseSet, key: u64) -> b
 ///
 /// Same contract as [`expanse_set_insert`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_set_remove(set: *mut ExpanseSet, key: u64) -> bool {
+pub unsafe extern "C" fn expanse_set_remove(set: *mut ExpanseSet, key: CWord) -> bool {
     // SAFETY: null or live handle per contract.
     unsafe { set.as_mut() }.is_some_and(|s| s.remove(key))
 }
@@ -176,7 +201,7 @@ pub unsafe extern "C" fn expanse_set_remove(set: *mut ExpanseSet, key: u64) -> b
 ///
 /// Same contract as [`expanse_set_insert`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_set_contains(set: *const ExpanseSet, key: u64) -> bool {
+pub unsafe extern "C" fn expanse_set_contains(set: *const ExpanseSet, key: CWord) -> bool {
     // SAFETY: null or live handle per contract.
     if set.is_null() {
         return false;
@@ -185,6 +210,7 @@ pub unsafe extern "C" fn expanse_set_contains(set: *const ExpanseSet, key: u64) 
     unsafe { (*set).contains(key) }
 }
 
+#[cfg(target_pointer_width = "64")]
 /// Generates a set navigation entry point returning `bool` + `key_out`.
 macro_rules! set_nav {
     ($name:ident, $method:ident, $doc:literal) => {
@@ -194,7 +220,11 @@ macro_rules! set_nav {
         ///
         /// `set` must be null or a live handle; `key_out` null or writable.
         #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(set: *const ExpanseSet, key: u64, out: *mut u64) -> bool {
+        pub unsafe extern "C" fn $name(
+            set: *const ExpanseSet,
+            key: CWord,
+            out: *mut CWord,
+        ) -> bool {
             // SAFETY: null or live handle per contract.
             let Some(s) = (unsafe { set.as_ref() }) else {
                 return false;
@@ -211,17 +241,21 @@ macro_rules! set_nav {
     };
 }
 
+#[cfg(target_pointer_width = "64")]
 set_nav!(
     expanse_set_next_at_or_after,
     next_at_or_after,
     "Smallest key >= `key`."
 );
+#[cfg(target_pointer_width = "64")]
 set_nav!(expanse_set_next_after, next_after, "Smallest key > `key`.");
+#[cfg(target_pointer_width = "64")]
 set_nav!(
     expanse_set_prev_at_or_before,
     prev_at_or_before,
     "Largest key <= `key`."
 );
+#[cfg(target_pointer_width = "64")]
 set_nav!(expanse_set_prev_before, prev_before, "Largest key < `key`.");
 
 /// Smallest key in the set.
@@ -230,7 +264,7 @@ set_nav!(expanse_set_prev_before, prev_before, "Largest key < `key`.");
 ///
 /// `set` must be null or a live handle; `out` null or writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_set_first(set: *const ExpanseSet, out: *mut u64) -> bool {
+pub unsafe extern "C" fn expanse_set_first(set: *const ExpanseSet, out: *mut CWord) -> bool {
     // SAFETY: null or live handle per contract.
     let Some(k) = (unsafe { set.as_ref() }).and_then(ExpanseSet::first) else {
         return false;
@@ -246,7 +280,7 @@ pub unsafe extern "C" fn expanse_set_first(set: *const ExpanseSet, out: *mut u64
 ///
 /// Same contract as [`expanse_set_first`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_set_last(set: *const ExpanseSet, out: *mut u64) -> bool {
+pub unsafe extern "C" fn expanse_set_last(set: *const ExpanseSet, out: *mut CWord) -> bool {
     // SAFETY: null or live handle per contract.
     let Some(k) = (unsafe { set.as_ref() }).and_then(ExpanseSet::last) else {
         return false;
@@ -261,8 +295,9 @@ pub unsafe extern "C" fn expanse_set_last(set: *const ExpanseSet, out: *mut u64)
 /// # Safety
 ///
 /// `set` must be null or a live handle.
+#[cfg(target_pointer_width = "64")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_set_count_below(set: *const ExpanseSet, key: u64) -> u64 {
+pub unsafe extern "C" fn expanse_set_count_below(set: *const ExpanseSet, key: CWord) -> u64 {
     // SAFETY: null or live handle per contract.
     unsafe { set.as_ref() }.map_or(0, |s| s.count_below(key))
 }
@@ -272,8 +307,13 @@ pub unsafe extern "C" fn expanse_set_count_below(set: *const ExpanseSet, key: u6
 /// # Safety
 ///
 /// `set` must be null or a live handle.
+#[cfg(target_pointer_width = "64")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_set_count_range(set: *const ExpanseSet, lo: u64, hi: u64) -> u64 {
+pub unsafe extern "C" fn expanse_set_count_range(
+    set: *const ExpanseSet,
+    lo: CWord,
+    hi: CWord,
+) -> u64 {
     if lo > hi {
         return 0;
     }
@@ -286,11 +326,12 @@ pub unsafe extern "C" fn expanse_set_count_range(set: *const ExpanseSet, lo: u64
 /// # Safety
 ///
 /// `set` must be null or a live handle; `out` null or writable.
+#[cfg(target_pointer_width = "64")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_set_by_count(
     set: *const ExpanseSet,
     n: u64,
-    out: *mut u64,
+    out: *mut CWord,
 ) -> bool {
     // SAFETY: null or live handle per contract.
     let Some(k) = (unsafe { set.as_ref() }).and_then(|s| s.by_count(n)) else {
@@ -311,7 +352,7 @@ pub unsafe extern "C" fn expanse_set_by_count(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_set_contains_batch(
     set: *const ExpanseSet,
-    keys: *const u64,
+    keys: *const CWord,
     out_present: *mut bool,
     count: usize,
 ) -> usize {
@@ -319,7 +360,7 @@ pub unsafe extern "C" fn expanse_set_contains_batch(
         || keys.is_null()
         || out_present.is_null()
         || count == 0
-        || count > (isize::MAX as usize / core::mem::size_of::<u64>())
+        || count > (isize::MAX as usize / core::mem::size_of::<CWord>())
     {
         if !out_present.is_null()
             && count > 0
@@ -341,7 +382,7 @@ pub unsafe extern "C" fn expanse_set_contains_batch(
 }
 
 // ---------------------------------------------------------------------
-// expanse_map_t — ordered u64 -> u64 map (cf. JudyL)
+// expanse_map_t — ordered word -> word map (cf. JudyL)
 // ---------------------------------------------------------------------
 
 container!(
@@ -364,9 +405,9 @@ container!(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_map_insert(
     map: *mut ExpanseMap,
-    key: u64,
-    value: u64,
-    old_out: *mut u64,
+    key: CWord,
+    value: CWord,
+    old_out: *mut CWord,
 ) -> bool {
     // SAFETY: null or live handle per contract.
     let Some(m) = (unsafe { map.as_mut() }) else {
@@ -390,8 +431,8 @@ pub unsafe extern "C" fn expanse_map_insert(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_map_get(
     map: *const ExpanseMap,
-    key: u64,
-    value_out: *mut u64,
+    key: CWord,
+    value_out: *mut CWord,
 ) -> bool {
     // SAFETY: null or live handle per contract.
     if map.is_null() {
@@ -414,11 +455,12 @@ pub unsafe extern "C" fn expanse_map_get(
 /// `map` must be null or a live handle.
 /// `keys` and `out_values` must point to valid arrays of at least `count` elements.
 /// `out_found` must be null or point to a valid array of at least `count` booleans.
+#[cfg(target_pointer_width = "64")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_map_get_batch(
     map: *const ExpanseMap,
-    keys: *const u64,
-    out_values: *mut u64,
+    keys: *const CWord,
+    out_values: *mut CWord,
     out_found: *mut bool,
     count: usize,
 ) -> usize {
@@ -426,7 +468,7 @@ pub unsafe extern "C" fn expanse_map_get_batch(
         || keys.is_null()
         || out_values.is_null()
         || count == 0
-        || count > (isize::MAX as usize / core::mem::size_of::<u64>())
+        || count > (isize::MAX as usize / core::mem::size_of::<CWord>())
     {
         if !out_found.is_null()
             && count > 0
@@ -461,8 +503,8 @@ pub unsafe extern "C" fn expanse_map_get_batch(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_map_remove(
     map: *mut ExpanseMap,
-    key: u64,
-    old_out: *mut u64,
+    key: CWord,
+    old_out: *mut CWord,
 ) -> bool {
     // SAFETY: null or live handle per contract.
     let Some(v) = (unsafe { map.as_mut() }).and_then(|m| m.remove(key)) else {
@@ -479,8 +521,9 @@ pub unsafe extern "C" fn expanse_map_remove(
 /// # Safety
 ///
 /// `map` must be null or a live handle.
+#[cfg(target_pointer_width = "64")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_map_slot(map: *mut ExpanseMap, key: u64) -> *mut u64 {
+pub unsafe extern "C" fn expanse_map_slot(map: *mut ExpanseMap, key: CWord) -> *mut CWord {
     // SAFETY: null or live handle per contract.
     unsafe { map.as_mut() }
         .and_then(|m| m.get_value_slot(key))
@@ -494,12 +537,14 @@ pub unsafe extern "C" fn expanse_map_slot(map: *mut ExpanseMap, key: u64) -> *mu
 /// # Safety
 ///
 /// `map` must be null or a live handle.
+#[cfg(target_pointer_width = "64")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_map_ins_slot(map: *mut ExpanseMap, key: u64) -> *mut u64 {
+pub unsafe extern "C" fn expanse_map_ins_slot(map: *mut ExpanseMap, key: CWord) -> *mut CWord {
     // SAFETY: null or live handle per contract.
     unsafe { map.as_mut() }.map_or(core::ptr::null_mut(), |m| m.ins_slot(key).as_ptr())
 }
 
+#[cfg(target_pointer_width = "64")]
 /// Generates a map navigation entry point returning `bool` + key/value.
 macro_rules! map_nav {
     ($name:ident, $method:ident, $doc:literal) => {
@@ -512,9 +557,9 @@ macro_rules! map_nav {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
             map: *const ExpanseMap,
-            key: u64,
-            key_out: *mut u64,
-            value_out: *mut u64,
+            key: CWord,
+            key_out: *mut CWord,
+            value_out: *mut CWord,
         ) -> bool {
             // SAFETY: null or live handle per contract.
             let Some((k, v)) = (unsafe { map.as_ref() }).and_then(|m| m.$method(key)) else {
@@ -530,21 +575,25 @@ macro_rules! map_nav {
     };
 }
 
+#[cfg(target_pointer_width = "64")]
 map_nav!(
     expanse_map_next_at_or_after,
     next_at_or_after,
     "Smallest entry with key >= `key`."
 );
+#[cfg(target_pointer_width = "64")]
 map_nav!(
     expanse_map_next_after,
     next_after,
     "Smallest entry with key > `key`."
 );
+#[cfg(target_pointer_width = "64")]
 map_nav!(
     expanse_map_prev_at_or_before,
     prev_at_or_before,
     "Largest entry with key <= `key`."
 );
+#[cfg(target_pointer_width = "64")]
 map_nav!(
     expanse_map_prev_before,
     prev_before,
@@ -559,8 +608,8 @@ map_nav!(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_map_first(
     map: *const ExpanseMap,
-    key_out: *mut u64,
-    value_out: *mut u64,
+    key_out: *mut CWord,
+    value_out: *mut CWord,
 ) -> bool {
     // SAFETY: null or live handle per contract.
     let Some((k, v)) = (unsafe { map.as_ref() }).and_then(ExpanseMap::first) else {
@@ -582,8 +631,8 @@ pub unsafe extern "C" fn expanse_map_first(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_map_last(
     map: *const ExpanseMap,
-    key_out: *mut u64,
-    value_out: *mut u64,
+    key_out: *mut CWord,
+    value_out: *mut CWord,
 ) -> bool {
     // SAFETY: null or live handle per contract.
     let Some((k, v)) = (unsafe { map.as_ref() }).and_then(ExpanseMap::last) else {
@@ -602,8 +651,9 @@ pub unsafe extern "C" fn expanse_map_last(
 /// # Safety
 ///
 /// `map` must be null or a live handle.
+#[cfg(target_pointer_width = "64")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_map_count_below(map: *const ExpanseMap, key: u64) -> u64 {
+pub unsafe extern "C" fn expanse_map_count_below(map: *const ExpanseMap, key: CWord) -> u64 {
     // SAFETY: null or live handle per contract.
     unsafe { map.as_ref() }.map_or(0, |m| m.count_below(key))
 }
@@ -613,8 +663,13 @@ pub unsafe extern "C" fn expanse_map_count_below(map: *const ExpanseMap, key: u6
 /// # Safety
 ///
 /// `map` must be null or a live handle.
+#[cfg(target_pointer_width = "64")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_map_count_range(map: *const ExpanseMap, lo: u64, hi: u64) -> u64 {
+pub unsafe extern "C" fn expanse_map_count_range(
+    map: *const ExpanseMap,
+    lo: CWord,
+    hi: CWord,
+) -> u64 {
     if lo > hi {
         return 0;
     }
@@ -627,12 +682,13 @@ pub unsafe extern "C" fn expanse_map_count_range(map: *const ExpanseMap, lo: u64
 /// # Safety
 ///
 /// `map` must be null or a live handle; out-pointers null or writable.
+#[cfg(target_pointer_width = "64")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn expanse_map_by_count(
     map: *const ExpanseMap,
     n: u64,
-    key_out: *mut u64,
-    value_out: *mut u64,
+    key_out: *mut CWord,
+    value_out: *mut CWord,
 ) -> bool {
     // SAFETY: null or live handle per contract.
     let Some((k, v)) = (unsafe { map.as_ref() }).and_then(|m| m.by_count(n)) else {
@@ -643,818 +699,6 @@ pub unsafe extern "C" fn expanse_map_by_count(
         put(key_out, k);
         put(value_out, v);
     }
-    true
-}
-
-// ---------------------------------------------------------------------
-// expanse_bytesmap_t — unordered bytes -> u64 (cf. JudyHS)
-// ---------------------------------------------------------------------
-
-container!(
-    ExpanseBytesMap,
-    expanse_bytesmap_new,
-    expanse_bytesmap_free,
-    expanse_bytesmap_len,
-    expanse_bytesmap_mem_used,
-    expanse_bytesmap_clear,
-    "byte-string map"
-);
-
-/// Stores `key -> value` (see [`expanse_map_insert`] for the return
-/// convention). Embedded NULs are ordinary bytes.
-///
-/// # Safety
-///
-/// `map` null or live; `key` readable for `len` bytes (null only when
-/// `len == 0`); `old_out` null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_bytesmap_insert(
-    map: *mut ExpanseBytesMap,
-    key: *const c_void,
-    len: usize,
-    value: u64,
-    old_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
-            return false;
-        };
-        match m.insert(k, value) {
-            Some(old) => {
-                put(old_out, old);
-                false
-            }
-            None => true,
-        }
-    }
-}
-
-/// Reads the byte string's value into `value_out`; false if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_bytesmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_bytesmap_get(
-    map: *const ExpanseBytesMap,
-    key: *const c_void,
-    len: usize,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_ref(), bytes(key, len)) else {
-            return false;
-        };
-        let Some(v) = m.get(k) else {
-            return false;
-        };
-        put(value_out, v);
-        true
-    }
-}
-
-/// Removes the byte string, reporting its value; false if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_bytesmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_bytesmap_remove(
-    map: *mut ExpanseBytesMap,
-    key: *const c_void,
-    len: usize,
-    old_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
-            return false;
-        };
-        let Some(v) = m.remove(k) else {
-            return false;
-        };
-        put(old_out, v);
-        true
-    }
-}
-
-/// Writable value slot of the byte string, or null if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_bytesmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_bytesmap_slot(
-    map: *mut ExpanseBytesMap,
-    key: *const c_void,
-    len: usize,
-) -> *mut u64 {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
-            return core::ptr::null_mut();
-        };
-        m.get_value_slot(k)
-            .map_or(core::ptr::null_mut(), core::ptr::NonNull::as_ptr)
-    }
-}
-
-/// Inserts the byte string with value 0 if absent and returns its slot.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_bytesmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_bytesmap_ins_slot(
-    map: *mut ExpanseBytesMap,
-    key: *const c_void,
-    len: usize,
-) -> *mut u64 {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), bytes(key, len)) else {
-            return core::ptr::null_mut();
-        };
-        m.ins_slot(k).as_ptr()
-    }
-}
-
-// ---------------------------------------------------------------------
-// expanse_strmap_t — ordered C-string -> u64 map (cf. JudySL)
-// ---------------------------------------------------------------------
-
-container!(
-    ExpanseStrMap,
-    expanse_strmap_new,
-    expanse_strmap_free,
-    expanse_strmap_len,
-    expanse_strmap_mem_used,
-    expanse_strmap_clear,
-    "string map"
-);
-
-/// Stores `key -> value`. Returns true when the key is new; when it
-/// replaced an existing entry, writes the old value through `old_out`
-/// (if non-null) and returns false.
-///
-/// # Safety
-///
-/// `map` null or live; `key` valid NUL-terminated C string; `old_out` null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_insert(
-    map: *mut ExpanseStrMap,
-    key: *const c_char,
-    value: u64,
-    old_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), cstr(key)) else {
-            return false;
-        };
-        match m.insert(k, value) {
-            Some(old) => {
-                put(old_out, old);
-                false
-            }
-            None => true,
-        }
-    }
-}
-
-/// Reads the string's value into `value_out`; false if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_strmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_get(
-    map: *const ExpanseStrMap,
-    key: *const c_char,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_ref(), cstr(key)) else {
-            return false;
-        };
-        let Some(v) = m.get(k) else {
-            return false;
-        };
-        put(value_out, v);
-        true
-    }
-}
-
-/// Removes the string, reporting its value; false if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_strmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_remove(
-    map: *mut ExpanseStrMap,
-    key: *const c_char,
-    old_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), cstr(key)) else {
-            return false;
-        };
-        let Some(v) = m.remove(k) else {
-            return false;
-        };
-        put(old_out, v);
-        true
-    }
-}
-
-/// Writable value slot of the string, or null if absent.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_strmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_slot(
-    map: *mut ExpanseStrMap,
-    key: *const c_char,
-) -> *mut u64 {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), cstr(key)) else {
-            return core::ptr::null_mut();
-        };
-        m.get_value_slot(k)
-            .map_or(core::ptr::null_mut(), core::ptr::NonNull::as_ptr)
-    }
-}
-
-/// Inserts the string with value 0 if absent and returns its slot.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_strmap_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_ins_slot(
-    map: *mut ExpanseStrMap,
-    key: *const c_char,
-) -> *mut u64 {
-    // SAFETY: forwarded C contract.
-    unsafe {
-        let (Some(m), Some(k)) = (map.as_mut(), cstr(key)) else {
-            return core::ptr::null_mut();
-        };
-        m.ins_slot(k).as_ptr()
-    }
-}
-
-/// Generates a string map navigation entry point returning `bool` + key/value.
-macro_rules! strmap_nav {
-    ($name:ident, $method:ident, $doc:literal) => {
-        #[doc = $doc]
-        ///
-        /// # Safety
-        ///
-        /// `map` must be null or a live handle; `key` a NUL-terminated C string;
-        /// `key_out` non-null with `buf_len` bytes capacity; `value_out` null or writable.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(
-            map: *mut ExpanseStrMap,
-            key: *const c_char,
-            key_out: *mut c_char,
-            buf_len: usize,
-            value_out: *mut u64,
-        ) -> bool {
-            // SAFETY: null or live handle per contract.
-            let (Some(m), Some(k)) = (unsafe { map.as_mut() }, unsafe { cstr(key) }) else {
-                return false;
-            };
-            let Some((found_k, slot)) = m.$method(k) else {
-                return false;
-            };
-            // SAFETY: caller guarantees key_out writable for buf_len bytes.
-            if !unsafe { write_cstr_buf(key_out, buf_len, &found_k) } {
-                return false;
-            }
-            // SAFETY: slot is valid until next mutation; value_out null or writable.
-            unsafe {
-                put(value_out, *slot.as_ptr());
-            }
-            true
-        }
-    };
-}
-
-strmap_nav!(
-    expanse_strmap_next_at_or_after,
-    next_at_or_after,
-    "Smallest entry with key >= `key`."
-);
-strmap_nav!(
-    expanse_strmap_next_after,
-    next_after,
-    "Smallest entry with key > `key`."
-);
-strmap_nav!(
-    expanse_strmap_prev_at_or_before,
-    prev_at_or_before,
-    "Largest entry with key <= `key`."
-);
-strmap_nav!(
-    expanse_strmap_prev_before,
-    prev_before,
-    "Largest entry with key < `key`."
-);
-
-/// Smallest entry in the string map.
-///
-/// # Safety
-///
-/// `map` null or live handle; `key_out` non-null with `buf_len` bytes capacity; `value_out` null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_first(
-    map: *mut ExpanseStrMap,
-    key_out: *mut c_char,
-    buf_len: usize,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    let Some(m) = (unsafe { map.as_mut() }) else {
-        return false;
-    };
-    let Some((found_k, slot)) = m.first() else {
-        return false;
-    };
-    // SAFETY: caller guarantees key_out writable for buf_len bytes.
-    if !unsafe { write_cstr_buf(key_out, buf_len, &found_k) } {
-        return false;
-    }
-    // SAFETY: slot valid until next mutation.
-    unsafe { put(value_out, *slot.as_ptr()) };
-    true
-}
-
-/// Largest entry in the string map.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_strmap_first`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_last(
-    map: *mut ExpanseStrMap,
-    key_out: *mut c_char,
-    buf_len: usize,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: forwarded C contract.
-    let Some(m) = (unsafe { map.as_mut() }) else {
-        return false;
-    };
-    let Some((found_k, slot)) = m.last() else {
-        return false;
-    };
-    // SAFETY: caller guarantees key_out writable for buf_len bytes.
-    if !unsafe { write_cstr_buf(key_out, buf_len, &found_k) } {
-        return false;
-    }
-    // SAFETY: slot valid until next mutation.
-    unsafe { put(value_out, *slot.as_ptr()) };
-    true
-}
-
-// ---------------------------------------------------------------------
-// Truncation-aware string navigation (`_ex` variants)
-// ---------------------------------------------------------------------
-//
-// The plain expanse_strmap_first/last/next/prev entry points return `false`
-// for BOTH "no more keys" and "buffer too small", so a binding cannot tell a
-// missing key from a truncated one and may silently drop long keys. These
-// `_ex` variants disambiguate via an explicit status and report the buffer
-// size the key needs through `required_len`. The original symbols are
-// unchanged.
-
-/// Status returned by the truncation-aware `expanse_strmap_*_ex` navigation
-/// functions. ABI: a C `enum` (int).
-#[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum ExpanseStrNavStatus {
-    /// A key was found and written to `key_out` (`*value_out` set if non-null).
-    Ok = 0,
-    /// No key matched; nothing was written.
-    NotFound = 1,
-    /// A key was found but `key_out`/`buf_len` was too small; `*required_len`
-    /// (if non-null) holds the byte length needed (key length + 1 for the NUL).
-    BufferTooSmall = 2,
-}
-
-/// Shared body for the `_ex` navigation entry points: reports the required
-/// buffer size and distinguishes not-found from buffer-too-small.
-///
-/// # Safety
-///
-/// `key_out` null or writable for `buf_len` bytes; `required_len`/`value_out`
-/// null or writable; `found`'s slot is valid until the next map mutation.
-unsafe fn strmap_nav_ex(
-    found: Option<(Vec<u8>, core::ptr::NonNull<u64>)>,
-    key_out: *mut c_char,
-    buf_len: usize,
-    required_len: *mut usize,
-    value_out: *mut u64,
-) -> ExpanseStrNavStatus {
-    let Some((found_k, slot)) = found else {
-        return ExpanseStrNavStatus::NotFound;
-    };
-    let needed = found_k.len() + 1; // payload bytes + terminating NUL
-    if !required_len.is_null() {
-        // SAFETY: caller-provided writable size_t per contract.
-        unsafe { *required_len = needed };
-    }
-    if key_out.is_null() || buf_len < needed {
-        return ExpanseStrNavStatus::BufferTooSmall;
-    }
-    // SAFETY: key_out is non-null and writable for buf_len >= needed bytes.
-    unsafe {
-        core::ptr::copy_nonoverlapping(found_k.as_ptr().cast::<c_char>(), key_out, found_k.len());
-        *key_out.add(found_k.len()) = 0;
-        // SAFETY: slot valid until next mutation; value_out null or writable.
-        put(value_out, *slot.as_ptr());
-    }
-    ExpanseStrNavStatus::Ok
-}
-
-/// Generates a truncation-aware string navigation entry point (by-key).
-macro_rules! strmap_nav_ex {
-    ($name:ident, $method:ident, $doc:literal) => {
-        #[doc = $doc]
-        ///
-        /// On success writes the key to `key_out` and the value to `value_out`;
-        /// on buffer-too-small sets `*required_len` to the needed size. See
-        /// [`ExpanseStrNavStatus`].
-        ///
-        /// # Safety
-        ///
-        /// `map` null or live; `key` a NUL-terminated C string; `key_out` null
-        /// or writable for `buf_len` bytes; `required_len`/`value_out` null or
-        /// writable.
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(
-            map: *mut ExpanseStrMap,
-            key: *const c_char,
-            key_out: *mut c_char,
-            buf_len: usize,
-            required_len: *mut usize,
-            value_out: *mut u64,
-        ) -> ExpanseStrNavStatus {
-            // SAFETY: null or live handle + NUL-terminated key per contract.
-            let (Some(m), Some(k)) = (unsafe { map.as_mut() }, unsafe { cstr(key) }) else {
-                return ExpanseStrNavStatus::NotFound;
-            };
-            // SAFETY: out-pointers forwarded per contract.
-            unsafe { strmap_nav_ex(m.$method(k), key_out, buf_len, required_len, value_out) }
-        }
-    };
-}
-
-strmap_nav_ex!(
-    expanse_strmap_next_at_or_after_ex,
-    next_at_or_after,
-    "Smallest entry with key >= `key` (truncation-aware)."
-);
-strmap_nav_ex!(
-    expanse_strmap_next_after_ex,
-    next_after,
-    "Smallest entry with key > `key` (truncation-aware)."
-);
-strmap_nav_ex!(
-    expanse_strmap_prev_at_or_before_ex,
-    prev_at_or_before,
-    "Largest entry with key <= `key` (truncation-aware)."
-);
-strmap_nav_ex!(
-    expanse_strmap_prev_before_ex,
-    prev_before,
-    "Largest entry with key < `key` (truncation-aware)."
-);
-
-/// Smallest entry in the string map (truncation-aware; see
-/// [`ExpanseStrNavStatus`]).
-///
-/// # Safety
-///
-/// `map` null or live; `key_out` null or writable for `buf_len` bytes;
-/// `required_len`/`value_out` null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_first_ex(
-    map: *mut ExpanseStrMap,
-    key_out: *mut c_char,
-    buf_len: usize,
-    required_len: *mut usize,
-    value_out: *mut u64,
-) -> ExpanseStrNavStatus {
-    // SAFETY: null or live handle per contract.
-    let Some(m) = (unsafe { map.as_mut() }) else {
-        return ExpanseStrNavStatus::NotFound;
-    };
-    // SAFETY: out-pointers forwarded per contract.
-    unsafe { strmap_nav_ex(m.first(), key_out, buf_len, required_len, value_out) }
-}
-
-/// Largest entry in the string map (truncation-aware; see
-/// [`ExpanseStrNavStatus`]).
-///
-/// # Safety
-///
-/// Same contract as [`expanse_strmap_first_ex`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_strmap_last_ex(
-    map: *mut ExpanseStrMap,
-    key_out: *mut c_char,
-    buf_len: usize,
-    required_len: *mut usize,
-    value_out: *mut u64,
-) -> ExpanseStrNavStatus {
-    // SAFETY: null or live handle per contract.
-    let Some(m) = (unsafe { map.as_mut() }) else {
-        return ExpanseStrNavStatus::NotFound;
-    };
-    // SAFETY: out-pointers forwarded per contract.
-    unsafe { strmap_nav_ex(m.last(), key_out, buf_len, required_len, value_out) }
-}
-
-// ---------------------------------------------------------------------
-// Concurrent containers — one writer, lock-free readers
-// ---------------------------------------------------------------------
-
-/// A registered reader of a [`SyncExpanseSet`].
-///
-/// The Rust handle borrows its container; the C handle stores that
-/// borrow as `'static`, which the header's contract upholds (a reader
-/// must be freed before its container).
-pub struct SyncSetReader(SetReader<'static>);
-
-/// A registered reader of a [`SyncExpanseMap`]. See [`SyncSetReader`].
-pub struct SyncMapReader(MapReader<'static>);
-
-/// Creates an empty concurrent set.
-#[unsafe(no_mangle)]
-pub extern "C" fn expanse_sync_set_new() -> *mut SyncExpanseSet {
-    Box::into_raw(Box::new(SyncExpanseSet::new()))
-}
-
-/// Frees a concurrent set. All readers must be freed first.
-///
-/// # Safety
-///
-/// `set` must come from `expanse_sync_set_new`, with no live readers.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_free(set: *mut SyncExpanseSet) {
-    if !set.is_null() {
-        // SAFETY: handle per contract.
-        drop(unsafe { Box::from_raw(set) });
-    }
-}
-
-/// Inserts `key`; true if newly inserted. Serializes with other writers.
-///
-/// # Safety
-///
-/// `set` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_insert(set: *const SyncExpanseSet, key: u64) -> bool {
-    // SAFETY: null or live handle per contract (writes go through &self).
-    unsafe { set.as_ref() }.is_some_and(|s| s.insert(key))
-}
-
-/// Removes `key`; true if it was present.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_sync_set_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_remove(set: *const SyncExpanseSet, key: u64) -> bool {
-    // SAFETY: null or live handle per contract.
-    unsafe { set.as_ref() }.is_some_and(|s| s.remove(key))
-}
-
-/// One-shot membership test (registers a throwaway reader; prefer a
-/// reader handle in hot loops).
-///
-/// # Safety
-///
-/// Same contract as [`expanse_sync_set_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_contains(set: *const SyncExpanseSet, key: u64) -> bool {
-    // SAFETY: null or live handle per contract.
-    unsafe { set.as_ref() }.is_some_and(|s| s.contains(key))
-}
-
-/// Number of keys.
-///
-/// # Safety
-///
-/// Same contract as [`expanse_sync_set_insert`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_len(set: *const SyncExpanseSet) -> u64 {
-    // SAFETY: null or live handle per contract.
-    unsafe { set.as_ref() }.map_or(0, SyncExpanseSet::len)
-}
-
-/// Registers a reader handle for this thread. Free it before the set.
-///
-/// # Safety
-///
-/// `set` must be null or a live handle that outlives the reader.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_reader_new(
-    set: *const SyncExpanseSet,
-) -> *mut SyncSetReader {
-    // SAFETY: null or live handle per contract; the reader's borrow is
-    // extended to 'static, which the caller upholds by freeing the
-    // reader first (documented in expanse.h).
-    let Some(s) = (unsafe { set.as_ref() }) else {
-        return core::ptr::null_mut();
-    };
-    // SAFETY: lifetime extension only — the reader borrows `set`, and
-    // the header's contract requires freeing the reader before its set.
-    let reader: SetReader<'static> = unsafe { core::mem::transmute(s.reader()) };
-    Box::into_raw(Box::new(SyncSetReader(reader)))
-}
-
-/// Frees a reader handle.
-///
-/// # Safety
-///
-/// `reader` must come from `expanse_sync_set_reader_new`, unused after.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_reader_free(reader: *mut SyncSetReader) {
-    if !reader.is_null() {
-        // SAFETY: handle per contract.
-        drop(unsafe { Box::from_raw(reader) });
-    }
-}
-
-/// Lock-free membership test through a registered reader.
-///
-/// # Safety
-///
-/// `reader` must be null or live, and its set still alive.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_set_reader_contains(
-    reader: *const SyncSetReader,
-    key: u64,
-) -> bool {
-    // SAFETY: null or live reader per contract.
-    unsafe { reader.as_ref() }.is_some_and(|r| r.0.contains(key))
-}
-
-/// Creates an empty concurrent map.
-#[unsafe(no_mangle)]
-pub extern "C" fn expanse_sync_map_new() -> *mut SyncExpanseMap {
-    Box::into_raw(Box::new(SyncExpanseMap::new()))
-}
-
-/// Frees a concurrent map. All readers must be freed first.
-///
-/// # Safety
-///
-/// `map` must come from `expanse_sync_map_new`, with no live readers.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_free(map: *mut SyncExpanseMap) {
-    if !map.is_null() {
-        // SAFETY: handle per contract.
-        drop(unsafe { Box::from_raw(map) });
-    }
-}
-
-/// Stores `key -> value` (return convention as [`expanse_map_insert`]).
-///
-/// # Safety
-///
-/// `map` must be null or a live handle; `old_out` null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_insert(
-    map: *const SyncExpanseMap,
-    key: u64,
-    value: u64,
-    old_out: *mut u64,
-) -> bool {
-    // SAFETY: null or live handle per contract.
-    let Some(m) = (unsafe { map.as_ref() }) else {
-        return false;
-    };
-    match m.insert(key, value) {
-        // SAFETY: `old_out` null or writable per contract.
-        Some(old) => unsafe {
-            put(old_out, old);
-            false
-        },
-        None => true,
-    }
-}
-
-/// One-shot lookup (prefer a reader handle in hot loops).
-///
-/// # Safety
-///
-/// `map` must be null or a live handle; `value_out` null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_get(
-    map: *const SyncExpanseMap,
-    key: u64,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: null or live handle per contract.
-    let Some(v) = (unsafe { map.as_ref() }).and_then(|m| m.get(key)) else {
-        return false;
-    };
-    // SAFETY: `value_out` null or writable per contract.
-    unsafe { put(value_out, v) };
-    true
-}
-
-/// Removes `key`, reporting its value; false if absent.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle; `old_out` null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_remove(
-    map: *const SyncExpanseMap,
-    key: u64,
-    old_out: *mut u64,
-) -> bool {
-    // SAFETY: null or live handle per contract.
-    let Some(v) = (unsafe { map.as_ref() }).and_then(|m| m.remove(key)) else {
-        return false;
-    };
-    // SAFETY: `old_out` null or writable per contract.
-    unsafe { put(old_out, v) };
-    true
-}
-
-/// Number of entries.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_len(map: *const SyncExpanseMap) -> u64 {
-    // SAFETY: null or live handle per contract.
-    unsafe { map.as_ref() }.map_or(0, SyncExpanseMap::len)
-}
-
-/// Registers a reader handle for this thread. Free it before the map.
-///
-/// # Safety
-///
-/// `map` must be null or a live handle that outlives the reader.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_reader_new(
-    map: *const SyncExpanseMap,
-) -> *mut SyncMapReader {
-    // SAFETY: as in expanse_sync_set_reader_new.
-    let Some(m) = (unsafe { map.as_ref() }) else {
-        return core::ptr::null_mut();
-    };
-    // SAFETY: lifetime extension only (see expanse_sync_set_reader_new).
-    let reader: MapReader<'static> = unsafe { core::mem::transmute(m.reader()) };
-    Box::into_raw(Box::new(SyncMapReader(reader)))
-}
-
-/// Frees a reader handle.
-///
-/// # Safety
-///
-/// `reader` must come from `expanse_sync_map_reader_new`, unused after.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_reader_free(reader: *mut SyncMapReader) {
-    if !reader.is_null() {
-        // SAFETY: handle per contract.
-        drop(unsafe { Box::from_raw(reader) });
-    }
-}
-
-/// Lock-free lookup through a registered reader.
-///
-/// # Safety
-///
-/// `reader` must be null or live (its map still alive); `value_out`
-/// null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn expanse_sync_map_reader_get(
-    reader: *const SyncMapReader,
-    key: u64,
-    value_out: *mut u64,
-) -> bool {
-    // SAFETY: null or live reader per contract.
-    let Some(v) = (unsafe { reader.as_ref() }).and_then(|r| r.0.get(key)) else {
-        return false;
-    };
-    // SAFETY: `value_out` null or writable per contract.
-    unsafe { put(value_out, v) };
     true
 }
 
@@ -1682,6 +926,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_pointer_width = "64")]
     #[test]
     fn strmap_nav_ex_distinguishes_truncation() {
         // SAFETY: handles managed per the C contract throughout.
@@ -1728,8 +973,10 @@ mod tests {
         }
     }
 
+    #[cfg(target_pointer_width = "64")]
     #[test]
     fn sync_surface_threaded() {
+        use expanse_trie::sync::SyncExpanseSet;
         // The capability classic Judy lacks: readers on other threads
         // while a writer mutates the same container.
         let s = expanse_sync_set_new();
