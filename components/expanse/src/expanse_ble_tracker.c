@@ -48,13 +48,14 @@ typedef pthread_mutex_t expanse_lock_t;
 #define EXPANSE_LOCK_TAKE(lock)   pthread_mutex_lock(&(lock))
 #define EXPANSE_LOCK_GIVE(lock)   pthread_mutex_unlock(&(lock))
 #define EXPANSE_LOCK_FREE(lock)   pthread_mutex_destroy(&(lock))
-#else
-/* Single-threaded bare-metal fallback */
+#elif defined(EXPANSE_SINGLE_THREADED_BAREMETAL)
 typedef int expanse_lock_t;
 #define EXPANSE_LOCK_INIT(lock)   do { (lock) = 0; } while (0)
 #define EXPANSE_LOCK_TAKE(lock)   do { } while (0)
 #define EXPANSE_LOCK_GIVE(lock)   do { } while (0)
 #define EXPANSE_LOCK_FREE(lock)   do { } while (0)
+#else
+#error "Unsupported platform for threading in expanse_ble_tracker — define EXPANSE_SINGLE_THREADED_BAREMETAL for single-threaded bare-metal."
 #endif
 
 #define TIME_KEY_SHIFT 13
