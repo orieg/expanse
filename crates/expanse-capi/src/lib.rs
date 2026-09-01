@@ -33,6 +33,7 @@ mod alloc_bridge;
 
 use core::ffi::{c_int, c_void};
 use core::ptr::{NonNull, null_mut};
+#[cfg(feature = "std")]
 pub mod blobmap;
 pub mod modern;
 
