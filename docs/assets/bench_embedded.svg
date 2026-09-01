@@ -145,9 +145,9 @@
   <line x1="970" y1="20" x2="970" y2="245" class="divider"/>
 
   <g transform="translate(990, 20)">
-    <text x="0" y="0" class="t-chart-title">TTL Eviction (steady)</text>
-    <text x="0" y="13" class="t-chart-sub">25 of 2,000 expired / pass &#183; measured</text>
-    <text x="0" y="29" class="t-unit-header">&#9660; &#181;s / pass</text>
+    <text x="0" y="0" class="t-chart-title">Stale-Device Expiry</text>
+    <text x="0" y="13" class="t-chart-sub">evict 25 stale of 2,000 tracked &#183; measured</text>
+    <text x="0" y="29" class="t-unit-header">&#9660; &#181;s / housekeeping pass</text>
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
     <text x="22" y="48" class="t-axis-label" text-anchor="end">10</text>
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
@@ -157,15 +157,16 @@
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
     <rect x="60" y="76.2" width="50" height="118.8" class="b-expanse" rx="2"/>
     <text x="85" y="67.7" class="t-val-accent">7.9</text>
-    <text x="85" y="214" class="t-bar-label" text-anchor="middle">O(expired)</text>
+    <text x="85" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
     <text x="85" y="228" class="t-chart-sub" text-anchor="middle">2.5&#215; slower</text>
     <rect x="170" y="147.3" width="50" height="47.7" class="b-hashmap" rx="2"/>
     <text x="195" y="138.8" class="t-val-blue">3.2</text>
-    <text x="195" y="214" class="t-bar-label" text-anchor="middle">O(N) sweep</text>
-    <text x="195" y="228" class="t-chart-sub" text-anchor="middle">full scan</text>
+    <text x="195" y="214" class="t-bar-label" text-anchor="middle">HashMap</text>
+    <text x="195" y="228" class="t-chart-sub" text-anchor="middle">scans all 2k</text>
   </g>
 
   <text x="30" y="262" class="t-chart-sub">Panel 1 derived by scripts/embedded_envelope.py; panels 2-4 measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic).</text>
-  <text x="30" y="275" class="t-chart-sub">Commit a191bae0b, run 33518560277, BCa 95% CIs in docs/benchmarks/embedded/results.json &#183; bulk shape (600 of 2,000 expired): dual-trie 183 &#181;s vs sweep 7.1 &#181;s — the linear sweep wins bulk expiry.</text>
+  <text x="30" y="275" class="t-chart-sub">Expiry scaling: Expanse&#8217;s pass cost follows the stale count; the HashMap sweep follows the tracked count (~68 KiB flat table, L2-resident on this host) &#183; bulk shape (600 of 2,000 expired): dual-trie 183 &#181;s vs sweep 7.1 &#181;s — the linear sweep wins bulk expiry.</text>
+  <text x="700" y="262" class="t-chart-sub">Commit a191bae0b, run 33518560277 &#183; BCa 95% CIs in docs/benchmarks/embedded/results.json.</text>
   <text x="30" y="288" class="t-chart-sub">Host caveat: a 30 MiB L3 flatters flat scans; the on-device ESP32-C3/C6 chart is pending the first hardware harvest.</text>
 </svg>
