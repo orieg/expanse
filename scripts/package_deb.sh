@@ -7,7 +7,7 @@ set -euo pipefail
 # Usage: package_deb.sh <version> <deb_arch> <dist_dir>
 #   deb_arch: amd64 | arm64 | riscv64
 #   dist_dir: directory containing lib/ (and optionally lib/glibc-hwcaps/) + the
-#             C headers are read from crates/expanse-capi/include.
+#             C headers are read from include/.
 
 VERSION=${1:-"0.4.0"}
 DEB_ARCH=${2:-"amd64"}
@@ -98,7 +98,7 @@ mkdir -p "${DEB_DIR}/libexpanse-dev/usr/include"
 mkdir -p "${DEB_DIR}/libexpanse-dev/${LIBDIR}/pkgconfig"
 mkdir -p "${DEB_DIR}/libexpanse-dev/usr/share/man/man3"
 
-cp crates/expanse-capi/include/*.h* "${DEB_DIR}/libexpanse-dev/usr/include/"
+cp include/*.h* "${DEB_DIR}/libexpanse-dev/usr/include/"
 if [ -f "${DIST_DIR}/lib/libexpanse.a" ]; then
     cp "${DIST_DIR}/lib/libexpanse.a" "${DEB_DIR}/libexpanse-dev/${LIBDIR}/"
 fi

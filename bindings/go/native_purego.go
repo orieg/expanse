@@ -139,6 +139,7 @@ var (
 	expanse_blob_map_insert        func(mapPtr uintptr, key uint64, data unsafe.Pointer, len uintptr, hotMeta uint32) bool
 	expanse_blob_map_remove        func(mapPtr uintptr, key uint64) bool
 	expanse_blob_map_get           func(mapPtr uintptr, key uint64, outView *blobView) bool
+	expanse_blob_map_get_into      func(mapPtr uintptr, key uint64, buf unsafe.Pointer, bufLen uintptr, outLen *uintptr, outMeta *uint32) bool
 	expanse_blob_map_scan_filtered func(mapPtr uintptr, startKey, endKey uint64, predicate uintptr, callback uintptr, userCtx unsafe.Pointer) uintptr
 	expanse_blob_map_compact       func(mapPtr uintptr) bool
 	expanse_blob_map_len           func(mapPtr uintptr) uint64
@@ -283,6 +284,7 @@ func bindSymbols(h *LibraryHandle) error {
 		{&expanse_blob_map_insert, "expanse_blob_map_insert"},
 		{&expanse_blob_map_remove, "expanse_blob_map_remove"},
 		{&expanse_blob_map_get, "expanse_blob_map_get"},
+		{&expanse_blob_map_get_into, "expanse_blob_map_get_into"},
 		{&expanse_blob_map_scan_filtered, "expanse_blob_map_scan_filtered"},
 		{&expanse_blob_map_compact, "expanse_blob_map_compact"},
 		{&expanse_blob_map_len, "expanse_blob_map_len"},

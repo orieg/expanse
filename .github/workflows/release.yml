@@ -208,7 +208,7 @@ jobs:
           T="${{ matrix.target }}"
 
           mkdir -p dist/include dist/lib dist/share/man/man3
-          cp crates/expanse-capi/include/*.h dist/include/
+          cp include/*.h include/*.hpp dist/include/
           if [ -d "man/man3" ]; then
             cp man/man3/*.3 dist/share/man/man3/
           fi

@@ -3,7 +3,7 @@
 package expanse
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/../../include -I${SRCDIR}/../../crates/expanse-capi/include
+#cgo CFLAGS: -I${SRCDIR}/../../include
 #cgo !windows LDFLAGS: ${SRCDIR}/../../target/release/libexpanse.a -lpthread -ldl -lm
 #cgo windows LDFLAGS: -L${SRCDIR}/../../target/release -lexpanse
 #include <stdlib.h>

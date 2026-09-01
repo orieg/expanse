@@ -20,8 +20,9 @@ vcpkg_execute_build_process(
 )
 
 # Install headers
-file(INSTALL "${SOURCE_PATH}/crates/expanse-capi/include/expanse.h" DESTINATION "${CURRENT_PACKAGES_DIR}/include")
-file(INSTALL "${SOURCE_PATH}/crates/expanse-capi/include/Judy.h" DESTINATION "${CURRENT_PACKAGES_DIR}/include")
+file(INSTALL "${SOURCE_PATH}/include/expanse.h" DESTINATION "${CURRENT_PACKAGES_DIR}/include")
+file(INSTALL "${SOURCE_PATH}/include/expanse.hpp" DESTINATION "${CURRENT_PACKAGES_DIR}/include")
+file(INSTALL "${SOURCE_PATH}/include/Judy.h" DESTINATION "${CURRENT_PACKAGES_DIR}/include")
 
 # Install libs
 if(VCPKG_TARGET_IS_WINDOWS)

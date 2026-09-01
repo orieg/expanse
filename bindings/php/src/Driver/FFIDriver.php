@@ -78,6 +78,7 @@ class FFIDriver
     void            expanse_blob_map_free(ExpanseBlobMap *map);
     bool expanse_blob_map_insert(ExpanseBlobMap *map, uint64_t key, const char *data, size_t len, uint32_t hot_meta);
     bool expanse_blob_map_get(const ExpanseBlobMap *map, uint64_t key, ExpanseBlobView *out_view);
+    bool expanse_blob_map_get_into(const ExpanseBlobMap *map, uint64_t key, char *buf, size_t buf_len, size_t *out_len, uint32_t *out_meta);
     bool expanse_blob_map_remove(ExpanseBlobMap *map, uint64_t key);
     bool expanse_blob_map_compact(ExpanseBlobMap *map);
     uint64_t expanse_blob_map_len(const ExpanseBlobMap *map);
