@@ -470,14 +470,41 @@ def parse_go_purego(go_path: Path) -> Set[str]:
     return symbols
 
 
-def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
-    """Builds the full cross-ecosystem ABI parity report."""
+def check_no_dangling_capi_include_references(root: Path) -> List[str]:
+    """Checks for dangling references to the deleted crates/expanse-capi/include path (#563)."""
+    errors: List[str] = []
     duplicate_header_dir = root / "crates" / "expanse-capi" / "include"
     if duplicate_header_dir.exists():
-        raise RuntimeError(
+        errors.append(
             f"Duplicate header directory found: {duplicate_header_dir}. "
             "Canonical public headers must live exclusively in include/ (#563)."
         )
+
+    try:
+        res = subprocess.run(
+            ["git", "grep", "-n", "expanse-capi/include", "--", ".", ":!scripts/check_*.py"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            lines = res.stdout.strip().splitlines()
+            errors.append(
+                f"Dangling references to deleted 'expanse-capi/include' found ({len(lines)} site(s)):\n"
+                + "\n".join(f"  {line}" for line in lines)
+                + "\nCanonical public headers must live exclusively in include/ (#563)."
+            )
+    except FileNotFoundError:
+        pass
+
+    return errors
+
+
+def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
+    """Builds the full cross-ecosystem ABI parity report."""
+    dangling_errors = check_no_dangling_capi_include_references(root)
+    if dangling_errors:
+        raise RuntimeError("\n".join(dangling_errors))
 
     header_path = root / "include" / "expanse.h"
 
@@ -770,6 +797,11 @@ def self_test() -> int:
     missing_fl, missing_err = get_base_floor_constant("HEAD", "scripts/check_abi_parity.py", "NONEXISTENT_CONSTANT_NAME")
     assert missing_fl is None
     assert missing_err != ""
+
+    # 4. Anti-drift dangling reference check (#563)
+    root = get_repo_root()
+    dangling = check_no_dangling_capi_include_references(root)
+    assert not dangling, f"Unexpected dangling references found in repo: {dangling}"
 
     print("check_abi_parity.py --self-test: all checks passed")
     return 0
