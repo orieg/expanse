@@ -20,7 +20,7 @@ idf_component_register(
         "src/expanse_esp_idf.c"
     INCLUDE_DIRS
         "include"
-        "${CMAKE_CURRENT_LIST_DIR}/../../crates/expanse-capi/include"
+        "${CMAKE_CURRENT_LIST_DIR}/../../include"
     PRIV_REQUIRES
         esp_system
         heap

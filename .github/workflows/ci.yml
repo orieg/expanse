@@ -731,7 +731,7 @@ jobs:
           CEOF
           clang --target=riscv32-unknown-none-elf -march=rv32imc -mabi=ilp32 \
             -ffreestanding -fsyntax-only \
-            -Icrates/expanse-capi/include /tmp/narrow_surface.c
+            -Iinclude /tmp/narrow_surface.c
 
       # 64-bit bare metal drops only expanse_sync_* (no std::sync); it keeps
       # the whole legacy Judy surface. Guards the pointer-width gates against
