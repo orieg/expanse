@@ -479,13 +479,15 @@ the ESP-IDF component's allocator glue currently routes through
   (both are single-hart), with `critical-section` as the portable alternative.
   **`unsafe-assume-single-core` must never be enabled unconditionally for the
   whole Espressif family** — it is unsound on C6 and P4.
-- **Target-triple correction.** The ESP32-P4 HP core implements F (datasheet
-  v0.7 §4.1.1.1), so the mainline triple matching its ISA is
-  `riscv32imafc-unknown-none-elf`, present in `rustc --print target-list`. The
-  ESP-IDF component builds `esp32p4` against `riscv32imac-unknown-none-elf`
-  today — an instruction subset the P4 executes, but whose float ABI is not the
-  one an `imafc` toolchain emits. No ESP-IDF lane exercises that link (§4.2), so
-  the combination is untested here rather than known-good.
+- **Target-triple correction (resolved in #581).** The ESP32-P4 HP core
+  implements F (datasheet v0.7 §4.1.1.1) and ESP-IDF compiles it hard-float —
+  esp-idf's `components/soc/project_include.cmake` sets `-march=rv32imafc`
+  (`rv32imafcb` on newer silicon revisions) and `-mabi=ilp32f` for FPU-bearing
+  cores. The component now builds `esp32p4` against
+  `riscv32imafc-unknown-none-elf`; CI builds that staticlib and asserts the
+  archive's `EF_RISCV_FLOAT_ABI_SINGLE` flag, since the RISC-V linker rejects
+  mixed float ABIs. The ESP-IDF link itself remains without a CI lane (§4.2),
+  so end-to-end P4 linking stays unverified rather than known-good.
 
 
 ---

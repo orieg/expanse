@@ -746,6 +746,34 @@ jobs:
 
       # the whole legacy Judy surface. Guards the pointer-width gates against
       # being conflated with the `std` ones. Surface matrix: docs/COMPAT.md.
+      # The ESP32-P4 is hard-float RV32IMAFC (docs/HARDWARE.md §4.3); its
+      # archive must be ilp32f or the ESP-IDF link rejects it (#581).
+      - name: Add ESP32-P4 (RV32IMAFC) target
+        run: rustup target add riscv32imafc-unknown-none-elf
+
+      - name: Build ESP32-P4 (RV32IMAFC) C ABI staticlib
+        run: |
+          cargo build --release -p expanse-capi --no-default-features \
+            --features embedded-panic-handler \
+            --target riscv32imafc-unknown-none-elf
+          cargo clippy -p expanse-capi --no-default-features \
+            --features embedded-panic-handler \
+            --target riscv32imafc-unknown-none-elf -- -D warnings
+
+      - name: Assert the P4 archive is hard-float (ilp32f)
+        run: |
+          set -euo pipefail
+          READOBJ="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/host: //p')/bin/llvm-readobj"
+          AR=target/riscv32imafc-unknown-none-elf/release/libexpanse.a
+          # Buffer before grepping: grep -q closing the pipe mid-stream makes
+          # llvm-readobj abort on EPIPE, and under pipefail that false-fails
+          # the assert even when the flag is present.
+          "$READOBJ" --file-header "$AR" > /tmp/p4-readobj.out
+          grep -q "EF_RISCV_FLOAT_ABI_SINGLE" /tmp/p4-readobj.out || {
+            echo "::error::P4 archive is not ilp32f — an ESP-IDF esp32p4 link would reject it (#581)"
+            exit 1
+          }
+
       - name: Add x86_64 bare-metal target
         run: rustup target add x86_64-unknown-none
 
