@@ -39,7 +39,7 @@ fn with_map_reader<R>(map: &Arc<InnerSyncMap>, f: impl FnOnce(&OwnedMapReader) -
 
 /// A thread-safe, concurrent 64-bit integer map with optimistic concurrency control (OCC).
 ///
-/// Lookups, scans, and range queries execute lock-free and release the Python GIL
+/// Lookups, scans, and range queries execute on the optimistic path and release the Python GIL
 /// via `py.detach(...)`, unlocking multithreaded read throughput across CPU cores.
 #[pyclass(from_py_object, module = "expanse_trie._expanse")]
 #[derive(Clone)]
@@ -79,7 +79,7 @@ impl SyncExpanseMap {
         py.detach(|| !self.inner.is_empty())
     }
 
-    /// Lock-free membership test `key in map` releasing the GIL.
+    /// Optimistic membership test `key in map` releasing the GIL.
     pub fn __contains__(&self, py: Python<'_>, key: u64) -> bool {
         py.detach(|| self.inner.get(key).is_some())
     }
@@ -364,7 +364,7 @@ impl Default for SyncExpanseMap {
 
 /// A thread-safe, concurrent 64-bit integer set with optimistic concurrency control (OCC).
 ///
-/// Lookups, scans, and range queries execute lock-free and release the Python GIL
+/// Lookups, scans, and range queries execute on the optimistic path and release the Python GIL
 /// via `py.detach(...)`, unlocking multithreaded read throughput across CPU cores.
 #[pyclass(from_py_object, module = "expanse_trie._expanse")]
 #[derive(Clone)]
@@ -404,7 +404,7 @@ impl SyncExpanseSet {
         py.detach(|| !self.inner.is_empty())
     }
 
-    /// Lock-free membership test `key in set` releasing the GIL.
+    /// Optimistic membership test `key in set` releasing the GIL.
     pub fn __contains__(&self, py: Python<'_>, key: u64) -> bool {
         py.detach(|| self.inner.contains(key))
     }

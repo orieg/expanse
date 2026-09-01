@@ -3,7 +3,7 @@
 //! Evaluates Workloads A through F against:
 //! - [`ExpanseMap`] (pure 64-bit digital trie)
 //! - [`ExpanseBlobMap`] (inlined value slots + chunked slab arena)
-//! - [`SyncExpanseMap`] (optimistic lock-free concurrent trie)
+//! - [`SyncExpanseMap`] (optimistic concurrent trie)
 //! - [`std::collections::BTreeMap`] (standard comparison baseline)
 //! - [`crossbeam_skiplist::SkipMap`] (RocksDB In-Memory MemTable model)
 //!

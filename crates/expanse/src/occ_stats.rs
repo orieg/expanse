@@ -21,7 +21,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(usize)]
 pub enum Stat {
-    /// Public lock-free read calls entered.
+    /// Public optimistic read calls entered.
     ReadOps = 0,
     /// Optimistic walk attempts (≥ 1 per read op; > 1 is a restart).
     ReadAttempts = 1,
@@ -41,10 +41,18 @@ pub enum Stat {
     RetainedGarbageBytes = 7,
     /// Peak bytes held in collector garbage bins (high-water mark).
     RetainedGarbageHwm = 8,
+    /// Read calls that took the writer mutex, by **any** route —
+    /// retry-exhaustion fallbacks *and* the unconditional `with_locked` /
+    /// `len` / `mem_used` paths that never attempt an optimistic walk.
+    /// Counted inside `read_locked` itself, the one chokepoint every such
+    /// route passes through, so it cannot drift as callers are added.
+    ///
+    /// `locked_reads - read_fallbacks` is the unconditional share.
+    LockedReads = 9,
 }
 
 /// Number of distinct counters.
-pub const NUM_STATS: usize = 9;
+pub const NUM_STATS: usize = 10;
 
 /// Human-readable counter names, indexed by [`Stat`].
 pub const NAMES: [&str; NUM_STATS] = [
@@ -57,6 +65,7 @@ pub const NAMES: [&str; NUM_STATS] = [
     "sample_spins",
     "retained_bytes",
     "retained_hwm",
+    "locked_reads",
 ];
 
 #[cfg(feature = "occ-stats")]

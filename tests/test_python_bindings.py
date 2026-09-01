@@ -329,7 +329,7 @@ def test_expanse_bytesmap():
 # ============================================================================
 
 def test_sync_expanse_set_concurrent_readers():
-    """Verify lock-free concurrent reads across multiple threads."""
+    """Verify optimistic concurrent reads across multiple threads."""
     s = SyncExpanseSet()
     num_items = 10_000
     for i in range(num_items):

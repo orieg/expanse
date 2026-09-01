@@ -69,7 +69,7 @@ pub struct BlobRecordHeader {
 ///
 /// **The one definition of the record wire format on the read side.** The
 /// single-threaded path ([`ArenaChunk::get_slice`]) calls it with
-/// `bound = cursor`; the lock-free path ([`resolve_meta_in_table`]) calls it
+/// `bound = cursor`; the optimistic path ([`resolve_meta_in_table`]) calls it
 /// with `bound = capacity`, relying on zeroed unwritten bytes failing the
 /// generation check (generation 0 is never live).
 ///
@@ -87,7 +87,7 @@ unsafe fn read_record(
         return None;
     }
     // SAFETY: `off + 8 <= bound`, readable per this function's contract. The
-    // loaded bytes may be torn/stale on the lock-free path — every use is
+    // loaded bytes may be torn/stale on the optimistic path — every use is
     // range-checked here and discarded by that caller unless its seqlock
     // snapshot validates.
     let header = unsafe { core::ptr::read_unaligned(base.add(off).cast::<BlobRecordHeader>()) };
@@ -510,7 +510,7 @@ fn slot_from_global(global_offset: u64, hot_meta: u32) -> Result<ValueSlot, Aren
 }
 
 /// Phase 7 (issue #219): one entry of the RCU-published chunk table — the raw
-/// geometry a lock-free reader needs to resolve a record inside one chunk.
+/// geometry an optimistic reader needs to resolve a record inside one chunk.
 /// Entries are immutable once published.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -638,7 +638,7 @@ pub struct BlobArena {
     /// [`crate::alloc::NodeAlloc`]'s deferred mode.
     #[cfg(feature = "std")]
     deferred: OnceLock<Arc<Collector>>,
-    /// RCU-published [`ChunkTable`] for lock-free readers; null unless
+    /// RCU-published [`ChunkTable`] for optimistic readers; null unless
     /// deferred mode has published one. Republished whole on every
     /// chunk-set change, always *before* the chunks it dropped are retired
     /// (a block must be unreachable before it enters the grace period).
@@ -678,7 +678,7 @@ impl BlobArena {
     /// construction, alongside the index's `NodeAlloc::defer_to`): dead
     /// chunks and superseded chunk tables then wait out the epoch grace
     /// period instead of being freed, and a [`ChunkTable`] snapshot is
-    /// published for lock-free readers. Idempotent for the same collector;
+    /// published for optimistic readers. Idempotent for the same collector;
     /// a second call with a different collector is a bug and panics.
     ///
     /// `pub(crate)` deliberately: only the `sync` wrappers drive a
@@ -825,7 +825,7 @@ impl BlobArena {
         self.total_allocated += self.chunk_size;
         self.active_chunk = Some(idx);
         self.live_bytes += needed;
-        // Phase 7: lock-free readers resolve through the published table, so
+        // Phase 7: optimistic readers resolve through the published table, so
         // the grown chunk set must be republished for the record to become
         // reachable (readers on the old table simply retry).
         self.republish_table();
@@ -1883,7 +1883,7 @@ mod tests {
 
     /// A live arena never stamps generation 0 (`BlobArena::new` starts at 1;
     /// compaction skips 0), and both read paths treat "generation 0" as
-    /// never-live to reject zeroed unwritten bytes — the lock-free resolver
+    /// never-live to reject zeroed unwritten bytes — the optimistic resolver
     /// bounds by capacity and depends on it. A crafted image declaring
     /// generation 0 must therefore be rejected at load.
     #[test]

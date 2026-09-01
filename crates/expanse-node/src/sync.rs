@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 /// A thread-safe concurrent 64-bit integer map with optimistic concurrency control (OCC).
 ///
-/// Lookups and scans execute lock-free via epoch-based reclamation.
+/// Lookups and scans execute on the optimistic path with epoch-based reclamation.
 #[napi]
 #[derive(Clone)]
 pub struct SyncExpanseMap {
@@ -37,7 +37,7 @@ impl SyncExpanseMap {
         self.inner.is_empty()
     }
 
-    /// Lock-free membership test `has(key)`.
+    /// Optimistic membership test `has(key)`.
     #[napi]
     pub fn has(&self, key: KeyInput) -> Result<bool> {
         let k = key_to_u64(key)?;
@@ -52,7 +52,7 @@ impl SyncExpanseMap {
         Ok(self.inner.insert(k, v).map(BigInt::from))
     }
 
-    /// Lock-free retrieval of value for `key`, or `null` if absent.
+    /// Optimistic retrieval of value for `key`, or `null` if absent.
     #[napi]
     pub fn get(&self, key: KeyInput) -> Result<Option<BigInt>> {
         let k = key_to_u64(key)?;
@@ -192,7 +192,7 @@ impl Default for SyncExpanseMap {
 
 /// A thread-safe concurrent 64-bit integer set with optimistic concurrency control (OCC).
 ///
-/// Membership lookups and scans execute lock-free via epoch-based reclamation.
+/// Membership lookups and scans execute on the optimistic path with epoch-based reclamation.
 #[napi]
 #[derive(Clone)]
 pub struct SyncExpanseSet {
@@ -221,7 +221,7 @@ impl SyncExpanseSet {
         self.inner.is_empty()
     }
 
-    /// Lock-free membership test `has(key)`.
+    /// Optimistic membership test `has(key)`.
     #[napi]
     pub fn has(&self, key: KeyInput) -> Result<bool> {
         let k = key_to_u64(key)?;

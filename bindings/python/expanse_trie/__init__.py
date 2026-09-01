@@ -8,8 +8,8 @@ reimplemented from first principles in clean-room pure Rust:
 - `ExpanseStrMap`: Variable-length string/bytes-to-integer trie map (JudySL equivalent).
 - `ExpanseBytesMap`: Arbitrary byte array-to-integer hash map (JudyHS equivalent).
 - `ExpanseBlobMap`: 64-bit key-to-byte-payload map with inline packing and arena backing.
-- `SyncExpanseSet`: Multithreaded lock-free OCC integer set with GIL-released queries.
-- `SyncExpanseMap`: Multithreaded lock-free OCC integer map with GIL-released queries.
+- `SyncExpanseSet`: Multithreaded optimistic OCC integer set with GIL-released queries.
+- `SyncExpanseMap`: Multithreaded optimistic OCC integer map with GIL-released queries.
 """
 
 from ._expanse import (

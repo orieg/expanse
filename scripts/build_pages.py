@@ -824,7 +824,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Expanse — Judy arrays in Rust, drop-in libjudy C ABI</title>
-  <meta name="description" content="Clean-room, pure-Rust Judy arrays for 64-bit and 32-bit embedded targets. libexpanse is a drop-in C ABI replacement for libjudy. Zero-allocation immediates, SWAR/SIMD vectorization, lock-free OCC concurrency. MIT OR Apache-2.0.">
+  <meta name="description" content="Clean-room, pure-Rust Judy arrays for 64-bit and 32-bit embedded targets. libexpanse is a drop-in C ABI replacement for libjudy. Zero-allocation immediates, SWAR/SIMD vectorization, optimistic OCC concurrency. MIT OR Apache-2.0.">
   """ + THEME_HEAD_JS + """
   <style>
 """ + THEME_CSS_VARS + BASE_CSS + NAV_CSS + THEME_TOGGLE_CSS + COPY_BTN_CSS + MAIN_CSS + """
@@ -846,7 +846,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
           Sparse, ordered maps and sets with <strong style="color: var(--heading);">adaptive density</strong> &mdash; memory follows the key ranges you populate, never pre-sized tables or fixed buckets.
         </p>
         <p style="font-size: 0.95rem; line-height: 1.6; max-width: 760px; margin: 0 auto 1.5rem; color: var(--text-muted);">
-          Sorted iteration, range scans and rank over integers, strings and byte slices &mdash; with cache-line-aligned nodes, SIMD/SWAR search and lock-free reader concurrency. One engine from a 32-bit MCU to a server, reachable from <strong style="color: var(--heading);">nine languages</strong> over a stable C ABI.
+          Sorted iteration, range scans and rank over integers, strings and byte slices &mdash; with cache-line-aligned nodes, SIMD/SWAR search and optimistic reader concurrency. One engine from a 32-bit MCU to a server, reachable from <strong style="color: var(--heading);">nine languages</strong> over a stable C ABI.
         </p>
         <div class="hero-actions">
           <a href="#quickstart" class="btn btn-primary" style="background: linear-gradient(135deg, #38bdf8, #2563eb); color: #ffffff;">Quickstart &#8595;</a>
@@ -868,7 +868,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
             <div class="stat-label">32-bit and 64-bit targets</div>
           </div>
           <div class="stat-item">
-            <div class="stat-value">lock-free</div>
+            <div class="stat-value">optimistic</div>
             <div class="stat-label">OCC reader concurrency</div>
           </div>
         </div>
@@ -1000,7 +1000,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
         <div class="section-header">
           <span class="section-tag">Core Engine</span>
           <h2 class="section-title">Architectural Highlights</h2>
-          <p class="section-desc">Engineered for cache-line density, hardware SIMD lanes, and lock-free multi-core throughput.</p>
+          <p class="section-desc">Engineered for cache-line density, hardware SIMD lanes, and optimistic multi-core read throughput.</p>
         </div>
 
         <div class="grid-3">
@@ -1019,7 +1019,7 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
           <div class="card">
             <div class="card-icon">&#128640;</div>
             <h3 class="card-title">Lock-Free OCC Concurrency</h3>
-            <p class="card-p"><code>SyncExpanseMap</code> and <code>SyncExpanseSet</code> employ epoch-based optimistic concurrency control (OCC). Readers perform lock-free traversals with zero reader-lock cache-line bouncing.</p>
+            <p class="card-p"><code>SyncExpanseMap</code> and <code>SyncExpanseSet</code> employ epoch-based optimistic concurrency control (OCC). Readers perform optimistic validated traversals with zero reader-lock cache-line bouncing.</p>
           </div>
 
           <div class="card">
@@ -1176,7 +1176,7 @@ let mut blobs = ExpanseBlobMap::new();
 blobs.insert(1, b"hello expanse", 0x2A);
 assert_eq!(blobs.get(1), Some(&amp;b"hello expanse"[..]));
 
-// Thread-safe lock-free OCC map (zero reader locks)
+// Thread-safe optimistic OCC map (zero reader locks)
 let sync_map = SyncExpanseMap::new();
 sync_map.insert(99, 500);
 let reader = sync_map.reader();

@@ -1,4 +1,4 @@
-//! Phase 7: concurrent wrappers — one writer, many lock-free readers.
+//! Phase 7: concurrent wrappers — one writer, many optimistic readers.
 //!
 //! [`SyncExpanseSet`] / [`SyncExpanseMap`] / [`SyncExpanseBlobMap`] wrap the
 //! single-threaded structures with the `occ` protocol:
@@ -554,6 +554,11 @@ impl<T> Shared<T> {
 
     /// Consistent fallback read under the writer lock.
     fn read_locked<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        // Every route to the writer mutex passes through here — the
+        // retry-exhaustion fallbacks and the unconditional `with_locked` /
+        // `len` / `mem_used` paths alike. Counting at this chokepoint rather
+        // than at each caller is what stops the instrument drifting.
+        crate::occ_stats::bump(crate::occ_stats::Stat::LockedReads);
         let _g: MutexGuard<'_, ()> = self.write.lock().expect("writer lock poisoned");
         // SAFETY: the writer mutex excludes all mutation.
         f(unsafe { &*self.inner.get() })
@@ -581,12 +586,13 @@ impl<T> Shared<T> {
                 };
             }
         }
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
         self.read_locked(locked)
     }
 }
 
 /// A set shareable across threads: one writer at a time (internally
-/// serialized), lock-free validated readers. See the module docs for the
+/// serialized), validated optimistic readers. See the module docs for the
 /// protocol and its trade-offs.
 pub struct SyncExpanseSet {
     shared: Shared<ExpanseSet>,
@@ -670,7 +676,7 @@ pub struct SetReader<'a> {
 }
 
 impl SetReader<'_> {
-    /// Lock-free membership test.
+    /// Optimistic membership test.
     #[must_use]
     pub fn contains(&self, key: Key) -> bool {
         let shared = &self.set.shared;
@@ -693,7 +699,7 @@ impl SetReader<'_> {
 }
 
 /// A map shareable across threads: one writer at a time (internally
-/// serialized), lock-free validated readers. See the module docs.
+/// serialized), validated optimistic readers. See the module docs.
 pub struct SyncExpanseMap {
     shared: Shared<ExpanseMap>,
 }
@@ -830,7 +836,7 @@ pub struct OwnedMapReader {
 }
 
 impl OwnedMapReader {
-    /// Lock-free lookup, without the per-call registry lock `get` pays.
+    /// Optimistic lookup, without the per-call registry lock `get` pays.
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         map_get_with(&self.map, &self.reader, key)
@@ -838,7 +844,7 @@ impl OwnedMapReader {
 }
 
 impl MapReader<'_> {
-    /// Lock-free lookup.
+    /// Optimistic lookup.
     #[must_use]
     pub fn get(&self, key: Key) -> Option<u64> {
         map_get_with(self.map, &self.reader, key)
@@ -846,7 +852,7 @@ impl MapReader<'_> {
 }
 
 /// A blob map shareable across threads (issue #219 Phase 1): one writer at a
-/// time (internally serialized), lock-free validated readers with epoch-pinned
+/// time (internally serialized), validated optimistic readers with epoch-pinned
 /// zero-copy payload borrows. See the module docs for the protocol and its
 /// trade-offs.
 ///
@@ -1012,7 +1018,7 @@ pub struct BlobReader<'a> {
 /// The blob map's hot-metadata semantics, applied to a validated slot word:
 /// `ArenaMeta` slots report their 24-bit field, inline slots report `0`, and
 /// non-payload tags read as absent. Reads nothing but the word — both
-/// `get_meta` paths (lock-free and locked fallback) share it so they cannot
+/// `get_meta` paths (optimistic and locked fallback) share it so they cannot
 /// disagree.
 fn blob_slot_meta(raw: u64) -> Option<u32> {
     let slot = ValueSlot::from_raw(raw);
@@ -1055,7 +1061,7 @@ impl BlobReader<'_> {
         }
     }
 
-    /// Lock-free owned-copy lookup (pins only for the duration of the call).
+    /// Optimistic owned-copy lookup (pins only for the duration of the call).
     #[must_use]
     pub fn get(&mut self, key: Key) -> Option<(Vec<u8>, u32)> {
         let guard = self.pin();
@@ -1064,7 +1070,7 @@ impl BlobReader<'_> {
             .map(|(view, meta)| (view.as_bytes().to_vec(), meta))
     }
 
-    /// Bounded lock-free validated slot-word lookup shared by the word-level
+    /// Bounded validated optimistic slot-word lookup shared by the word-level
     /// reads; `Err(Retry)` after retry exhaustion (the caller then falls
     /// back under the writer lock).
     fn lookup_slot(&mut self, key: Key) -> Result<Option<u64>, Retry> {
@@ -1083,7 +1089,7 @@ impl BlobReader<'_> {
         Err(Retry)
     }
 
-    /// Lock-free metadata lookup: the validated slot word alone answers it —
+    /// Optimistic metadata lookup: the validated slot word alone answers it —
     /// no payload cache line is touched (inline payloads report `0`, as in
     /// [`ExpanseBlobMap::get`]; non-payload slots return `None`). Because
     /// the payload is never resolved, a dangling arena locator (possible
@@ -1092,19 +1098,24 @@ impl BlobReader<'_> {
     pub fn get_meta(&mut self, key: Key) -> Option<u32> {
         match self.lookup_slot(key) {
             Ok(found) => found.and_then(blob_slot_meta),
-            Err(Retry) => self
-                .map
-                .shared
-                .read_locked(|m| m.index().get(key).and_then(blob_slot_meta)),
+            Err(Retry) => {
+                crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
+                self.map
+                    .shared
+                    .read_locked(|m| m.index().get(key).and_then(blob_slot_meta))
+            }
         }
     }
 
-    /// Lock-free membership test.
+    /// Optimistic membership test.
     #[must_use]
     pub fn contains(&mut self, key: Key) -> bool {
         match self.lookup_slot(key) {
             Ok(found) => found.is_some(),
-            Err(Retry) => self.map.shared.read_locked(|m| m.contains_key(key)),
+            Err(Retry) => {
+                crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
+                self.map.shared.read_locked(|m| m.contains_key(key))
+            }
         }
     }
 }
@@ -1130,7 +1141,7 @@ pub struct BlobReadGuard<'g> {
 }
 
 impl BlobReadGuard<'_> {
-    /// Lock-free validated lookup. Inline payloads are decoded by value from
+    /// Validated optimistic lookup. Inline payloads are decoded by value from
     /// the validated slot word; arena payloads are zero-copy borrows of
     /// epoch-pinned slab bytes. Falls back to an owned copy under the writer
     /// lock after bounded retries.
@@ -1214,6 +1225,7 @@ impl BlobReadGuard<'_> {
                 }
             }
         }
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
         shared.read_locked(|m| {
             m.get(key)
                 .map(|(view, meta)| (SyncBlobView::Owned(view.as_bytes().to_vec()), meta))
@@ -1313,7 +1325,7 @@ impl<'g> PartialEq<SyncBlobView<'g>> for [u8] {
 }
 
 /// A string map shareable across threads (issue #219 Phase 2): one writer
-/// at a time (internally serialized), lock-free validated readers for
+/// at a time (internally serialized), validated optimistic readers for
 /// point lookups. See the module docs for the protocol and its trade-offs.
 ///
 /// On top of the [`SyncExpanseMap`] protocol, a lookup cascades across the
@@ -1457,7 +1469,7 @@ pub struct StrReader<'a> {
 }
 
 impl StrReader<'_> {
-    /// Lock-free lookup: a bounded, validated cascade across the sub-tries
+    /// Optimistic lookup: a bounded, validated cascade across the sub-tries
     /// (one hop per 8 key bytes), falling back to the writer lock after
     /// bounded retries.
     #[must_use]
@@ -1474,10 +1486,11 @@ impl StrReader<'_> {
                 return r;
             }
         }
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
         shared.read_locked(|m| m.get(key))
     }
 
-    /// Lock-free membership test.
+    /// Optimistic membership test.
     #[must_use]
     pub fn contains(&self, key: &[u8]) -> bool {
         self.get(key).is_some()
@@ -1486,7 +1499,7 @@ impl StrReader<'_> {
 
 /// An **unordered** byte-string map shareable across threads (issue
 /// #362 — the JudyHS member completing the Sync* family): one writer at
-/// a time (internally serialized), lock-free validated readers. See the
+/// a time (internally serialized), validated optimistic readers. See the
 /// module docs for the protocol and its trade-offs.
 ///
 /// A lookup is one 64-bit hash, a single validated hand-over-hand walk
@@ -1643,7 +1656,7 @@ pub struct BytesReader<'a, S: BuildHasher + Send + Sync = RandomState> {
 }
 
 impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
-    /// Lock-free lookup: one bounded, validated hash-trie walk plus a
+    /// Optimistic lookup: one bounded, validated hash-trie walk plus a
     /// byte-exact bucket comparison, falling back to the writer lock
     /// after bounded retries.
     #[must_use]
@@ -1660,10 +1673,11 @@ impl<S: BuildHasher + Send + Sync> BytesReader<'_, S> {
                 return r;
             }
         }
+        crate::occ_stats::bump(crate::occ_stats::Stat::ReadFallbacks);
         shared.read_locked(|m| m.get(key))
     }
 
-    /// Lock-free membership test.
+    /// Optimistic membership test.
     #[must_use]
     pub fn contains(&self, key: &[u8]) -> bool {
         self.get(key).is_some()
@@ -2501,7 +2515,7 @@ mod tests {
         assert_eq!(m.get(b"slot-key"), Some(77));
     }
 
-    /// The issue #362 gate: readers hammer lock-free point lookups while
+    /// The issue #362 gate: readers hammer optimistic point lookups while
     /// the writer churns inserts/removes and periodically clears the
     /// whole map (retiring every bucket under active readers). Every
     /// observed value must be the key's full-key FNV-1a hash — a

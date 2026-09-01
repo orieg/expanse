@@ -8,7 +8,7 @@ This document details the architectural principles, algorithmic mechanics, and c
 
 Modern relational databases (RDBMS), analytical OLAP engines, full-text search systems, and distributed key-value stores rely on core in-memory data structures that dictate engine throughput, memory amplification, and concurrency scaling.
 
-Expanse provides modern, clean-room 64-bit digital trie primitives designed for contemporary microarchitectures (64-byte cache lines, hardware POPCNT/TZCNT, SIMD vectorization, and lock-free Optimistic Concurrency Control):
+Expanse provides modern, clean-room 64-bit digital trie primitives designed for contemporary microarchitectures (64-byte cache lines, hardware POPCNT/TZCNT, SIMD vectorization, and optimistic concurrency control):
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -176,7 +176,7 @@ To determine whether a tuple is visible to a reading transaction $T_{\text{read}
  └────────────────────────────┬────────────────────────────┘
                               │
            ┌───────────────────┴───────────────────┐
-           ▼ (Lock-Free Walk)                      ▼ (Lock-Free Walk)
+           ▼ (Optimistic Walk)                      ▼ (Optimistic Walk)
      Reader Query Thread 1                   Reader Query Thread 2
      • Pins EBR Epoch                        • Pins EBR Epoch
      • Samples Node SeqVersion               • Samples Node SeqVersion
@@ -192,7 +192,7 @@ Under high OLTP transaction churn, maintaining the active transaction list using
 - Transaction commits and rollbacks block all readers to modify the active array.
 
 `SyncExpanseSet` eliminates this bottleneck entirely using fine-grained **Optimistic Concurrency Control (OCC)** coupled with **Epoch-Based Reclamation (EBR)**:
-- **Lock-Free Read Protocol**: Readers register a per-thread handle (`set.reader()`) and pin the active epoch. Point lookups (`contains(xid)`) walk the trie hand-over-hand without taking any mutex or atomic increment.
+- **Optimistic Read Protocol**: Readers register a per-thread handle (`set.reader()`) and pin the active epoch. Point lookups (`contains(xid)`) walk the trie hand-over-hand without taking any mutex or atomic increment.
 - **Node-Level Version Bracketing**: Every branch node contains a 32-bit `SeqVersion` counter in its 16-byte header. Writers increment the version to an odd number before in-place modification and release with an even number.
 - **Safe Memory Reclamation**: When concurrent vacuum or transaction completion shrinks or deletes trie nodes, memory frees are deferred through the EBR collector until all active readers exit their epoch pins.
 
@@ -203,7 +203,7 @@ use expanse_trie::sync::SyncExpanseSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-/// Lock-free MVCC Snapshot Manager for High-Churn OLTP Engines
+/// Optimistic MVCC Snapshot Manager for High-Churn OLTP Engines
 pub struct MvccEngine {
     active_xids: Arc<SyncExpanseSet>,
     next_xid: AtomicU64,
@@ -238,7 +238,7 @@ impl MvccEngine {
         if xmin > snapshot_xid {
             return false;
         }
-        // 2. Lock-free check: if xmin was active at snapshot time, not visible
+        // 2. Optimistic check: if xmin was active at snapshot time, not visible
         // Uses thread-local registered reader for single-digit nanosecond verification
         let reader = self.active_xids.reader();
         !reader.contains(xmin)
@@ -540,7 +540,7 @@ F (50% Read, 50% RMW)        18.82 Mops/s         14.73 Mops/s          4.35 Mop
 **Key Architectural Insights for Database Engineers:**
 1. **MemTable Read-Latest Advantage (Workload D)**: `ExpanseBlobMap` achieves **~5.0× higher throughput than `BTreeMap`** (21.50 M/s vs 4.28 M/s; workload: `workload_ycsb`). In write-heavy ingestion where recent records are frequently read, digital trie leaf appending avoids page-split stalls.
 2. **Advantage over RocksDB SkipMap**: `ExpanseBlobMap` outperforms `crossbeam_skiplist::SkipMap` by **~8.1× to ~11.1× across Workloads B, C, D, and F** on this 24-core host (the margin is host- and payload-dependent — the boxed-128B blob path is heavier for the skiplist here than on the earlier Apple-silicon run).
-3. **Lock-Free Concurrency Scaling**: `SyncExpanseMap` scales on **read-only** workloads (see §3.2). Write-mixed throughput does not scale at all — it *falls* as threads are added. The cause is the **single writer mutex**, not the seqlock: `read_fallbacks` measures 0, so readers are not being invalidated, and the bench's own coarse-lock controls (`RwLock<BTreeMap>`, `Mutex<ExpanseBlobMap>`) collapse identically. OCC makes *readers* lock-free; it was never a multi-writer design. Size a write-heavy deployment by single-writer throughput, or shard across independent maps.
+3. **Concurrency Scaling**: `SyncExpanseMap` scales on **read-only** workloads (see §3.2). Write-mixed throughput does not scale at all — it *falls* as threads are added. The cause is the **single writer mutex**, not the seqlock, and the bench's own coarse-lock controls (`RwLock<BTreeMap>`, `Mutex<ExpanseBlobMap>`) collapse identically. OCC keeps *readers* off the writer lock in the common case; it was never a multi-writer design. Size a write-heavy deployment by single-writer throughput, or shard across independent maps.
 
 ### 7.3 Architectural Selection Guide
 

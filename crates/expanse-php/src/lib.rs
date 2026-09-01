@@ -372,7 +372,7 @@ impl PhpSyncSet {
         self.inner.remove(key)
     }
 
-    /// Checks if a key exists lock-free.
+    /// Checks if a key exists on the optimistic path.
     pub fn contains(&self, key: u64) -> bool {
         self.inner.contains(key)
     }
@@ -398,7 +398,7 @@ impl PhpSyncMap {
         self.inner.insert(key, value);
     }
 
-    /// Gets value lock-free.
+    /// Gets value on the optimistic path.
     pub fn get(&self, key: u64) -> Option<u64> {
         self.inner.get(key)
     }

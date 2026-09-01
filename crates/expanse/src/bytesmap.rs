@@ -338,7 +338,7 @@ impl<S: BuildHasher> ExpanseBytesMap<S> {
         self.get(key).is_some()
     }
 
-    /// Phase 7 (issue #219): one bounded, validated lock-free lookup —
+    /// Phase 7 (issue #219): one bounded, validated optimistic lookup —
     /// the concurrent analogue of [`Self::get`]. One 64-bit hash, one
     /// validated `sync::walk_validated` over the hash trie, then a
     /// byte-exact comparison against the collision bucket.

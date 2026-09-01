@@ -32,7 +32,7 @@ pub type Value = u64;
 /// It is **not** false-sharing padding, and no `target_vendor`-gated 128-byte
 /// widening is warranted: nothing in the concurrent path (`sync`/`occ`) pads a
 /// field to this width. That path serializes writers on a mutex and validates
-/// lock-free readers under a seqlock + EBR protocol (each reader's epoch slot
+/// optimistic readers under a seqlock + EBR protocol (each reader's epoch slot
 /// is its own `Arc<AtomicUsize>` allocation, never a slot in a shared array),
 /// so nodes are read-mostly with a single intermittent writer — not the
 /// multi-writer "every thread stores to its own adjacent field" pattern a

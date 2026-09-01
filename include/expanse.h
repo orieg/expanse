@@ -12,7 +12,7 @@
  *     count_range, by_count) — classic Judy exposes Count/ByCount only
  *     for Judy1/JudyL and not on the string types.
  *   - Byte-exact memory accounting on every type.
- *   - Concurrent readers: one writer plus lock-free readers over the
+ *   - Concurrent readers: one writer plus optimistic readers over the
  *     same tree (expanse_sync_set_t / expanse_sync_map_t), which the
  *     classic library has no equivalent for.
  *   - Explicit error-free value semantics: functions return what they
@@ -276,7 +276,7 @@ expanse_str_nav_status expanse_strmap_prev_before_ex(expanse_strmap_t *map, cons
                                                      char *key_out, size_t buf_len,
                                                      size_t *required_len, uint64_t *value_out);
 
-/* ---- Concurrent types: one writer, lock-free readers ---------------- */
+/* ---- Concurrent types: one writer, optimistic readers ---------------- */
 
 /*
  * The capability classic Judy has no answer for. Writers serialize

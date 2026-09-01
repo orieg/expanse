@@ -33,7 +33,7 @@ blob = ExpanseBlobMap()
 blob.insert(1, b"inline or arena payload", hot_meta=0x01)
 payload, meta = blob.get(1)
 
-# 5. Multithreaded lock-free OCC concurrent map (GIL-free queries)
+# 5. Multithreaded optimistic OCC concurrent map (GIL-free queries)
 sync_map = SyncExpanseMap()
 sync_map.insert(100, 5000)
 assert sync_map.get(100) == 5000
