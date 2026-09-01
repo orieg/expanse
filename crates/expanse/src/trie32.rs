@@ -638,6 +638,12 @@ impl Arena {
             _ => unreachable!("expected leaf bytes"),
         }
     }
+    fn leaf_mut(&mut self, h: u32) -> &mut [u8] {
+        match self.get_mut(h) {
+            NodeBox::Leaf(b) => b,
+            _ => unreachable!("expected leaf bytes"),
+        }
+    }
 }
 
 impl Default for Arena {
@@ -750,6 +756,58 @@ fn read_set_leaf(a: &Arena, e: &Edge32, kb: u8) -> Vec<u32> {
     v
 }
 
+/// Insert `rem` at sorted position `pos` of the set leaf behind `e`,
+/// mutating the buffer in place while the population stays inside the
+/// current capacity class and copying region-to-region into a
+/// next-class node otherwise. Replaces the scratch-`Vec` rebuild that
+/// dominated the 32-bit write-path instruction profile (#577).
+fn set_leaf_insert_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize, rem: u32) {
+    let pop = edge_pop(e);
+    let new_pop = pop + 1;
+    let kbz = kb as usize;
+    let h = edge_handle(e);
+    if cap_class(new_pop) == cap_class(pop) {
+        let buf = a.leaf_mut(h);
+        buf.copy_within(pos * kbz..pop * kbz, (pos + 1) * kbz);
+        write_rem(buf, pos, kbz, rem);
+        *e = leaf_edge(h, new_pop, t_set_leaf(kb));
+    } else {
+        let mut nb = alloc_zeroed_bytes(size_set32(kb, new_pop));
+        let old = a.leaf(h);
+        nb[..pos * kbz].copy_from_slice(&old[..pos * kbz]);
+        nb[(pos + 1) * kbz..new_pop * kbz].copy_from_slice(&old[pos * kbz..pop * kbz]);
+        write_rem(&mut nb, pos, kbz, rem);
+        let nh = a.alloc(NodeBox::Leaf(nb));
+        a.free(h);
+        *e = leaf_edge(nh, new_pop, t_set_leaf(kb));
+    }
+}
+
+/// Remove the element at `pos` of the set leaf behind `e`, in place
+/// within the capacity class and by region copy into the exact smaller
+/// class otherwise, keeping the allocation size derivable from the
+/// population alone. The caller has already ruled out demotion to an
+/// immediate or to null.
+fn set_leaf_remove_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize) {
+    let pop = edge_pop(e);
+    let new_pop = pop - 1;
+    let kbz = kb as usize;
+    let h = edge_handle(e);
+    if cap_class(new_pop) == cap_class(pop) {
+        let buf = a.leaf_mut(h);
+        buf.copy_within((pos + 1) * kbz..pop * kbz, pos * kbz);
+        *e = leaf_edge(h, new_pop, t_set_leaf(kb));
+    } else {
+        let mut nb = alloc_zeroed_bytes(size_set32(kb, new_pop));
+        let old = a.leaf(h);
+        nb[..pos * kbz].copy_from_slice(&old[..pos * kbz]);
+        nb[pos * kbz..new_pop * kbz].copy_from_slice(&old[(pos + 1) * kbz..pop * kbz]);
+        let nh = a.alloc(NodeBox::Leaf(nb));
+        a.free(h);
+        *e = leaf_edge(nh, new_pop, t_set_leaf(kb));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Linear leaf construction / reading (map flavour)
 // ---------------------------------------------------------------------------
@@ -781,6 +839,71 @@ fn read_map_leaf(a: &Arena, e: &Edge32, kb: u8) -> Vec<(u32, u32)> {
         v.push((key, val));
     }
     v
+}
+
+/// Map-flavour sibling of [`set_leaf_insert_at`]: values then keys, both
+/// capacity-class-sized regions. `keys_off` is unchanged inside a class
+/// and recomputed for the next class on growth.
+fn map_leaf_insert_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize, rem: u32, val: u32) {
+    let pop = edge_pop(e);
+    let new_pop = pop + 1;
+    let kbz = kb as usize;
+    let h = edge_handle(e);
+    if cap_class(new_pop) == cap_class(pop) {
+        let keys_off = 4 * cap_class(pop);
+        let buf = a.leaf_mut(h);
+        buf.copy_within(pos * 4..pop * 4, (pos + 1) * 4);
+        buf[pos * 4..pos * 4 + 4].copy_from_slice(&val.to_le_bytes());
+        let keys = &mut buf[keys_off..];
+        keys.copy_within(pos * kbz..pop * kbz, (pos + 1) * kbz);
+        write_rem(keys, pos, kbz, rem);
+        *e = leaf_edge(h, new_pop, t_map_leaf(kb));
+    } else {
+        let old_off = 4 * cap_class(pop);
+        let new_off = 4 * cap_class(new_pop);
+        let mut nb = alloc_zeroed_bytes(size_map32(kb, new_pop));
+        let old = a.leaf(h);
+        nb[..pos * 4].copy_from_slice(&old[..pos * 4]);
+        nb[pos * 4..pos * 4 + 4].copy_from_slice(&val.to_le_bytes());
+        nb[(pos + 1) * 4..new_pop * 4].copy_from_slice(&old[pos * 4..pop * 4]);
+        nb[new_off..new_off + pos * kbz].copy_from_slice(&old[old_off..old_off + pos * kbz]);
+        nb[new_off + (pos + 1) * kbz..new_off + new_pop * kbz]
+            .copy_from_slice(&old[old_off + pos * kbz..old_off + pop * kbz]);
+        write_rem(&mut nb[new_off..], pos, kbz, rem);
+        let nh = a.alloc(NodeBox::Leaf(nb));
+        a.free(h);
+        *e = leaf_edge(nh, new_pop, t_map_leaf(kb));
+    }
+}
+
+/// Map-flavour sibling of [`set_leaf_remove_at`]. The caller has already
+/// ruled out demotion to an immediate or to null.
+fn map_leaf_remove_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize) {
+    let pop = edge_pop(e);
+    let new_pop = pop - 1;
+    let kbz = kb as usize;
+    let h = edge_handle(e);
+    if cap_class(new_pop) == cap_class(pop) {
+        let keys_off = 4 * cap_class(pop);
+        let buf = a.leaf_mut(h);
+        buf.copy_within((pos + 1) * 4..pop * 4, pos * 4);
+        let keys = &mut buf[keys_off..];
+        keys.copy_within((pos + 1) * kbz..pop * kbz, pos * kbz);
+        *e = leaf_edge(h, new_pop, t_map_leaf(kb));
+    } else {
+        let old_off = 4 * cap_class(pop);
+        let new_off = 4 * cap_class(new_pop);
+        let mut nb = alloc_zeroed_bytes(size_map32(kb, new_pop));
+        let old = a.leaf(h);
+        nb[..pos * 4].copy_from_slice(&old[..pos * 4]);
+        nb[pos * 4..new_pop * 4].copy_from_slice(&old[(pos + 1) * 4..pop * 4]);
+        nb[new_off..new_off + pos * kbz].copy_from_slice(&old[old_off..old_off + pos * kbz]);
+        nb[new_off + pos * kbz..new_off + new_pop * kbz]
+            .copy_from_slice(&old[old_off + (pos + 1) * kbz..old_off + pop * kbz]);
+        let nh = a.alloc(NodeBox::Leaf(nb));
+        a.free(h);
+        *e = leaf_edge(nh, new_pop, t_map_leaf(kb));
+    }
 }
 
 #[inline]
@@ -1686,15 +1809,15 @@ pub(crate) fn set_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
             match keys[..n].binary_search(&rem) {
                 Ok(_) => false,
                 Err(pos) => {
+                    let mut v = [0u32; 8];
+                    v[..pos].copy_from_slice(&keys[..pos]);
+                    v[pos] = rem;
+                    v[pos + 1..=n].copy_from_slice(&keys[pos..n]);
                     if n < set_immed_cap(kb) {
-                        let mut v: Vec<u32> = keys[..n].to_vec();
-                        v.insert(pos, rem);
-                        *e = set_immed_edge(kb, &v);
+                        *e = set_immed_edge(kb, &v[..=n]);
                     } else {
                         // Promote immediate -> linear leaf.
-                        let mut v: Vec<u32> = keys[..n].to_vec();
-                        v.insert(pos, rem);
-                        *e = make_set_leaf(a, kb, &v);
+                        *e = make_set_leaf(a, kb, &v[..=n]);
                     }
                     true
                 }
@@ -1725,11 +1848,7 @@ pub(crate) fn set_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
                 set_insert(a, e, kb, rem);
                 a.free(old);
             } else {
-                let mut keys = read_set_leaf(a, e, kb);
-                keys.insert(pos, rem);
-                let old = edge_handle(e);
-                *e = make_set_leaf(a, kb, &keys);
-                a.free(old);
+                set_leaf_insert_at(a, e, kb, pos, rem);
             }
             true
         }
@@ -1771,12 +1890,13 @@ pub(crate) fn set_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
             match keys[..n].binary_search(&rem) {
                 Err(_) => false,
                 Ok(pos) => {
-                    let mut v: Vec<u32> = keys[..n].to_vec();
-                    v.remove(pos);
-                    *e = if v.is_empty() {
+                    let mut v = [0u32; 7];
+                    v[..pos].copy_from_slice(&keys[..pos]);
+                    v[pos..n - 1].copy_from_slice(&keys[pos + 1..n]);
+                    *e = if n == 1 {
                         Edge32::null()
                     } else {
-                        set_immed_edge(kb, &v)
+                        set_immed_edge(kb, &v[..n - 1])
                     };
                     true
                 }
@@ -1789,17 +1909,28 @@ pub(crate) fn set_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
             if pos >= pop || read_rem(buf, pos, kb as usize) != rem {
                 return false;
             }
-            let mut keys = read_set_leaf(a, e, kb);
-            keys.remove(pos);
-            let old = edge_handle(e);
-            *e = if keys.is_empty() {
-                Edge32::null()
-            } else if keys.len() <= set_immed_cap(kb) {
-                set_immed_edge(kb, &keys)
+            let new_pop = pop - 1;
+            if new_pop == 0 {
+                let old = edge_handle(e);
+                *e = Edge32::null();
+                a.free(old);
+            } else if new_pop <= set_immed_cap(kb) {
+                // Demote to an immediate: collect the survivors on the stack.
+                let kbz = kb as usize;
+                let mut v = [0u32; 7];
+                let mut n = 0;
+                for i in 0..pop {
+                    if i != pos {
+                        v[n] = read_rem(buf, i, kbz);
+                        n += 1;
+                    }
+                }
+                let old = edge_handle(e);
+                *e = set_immed_edge(kb, &v[..n]);
+                a.free(old);
             } else {
-                make_set_leaf(a, kb, &keys)
-            };
-            a.free(old);
+                set_leaf_remove_at(a, e, kb, pos);
+            }
             true
         }
         Kind::Bitmap => {
@@ -1919,12 +2050,12 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
                 Some(old)
             } else {
                 let v0 = map_immed_val(e);
-                let mut entries = if r0 < rem {
-                    Vec::from([(r0, v0), (rem, val)])
+                // `r0 != rem` here, so the pair is always two entries.
+                let entries = if r0 < rem {
+                    [(r0, v0), (rem, val)]
                 } else {
-                    Vec::from([(rem, val), (r0, v0)])
+                    [(rem, val), (r0, v0)]
                 };
-                entries.dedup_by_key(|p| p.0);
                 *e = make_map_leaf(a, kb, &entries);
                 None
             }
@@ -1936,13 +2067,13 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
             let buf = a.leaf(edge_handle(e));
             let pos = leaf_lower_bound(&buf[keys_off..], pop, kb, rem).unwrap();
             if pos < pop && read_rem(&buf[keys_off..], pos, kb as usize) == rem {
-                let mut entries = read_map_leaf(a, e, kb);
-                let old = entries[pos].1;
-                entries[pos].1 = val;
-                let oldh = edge_handle(e);
-                *e = make_map_leaf(a, kb, &entries);
-                a.free(oldh);
-                return Some(old);
+                // Value overwrite: a single in-place word store; the edge
+                // (handle, pop) is unchanged.
+                let buf = a.leaf_mut(edge_handle(e));
+                let mut vb = [0u8; 4];
+                vb.copy_from_slice(&buf[pos * 4..pos * 4 + 4]);
+                buf[pos * 4..pos * 4 + 4].copy_from_slice(&val.to_le_bytes());
+                return Some(u32::from_le_bytes(vb));
             }
             let new_pop = pop + 1;
             if kb == 1 && new_pop > MAP_BITMAP_ENTER {
@@ -1961,11 +2092,7 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
                 map_insert(a, e, kb, rem, val);
                 a.free(oldh);
             } else {
-                let mut entries = read_map_leaf(a, e, kb);
-                entries.insert(pos, (rem, val));
-                let oldh = edge_handle(e);
-                *e = make_map_leaf(a, kb, &entries);
-                a.free(oldh);
+                map_leaf_insert_at(a, e, kb, pos, rem, val);
             }
             None
         }
@@ -2052,17 +2179,26 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
             if pos >= pop || read_rem(&buf[keys_off..], pos, kb as usize) != rem {
                 return None;
             }
-            let mut entries = read_map_leaf(a, e, kb);
-            let old = entries.remove(pos).1;
-            let oldh = edge_handle(e);
-            *e = if entries.is_empty() {
-                Edge32::null()
-            } else if entries.len() == 1 && kb <= 3 {
-                map_immed_edge(kb, entries[0].0, entries[0].1)
+            let mut vb = [0u8; 4];
+            vb.copy_from_slice(&buf[pos * 4..pos * 4 + 4]);
+            let old = u32::from_le_bytes(vb);
+            let new_pop = pop - 1;
+            if new_pop == 0 {
+                let oldh = edge_handle(e);
+                *e = Edge32::null();
+                a.free(oldh);
+            } else if new_pop == 1 && kb <= 3 {
+                // Demote to an immediate: the survivor is the other entry.
+                let i = if pos == 0 { 1 } else { 0 };
+                let k = read_rem(&buf[keys_off..], i, kb as usize);
+                let mut sb = [0u8; 4];
+                sb.copy_from_slice(&buf[i * 4..i * 4 + 4]);
+                let oldh = edge_handle(e);
+                *e = map_immed_edge(kb, k, u32::from_le_bytes(sb));
+                a.free(oldh);
             } else {
-                make_map_leaf(a, kb, &entries)
-            };
-            a.free(oldh);
+                map_leaf_remove_at(a, e, kb, pos);
+            }
             Some(old)
         }
         Kind::MapBitmap => {
@@ -2898,5 +3034,82 @@ mod tests {
             let (out, n) = set_immed_keys(&e, kb, sorted.len() as u8);
             assert_eq!(&out[..n], &sorted[..]);
         }
+    }
+
+    /// Drives one leaf across every capacity-class boundary in both
+    /// directions, pinning the #577 in-place/copy split: within a class
+    /// the node handle (and thus the allocation) must be reused; across
+    /// a class boundary the leaf must move to an exactly-sized node so
+    /// the allocation size stays derivable from the population alone.
+    #[test]
+    fn leaf_mutation_reuses_allocation_within_cap_class() {
+        for kb in 2..=4u8 {
+            let mut a = Arena::new();
+            let mut e = Edge32::null();
+            // Interleaved keys so later inserts land at interior positions.
+            let key = |i: u32| (i * 7 + 3) & rem_mask(kb);
+            let mut n = 0u32;
+            while !matches!(kind(&e), Kind::SetLeaf(_)) {
+                set_insert(&mut a, &mut e, kb, key(n));
+                n += 1;
+            }
+            while (n as usize) < SET_LEAF_MAX {
+                let pop = edge_pop(&e);
+                let h = edge_handle(&e);
+                let bytes = a.bytes_in_use();
+                set_insert(&mut a, &mut e, kb, key(n));
+                n += 1;
+                assert_eq!(edge_pop(&e), pop + 1);
+                assert_eq!(a.bytes_in_use(), size_set32(kb, pop + 1));
+                if cap_class(pop + 1) == cap_class(pop) {
+                    assert_eq!(edge_handle(&e), h, "in-place insert moved the node");
+                    assert_eq!(a.bytes_in_use(), bytes, "in-place insert changed bytes");
+                } else {
+                    assert_ne!(edge_handle(&e), h, "class growth must reallocate");
+                }
+            }
+            // Walk back down: same contract for removes, until demotion.
+            while matches!(kind(&e), Kind::SetLeaf(_)) {
+                let pop = edge_pop(&e);
+                let h = edge_handle(&e);
+                n -= 1;
+                assert!(set_remove(&mut a, &mut e, kb, key(n)));
+                if matches!(kind(&e), Kind::SetLeaf(_)) {
+                    assert_eq!(edge_pop(&e), pop - 1);
+                    assert_eq!(a.bytes_in_use(), size_set32(kb, pop - 1));
+                    if cap_class(pop - 1) == cap_class(pop) {
+                        assert_eq!(edge_handle(&e), h, "in-place remove moved the node");
+                    } else {
+                        assert_ne!(edge_handle(&e), h, "class shrink must reallocate");
+                    }
+                }
+            }
+            // Drain the rest and verify nothing leaked.
+            while n > 0 {
+                n -= 1;
+                assert!(set_remove(&mut a, &mut e, kb, key(n)));
+            }
+            assert!(e.is_null());
+            assert_eq!(a.bytes_in_use(), 0, "byte leak after drain");
+        }
+    }
+
+    /// The map value-overwrite path must be a pure in-place store: same
+    /// node handle, same byte count, old value returned.
+    #[test]
+    fn map_leaf_overwrite_is_in_place() {
+        let kb = 3u8;
+        let mut a = Arena::new();
+        let mut e = Edge32::null();
+        for i in 0..8u32 {
+            assert_eq!(map_insert(&mut a, &mut e, kb, i * 5, i), None);
+        }
+        assert!(matches!(kind(&e), Kind::MapLeaf(_)));
+        let h = edge_handle(&e);
+        let bytes = a.bytes_in_use();
+        assert_eq!(map_insert(&mut a, &mut e, kb, 15, 999), Some(3));
+        assert_eq!(edge_handle(&e), h, "overwrite moved the node");
+        assert_eq!(a.bytes_in_use(), bytes, "overwrite changed bytes");
+        assert_eq!(map_get(&a, &e, kb, 15), Some(999));
     }
 }

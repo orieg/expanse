@@ -53,9 +53,11 @@
 //! deliberate departure from the §2.1 expanse-proportional memory
 //! invariant, confined to this opt-in surface where a bounded-memory
 //! telemetry table is the point. The single-threaded `ExpanseMap32` /
-//! `ExpanseSet32` are untouched. (Mutations still use transient scratch
-//! allocations internally, exactly as the single-threaded engine does;
-//! the fixed arena bounds *retained* memory.)
+//! `ExpanseSet32` are untouched. (Structural conversions still use
+//! transient scratch allocations internally, exactly as the
+//! single-threaded engine does; steady-state leaf inserts and removes
+//! mutate node buffers in place (#577), and the fixed arena bounds
+//! *retained* memory.)
 //!
 //! # Memory-model caveat
 //!
@@ -72,6 +74,19 @@
 //! with loom: if the writer misses a reader's pin store, that reader's
 //! subsequent sample is fence-ordered after the writer's bracket close, so
 //! it walks the post-unlink tree and cannot reach a pending allocation.
+//!
+//! In-place mutation extends beyond the bitmap/branch subarray stores:
+//! linear-leaf inserts, removes, and value overwrites shift or store
+//! into the leaf's byte buffer in place while the population stays
+//! inside its capacity class (#577), so a validated reader may observe
+//! mid-shift bytes from the very buffer it is scanning. That is safe
+//! under the same argument as every other racy load here: leaf buffers
+//! hold plain bytes (never pointers), every content-derived index on
+//! the validated walks is bounds-checked against the live buffer
+//! length, and the version seal rejects any read that overlapped a
+//! write bracket before its result can escape. Node replacement — with
+//! the old node retired for stalled readers — now happens only at
+//! capacity-class boundaries and structural conversions.
 
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicU32, Ordering, fence};
