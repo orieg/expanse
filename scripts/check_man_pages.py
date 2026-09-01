@@ -6,8 +6,8 @@ Verifies:
   1. All expected Section 3 manual pages exist in man/man3/.
   2. Formatting hygiene (lines <= 80 bytes, matching .nf/.fi blocks, valid .TH/.SH macros).
   3. mandoc lint passes cleanly if mandoc is present.
-  4. Every C ABI symbol declared in crates/expanse-capi/include/expanse.h and
-     crates/expanse-capi/include/Judy.h is documented in the manual pages.
+  4. Every C ABI symbol declared in include/expanse.h and
+     include/Judy.h is documented in the manual pages.
 
 Usage:
   python3 scripts/check_man_pages.py
@@ -118,8 +118,15 @@ def documents_symbol(man_text: str, symbol: str) -> bool:
 
 def check_symbol_coverage(root: Path) -> list[str]:
     errors = []
-    expanse_h = root / "crates" / "expanse-capi" / "include" / "expanse.h"
-    judy_h = root / "crates" / "expanse-capi" / "include" / "Judy.h"
+    duplicate_header_dir = root / "crates" / "expanse-capi" / "include"
+    if duplicate_header_dir.exists():
+        errors.append(
+            f"Duplicate header directory found: {duplicate_header_dir}. "
+            "Canonical public headers must live exclusively in include/ (#563)."
+        )
+
+    expanse_h = root / "include" / "expanse.h"
+    judy_h = root / "include" / "Judy.h"
 
     if not expanse_h.exists() or not judy_h.exists():
         return [f"Headers not found at {expanse_h} / {judy_h}"]
@@ -143,31 +150,41 @@ def check_symbol_coverage(root: Path) -> list[str]:
 
     # Read all man pages text
     man_dir = root / "man" / "man3"
-    all_man_text = ""
-    for f in man_dir.glob("*.3"):
-        all_man_text += f.read_text(encoding="utf-8") + "\n"
+    man_texts = {}
+    for p in man_dir.glob("*.3"):
+        man_texts[p.name] = p.read_text(encoding="utf-8")
 
-    # Check expanse functions
-    for sym in sorted(expanse_symbols):
+    all_man_text = "\n".join(man_texts.values())
+
+    # Check each expanse symbol
+    for sym in expanse_symbols:
         if not documents_symbol(all_man_text, sym):
             errors.append(f"C ABI symbol '{sym}' from expanse.h is not documented in any man page")
 
-    # Check Judy functions & macros
-    for sym in sorted(judy_symbols):
+    # Check each judy symbol
+    for sym in judy_symbols:
         if not documents_symbol(all_man_text, sym):
-            errors.append(f"C ABI symbol/macro '{sym}' from Judy.h is not documented in any man page")
+            errors.append(f"Legacy Judy symbol '{sym}' from Judy.h is not documented in any man page")
 
     return errors
 
 
 def self_test() -> int:
-    """Exercise the checkers against synthetic inputs.
+    """Self-test for documents_symbol parser discrimination (Rule 2.3)."""
+    # Negative control: verify documents_symbol distinguishes prefix pairs.
+    assert documents_symbol("see expanse_map_get for details", "expanse_map_get")
+    assert not documents_symbol("only expanse_map_get_batch here", "expanse_map_get"), \
+        "a longer symbol must not count as documenting the shorter one"
+    assert documents_symbol(".BI expanse_map_get(", "expanse_map_get"), "signature form must count"
 
-    Re-running the real checks over the real man pages (what this did before)
-    proves nothing about the checkers and duplicates the plain invocation that
-    CI already runs; it would pass just as happily if a checker had been broken
-    into a no-op. These assert both the true and the false positives.
-    """
+    # The floors must actually be enforced against the live headers.
+    root = get_repo_root()
+    expanse_h = root / "include" / "expanse.h"
+    if expanse_h.exists():
+        n = len(parse_c_symbols(expanse_h, "expanse_"))
+        assert n >= MIN_EXPANSE_SYMBOLS, f"parser regressed: {n} symbols < floor {MIN_EXPANSE_SYMBOLS}"
+
+    # Also check formatting hygiene via synthetic temp files.
     import tempfile
 
     with tempfile.TemporaryDirectory() as td:
@@ -196,13 +213,6 @@ def self_test() -> int:
     assert not documents_symbol("only expanse_map_get_batch here", "expanse_map_get"), \
         "a longer symbol must not count as documenting the shorter one"
     assert documents_symbol(".BI expanse_map_get(", "expanse_map_get"), "signature form must count"
-
-    # The floors must actually be enforced against the live headers.
-    root = get_repo_root()
-    expanse_h = root / "crates" / "expanse-capi" / "include" / "expanse.h"
-    if expanse_h.exists():
-        n = len(parse_c_symbols(expanse_h, "expanse_"))
-        assert n >= MIN_EXPANSE_SYMBOLS, f"parser regressed: {n} symbols < floor {MIN_EXPANSE_SYMBOLS}"
 
     print("check_man_pages.py --self-test: all checks passed")
     return 0

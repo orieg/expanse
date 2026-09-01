@@ -457,7 +457,7 @@ components/expanse/
 ```
 
 `expanse.h` is not copied here: `CMakeLists.txt` puts the canonical
-`crates/expanse-capi/include` on the include path, so the component cannot
+`include` on the include path, so the component cannot
 drift from the shipped header. `Judy.h` is deliberately absent — a 32-bit
 build exports no `Judy*` symbols to back it.
 

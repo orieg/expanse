@@ -345,6 +345,16 @@ public static class NativeMethods
     [return: MarshalAs(UnmanagedType.I1)]
     public static extern bool expanse_blob_map_get(SafeExpanseBlobMapHandle map, ulong key, out NativeBlobView outView);
 
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_blob_map_get_into")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static extern bool expanse_blob_map_get_into(
+        SafeExpanseBlobMapHandle map,
+        ulong key,
+        byte[] buf,
+        nuint bufLen,
+        out nuint outLen,
+        out uint outMeta);
+
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "expanse_blob_map_scan_filtered")]
     public static extern nuint expanse_blob_map_scan_filtered(
         SafeExpanseBlobMapHandle map,

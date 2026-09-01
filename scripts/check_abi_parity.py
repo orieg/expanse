@@ -3,7 +3,7 @@
 scripts/check_abi_parity.py — Automated C ABI Symbol Parity Linter for Expanse.
 
 Verifies 100% symbol and feature parity of the modern libexpanse C API
-(`crates/expanse-capi/include/expanse.h`) across all target language bindings:
+(`include/expanse.h`) across all target language bindings:
   1. Java Panama FFM (`bindings/java/src/main/java/io/github/orieg/expanse/internal/ExpanseNative.java`)
   2. .NET C# P/Invoke (`bindings/dotnet/src/Expanse.NET/Native/NativeMethods.cs`)
   3. Python PyO3 (`crates/expanse-py/src/`)
@@ -177,6 +177,7 @@ PYTHON_FEATURE_MAPPING = {
     "expanse_blob_map_insert": ("blobmap.rs", ["insert", "__setitem__"]),
     "expanse_blob_map_remove": ("blobmap.rs", ["remove", "__delitem__"]),
     "expanse_blob_map_get": ("blobmap.rs", ["get", "__getitem__", "get_bytes"]),
+    "expanse_blob_map_get_into": ("blobmap.rs", ["get", "__getitem__", "get_bytes"]),
     "expanse_blob_map_scan_filtered": ("blobmap.rs", ["get", "len", "contains_key", "inner"]),
     "expanse_blob_map_compact": ("blobmap.rs", ["compact", "inner"]),
     "expanse_blob_map_len": ("blobmap.rs", ["__len__", "len"]),
@@ -298,6 +299,7 @@ NODE_FEATURE_MAPPING = {
     "expanse_blob_map_insert": ("blobmap.rs", ["set", "insert"]),
     "expanse_blob_map_remove": ("blobmap.rs", ["delete", "remove"]),
     "expanse_blob_map_get": ("blobmap.rs", ["get", "get_with_meta", "getWithMeta"]),
+    "expanse_blob_map_get_into": ("blobmap.rs", ["get", "get_with_meta", "getWithMeta"]),
     "expanse_blob_map_scan_filtered": ("blobmap.rs", ["prune", "index", "iter"]),
     "expanse_blob_map_compact": ("blobmap.rs", ["compact"]),
     "expanse_blob_map_len": ("blobmap.rs", ["size", "len"]),
@@ -468,11 +470,48 @@ def parse_go_purego(go_path: Path) -> Set[str]:
     return symbols
 
 
+def check_no_dangling_capi_include_references(root: Path) -> List[str]:
+    """Checks for dangling references to the deleted crates/expanse-capi/include path (#563)."""
+    errors: List[str] = []
+    duplicate_header_dir = root / "crates" / "expanse-capi" / "include"
+    if duplicate_header_dir.exists():
+        errors.append(
+            f"Duplicate header directory found: {duplicate_header_dir}. "
+            "Canonical public headers must live exclusively in include/ (#563)."
+        )
+
+    try:
+        res = subprocess.run(
+            ["git", "grep", "-n", "expanse-capi/include", "--", ".", ":!scripts/check_*.py"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            lines = res.stdout.strip().splitlines()
+            errors.append(
+                f"Dangling references to deleted 'expanse-capi/include' found ({len(lines)} site(s)):\n"
+                + "\n".join(f"  {line}" for line in lines)
+                + "\nCanonical public headers must live exclusively in include/ (#563)."
+            )
+        elif res.returncode > 1 or (res.returncode != 0 and res.returncode != 1):
+            errors.append(
+                f"dangling-reference check could not run: git grep exited {res.returncode}: {res.stderr.strip()}"
+            )
+        # res.returncode == 1 -> clean (no matches found)
+    except FileNotFoundError:
+        errors.append("dangling-reference check could not run: 'git' command not found on PATH")
+
+    return errors
+
+
 def build_parity_report(root: Path) -> Tuple[List[CSymbol], ParityReport]:
     """Builds the full cross-ecosystem ABI parity report."""
-    header_path = root / "crates" / "expanse-capi" / "include" / "expanse.h"
-    if not header_path.exists():
-        header_path = root / "include" / "expanse.h"
+    dangling_errors = check_no_dangling_capi_include_references(root)
+    if dangling_errors:
+        raise RuntimeError("\n".join(dangling_errors))
+
+    header_path = root / "include" / "expanse.h"
 
     java_path = (
         root
@@ -540,7 +579,7 @@ def print_text_report(c_symbols: List[CSymbol], report: ParityReport, verbose: b
     print("================================================================================")
     print("           libexpanse C ABI Multi-Ecosystem Symbol Parity Report                ")
     print("================================================================================")
-    print(f"Canonical C ABI Header: crates/expanse-capi/include/expanse.h")
+    print("Canonical C ABI Header: include/expanse.h")
     print(f"Total Declared C Functions: {report.total_c_symbols}\n")
 
     print("--------------------------------------------------------------------------------")
@@ -763,6 +802,17 @@ def self_test() -> int:
     missing_fl, missing_err = get_base_floor_constant("HEAD", "scripts/check_abi_parity.py", "NONEXISTENT_CONSTANT_NAME")
     assert missing_fl is None
     assert missing_err != ""
+
+    # 4. Anti-drift dangling reference check (#563)
+    root = get_repo_root()
+    dangling = check_no_dangling_capi_include_references(root)
+    assert not dangling, f"Unexpected dangling references found in repo: {dangling}"
+
+    # Fails closed if run outside git repository
+    with tempfile.TemporaryDirectory() as td:
+        errs = check_no_dangling_capi_include_references(Path(td))
+        assert errs, "non-git directory must fail closed"
+        assert any("dangling-reference check could not run" in e for e in errs)
 
     print("check_abi_parity.py --self-test: all checks passed")
     return 0

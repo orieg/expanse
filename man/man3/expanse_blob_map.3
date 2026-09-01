@@ -2,8 +2,8 @@
 .SH NAME
 expanse_blob_map_new, expanse_blob_map_free, expanse_blob_map_clear, \
 expanse_blob_map_insert, expanse_blob_map_remove, expanse_blob_map_get, \
-expanse_blob_map_scan_filtered, expanse_blob_map_compact, \
-expanse_blob_map_len, expanse_blob_map_mem_used, \
+expanse_blob_map_get_into, expanse_blob_map_scan_filtered, \
+expanse_blob_map_compact, expanse_blob_map_len, expanse_blob_map_mem_used, \
 expanse_blob_map_contains_key \
 \- polymorphic large-value map with inline packing and slab arena
 .SH SYNOPSIS
@@ -40,6 +40,11 @@ typedef bool (*expanse_scan_cb_fn)(uint64_t key, ExpanseBlobView view,
 .BI "bool expanse_blob_map_get(const ExpanseBlobMap *" map ", uint64_t " key ","
 .BI "                          ExpanseBlobView *" out_view ");"
 .br
+.BI "bool expanse_blob_map_get_into("
+.BI "    const ExpanseBlobMap *" map ", uint64_t " key ","
+.BI "    uint8_t *" buf ", size_t " buf_len ", size_t *" out_len ","
+.BI "    uint32_t *" out_meta ");"
+.br
 .BI "bool expanse_blob_map_contains_key(const ExpanseBlobMap *" map ","
 .BI "                                   uint64_t " key ");"
 .PP
@@ -63,6 +68,9 @@ Payloads up to 7 bytes are packed directly inside the 8-byte value slot
 with zero heap allocation (\fIis_inline = true\fR). Larger payloads are
 allocated in contiguous slab arena chunks (\fIchunk_size\fR, default 2 MiB
 if 0).
+.PP
+\fBexpanse_blob_map_get_into\fR copies the payload into a caller-owned buffer,
+safely decoding inline or arena bytes without borrowing from map memory.
 .PP
 \fBhot_meta\fR is a 32-bit user-defined metadata word stored directly inside
 the trie index nodes, enabling high-speed predicate filtering during range

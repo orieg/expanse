@@ -143,7 +143,7 @@ def main() -> int:
         return self_test()
 
     root = repo_root()
-    include_dir = root / "crates" / "expanse-capi" / "include"
+    include_dir = root / "include"
     lib_dir = (root / args.lib_dir).resolve()
 
     if not any(lib_dir.glob("libexpanse.*")):
