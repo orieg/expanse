@@ -136,10 +136,12 @@ macro_rules! sync32_surface {
         pub struct $reader(Reader32<'static, $engine>);
         /// The container plus the handles that borrow it.
         pub struct $outer {
-            // Declared first so it drops last: the handles borrow it.
-            owner: Box<$container>,
+            // Rust drops fields in declaration order, so the handles (plain
+            // data today, but they borrow `owner`) are declared first and
+            // the container last.
             writer: $writer,
             readers: Box<[$reader]>,
+            owner: Box<$container>,
         }
 
         impl $outer {
@@ -158,16 +160,16 @@ macro_rules! sync32_surface {
                     readers.push($reader(r));
                 }
                 Box::new(Self {
-                    owner,
                     writer: $writer(writer),
                     readers: readers.into_boxed_slice(),
+                    owner,
                 })
             }
         }
 
         impl Drop for $outer {
             fn drop(&mut self) {
-                // Handles are plain data; `owner` drops last by field order.
+                // Field order drops the handles before the container.
                 debug_assert!(
                     !self.owner.any_reader_pinned(),
                     "expanse_sync32 free with a reader inside a walk"
@@ -209,11 +211,13 @@ macro_rules! sync32_surface {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $writer_fn(map: *mut $outer) -> *mut $writer {
             debug_assert!(!map.is_null(), "expanse_sync32: null container");
-            // SAFETY: null or live per contract.
-            match unsafe { map.as_mut() } {
-                Some(m) => core::ptr::from_mut(&mut m.writer),
-                None => core::ptr::null_mut(),
+            if map.is_null() {
+                return core::ptr::null_mut();
             }
+            // SAFETY: `map` is live per contract. Raw place projection only:
+            // a `&mut $outer` here would, under Stacked Borrows, invalidate
+            // every handle pointer previously handed to C from this struct.
+            unsafe { &raw mut (*map).writer }
         }
 
         /// Reader handle `idx` (`0 <= idx < max_readers`), the same pointer
@@ -225,13 +229,18 @@ macro_rules! sync32_surface {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $reader_fn(map: *mut $outer, idx: usize) -> *mut $reader {
             debug_assert!(!map.is_null(), "expanse_sync32: null container");
-            // SAFETY: null or live per contract.
-            match unsafe { map.as_mut() } {
-                Some(m) => match m.readers.get_mut(idx) {
-                    Some(r) => core::ptr::from_mut(r),
-                    None => core::ptr::null_mut(),
-                },
-                None => core::ptr::null_mut(),
+            if map.is_null() {
+                return core::ptr::null_mut();
+            }
+            // SAFETY: `map` is live per contract. Raw place projection only
+            // (see the writer accessor); the bounds check reads the slice
+            // length through the raw place without reborrowing the struct.
+            unsafe {
+                let readers: *mut [$reader] = &raw mut *(*map).readers;
+                if idx >= readers.len() {
+                    return core::ptr::null_mut();
+                }
+                &raw mut (*readers)[idx]
             }
         }
 
