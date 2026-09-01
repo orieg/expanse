@@ -92,6 +92,7 @@ pub mod node32;
 pub mod occ32;
 pub mod set32;
 pub mod slot32;
+pub mod sync32;
 mod trie32;
 pub mod types32;
 
@@ -123,4 +124,5 @@ pub use map32::ExpanseMap32;
 pub use occ32::SeqVersion32;
 pub use set32::ExpanseSet32;
 pub use slot32::{SlotTag32, ValueSlot32};
+pub use sync32::{SyncExpanseMap32, SyncExpanseSet32};
 pub use types32::{Edge32, Key32, Tag32, Value32};
