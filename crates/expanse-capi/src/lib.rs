@@ -403,6 +403,7 @@ mod tests {
 ))]
 mod oracle {
     use super::*;
+    use core::ptr::null_mut;
 
     unsafe extern "C" {
         fn dlopen(filename: *const u8, flags: c_int) -> *mut c_void;
