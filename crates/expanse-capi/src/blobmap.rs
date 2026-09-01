@@ -4,6 +4,8 @@
 //! packing (0..=7 bytes), arena slab backing, hot metadata filtering, and
 //! in-place garbage collection.
 
+#[cfg(not(feature = "std"))]
+use crate::core_alloc::boxed::Box;
 use core::ffi::c_void;
 use expanse_trie::blobmap::{BlobView, ExpanseBlobMap};
 

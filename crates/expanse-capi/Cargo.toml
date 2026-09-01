@@ -20,12 +20,24 @@ name = "expanse"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
+default = ["std"]
+# Forwards to `expanse-trie`'s `std`. Without it the crate builds `no_std` for
+# bare-metal targets: the caller supplies malloc/free, and the only surface
+# lost is the concurrent one (`expanse_sync_*`), which needs `std::sync`. The
+# 64-bit-only families are gated on pointer width, not on this flag — a 64-bit
+# bare-metal build keeps the whole legacy Judy drop-in. Surface matrix:
+# docs/COMPAT.md (#558).
+std = ["expanse-trie/std"]
+# Provides a `#[panic_handler]` for a bare-metal staticlib link. Additive and
+# off by default: an ESP-IDF or esp-hal application that already defines one
+# would otherwise hit `error[E0152]: found duplicate lang item panic_impl`.
+embedded-panic-handler = []
 # Enables the differential-oracle tests against a dlopen'd stock
 # libjudy (Linux; CI installs libjudy-dev). See docs/COMPAT.md gate G1.
 oracle = []
 
 [dependencies]
-expanse-trie = { version = "0.5.0", path = "../expanse" }
+expanse-trie = { version = "0.5.0", path = "../expanse", default-features = false }
 
 [lints]
 workspace = true

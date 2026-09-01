@@ -214,7 +214,7 @@ Instructions retired and wall-clock latency through the identical C ABI on ident
 | **Windows x86-64** | `x86_64-pc-windows-msvc` | Precompiled `expanse.dll` / `expanse.lib` `.zip`, vcpkg, NuGet |
 | **RISC-V 32-Bit (RV32)** | `riscv32imac-unknown-none-elf` | `#![no_std]` staticlib / embedded crate ([design #109](docs/design/32-bit-embedded.md)) |
 | **ARM Cortex-M (M4/M7)** | `thumbv7em-none-eabihf` | `#![no_std]` staticlib / embedded crate ([design #109](docs/design/32-bit-embedded.md)) |
-| **Espressif ESP32 (ESP-IDF / RV32)** | `riscv32imc-esp-espidf` / `riscv32imc-unknown-none-elf` | ESP-IDF Component (`components/expanse/`), `#![no_std]` ([docs](components/expanse/README.md)) |
+| **Espressif RISC-V (ESP-IDF)** | `riscv32imc-unknown-none-elf` (C2/C3), `riscv32imac-unknown-none-elf` (C6/H2/P4) | ESP-IDF Component (`components/expanse/`), `#![no_std]`. RISC-V parts only — the Xtensa ESP32/S2/S3 have no mainline rustc target. No `Judy*` symbols at 32-bit ([docs](components/expanse/README.md)) |
 | **WebAssembly (wasm32)** | `wasm32-unknown-unknown` | npm `@orieg/expanse-wasm` (`WasmExpanseMap32`, `WasmExpanseSet32`) |
 | **WebAssembly Memory64 (wasm64)** | `wasm64-unknown-unknown` | 64-bit engine (`ExpanseMap`, `ExpanseSet`), Node.js Memory64 (`--experimental-wasm-memory64`) |
 
@@ -514,7 +514,7 @@ console.log(res.isInline);               // true (0 heap allocations)
 ```
 See [crates/expanse-node/README.md](crates/expanse-node/README.md) for full Node.js documentation.
 
-### 13. Espressif ESP-IDF Component (ESP32, ESP32-C3, ESP32-C6, ESP32-S3)
+### 13. Espressif ESP-IDF Component (ESP32-C2/C3/C6/H2/P4)
 
 Add `expanse` to your ESP-IDF project's `main/idf_component.yml`:
 ```yaml
@@ -533,17 +533,22 @@ git clone https://github.com/orieg/expanse.git components/expanse
 #include "esp_log.h"
 
 void app_main(void) {
-    // 32-bit digital map (compact 8-byte Edge32, 32-byte cache line aligned)
+    // 32-bit digital map (compact 8-byte Edge32, 32-byte aligned nodes).
+    // Keys and values are expanse_word_t — one machine word, uint32_t here.
     expanse_map_t *map = expanse_map_new();
-    expanse_map_insert(map, 0x18FF50E5 /* CAN ID */, 42 /* Sensor Value */);
+    expanse_map_insert(map, 0x18FF50E5 /* CAN ID */, 42 /* value */, NULL);
 
-    uint32_t val = 0;
+    expanse_word_t val = 0;
     if (expanse_map_get(map, 0x18FF50E5, &val)) {
         ESP_LOGI("expanse", "Found CAN ID 0x18FF50E5 -> Value %u", (unsigned int)val);
     }
     expanse_map_free(map);
 }
 ```
+
+The 32-bit library exports the ordered `expanse_set_*` / `expanse_map_*` core
+and **no `Judy*` symbols** — the drop-in ABI is a 64-bit-only guarantee. See the
+[surface matrix](docs/COMPAT.md#build-configuration-surface-matrix).
 See [components/expanse/README.md](components/expanse/README.md) for full ESP-IDF component documentation and `Kconfig` options.
 See [docs/PACKAGING.md](docs/PACKAGING.md) for full packaging instructions across all platforms.
 

@@ -132,7 +132,10 @@ fn dispose_suffix(ptr: *mut StrSuffix, defer: DeferHandle<'_>) {
     }
     #[cfg(not(feature = "std"))]
     {
+        // Without `std` there is no epoch collector to defer to, so the
+        // deferred arm degenerates to the immediate one.
         let _ = defer;
+        // SAFETY: caller unlinked `ptr`; this is the last reference.
         drop(unsafe { Box::from_raw(ptr) });
     }
 }
@@ -176,7 +179,10 @@ fn dispose_node(ptr: *mut StrNode, alloc: &NodeAlloc, defer: DeferHandle<'_>) {
     }
     #[cfg(not(feature = "std"))]
     {
+        // Without `std` there is no epoch collector to defer to, so the
+        // deferred arm degenerates to the immediate one.
         let _ = defer;
+        // SAFETY: caller unlinked `ptr`; this is the last reference.
         drop(unsafe { Box::from_raw(ptr) });
     }
 }

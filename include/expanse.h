@@ -22,7 +22,7 @@
  *   - Handles are opaque pointers; NULL is never a valid live handle.
  *     Every _new() returns NULL only on allocation failure paths that
  *     abort (see docs/COMPAT.md D3), so in practice it is non-NULL.
- *   - Value-slot pointers (uint64_t*) stay valid until the next
+ *   - Value-slot pointers (expanse_word_t*) stay valid until the next
  *     structural mutation of that container — the classic JudyL slot
  *     contract, unchanged.
  *   - Byte-string functions take (pointer, length) and treat the bytes
@@ -39,6 +39,33 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/*
+ * Keys and values are one machine word, exactly as classic Judy's Word_t
+ * is: 64-bit builds speak uint64_t, 32-bit builds uint32_t. This matches
+ * the engine's own invariant — a value slot is a single machine word, so
+ * eight of them fill a 64-byte cache line at either width.
+ */
+#if UINTPTR_MAX == 0xFFFFFFFFu
+typedef uint32_t expanse_word_t;
+#else
+typedef uint64_t expanse_word_t;
+#endif
+
+/*
+ * EXPANSE_WIDE_SURFACE marks the entry points that exist only in a 64-bit
+ * libexpanse. The 32-bit engine is a real trie, not a reduced one, but it
+ * has no rank/select, no value-slot accessors, and no byte-string, string
+ * or concurrent containers — so those symbols are ABSENT from a 32-bit
+ * build rather than present and stubbed, and a link error names the gap.
+ * The concurrent types additionally need a std build, so they are absent
+ * from every no_std libexpanse. docs/COMPAT.md carries the surface matrix.
+ */
+#if UINTPTR_MAX == 0xFFFFFFFFu
+#define EXPANSE_WIDE_SURFACE 0
+#else
+#define EXPANSE_WIDE_SURFACE 1
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -48,7 +75,7 @@ extern "C" {
 /* Version of the libexpanse build, "MAJOR.MINOR.PATCH". */
 const char *expanse_version(void);
 
-/* ---- expanse_set_t: ordered set of uint64_t keys (cf. Judy1) -------- */
+/* ---- expanse_set_t: ordered set of expanse_word_t keys (cf. Judy1) -------- */
 
 typedef struct expanse_set expanse_set_t;
 
@@ -56,9 +83,9 @@ expanse_set_t *expanse_set_new(void);
 void           expanse_set_free(expanse_set_t *set);
 
 /* Returns true if the key was newly inserted / actually removed. */
-bool     expanse_set_insert(expanse_set_t *set, uint64_t key);
-bool     expanse_set_remove(expanse_set_t *set, uint64_t key);
-bool     expanse_set_contains(const expanse_set_t *set, uint64_t key);
+bool     expanse_set_insert(expanse_set_t *set, expanse_word_t key);
+bool     expanse_set_remove(expanse_set_t *set, expanse_word_t key);
+bool     expanse_set_contains(const expanse_set_t *set, expanse_word_t key);
 uint64_t expanse_set_len(const expanse_set_t *set);
 size_t   expanse_set_mem_used(const expanse_set_t *set);
 void     expanse_set_clear(expanse_set_t *set);
@@ -68,27 +95,32 @@ void     expanse_set_clear(expanse_set_t *set);
  * returns true; false means no such key (and `key_out` is untouched).
  * The _at_or_ variants include the given key itself.
  */
-bool expanse_set_first(const expanse_set_t *set, uint64_t *key_out);
-bool expanse_set_last(const expanse_set_t *set, uint64_t *key_out);
-bool expanse_set_next_at_or_after(const expanse_set_t *set, uint64_t key, uint64_t *key_out);
-bool expanse_set_next_after(const expanse_set_t *set, uint64_t key, uint64_t *key_out);
-bool expanse_set_prev_at_or_before(const expanse_set_t *set, uint64_t key, uint64_t *key_out);
-bool expanse_set_prev_before(const expanse_set_t *set, uint64_t key, uint64_t *key_out);
+bool expanse_set_first(const expanse_set_t *set, expanse_word_t *key_out);
+bool expanse_set_last(const expanse_set_t *set, expanse_word_t *key_out);
+#if EXPANSE_WIDE_SURFACE
+bool expanse_set_next_at_or_after(const expanse_set_t *set, expanse_word_t key,
+                                  expanse_word_t *key_out);
+bool expanse_set_next_after(const expanse_set_t *set, expanse_word_t key, expanse_word_t *key_out);
+bool expanse_set_prev_at_or_before(const expanse_set_t *set, expanse_word_t key,
+                                   expanse_word_t *key_out);
+bool expanse_set_prev_before(const expanse_set_t *set, expanse_word_t key, expanse_word_t *key_out);
 
 /* Rank and select, both O(depth). */
 uint64_t expanse_set_count_below(const expanse_set_t *set, uint64_t key);
 uint64_t expanse_set_count_range(const expanse_set_t *set, uint64_t lo, uint64_t hi);
 bool     expanse_set_by_count(const expanse_set_t *set, uint64_t n, uint64_t *key_out);
+#endif /* EXPANSE_WIDE_SURFACE */
+
 
 /*
  * Batched membership query with memory-level parallelism prefetching.
  * Checks membership for `count` keys in `keys`, writing boolean presence (true/false)
  * into `out_present`. Returns the count of found keys.
  */
-size_t expanse_set_contains_batch(const expanse_set_t *set, const uint64_t *keys,
+size_t expanse_set_contains_batch(const expanse_set_t *set, const expanse_word_t *keys,
                                   bool *out_present, size_t count);
 
-/* ---- expanse_map_t: ordered uint64_t -> uint64_t map (cf. JudyL) ---- */
+/* ---- expanse_map_t: ordered expanse_word_t -> expanse_word_t map (cf. JudyL) ---- */
 
 typedef struct expanse_map expanse_map_t;
 
@@ -100,20 +132,22 @@ void           expanse_map_free(expanse_map_t *map);
  * replaced value through `old_out` (when non-NULL) and returns false;
  * returns true when the key is new.
  */
-bool     expanse_map_insert(expanse_map_t *map, uint64_t key, uint64_t value, uint64_t *old_out);
-bool     expanse_map_get(const expanse_map_t *map, uint64_t key, uint64_t *value_out);
-bool     expanse_map_remove(expanse_map_t *map, uint64_t key, uint64_t *old_out);
+bool     expanse_map_insert(expanse_map_t *map, expanse_word_t key,
+                            expanse_word_t value, expanse_word_t *old_out);
+bool     expanse_map_get(const expanse_map_t *map, expanse_word_t key, expanse_word_t *value_out);
+bool     expanse_map_remove(expanse_map_t *map, expanse_word_t key, expanse_word_t *old_out);
 uint64_t expanse_map_len(const expanse_map_t *map);
 size_t   expanse_map_mem_used(const expanse_map_t *map);
 void     expanse_map_clear(expanse_map_t *map);
 
+#if EXPANSE_WIDE_SURFACE
 /*
  * Batched key lookup with memory-level parallelism prefetching.
  * Looks up `count` keys in `keys`. For each key found, writes the value into `out_values`
  * and true into `out_found` (when non-NULL). Returns the count of found keys.
  */
-size_t expanse_map_get_batch(const expanse_map_t *map, const uint64_t *keys,
-                             uint64_t *out_values, bool *out_found, size_t count);
+size_t expanse_map_get_batch(const expanse_map_t *map, const expanse_word_t *keys,
+                             expanse_word_t *out_values, bool *out_found, size_t count);
 
 /*
  * Value slots (classic JudyL convention): _slot returns a writable
@@ -121,26 +155,31 @@ size_t expanse_map_get_batch(const expanse_map_t *map, const uint64_t *keys,
  * inserts the key with value 0 if absent (an existing value is kept)
  * and always returns its slot. Valid until the next mutation.
  */
-uint64_t *expanse_map_slot(expanse_map_t *map, uint64_t key);
-uint64_t *expanse_map_ins_slot(expanse_map_t *map, uint64_t key);
+expanse_word_t *expanse_map_slot(expanse_map_t *map, expanse_word_t key);
+expanse_word_t *expanse_map_ins_slot(expanse_map_t *map, expanse_word_t key);
 
 /* Ordered navigation; `value_out` may be NULL if only the key matters. */
-bool expanse_map_first(const expanse_map_t *map, uint64_t *key_out, uint64_t *value_out);
-bool expanse_map_last(const expanse_map_t *map, uint64_t *key_out, uint64_t *value_out);
-bool expanse_map_next_at_or_after(const expanse_map_t *map, uint64_t key,
-                                  uint64_t *key_out, uint64_t *value_out);
-bool expanse_map_next_after(const expanse_map_t *map, uint64_t key,
-                            uint64_t *key_out, uint64_t *value_out);
-bool expanse_map_prev_at_or_before(const expanse_map_t *map, uint64_t key,
-                                   uint64_t *key_out, uint64_t *value_out);
-bool expanse_map_prev_before(const expanse_map_t *map, uint64_t key,
-                             uint64_t *key_out, uint64_t *value_out);
+bool expanse_map_first(const expanse_map_t *map, expanse_word_t *key_out,
+                       expanse_word_t *value_out);
+bool expanse_map_last(const expanse_map_t *map, expanse_word_t *key_out,
+                      expanse_word_t *value_out);
+bool expanse_map_next_at_or_after(const expanse_map_t *map, expanse_word_t key,
+                                  expanse_word_t *key_out, expanse_word_t *value_out);
+bool expanse_map_next_after(const expanse_map_t *map, expanse_word_t key,
+                            expanse_word_t *key_out, expanse_word_t *value_out);
+bool expanse_map_prev_at_or_before(const expanse_map_t *map, expanse_word_t key,
+                                   expanse_word_t *key_out, expanse_word_t *value_out);
+bool expanse_map_prev_before(const expanse_map_t *map, expanse_word_t key,
+                             expanse_word_t *key_out, expanse_word_t *value_out);
 
 uint64_t expanse_map_count_below(const expanse_map_t *map, uint64_t key);
 uint64_t expanse_map_count_range(const expanse_map_t *map, uint64_t lo, uint64_t hi);
 bool     expanse_map_by_count(const expanse_map_t *map, uint64_t n,
-                              uint64_t *key_out, uint64_t *value_out);
+                              expanse_word_t *key_out, expanse_word_t *value_out);
+#endif /* EXPANSE_WIDE_SURFACE */
 
+
+#if EXPANSE_WIDE_SURFACE
 /* ---- expanse_bytesmap_t: unordered bytes -> uint64_t (cf. JudyHS) --- */
 
 typedef struct expanse_bytesmap expanse_bytesmap_t;
@@ -351,6 +390,8 @@ uint64_t expanse_blob_map_len(const ExpanseBlobMap *map);
 size_t   expanse_blob_map_mem_used(const ExpanseBlobMap *map);
 void     expanse_blob_map_clear(ExpanseBlobMap *map);
 bool     expanse_blob_map_contains_key(const ExpanseBlobMap *map, uint64_t key);
+
+#endif /* EXPANSE_WIDE_SURFACE */
 
 #ifdef __cplusplus
 } /* extern "C" */
