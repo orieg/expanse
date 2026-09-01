@@ -43,11 +43,22 @@ import embedded_envelope as env  # noqa: E402  (single source of the memory mode
 
 N = 2000  # the mid population every #556 table reports
 
-# Criterion full_ids for the measured panel (see benches/embedded_memtable.rs).
+# Criterion full_ids for the measured panels (see benches/embedded_memtable.rs).
+# The measured loop shapes, needed to state per-operation units honestly:
+# ingest cycles run N inserts + a range flush; CAN dispatch runs 500 lookups
+# per iteration; eviction runs one full eviction pass per iteration.
+CAN_N = 500
 MEASURED_ARMS = {
-    "expanse": f"embedded_tsdb_ingest_and_flush/expanse_map32_ingest/{N}",
-    "hashmap": f"embedded_tsdb_ingest_and_flush/hashmap_ingest/{N}",
-    "btreemap": f"embedded_tsdb_ingest_and_flush/btreemap_ingest/{N}",
+    "ingest_expanse": f"embedded_tsdb_ingest_and_flush/expanse_map32_ingest/{N}",
+    "ingest_hashmap": f"embedded_tsdb_ingest_and_flush/hashmap_ingest/{N}",
+    "ingest_btreemap": f"embedded_tsdb_ingest_and_flush/btreemap_ingest/{N}",
+    "lookup_expanse": f"embedded_can_dispatch_lookup/expanse_map32/{CAN_N}",
+    "lookup_hashmap": f"embedded_can_dispatch_lookup/hashmap/{CAN_N}",
+    "lookup_btreemap": f"embedded_can_dispatch_lookup/btreemap/{CAN_N}",
+    "evict_bulk_expanse": f"embedded_ble_ttl_eviction/expanse_dual_trie_eviction/{N}",
+    "evict_bulk_hashmap": f"embedded_ble_ttl_eviction/hashmap_full_scan_eviction/{N}",
+    "evict_steady_expanse": f"embedded_ble_ttl_eviction/expanse_dual_trie_eviction_steady/{N}",
+    "evict_steady_hashmap": f"embedded_ble_ttl_eviction/hashmap_full_scan_eviction_steady/{N}",
 }
 
 # Plot geometry shared by all three panels (rocksdb chart's layout).
@@ -55,6 +66,7 @@ BASELINE_Y = 195.0
 AXIS_TOP_Y = 45.0
 PLOT_H = BASELINE_Y - AXIS_TOP_Y
 BAR_X = [45, 115, 185]
+BAR_X2 = [60, 170]
 BAR_W = 50
 
 STYLE = """
@@ -173,11 +185,6 @@ def derive_memory() -> dict:
             "hashmap": env.mem_unordered_map(N) / N,
             "stdmap": env.mem_std_map(N) / N,
         },
-        "ble_tracker_kib": {
-            "expanse": env.mem_ble_tracker_expanse_slab(N) / 1024.0,
-            "hashmap": env.mem_unordered_map(N, val_size=env.BLE_RECORD_SIZE) / 1024.0,
-            "stdmap": env.mem_std_map(N, val_size=env.BLE_RECORD_SIZE) / 1024.0,
-        },
     }
 
 
@@ -205,14 +212,27 @@ def rebuild_results(baseline_path: Path) -> dict:
     return {
         "meta": {
             "population": N,
+            "can_lookups_per_iter": CAN_N,
             "memory_model": "scripts/embedded_envelope.py (density constants from the "
                             "measured bytes_per_key_32 example; auxiliary slab arrays "
                             "modeled exactly)",
+            "eviction_shapes": {
+                "bulk": "600 of 2,000 expired per pass (symmetric < 6,000 ms cutoff)",
+                "steady": "25 of 2,000 expired per pass (the O(expired) claim's regime)",
+            },
             "wallclock_provenance": doc.get("provenance", {}),
             "wallclock_statistics": doc.get("statistics", {}),
         },
         "wallclock_ns": wall,
     }
+
+
+def loss_caption(ours: float, best_other: float, win_text: str) -> tuple[str, bool]:
+    """A win says how much faster; a loss says N x slower — never a sub-1.0
+    ratio a reader has to invert (§8.7 honest reporting)."""
+    if ours <= best_other:
+        return (win_text.format(best_other / ours), True)
+    return (f"{ours / best_other:.1f}&#215; slower", False)
 
 
 def main() -> int:
@@ -230,92 +250,106 @@ def main() -> int:
     else:
         results = json.loads(RESULTS.read_text(encoding="utf-8"))
 
-    mem = derive_memory()  # always derived live, never persisted numbers
-    tsdb = mem["tsdb_bytes_per_key"]
-    ble = mem["ble_tracker_kib"]
+    mem = derive_memory()["tsdb_bytes_per_key"]  # derived live, never persisted
     wall = {k: v["point_ns"] for k, v in results["wallclock_ns"].items()}
     prov = results["meta"]["wallclock_provenance"]
 
-    tsdb_max = nice_axis_max(tsdb.values())
-    ble_max = nice_axis_max(ble.values())
-    wall_us = {k: v / 1000.0 for k, v in wall.items()}
-    wall_max = nice_axis_max(wall_us.values())
+    # Integration units: ns per event / per lookup; eviction stays per pass.
+    ingest = {k.removeprefix("ingest_"): wall[k] / N for k in
+              ("ingest_expanse", "ingest_hashmap", "ingest_btreemap")}
+    lookup = {k.removeprefix("lookup_"): wall[k] / CAN_N for k in
+              ("lookup_expanse", "lookup_hashmap", "lookup_btreemap")}
+    evict_us = {
+        "steady_expanse": wall["evict_steady_expanse"] / 1000.0,
+        "steady_hashmap": wall["evict_steady_hashmap"] / 1000.0,
+        "bulk_expanse": wall["evict_bulk_expanse"] / 1000.0,
+        "bulk_hashmap": wall["evict_bulk_hashmap"] / 1000.0,
+    }
 
-    tsdb_ratio = tsdb["stdmap"] / tsdb["expanse"]
-    ble_ratio = ble["expanse"] / ble["hashmap"]
-    wall_best_other = min(wall_us["hashmap"], wall_us["btreemap"])
-    wall_ratio = wall_best_other / wall_us["expanse"]
-    # State a loss as a loss: "N x slower" reads unambiguously where a
-    # sub-1.0 "vs best alt" ratio does not (SS 8.7 honest reporting).
-    if wall_ratio >= 1.0:
-        wall_caption = f"{wall_ratio:.2f}&#215; faster than best alt"
-    else:
-        wall_caption = f"{1.0 / wall_ratio:.1f}&#215; slower (density trade)"
+    mem_max = nice_axis_max(mem.values())
+    ing_max = nice_axis_max(ingest.values())
+    lk_max = nice_axis_max(lookup.values())
+    ev_max = nice_axis_max([evict_us["steady_expanse"], evict_us["steady_hashmap"]])
+
+    mem_ratio = mem["stdmap"] / mem["expanse"]
+    ing_cap, ing_win = loss_caption(
+        ingest["expanse"], min(ingest["hashmap"], ingest["btreemap"]), "{:.1f}&#215; faster")
+    lk_cap, lk_win = loss_caption(
+        lookup["expanse"], min(lookup["hashmap"], lookup["btreemap"]), "{:.1f}&#215; faster")
+    ev_cap, ev_win = loss_caption(
+        evict_us["steady_expanse"], evict_us["steady_hashmap"], "{:.1f}&#215; faster")
 
     p1 = panel(
-        30, "Sensor TSDB Density", f"1 kHz timestamps, N={N:,} (lower is better; derived)",
-        "&#9660; SRAM (Bytes / key)", tsdb_max, f"{tsdb_max:g} B", f"{tsdb_max / 2:g} B",
-        bar(BAR_X[0], tsdb["expanse"], tsdb_max, "b-expanse",
-            f'{tsdb["expanse"]:.2f} B', "t-val-accent", "Expanse",
-            f"{tsdb_ratio:.1f}&#215; denser", True)
-        + bar(BAR_X[1], tsdb["hashmap"], tsdb_max, "b-hashmap",
-              f'{tsdb["hashmap"]:.0f} B', "t-val-blue", "HashMap",
-              "reserve(peak)", False)
-        + bar(BAR_X[2], tsdb["stdmap"], tsdb_max, "b-stdmap",
-              f'{tsdb["stdmap"]:.0f} B', "t-val-muted", "std::map",
-              "per-node malloc", False),
+        30, "Sensor TSDB Density", f"1 kHz timestamps, N={N:,} &#183; derived &#183; lower is better",
+        "&#9660; SRAM (Bytes / key)", mem_max, f"{mem_max:g} B", f"{mem_max / 2:g} B",
+        bar(BAR_X[0], mem["expanse"], mem_max, "b-expanse",
+            f'{mem["expanse"]:.2f}', "t-val-accent", "Expanse",
+            f"{mem_ratio:.1f}&#215; denser", True)
+        + bar(BAR_X[1], mem["hashmap"], mem_max, "b-hashmap",
+              f'{mem["hashmap"]:.0f}', "t-val-blue", "HashMap", "reserved", False)
+        + bar(BAR_X[2], mem["stdmap"], mem_max, "b-stdmap",
+              f'{mem["stdmap"]:.0f}', "t-val-muted", "std::map", "rb-tree", False),
     )
     p2 = panel(
-        340, "BLE Tracker Footprint",
-        f"28 B records + TTL index, N={N:,} (derived)",
-        "&#9660; SRAM (KiB total)", ble_max, f"{ble_max:g}", f"{ble_max / 2:g}",
-        bar(BAR_X[0], ble["expanse"], ble_max, "b-expanse",
-            f'{ble["expanse"]:.1f}', "t-val-accent", "Expanse",
-            f"{ble_ratio:.2f}&#215; = parity + O(expired) TTL", True)
-        + bar(BAR_X[1], ble["hashmap"], ble_max, "b-hashmap",
-              f'{ble["hashmap"]:.1f}', "t-val-blue", "HashMap",
-              "O(N) TTL sweep", False)
-        + bar(BAR_X[2], ble["stdmap"], ble_max, "b-stdmap",
-              f'{ble["stdmap"]:.1f}', "t-val-muted", "std::map",
-              "ordered", False),
+        350, "Telemetry Ingest", f"per event, incl. flush share &#183; measured &#183; lower is better",
+        "&#9660; ns / event", ing_max, f"{ing_max:g}", f"{ing_max / 2:g}",
+        bar(BAR_X[0], ingest["expanse"], ing_max, "b-expanse",
+            f'{ingest["expanse"]:.0f}', "t-val-accent", "Expanse", ing_cap, ing_win)
+        + bar(BAR_X[1], ingest["hashmap"], ing_max, "b-hashmap",
+              f'{ingest["hashmap"]:.1f}', "t-val-blue", "HashMap", "unordered", False)
+        + bar(BAR_X[2], ingest["btreemap"], ing_max, "b-stdmap",
+              f'{ingest["btreemap"]:.0f}', "t-val-muted", "BTreeMap", "ordered", False),
     )
     p3 = panel(
-        665, "TSDB Ingest + Flush",
-        f"N={N:,} cycle, host reference (lower is better; measured)",
-        "&#9660; Wall clock (&#181;s / cycle)", wall_max, f"{wall_max:g}", f"{wall_max / 2:g}",
-        bar(BAR_X[0], wall_us["expanse"], wall_max, "b-expanse",
-            f'{wall_us["expanse"]:.0f} &#181;s', "t-val-accent", "Expanse",
-            wall_caption, wall_ratio >= 1.0)
-        + bar(BAR_X[1], wall_us["hashmap"], wall_max, "b-hashmap",
-              f'{wall_us["hashmap"]:.0f} &#181;s', "t-val-blue", "HashMap",
-              "unordered flush", False)
-        + bar(BAR_X[2], wall_us["btreemap"], wall_max, "b-stdmap",
-              f'{wall_us["btreemap"]:.0f} &#181;s', "t-val-muted", "BTreeMap",
-              "ordered", False),
+        670, "CAN ID Dispatch", f"29-bit IDs, N={CAN_N} &#183; measured &#183; lower is better",
+        "&#9660; ns / lookup", lk_max, f"{lk_max:g}", f"{lk_max / 2:g}",
+        bar(BAR_X[0], lookup["expanse"], lk_max, "b-expanse",
+            f'{lookup["expanse"]:.1f}', "t-val-accent", "Expanse", lk_cap, lk_win)
+        + bar(BAR_X[1], lookup["hashmap"], lk_max, "b-hashmap",
+              f'{lookup["hashmap"]:.1f}', "t-val-blue", "HashMap", "unordered", False)
+        + bar(BAR_X[2], lookup["btreemap"], lk_max, "b-stdmap",
+              f'{lookup["btreemap"]:.1f}', "t-val-muted", "BTreeMap", "ordered", False),
+    )
+    p4 = panel(
+        990, "TTL Eviction (steady)", f"25 of {N:,} expired / pass &#183; measured",
+        "&#9660; &#181;s / pass", ev_max, f"{ev_max:g}", f"{ev_max / 2:g}",
+        bar(BAR_X2[0], evict_us["steady_expanse"], ev_max, "b-expanse",
+            f'{evict_us["steady_expanse"]:.1f}', "t-val-accent", "O(expired)", ev_cap, ev_win)
+        + bar(BAR_X2[1], evict_us["steady_hashmap"], ev_max, "b-hashmap",
+              f'{evict_us["steady_hashmap"]:.1f}', "t-val-blue", "O(N) sweep", "full scan", False),
     )
 
-    run_id = prov.get("run_id", "unrecorded")
+    run_num = str(prov.get("run_id", "unrecorded")).rstrip("/").split("/")[-1]
     host = prov.get("host_description", "unrecorded host")
-    commit = prov.get("commit", "unrecorded")
+    commit = str(prov.get("commit", "unrecorded"))[:9]
+    bulk_line = (
+        f'bulk shape (600 of {N:,} expired): dual-trie {evict_us["bulk_expanse"]:.0f} &#181;s vs '
+        f'sweep {evict_us["bulk_hashmap"]:.1f} &#181;s — the linear sweep wins bulk expiry'
+        if evict_us["bulk_expanse"] > evict_us["bulk_hashmap"] else
+        f'bulk shape (600 of {N:,} expired): dual-trie {evict_us["bulk_expanse"]:.0f} &#181;s vs '
+        f'sweep {evict_us["bulk_hashmap"]:.1f} &#181;s'
+    )
     footer = (
-        f'  <text x="30" y="262" class="t-chart-sub">Panels 1-2 derived by '
-        f"scripts/embedded_envelope.py (density constants from the measured bytes_per_key_32 "
-        f"example); panel 3 measured: {host},</text>\n"
-        f'  <text x="30" y="275" class="t-chart-sub">commit {commit}, run {run_id} '
-        f"(BCa 95% CIs in docs/benchmarks/embedded/results.json). On-device ESP32 chart "
-        f"pending the first hardware harvest.</text>\n"
+        f'  <text x="30" y="262" class="t-chart-sub">Panel 1 derived by scripts/embedded_envelope.py; '
+        f'panels 2-4 measured: {host}.</text>\n'
+        f'  <text x="30" y="275" class="t-chart-sub">Commit {commit}, run {run_num}, BCa 95% CIs in '
+        f'docs/benchmarks/embedded/results.json &#183; {bulk_line}.</text>\n'
+        f'  <text x="30" y="288" class="t-chart-sub">Host caveat: a 30 MiB L3 flatters flat scans; '
+        f'the on-device ESP32-C3/C6 chart is pending the first hardware harvest.</text>\n'
     )
 
     svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 285" width="100%" height="100%">\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 300" width="100%" height="100%">\n'
         "  <defs>\n    <style>" + STYLE + "    </style>\n  </defs>\n\n"
         '  <rect width="100%" height="100%" class="bg" rx="8"/>\n'
         '  <rect width="100%" height="100%" class="border" rx="8"/>\n\n'
         + p1
-        + '\n  <line x1="310" y1="20" x2="310" y2="255" class="divider"/>\n\n'
+        + '\n  <line x1="330" y1="20" x2="330" y2="245" class="divider"/>\n\n'
         + p2
-        + '\n  <line x1="635" y1="20" x2="635" y2="255" class="divider"/>\n\n'
+        + '\n  <line x1="650" y1="20" x2="650" y2="245" class="divider"/>\n\n'
         + p3
+        + '\n  <line x1="970" y1="20" x2="970" y2="245" class="divider"/>\n\n'
+        + p4
         + "\n"
         + footer
         + "</svg>\n"

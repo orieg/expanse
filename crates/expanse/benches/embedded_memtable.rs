@@ -360,6 +360,86 @@ fn bench_ble_tracker_ttl_eviction(c: &mut Criterion) {
         );
     });
 
+    // 3. Steady-state shape: 25 expired of 2,000 — the regime the
+    // O(expired) pre-registration is actually about. The bulk shape above
+    // (600 of 2,000) is where a linear sweep's cache-friendliness must win
+    // on constants; this one is where the ordered index can express its
+    // asymptotic advantage. Both ship, so neither story is cherry-picked.
+    let steady_seen = |idx: usize| -> u32 {
+        if idx < 25 {
+            (idx * 10) as u32 // expired: < 6,000 ms
+        } else {
+            10_000 + idx as u32 // live: well past the cutoff
+        }
+    };
+    group.bench_function(
+        BenchmarkId::new("expanse_dual_trie_eviction_steady", n),
+        |b| {
+            b.iter_batched(
+                || {
+                    let mut by_mac = ExpanseMap32::new();
+                    let mut by_time = ExpanseMap32::new();
+                    let mut slab = Vec::with_capacity(n);
+                    for (idx, mac) in macs.iter().enumerate() {
+                        let rec = BleRecord {
+                            mac: *mac,
+                            last_seen_ms: steady_seen(idx),
+                            ..BleRecord::default()
+                        };
+                        slab.push(rec);
+                        let h = fnv1a_32(mac);
+                        by_mac.insert(h, idx as u32);
+                        let tk = ((rec.last_seen_ms / 1000) << 13) | (idx as u32 & 0x1FFF);
+                        by_time.insert(tk, idx as u32);
+                    }
+                    (by_mac, by_time, slab)
+                },
+                |(mut by_mac, mut by_time, slab)| {
+                    let cutoff_sec = 5u32;
+                    let max_tk = (cutoff_sec << 13) | 0x1FFF;
+                    let mut evicted = 0usize;
+                    while let Some((tk, idx)) = by_time.first() {
+                        if tk > max_tk {
+                            break;
+                        }
+                        let rec = &slab[idx as usize];
+                        let h = fnv1a_32(&rec.mac);
+                        by_time.remove(tk);
+                        by_mac.remove(h);
+                        evicted += 1;
+                    }
+                    black_box((by_mac, by_time, evicted))
+                },
+                criterion::BatchSize::PerIteration,
+            );
+        },
+    );
+    group.bench_function(
+        BenchmarkId::new("hashmap_full_scan_eviction_steady", n),
+        |b| {
+            b.iter_batched(
+                || {
+                    let mut map: HashMap<[u8; 6], BleRecord> = HashMap::with_capacity(n);
+                    for (idx, mac) in macs.iter().enumerate() {
+                        let rec = BleRecord {
+                            mac: *mac,
+                            last_seen_ms: steady_seen(idx),
+                            ..BleRecord::default()
+                        };
+                        map.insert(*mac, rec);
+                    }
+                    map
+                },
+                |mut map| {
+                    let cutoff_ms = 6000u32;
+                    map.retain(|_, rec| rec.last_seen_ms >= cutoff_ms);
+                    black_box(map)
+                },
+                criterion::BatchSize::PerIteration,
+            );
+        },
+    );
+
     group.finish();
 }
 
