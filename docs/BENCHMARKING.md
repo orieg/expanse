@@ -1085,8 +1085,42 @@ abandoned to an open write bracket) and the writer's **refused** count
 ratios of the run's own counters and so host-load-immune in the same way the
 `occ_stats` ratios are. Report-only like the rest of the suite; the collapse
 mode to watch for is a `busy` line approaching 100% at a paced rate, not a
-throughput number. Numbers land here from the first quiet-host run of the arm;
-none are published yet.
+throughput number.
+
+First quiet-host reading *(measured: reference host — Intel i9-12900F, 24
+threads, 30 MiB L3, Linux 6.8, run
+[33556060582](https://github.com/orieg/expanse/actions/runs/33556060582), ref
+`feat/sync32-bench-arm-573` @ `db63f409`; `EXPANSE_BENCH_THREADS="1,4,16"`, 500 ms
+windows; artifact `suite-tables-concurrency-33556060582`)* (workload:
+`core_concurrency`):
+
+| writer duty | readers | validated reads/s | writes/s | Busy rate | refused writes |
+|---|---:|---:|---:|---:|---:|
+| full | 1 | 1.3 M | 6.27 M | 94.2% | 0 |
+| full | 4 | 10.5 M | 3.70 M | 90.1% | 0 |
+| full | 16 | 636.9 M | 72 k | 1.7% | **1,727,926** |
+| 1M/s | 1 | 36.0 M | 1.00 M | 19.8% | 0 |
+| 1M/s | 4 | 138.4 M | 0.95 M | 18.1% | 26,893 |
+| 1M/s | 16 | 630.9 M | 117 k | 1.7% | **441,315** |
+| 100k/s | 1 | 49.6 M | 100 k | 1.93% | 0 |
+| 100k/s | 4 | 193.3 M | 100 k | 0.96% | 0 |
+| 100k/s | 16 | 648.7 M | **72 k** | 0.93% | **13,817** |
+| 10k/s | 1 | 52.2 M | 10 k | 0.145% | 0 |
+| 10k/s | 4 | 204.5 M | 10 k | 0.099% | 0 |
+| 10k/s | 16 | 681.9 M | 10 k | 0.136% | 0 |
+
+Two readings. The Busy rate behaves as the seqlock model predicts — it tracks
+the fraction of wall time the writer holds a bracket open (≈ write rate ×
+bracket length), so at embedded ingestion rates (10k/s) optimistic reads
+validate 99.9% of the time. The refusal column is the finding: with sixteen
+readers in continuous walks, the pending list can only drain at a fence that
+observes *every* reader flag clear, which under dense reads almost never
+happens — the writer is refused with `ReclaimBacklog` and its sustained rate
+collapses (the 100k/s row holds only 72 k writes/s; full duty, 72 k with 1.7 M
+refusals). The wrapper's stated target is one or two readers (a main loop and
+an interrupt handler), where refusals are zero at every rate measured; the
+reader-density sensitivity of all-flags-clear quiescence is a design property
+to carry into any wider-fan-out use, not a regression.
 
 **100% read:**
 
