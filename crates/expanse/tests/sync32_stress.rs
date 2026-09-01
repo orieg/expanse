@@ -98,7 +98,11 @@ fn set_readers_under_churn() {
                 while ok < 15_000 {
                     let k = lcg(&mut state) % (STABLE * 2);
                     if let Ok(present) = r.try_contains(k) {
-                        assert_eq!(present, k.is_multiple_of(2) && k < STABLE * 2, "stable key {k}");
+                        assert_eq!(
+                            present,
+                            k.is_multiple_of(2) && k < STABLE * 2,
+                            "stable key {k}"
+                        );
                         ok += 1;
                     }
                 }
