@@ -332,6 +332,162 @@ RFC; (b) see §4.2.
 - **ESP-IDF component / ESP32 packaging** (`components/expanse/`, linked in #558): `CMakeLists.txt` builds `libexpanse.a` with cargo for the bare-metal RISC-V target matching `IDF_TARGET` and links it; `src/expanse_esp_idf.c` defines the `expanse_host_malloc`/`expanse_host_free` pair the `no_std` global allocator imports, routed to `MALLOC_CAP_INTERNAL` under `CONFIG_EXPANSE_SRAM_INTERNAL_ONLY`. RISC-V parts only — the Xtensa ESP32/S2/S3 have no mainline rustc target and the configure step fails loudly for them. Bare-metal ESP32-C3 (`riscv32imc-unknown-none-elf`) is checked in CI — engine, C ABI staticlib, and an assertion that the archive resolves against nothing but that host pair — alongside `riscv32imac` and `thumbv7em`. No ESP-IDF link is exercised in CI; the component build is unverified until an ESP-IDF lane or on-hardware run covers it.
 - **CI cross-compilation matrix**: Bare-metal RV32 (`riscv32imac-unknown-none-elf`, with and without `+zbb`), ESP32-C3 (`riscv32imc-unknown-none-elf`), and Arm Cortex-M4 (`thumbv7em-none-eabihf`) are verified on every PR.
 
+### 4.3 Espressif RISC-V per-part core inventory & CAS soundness — **VALIDATED** ([#567](https://github.com/orieg/expanse/issues/567))
+
+*Usage:* the ESP-IDF component (`components/expanse/`), the README platform
+table, and `docs/PACKAGING.md` name five Espressif RISC-V parts. The 32-bit
+concurrent wrapper `sync32` (`crates/expanse/src/sync32.rs`) needs to know, per
+part, **how many harts share the address space**; the compare-and-swap–dependent
+work tracked in [#573](https://github.com/orieg/expanse/issues/573) additionally
+needs to know which CAS mechanism is *sound* on each part. Until now those claims rested on
+inference from a HAL manifest.
+
+*Method:* every hardware cell below was extracted from the Espressif datasheet
+or Technical Reference Manual PDF with `PyMuPDF` and is quoted verbatim in
+[§4.3.1](#431-verbatim-core-count--isa-statements) with document revision,
+section, and PDF page index. Target triples and `target_has_atomic` values are
+`rustc --print target-list` / `rustc --print cfg --target …` output (rustc
+1.98.0), not recollection. `esp-hal` is cited only as **corroboration** of a
+policy choice, never as a source for a hardware fact.
+
+| Part | ISA (HP core) | Cores HP / LP | rustc target matching the ISA | `target_has_atomic` | `AtomicU64` native | `unsafe-assume-single-core` sound? | Viable CAS path | Reclamation that fits |
+|---|---|---|---|---|---|---|---|---|
+| **ESP32-C2** (ESP8684) | RV32IMC (`misa.A = 0`) | **1 / 0** | `riscv32imc-unknown-none-elf` | *(none emitted)* | no | **yes** — one hart, M-mode available | `portable-atomic` `unsafe-assume-single-core` (interrupt masking) or `critical-section` — nothing else supplies CAS | quiescent-state / deferred free (`sync32`); EBR only atop a `portable-atomic` CAS |
+| **ESP32-C3** | RV32IMC (`misa.A = 0`) | **1 / 0** | `riscv32imc-unknown-none-elf` | *(none emitted)* | no | **yes** — one hart, M-mode available | same as C2 | same as C2 |
+| **ESP32-C6** | RV32IMAC (`misa.A = 1`) | **1 / 1** (LP CPU reaches HP SRAM) | `riscv32imac-unknown-none-elf` | 8/16/32/ptr | no | **no** as a blanket setting — the LP CPU is a second hart on the same buses; conditionally sound only in an image that never releases it (see [§4.3.2](#432-the-lp-core-question)) | native A extension (LR/SC + AMO) for ≤32-bit; `portable-atomic` `fallback` global locks (built on native CAS, no `unsafe` feature) for wider types | EBR viable (real CAS); `sync32`'s quiescent-state also fits |
+| **ESP32-H2** | RV32IMAC (`misa.A = 1`) | **1 / 0** | `riscv32imac-unknown-none-elf` | 8/16/32/ptr | no | **yes** (one hart) — but **moot**: native A already supplies CAS | native A extension; `portable-atomic` `fallback` for wider types | EBR viable; `sync32`'s quiescent-state also fits |
+| **ESP32-P4** | RV32IMAFC + Zc/Zb + custom (`misa.A = 1`) | **2 / 1** (LP CPU reaches L2 SRAM) | `riscv32imafc-unknown-none-elf` | 8/16/32/ptr | no | **no**, unconditionally — the HP complex is dual-core | native A extension; `portable-atomic` `fallback` global locks for wider types | EBR viable; `sync32`'s quiescent-state also fits |
+
+`AtomicU64` is **absent natively on all five** — `riscv32imac` and `riscv32imafc`
+both emit `target_has_atomic` 8/16/32/ptr and no 64 — the constraint that
+[#564](https://github.com/orieg/expanse/issues/564) settled by keeping the 32-bit
+concurrent surface on `occ32`/`AtomicU32` rather than porting `occ.rs`. It binds
+independently of core count. `portable-atomic`'s `fallback` feature supplies the
+wider types, "using global locks by default" (README, `portable-atomic` 1.15.0) —
+which needs a working CAS underneath: native A on C6/H2/P4, and interrupt masking
+via `unsafe-assume-single-core` on C2/C3.
+
+#### 4.3.1 Verbatim core-count & ISA statements
+
+| Part | Document (revision) | Section / PDF page | Verbatim |
+|---|---|---|---|
+| C2 | ESP8684 TRM **v1.3** | §1.1 Overview (Ch. 1 ESP-RISC-V CPU), p. 22 | *"ESP-RISC-V CPU is a 32-bit core based upon RISC-V ISA comprising base integer (I), multiplication/division (M) and compressed (C) standard extensions."* |
+| C2 | ESP8684 TRM **v1.3** | Register 1.6 `misa` (0x301), p. 27 | *"Atomic Extension = 0. (RO)"* |
+| C2 | ESP8684 TRM **v1.3** | §3.1 Overview (Ch. 3 System and Memory), p. 81 | *"The ESP8684 is an ultra-low-power and highly-integrated system with a 32-bit RISC-V single-core processor"* |
+| C3 | ESP32-C3 TRM **v1.4** | §1.1 Overview (Ch. 1 ESP-RISC-V CPU), p. 31 | *"ESP-RISC-V CPU is a 32-bit core based upon RISC-V ISA comprising base integer (I), multiplication/division (M) and compressed (C) standard extensions."* |
+| C3 | ESP32-C3 TRM **v1.4** | Register 1.6 `misa` (0x301), p. 36 | *"Atomic Extension = 0. (RO)"* |
+| C3 | ESP32-C3 TRM **v1.4** | §3.1 Overview (Ch. 3 System and Memory), p. 91 | *"The ESP32-C3 is an ultra-low-power and highly-integrated system with a 32-bit RISC-V single-core processor"* |
+| C3 | ESP32-C3 Datasheet **v2.4** | §4.1.1.1 High-Performance CPU, p. 33 | *"ESP32-C3 has a low-power 32-bit RISC-V single-core microprocessor … • RV32IMC ISA"* |
+| C6 | ESP32-C6 TRM **v1.2** | §5.1 Overview (Ch. 5 System and Memory), p. 169 | *"ESP32-C6 is an ultra-low power and highly-integrated system that integrates: • a high-performance 32-bit RISC-V single-core processor (HP CPU) … • a low-power 32-bit RISC-V single-core processor (LP CPU) … All internal memory, external memory, and peripherals are located on the HP CPU and LP CPU buses."* |
+| C6 | ESP32-C6 TRM **v1.2** | §3.7.1 Memory Access (Ch. 3 Low-Power CPU), p. 126 | *"The ESP32-C6 LP CPU can access LP SRAM and HP SRAM."* … *"The LP CPU supports the atomic instruction set. Both the LP CPU and the HP CPU can access memory through atomic instructions, thus achieving atomicity of memory access."* … *"Note that only HP SRAM supports atomic access from HP CPU and LP CPU."* |
+| C6 | ESP32-C6 TRM **v1.2** | Register `misa`, p. 45 | *"Atomic Extension = 1. (RO)"* |
+| C6 | ESP32-C6 Datasheet **v1.5** | §4.1.1.3 Low-Power CPU, p. 38 | *"• RV32IMAC ISA (instruction set architecture)"* … *"• Access to HP memory and LP memory"* |
+| H2 | ESP32-H2 TRM **v1.1** | §1.1 Overview (Ch. 1 ESP-RISC-V CPU), p. 38 | *"ESP-RISC-V CPU is a 32-bit core based upon RISC-V instruction set architecture (ISA) comprising base integer (I), multiplication/division (M), atomic (A) and compressed (C) standard extensions."* |
+| H2 | ESP32-H2 TRM **v1.1** | Register `misa`, p. 44 | *"Atomic Extension = 1. (RO)"* |
+| H2 | ESP32-H2 TRM **v1.1** | §4.1 Overview (Ch. 4 System and Memory), p. 142 | *"ESP32-H2 is an ultra-low power and highly-integrated system that integrates a high-performance 32-bit RISC-V single-core processor (CPU)"* |
+| P4 | ESP32-P4 TRM **Pre-release v0.7** | §2.1 Overview (Ch. 2 High-Performance CPU), p. 68 | *"The CPU Core complex consists of dual RISC-V CPU cores with a dedicated core-local interrupt controller (CLIC), a debug block, and a core-local interrupt (CLINT) timer."* |
+| P4 | ESP32-P4 TRM **Pre-release v0.7** | §9.1 Overview (Ch. 9 System and Memory), p. 901 | *"ESP32-P4 integrates two processors: • a high-performance 32-bit RISC-V dual-core processor (HP CPU) … • a low-power 32-bit RISC-V single-core processor (LP CPU) … All internal memory, external memory, and peripherals are located on the HP CPU and LP CPU buses."* |
+| P4 | ESP32-P4 TRM **Pre-release v0.7** | §5.8.1 Memory Access (Ch. 5 Low-Power CPU), p. 654 | *"The ESP32-P4 LP CPU can access LP ROM, LP SRAM, and L2 SRAM."* … *"Note that only L2 SRAM region supports atomic access from HP CPU and LP CPU."* |
+| P4 | ESP32-P4 Datasheet **Pre-release v0.7** | §4.1.1.1 High-Performance CPU, p. 40 | *"ESP32-P4 has an HP 32-bit RISC-V dual-core processor … • RV32IMAFC ISA (instruction set architecture) • Zc extensions (Zcb, Zcmp, and Zcmt) • Zb extensions"* |
+| P4 | ESP32-P4 Datasheet **Pre-release v0.7** | §4.1.3 reset types, p. 49 | *"HP CPU1 is at reset by default after chip power-up, and needs to be manually released from reset."* … *"LP CPU is at reset after chip power-up, and needs to be manually released from reset by configuring the power management unit (PMU)."* |
+
+**Absence evidence for the zero-LP-core rows.** C2, C3, and H2 are recorded as
+having no LP core because their TRMs contain **no Low-Power-CPU chapter** — the
+C6 TRM v1.2 has "Chapter 3 Low-Power CPU" and the P4 TRM v0.7 has "Chapter 5
+Low-Power CPU", while ESP8684 TRM v1.3, ESP32-C3 TRM v1.4 and ESP32-H2 TRM v1.1
+have exactly one CPU chapter each (their "Low-power Management" chapters are PMU
+chapters, not cores) and the H2 TRM defines **zero `LP_CPU*` registers**. This is
+absence-of-evidence in a document that demonstrably documents the feature when
+present, which is the strongest negative a TRM can give.
+
+#### 4.3.2 The LP-core question
+
+`portable-atomic`'s `unsafe-assume-single-core` implements CAS by disabling
+interrupts on the current hart; its own README carries the warning *"Enabling
+this feature/cfg for multi-core systems is always **unsound**"*
+(`portable-atomic` 1.15.0). Masking interrupts on the HP CPU excludes preemption
+on that hart and nothing else, so the question is whether a second hart can
+touch the same words.
+
+- **C6 — it can.** TRM v1.2 §3.7.1 states the LP CPU reads and writes HP SRAM,
+  and frames the A extension as the *intended* HP↔LP coordination mechanism
+  ("Both the LP CPU and the HP CPU can access memory through atomic
+  instructions"). The precondition is therefore broken by design, not by
+  accident. The LP CPU does start disabled — TRM v1.2 §3.1 p. 107: *"The LP CPU
+  is in sleep mode by default"* — so an image that never releases it does run one
+  hart; but that is a whole-firmware property no crate feature can check, so the
+  blanket verdict is **unsound**. It is also unnecessary: C6 has native CAS.
+- **P4 — it can, twice over.** The HP complex is genuinely dual-core (TRM v0.7
+  §2.1), so `unsafe-assume-single-core` is unsound regardless of the LP CPU, and
+  the LP CPU additionally reaches L2 SRAM (§5.8.1).
+- **C2 / C3 / H2 — no second hart exists**, so the precondition holds.
+
+**Placement constraint for any cross-core state.** Both multi-hart parts restrict
+where HP↔LP atomics work: HP SRAM only on C6 (TRM v1.2 §3.7.1) and L2 SRAM only
+on P4 (TRM v0.7 §5.8.1). Shared structures must be allocated into those regions;
+the ESP-IDF component's allocator glue currently routes through
+`MALLOC_CAP_INTERNAL` and has no such placement control.
+
+#### 4.3.3 Conflicts found between primary sources
+
+1. **ESP8684 (ESP32-C2) datasheet contradicts its own TRM on the A extension.**
+   Datasheet v2.3 §4.1.1.1 (p. 27) says the HP CPU comprises *"base integer (I),
+   multiplication/division (M), atomic (A) and compressed (C) standard
+   extensions … • RV32IMAC ISA"*. TRM v1.3 §1.1 (p. 22) lists only I, M and C,
+   and Register 1.6 `misa` (p. 27) — hardwired and read-only — reports *"Atomic
+   Extension = 0"*. **The TRM's `misa` description is a statement about the
+   silicon's own capability register and is taken as authoritative: the ESP32-C2
+   is RV32IMC**, which is also what `riscv32imc-unknown-none-elf` (the triple the
+   component already builds for it) assumes. The datasheet sentence reads as text
+   carried over from a part that does have the A extension.
+2. **The same ESP8684 datasheet claims a ULP that the TRM does not document.**
+   §4.1.3.6 (p. 32) says *"The integrated Ultra-Low-Power (ULP) coprocessors
+   allow the ESP8684 to operate in Deep-sleep mode…"*, but ESP8684 TRM v1.3 has
+   no ULP/LP-CPU chapter and mentions "ULP Coprocessor" only once, in the
+   abbreviations glossary (p. 514). Recorded as **0 LP cores** on the TRM's
+   evidence; the datasheet line is treated as the same boilerplate carry-over.
+3. **Neither prior source was wrong about H2 — they answered different
+   questions.** A research pass claimed `unsafe-assume-single-core` is sound on
+   C3 *and* H2; `esp-hal` enables it for `esp32c2`/`esp32c3`/`esp32s2` only. The
+   datasheets reconcile these: H2 *is* single-core, so the feature would be
+   sound there, and `esp-hal` omits it because H2 has the A extension and does
+   not need it. The set `esp-hal` enables it for is exactly "single-core **and**
+   no A extension". On C6 the two sources agreed in outcome, and the TRM confirms
+   the strong reason: a second hart on the same buses.
+
+*Corroboration (not a source):* `esp-hal` 1.2.0-rc.0 `esp-hal/Cargo.toml` enables
+`portable-atomic/unsafe-assume-single-core` under the `esp32c2`, `esp32c3` and
+`esp32s2` features and under no other part feature.
+
+#### 4.3.4 What this supports
+
+- **`sync32` runs on all five parts as shipped.** Its protocol is atomic
+  load/store plus fences with no CAS and no read-modify-write
+  (`crates/expanse/src/sync32.rs`), so the missing A extension on C2/C3 does not
+  gate it and no `portable-atomic` feature is required anywhere. Its
+  single-writer/many-reader contract is satisfied within one hart; using it
+  *across* harts on C6 or P4 would additionally require the arena to sit in the
+  region where cross-core atomics are defined (§4.3.2), which the component
+  cannot currently express — so the supported configuration is single-hart on
+  every part.
+- **For the CAS-dependent futures** (the concurrent-surface work in
+  [#573](https://github.com/orieg/expanse/issues/573) and anything beyond it that
+  wants a real read-modify-write): C6, H2 and P4 need no
+  `portable-atomic` unsafe feature at all — native A gives 32-bit CAS and the
+  default `fallback` builds wider types on top of it. C2 and C3 have no CAS in
+  hardware; there `unsafe-assume-single-core` is the sound and efficient choice
+  (both are single-hart), with `critical-section` as the portable alternative.
+  **`unsafe-assume-single-core` must never be enabled unconditionally for the
+  whole Espressif family** — it is unsound on C6 and P4.
+- **Target-triple correction.** The ESP32-P4 HP core implements F (datasheet
+  v0.7 §4.1.1.1), so the mainline triple matching its ISA is
+  `riscv32imafc-unknown-none-elf`, present in `rustc --print target-list`. The
+  ESP-IDF component builds `esp32p4` against `riscv32imac-unknown-none-elf`
+  today — an instruction subset the P4 executes, but whose float ABI is not the
+  one an `imafc` toolchain emits. No ESP-IDF lane exercises that link (§4.2), so
+  the combination is untested here rather than known-good.
+
+
 ---
 
 ## 5. Validation summary
@@ -340,7 +496,8 @@ RFC; (b) see §4.2.
 (§1.2), TZCNT/LZCNT always-correct (§1.3), x86 64-byte line (§1.4), prefetch-removal
 (§1.5), LA57 (§1.6), NEON presence & execution parity (§2.1, §2.6), AArch64 runner
 capability census & 64-byte cache line (§2.6), 32-byte embedded alignment for cached cores
-(§4.1), RV32 pointer width (§3.2).
+(§4.1), Espressif RISC-V per-part core counts, ISA and CAS soundness (§4.3),
+RV32 pointer width (§3.2).
 
 **Assumptions that are risks / lower to software:**
 - ⚠️ **ARM 64-byte cache line (§2.4)** — not architectural; Apple Silicon is 128 B.
@@ -435,8 +592,17 @@ All PDFs cached under `docs/research/hardware/` (git-ignored); re-download from 
 **Embedded:**
 - Arm Cortex-M7 TRM (DDI 0489F, r1p2); Cortex-M4 TRM (DDI 0439C, r0p1); ARMv7-M
   Architecture Reference Manual (DDI 0403E.e).
-- Espressif ESP32 TRM (v5.8, Xtensa LX6); ESP32-S3 TRM (v1.8, LX7); ESP32-C3 TRM (v1.4,
-  RISC-V) — `documentation.espressif.com`.
+- Espressif ESP32 TRM (v5.8, Xtensa LX6); ESP32-S3 TRM (v1.8, LX7) —
+  `documentation.espressif.com`.
+- Espressif RISC-V corpus used for §4.3, all from
+  `espressif.com/sites/default/files/documentation/` (`<doc>_en.pdf` /
+  `<doc>_technical_reference_manual_en.pdf`):
+  ESP8684 (ESP32-C2) Datasheet v2.3 + TRM v1.3; ESP32-C3 Datasheet v2.4 + TRM
+  v1.4; ESP32-C6 Datasheet v1.5 + TRM v1.2; ESP32-H2 Datasheet v1.3 + TRM v1.1;
+  ESP32-P4 Datasheet Pre-release v0.7 + TRM Pre-release v0.7.
+- `portable-atomic` README (crate version 1.15.0) — `unsafe-assume-single-core`,
+  `unsafe-assume-privileged`, `critical-section` and `fallback` semantics.
+  Corroboration only: `esp-hal` 1.2.0-rc.0 `esp-hal/Cargo.toml`.
 
 ---
 
