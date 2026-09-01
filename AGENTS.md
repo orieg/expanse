@@ -187,6 +187,19 @@ cargo miri test -p expanse-trie --lib -- leaf:: node:: slot:: alloc:: bits:: typ
   2. Perform the §2.3 fail-then-pass demonstration by deleting the guarded assertion and confirming the test fails.
   3. Inspect the backtrace to ensure the panic originated at the intended site, not at an upstream pre-existing guard.
 
+### String-Gated Inverted Assertions for Negative Controls & Canary Tests
+- When adding inverted exit-code checks or canary tests in CI (e.g. verifying that a canary test fails under a sanitizer or validator):
+  1. **Never rely solely on a non-zero exit code** (`if cargo test ...; then exit 1; fi` or `! cargo test`). Build failures, compilation errors, toolchain issues, or unrelated harness crashes also exit non-zero and will cause a broken canary to "pass" CI indefinitely.
+  2. **Assert on the explicit diagnostic report string**: Capture execution logs (`cargo test ... > canary.log 2>&1 || true`) and grep for the exact expected failure signature (e.g. `grep -q "ThreadSanitizer: data race" canary.log`).
+  3. Fail closed if the command passes or if the log lacks the expected diagnostic signature.
+
+### Sanitizer Suppression Mechanics & Residual Coverage Discipline
+- When adding or modifying sanitizer suppression files (such as `.github/tsan-suppressions.txt`):
+  1. **Audit Both Racing Stacks**: Remember that TSan suppresses a data race report if *any* stack frame on *either* racing thread matches a suppression pattern.
+  2. **Write-Side Suppression Hazard**: Suppressing underlying storage array write paths (`mutate*.rs`, `map.rs`, `trie32.rs`) inherently suppresses storage-level data races (such as unbracketed mutations racing readers), even if coordination wrappers (`sync.rs`, `occ.rs`) are not listed in the suppression file.
+  3. **Honest Residual Coverage Documentation**: Document the exact residual coverage delivered by the instrument and explicitly cite the compensating instruments that protect the suppressed paths (`assert_bracketed()` debug assertions, Loom model checking, ASan, and linearizability history recording).
+  4. **Substring Matching Awareness**: Note that file suppression patterns match by substring (e.g. `race:map.rs` matches `bytesmap.rs`, `strmap.rs`, `blobmap.rs`, `mutate_map.rs`).
+
 ### Test Fixture RAII Allocation Hygiene (ASan/LSan)
 - When allocating raw node or value buffers by hand in unit test fixtures (e.g. `alloc.alloc_bytes(...)`):
   - Always bind the raw allocation to an RAII guard struct whose `Drop` implementation calls `alloc.free_bytes(...)`.

@@ -124,12 +124,26 @@ jobs:
         with:
           components: rust-src
       - uses: Swatinem/rust-cache@v2
-      - name: Run Sync* suite under ThreadSanitizer
+      - name: Verify ThreadSanitizer canary catches unsuppressed races (negative control)
         run: |
-          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync::
-          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test linearizability --test test_blobmap
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test tsan_canary > canary.log 2>&1 || true
+          cat canary.log
+          if ! grep -q "ThreadSanitizer: data race" canary.log; then
+            echo "::error::TSan canary failed without a ThreadSanitizer data race report (build/link failure?)"
+            exit 1
+          fi
+          echo "✓ TSan canary correctly caught intentional unsuppressed data race (TSan report verified)."
         env:
           RUSTFLAGS: "-Zsanitizer=thread"
+          TSAN_OPTIONS: "suppressions=${{ github.workspace }}/.github/tsan-suppressions.txt"
+
+      - name: Run Sync* suite under ThreadSanitizer
+        run: |
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync:: --lib sync32::
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test linearizability --test test_blobmap --test sync32_stress
+        env:
+          RUSTFLAGS: "-Zsanitizer=thread"
+          TSAN_OPTIONS: "suppressions=${{ github.workspace }}/.github/tsan-suppressions.txt"
 
       - name: Report or Update Nightly Failure Issue
         if: failure() && github.event_name == 'schedule'
@@ -150,12 +164,12 @@ jobs:
               '',
               `- **Commit**: [${context.sha}](${context.payload.repository?.html_url}/commit/${context.sha})`,
               `- **Workflow Run**: [View Failed Run Logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
-              '- **Failing Target**: `ThreadSanitizer (TSan) Sync* / linearizability / blobmap tests`',
+              '- **Failing Target**: `ThreadSanitizer (TSan) Sync* / linearizability / blobmap / sync32 tests`',
               '',
               '#### Local Reproduction Commands:',
               '```bash',
-              'RUSTFLAGS="-Zsanitizer=thread" cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync::',
-              'RUSTFLAGS="-Zsanitizer=thread" cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test linearizability --test test_blobmap',
+              'TSAN_OPTIONS="suppressions=.github/tsan-suppressions.txt" RUSTFLAGS="-Zsanitizer=thread" cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync:: --lib sync32::',
+              'TSAN_OPTIONS="suppressions=.github/tsan-suppressions.txt" RUSTFLAGS="-Zsanitizer=thread" cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test linearizability --test test_blobmap --test sync32_stress',
               '```'
             ].join('\n');
 

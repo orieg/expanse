@@ -1,0 +1,50 @@
+# ThreadSanitizer (TSan) Suppressions for Expanse
+#
+# Expanse uses Optimistic Concurrency Control (OCC) with seqlock version
+# validation (SeqVersion / SeqVersion32) and Epoch-Based Reclamation (EBR).
+# Readers perform optimistic (plain) loads of trie nodes and leaf arrays
+# concurrently with single-writer mutations.
+#
+# MATCHING SEMANTICS & RESIDUAL COVERAGE BOUNDARIES:
+# 1. LLVM TSan suppression patterns match by substring against any frame in the
+#    backtrace of EITHER racing thread.
+# 2. File patterns like `race:map.rs` match as substrings, covering any path
+#    containing `map.rs` (`map.rs`, `mutate_map.rs`, `bytesmap.rs`, `strmap.rs`,
+#    `blobmap.rs`). They are listed explicitly below for documentation clarity.
+# 3. Because every storage data race has a write side executing in one of the
+#    suppressed storage files (`mutate_map.rs`, `mutate.rs`, `map.rs`, `trie32.rs`),
+#    any race touching node/leaf arrays is suppressed by the write-side frame.
+# 4. Consequently, an unbracketed in-place mutation racing an optimistic reader
+#    (#477/#479) is TSan-invisible. That bug class is caught deterministically by
+#    `assert_bracketed()` debug panics in `NodeAlloc`, Loom model checks (`loom_`),
+#    and linearizability history recording (`tests/linearizability.rs`), NOT by TSan.
+# 5. For 32-bit targets (`sync32`), both the validated read (`map_get_validated`)
+#    and deferred node drop execution (`drain_pending`) execute within `trie32.rs`.
+#    Reclamation UAF races are caught by ASan and Loom, not TSan.
+# 6. TSan residual coverage: catches races where BOTH racing stacks remain outside
+#    the storage files (e.g. non-storage synchronization coordination, external
+#    test harnesses, and language binding state).
+
+# Demangled symbol path patterns
+race:expanse_trie::map::*
+race:expanse_trie::mutate_map::*
+race:expanse_trie::mutate::*
+race:expanse_trie::set::*
+race:expanse_trie::bits::*
+race:expanse_trie::slot::*
+race:expanse_trie::trie32::*
+race:expanse_trie::bytesmap::*
+race:expanse_trie::strmap::*
+race:expanse_trie::blobmap::*
+
+# Source file substring patterns for storage engines
+race:map.rs
+race:mutate_map.rs
+race:mutate.rs
+race:set.rs
+race:bits.rs
+race:slot.rs
+race:bytesmap.rs
+race:strmap.rs
+race:blobmap.rs
+race:trie32.rs
