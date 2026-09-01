@@ -1,0 +1,63 @@
+# ThreadSanitizer (TSan) suppressions for Expanse
+#
+# Context & Rationale (see crates/expanse/src/sync.rs & sync32.rs module docs, #479, #575):
+#
+# Expanse uses Optimistic Concurrency Control (OCC) based on seqlock version words
+# (SeqVersion / SeqVersion32) and Epoch-Based Reclamation (EBR).
+#
+# In this design, readers perform optimistic (plain) memory loads from the trie
+# nodes, leaf arrays, chunk arenas, and collision buckets between `sample()` and
+# `validate()` without holding the writer lock. If a concurrent writer modifies
+# the node in between, the reader discards all loaded values upon failed validation
+# and restarts or falls back to the writer lock.
+#
+# Under the strict Rust/C++ memory model, concurrent non-atomic reads and writes
+# are treated by TSan as data races even though the loaded data is never used
+# unless validated.
+#
+# The suppressions below are triaged per #479 to cover only the documented OCC
+# optimistic read and concurrent mutation paths, while allowing TSan to detect
+# any genuine synchronization or data races outside the OCC protocol.
+
+# Match by demangled symbol paths
+race:expanse_trie::sync::*
+race:expanse_trie::sync32::*
+race:expanse_trie::occ::*
+race:expanse_trie::occ32::*
+race:expanse_trie::map::*
+race:expanse_trie::mutate_map::*
+race:expanse_trie::mutate::*
+race:expanse_trie::set::*
+race:expanse_trie::bits::*
+race:expanse_trie::slot::*
+race:expanse_trie::trie32::*
+race:expanse_trie::bytesmap::*
+race:expanse_trie::strmap::*
+race:expanse_trie::blobmap::*
+
+# Match by v0-mangled symbol patterns
+race:*expanse_trie*sync*
+race:*expanse_trie*occ*
+race:*expanse_trie*map*
+race:*expanse_trie*mutate*
+race:*expanse_trie*set*
+race:*expanse_trie*bits*
+race:*expanse_trie*bytesmap*
+race:*expanse_trie*strmap*
+race:*expanse_trie*blobmap*
+race:*expanse_trie*trie32*
+
+# Match by source file paths
+race:sync.rs
+race:sync32.rs
+race:occ.rs
+race:occ32.rs
+race:map.rs
+race:mutate_map.rs
+race:mutate.rs
+race:set.rs
+race:bits.rs
+race:bytesmap.rs
+race:strmap.rs
+race:blobmap.rs
+race:trie32.rs
