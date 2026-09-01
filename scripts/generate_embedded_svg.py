@@ -59,6 +59,9 @@ MEASURED_ARMS = {
     "evict_bulk_hashmap": f"embedded_ble_ttl_eviction/hashmap_full_scan_eviction/{N}",
     "evict_steady_expanse": f"embedded_ble_ttl_eviction/expanse_dual_trie_eviction_steady/{N}",
     "evict_steady_hashmap": f"embedded_ble_ttl_eviction/hashmap_full_scan_eviction_steady/{N}",
+    # Batched eviction through `remove_range` (#578), next to the per-key loop.
+    "evict_bulk_range_expanse": f"embedded_ble_ttl_eviction/expanse_dual_trie_eviction_range/{N}",
+    "evict_steady_range_expanse": f"embedded_ble_ttl_eviction/expanse_dual_trie_eviction_range_steady/{N}",
 }
 
 # Plot geometry shared by all three panels (rocksdb chart's layout).
@@ -264,12 +267,15 @@ def main() -> int:
         "steady_hashmap": wall["evict_steady_hashmap"] / 1000.0,
         "bulk_expanse": wall["evict_bulk_expanse"] / 1000.0,
         "bulk_hashmap": wall["evict_bulk_hashmap"] / 1000.0,
+        "steady_range": wall["evict_steady_range_expanse"] / 1000.0,
+        "bulk_range": wall["evict_bulk_range_expanse"] / 1000.0,
     }
 
     mem_max = nice_axis_max(mem.values())
     ing_max = nice_axis_max(ingest.values())
     lk_max = nice_axis_max(lookup.values())
-    ev_max = nice_axis_max([evict_us["steady_expanse"], evict_us["steady_hashmap"]])
+    ev_max = nice_axis_max(
+        [evict_us["steady_expanse"], evict_us["steady_range"], evict_us["steady_hashmap"]])
 
     mem_ratio = mem["stdmap"] / mem["expanse"]
     ing_cap, ing_win = loss_caption(
@@ -277,6 +283,8 @@ def main() -> int:
     lk_cap, lk_win = loss_caption(
         lookup["expanse"], min(lookup["hashmap"], lookup["btreemap"]), "{:.1f}&#215; faster")
     ev_cap, ev_win = loss_caption(
+        evict_us["steady_range"], evict_us["steady_hashmap"], "{:.1f}&#215; faster")
+    ev_loop_cap, ev_loop_win = loss_caption(
         evict_us["steady_expanse"], evict_us["steady_hashmap"], "{:.1f}&#215; faster")
 
     p1 = panel(
@@ -311,12 +319,14 @@ def main() -> int:
               f'{lookup["btreemap"]:.1f}', "t-val-muted", "BTreeMap", "ordered", False),
     )
     p4 = panel(
-        990, "Stale-Device Expiry", f"evict 25 stale of {N:,} tracked &#183; measured",
+        990, "Stale-Device Expiry", f"evict 25 stale of {N:,} &#183; Expanse batched / per-key &#183; measured",
         "&#9660; &#181;s / housekeeping pass", ev_max, f"{ev_max:g}", f"{ev_max / 2:g}",
-        bar(BAR_X2[0], evict_us["steady_expanse"], ev_max, "b-expanse",
-            f'{evict_us["steady_expanse"]:.1f}', "t-val-accent", "Expanse",
-            ev_cap if not ev_win else ev_cap, ev_win)
-        + bar(BAR_X2[1], evict_us["steady_hashmap"], ev_max, "b-hashmap",
+        bar(BAR_X[0], evict_us["steady_range"], ev_max, "b-expanse",
+            f'{evict_us["steady_range"]:.2f}', "t-val-accent", "batched", ev_cap, ev_win)
+        + bar(BAR_X[1], evict_us["steady_expanse"], ev_max, "b-expanse",
+              f'{evict_us["steady_expanse"]:.1f}', "t-val-accent", "per-key",
+              ev_loop_cap, ev_loop_win)
+        + bar(BAR_X[2], evict_us["steady_hashmap"], ev_max, "b-hashmap",
               f'{evict_us["steady_hashmap"]:.1f}', "t-val-blue", "HashMap",
               f"scans all {N // 1000}k", False),
     )
@@ -325,11 +335,10 @@ def main() -> int:
     host = prov.get("host_description", "unrecorded host")
     commit = str(prov.get("commit", "unrecorded"))[:9]
     bulk_line = (
-        f'bulk shape (600 of {N:,} expired): dual-trie {evict_us["bulk_expanse"]:.0f} &#181;s vs '
-        f'sweep {evict_us["bulk_hashmap"]:.1f} &#181;s — the linear sweep wins bulk expiry'
-        if evict_us["bulk_expanse"] > evict_us["bulk_hashmap"] else
-        f'bulk shape (600 of {N:,} expired): dual-trie {evict_us["bulk_expanse"]:.0f} &#181;s vs '
-        f'sweep {evict_us["bulk_hashmap"]:.1f} &#181;s'
+        f'bulk shape (600 of {N:,} expired): remove_range {evict_us["bulk_range"]:.1f} &#181;s, '
+        f'per-key loop {evict_us["bulk_expanse"]:.0f} &#181;s vs sweep {evict_us["bulk_hashmap"]:.1f} &#181;s'
+        + (' — the linear sweep still wins bulk expiry'
+           if evict_us["bulk_range"] > evict_us["bulk_hashmap"] else '')
     )
     scaling_line = (
         "Expiry scaling: Expanse&#8217;s pass cost follows the stale count; the HashMap sweep "
@@ -337,12 +346,11 @@ def main() -> int:
     )
     footer = (
         f'  <text x="30" y="262" class="t-chart-sub">Panel 1 derived by scripts/embedded_envelope.py; '
-        f'panels 2-4 measured: {host}.</text>\n'
+        f'panels 2-4 measured: {host} &#183; commit {commit}, run {run_num}.</text>\n'
         f'  <text x="30" y="275" class="t-chart-sub">{scaling_line} &#183; {bulk_line}.</text>\n'
-        f'  <text x="700" y="262" class="t-chart-sub">Commit {commit}, run {run_num} &#183; BCa 95% CIs in '
-        f'docs/benchmarks/embedded/results.json.</text>\n'
         f'  <text x="30" y="288" class="t-chart-sub">Host caveat: a 30 MiB L3 flatters flat scans; '
-        f'the on-device ESP32-C3/C6 chart is pending the first hardware harvest.</text>\n'
+        f'the on-device ESP32-C3/C6 chart is pending the first hardware harvest &#183; '
+        f'BCa 95% CIs in docs/benchmarks/embedded/results.json.</text>\n'
     )
 
     svg = (
