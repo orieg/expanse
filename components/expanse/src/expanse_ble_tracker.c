@@ -338,6 +338,23 @@ bool expanse_ble_tracker_remove(expanse_ble_tracker_t *tracker, const uint8_t ma
     return true;
 }
 
+/* Releases the slab slot behind an expired by_time entry: by_mac index,
+ * activity bit, free list, count. Shared by both eviction paths. */
+static void expire_slot(expanse_ble_tracker_t *tracker, uint16_t idx) {
+    uint32_t mac_hash = fnv1a_32(tracker->entries[idx].mac, 6);
+    expanse_map_remove(tracker->by_mac, mac_hash, NULL);
+    clear_slot_active(tracker, idx);
+    tracker->free_indices[tracker->free_count++] = idx;
+    tracker->count--;
+}
+
+#if !EXPANSE_WIDE_SURFACE
+static void expire_one(expanse_word_t time_key, expanse_word_t idx_word, void *ctx) {
+    (void)time_key;
+    expire_slot((expanse_ble_tracker_t *)ctx, (uint16_t)idx_word);
+}
+#endif
+
 size_t expanse_ble_tracker_expire_stale(expanse_ble_tracker_t *tracker, uint32_t cutoff_ms) {
     if (!tracker) {
         return 0;
@@ -358,6 +375,9 @@ size_t expanse_ble_tracker_expire_stale(expanse_ble_tracker_t *tracker, uint32_t
     uint32_t max_time_key = (rel_cutoff_sec << TIME_KEY_SHIFT) | SLAB_IDX_MASK;
 
     size_t expired_count = 0;
+#if EXPANSE_WIDE_SURFACE
+    /* 64-bit host build of this component: the batched entry point is
+     * 32-bit-only, so keep the per-record loop. */
     while (true) {
         expanse_word_t time_key = 0;
         expanse_word_t idx_word = 0;
@@ -367,21 +387,18 @@ size_t expanse_ble_tracker_expire_stale(expanse_ble_tracker_t *tracker, uint32_t
         if (time_key > max_time_key) {
             break;
         }
-
-        uint16_t idx = (uint16_t)idx_word;
-        if (tracker->mono_last_seen_sec[idx] > cutoff_sec) {
-            break;
-        }
-
-        uint32_t mac_hash = fnv1a_32(tracker->entries[idx].mac, 6);
         expanse_map_remove(tracker->by_time, time_key, NULL);
-        expanse_map_remove(tracker->by_mac, mac_hash, NULL);
-
-        clear_slot_active(tracker, idx);
-        tracker->free_indices[tracker->free_count++] = idx;
-        tracker->count--;
+        expire_slot(tracker, (uint16_t)idx_word);
         expired_count++;
     }
+#else
+    /* One descent to the range and one structural fix-up per touched node
+     * on by_time, instead of a first()/remove() descent pair per stale
+     * record (#578). The callback handles the per-record by_mac removal
+     * and slab recycling; it must not touch by_time, which the call holds. */
+    expired_count = expanse_map_remove_range(tracker->by_time, 0, max_time_key,
+                                             expire_one, tracker);
+#endif
 
     EXPANSE_LOCK_GIVE(tracker->lock);
     return expired_count;

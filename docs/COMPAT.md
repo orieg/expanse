@@ -106,10 +106,12 @@ one that does not link, and a link error names the gap at build time.
 |---|---|---|
 | 64-bit, `std` (default) | `cargo build -p expanse-capi` | 145 |
 | 64-bit, `no_std` | `--no-default-features` | 127 |
-| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 30 |
+| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 31 |
 
-(Counts measured from `llvm-nm --defined-only` on the built artifacts at
-commit `5e8147ae`; reproduce with the invocations above.)
+(Counts measured from `llvm-nm --defined-only` on the built artifacts — the
+64-bit rows at commit `5e8147ae`, the 32-bit row re-measured when
+`expanse_map_remove_range` landed for #578; reproduce with the invocations
+above.)
 
 **64-bit `no_std` drops only the concurrent containers** — the 18
 `expanse_sync_*` entry points. `expanse_trie::sync` needs `std::sync`, so a
@@ -125,7 +127,7 @@ bidirectional range navigation:
 |---|---|
 | identity | `expanse_version` |
 | `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
-| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
+| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_remove_range` (32-bit-only, see below), `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
 
 The cause is engine surface, not a deliberate reduction: `ExpanseMap32` /
 `ExpanseSet32` are real tries, but they carry no `count_below`/`by_count`,
@@ -133,6 +135,16 @@ no `get_value_slot`/`ins_slot`, and their `count_range` takes a `(start, end)`
 pair rather than a range — so the corresponding C contracts have nothing to
 translate to. `ExpanseStrMap`/`ExpanseBytesMap`/`ExpanseBlobMap` and the
 `sync` module exist only at 64-bit width.
+
+The reverse gap also exists. `expanse_map_remove_range` — batched removal of
+every key in `[lo, hi]` with a per-entry callback, the eviction primitive of
+[#578](https://github.com/orieg/expanse/issues/578) — is declared in a
+`#if !EXPANSE_WIDE_SURFACE` block and shipped **only at 32-bit width**, because
+only the 32-bit engine has `remove_range`. The language bindings target
+64-bit hosts, so `scripts/check_abi_parity.py` tags declarations in that
+block `narrow_only`, lists them, and excludes them from binding coverage;
+the 32-bit-only surface is verified instead by the i686 CI job (a Rust-side
+test plus a C smoke linked with `-m32` against the i686 cdylib).
 
 #### The 32-bit concurrent story
 
@@ -209,7 +221,7 @@ Expanse provides 100% C ABI symbol coverage across all high-level language bindi
 | Container / Feature | C ABI (`expanse.h`) | Rust (`expanse-trie`) | Java 22+ (`expanse-java`) | .NET 9 (`Orieg.Expanse`) | Python (`expanse-trie`) | Node.js (`@orieg/expanse`) | PHP (`orieg/expanse`) | Ruby (`expanse`) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **`ExpanseSet` (Judy1)** | `expanse_set_*` (17 fns) | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `Set` / `ExpanseSet` | `Expanse::Set` |
-| **`ExpanseMap` (JudyL)** | `expanse_map_*` (19 fns) | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `Map` / `ExpanseMap` | `Expanse::Map` |
+| **`ExpanseMap` (JudyL)** | `expanse_map_*` (19 fns + 1 32-bit-only) | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `Map` / `ExpanseMap` | `Expanse::Map` |
 | **`ExpanseBytesMap` (JudyHS)** | `expanse_bytesmap_*` (10 fns) | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `BytesMap` / `ExpanseBytesMap` | `Expanse::BytesMap` |
 | **`ExpanseStrMap` (JudySL)** | `expanse_strmap_*` (16 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` / `ExpanseStrMap` | `Expanse::StrMap` |
 | **StrMap truncation-aware nav** | `expanse_strmap_*_ex` (6 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` | `Expanse::StrMap` |
@@ -219,5 +231,5 @@ Expanse provides 100% C ABI symbol coverage across all high-level language bindi
 | **Rank/Select (`by_count`)** | ✅ All ordered types | ✅ `count_below`/`by_count` | ✅ `rank`/`select` | ✅ `Rank`/`ByCount` | ✅ `count_below`/`by_count` | ✅ `countRange`/`byCount` | ✅ `rank`/`select` | ✅ `rank`/`select` |
 | **Metadata Filtering** | ✅ Predicate callbacks | ✅ SWAR vector kernels | ✅ Functional predicates | ✅ Delegated predicates | ✅ Predicate callbacks | ✅ Predicate callbacks | ✅ Callback predicates | ✅ Hot metadata |
 | **Optimistic Concurrency** | ✅ Epoch-based OCC | ✅ `SeqVersion` atomics | ✅ Read-coupling handles | ✅ Reader handles | ✅ GIL-free thread queries | ✅ Event-loop safe | ✅ Optimistic OCC | ✅ GVL-safe FFI |
-| **C ABI Symbol Parity** | **98 / 98 (100%)** | **98 / 98 (100%)** | **98 / 98 (100%)** | **98 / 98 (100%)** | **98 / 98 (100%)** | **98 / 98 (100%)** | **98 / 98 (100%)** | **98 / 98 (100%)** |
+| **C ABI Symbol Parity** | **101 / 101 (100%)** | **101 / 101 (100%)** | **101 / 101 (100%)** | **101 / 101 (100%)** | **101 / 101 (100%)** | **101 / 101 (100%)** | **101 / 101 (100%)** | **101 / 101 (100%)** |
 
