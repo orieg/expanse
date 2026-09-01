@@ -1,6 +1,6 @@
 # expanse-go
 
-Native Go 1.22+ bindings for `libexpanse`, providing zero-GC off-heap ordered maps, sets, and concurrent lock-free collections via both **CGO** and **CGO-free PureGo** modes.
+Native Go 1.22+ bindings for `libexpanse`, providing zero-GC off-heap ordered maps, sets, and concurrent optimistic-read collections via both **CGO** and **CGO-free PureGo** modes.
 
 ## Installation
 
@@ -225,4 +225,4 @@ func main() {
 - **`StrMap`**: Ordered NUL-terminated string map with truncation-safe navigation (`First`, `Next`, `Prev`, `Last`).
 - **`BytesMap`**: Unordered arbitrary byte-slice map.
 - **`BlobMap`**: Large-value blob arena map with predicate-based pruning (`Prune`) and memory compaction (`Compact`).
-- **`SyncSet` / `SyncMap`**: Single-writer, lock-free Optimistic Concurrency Control (OCC) reader collections.
+- **`SyncSet` / `SyncMap`**: Single-writer, optimistic concurrency control (OCC) reader collections.

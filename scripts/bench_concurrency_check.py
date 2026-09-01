@@ -10,7 +10,7 @@ a previous baseline.
 
 Ratios — not absolute ops/s — are the gated quantity: they are robust to
 host-load drift and catch exactly the collapse class that matters (readers
-stopped scaling, e.g. a lock-free path silently degrading to the mutex
+stopped scaling, e.g. the optimistic path silently degrading to the mutex
 fallback), while tolerating scheduler noise. The threshold is deliberately
 generous (default: 30% relative ratio drop).
 

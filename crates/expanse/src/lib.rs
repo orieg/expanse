@@ -23,7 +23,7 @@
 //!   16-byte `Edge`, so word 0 keeps the raw untruncated 64-bit pointer
 //!   (correct under 57-bit LA57 and 52-bit ARM64 LVA);
 //! - a modern allocation strategy instead of the custom 2001 chunk allocator;
-//! - optimistic concurrency control for lock-free reads.
+//! - optimistic concurrency control for optimistic reads.
 //!
 //! The classic C `Judy.h` API (`Judy1*`, `JudyL*`, `JudySL*`) is provided as
 //! a drop-in binary-compatible layer by the sibling `expanse-capi` crate

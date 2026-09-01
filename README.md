@@ -57,10 +57,10 @@ Naming the project after the mechanism honors the algorithm itself without inher
 
 | Surface | Crate / Package | Deliverable |
 |---|---|---|
-| **Native Rust API (64-Bit)** | [`crates/expanse`](crates/expanse) (package `expanse-trie`) | Pure-Rust library: `ExpanseSet` (bit set), `ExpanseMap` (word→word), `ExpanseStrMap` (string→word), `ExpanseBytesMap` (bytes→word), `ExpanseBlobMap`, plus iterators and lock-free concurrent readers (`SyncExpanseMap`) |
+| **Native Rust API (64-Bit)** | [`crates/expanse`](crates/expanse) (package `expanse-trie`) | Pure-Rust library: `ExpanseSet` (bit set), `ExpanseMap` (word→word), `ExpanseStrMap` (string→word), `ExpanseBytesMap` (bytes→word), `ExpanseBlobMap`, plus iterators and optimistic concurrent readers (`SyncExpanseMap`) |
 | **Native Embedded Rust (32-Bit)** | [`crates/expanse`](crates/expanse) (`#![no_std]`) | 32-bit microprocessor collections: `ExpanseSet32` (bit set), `ExpanseMap32` (u32→u32 map), `ExpanseBlobMap32` with compact 8-byte `Edge32` layout and 32-byte cache line alignment |
 | **C ABI (`libexpanse`)** | [`crates/expanse-capi`](crates/expanse-capi) | `cdylib`/`staticlib` exporting **both** the legacy `Judy.h` surface (`Judy1*`, `JudyL*`, `JudySL*`, `JudyHS*` — allowing consumers like [php-judy](https://github.com/orieg/php-judy) to swap `libJudy` for `libexpanse` without source changes) **and** modern `expanse.h` |
-| **Modern C++20 Header** | [`include/expanse.hpp`](include/expanse.hpp) | Modern header-only C++20 STL-compatible RAII wrapper (`expanse::set`, `expanse::map`, `expanse::str_map`, `expanse::bytes_map`, `expanse::blob_map`, `expanse::sync_map`), `std::span` zero-copy access, `std::forward_iterator` ranges, and lock-free OCC readers |
+| **Modern C++20 Header** | [`include/expanse.hpp`](include/expanse.hpp) | Modern header-only C++20 STL-compatible RAII wrapper (`expanse::set`, `expanse::map`, `expanse::str_map`, `expanse::bytes_map`, `expanse::blob_map`, `expanse::sync_map`), `std::span` zero-copy access, `std::forward_iterator` ranges, and optimistic OCC readers |
 | **Java / Scala FFM API** | [`bindings/java`](bindings/java) (`io.github.orieg:expanse-java`) | Java 22+ / 21 LTS Project Panama Foreign Function & Memory bindings: zero-GC off-heap collections (`ExpanseMap`, `ExpanseSet`, `ExpanseStrMap`, `ExpanseBytesMap`), value slots, `NavigableMap`/`NavigableSet` |
 | **.NET / C# API** | [`bindings/dotnet`](bindings/dotnet) (`Orieg.Expanse`) | .NET 8.0/9.0+ C# bindings & NuGet package via P/Invoke: zero-GC off-heap collections (`ExpanseSet`, `ExpanseMap`, `ExpanseStrMap`, `ExpanseBytesMap`, `ExpanseBlobMap`, `ExpanseSyncMap`) |
 | **Go API** | [`bindings/go`](bindings/go) (`github.com/orieg/expanse/bindings/go`) | Native Go bindings via CGO: zero-GC off-heap collections (`Set`, `Map`, `StrMap`, `BytesMap`, `BlobMap`) |
@@ -91,7 +91,7 @@ Legacy ↔ modern naming:
 | **Linear search** | Scalar unrolled byte compares | Vectorized SIMD byte scans (SSE2 on x86-64, NEON on ARM64; AVX2/AVX-512 not yet implemented) |
 | **Allocation** | Custom 2001 chunk/buddy allocator | High-performance slab page pooling + intrusive freelists |
 | **Pointer layout** | Full 16-byte JP per edge | 16-byte `Edge`: word 0 is the raw untruncated 64-bit pointer, tag and metadata live in word 1 — zero upper-bit stealing, so it stays correct under 57-bit LA57 and 52-bit ARM64 LVA ([encoding reference](docs/ARCHITECTURE.md#10-bit-level-encoding-reference)) |
-| **Concurrency** | Single-threaded, external locks | Lock-free optimistic concurrency control (OCC) for reads |
+| **Concurrency** | Single-threaded, external locks | Optimistic concurrency control (OCC) for reads |
 
 Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Embedded 32-Bit design: [docs/design/32-bit-embedded.md](docs/design/32-bit-embedded.md) · Large-Value design: [docs/design/large-values.md](docs/design/large-values.md) · Database engine patterns: [docs/DATABASE.md](docs/DATABASE.md) · CI/CD: [docs/CI.md](docs/CI.md).
 
@@ -102,7 +102,7 @@ Full architectural specifications: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 
 Expanse provides modern, hardware-vectorized digital trie primitives tailored for core database engine subsystems:
 
 - **Inverted Indexes & Posting Lists (`ExpanseSet`)**: Doc-ID tracking at **0.07–0.36 bytes/docID** on clustered/dense sets — denser than Roaring Bitmaps on those distributions — with bitwise set algebra directly over compressed trie edges and $O(\text{depth})$ skip-scan acceleration.
-- **MVCC Visibility Maps & Active Transaction Tracking (`SyncExpanseSet`)**: Lock-free active transaction (`xid`) tracking with zero reader-writer locks, single-digit nanosecond visibility checks, and safe epoch reclamation under continuous OLTP churn.
+- **MVCC Visibility Maps & Active Transaction Tracking (`SyncExpanseSet`)**: Optimistic active transaction (`xid`) tracking with no reader-side lock on the common path, and safe epoch reclamation under continuous OLTP churn.
 - **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: High-cardinality string deduplication and symbol tables using 8-byte chunk decomposition and tail collapse, preserving lexicographical order while sharing common prefix nodes.
 - **Secondary Indexes & MemTables (`ExpanseMap` / `ExpanseMemTableRep`)**: Rebalance-free ordered key indexing, **2.9×–14.5× faster point lookups** than `std::collections::BTreeMap` at 1M keys, and full ordered `iter()` faster than `BTreeMap::iter()` for dense keys — sparse-key iteration is still slower, see [docs/DATABASE.md](docs/DATABASE.md) §7.1. Ships an official [RocksDB Pluggable MemTable (`integrations/rocksdb`)](integrations/rocksdb) integration.
 - **Zero-Copy Shared-Memory Analytics** *(roadmap)*: Position-independent base-relative layouts for cross-worker IPC and parallel query execution with zero serialization — a design target; not yet implemented (see [docs/DATABASE.md](docs/DATABASE.md) §6).
@@ -131,7 +131,11 @@ Expanse provides optimistic concurrency control for readers (`SyncExpanseMap` / 
 
 **The concurrency model, stated plainly.** One writer at a time, serialized on a mutex; any number of readers, which take no lock in the common path. OCC solves the *reader* problem — a reader samples a version, walks, and re-validates, so it never needs a lock to get a consistent view. It does not make writes concurrent: two writers restructuring overlapping subexpanses would corrupt the trie, so mutations serialize.
 
-Reads are precisely *obstruction-free with a lock fallback*, not lock-free: `SeqVersion::sample` spins past a writer that is mid-update, and after `MAX_RETRIES` restarts a reader falls back to the writer mutex to guarantee progress under a write storm. In the measured workloads that fallback fires at a rate of 0 and readers restart 1.002 times per lookup, so reads do not touch the lock in practice — but the guarantee is obstruction-freedom.
+The protocol is **blocking**, not lock-free and not obstruction-free. `SeqVersion::sample` spins without bound while a writer's bracket is open, so a reader running in complete isolation against a writer suspended mid-update never completes — which fails the isolation criterion obstruction-freedom requires. After `MAX_RETRIES` restarts a reader additionally falls back to taking the writer mutex.
+
+This is [optimistic lock coupling](https://db.in.tum.de/~leis/papers/artsync.pdf) (Leis, Scheibner, Kemper & Neumann, DaMoN 2016), the same protocol those authors describe for adaptive radix trees; the bounded-restart-then-lock fallback is what they prescribe for forward progress. They do not claim lock-freedom for it, and call a lock-free ART an open question. What the design buys is that reads take no lock **in the common case** — that is a fast path, not a progress guarantee.
+
+How often the fallback actually fires is **not currently measured**: the `read_fallbacks` counter is compiled out by default (`--features occ-stats`), is not exercised by any CI job, and until recently was wired at only 2 of the 8 retry-exhaustion sites. The `locked_reads` counter added alongside it counts every route to the writer mutex, including the unconditional `with_locked` / `len` / `mem_used` paths that never attempt an optimistic walk. No ratio from either is published here until it is measured under a dedicated-writer workload with a provenance tag.
 
 Multi-writer support (per-subtree write locks, or sharding) is the standing follow-up; see `docs/ARCHITECTURE.md`. All arms use bounded ~50%-hit keyspaces *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, run [33030152085](https://github.com/orieg/expanse/actions/runs/33030152085), ref `5fb03aa3`, load average 0.00; workload: `core_concurrency`)*. Correction history for the earlier unbounded-keyspace figures: [docs/BENCHMARKING.md](docs/BENCHMARKING.md).
 
@@ -342,7 +346,7 @@ int main() {
         std::cout << "Blob: " << view->as_string_view() << "\n";
     }
 
-    // 5. Multi-threaded OCC lock-free concurrent map
+    // 5. Multi-threaded OCC concurrent map
     expanse::sync_map sync_m;
     sync_m.insert(10, 500);
     auto reader = sync_m.make_reader();
@@ -408,7 +412,7 @@ m = ExpanseMap({1: 100, 2: 200})
 m[42] = 1000
 assert m.range(0, 50) == [(1, 100), (2, 200), (42, 1000)]
 
-# 3. Multithreaded lock-free OCC map (GIL-free queries)
+# 3. Multithreaded optimistic OCC map (GIL-free queries)
 sync_m = SyncExpanseMap({10: 100})
 assert sync_m[10] == 100
 ```

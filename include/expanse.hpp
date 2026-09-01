@@ -1256,7 +1256,7 @@ private:
 };
 
 // ============================================================================
-// Concurrent types — lock-free OCC readers (sync_set, sync_map)
+// Concurrent types — optimistic OCC readers (sync_set, sync_map)
 // ============================================================================
 
 class sync_set_reader {

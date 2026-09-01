@@ -119,7 +119,7 @@ pub unsafe extern "C" fn expanse_sync_set_reader_free(reader: *mut SyncSetReader
     }
 }
 
-/// Lock-free membership test through a registered reader.
+/// Optimistic membership test through a registered reader.
 ///
 /// # Safety
 ///
@@ -260,7 +260,7 @@ pub unsafe extern "C" fn expanse_sync_map_reader_free(reader: *mut SyncMapReader
     }
 }
 
-/// Lock-free lookup through a registered reader.
+/// Optimistic lookup through a registered reader.
 ///
 /// # Safety
 ///

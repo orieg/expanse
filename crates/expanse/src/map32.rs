@@ -9,7 +9,7 @@
 //! linear/uncompressed branches (see [`crate::trie32`]).
 //!
 //! This type is single-threaded: it holds no synchronisation and is not a
-//! lock-free structure. The concurrent wrapper described in the RFC is not
+//! optimistic-read structure. The concurrent wrapper described in the RFC is not
 //! yet implemented for the 32-bit engine.
 
 use core::default::Default;

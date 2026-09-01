@@ -34,7 +34,7 @@ Two further compressions: **narrow pointers** (a JP records skipped common bytes
 | Byte search | Unrolled scalar compares | SIMD splat-compare-movemask (SSE2/NEON via `core::arch`, portable fallback) | 16–64 bytes per compare, no branchy loop |
 | Allocator | Custom word-bucket chunk allocator | Intrusive 4 KiB `SlabPage` freelist arena with 62 size classes and $O(1)$ static `RAW_CLASS_TABLE` lookup, cache-line aligned, byte-exact accounting | Recycling is a freelist head swap with no size search or coalescing pass, so it neither fragments the heap nor scales with population; retiring 25% fewer instructions than stock Judy on `judyl_churn/random` (38,679,495 vs 51,572,661; instructions retired, not wall clock — [`docs/visualizer_data.json`](visualizer_data.json)) |
 | Edge representation | 16 B hybrid pointer stealing | Dual-word 16 B Edge: Word 0 holds raw unmasked 64-bit pointer / immediate; Word 1 holds aux + tag | Full 57-bit (PML5/LA57) & 52-bit (ARM64-LVA) virtual address safety with zero upper-bit pointer stealing |
-| Concurrency | None (external mutex) | Per-node version counters, optimistic lock-coupling readers | Lock-free reads, linear read scaling |
+| Concurrency | None (external mutex) | Per-node version counters, optimistic lock-coupling readers | Optimistic reads, linear read scaling |
 
 > The 64-byte cache-line assumption behind the node layouts above is validated against primary sources in [`docs/HARDWARE.md` §1.4](HARDWARE.md#14-64-byte-cache-line--validated-correct-on-x86) (x86) and [§2.4](HARDWARE.md#24-64-byte-cache-line---portability--perf-risk-on-arm) (⚠️ ARM portability note: Apple Silicon uses 128-byte lines).
 
@@ -102,7 +102,7 @@ x86-64/AArch64/RISC-V 64-bit user VAs fit in 48 (or 57) bits; 8-byte alignment f
 
 ### 4.1 Concurrent reads (`occ` + `sync`)
 
-Readers are lock-free and validated; writers serialize on a mutex.
+Readers are optimistic and validated; writers serialize on a mutex.
 
 **Base protocol.** Every branch header carries a **per-node seqlock version** (Boehm fence construction). A writer brackets a node's in-place mutation region — including the recursion beneath it — with that node's version, and only when the tree is concurrently shared. Readers validate hand-over-hand: each node is sampled before its fields are read, and re-validated before anything read from it is dereferenced. Terminal payloads are covered by their parent's version; the tree-level version covers the root snapshot. Epoch-deferred reclamation keeps every pinned pointer live, and bounded retries fall back to the writer mutex.
 
@@ -149,7 +149,7 @@ Readers are lock-free and validated; writers serialize on a mutex.
 | 4. Lookup engine | `get`/`test` over hand-built trees (done) | Differential vs `BTreeMap` model on fixed corpora |
 | 5. Allocation | Cache-line-aligned alloc + accounting; linear-leaf layout + lookup integration (done) | Miri-clean; leak checks |
 | 6. Mutation engine | insert/delete cascades + hysteresis (done: `ExpanseSet` + `ExpanseMap`) | Property tests + invariant validator (TESTING.md) green |
-| 7. OCC reads | Seqlock + EBR (done: `occ` + `sync` — single writer, lock-free validated readers, per-node versions) | Loom/stress suites green (done — CI `loom` job + thread stress) |
+| 7. OCC reads | Seqlock + EBR (done: `occ` + `sync` — single writer, validated optimistic readers, per-node versions) | Loom/stress suites green (done — CI `loom` job + thread stress) |
 | 8. Hardening | capi surface, differential oracle vs C libjudy, fuzzing, benches | COMPAT.md acceptance gates; php-judy suite green against libexpanse |
 
 ### Sequencing after external architect review (2026-08-18)
@@ -176,7 +176,7 @@ Performance targets, measured per BENCHMARKING.md before any claim: point lookup
 Expanse is architecturally suited as a high-density, low-latency primitive across core database subsystems:
 
 - **Inverted Indexes & Posting Lists (`ExpanseSet`)**: Tracks 64-bit document IDs at **0.07–0.36 bytes/docID** on clustered/dense sets (outperforming Roaring Bitmaps) with bitwise set algebra executed directly over compressed trie edges and $O(\text{depth})$ skip-scans (`next_at_or_after`).
-- **MVCC Visibility Maps & Active Transaction Tracking (`SyncExpanseSet`)**: Provides lock-free reader validation over active transaction IDs (`xid`) with zero reader-writer locks, single-digit nanosecond point lookups, and epoch-based safe reclamation under continuous OLTP commit/vacuum churn.
+- **MVCC Visibility Maps & Active Transaction Tracking (`SyncExpanseSet`)**: Provides optimistic reader validation over active transaction IDs (`xid`) with no reader-side lock on the common path, and epoch-based safe reclamation under continuous OLTP commit/vacuum churn.
 - **Columnar String & Symbol Dictionaries (`ExpanseStrMap`)**: Maps high-cardinality strings to 32/64-bit symbol IDs using 8-byte big-endian chunk decomposition and tail collapse, preserving lexicographical sort order while sharing common prefix nodes.
 - **Secondary Indexes & MemTables (`ExpanseMap`)**: Serves as a rebalance-free LSM MemTable and secondary index engine with contiguous 64-byte SIMD leaf scans. Full ordered `iter()` is **faster than `BTreeMap::iter()` for dense key distributions** at 1M keys — sequential 0.7×, clustered 0.8×, random 0.5× (2× faster) the time of `BTreeMap::iter()`, after #245's stack-based zero-allocation iterator. **Sparse-key iteration remains ~4.7× slower**, a structural residual tracked in [#270](https://github.com/orieg/expanse/issues/270). *(measured: reference host — Intel i9-12900F, 24 threads, commit 46529f19, `benches/compare.rs`)*
 - **Zero-Copy Shared-Memory Analytics**: Off-heap / mmap base-relative layouts enable cross-worker zero-serialization analytics for parallel multi-process query execution.

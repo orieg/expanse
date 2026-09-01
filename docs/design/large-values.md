@@ -1061,7 +1061,7 @@ writer serializes on the wrapper mutex and brackets every operation with the
 tree-level `SeqVersion`; the index trie's `NodeAlloc` and the `BlobArena` are
 both handed to one epoch `Collector` at construction (`BlobArena::defer_to`).
 
-- **Reader chunk resolution — RCU chunk table.** Lock-free readers must never
+- **Reader chunk resolution — RCU chunk table.** Optimistic readers must never
   touch `BlobArena`'s `Vec<ArenaChunk>` (the global allocator frees its buffer
   on growth with no grace period). Instead the arena publishes an immutable
   snapshot table — one allocation: `{len, chunk_size}` header + per-chunk

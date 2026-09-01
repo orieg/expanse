@@ -220,7 +220,7 @@ Expanse is distributed on the npm registry as [`@orieg/expanse`](https://www.npm
   const entry = blobMap.getWithMeta(1n);
   console.log(entry.isInline);           // true (0 heap allocations)
 
-  // 4. Lock-free OCC concurrent map for worker threads
+  // 4. Optimistic OCC concurrent map for worker threads
   const syncMap = new SyncExpanseMap();
   syncMap.set(100n, 5000n);
   console.log(syncMap.get(100n));        // 5000n
@@ -313,7 +313,7 @@ Expanse is *intended* to be distributed on [NuGet.org](https://www.nuget.org) as
   using var blobMap = new ExpanseBlobMap();
   blobMap.Insert(1, "payload data"u8, 0x01);
 
-  // 5. Lock-free OCC concurrent map
+  // 5. Optimistic OCC concurrent map
   using var syncMap = new ExpanseSyncMap();
   syncMap.Insert(100, 500);
   ```

@@ -866,7 +866,7 @@ impl ExpanseStrMap {
         }
     }
 
-    /// Phase 7 (issue #219 Phase 2): one bounded, validated lock-free
+    /// Phase 7 (issue #219 Phase 2): one bounded, validated optimistic
     /// lookup across the cascading sub-tries — the concurrent analogue of
     /// [`Self::get`].
     ///

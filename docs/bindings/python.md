@@ -198,7 +198,7 @@ assert reloaded[1] == b"arbitrary payload bytes"
 
 In standard CPython, multithreaded CPU-bound data lookups often serialize on the Global Interpreter Lock (GIL).
 
-`SyncExpanseSet` and `SyncExpanseMap` solve this by implementing **lock-free Optimistic Concurrency Control (OCC)** in Rust and wrapping calls with `py.detach` (pyo3 0.29's renamed `allow_threads`):
+`SyncExpanseSet` and `SyncExpanseMap` solve this by implementing **optimistic concurrency control (OCC)** in Rust and wrapping calls with `py.detach` (pyo3 0.29's renamed `allow_threads`):
 
 1. **Lock-Free Reads**: Query operations (`contains`, `get`, `len`, `is_empty`) validate version seqlocks and read concurrently without holding mutexes or the Python GIL.
 2. **Serialized Writes**: Mutations (`insert`, `remove`) synchronize internally while allowing readers to proceed optimistically.

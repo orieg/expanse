@@ -17,7 +17,7 @@ High-performance, **zero-GC**, off-heap associative trie collections for **.NET 
   - `ExpanseStrMap`: High-performance ordered string trie supporting `string` and `ReadOnlySpan<char>` (cf. JudySL).
   - `ExpanseBytesMap`: High-performance binary-safe hash map supporting arbitrary byte keys and embedded NUL (`0x00`) bytes (cf. JudyHS).
   - `ExpanseBlobMap`: Polymorphic off-heap large-value map with inline packing ($\le 7$ bytes stored in 64-bit slot), chunked arena slabs, 32-bit hot metadata filtering, zero-copy span access, compaction, and predicate pruning.
-  - `ExpanseSyncSet` / `ExpanseSyncMap`: Multithreaded concurrent collections with serialized writers and lock-free readers.
+  - `ExpanseSyncSet` / `ExpanseSyncMap`: Multithreaded concurrent collections with serialized writers and optimistic readers.
 
 ---
 
@@ -152,13 +152,13 @@ using var syncMap = new ExpanseSyncMap();
 // Writer
 syncMap.Set(42, 1000);
 
-// Lock-free reader in another thread
+// Optimistic reader in another thread
 Task.Run(() =>
 {
     using var reader = syncMap.CreateReader();
     if (reader.TryGet(42, out ulong val))
     {
-        Console.WriteLine($"Lock-free read: {val}");
+        Console.WriteLine($"Optimistic read: {val}");
     }
 });
 ```
