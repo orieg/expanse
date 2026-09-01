@@ -494,8 +494,13 @@ def check_no_dangling_capi_include_references(root: Path) -> List[str]:
                 + "\n".join(f"  {line}" for line in lines)
                 + "\nCanonical public headers must live exclusively in include/ (#563)."
             )
+        elif res.returncode > 1 or (res.returncode != 0 and res.returncode != 1):
+            errors.append(
+                f"dangling-reference check could not run: git grep exited {res.returncode}: {res.stderr.strip()}"
+            )
+        # res.returncode == 1 -> clean (no matches found)
     except FileNotFoundError:
-        pass
+        errors.append("dangling-reference check could not run: 'git' command not found on PATH")
 
     return errors
 
@@ -802,6 +807,12 @@ def self_test() -> int:
     root = get_repo_root()
     dangling = check_no_dangling_capi_include_references(root)
     assert not dangling, f"Unexpected dangling references found in repo: {dangling}"
+
+    # Fails closed if run outside git repository
+    with tempfile.TemporaryDirectory() as td:
+        errs = check_no_dangling_capi_include_references(Path(td))
+        assert errs, "non-git directory must fail closed"
+        assert any("dangling-reference check could not run" in e for e in errs)
 
     print("check_abi_parity.py --self-test: all checks passed")
     return 0
