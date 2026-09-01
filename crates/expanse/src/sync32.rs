@@ -239,6 +239,17 @@ impl<T: Container32> Sync32<T> {
         }
     }
 
+    /// True while any reader handle is inside a walk. A destructor that
+    /// runs with a pinned reader is a use-after-free in waiting; the C
+    /// surface asserts on this in debug builds before freeing.
+    #[must_use]
+    pub fn any_reader_pinned(&self) -> bool {
+        fence(Ordering::SeqCst);
+        self.readers
+            .iter()
+            .any(|slot| slot.in_walk.load(Ordering::Acquire) != 0)
+    }
+
     /// Splits into the unique writer handle and the reader-handle pool.
     ///
     /// `&mut self` proves no other handles exist, and the returned
@@ -293,6 +304,16 @@ impl<T: Container32> Reader32<'_, T> {
     #[inline]
     fn pinned<R>(&mut self, walk: impl FnOnce(&Sync32<T>) -> Result<R, Busy>) -> Result<R, Busy> {
         let slot = &self.owner.readers[self.idx];
+        // A handle re-entered by a preempting context (an interrupt handler
+        // sharing the main loop's reader) would unpin the outer walk when
+        // it finishes, letting reclamation free memory the outer walk still
+        // dereferences. On one hart the preemptor sees the outer store, so
+        // this is exact proof of that misuse; it is the one part of the
+        // one-handle-per-context contract that can be checked at all.
+        debug_assert!(
+            slot.in_walk.load(Ordering::Relaxed) == 0,
+            "sync32 reader handle re-entered while inside a walk"
+        );
         slot.in_walk.store(1, Ordering::Relaxed);
         // Pairs with the writer's pre-drain fence: if the writer misses
         // this pin, our sample below is fence-ordered after its bracket

@@ -31,6 +31,7 @@ EXPECTED_MAN_PAGES = [
     "expanse_strmap.3",
     "expanse_bytesmap.3",
     "expanse_sync.3",
+    "expanse_sync32.3",
     "expanse_blob_map.3",
     "Judy.3",
     "Judy1.3",

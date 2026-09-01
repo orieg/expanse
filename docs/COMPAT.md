@@ -106,12 +106,12 @@ one that does not link, and a link error names the gap at build time.
 |---|---|---|
 | 64-bit, `std` (default) | `cargo build -p expanse-capi` | 145 |
 | 64-bit, `no_std` | `--no-default-features` | 127 |
-| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 31 |
+| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 55 |
 
 (Counts measured from `llvm-nm --defined-only` on the built artifacts — the
-64-bit rows at commit `5e8147ae`, the 32-bit row re-measured when
-`expanse_map_remove_range` landed for #578; reproduce with the invocations
-above.)
+64-bit rows at commit `5e8147ae`, the 32-bit row re-measured when the
+`expanse_sync32_*` surface landed for #573 (31 before it: the ordered core
+plus `expanse_map_remove_range`); reproduce with the invocations above.)
 
 **64-bit `no_std` drops only the concurrent containers** — the 18
 `expanse_sync_*` entry points. `expanse_trie::sync` needs `std::sync`, so a
@@ -128,6 +128,7 @@ bidirectional range navigation:
 | identity | `expanse_version` |
 | `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
 | `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_remove_range` (32-bit-only, see below), `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
+| `expanse_sync32_map_t` / `expanse_sync32_set_t` (32-bit-only, provisional) | `_new`, `_free`, `_writer`, `_reader`, `_writer_try_insert`, `_writer_try_remove`, `_writer_try_reclaim`, `_writer_get` / `_writer_contains`, `_writer_stats`, `_reader_try_get` / `_reader_try_contains`, `_reader_try_len`; plus `expanse_sync32_mutation_headroom`, `expanse_sync32_status_str` |
 
 The cause is engine surface, not a deliberate reduction: `ExpanseMap32` /
 `ExpanseSet32` are real tries, but they carry no `count_below`/`by_count`,
@@ -148,11 +149,40 @@ test plus a C smoke linked with `-m32` against the i686 cdylib).
 
 #### The 32-bit concurrent story
 
-The absent `expanse_sync_*` symbols at 32-bit are a **C-surface** gap, not an
-engine gap: the Rust `sync32` module ships `SyncExpanseMap32`/`SyncExpanseSet32`
-(single writer enforced by `split(&mut)`, validated optimistic reads returning
-`Busy`, deferred reclamation drained at reader quiescence). What it does **not**
-have is a C ABI, so no configuration of `libexpanse` exports it.
+The 32-bit engine's concurrent wrapper — the Rust `sync32` module
+(`SyncExpanseMap32`/`SyncExpanseSet32`: single writer enforced by
+`split(&mut)`, validated single-attempt optimistic reads returning `Busy`,
+deferred reclamation drained at reader quiescence) — reaches C as the
+**`expanse_sync32_*` family** ([#573](https://github.com/orieg/expanse/issues/573)),
+24 symbols declared in the `!EXPANSE_WIDE_SURFACE` block and present in every
+32-bit build, std or not (`EXPANSE_HAS_SYNC32` announces it). It is a
+different protocol from the 64-bit `expanse_sync_*` family and says so in the
+header: **blocking optimistic lock coupling, single attempt, no mutex
+fallback — not lock-free.** A read overlapping a write bracket returns
+`EXPANSE_SYNC32_BUSY` at once instead of retrying, because on a single-core
+part a `Busy` inside an interrupt handler means the handler preempted the
+writer, which cannot progress until the handler returns.
+
+What Rust enforced with types, the C surface makes structural rather than
+checked: the writer is born with the container and reached through an
+idempotent accessor; readers are addressed by index into handles the
+container owns; the wrapper performs no atomic read-modify-write anywhere
+(the primary target has none). The contract that remains — one writer
+context, one reader handle per execution context, reader `try_*` as the only
+interrupt-safe calls, `_free` only with reader interrupts masked — is stated
+in the header next to the declarations, with the latency envelope (a write
+bracket may contain up to `expanse_sync32_mutation_headroom()` allocator
+calls; a reclamation stall is not time-bounded). Every fallible call returns
+an `expanse_sync32_status_t` in three explicit bands (outcomes, refusals
+that leave the tree untouched, usage errors), values through out-parameters.
+
+**Provisional.** #573 item 3 measures this surface against a FreeRTOS mutex
+around the single-threaded map on hardware, for both a task-level reader and
+the interrupt-handler reader the mutex cannot serve; that pre-registered
+verdict is the gate for keeping or retracting the family (the crate is
+pre-1.0). Verification today is the i686 CI lane — a Rust-side test and a C
+smoke linked with `-m32` that runs a paced writer thread against reader
+threads asserting stable keys are never torn.
 
 That wrapper needs **no compare-and-swap**: its whole protocol is atomic
 load/store plus fences (`crates/expanse/src/sync32.rs`), which is why it
@@ -221,7 +251,7 @@ Expanse provides 100% C ABI symbol coverage across all high-level language bindi
 | Container / Feature | C ABI (`expanse.h`) | Rust (`expanse-trie`) | Java 22+ (`expanse-java`) | .NET 9 (`Orieg.Expanse`) | Python (`expanse-trie`) | Node.js (`@orieg/expanse`) | PHP (`orieg/expanse`) | Ruby (`expanse`) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **`ExpanseSet` (Judy1)** | `expanse_set_*` (17 fns) | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `ExpanseSet` | `Set` / `ExpanseSet` | `Expanse::Set` |
-| **`ExpanseMap` (JudyL)** | `expanse_map_*` (19 fns + 1 32-bit-only) | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `Map` / `ExpanseMap` | `Expanse::Map` |
+| **`ExpanseMap` (JudyL)** | `expanse_map_*` (19 fns + 1 32-bit-only; `expanse_sync32_*` 24 fns 32-bit-only, provisional) | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `ExpanseMap` | `Map` / `ExpanseMap` | `Expanse::Map` |
 | **`ExpanseBytesMap` (JudyHS)** | `expanse_bytesmap_*` (10 fns) | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `ExpanseBytesMap` | `BytesMap` / `ExpanseBytesMap` | `Expanse::BytesMap` |
 | **`ExpanseStrMap` (JudySL)** | `expanse_strmap_*` (16 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` / `ExpanseStrMap` | `Expanse::StrMap` |
 | **StrMap truncation-aware nav** | `expanse_strmap_*_ex` (6 fns) | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `ExpanseStrMap` | `StrMap` | `Expanse::StrMap` |
