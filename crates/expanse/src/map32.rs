@@ -125,6 +125,29 @@ impl ExpanseMap32 {
         old
     }
 
+    /// Removes every entry whose key lies in `range`, calling `f(key, value)`
+    /// for each removed entry in ascending key order, and returns how many
+    /// were removed.
+    ///
+    /// One descent to the range plus one structural fix-up per touched
+    /// node, where a `first`/`remove` loop pays two full descents per
+    /// entry — the TTL-eviction shape (#578). The callback keeps this
+    /// allocation-free for callers that need the removed values back (a
+    /// slab index to recycle, say).
+    pub fn remove_range<F: FnMut(Key32, Value32)>(
+        &mut self,
+        range: core::ops::RangeInclusive<Key32>,
+        mut f: F,
+    ) -> usize {
+        let (lo, hi) = (*range.start(), *range.end());
+        if lo > hi {
+            return 0;
+        }
+        let n = trie32::map_remove_range(&mut self.alloc, &mut self.root, 4, 0, lo, hi, &mut f);
+        self.len -= n;
+        n
+    }
+
     /// Returns the number of entries in the map.
     #[inline]
     #[must_use]
@@ -151,8 +174,7 @@ impl ExpanseMap32 {
     #[inline]
     #[must_use]
     pub fn first(&self) -> Option<(Key32, Value32)> {
-        let k = trie32::first(&self.alloc, &self.root, 4)?;
-        Some((k, self.get(k).expect("first key present")))
+        trie32::first_entry(&self.alloc, &self.root, 4)
     }
 
     /// Returns the largest `(key, value)` entry in the map, if any.
@@ -698,5 +720,99 @@ mod tests {
             at_48 < at_49,
             "expected demotion to MapLeaf(1) at <= 48 entries; {at_49} -> {at_48}"
         );
+    }
+
+    /// `remove_range` against a `BTreeMap` model over shapes that reach every
+    /// node kind (dense runs for level-1 bitmaps, sparse keys for immediates
+    /// and linear leaves, wide spreads for the branch flavours), with random
+    /// inclusive ranges; also pins `first()` to the model after every step.
+    #[test]
+    fn remove_range_matches_btreemap_model() {
+        let mut state = 0x2F6E_2B1Fu32;
+        let mut lcg = move || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            state
+        };
+        for round in 0..40u32 {
+            let mut map = ExpanseMap32::new();
+            let mut model: BTreeMap<u32, u32> = BTreeMap::new();
+            let n = 200 + (lcg() % 3_000) as usize;
+            for i in 0..n {
+                let k = match lcg() % 4 {
+                    0 => lcg() % 512,                      // dense low bytes -> bitmaps
+                    1 => (lcg() % 64) << 24 | (lcg() % 8), // sparse high digits -> immediates/leaves
+                    2 => 0x0100_0000 + lcg() % 100_000,    // one populous subtree -> branches
+                    _ => lcg(),                            // anywhere
+                };
+                let v = (i as u32) ^ round;
+                assert_eq!(map.insert(k, v), model.insert(k, v));
+            }
+            let mut steps = 0;
+            while !model.is_empty() && steps < 64 {
+                steps += 1;
+                assert_eq!(map.first(), model.iter().next().map(|(&k, &v)| (k, v)));
+                let (lo, hi) = match lcg() % 3 {
+                    0 => (0, lcg() % 1_024), // prefix (the eviction shape)
+                    1 => {
+                        let a = lcg();
+                        (a, a.saturating_add(lcg() % 0x0100_0000))
+                    }
+                    _ => {
+                        let a = lcg();
+                        (a.min(a ^ 0xFF), a.max(a ^ 0xFF))
+                    }
+                };
+                let mut seen = Vec::new();
+                let n = map.remove_range(lo..=hi, |k, v| seen.push((k, v)));
+                let expected: Vec<(u32, u32)> =
+                    model.range(lo..=hi).map(|(&k, &v)| (k, v)).collect();
+                assert_eq!(
+                    seen, expected,
+                    "round {round} step {steps} range {lo:#x}..={hi:#x}"
+                );
+                assert_eq!(n, expected.len());
+                model.retain(|&k, _| k < lo || k > hi);
+                assert_eq!(map.len(), model.len());
+                for (&k, &v) in &model {
+                    assert_eq!(
+                        map.get(k),
+                        Some(v),
+                        "survivor {k:#x} after range {lo:#x}..={hi:#x}"
+                    );
+                }
+                assert!(map.iter().eq(model.iter().map(|(&k, &v)| (k, v))));
+            }
+            // Drain whatever is left in one call and check nothing leaked.
+            let left = model.len();
+            assert_eq!(map.remove_range(0..=u32::MAX, |_, _| {}), left);
+            assert!(map.is_empty());
+            assert_eq!(
+                map.mem_used(),
+                ExpanseMap32::new().mem_used(),
+                "byte leak after drain"
+            );
+        }
+    }
+
+    #[test]
+    fn remove_range_empty_and_inverted_ranges_are_noops() {
+        let mut map = ExpanseMap32::new();
+        for k in [1u32, 5, 9, 0xFFFF_FFFF] {
+            map.insert(k, k);
+        }
+        assert_eq!(
+            map.remove_range(6..=8, |_, _| panic!("nothing in range")),
+            0
+        );
+        let (lo, hi) = (9u32, 5u32);
+        assert_eq!(map.remove_range(lo..=hi, |_, _| panic!("inverted")), 0);
+        assert_eq!(map.len(), 4);
+        let mut got = Vec::new();
+        assert_eq!(
+            map.remove_range(0xFFFF_FFFF..=0xFFFF_FFFF, |k, _| got.push(k)),
+            1
+        );
+        assert_eq!(got, [0xFFFF_FFFF]);
+        assert_eq!(map.last(), Some((9, 9)));
     }
 }
