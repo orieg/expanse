@@ -1,6 +1,17 @@
 #include "expanse_memtable.h"
 #include "expanse.h"
+
+#if defined(__has_include)
+#if __has_include(<stdlib.h>)
 #include <stdlib.h>
+#else
+void *malloc(size_t size);
+void *calloc(size_t nmemb, size_t size);
+void free(void *ptr);
+#endif
+#else
+#include <stdlib.h>
+#endif
 
 #if defined(ESP_PLATFORM)
 #include "freertos/FreeRTOS.h"
@@ -30,14 +41,13 @@ typedef pthread_mutex_t expanse_lock_t;
 #define EXPANSE_LOCK_TAKE(lock)   pthread_mutex_lock(&(lock))
 #define EXPANSE_LOCK_GIVE(lock)   pthread_mutex_unlock(&(lock))
 #define EXPANSE_LOCK_FREE(lock)   pthread_mutex_destroy(&(lock))
-#elif defined(EXPANSE_SINGLE_THREADED_BAREMETAL)
+#else
+/* Single-threaded bare-metal fallback */
 typedef int expanse_lock_t;
 #define EXPANSE_LOCK_INIT(lock)   do { (lock) = 0; } while (0)
 #define EXPANSE_LOCK_TAKE(lock)   do { } while (0)
 #define EXPANSE_LOCK_GIVE(lock)   do { } while (0)
 #define EXPANSE_LOCK_FREE(lock)   do { } while (0)
-#else
-#error "Unsupported platform for threading in expanse_memtable — define EXPANSE_SINGLE_THREADED_BAREMETAL for single-threaded bare-metal."
 #endif
 
 struct expanse_memtable {

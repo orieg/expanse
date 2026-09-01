@@ -476,9 +476,9 @@ On resource-constrained 32-bit microcontrollers (ESP32-C3 / ESP32-C6 / ESP32-P4)
 | **Sensor TSDB 10Hz ($N=2\text{k}$)** | **16.60 KiB** (~8.50 B/key) | 56.25 KiB (~28 B/key) | 62.50 KiB (32.0 B/key) | 15.62 KiB (8 B/entry) | **3.77× lower RAM** (ordered) |
 | **CAN Dispatch ($N=500$)** | **4.25 KiB** (8.70 B/key) | 14.06 KiB (~28 B/key) | 15.62 KiB (32.0 B/key) | 3.91 KiB (8 B/entry) | **3.68× lower RAM** (ordered) |
 | **Sparse Events ($N=5\text{k}$)** | **53.52 KiB** (10.96 B/key) | 140.62 KiB (~28 B/key) | 156.25 KiB (32.0 B/key) | 39.06 KiB (8 B/entry) | **2.92× lower RAM** (ordered) |
-| **BLE Tracker ($N=2\text{k}$)** | **97.50 KiB** (Slab + Dual Trie) | 103.12 KiB (52.0 B/entry) | 109.38 KiB (56.0 B/entry) | 54.68 KiB (28 B/entry) | **1.12× lower RAM + $O(\text{expired})$ TTL** |
+| **BLE Tracker ($N=2\text{k}$)** | **109.46 KiB** (Slab + Dual Trie) | 103.12 KiB (~52 B/entry) | 109.38 KiB (56.0 B/entry) | 54.68 KiB (28 B/entry) | **Parity footprint + $O(\text{expired})$ TTL** |
 
-*(Density constants sourced from `bytes_per_key_32.rs` at commit `7e579ac2`; note that 10 Hz stride-100 sensor timestamps amortize to ~8.50 B/key and CAN-bus 29-bit IDs are measured at $N=500$. BLE tracker evaluates 28-byte symmetric tracking payloads across all arms).*
+*(Density constants sourced from `bytes_per_key_32.rs` at commit `7e579ac2`; note that 10 Hz stride-100 sensor timestamps amortize to ~8.50 B/key and CAN-bus 29-bit IDs are measured at $N=500$. BLE tracker evaluates 28-byte symmetric tracking payloads across all arms, modeling Expanse's 28B record + 4B monotonic sec + 2B freelist + 0.125B bitmap and dual-index tries).*
 
 #### C Component Storage Engines (`components/expanse/`)
 

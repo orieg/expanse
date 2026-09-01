@@ -55,10 +55,19 @@ def mem_ring_buffer(n: int, val_size: int = 4) -> int:
 
 
 def mem_ble_tracker_expanse_slab(n: int) -> int:
-    """Expanse BLE tracker: Dual ExpanseMap32 (by_mac + by_time) + 28-byte slab."""
+    """
+    Expanse BLE tracker: Dual ExpanseMap32 (by_mac + by_time) + 28B slab
+    plus slab auxiliary arrays:
+      - mono_last_seen_sec: 4B
+      - free_indices: 2B
+      - active_bitmap: ((n + 31) // 32) * 4 B
+    """
     dual_trie = int(n * (10.960 * 2))
-    slab = n * BLE_RECORD_SIZE
-    return dual_trie + slab
+    slab_payload = n * BLE_RECORD_SIZE
+    slab_mono_sec = n * 4
+    slab_freelist = n * 2
+    slab_bitmap = ((n + 31) // 32) * 4
+    return dual_trie + slab_payload + slab_mono_sec + slab_freelist + slab_bitmap
 
 
 def mem_ble_tracker_blobmap(n: int) -> int:
@@ -75,7 +84,8 @@ def test_bounds() -> None:
     assert mem_expanse_can(500) == 4352, "CAN 500 must equal 4,352 bytes"
     assert mem_expanse_sparse(5000) == 54800, "Sparse 5k must equal 54,800 bytes"
     assert mem_std_map(5000, 4) == 160000, "std::map 5k u32 must equal 160,000 bytes"
-    assert mem_ble_tracker_expanse_slab(2000) == int(2000 * 21.920) + (2000 * 28), "BLE slab 2k must match"
+    # At N=2000: dual_trie (43,840) + slab (56,000) + mono_sec (8,000) + free_idx (4,000) + bitmap (252) = 112,092 B
+    assert mem_ble_tracker_expanse_slab(2000) == 112092, "BLE slab 2k must match exact auxiliary derivation"
 
 
 if __name__ == "__main__":
@@ -102,7 +112,7 @@ if __name__ == "__main__":
         print(f"Sparse Events (ExpanseMap32):        {sparse_exp:6d} B ({sparse_exp/1024:5.2f} KiB) [10.96 B/key]")
         print(f"std::unordered_map<u32, u32>:        {unord_map_u32:6d} B ({unord_map_u32/1024:5.2f} KiB) [~28-32 B/key]")
         print(f"std::map<u32, u32>:                  {std_map_u32:6d} B ({std_map_u32/1024:5.2f} KiB) [32.00 B/key]")
-        print(f"BLE Tracker (ExpanseMap32 + Slab):   {ble_slab:6d} B ({ble_slab/1024:5.2f} KiB) [~49.92 B/entry total]")
+        print(f"BLE Tracker (ExpanseMap32 + Slab):   {ble_slab:6d} B ({ble_slab/1024:5.2f} KiB) [~56.05 B/entry total]")
         print(f"BLE Tracker (ExpanseBlobMap32):     {ble_blob:6d} B ({ble_blob/1024:5.2f} KiB) [~53.92 B/entry total]")
         print(f"std::unordered_map<u64, 28B>:        {ble_unord:6d} B ({ble_unord/1024:5.2f} KiB) [~52.00 B/entry total]")
         print(f"std::map<u64, 28B>:                  {ble_stdmap:6d} B ({ble_stdmap/1024:5.2f} KiB) [56.00 B/entry total]")
