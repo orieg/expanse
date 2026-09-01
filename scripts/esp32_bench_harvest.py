@@ -7,7 +7,8 @@ and computes BCa bootstrap 95% confidence intervals (>= 1000 resamples) per AGEN
 
 Usage:
   python3 scripts/esp32_bench_harvest.py < uart_log.txt
-  python3 scripts/esp32_bench_harvest.py --input /path/to/log.txt --out report.md
+  python3 scripts/esp32_bench_harvest.py --input /path/to/log.txt --out report.md --emit-json results.json
+  python3 scripts/esp32_bench_harvest.py --self-test
 """
 
 import sys
@@ -68,6 +69,39 @@ def parse_and_process(lines):
     return records
 
 
+def generate_structured_results(records):
+    """Converts parsed records into a structured dict with BCa CIs for JSON export."""
+    results = {}
+    for (bench, n), arm_data in sorted(records.items()):
+        bench_key = f"{bench}_{n}"
+        results[bench_key] = {
+            "benchmark": bench,
+            "n": n,
+            "arms": {}
+        }
+        for arm, samples in sorted(arm_data.items()):
+            cycles_list = [s["cycles"] for s in samples if s["cycles"] is not None]
+            heaps = [s["heap"] for s in samples if s["heap"] is not None]
+            frags = [s["frag"] for s in samples if s["frag"] is not None]
+
+            if cycles_list:
+                mean_c, ci_l, ci_h = bootstrap_ci_bca(cycles_list)
+            else:
+                mean_c, ci_l, ci_h = 0.0, 0.0, 0.0
+
+            results[bench_key]["arms"][arm] = {
+                "cycles_per_op": {
+                    "mean": mean_c,
+                    "ci_95_low": ci_l,
+                    "ci_95_high": ci_h,
+                    "sample_count": len(cycles_list)
+                },
+                "heap_used_bytes": float(np.mean(heaps)) if heaps else 0.0,
+                "frag_ratio": float(np.mean(frags)) if frags else 0.0
+            }
+    return results
+
+
 def generate_markdown_report(records):
     md = []
     md.append("# ESP32-C3 Hardware Benchmark Results & BCa 95% CIs\n")
@@ -94,11 +128,45 @@ def generate_markdown_report(records):
     return "\n".join(md)
 
 
+def run_self_tests():
+    sample_lines = [
+        '{"benchmark": "esp32_sensor_tsdb_ingest", "arm": "expanse_memtable", "n": 2000, "cycles_per_op": 142.5, "heap_used_bytes": 8848, "frag_ratio": 0.0120}',
+        '{"benchmark": "esp32_sensor_tsdb_ingest", "arm": "expanse_memtable", "n": 2000, "cycles_per_op": 140.2, "heap_used_bytes": 8848, "frag_ratio": 0.0120}',
+        '{"benchmark": "esp32_sensor_tsdb_ingest", "arm": "expanse_memtable", "n": 2000, "cycles_per_op": 144.1, "heap_used_bytes": 8848, "frag_ratio": 0.0120}',
+        '{"benchmark": "esp32_sensor_tsdb_ingest", "arm": "cpp_std_map", "n": 2000, "cycles_per_op": 380.0, "heap_used_bytes": 64000, "frag_ratio": 0.0450}',
+    ]
+    recs = parse_and_process(sample_lines)
+    assert len(recs) == 1
+    key = ("esp32_sensor_tsdb_ingest", 2000)
+    assert key in recs
+    assert "expanse_memtable" in recs[key]
+    assert len(recs[key]["expanse_memtable"]) == 3
+
+    structured = generate_structured_results(recs)
+    assert "esp32_sensor_tsdb_ingest_2000" in structured
+    arm_res = structured["esp32_sensor_tsdb_ingest_2000"]["arms"]["expanse_memtable"]
+    assert 139.0 <= arm_res["cycles_per_op"]["mean"] <= 145.0
+    assert arm_res["cycles_per_op"]["ci_95_low"] <= arm_res["cycles_per_op"]["mean"] <= arm_res["cycles_per_op"]["ci_95_high"]
+    assert arm_res["heap_used_bytes"] == 8848.0
+
+    report = generate_markdown_report(recs)
+    assert "esp32_sensor_tsdb_ingest" in report
+    assert "expanse_memtable" in report
+
+    print("scripts/esp32_bench_harvest.py --self-test: all checks passed")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Harvest ESP32 Hardware Benchmark Metrics")
     parser.add_argument("--input", help="Path to UART input log file (reads stdin if omitted)")
     parser.add_argument("--out", help="Path to output markdown file (prints stdout if omitted)")
+    parser.add_argument("--emit-json", help="Path to output JSON results file for charting and diffing")
+    parser.add_argument("--self-test", action="store_true", help="Run internal unit self-tests")
     args = parser.parse_args()
+
+    if args.self_test:
+        run_self_tests()
+        return
 
     if args.input:
         with open(args.input, "r", encoding="utf-8") as f:
@@ -115,6 +183,12 @@ def main():
         print(f"Report written to {args.out}")
     else:
         print(report)
+
+    if args.emit_json:
+        structured = generate_structured_results(records)
+        with open(args.emit_json, "w", encoding="utf-8") as f:
+            json.dump(structured, f, indent=2)
+        print(f"JSON results written to {args.emit_json}")
 
 
 if __name__ == "__main__":

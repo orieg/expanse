@@ -210,7 +210,6 @@ pub unsafe extern "C" fn expanse_set_contains(set: *const ExpanseSet, key: CWord
     unsafe { (*set).contains(key) }
 }
 
-#[cfg(target_pointer_width = "64")]
 /// Generates a set navigation entry point returning `bool` + `key_out`.
 macro_rules! set_nav {
     ($name:ident, $method:ident, $doc:literal) => {

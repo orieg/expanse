@@ -30,12 +30,14 @@ typedef pthread_mutex_t expanse_lock_t;
 #define EXPANSE_LOCK_TAKE(lock)   pthread_mutex_lock(&(lock))
 #define EXPANSE_LOCK_GIVE(lock)   pthread_mutex_unlock(&(lock))
 #define EXPANSE_LOCK_FREE(lock)   pthread_mutex_destroy(&(lock))
-#else
+#elif defined(EXPANSE_SINGLE_THREADED_BAREMETAL)
 typedef int expanse_lock_t;
 #define EXPANSE_LOCK_INIT(lock)   do { (lock) = 0; } while (0)
 #define EXPANSE_LOCK_TAKE(lock)   do { } while (0)
 #define EXPANSE_LOCK_GIVE(lock)   do { } while (0)
 #define EXPANSE_LOCK_FREE(lock)   do { } while (0)
+#else
+#error "Unsupported platform for threading in expanse_memtable — define EXPANSE_SINGLE_THREADED_BAREMETAL for single-threaded bare-metal."
 #endif
 
 struct expanse_memtable {
@@ -44,7 +46,7 @@ struct expanse_memtable {
 };
 
 expanse_memtable_t *expanse_memtable_create(void) {
-    expanse_memtable_t *mt = (expanse_memtable_t *)malloc(sizeof(expanse_memtable_t));
+    expanse_memtable_t *mt = (expanse_memtable_t *)calloc(1, sizeof(expanse_memtable_t));
     if (!mt) {
         return NULL;
     }
@@ -72,10 +74,14 @@ void expanse_memtable_destroy(expanse_memtable_t *mt) {
 }
 
 bool expanse_memtable_insert(expanse_memtable_t *mt, uint32_t key, uint32_t value, uint32_t *old_value) {
-    if (!mt || !mt->map) {
+    if (!mt) {
         return false;
     }
     EXPANSE_LOCK_TAKE(mt->lock);
+    if (!mt->map) {
+        EXPANSE_LOCK_GIVE(mt->lock);
+        return false;
+    }
     expanse_word_t old_word = 0;
     bool is_new = expanse_map_insert(mt->map, (expanse_word_t)key, (expanse_word_t)value, old_value ? &old_word : NULL);
     if (!is_new && old_value) {
@@ -86,13 +92,17 @@ bool expanse_memtable_insert(expanse_memtable_t *mt, uint32_t key, uint32_t valu
 }
 
 bool expanse_memtable_get(const expanse_memtable_t *mt, uint32_t key, uint32_t *out_value) {
-    if (!mt || !mt->map) {
+    if (!mt) {
         return false;
     }
     expanse_memtable_t *non_const_mt = (expanse_memtable_t *)mt;
     EXPANSE_LOCK_TAKE(non_const_mt->lock);
+    if (!non_const_mt->map) {
+        EXPANSE_LOCK_GIVE(non_const_mt->lock);
+        return false;
+    }
     expanse_word_t val_word = 0;
-    bool found = expanse_map_get(mt->map, (expanse_word_t)key, out_value ? &val_word : NULL);
+    bool found = expanse_map_get(non_const_mt->map, (expanse_word_t)key, out_value ? &val_word : NULL);
     if (found && out_value) {
         *out_value = (uint32_t)val_word;
     }
@@ -101,10 +111,14 @@ bool expanse_memtable_get(const expanse_memtable_t *mt, uint32_t key, uint32_t *
 }
 
 bool expanse_memtable_remove(expanse_memtable_t *mt, uint32_t key, uint32_t *old_value) {
-    if (!mt || !mt->map) {
+    if (!mt) {
         return false;
     }
     EXPANSE_LOCK_TAKE(mt->lock);
+    if (!mt->map) {
+        EXPANSE_LOCK_GIVE(mt->lock);
+        return false;
+    }
     expanse_word_t old_word = 0;
     bool removed = expanse_map_remove(mt->map, (expanse_word_t)key, old_value ? &old_word : NULL);
     if (removed && old_value) {
@@ -115,11 +129,15 @@ bool expanse_memtable_remove(expanse_memtable_t *mt, uint32_t key, uint32_t *old
 }
 
 bool expanse_memtable_aggregate_range(const expanse_memtable_t *mt, uint32_t start_key, uint32_t end_key, expanse_memtable_agg_t *out_agg) {
-    if (!mt || !mt->map || !out_agg || start_key > end_key) {
+    if (!mt || !out_agg || start_key > end_key) {
         return false;
     }
     expanse_memtable_t *non_const_mt = (expanse_memtable_t *)mt;
     EXPANSE_LOCK_TAKE(non_const_mt->lock);
+    if (!non_const_mt->map) {
+        EXPANSE_LOCK_GIVE(non_const_mt->lock);
+        return false;
+    }
 
     out_agg->min_val = UINT32_MAX;
     out_agg->max_val = 0;
@@ -128,7 +146,7 @@ bool expanse_memtable_aggregate_range(const expanse_memtable_t *mt, uint32_t sta
 
     expanse_word_t curr_key = 0;
     expanse_word_t curr_val = 0;
-    if (!expanse_map_next_at_or_after(mt->map, (expanse_word_t)start_key, &curr_key, &curr_val)) {
+    if (!expanse_map_next_at_or_after(non_const_mt->map, (expanse_word_t)start_key, &curr_key, &curr_val)) {
         EXPANSE_LOCK_GIVE(non_const_mt->lock);
         return false;
     }
@@ -147,7 +165,7 @@ bool expanse_memtable_aggregate_range(const expanse_memtable_t *mt, uint32_t sta
         if (curr_key == UINT32_MAX) {
             break;
         }
-        if (!expanse_map_next_after(mt->map, curr_key, &curr_key, &curr_val)) {
+        if (!expanse_map_next_after(non_const_mt->map, curr_key, &curr_key, &curr_val)) {
             break;
         }
     }
@@ -157,10 +175,14 @@ bool expanse_memtable_aggregate_range(const expanse_memtable_t *mt, uint32_t sta
 }
 
 size_t expanse_memtable_flush_range(expanse_memtable_t *mt, uint32_t start_key, uint32_t end_key, expanse_memtable_flush_cb cb, void *user_data) {
-    if (!mt || !mt->map || start_key > end_key) {
+    if (!mt || start_key > end_key) {
         return 0;
     }
     EXPANSE_LOCK_TAKE(mt->lock);
+    if (!mt->map) {
+        EXPANSE_LOCK_GIVE(mt->lock);
+        return 0;
+    }
 
     size_t flushed = 0;
     while (true) {
@@ -186,32 +208,34 @@ size_t expanse_memtable_flush_range(expanse_memtable_t *mt, uint32_t start_key, 
 }
 
 size_t expanse_memtable_len(const expanse_memtable_t *mt) {
-    if (!mt || !mt->map) {
+    if (!mt) {
         return 0;
     }
     expanse_memtable_t *non_const_mt = (expanse_memtable_t *)mt;
     EXPANSE_LOCK_TAKE(non_const_mt->lock);
-    size_t len = (size_t)expanse_map_len(mt->map);
+    size_t len = non_const_mt->map ? (size_t)expanse_map_len(non_const_mt->map) : 0;
     EXPANSE_LOCK_GIVE(non_const_mt->lock);
     return len;
 }
 
 size_t expanse_memtable_mem_used(const expanse_memtable_t *mt) {
-    if (!mt || !mt->map) {
+    if (!mt) {
         return 0;
     }
     expanse_memtable_t *non_const_mt = (expanse_memtable_t *)mt;
     EXPANSE_LOCK_TAKE(non_const_mt->lock);
-    size_t used = expanse_map_mem_used(mt->map);
+    size_t used = non_const_mt->map ? expanse_map_mem_used(non_const_mt->map) : 0;
     EXPANSE_LOCK_GIVE(non_const_mt->lock);
     return used;
 }
 
 void expanse_memtable_clear(expanse_memtable_t *mt) {
-    if (!mt || !mt->map) {
+    if (!mt) {
         return;
     }
     EXPANSE_LOCK_TAKE(mt->lock);
-    expanse_map_clear(mt->map);
+    if (mt->map) {
+        expanse_map_clear(mt->map);
+    }
     EXPANSE_LOCK_GIVE(mt->lock);
 }

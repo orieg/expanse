@@ -28,24 +28,25 @@ the ESP-IDF RISC-V toolchain emits, and the whole thing builds on stable rustc.
 
 ## What the 32-bit library exports
 
-A 32-bit `libexpanse` carries **22 symbols** — the width-parametric ordered
-core, and nothing else:
+A 32-bit `libexpanse` carries **30 symbols** — the width-parametric ordered
+core with full bidirectional range navigation:
 
 | Container | Entry points |
 |---|---|
 | identity | `expanse_version` |
-| `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last` |
-| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_first`, `_last` |
+| `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
+| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
 
 **There are no `Judy*` symbols in a 32-bit build.** The legacy drop-in ABI is a
 64-bit-only guarantee. So are the byte-string, string, blob and concurrent
-containers, rank/select (`_count_below` / `_count_range` / `_by_count`), the
-value-slot accessors (`_slot` / `_ins_slot`), and the
-`_next_after` / `_prev_before` family. Omitted symbols are **absent**, not
-stubbed — you get a link error naming the gap, not different behaviour.
+containers, rank/select (`_count_below` / `_count_range` / `_by_count`), and
+the value-slot accessors (`_slot` / `_ins_slot`). Omitted symbols are
+**absent**, not stubbed — you get a link error naming the gap, not different
+behaviour.
 
 The full matrix, and why each omission exists, is in
 [docs/COMPAT.md](../../docs/COMPAT.md#build-configuration-surface-matrix).
+
 
 ## Architecture on 32-bit parts
 

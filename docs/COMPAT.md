@@ -106,10 +106,10 @@ one that does not link, and a link error names the gap at build time.
 |---|---|---|
 | 64-bit, `std` (default) | `cargo build -p expanse-capi` | 145 |
 | 64-bit, `no_std` | `--no-default-features` | 127 |
-| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 22 |
+| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 30 |
 
 (Counts measured from `llvm-nm --defined-only` on the built artifacts at
-commit `6e68c9a0`; reproduce with the invocations above.)
+commit `5e8147ae`; reproduce with the invocations above.)
 
 **64-bit `no_std` drops only the concurrent containers** — the 18
 `expanse_sync_*` entry points. `expanse_trie::sync` needs `std::sync`, so a
@@ -117,15 +117,15 @@ bare-metal 64-bit build has no one-writer/many-reader surface. Everything
 else, the entire legacy `Judy*` drop-in included, is present and unchanged.
 
 **32-bit drops the legacy `Judy*` families entirely**, plus the byte-string,
-string, blob and concurrent containers, plus rank/select, value-slot
-accessors and the `_at_or_after`/`_after`/`_at_or_before`/`_before`
-navigation. What ships is the width-parametric ordered core:
+string, blob and concurrent containers, plus rank/select and value-slot
+accessors. What ships is the width-parametric ordered core with full
+bidirectional range navigation:
 
 | Container | 32-bit entry points |
 |---|---|
 | identity | `expanse_version` |
-| `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last` |
-| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_first`, `_last` |
+| `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
+| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
 
 The cause is engine surface, not a deliberate reduction: `ExpanseMap32` /
 `ExpanseSet32` are real tries, but they carry no `count_below`/`by_count`,
@@ -133,6 +133,7 @@ no `get_value_slot`/`ins_slot`, and their `count_range` takes a `(start, end)`
 pair rather than a range — so the corresponding C contracts have nothing to
 translate to. `ExpanseStrMap`/`ExpanseBytesMap`/`ExpanseBlobMap` and the
 `sync` module exist only at 64-bit width.
+
 
 ### Key and value width
 

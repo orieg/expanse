@@ -232,14 +232,53 @@ TEST_CASE("Expanse BLE tracker epoch rebase across 4.6-day boundary", "[expanse]
     TEST_ASSERT_TRUE(expanse_ble_tracker_get(tracker, d2.mac, &out));
     TEST_ASSERT_EQUAL_STRING("D2_Late", out.name);
 
-    /* Expire stale at t = 20 seconds: d1 (10s) must be evicted, d2 (450,000s) must remain */
-    size_t expired = expanse_ble_tracker_expire_stale(tracker, 20000);
+    expanse_ble_tracker_destroy(tracker);
+}
+
+TEST_CASE("Expanse BLE tracker 49.7-day ms timestamp wrap handling", "[expanse]") {
+    expanse_ble_tracker_t *tracker = expanse_ble_tracker_create(50);
+    TEST_ASSERT_NOT_NULL(tracker);
+
+    /* Pre-wrap device sighting at t = UINT32_MAX - 5000ms (~49.71 days of uptime) */
+    expanse_ble_record_t d_pre = {
+        .mac = {0xAA, 0x11, 0x22, 0x33, 0x44, 0x55},
+        .rssi = -75,
+        .flags = 0,
+        .last_seen_ms = 0xFFFFF000u,
+        .distance_cm = 300,
+        .name = "D_PreWrap"
+    };
+    TEST_ASSERT_EQUAL_INT(EXPANSE_BLE_OK, expanse_ble_tracker_record(tracker, &d_pre));
+
+    /* Post-wrap device sighting at t = 1000ms (after 49.7-day 32-bit hardware timer wrap) */
+    expanse_ble_record_t d_post = {
+        .mac = {0xBB, 0x11, 0x22, 0x33, 0x44, 0x55},
+        .rssi = -65,
+        .flags = 1,
+        .last_seen_ms = 1000u,
+        .distance_cm = 120,
+        .name = "D_PostWrap"
+    };
+    TEST_ASSERT_EQUAL_INT(EXPANSE_BLE_OK, expanse_ble_tracker_record(tracker, &d_post));
+    TEST_ASSERT_EQUAL_UINT(2, expanse_ble_tracker_count(tracker));
+
+    /* Verify both devices are accessible */
+    expanse_ble_record_t out;
+    TEST_ASSERT_TRUE(expanse_ble_tracker_get(tracker, d_pre.mac, &out));
+    TEST_ASSERT_EQUAL_STRING("D_PreWrap", out.name);
+
+    TEST_ASSERT_TRUE(expanse_ble_tracker_get(tracker, d_post.mac, &out));
+    TEST_ASSERT_EQUAL_STRING("D_PostWrap", out.name);
+
+    /* Evict at t = 500ms post-wrap: pre-wrap device must be evicted, post-wrap kept */
+    size_t expired = expanse_ble_tracker_expire_stale(tracker, 500u);
     TEST_ASSERT_EQUAL_UINT(1, expired);
     TEST_ASSERT_EQUAL_UINT(1, expanse_ble_tracker_count(tracker));
-    TEST_ASSERT_FALSE(expanse_ble_tracker_get(tracker, d1.mac, &out));
-    TEST_ASSERT_TRUE(expanse_ble_tracker_get(tracker, d2.mac, &out));
+    TEST_ASSERT_FALSE(expanse_ble_tracker_get(tracker, d_pre.mac, &out));
+    TEST_ASSERT_TRUE(expanse_ble_tracker_get(tracker, d_post.mac, &out));
 
     expanse_ble_tracker_destroy(tracker);
 }
+
 
 
