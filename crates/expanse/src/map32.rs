@@ -8,9 +8,10 @@
 //! linear leaves (`[values: u32 * pop][keys: KB * pop]`) and
 //! linear/uncompressed branches (see [`crate::trie32`]).
 //!
-//! This type is single-threaded: it holds no synchronisation and is not a
-//! optimistic-read structure. The concurrent wrapper described in the RFC is not
-//! yet implemented for the 32-bit engine.
+//! This type is single-threaded: it holds no synchronisation and is not an
+//! optimistic-read structure. The single-writer/many-reader wrapper is
+//! [`crate::sync32`] — an opt-in, fixed-capacity surface layered on top;
+//! this type's expanse-proportional memory behaviour is unchanged.
 
 use core::default::Default;
 use core::fmt;
@@ -40,6 +41,38 @@ impl ExpanseMap32 {
             root: Edge32::null(),
             len: 0,
         }
+    }
+
+    /// A fixed-capacity, deferred-reclamation instance for the concurrent
+    /// wrapper (`sync32`). Not public: rigid preallocation trades away the
+    /// §2.1 expanse-proportional memory invariant, so it is opt-in through
+    /// the concurrent surface only, where the trade is declared.
+    #[must_use]
+    pub(crate) fn with_fixed_arena(node_cap: usize, pending_cap: usize) -> Self {
+        Self {
+            alloc: Arena::with_capacity(node_cap, pending_cap),
+            root: Edge32::null(),
+            len: 0,
+        }
+    }
+
+    /// The node arena (optimistic read path).
+    #[inline]
+    pub(crate) fn arena(&self) -> &Arena {
+        &self.alloc
+    }
+
+    /// Mutable arena access (writer-side reclamation).
+    #[inline]
+    pub(crate) fn arena_mut(&mut self) -> &mut Arena {
+        &mut self.alloc
+    }
+
+    /// A racy copy of the root edge; the caller must validate its version
+    /// word before acting on the copy.
+    #[inline]
+    pub(crate) fn root_edge(&self) -> Edge32 {
+        self.root
     }
 
     /// Insert a key-value pair into the map.
