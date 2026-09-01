@@ -783,25 +783,33 @@ fn set_leaf_insert_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize, rem: u3
     }
 }
 
-/// Remove the element at `pos` of the set leaf behind `e`, in place
-/// within the capacity class and by region copy into the exact smaller
-/// class otherwise, keeping the allocation size derivable from the
-/// population alone. The caller has already ruled out demotion to an
-/// immediate or to null.
+/// Remove the element at `pos` of the set leaf behind `e`; see
+/// [`set_leaf_remove_span`].
 fn set_leaf_remove_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize) {
+    set_leaf_remove_span(a, e, kb, pos, pos + 1);
+}
+
+/// Remove the contiguous run `i0..i1` of the set leaf behind `e`, in
+/// place within the capacity class and by region copy into the exact
+/// smaller class otherwise, keeping the allocation size derivable from
+/// the population alone. The caller has already ruled out demotion to
+/// an immediate or to null. One structural fix-up per touched leaf is
+/// what makes a batched range removal cheaper than per-key removes
+/// (#578).
+fn set_leaf_remove_span(a: &mut Arena, e: &mut Edge32, kb: u8, i0: usize, i1: usize) {
     let pop = edge_pop(e);
-    let new_pop = pop - 1;
+    let new_pop = pop - (i1 - i0);
     let kbz = kb as usize;
     let h = edge_handle(e);
     if cap_class(new_pop) == cap_class(pop) {
         let buf = a.leaf_mut(h);
-        buf.copy_within((pos + 1) * kbz..pop * kbz, pos * kbz);
+        buf.copy_within(i1 * kbz..pop * kbz, i0 * kbz);
         *e = leaf_edge(h, new_pop, t_set_leaf(kb));
     } else {
         let mut nb = alloc_zeroed_bytes(size_set32(kb, new_pop));
         let old = a.leaf(h);
-        nb[..pos * kbz].copy_from_slice(&old[..pos * kbz]);
-        nb[pos * kbz..new_pop * kbz].copy_from_slice(&old[(pos + 1) * kbz..pop * kbz]);
+        nb[..i0 * kbz].copy_from_slice(&old[..i0 * kbz]);
+        nb[i0 * kbz..new_pop * kbz].copy_from_slice(&old[i1 * kbz..pop * kbz]);
         let nh = a.alloc(NodeBox::Leaf(nb));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_set_leaf(kb));
@@ -876,30 +884,37 @@ fn map_leaf_insert_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize, rem: u3
     }
 }
 
-/// Map-flavour sibling of [`set_leaf_remove_at`]. The caller has already
-/// ruled out demotion to an immediate or to null.
+/// Map-flavour sibling of [`set_leaf_remove_at`]; see
+/// [`map_leaf_remove_span`].
 fn map_leaf_remove_at(a: &mut Arena, e: &mut Edge32, kb: u8, pos: usize) {
+    map_leaf_remove_span(a, e, kb, pos, pos + 1);
+}
+
+/// Map-flavour sibling of [`set_leaf_remove_span`]: values then keys,
+/// both capacity-class-sized regions. The caller has already ruled out
+/// demotion to an immediate or to null.
+fn map_leaf_remove_span(a: &mut Arena, e: &mut Edge32, kb: u8, i0: usize, i1: usize) {
     let pop = edge_pop(e);
-    let new_pop = pop - 1;
+    let new_pop = pop - (i1 - i0);
     let kbz = kb as usize;
     let h = edge_handle(e);
     if cap_class(new_pop) == cap_class(pop) {
         let keys_off = 4 * cap_class(pop);
         let buf = a.leaf_mut(h);
-        buf.copy_within((pos + 1) * 4..pop * 4, pos * 4);
+        buf.copy_within(i1 * 4..pop * 4, i0 * 4);
         let keys = &mut buf[keys_off..];
-        keys.copy_within((pos + 1) * kbz..pop * kbz, pos * kbz);
+        keys.copy_within(i1 * kbz..pop * kbz, i0 * kbz);
         *e = leaf_edge(h, new_pop, t_map_leaf(kb));
     } else {
         let old_off = 4 * cap_class(pop);
         let new_off = 4 * cap_class(new_pop);
         let mut nb = alloc_zeroed_bytes(size_map32(kb, new_pop));
         let old = a.leaf(h);
-        nb[..pos * 4].copy_from_slice(&old[..pos * 4]);
-        nb[pos * 4..new_pop * 4].copy_from_slice(&old[(pos + 1) * 4..pop * 4]);
-        nb[new_off..new_off + pos * kbz].copy_from_slice(&old[old_off..old_off + pos * kbz]);
-        nb[new_off + pos * kbz..new_off + new_pop * kbz]
-            .copy_from_slice(&old[old_off + (pos + 1) * kbz..old_off + pop * kbz]);
+        nb[..i0 * 4].copy_from_slice(&old[..i0 * 4]);
+        nb[i0 * 4..new_pop * 4].copy_from_slice(&old[i1 * 4..pop * 4]);
+        nb[new_off..new_off + i0 * kbz].copy_from_slice(&old[old_off..old_off + i0 * kbz]);
+        nb[new_off + i0 * kbz..new_off + new_pop * kbz]
+            .copy_from_slice(&old[old_off + i1 * kbz..old_off + pop * kbz]);
         let nh = a.alloc(NodeBox::Leaf(nb));
         a.free(h);
         *e = leaf_edge(nh, new_pop, t_map_leaf(kb));
@@ -2599,6 +2614,374 @@ pub(crate) fn first(a: &Arena, e: &Edge32, kb: u8) -> Option<u32> {
         Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
             let (d, c) = branch_first_child(a, e)?;
             first(a, &c, kb - 1).map(|cr| combine(d, cr, kb))
+        }
+    }
+}
+
+/// Smallest `(key, value)` under `e` in a single descent — [`first`] plus
+/// the value it sits next to, so `ExpanseMap32::first` no longer pays a
+/// second full `get` walk for the value (#578).
+pub(crate) fn first_entry(a: &Arena, e: &Edge32, kb: u8) -> Option<(u32, u32)> {
+    match kind(e) {
+        Kind::Null => None,
+        Kind::MapImmed { kb: _ } => Some((map_immed_rem(e, kb), map_immed_val(e))),
+        Kind::MapLeaf(_) => {
+            let pop = edge_pop(e);
+            if pop == 0 {
+                return None;
+            }
+            let cap = cap_class(pop);
+            let buf = a.leaf(edge_handle(e));
+            let mut vb = [0u8; 4];
+            vb.copy_from_slice(&buf[..4]);
+            Some((
+                read_rem(&buf[4 * cap..], 0, kb as usize),
+                u32::from_le_bytes(vb),
+            ))
+        }
+        Kind::MapBitmap => {
+            let b = a.map_bitmap(edge_handle(e));
+            let digit = bitmap_first_ge_raw(&b.header.bitmap, 0)?;
+            let w = (digit >> 6) as usize;
+            let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
+            let sub = (digit >> 5) as usize;
+            Some((u32::from(digit), b.subarrays[sub].as_ref()?[rank]))
+        }
+        Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+            let (d, c) = branch_first_child(a, e)?;
+            first_entry(a, &c, kb - 1).map(|(cr, v)| (combine(d, cr, kb), v))
+        }
+        Kind::SetImmed { .. } | Kind::SetLeaf(_) | Kind::Bitmap => {
+            unreachable!("map op on a set edge")
+        }
+    }
+}
+
+/// Remove every map entry whose remainder lies in `lo..=hi` under `e`,
+/// calling `f(key, value)` for each in ascending key order; returns the
+/// count. `prefix` carries the already-decoded high bytes so `f` sees
+/// full keys. One descent to the range plus one structural fix-up per
+/// touched node — the batched alternative to a `first`/`remove` descent
+/// pair per entry that the TTL-eviction loops paid (#578).
+pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    prefix: u32,
+    lo: u32,
+    hi: u32,
+    f: &mut F,
+) -> usize {
+    debug_assert!(lo <= hi);
+    match kind(e) {
+        Kind::Null => 0,
+        Kind::MapImmed { kb: _ } => {
+            let r = map_immed_rem(e, kb);
+            if r < lo || r > hi {
+                return 0;
+            }
+            f(prefix | r, map_immed_val(e));
+            *e = Edge32::null();
+            1
+        }
+        Kind::MapLeaf(_) => {
+            let pop = edge_pop(e);
+            let keys_off = 4 * cap_class(pop);
+            let kbz = kb as usize;
+            let buf = a.leaf(edge_handle(e));
+            let keys = &buf[keys_off..];
+            let i0 = leaf_lower_bound(keys, pop, kb, lo).unwrap();
+            let i1 = if hi == rem_mask(kb) {
+                pop
+            } else {
+                leaf_lower_bound(keys, pop, kb, hi + 1).unwrap()
+            };
+            if i1 <= i0 {
+                return 0;
+            }
+            for i in i0..i1 {
+                let mut vb = [0u8; 4];
+                vb.copy_from_slice(&buf[i * 4..i * 4 + 4]);
+                f(prefix | read_rem(keys, i, kbz), u32::from_le_bytes(vb));
+            }
+            let removed = i1 - i0;
+            let new_pop = pop - removed;
+            let h = edge_handle(e);
+            if new_pop == 0 {
+                *e = Edge32::null();
+                a.free(h);
+            } else if new_pop == 1 && kb <= 3 {
+                // The hole is contiguous, so the survivor is at one end.
+                let i = if i0 == 0 { pop - 1 } else { 0 };
+                let k = read_rem(keys, i, kbz);
+                let mut sb = [0u8; 4];
+                sb.copy_from_slice(&buf[i * 4..i * 4 + 4]);
+                *e = map_immed_edge(kb, k, u32::from_le_bytes(sb));
+                a.free(h);
+            } else {
+                map_leaf_remove_span(a, e, kb, i0, i1);
+            }
+            removed
+        }
+        Kind::MapBitmap => {
+            let (removed, pop_after, retired) = {
+                let b = a.map_bitmap_mut(edge_handle(e));
+                let mut removed = 0usize;
+                let mut retired: [Option<Box<[u32]>>; 8] = core::array::from_fn(|_| None);
+                for (sub, slot) in retired.iter_mut().enumerate() {
+                    let sub_lo = (sub * 32) as u32;
+                    let sub_hi = sub_lo + 31;
+                    if sub_hi < lo || sub_lo > hi {
+                        continue;
+                    }
+                    let w = sub / 2;
+                    let base = (sub & 1) as u32 * 32;
+                    let word = b.header.bitmap[w];
+                    let from = lo.max(sub_lo) - sub_lo;
+                    let to = hi.min(sub_hi) - sub_lo;
+                    let span =
+                        ((1u64 << (to - from + 1)) - 1) << (u64::from(from) + u64::from(base));
+                    let hit = word & span;
+                    if hit == 0 {
+                        continue;
+                    }
+                    let Some(existing) = b.subarrays[sub].take() else {
+                        continue;
+                    };
+                    let mut keep: Vec<u32> = Vec::with_capacity(existing.len());
+                    let mut bits = (word >> base) & 0xFFFF_FFFF;
+                    let mut rank = 0usize;
+                    while bits != 0 {
+                        let i = bits.trailing_zeros();
+                        let v = existing[rank];
+                        if (hit >> (u64::from(base) + u64::from(i))) & 1 == 1 {
+                            f(prefix | (sub_lo + i), v);
+                            removed += 1;
+                        } else {
+                            keep.push(v);
+                        }
+                        rank += 1;
+                        bits &= bits - 1;
+                    }
+                    b.header.bitmap[w] &= !hit;
+                    b.subarrays[sub] = if keep.is_empty() {
+                        None
+                    } else {
+                        Some(keep.into_boxed_slice())
+                    };
+                    *slot = Some(existing);
+                }
+                b.header.pop0 -= removed as u16;
+                (removed, b.header.pop0 as usize, retired)
+            };
+            for r in retired {
+                a.retire_vals(r);
+            }
+            a.bytes -= core::mem::size_of::<u32>() * removed;
+            if removed == 0 {
+                return 0;
+            }
+            if pop_after == 0 {
+                let old = edge_handle(e);
+                a.free(old);
+                *e = Edge32::null();
+            } else if pop_after <= MAP_BITMAP_LEAVE {
+                let entries = read_map_bitmap(a, e);
+                let old = edge_handle(e);
+                *e = if entries.len() == 1 {
+                    map_immed_edge(1, entries[0].0, entries[0].1)
+                } else {
+                    make_map_leaf(a, 1, &entries)
+                };
+                a.free(old);
+            }
+            removed
+        }
+        Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+            let dlo = digit_at(lo, kb);
+            let dhi = digit_at(hi, kb);
+            let full = rem_mask(kb - 1);
+            let mut total = 0usize;
+            for d in dlo..=dhi {
+                let Some(mut child) = branch_child(a, e, d) else {
+                    continue;
+                };
+                let clo = if d == dlo { child_rem(lo, kb) } else { 0 };
+                let chi = if d == dhi { child_rem(hi, kb) } else { full };
+                let cprefix = prefix | (u32::from(d) << ((kb - 1) as u32 * 8));
+                let before = child;
+                let n = map_remove_range(a, &mut child, kb - 1, cprefix, clo, chi, f);
+                if n == 0 {
+                    continue;
+                }
+                total += n;
+                if child.is_null() {
+                    branch_add_keys(a, e, -(n as i64));
+                    // May demote or empty the branch, so the next iteration
+                    // re-dispatches on the rewritten edge.
+                    branch_remove_digit(a, e, d);
+                    if e.is_null() {
+                        break;
+                    }
+                } else {
+                    branch_commit(a, e, d, (child != before).then_some(child), -(n as i64));
+                }
+            }
+            total
+        }
+        Kind::SetImmed { .. } | Kind::SetLeaf(_) | Kind::Bitmap => {
+            unreachable!("map op on a set edge")
+        }
+    }
+}
+
+/// Set-flavour sibling of [`map_remove_range`]: `f(key)` per removed key.
+pub(crate) fn set_remove_range<F: FnMut(u32)>(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    prefix: u32,
+    lo: u32,
+    hi: u32,
+    f: &mut F,
+) -> usize {
+    debug_assert!(lo <= hi);
+    match kind(e) {
+        Kind::Null => 0,
+        Kind::SetImmed { kb: _, count } => {
+            let (keys, n) = set_immed_keys(e, kb, count);
+            let mut v = [0u32; 7];
+            let mut m = 0usize;
+            let mut removed = 0usize;
+            for &k in &keys[..n] {
+                if k >= lo && k <= hi {
+                    f(prefix | k);
+                    removed += 1;
+                } else {
+                    v[m] = k;
+                    m += 1;
+                }
+            }
+            if removed == 0 {
+                return 0;
+            }
+            *e = if m == 0 {
+                Edge32::null()
+            } else {
+                set_immed_edge(kb, &v[..m])
+            };
+            removed
+        }
+        Kind::SetLeaf(_) => {
+            let pop = edge_pop(e);
+            let kbz = kb as usize;
+            let buf = a.leaf(edge_handle(e));
+            let i0 = leaf_lower_bound(buf, pop, kb, lo).unwrap();
+            let i1 = if hi == rem_mask(kb) {
+                pop
+            } else {
+                leaf_lower_bound(buf, pop, kb, hi + 1).unwrap()
+            };
+            if i1 <= i0 {
+                return 0;
+            }
+            for i in i0..i1 {
+                f(prefix | read_rem(buf, i, kbz));
+            }
+            let removed = i1 - i0;
+            let new_pop = pop - removed;
+            let h = edge_handle(e);
+            if new_pop == 0 {
+                *e = Edge32::null();
+                a.free(h);
+            } else if new_pop <= set_immed_cap(kb) {
+                let mut v = [0u32; 7];
+                let mut m = 0usize;
+                for i in (0..i0).chain(i1..pop) {
+                    v[m] = read_rem(buf, i, kbz);
+                    m += 1;
+                }
+                *e = set_immed_edge(kb, &v[..m]);
+                a.free(h);
+            } else {
+                set_leaf_remove_span(a, e, kb, i0, i1);
+            }
+            removed
+        }
+        Kind::Bitmap => {
+            // Collect the hits first: the walk borrows the leaf immutably
+            // and the clears need it mutably.
+            let mut digits = [0u8; 256];
+            let mut n = 0usize;
+            {
+                let leaf = a.bitmap(edge_handle(e));
+                let mut from = lo as u16;
+                while let Some(d) = bitmap_first_ge(leaf, from) {
+                    if u32::from(d) > hi {
+                        break;
+                    }
+                    digits[n] = d;
+                    n += 1;
+                    from = u16::from(d) + 1;
+                }
+            }
+            if n == 0 {
+                return 0;
+            }
+            let leaf = a.bitmap_mut(edge_handle(e));
+            for &d in &digits[..n] {
+                leaf.unset(d);
+                f(prefix | u32::from(d));
+            }
+            let pop = leaf.pop0 as usize;
+            if pop == 0 {
+                let old = edge_handle(e);
+                a.free(old);
+                *e = Edge32::null();
+            } else if pop <= SET_BITMAP_LEAVE {
+                let keys = bitmap_keys(a, e);
+                let old = edge_handle(e);
+                *e = if keys.len() <= set_immed_cap(1) {
+                    set_immed_edge(1, &keys)
+                } else {
+                    make_set_leaf(a, 1, &keys)
+                };
+                a.free(old);
+            }
+            n
+        }
+        Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+            let dlo = digit_at(lo, kb);
+            let dhi = digit_at(hi, kb);
+            let full = rem_mask(kb - 1);
+            let mut total = 0usize;
+            for d in dlo..=dhi {
+                let Some(mut child) = branch_child(a, e, d) else {
+                    continue;
+                };
+                let clo = if d == dlo { child_rem(lo, kb) } else { 0 };
+                let chi = if d == dhi { child_rem(hi, kb) } else { full };
+                let cprefix = prefix | (u32::from(d) << ((kb - 1) as u32 * 8));
+                let before = child;
+                let n = set_remove_range(a, &mut child, kb - 1, cprefix, clo, chi, f);
+                if n == 0 {
+                    continue;
+                }
+                total += n;
+                if child.is_null() {
+                    branch_add_keys(a, e, -(n as i64));
+                    branch_remove_digit(a, e, d);
+                    if e.is_null() {
+                        break;
+                    }
+                } else {
+                    branch_commit(a, e, d, (child != before).then_some(child), -(n as i64));
+                }
+            }
+            total
+        }
+        Kind::MapLeaf(_) | Kind::MapImmed { .. } | Kind::MapBitmap => {
+            unreachable!("set op on a map edge")
         }
     }
 }

@@ -336,6 +336,46 @@ fn bench_ble_tracker_ttl_eviction(c: &mut Criterion) {
         );
     });
 
+    // 1b. The same dual-trie eviction through `remove_range` (#578): one
+    // descent to the range plus one structural fix-up per touched node
+    // on `by_time`, with the hash-keyed `by_mac` removal per record kept
+    // exactly as above — that part is inherently random access.
+    group.bench_function(
+        BenchmarkId::new("expanse_dual_trie_eviction_range", n),
+        |b| {
+            b.iter_batched(
+                || {
+                    let mut by_mac = ExpanseMap32::new();
+                    let mut by_time = ExpanseMap32::new();
+                    let mut slab = Vec::with_capacity(n);
+                    for (idx, mac) in macs.iter().enumerate() {
+                        let rec = BleRecord {
+                            mac: *mac,
+                            last_seen_ms: (idx * 10) as u32,
+                            ..BleRecord::default()
+                        };
+                        slab.push(rec);
+                        let h = fnv1a_32(mac);
+                        by_mac.insert(h, idx as u32);
+                        let tk = ((rec.last_seen_ms / 1000) << 13) | (idx as u32 & 0x1FFF);
+                        by_time.insert(tk, idx as u32);
+                    }
+                    (by_mac, by_time, slab)
+                },
+                |(mut by_mac, mut by_time, slab)| {
+                    let cutoff_sec = 5u32;
+                    let max_tk = (cutoff_sec << 13) | 0x1FFF;
+                    let evicted = by_time.remove_range(0..=max_tk, |_tk, idx| {
+                        let rec = &slab[idx as usize];
+                        by_mac.remove(fnv1a_32(&rec.mac));
+                    });
+                    black_box((by_mac, by_time, evicted))
+                },
+                criterion::BatchSize::PerIteration,
+            );
+        },
+    );
+
     // 2. HashMap TTL Eviction (Full table scan)
     group.bench_function(BenchmarkId::new("hashmap_full_scan_eviction", n), |b| {
         b.iter_batched(
@@ -408,6 +448,41 @@ fn bench_ble_tracker_ttl_eviction(c: &mut Criterion) {
                         by_mac.remove(h);
                         evicted += 1;
                     }
+                    black_box((by_mac, by_time, evicted))
+                },
+                criterion::BatchSize::PerIteration,
+            );
+        },
+    );
+    group.bench_function(
+        BenchmarkId::new("expanse_dual_trie_eviction_range_steady", n),
+        |b| {
+            b.iter_batched(
+                || {
+                    let mut by_mac = ExpanseMap32::new();
+                    let mut by_time = ExpanseMap32::new();
+                    let mut slab = Vec::with_capacity(n);
+                    for (idx, mac) in macs.iter().enumerate() {
+                        let rec = BleRecord {
+                            mac: *mac,
+                            last_seen_ms: steady_seen(idx),
+                            ..BleRecord::default()
+                        };
+                        slab.push(rec);
+                        let h = fnv1a_32(mac);
+                        by_mac.insert(h, idx as u32);
+                        let tk = ((rec.last_seen_ms / 1000) << 13) | (idx as u32 & 0x1FFF);
+                        by_time.insert(tk, idx as u32);
+                    }
+                    (by_mac, by_time, slab)
+                },
+                |(mut by_mac, mut by_time, slab)| {
+                    let cutoff_sec = 5u32;
+                    let max_tk = (cutoff_sec << 13) | 0x1FFF;
+                    let evicted = by_time.remove_range(0..=max_tk, |_tk, idx| {
+                        let rec = &slab[idx as usize];
+                        by_mac.remove(fnv1a_32(&rec.mac));
+                    });
                     black_box((by_mac, by_time, evicted))
                 },
                 criterion::BatchSize::PerIteration,

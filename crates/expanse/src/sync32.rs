@@ -59,6 +59,17 @@
 //! mutate node buffers in place (#577), and the fixed arena bounds
 //! *retained* memory.)
 //!
+//! # No batched removal on the writer
+//!
+//! `ExpanseMap32::remove_range` / `ExpanseSet32::remove_range` (#578) are
+//! deliberately not mirrored on [`Writer32`]: one call can retire a node
+//! per touched leaf and reallocate every class-shrunk one, so its
+//! allocation demand is bounded by the range's population, not by
+//! [`MUTATION_HEADROOM`], and the `ensure_headroom` contract that makes a
+//! refused mutation leave the tree untouched would not hold. Evict from
+//! a writer with per-key `try_remove` calls, each individually
+//! refusable.
+//!
 //! # Memory-model caveat
 //!
 //! Readers walk tree memory the writer may be mutating; the racy loads

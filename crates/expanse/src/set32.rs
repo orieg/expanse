@@ -152,6 +152,24 @@ impl ExpanseSet32 {
         removed
     }
 
+    /// Removes every key in `range`, calling `f(key)` for each removed key
+    /// in ascending order, and returns how many were removed. See
+    /// [`ExpanseMap32::remove_range`](crate::ExpanseMap32::remove_range)
+    /// for why this beats a `first`/`remove` loop (#578).
+    pub fn remove_range<F: FnMut(Key32)>(
+        &mut self,
+        range: core::ops::RangeInclusive<Key32>,
+        mut f: F,
+    ) -> usize {
+        let (lo, hi) = (*range.start(), *range.end());
+        if lo > hi {
+            return 0;
+        }
+        let n = trie32::set_remove_range(&mut self.alloc, &mut self.root, 4, 0, lo, hi, &mut f);
+        self.len -= n;
+        n
+    }
+
     /// Returns the number of keys present in the set.
     #[inline]
     #[must_use]
@@ -1085,5 +1103,66 @@ mod tests {
         assert_eq!(one.difference_len(&empty), 1);
         assert_eq!((&one ^ &empty).len(), 1);
         assert_eq!((&one & &one).len(), 1);
+    }
+
+    /// Set sibling of the map model test: `remove_range` vs `BTreeSet`
+    /// over shapes reaching immediates, linear leaves, bitmaps and every
+    /// branch flavour, with random inclusive ranges.
+    #[test]
+    fn remove_range_matches_btreeset_model() {
+        let mut state = 0x7A11_0C35u32;
+        let mut lcg = move || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            state
+        };
+        for round in 0..40u32 {
+            let mut set = ExpanseSet32::new();
+            let mut model: BTreeSet<u32> = BTreeSet::new();
+            let n = 200 + (lcg() % 3_000) as usize;
+            for _ in 0..n {
+                let k = match lcg() % 4 {
+                    0 => lcg() % 512,
+                    1 => (lcg() % 64) << 24 | (lcg() % 8),
+                    2 => 0x0100_0000 + lcg() % 100_000,
+                    _ => lcg(),
+                };
+                assert_eq!(set.insert(k), model.insert(k));
+            }
+            let mut steps = 0;
+            while !model.is_empty() && steps < 64 {
+                steps += 1;
+                assert_eq!(set.first(), model.iter().next().copied());
+                let (lo, hi) = match lcg() % 3 {
+                    0 => (0, lcg() % 1_024),
+                    1 => {
+                        let a = lcg();
+                        (a, a.saturating_add(lcg() % 0x0100_0000))
+                    }
+                    _ => {
+                        let a = lcg();
+                        (a.min(a ^ 0xFF), a.max(a ^ 0xFF))
+                    }
+                };
+                let mut seen = Vec::new();
+                let n = set.remove_range(lo..=hi, |k| seen.push(k));
+                let expected: Vec<u32> = model.range(lo..=hi).copied().collect();
+                assert_eq!(
+                    seen, expected,
+                    "round {round} step {steps} range {lo:#x}..={hi:#x}"
+                );
+                assert_eq!(n, expected.len());
+                model.retain(|&k| k < lo || k > hi);
+                assert_eq!(set.len(), model.len());
+                assert!(set.iter().eq(model.iter().copied()));
+            }
+            let left = model.len();
+            assert_eq!(set.remove_range(0..=u32::MAX, |_| {}), left);
+            assert!(set.is_empty());
+            assert_eq!(
+                set.mem_used(),
+                ExpanseSet32::new().mem_used(),
+                "byte leak after drain"
+            );
+        }
     }
 }
