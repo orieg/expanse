@@ -1,17 +1,31 @@
-# ThreadSanitizer Suppressions for Expanse
+# ThreadSanitizer (TSan) Suppressions for Expanse
 #
 # Expanse uses Optimistic Concurrency Control (OCC) with seqlock version
-# validation and Epoch-Based Reclamation (EBR).
+# validation (SeqVersion / SeqVersion32) and Epoch-Based Reclamation (EBR).
 # Readers perform optimistic (plain) loads of trie nodes and leaf arrays
 # concurrently with single-writer mutations.
 #
-# Below, we suppress ONLY the underlying node/leaf/blob/bucket storage
-# manipulations where optimistic reader loads race with in-place writes.
-# Concurrency coordination primitives (such as writer mutexes, reader counters,
-# Collector/Epoch advance in occ.rs/occ32.rs, and Sync* wrapper protocols)
-# are NOT suppressed so genuine concurrency bugs are detected by TSan.
+# MATCHING SEMANTICS & RESIDUAL COVERAGE BOUNDARIES:
+# 1. LLVM TSan suppression patterns match by substring against any frame in the
+#    backtrace of EITHER racing thread.
+# 2. File patterns like `race:map.rs` match as substrings, covering any path
+#    containing `map.rs` (`map.rs`, `mutate_map.rs`, `bytesmap.rs`, `strmap.rs`,
+#    `blobmap.rs`). They are listed explicitly below for documentation clarity.
+# 3. Because every storage data race has a write side executing in one of the
+#    suppressed storage files (`mutate_map.rs`, `mutate.rs`, `map.rs`, `trie32.rs`),
+#    any race touching node/leaf arrays is suppressed by the write-side frame.
+# 4. Consequently, an unbracketed in-place mutation racing an optimistic reader
+#    (#477/#479) is TSan-invisible. That bug class is caught deterministically by
+#    `assert_bracketed()` debug panics in `NodeAlloc`, Loom model checks (`loom_`),
+#    and linearizability history recording (`tests/linearizability.rs`), NOT by TSan.
+# 5. For 32-bit targets (`sync32`), both the validated read (`map_get_validated`)
+#    and deferred node drop execution (`drain_pending`) execute within `trie32.rs`.
+#    Reclamation UAF races are caught by ASan and Loom, not TSan.
+# 6. TSan residual coverage: catches races where BOTH racing stacks remain outside
+#    the storage files (e.g. non-storage synchronization coordination, external
+#    test harnesses, and language binding state).
 
-# Node and slot read/write paths
+# Demangled symbol path patterns
 race:expanse_trie::map::*
 race:expanse_trie::mutate_map::*
 race:expanse_trie::mutate::*
@@ -23,12 +37,13 @@ race:expanse_trie::bytesmap::*
 race:expanse_trie::strmap::*
 race:expanse_trie::blobmap::*
 
-# Source file paths for storage engines
+# Source file substring patterns for storage engines
 race:map.rs
 race:mutate_map.rs
 race:mutate.rs
 race:set.rs
 race:bits.rs
+race:slot.rs
 race:bytesmap.rs
 race:strmap.rs
 race:blobmap.rs
