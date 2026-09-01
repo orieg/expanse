@@ -14,7 +14,7 @@ an ESP-IDF project.
 | ESP32-C2 (ESP8684), ESP32-C3 | RV32IMC | 1 / 0 | `riscv32imc-unknown-none-elf` | supported |
 | ESP32-C6 | RV32IMAC | 1 / 1 | `riscv32imac-unknown-none-elf` | supported |
 | ESP32-H2 | RV32IMAC | 1 / 0 | `riscv32imac-unknown-none-elf` | supported |
-| ESP32-P4 | RV32IMAFC (+Zc, Zb) | 2 / 1 | `riscv32imac-unknown-none-elf` (instruction subset) | supported, ABI untested — see below |
+| ESP32-P4 | RV32IMAFC (+Zc, Zb) | 2 / 1 | `riscv32imafc-unknown-none-elf` (ilp32f, matching ESP-IDF's `-mabi=ilp32f`) | supported, end-to-end link untested — see below |
 | ESP32, ESP32-S2, ESP32-S3 | Xtensa | — | — | **not supported** |
 
 Every ISA and hart count above is quoted from the part's Espressif datasheet or
@@ -37,13 +37,17 @@ defines over `heap_caps_malloc`. On C2, C3, C6 and H2 the bare-metal ABI (ilp32,
 soft float) is the only one available — none of those cores implements the F
 extension — and the whole thing builds on stable rustc.
 
-**ESP32-P4 caveat.** The P4's HP complex is RV32IMAFC (ESP32-P4 Datasheet
-Pre-release v0.7 §4.1.1.1), so it *does* implement F. This component still
-builds it against `riscv32imac-unknown-none-elf`: a strict instruction subset
-the P4 executes, but not the same float ABI an `imafc` toolchain emits. The
-mainline `riscv32imafc-unknown-none-elf` target exists and is the triple that
-matches the part. No ESP-IDF lane exists in CI, so the P4 link is untested here
-either way — treat it as unverified rather than known-good.
+**ESP32-P4.** The P4's HP complex is RV32IMAFC (ESP32-P4 Datasheet
+Pre-release v0.7 §4.1.1.1), and ESP-IDF compiles it hard-float — its build
+system (`components/soc/project_include.cmake` in esp-idf) sets
+`-march=rv32imafc` (`rv32imafcb` on newer silicon revisions, a superset that
+runs `imafc` code) and `-mabi=ilp32f` for FPU-bearing cores. This component
+therefore builds `esp32p4` against `riscv32imafc-unknown-none-elf`, whose
+archive carries `EF_RISCV_FLOAT_ABI_SINGLE` (ilp32f) — a soft-float `imac`
+archive would be rejected by the RISC-V linker's float-ABI check (#581). CI
+builds the `imafc` staticlib and asserts its ELF float-ABI flag; the ESP-IDF
+link itself still has no CI lane, so treat end-to-end linking as unverified
+rather than known-good until an on-device build covers it.
 
 ## What the 32-bit library exports
 

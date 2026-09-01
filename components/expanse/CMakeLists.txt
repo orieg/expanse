@@ -32,8 +32,17 @@ set(EXPANSE_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../..")
 
 if(IDF_TARGET STREQUAL "esp32c2" OR IDF_TARGET STREQUAL "esp32c3")
     set(EXPANSE_RUST_TARGET "riscv32imc-unknown-none-elf")
-elseif(IDF_TARGET STREQUAL "esp32c6" OR IDF_TARGET STREQUAL "esp32h2" OR IDF_TARGET STREQUAL "esp32p4")
+elseif(IDF_TARGET STREQUAL "esp32c6" OR IDF_TARGET STREQUAL "esp32h2")
     set(EXPANSE_RUST_TARGET "riscv32imac-unknown-none-elf")
+elseif(IDF_TARGET STREQUAL "esp32p4")
+    # The P4 is RV32IMAFC (docs/HARDWARE.md §4.3, TRM v0.7 §2.1) and ESP-IDF
+    # compiles it hard-float: components/soc/project_include.cmake sets
+    # -march=rv32imafc (rv32imafcb on newer silicon revisions — a superset
+    # that still runs imafc code) and -mabi=ilp32f when the CPU has an FPU.
+    # A soft-float riscv32imac archive carries EF_RISCV_FLOAT_ABI_SOFT and
+    # the RISC-V linker refuses to mix float ABIs, so the target must be the
+    # ilp32f one (#581).
+    set(EXPANSE_RUST_TARGET "riscv32imafc-unknown-none-elf")
 else()
     message(FATAL_ERROR
         "expanse: IDF_TARGET '${IDF_TARGET}' is not supported. The Xtensa parts "
