@@ -127,6 +127,7 @@ When packing relative timestamps and entity indices into composite 32-bit words 
 - **C ABI Prefixes**:
   - Modern API functions use the `expanse_` prefix (e.g. `expanse_map_get`); new C capabilities always use it.
   - Compat symbols retain exact `Judy1*`, `JudyL*`, `JudySL*`, `JudyHS*` signatures and **never change semantics**.
+  - A `expanse_*` symbol that only one width's engine can honour goes in the matching width-gated block of `include/expanse.h` (`#if EXPANSE_WIDE_SURFACE` / `#if !EXPANSE_WIDE_SURFACE`) — absent from the other build, never stubbed. `scripts/check_abi_parity.py` tags the narrow block `narrow_only` and excludes it from binding coverage; the i686 CI job (Rust test + a C smoke linked with `-m32`) is its verification lane. `docs/COMPAT.md` carries the surface matrix.
 
 ---
 
@@ -239,6 +240,11 @@ On pull requests, maintainers and authorized collaborators can trigger automated
 
 See `docs/BENCHMARKING.md` §2–3 and `docs/CI.md` for details.
 
+### Profile First, Measure Every Increment, Record the Negatives
+- **Rank before changing.** A performance change starts from a per-function Callgrind ranking of the exact benchmark-arm body (a `callgrind_annotate` profile, not intuition about which idiom is expensive). The #577 write-path work found 58% of instructions in one leaf-rebuild pattern that no candidate list had ranked first.
+- **One increment, one measurement.** Each change is measured in isolation against the previous increment on the same instrument before the next is attempted; a batch of plausible changes measured once cannot attribute anything.
+- **A flat or negative result is reverted and written down.** The textbook fix can lose: the iterative rewrite of the 32-bit descent measured +1.2% and was reverted (#586). §8.7 applies to negatives — the PR records what was tried, the number, and why it was reverted, so the next agent does not retry it.
+
 ### Zero-Regression Policy
 - **Fewer instructions is always better** — for a change that removes work. A change that overlaps or hides stalls (memory-level parallelism, batching, prefetch, TLB/page-size work) may retire *more* instructions while lowering latency; wall clock with BCa CIs on the reference host is primary for those. See [Which instrument fits the change](docs/BENCHMARKING.md#which-instrument-fits-the-change).
 - **No-regression applies to the paths a change is not targeting.** A new latency-hiding path whose own count rises is not a regression. The existing scalar paths still must not, and Callgrind proves that.
@@ -285,6 +291,10 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | Retracted/superseded figures absent across all published surfaces (Markdown, HTML, JSON, assets) | **CI** | `lint` & `docs-lint` jobs → `scripts/check_docs_hygiene.py`, `crates/expanse/tests/test_visualizer_sync.rs` (driven by `.github/superseded-figures.json`) |
 | Benchmark workload shape declarations (11 required fields) & docs sync | **CI** | `lint` job → `scripts/check_bench_shapes.py` |
 | Paired performance figures carry a shared workload ID (§8.12) | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |
+| §6 profile-first: per-function ranking before a perf change, one increment per measurement, negatives recorded | **review** | the PR body carries the ranking and each increment's number |
+| §8.7 a fix on a measured path re-measures that number and states the correction | **review** | `docs/benchmarks/**/results.json` provenance must post-date the fix commit |
+| `Closes #N` only for full resolution; partial work uses `Refs #N` | **review** | — |
+| Width-gated C symbols: narrow-surface block tagged `narrow_only`, excluded from binding coverage; verified on the 32-bit lane | **CI** | `lint` job → `scripts/check_abi_parity.py`; `test-i686` job (Rust test + `-m32` C smoke) |
 | Pending/unverified measurement cells cite OPEN tracking issues | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |
 | Visualizer data/HTML synchronization with engine | **CI** | `test` job (gated by narrow `visualizer:` path filter) → `tests/test_visualizer_sync.rs` |
 | Conventional-commit type · branch naming | **review** | — |
@@ -302,6 +312,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
   - **Branches must be up to date before merging** (enforced by the repository ruleset).
   - No force-push, no deletion, no bypass actors.
   - Workflow: branch → push → `gh pr create` → watch checks → `gh pr merge`.
+- **`Closes #N` only when the PR fully resolves the issue.** GitHub ignores prose qualifiers — `Closes #564's terminology half` closed #564. Partial or follow-up work uses `Refs #N`; closing is the maintainer's action.
 - **Worktree & Branch Hygiene (Never Soft-Reset Across Moving Base Refs)**:
   - **Never `git reset --soft <moving-ref>` followed by `git add -A`** in agent workflows. If `origin/main` has advanced since a worktree or branch was created, running a soft reset to the new `origin/main` while the working tree contains an older checkout causes `git add -A` to stage **unintentional deletions of all files added on `main` in the interim** (#458).
   - To bring work up to date with `main`, always `git rebase origin/main` or apply your changes cleanly to a fresh branch off current `origin/main`.
@@ -381,6 +392,7 @@ Expanse is an empirical performance project. Autonomous agents interacting with 
 - **Provenance Tags Required**: Every published number in documentation must carry a provenance tag: `(measured: host, commit)` resolving to a committed JSON artifact or cited CI run.
 - **Compiler Codegen & Assembly Provenance**: Claims comparing compiler instruction lowering or assembly counts (e.g. ISA extensions like Zbb/NEON vs software SWAR loops) must cite the exact reproduction invocation (`cargo rustc -p <crate> --lib --target <target> --release -- --emit asm`), toolchain version (`rustc X.Y.Z`), and target features.
 - **No In-Place Backfilling**: Pre-registration sections, hypotheses, claims ceilings, and expected loss matrices must **never be reconciled in place** with observed outcomes. When an empirical result refutes a pre-registered hypothesis or reveals an unexpected loss, report the outcome honestly with its strict verdict label.
+- **A fix on a measured path invalidates its published number.** When a code change touches a path that a published figure was measured on, that figure is stale until re-measured on the same instrument — never argue from workload shape that it was unaffected (the #578 bulk-eviction figure was defended that way and was wrong: the fixture's buckets were exactly the bitmaps the fix touched, #591). Publish the corrected number **next to a statement of the correction**; never overwrite silently.
 
 ### 8.8 The 3-Commit Cadence for Research Spikes
 Separate research and benchmark spikes into three distinct commits:

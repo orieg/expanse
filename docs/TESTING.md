@@ -71,6 +71,27 @@ Miri is tiered: the per-push `miri` job runs a fast smoke over the unsafe core, 
 - **In CI**: `fuzz-smoke` discovers targets from `fuzz/Cargo.toml` (`cargo fuzz list`) and fails if a `fuzz/fuzz_targets/*.rs` file is not registered (or vice versa), so adding a target file + `[[bin]]` is sufficient to get it fuzzed; It runs 60s per target per push (build check + shallow sweep); the nightly workflow runs 20 minutes per target with the corpus cached between nights, and uploads crash artifacts on failure. First local session: ~1.9M executions across the then-three targets, no crashes.
 - **A crash becomes a named test.** Reproduce with `cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<input>`, then write the minimal case into the normal suite — corpora and artifacts are gitignored, so a finding that lives only in `fuzz/artifacts/` is a finding that will be lost.
 
+### Model tests need a deterministic transition companion
+
+Randomised model tests (`BTreeMap`/`BTreeSet` twins over random op
+streams) are the wide net, not the whole net. The node-kind transition
+table is finite — immediate ↔ linear leaf ↔ bitmap ↔ branch flavour, a
+full clear, a single-survivor demotion, a capacity-class boundary — and
+a random stream can run thousands of ops without drawing one cell. The
+#578 batched removal shipped through a 40-round model test with a
+`pop0` underflow on "clear a whole map-bitmap expanse": the shape simply
+never came up, and the 32-bit C test in CI found it. Every new mutation
+path therefore lands with one deterministic test per transition cell it
+can reach, next to the model test — `remove_range_clears_a_whole_map_bitmap_expanse`
+and `leaf_mutation_reuses_allocation_within_cap_class` are the shape.
+
+Two sharp edges that make those tests worth more than they look:
+`pop0` is **`count − 1`** on branch and map-bitmap headers but a **true
+count** on the set bitmap (`node32.rs` documents each field; read it
+before touching a count); and release builds carry no overflow checks, so
+a wrapped counter passes a benchmark silently — which is why the i686 job
+runs the 32-bit engine's tests in a debug build.
+
 ### Depth is a coverage dimension, not just a size
 
 `ExpanseStrMap` is a meta-trie over 8-byte chunks, so **key length is

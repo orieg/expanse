@@ -991,6 +991,30 @@ With the variables unset, local behavior is the unchanged full sweep. CI runs a 
 ### 4. Triggering via `workflow_dispatch`
 The `Bare-Metal Benchmarks` workflow can also be triggered manually via GitHub Actions UI (*Actions* tab $\rightarrow$ *Bare-Metal Benchmarks* $\rightarrow$ *Run workflow*). It accepts `ref`, `base_ref`, `pr_number`, and `benchmark_suite`.
 
+### 4a. Reading a dispatched run honestly
+
+Three things about a dispatched run are easy to misread, and each one has
+already produced a wrong number in a PR body once:
+
+- **The benchmarked commit is not the run's `headSha`.** On a
+  `workflow_dispatch` run, `gh run view --json headSha` reports the ref the
+  *workflow file* came from (`main`), not `inputs.ref`. Take the benchmarked
+  commit from the `Run Bare-Metal Benchmarks` job log (`HEAD is now at …`
+  after "Checking out the ref") or from the harvest's `provenance.commit`.
+- **The PR Callgrind job log holds three passes per arm.** Pass 1 saves the
+  `main_base` baseline (`Baselines: main_base|main_base (old)`, delta `N/A`);
+  pass 2 is PR-vs-main (`Baselines: |main_base`, the second occurrence of each
+  arm name); pass 3 is a further internal pass whose deltas are not the PR's.
+  Extract by baseline label and arm occurrence — never `tail` — or the report
+  quotes the wrong pass (a "−10.6% `map32_get`" was published that way; the
+  real PR-vs-main delta was zero).
+- **A local cross-ISA Callgrind harness ranks; it does not measure.** An
+  aarch64 container profile is the right tool for *which function dominates*
+  and for measuring increments against each other, but its magnitudes differ
+  from the x86 gate (`#[inline(always)]` on `branch_child` was −10% there and
+  −12.9% canonical; the same change reads differently per ISA). Publish only
+  the CI job's pass-2 numbers, labelled with the run id.
+
 ### 5. Running Locally over LAN
 Developers can also execute the exact same sync, build, and benchmark suite from their local development machine across their LAN using `scripts/run_remote_bench.sh`:
 

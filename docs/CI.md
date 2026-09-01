@@ -240,6 +240,8 @@ Nightly workflows run out of band with no human watching PR checks, so failures 
 2. **Zero-byte memory copies** — inserting at the end of a linear leaf (`pos == pop`) must not issue an unconditional `copy_nonoverlapping` of 0 bytes; guard with `if pos < pop`.
 3. **C-vs-Rust ABI fairness** — compare `.so` against `.so` via `dlopen` (the `*_expanse_dl` arms) so static LTO doesn't skew stock-libjudy comparisons.
 4. **Binary file searches** — never `grep`/`rg`/`sed` binary artifacts (`.so`, `.dll`, `.a`, `.tar.gz`); use `nm`/`objdump`/`python3`.
+5. **`X | grep -q` under the runner shell** — workflow steps run `bash -e -o pipefail`; `grep -q` exits at the first match and closes the pipe, so a producer still writing (`llvm-readobj` over an archive, for instance) dies with EPIPE and the pipeline *fails on a match*. It is timing-dependent and rarely reproduces locally. Write the producer's output to a file, then grep the file.
+6. **The docs-hygiene gate reads the PR body from the event payload** captured when the run was triggered — editing the body afterwards does not re-run or fix it; push a new commit. Its retracted-figure ledger matches literal tokens (`1.11×` is one), so a coincidentally identical ratio must be phrased differently (a percentage, or one more significant figure) rather than fought.
 
 ---
 
