@@ -95,22 +95,22 @@
     <text x="0" y="13" class="t-chart-sub">per event, incl. flush share &#183; measured &#183; lower is better</text>
     <text x="0" y="29" class="t-unit-header">&#9660; ns / event</text>
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">150</text>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">50</text>
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">75</text>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">25</text>
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="45" y="86.3" width="50" height="108.7" class="b-expanse" rx="2"/>
-    <text x="70" y="77.8" class="t-val-accent">109</text>
+    <rect x="45" y="71.2" width="50" height="123.8" class="b-expanse" rx="2"/>
+    <text x="70" y="62.7" class="t-val-accent">41</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub" text-anchor="middle">40.6&#215; slower</text>
-    <rect x="115" y="192.3" width="50" height="2.7" class="b-hashmap" rx="2"/>
-    <text x="140" y="183.8" class="t-val-blue">2.7</text>
+    <text x="70" y="228" class="t-chart-sub" text-anchor="middle">13.1&#215; slower</text>
+    <rect x="115" y="185.6" width="50" height="9.4" class="b-hashmap" rx="2"/>
+    <text x="140" y="177.1" class="t-val-blue">3.1</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">HashMap</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">unordered</text>
-    <rect x="185" y="164.1" width="50" height="30.9" class="b-stdmap" rx="2"/>
-    <text x="210" y="155.6" class="t-val-muted">31</text>
+    <rect x="185" y="110.0" width="50" height="85.0" class="b-stdmap" rx="2"/>
+    <text x="210" y="101.5" class="t-val-muted">28</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">ordered</text>
   </g>
@@ -131,13 +131,13 @@
     <rect x="45" y="67.2" width="50" height="127.8" class="b-expanse" rx="2"/>
     <text x="70" y="58.7" class="t-val-accent">12.8</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="70" y="228" class="t-chart-sub" text-anchor="middle">9.3&#215; slower</text>
-    <rect x="115" y="181.3" width="50" height="13.7" class="b-hashmap" rx="2"/>
-    <text x="140" y="172.8" class="t-val-blue">1.4</text>
+    <text x="70" y="228" class="t-chart-sub" text-anchor="middle">9.0&#215; slower</text>
+    <rect x="115" y="180.8" width="50" height="14.2" class="b-hashmap" rx="2"/>
+    <text x="140" y="172.3" class="t-val-blue">1.4</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">HashMap</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">unordered</text>
-    <rect x="185" y="125.7" width="50" height="69.3" class="b-stdmap" rx="2"/>
-    <text x="210" y="117.2" class="t-val-muted">6.9</text>
+    <rect x="185" y="125.6" width="50" height="69.4" class="b-stdmap" rx="2"/>
+    <text x="210" y="117.1" class="t-val-muted">6.9</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">ordered</text>
   </g>
@@ -149,24 +149,24 @@
     <text x="0" y="13" class="t-chart-sub">evict 25 stale of 2,000 tracked &#183; measured</text>
     <text x="0" y="29" class="t-unit-header">&#9660; &#181;s / housekeeping pass</text>
     <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
-    <text x="22" y="48" class="t-axis-label" text-anchor="end">10</text>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">5</text>
     <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
-    <text x="22" y="123" class="t-axis-label" text-anchor="end">5</text>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">2.5</text>
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="60" y="76.2" width="50" height="118.8" class="b-expanse" rx="2"/>
-    <text x="85" y="67.7" class="t-val-accent">7.9</text>
+    <rect x="60" y="76.8" width="50" height="118.2" class="b-expanse" rx="2"/>
+    <text x="85" y="68.3" class="t-val-accent">3.9</text>
     <text x="85" y="214" class="t-bar-label" text-anchor="middle">Expanse</text>
-    <text x="85" y="228" class="t-chart-sub" text-anchor="middle">2.5&#215; slower</text>
-    <rect x="170" y="147.3" width="50" height="47.7" class="b-hashmap" rx="2"/>
-    <text x="195" y="138.8" class="t-val-blue">3.2</text>
+    <text x="85" y="228" class="t-chart-sub" text-anchor="middle">1.3&#215; slower</text>
+    <rect x="170" y="103.9" width="50" height="91.1" class="b-hashmap" rx="2"/>
+    <text x="195" y="95.4" class="t-val-blue">3.0</text>
     <text x="195" y="214" class="t-bar-label" text-anchor="middle">HashMap</text>
     <text x="195" y="228" class="t-chart-sub" text-anchor="middle">scans all 2k</text>
   </g>
 
   <text x="30" y="262" class="t-chart-sub">Panel 1 derived by scripts/embedded_envelope.py; panels 2-4 measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic).</text>
-  <text x="30" y="275" class="t-chart-sub">Expiry scaling: Expanse&#8217;s pass cost follows the stale count; the HashMap sweep follows the tracked count (~68 KiB flat table, L2-resident on this host) &#183; bulk shape (600 of 2,000 expired): dual-trie 183 &#181;s vs sweep 7.1 &#181;s — the linear sweep wins bulk expiry.</text>
-  <text x="700" y="262" class="t-chart-sub">Commit a191bae0b, run 33518560277 &#183; BCa 95% CIs in docs/benchmarks/embedded/results.json.</text>
+  <text x="30" y="275" class="t-chart-sub">Expiry scaling: Expanse&#8217;s pass cost follows the stale count; the HashMap sweep follows the tracked count (~68 KiB flat table, L2-resident on this host) &#183; bulk shape (600 of 2,000 expired): dual-trie 87 &#181;s vs sweep 7.3 &#181;s — the linear sweep wins bulk expiry.</text>
+  <text x="700" y="262" class="t-chart-sub">Commit 1402a606c, run 33550404527 &#183; BCa 95% CIs in docs/benchmarks/embedded/results.json.</text>
   <text x="30" y="288" class="t-chart-sub">Host caveat: a 30 MiB L3 flatters flat scans; the on-device ESP32-C3/C6 chart is pending the first hardware harvest.</text>
 </svg>
