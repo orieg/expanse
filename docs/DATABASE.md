@@ -490,7 +490,15 @@ On resource-constrained 32-bit microcontrollers (ESP32-C3 / ESP32-C6 / ESP32-P4)
    - Composite 32-bit time key: `rel_sec: 19 bits | slab_idx: 13 bits`, providing ~6.06 days active window with automatic epoch rebasing during stale eviction.
    - $O(\text{expired})$ TTL range pruning via `expanse_ble_tracker_expire_stale(tracker, cutoff_ms)` without scanning live entries.
 
-*(Benchmark visualization: hardware cycle/throughput chart pending first measured bare-metal ESP32-C3/C6 run; see `scripts/esp32_bench_harvest.py --emit-json`)*
+![Embedded Storage Engines: sensor TSDB density, BLE tracker footprint, ingest+flush wall clock](./assets/bench_embedded.svg)
+
+*(Panels 1-2 derived by `scripts/embedded_envelope.py`; panel 3 measured on the reference bench host with BCa 95% CIs recorded in `docs/benchmarks/embedded/results.json`. Regenerate with `python3 scripts/generate_embedded_svg.py`. The on-device ESP32-C3/C6 cycle/throughput chart remains pending the first hardware harvest — `scripts/esp32_bench_harvest.py --emit-json`.)*
+
+**Measured host-side wall-clock outcomes, reported per §8.7** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8, run [33518560277](https://github.com/orieg/expanse/actions/runs/33518560277), commit `a191bae0`; BCa 95% CIs, artifact `docs/benchmarks/embedded/results.json`)*:
+
+- **Ingest** (`ExpanseMap32`, per event incl. flush share, $N=2\text{k}$): **108.7 ns** vs `BTreeMap` 30.9 ns and reserved `HashMap` 2.7 ns — 3.5× and 40.6× slower. The hash-map concession was pre-registered (#556 §3.2); the `BTreeMap` gap was not, and stands as an open finding for the 32-bit write path.
+- **CAN dispatch lookup** ($N=500$, per op): **12.8 ns** vs `HashMap` 1.4 ns and `BTreeMap` 6.9 ns — the pre-registered lookup concession, plus an unregistered 1.8× gap to the ordered competitor.
+- **TTL eviction — the pre-registered winning regime does not win on this host in either shape.** Bulk (600 of 2k expired, symmetric cutoffs): dual-trie **183.2 µs** vs full sweep **7.1 µs** (25.8× slower). Steady state (25 of 2k expired — the regime the $O(\text{expired})$ claim is about): dual-trie **7.9 µs** vs sweep **3.2 µs** (2.5× slower). The sweep walks a ~68 KiB flat table that is L2-resident on this host at ~1.6 ns/entry; its cost scales with $N$ while the dual-trie's scales with the expired count, so the projected crossover sits at larger populations — and a cache-light 160 MHz target changes the constants entirely. Whether the asymptotic story survives on-device is exactly what the pending hardware harvest measures.
 
 **Architectural Benefits in RocksDB LSM Storage** *(memory density: deterministic seeded byte accounting against the fair variable-height skiplist baseline, at the [#372](https://github.com/orieg/expanse/issues/372) fix commit — Apple M1, 8 cores, Apple clang 21, `-O3`, load-immune, reproduced twice. Throughput cells: **re-measured** against the fair variable-height skiplist baseline over five rounds with BCa 95% intervals — reference host, run [33398474866](https://github.com/orieg/expanse/actions/runs/33398474866), commit `6cb64b45`, artifact [`results/baseline_rocksdb.json`](../results/baseline_rocksdb.json). The baseline reports 18.7 B/entry, not the retracted 146.7 B/entry fat-node strawman, so these cells now stand on the same footing as the density figure)*:
 

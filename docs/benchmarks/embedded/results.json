@@ -1,0 +1,96 @@
+{
+  "meta": {
+    "population": 2000,
+    "can_lookups_per_iter": 500,
+    "memory_model": "scripts/embedded_envelope.py (density constants from the measured bytes_per_key_32 example; auxiliary slab arrays modeled exactly)",
+    "eviction_shapes": {
+      "bulk": "600 of 2,000 expired per pass (symmetric < 6,000 ms cutoff)",
+      "steady": "25 of 2,000 expired per pass (the O(expired) claim's regime)"
+    },
+    "wallclock_provenance": {
+      "host_description": "12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic)",
+      "commit": "a191bae0bd74702a54731a5cbb10910f85411bb3",
+      "run_id": "https://github.com/orieg/expanse/actions/runs/33518560277",
+      "os": "linux",
+      "arch": "x86_64",
+      "load_average_at_harvest": [
+        1.2,
+        1.05,
+        0.52
+      ],
+      "generated_by": "scripts/bench_baseline.py",
+      "source": "criterion 0.8 sample.json (times[i] / iters[i])"
+    },
+    "wallclock_statistics": {
+      "estimator": "mean of per-iteration samples (ns/iter)",
+      "method": "BCa bootstrap",
+      "confidence": 0.95,
+      "num_resamples": 2000,
+      "seed": 42,
+      "min_n": 10,
+      "point_and_interval_share_one_definition": true
+    }
+  },
+  "wallclock_ns": {
+    "ingest_expanse": {
+      "point_ns": 217382.8723880762,
+      "ci_lower_ns": 216919.253350677,
+      "ci_upper_ns": 217860.6238940433,
+      "status": "OK"
+    },
+    "ingest_hashmap": {
+      "point_ns": 5355.485536824599,
+      "ci_lower_ns": 5352.66057177811,
+      "ci_upper_ns": 5359.839931199879,
+      "status": "OK"
+    },
+    "ingest_btreemap": {
+      "point_ns": 61853.58091501352,
+      "ci_lower_ns": 61811.42778483254,
+      "ci_upper_ns": 61906.964759688526,
+      "status": "OK"
+    },
+    "lookup_expanse": {
+      "point_ns": 6390.028315416097,
+      "ci_lower_ns": 6384.848645080832,
+      "ci_upper_ns": 6408.8060890797615,
+      "status": "OK"
+    },
+    "lookup_hashmap": {
+      "point_ns": 684.4554180926892,
+      "ci_lower_ns": 684.2680726171919,
+      "ci_upper_ns": 685.0605071637273,
+      "status": "OK"
+    },
+    "lookup_btreemap": {
+      "point_ns": 3465.8974993230568,
+      "ci_lower_ns": 3464.189923869985,
+      "ci_upper_ns": 3470.904874663552,
+      "status": "OK"
+    },
+    "evict_bulk_expanse": {
+      "point_ns": 183150.08631816585,
+      "ci_lower_ns": 182968.43823900967,
+      "ci_upper_ns": 183326.82285814444,
+      "status": "OK"
+    },
+    "evict_bulk_hashmap": {
+      "point_ns": 7109.114561558422,
+      "ci_lower_ns": 7097.226728261699,
+      "ci_upper_ns": 7127.291237400541,
+      "status": "OK"
+    },
+    "evict_steady_expanse": {
+      "point_ns": 7920.359013591223,
+      "ci_lower_ns": 7911.770359295915,
+      "ci_upper_ns": 7928.478769384283,
+      "status": "OK"
+    },
+    "evict_steady_hashmap": {
+      "point_ns": 3182.3069131208467,
+      "ci_lower_ns": 3170.5434141939413,
+      "ci_upper_ns": 3192.996244454655,
+      "status": "OK"
+    }
+  }
+}
