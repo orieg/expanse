@@ -94,7 +94,14 @@ Never introduce a rotating ring buffer (e.g. 16 or 32 slots) to satisfy an API c
 - A fixed-size ring buffer does not uphold the contract; it creates a latent memory corruption defect that triggers silently on iteration $N+1$.
 - If a payload must be dynamically decoded/decompressed and cannot borrow directly from node or slab memory, provide an explicit caller-allocated destination buffer API (`*_get_into(..., buf, buf_len)`), or formally amend the API contract in `docs/COMPAT.md` and headers.
 
+### 2.5 Embedded Composite Time-Key Wrap & Epoch Rebase
+When packing relative timestamps and entity indices into composite 32-bit words (e.g. `rel_sec: 19 | idx: 13`):
+1. **Calculate and Document Field Wrap Duration**: Any composite key packing a timestamp into a narrowed bitfield MUST calculate and document the exact time-wrap boundary ($2^{\text{time\_bits}}$ seconds).
+2. **Explicit Epoch Rebasing**: An explicit epoch-rebase pass (or periodic memory window rebase) MUST be designed into the API contract to handle long-running execution beyond the bitfield limit without silent scan corruption or device loss.
+3. **Capacity Invariant Enforcement**: Constructors (`*_create(max_capacity)`) MUST assert or enforce that `max_capacity` does not exceed the index field's maximum representation ($2^{\text{idx\_bits}}$).
+
 ---
+
 
 ## 3. Clean-Room Discipline (Strict & Non-Negotiable)
 
@@ -444,4 +451,15 @@ When proposing in-register compression or inlining of multi-byte values into mac
 3. **Decouple Deterministic Census from Continuous Throughput Gating**: Phase 0 evaluation harnesses gate deterministically on mathematical correctness (0 round-trip errors) and promotion ratios against theoretical ceilings. Throughput and dispatch cost validation is gated on the reference host via Criterion/BCa CIs, never via hard panics on local wall-clock point estimates.
 4. **Workload-Shape Qualification (#487 / §8.12)**: Empirical promotion figures MUST be qualified by their exact workload ID (e.g. `(workload: value_compression_alnum_slug)`); never assert broad general promotion from domain-specific datasets.
 
+### 8.14 Embedded Sizing Envelopes & Math-First Derivation
+- Every embedded memory footprint table MUST be mathematically derived from a committed Python verification script (`scripts/embedded_envelope.py`) with unit tests pinning reference constants (Rule 12 / GEMINI.md §1.3).
+- The derivation MUST calculate exact struct padding/alignment across all arms and verify total memory fits within the target's physical available heap budget.
+- Every published or pre-registered sizing cell MUST carry a `(projected)` or `(measured: target, commit)` provenance tag.
 
+### 8.15 One Workload Shape Table per Benchmark File
+- `scripts/check_bench_shapes.py` parses exactly one `# Workload shape` table per harness file.
+- Do not declare multiple shape tables in a single file. New domain workloads or distinct hit-rate regimes belong in dedicated harness files (e.g. `benches/embedded_memtable.rs`), registered in `.github/bench-suites.json`, and synced with `python3 scripts/check_bench_suites.py --write`.
+
+### 8.16 Lock and Payload Symmetry across Competitor Arms
+- **Lock Symmetry**: When benchmarking synchronization wrappers (e.g. FreeRTOS mutexes), wrap ALL competitive arms in the identical synchronization construct, or benchmark all containers below the lock layer with explicit disclosure.
+- **Payload Symmetry**: All competitive arms must operate on the exact identical payload struct definition and byte size.

@@ -18,6 +18,8 @@
 idf_component_register(
     SRCS
         "src/expanse_esp_idf.c"
+        "src/expanse_memtable.c"
+        "src/expanse_ble_tracker.c"
     INCLUDE_DIRS
         "include"
         "${CMAKE_CURRENT_LIST_DIR}/../../include"

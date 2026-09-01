@@ -219,6 +219,34 @@ impl ExpanseMap32 {
 
     /// Smallest entry with key `>= bound`, if any.
     #[inline]
+    #[must_use]
+    pub fn next_at_or_after(&self, bound: Key32) -> Option<(Key32, Value32)> {
+        self.first_ge(bound)
+    }
+
+    /// Smallest entry with key `> bound`, if any.
+    #[inline]
+    #[must_use]
+    pub fn next_after(&self, bound: Key32) -> Option<(Key32, Value32)> {
+        self.next(bound)
+    }
+
+    /// Largest entry with key `<= bound`, if any.
+    #[inline]
+    #[must_use]
+    pub fn prev_at_or_before(&self, bound: Key32) -> Option<(Key32, Value32)> {
+        self.last_le(bound)
+    }
+
+    /// Largest entry with key `< bound`, if any.
+    #[inline]
+    #[must_use]
+    pub fn prev_before(&self, bound: Key32) -> Option<(Key32, Value32)> {
+        self.prev(bound)
+    }
+
+    /// Smallest entry with key `>= bound`, if any.
+    #[inline]
     fn first_ge(&self, bound: Key32) -> Option<(Key32, Value32)> {
         if bound == 0 {
             self.first()

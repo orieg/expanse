@@ -320,6 +320,15 @@
       "summary": "32-bit embedded trie surface (`trie32` / `set32` / `map32` / `blobmap32`)."
     },
     {
+      "name": "embedded_memtable",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "embedded_memtable",
+      "summary": "32-bit embedded telemetry memtable & BLE tracker registry vs competitor baselines."
+    },
+    {
       "name": "batch_lookup",
       "available": true,
       "kind": "wallclock",

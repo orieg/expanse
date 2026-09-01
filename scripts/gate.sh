@@ -72,6 +72,8 @@ python3 scripts/check_man_examples.py --self-test
 python3 scripts/check_abi_parity.py --self-test
 python3 scripts/check_deletion_rationale.py --self-test
 python3 scripts/check_test_floors.py --self-test
+python3 scripts/esp32_bench_harvest.py --self-test
+python3 scripts/embedded_envelope.py
 
 # Verifying the documented example output needs libexpanse built; the CI
 # man-examples job always runs it. Locally it is opt-in, so `gate.sh` stays

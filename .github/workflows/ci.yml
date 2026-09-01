@@ -733,7 +733,17 @@ jobs:
             -ffreestanding -fsyntax-only \
             -Iinclude /tmp/narrow_surface.c
 
+      - name: Syntax-check ESP32-C3 component sources
+        run: |
+          set -euo pipefail
+          clang --target=riscv32-unknown-none-elf -march=rv32imc -mabi=ilp32 \
+            -ffreestanding -fsyntax-only -DEXPANSE_SINGLE_THREADED_BAREMETAL \
+            -Iinclude -Icomponents/expanse/include \
+            components/expanse/src/expanse_memtable.c \
+            components/expanse/src/expanse_ble_tracker.c
+
       # 64-bit bare metal drops only expanse_sync_* (no std::sync); it keeps
+
       # the whole legacy Judy surface. Guards the pointer-width gates against
       # being conflated with the `std` ones. Surface matrix: docs/COMPAT.md.
       - name: Add x86_64 bare-metal target

@@ -243,3 +243,114 @@ fn test_legacy_judy_navigation_boundary_guards() {
         JudyLFreeArray(&mut jl, &mut jerr);
     }
 }
+
+#[test]
+fn test_modern_capi_map_navigation() {
+    use expanse::modern::{
+        expanse_map_first, expanse_map_free, expanse_map_insert, expanse_map_last, expanse_map_new,
+        expanse_map_next_after, expanse_map_next_at_or_after, expanse_map_prev_at_or_before,
+        expanse_map_prev_before,
+    };
+    // SAFETY: Exercising C ABI map navigation methods.
+    unsafe {
+        let map = expanse_map_new();
+        assert!(!map.is_null());
+
+        expanse_map_insert(map, 10, 100, core::ptr::null_mut());
+        expanse_map_insert(map, 20, 200, core::ptr::null_mut());
+        expanse_map_insert(map, 30, 300, core::ptr::null_mut());
+
+        let mut k = 0;
+        let mut v = 0;
+
+        assert!(expanse_map_first(map, &raw mut k, &raw mut v));
+        assert_eq!(k, 10);
+        assert_eq!(v, 100);
+
+        assert!(expanse_map_last(map, &raw mut k, &raw mut v));
+        assert_eq!(k, 30);
+        assert_eq!(v, 300);
+
+        assert!(expanse_map_next_at_or_after(
+            map, 15, &raw mut k, &raw mut v
+        ));
+        assert_eq!(k, 20);
+        assert_eq!(v, 200);
+
+        assert!(expanse_map_next_at_or_after(
+            map, 20, &raw mut k, &raw mut v
+        ));
+        assert_eq!(k, 20);
+        assert_eq!(v, 200);
+
+        assert!(expanse_map_next_after(map, 20, &raw mut k, &raw mut v));
+        assert_eq!(k, 30);
+        assert_eq!(v, 300);
+
+        assert!(!expanse_map_next_after(map, 30, &raw mut k, &raw mut v));
+
+        assert!(expanse_map_prev_at_or_before(
+            map, 25, &raw mut k, &raw mut v
+        ));
+        assert_eq!(k, 20);
+        assert_eq!(v, 200);
+
+        assert!(expanse_map_prev_at_or_before(
+            map, 20, &raw mut k, &raw mut v
+        ));
+        assert_eq!(k, 20);
+        assert_eq!(v, 200);
+
+        assert!(expanse_map_prev_before(map, 20, &raw mut k, &raw mut v));
+        assert_eq!(k, 10);
+        assert_eq!(v, 100);
+
+        assert!(!expanse_map_prev_before(map, 10, &raw mut k, &raw mut v));
+
+        expanse_map_free(map);
+    }
+}
+
+#[test]
+fn test_modern_capi_set_navigation() {
+    use expanse::modern::{
+        expanse_set_first, expanse_set_free, expanse_set_insert, expanse_set_last, expanse_set_new,
+        expanse_set_next_after, expanse_set_next_at_or_after, expanse_set_prev_at_or_before,
+        expanse_set_prev_before,
+    };
+    // SAFETY: Exercising C ABI set navigation methods.
+    unsafe {
+        let set = expanse_set_new();
+        assert!(!set.is_null());
+
+        expanse_set_insert(set, 100);
+        expanse_set_insert(set, 200);
+        expanse_set_insert(set, 300);
+
+        let mut k = 0;
+
+        assert!(expanse_set_first(set, &raw mut k));
+        assert_eq!(k, 100);
+
+        assert!(expanse_set_last(set, &raw mut k));
+        assert_eq!(k, 300);
+
+        assert!(expanse_set_next_at_or_after(set, 150, &raw mut k));
+        assert_eq!(k, 200);
+
+        assert!(expanse_set_next_after(set, 200, &raw mut k));
+        assert_eq!(k, 300);
+
+        assert!(!expanse_set_next_after(set, 300, &raw mut k));
+
+        assert!(expanse_set_prev_at_or_before(set, 250, &raw mut k));
+        assert_eq!(k, 200);
+
+        assert!(expanse_set_prev_before(set, 200, &raw mut k));
+        assert_eq!(k, 100);
+
+        assert!(!expanse_set_prev_before(set, 100, &raw mut k));
+
+        expanse_set_free(set);
+    }
+}

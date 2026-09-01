@@ -97,7 +97,6 @@ void     expanse_set_clear(expanse_set_t *set);
  */
 bool expanse_set_first(const expanse_set_t *set, expanse_word_t *key_out);
 bool expanse_set_last(const expanse_set_t *set, expanse_word_t *key_out);
-#if EXPANSE_WIDE_SURFACE
 bool expanse_set_next_at_or_after(const expanse_set_t *set, expanse_word_t key,
                                   expanse_word_t *key_out);
 bool expanse_set_next_after(const expanse_set_t *set, expanse_word_t key, expanse_word_t *key_out);
@@ -105,6 +104,7 @@ bool expanse_set_prev_at_or_before(const expanse_set_t *set, expanse_word_t key,
                                    expanse_word_t *key_out);
 bool expanse_set_prev_before(const expanse_set_t *set, expanse_word_t key, expanse_word_t *key_out);
 
+#if EXPANSE_WIDE_SURFACE
 /* Rank and select, both O(depth). */
 uint64_t expanse_set_count_below(const expanse_set_t *set, uint64_t key);
 uint64_t expanse_set_count_range(const expanse_set_t *set, uint64_t lo, uint64_t hi);
@@ -140,6 +140,20 @@ uint64_t expanse_map_len(const expanse_map_t *map);
 size_t   expanse_map_mem_used(const expanse_map_t *map);
 void     expanse_map_clear(expanse_map_t *map);
 
+/* Ordered navigation; `value_out` may be NULL if only the key matters. */
+bool expanse_map_first(const expanse_map_t *map, expanse_word_t *key_out,
+                       expanse_word_t *value_out);
+bool expanse_map_last(const expanse_map_t *map, expanse_word_t *key_out,
+                      expanse_word_t *value_out);
+bool expanse_map_next_at_or_after(const expanse_map_t *map, expanse_word_t key,
+                                  expanse_word_t *key_out, expanse_word_t *value_out);
+bool expanse_map_next_after(const expanse_map_t *map, expanse_word_t key,
+                            expanse_word_t *key_out, expanse_word_t *value_out);
+bool expanse_map_prev_at_or_before(const expanse_map_t *map, expanse_word_t key,
+                                   expanse_word_t *key_out, expanse_word_t *value_out);
+bool expanse_map_prev_before(const expanse_map_t *map, expanse_word_t key,
+                             expanse_word_t *key_out, expanse_word_t *value_out);
+
 #if EXPANSE_WIDE_SURFACE
 /*
  * Batched key lookup with memory-level parallelism prefetching.
@@ -158,25 +172,12 @@ size_t expanse_map_get_batch(const expanse_map_t *map, const expanse_word_t *key
 expanse_word_t *expanse_map_slot(expanse_map_t *map, expanse_word_t key);
 expanse_word_t *expanse_map_ins_slot(expanse_map_t *map, expanse_word_t key);
 
-/* Ordered navigation; `value_out` may be NULL if only the key matters. */
-bool expanse_map_first(const expanse_map_t *map, expanse_word_t *key_out,
-                       expanse_word_t *value_out);
-bool expanse_map_last(const expanse_map_t *map, expanse_word_t *key_out,
-                      expanse_word_t *value_out);
-bool expanse_map_next_at_or_after(const expanse_map_t *map, expanse_word_t key,
-                                  expanse_word_t *key_out, expanse_word_t *value_out);
-bool expanse_map_next_after(const expanse_map_t *map, expanse_word_t key,
-                            expanse_word_t *key_out, expanse_word_t *value_out);
-bool expanse_map_prev_at_or_before(const expanse_map_t *map, expanse_word_t key,
-                                   expanse_word_t *key_out, expanse_word_t *value_out);
-bool expanse_map_prev_before(const expanse_map_t *map, expanse_word_t key,
-                             expanse_word_t *key_out, expanse_word_t *value_out);
-
 uint64_t expanse_map_count_below(const expanse_map_t *map, uint64_t key);
 uint64_t expanse_map_count_range(const expanse_map_t *map, uint64_t lo, uint64_t hi);
 bool     expanse_map_by_count(const expanse_map_t *map, uint64_t n,
                               expanse_word_t *key_out, expanse_word_t *value_out);
 #endif /* EXPANSE_WIDE_SURFACE */
+
 
 
 #if EXPANSE_WIDE_SURFACE

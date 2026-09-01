@@ -88,6 +88,12 @@ harness = false
 test = false
 
 [[bench]]
+name = "embedded_memtable"
+harness = false
+test = false
+
+
+[[bench]]
 name = "hashbrown_native_suite"
 harness = false
 test = false
