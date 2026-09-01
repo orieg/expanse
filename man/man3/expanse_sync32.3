@@ -173,6 +173,57 @@ bytes of an append-only struct: pass
 .BI "expanse_sync32_map_writer_try_remove(" w ", " key ", " old_out ")"
 Headroom is checked before the lookup, so an absent key can still be
 refused with a capacity status.
+.SH EXAMPLES
+The canonical shape: the main task owns the writer; one interrupt context
+reads through its own handle and treats BUSY as "try again next time".
+This page's program links only against a 32-bit
+.BR libexpanse ;
+the i686 CI lane compiles and runs the same shape with
+.BR \-m32 .
+.PP
+.nf
+#include <stdio.h>
+#include "expanse.h"
+
+static expanse_sync32_map_t *table;
+
+/* Interrupt context: reader 0, single attempt, never spins. */
+static void on_frame_isr(uint32_t id, uint32_t *value_out) {
+    expanse_sync32_map_reader_t *r = expanse_sync32_map_reader(table, 0);
+    switch (expanse_sync32_map_reader_try_get(r, id, value_out)) {
+    case EXPANSE_SYNC32_OK:        /* consistent value */            break;
+    case EXPANSE_SYNC32_NOT_FOUND: *value_out = 0;                  break;
+    case EXPANSE_SYNC32_BUSY:      /* preempted the writer: retry
+                                      on the next interrupt */       break;
+    default:                       /* NULL_HANDLE: a bug */          break;
+    }
+}
+
+int main(void) {
+    table = expanse_sync32_map_new(4096, 1);       /* 4096 nodes, 1 reader */
+    if (!table) return 1;                          /* below the headroom */
+    expanse_sync32_map_writer_t *w = expanse_sync32_map_writer(table);
+
+    /* Main task: the only writer. A refusal leaves the table untouched. */
+    expanse_sync32_status_t st = expanse_sync32_map_writer_try_insert(
+        w, 0x123, 42, NULL, NULL);
+    if (st != EXPANSE_SYNC32_OK)
+        printf("insert refused: %s\n", expanse_sync32_status_str((int)st));
+
+    uint32_t v = 0;
+    on_frame_isr(0x123, &v);                       /* stand-in for the ISR */
+    printf("id 0x123 -> %u\n", v);
+
+    expanse_sync32_stats_t stats;
+    expanse_sync32_map_writer_stats(w, &stats, sizeof stats);
+    printf("len %llu, free slots %zu\n",
+           (unsigned long long)stats.len, stats.free_slots);
+
+    /* Mask the reader interrupt and join reader tasks before freeing. */
+    expanse_sync32_map_free(table);
+    return 0;
+}
+.fi
 .SH SEE ALSO
 .BR expanse (3),
 .BR expanse_map (3),
