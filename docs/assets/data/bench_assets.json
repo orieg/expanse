@@ -1,6 +1,5 @@
 {
   "_readme": "Source data for the three README hero charts rendered by scripts/generate_asset_svgs.py. Every value here must resolve to a committed table or a cited CI run (AGENTS.md 8.7). Update this file from the measurement, then re-run the generator -- never hand-edit the SVGs.",
-
   "comparative": {
     "meta": {
       "source": "docs/BENCHMARKING.md, section 'vs stdlib & 3rd-party collections'",
@@ -31,7 +30,6 @@
       "BTreeSet": 101.6
     }
   },
-
   "concurrency": {
     "meta": {
       "source": "docs/BENCHMARKING.md, section 'Concurrent read scaling (benches/concurrency.rs, all Sync* arms)'",
@@ -42,25 +40,136 @@
       "keyspace": "bounded 2xPOP, ~50% hit rate (#375)",
       "retraction": "The earlier 1..16-thread SyncExpanseMap curve (22.1 / 42.7 / 83.7 / 160.7 / 265.8 M ops/s, '12.0x') probed unbounded random u64 keys and measured a near-100%-miss descent walk. Retracted; every arm has used a bounded keyspace since #375."
     },
-    "threads": [1, 4, 16],
+    "threads": [
+      1,
+      4,
+      16
+    ],
     "read_100": [
-      { "arm": "SyncExpanseSet", "mops": [77.5, 295.2, 884.5], "scale_16t": 11.42, "kind": "expanse" },
-      { "arm": "SyncExpanseMap", "mops": [37.2, 138.9, 424.1], "scale_16t": 11.40, "kind": "expanse" },
-      { "arm": "SyncExpanseBlobMap", "mops": [31.4, 120.5, 332.4], "scale_16t": 10.60, "kind": "expanse" },
-      { "arm": "SyncExpanseBytesMap", "mops": [11.7, 40.9, 133.8], "scale_16t": 11.48, "kind": "expanse" },
-      { "arm": "SyncExpanseStrMap", "mops": [7.0, 26.6, 82.9], "scale_16t": 11.84, "kind": "expanse" },
-      { "arm": "DashMap<Vec<u8>, u64>", "mops": [15.6, 50.4, 132.1], "scale_16t": 8.47, "kind": "other" },
-      { "arm": "SkipMap<u64, Vec<u8>>", "mops": [3.4, 13.1, 38.3], "scale_16t": 11.13, "kind": "other" },
-      { "arm": "RwLock<BTreeMap<u64, ...>>", "mops": [10.6, 20.0, 18.6], "scale_16t": 1.75, "kind": "other" }
+      {
+        "arm": "SyncExpanseSet",
+        "mops": [
+          77.5,
+          295.2,
+          884.5
+        ],
+        "scale_16t": 11.42,
+        "kind": "expanse"
+      },
+      {
+        "arm": "SyncExpanseMap",
+        "mops": [
+          37.2,
+          138.9,
+          424.1
+        ],
+        "scale_16t": 11.4,
+        "kind": "expanse"
+      },
+      {
+        "arm": "SyncExpanseBlobMap",
+        "mops": [
+          31.4,
+          120.5,
+          332.4
+        ],
+        "scale_16t": 10.6,
+        "kind": "expanse"
+      },
+      {
+        "arm": "SyncExpanseBytesMap",
+        "mops": [
+          11.7,
+          40.9,
+          133.8
+        ],
+        "scale_16t": 11.48,
+        "kind": "expanse"
+      },
+      {
+        "arm": "SyncExpanseStrMap",
+        "mops": [
+          7.0,
+          26.6,
+          82.9
+        ],
+        "scale_16t": 11.84,
+        "kind": "expanse"
+      },
+      {
+        "arm": "DashMap<Vec<u8>, u64>",
+        "mops": [
+          15.6,
+          50.4,
+          132.1
+        ],
+        "scale_16t": 8.47,
+        "kind": "other"
+      },
+      {
+        "arm": "SkipMap<u64, Vec<u8>>",
+        "mops": [
+          3.4,
+          13.1,
+          38.3
+        ],
+        "scale_16t": 11.13,
+        "kind": "other"
+      },
+      {
+        "arm": "RwLock<BTreeMap<u64, ...>>",
+        "mops": [
+          10.6,
+          20.0,
+          18.6
+        ],
+        "scale_16t": 1.75,
+        "kind": "other"
+      }
     ],
     "read_write_50_50": [
-      { "arm": "DashMap<Vec<u8>, u64>", "mops": [5.6, 17.3, 44.5], "scale_16t": 7.93, "kind": "other" },
-      { "arm": "SkipMap<u64, Vec<u8>>", "mops": [1.1, 3.4, 7.7], "scale_16t": 6.94, "kind": "other" },
-      { "arm": "SyncExpanseMap", "mops": [10.9, 3.0, 2.0], "scale_16t": 0.19, "kind": "expanse" },
-      { "arm": "SyncExpanseSet", "mops": [16.6, 3.3, 2.1], "scale_16t": 0.12, "kind": "expanse" }
+      {
+        "arm": "DashMap<Vec<u8>, u64>",
+        "mops": [
+          5.6,
+          17.3,
+          44.5
+        ],
+        "scale_16t": 7.93,
+        "kind": "other"
+      },
+      {
+        "arm": "SkipMap<u64, Vec<u8>>",
+        "mops": [
+          1.1,
+          3.4,
+          7.7
+        ],
+        "scale_16t": 6.94,
+        "kind": "other"
+      },
+      {
+        "arm": "SyncExpanseMap",
+        "mops": [
+          10.9,
+          3.0,
+          2.0
+        ],
+        "scale_16t": 0.19,
+        "kind": "expanse"
+      },
+      {
+        "arm": "SyncExpanseSet",
+        "mops": [
+          16.6,
+          3.3,
+          2.1
+        ],
+        "scale_16t": 0.12,
+        "kind": "expanse"
+      }
     ]
   },
-
   "ycsb": {
     "meta": {
       "source": "benches/ycsb.rs, post-#470 payload-dereference repair",
@@ -70,20 +179,225 @@
       "retraction": "The Workload E figure published under #375 (ExpanseBlobMap 13.2 Mops/s, '7.3x speedup' over SkipMap) is retracted. Re-measured under #385, Workload E INVERTS: BTreeMap wins it."
     },
     "unit": "Mops/s",
-    "engines": ["ExpanseMap (u64)", "ExpanseBlobMap (128B)", "BTreeMap (128B)", "SkipMap (128B)"],
-    "kinds": ["expanse", "expanse_blob", "btree", "skipmap"],
+    "engines": [
+      "ExpanseMap (u64)",
+      "ExpanseBlobMap (128B)",
+      "BTreeMap (128B)",
+      "SkipMap (128B)"
+    ],
+    "kinds": [
+      "expanse",
+      "expanse_blob",
+      "btree",
+      "skipmap"
+    ],
     "workloads": [
-      { "id": "A", "desc": "50% Read / 50% Update", "mops": [20.49, 20.235, 4.25, 1.903] },
-      { "id": "B", "desc": "95% Read / 5% Update", "mops": [23.016, 21.269, 4.429, 2.566] },
-      { "id": "C", "desc": "100% Read", "mops": [23.469, 21.405, 4.428, 1.941] },
-      { "id": "D", "desc": "95% Read-Latest / 5% Insert", "mops": [22.797, 21.488, 4.238, 1.888] },
-      { "id": "F", "desc": "50% Read / 50% Read-Modify-Write", "mops": [18.659, 14.685, 4.362, 1.76] }
+      {
+        "id": "A",
+        "desc": "50% Read / 50% Update",
+        "mops": [
+          20.49,
+          20.235,
+          4.25,
+          1.903
+        ]
+      },
+      {
+        "id": "B",
+        "desc": "95% Read / 5% Update",
+        "mops": [
+          23.016,
+          21.269,
+          4.429,
+          2.566
+        ]
+      },
+      {
+        "id": "C",
+        "desc": "100% Read",
+        "mops": [
+          23.469,
+          21.405,
+          4.428,
+          1.941
+        ]
+      },
+      {
+        "id": "D",
+        "desc": "95% Read-Latest / 5% Insert",
+        "mops": [
+          22.797,
+          21.488,
+          4.238,
+          1.888
+        ]
+      },
+      {
+        "id": "F",
+        "desc": "50% Read / 50% Read-Modify-Write",
+        "mops": [
+          18.659,
+          14.685,
+          4.362,
+          1.76
+        ]
+      }
     ],
     "workload_e": {
       "id": "E",
       "desc": "95% Short Range Scan / 5% Insert",
-      "mops": [0.857, 0.693, 1.259, 0.276],
+      "mops": [
+        0.857,
+        0.693,
+        1.259,
+        0.276
+      ],
       "note": "Plotted on its own axis: every arm is an order of magnitude below A-D/F, and BTreeMap wins."
     }
+  },
+  "sync32_health": {
+    "meta": {
+      "source": "docs/BENCHMARKING.md, section 'Concurrent read scaling' -> SyncExpanseMap32 arm (#573); harvested from the run's suite-tables-concurrency artifact by scripts/generate_asset_svgs.py contributors — every value below is a counter of that run, none is typed by hand",
+      "host": "reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8",
+      "run": "33556060582",
+      "ref": "db63f409",
+      "config": "EXPANSE_BENCH_THREADS=\"1,4,16\", 500 ms windows; one writer thread (full duty or deadline-paced), N readers on try_get over a 2x keyspace",
+      "workload_id": "core_concurrency"
+    },
+    "threads": [
+      1,
+      4,
+      16
+    ],
+    "duties": [
+      {
+        "duty": "full",
+        "rows": [
+          {
+            "readers": 1,
+            "reads_per_s": 1323524,
+            "writes_per_s": 6265542,
+            "busy": 10749600,
+            "attempts": 11411362,
+            "busy_pct": 94.201,
+            "refused": 0
+          },
+          {
+            "readers": 4,
+            "reads_per_s": 10480230,
+            "writes_per_s": 3701468,
+            "busy": 47591732,
+            "attempts": 52831847,
+            "busy_pct": 90.082,
+            "refused": 0
+          },
+          {
+            "readers": 16,
+            "reads_per_s": 636898556,
+            "writes_per_s": 72360,
+            "busy": 5417196,
+            "attempts": 323866474,
+            "busy_pct": 1.673,
+            "refused": 1727926
+          }
+        ]
+      },
+      {
+        "duty": "1M/s",
+        "rows": [
+          {
+            "readers": 1,
+            "reads_per_s": 36028182,
+            "writes_per_s": 1000140,
+            "busy": 4453559,
+            "attempts": 22467650,
+            "busy_pct": 19.822,
+            "refused": 0
+          },
+          {
+            "readers": 4,
+            "reads_per_s": 138358802,
+            "writes_per_s": 946306,
+            "busy": 15254201,
+            "attempts": 84433602,
+            "busy_pct": 18.067,
+            "refused": 26893
+          },
+          {
+            "readers": 16,
+            "reads_per_s": 630939072,
+            "writes_per_s": 117256,
+            "busy": 5400375,
+            "attempts": 320869911,
+            "busy_pct": 1.683,
+            "refused": 441315
+          }
+        ]
+      },
+      {
+        "duty": "100k/s",
+        "rows": [
+          {
+            "readers": 1,
+            "reads_per_s": 49617702,
+            "writes_per_s": 100002,
+            "busy": 487839,
+            "attempts": 25296690,
+            "busy_pct": 1.928,
+            "refused": 0
+          },
+          {
+            "readers": 4,
+            "reads_per_s": 193272688,
+            "writes_per_s": 100016,
+            "busy": 939082,
+            "attempts": 97575426,
+            "busy_pct": 0.962,
+            "refused": 0
+          },
+          {
+            "readers": 16,
+            "reads_per_s": 648705658,
+            "writes_per_s": 72362,
+            "busy": 3053383,
+            "attempts": 327406212,
+            "busy_pct": 0.933,
+            "refused": 13817
+          }
+        ]
+      },
+      {
+        "duty": "10k/s",
+        "rows": [
+          {
+            "readers": 1,
+            "reads_per_s": 52220488,
+            "writes_per_s": 10004,
+            "busy": 37998,
+            "attempts": 26148242,
+            "busy_pct": 0.145,
+            "refused": 0
+          },
+          {
+            "readers": 4,
+            "reads_per_s": 204450778,
+            "writes_per_s": 10002,
+            "busy": 101211,
+            "attempts": 102326600,
+            "busy_pct": 0.099,
+            "refused": 0
+          },
+          {
+            "readers": 16,
+            "reads_per_s": 681853900,
+            "writes_per_s": 10002,
+            "busy": 463156,
+            "attempts": 341390106,
+            "busy_pct": 0.136,
+            "refused": 0
+          }
+        ]
+      }
+    ]
   }
 }

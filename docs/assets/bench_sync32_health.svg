@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 960 476" width="100%" height="100%">
+  <title>sync32 protocol health: Busy rate per writer duty</title>
+  <defs>
+    <style>
+      /* Light theme by default for maximum contrast on the web. */
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
+      .divider { stroke: #e2e8f0; stroke-width: 1px; }
+
+      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-chart-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
+      .t-note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; fill: #475569; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
+      .t-win { fill: #15803d; font-weight: 700; }
+      .t-loss { fill: #b45309; font-weight: 700; }
+
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; text-anchor: middle; }
+      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #334155; text-anchor: middle; }
+      .t-row-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 700; fill: #15803d; }
+      .t-row-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 600; fill: #334155; }
+
+      .b-expanse { fill: #16a34a; }
+      .b-expanse-alt { fill: #10b981; }
+      .b-hash { fill: #2563eb; }
+      .b-btree { fill: #64748b; }
+      .b-skipmap { fill: #94a3b8; }
+      .b-other { fill: #64748b; }
+
+      .badge-win { fill: #dcfce7; stroke: #86efac; stroke-width: 1px; rx: 3px; }
+      .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .badge-loss { fill: #fef3c7; stroke: #fcd34d; stroke-width: 1px; rx: 3px; }
+      .badge-loss-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 700; fill: #b45309; text-anchor: middle; }
+
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .divider { stroke: #21262d; }
+        .t-title { fill: #f0f6fc; }
+        .t-chart-title { fill: #f0f6fc; }
+        .t-sub { fill: #94a3b8; }
+        .t-note { fill: #94a3b8; }
+        .t-unit { fill: #94a3b8; }
+        .t-axis-label { fill: #94a3b8; }
+        .t-bar-label { fill: #f8fafc; }
+        .t-legend { fill: #f8fafc; }
+        .t-win { fill: #4ade80; }
+        .t-loss { fill: #fcd34d; }
+        .t-val-accent { fill: #4ade80; }
+        .t-val-blue { fill: #38bdf8; }
+        .t-val-muted { fill: #e2e8f0; }
+        .t-row-accent { fill: #4ade80; }
+        .t-row-muted { fill: #e2e8f0; }
+        .b-expanse { fill: #22c55e; }
+        .b-expanse-alt { fill: #34d399; }
+        .b-hash { fill: #3b82f6; }
+        .b-btree { fill: #64748b; }
+        .b-skipmap { fill: #475569; }
+        .b-other { fill: #64748b; }
+        .badge-win { fill: #064e3b; stroke: #059669; }
+        .badge-win-text { fill: #6ee7b7; }
+        .badge-loss { fill: #451a03; stroke: #d97706; }
+        .badge-loss-text { fill: #fcd34d; }
+      }
+
+      :root[data-theme="dark"] .bg, [data-theme="dark"] .bg { fill: #0d1117; }
+      :root[data-theme="dark"] .border, [data-theme="dark"] .border { stroke: #30363d; }
+      :root[data-theme="dark"] .grid, [data-theme="dark"] .grid { stroke: #21262d; }
+      :root[data-theme="dark"] .axis, [data-theme="dark"] .axis { stroke: #484f58; }
+      :root[data-theme="dark"] .divider, [data-theme="dark"] .divider { stroke: #21262d; }
+      :root[data-theme="dark"] .t-title, [data-theme="dark"] .t-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-chart-title, [data-theme="dark"] .t-chart-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-sub, [data-theme="dark"] .t-sub { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-unit, [data-theme="dark"] .t-unit { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-axis-label, [data-theme="dark"] .t-axis-label { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-bar-label, [data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-legend, [data-theme="dark"] .t-legend { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-win, [data-theme="dark"] .t-win { fill: #4ade80; }
+      :root[data-theme="dark"] .t-loss, [data-theme="dark"] .t-loss { fill: #fcd34d; }
+      :root[data-theme="dark"] .t-val-accent, [data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      :root[data-theme="dark"] .t-val-muted, [data-theme="dark"] .t-val-muted { fill: #e2e8f0; }
+      :root[data-theme="dark"] .t-row-accent, [data-theme="dark"] .t-row-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-row-muted, [data-theme="dark"] .t-row-muted { fill: #e2e8f0; }
+      :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse { fill: #22c55e; }
+      :root[data-theme="dark"] .b-expanse-alt, [data-theme="dark"] .b-expanse-alt { fill: #34d399; }
+      :root[data-theme="dark"] .b-hash, [data-theme="dark"] .b-hash { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-btree, [data-theme="dark"] .b-btree { fill: #64748b; }
+      :root[data-theme="dark"] .b-skipmap, [data-theme="dark"] .b-skipmap { fill: #475569; }
+      :root[data-theme="dark"] .b-other, [data-theme="dark"] .b-other { fill: #64748b; }
+      :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #064e3b; stroke: #059669; }
+      :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #6ee7b7; }
+      :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss { fill: #451a03; stroke: #d97706; }
+      :root[data-theme="dark"] .badge-loss-text, [data-theme="dark"] .badge-loss-text { fill: #fcd34d; }
+    </style>
+  </defs>
+
+  <rect width="100%" height="100%" class="bg" rx="8"/>
+  <rect width="100%" height="100%" class="border" rx="8"/>
+
+  <text x="30" y="30" class="t-title">SYNC32 OPTIMISTIC PROTOCOL &#183; BUSY RATE BY WRITER DUTY</text>
+  <text x="30" y="46" class="t-sub">Share of try_get attempts abandoned to an open write bracket &#183; lower is better &#183; one writer, N readers, 4,096 stable + 4,096 churn keys</text>
+  <g transform="translate(600, 20)">
+    <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
+    <text x="18" y="10" class="t-legend">1 reader</text>
+    <rect x="120" y="0" width="12" height="12" rx="2" class="b-expanse-alt"/>
+    <text x="138" y="10" class="t-legend">4 readers</text>
+    <rect x="240" y="0" width="12" height="12" rx="2" class="b-hash"/>
+    <text x="258" y="10" class="t-legend">16 readers</text>
+  </g>
+  <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
+  <text x="30" y="74" class="t-note">Bars are the Busy rate on a zero-based linear axis (0&#8211;100%); the badge is the writer's refused mutations (ArenaFull / ReclaimBacklog) in the same 500 ms window &#8212; a stalled-reclamation signal.</text>
+  <text x="30" y="88" class="t-note">Writer duty: full (as fast as it can, the Busy ceiling) then deadline-paced 1M, 100k and 10k mutations/s; a saturated CAN bus is ~10k frames/s. reads/s = validated reads.</text>
+  <text x="30" y="113" class="t-bar-label">writer full</text>
+  <text x="202.0" y="113" class="t-axis-label" text-anchor="end">1R</text>
+  <rect x="210.0" y="104" width="254.3" height="11" rx="2" class="b-expanse"/>
+  <text x="472.3" y="113" class="t-row-muted">94.2% busy &#183; 1.32M reads/s &#183; 6.27M writes/s</text>
+  <rect x="796.0" y="102" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="115" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="128" class="t-axis-label" text-anchor="end">4R</text>
+  <rect x="210.0" y="119" width="243.2" height="11" rx="2" class="b-expanse-alt"/>
+  <text x="461.2" y="128" class="t-row-muted">90.1% busy &#183; 10.48M reads/s &#183; 3.70M writes/s</text>
+  <rect x="796.0" y="117" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="130" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="143" class="t-axis-label" text-anchor="end">16R</text>
+  <rect x="210.0" y="134" width="4.5" height="11" rx="2" class="b-hash"/>
+  <text x="222.5" y="143" class="t-row-muted">1.67% busy &#183; 636.90M reads/s &#183; 72k writes/s</text>
+  <rect x="796.0" y="132" width="134.0" height="18" class="badge-loss"/>
+  <text x="863.0" y="145" class="badge-loss-text">1,727,926 refused</text>
+  <text x="30" y="180" class="t-bar-label">writer 1M/s</text>
+  <text x="202.0" y="180" class="t-axis-label" text-anchor="end">1R</text>
+  <rect x="210.0" y="171" width="53.5" height="11" rx="2" class="b-expanse"/>
+  <text x="271.5" y="180" class="t-row-muted">19.8% busy &#183; 36.03M reads/s &#183; 1.00M writes/s</text>
+  <rect x="796.0" y="169" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="182" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="195" class="t-axis-label" text-anchor="end">4R</text>
+  <rect x="210.0" y="186" width="48.8" height="11" rx="2" class="b-expanse-alt"/>
+  <text x="266.8" y="195" class="t-row-muted">18.1% busy &#183; 138.36M reads/s &#183; 946k writes/s</text>
+  <rect x="796.0" y="184" width="134.0" height="18" class="badge-loss"/>
+  <text x="863.0" y="197" class="badge-loss-text">26,893 refused</text>
+  <text x="202.0" y="210" class="t-axis-label" text-anchor="end">16R</text>
+  <rect x="210.0" y="201" width="4.5" height="11" rx="2" class="b-hash"/>
+  <text x="222.5" y="210" class="t-row-muted">1.68% busy &#183; 630.94M reads/s &#183; 117k writes/s</text>
+  <rect x="796.0" y="199" width="134.0" height="18" class="badge-loss"/>
+  <text x="863.0" y="212" class="badge-loss-text">441,315 refused</text>
+  <text x="30" y="247" class="t-bar-label">writer 100k/s</text>
+  <text x="202.0" y="247" class="t-axis-label" text-anchor="end">1R</text>
+  <rect x="210.0" y="238" width="5.2" height="11" rx="2" class="b-expanse"/>
+  <text x="223.2" y="247" class="t-row-muted">1.93% busy &#183; 49.62M reads/s &#183; 100k writes/s</text>
+  <rect x="796.0" y="236" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="249" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="262" class="t-axis-label" text-anchor="end">4R</text>
+  <rect x="210.0" y="253" width="2.6" height="11" rx="2" class="b-expanse-alt"/>
+  <text x="220.6" y="262" class="t-row-muted">0.962% busy &#183; 193.27M reads/s &#183; 100k writes/s</text>
+  <rect x="796.0" y="251" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="264" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="277" class="t-axis-label" text-anchor="end">16R</text>
+  <rect x="210.0" y="268" width="2.5" height="11" rx="2" class="b-hash"/>
+  <text x="220.5" y="277" class="t-row-muted">0.933% busy &#183; 648.71M reads/s &#183; 72k writes/s</text>
+  <rect x="796.0" y="266" width="134.0" height="18" class="badge-loss"/>
+  <text x="863.0" y="279" class="badge-loss-text">13,817 refused</text>
+  <text x="30" y="314" class="t-bar-label">writer 10k/s</text>
+  <text x="202.0" y="314" class="t-axis-label" text-anchor="end">1R</text>
+  <rect x="210.0" y="305" width="2.0" height="11" rx="2" class="b-expanse"/>
+  <text x="220.0" y="314" class="t-row-muted">0.145% busy &#183; 52.22M reads/s &#183; 10k writes/s</text>
+  <rect x="796.0" y="303" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="316" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="329" class="t-axis-label" text-anchor="end">4R</text>
+  <rect x="210.0" y="320" width="2.0" height="11" rx="2" class="b-expanse-alt"/>
+  <text x="220.0" y="329" class="t-row-muted">0.099% busy &#183; 204.45M reads/s &#183; 10k writes/s</text>
+  <rect x="796.0" y="318" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="331" class="badge-win-text">0 refused</text>
+  <text x="202.0" y="344" class="t-axis-label" text-anchor="end">16R</text>
+  <rect x="210.0" y="335" width="2.0" height="11" rx="2" class="b-hash"/>
+  <text x="220.0" y="344" class="t-row-muted">0.136% busy &#183; 681.85M reads/s &#183; 10k writes/s</text>
+  <rect x="796.0" y="333" width="134.0" height="18" class="badge-win"/>
+  <text x="863.0" y="346" class="badge-win-text">0 refused</text>
+
+  <line x1="30" y1="416" x2="930" y2="416" class="divider"/>
+  <text x="30" y="432" class="t-note">Reading: Busy tracks write rate &#215; bracket length, as the seqlock model predicts &#8212; at embedded ingestion rates reads validate &#8805;99.8% of the time. Refusals appear only under dense many-reader load:</text>
+  <text x="30" y="445" class="t-note">deferred reclamation drains only at a fence that sees every reader flag clear, so sixteen continuous readers starve the writer. Zero refusals for the wrapper's stated 1&#8211;2 reader target at every rate.</text>
+  <text x="30" y="463" class="t-note">Measured: reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8 &#183; run 33556060582, ref db63f409 &#183; report-only, never gating (workload: core_concurrency).</text>
+</svg>
