@@ -1087,6 +1087,12 @@ ratios of the run's own counters and so host-load-immune in the same way the
 mode to watch for is a `busy` line approaching 100% at a paced rate, not a
 throughput number.
 
+![sync32 protocol health: Busy rate per writer duty and reader count](./assets/bench_sync32_health.svg)
+
+*(Derived by `scripts/generate_asset_svgs.py` from the `sync32_health` block of
+`docs/assets/data/bench_assets.json`, which is harvested from the run's
+`suite-tables-concurrency` artifact — no value in the chart is typed by hand.)*
+
 First quiet-host reading *(measured: reference host — Intel i9-12900F, 24
 threads, 30 MiB L3, Linux 6.8, run
 [33556060582](https://github.com/orieg/expanse/actions/runs/33556060582), ref

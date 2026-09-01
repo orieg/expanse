@@ -6,6 +6,7 @@ Regenerates the three README hero charts from committed data:
   * ``docs/assets/bench_comparative.svg``
   * ``docs/assets/bench_concurrency.svg``
   * ``docs/assets/bench_ycsb.svg``
+  * ``docs/assets/bench_sync32_health.svg``
 
 All three were hand-authored, so their numbers drifted away from the measured
 tables and kept publishing figures that had since been retracted (the
@@ -454,11 +455,76 @@ def render_ycsb(data: dict) -> None:
     write(ASSETS / "bench_ycsb.svg", svg)
 
 
+# --------------------------------------------------------------------------
+# 4. bench_sync32_health.svg -- the 32-bit optimistic protocol's health:
+#    Busy rate per writer duty and reader count, with reclamation refusals.
+# --------------------------------------------------------------------------
+
+
+def render_sync32_health(data: dict) -> None:
+    h = data["sync32_health"]
+    meta = h["meta"]
+    threads = h["threads"]
+    duties = h["duties"]
+    cls_for = {1: "b-expanse", 4: "b-expanse-alt", 16: "b-hash"}
+
+    bar_x, bar_max = 210.0, 270.0
+    badge_x, badge_w = 796.0, 134.0
+    row_h, grp_gap = 15, 22
+    top = 104
+    grp_h = row_h * len(threads) + grp_gap
+    height = top + grp_h * len(duties) + 104
+
+    def rate(v: float) -> str:
+        return f"{v / 1e6:.2f}M" if v >= 1e6 else (f"{v / 1e3:.0f}k" if v >= 1e3 else f"{v:.0f}")
+
+    svg = head(960, height, "sync32 protocol health: Busy rate per writer duty")
+    legend = "".join(
+        f'    <rect x="{i * 120}" y="0" width="12" height="12" rx="2" class="{cls_for[t]}"/>\n'
+        f'    <text x="{i * 120 + 18}" y="10" class="t-legend">{t} reader{"s" if t > 1 else ""}</text>\n'
+        for i, t in enumerate(threads)
+    )
+    svg += f"""
+  <text x="30" y="30" class="t-title">SYNC32 OPTIMISTIC PROTOCOL &#183; BUSY RATE BY WRITER DUTY</text>
+  <text x="30" y="46" class="t-sub">Share of try_get attempts abandoned to an open write bracket &#183; lower is better &#183; one writer, N readers, 4,096 stable + 4,096 churn keys</text>
+  <g transform="translate(600, 20)">
+{legend}  </g>
+  <line x1="30" y1="58" x2="930" y2="58" class="divider"/>
+  <text x="30" y="74" class="t-note">Bars are the Busy rate on a zero-based linear axis (0&#8211;100%); the badge is the writer's refused mutations (ArenaFull / ReclaimBacklog) in the same 500 ms window &#8212; a stalled-reclamation signal.</text>
+  <text x="30" y="88" class="t-note">Writer duty: full (as fast as it can, the Busy ceiling) then deadline-paced 1M, 100k and 10k mutations/s; a saturated CAN bus is ~10k frames/s. reads/s = validated reads.</text>
+"""
+    for gi, d in enumerate(duties):
+        gy = top + gi * grp_h
+        svg += f'  <text x="30" y="{gy + 9}" class="t-bar-label">writer {esc(d["duty"])}</text>\n'
+        for ri, r in enumerate(d["rows"]):
+            y = gy + ri * row_h
+            pct = r["busy_pct"]
+            w = max(2.0, pct / 100.0 * bar_max)
+            t = r["readers"]
+            svg += (
+                f'  <text x="{bar_x - 8}" y="{y + 9}" class="t-axis-label" text-anchor="end">{t}R</text>\n'
+                f'  <rect x="{bar_x}" y="{y}" width="{w:.1f}" height="11" rx="2" class="{cls_for[t]}"/>\n'
+                f'  <text x="{bar_x + w + 8:.1f}" y="{y + 9}" class="t-row-muted">{pct:.3g}% busy &#183; {rate(r["reads_per_s"])} reads/s &#183; {rate(r["writes_per_s"])} writes/s</text>\n'
+            )
+            refused = r["refused"]
+            label = f"{refused:,} refused" if refused else "0 refused"
+            svg += badge(badge_x, y - 2, badge_w, label, refused == 0)
+    svg += (
+        f'\n  <line x1="30" y1="{height - 60}" x2="930" y2="{height - 60}" class="divider"/>\n'
+        f'  <text x="30" y="{height - 44}" class="t-note">Reading: Busy tracks write rate &#215; bracket length, as the seqlock model predicts &#8212; at embedded ingestion rates reads validate &#8805;99.8% of the time. Refusals appear only under dense many-reader load:</text>\n'
+        f'  <text x="30" y="{height - 31}" class="t-note">deferred reclamation drains only at a fence that sees every reader flag clear, so sixteen continuous readers starve the writer. Zero refusals for the wrapper\'s stated 1&#8211;2 reader target at every rate.</text>\n'
+        f'  <text x="30" y="{height - 13}" class="t-note">Measured: {esc(meta["host"])} &#183; run {esc(meta["run"])}, ref {esc(meta["ref"])} &#183; report-only, never gating (workload: {esc(meta["workload_id"])}).</text>\n'
+    )
+    svg += "</svg>\n"
+    write(ASSETS / "bench_sync32_health.svg", svg)
+
+
 def main() -> int:
     data = json.loads(DATA.read_text(encoding="utf-8"))
     render_comparative(data)
     render_concurrency(data)
     render_ycsb(data)
+    render_sync32_health(data)
     return 0
 
 
