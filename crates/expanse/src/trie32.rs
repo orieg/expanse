@@ -265,7 +265,7 @@ pub(crate) struct LeafBitmapL32Data {
 /// One arena-owned node. Each variant is an independent heap allocation
 /// sized to the RFC's on-target byte layout, so [`Arena::bytes_in_use`]
 /// is an exact memory figure.
-enum NodeBox {
+pub enum NodeBox {
     L2(Box<BranchL2_32>),
     L6(Box<BranchL6_32>),
     B(Box<BranchB32Data>),
@@ -307,11 +307,72 @@ impl NodeBox {
 /// Per-tree node arena. Hands out 32-bit handles (indices) and keeps
 /// byte-exact accounting of live node allocations. Mirrors the role of the
 /// 64-bit `NodeAlloc`, adapted to be pointer-width-independent.
-pub(crate) struct Arena {
+pub struct Arena {
     slots: Vec<Option<NodeBox>>,
     free: Vec<u32>,
     bytes: usize,
+    /// Fixed-capacity mode: `slots` was pre-filled at construction and must
+    /// never grow (its `Vec` header is then immutable, which the concurrent
+    /// wrapper's racy readers rely on). Opt-in via [`Arena::with_capacity`];
+    /// the default arena grows with population per the §2.1 expanse
+    /// invariant.
+    fixed: bool,
+    /// Deferred-reclamation mode: freed allocations are parked in
+    /// [`Arena::pending`] instead of being returned to the allocator, so an
+    /// optimistic reader mid-walk can never dereference freed memory. The
+    /// writer drains the list at a quiescent point.
+    deferred: bool,
+    /// Retired allocations awaiting a quiescent point (`deferred` only).
+    pending: Vec<Retired>,
+    /// Bytes parked in `pending` (observability; not part of `bytes`).
+    pending_bytes: usize,
+    /// Arena allocations since the last watermark reset (validates
+    /// [`MUTATION_HEADROOM`] in the sync32 tests).
+    #[cfg(test)]
+    mut_allocs: usize,
+    /// Retirements (frees + subarray replacements) since the last reset.
+    #[cfg(test)]
+    mut_retires: usize,
 }
+
+/// A retired heap allocation parked until reclamation is safe.
+///
+/// Nodes are the common case; the two subarray variants exist because
+/// `BranchB32Data`/`LeafBitmapL32Data` replace their inner boxed subarrays
+/// in place during mutation, and those old boxes must outlive concurrent
+/// readers exactly like whole nodes do.
+pub enum Retired {
+    /// A whole arena node.
+    Node(NodeBox),
+    /// A `BranchB32Data` edge subarray replaced during mutation.
+    Edges(Box<[Edge32]>),
+    /// A `LeafBitmapL32Data` value subarray replaced during mutation.
+    Vals(Box<[u32]>),
+}
+
+impl Retired {
+    #[inline]
+    fn heap_bytes(&self) -> usize {
+        match self {
+            Retired::Node(n) => n.heap_bytes(),
+            Retired::Edges(b) => b.len() * core::mem::size_of::<Edge32>(),
+            Retired::Vals(b) => b.len() * core::mem::size_of::<u32>(),
+        }
+    }
+}
+
+/// Worst-case arena allocations one `map_insert`/`set_insert`/`*_remove`
+/// can perform, used as the pre-mutation headroom a fixed arena must hold.
+///
+/// Static ceiling: a split can cascade through all four levels when every
+/// key in an overflowing leaf shares its leading bytes — each level
+/// materialises at most `max(SET_LEAF_MAX, MAP_LEAF_MAX) + 1` children
+/// plus one branch, plus grow-ladder replacements, so 4 levels x 32 bounds
+/// it. The `mutation_watermark` assertion in `sync32::Writer32::write`
+/// checks the bound on every mutation of the churn tests (observed worst
+/// case there: 49 allocations in one insert); a violation of the arena
+/// capacity itself trips the fail-loud assert in [`Arena::alloc`].
+pub(crate) const MUTATION_HEADROOM: usize = 128;
 
 impl Arena {
     #[inline]
@@ -320,7 +381,123 @@ impl Arena {
             slots: Vec::new(),
             free: Vec::new(),
             bytes: 0,
+            fixed: false,
+            deferred: false,
+            pending: Vec::new(),
+            pending_bytes: 0,
+            #[cfg(test)]
+            mut_allocs: 0,
+            #[cfg(test)]
+            mut_retires: 0,
         }
+    }
+
+    /// A fixed-capacity, deferred-reclamation arena for the concurrent
+    /// 32-bit wrapper (`sync32`). Pre-fills all `cap` slots so the backing
+    /// `Vec` never reallocates — its (ptr, len) header is immutable after
+    /// construction, which the racy reader walk depends on.
+    pub(crate) fn with_capacity(cap: usize, pending_cap: usize) -> Self {
+        let mut slots = Vec::with_capacity(cap);
+        slots.resize_with(cap, || None);
+        // Low handles handed out first: pop from the back.
+        let free: Vec<u32> = (0..cap as u32).rev().collect();
+        Self {
+            slots,
+            free,
+            bytes: 0,
+            fixed: true,
+            deferred: true,
+            pending: Vec::with_capacity(pending_cap),
+            pending_bytes: 0,
+            #[cfg(test)]
+            mut_allocs: 0,
+            #[cfg(test)]
+            mut_retires: 0,
+        }
+    }
+
+    /// Free node slots available for the next mutation (`fixed` mode).
+    #[inline]
+    pub(crate) fn free_slots(&self) -> usize {
+        self.free.len()
+    }
+
+    /// Spare capacity in the pending list (`deferred` mode).
+    #[inline]
+    pub(crate) fn pending_spare(&self) -> usize {
+        self.pending.capacity() - self.pending.len()
+    }
+
+    /// Number of retired allocations awaiting reclamation.
+    #[inline]
+    pub(crate) fn pending_len(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// Bytes parked in the pending list.
+    #[inline]
+    pub(crate) fn pending_bytes(&self) -> usize {
+        self.pending_bytes
+    }
+
+    /// Drops every retired allocation. The caller must have established
+    /// quiescence: no optimistic reader may still be inside a walk that
+    /// began before these allocations were unlinked.
+    #[inline]
+    pub(crate) fn drain_pending(&mut self) {
+        self.pending.clear();
+        self.pending_bytes = 0;
+    }
+
+    /// Parks a replaced `BranchB32Data` edge subarray (drops it immediately
+    /// outside deferred mode).
+    #[inline]
+    fn retire_edges(&mut self, old: Option<Box<[Edge32]>>) {
+        if let Some(b) = old
+            && self.deferred
+        {
+            self.push_pending(Retired::Edges(b));
+        }
+    }
+
+    /// Parks a replaced `LeafBitmapL32Data` value subarray.
+    #[inline]
+    fn retire_vals(&mut self, old: Option<Box<[u32]>>) {
+        if let Some(b) = old
+            && self.deferred
+        {
+            self.push_pending(Retired::Vals(b));
+        }
+    }
+
+    /// Zeroes the per-mutation watermark counters (test builds only).
+    #[cfg(test)]
+    pub(crate) fn reset_mutation_watermark(&mut self) {
+        self.mut_allocs = 0;
+        self.mut_retires = 0;
+    }
+
+    /// `(allocations, retirements)` since the last reset (test builds only).
+    #[cfg(test)]
+    pub(crate) fn mutation_watermark(&self) -> (usize, usize) {
+        (self.mut_allocs, self.mut_retires)
+    }
+
+    #[inline]
+    fn push_pending(&mut self, r: Retired) {
+        // Fail loud rather than reallocate: a reallocation here would move
+        // nothing readers hold, but it would breach the bounded-memory
+        // contract the pre-mutation headroom check exists to keep.
+        assert!(
+            self.pending.len() < self.pending.capacity(),
+            "pending list exhausted — mutation ran without headroom"
+        );
+        #[cfg(test)]
+        {
+            self.mut_retires += 1;
+        }
+        self.pending_bytes += r.heap_bytes();
+        self.pending.push(r);
     }
 
     /// Bytes currently held by live nodes (the honest `mem_used` figure).
@@ -338,11 +515,20 @@ impl Arena {
 
     #[inline]
     fn alloc(&mut self, node: NodeBox) -> u32 {
+        #[cfg(test)]
+        {
+            self.mut_allocs += 1;
+        }
         self.bytes += node.heap_bytes();
         if let Some(h) = self.free.pop() {
             self.slots[h as usize] = Some(node);
             h
         } else {
+            // A fixed arena must never grow: reallocation would move the
+            // slots the concurrent wrapper's readers walk. The wrapper's
+            // pre-mutation headroom check makes this unreachable; if it
+            // fires, that check was bypassed (fail loud, AGENTS.md §8.1).
+            assert!(!self.fixed, "fixed arena exhausted mid-mutation");
             let h = self.slots.len() as u32;
             self.slots.push(Some(node));
             h
@@ -355,6 +541,12 @@ impl Arena {
             .take()
             .expect("free of an empty arena slot (double free)");
         self.bytes -= node.heap_bytes();
+        if self.deferred {
+            // The handle can be reused immediately (a stale handle resolves
+            // to a live-but-different node, which validation catches); only
+            // the *memory* must outlive concurrent readers.
+            self.push_pending(Retired::Node(node));
+        }
         self.free.push(h);
     }
 
@@ -1233,7 +1425,7 @@ fn branch_insert_new(a: &mut Arena, e: &mut Edge32, digit: u8, child: Edge32, ke
             }
         }
         Kind::BranchB => {
-            let promoted = {
+            let (promoted, retired_sub) = {
                 let b = a.b_mut(edge_handle(e));
                 let n = b.num_children as usize;
                 if n < BRANCH_B_TO_UNCOMPRESSED {
@@ -1254,15 +1446,18 @@ fn branch_insert_new(a: &mut Arena, e: &mut Edge32, digit: u8, child: Edge32, ke
                     } else {
                         new_sub.push(child);
                     }
-                    b.subarrays[sub] = Some(new_sub.into_boxed_slice());
+                    let retired = b.subarrays[sub].replace(new_sub.into_boxed_slice());
                     b.header.pop_counts[sub] += 1;
                     b.num_children += 1;
                     b.count += keys_added;
-                    None
+                    (None, retired)
                 } else {
-                    Some(b.count + keys_added)
+                    (Some(b.count + keys_added), None)
                 }
             };
+            // Replaced subarrays must outlive concurrent readers exactly
+            // like freed nodes (a no-op outside deferred mode).
+            a.retire_edges(retired_sub);
             if let Some(total) = promoted {
                 let mut pairs = branch_pairs(a, e);
                 insert_pair_sorted(&mut pairs, digit, child);
@@ -1352,7 +1547,7 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
             }
         }
         Kind::BranchB => {
-            let (new_n, total) = {
+            let (new_n, total, retired_sub) = {
                 let b = a.b_mut(edge_handle(e));
                 let w = (digit >> 6) as usize;
                 let bit64 = digit & 63;
@@ -1373,8 +1568,9 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
                 } else {
                     b.subarrays[sub] = None;
                 }
-                (b.num_children as usize, b.count)
+                (b.num_children as usize, b.count, existing)
             };
+            a.retire_edges(Some(retired_sub));
             a.bytes -= core::mem::size_of::<Edge32>();
 
             // Demote BranchB32 -> BranchL6_32 when new_n <= 5 (Band 1, 64B vs 96B).
@@ -1774,7 +1970,7 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
             None
         }
         Kind::MapBitmap => {
-            let (old, is_new) = {
+            let (old, is_new, retired_sub) = {
                 let b = a.map_bitmap_mut(edge_handle(e));
                 let digit = rem as u8;
                 let w = (digit >> 6) as usize;
@@ -1785,7 +1981,7 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
                 if (word & bit_mask) != 0 {
                     let old = b.subarrays[sub].as_ref().unwrap()[rank];
                     b.subarrays[sub].as_mut().unwrap()[rank] = val;
-                    (Some(old), false)
+                    (Some(old), false, None)
                 } else {
                     b.header.bitmap[w] |= bit_mask;
                     b.header.pop0 += 1;
@@ -1798,10 +1994,11 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
                     } else {
                         new_sub.push(val);
                     }
-                    b.subarrays[sub] = Some(new_sub.into_boxed_slice());
-                    (None, true)
+                    let retired = b.subarrays[sub].replace(new_sub.into_boxed_slice());
+                    (None, true, retired)
                 }
             };
+            a.retire_vals(retired_sub);
             if is_new {
                 a.bytes += core::mem::size_of::<u32>();
             }
@@ -1869,7 +2066,7 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
             Some(old)
         }
         Kind::MapBitmap => {
-            let (old_val, pop) = {
+            let (old_val, pop, retired_sub) = {
                 let b = a.map_bitmap_mut(edge_handle(e));
                 let digit = rem as u8;
                 let w = (digit >> 6) as usize;
@@ -1895,8 +2092,9 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
                 if pop > 0 {
                     b.header.pop0 -= 1;
                 }
-                (old_val, pop)
+                (old_val, pop, existing)
             };
+            a.retire_vals(Some(retired_sub));
             a.bytes -= core::mem::size_of::<u32>();
             if pop == 0 {
                 let old = edge_handle(e);
@@ -1941,6 +2139,295 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
 // Navigation (shared shape; returns remainder assembled from this level
 // down — at the root, `kb == 4`, so it returns the full key)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Validated optimistic reads (sync32)
+// ---------------------------------------------------------------------------
+
+/// Sentinel: a racy read observed a concurrent mutation (torn data, a
+/// version change, or an impossible structure) and the caller must retry
+/// or report `Busy`.
+pub(crate) struct Torn;
+
+impl Arena {
+    /// Non-panicking slot resolution for the optimistic read path. A racy
+    /// walk can fabricate garbage handles, so out-of-bounds handles and
+    /// empty slots report [`Torn`] instead of panicking.
+    #[inline]
+    fn try_node(&self, h: u32) -> Result<&NodeBox, Torn> {
+        self.slots
+            .get(h as usize)
+            .and_then(|s| s.as_ref())
+            .ok_or(Torn)
+    }
+}
+
+/// `Ok(v)` if the caller's version word is still unchanged, else [`Torn`].
+#[inline]
+fn seal<F: Fn() -> bool, T>(still_valid: &F, v: T) -> Result<T, Torn> {
+    if still_valid() { Ok(v) } else { Err(Torn) }
+}
+
+/// Resolves the child edge for `digit` under the optimistic-read
+/// discipline: every racily loaded pointer is validated **before** its
+/// first dereference (the "validate before following" rule of optimistic
+/// lock coupling — Leis, Scheibner, Kemper & Neumann, DaMoN 2016), every
+/// content-derived index is bounds-checked, and an "absent" answer is
+/// validated before it is trusted (torn content may misreport absence).
+fn branch_child_validated<F: Fn() -> bool>(
+    a: &Arena,
+    e: &Edge32,
+    digit: u8,
+    still_valid: &F,
+) -> Result<Option<Edge32>, Torn> {
+    let node = a.try_node(edge_handle(e))?;
+    match (kind(e), node) {
+        (Kind::BranchL2, NodeBox::L2(bx)) => {
+            let b: &BranchL2_32 = bx;
+            if !still_valid() {
+                return Err(Torn);
+            }
+            let n = (b.header.num_edges as usize).min(2);
+            for i in 0..n {
+                if b.digits[i] == digit {
+                    return seal(still_valid, Some(b.edges[i]));
+                }
+            }
+            seal(still_valid, None)
+        }
+        (Kind::BranchL6, NodeBox::L6(bx)) => {
+            let b: &BranchL6_32 = bx;
+            if !still_valid() {
+                return Err(Torn);
+            }
+            let n = (b.header.num_edges as usize).min(BRANCH_L6_CAP);
+            for i in 0..n {
+                if b.digits[i] == digit {
+                    return seal(still_valid, Some(b.edges[i]));
+                }
+            }
+            seal(still_valid, None)
+        }
+        (Kind::BranchB, NodeBox::B(bx)) => {
+            let b: &BranchB32Data = bx;
+            if !still_valid() {
+                return Err(Torn);
+            }
+            let w = (digit >> 6) as usize;
+            let word = b.header.bitmap[w];
+            let bit = 1u64 << (digit & 63);
+            if (word & bit) == 0 {
+                return seal(still_valid, None);
+            }
+            let rank = bitmap_sub_rank(word, digit);
+            let sub = (digit >> 5) as usize;
+            let Some(sb) = b.subarrays[sub].as_ref() else {
+                return Err(Torn);
+            };
+            let edges: &[Edge32] = sb;
+            if !still_valid() {
+                return Err(Torn);
+            }
+            let Some(&c) = edges.get(rank) else {
+                return Err(Torn);
+            };
+            seal(still_valid, Some(c))
+        }
+        (Kind::BranchU, NodeBox::U(bx)) => {
+            let b: &BranchU32 = bx;
+            if !still_valid() {
+                return Err(Torn);
+            }
+            let c = b.edges[digit as usize];
+            if c.is_null() {
+                seal(still_valid, None)
+            } else {
+                seal(still_valid, Some(c))
+            }
+        }
+        _ => Err(Torn),
+    }
+}
+
+/// Validated optimistic map lookup over a tree a single seqlock-bracketed
+/// writer may be mutating concurrently.
+///
+/// Contract: the caller read `root` racily, then validated its version
+/// word, and `still_valid` returns `true` iff that word is still
+/// unchanged. Any data wholly derived from already-validated bytes is
+/// consistent as of the sample (the result linearizes there); any later
+/// racy read is re-validated before being used to form an address, and
+/// sealed before being returned as data. Depth is explicitly bounded — 4
+/// branch hops resolve any 32-bit key, so deeper structures are torn by
+/// definition.
+pub(crate) fn map_get_validated<F: Fn() -> bool>(
+    a: &Arena,
+    root: Edge32,
+    key: u32,
+    still_valid: &F,
+) -> Result<Option<u32>, Torn> {
+    let mut edge = root;
+    let mut kb: u8 = 4;
+    let mut rem = key;
+    for _ in 0..4 {
+        match kind(&edge) {
+            Kind::Null => return Ok(None),
+            Kind::MapImmed { .. } => {
+                return Ok(if map_immed_rem(&edge, kb) == rem {
+                    Some(map_immed_val(&edge))
+                } else {
+                    None
+                });
+            }
+            Kind::MapLeaf(_) => {
+                let pop = edge_pop(&edge);
+                let cap = cap_class(pop);
+                let node = a.try_node(edge_handle(&edge))?;
+                let NodeBox::Leaf(bx) = node else {
+                    return Err(Torn);
+                };
+                let buf: &[u8] = bx;
+                if !still_valid() {
+                    return Err(Torn);
+                }
+                let kbz = kb as usize;
+                let keys_off = 4usize.checked_mul(cap).ok_or(Torn)?;
+                let keys_len = pop.checked_mul(kbz).ok_or(Torn)?;
+                let keys_end = keys_off.checked_add(keys_len).ok_or(Torn)?;
+                if keys_end > buf.len() || pop > cap {
+                    return Err(Torn);
+                }
+                let keys = &buf[keys_off..];
+                let Some(pos) = leaf_lower_bound(keys, pop, kb, rem) else {
+                    return seal(still_valid, None);
+                };
+                if pos >= pop || read_rem(keys, pos, kbz) != rem {
+                    return seal(still_valid, None);
+                }
+                let mut vb = [0u8; 4];
+                vb.copy_from_slice(&buf[pos * 4..pos * 4 + 4]);
+                return seal(still_valid, Some(u32::from_le_bytes(vb)));
+            }
+            Kind::MapBitmap => {
+                let node = a.try_node(edge_handle(&edge))?;
+                let NodeBox::MapBitmap(bx) = node else {
+                    return Err(Torn);
+                };
+                let b: &LeafBitmapL32Data = bx;
+                if !still_valid() {
+                    return Err(Torn);
+                }
+                let digit = rem as u8;
+                let w = (digit >> 6) as usize;
+                let word = b.header.bitmap[w];
+                let bit = 1u64 << (digit & 63);
+                if (word & bit) == 0 {
+                    return seal(still_valid, None);
+                }
+                let rank = bitmap_sub_rank(word, digit);
+                let sub = (digit >> 5) as usize;
+                let Some(sb) = b.subarrays[sub].as_ref() else {
+                    return Err(Torn);
+                };
+                let vals: &[u32] = sb;
+                if !still_valid() {
+                    return Err(Torn);
+                }
+                let Some(&v) = vals.get(rank) else {
+                    return Err(Torn);
+                };
+                return seal(still_valid, Some(v));
+            }
+            Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+                match branch_child_validated(a, &edge, digit_at(rem, kb), still_valid)? {
+                    Some(c) => {
+                        edge = c;
+                        rem = child_rem(rem, kb);
+                        kb -= 1;
+                        if kb == 0 {
+                            return Err(Torn);
+                        }
+                    }
+                    None => return Ok(None),
+                }
+            }
+            // Set-flavoured kinds inside a map tree only arise from torn
+            // reads; report them as such rather than as a miss.
+            _ => return Err(Torn),
+        }
+    }
+    Err(Torn)
+}
+
+/// Validated optimistic set membership test. Same contract and discipline
+/// as [`map_get_validated`].
+pub(crate) fn set_contains_validated<F: Fn() -> bool>(
+    a: &Arena,
+    root: Edge32,
+    key: u32,
+    still_valid: &F,
+) -> Result<bool, Torn> {
+    let mut edge = root;
+    let mut kb: u8 = 4;
+    let mut rem = key;
+    for _ in 0..4 {
+        match kind(&edge) {
+            Kind::Null => return Ok(false),
+            Kind::SetImmed { kb: _, count } => {
+                // A torn tag can claim more keys than the 7 payload bytes
+                // hold; clamp before decoding.
+                let n = (count as usize).min(set_immed_cap(kb)) as u8;
+                let (keys, n) = set_immed_keys(&edge, kb, n);
+                return Ok(keys[..n].binary_search(&rem).is_ok());
+            }
+            Kind::SetLeaf(_) => {
+                let pop = edge_pop(&edge);
+                let node = a.try_node(edge_handle(&edge))?;
+                let NodeBox::Leaf(bx) = node else {
+                    return Err(Torn);
+                };
+                let buf: &[u8] = bx;
+                if !still_valid() {
+                    return Err(Torn);
+                }
+                let kbz = kb as usize;
+                if pop.checked_mul(kbz).ok_or(Torn)? > buf.len() {
+                    return Err(Torn);
+                }
+                let hit = leaf_lower_bound(buf, pop, kb, rem)
+                    .map(|pos| pos < pop && read_rem(buf, pos, kbz) == rem)
+                    .unwrap_or(false);
+                return seal(still_valid, hit);
+            }
+            Kind::Bitmap => {
+                let node = a.try_node(edge_handle(&edge))?;
+                let NodeBox::Bitmap(bx) = node else {
+                    return Err(Torn);
+                };
+                let b: &LeafBitmap1_32 = bx;
+                if !still_valid() {
+                    return Err(Torn);
+                }
+                return seal(still_valid, b.test(rem as u8));
+            }
+            Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+                match branch_child_validated(a, &edge, digit_at(rem, kb), still_valid)? {
+                    Some(c) => {
+                        edge = c;
+                        rem = child_rem(rem, kb);
+                        kb -= 1;
+                        if kb == 0 {
+                            return Err(Torn);
+                        }
+                    }
+                    None => return Ok(false),
+                }
+            }
+            _ => return Err(Torn),
+        }
+    }
+    Err(Torn)
+}
 
 pub(crate) fn first(a: &Arena, e: &Edge32, kb: u8) -> Option<u32> {
     match kind(e) {
