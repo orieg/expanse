@@ -21,14 +21,26 @@
 // stated in SAFETY comments inside each body rather than per-fn sections.
 #![allow(clippy::missing_safety_doc)]
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc as core_alloc;
+
+// Bare-metal support lives behind `not(std)`: the global allocator and the
+// opt-in panic handler a staticlib link requires (#558).
+#[cfg(not(feature = "std"))]
+mod alloc_bridge;
+
 use core::ffi::{c_int, c_void};
 use core::ptr::{NonNull, null_mut};
 pub mod blobmap;
 pub mod modern;
 
+#[cfg(feature = "std")]
 use expanse_trie::bytesmap::ExpanseBytesMap;
-use expanse_trie::map::ExpanseMap;
-use expanse_trie::set::ExpanseSet;
+use expanse_trie::ExpanseMap;
+use expanse_trie::ExpanseSet;
+#[cfg(feature = "std")]
 use expanse_trie::strmap::ExpanseStrMap;
 
 /// `Word_t`: pointer-width unsigned integer (see COMPAT.md doc-gap D1).
