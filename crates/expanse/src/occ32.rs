@@ -5,6 +5,24 @@
 //!
 //! Avoids 64-bit atomic emulation libcalls (e.g. `__atomic_load_8` on RV32) by operating
 //! natively on 32-bit words with single-instruction acquire/release semantics.
+//!
+//! # Interrupt-handler contract
+//!
+//! On a single-core part, a reader that **spins** waiting for a writer's
+//! bracket to close can never make progress if it preempted that writer:
+//! there is no scheduler to run the writer, so the version word stays odd
+//! forever. Hard hang, watchdog reset, no core dump.
+//!
+//! Every sampling entry point here is therefore **single-attempt and
+//! bounded** — [`SeqVersion32::try_sample`] and [`try_node_sample`] return
+//! `None` rather than spinning, and the caller decides what to do. This
+//! mirrors the 64-bit `occ::node_sample`, which is already `Option`-shaped.
+//! A caller in an interrupt handler must surface the `None` (as a `Busy`
+//! result) rather than retry in place.
+//!
+//! [`SeqVersion32::sample`] does spin and is retained for single-threaded
+//! and cooperatively-scheduled callers; it is **not** safe to call from an
+//! interrupt handler that can preempt the writer.
 
 use core::sync::atomic::{AtomicU32, Ordering, fence};
 
@@ -39,7 +57,24 @@ impl SeqVersion32 {
         self.0.store(v.wrapping_add(1), Ordering::Release);
     }
 
+    /// Reader: one bounded attempt. `Some(even)` on a stable snapshot,
+    /// `None` while a writer's bracket is open.
+    ///
+    /// This is the entry point an interrupt handler must use — see the
+    /// module's interrupt-handler contract. It never spins, so a reader
+    /// that preempted the writer returns immediately instead of hanging.
+    #[inline(always)]
+    #[must_use]
+    pub fn try_sample(&self) -> Option<u32> {
+        let v = self.0.load(Ordering::Acquire);
+        v.is_multiple_of(2).then_some(v)
+    }
+
     /// Reader: samples the version, spinning past in-progress (odd) states.
+    ///
+    /// **Not interrupt-safe.** On a single-core target this deadlocks if the
+    /// caller preempted the writer that opened the bracket. Use
+    /// [`Self::try_sample`] there.
     #[inline(always)]
     #[must_use]
     pub fn sample(&self) -> u32 {
@@ -93,22 +128,25 @@ pub unsafe fn node_version_end(version_ptr: *mut u32) {
     }
 }
 
-/// Reader: sample node-level version word.
+/// Reader: one bounded attempt at a node-level version word.
+///
+/// `Some(even)` on a stable snapshot, `None` while that node's bracket is
+/// open. Never spins — see the module's interrupt-handler contract. Same
+/// shape as the 64-bit `occ::node_sample`.
 ///
 /// # Safety
 ///
 /// `version_ptr` must point to an aligned readable `u32`.
 #[inline(always)]
 #[must_use]
-pub unsafe fn node_sample(version_ptr: *const u32) -> u32 {
-    loop {
-        // SAFETY: caller guarantees pointer validity per contract.
-        let v = unsafe { core::ptr::read_volatile(version_ptr) };
-        if v.is_multiple_of(2) {
-            fence(Ordering::Acquire);
-            return v;
-        }
-        core::hint::spin_loop();
+pub unsafe fn try_node_sample(version_ptr: *const u32) -> Option<u32> {
+    // SAFETY: caller guarantees pointer validity per contract.
+    let v = unsafe { core::ptr::read_volatile(version_ptr) };
+    if v.is_multiple_of(2) {
+        fence(Ordering::Acquire);
+        Some(v)
+    } else {
+        None
     }
 }
 
@@ -128,6 +166,41 @@ pub unsafe fn node_validate(version_ptr: *const u32, snapshot: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The interrupt-handler contract: a bounded sample must report an open
+    /// bracket rather than spin. Spinning here is what hangs a single-core
+    /// part when the reader preempted the writer.
+    #[test]
+    fn try_sample_reports_open_bracket_instead_of_spinning() {
+        let seq = SeqVersion32::new();
+        assert_eq!(seq.try_sample(), Some(0));
+
+        seq.begin();
+        assert_eq!(
+            seq.try_sample(),
+            None,
+            "an open bracket must yield None, never a spin"
+        );
+
+        seq.end();
+        assert_eq!(seq.try_sample(), Some(2));
+    }
+
+    /// Same contract at node level.
+    #[test]
+    fn try_node_sample_reports_open_bracket() {
+        let mut version = 0u32;
+        let ptr = &raw mut version;
+
+        // SAFETY: ptr points to a valid local u32 on the stack.
+        unsafe {
+            assert_eq!(try_node_sample(ptr), Some(0));
+            node_version_begin(ptr);
+            assert_eq!(try_node_sample(ptr), None, "open bracket must yield None");
+            node_version_end(ptr);
+            assert_eq!(try_node_sample(ptr), Some(2));
+        }
+    }
 
     #[test]
     fn test_seq_version32_transitions() {
@@ -153,7 +226,7 @@ mod tests {
         let ptr = &mut version as *mut u32;
 
         // SAFETY: ptr points to a valid local u32 on stack.
-        let s0 = unsafe { node_sample(ptr) };
+        let s0 = unsafe { try_node_sample(ptr) }.expect("stable");
         assert_eq!(s0, 0);
         // SAFETY: ptr points to a valid local u32 on stack.
         assert!(unsafe { node_validate(ptr, s0) });
@@ -168,7 +241,7 @@ mod tests {
         unsafe { node_version_end(ptr) };
         assert_eq!(version, 2);
         // SAFETY: ptr points to a valid local u32 on stack.
-        let s1 = unsafe { node_sample(ptr) };
+        let s1 = unsafe { try_node_sample(ptr) }.expect("stable");
         assert_eq!(s1, 2);
         // SAFETY: ptr points to a valid local u32 on stack.
         assert!(unsafe { node_validate(ptr, s1) });
