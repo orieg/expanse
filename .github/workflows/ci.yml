@@ -765,7 +765,11 @@ jobs:
           set -euo pipefail
           READOBJ="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/host: //p')/bin/llvm-readobj"
           AR=target/riscv32imafc-unknown-none-elf/release/libexpanse.a
-          "$READOBJ" --file-header "$AR" | grep -q "EF_RISCV_FLOAT_ABI_SINGLE" || {
+          # Buffer before grepping: grep -q closing the pipe mid-stream makes
+          # llvm-readobj abort on EPIPE, and under pipefail that false-fails
+          # the assert even when the flag is present.
+          "$READOBJ" --file-header "$AR" > /tmp/p4-readobj.out
+          grep -q "EF_RISCV_FLOAT_ABI_SINGLE" /tmp/p4-readobj.out || {
             echo "::error::P4 archive is not ilp32f — an ESP-IDF esp32p4 link would reject it (#581)"
             exit 1
           }
