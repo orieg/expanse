@@ -448,6 +448,49 @@ options.memtable_factory = rocksdb::NewExpanseMemTableRepFactory(
 );
 ```
 
+### 5.4 Embedded Telemetry MemTable & BLE Asset-Tracker (`ESP-IDF` / `FreeRTOS`)
+
+On resource-constrained 32-bit microcontrollers (ESP32-C3 / ESP32-C6 / ESP32-P4), Expanse provides zero-allocation immediate edges and compact linear leaves (`trie32.rs` / `ExpanseMap32`) residing entirely within fast internal DRAM (`MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT`), eliminating heap fragmentation and multi-word pointer overhead.
+
+```
+ ESP32 FreeRTOS Ingestion Architecture
+ ┌────────────────────────┐      ┌────────────────────────┐
+ │ ISR / Sensor Task (1k) │      │ BLE Sighting Task (1k) │
+ └───────────┬────────────┘      └───────────┬────────────┘
+             │ xQueueSend                    │ xQueueSend
+             ▼                               ▼
+ ┌────────────────────────────────────────────────────────┐
+ │ Single Owner / Ingest Task (Worker Loop)               │
+ │  • expanse_memtable_insert(mt, timestamp, val)         │
+ │  • expanse_ble_tracker_record(tracker, &record)        │
+ │  • Thread-safe reader queries via FreeRTOS Recursive   │
+ │    Mutex: aggregate_range(), flush_range(), get()      │
+ └────────────────────────────────────────────────────────┘
+```
+
+#### Memory Envelope Sizing Matrix (Derived from `scripts/embedded_envelope.py`, base commit `7e579ac2`)
+
+| Workload ($N$) | Expanse (32-bit Trie) | `std::unordered_map` (reserve) | `std::map` (Red-Black Tree) | Flat RingBuffer | Expanse Advantage vs `std::map` |
+|---|---|---|---|---|---|
+| **Sensor TSDB 1kHz ($N=2\text{k}$)** | **8.64 KiB** (4.42 B/key) | 56.25 KiB (~28 B/key) | 62.50 KiB (32.0 B/key) | 15.62 KiB (8 B/entry) | **7.23× lower RAM** (ordered) |
+| **Sensor TSDB 10Hz ($N=2\text{k}$)** | **16.60 KiB** (~8.50 B/key) | 56.25 KiB (~28 B/key) | 62.50 KiB (32.0 B/key) | 15.62 KiB (8 B/entry) | **3.77× lower RAM** (ordered) |
+| **CAN Dispatch ($N=500$)** | **4.25 KiB** (8.70 B/key) | 14.06 KiB (~28 B/key) | 15.62 KiB (32.0 B/key) | 3.91 KiB (8 B/entry) | **3.68× lower RAM** (ordered) |
+| **Sparse Events ($N=5\text{k}$)** | **53.52 KiB** (10.96 B/key) | 140.62 KiB (~28 B/key) | 156.25 KiB (32.0 B/key) | 39.06 KiB (8 B/entry) | **2.92× lower RAM** (ordered) |
+| **BLE Tracker ($N=2\text{k}$)** | **97.50 KiB** (Slab + Dual Trie) | 103.12 KiB (52.0 B/entry) | 109.38 KiB (56.0 B/entry) | 54.68 KiB (28 B/entry) | **1.12× lower RAM + $O(\text{expired})$ TTL** |
+
+*(Density constants sourced from `bytes_per_key_32.rs` at commit `7e579ac2`; note that 10 Hz stride-100 sensor timestamps amortize to ~8.50 B/key and CAN-bus 29-bit IDs are measured at $N=500$. BLE tracker evaluates 28-byte symmetric tracking payloads across all arms).*
+
+#### C Component Storage Engines (`components/expanse/`)
+
+1. **Telemetry MemTable (`expanse_memtable.h`)**:
+   - Backed by `ExpanseMap32`, providing $O(\text{depth})$ ordered ingestion, sliding-window range aggregations (`aggregate_range`), and batched ascending range flushes (`flush_range`) without tree rebalancing or dynamic node reallocation.
+2. **BLE Asset-Tracker Registry (`expanse_ble_tracker.h`)**:
+   - Dual-index architecture (`by_mac` + `by_time`) managing a 28-byte packed slab (`expanse_ble_record_t`).
+   - 32-bit FNV-1a MAC hash with full 48-bit MAC verification; deterministic `EXPANSE_BLE_ERR_COLLISION` return on hash collision with differing MACs.
+   - Composite 32-bit time key: `rel_sec: 19 bits | slab_idx: 13 bits`, providing ~6.06 days active window with automatic epoch rebasing during stale eviction.
+   - $O(\text{expired})$ TTL range pruning via `expanse_ble_tracker_expire_stale(tracker, cutoff_ms)` without scanning live entries.
+
+
 **Architectural Benefits in RocksDB LSM Storage** *(memory density: deterministic seeded byte accounting against the fair variable-height skiplist baseline, at the [#372](https://github.com/orieg/expanse/issues/372) fix commit — Apple M1, 8 cores, Apple clang 21, `-O3`, load-immune, reproduced twice. Throughput cells: **re-measured** against the fair variable-height skiplist baseline over five rounds with BCa 95% intervals — reference host, run [33398474866](https://github.com/orieg/expanse/actions/runs/33398474866), commit `6cb64b45`, artifact [`results/baseline_rocksdb.json`](../results/baseline_rocksdb.json). The baseline reports 18.7 B/entry, not the retracted 146.7 B/entry fat-node strawman, so these cells now stand on the same footing as the density figure)*:
 
 ![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](./assets/bench_rocksdb.svg)

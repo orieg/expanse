@@ -241,21 +241,17 @@ macro_rules! set_nav {
     };
 }
 
-#[cfg(target_pointer_width = "64")]
 set_nav!(
     expanse_set_next_at_or_after,
     next_at_or_after,
     "Smallest key >= `key`."
 );
-#[cfg(target_pointer_width = "64")]
 set_nav!(expanse_set_next_after, next_after, "Smallest key > `key`.");
-#[cfg(target_pointer_width = "64")]
 set_nav!(
     expanse_set_prev_at_or_before,
     prev_at_or_before,
     "Largest key <= `key`."
 );
-#[cfg(target_pointer_width = "64")]
 set_nav!(expanse_set_prev_before, prev_before, "Largest key < `key`.");
 
 /// Smallest key in the set.
@@ -544,7 +540,6 @@ pub unsafe extern "C" fn expanse_map_ins_slot(map: *mut ExpanseMap, key: CWord) 
     unsafe { map.as_mut() }.map_or(core::ptr::null_mut(), |m| m.ins_slot(key).as_ptr())
 }
 
-#[cfg(target_pointer_width = "64")]
 /// Generates a map navigation entry point returning `bool` + key/value.
 macro_rules! map_nav {
     ($name:ident, $method:ident, $doc:literal) => {
@@ -575,25 +570,21 @@ macro_rules! map_nav {
     };
 }
 
-#[cfg(target_pointer_width = "64")]
 map_nav!(
     expanse_map_next_at_or_after,
     next_at_or_after,
     "Smallest entry with key >= `key`."
 );
-#[cfg(target_pointer_width = "64")]
 map_nav!(
     expanse_map_next_after,
     next_after,
     "Smallest entry with key > `key`."
 );
-#[cfg(target_pointer_width = "64")]
 map_nav!(
     expanse_map_prev_at_or_before,
     prev_at_or_before,
     "Largest entry with key <= `key`."
 );
-#[cfg(target_pointer_width = "64")]
 map_nav!(
     expanse_map_prev_before,
     prev_before,

@@ -191,6 +191,34 @@ impl ExpanseSet32 {
 
     /// Smallest key `>= bound`, if any.
     #[inline]
+    #[must_use]
+    pub fn next_at_or_after(&self, bound: Key32) -> Option<Key32> {
+        self.first_ge(bound)
+    }
+
+    /// Smallest key `> bound`, if any.
+    #[inline]
+    #[must_use]
+    pub fn next_after(&self, bound: Key32) -> Option<Key32> {
+        self.next(bound)
+    }
+
+    /// Largest key `<= bound`, if any.
+    #[inline]
+    #[must_use]
+    pub fn prev_at_or_before(&self, bound: Key32) -> Option<Key32> {
+        self.last_le(bound)
+    }
+
+    /// Largest key `< bound`, if any.
+    #[inline]
+    #[must_use]
+    pub fn prev_before(&self, bound: Key32) -> Option<Key32> {
+        self.prev(bound)
+    }
+
+    /// Smallest key `>= bound`, if any.
+    #[inline]
     fn first_ge(&self, bound: Key32) -> Option<Key32> {
         if bound == 0 {
             self.first()

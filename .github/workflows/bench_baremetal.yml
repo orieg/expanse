@@ -52,6 +52,7 @@ on:
           - python_concurrency
           - rocksdb
           - embedded
+          - embedded_memtable
           - batch_lookup
           - compare
           - bench_grammar_masks
