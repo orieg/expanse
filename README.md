@@ -39,7 +39,7 @@ Naming the project after the mechanism honors the algorithm itself without inher
 - **100% Drop-In C ABI Compatibility**: Swap `-lJudy` for `-lexpanse` with zero code changes (Judy1, JudyL, JudySL, JudyHS). Passes `php-judy` test suite (221/221) and differential oracle.
 - **Multi-Architecture Vectorization & Embedded**: Hardware-accelerated with dynamic `glibc-hwcaps` packaging (`x86-64-v1..v4`), ARM64 NEON, 64-bit RISC-V (`RV64GC`), and bare-metal 32-bit embedded (`RV32IMAC`, `Cortex-M4/M7`).
 - **Lock-Free OCC Reads (single writer)**: Optimistic concurrency control — **one writer at a time, serialized on a mutex; unlimited validated readers that take no lock**. On 100%-read, ~50%-hit workloads at 16 threads: **884.5 M ops/s (11.42×)** `SyncExpanseSet`, **424.1 M ops/s (11.40×)** `SyncExpanseMap`, **133.8 M ops/s (11.48×)** `SyncExpanseBytesMap`, **82.9 M ops/s (11.84×)** `SyncExpanseStrMap`; coarse-mutex baselines collapse to 0.14×–0.45× and `DashMap` reaches 132.1 M / 8.47× *(measured: reference host — Intel i9-12900F, run [33030152085](https://github.com/orieg/expanse/actions/runs/33030152085), ref `5fb03aa3`, load average 0.00)*. **Honest limit:** on a 50/50 read/write mix every single-writer arm *loses* throughput as threads are added (0.12×–0.55×) because writes serialize on one mutex; sharded/lock-free-write structures win that regime (`DashMap` 7.93×). See the concurrency section below.
-- **Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on 64-bit sets *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a)* and **~0.31 bytes/key** on clustered 32-bit embedded sets *(measured: `bytes_per_key_32`, commit `7e579ac2`)*.
+- **Dense Memory Packing**: Down to **0.07–0.36 bytes/key** on 64-bit sets *(measured: Apple M1, `bytes_per_key` example, commit 6c63826a)* and **~0.31 bytes/key** on clustered 32-bit embedded sets *(measured: `bytes_per_key_32`, commit `27019b23`)*.
 
 ---
 
@@ -231,11 +231,11 @@ Expanse provides first-class support for 32-bit embedded microprocessors (`Expan
 - **Compact 8-Byte `Edge32`**: 50% structural SRAM reduction vs 64-bit descriptors (`[ptr (4B) | aux (3B) | tag (1B)]`), packing up to 7 immediate keys with zero heap allocations.
 - **32-Byte Cache Alignment**: Nodes are sized for embedded microarchitectures (`BranchL2_32` = 32B = 1 cache line on Cortex-M7/ESP32; `BranchL6_32` = 64B = 2 cache lines).
 - **Polymorphic `ValueSlot32`**: Payloads $\le 3\text{ bytes}$ (CAN-bus flags, status codes, checksums) fit inline with zero heap allocations.
-- **Microcontroller SRAM Footprint** — real `mem_used()` byte accounting from `cargo run --release --example bytes_per_key_32` *(measured, commit `7e579ac2`; deterministic — host-independent for the fixed 8-byte `Edge32` layout)*:
-  - Clustered sensor timestamps (10k consecutive): **$0.3088\text{ B/key}$**.
-  - Sparse 29-bit CAN IDs (500 IDs): **$8.704\text{ B/key}$** (genuinely sparse — a handful of keys spread across the 29-bit space).
-  - IPv4 subnet /24 routing map (2k routes): **$8.416\text{ B/key}$**.
-  - Dense consecutive map (10k, `u32→u32`): **$4.424\text{ B/key}$**.
+- **Microcontroller SRAM Footprint** — real `mem_used()` byte accounting from `cargo run --release --example bytes_per_key_32` *(measured, commit `27019b23`; deterministic — host-independent for the fixed 8-byte `Edge32` layout)*:
+  - Clustered sensor timestamps (10k consecutive): **$0.31\text{ B/key}$** (0.3088 B/key).
+  - Sparse 29-bit CAN IDs (500 IDs): **$8.70\text{ B/key}$** (8.7040 B/key — genuinely sparse, keys spread across 29-bit space).
+  - IPv4 subnet /24 routing map (2k routes): **$8.42\text{ B/key}$** (8.4160 B/key).
+  - Dense consecutive map (10k, `u32→u32`): **$4.42\text{ B/key}$** (4.4240 B/key).
 
 ---
 
