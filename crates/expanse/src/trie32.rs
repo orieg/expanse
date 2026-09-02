@@ -449,6 +449,17 @@ impl Arena {
         self.pending_bytes = 0;
     }
 
+    /// Frees the oldest `n` parked allocations — the prefix whose grace
+    /// period has elapsed under the writer's reader snapshot (`sync32`,
+    /// #594) — and keeps the rest parked.
+    #[inline]
+    pub(crate) fn drain_pending_prefix(&mut self, n: usize) {
+        let n = n.min(self.pending.len());
+        for r in self.pending.drain(..n) {
+            self.pending_bytes -= r.heap_bytes();
+        }
+    }
+
     /// Parks a replaced `BranchB32Data` edge subarray (drops it immediately
     /// outside deferred mode).
     #[inline]
