@@ -74,10 +74,10 @@
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="45" y="62.1" width="50" height="132.9" class="b-expanse" rx="2"/>
-    <text x="70" y="53.6" class="t-val-muted">5,316</text>
+    <rect x="45" y="64.0" width="50" height="131.0" class="b-expanse" rx="2"/>
+    <text x="70" y="55.5" class="t-val-muted">5,242</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">insert</text>
-    <text x="70" y="228" class="t-chart-sub" text-anchor="middle">33.2 &#181;s</text>
+    <text x="70" y="228" class="t-chart-sub" text-anchor="middle">32.8 &#181;s</text>
     <rect x="115" y="171.1" width="50" height="23.9" class="b-hashmap" rx="2"/>
     <text x="140" y="162.6" class="t-val-blue">957</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">agg N=500</text>
@@ -101,8 +101,8 @@
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="45" y="78.5" width="50" height="116.5" class="b-expanse" rx="2"/>
-    <text x="70" y="70.0" class="t-val-muted">11,645</text>
+    <rect x="45" y="78.6" width="50" height="116.4" class="b-expanse" rx="2"/>
+    <text x="70" y="70.1" class="t-val-muted">11,642</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">record</text>
     <text x="70" y="228" class="t-chart-sub" text-anchor="middle">72.8 &#181;s</text>
     <rect x="115" y="172.5" width="50" height="22.5" class="b-hashmap" rx="2"/>
@@ -110,7 +110,7 @@
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">lookup</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">14.1 &#181;s</text>
     <rect x="185" y="171.9" width="50" height="23.1" class="b-stdmap" rx="2"/>
-    <text x="210" y="163.4" class="t-val-muted">2,308</text>
+    <text x="210" y="163.4" class="t-val-muted">2,307</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">TTL evict</text>
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">14.4 &#181;s</text>
   </g>
@@ -128,12 +128,12 @@
     <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
     <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
     <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
-    <rect x="45" y="138.6" width="50" height="56.4" class="b-expanse" rx="2"/>
-    <text x="70" y="130.1" class="t-val-muted">30.1k</text>
+    <rect x="45" y="137.8" width="50" height="57.2" class="b-expanse" rx="2"/>
+    <text x="70" y="129.3" class="t-val-muted">30.5k</text>
     <text x="70" y="214" class="t-bar-label" text-anchor="middle">insert</text>
     <text x="70" y="228" class="t-chart-sub" text-anchor="middle">1kHz=3.3%</text>
     <rect x="115" y="61.6" width="50" height="133.4" class="b-hashmap" rx="2"/>
-    <text x="140" y="53.1" class="t-val-blue">71.2k</text>
+    <text x="140" y="53.1" class="t-val-blue">71.1k</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">lookup</text>
     <text x="140" y="228" class="t-chart-sub" text-anchor="middle">1kHz=1.4%</text>
     <rect x="185" y="169.2" width="50" height="25.8" class="b-stdmap" rx="2"/>
@@ -142,7 +142,7 @@
     <text x="210" y="228" class="t-chart-sub" text-anchor="middle">10/s=0.07%</text>
   </g>
 
-  <text x="30" y="262" class="t-chart-sub">Measured on esp32 rev v301 &#183; 160 MHz &#183; ESP-IDF v6.0-dev-2980-gab149384e1 &#183; engine 0.5.0-dev (v0.5.0-85-gd2aedda2) &#183; 10 reps/arm, BCa 95% CIs.</text>
+  <text x="30" y="262" class="t-chart-sub">Measured on esp32 rev v301 &#183; 160 MHz &#183; ESP-IDF v6.0-dev-2980-gab149384e1 &#183; engine 0.5.0-dev (v0.5.0-88-ga022071a) &#183; 10 reps/arm, BCa 95% CIs.</text>
   <text x="30" y="275" class="t-chart-sub">Single-arm: no unordered_map, std::map or ring-buffer arm ran on the device. These size the part for a workload; they do not rank Expanse against anything.</text>
-  <text x="30" y="288" class="t-chart-sub">Panel 3 is derived from panels 1-2. Insert is flat in population (5,448 cycles at N=500). Churn left 476 B resident, fragmentation -0.0009. FreeRTOS mutex inside every timed window.</text>
+  <text x="30" y="288" class="t-chart-sub">Panel 3 is derived from panels 1-2. Insert is flat in population (5,256 cycles at N=500). Churn left 464 B resident, fragmentation -0.0009. FreeRTOS mutex inside every timed window.</text>
 </svg>

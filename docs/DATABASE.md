@@ -522,17 +522,17 @@ shared workload identity:
   table** (1556 vs 957 cycles per key walked, both walking the same 500 keys). That
   is the price of the deeper descent, and it is the shape to plan around: range
   scans get more expensive as the table grows, point operations do not.
-- **Insert is flat in population** — 5448 cycles at N=500 against 5316 at N=2000,
+- **Insert is flat in population** — 5256 cycles at N=500 against 5242 at N=2000,
   intervals that do not separate. Ingest cost does not degrade as the window fills,
   which is the property that makes a fixed per-sample time budget safe.
 
 For an always-on node the fragmentation result matters more than any cycle count:
-eight flush cycles moved free-pool fragmentation by -0.0009 and left 476 B resident,
+eight flush cycles moved free-pool fragmentation by -0.0008 and left 464 B resident,
 so the memtable gives its memory back and does not walk the heap toward an
 allocation failure days into a deployment.
 
 *(measured: ESP32-D0WD-V3 rev v3.1, 2 cores, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
-Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-85-gd2aedda2)`, commit `d2aedda2`;
+Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-88-ga022071a)`, commit `a022071a`;
 BCa 95% CIs over 10 repetitions, artifact
 [`docs/benchmarks/embedded/esp32.json`](benchmarks/embedded/esp32.json))*
 
@@ -551,13 +551,13 @@ per-operation costs of the *component API as shipped*, not of the bare engine.
 
 | Arm | Population | Cycles/op (BCa 95% CI) | At 160 MHz | Heap delta |
 |---|---|---|---|---|
-| Telemetry ingest (`expanse_memtable_insert`) | 500 | 5448.0 [5414.8, 5456.5] | 34.1 µs | 3162 B |
-| Telemetry ingest (`expanse_memtable_insert`) | 2000 | 5316.4 [5309.0, 5345.3] | 33.2 µs | 11282 B |
-| Range aggregation, 500 keys walked | 500 | 956.8 [945.5, 960.0] | 6.0 µs | 3162 B |
-| Range aggregation, 500 keys walked | 2000 | 1556.4 [1555.2, 1559.6] | 9.7 µs | 11282 B |
-| BLE sighting record | 2000 | 11645.3 [11571.3, 11664.0] | 72.8 µs | 111868 B |
-| BLE point lookup | 2000 | 2248.5 [2248.2, 2248.7] | 14.1 µs | 111868 B |
-| BLE TTL eviction, per expired entry | 2000 | 2308.4 [2306.2, 2316.4] | 14.4 µs | 111868 B |
+| Telemetry ingest (`expanse_memtable_insert`) | 500 | 5255.7 [5216.6, 5326.0] | 32.8 µs | 3162 B |
+| Telemetry ingest (`expanse_memtable_insert`) | 2000 | 5241.7 [5199.8, 5312.9] | 32.8 µs | 11282 B |
+| Range aggregation, 500 keys walked | 500 | 957.2 [945.2, 960.4] | 6.0 µs | 3162 B |
+| Range aggregation, 500 keys walked | 2000 | 1555.8 [1554.7, 1557.6] | 9.7 µs | 11282 B |
+| BLE sighting record | 2000 | 11642.1 [11568.2, 11660.7] | 72.8 µs | 111868 B |
+| BLE point lookup | 2000 | 2249.1 [2248.9, 2249.2] | 14.1 µs | 111868 B |
+| BLE TTL eviction, per expired entry | 2000 | 2307.4 [2305.3, 2315.1] | 14.4 µs | 111868 B |
 
 The aggregation arm walks the same 500 keys in both rows, so the 1.63× between them
 is the cost of the deeper descent over a 2000-key table — the one paired comparison
@@ -566,7 +566,7 @@ identity *(workload: esp32_tsdb_aggregate_500)*.
 
 **Fragmentation after insert/delete churn.** Eight cycles of 500 inserts followed by
 500 removals, which is what a flush-to-flash duty cycle does to the allocator:
-free-pool fragmentation moved by **-0.0009** (0.4526 → 0.4517) and **476 B** stayed
+free-pool fragmentation moved by **-0.0008** (0.4529 → 0.4520) and **464 B** stayed
 resident. Every repetition returned the identical value, so the interval is
 degenerate and reported as such rather than dressed up as a bootstrap result. The
 memtable gives essentially all of its memory back and does not progressively
