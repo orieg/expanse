@@ -259,8 +259,8 @@
     "meta": {
       "source": "docs/BENCHMARKING.md, section 'Concurrent read scaling' -> SyncExpanseMap32 arm (#573); harvested from the run's suite-tables-concurrency artifact by scripts/generate_asset_svgs.py contributors — every value below is a counter of that run, none is typed by hand",
       "host": "reference host -- Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8",
-      "run": "33556060582",
-      "ref": "db63f409",
+      "run": "33577621860",
+      "ref": "077aac51",
       "config": "EXPANSE_BENCH_THREADS=\"1,4,16\", 500 ms windows; one writer thread (full duty or deadline-paced), N readers on try_get over a 2x keyspace",
       "workload_id": "core_concurrency"
     },
@@ -275,30 +275,30 @@
         "rows": [
           {
             "readers": 1,
-            "reads_per_s": 1323524,
-            "writes_per_s": 6265542,
-            "busy": 10749600,
-            "attempts": 11411362,
-            "busy_pct": 94.201,
+            "reads_per_s": 773298,
+            "writes_per_s": 7128316,
+            "busy": 12940500,
+            "attempts": 13327149,
+            "busy_pct": 97.099,
             "refused": 0
           },
           {
             "readers": 4,
-            "reads_per_s": 10480230,
-            "writes_per_s": 3701468,
-            "busy": 47591732,
-            "attempts": 52831847,
-            "busy_pct": 90.082,
+            "reads_per_s": 9426890,
+            "writes_per_s": 3763904,
+            "busy": 28964199,
+            "attempts": 33677644,
+            "busy_pct": 86.004,
             "refused": 0
           },
           {
             "readers": 16,
-            "reads_per_s": 636898556,
-            "writes_per_s": 72360,
-            "busy": 5417196,
-            "attempts": 323866474,
-            "busy_pct": 1.673,
-            "refused": 1727926
+            "reads_per_s": 80672732,
+            "writes_per_s": 1336026,
+            "busy": 69491365,
+            "attempts": 109827731,
+            "busy_pct": 63.273,
+            "refused": 0
           }
         ]
       },
@@ -307,30 +307,30 @@
         "rows": [
           {
             "readers": 1,
-            "reads_per_s": 36028182,
-            "writes_per_s": 1000140,
-            "busy": 4453559,
-            "attempts": 22467650,
-            "busy_pct": 19.822,
+            "reads_per_s": 37584312,
+            "writes_per_s": 1000104,
+            "busy": 3393164,
+            "attempts": 22185320,
+            "busy_pct": 15.295,
             "refused": 0
           },
           {
             "readers": 4,
-            "reads_per_s": 138358802,
-            "writes_per_s": 946306,
-            "busy": 15254201,
-            "attempts": 84433602,
-            "busy_pct": 18.067,
-            "refused": 26893
+            "reads_per_s": 132336038,
+            "writes_per_s": 1000000,
+            "busy": 8862915,
+            "attempts": 75030934,
+            "busy_pct": 11.812,
+            "refused": 0
           },
           {
             "readers": 16,
-            "reads_per_s": 630939072,
-            "writes_per_s": 117256,
-            "busy": 5400375,
-            "attempts": 320869911,
-            "busy_pct": 1.683,
-            "refused": 441315
+            "reads_per_s": 306407284,
+            "writes_per_s": 999896,
+            "busy": 23061479,
+            "attempts": 176265121,
+            "busy_pct": 13.083,
+            "refused": 0
           }
         ]
       },
@@ -339,30 +339,30 @@
         "rows": [
           {
             "readers": 1,
-            "reads_per_s": 49617702,
-            "writes_per_s": 100002,
-            "busy": 487839,
-            "attempts": 25296690,
-            "busy_pct": 1.928,
+            "reads_per_s": 49744096,
+            "writes_per_s": 100016,
+            "busy": 318868,
+            "attempts": 25190916,
+            "busy_pct": 1.266,
             "refused": 0
           },
           {
             "readers": 4,
-            "reads_per_s": 193272688,
-            "writes_per_s": 100016,
-            "busy": 939082,
-            "attempts": 97575426,
-            "busy_pct": 0.962,
+            "reads_per_s": 194602932,
+            "writes_per_s": 100020,
+            "busy": 547817,
+            "attempts": 97849283,
+            "busy_pct": 0.56,
             "refused": 0
           },
           {
             "readers": 16,
-            "reads_per_s": 648705658,
-            "writes_per_s": 72362,
-            "busy": 3053383,
-            "attempts": 327406212,
-            "busy_pct": 0.933,
-            "refused": 13817
+            "reads_per_s": 620918886,
+            "writes_per_s": 99994,
+            "busy": 5463171,
+            "attempts": 315922614,
+            "busy_pct": 1.729,
+            "refused": 0
           }
         ]
       },
@@ -371,29 +371,29 @@
         "rows": [
           {
             "readers": 1,
-            "reads_per_s": 52220488,
-            "writes_per_s": 10004,
-            "busy": 37998,
-            "attempts": 26148242,
-            "busy_pct": 0.145,
+            "reads_per_s": 53775038,
+            "writes_per_s": 10006,
+            "busy": 47030,
+            "attempts": 26934549,
+            "busy_pct": 0.175,
             "refused": 0
           },
           {
             "readers": 4,
-            "reads_per_s": 204450778,
-            "writes_per_s": 10002,
-            "busy": 101211,
-            "attempts": 102326600,
-            "busy_pct": 0.099,
+            "reads_per_s": 205823284,
+            "writes_per_s": 10004,
+            "busy": 64544,
+            "attempts": 102976186,
+            "busy_pct": 0.063,
             "refused": 0
           },
           {
             "readers": 16,
-            "reads_per_s": 681853900,
-            "writes_per_s": 10002,
-            "busy": 463156,
-            "attempts": 341390106,
-            "busy_pct": 0.136,
+            "reads_per_s": 671315534,
+            "writes_per_s": 10022,
+            "busy": 263230,
+            "attempts": 335920997,
+            "busy_pct": 0.078,
             "refused": 0
           }
         ]

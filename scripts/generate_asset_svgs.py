@@ -476,7 +476,7 @@ def render_sync32_health(data: dict) -> None:
     height = top + grp_h * len(duties) + 104
 
     def rate(v: float) -> str:
-        return f"{v / 1e6:.2f}M" if v >= 1e6 else (f"{v / 1e3:.0f}k" if v >= 1e3 else f"{v:.0f}")
+        return f"{v / 1e6:.2f}M" if v >= 9.995e5 else (f"{v / 1e3:.0f}k" if v >= 1e3 else f"{v:.0f}")
 
     svg = head(960, height, "sync32 protocol health: Busy rate per writer duty")
     legend = "".join(
@@ -511,8 +511,8 @@ def render_sync32_health(data: dict) -> None:
             svg += badge(badge_x, y - 2, badge_w, label, refused == 0)
     svg += (
         f'\n  <line x1="30" y1="{height - 60}" x2="930" y2="{height - 60}" class="divider"/>\n'
-        f'  <text x="30" y="{height - 44}" class="t-note">Reading: Busy tracks write rate &#215; bracket length, as the seqlock model predicts &#8212; at embedded ingestion rates reads validate &#8805;99.8% of the time. Refusals appear only under dense many-reader load:</text>\n'
-        f'  <text x="30" y="{height - 31}" class="t-note">deferred reclamation drains only at a fence that sees every reader flag clear, so sixteen continuous readers starve the writer. Zero refusals for the wrapper\'s stated 1&#8211;2 reader target at every rate.</text>\n'
+        f'  <text x="30" y="{height - 44}" class="t-note">Reading: Busy tracks write rate &#215; bracket length, as the seqlock model predicts &#8212; at embedded ingestion rates reads validate &#8805;99.8% of the time. Refusals: none at any reader count &#8212;</text>\n'
+        f'  <text x="30" y="{height - 31}" class="t-note">reclamation frees a parked node once every reader has passed through a quiescent state since it was retired (per-reader walk counters, #594), so dense readers no longer starve the writer.</text>\n'
         f'  <text x="30" y="{height - 13}" class="t-note">Measured: {esc(meta["host"])} &#183; run {esc(meta["run"])}, ref {esc(meta["ref"])} &#183; report-only, never gating (workload: {esc(meta["workload_id"])}).</text>\n'
     )
     svg += "</svg>\n"
