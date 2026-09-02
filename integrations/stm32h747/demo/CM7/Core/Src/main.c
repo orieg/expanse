@@ -99,7 +99,7 @@ static void draw_stats(lane_t *l, uint32_t now_ms, uint32_t start_ms) {
     else if (lat_us_x10 >= 10000u) snprintf(b, 16, "%lu.%lu ms", (unsigned long)(lat_us_x10 / 10000u), (unsigned long)((lat_us_x10 / 1000u) % 10u));
     else snprintf(b, 16, "%lu.%lu us", (unsigned long)(lat_us_x10 / 10u), (unsigned long)(lat_us_x10 % 10u));
     text_right(xr, 428, b, lat_us_x10 > 1000u ? C_RED : C_GREEN, 1);
-    uint32_t elapsed = now_ms - start_ms, served = l->isr_served;
+    uint32_t elapsed = now_ms - start_ms, served = l->isr_served + 1u; /* +1: the tick in flight at start */
     uint32_t missed = elapsed > served ? elapsed - served : 0;
     fmt_u(b, missed); text_right(xr, 448, b, missed ? C_RED : C_GREEN, 1);
 }
@@ -151,10 +151,12 @@ int main(void) {
            (unsigned long)((brk - (uint8_t *)HEAP_START) / 1024u), (unsigned long)(acct_live() / 1024u));
 
     draw_frame();
+    lane_a.last_isr_ms = lane_b.last_isr_ms = HAL_GetTick(); /* before the first tick can fire */
     timers_init();
+    HAL_Delay(2);
+    lane_a.lat_max_ticks = lane_b.lat_max_ticks = 0;          /* the first tick's phase is not a latency */
     uint32_t start_ms = HAL_GetTick(), last_stats = start_ms, last_sweep = start_ms, last_log = start_ms;
     lane_a.last_sweep_ms = lane_b.last_sweep_ms = start_ms;
-    lane_a.last_isr_ms = lane_b.last_isr_ms = start_ms;
     for (;;) {
         uint32_t now = HAL_GetTick();
         lane_move_tracked(&lane_a, now);
@@ -165,6 +167,7 @@ int main(void) {
             last_sweep = now;
             lane_sweep(&lane_a, now);
             lane_sweep(&lane_b, now);
+            lane_field_border(&lane_b, C_GRID);   /* the mask is over; the beads keep the gap */
         }
         if (now - last_stats >= 100u) {
             last_stats = now;
