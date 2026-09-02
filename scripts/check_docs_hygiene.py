@@ -249,7 +249,22 @@ def tracked_markdown(root: Path) -> list[Path]:
         rp = p.resolve()
         if rp in seen:
             continue
-        if "/worktrees/" in str(rp) or "/target/" in str(rp):
+        # Exclude nested worktrees and build output -- but decide that on the
+        # path RELATIVE to the scan root, never on the absolute path. The repo
+        # root is itself frequently a git worktree (agents work in
+        # `.claude/worktrees/<name>/`), and matching the absolute path made
+        # every tracked file look nested: this returned 0 of 52 files while
+        # exiting 0, so the gate reported "passed" having scanned nothing.
+        # A check that silently verifies nothing is worse than no check
+        # (§8.1), and it is how a §8.12 violation reached CI green locally.
+        try:
+            rel = rp.relative_to(root.resolve())
+        except ValueError:
+            # Outside the scan root (a symlink pointing away); keep the old
+            # conservative behaviour and skip it.
+            continue
+        parts = rel.parts
+        if "worktrees" in parts or "target" in parts:
             continue
         seen.add(rp)
         files.append(p)
@@ -707,6 +722,29 @@ def self_test() -> int:
     assert fatal == 0, "pending cell citing open #382 must pass"
     fatal, _ = scan_text("t.md", "Pause times are pending a tagged reference-host run.\n", deny, False, reg)  # docs-lint: allow
     assert fatal >= 1, "pending cell with no issue citation must fail"
+
+    # The file-discovery filter itself. A repo root that is a git worktree
+    # must still have its tracked markdown scanned: matching "worktrees" on
+    # the absolute path silently reduced this to zero files while the script
+    # exited 0, which is the failure mode §8.1 names by hand.
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        fake = Path(td) / ".claude" / "worktrees" / "agent-branch"
+        (fake / "docs").mkdir(parents=True)
+        (fake / "README.md").write_text("# root\n", encoding="utf-8")
+        (fake / "docs" / "GUIDE.md").write_text("# guide\n", encoding="utf-8")
+        # A genuinely nested worktree and a build directory must still be skipped.
+        for nested in (fake / ".claude" / "worktrees" / "inner", fake / "target" / "doc"):
+            nested.mkdir(parents=True)
+            (nested / "NESTED.md").write_text("# nested\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=fake, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=fake, check=True)
+        found = {p.name for p in tracked_markdown(fake)}
+        assert found == {"README.md", "GUIDE.md"}, (
+            f"tracked_markdown under a worktree-shaped root returned {found!r}; "
+            f"a root whose absolute path contains 'worktrees' must still be scanned, "
+            f"and nested worktrees/target must still be skipped"
+        )
 
     print("check_docs_hygiene.py --self-test: all checks passed")
     return 0

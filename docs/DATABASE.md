@@ -556,7 +556,8 @@ twins now mirror the tracker's predicate.
   read as a general verdict. Expanse's own cost moves 11% between the two
   orders; the sorted array's moves 24×.
 - **Memory: 1.5× denser than the sorted array and 3.3× denser than the hash**
-  (5.63 vs 8.26 vs 18.50 B/key). The sorted array stores two bare 4-byte
+  (5.63 vs 8.26 vs 18.50 B/key, all three from the same fill
+  *(workload: esp32_tsdb_ingest)*). The sorted array stores two bare 4-byte
   arrays with no per-entry overhead at all, so beating it on density is the
   compression working, not an accounting artifact.
 - **BLE point lookup: 1.6× faster than the hash** (2,267 vs 3,564) and 49×
