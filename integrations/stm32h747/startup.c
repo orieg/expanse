@@ -1,4 +1,5 @@
-/* Minimal Cortex-M7 startup for the STM32H747XI (no Cube, no CMSIS). */
+/* Minimal Cortex-M startup for both STM32H747XI cores (no Cube, no CMSIS).
+ * Built with -DCORE_M7 or -DCORE_M4. */
 #include <stdint.h>
 
 extern uint32_t _estack, _sidata, _sdata, _edata, _sbss, _ebss;
@@ -29,39 +30,52 @@ void (*const vector_table[])(void) = {
     0,
     Default_Handler,   /* PendSV */
     SysTick_Handler,
-    /* 16 external IRQ slots, all unused. */
     Default_Handler, Default_Handler, Default_Handler, Default_Handler,
     Default_Handler, Default_Handler, Default_Handler, Default_Handler,
     Default_Handler, Default_Handler, Default_Handler, Default_Handler,
     Default_Handler, Default_Handler, Default_Handler, Default_Handler,
 };
 
-void uart_puts(const char *s);
-void uart_hex(uint32_t v);
+void fault_report(const char *what, uint32_t hfsr, uint32_t cfsr);
 
 void Default_Handler(void) {
-    uart_puts("FAULT default handler\r\n");
+    fault_report("default handler", 0, 0);
     for (;;) { __asm volatile("bkpt 0"); }
 }
 
 void HardFault_Handler(void) {
-    uart_puts("HARDFAULT HFSR=");
-    uart_hex(SCB_HFSR);
-    uart_puts(" CFSR=");
-    uart_hex(SCB_CFSR);
-    uart_puts("\r\n");
+    fault_report("HARDFAULT", SCB_HFSR, SCB_CFSR);
     for (;;) { __asm volatile("bkpt 0"); }
 }
 
-void Reset_Handler(void) {
+static void start_c(void) {
     SCB_VTOR = (uint32_t)vector_table;
     SCB_CPACR |= (0xFu << 20); /* CP10/CP11 full access: FPU on */
     __asm volatile("dsb; isb");
-
     uint32_t *src = &_sidata, *dst = &_sdata;
     while (dst < &_edata) *dst++ = *src++;
     for (dst = &_sbss; dst < &_ebss;) *dst++ = 0;
-
     main();
     for (;;) { __asm volatile("wfi"); }
 }
+
+#ifdef CORE_M4
+/* The M4's stack lives in D2 SRAM3 and it talks to D3 SRAM4 before the M7
+ * has done anything, so enable those block clocks with registers only —
+ * no stack may be touched before RCC_AHB2ENR.SRAM3EN is set. */
+__attribute__((naked, noreturn)) void Reset_Handler(void) {
+    __asm volatile(
+        "ldr r0, =0x580244DC\n"   /* RCC_AHB2ENR: SRAM1EN|SRAM2EN|SRAM3EN */
+        "ldr r1, [r0]\n"
+        "orr r1, r1, #0xE0000000\n"
+        "str r1, [r0]\n"
+        "ldr r0, =0x580244E0\n"   /* RCC_AHB4ENR: BKPRAMEN|SRAM4EN */
+        "ldr r1, [r0]\n"
+        "orr r1, r1, #0x30000000\n"
+        "str r1, [r0]\n"
+        "dsb\n"
+        "b %0\n" :: "i"(start_c));
+}
+#else
+void Reset_Handler(void) { start_c(); }
+#endif

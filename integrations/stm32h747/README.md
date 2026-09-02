@@ -1,14 +1,16 @@
-# STM32H747I-DISCO harness (Cortex-M7, bare metal)
+# STM32H747I-DISCO harness (Cortex-M7 + Cortex-M4, bare metal)
 
-The first on-target execution lane for the ARM Cortex-M tier: a Cube-free
-firmware that links `libexpanse.a` (narrow surface, `thumbv7em-none-eabihf`)
-and runs the `benches/embedded_memtable.rs` fixtures plus the `sync32`
-interrupt-handler contract on the M7 of an STM32H747I-DISCO, reporting DWT
-cycle counts over the ST-LINK V3 virtual COM port. Tracking issue: #598.
-Measured results and their reading live in `docs/BENCHMARKING.md`
-("Cortex-M7 on-target"); the committed artifacts are
-`docs/benchmarks/stm32h747/{transcript.txt,results.json}` and the derived
-chart `docs/assets/bench_stm32h747.svg` (`scripts/generate_stm32_svg.py`).
+The on-target execution lane for the ARM Cortex-M tier: a Cube-free
+firmware for both cores of an STM32H747I-DISCO that links `libexpanse.a`
+(narrow surface, `thumbv7em-none-eabihf`) and runs the
+`benches/embedded_memtable.rs` fixtures — for Expanse and three alternatives
+— plus the `sync32` interrupt-handler contract on each core and the
+cross-core reader cells, reporting DWT cycle counts over the ST-LINK V3
+virtual COM port. Tracking issue: #598. Measured results and their reading
+live in `docs/BENCHMARKING.md` ("Cortex-M7 on-target"); the committed
+artifacts are `docs/benchmarks/stm32h747/{transcript.txt,results.json}` and
+the derived charts `docs/assets/bench_stm32h747*.svg`
+(`scripts/generate_stm32_svg.py`).
 
 ## What runs
 
@@ -33,17 +35,42 @@ are pre-sized to capacity (like the host suite's `HashMap::with_capacity`),
 Expanse and `tsearch` grow through `malloc`; `tsearch` degenerates on
 sequential keys (unbalanced), which the docs section says out loud.
 
+## Both cores
+
+`main.c` is built twice: `-DCORE_M7` for flash bank 1 and `-DCORE_M4` for
+bank 2 (`startup.c` serves both; the M4 variant enables its D2 SRAM and the
+D3 SRAM4 clocks with registers only, before its stack exists). After the M7
+finishes its own cells at 400 MHz it hands the M4 a turn through the SRAM4
+mailbox (`dual.h`): the M4 — 200 MHz HCLK, no cache — runs the same
+calibration (relayed by the M7 as `TICK`/`TOCK` so the host times it too),
+the same fixtures for all four implementations and the same ISR arms, into a
+16 KB text buffer the M7 dumps to the VCP with `core=m4` on every line.
+
+Then the dual-core cells. The M7 allocates a `sync32` map in its own heap
+(AXI SRAM — every node body is a heap `Box`, the arena only holds handles,
+which is why an SRAM4 bump arena was the wrong shared region the first
+time), prefills it, and mutates it at each writer duty while the M4 serves
+single-attempt `try_get`s from its reader handle across the D2/D1 bridge,
+counting OK / not-found / BUSY / corrupted values, read cycles and lock
+waits. Three series: the M7 heap **non-cacheable** (MPU region 2; region 0
+keeps all of SRAM4 non-cacheable so the mailbox never sits in the D-cache);
+the same with a **hardware-semaphore twin** (HSEM 0 around every mutation
+and every read — what firmware does across cores); and the heap
+**cacheable** — the configuration the `sync32` header marks unsupported —
+measured rather than assumed. `QUICK=1 sh build.sh` skips the fixture
+passes so the dual cells can be iterated in under a minute.
+
 ## Files
 
-- `main.c` — harness; `startup_m7.c`, `m7.ld` — M7 startup and memory map
-  (flash bank 1, DTCM data/stack, 512 KB AXI SRAM heap via `_sbrk`).
-- `m4_idle.c`, `m4.ld` — a 72-byte image for flash bank 2 that parks the
-  Cortex-M4 in WFI so the factory demo does not run alongside the harness.
+- `main.c` — harness for both cores; `startup.c`; `m7.ld` (flash bank 1,
+  DTCM data/stack, 512 KB AXI SRAM heap via `_sbrk`), `m4.ld` (flash bank 2,
+  SRAM3 data/stack, SRAM1+2 heap); `dual.h` — mailbox layout and protocol.
+- `alts.{h,c}` — the alternatives and the allocation accounting.
 - `build.sh` — builds both images against
-  `target/thumbv7em-none-eabihf/release/libexpanse.a`; CI runs it as the
-  hard-float link assertion. `run.sh` — flashes both banks over the on-board
-  ST-LINK (`STM32_Programmer_CLI`), resets, captures the VCP with
-  `capture.py`, and summarises with `harvest.py` (table + JSON).
+  `target/thumbv7em-none-eabihf/release/libexpanse.a` and asserts the
+  hard-float ABI tag on each; CI runs it. `run.sh` — flashes both banks over
+  the on-board ST-LINK (`STM32_Programmer_CLI`), resets, captures the VCP
+  with `capture.py`, and summarises with `harvest.py` (table + JSON).
 
 ## Running it
 
