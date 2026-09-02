@@ -19,6 +19,8 @@
 #include "expanse.h"
 
 #define N_TRACKED 12
+#define N_BEADS   12   /* trail beads per dot, one every BEAD_EVERY interrupt ticks */
+#define BEAD_EVERY 16
 #define TTL_MS    60000u
 
 typedef struct { uint32_t id; uint32_t born_ms; int16_t x, y; uint8_t used; } rec_t;
@@ -39,6 +41,7 @@ typedef struct lane {
     volatile uint8_t served_ms[4096];                    /* ring by HAL ms: interrupt ran in that ms */
     uint32_t sweep_us, sweep_removed, sweep_max_us, refused;
     int16_t dot_x[N_TRACKED], dot_y[N_TRACKED];          /* last drawn dot positions (interrupt-owned) */
+    int16_t bead_x[N_TRACKED][N_BEADS], bead_y[N_TRACKED][N_BEADS]; uint8_t bead_head[N_TRACKED]; uint32_t bead_tick;
     volatile uint32_t irq_masked;                        /* nesting count of the hash lane's masking */
     volatile uint32_t masked_ticks_max;                  /* longest masked stretch, ticks of the HAL ms clock */
 } lane_t;
@@ -57,5 +60,7 @@ void lane_isr(lane_t *l, uint32_t entry_ticks, uint32_t now_ms);
 /* the hash lane's twin: mask its own reader interrupt (and only that) */
 void lane_mask(lane_t *l);
 void lane_unmask(lane_t *l);
+/* red border on a lane's field while its reader interrupt is masked (main-loop drawn) */
+void lane_field_border(lane_t *l, uint32_t colour);
 
 #endif

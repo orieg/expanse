@@ -87,6 +87,7 @@ static bool lane_setup(lane_t *l, uint32_t target) {
         l->tracked_idx[t] = idx; l->tracked_id[t] = l->slab[idx].id;
         if (!tbl_insert(l, l->slab[idx].id, idx)) return false;
         l->dot_x[t] = l->dot_y[t] = -1;
+        for (int b = 0; b < N_BEADS; b++) l->bead_x[t][b] = l->bead_y[t][b] = -1;
     }
     return true;
 }
@@ -133,7 +134,7 @@ void lane_move_tracked(lane_t *l, uint32_t now_ms) {
     for (int d = 0; d < N_TRACKED; d++) {
         float ph = (float)d * 0.7f;
         /* cheap lissajous without libm: two triangle-ish waves */
-        float a = t * 0.9f + ph, b = t * 1.3f + ph * 1.7f;
+        float a = t * 2.7f + ph, b = t * 3.9f + ph * 1.7f;
         a -= (float)(int)(a / 6.2831853f) * 6.2831853f; b -= (float)(int)(b / 6.2831853f) * 6.2831853f;
         float sa = (a < 3.1415927f) ? (a / 1.5707963f - 1.0f) : (3.0f - a / 1.5707963f);
         float sb = (b < 3.1415927f) ? (b / 1.5707963f - 1.0f) : (3.0f - b / 1.5707963f);
@@ -156,6 +157,12 @@ static bool hash_expired(uint32_t id, uint32_t idx, void *p) {
     return false;
 }
 
+void lane_field_border(lane_t *l, uint32_t colour) {
+    int fx = FIELD_X(l);
+    fill_rect(fx - 2, FIELD_Y - 2, FIELD_W + 4, 2, colour); fill_rect(fx - 2, FIELD_Y + FIELD_H, FIELD_W + 4, 2, colour);
+    fill_rect(fx - 2, FIELD_Y - 2, 2, FIELD_H + 4, colour); fill_rect(fx + FIELD_W, FIELD_Y - 2, 2, FIELD_H + 4, colour);
+}
+
 void lane_sweep(lane_t *l, uint32_t now_ms) {
     uint32_t pretend_now = now_ms + TTL_MS + 1000u;
     sweep_ctx c = { l, pretend_now, 0 };
@@ -164,6 +171,7 @@ void lane_sweep(lane_t *l, uint32_t now_ms) {
         uint32_t cutoff_tk = tk_of(pretend_now - TTL_MS, 0xFF);
         expanse_map_remove_range(l->by_time, 0, cutoff_tk, expanse_sweep_cb, &c);
     } else {
+        lane_field_border(l, C_RED);      /* the reader is about to be masked */
         lane_mask(l);
         alt_open_hash.evict_scan(l->hash, hash_expired, &c);
         lane_unmask(l);
@@ -202,9 +210,21 @@ void lane_isr(lane_t *l, uint32_t entry_ticks, uint32_t now_ms) {
         if (idx >= l->cap || l->slab[idx].id != l->tracked_id[d]) { l->isr_bad++; continue; }
         l->isr_ok++;
         int nx = fx + l->slab[idx].x, ny = FIELD_Y + l->slab[idx].y;
+        bool bead_tick = (l->bead_tick % BEAD_EVERY) == 0;
+        if (bead_tick) {
+            /* drop the oldest bead, plant a new one where the dot is now: a
+             * string of beads every 16 ms, so a masked window leaves a gap */
+            uint8_t hd = l->bead_head[d];
+            if (l->bead_x[d][hd] >= 0) fill_circle(l->bead_x[d][hd], l->bead_y[d][hd], 2, C_BG);
+            l->bead_x[d][hd] = (int16_t)nx; l->bead_y[d][hd] = (int16_t)ny;
+            l->bead_head[d] = (uint8_t)((hd + 1u) % N_BEADS);
+        }
         if (nx == l->dot_x[d] && ny == l->dot_y[d]) continue;
         if (l->dot_x[d] >= 0) fill_circle(l->dot_x[d], l->dot_y[d], 5, C_BG);
+        /* repaint the beads the head may have erased, then the head */
+        for (int b = 0; b < N_BEADS; b++) if (l->bead_x[d][b] >= 0) fill_circle(l->bead_x[d][b], l->bead_y[d][b], 2, l->accent);
         fill_circle(nx, ny, 5, l->accent);
         l->dot_x[d] = (int16_t)nx; l->dot_y[d] = (int16_t)ny;
     }
+    l->bead_tick++;
 }
