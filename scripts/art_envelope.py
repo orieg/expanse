@@ -3,7 +3,7 @@
 scripts/art_envelope.py — Mathematical memory bounds and theoretical crossover envelope
 for Expanse vs. Adaptive Radix Tree (ART, Leis et al. ICDE 2013 / blart 0.5.0).
 
-Enforces Rule 12 (Math-first validation in committed Python with unit tests) and
+Enforces Rule 1 (Math-first validation in committed Python with unit tests) and
 the contradiction rule for issue #387.
 """
 

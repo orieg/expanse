@@ -333,6 +333,10 @@ def generate_readme() -> str:
         "   - In the original Leis et al. 2013 paper model (Section V, Table IV), ART achieved 8.1 B/key by assuming values embedded directly "
         "inside 8-byte pointer slots without separate leaf nodes. `blart` does not implement that inline-value model."
     )
+    md.append(
+        "   - The sparse-stride envelope row is projected-from-fit (fitted to the measured 16.39 B/key anchor) "
+        "and excluded from the contradiction-rule confirmed count, matching `results/contradiction_rule.json`."
+    )
     md.append("")
     md.append("2. **Point Lookup: Expanse Wins Structured Keys; Random Refuted in Expanse's Favor**:")
     md.append(
