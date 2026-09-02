@@ -865,6 +865,15 @@ jobs:
             -Ltarget/i686-unknown-linux-gnu/release -lexpanse -lpthread -o narrow_smoke
           LD_LIBRARY_PATH="$PWD/target/i686-unknown-linux-gnu/release" ./narrow_smoke
 
+      # The 32-bit-only man pages' EXAMPLES programs (NARROW_SURFACE_PAGES)
+      # cannot link against the 64-bit host library the docs job uses, so
+      # they are compiled, run and output-matched here against the i686
+      # cdylib (#595). Failure is a job failure, not advisory.
+      - name: Narrow-surface man page examples (i686, -m32)
+        run: |
+          python3 scripts/check_man_examples.py --narrow --cc "cc -m32" \
+            --lib-dir target/i686-unknown-linux-gnu/release
+
   test-musl:
     name: Cross / Musl Static C ABI (Linux)
     needs: [detect-changes]

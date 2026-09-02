@@ -216,13 +216,17 @@ int main(void) {
 
     expanse_sync32_stats_t stats;
     expanse_sync32_map_writer_stats(w, &stats, sizeof stats);
-    printf("len %llu, free slots %zu\n",
-           (unsigned long long)stats.len, stats.free_slots);
+    printf("len %llu\n", (unsigned long long)stats.len);
 
     /* Mask the reader interrupt and join reader tasks before freeing. */
     expanse_sync32_map_free(table);
     return 0;
 }
+.fi
+.SS Example Output
+.nf
+id 0x123 -> 42
+len 1
 .fi
 .SH SEE ALSO
 .BR expanse (3),
