@@ -36,6 +36,13 @@ import xml.etree.ElementTree as ET
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RESULTS = REPO_ROOT / "docs" / "benchmarks" / "embedded" / "results.json"
+# The on-device harvest is a separate artifact and a separate chart: its arms
+# are CPU cycles on a microcontroller, and the panels above are host
+# wall-clock nanoseconds. Rendering them on one canvas would juxtapose two
+# metric domains with no shared workload, which is the complection §8.12
+# exists to stop.
+ESP32_RESULTS = REPO_ROOT / "docs" / "benchmarks" / "embedded" / "esp32.json"
+ESP32_OUTPUT = REPO_ROOT / "docs" / "assets" / "bench_esp32_ondevice.svg"
 OUTPUT = REPO_ROOT / "docs" / "assets" / "bench_embedded.svg"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -238,12 +245,157 @@ def loss_caption(ours: float, best_other: float, win_text: str) -> tuple[str, bo
     return (f"{ours / best_other:.1f}&#215; slower", False)
 
 
+def _cyc(results: dict, bench: str, pop: int) -> float:
+    """Mean cycles/op for one on-device arm, or a loud failure (§8.1)."""
+    for entry in results["benchmarks"].values():
+        if entry["benchmark"] == bench and entry["pop"] == pop:
+            arm = next(iter(entry["arms"].values()))
+            return float(arm["cycles_per_op"]["mean"])
+    raise SystemExit(
+        f"{ESP32_RESULTS}: no arm '{bench}' at population {pop}. Refusing to "
+        f"render a panel with a missing arm (§8.1)."
+    )
+
+
+def render_on_device() -> int:
+    """Renders the on-device chart from the ESP32 harvest artifact.
+
+    Panels 1-2 are what was measured. Panel 3 is the same data in the unit a
+    reader decides with: a cycles-per-op bar cannot answer "can this part
+    keep up with my sensor?", and a rate can. It is labelled derived.
+
+    Text is laid out to fit: bar captions stay short enough not to collide at
+    70px bar spacing, and footer lines stay inside the canvas. An earlier
+    revision overflowed both.
+    """
+    if not ESP32_RESULTS.exists():
+        raise SystemExit(
+            f"{ESP32_RESULTS} does not exist. Harvest a run first:\n"
+            f"  python3 scripts/esp32_bench_harvest.py --input <log> "
+            f"--emit-json docs/benchmarks/embedded/esp32.json"
+        )
+    results = json.loads(ESP32_RESULTS.read_text(encoding="utf-8"))
+    prov = results.get("provenance") or {}
+    if not prov.get("target"):
+        raise SystemExit(f"{ESP32_RESULTS}: no provenance; refusing to render an "
+                         f"unidentified target (§8.7).")
+    hz = float(prov.get("cpu_hz", 0))
+    if not hz:
+        raise SystemExit(f"{ESP32_RESULTS}: no cpu_hz; every derived cell needs it (§8.1).")
+    mhz = hz / 1e6
+
+    ingest = _cyc(results, "esp32_tsdb_ingest", 2000)
+    ingest_500 = _cyc(results, "esp32_tsdb_ingest", 500)
+    agg_500 = _cyc(results, "esp32_tsdb_aggregate_500", 500)
+    agg_2k = _cyc(results, "esp32_tsdb_aggregate_500", 2000)
+    record = _cyc(results, "esp32_ble_sighting_record", 2000)
+    lookup = _cyc(results, "esp32_ble_point_lookup", 2000)
+    evict = _cyc(results, "esp32_ble_ttl_eviction", 2000)
+
+    churn = next((v for v in results.get("metrics", {}).values()
+                  if v["metric"] == "churn_fragmentation"), None)
+    if churn is None:
+        raise SystemExit(f"{ESP32_RESULTS}: no churn_fragmentation metric (§8.1).")
+    frag_delta = churn["fields"]["frag_after"]["mean"] - churn["fields"]["frag_before"]["mean"]
+    retained = churn["fields"]["heap_retained_bytes"]["mean"]
+
+    def us(c: float) -> str:
+        return f"{c / mhz:.1f} &#181;s"
+
+    def rate(c: float) -> float:
+        return hz / c
+
+    # Offered loads a reader would actually run these at.
+    duty_ingest = 1000.0 * ingest / hz          # 1 kHz sensor
+    duty_lookup = 1000.0 * lookup / hz          # 1 kHz dispatch
+    duty_record = 10.0 * record / hz            # 10 BLE sightings/s
+
+    mem_max = nice_axis_max([ingest, agg_500, agg_2k])
+    ble_max = nice_axis_max([record, lookup, evict])
+    rates = [rate(ingest), rate(lookup), rate(record)]
+    rate_max = nice_axis_max(rates)
+
+    def krate(v: float) -> str:
+        return f"{v / 1000:.1f}k"
+
+    p1 = panel(
+        30, "Telemetry MemTable", "cycles/op &#183; lower is better",
+        "&#9660; CPU cycles / op", mem_max, f"{mem_max:,.0f}", f"{mem_max / 2:,.0f}",
+        bar(BAR_X[0], ingest, mem_max, "b-expanse", f"{ingest:,.0f}",
+            "t-val-muted", "insert", us(ingest), False)
+        + bar(BAR_X[1], agg_500, mem_max, "b-hashmap", f"{agg_500:,.0f}",
+              "t-val-blue", "agg N=500", us(agg_500), False)
+        + bar(BAR_X[2], agg_2k, mem_max, "b-hashmap", f"{agg_2k:,.0f}",
+              "t-val-blue", "agg N=2k", us(agg_2k), False),
+    )
+    p2 = panel(
+        350, "BLE Asset Tracker", "cycles/op &#183; N=2k &#183; lower is better",
+        "&#9660; CPU cycles / op", ble_max, f"{ble_max:,.0f}", f"{ble_max / 2:,.0f}",
+        bar(BAR_X[0], record, ble_max, "b-expanse", f"{record:,.0f}",
+            "t-val-muted", "record", us(record), False)
+        + bar(BAR_X[1], lookup, ble_max, "b-hashmap", f"{lookup:,.0f}",
+              "t-val-blue", "lookup", us(lookup), False)
+        + bar(BAR_X[2], evict, ble_max, "b-stdmap", f"{evict:,.0f}",
+              "t-val-muted", "TTL evict", us(evict), False),
+    )
+    p3 = panel(
+        670, "Headroom On One Core", "derived ops/s &#183; higher is better",
+        "&#9650; operations / second", rate_max, f"{rate_max / 1000:,.0f}k",
+        f"{rate_max / 2000:,.0f}k",
+        bar(BAR_X[0], rates[0], rate_max, "b-expanse", krate(rates[0]),
+            "t-val-muted", "insert", f"1kHz={duty_ingest * 100:.1f}%", False)
+        + bar(BAR_X[1], rates[1], rate_max, "b-hashmap", krate(rates[1]),
+              "t-val-blue", "lookup", f"1kHz={duty_lookup * 100:.1f}%", False)
+        + bar(BAR_X[2], rates[2], rate_max, "b-stdmap", krate(rates[2]),
+              "t-val-muted", "BLE rec", f"10/s={duty_record * 100:.2f}%", False),
+    )
+
+    footer = (
+        f'  <text x="30" y="262" class="t-chart-sub">Measured on {prov["target"]} rev '
+        f'v{prov.get("revision", "?")} &#183; {mhz:.0f} MHz &#183; ESP-IDF '
+        f'{prov.get("idf", "?")} &#183; engine {prov.get("expanse", "?")} &#183; '
+        f'10 reps/arm, BCa 95% CIs.</text>\n'
+        f'  <text x="30" y="275" class="t-chart-sub">Single-arm: no unordered_map, std::map or '
+        f'ring-buffer arm ran on the device. These size the part for a workload; they do not '
+        f'rank Expanse against anything.</text>\n'
+        f'  <text x="30" y="288" class="t-chart-sub">Panel 3 is derived from panels 1-2. Insert '
+        f'is flat in population ({ingest_500:,.0f} cycles at N=500). Churn left {retained:,.0f} B '
+        f'resident, fragmentation {frag_delta:+.4f}. FreeRTOS mutex inside every timed '
+        f'window.</text>\n'
+    )
+
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" width="100%" height="100%">\n'
+        "  <defs>\n    <style>" + STYLE + "    </style>\n  </defs>\n\n"
+        '  <rect width="100%" height="100%" class="bg" rx="8"/>\n'
+        '  <rect width="100%" height="100%" class="border" rx="8"/>\n\n'
+        + p1
+        + '\n  <line x1="330" y1="20" x2="330" y2="245" class="divider"/>\n\n'
+        + p2
+        + '\n  <line x1="650" y1="20" x2="650" y2="245" class="divider"/>\n\n'
+        + p3
+        + "\n"
+        + footer
+        + "</svg>\n"
+    )
+    ET.fromstring(svg)  # refuse to write malformed XML
+    ESP32_OUTPUT.write_text(svg, encoding="utf-8")
+    print(f"wrote {ESP32_OUTPUT}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--from-baseline", type=Path,
                     help="baseline-embedded_memtable.json from a bench-host run; "
                          "rebuilds results.json before rendering")
+    ap.add_argument("--on-device", action="store_true",
+                    help="render the on-device ESP32 chart from "
+                         "docs/benchmarks/embedded/esp32.json instead")
     args = ap.parse_args()
+
+    if args.on_device:
+        return render_on_device()
 
     if args.from_baseline:
         results = rebuild_results(args.from_baseline)
@@ -319,7 +471,7 @@ def main() -> int:
               f'{lookup["btreemap"]:.1f}', "t-val-muted", "BTreeMap", "ordered", False),
     )
     p4 = panel(
-        990, "Stale-Device Expiry", f"evict 25 stale of {N:,} &#183; Expanse batched / per-key &#183; measured",
+        990, "Stale-Device Expiry", f"evict 25 of {N:,} &#183; batched / per-key &#183; measured",
         "&#9660; &#181;s / housekeeping pass", ev_max, f"{ev_max:g}", f"{ev_max / 2:g}",
         bar(BAR_X[0], evict_us["steady_range"], ev_max, "b-expanse",
             f'{evict_us["steady_range"]:.2f}', "t-val-accent", "batched", ev_cap, ev_win)
@@ -347,14 +499,15 @@ def main() -> int:
     footer = (
         f'  <text x="30" y="262" class="t-chart-sub">Panel 1 derived by scripts/embedded_envelope.py; '
         f'panels 2-4 measured: {host} &#183; commit {commit}, run {run_num}.</text>\n'
-        f'  <text x="30" y="275" class="t-chart-sub">{scaling_line} &#183; {bulk_line}.</text>\n'
-        f'  <text x="30" y="288" class="t-chart-sub">Host caveat: a 30 MiB L3 flatters flat scans; '
-        f'the on-device ESP32-C3/C6 chart is pending the first hardware harvest &#183; '
+        f'  <text x="30" y="275" class="t-chart-sub">{scaling_line}.</text>\n'
+        f'  <text x="30" y="288" class="t-chart-sub">{bulk_line}.</text>\n'
+        f'  <text x="30" y="301" class="t-chart-sub">Host caveat: a 30 MiB L3 flatters flat scans; '
+        f'the on-device chart is rendered separately (--on-device, ESP32 only; C3/C6 unharvested) &#183; '
         f'BCa 95% CIs in docs/benchmarks/embedded/results.json.</text>\n'
     )
 
     svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 300" width="100%" height="100%">\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 313" width="100%" height="100%">\n'
         "  <defs>\n    <style>" + STYLE + "    </style>\n  </defs>\n\n"
         '  <rect width="100%" height="100%" class="bg" rx="8"/>\n'
         '  <rect width="100%" height="100%" class="border" rx="8"/>\n\n'

@@ -1,0 +1,328 @@
+{
+  "provenance": {
+    "target": "esp32",
+    "revision": 301,
+    "cores": 2,
+    "cpu_hz": 160000000,
+    "idf": "v6.0-dev-2980-gab149384e1",
+    "expanse": "0.5.0-dev (v0.5.0-88-ga022071a)",
+    "free_internal": 299668,
+    "largest_internal": 163840
+  },
+  "stack": {
+    "stack_min_free_bytes": 3804,
+    "stack_total_bytes": 8192
+  },
+  "duty_cycle_reference_rates_hz": [
+    1,
+    10,
+    100,
+    1000
+  ],
+  "benchmarks": {
+    "esp32_ble_point_lookup_n500_pop500": {
+      "benchmark": "esp32_ble_point_lookup",
+      "n": 500,
+      "pop": 500,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "mean": 2136.2129999999997,
+            "ci_95_low": 2135.0143670565285,
+            "ci_95_high": 2137.4190000000003,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.335133125e-05,
+            "10": 0.00013351331249999998,
+            "100": 0.001335133125,
+            "1000": 0.01335133125
+          },
+          "heap_used_bytes": 33880.0,
+          "frag_ratio": 0.5064
+        }
+      }
+    },
+    "esp32_ble_point_lookup_n2000_pop2000": {
+      "benchmark": "esp32_ble_point_lookup",
+      "n": 2000,
+      "pop": 2000,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "mean": 2249.1,
+            "ci_95_low": 2248.935,
+            "ci_95_high": 2249.25,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.4056874999999999e-05,
+            "10": 0.00014056875,
+            "100": 0.0014056874999999998,
+            "1000": 0.014056875
+          },
+          "heap_used_bytes": 111956.0,
+          "frag_ratio": 0.4102
+        }
+      }
+    },
+    "esp32_ble_sighting_record_n500_pop500": {
+      "benchmark": "esp32_ble_sighting_record",
+      "n": 500,
+      "pop": 500,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "mean": 11384.08,
+            "ci_95_low": 11348.271,
+            "ci_95_high": 11524.07509038817,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 7.11505e-05,
+            "10": 0.0007115050000000001,
+            "100": 0.00711505,
+            "1000": 0.0711505
+          },
+          "heap_used_bytes": 33880.0,
+          "frag_ratio": 0.5064
+        }
+      }
+    },
+    "esp32_ble_sighting_record_n2000_pop2000": {
+      "benchmark": "esp32_ble_sighting_record",
+      "n": 2000,
+      "pop": 2000,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "mean": 11642.06,
+            "ci_95_low": 11568.164523505058,
+            "ci_95_high": 11660.706999999999,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 7.276287499999999e-05,
+            "10": 0.00072762875,
+            "100": 0.007276287499999999,
+            "1000": 0.07276287499999999
+          },
+          "heap_used_bytes": 111956.0,
+          "frag_ratio": 0.4102
+        }
+      }
+    },
+    "esp32_ble_ttl_eviction_n300_pop500": {
+      "benchmark": "esp32_ble_ttl_eviction",
+      "n": 300,
+      "pop": 500,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "mean": 2575.2019999999998,
+            "ci_95_low": 2563.4715675442226,
+            "ci_95_high": 2615.3584262714717,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.60950125e-05,
+            "10": 0.00016095012499999997,
+            "100": 0.0016095012499999998,
+            "1000": 0.0160950125
+          },
+          "heap_used_bytes": 33880.0,
+          "frag_ratio": 0.5064
+        }
+      }
+    },
+    "esp32_ble_ttl_eviction_n1100_pop2000": {
+      "benchmark": "esp32_ble_ttl_eviction",
+      "n": 1100,
+      "pop": 2000,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "mean": 2307.443,
+            "ci_95_low": 2305.281979560771,
+            "ci_95_high": 2315.085069584937,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.4421518750000002e-05,
+            "10": 0.0001442151875,
+            "100": 0.0014421518750000002,
+            "1000": 0.014421518750000003
+          },
+          "heap_used_bytes": 111956.0,
+          "frag_ratio": 0.4102
+        }
+      }
+    },
+    "esp32_churn_insert_delete_n8000_pop500": {
+      "benchmark": "esp32_churn_insert_delete",
+      "n": 8000,
+      "pop": 500,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "mean": 5182.566000000001,
+            "ci_95_low": 5081.870037739327,
+            "ci_95_high": 5584.670401456255,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 3.23910375e-05,
+            "10": 0.000323910375,
+            "100": 0.00323910375,
+            "1000": 0.032391037500000004
+          },
+          "heap_used_bytes": 464.0,
+          "frag_ratio": 0.45200000000000007
+        }
+      }
+    },
+    "esp32_tsdb_aggregate_500_n500_pop500": {
+      "benchmark": "esp32_tsdb_aggregate_500",
+      "n": 500,
+      "pop": 500,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "mean": 957.1789999999999,
+            "ci_95_low": 945.2020949448222,
+            "ci_95_high": 960.3969999999999,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 5.982368749999999e-06,
+            "10": 5.982368749999999e-05,
+            "100": 0.0005982368749999999,
+            "1000": 0.005982368749999999
+          },
+          "heap_used_bytes": 3144.8,
+          "frag_ratio": 0.4471299999999999
+        }
+      }
+    },
+    "esp32_tsdb_aggregate_500_n500_pop2000": {
+      "benchmark": "esp32_tsdb_aggregate_500",
+      "n": 500,
+      "pop": 2000,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "mean": 1555.841,
+            "ci_95_low": 1554.693,
+            "ci_95_high": 1557.5939050414245,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 9.72400625e-06,
+            "10": 9.724006249999999e-05,
+            "100": 0.0009724006249999999,
+            "1000": 0.009724006249999998
+          },
+          "heap_used_bytes": 11268.0,
+          "frag_ratio": 0.45990000000000003
+        }
+      }
+    },
+    "esp32_tsdb_ingest_n500_pop500": {
+      "benchmark": "esp32_tsdb_ingest",
+      "n": 500,
+      "pop": 500,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "mean": 5255.703,
+            "ci_95_low": 5216.648999999999,
+            "ci_95_high": 5325.975606270188,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 3.284814375e-05,
+            "10": 0.00032848143750000003,
+            "100": 0.0032848143750000003,
+            "1000": 0.03284814375
+          },
+          "heap_used_bytes": 3144.8,
+          "frag_ratio": 0.4471299999999999
+        }
+      }
+    },
+    "esp32_tsdb_ingest_n2000_pop2000": {
+      "benchmark": "esp32_tsdb_ingest",
+      "n": 2000,
+      "pop": 2000,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "mean": 5241.652999999999,
+            "ci_95_low": 5199.829,
+            "ci_95_high": 5312.906698790591,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 3.2760331249999996e-05,
+            "10": 0.00032760331249999993,
+            "100": 0.0032760331249999997,
+            "1000": 0.03276033125
+          },
+          "heap_used_bytes": 11268.0,
+          "frag_ratio": 0.45990000000000003
+        }
+      }
+    }
+  },
+  "metrics": {
+    "churn_fragmentation_expanse_memtable_pop500": {
+      "metric": "churn_fragmentation",
+      "arm": "expanse_memtable",
+      "pop": 500,
+      "samples": 10,
+      "fields": {
+        "cycles": {
+          "mean": 8.0,
+          "ci_95_low": 8.0,
+          "ci_95_high": 8.0,
+          "ci_method": "percentile"
+        },
+        "frag_after": {
+          "mean": 0.45200000000000007,
+          "ci_95_low": 0.45200000000000007,
+          "ci_95_high": 0.45200000000000007,
+          "ci_method": "percentile"
+        },
+        "frag_before": {
+          "mean": 0.45289999999999997,
+          "ci_95_low": 0.45289999999999997,
+          "ci_95_high": 0.45289999999999997,
+          "ci_method": "percentile"
+        },
+        "frag_delta": {
+          "mean": -0.0008,
+          "ci_95_low": -0.0008,
+          "ci_95_high": -0.0008,
+          "ci_method": "percentile"
+        },
+        "heap_retained_bytes": {
+          "mean": 464.0,
+          "ci_95_low": 464.0,
+          "ci_95_high": 464.0,
+          "ci_method": "percentile"
+        }
+      }
+    }
+  }
+}

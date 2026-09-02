@@ -15,20 +15,40 @@ an ESP-IDF project.
 | ESP32-C6 | RV32IMAC | 1 / 1 | `riscv32imac-unknown-none-elf` | supported |
 | ESP32-H2 | RV32IMAC | 1 / 0 | `riscv32imac-unknown-none-elf` | supported |
 | ESP32-P4 | RV32IMAFC (+Zc, Zb) | 2 / 1 | `riscv32imafc-unknown-none-elf` (ilp32f, matching ESP-IDF's `-mabi=ilp32f`) | supported, end-to-end link untested — see below |
-| ESP32, ESP32-S2, ESP32-S3 | Xtensa | — | — | **not supported** |
+| ESP32 | Xtensa | 2 / — (reported by the part) | `xtensa-esp32-none-elf` (esp-rs fork) | supported, harvested on hardware — see below |
+| ESP32-S2 | Xtensa | not sourced | `xtensa-esp32s2-none-elf` (esp-rs fork) | supported, end-to-end link untested |
+| ESP32-S3 | Xtensa | not sourced | `xtensa-esp32s3-none-elf` (esp-rs fork) | supported, end-to-end link untested |
 
-Every ISA and hart count above is quoted from the part's Espressif datasheet or
-Technical Reference Manual — document revision, section and page — in
+Every ISA and hart count in the **RISC-V** rows above is quoted from the part's
+Espressif datasheet or Technical Reference Manual — document revision, section
+and page — in
 [`docs/HARDWARE.md` §4.3](../../docs/HARDWARE.md#43-espressif-risc-v-per-part-core-inventory--cas-soundness--validated-567).
-That section also records which compare-and-swap mechanism is sound per part;
+That section is a RISC-V inventory and does not cover the Xtensa parts, so the
+Xtensa rows are not sourced from it: the ESP32 core count is what the part
+itself reported over UART during the harvest below, and the S2/S3 counts are
+left unstated rather than asserted from memory. The RISC-V section also
+records which compare-and-swap mechanism is sound per part;
 the short version is that `portable-atomic`'s `unsafe-assume-single-core` is
 sound on C2/C3/H2 and **unsound on C6 and P4**, which have a second hart on the
 same buses.
 
-The Xtensa parts have no mainline rustc target — building for them needs the
-esp-rs toolchain fork, which this component does not use. `CMakeLists.txt`
-fails the configure step with a named error rather than registering a
-component with no engine behind it.
+**Xtensa.** The Xtensa parts have no mainline rustc target. They are built
+against the esp-rs rustc fork, which `espup` installs as the `esp` rustup
+toolchain:
+
+```bash
+cargo install espup --locked
+espup install --targets esp32   # or esp32s2 / esp32s3
+```
+
+`CMakeLists.txt` selects the fork toolchain and a from-source sysroot for
+those targets — `xtensa-*-none-elf` is tier 3 and publishes no precompiled
+`core`/`alloc`, so the Xtensa arm adds `-Z build-std=core,alloc`. If the `esp`
+toolchain is absent the configure step fails with the two commands above
+rather than registering a component with no engine behind it. Nothing else
+differs between the two ISAs: the same `no_std` staticlib, the same
+host-allocator pair, the same link order. The RISC-V command line is
+unchanged.
 
 `libexpanse.a` is built `no_std` against the *bare-metal* targets, not
 `riscv32imc-esp-espidf`. It makes no libc calls: its allocator reaches memory
@@ -46,8 +66,46 @@ therefore builds `esp32p4` against `riscv32imafc-unknown-none-elf`, whose
 archive carries `EF_RISCV_FLOAT_ABI_SINGLE` (ilp32f) — a soft-float `imac`
 archive would be rejected by the RISC-V linker's float-ABI check (#581). CI
 builds the `imafc` staticlib and asserts its ELF float-ABI flag; the ESP-IDF
-link itself still has no CI lane, so treat end-to-end linking as unverified
+link itself still has no CI lane, so treat end-to-end P4 linking as unverified
 rather than known-good until an on-device build covers it.
+
+**End-to-end link status.** The full ESP-IDF application link is verified
+locally for `esp32c3`, `esp32c6` (ESP-IDF v6.0-dev, `riscv32-esp-elf` GCC 15.2)
+and `esp32` (same IDF, `xtensa-esp-elf` GCC 15.2, Xtensa Rust 1.97.0.0)
+through the wrapper application in
+[`integrations/esp32/`](../../integrations/esp32/README.md). The first such
+link failed: the archive was listed as a bare interface path, ESP-IDF does
+not wrap the final link in `--start-group`, and the two host-allocator
+symbols the archive imports came *before* it on the link line and stayed
+undefined. `CMakeLists.txt` now registers the archive as an imported library
+that links back to the component, which is what orders it correctly. There
+is still no CI lane for the ESP-IDF link.
+
+**On-device status.** `esp32` is the only part run on hardware so far — an
+ESP32-D0WD-V3 rev v3.1 at 160 MHz. The harvest is
+[`docs/benchmarks/embedded/esp32.json`](../../docs/benchmarks/embedded/esp32.json)
+and the run found two defects that no build-time check could have caught:
+
+- **The main task needs more stack than ESP-IDF gives it.** The suite's
+  deepest chain is the trie descent inside `expanse_map_insert`, and on
+  Xtensa the windowed-register ABI spills a register window per call level.
+  Peak use measured **4388 B** against ESP-IDF's default 3584 B, so the task
+  ran off the end of its stack into the adjacent DRAM. What it corrupted was
+  the heap's TLSF free-list metadata, so the failure surfaced later and
+  somewhere else — a `StoreProhibited` inside `insert_free_block` on a
+  subsequent allocation, backtracing to the allocator rather than to the
+  overflow. A/B isolated: 3584 B panics on every boot, 8192 B completes.
+  [`integrations/esp32/sdkconfig.defaults`](../../integrations/esp32/sdkconfig.defaults)
+  sets it; a consumer calling the engine from their own task needs the same
+  headroom, which is why the app publishes its high-water mark every run.
+- **The Unity gate was vacuous.** `test_expanse.c` exports nothing anyone
+  links against, so without `WHOLE_ARCHIVE` the linker never extracted it
+  from `libmain.a`: all 11 cases were compiled, discarded, and reported as
+  `0 Tests ... OK`. The first ESP32 boot passed its test gate with the engine
+  entirely unexercised. `main.c` now asserts the case count.
+
+`esp32s2`, `esp32s3` and the RISC-V parts have not been run on hardware;
+#579 tracks the rest.
 
 ## What the 32-bit library exports
 
