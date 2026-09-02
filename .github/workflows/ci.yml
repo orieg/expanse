@@ -821,6 +821,40 @@ jobs:
       - name: Link STM32H747 harness (float-ABI assertion)
         run: sh integrations/stm32h747/build.sh
 
+  test-qemu-cortex-m3:
+    name: Cross / ARM Cortex-M3 Execution (QEMU mps2-an385)
+    needs: [detect-changes]
+    # The ARM execution gate that needs no hardware (#598 step 4): the narrow
+    # C ABI and the sync32 SysTick-reader protocol run on an emulated
+    # ARMv7-M core. Soft float, no cache, not cycle-accurate — the M7/M4
+    # numbers stay a hardware measurement (integrations/stm32h747).
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.integrations == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Target
+        run: rustup target add thumbv7m-none-eabi
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build C ABI staticlib (Cortex-M3, soft float)
+        run: >
+          cargo build --release -p expanse-capi --no-default-features
+          --features embedded-panic-handler --target thumbv7m-none-eabi
+
+      - name: Install Arm GNU toolchain and QEMU
+        run: sudo apt-get update -q && sudo apt-get install -y -q gcc-arm-none-eabi libnewlib-arm-none-eabi qemu-system-arm
+
+      - name: Build smoke (soft-float ABI assertion)
+        run: sh integrations/qemu-cortex-m3/build.sh
+
+      - name: Run smoke under QEMU
+        run: sh integrations/qemu-cortex-m3/run.sh
+
   test-x86_64-none:
     name: Cross / x86_64 Bare-Metal Cross-Compile (x86_64-unknown-none)
     needs: [detect-changes]
@@ -1967,6 +2001,7 @@ jobs:
       - test-rv32-zbb
       - test-esp32c3
       - test-cortex-m
+      - test-qemu-cortex-m3
       - test-x86_64-none
       - test-i686
       - miri
