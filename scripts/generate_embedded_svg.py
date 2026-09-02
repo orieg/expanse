@@ -36,6 +36,13 @@ import xml.etree.ElementTree as ET
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RESULTS = REPO_ROOT / "docs" / "benchmarks" / "embedded" / "results.json"
+# The on-device harvest is a separate artifact and a separate chart: its arms
+# are CPU cycles on a microcontroller, and the panels above are host
+# wall-clock nanoseconds. Rendering them on one canvas would juxtapose two
+# metric domains with no shared workload, which is the complection §8.12
+# exists to stop.
+ESP32_RESULTS = REPO_ROOT / "docs" / "benchmarks" / "embedded" / "esp32.json"
+ESP32_OUTPUT = REPO_ROOT / "docs" / "assets" / "bench_esp32_ondevice.svg"
 OUTPUT = REPO_ROOT / "docs" / "assets" / "bench_embedded.svg"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -238,12 +245,129 @@ def loss_caption(ours: float, best_other: float, win_text: str) -> tuple[str, bo
     return (f"{ours / best_other:.1f}&#215; slower", False)
 
 
+def _cyc(results: dict, bench: str, pop: int) -> float:
+    """Mean cycles/op for one on-device arm, or a loud failure (§8.1)."""
+    for entry in results["benchmarks"].values():
+        if entry["benchmark"] == bench and entry["pop"] == pop:
+            arm = next(iter(entry["arms"].values()))
+            return float(arm["cycles_per_op"]["mean"])
+    raise SystemExit(
+        f"{ESP32_RESULTS}: no arm '{bench}' at population {pop}. Refusing to "
+        f"render a panel with a missing arm (§8.1)."
+    )
+
+
+def render_on_device() -> int:
+    """Renders the on-device chart from the ESP32 harvest artifact."""
+    if not ESP32_RESULTS.exists():
+        raise SystemExit(
+            f"{ESP32_RESULTS} does not exist. Harvest a run first:\n"
+            f"  python3 scripts/esp32_bench_harvest.py --input <log> "
+            f"--emit-json docs/benchmarks/embedded/esp32.json"
+        )
+    results = json.loads(ESP32_RESULTS.read_text(encoding="utf-8"))
+    prov = results.get("provenance") or {}
+    if not prov.get("target"):
+        raise SystemExit(f"{ESP32_RESULTS}: no provenance; refusing to render an "
+                         f"unidentified target (§8.7).")
+    mhz = float(prov.get("cpu_hz", 0)) / 1e6
+
+    ingest_500 = _cyc(results, "esp32_tsdb_ingest", 500)
+    ingest_2k = _cyc(results, "esp32_tsdb_ingest", 2000)
+    agg_2k = _cyc(results, "esp32_tsdb_aggregate_500", 2000)
+    record = _cyc(results, "esp32_ble_sighting_record", 2000)
+    lookup = _cyc(results, "esp32_ble_point_lookup", 2000)
+    evict = _cyc(results, "esp32_ble_ttl_eviction", 2000)
+
+    churn = next((v for v in results.get("metrics", {}).values()
+                  if v["metric"] == "churn_fragmentation"), None)
+    if churn is None:
+        raise SystemExit(f"{ESP32_RESULTS}: no churn_fragmentation metric (§8.1).")
+    frag_before = churn["fields"]["frag_before"]["mean"]
+    frag_after = churn["fields"]["frag_after"]["mean"]
+    retained = churn["fields"]["heap_retained_bytes"]["mean"]
+
+    mem_max = nice_axis_max([ingest_500, ingest_2k, agg_2k])
+    ble_max = nice_axis_max([record, lookup, evict])
+    frag_max = nice_axis_max([frag_before, frag_after])
+
+    def us(cycles: float) -> str:
+        return f"{cycles / mhz:.1f} &#181;s" if mhz else "&#8212;"
+
+    p1 = panel(
+        30, "Telemetry MemTable", f"on-device cycles/op &#183; lower is better",
+        "&#9660; CPU cycles / op", mem_max, f"{mem_max:,.0f}", f"{mem_max / 2:,.0f}",
+        bar(BAR_X[0], ingest_500, mem_max, "b-expanse", f"{ingest_500:,.0f}",
+            "t-val-muted", "ingest", f"N=500 &#183; {us(ingest_500)}", False)
+        + bar(BAR_X[1], ingest_2k, mem_max, "b-expanse", f"{ingest_2k:,.0f}",
+              "t-val-muted", "ingest", f"N=2k &#183; {us(ingest_2k)}", False)
+        + bar(BAR_X[2], agg_2k, mem_max, "b-hashmap", f"{agg_2k:,.0f}",
+              "t-val-blue", "aggregate", f"500 keys &#183; {us(agg_2k)}", False),
+    )
+    p2 = panel(
+        350, "BLE Asset Tracker", "on-device cycles/op, N=2k &#183; lower is better",
+        "&#9660; CPU cycles / op", ble_max, f"{ble_max:,.0f}", f"{ble_max / 2:,.0f}",
+        bar(BAR_X[0], record, ble_max, "b-expanse", f"{record:,.0f}",
+            "t-val-muted", "record", us(record), False)
+        + bar(BAR_X[1], lookup, ble_max, "b-hashmap", f"{lookup:,.0f}",
+              "t-val-blue", "lookup", us(lookup), False)
+        + bar(BAR_X[2], evict, ble_max, "b-stdmap", f"{evict:,.0f}",
+              "t-val-muted", "TTL evict", f"per expired &#183; {us(evict)}", False),
+    )
+    p3 = panel(
+        670, "Fragmentation Across Churn",
+        "8 &#215; (500 insert + 500 remove) &#183; lower is better",
+        "&#9660; free-pool fragmentation", frag_max, f"{frag_max:.2f}", f"{frag_max / 2:.2f}",
+        bar(BAR_X2[0], frag_before, frag_max, "b-stdmap", f"{frag_before:.4f}",
+            "t-val-muted", "before", "start of churn", False)
+        + bar(BAR_X2[1], frag_after, frag_max, "b-expanse", f"{frag_after:.4f}",
+              "t-val-accent", "after", f"{frag_after - frag_before:+.4f}", True),
+    )
+
+    footer = (
+        f'  <text x="30" y="262" class="t-chart-sub">Measured on {prov["target"]} '
+        f'rev v{prov.get("revision", "?")} &#183; {mhz:.0f} MHz &#183; ESP-IDF '
+        f'{prov.get("idf", "?")} &#183; engine {prov.get("expanse", "?")}.</text>\n'
+        f'  <text x="30" y="275" class="t-chart-sub">Single-arm: no unordered_map, std::map or '
+        f'ring-buffer arm ran on the device, so no bar here is a comparative claim. The '
+        f'component&#8217;s FreeRTOS recursive mutex is inside every timed window.</text>\n'
+        f'  <text x="30" y="288" class="t-chart-sub">Churn leaves {retained:,.0f} B resident and '
+        f'moves fragmentation by {frag_after - frag_before:+.4f} &#183; BCa 95% CIs in '
+        f'docs/benchmarks/embedded/esp32.json &#183; ESP32-C3/C6 remain unharvested.</text>\n'
+    )
+
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 300" width="100%" height="100%">\n'
+        "  <defs>\n    <style>" + STYLE + "    </style>\n  </defs>\n\n"
+        '  <rect width="100%" height="100%" class="bg" rx="8"/>\n'
+        '  <rect width="100%" height="100%" class="border" rx="8"/>\n\n'
+        + p1
+        + '\n  <line x1="330" y1="20" x2="330" y2="245" class="divider"/>\n\n'
+        + p2
+        + '\n  <line x1="650" y1="20" x2="650" y2="245" class="divider"/>\n\n'
+        + p3
+        + "\n"
+        + footer
+        + "</svg>\n"
+    )
+    ET.fromstring(svg)  # refuse to write malformed XML
+    ESP32_OUTPUT.write_text(svg, encoding="utf-8")
+    print(f"wrote {ESP32_OUTPUT}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--from-baseline", type=Path,
                     help="baseline-embedded_memtable.json from a bench-host run; "
                          "rebuilds results.json before rendering")
+    ap.add_argument("--on-device", action="store_true",
+                    help="render the on-device ESP32 chart from "
+                         "docs/benchmarks/embedded/esp32.json instead")
     args = ap.parse_args()
+
+    if args.on_device:
+        return render_on_device()
 
     if args.from_baseline:
         results = rebuild_results(args.from_baseline)
@@ -349,7 +473,7 @@ def main() -> int:
         f'panels 2-4 measured: {host} &#183; commit {commit}, run {run_num}.</text>\n'
         f'  <text x="30" y="275" class="t-chart-sub">{scaling_line} &#183; {bulk_line}.</text>\n'
         f'  <text x="30" y="288" class="t-chart-sub">Host caveat: a 30 MiB L3 flatters flat scans; '
-        f'the on-device ESP32-C3/C6 chart is pending the first hardware harvest &#183; '
+        f'the on-device chart is rendered separately (--on-device, ESP32 only; C3/C6 unharvested) &#183; '
         f'BCa 95% CIs in docs/benchmarks/embedded/results.json.</text>\n'
     )
 

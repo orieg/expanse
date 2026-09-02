@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 300" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
+      .divider { stroke: #e2e8f0; stroke-width: 1px; }
+
+      .t-chart-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-chart-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
+      .t-unit-header { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; fill: #475569; }
+      .t-win { fill: #16a34a; font-weight: 600; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
+
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #16a34a; text-anchor: middle; }
+      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #334155; text-anchor: middle; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; text-anchor: middle; }
+
+      .b-expanse { fill: #16a34a; }
+      .b-hashmap { fill: #2563eb; }
+      .b-stdmap { fill: #475569; }
+
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) .bg { fill: #0b1220; }
+        :root:not([data-theme="light"]) .border { stroke: #1e293b; }
+        :root:not([data-theme="light"]) .grid { stroke: #16233b; }
+        :root:not([data-theme="light"]) .axis { stroke: #334155; }
+        :root:not([data-theme="light"]) .divider { stroke: #1e293b; }
+        :root:not([data-theme="light"]) .t-chart-title { fill: #e2e8f0; }
+        :root:not([data-theme="light"]) .t-chart-sub { fill: #94a3b8; }
+        :root:not([data-theme="light"]) .t-unit-header, :root:not([data-theme="light"]) .t-axis-label { fill: #64748b; }
+        :root:not([data-theme="light"]) .t-bar-label { fill: #e2e8f0; }
+        :root:not([data-theme="light"]) .t-val-muted { fill: #94a3b8; }
+        :root:not([data-theme="light"]) .t-win { fill: #4ade80; }
+        :root:not([data-theme="light"]) .t-val-accent { fill: #4ade80; }
+        :root:not([data-theme="light"]) .t-val-blue { fill: #60a5fa; }
+        :root:not([data-theme="light"]) .b-expanse { fill: #22c55e; }
+        :root:not([data-theme="light"]) .b-hashmap { fill: #3b82f6; }
+        :root:not([data-theme="light"]) .b-stdmap { fill: #475569; }
+      }
+      [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0b1220; }
+      [data-theme="dark"] .border, :root[data-theme="dark"] .border { stroke: #1e293b; }
+      [data-theme="dark"] .grid, :root[data-theme="dark"] .grid { stroke: #16233b; }
+      [data-theme="dark"] .axis, :root[data-theme="dark"] .axis { stroke: #334155; }
+      [data-theme="dark"] .divider, :root[data-theme="dark"] .divider { stroke: #1e293b; }
+      [data-theme="dark"] .t-chart-title, :root[data-theme="dark"] .t-chart-title { fill: #e2e8f0; }
+      [data-theme="dark"] .t-chart-sub, :root[data-theme="dark"] .t-chart-sub { fill: #94a3b8; }
+      [data-theme="dark"] .t-unit-header, :root[data-theme="dark"] .t-unit-header { fill: #64748b; }
+      [data-theme="dark"] .t-axis-label, :root[data-theme="dark"] .t-axis-label { fill: #64748b; }
+      [data-theme="dark"] .t-bar-label, :root[data-theme="dark"] .t-bar-label { fill: #e2e8f0; }
+      [data-theme="dark"] .t-val-muted, :root[data-theme="dark"] .t-val-muted { fill: #94a3b8; }
+      [data-theme="dark"] .t-win, :root[data-theme="dark"] .t-win { fill: #4ade80; }
+      [data-theme="dark"] .t-val-accent, :root[data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      [data-theme="dark"] .t-val-blue, :root[data-theme="dark"] .t-val-blue { fill: #60a5fa; }
+      [data-theme="dark"] .b-expanse, :root[data-theme="dark"] .b-expanse { fill: #22c55e; }
+      [data-theme="dark"] .b-hashmap, :root[data-theme="dark"] .b-hashmap { fill: #3b82f6; }
+      [data-theme="dark"] .b-stdmap, :root[data-theme="dark"] .b-stdmap { fill: #475569; }
+    </style>
+  </defs>
+
+  <rect width="100%" height="100%" class="bg" rx="8"/>
+  <rect width="100%" height="100%" class="border" rx="8"/>
+
+  <g transform="translate(30, 20)">
+    <text x="0" y="0" class="t-chart-title">Telemetry MemTable</text>
+    <text x="0" y="13" class="t-chart-sub">on-device cycles/op &#183; lower is better</text>
+    <text x="0" y="29" class="t-unit-header">&#9660; CPU cycles / op</text>
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">7,000</text>
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">3,500</text>
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+    <rect x="45" y="78.3" width="50" height="116.7" class="b-expanse" rx="2"/>
+    <text x="70" y="69.8" class="t-val-muted">5,448</text>
+    <text x="70" y="214" class="t-bar-label" text-anchor="middle">ingest</text>
+    <text x="70" y="228" class="t-chart-sub" text-anchor="middle">N=500 &#183; 34.0 &#181;s</text>
+    <rect x="115" y="81.1" width="50" height="113.9" class="b-expanse" rx="2"/>
+    <text x="140" y="72.6" class="t-val-muted">5,316</text>
+    <text x="140" y="214" class="t-bar-label" text-anchor="middle">ingest</text>
+    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">N=2k &#183; 33.2 &#181;s</text>
+    <rect x="185" y="161.6" width="50" height="33.4" class="b-hashmap" rx="2"/>
+    <text x="210" y="153.1" class="t-val-blue">1,556</text>
+    <text x="210" y="214" class="t-bar-label" text-anchor="middle">aggregate</text>
+    <text x="210" y="228" class="t-chart-sub" text-anchor="middle">500 keys &#183; 9.7 &#181;s</text>
+  </g>
+
+  <line x1="330" y1="20" x2="330" y2="245" class="divider"/>
+
+  <g transform="translate(350, 20)">
+    <text x="0" y="0" class="t-chart-title">BLE Asset Tracker</text>
+    <text x="0" y="13" class="t-chart-sub">on-device cycles/op, N=2k &#183; lower is better</text>
+    <text x="0" y="29" class="t-unit-header">&#9660; CPU cycles / op</text>
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">15,000</text>
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">7,500</text>
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+    <rect x="45" y="78.5" width="50" height="116.5" class="b-expanse" rx="2"/>
+    <text x="70" y="70.0" class="t-val-muted">11,645</text>
+    <text x="70" y="214" class="t-bar-label" text-anchor="middle">record</text>
+    <text x="70" y="228" class="t-chart-sub" text-anchor="middle">72.8 &#181;s</text>
+    <rect x="115" y="172.5" width="50" height="22.5" class="b-hashmap" rx="2"/>
+    <text x="140" y="164.0" class="t-val-blue">2,249</text>
+    <text x="140" y="214" class="t-bar-label" text-anchor="middle">lookup</text>
+    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">14.1 &#181;s</text>
+    <rect x="185" y="171.9" width="50" height="23.1" class="b-stdmap" rx="2"/>
+    <text x="210" y="163.4" class="t-val-muted">2,308</text>
+    <text x="210" y="214" class="t-bar-label" text-anchor="middle">TTL evict</text>
+    <text x="210" y="228" class="t-chart-sub" text-anchor="middle">per expired &#183; 14.4 &#181;s</text>
+  </g>
+
+  <line x1="650" y1="20" x2="650" y2="245" class="divider"/>
+
+  <g transform="translate(670, 20)">
+    <text x="0" y="0" class="t-chart-title">Fragmentation Across Churn</text>
+    <text x="0" y="13" class="t-chart-sub">8 &#215; (500 insert + 500 remove) &#183; lower is better</text>
+    <text x="0" y="29" class="t-unit-header">&#9660; free-pool fragmentation</text>
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">0.60</text>
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">0.30</text>
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+    <rect x="60" y="81.9" width="50" height="113.1" class="b-stdmap" rx="2"/>
+    <text x="85" y="73.4" class="t-val-muted">0.4526</text>
+    <text x="85" y="214" class="t-bar-label" text-anchor="middle">before</text>
+    <text x="85" y="228" class="t-chart-sub" text-anchor="middle">start of churn</text>
+    <rect x="170" y="82.1" width="50" height="112.9" class="b-expanse" rx="2"/>
+    <text x="195" y="73.6" class="t-val-accent">0.4517</text>
+    <text x="195" y="214" class="t-bar-label" text-anchor="middle">after</text>
+    <text x="195" y="228" class="t-chart-sub t-win" text-anchor="middle">-0.0009</text>
+  </g>
+
+  <text x="30" y="262" class="t-chart-sub">Measured on esp32 rev v301 &#183; 160 MHz &#183; ESP-IDF v6.0-dev-2980-gab149384e1 &#183; engine 0.5.0-dev (v0.5.0-85-gd2aedda2).</text>
+  <text x="30" y="275" class="t-chart-sub">Single-arm: no unordered_map, std::map or ring-buffer arm ran on the device, so no bar here is a comparative claim. The component&#8217;s FreeRTOS recursive mutex is inside every timed window.</text>
+  <text x="30" y="288" class="t-chart-sub">Churn leaves 476 B resident and moves fragmentation by -0.0009 &#183; BCa 95% CIs in docs/benchmarks/embedded/esp32.json &#183; ESP32-C3/C6 remain unharvested.</text>
+</svg>

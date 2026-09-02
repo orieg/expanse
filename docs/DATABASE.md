@@ -492,7 +492,61 @@ On resource-constrained 32-bit microcontrollers (ESP32-C3 / ESP32-C6 / ESP32-P4)
 
 ![Embedded Storage Engines: sensor TSDB density, BLE tracker footprint, ingest+flush wall clock](./assets/bench_embedded.svg)
 
-*(Panel 1 derived by `scripts/embedded_envelope.py`; panels 2-4 measured on the reference bench host with BCa 95% CIs recorded in `docs/benchmarks/embedded/results.json` — panel 4 shows both the batched `remove_range` eviction and the per-key loop it replaces. Regenerate with `python3 scripts/generate_embedded_svg.py`. The on-device ESP32-C3/C6 cycle/throughput chart remains pending the first hardware harvest — `scripts/esp32_bench_harvest.py --emit-json`.)*
+*(Panel 1 derived by `scripts/embedded_envelope.py`; panels 2-4 measured on the reference bench host with BCa 95% CIs recorded in `docs/benchmarks/embedded/results.json` — panel 4 shows both the batched `remove_range` eviction and the per-key loop it replaces. Regenerate with `python3 scripts/generate_embedded_svg.py`. The on-device chart is rendered separately by `python3 scripts/generate_embedded_svg.py --on-device` from `docs/benchmarks/embedded/esp32.json`, because those arms are CPU cycles on a microcontroller and these are host wall-clock nanoseconds — the two do not belong on one canvas (§8.12). **ESP32-C3/C6 remain unharvested**: the on-device run below is on the Xtensa ESP32 and says nothing about the RISC-V parts.)*
+
+#### On-device measurements (ESP32, Xtensa)
+
+![On-device ESP32: telemetry memtable cycles/op, BLE tracker cycles/op, fragmentation across insert/delete churn](./assets/bench_esp32_ondevice.svg)
+
+*(measured: ESP32-D0WD-V3 rev v3.1, 2 cores, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
+Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-85-gd2aedda2)`, commit `d2aedda2`;
+BCa 95% CIs over 10 repetitions, artifact
+[`docs/benchmarks/embedded/esp32.json`](benchmarks/embedded/esp32.json))*
+
+**These are single-arm measurements.** No `unordered_map`, `std::map` or ring-buffer
+arm ran on the device, so nothing in this table is a comparative claim; the §8.3 twin
+arms are outstanding work under #579. The density matrix above is a separate,
+*derived* quantity from `scripts/embedded_envelope.py` and is **not** converted by this
+run: `heap_used_bytes` here is the total internal-heap delta across an arm, including
+TLSF per-allocation overhead and the tracker's slab, which is not the modelled
+bytes-per-key. The two must not be read against each other.
+
+**Disclosure — the lock is inside the measured region.** Every `expanse_memtable_*`
+and `expanse_ble_tracker_*` call takes and releases a FreeRTOS recursive mutex, and
+that acquire/release is inside the timed window. These figures are therefore
+per-operation costs of the *component API as shipped*, not of the bare engine.
+
+| Arm | Population | Cycles/op (BCa 95% CI) | At 160 MHz | Heap delta |
+|---|---|---|---|---|
+| Telemetry ingest (`expanse_memtable_insert`) | 500 | 5448.0 [5414.8, 5456.5] | 34.1 µs | 3162 B |
+| Telemetry ingest (`expanse_memtable_insert`) | 2000 | 5316.4 [5309.0, 5345.3] | 33.2 µs | 11282 B |
+| Range aggregation, 500 keys walked | 500 | 956.8 [945.5, 960.0] | 6.0 µs | 3162 B |
+| Range aggregation, 500 keys walked | 2000 | 1556.4 [1555.2, 1559.6] | 9.7 µs | 11282 B |
+| BLE sighting record | 2000 | 11645.3 [11571.3, 11664.0] | 72.8 µs | 111868 B |
+| BLE point lookup | 2000 | 2248.5 [2248.2, 2248.7] | 14.1 µs | 111868 B |
+| BLE TTL eviction, per expired entry | 2000 | 2308.4 [2306.2, 2316.4] | 14.4 µs | 111868 B |
+
+The aggregation arm walks the same 500 keys in both rows, so the 1.63× between them
+is the cost of the deeper descent over a 2000-key table — the one paired comparison
+here that holds, because both halves come from this run at a shared workload
+identity *(workload: esp32_tsdb_aggregate_500)*.
+
+**Fragmentation after insert/delete churn.** Eight cycles of 500 inserts followed by
+500 removals, which is what a flush-to-flash duty cycle does to the allocator:
+free-pool fragmentation moved by **-0.0009** (0.4526 → 0.4517) and **476 B** stayed
+resident. Every repetition returned the identical value, so the interval is
+degenerate and reported as such rather than dressed up as a bootstrap result. The
+memtable gives essentially all of its memory back and does not progressively
+fragment the heap under cycling. This is the one metric here with a floor worth
+stating: an always-on node needs fragmentation not to grow without bound, and over
+this workload it does not.
+
+**Stack.** The engine's descent needs more stack than ESP-IDF gives the main task by
+default. Peak use measured **4388 B** (high-water 3804 B free of 8192 B) against a
+3584 B default, which overflows into the adjacent DRAM and corrupts the heap's TLSF
+free-list metadata — surfacing as a `StoreProhibited` in `insert_free_block` at some
+later allocation. A consumer calling the engine from their own task needs the same
+headroom; `integrations/esp32/sdkconfig.defaults` sets it for this application.
 
 **Measured host-side wall-clock outcomes, reported per §8.7** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8, run [33567182415](https://github.com/orieg/expanse/actions/runs/33567182415), commit `13ee3d92`; BCa 95% CIs, artifact `docs/benchmarks/embedded/results.json`)*:
 
