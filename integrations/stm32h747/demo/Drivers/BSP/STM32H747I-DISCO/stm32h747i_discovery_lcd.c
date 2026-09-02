@@ -793,9 +793,14 @@ __weak HAL_StatusTypeDef MX_DSIHOST_DSI_Init(DSI_HandleTypeDef *hdsi, uint32_t W
 
   if (Lcd_Driver_Type == LCD_CTRL_NT35510)
   {
+    /* Landscape on the MB1166-A09 needs the wider porches (nt35510.h,
+     * NT35510_800X480_*); the portrait values shift the image by about a
+     * third of the width (docs/NT35510_LCD_SETUP.md). */
+    const uint32_t hbp = (Width > Height) ? NT35510_800X480_HBP : NT35510_480X800_HBP;
+    const uint32_t hfp = (Width > Height) ? NT35510_800X480_HFP : NT35510_480X800_HFP;
     VidCfg.HorizontalSyncActive = (NT35510_480X800_HSYNC * 62500U) / 27429U;
-    VidCfg.HorizontalBackPorch = (NT35510_480X800_HBP * 62500U) / 27429U;
-    VidCfg.HorizontalLine = ((Width + NT35510_480X800_HSYNC + NT35510_480X800_HBP + NT35510_480X800_HFP) * 62500U) / 27429U;
+    VidCfg.HorizontalBackPorch = (hbp * 62500U) / 27429U;
+    VidCfg.HorizontalLine = ((Width + NT35510_480X800_HSYNC + hbp + hfp) * 62500U) / 27429U;
     VidCfg.VerticalSyncActive = NT35510_480X800_VSYNC;
     VidCfg.VerticalBackPorch = NT35510_480X800_VBP;
     VidCfg.VerticalFrontPorch = NT35510_480X800_VFP;
@@ -860,10 +865,12 @@ __weak HAL_StatusTypeDef MX_LTDC_Init(LTDC_HandleTypeDef *hltdc, uint32_t Width,
 
   if (Lcd_Driver_Type == LCD_CTRL_NT35510)
   {
+    const uint32_t hbp = (Width > Height) ? NT35510_800X480_HBP : NT35510_480X800_HBP; /* see MX_DSIHOST_DSI_Init */
+    const uint32_t hfp = (Width > Height) ? NT35510_800X480_HFP : NT35510_480X800_HFP;
     hltdc->Init.HorizontalSync = NT35510_480X800_HSYNC - 1;
-    hltdc->Init.AccumulatedHBP = NT35510_480X800_HSYNC + NT35510_480X800_HBP - 1;
-    hltdc->Init.AccumulatedActiveW = NT35510_480X800_HSYNC + Width + NT35510_480X800_HBP - 1;
-    hltdc->Init.TotalWidth = NT35510_480X800_HSYNC + Width + NT35510_480X800_HBP + NT35510_480X800_HFP - 1;
+    hltdc->Init.AccumulatedHBP = NT35510_480X800_HSYNC + hbp - 1;
+    hltdc->Init.AccumulatedActiveW = NT35510_480X800_HSYNC + Width + hbp - 1;
+    hltdc->Init.TotalWidth = NT35510_480X800_HSYNC + Width + hbp + hfp - 1;
     hltdc->Init.VerticalSync = NT35510_480X800_VSYNC - 1;
     hltdc->Init.AccumulatedVBP = NT35510_480X800_VSYNC + NT35510_480X800_VBP - 1;
     hltdc->Init.AccumulatedActiveH = NT35510_480X800_VSYNC + Height + NT35510_480X800_VBP - 1;

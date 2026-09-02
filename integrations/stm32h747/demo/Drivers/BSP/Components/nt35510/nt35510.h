@@ -158,8 +158,8 @@ extern "C"
  *         Same values as for Portrait mode in fact.
  */
 #define NT35510_800X480_HSYNC NT35510_480X800_VSYNC /* Horizontal synchronization */
-#define NT35510_800X480_HBP NT35510_480X800_VBP     /* Horizontal back porch      */
-#define NT35510_800X480_HFP NT35510_480X800_VFP     /* Horizontal front porch     */
+#define NT35510_800X480_HBP ((uint16_t)68)  /* Horizontal back porch: 68 fixes the landscape shift on MB1166-A09 (docs/NT35510_LCD_SETUP.md) */
+#define NT35510_800X480_HFP ((uint16_t)68)  /* Horizontal front porch: see HBP */
 #define NT35510_800X480_VSYNC NT35510_480X800_HSYNC /* Vertical synchronization   */
 #define NT35510_800X480_VBP NT35510_480X800_HBP     /* Vertical back porch        */
 #define NT35510_800X480_VFP NT35510_480X800_HFP     /* Vertical front porch       */

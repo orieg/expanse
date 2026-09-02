@@ -134,8 +134,12 @@ static void draw_test_card(void) {
     lane_t right = { 402, "HASH TABLE", "open addressing . reader interrupt masked around writes . full scan", C_ORANGE };
     draw_lane(&left);
     draw_lane(&right);
-    fill_rect(0, 466, LCD_W, 14, C_BG);
-    text(12, 466, "step 1 test card: layout only, no data structures yet  (#605)", C_MUTED, 1);
+    /* colour strip: R G B W K then a grey ramp — tells a photo whether the
+     * panel's colour coding matches the framebuffer's */
+    const uint32_t bars[5] = { RGB(255, 0, 0), RGB(0, 255, 0), RGB(0, 0, 255), RGB(255, 255, 255), RGB(0, 0, 0) };
+    for (int i = 0; i < 5; i++) fill_rect(12 + i * 60, 462, 58, 16, bars[i]);
+    for (int i = 0; i < 256; i += 2) fill_rect(320 + i, 462, 2, 16, RGB(i, i, i));
+    text(590, 462, "R G B W K ramp", C_MUTED, 1);
 }
 
 int main(void) {
