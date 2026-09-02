@@ -139,7 +139,8 @@ jobs:
 
       - name: Run Sync* suite under ThreadSanitizer
         run: |
-          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync:: --lib sync32::
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync::
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync32::
           cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test linearizability --test test_blobmap --test sync32_stress
         env:
           RUSTFLAGS: "-Zsanitizer=thread"
@@ -168,7 +169,8 @@ jobs:
               '',
               '#### Local Reproduction Commands:',
               '```bash',
-              'TSAN_OPTIONS="suppressions=.github/tsan-suppressions.txt" RUSTFLAGS="-Zsanitizer=thread" cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync:: --lib sync32::',
+              'TSAN_OPTIONS="suppressions=.github/tsan-suppressions.txt" RUSTFLAGS="-Zsanitizer=thread" cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync::',
+              'TSAN_OPTIONS="suppressions=.github/tsan-suppressions.txt" RUSTFLAGS="-Zsanitizer=thread" cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --lib sync32::',
               'TSAN_OPTIONS="suppressions=.github/tsan-suppressions.txt" RUSTFLAGS="-Zsanitizer=thread" cargo test -Zbuild-std --target x86_64-unknown-linux-gnu -p expanse-trie --test linearizability --test test_blobmap --test sync32_stress',
               '```'
             ].join('\n');
