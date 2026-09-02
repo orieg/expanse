@@ -44,3 +44,7 @@ integrations/stm32h747/*.elf
 integrations/stm32h747/*.map
 integrations/stm32h747/*.attrs
 integrations/stm32h747/transcript*
+integrations/qemu-cortex-m3/*.elf
+integrations/qemu-cortex-m3/*.map
+integrations/qemu-cortex-m3/*.attrs
+integrations/qemu-cortex-m3/qemu.out
