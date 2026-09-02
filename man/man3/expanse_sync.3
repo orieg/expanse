@@ -8,7 +8,7 @@ expanse_sync_map_free, expanse_sync_map_insert, expanse_sync_map_get, \
 expanse_sync_map_remove, expanse_sync_map_len, \
 expanse_sync_map_reader_new, expanse_sync_map_reader_free, \
 expanse_sync_map_reader_get \
-\- lock-free concurrent sets and maps with optimistic readers (OCC)
+\- concurrent sets and maps with optimistic readers (OCC)
 .SH SYNOPSIS
 .B #include <expanse.h>
 .PP
@@ -80,8 +80,10 @@ Link with \fI-lexpanse\fR.
 \fBexpanse_sync_set_t\fR and \fBexpanse_sync_map_t\fR provide thread-safe,
 concurrent digital trie collections.
 .PP
-Writers serialize internally, while readers execute an optimistic, lock-free
+Writers serialize internally, while readers execute an optimistic
 validation walk using seqlock version words and Epoch-Based Reclamation (EBR).
+The protocol is blocking optimistic lock coupling \(em a reader retries a
+bounded number of times and then takes the writer mutex \(em not lock-free.
 Readers never acquire mutexes, never block writers, and scale linearly across
 CPU cores.
 .SH READER HANDLES

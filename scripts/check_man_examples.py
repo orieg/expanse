@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Compile, run, and verify the EXAMPLES program in each Section 3 man page.
 
+Two lanes: the default run builds every page's example against the 64-bit
+host library and skips the 32-bit-only pages (NARROW_SURFACE_PAGES); the
+i686 CI job runs `--narrow --cc "cc -m32" --lib-dir <i686 release dir>` to
+build exactly those pages against the i686 library (#595).
+
 `check_man_pages.py` validates *form*: the pages exist, the troff is clean, and
 every C ABI symbol is mentioned somewhere. It cannot tell whether the prose is
 true. It passed a page that documented `expanse_set_by_count` as 1-indexed when
@@ -24,6 +29,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import shlex
 import os
 import re
 import shutil
@@ -97,14 +103,27 @@ def outputs_match(documented: str, actual: str) -> bool:
     return True
 
 
-def build_and_run(code: str, include_dir: Path, lib_dir: Path) -> tuple[int, str, str]:
+def compiler_command(cc: str | None) -> list[str]:
+    """`--cc` (or $CC, or `cc`), split shell-style so `cc -m32` works."""
+    return shlex.split(cc or os.environ.get("CC", "cc"))
+
+
+def selected_for(page_name: str, narrow: bool) -> str:
+    """Which lane builds a page's example: the host run builds everything
+    but the narrow (32-bit-only) pages; `--narrow` builds only those."""
+    if page_name in NARROW_SURFACE_PAGES:
+        return "build" if narrow else "skip-narrow"
+    return "skip-other" if narrow else "build"
+
+
+def build_and_run(code: str, include_dir: Path, lib_dir: Path, cc: list[str] | None = None) -> tuple[int, str, str]:
     with tempfile.TemporaryDirectory() as td:
         c_file = Path(td) / "example.c"
         c_file.write_text(code, encoding="utf-8")
         binary = Path(td) / "example"
-        cc = os.environ.get("CC", "cc")
+        cc = cc or compiler_command(None)
         compile_res = subprocess.run(
-            [cc, "-I", str(include_dir), str(c_file), "-L", str(lib_dir), "-lexpanse", "-o", str(binary)],
+            [*cc, "-I", str(include_dir), str(c_file), "-L", str(lib_dir), "-lexpanse", "-o", str(binary)],
             capture_output=True,
             text=True,
         )
@@ -137,6 +156,15 @@ def self_test() -> int:
     assert extract_documented_output(src) == "hello", "output extraction"
     assert extract_example_code(".SH NAME\nx\n") is None, "page without EXAMPLES"
 
+    assert compiler_command("cc -m32") == ["cc", "-m32"], "compiler command splits shell-style"
+    assert compiler_command("clang") == ["clang"]
+    # Page selection: the narrow set is disjoint from the host set, and a
+    # narrow page is skipped by the host run and taken by the narrow run.
+    assert not (NARROW_SURFACE_PAGES & NO_EXAMPLE_PAGES)
+    assert selected_for("expanse_sync32.3", narrow=False) == "skip-narrow"
+    assert selected_for("expanse_sync32.3", narrow=True) == "build"
+    assert selected_for("expanse_map.3", narrow=False) == "build"
+    assert selected_for("expanse_map.3", narrow=True) == "skip-other"
     print("check_man_examples.py --self-test: all checks passed")
     return 0
 
@@ -144,6 +172,12 @@ def self_test() -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--lib-dir", default="target/release", help="directory holding libexpanse (default: target/release)")
+    ap.add_argument("--cc", default=None, help="C compiler command, shell-split (default: $CC or cc); e.g. 'cc -m32'")
+    ap.add_argument(
+        "--narrow",
+        action="store_true",
+        help="build only the 32-bit-only pages (NARROW_SURFACE_PAGES) — run on the i686 lane against the i686 library",
+    )
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()
     if args.self_test:
@@ -156,7 +190,8 @@ def main() -> int:
     if not any(lib_dir.glob("libexpanse.*")):
         print(f"::error::no libexpanse found in {lib_dir} — run `cargo build --release -p expanse-capi` first")
         return 1
-    if shutil.which(os.environ.get("CC", "cc")) is None:
+    cc = compiler_command(args.cc)
+    if shutil.which(cc[0]) is None:
         print("::error::no C compiler found; the man-page examples cannot be verified")
         return 1
 
@@ -166,15 +201,20 @@ def main() -> int:
         src = page.read_text(encoding="utf-8")
         code = extract_example_code(src)
         if code is None:
-            if page.name not in NO_EXAMPLE_PAGES:
+            if page.name not in NO_EXAMPLE_PAGES and not args.narrow:
                 errors.append(f"{page.name}: no runnable EXAMPLES program found (add one, or list the page in NO_EXAMPLE_PAGES)")
             continue
 
-        if page.name in NARROW_SURFACE_PAGES:
-            # Present and syntactically a program, but only linkable at 32-bit.
+        lane = selected_for(page.name, args.narrow)
+        if lane == "skip-narrow":
+            # Present and syntactically a program, but only linkable at 32-bit:
+            # the i686 lane runs this checker with --narrow against the i686
+            # library (issue #595).
             if "int main(" not in code:
                 errors.append(f"{page.name}: narrow-surface EXAMPLES block is not a program")
-            print(f"  {page.name}: 32-bit-only surface — example present, verified on the i686 lane, not built here")
+            print(f"  {page.name}: 32-bit-only surface — example present, built on the i686 lane, not here")
+            continue
+        if lane == "skip-other":
             continue
 
         documented = extract_documented_output(src)
@@ -182,7 +222,7 @@ def main() -> int:
             errors.append(f"{page.name}: EXAMPLES program has no '.SS {OUTPUT_HEADING}' block to verify it against")
             continue
 
-        rc, stdout, stderr = build_and_run(code, include_dir, lib_dir)
+        rc, stdout, stderr = build_and_run(code, include_dir, lib_dir, cc)
         if rc != 0:
             errors.append(f"{page.name}: example failed (exit {rc}): {stderr.strip().splitlines()[:3]}")
             continue

@@ -36,8 +36,9 @@ Dynamic map from arbitrary byte slices to 64-bit values
 (analogous to JudyHS).
 .TP
 .BR expanse_sync_set_t ", " expanse_sync_map_t " (see " expanse_sync (3))
-Concurrent set and map supporting single-writer mutations with lock-free
-Optimistic Concurrency Control (OCC) reader handles.
+Concurrent set and map supporting single-writer mutations with optimistic
+reader handles (blocking optimistic lock coupling: bounded retry, then the
+writer mutex \(em not lock-free).
 .TP
 .BR ExpanseBlobMap " (see " expanse_blob_map (3))
 Polymorphic large-value map with inline payload packing and slab arena
@@ -51,8 +52,8 @@ expanse_set_t	uint64_t	Bit set; rank & select; batch query
 expanse_map_t	uint64_t	uint64_t; direct slot ptr; rank/select
 expanse_strmap_t	const char *	uint64_t; lexicographic order
 expanse_bytesmap_t	void * + len	uint64_t; arbitrary byte buffers
-expanse_sync_set_t	uint64_t	Lock-free concurrent readers (OCC)
-expanse_sync_map_t	uint64_t	uint64_t; lock-free readers (OCC)
+expanse_sync_set_t	uint64_t	Optimistic concurrent readers (OCC)
+expanse_sync_map_t	uint64_t	uint64_t; optimistic readers (OCC)
 ExpanseBlobMap	uint64_t	Arbitrary bytes; arena slab
 .fi
 .SH EXAMPLES
@@ -119,8 +120,9 @@ concurrently from different threads without coordination.
 .PP
 For concurrent access to a single shared container across multiple threads,
 use \fBexpanse_sync_set_t\fR or \fBexpanse_sync_map_t\fR (see
-\fBexpanse_sync\fR(3)), which provide lock-free reader handles utilizing
-Optimistic Concurrency Control (OCC) and Epoch-Based Reclamation (EBR).
+\fBexpanse_sync\fR(3)), which provide optimistic reader handles utilizing
+Optimistic Concurrency Control (OCC) and Epoch-Based Reclamation (EBR); the
+protocol is blocking optimistic lock coupling, not lock-free.
 .SH COMPATIBILITY
 \fBlibexpanse\fR also provides full drop-in C ABI compatibility for classic
 \fBlibjudy\fR.
