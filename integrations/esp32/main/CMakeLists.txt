@@ -3,6 +3,7 @@ idf_component_register(
         "main.c"
         "../../../components/expanse/test/bench_esp32_memtable.c"
         "../../../components/expanse/test/test_expanse.c"
+        "../../../components/expanse/test/twin_containers.c"
     INCLUDE_DIRS
         "."
     PRIV_REQUIRES

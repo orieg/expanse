@@ -25,7 +25,7 @@ void app_main_benchmarks(void);
  * the whole archive member and Unity reports "0 Tests ... OK" -- a green gate
  * that ran nothing. That is how the first ESP32 harvest passed its test gate
  * while the engine went entirely unexercised (#579). */
-#define EXPANSE_EXPECTED_TEST_CASES 11
+#define EXPANSE_EXPECTED_TEST_CASES 13
 
 static const char *model_name(esp_chip_model_t m) {
     switch (m) {
