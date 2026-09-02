@@ -48,3 +48,8 @@ integrations/qemu-cortex-m3/*.elf
 integrations/qemu-cortex-m3/*.map
 integrations/qemu-cortex-m3/*.attrs
 integrations/qemu-cortex-m3/qemu.out
+integrations/esp32/build/
+integrations/esp32/sdkconfig
+integrations/esp32/sdkconfig.old
+integrations/esp32/dependencies.lock
+integrations/esp32/managed_components/

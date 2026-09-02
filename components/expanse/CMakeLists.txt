@@ -69,8 +69,16 @@ add_custom_command(
 )
 
 add_custom_target(expanse_staticlib DEPENDS "${EXPANSE_STATICLIB}")
-add_dependencies(${COMPONENT_LIB} expanse_staticlib)
 
-# INTERFACE, not PUBLIC: the archive resolves against the component's own
-# expanse_host_malloc/-_free, so the two must stay in the same link group.
-target_link_libraries(${COMPONENT_LIB} INTERFACE "${EXPANSE_STATICLIB}")
+# The archive imports expanse_host_malloc/-_free from this component's own
+# objects, and ESP-IDF does not wrap the final link in --start-group, so the
+# order on the link line has to come from CMake's dependency graph: the
+# engine is an imported library that links back to the component. The two
+# form a static-library cycle, which CMake resolves by repeating them, and
+# the linker then sees the host pair after the archive that needs it. A bare
+# path in INTERFACE_LINK_LIBRARIES (the previous form) landed after every
+# component and left both symbols undefined (#579, first on-device build).
+add_prebuilt_library(expanse_engine "${EXPANSE_STATICLIB}")
+add_dependencies(expanse_engine expanse_staticlib)
+target_link_libraries(expanse_engine INTERFACE ${COMPONENT_LIB})
+target_link_libraries(${COMPONENT_LIB} PUBLIC expanse_engine)

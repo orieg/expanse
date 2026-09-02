@@ -1,0 +1,14 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "../../../components/expanse/test/bench_esp32_memtable.c"
+        "../../../components/expanse/test/test_expanse.c"
+    INCLUDE_DIRS
+        "."
+    PRIV_REQUIRES
+        expanse
+        unity
+        esp_system
+        esp_hw_support
+        heap
+)

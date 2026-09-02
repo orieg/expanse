@@ -46,8 +46,19 @@ therefore builds `esp32p4` against `riscv32imafc-unknown-none-elf`, whose
 archive carries `EF_RISCV_FLOAT_ABI_SINGLE` (ilp32f) — a soft-float `imac`
 archive would be rejected by the RISC-V linker's float-ABI check (#581). CI
 builds the `imafc` staticlib and asserts its ELF float-ABI flag; the ESP-IDF
-link itself still has no CI lane, so treat end-to-end linking as unverified
+link itself still has no CI lane, so treat end-to-end P4 linking as unverified
 rather than known-good until an on-device build covers it.
+
+**End-to-end link status.** The full ESP-IDF application link is verified
+locally for `esp32c3` and `esp32c6` (ESP-IDF v6.0-dev, `riscv32-esp-elf`
+GCC 15.2) through the wrapper application in
+[`integrations/esp32/`](../../integrations/esp32/README.md). The first such
+link failed: the archive was listed as a bare interface path, ESP-IDF does
+not wrap the final link in `--start-group`, and the two host-allocator
+symbols the archive imports came *before* it on the link line and stayed
+undefined. `CMakeLists.txt` now registers the archive as an imported library
+that links back to the component, which is what orders it correctly. There
+is still no CI lane for the ESP-IDF link; #579 tracks the on-device run.
 
 ## What the 32-bit library exports
 
