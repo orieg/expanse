@@ -1,0 +1,226 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" viewBox="0 0 1000 520" width="100%" height="100%">
+  <title>Expanse on STM32H747I-DISCO (Cortex-M7): cycles per operation and the ISR-reader contract</title>
+  <defs>
+    <style>
+      /* Light theme by default for maximum contrast on the web. */
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
+      .divider { stroke: #e2e8f0; stroke-width: 1px; }
+
+      .t-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-chart-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
+      .t-note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+      .t-unit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; fill: #475569; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
+      .t-legend { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }
+      .t-win { fill: #15803d; font-weight: 700; }
+      .t-loss { fill: #b45309; font-weight: 700; }
+
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; text-anchor: middle; }
+      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 600; fill: #334155; text-anchor: middle; }
+      .t-row-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 700; fill: #15803d; }
+      .t-row-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 600; fill: #334155; }
+
+      .b-expanse { fill: #16a34a; }
+      .b-expanse-alt { fill: #10b981; }
+      .b-hash { fill: #2563eb; }
+      .b-btree { fill: #64748b; }
+      .b-skipmap { fill: #94a3b8; }
+      .b-other { fill: #64748b; }
+
+      .badge-win { fill: #dcfce7; stroke: #86efac; stroke-width: 1px; rx: 3px; }
+      .badge-win-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 700; fill: #15803d; text-anchor: middle; }
+      .badge-loss { fill: #fef3c7; stroke: #fcd34d; stroke-width: 1px; rx: 3px; }
+      .badge-loss-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; font-weight: 700; fill: #b45309; text-anchor: middle; }
+
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .divider { stroke: #21262d; }
+        .t-title { fill: #f0f6fc; }
+        .t-chart-title { fill: #f0f6fc; }
+        .t-sub { fill: #94a3b8; }
+        .t-note { fill: #94a3b8; }
+        .t-unit { fill: #94a3b8; }
+        .t-axis-label { fill: #94a3b8; }
+        .t-bar-label { fill: #f8fafc; }
+        .t-legend { fill: #f8fafc; }
+        .t-win { fill: #4ade80; }
+        .t-loss { fill: #fcd34d; }
+        .t-val-accent { fill: #4ade80; }
+        .t-val-blue { fill: #38bdf8; }
+        .t-val-muted { fill: #e2e8f0; }
+        .t-row-accent { fill: #4ade80; }
+        .t-row-muted { fill: #e2e8f0; }
+        .b-expanse { fill: #22c55e; }
+        .b-expanse-alt { fill: #34d399; }
+        .b-hash { fill: #3b82f6; }
+        .b-btree { fill: #64748b; }
+        .b-skipmap { fill: #475569; }
+        .b-other { fill: #64748b; }
+        .badge-win { fill: #064e3b; stroke: #059669; }
+        .badge-win-text { fill: #6ee7b7; }
+        .badge-loss { fill: #451a03; stroke: #d97706; }
+        .badge-loss-text { fill: #fcd34d; }
+      }
+
+      :root[data-theme="dark"] .bg, [data-theme="dark"] .bg { fill: #0d1117; }
+      :root[data-theme="dark"] .border, [data-theme="dark"] .border { stroke: #30363d; }
+      :root[data-theme="dark"] .grid, [data-theme="dark"] .grid { stroke: #21262d; }
+      :root[data-theme="dark"] .axis, [data-theme="dark"] .axis { stroke: #484f58; }
+      :root[data-theme="dark"] .divider, [data-theme="dark"] .divider { stroke: #21262d; }
+      :root[data-theme="dark"] .t-title, [data-theme="dark"] .t-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-chart-title, [data-theme="dark"] .t-chart-title { fill: #f0f6fc; }
+      :root[data-theme="dark"] .t-sub, [data-theme="dark"] .t-sub { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-unit, [data-theme="dark"] .t-unit { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-axis-label, [data-theme="dark"] .t-axis-label { fill: #94a3b8; }
+      :root[data-theme="dark"] .t-bar-label, [data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-legend, [data-theme="dark"] .t-legend { fill: #f8fafc; }
+      :root[data-theme="dark"] .t-win, [data-theme="dark"] .t-win { fill: #4ade80; }
+      :root[data-theme="dark"] .t-loss, [data-theme="dark"] .t-loss { fill: #fcd34d; }
+      :root[data-theme="dark"] .t-val-accent, [data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      :root[data-theme="dark"] .t-val-muted, [data-theme="dark"] .t-val-muted { fill: #e2e8f0; }
+      :root[data-theme="dark"] .t-row-accent, [data-theme="dark"] .t-row-accent { fill: #4ade80; }
+      :root[data-theme="dark"] .t-row-muted, [data-theme="dark"] .t-row-muted { fill: #e2e8f0; }
+      :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse { fill: #22c55e; }
+      :root[data-theme="dark"] .b-expanse-alt, [data-theme="dark"] .b-expanse-alt { fill: #34d399; }
+      :root[data-theme="dark"] .b-hash, [data-theme="dark"] .b-hash { fill: #3b82f6; }
+      :root[data-theme="dark"] .b-btree, [data-theme="dark"] .b-btree { fill: #64748b; }
+      :root[data-theme="dark"] .b-skipmap, [data-theme="dark"] .b-skipmap { fill: #475569; }
+      :root[data-theme="dark"] .b-other, [data-theme="dark"] .b-other { fill: #64748b; }
+      :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win { fill: #064e3b; stroke: #059669; }
+      :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text { fill: #6ee7b7; }
+      :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss { fill: #451a03; stroke: #d97706; }
+      :root[data-theme="dark"] .badge-loss-text, [data-theme="dark"] .badge-loss-text { fill: #fcd34d; }
+    </style>
+  </defs>
+
+  <rect width="100%" height="100%" class="bg" rx="8"/>
+  <rect width="100%" height="100%" class="border" rx="8"/>
+  <text x="20" y="26" class="t-title">Expanse on a Cortex-M7 (STM32H747I-DISCO), C ABI, on-target</text>
+  <g transform="translate(20, 52)">
+    <text x="0" y="0" class="t-chart-title">Fixtures from benches/embedded_memtable.rs</text>
+    <text x="0" y="13" class="t-sub">core cycles per operation, min of 5 passes (lower is better)</text>
+    <text x="207" y="56" class="t-legend" text-anchor="end">ingest 2,000 keys / insert</text>
+    <rect x="215" y="30" width="72.7" height="10" rx="1" style="fill:#cbd5e1"/>
+    <text x="291.7" y="38.5" class="t-axis-label">1,652</text>
+    <rect x="215" y="42" width="49.3" height="10" rx="1" style="fill:#94a3b8"/>
+    <text x="268.3" y="50.5" class="t-axis-label">1,122</text>
+    <rect x="215" y="54" width="93.0" height="10" rx="1" style="fill:#93c5fd"/>
+    <text x="312.0" y="62.5" class="t-axis-label">2,114</text>
+    <rect x="215" y="66" width="51.2" height="10" rx="1" style="fill:#2563eb"/>
+    <text x="270.2" y="74.5" class="t-axis-label">1,165</text>
+    <text x="207" y="112" class="t-legend" text-anchor="end">CAN dispatch / get</text>
+    <rect x="215" y="86" width="15.2" height="10" rx="1" style="fill:#cbd5e1"/>
+    <text x="234.2" y="94.5" class="t-axis-label">344</text>
+    <rect x="215" y="98" width="10.8" height="10" rx="1" style="fill:#94a3b8"/>
+    <text x="229.8" y="106.5" class="t-axis-label">246</text>
+    <rect x="215" y="110" width="18.1" height="10" rx="1" style="fill:#93c5fd"/>
+    <text x="237.1" y="118.5" class="t-axis-label">412</text>
+    <rect x="215" y="122" width="10.8" height="10" rx="1" style="fill:#2563eb"/>
+    <text x="229.8" y="130.5" class="t-axis-label">245</text>
+    <text x="207" y="168" class="t-legend" text-anchor="end">evict 600 of 2,000 / per-key loop</text>
+    <rect x="215" y="142" width="165.6" height="10" rx="1" style="fill:#cbd5e1"/>
+    <text x="384.6" y="150.5" class="t-axis-label">3,765</text>
+    <rect x="215" y="154" width="116.3" height="10" rx="1" style="fill:#94a3b8"/>
+    <text x="335.3" y="162.5" class="t-axis-label">2,643</text>
+    <rect x="215" y="166" width="208.6" height="10" rx="1" style="fill:#93c5fd"/>
+    <text x="427.6" y="174.5" class="t-axis-label">4,740</text>
+    <rect x="215" y="178" width="121.7" height="10" rx="1" style="fill:#2563eb"/>
+    <text x="340.7" y="186.5" class="t-axis-label">2,765</text>
+    <text x="207" y="224" class="t-legend" text-anchor="end">evict 600 of 2,000 / remove_range</text>
+    <rect x="215" y="198" width="57.0" height="10" rx="1" style="fill:#cbd5e1"/>
+    <text x="276.0" y="206.5" class="t-axis-label">1,295</text>
+    <rect x="215" y="210" width="41.4" height="10" rx="1" style="fill:#94a3b8"/>
+    <text x="260.4" y="218.5" class="t-axis-label">941</text>
+    <rect x="215" y="222" width="69.8" height="10" rx="1" style="fill:#93c5fd"/>
+    <text x="288.8" y="230.5" class="t-axis-label">1,586</text>
+    <rect x="215" y="234" width="42.5" height="10" rx="1" style="fill:#2563eb"/>
+    <text x="261.5" y="242.5" class="t-axis-label">966</text>
+    <text x="207" y="280" class="t-legend" text-anchor="end">evict 25 of 2,000 / per-key loop</text>
+    <rect x="215" y="254" width="161.4" height="10" rx="1" style="fill:#cbd5e1"/>
+    <text x="380.4" y="262.5" class="t-axis-label">3,667</text>
+    <rect x="215" y="266" width="114.3" height="10" rx="1" style="fill:#94a3b8"/>
+    <text x="333.3" y="274.5" class="t-axis-label">2,597</text>
+    <rect x="215" y="278" width="204.7" height="10" rx="1" style="fill:#93c5fd"/>
+    <text x="423.7" y="286.5" class="t-axis-label">4,653</text>
+    <rect x="215" y="290" width="123.2" height="10" rx="1" style="fill:#2563eb"/>
+    <text x="342.2" y="298.5" class="t-axis-label">2,800</text>
+    <text x="207" y="336" class="t-legend" text-anchor="end">evict 25 of 2,000 / remove_range</text>
+    <rect x="215" y="310" width="63.4" height="10" rx="1" style="fill:#cbd5e1"/>
+    <text x="282.4" y="318.5" class="t-axis-label">1,442</text>
+    <rect x="215" y="322" width="46.6" height="10" rx="1" style="fill:#94a3b8"/>
+    <text x="265.6" y="330.5" class="t-axis-label">1,059</text>
+    <rect x="215" y="334" width="81.7" height="10" rx="1" style="fill:#93c5fd"/>
+    <text x="300.7" y="342.5" class="t-axis-label">1,857</text>
+    <rect x="215" y="346" width="51.7" height="10" rx="1" style="fill:#2563eb"/>
+    <text x="270.7" y="354.5" class="t-axis-label">1,175</text>
+    <line x1="215" y1="28" x2="215" y2="366" class="axis"/>
+    <rect x="0" y="376" width="10" height="10" rx="1" style="fill:#cbd5e1"/>
+    <text x="14" y="385" class="t-note">64 MHz, D-cache off</text>
+    <rect x="130" y="376" width="10" height="10" rx="1" style="fill:#94a3b8"/>
+    <text x="144" y="385" class="t-note">64 MHz, D-cache on</text>
+    <rect x="260" y="376" width="10" height="10" rx="1" style="fill:#93c5fd"/>
+    <text x="274" y="385" class="t-note">160 MHz, D-cache off</text>
+    <rect x="390" y="376" width="10" height="10" rx="1" style="fill:#2563eb"/>
+    <text x="404" y="385" class="t-note">160 MHz, D-cache on</text>
+  </g>
+  <g transform="translate(500, 52)">
+    <text x="0" y="0" class="t-chart-title">SysTick ISR reader while the main loop writes</text>
+    <text x="0" y="13" class="t-sub">160 MHz, D-cache on, 10,000 interrupts per cell, writer paced per row</text>
+    <text x="0" y="40" class="t-legend">writer duty</text>
+    <text x="112" y="40" class="t-legend">BUSY (sync32)</text>
+    <text x="240" y="40" class="t-legend">ISR entry latency, cycles (max / mean)</text>
+    <rect x="240" y="45" width="10" height="10" rx="1" style="fill:#2563eb"/><text x="254" y="54" class="t-note">sync32 reader</text>
+    <rect x="340" y="45" width="10" height="10" rx="1" style="fill:#94a3b8"/><text x="354" y="54" class="t-note">cpsid/cpsie critical section</text>
+    <text x="0" y="82" class="t-bar-label">full duty</text>
+    <text x="0" y="96" class="t-note">1,678 cyc/mut</text>
+    <rect x="112" y="72" width="73.0" height="12" rx="1" style="fill:#f59e0b"/>
+    <text x="189.0" y="82" class="t-axis-label">91.2%</text>
+    <text x="112" y="100" class="t-note">9,125 of 10,000 reads</text>
+    <rect x="240" y="70" width="2.9" height="12" rx="1" style="fill:#2563eb"/>
+    <text x="246.9" y="80" class="t-axis-label">57 / 39</text>
+    <rect x="240" y="86" width="78.5" height="12" rx="1" style="fill:#94a3b8"/>
+    <text x="322.5" y="96" class="t-axis-label">1,570 / 720</text>
+    <text x="0" y="134" class="t-bar-label">40k mut/s</text>
+    <text x="0" y="148" class="t-note">4,005 cyc/mut</text>
+    <rect x="112" y="124" width="25.8" height="12" rx="1" style="fill:#f59e0b"/>
+    <text x="141.8" y="134" class="t-axis-label">32.2%</text>
+    <text x="112" y="152" class="t-note">3,219 of 10,000 reads</text>
+    <rect x="240" y="122" width="2.9" height="12" rx="1" style="fill:#2563eb"/>
+    <text x="246.9" y="132" class="t-axis-label">57 / 37</text>
+    <rect x="240" y="138" width="80.2" height="12" rx="1" style="fill:#94a3b8"/>
+    <text x="324.2" y="148" class="t-axis-label">1,604 / 279</text>
+    <text x="0" y="186" class="t-bar-label">10k mut/s</text>
+    <text x="0" y="200" class="t-note">15,995 cyc/mut</text>
+    <rect x="112" y="176" width="6.6" height="12" rx="1" style="fill:#f59e0b"/>
+    <text x="122.6" y="186" class="t-axis-label">8.2%</text>
+    <text x="112" y="204" class="t-note">823 of 10,000 reads</text>
+    <rect x="240" y="174" width="2.9" height="12" rx="1" style="fill:#2563eb"/>
+    <text x="246.9" y="184" class="t-axis-label">57 / 30</text>
+    <rect x="240" y="190" width="87.1" height="12" rx="1" style="fill:#94a3b8"/>
+    <text x="331.1" y="200" class="t-axis-label">1,741 / 95</text>
+    <text x="0" y="238" class="t-bar-label">1k mut/s</text>
+    <text x="0" y="252" class="t-note">159,753 cyc/mut</text>
+    <rect x="112" y="228" width="1.0" height="12" rx="1" style="fill:#f59e0b"/>
+    <text x="117.0" y="238" class="t-axis-label">0.9%</text>
+    <text x="112" y="256" class="t-note">94 of 10,000 reads</text>
+    <rect x="240" y="226" width="2.9" height="12" rx="1" style="fill:#2563eb"/>
+    <text x="246.9" y="236" class="t-axis-label">57 / 17</text>
+    <rect x="240" y="242" width="90.0" height="12" rx="1" style="fill:#94a3b8"/>
+    <text x="334.0" y="252" class="t-axis-label">1,799 / 24</text>
+    <text x="0" y="288" class="t-note">corrupted reads: 0; reclaim refusals: 0; critical-section BUSY: 0 (it masks the interrupt instead)</text>
+  </g>
+  <text x="20" y="472" class="t-note">measured: STM32H747I-DISCO, Cortex-M7 CPUID 0x411fc271, D-cache 4-way x 128 sets x 32 B lines; core 64 MHz HSI then 160 MHz PLL1 (HCLK 80 MHz); DWT CYCCNT, single board</text>
+  <text x="20" y="486" class="t-note">clock check from the host side: 320M cycles in 4.991 s host time, 320M cycles in 1.997 s host time</text>
+  <text x="20" y="500" class="t-note">libexpanse staticlib commit dc04e777; harness integrations/stm32h747; source docs/benchmarks/stm32h747/results.json</text>
+</svg>

@@ -1,0 +1,552 @@
+{
+ "info": {
+  "calibration": [
+   {
+    "host_seconds": 4.991,
+    "cycles": 320000000
+   },
+   {
+    "host_seconds": 1.997,
+    "cycles": 320000000
+   }
+  ],
+  "commit": "dc04e777",
+  "cpuid": "0x411fc271",
+  "dcache_line_bytes": 32,
+  "dcache_ways": 4,
+  "dcache_sets": 128,
+  "sync32_headroom": 128,
+  "sysclk": 160000000,
+  "hclk": 80000000,
+  "src": "pll1_p",
+  "len": 2048,
+  "mem_used": 9184,
+  "pending": 0,
+  "free_slots": 4085,
+  "heap_hwm": 155648
+ },
+ "fixtures": [
+  {
+   "name": "can_dispatch",
+   "sysclk": 64000000,
+   "dcache": 0,
+   "min": 344.366,
+   "median": 344.398,
+   "max": 344.876,
+   "passes": [
+    344.876,
+    344.38,
+    344.44,
+    344.366,
+    344.398
+   ]
+  },
+  {
+   "name": "can_dispatch",
+   "sysclk": 64000000,
+   "dcache": 1,
+   "min": 245.61,
+   "median": 245.64,
+   "max": 246.302,
+   "passes": [
+    246.302,
+    245.64,
+    245.636,
+    245.61,
+    245.662
+   ]
+  },
+  {
+   "name": "can_dispatch",
+   "sysclk": 160000000,
+   "dcache": 0,
+   "min": 411.544,
+   "median": 411.596,
+   "max": 412.884,
+   "passes": [
+    412.884,
+    411.704,
+    411.552,
+    411.596,
+    411.544
+   ]
+  },
+  {
+   "name": "can_dispatch",
+   "sysclk": 160000000,
+   "dcache": 1,
+   "min": 245.422,
+   "median": 245.46,
+   "max": 246.79,
+   "passes": [
+    246.79,
+    245.46,
+    245.422,
+    245.424,
+    245.474
+   ]
+  },
+  {
+   "name": "evict_bulk_loop",
+   "sysclk": 64000000,
+   "dcache": 0,
+   "min": 3764.758333333333,
+   "median": 3766.475,
+   "max": 3767.4783333333335,
+   "passes": [
+    3767.4783333333335,
+    3766.475,
+    3764.758333333333,
+    3766.4616666666666,
+    3766.6283333333336
+   ]
+  },
+  {
+   "name": "evict_bulk_loop",
+   "sysclk": 64000000,
+   "dcache": 1,
+   "min": 2642.89,
+   "median": 2643.305,
+   "max": 2643.725,
+   "passes": [
+    2643.5916666666667,
+    2642.89,
+    2643.725,
+    2643.305,
+    2643.13
+   ]
+  },
+  {
+   "name": "evict_bulk_loop",
+   "sysclk": 160000000,
+   "dcache": 0,
+   "min": 4740.363333333334,
+   "median": 4744.246666666667,
+   "max": 4747.123333333333,
+   "passes": [
+    4742.656666666667,
+    4744.533333333334,
+    4740.363333333334,
+    4744.246666666667,
+    4747.123333333333
+   ]
+  },
+  {
+   "name": "evict_bulk_loop",
+   "sysclk": 160000000,
+   "dcache": 1,
+   "min": 2764.806666666667,
+   "median": 2765.9733333333334,
+   "max": 2767.1633333333334,
+   "passes": [
+    2766.8633333333332,
+    2767.1633333333334,
+    2765.326666666667,
+    2764.806666666667,
+    2765.9733333333334
+   ]
+  },
+  {
+   "name": "evict_bulk_range",
+   "sysclk": 64000000,
+   "dcache": 0,
+   "min": 1294.5616666666667,
+   "median": 1295.1916666666666,
+   "max": 1304.6766666666667,
+   "passes": [
+    1294.765,
+    1294.5616666666667,
+    1304.6766666666667,
+    1295.1916666666666,
+    1301.9833333333333
+   ]
+  },
+  {
+   "name": "evict_bulk_range",
+   "sysclk": 64000000,
+   "dcache": 1,
+   "min": 940.9766666666667,
+   "median": 941.2216666666667,
+   "max": 942.835,
+   "passes": [
+    942.835,
+    941.2216666666667,
+    941.1216666666667,
+    942.1616666666666,
+    940.9766666666667
+   ]
+  },
+  {
+   "name": "evict_bulk_range",
+   "sysclk": 160000000,
+   "dcache": 0,
+   "min": 1586.4166666666667,
+   "median": 1587.98,
+   "max": 1591.6666666666667,
+   "passes": [
+    1591.6666666666667,
+    1588.7566666666667,
+    1586.4166666666667,
+    1587.76,
+    1587.98
+   ]
+  },
+  {
+   "name": "evict_bulk_range",
+   "sysclk": 160000000,
+   "dcache": 1,
+   "min": 965.5933333333334,
+   "median": 966.8466666666667,
+   "max": 967.7933333333333,
+   "passes": [
+    966.28,
+    967.7933333333333,
+    967.05,
+    966.8466666666667,
+    965.5933333333334
+   ]
+  },
+  {
+   "name": "evict_steady_loop",
+   "sysclk": 64000000,
+   "dcache": 0,
+   "min": 3667.4,
+   "median": 3672.64,
+   "max": 3675.64,
+   "passes": [
+    3675.64,
+    3673.28,
+    3667.4,
+    3669.28,
+    3672.64
+   ]
+  },
+  {
+   "name": "evict_steady_loop",
+   "sysclk": 64000000,
+   "dcache": 1,
+   "min": 2597.2,
+   "median": 2605.36,
+   "max": 2622.48,
+   "passes": [
+    2622.48,
+    2597.2,
+    2605.36,
+    2608.56,
+    2602.64
+   ]
+  },
+  {
+   "name": "evict_steady_loop",
+   "sysclk": 160000000,
+   "dcache": 0,
+   "min": 4652.8,
+   "median": 4677.92,
+   "max": 4702.72,
+   "passes": [
+    4688.08,
+    4661.84,
+    4677.92,
+    4652.8,
+    4702.72
+   ]
+  },
+  {
+   "name": "evict_steady_loop",
+   "sysclk": 160000000,
+   "dcache": 1,
+   "min": 2800.24,
+   "median": 2811.0,
+   "max": 2818.44,
+   "passes": [
+    2811.0,
+    2818.44,
+    2800.24,
+    2801.24,
+    2816.48
+   ]
+  },
+  {
+   "name": "evict_steady_range",
+   "sysclk": 64000000,
+   "dcache": 0,
+   "min": 1442.04,
+   "median": 1447.6,
+   "max": 1448.92,
+   "passes": [
+    1448.92,
+    1448.24,
+    1442.48,
+    1442.04,
+    1447.6
+   ]
+  },
+  {
+   "name": "evict_steady_range",
+   "sysclk": 64000000,
+   "dcache": 1,
+   "min": 1058.92,
+   "median": 1063.64,
+   "max": 1068.52,
+   "passes": [
+    1068.52,
+    1063.64,
+    1058.92,
+    1063.24,
+    1066.8
+   ]
+  },
+  {
+   "name": "evict_steady_range",
+   "sysclk": 160000000,
+   "dcache": 0,
+   "min": 1857.04,
+   "median": 1862.0,
+   "max": 1865.52,
+   "passes": [
+    1857.04,
+    1862.48,
+    1865.52,
+    1858.24,
+    1862.0
+   ]
+  },
+  {
+   "name": "evict_steady_range",
+   "sysclk": 160000000,
+   "dcache": 1,
+   "min": 1174.88,
+   "median": 1180.88,
+   "max": 1193.04,
+   "passes": [
+    1180.88,
+    1174.88,
+    1193.04,
+    1185.12,
+    1178.88
+   ]
+  },
+  {
+   "name": "ingest",
+   "sysclk": 64000000,
+   "dcache": 0,
+   "min": 1651.5455,
+   "median": 1652.2775,
+   "max": 1653.766,
+   "passes": [
+    1653.766,
+    1652.2775,
+    1651.9915,
+    1652.3135,
+    1651.5455
+   ]
+  },
+  {
+   "name": "ingest",
+   "sysclk": 64000000,
+   "dcache": 1,
+   "min": 1121.5095,
+   "median": 1122.043,
+   "max": 1122.601,
+   "passes": [
+    1122.601,
+    1121.641,
+    1122.043,
+    1121.5095,
+    1122.074
+   ]
+  },
+  {
+   "name": "ingest",
+   "sysclk": 160000000,
+   "dcache": 0,
+   "min": 2114.0695,
+   "median": 2114.961,
+   "max": 2116.677,
+   "passes": [
+    2115.557,
+    2114.961,
+    2116.677,
+    2114.4585,
+    2114.0695
+   ]
+  },
+  {
+   "name": "ingest",
+   "sysclk": 160000000,
+   "dcache": 1,
+   "min": 1164.5285,
+   "median": 1165.7165,
+   "max": 1167.266,
+   "passes": [
+    1167.266,
+    1165.9195,
+    1164.5285,
+    1165.2555,
+    1165.7165
+   ]
+  }
+ ],
+ "isr": [
+  {
+   "name": "isr_sync32",
+   "sysclk": 160000000,
+   "period": 0,
+   "mutations": 119212,
+   "mutations_per_s": 95368.68779850121,
+   "writer_cycles_per_mutation": 1677.699501728014,
+   "isr_n": 10000,
+   "ok": 401,
+   "not_found": 474,
+   "busy": 9125,
+   "bad": 0,
+   "busy_rate": 0.9125,
+   "lat_max": 57,
+   "lat_mean": 39.3327,
+   "body_max": 1482,
+   "body_mean": 179.4782,
+   "refused": 0,
+   "arena_full": 0
+  },
+  {
+   "name": "isr_sync32",
+   "sysclk": 160000000,
+   "period": 4000,
+   "mutations": 49939,
+   "mutations_per_s": 40000.0,
+   "writer_cycles_per_mutation": 4004.9149962954807,
+   "isr_n": 10000,
+   "ok": 3307,
+   "not_found": 3474,
+   "busy": 3219,
+   "bad": 0,
+   "busy_rate": 0.3219,
+   "lat_max": 57,
+   "lat_mean": 36.6188,
+   "body_max": 677,
+   "body_mean": 398.0847,
+   "refused": 0,
+   "arena_full": 0
+  },
+  {
+   "name": "isr_sync32",
+   "sysclk": 160000000,
+   "period": 16000,
+   "mutations": 12504,
+   "mutations_per_s": 10000.0,
+   "writer_cycles_per_mutation": 15994.928103007038,
+   "isr_n": 10000,
+   "ok": 4495,
+   "not_found": 4682,
+   "busy": 823,
+   "bad": 0,
+   "busy_rate": 0.0823,
+   "lat_max": 57,
+   "lat_mean": 30.0704,
+   "body_max": 669,
+   "body_mean": 455.997,
+   "refused": 0,
+   "arena_full": 0
+  },
+  {
+   "name": "isr_sync32",
+   "sysclk": 160000000,
+   "period": 160000,
+   "mutations": 1252,
+   "mutations_per_s": 1000.0,
+   "writer_cycles_per_mutation": 159752.6285942492,
+   "isr_n": 10000,
+   "ok": 4982,
+   "not_found": 4924,
+   "busy": 94,
+   "bad": 0,
+   "busy_rate": 0.0094,
+   "lat_max": 57,
+   "lat_mean": 16.7593,
+   "body_max": 683,
+   "body_mean": 398.1339,
+   "refused": 0,
+   "arena_full": 0
+  },
+  {
+   "name": "isr_critical_section",
+   "sysclk": 160000000,
+   "period": 0,
+   "mutations": 136946,
+   "mutations_per_s": 109555.9180748595,
+   "writer_cycles_per_mutation": 1460.4414148642531,
+   "isr_n": 10000,
+   "ok": 4956,
+   "not_found": 5044,
+   "busy": 0,
+   "bad": 0,
+   "busy_rate": 0.0,
+   "lat_max": 1570,
+   "lat_mean": 719.5159,
+   "body_max": 941,
+   "body_mean": 517.4297,
+   "refused": 0,
+   "arena_full": 0
+  },
+  {
+   "name": "isr_critical_section",
+   "sysclk": 160000000,
+   "period": 4000,
+   "mutations": 50066,
+   "mutations_per_s": 40000.0,
+   "writer_cycles_per_mutation": 3994.763991531179,
+   "isr_n": 10000,
+   "ok": 5029,
+   "not_found": 4971,
+   "busy": 0,
+   "bad": 0,
+   "busy_rate": 0.0,
+   "lat_max": 1604,
+   "lat_mean": 279.4426,
+   "body_max": 625,
+   "body_mean": 513.5568,
+   "refused": 0,
+   "arena_full": 0
+  },
+  {
+   "name": "isr_critical_section",
+   "sysclk": 160000000,
+   "period": 16000,
+   "mutations": 12548,
+   "mutations_per_s": 10000.0,
+   "writer_cycles_per_mutation": 15938.986611412178,
+   "isr_n": 10000,
+   "ok": 5073,
+   "not_found": 4927,
+   "busy": 0,
+   "bad": 0,
+   "busy_rate": 0.0,
+   "lat_max": 1741,
+   "lat_mean": 94.6335,
+   "body_max": 648,
+   "body_mean": 438.5084,
+   "refused": 0,
+   "arena_full": 0
+  },
+  {
+   "name": "isr_critical_section",
+   "sysclk": 160000000,
+   "period": 160000,
+   "mutations": 1240,
+   "mutations_per_s": 1000.0,
+   "writer_cycles_per_mutation": 161413.4806451613,
+   "isr_n": 10007,
+   "ok": 4948,
+   "not_found": 5059,
+   "busy": 0,
+   "bad": 0,
+   "busy_rate": 0.0,
+   "lat_max": 1799,
+   "lat_mean": 23.903267712601178,
+   "body_max": 642,
+   "body_mean": 310.61906665334266,
+   "refused": 0,
+   "arena_full": 0
+  }
+ ]
+}

@@ -1216,6 +1216,34 @@ multi-writer support — sharding or per-node write locks — not finer validati
 (`docs/ARCHITECTURE.md` §6). Single-threaded trees skip the version brackets
 entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
 
+### Cortex-M7 on-target
+
+*(measured: STM32H747I-DISCO, Cortex-M7 CPUID `0x411fc271`, D-cache 4-way × 128 sets × 32-byte lines read from CCSIDR; core 64 MHz HSI, then 160 MHz PLL1 with HCLK 80 MHz — host-timed calibration 320M cycles in 4.991 s and 1.997 s; libexpanse staticlib commit `dc04e777`, `thumbv7em-none-eabihf`, narrow C ABI; harness [`integrations/stm32h747/`](../integrations/stm32h747/README.md); artifacts [`docs/benchmarks/stm32h747/transcript.txt`](benchmarks/stm32h747/transcript.txt) and [`results.json`](benchmarks/stm32h747/results.json); chart [`docs/assets/bench_stm32h747.svg`](assets/bench_stm32h747.svg) from `scripts/generate_stm32_svg.py`; #598.)*
+
+The first execution of the engine on ARM, and the first on a part with a data cache. Numbers are DWT core cycles per operation, min of 5 passes (pass-to-pass spread ≤ 0.5%), one board; no nanoseconds because the two clocks are the point. Every in-firmware check passed (no `CHECK` line, no corrupted read).
+
+| fixture (`embedded_memtable.rs` shape, via the C ABI) | 64 MHz, cache off | 64 MHz, cache on | 160 MHz, cache off | 160 MHz, cache on |
+|---|---:|---:|---:|---:|
+| ingest, 2,000 sequential inserts (per insert) | 1,652 | 1,122 | 2,114 | 1,165 |
+| CAN dispatch, 500 gets (per get) | 344 | 246 | 412 | 245 |
+| BLE evict 600 of 2,000, per-key `first`/`remove` loop (per evicted) | 3,765 | 2,643 | 4,740 | 2,765 |
+| BLE evict 600 of 2,000, `remove_range` (per evicted) | 1,295 | 941 | 1,586 | 966 |
+| BLE evict 25 of 2,000, per-key loop (per evicted) | 3,667 | 2,597 | 4,653 | 2,800 |
+| BLE evict 25 of 2,000, `remove_range` (per evicted) | 1,442 | 1,059 | 1,857 | 1,175 |
+
+Reading. At 64 MHz the core and the AXI SRAM run 1:1 and a miss costs a few cycles, so the cache buys ~30%; at 160 MHz (bus at 80 MHz) the cache-off numbers grow by 20–29% while the cache-on numbers stay within 0–11% of their 64 MHz values, which is the 32-byte-line node geometry doing what `docs/design/32-bit-embedded.md` §2.1.4 says it should — the cache-on/cache-off ratio is the measurement of that claim, and it widens with the core:bus ratio (a 480 MHz run would widen it further). `remove_range` is 2.4–3.0× the per-key loop in both eviction shapes, consistent with the host result (#578). That the cache-on cycles barely move with the clock also says the working set of these fixtures fits the 16 KB D-cache.
+
+**The interrupt-handler contract, on real interrupts** (160 MHz, D-cache on): a SysTick ISR every 20,000 cycles calls `expanse_sync32_map_reader_try_get` while the main loop mutates the map, at full duty and paced to three mutation rates with jittered gaps (commensurate periods made the ISR alias into the pacing spin and report 0 BUSY — measured, and discarded). The twin is what bare-metal firmware actually does: `cpsid i`/`cpsie i` around a plain `expanse_map_t`, plain `expanse_map_get` in the ISR. 10,000 interrupts per cell.
+
+| writer duty (mutations/s, cycles per mutation) | `sync32` single-attempt BUSY | `sync32` ISR entry latency max / mean | critical-section ISR entry latency max / mean |
+|---|---:|---:|---:|
+| full duty (~95k/s, 1,678) | 91.2% | 57 / 39 | 1,570 / 720 |
+| 40k/s (4,005) | 32.2% | 57 / 37 | 1,604 / 279 |
+| 10k/s (15,995) | 8.2% | 57 / 30 | 1,741 / 95 |
+| 1k/s (159,753) | 0.9% | 57 / 17 | 1,799 / 24 |
+
+Verdict, against the expected-loss matrix pre-registered in #598 before the run: the critical section wins throughput (1,460 vs 1,678 cycles per mutation at full duty: the optimistic writer spends 15% more) and never returns BUSY; the optimistic surface holds the ISR entry latency ceiling at 57 cycles at every duty, versus a ceiling of 1,570–1,799 (the length of the longest mutation the interrupt had to wait out) for the critical section — that ceiling is the contract, and it is a 28–32× bound. The price is the BUSY rate, which is the writer's bracket occupancy and falls linearly with duty. Zero corrupted values, zero reclaim refusals and zero arena-full over all cells with the #594 per-reader walk counters. Not covered: the Cortex-M4 (cacheless) side, the dual-core M7+M4 reader (explicitly unsupported by the header), and the PLL at 400/480 MHz (needs the board's PWR supply configuration; deferred).
+
 ### vs stdlib & 3rd-party collections (measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/compare.rs` + `benches/comparative.rs`, criterion medians)
 
 **Point lookup, hit, 1,000,000 keys (ns/op)** — the engine's strongest arm:
