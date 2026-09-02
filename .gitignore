@@ -49,7 +49,13 @@ integrations/qemu-cortex-m3/*.map
 integrations/qemu-cortex-m3/*.attrs
 integrations/qemu-cortex-m3/qemu.out
 integrations/esp32/build/
+# Per-target build trees and configs, for keeping an Xtensa and a RISC-V
+# target flashed side by side without either `set-target` clobbering the
+# other (integrations/esp32/README.md).
+integrations/esp32/build.*/
 integrations/esp32/sdkconfig
-integrations/esp32/sdkconfig.old
+integrations/esp32/sdkconfig.*
+# ... except the tracked project defaults, which are an input, not an artifact.
+!integrations/esp32/sdkconfig.defaults
 integrations/esp32/dependencies.lock
 integrations/esp32/managed_components/

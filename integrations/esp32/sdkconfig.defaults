@@ -1,0 +1,36 @@
+# Project defaults for the on-device harvest (#579). idf.py applies these
+# before writing sdkconfig, so a fresh clone reproduces the harvest build
+# without a menuconfig pass.
+
+# The main task runs the whole harvest -- the Unity cases and every benchmark
+# arm -- on its own stack, and the deepest chain in it is the trie descent
+# inside expanse_map_insert. ESP-IDF's default of 3584 bytes is not enough on
+# Xtensa: the windowed-register ABI spills a register window per call level,
+# so the same descent that fits comfortably on RV32 runs the ESP32 main task
+# off the end of its stack and into the adjacent DRAM. What that corrupts is
+# the TLSF free-list metadata of the heap next to it, so the failure surfaces
+# later and elsewhere -- a StoreProhibited inside insert_free_block on some
+# subsequent allocation, with a backtrace pointing at the allocator rather
+# than at the overflow. Measured on hardware: see the stack_min_free_bytes
+# line the app prints at the end of a run for the margin this leaves.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# The Unity cases are the harvest's gate: no number is trusted from a boot
+# whose cases did not run. Keep the IDF test runner on explicitly rather than
+# relying on it defaulting on.
+CONFIG_UNITY_ENABLE_IDF_TEST_RUNNER=y
+
+# Three of those cases assert lengths with TEST_ASSERT_EQUAL_UINT64. Unity
+# compiles its 64-bit comparisons out unless UNITY_SUPPORT_64 is set, and
+# then fails the assertion at run time with "Unity 64-bit Support Disabled"
+# rather than skipping it -- so without this the gate reports 3 failures that
+# say nothing about the engine.
+CONFIG_UNITY_ENABLE_64BIT=y
+
+# The engine ships as a release-profile staticlib, but the C glue around it
+# (the memtable and tracker wrappers, and the benchmark runner itself) is
+# built by ESP-IDF, whose default is -Og. Harvesting under that default
+# measures a debug build of everything on the near side of the C ABI: it was
+# worth ~1.5x on the ingest arm here. Optimise, so the published numbers
+# describe the code a consumer would actually ship.
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
