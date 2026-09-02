@@ -111,41 +111,41 @@
     <text x="0" y="0" class="t-chart-title">cycles per operation at 400 MHz, D-cache on (log scale, lower is better)</text>
     <text x="0" y="13" class="t-sub">min of 5 passes, one fixture code path behind a vtable; batched eviction = remove_range, or a full scan for the hash table</text>
     <text x="207" y="60" class="t-legend" text-anchor="end">ingest 2,000 sequential / insert</text>
-    <rect x="215" y="30" width="150.2" height="12" rx="1" style="fill:#1d4ed8"/>
-    <text x="369.2" y="40" class="t-axis-label">1,181</text>
-    <rect x="215" y="45" width="92.1" height="12" rx="1" style="fill:#f59e0b"/>
-    <text x="311.1" y="55" class="t-axis-label">187  6.3x faster</text>
-    <rect x="215" y="60" width="55.6" height="12" rx="1" style="fill:#10b981"/>
-    <text x="274.6" y="70" class="t-axis-label">58  20.2x faster</text>
-    <rect x="215" y="75" width="250.0" height="12" rx="1" style="fill:#94a3b8"/>
-    <text x="469.0" y="85" class="t-axis-label">28,111  23.8x slower</text>
+    <rect x="215" y="30" width="150.7" height="12" rx="1" style="fill:#1d4ed8"/>
+    <text x="369.7" y="40" class="t-axis-label">1,199</text>
+    <rect x="215" y="45" width="92.0" height="12" rx="1" style="fill:#f59e0b"/>
+    <text x="311.0" y="55" class="t-axis-label">186  6.4x faster</text>
+    <rect x="215" y="60" width="61.8" height="12" rx="1" style="fill:#10b981"/>
+    <text x="280.8" y="70" class="t-axis-label">71  16.9x faster</text>
+    <rect x="215" y="75" width="249.7" height="12" rx="1" style="fill:#94a3b8"/>
+    <text x="468.7" y="85" class="t-axis-label">27,786  23.2x slower</text>
     <text x="207" y="138" class="t-legend" text-anchor="end">CAN dispatch, 500 keys / get</text>
-    <rect x="215" y="108" width="101.2" height="12" rx="1" style="fill:#1d4ed8"/>
-    <text x="320.2" y="118" class="t-axis-label">249</text>
-    <rect x="215" y="123" width="68.8" height="12" rx="1" style="fill:#f59e0b"/>
-    <text x="287.8" y="133" class="t-axis-label">89  2.8x faster</text>
-    <rect x="215" y="138" width="50.8" height="12" rx="1" style="fill:#10b981"/>
-    <text x="269.8" y="148" class="t-axis-label">50  5.0x faster</text>
-    <rect x="215" y="153" width="200.4" height="12" rx="1" style="fill:#94a3b8"/>
-    <text x="419.4" y="163" class="t-axis-label">5,807  23.3x slower</text>
+    <rect x="215" y="108" width="103.1" height="12" rx="1" style="fill:#1d4ed8"/>
+    <text x="322.1" y="118" class="t-axis-label">264</text>
+    <rect x="215" y="123" width="72.5" height="12" rx="1" style="fill:#f59e0b"/>
+    <text x="291.5" y="133" class="t-axis-label">100  2.6x faster</text>
+    <rect x="215" y="138" width="53.9" height="12" rx="1" style="fill:#10b981"/>
+    <text x="272.9" y="148" class="t-axis-label">55  4.8x faster</text>
+    <rect x="215" y="153" width="200.5" height="12" rx="1" style="fill:#94a3b8"/>
+    <text x="419.5" y="163" class="t-axis-label">5,821  22.1x slower</text>
     <text x="207" y="216" class="t-legend" text-anchor="end">evict 600 of 2,000, batched</text>
-    <rect x="215" y="186" width="144.7" height="12" rx="1" style="fill:#1d4ed8"/>
-    <text x="363.7" y="196" class="t-axis-label">990</text>
+    <rect x="215" y="186" width="144.8" height="12" rx="1" style="fill:#1d4ed8"/>
+    <text x="363.8" y="196" class="t-axis-label">994</text>
     <rect x="215" y="201" width="191.4" height="12" rx="1" style="fill:#f59e0b"/>
-    <text x="410.4" y="211" class="t-axis-label">4,371  4.4x slower</text>
+    <text x="410.4" y="211" class="t-axis-label">4,365  4.4x slower</text>
     <rect x="215" y="216" width="86.7" height="12" rx="1" style="fill:#10b981"/>
     <text x="305.7" y="226" class="t-axis-label">157  6.3x faster</text>
-    <rect x="215" y="231" width="168.9" height="12" rx="1" style="fill:#94a3b8"/>
-    <text x="387.9" y="241" class="t-axis-label">2,136  2.2x slower</text>
+    <rect x="215" y="231" width="168.7" height="12" rx="1" style="fill:#94a3b8"/>
+    <text x="387.7" y="241" class="t-axis-label">2,120  2.1x slower</text>
     <text x="207" y="294" class="t-legend" text-anchor="end">evict 25 of 2,000, batched</text>
-    <rect x="215" y="264" width="151.2" height="12" rx="1" style="fill:#1d4ed8"/>
-    <text x="370.2" y="274" class="t-axis-label">1,218</text>
+    <rect x="215" y="264" width="150.8" height="12" rx="1" style="fill:#1d4ed8"/>
+    <text x="369.8" y="274" class="t-axis-label">1,202</text>
     <rect x="215" y="279" width="165.7" height="12" rx="1" style="fill:#f59e0b"/>
     <text x="384.7" y="289" class="t-axis-label">1,932  1.6x slower</text>
     <rect x="215" y="294" width="185.2" height="12" rx="1" style="fill:#10b981"/>
-    <text x="404.2" y="304" class="t-axis-label">3,582  2.9x slower</text>
-    <rect x="215" y="309" width="141.0" height="12" rx="1" style="fill:#94a3b8"/>
-    <text x="360.0" y="319" class="t-axis-label">880  1.4x faster</text>
+    <text x="404.2" y="304" class="t-axis-label">3,583  3.0x slower</text>
+    <rect x="215" y="309" width="141.1" height="12" rx="1" style="fill:#94a3b8"/>
+    <text x="360.1" y="319" class="t-axis-label">885  1.4x faster</text>
     <line x1="215.0" y1="28" x2="215.0" y2="342" class="grid"/>
     <text x="215.0" y="354" class="t-axis-label" text-anchor="middle">10</text>
     <line x1="287.5" y1="28" x2="287.5" y2="342" class="grid"/>
@@ -190,6 +190,6 @@
     <text x="0" y="305" class="t-note">Expanse and tsearch grow through malloc as keys arrive</text>
   </g>
   <text x="20" y="492" class="t-note">measured: STM32H747I-DISCO, Cortex-M7 CPUID 0x411fc271 (IDCODE 0x20036450), D-cache 4-way x 128 sets x 32 B lines; direct SMPS supply, VOS3 to 160 MHz, VOS1 at 400 MHz</text>
-  <text x="20" y="506" class="t-note">clock check from the host side over 320M cycles: 64 MHz nominal = 64.1 MHz measured, 160 MHz nominal = 160.2 MHz measured, 400 MHz nominal = 400.5 MHz measured</text>
+  <text x="20" y="506" class="t-note">clock check from the host side over 320M cycles: 64 nominal / 64.1 measured MHz, 160 nominal / 160.2 measured MHz, 200 nominal / 200.3 measured MHz, 400 nominal / 400.5 measured MHz</text>
   <text x="20" y="520" class="t-note">DWT CYCCNT, single board; libexpanse staticlib commit 05575498; harness integrations/stm32h747; source docs/benchmarks/stm32h747/results.json</text>
 </svg>
