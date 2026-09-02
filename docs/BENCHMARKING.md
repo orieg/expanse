@@ -1218,31 +1218,55 @@ entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
 
 ### Cortex-M7 on-target
 
-*(measured: STM32H747I-DISCO, Cortex-M7 CPUID `0x411fc271`, D-cache 4-way × 128 sets × 32-byte lines read from CCSIDR; core 64 MHz HSI, then 160 MHz PLL1 with HCLK 80 MHz — host-timed calibration 320M cycles in 4.991 s and 1.997 s; libexpanse staticlib commit `dc04e777`, `thumbv7em-none-eabihf`, narrow C ABI; harness [`integrations/stm32h747/`](../integrations/stm32h747/README.md); artifacts [`docs/benchmarks/stm32h747/transcript.txt`](benchmarks/stm32h747/transcript.txt) and [`results.json`](benchmarks/stm32h747/results.json); chart [`docs/assets/bench_stm32h747.svg`](assets/bench_stm32h747.svg) from `scripts/generate_stm32_svg.py`; #598.)*
+*(measured: STM32H747I-DISCO, Cortex-M7 CPUID `0x411fc271`, silicon rev V (`DBGMCU_IDCODE` `0x20036450`), D-cache 4-way × 128 sets × 32-byte lines read from CCSIDR; direct-SMPS supply (the board's wiring; caps the part at VOS1), core 64 MHz HSI, then 160 MHz PLL1 at VOS3, then 400 MHz PLL1 at VOS1 with HCLK 200 MHz — host-timed calibration over 320M cycles gives 64.1 / 160.2 / 400.5 MHz, and the nanosecond figures below use those measured clocks; libexpanse staticlib commit `05575498`, `thumbv7em-none-eabihf`, narrow C ABI; harness [`integrations/stm32h747/`](../integrations/stm32h747/README.md); artifacts [`docs/benchmarks/stm32h747/transcript.txt`](benchmarks/stm32h747/transcript.txt) and [`results.json`](benchmarks/stm32h747/results.json); charts [`bench_stm32h747.svg`](assets/bench_stm32h747.svg) and [`bench_stm32h747_alternatives.svg`](assets/bench_stm32h747_alternatives.svg) from `scripts/generate_stm32_svg.py`; #598.)*
 
-The first execution of the engine on ARM, and the first on a part with a data cache. Numbers are DWT core cycles per operation, min of 5 passes (pass-to-pass spread ≤ 0.5%), one board; no nanoseconds because the two clocks are the point. Every in-firmware check passed (no `CHECK` line, no corrupted read).
+The first execution of the engine on ARM, and the first on a part with a data cache. Numbers are DWT core cycles per operation, min of 5 passes (pass-to-pass spread ≤ 0.5% for every Expanse cell), one board. Every in-firmware check passed (no `CHECK` line, no corrupted read). VOS0 / 480 MHz is not reachable on this board: it needs the LDO supply path, and the DISCO is wired for SMPS.
 
-| fixture (`embedded_memtable.rs` shape, via the C ABI) | 64 MHz, cache off | 64 MHz, cache on | 160 MHz, cache off | 160 MHz, cache on |
+**Run history (§8.7).** The first run of this harness (PR #599, staticlib `dc04e777`) measured Expanse alone at 64 and 160 MHz. This run adds the 400 MHz point, three alternative structures and bytes/key, and routes every implementation through one vtable plus an allocation-accounting wrapper. That harness change moved the Expanse cells by +1% to +6% (64 MHz cache-on ingest 1,122 → 1,164; CAN dispatch 246 → 249; bulk `remove_range` 941 → 957); the earlier values stand in #599's transcript and are superseded here, not overwritten.
+
+| fixture (`embedded_memtable.rs` shape, via the C ABI) | 64 MHz off | 64 MHz on | 160 MHz off | 160 MHz on | 400 MHz off | 400 MHz on (ns) |
+|---|---:|---:|---:|---:|---:|---:|
+| ingest, 2,000 sequential inserts (per insert) | 1,759 | 1,164 | 2,258 | 1,180 | 2,258 | 1,181 (2,949 ns) |
+| CAN dispatch, 500 gets (per get) | 355 | 249 | 434 | 249 | 429 | 249 (621 ns) |
+| BLE evict 600 of 2,000, per-key `first`/`remove` loop (per evicted) | 3,884 | 2,711 | 4,885 | 2,809 | 4,886 | 2,812 (7,022 ns) |
+| BLE evict 600 of 2,000, `remove_range` (per evicted) | 1,327 | 957 | 1,627 | 990 | 1,628 | 990 (2,471 ns) |
+| BLE evict 25 of 2,000, per-key loop (per evicted) | 3,764 | 2,667 | 4,785 | 2,856 | 4,767 | 2,865 (7,154 ns) |
+| BLE evict 25 of 2,000, `remove_range` (per evicted) | 1,502 | 1,112 | 1,863 | 1,231 | 1,877 | 1,218 (3,040 ns) |
+
+Reading. The cache-on cycle counts are the same at 160 and 400 MHz (the working set fits the 16 KB D-cache, so nothing is bus-bound once cached), and the cache-off counts are the same at those two clocks too — both run the AXI SRAM at core/2, so the miss cost in cycles is identical; only 64 MHz (bus at core/1) is cheaper. The cache-on/cache-off ratio therefore reads 1.5× (ingest 1,181 vs 2,258), 1.7× (CAN, 249 vs 429) and 1.6–1.7× (evictions) at the 2:1 ratio, versus 1.3–1.5× at 1:1 — that ratio is the measurement of the 32-byte-line node geometry in `docs/design/32-bit-embedded.md` §2.1.4, and it is the number a design that straddled lines would lose. `remove_range` is 2.4–2.8× the per-key loop in both eviction shapes, consistent with the host result (#578). At 400 MHz a point lookup is 621 ns and a sequential insert 2.9 µs.
+
+**Against what firmware usually reaches for** (400 MHz, D-cache on; every implementation behind the same vtable and fixture code; the sorted array and the hash table pre-sized to capacity like the host suite's `HashMap::with_capacity`, Expanse and `tsearch` growing through newlib `malloc` as keys arrive):
+
+| fixture | Expanse (C ABI) | sorted array, `bsearch` + `memmove` | open-addressing hash, FNV-1a, ≤ 50% load | newlib `tsearch` (unbalanced BST) |
 |---|---:|---:|---:|---:|
-| ingest, 2,000 sequential inserts (per insert) | 1,652 | 1,122 | 2,114 | 1,165 |
-| CAN dispatch, 500 gets (per get) | 344 | 246 | 412 | 245 |
-| BLE evict 600 of 2,000, per-key `first`/`remove` loop (per evicted) | 3,765 | 2,643 | 4,740 | 2,765 |
-| BLE evict 600 of 2,000, `remove_range` (per evicted) | 1,295 | 941 | 1,586 | 966 |
-| BLE evict 25 of 2,000, per-key loop (per evicted) | 3,667 | 2,597 | 4,653 | 2,800 |
-| BLE evict 25 of 2,000, `remove_range` (per evicted) | 1,442 | 1,059 | 1,857 | 1,175 |
+| ingest, 2,000 sequential inserts | 1,181 / 2,949 ns | 187 / 466 ns (6.3× faster) | 58 / 146 ns (20.2× faster) | 28,111 / 70,189 ns (23.8× slower) |
+| CAN dispatch, 500 gets | 249 / 621 ns | 89 / 222 ns (2.8× faster) | 50 / 125 ns (5.0× faster) | 5,807 / 14,499 ns (23.3× slower) |
+| evict 600 of 2,000, batched (`remove_range`; scan for the hash) | 990 / 2,471 ns | 4,371 / 10,913 ns (4.4× slower) | 157 / 392 ns (6.3× faster) | 2,136 / 5,334 ns (2.2× slower) |
+| evict 25 of 2,000, batched | 1,218 / 3,040 ns | 1,932 / 4,823 ns (1.6× slower) | 3,582 / 8,944 ns (2.9× slower) | 880 / 2,198 ns (1.4× faster) |
+| evict 600 of 2,000, per-key loop | 2,812 / 7,022 ns | 15,385 / 38,414 ns (5.5× slower) | n/a | 2,162 / 5,398 ns (1.3× faster) |
+| evict 25 of 2,000, per-key loop | 2,865 / 7,154 ns | 11,968 / 29,882 ns (4.2× slower) | n/a | 922 / 2,302 ns (3.1× faster) |
 
-Reading. At 64 MHz the core and the AXI SRAM run 1:1 and a miss costs a few cycles, so the cache buys ~30%; at 160 MHz (bus at 80 MHz) the cache-off numbers grow by 20–29% while the cache-on numbers stay within 0–11% of their 64 MHz values, which is the 32-byte-line node geometry doing what `docs/design/32-bit-embedded.md` §2.1.4 says it should — the cache-on/cache-off ratio is the measurement of that claim, and it widens with the core:bus ratio (a 480 MHz run would widen it further). `remove_range` is 2.4–3.0× the per-key loop in both eviction shapes, consistent with the host result (#578). That the cache-on cycles barely move with the clock also says the working set of these fixtures fits the 16 KB D-cache.
+| bytes per key, 2,000 keys (newlib heap in use via `mallinfo`, allocator overhead included; requested bytes in parentheses) | sequential keys, one map | BLE index: hash keys, dual index (ordered) or one table (hash) |
+|---|---:|---:|
+| Expanse (C ABI) | 5.7 (2.6) | 21.2 (16.4) |
+| sorted array, `bsearch` + `memmove` | 8.0 (8.0) | 16.0 (16.0) |
+| open-addressing hash, FNV-1a, ≤ 50% load | 16.4 (16.4) | 16.4 (16.4) |
+| newlib `tsearch` (unbalanced BST) | 36.0 (12.0) | 72.0 (24.0) |
 
-**The interrupt-handler contract, on real interrupts** (160 MHz, D-cache on): a SysTick ISR every 20,000 cycles calls `expanse_sync32_map_reader_try_get` while the main loop mutates the map, at full duty and paced to three mutation rates with jittered gaps (commensurate periods made the ISR alias into the pacing spin and report 0 BUSY — measured, and discarded). The twin is what bare-metal firmware actually does: `cpsid i`/`cpsie i` around a plain `expanse_map_t`, plain `expanse_map_get` in the ISR. 10,000 interrupts per cell.
+Verdict, stated as plainly as the wins. The hash table is the right structure for point lookups and unordered ingest on this core, by 5× and 20×; the sorted array beats Expanse on lookup (2.8×) and on sequential-append ingest (6.3×) and is denser on random keys. Expanse's case on an MCU is the same as on the host: the ordered operations at steady state — the 25-of-2,000 eviction where the hash table must scan 4,096 slots to find 25 expired records (2.9× slower) and the sorted array must `memmove` the survivors (1.6× slower) — plus the densest footprint on dense keys (5.7 heap bytes/key, 2.6 requested) and the interrupt contract below, which none of the three twins offers. Two losses are new relative to the host suite: the sorted array's lookup win (the `bsearch` over 500 keys is 9 probes of contiguous memory) and the 20× ingest gap to the hash table, larger than the host's 14×, because Expanse's inserts allocate through newlib `malloc` while the pre-sized twins never allocate. `tsearch` degenerates on sequential keys (an unbalanced tree over ascending timestamps is a linked list: 28k cycles per insert, 5.8k per lookup) and its eviction wins are an artefact of the same degeneracy — the smallest key is the root, so `first` and its removal are O(1); it should not be read as an ordered-index result.
 
-| writer duty (mutations/s, cycles per mutation) | `sync32` single-attempt BUSY | `sync32` ISR entry latency max / mean | critical-section ISR entry latency max / mean |
-|---|---:|---:|---:|
-| full duty (~95k/s, 1,678) | 91.2% | 57 / 39 | 1,570 / 720 |
-| 40k/s (4,005) | 32.2% | 57 / 37 | 1,604 / 279 |
-| 10k/s (15,995) | 8.2% | 57 / 30 | 1,741 / 95 |
-| 1k/s (159,753) | 0.9% | 57 / 17 | 1,799 / 24 |
+**The interrupt-handler contract, on real interrupts** (400 MHz, D-cache on): a SysTick ISR every 20,000 cycles calls `expanse_sync32_map_reader_try_get` while the main loop mutates the map, at full duty and paced to three mutation rates with jittered gaps (commensurate periods made the ISR alias into the pacing spin and report 0 BUSY — measured, and discarded). The twin is what bare-metal firmware actually does: `cpsid i`/`cpsie i` around a plain `expanse_map_t`, plain `expanse_map_get` in the ISR. 10,000 interrupts per cell.
 
-Verdict, against the expected-loss matrix pre-registered in #598 before the run: the critical section wins throughput (1,460 vs 1,678 cycles per mutation at full duty: the optimistic writer spends 15% more) and never returns BUSY; the optimistic surface holds the ISR entry latency ceiling at 57 cycles at every duty, versus a ceiling of 1,570–1,799 (the length of the longest mutation the interrupt had to wait out) for the critical section — that ceiling is the contract, and it is a 28–32× bound. The price is the BUSY rate, which is the writer's bracket occupancy and falls linearly with duty. Zero corrupted values, zero reclaim refusals and zero arena-full over all cells with the #594 per-reader walk counters. Not covered: the Cortex-M4 (cacheless) side, the dual-core M7+M4 reader (explicitly unsupported by the header), and the PLL at 400/480 MHz (needs the board's PWR supply configuration; deferred).
+| writer duty (mutations/s) | `sync32` single-attempt BUSY | `sync32` ISR entry latency max / mean (max in ns) | critical-section ISR entry latency max / mean (max in ns) | writer cycles per mutation `sync32` / critical section |
+|---|---:|---:|---:|---:|
+| full duty (~229k/s) | 73.6% | 76 / 16 (190 ns) | 1,449 / 663 (3,618 ns) | 1,749 / 1,386 |
+| 40k/s | 13.6% | 81 / 18 (202 ns) | 1,661 / 117 (4,147 ns) | 10,017 / 10,014 |
+| 10k/s | 3.4% | 73 / 18 (182 ns) | 1,669 / 43 (4,167 ns) | 40,188 / 40,050 |
+| 1k/s | 0.4% | 55 / 23 (137 ns) | 1,539 / 17 (3,843 ns) | 396,227 / 401,085 |
+
+Against the expected-loss matrix pre-registered in #598: the critical section is 21% cheaper per mutation at full duty and never returns BUSY; the optimistic surface holds the ISR entry-latency ceiling at 55–81 cycles (137–202 ns) at every duty, versus 1,449–1,669 cycles (3.6–4.2 µs) for the critical section — an 18–30× bound, and the number an interrupt budget is written against. The price is the BUSY rate, which is the writer's bracket occupancy and falls linearly with duty. Zero corrupted values, zero reclaim refusals, zero arena-full over every cell. At 160 MHz the first run measured the same shape (57-cycle ceiling vs 1,570–1,799; PR #599).
+
+Not covered: the Cortex-M4 (cacheless) side, the dual-core M7+M4 reader (explicitly unsupported by the header), VOS0 / 480 MHz (board wiring), a balanced-tree twin (the toolchain ships none), and external-reviewer replication.
 
 ### vs stdlib & 3rd-party collections (measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/compare.rs` + `benches/comparative.rs`, criterion medians)
 

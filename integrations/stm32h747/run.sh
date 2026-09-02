@@ -14,7 +14,7 @@ before=$(ls /dev/cu.usbmodem* 2>/dev/null || true)
 PORT=$(ls -t /dev/cu.usbmodem* | head -1)
 echo "VCP: $PORT"
 # macOS drops stty settings when the port closes, so hold it open from Python (termios).
-python3 "$HERE/capture.py" "$PORT" "$OUT" 120 &
+python3 "$HERE/capture.py" "$PORT" "$OUT" 900 &
 CAP=$!
 sleep 2
 "$CLI" -c port=SWD mode=UR reset=HWrst -rst >/dev/null 2>&1 || true

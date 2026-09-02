@@ -1,141 +1,692 @@
-
 EXPANSE stm32h747 m7 harness
-INFO cpuid=0x411fc271 dcache_line_bytes=32 dcache_ways=4 dcache_sets=128 sync32_headroom=128
+INFO cpuid=0x411fc271 idcode=0x20036450 pwr_cr3=0x00010044 dcache_line_bytes=32 dcache_ways=4 dcache_sets=128 sync32_headroom=128
 TICK
 TOCK cycles=320000000
-RESULT name=ingest sysclk=64000000 dcache=0 pass=0 cycles=3307532 ops=2000
-RESULT name=ingest sysclk=64000000 dcache=0 pass=1 cycles=3304555 ops=2000
-RESULT name=ingest sysclk=64000000 dcache=0 pass=2 cycles=3303983 ops=2000
-RESULT name=ingest sysclk=64000000 dcache=0 pass=3 cycles=3304627 ops=2000
-RESULT name=ingest sysclk=64000000 dcache=0 pass=4 cycles=3303091 ops=2000
-RESULT name=can_dispatch sysclk=64000000 dcache=0 pass=0 cycles=172438 ops=500
-RESULT name=can_dispatch sysclk=64000000 dcache=0 pass=1 cycles=172190 ops=500
-RESULT name=can_dispatch sysclk=64000000 dcache=0 pass=2 cycles=172220 ops=500
-RESULT name=can_dispatch sysclk=64000000 dcache=0 pass=3 cycles=172183 ops=500
-RESULT name=can_dispatch sysclk=64000000 dcache=0 pass=4 cycles=172199 ops=500
-RESULT name=evict_bulk_loop sysclk=64000000 dcache=0 pass=0 cycles=2260487 ops=600
-RESULT name=evict_bulk_loop sysclk=64000000 dcache=0 pass=1 cycles=2259885 ops=600
-RESULT name=evict_bulk_loop sysclk=64000000 dcache=0 pass=2 cycles=2258855 ops=600
-RESULT name=evict_bulk_loop sysclk=64000000 dcache=0 pass=3 cycles=2259877 ops=600
-RESULT name=evict_bulk_loop sysclk=64000000 dcache=0 pass=4 cycles=2259977 ops=600
-RESULT name=evict_bulk_range sysclk=64000000 dcache=0 pass=0 cycles=776859 ops=600
-RESULT name=evict_bulk_range sysclk=64000000 dcache=0 pass=1 cycles=776737 ops=600
-RESULT name=evict_bulk_range sysclk=64000000 dcache=0 pass=2 cycles=782806 ops=600
-RESULT name=evict_bulk_range sysclk=64000000 dcache=0 pass=3 cycles=777115 ops=600
-RESULT name=evict_bulk_range sysclk=64000000 dcache=0 pass=4 cycles=781190 ops=600
-RESULT name=evict_steady_loop sysclk=64000000 dcache=0 pass=0 cycles=91891 ops=25
-RESULT name=evict_steady_loop sysclk=64000000 dcache=0 pass=1 cycles=91832 ops=25
-RESULT name=evict_steady_loop sysclk=64000000 dcache=0 pass=2 cycles=91685 ops=25
-RESULT name=evict_steady_loop sysclk=64000000 dcache=0 pass=3 cycles=91732 ops=25
-RESULT name=evict_steady_loop sysclk=64000000 dcache=0 pass=4 cycles=91816 ops=25
-RESULT name=evict_steady_range sysclk=64000000 dcache=0 pass=0 cycles=36223 ops=25
-RESULT name=evict_steady_range sysclk=64000000 dcache=0 pass=1 cycles=36206 ops=25
-RESULT name=evict_steady_range sysclk=64000000 dcache=0 pass=2 cycles=36062 ops=25
-RESULT name=evict_steady_range sysclk=64000000 dcache=0 pass=3 cycles=36051 ops=25
-RESULT name=evict_steady_range sysclk=64000000 dcache=0 pass=4 cycles=36190 ops=25
-RESULT name=ingest sysclk=64000000 dcache=1 pass=0 cycles=2245202 ops=2000
-RESULT name=ingest sysclk=64000000 dcache=1 pass=1 cycles=2243282 ops=2000
-RESULT name=ingest sysclk=64000000 dcache=1 pass=2 cycles=2244086 ops=2000
-RESULT name=ingest sysclk=64000000 dcache=1 pass=3 cycles=2243019 ops=2000
-RESULT name=ingest sysclk=64000000 dcache=1 pass=4 cycles=2244148 ops=2000
-RESULT name=can_dispatch sysclk=64000000 dcache=1 pass=0 cycles=123151 ops=500
-RESULT name=can_dispatch sysclk=64000000 dcache=1 pass=1 cycles=122820 ops=500
-RESULT name=can_dispatch sysclk=64000000 dcache=1 pass=2 cycles=122818 ops=500
-RESULT name=can_dispatch sysclk=64000000 dcache=1 pass=3 cycles=122805 ops=500
-RESULT name=can_dispatch sysclk=64000000 dcache=1 pass=4 cycles=122831 ops=500
-RESULT name=evict_bulk_loop sysclk=64000000 dcache=1 pass=0 cycles=1586155 ops=600
-RESULT name=evict_bulk_loop sysclk=64000000 dcache=1 pass=1 cycles=1585734 ops=600
-RESULT name=evict_bulk_loop sysclk=64000000 dcache=1 pass=2 cycles=1586235 ops=600
-RESULT name=evict_bulk_loop sysclk=64000000 dcache=1 pass=3 cycles=1585983 ops=600
-RESULT name=evict_bulk_loop sysclk=64000000 dcache=1 pass=4 cycles=1585878 ops=600
-RESULT name=evict_bulk_range sysclk=64000000 dcache=1 pass=0 cycles=565701 ops=600
-RESULT name=evict_bulk_range sysclk=64000000 dcache=1 pass=1 cycles=564733 ops=600
-RESULT name=evict_bulk_range sysclk=64000000 dcache=1 pass=2 cycles=564673 ops=600
-RESULT name=evict_bulk_range sysclk=64000000 dcache=1 pass=3 cycles=565297 ops=600
-RESULT name=evict_bulk_range sysclk=64000000 dcache=1 pass=4 cycles=564586 ops=600
-RESULT name=evict_steady_loop sysclk=64000000 dcache=1 pass=0 cycles=65562 ops=25
-RESULT name=evict_steady_loop sysclk=64000000 dcache=1 pass=1 cycles=64930 ops=25
-RESULT name=evict_steady_loop sysclk=64000000 dcache=1 pass=2 cycles=65134 ops=25
-RESULT name=evict_steady_loop sysclk=64000000 dcache=1 pass=3 cycles=65214 ops=25
-RESULT name=evict_steady_loop sysclk=64000000 dcache=1 pass=4 cycles=65066 ops=25
-RESULT name=evict_steady_range sysclk=64000000 dcache=1 pass=0 cycles=26713 ops=25
-RESULT name=evict_steady_range sysclk=64000000 dcache=1 pass=1 cycles=26591 ops=25
-RESULT name=evict_steady_range sysclk=64000000 dcache=1 pass=2 cycles=26473 ops=25
-RESULT name=evict_steady_range sysclk=64000000 dcache=1 pass=3 cycles=26581 ops=25
-RESULT name=evict_steady_range sysclk=64000000 dcache=1 pass=4 cycles=26670 ops=25
-INFO sysclk=160000000 hclk=80000000 src=pll1_p
+RESULT name=ingest impl=expanse sysclk=64000000 dcache=0 pass=0 cycles=3519705 ops=2000
+RESULT name=ingest impl=expanse sysclk=64000000 dcache=0 pass=1 cycles=3517004 ops=2000
+RESULT name=ingest impl=expanse sysclk=64000000 dcache=0 pass=2 cycles=3517540 ops=2000
+RESULT name=ingest impl=expanse sysclk=64000000 dcache=0 pass=3 cycles=3518450 ops=2000
+RESULT name=ingest impl=expanse sysclk=64000000 dcache=0 pass=4 cycles=3517745 ops=2000
+RESULT name=bytes impl=expanse shape=ingest keys=2000 heap_bytes=11376 req_bytes=5218
+RESULT name=can_dispatch impl=expanse sysclk=64000000 dcache=0 pass=0 cycles=177980 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=64000000 dcache=0 pass=1 cycles=177474 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=64000000 dcache=0 pass=2 cycles=177518 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=64000000 dcache=0 pass=3 cycles=177558 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=64000000 dcache=0 pass=4 cycles=177543 ops=500
+RESULT name=bytes impl=expanse shape=ble_index keys=2000 heap_bytes=42400 req_bytes=32832
+RESULT name=evict_bulk_loop impl=expanse sysclk=64000000 dcache=0 pass=0 cycles=2332187 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=64000000 dcache=0 pass=1 cycles=2331352 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=64000000 dcache=0 pass=2 cycles=2332174 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=64000000 dcache=0 pass=3 cycles=2331442 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=64000000 dcache=0 pass=4 cycles=2330584 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=64000000 dcache=0 pass=0 cycles=796611 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=64000000 dcache=0 pass=1 cycles=795949 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=64000000 dcache=0 pass=2 cycles=796854 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=64000000 dcache=0 pass=3 cycles=797046 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=64000000 dcache=0 pass=4 cycles=796587 ops=600
+RESULT name=evict_steady_loop impl=expanse sysclk=64000000 dcache=0 pass=0 cycles=94157 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=64000000 dcache=0 pass=1 cycles=94208 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=64000000 dcache=0 pass=2 cycles=94110 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=64000000 dcache=0 pass=3 cycles=94325 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=64000000 dcache=0 pass=4 cycles=94152 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=64000000 dcache=0 pass=0 cycles=37550 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=64000000 dcache=0 pass=1 cycles=37743 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=64000000 dcache=0 pass=2 cycles=37832 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=64000000 dcache=0 pass=3 cycles=37638 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=64000000 dcache=0 pass=4 cycles=37701 ops=25
+RESULT name=ingest impl=sorted_array sysclk=64000000 dcache=0 pass=0 cycles=525510 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=64000000 dcache=0 pass=1 cycles=525406 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=64000000 dcache=0 pass=2 cycles=525391 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=64000000 dcache=0 pass=3 cycles=525391 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=64000000 dcache=0 pass=4 cycles=525391 ops=2000
+RESULT name=bytes impl=sorted_array shape=ingest keys=2000 heap_bytes=16040 req_bytes=16016
+RESULT name=can_dispatch impl=sorted_array sysclk=64000000 dcache=0 pass=0 cycles=81451 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=64000000 dcache=0 pass=1 cycles=81435 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=64000000 dcache=0 pass=2 cycles=81435 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=64000000 dcache=0 pass=3 cycles=81435 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=64000000 dcache=0 pass=4 cycles=81435 ops=500
+RESULT name=bytes impl=sorted_array shape=ble_index keys=2000 heap_bytes=32080 req_bytes=32032
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=64000000 dcache=0 pass=0 cycles=27077839 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=64000000 dcache=0 pass=1 cycles=27077717 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=64000000 dcache=0 pass=2 cycles=27077698 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=64000000 dcache=0 pass=3 cycles=27077698 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=64000000 dcache=0 pass=4 cycles=27077698 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=64000000 dcache=0 pass=0 cycles=9629937 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=64000000 dcache=0 pass=1 cycles=9629893 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=64000000 dcache=0 pass=2 cycles=9629893 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=64000000 dcache=0 pass=3 cycles=9629893 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=64000000 dcache=0 pass=4 cycles=9629893 ops=600
+RESULT name=evict_steady_loop impl=sorted_array sysclk=64000000 dcache=0 pass=0 cycles=962668 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=64000000 dcache=0 pass=1 cycles=962668 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=64000000 dcache=0 pass=2 cycles=962668 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=64000000 dcache=0 pass=3 cycles=962668 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=64000000 dcache=0 pass=4 cycles=962668 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=64000000 dcache=0 pass=0 cycles=144336 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=64000000 dcache=0 pass=1 cycles=144336 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=64000000 dcache=0 pass=2 cycles=144336 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=64000000 dcache=0 pass=3 cycles=144336 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=64000000 dcache=0 pass=4 cycles=144336 ops=25
+RESULT name=ingest impl=open_hash sysclk=64000000 dcache=0 pass=0 cycles=223795 ops=2000
+RESULT name=ingest impl=open_hash sysclk=64000000 dcache=0 pass=1 cycles=223793 ops=2000
+RESULT name=ingest impl=open_hash sysclk=64000000 dcache=0 pass=2 cycles=223793 ops=2000
+RESULT name=ingest impl=open_hash sysclk=64000000 dcache=0 pass=3 cycles=223793 ops=2000
+RESULT name=ingest impl=open_hash sysclk=64000000 dcache=0 pass=4 cycles=223793 ops=2000
+RESULT name=bytes impl=open_hash shape=ingest keys=2000 heap_bytes=32808 req_bytes=32788
+RESULT name=can_dispatch impl=open_hash sysclk=64000000 dcache=0 pass=0 cycles=51943 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=64000000 dcache=0 pass=1 cycles=51929 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=64000000 dcache=0 pass=2 cycles=51924 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=64000000 dcache=0 pass=3 cycles=51924 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=64000000 dcache=0 pass=4 cycles=51924 ops=500
+RESULT name=bytes impl=open_hash shape=ble_index keys=2000 heap_bytes=32808 req_bytes=32788
+RESULT name=evict_bulk_scan impl=open_hash sysclk=64000000 dcache=0 pass=0 cycles=170305 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=64000000 dcache=0 pass=1 cycles=170267 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=64000000 dcache=0 pass=2 cycles=170267 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=64000000 dcache=0 pass=3 cycles=170267 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=64000000 dcache=0 pass=4 cycles=170267 ops=600
+RESULT name=evict_steady_scan impl=open_hash sysclk=64000000 dcache=0 pass=0 cycles=157998 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=64000000 dcache=0 pass=1 cycles=157998 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=64000000 dcache=0 pass=2 cycles=157998 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=64000000 dcache=0 pass=3 cycles=157998 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=64000000 dcache=0 pass=4 cycles=157998 ops=25
+RESULT name=ingest impl=tsearch sysclk=64000000 dcache=0 pass=0 cycles=84759207 ops=2000
+RESULT name=ingest impl=tsearch sysclk=64000000 dcache=0 pass=1 cycles=84758072 ops=2000
+RESULT name=ingest impl=tsearch sysclk=64000000 dcache=0 pass=2 cycles=84758064 ops=2000
+RESULT name=ingest impl=tsearch sysclk=64000000 dcache=0 pass=3 cycles=84758064 ops=2000
+RESULT name=ingest impl=tsearch sysclk=64000000 dcache=0 pass=4 cycles=84758064 ops=2000
+RESULT name=bytes impl=tsearch shape=ingest keys=2000 heap_bytes=72032 req_bytes=24016
+RESULT name=can_dispatch impl=tsearch sysclk=64000000 dcache=0 pass=0 cycles=5419806 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=64000000 dcache=0 pass=1 cycles=5419796 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=64000000 dcache=0 pass=2 cycles=5419796 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=64000000 dcache=0 pass=3 cycles=5419796 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=64000000 dcache=0 pass=4 cycles=5419796 ops=500
+RESULT name=bytes impl=tsearch shape=ble_index keys=2000 heap_bytes=144064 req_bytes=48032
+RESULT name=evict_bulk_loop impl=tsearch sysclk=64000000 dcache=0 pass=0 cycles=2290598 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=64000000 dcache=0 pass=1 cycles=2290594 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=64000000 dcache=0 pass=2 cycles=2290594 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=64000000 dcache=0 pass=3 cycles=2290594 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=64000000 dcache=0 pass=4 cycles=2290594 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=64000000 dcache=0 pass=0 cycles=2284683 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=64000000 dcache=0 pass=1 cycles=2284777 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=64000000 dcache=0 pass=2 cycles=2284777 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=64000000 dcache=0 pass=3 cycles=2284777 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=64000000 dcache=0 pass=4 cycles=2284777 ops=600
+RESULT name=evict_steady_loop impl=tsearch sysclk=64000000 dcache=0 pass=0 cycles=40401 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=64000000 dcache=0 pass=1 cycles=40401 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=64000000 dcache=0 pass=2 cycles=40401 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=64000000 dcache=0 pass=3 cycles=40401 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=64000000 dcache=0 pass=4 cycles=40401 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=64000000 dcache=0 pass=0 cycles=39627 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=64000000 dcache=0 pass=1 cycles=39627 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=64000000 dcache=0 pass=2 cycles=39648 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=64000000 dcache=0 pass=3 cycles=39627 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=64000000 dcache=0 pass=4 cycles=39627 ops=25
+RESULT name=ingest impl=expanse sysclk=64000000 dcache=1 pass=0 cycles=2328517 ops=2000
+RESULT name=ingest impl=expanse sysclk=64000000 dcache=1 pass=1 cycles=2327889 ops=2000
+RESULT name=ingest impl=expanse sysclk=64000000 dcache=1 pass=2 cycles=2328456 ops=2000
+RESULT name=ingest impl=expanse sysclk=64000000 dcache=1 pass=3 cycles=2328310 ops=2000
+RESULT name=ingest impl=expanse sysclk=64000000 dcache=1 pass=4 cycles=2329462 ops=2000
+RESULT name=can_dispatch impl=expanse sysclk=64000000 dcache=1 pass=0 cycles=124765 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=64000000 dcache=1 pass=1 cycles=124442 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=64000000 dcache=1 pass=2 cycles=124449 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=64000000 dcache=1 pass=3 cycles=124439 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=64000000 dcache=1 pass=4 cycles=124449 ops=500
+RESULT name=evict_bulk_loop impl=expanse sysclk=64000000 dcache=1 pass=0 cycles=1626764 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=64000000 dcache=1 pass=1 cycles=1626332 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=64000000 dcache=1 pass=2 cycles=1626827 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=64000000 dcache=1 pass=3 cycles=1626510 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=64000000 dcache=1 pass=4 cycles=1627077 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=64000000 dcache=1 pass=0 cycles=574459 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=64000000 dcache=1 pass=1 cycles=574212 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=64000000 dcache=1 pass=2 cycles=574166 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=64000000 dcache=1 pass=3 cycles=574355 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=64000000 dcache=1 pass=4 cycles=573934 ops=600
+RESULT name=evict_steady_loop impl=expanse sysclk=64000000 dcache=1 pass=0 cycles=66885 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=64000000 dcache=1 pass=1 cycles=66837 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=64000000 dcache=1 pass=2 cycles=66685 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=64000000 dcache=1 pass=3 cycles=66745 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=64000000 dcache=1 pass=4 cycles=66760 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=64000000 dcache=1 pass=0 cycles=27820 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=64000000 dcache=1 pass=1 cycles=27873 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=64000000 dcache=1 pass=2 cycles=27883 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=64000000 dcache=1 pass=3 cycles=27802 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=64000000 dcache=1 pass=4 cycles=27919 ops=25
+RESULT name=ingest impl=sorted_array sysclk=64000000 dcache=1 pass=0 cycles=372178 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=64000000 dcache=1 pass=1 cycles=371920 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=64000000 dcache=1 pass=2 cycles=371932 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=64000000 dcache=1 pass=3 cycles=371895 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=64000000 dcache=1 pass=4 cycles=371819 ops=2000
+RESULT name=can_dispatch impl=sorted_array sysclk=64000000 dcache=1 pass=0 cycles=44468 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=64000000 dcache=1 pass=1 cycles=44462 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=64000000 dcache=1 pass=2 cycles=44456 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=64000000 dcache=1 pass=3 cycles=44456 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=64000000 dcache=1 pass=4 cycles=44456 ops=500
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=64000000 dcache=1 pass=0 cycles=8430318 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=64000000 dcache=1 pass=1 cycles=8433026 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=64000000 dcache=1 pass=2 cycles=8443930 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=64000000 dcache=1 pass=3 cycles=8431122 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=64000000 dcache=1 pass=4 cycles=8440845 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=64000000 dcache=1 pass=0 cycles=2613910 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=64000000 dcache=1 pass=1 cycles=2614520 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=64000000 dcache=1 pass=2 cycles=2614212 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=64000000 dcache=1 pass=3 cycles=2615022 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=64000000 dcache=1 pass=4 cycles=2614109 ops=600
+RESULT name=evict_steady_loop impl=sorted_array sysclk=64000000 dcache=1 pass=0 cycles=284685 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=64000000 dcache=1 pass=1 cycles=287932 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=64000000 dcache=1 pass=2 cycles=286647 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=64000000 dcache=1 pass=3 cycles=285716 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=64000000 dcache=1 pass=4 cycles=286485 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=64000000 dcache=1 pass=0 cycles=46431 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=64000000 dcache=1 pass=1 cycles=46325 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=64000000 dcache=1 pass=2 cycles=46312 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=64000000 dcache=1 pass=3 cycles=46378 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=64000000 dcache=1 pass=4 cycles=46299 ops=25
+RESULT name=ingest impl=open_hash sysclk=64000000 dcache=1 pass=0 cycles=112059 ops=2000
+RESULT name=ingest impl=open_hash sysclk=64000000 dcache=1 pass=1 cycles=112137 ops=2000
+RESULT name=ingest impl=open_hash sysclk=64000000 dcache=1 pass=2 cycles=112017 ops=2000
+RESULT name=ingest impl=open_hash sysclk=64000000 dcache=1 pass=3 cycles=112147 ops=2000
+RESULT name=ingest impl=open_hash sysclk=64000000 dcache=1 pass=4 cycles=112138 ops=2000
+RESULT name=can_dispatch impl=open_hash sysclk=64000000 dcache=1 pass=0 cycles=25163 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=64000000 dcache=1 pass=1 cycles=25136 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=64000000 dcache=1 pass=2 cycles=25107 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=64000000 dcache=1 pass=3 cycles=25107 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=64000000 dcache=1 pass=4 cycles=25107 ops=500
+RESULT name=evict_bulk_scan impl=open_hash sysclk=64000000 dcache=1 pass=0 cycles=90280 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=64000000 dcache=1 pass=1 cycles=90346 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=64000000 dcache=1 pass=2 cycles=90355 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=64000000 dcache=1 pass=3 cycles=90262 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=64000000 dcache=1 pass=4 cycles=90244 ops=600
+RESULT name=evict_steady_scan impl=open_hash sysclk=64000000 dcache=1 pass=0 cycles=85276 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=64000000 dcache=1 pass=1 cycles=85311 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=64000000 dcache=1 pass=2 cycles=85339 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=64000000 dcache=1 pass=3 cycles=85350 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=64000000 dcache=1 pass=4 cycles=85285 ops=25
+RESULT name=ingest impl=tsearch sysclk=64000000 dcache=1 pass=0 cycles=52112062 ops=2000
+RESULT name=ingest impl=tsearch sysclk=64000000 dcache=1 pass=1 cycles=52105108 ops=2000
+RESULT name=ingest impl=tsearch sysclk=64000000 dcache=1 pass=2 cycles=52103933 ops=2000
+RESULT name=ingest impl=tsearch sysclk=64000000 dcache=1 pass=3 cycles=52102617 ops=2000
+RESULT name=ingest impl=tsearch sysclk=64000000 dcache=1 pass=4 cycles=52110194 ops=2000
+RESULT name=can_dispatch impl=tsearch sysclk=64000000 dcache=1 pass=0 cycles=2902915 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=64000000 dcache=1 pass=1 cycles=2903029 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=64000000 dcache=1 pass=2 cycles=2902678 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=64000000 dcache=1 pass=3 cycles=2902499 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=64000000 dcache=1 pass=4 cycles=2902084 ops=500
+RESULT name=evict_bulk_loop impl=tsearch sysclk=64000000 dcache=1 pass=0 cycles=1288095 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=64000000 dcache=1 pass=1 cycles=1287322 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=64000000 dcache=1 pass=2 cycles=1286953 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=64000000 dcache=1 pass=3 cycles=1287046 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=64000000 dcache=1 pass=4 cycles=1287210 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=64000000 dcache=1 pass=0 cycles=1272435 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=64000000 dcache=1 pass=1 cycles=1272244 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=64000000 dcache=1 pass=2 cycles=1272278 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=64000000 dcache=1 pass=3 cycles=1272233 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=64000000 dcache=1 pass=4 cycles=1271982 ops=600
+RESULT name=evict_steady_loop impl=tsearch sysclk=64000000 dcache=1 pass=0 cycles=22703 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=64000000 dcache=1 pass=1 cycles=22695 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=64000000 dcache=1 pass=2 cycles=22691 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=64000000 dcache=1 pass=3 cycles=22684 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=64000000 dcache=1 pass=4 cycles=22715 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=64000000 dcache=1 pass=0 cycles=21654 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=64000000 dcache=1 pass=1 cycles=21676 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=64000000 dcache=1 pass=2 cycles=21634 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=64000000 dcache=1 pass=3 cycles=21632 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=64000000 dcache=1 pass=4 cycles=21625 ops=25
+INFO sysclk=160000000 hclk=80000000 vos=3
 TICK
 TOCK cycles=320000000
-RESULT name=ingest sysclk=160000000 dcache=1 pass=0 cycles=2334532 ops=2000
-RESULT name=ingest sysclk=160000000 dcache=1 pass=1 cycles=2331839 ops=2000
-RESULT name=ingest sysclk=160000000 dcache=1 pass=2 cycles=2329057 ops=2000
-RESULT name=ingest sysclk=160000000 dcache=1 pass=3 cycles=2330511 ops=2000
-RESULT name=ingest sysclk=160000000 dcache=1 pass=4 cycles=2331433 ops=2000
-RESULT name=can_dispatch sysclk=160000000 dcache=1 pass=0 cycles=123395 ops=500
-RESULT name=can_dispatch sysclk=160000000 dcache=1 pass=1 cycles=122730 ops=500
-RESULT name=can_dispatch sysclk=160000000 dcache=1 pass=2 cycles=122711 ops=500
-RESULT name=can_dispatch sysclk=160000000 dcache=1 pass=3 cycles=122712 ops=500
-RESULT name=can_dispatch sysclk=160000000 dcache=1 pass=4 cycles=122737 ops=500
-RESULT name=evict_bulk_loop sysclk=160000000 dcache=1 pass=0 cycles=1660118 ops=600
-RESULT name=evict_bulk_loop sysclk=160000000 dcache=1 pass=1 cycles=1660298 ops=600
-RESULT name=evict_bulk_loop sysclk=160000000 dcache=1 pass=2 cycles=1659196 ops=600
-RESULT name=evict_bulk_loop sysclk=160000000 dcache=1 pass=3 cycles=1658884 ops=600
-RESULT name=evict_bulk_loop sysclk=160000000 dcache=1 pass=4 cycles=1659584 ops=600
-RESULT name=evict_bulk_range sysclk=160000000 dcache=1 pass=0 cycles=579768 ops=600
-RESULT name=evict_bulk_range sysclk=160000000 dcache=1 pass=1 cycles=580676 ops=600
-RESULT name=evict_bulk_range sysclk=160000000 dcache=1 pass=2 cycles=580230 ops=600
-RESULT name=evict_bulk_range sysclk=160000000 dcache=1 pass=3 cycles=580108 ops=600
-RESULT name=evict_bulk_range sysclk=160000000 dcache=1 pass=4 cycles=579356 ops=600
-RESULT name=evict_steady_loop sysclk=160000000 dcache=1 pass=0 cycles=70275 ops=25
-RESULT name=evict_steady_loop sysclk=160000000 dcache=1 pass=1 cycles=70461 ops=25
-RESULT name=evict_steady_loop sysclk=160000000 dcache=1 pass=2 cycles=70006 ops=25
-RESULT name=evict_steady_loop sysclk=160000000 dcache=1 pass=3 cycles=70031 ops=25
-RESULT name=evict_steady_loop sysclk=160000000 dcache=1 pass=4 cycles=70412 ops=25
-RESULT name=evict_steady_range sysclk=160000000 dcache=1 pass=0 cycles=29522 ops=25
-RESULT name=evict_steady_range sysclk=160000000 dcache=1 pass=1 cycles=29372 ops=25
-RESULT name=evict_steady_range sysclk=160000000 dcache=1 pass=2 cycles=29826 ops=25
-RESULT name=evict_steady_range sysclk=160000000 dcache=1 pass=3 cycles=29628 ops=25
-RESULT name=evict_steady_range sysclk=160000000 dcache=1 pass=4 cycles=29472 ops=25
-RESULT name=ingest sysclk=160000000 dcache=0 pass=0 cycles=4231114 ops=2000
-RESULT name=ingest sysclk=160000000 dcache=0 pass=1 cycles=4229922 ops=2000
-RESULT name=ingest sysclk=160000000 dcache=0 pass=2 cycles=4233354 ops=2000
-RESULT name=ingest sysclk=160000000 dcache=0 pass=3 cycles=4228917 ops=2000
-RESULT name=ingest sysclk=160000000 dcache=0 pass=4 cycles=4228139 ops=2000
-RESULT name=can_dispatch sysclk=160000000 dcache=0 pass=0 cycles=206442 ops=500
-RESULT name=can_dispatch sysclk=160000000 dcache=0 pass=1 cycles=205852 ops=500
-RESULT name=can_dispatch sysclk=160000000 dcache=0 pass=2 cycles=205776 ops=500
-RESULT name=can_dispatch sysclk=160000000 dcache=0 pass=3 cycles=205798 ops=500
-RESULT name=can_dispatch sysclk=160000000 dcache=0 pass=4 cycles=205772 ops=500
-RESULT name=evict_bulk_loop sysclk=160000000 dcache=0 pass=0 cycles=2845594 ops=600
-RESULT name=evict_bulk_loop sysclk=160000000 dcache=0 pass=1 cycles=2846720 ops=600
-RESULT name=evict_bulk_loop sysclk=160000000 dcache=0 pass=2 cycles=2844218 ops=600
-RESULT name=evict_bulk_loop sysclk=160000000 dcache=0 pass=3 cycles=2846548 ops=600
-RESULT name=evict_bulk_loop sysclk=160000000 dcache=0 pass=4 cycles=2848274 ops=600
-RESULT name=evict_bulk_range sysclk=160000000 dcache=0 pass=0 cycles=955000 ops=600
-RESULT name=evict_bulk_range sysclk=160000000 dcache=0 pass=1 cycles=953254 ops=600
-RESULT name=evict_bulk_range sysclk=160000000 dcache=0 pass=2 cycles=951850 ops=600
-RESULT name=evict_bulk_range sysclk=160000000 dcache=0 pass=3 cycles=952656 ops=600
-RESULT name=evict_bulk_range sysclk=160000000 dcache=0 pass=4 cycles=952788 ops=600
-RESULT name=evict_steady_loop sysclk=160000000 dcache=0 pass=0 cycles=117202 ops=25
-RESULT name=evict_steady_loop sysclk=160000000 dcache=0 pass=1 cycles=116546 ops=25
-RESULT name=evict_steady_loop sysclk=160000000 dcache=0 pass=2 cycles=116948 ops=25
-RESULT name=evict_steady_loop sysclk=160000000 dcache=0 pass=3 cycles=116320 ops=25
-RESULT name=evict_steady_loop sysclk=160000000 dcache=0 pass=4 cycles=117568 ops=25
-RESULT name=evict_steady_range sysclk=160000000 dcache=0 pass=0 cycles=46426 ops=25
-RESULT name=evict_steady_range sysclk=160000000 dcache=0 pass=1 cycles=46562 ops=25
-RESULT name=evict_steady_range sysclk=160000000 dcache=0 pass=2 cycles=46638 ops=25
-RESULT name=evict_steady_range sysclk=160000000 dcache=0 pass=3 cycles=46456 ops=25
-RESULT name=evict_steady_range sysclk=160000000 dcache=0 pass=4 cycles=46550 ops=25
-RESULT name=isr_sync32 sysclk=160000000 dcache=1 period=0 writer_cycles=200001913 mutations=119212 isr_n=10000 isr_ok=401 isr_nf=474 isr_busy=9125 isr_bad=0 lat_max=57 lat_sum=393327 dur_max=1482 dur_sum=1794782 refused=0 arena_full=0
-RESULT name=isr_sync32 sysclk=160000000 dcache=1 period=4000 writer_cycles=200001450 mutations=49939 isr_n=10000 isr_ok=3307 isr_nf=3474 isr_busy=3219 isr_bad=0 lat_max=57 lat_sum=366188 dur_max=677 dur_sum=3980847 refused=0 arena_full=0
-RESULT name=isr_sync32 sysclk=160000000 dcache=1 period=16000 writer_cycles=200000581 mutations=12504 isr_n=10000 isr_ok=4495 isr_nf=4682 isr_busy=823 isr_bad=0 lat_max=57 lat_sum=300704 dur_max=669 dur_sum=4559970 refused=0 arena_full=0
-RESULT name=isr_sync32 sysclk=160000000 dcache=1 period=160000 writer_cycles=200010291 mutations=1252 isr_n=10000 isr_ok=4982 isr_nf=4924 isr_busy=94 isr_bad=0 lat_max=57 lat_sum=167593 dur_max=683 dur_sum=3981339 refused=0 arena_full=0
+RESULT name=ingest impl=expanse sysclk=160000000 dcache=1 pass=0 cycles=2371267 ops=2000
+RESULT name=ingest impl=expanse sysclk=160000000 dcache=1 pass=1 cycles=2364172 ops=2000
+RESULT name=ingest impl=expanse sysclk=160000000 dcache=1 pass=2 cycles=2360625 ops=2000
+RESULT name=ingest impl=expanse sysclk=160000000 dcache=1 pass=3 cycles=2362569 ops=2000
+RESULT name=ingest impl=expanse sysclk=160000000 dcache=1 pass=4 cycles=2363247 ops=2000
+RESULT name=can_dispatch impl=expanse sysclk=160000000 dcache=1 pass=0 cycles=125012 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=160000000 dcache=1 pass=1 cycles=124460 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=160000000 dcache=1 pass=2 cycles=124458 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=160000000 dcache=1 pass=3 cycles=124448 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=160000000 dcache=1 pass=4 cycles=124458 ops=500
+RESULT name=evict_bulk_loop impl=expanse sysclk=160000000 dcache=1 pass=0 cycles=1688355 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=160000000 dcache=1 pass=1 cycles=1685511 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=160000000 dcache=1 pass=2 cycles=1686948 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=160000000 dcache=1 pass=3 cycles=1686585 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=160000000 dcache=1 pass=4 cycles=1689823 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=160000000 dcache=1 pass=0 cycles=595304 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=160000000 dcache=1 pass=1 cycles=594245 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=160000000 dcache=1 pass=2 cycles=594180 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=160000000 dcache=1 pass=3 cycles=593733 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=160000000 dcache=1 pass=4 cycles=595750 ops=600
+RESULT name=evict_steady_loop impl=expanse sysclk=160000000 dcache=1 pass=0 cycles=72031 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=160000000 dcache=1 pass=1 cycles=71424 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=160000000 dcache=1 pass=2 cycles=71451 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=160000000 dcache=1 pass=3 cycles=71406 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=160000000 dcache=1 pass=4 cycles=71924 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=160000000 dcache=1 pass=0 cycles=30845 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=160000000 dcache=1 pass=1 cycles=30859 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=160000000 dcache=1 pass=2 cycles=31213 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=160000000 dcache=1 pass=3 cycles=30779 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=160000000 dcache=1 pass=4 cycles=30777 ops=25
+RESULT name=ingest impl=sorted_array sysclk=160000000 dcache=1 pass=0 cycles=374137 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=160000000 dcache=1 pass=1 cycles=373583 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=160000000 dcache=1 pass=2 cycles=373350 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=160000000 dcache=1 pass=3 cycles=373283 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=160000000 dcache=1 pass=4 cycles=373247 ops=2000
+RESULT name=can_dispatch impl=sorted_array sysclk=160000000 dcache=1 pass=0 cycles=44468 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=160000000 dcache=1 pass=1 cycles=44467 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=160000000 dcache=1 pass=2 cycles=44456 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=160000000 dcache=1 pass=3 cycles=44456 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=160000000 dcache=1 pass=4 cycles=44456 ops=500
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=160000000 dcache=1 pass=0 cycles=9245185 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=160000000 dcache=1 pass=1 cycles=9235513 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=160000000 dcache=1 pass=2 cycles=9239189 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=160000000 dcache=1 pass=3 cycles=9240925 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=160000000 dcache=1 pass=4 cycles=9235603 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=160000000 dcache=1 pass=0 cycles=2622600 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=160000000 dcache=1 pass=1 cycles=2622638 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=160000000 dcache=1 pass=2 cycles=2622286 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=160000000 dcache=1 pass=3 cycles=2623038 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=160000000 dcache=1 pass=4 cycles=2622912 ops=600
+RESULT name=evict_steady_loop impl=sorted_array sysclk=160000000 dcache=1 pass=0 cycles=298845 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=160000000 dcache=1 pass=1 cycles=300339 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=160000000 dcache=1 pass=2 cycles=299825 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=160000000 dcache=1 pass=3 cycles=301261 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=160000000 dcache=1 pass=4 cycles=301473 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=160000000 dcache=1 pass=0 cycles=48306 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=160000000 dcache=1 pass=1 cycles=48372 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=160000000 dcache=1 pass=2 cycles=48376 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=160000000 dcache=1 pass=3 cycles=48288 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=160000000 dcache=1 pass=4 cycles=48430 ops=25
+RESULT name=ingest impl=open_hash sysclk=160000000 dcache=1 pass=0 cycles=117855 ops=2000
+RESULT name=ingest impl=open_hash sysclk=160000000 dcache=1 pass=1 cycles=117516 ops=2000
+RESULT name=ingest impl=open_hash sysclk=160000000 dcache=1 pass=2 cycles=117121 ops=2000
+RESULT name=ingest impl=open_hash sysclk=160000000 dcache=1 pass=3 cycles=116747 ops=2000
+RESULT name=ingest impl=open_hash sysclk=160000000 dcache=1 pass=4 cycles=117245 ops=2000
+RESULT name=can_dispatch impl=open_hash sysclk=160000000 dcache=1 pass=0 cycles=25178 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=160000000 dcache=1 pass=1 cycles=25141 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=160000000 dcache=1 pass=2 cycles=25107 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=160000000 dcache=1 pass=3 cycles=25107 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=160000000 dcache=1 pass=4 cycles=25107 ops=500
+RESULT name=evict_bulk_scan impl=open_hash sysclk=160000000 dcache=1 pass=0 cycles=94567 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=160000000 dcache=1 pass=1 cycles=94399 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=160000000 dcache=1 pass=2 cycles=94497 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=160000000 dcache=1 pass=3 cycles=94655 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=160000000 dcache=1 pass=4 cycles=94357 ops=600
+RESULT name=evict_steady_scan impl=open_hash sysclk=160000000 dcache=1 pass=0 cycles=89661 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=160000000 dcache=1 pass=1 cycles=89669 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=160000000 dcache=1 pass=2 cycles=89581 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=160000000 dcache=1 pass=3 cycles=89597 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=160000000 dcache=1 pass=4 cycles=89673 ops=25
+RESULT name=ingest impl=tsearch sysclk=160000000 dcache=1 pass=0 cycles=56339287 ops=2000
+RESULT name=ingest impl=tsearch sysclk=160000000 dcache=1 pass=1 cycles=56321681 ops=2000
+RESULT name=ingest impl=tsearch sysclk=160000000 dcache=1 pass=2 cycles=56320975 ops=2000
+RESULT name=ingest impl=tsearch sysclk=160000000 dcache=1 pass=3 cycles=56314539 ops=2000
+RESULT name=ingest impl=tsearch sysclk=160000000 dcache=1 pass=4 cycles=56314313 ops=2000
+RESULT name=can_dispatch impl=tsearch sysclk=160000000 dcache=1 pass=0 cycles=2903767 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=160000000 dcache=1 pass=1 cycles=2903397 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=160000000 dcache=1 pass=2 cycles=2904927 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=160000000 dcache=1 pass=3 cycles=2903939 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=160000000 dcache=1 pass=4 cycles=2904147 ops=500
+RESULT name=evict_bulk_loop impl=tsearch sysclk=160000000 dcache=1 pass=0 cycles=1297631 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=160000000 dcache=1 pass=1 cycles=1298645 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=160000000 dcache=1 pass=2 cycles=1297233 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=160000000 dcache=1 pass=3 cycles=1297629 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=160000000 dcache=1 pass=4 cycles=1298117 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=160000000 dcache=1 pass=0 cycles=1282018 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=160000000 dcache=1 pass=1 cycles=1281486 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=160000000 dcache=1 pass=2 cycles=1281486 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=160000000 dcache=1 pass=3 cycles=1281486 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=160000000 dcache=1 pass=4 cycles=1281486 ops=600
+RESULT name=evict_steady_loop impl=tsearch sysclk=160000000 dcache=1 pass=0 cycles=23039 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=160000000 dcache=1 pass=1 cycles=23073 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=160000000 dcache=1 pass=2 cycles=23049 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=160000000 dcache=1 pass=3 cycles=23043 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=160000000 dcache=1 pass=4 cycles=23069 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=160000000 dcache=1 pass=0 cycles=21939 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=160000000 dcache=1 pass=1 cycles=22033 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=160000000 dcache=1 pass=2 cycles=22033 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=160000000 dcache=1 pass=3 cycles=22007 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=160000000 dcache=1 pass=4 cycles=22031 ops=25
+RESULT name=ingest impl=expanse sysclk=160000000 dcache=0 pass=0 cycles=4520601 ops=2000
+RESULT name=ingest impl=expanse sysclk=160000000 dcache=0 pass=1 cycles=4518166 ops=2000
+RESULT name=ingest impl=expanse sysclk=160000000 dcache=0 pass=2 cycles=4520307 ops=2000
+RESULT name=ingest impl=expanse sysclk=160000000 dcache=0 pass=3 cycles=4519165 ops=2000
+RESULT name=ingest impl=expanse sysclk=160000000 dcache=0 pass=4 cycles=4516871 ops=2000
+RESULT name=can_dispatch impl=expanse sysclk=160000000 dcache=0 pass=0 cycles=216851 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=160000000 dcache=0 pass=1 cycles=217365 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=160000000 dcache=0 pass=2 cycles=217377 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=160000000 dcache=0 pass=3 cycles=217377 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=160000000 dcache=0 pass=4 cycles=217377 ops=500
+RESULT name=evict_bulk_loop impl=expanse sysclk=160000000 dcache=0 pass=0 cycles=2931827 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=160000000 dcache=0 pass=1 cycles=2931232 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=160000000 dcache=0 pass=2 cycles=2930886 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=160000000 dcache=0 pass=3 cycles=2932704 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=160000000 dcache=0 pass=4 cycles=2931800 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=160000000 dcache=0 pass=0 cycles=976465 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=160000000 dcache=0 pass=1 cycles=976594 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=160000000 dcache=0 pass=2 cycles=977168 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=160000000 dcache=0 pass=3 cycles=976373 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=160000000 dcache=0 pass=4 cycles=976330 ops=600
+RESULT name=evict_steady_loop impl=expanse sysclk=160000000 dcache=0 pass=0 cycles=119827 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=160000000 dcache=0 pass=1 cycles=119663 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=160000000 dcache=0 pass=2 cycles=119629 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=160000000 dcache=0 pass=3 cycles=119967 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=160000000 dcache=0 pass=4 cycles=120027 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=160000000 dcache=0 pass=0 cycles=47226 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=160000000 dcache=0 pass=1 cycles=47380 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=160000000 dcache=0 pass=2 cycles=46950 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=160000000 dcache=0 pass=3 cycles=47502 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=160000000 dcache=0 pass=4 cycles=46570 ops=25
+RESULT name=ingest impl=sorted_array sysclk=160000000 dcache=0 pass=0 cycles=664429 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=160000000 dcache=0 pass=1 cycles=664317 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=160000000 dcache=0 pass=2 cycles=664273 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=160000000 dcache=0 pass=3 cycles=664273 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=160000000 dcache=0 pass=4 cycles=664273 ops=2000
+RESULT name=can_dispatch impl=sorted_array sysclk=160000000 dcache=0 pass=0 cycles=108965 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=160000000 dcache=0 pass=1 cycles=108921 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=160000000 dcache=0 pass=2 cycles=108921 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=160000000 dcache=0 pass=3 cycles=108921 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=160000000 dcache=0 pass=4 cycles=108921 ops=500
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=160000000 dcache=0 pass=0 cycles=41685599 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=160000000 dcache=0 pass=1 cycles=41685281 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=160000000 dcache=0 pass=2 cycles=41685265 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=160000000 dcache=0 pass=3 cycles=41685255 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=160000000 dcache=0 pass=4 cycles=41685255 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=160000000 dcache=0 pass=0 cycles=14721726 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=160000000 dcache=0 pass=1 cycles=14721684 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=160000000 dcache=0 pass=2 cycles=14721684 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=160000000 dcache=0 pass=3 cycles=14721684 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=160000000 dcache=0 pass=4 cycles=14721684 ops=600
+RESULT name=evict_steady_loop impl=sorted_array sysclk=160000000 dcache=0 pass=0 cycles=1485151 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=160000000 dcache=0 pass=1 cycles=1485151 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=160000000 dcache=0 pass=2 cycles=1485151 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=160000000 dcache=0 pass=3 cycles=1485151 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=160000000 dcache=0 pass=4 cycles=1485151 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=160000000 dcache=0 pass=0 cycles=218050 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=160000000 dcache=0 pass=1 cycles=218050 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=160000000 dcache=0 pass=2 cycles=218050 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=160000000 dcache=0 pass=3 cycles=218050 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=160000000 dcache=0 pass=4 cycles=218050 ops=25
+RESULT name=ingest impl=open_hash sysclk=160000000 dcache=0 pass=0 cycles=319217 ops=2000
+RESULT name=ingest impl=open_hash sysclk=160000000 dcache=0 pass=1 cycles=319153 ops=2000
+RESULT name=ingest impl=open_hash sysclk=160000000 dcache=0 pass=2 cycles=319153 ops=2000
+RESULT name=ingest impl=open_hash sysclk=160000000 dcache=0 pass=3 cycles=319153 ops=2000
+RESULT name=ingest impl=open_hash sysclk=160000000 dcache=0 pass=4 cycles=319153 ops=2000
+RESULT name=can_dispatch impl=open_hash sysclk=160000000 dcache=0 pass=0 cycles=71963 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=160000000 dcache=0 pass=1 cycles=71949 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=160000000 dcache=0 pass=2 cycles=71943 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=160000000 dcache=0 pass=3 cycles=71943 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=160000000 dcache=0 pass=4 cycles=71943 ops=500
+RESULT name=evict_bulk_scan impl=open_hash sysclk=160000000 dcache=0 pass=0 cycles=229605 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=160000000 dcache=0 pass=1 cycles=229541 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=160000000 dcache=0 pass=2 cycles=229541 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=160000000 dcache=0 pass=3 cycles=229541 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=160000000 dcache=0 pass=4 cycles=229541 ops=600
+RESULT name=evict_steady_scan impl=open_hash sysclk=160000000 dcache=0 pass=0 cycles=211055 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=160000000 dcache=0 pass=1 cycles=211055 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=160000000 dcache=0 pass=2 cycles=211055 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=160000000 dcache=0 pass=3 cycles=211055 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=160000000 dcache=0 pass=4 cycles=211055 ops=25
+RESULT name=ingest impl=tsearch sysclk=160000000 dcache=0 pass=0 cycles=113069743 ops=2000
+RESULT name=ingest impl=tsearch sysclk=160000000 dcache=0 pass=1 cycles=113068079 ops=2000
+RESULT name=ingest impl=tsearch sysclk=160000000 dcache=0 pass=2 cycles=113068071 ops=2000
+RESULT name=ingest impl=tsearch sysclk=160000000 dcache=0 pass=3 cycles=113068071 ops=2000
+RESULT name=ingest impl=tsearch sysclk=160000000 dcache=0 pass=4 cycles=113068071 ops=2000
+RESULT name=can_dispatch impl=tsearch sysclk=160000000 dcache=0 pass=0 cycles=7060077 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=160000000 dcache=0 pass=1 cycles=7060067 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=160000000 dcache=0 pass=2 cycles=7060067 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=160000000 dcache=0 pass=3 cycles=7060067 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=160000000 dcache=0 pass=4 cycles=7060067 ops=500
+RESULT name=evict_bulk_loop impl=tsearch sysclk=160000000 dcache=0 pass=0 cycles=3137571 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=160000000 dcache=0 pass=1 cycles=3136731 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=160000000 dcache=0 pass=2 cycles=3136731 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=160000000 dcache=0 pass=3 cycles=3136731 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=160000000 dcache=0 pass=4 cycles=3136731 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=160000000 dcache=0 pass=0 cycles=3138256 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=160000000 dcache=0 pass=1 cycles=3138554 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=160000000 dcache=0 pass=2 cycles=3138554 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=160000000 dcache=0 pass=3 cycles=3138554 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=160000000 dcache=0 pass=4 cycles=3138554 ops=600
+RESULT name=evict_steady_loop impl=tsearch sysclk=160000000 dcache=0 pass=0 cycles=55453 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=160000000 dcache=0 pass=1 cycles=55453 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=160000000 dcache=0 pass=2 cycles=55453 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=160000000 dcache=0 pass=3 cycles=55453 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=160000000 dcache=0 pass=4 cycles=55453 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=160000000 dcache=0 pass=0 cycles=54742 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=160000000 dcache=0 pass=1 cycles=54742 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=160000000 dcache=0 pass=2 cycles=54742 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=160000000 dcache=0 pass=3 cycles=54742 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=160000000 dcache=0 pass=4 cycles=54742 ops=25
+INFO sysclk=400000000 hclk=200000000 vos=1
+TICK
+TOCK cycles=320000000
+RESULT name=ingest impl=expanse sysclk=400000000 dcache=0 pass=0 cycles=4516955 ops=2000
+RESULT name=ingest impl=expanse sysclk=400000000 dcache=0 pass=1 cycles=4520377 ops=2000
+RESULT name=ingest impl=expanse sysclk=400000000 dcache=0 pass=2 cycles=4519955 ops=2000
+RESULT name=ingest impl=expanse sysclk=400000000 dcache=0 pass=3 cycles=4522177 ops=2000
+RESULT name=ingest impl=expanse sysclk=400000000 dcache=0 pass=4 cycles=4521299 ops=2000
+RESULT name=can_dispatch impl=expanse sysclk=400000000 dcache=0 pass=0 cycles=214573 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=400000000 dcache=0 pass=1 cycles=217365 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=400000000 dcache=0 pass=2 cycles=217377 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=400000000 dcache=0 pass=3 cycles=217377 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=400000000 dcache=0 pass=4 cycles=217377 ops=500
+RESULT name=evict_bulk_loop impl=expanse sysclk=400000000 dcache=0 pass=0 cycles=2932361 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=400000000 dcache=0 pass=1 cycles=2931591 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=400000000 dcache=0 pass=2 cycles=2932658 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=400000000 dcache=0 pass=3 cycles=2933519 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=400000000 dcache=0 pass=4 cycles=2933453 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=400000000 dcache=0 pass=0 cycles=976783 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=400000000 dcache=0 pass=1 cycles=977313 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=400000000 dcache=0 pass=2 cycles=976746 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=400000000 dcache=0 pass=3 cycles=978725 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=400000000 dcache=0 pass=4 cycles=978562 ops=600
+RESULT name=evict_steady_loop impl=expanse sysclk=400000000 dcache=0 pass=0 cycles=119727 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=400000000 dcache=0 pass=1 cycles=119789 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=400000000 dcache=0 pass=2 cycles=119163 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=400000000 dcache=0 pass=3 cycles=119531 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=400000000 dcache=0 pass=4 cycles=119381 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=400000000 dcache=0 pass=0 cycles=47314 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=400000000 dcache=0 pass=1 cycles=47280 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=400000000 dcache=0 pass=2 cycles=46928 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=400000000 dcache=0 pass=3 cycles=46918 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=400000000 dcache=0 pass=4 cycles=47302 ops=25
+RESULT name=ingest impl=sorted_array sysclk=400000000 dcache=0 pass=0 cycles=664521 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=400000000 dcache=0 pass=1 cycles=664335 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=400000000 dcache=0 pass=2 cycles=664273 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=400000000 dcache=0 pass=3 cycles=664273 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=400000000 dcache=0 pass=4 cycles=664273 ops=2000
+RESULT name=can_dispatch impl=sorted_array sysclk=400000000 dcache=0 pass=0 cycles=108965 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=400000000 dcache=0 pass=1 cycles=108921 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=400000000 dcache=0 pass=2 cycles=108921 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=400000000 dcache=0 pass=3 cycles=108921 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=400000000 dcache=0 pass=4 cycles=108921 ops=500
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=400000000 dcache=0 pass=0 cycles=41685577 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=400000000 dcache=0 pass=1 cycles=41685297 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=400000000 dcache=0 pass=2 cycles=41685255 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=400000000 dcache=0 pass=3 cycles=41685255 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=400000000 dcache=0 pass=4 cycles=41685255 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=400000000 dcache=0 pass=0 cycles=14721722 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=400000000 dcache=0 pass=1 cycles=14721684 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=400000000 dcache=0 pass=2 cycles=14721684 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=400000000 dcache=0 pass=3 cycles=14721684 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=400000000 dcache=0 pass=4 cycles=14721684 ops=600
+RESULT name=evict_steady_loop impl=sorted_array sysclk=400000000 dcache=0 pass=0 cycles=1485151 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=400000000 dcache=0 pass=1 cycles=1485151 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=400000000 dcache=0 pass=2 cycles=1485151 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=400000000 dcache=0 pass=3 cycles=1485151 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=400000000 dcache=0 pass=4 cycles=1485151 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=400000000 dcache=0 pass=0 cycles=218050 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=400000000 dcache=0 pass=1 cycles=218050 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=400000000 dcache=0 pass=2 cycles=218050 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=400000000 dcache=0 pass=3 cycles=218050 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=400000000 dcache=0 pass=4 cycles=218050 ops=25
+RESULT name=ingest impl=open_hash sysclk=400000000 dcache=0 pass=0 cycles=319217 ops=2000
+RESULT name=ingest impl=open_hash sysclk=400000000 dcache=0 pass=1 cycles=319153 ops=2000
+RESULT name=ingest impl=open_hash sysclk=400000000 dcache=0 pass=2 cycles=319153 ops=2000
+RESULT name=ingest impl=open_hash sysclk=400000000 dcache=0 pass=3 cycles=319153 ops=2000
+RESULT name=ingest impl=open_hash sysclk=400000000 dcache=0 pass=4 cycles=319143 ops=2000
+RESULT name=can_dispatch impl=open_hash sysclk=400000000 dcache=0 pass=0 cycles=71963 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=400000000 dcache=0 pass=1 cycles=71949 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=400000000 dcache=0 pass=2 cycles=71943 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=400000000 dcache=0 pass=3 cycles=71943 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=400000000 dcache=0 pass=4 cycles=71943 ops=500
+RESULT name=evict_bulk_scan impl=open_hash sysclk=400000000 dcache=0 pass=0 cycles=229557 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=400000000 dcache=0 pass=1 cycles=229541 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=400000000 dcache=0 pass=2 cycles=229541 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=400000000 dcache=0 pass=3 cycles=229541 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=400000000 dcache=0 pass=4 cycles=229541 ops=600
+RESULT name=evict_steady_scan impl=open_hash sysclk=400000000 dcache=0 pass=0 cycles=211055 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=400000000 dcache=0 pass=1 cycles=211055 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=400000000 dcache=0 pass=2 cycles=211055 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=400000000 dcache=0 pass=3 cycles=211055 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=400000000 dcache=0 pass=4 cycles=211055 ops=25
+RESULT name=ingest impl=tsearch sysclk=400000000 dcache=0 pass=0 cycles=113069749 ops=2000
+RESULT name=ingest impl=tsearch sysclk=400000000 dcache=0 pass=1 cycles=113068071 ops=2000
+RESULT name=ingest impl=tsearch sysclk=400000000 dcache=0 pass=2 cycles=113068071 ops=2000
+RESULT name=ingest impl=tsearch sysclk=400000000 dcache=0 pass=3 cycles=113068071 ops=2000
+RESULT name=ingest impl=tsearch sysclk=400000000 dcache=0 pass=4 cycles=113068071 ops=2000
+RESULT name=can_dispatch impl=tsearch sysclk=400000000 dcache=0 pass=0 cycles=7060077 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=400000000 dcache=0 pass=1 cycles=7060067 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=400000000 dcache=0 pass=2 cycles=7060067 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=400000000 dcache=0 pass=3 cycles=7060067 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=400000000 dcache=0 pass=4 cycles=7060067 ops=500
+RESULT name=evict_bulk_loop impl=tsearch sysclk=400000000 dcache=0 pass=0 cycles=3137571 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=400000000 dcache=0 pass=1 cycles=3136731 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=400000000 dcache=0 pass=2 cycles=3136731 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=400000000 dcache=0 pass=3 cycles=3136731 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=400000000 dcache=0 pass=4 cycles=3136731 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=400000000 dcache=0 pass=0 cycles=3138562 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=400000000 dcache=0 pass=1 cycles=3138556 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=400000000 dcache=0 pass=2 cycles=3138554 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=400000000 dcache=0 pass=3 cycles=3138556 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=400000000 dcache=0 pass=4 cycles=3138554 ops=600
+RESULT name=evict_steady_loop impl=tsearch sysclk=400000000 dcache=0 pass=0 cycles=55455 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=400000000 dcache=0 pass=1 cycles=55453 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=400000000 dcache=0 pass=2 cycles=55453 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=400000000 dcache=0 pass=3 cycles=55453 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=400000000 dcache=0 pass=4 cycles=55453 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=400000000 dcache=0 pass=0 cycles=54742 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=400000000 dcache=0 pass=1 cycles=54744 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=400000000 dcache=0 pass=2 cycles=54742 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=400000000 dcache=0 pass=3 cycles=54768 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=400000000 dcache=0 pass=4 cycles=54742 ops=25
+RESULT name=ingest impl=expanse sysclk=400000000 dcache=1 pass=0 cycles=2365623 ops=2000
+RESULT name=ingest impl=expanse sysclk=400000000 dcache=1 pass=1 cycles=2362911 ops=2000
+RESULT name=ingest impl=expanse sysclk=400000000 dcache=1 pass=2 cycles=2362983 ops=2000
+RESULT name=ingest impl=expanse sysclk=400000000 dcache=1 pass=3 cycles=2362449 ops=2000
+RESULT name=ingest impl=expanse sysclk=400000000 dcache=1 pass=4 cycles=2361933 ops=2000
+RESULT name=can_dispatch impl=expanse sysclk=400000000 dcache=1 pass=0 cycles=125084 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=400000000 dcache=1 pass=1 cycles=124450 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=400000000 dcache=1 pass=2 cycles=124458 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=400000000 dcache=1 pass=3 cycles=124448 ops=500
+RESULT name=can_dispatch impl=expanse sysclk=400000000 dcache=1 pass=4 cycles=124458 ops=500
+RESULT name=evict_bulk_loop impl=expanse sysclk=400000000 dcache=1 pass=0 cycles=1687383 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=400000000 dcache=1 pass=1 cycles=1690030 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=400000000 dcache=1 pass=2 cycles=1689748 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=400000000 dcache=1 pass=3 cycles=1687272 ops=600
+RESULT name=evict_bulk_loop impl=expanse sysclk=400000000 dcache=1 pass=4 cycles=1689523 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=400000000 dcache=1 pass=0 cycles=595926 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=400000000 dcache=1 pass=1 cycles=594537 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=400000000 dcache=1 pass=2 cycles=593885 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=400000000 dcache=1 pass=3 cycles=594056 ops=600
+RESULT name=evict_bulk_range impl=expanse sysclk=400000000 dcache=1 pass=4 cycles=594067 ops=600
+RESULT name=evict_steady_loop impl=expanse sysclk=400000000 dcache=1 pass=0 cycles=72081 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=400000000 dcache=1 pass=1 cycles=71727 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=400000000 dcache=1 pass=2 cycles=71631 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=400000000 dcache=1 pass=3 cycles=71669 ops=25
+RESULT name=evict_steady_loop impl=expanse sysclk=400000000 dcache=1 pass=4 cycles=72305 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=400000000 dcache=1 pass=0 cycles=30773 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=400000000 dcache=1 pass=1 cycles=30705 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=400000000 dcache=1 pass=2 cycles=30439 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=400000000 dcache=1 pass=3 cycles=30661 ops=25
+RESULT name=evict_steady_range impl=expanse sysclk=400000000 dcache=1 pass=4 cycles=30807 ops=25
+RESULT name=ingest impl=sorted_array sysclk=400000000 dcache=1 pass=0 cycles=373977 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=400000000 dcache=1 pass=1 cycles=373599 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=400000000 dcache=1 pass=2 cycles=373392 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=400000000 dcache=1 pass=3 cycles=373325 ops=2000
+RESULT name=ingest impl=sorted_array sysclk=400000000 dcache=1 pass=4 cycles=373271 ops=2000
+RESULT name=can_dispatch impl=sorted_array sysclk=400000000 dcache=1 pass=0 cycles=44468 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=400000000 dcache=1 pass=1 cycles=44466 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=400000000 dcache=1 pass=2 cycles=44456 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=400000000 dcache=1 pass=3 cycles=44456 ops=500
+RESULT name=can_dispatch impl=sorted_array sysclk=400000000 dcache=1 pass=4 cycles=44456 ops=500
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=400000000 dcache=1 pass=0 cycles=9241245 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=400000000 dcache=1 pass=1 cycles=9242745 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=400000000 dcache=1 pass=2 cycles=9230877 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=400000000 dcache=1 pass=3 cycles=9238767 ops=600
+RESULT name=evict_bulk_loop impl=sorted_array sysclk=400000000 dcache=1 pass=4 cycles=9242815 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=400000000 dcache=1 pass=0 cycles=2622482 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=400000000 dcache=1 pass=1 cycles=2623566 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=400000000 dcache=1 pass=2 cycles=2623056 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=400000000 dcache=1 pass=3 cycles=2622378 ops=600
+RESULT name=evict_bulk_range impl=sorted_array sysclk=400000000 dcache=1 pass=4 cycles=2622902 ops=600
+RESULT name=evict_steady_loop impl=sorted_array sysclk=400000000 dcache=1 pass=0 cycles=301383 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=400000000 dcache=1 pass=1 cycles=300273 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=400000000 dcache=1 pass=2 cycles=301163 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=400000000 dcache=1 pass=3 cycles=299197 ops=25
+RESULT name=evict_steady_loop impl=sorted_array sysclk=400000000 dcache=1 pass=4 cycles=302905 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=400000000 dcache=1 pass=0 cycles=48318 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=400000000 dcache=1 pass=1 cycles=48406 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=400000000 dcache=1 pass=2 cycles=48402 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=400000000 dcache=1 pass=3 cycles=48354 ops=25
+RESULT name=evict_steady_range impl=sorted_array sysclk=400000000 dcache=1 pass=4 cycles=48295 ops=25
+RESULT name=ingest impl=open_hash sysclk=400000000 dcache=1 pass=0 cycles=118129 ops=2000
+RESULT name=ingest impl=open_hash sysclk=400000000 dcache=1 pass=1 cycles=117211 ops=2000
+RESULT name=ingest impl=open_hash sysclk=400000000 dcache=1 pass=2 cycles=116979 ops=2000
+RESULT name=ingest impl=open_hash sysclk=400000000 dcache=1 pass=3 cycles=117385 ops=2000
+RESULT name=ingest impl=open_hash sysclk=400000000 dcache=1 pass=4 cycles=116973 ops=2000
+RESULT name=can_dispatch impl=open_hash sysclk=400000000 dcache=1 pass=0 cycles=25172 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=400000000 dcache=1 pass=1 cycles=25142 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=400000000 dcache=1 pass=2 cycles=25126 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=400000000 dcache=1 pass=3 cycles=25116 ops=500
+RESULT name=can_dispatch impl=open_hash sysclk=400000000 dcache=1 pass=4 cycles=25116 ops=500
+RESULT name=evict_bulk_scan impl=open_hash sysclk=400000000 dcache=1 pass=0 cycles=94529 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=400000000 dcache=1 pass=1 cycles=94271 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=400000000 dcache=1 pass=2 cycles=94485 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=400000000 dcache=1 pass=3 cycles=94409 ops=600
+RESULT name=evict_bulk_scan impl=open_hash sysclk=400000000 dcache=1 pass=4 cycles=94475 ops=600
+RESULT name=evict_steady_scan impl=open_hash sysclk=400000000 dcache=1 pass=0 cycles=89887 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=400000000 dcache=1 pass=1 cycles=89811 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=400000000 dcache=1 pass=2 cycles=89653 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=400000000 dcache=1 pass=3 cycles=89753 ops=25
+RESULT name=evict_steady_scan impl=open_hash sysclk=400000000 dcache=1 pass=4 cycles=89553 ops=25
+RESULT name=ingest impl=tsearch sysclk=400000000 dcache=1 pass=0 cycles=56308407 ops=2000
+RESULT name=ingest impl=tsearch sysclk=400000000 dcache=1 pass=1 cycles=56297523 ops=2000
+RESULT name=ingest impl=tsearch sysclk=400000000 dcache=1 pass=2 cycles=56221755 ops=2000
+RESULT name=ingest impl=tsearch sysclk=400000000 dcache=1 pass=3 cycles=56264365 ops=2000
+RESULT name=ingest impl=tsearch sysclk=400000000 dcache=1 pass=4 cycles=56246823 ops=2000
+RESULT name=can_dispatch impl=tsearch sysclk=400000000 dcache=1 pass=0 cycles=2903487 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=400000000 dcache=1 pass=1 cycles=2905621 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=400000000 dcache=1 pass=2 cycles=2904219 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=400000000 dcache=1 pass=3 cycles=2905517 ops=500
+RESULT name=can_dispatch impl=tsearch sysclk=400000000 dcache=1 pass=4 cycles=2905765 ops=500
+RESULT name=evict_bulk_loop impl=tsearch sysclk=400000000 dcache=1 pass=0 cycles=1298257 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=400000000 dcache=1 pass=1 cycles=1297709 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=400000000 dcache=1 pass=2 cycles=1298117 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=400000000 dcache=1 pass=3 cycles=1297157 ops=600
+RESULT name=evict_bulk_loop impl=tsearch sysclk=400000000 dcache=1 pass=4 cycles=1298059 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=400000000 dcache=1 pass=0 cycles=1282466 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=400000000 dcache=1 pass=1 cycles=1282102 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=400000000 dcache=1 pass=2 cycles=1281740 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=400000000 dcache=1 pass=3 cycles=1281958 ops=600
+RESULT name=evict_bulk_range impl=tsearch sysclk=400000000 dcache=1 pass=4 cycles=1281970 ops=600
+RESULT name=evict_steady_loop impl=tsearch sysclk=400000000 dcache=1 pass=0 cycles=23045 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=400000000 dcache=1 pass=1 cycles=23067 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=400000000 dcache=1 pass=2 cycles=23061 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=400000000 dcache=1 pass=3 cycles=23061 ops=25
+RESULT name=evict_steady_loop impl=tsearch sysclk=400000000 dcache=1 pass=4 cycles=23067 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=400000000 dcache=1 pass=0 cycles=22047 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=400000000 dcache=1 pass=1 cycles=22007 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=400000000 dcache=1 pass=2 cycles=22031 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=400000000 dcache=1 pass=3 cycles=22029 ops=25
+RESULT name=evict_steady_range impl=tsearch sysclk=400000000 dcache=1 pass=4 cycles=22049 ops=25
+RESULT name=isr_sync32 sysclk=400000000 dcache=1 period=0 writer_cycles=200000826 mutations=114330 isr_n=10000 isr_ok=1277 isr_nf=1366 isr_busy=7357 isr_bad=0 lat_max=76 lat_sum=156068 dur_max=964 dur_sum=3057450 refused=0 arena_full=0
+RESULT name=isr_sync32 sysclk=400000000 dcache=1 period=10000 writer_cycles=200001159 mutations=19966 isr_n=10000 isr_ok=4303 isr_nf=4335 isr_busy=1362 isr_bad=0 lat_max=81 lat_sum=180767 dur_max=852 dur_sum=5465720 refused=0 arena_full=0
+RESULT name=isr_sync32 sysclk=400000000 dcache=1 period=40000 writer_cycles=200013479 mutations=4977 isr_n=10000 isr_ok=4756 isr_nf=4901 isr_busy=343 isr_bad=0 lat_max=73 lat_sum=181013 dur_max=872 dur_sum=4955269 refused=0 arena_full=0
+RESULT name=isr_sync32 sysclk=400000000 dcache=1 period=400000 writer_cycles=200094547 mutations=505 isr_n=10004 isr_ok=5010 isr_nf=4955 isr_busy=39 isr_bad=0 lat_max=55 lat_sum=225278 dur_max=826 dur_sum=4275330 refused=0 arena_full=0
 INFO sync32 len=2048 mem_used=9184 pending=0 free_slots=4085
-RESULT name=isr_critical_section sysclk=160000000 dcache=1 period=0 writer_cycles=200001610 mutations=136946 isr_n=10000 isr_ok=4956 isr_nf=5044 isr_busy=0 isr_bad=0 lat_max=1570 lat_sum=7195159 dur_max=941 dur_sum=5174297 refused=0 arena_full=0
-RESULT name=isr_critical_section sysclk=160000000 dcache=1 period=4000 writer_cycles=200001854 mutations=50066 isr_n=10000 isr_ok=5029 isr_nf=4971 isr_busy=0 isr_bad=0 lat_max=1604 lat_sum=2794426 dur_max=625 dur_sum=5135568 refused=0 arena_full=0
-RESULT name=isr_critical_section sysclk=160000000 dcache=1 period=16000 writer_cycles=200002404 mutations=12548 isr_n=10000 isr_ok=5073 isr_nf=4927 isr_busy=0 isr_bad=0 lat_max=1741 lat_sum=946335 dur_max=648 dur_sum=4385084 refused=0 arena_full=0
-RESULT name=isr_critical_section sysclk=160000000 dcache=1 period=160000 writer_cycles=200152716 mutations=1240 isr_n=10007 isr_ok=4948 isr_nf=5059 isr_busy=0 isr_bad=0 lat_max=1799 lat_sum=239200 dur_max=642 dur_sum=3108365 refused=0 arena_full=0
-INFO heap_hwm=155648
+RESULT name=isr_critical_section sysclk=400000000 dcache=1 period=0 writer_cycles=200001589 mutations=144291 isr_n=10000 isr_ok=4957 isr_nf=5043 isr_busy=0 isr_bad=0 lat_max=1449 lat_sum=6628907 dur_max=1031 dur_sum=4234414 refused=0 arena_full=0
+RESULT name=isr_critical_section sysclk=400000000 dcache=1 period=10000 writer_cycles=200001758 mutations=19973 isr_n=10000 isr_ok=5031 isr_nf=4969 isr_busy=0 isr_bad=0 lat_max=1661 lat_sum=1166039 dur_max=640 dur_sum=3748140 refused=0 arena_full=0
+RESULT name=isr_critical_section sysclk=400000000 dcache=1 period=40000 writer_cycles=200050841 mutations=4995 isr_n=10002 isr_ok=5075 isr_nf=4927 isr_busy=0 isr_bad=0 lat_max=1669 lat_sum=432364 dur_max=598 dur_sum=2927461 refused=0 arena_full=0
+RESULT name=isr_critical_section sysclk=400000000 dcache=1 period=400000 writer_cycles=200141233 mutations=499 isr_n=10007 isr_ok=4951 isr_nf=5056 isr_busy=0 isr_bad=0 lat_max=1539 lat_sum=172161 dur_max=556 dur_sum=2509208 refused=0 arena_full=0
+INFO heap_hwm=147456
 DONE
 CALIB host_seconds=4.991 cycles=320000000
 CALIB host_seconds=1.997 cycles=320000000
+CALIB host_seconds=0.799 cycles=320000000

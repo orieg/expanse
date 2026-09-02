@@ -43,3 +43,4 @@ docs/benchmarks/*/results/quick/
 integrations/stm32h747/*.elf
 integrations/stm32h747/*.map
 integrations/stm32h747/*.attrs
+integrations/stm32h747/transcript*
