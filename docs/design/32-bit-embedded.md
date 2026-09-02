@@ -108,6 +108,8 @@ Server-grade processors enforce uniform 64-byte cache lines. In embedded microar
 
 Therefore, 32-bit Expanse node layouts **must align cleanly to both 32-byte and 64-byte boundaries**, ensuring a node fetch never straddles multiple cache bursts.
 
+*Measured (Cortex-M7 half): the first on-target run on an STM32H747I-DISCO read the D-cache geometry from CCSIDR as 4-way × 128 sets × 32-byte lines and measured every fixture with the cache off and on at two core:bus ratios — see `docs/BENCHMARKING.md` "Cortex-M7 on-target" (#598). The ESP32 and Cortex-M55 halves remain unmeasured.*
+
 ### 2.3 Atomics & Instruction Set Extensions (RV32I vs. RV32A)
 
 Standard Rust 64-bit OCC concurrency (`crates/expanse/src/occ.rs`) uses `AtomicU64` for the tree-level `SeqVersion`. 

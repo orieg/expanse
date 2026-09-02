@@ -804,6 +804,21 @@ jobs:
       - name: Check Cortex-M4 Core
         run: cargo check -p expanse-trie --no-default-features --target thumbv7em-none-eabihf
 
+      - name: Build C ABI staticlib (Cortex-M7 hard-float)
+        run: >
+          cargo build --release -p expanse-capi --no-default-features
+          --features embedded-panic-handler --target thumbv7em-none-eabihf
+
+      - name: Install Arm GNU toolchain
+        run: sudo apt-get update -q && sudo apt-get install -y -q gcc-arm-none-eabi libnewlib-arm-none-eabi
+
+      # Links the STM32H747 harness (integrations/stm32h747) against the
+      # staticlib with -mfloat-abi=hard. The ARM linker refuses a soft/hard
+      # float-ABI mismatch, so a successful link is the ABI assertion (#598;
+      # the ESP32-C3 lane asserts the same thing via readobj, #581).
+      - name: Link STM32H747 harness (float-ABI assertion)
+        run: sh integrations/stm32h747/build.sh
+
   test-x86_64-none:
     name: Cross / x86_64 Bare-Metal Cross-Compile (x86_64-unknown-none)
     needs: [detect-changes]
