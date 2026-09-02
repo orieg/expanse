@@ -127,6 +127,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
+name = "blart"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "896458e219e985d40d0714c726eab2db824a454bb1ce2ba66f019eaa52519721"
+dependencies = [
+ "paste",
+ "zerocopy",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -684,6 +694,7 @@ dependencies = [
 name = "expanse-trie"
 version = "0.5.0"
 dependencies = [
+ "blart",
  "criterion",
  "crossbeam-skiplist",
  "dashmap",
@@ -1425,6 +1436,12 @@ dependencies = [
  "smallvec",
  "windows-link",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pbkdf2"

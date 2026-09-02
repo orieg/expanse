@@ -1,0 +1,31 @@
+{
+  "dense_sequential": {
+    "pre_registered_winner": "ExpanseMap",
+    "expanse_bpk": 8.56,
+    "blart_projected_bpk": 40.09375,
+    "ratio": 4.68384929906542,
+    "verdict": "CONFIRMED"
+  },
+  "clustered": {
+    "pre_registered_winner": "ExpanseMap",
+    "expanse_bpk": 8.61,
+    "blart_projected_bpk": 42.5,
+    "ratio": 4.936120789779327,
+    "verdict": "CONFIRMED"
+  },
+  "sparse_stride": {
+    "pre_registered_winner": "ExpanseMap",
+    "expanse_bpk": 16.25,
+    "blart_projected_bpk": 48.0,
+    "ratio": 2.953846153846154,
+    "verdict": "FITTED \u2014 not an independent prediction",
+    "claim_status": "projected-from-fit"
+  },
+  "uniform_random": {
+    "pre_registered_winner": "ExpanseMap",
+    "expanse_bpk": 16.7,
+    "blart_projected_bpk": 58.5,
+    "ratio": 3.502994011976048,
+    "verdict": "CONFIRMED"
+  }
+}
