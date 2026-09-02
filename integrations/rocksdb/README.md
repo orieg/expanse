@@ -53,22 +53,9 @@ The default RocksDB memtable implementation (`SkipListRep`) incurs significant p
 
 ## 2. Benchmark Results
 
-![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](../../docs/assets/bench_rocksdb.svg)
+The measured results, the three-panel chart and how to read each live in the suite directory, [`docs/benchmarks/rocksdb_memtable/`](../../docs/benchmarks/rocksdb_memtable/README.md) (results README, `METHODOLOGY.md` pre-registration record, `results/baseline_rocksdb.json`, `run.sh`); the full tables and architecture discussion are in [`docs/BENCHMARKING.md`](../../docs/BENCHMARKING.md) and [`docs/DATABASE.md`](../../docs/DATABASE.md).
 
-> **Baseline retraction ([#372](https://github.com/orieg/expanse/issues/372)), now discharged.** Every "vs SkipList" cell below was once measured against a strawman skiplist whose nodes statically embedded the full 16-pointer tower (~146.7 B/entry). The density edge was corrected first — **1.42×**, not 11.11×, by deterministic byte accounting. The **throughput rows are now re-measured against the fair variable-height baseline too** (run [33398474866](https://github.com/orieg/expanse/actions/runs/33398474866)), five rounds with BCa 95% intervals, and every ratio moved down: sequential scan from a published ~10× to **3.331×**, and the retracted-run point-lookup and seek figures to **1.457×** and **1.512×**. The fat-node layout was degrading the skiplist's cache locality exactly as suspected, and the corrected ratios are the smaller, honest ones.
-
-*(Throughput rows measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8, run [33398474866](https://github.com/orieg/expanse/actions/runs/33398474866), commit `6cb64b45`; `benches/bench_memtable.cc` built `-O3` against release `libexpanse.so`; 100,000 keys, 16-byte key, 64-byte value payload; **5 rounds, mean with BCa 95% bootstrap intervals** (2,000 resamples, seed 42) harvested by `scripts/rocksdb_bench_harvest.py` into [`results/baseline_rocksdb.json`](../../results/baseline_rocksdb.json); every bracketed pair is that arm's interval, and each ratio is a two-sample BCa interval whose **lower bound** clears 1.0. SkipList arm = the fair variable-height baseline. Memory row: deterministic seeded byte accounting, re-measured with the fair variable-height baseline at the #372 fix commit (Apple M1, 8 cores, Apple clang 21, `-O3`; reproduced twice; Expanse/VectorRep cells reproduce the reference-host values byte-for-byte). `SkipListRep`/`VectorRep` are the in-file reference implementations, not stock RocksDB.)*
-
-| Benchmark Metric | ExpanseMemTable | Reference SkipListRep | VectorRep | Expanse vs SkipList |
-|---|---:|---:|---:|---|
-| **Memory Footprint** (100K keys) | **1.26 MB** (13.2 B/entry) | 1.8 MB (18.7 B/entry, fair baseline) | **1.0 MB (10.5 B/entry)** | **1.42× Higher Key Density** (VectorRep is denser than both) |
-| **Fill Random** (`fillrandom` insert) | **4.42 Mops/s** [4.36, 4.53] | 3.15 Mops/s [3.12, 3.16] | 202.65 Mops/s | **1.406×** [1.385, 1.442] |
-| **Point Lookup** (`readrandom`) | **3.79 Mops/s** [3.76, 3.81] | 2.60 Mops/s [2.58, 2.61] | 1.83 Mops/s | **1.457×** [1.444, 1.470] |
-| **Range Seek** (`seekrandom`) | **3.67 Mops/s** [3.62, 3.70] | 2.43 Mops/s [2.37, 2.45] | 3.94 Mops/s | **1.512×** [1.492, 1.546] |
-| **Sequential Scan** (`prefixscan` Iterator) | **154.18 Mops/s** [151.17, 156.15] | 46.29 Mops/s [44.28, 47.86] | 614.20 Mops/s | **3.331×** [3.198, 3.486] |
-| **Batch Scan** (`ScanBatch` 1024-chunk) | **116.82 Mops/s** [114.88, 118.43] | 46.29 Mops/s [44.28, 47.86] | 614.20 Mops/s | **2.524×** [2.421, 2.644] |
-
-> `VectorRep` (an unordered append-only vector) wins on insert and unordered scan by construction — and on raw memory density (10.5 B/entry) — but cannot serve ordered range seeks; it is included as a throughput/density ceiling, not an ordered-index competitor.
+**In one paragraph.** ExpanseMemTable achieves **1.42× higher key density in RAM** than a fair variable-height skiplist baseline (13.2 vs 18.7 B/entry, deterministic byte accounting at the #372 fix commit) and **3.331× faster sequential scans** (BCa 95% CI [3.198, 3.486]), **1.457× faster point lookups** [1.444, 1.470], and **1.512× faster range seeks** [1.492, 1.546] *(measured: reference host — Intel i9-12900F, run [33398474866](https://github.com/orieg/expanse/actions/runs/33398474866), commit `6cb64b45`, 5 rounds; (workload: rocksdb_memtable); artifact [`docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json`](../../docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json))*. `VectorRep` (unordered append vector) scans faster and is denser still (10.5 B/entry) but cannot serve ordered seeks.
 
 ---
 

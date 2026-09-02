@@ -20,8 +20,8 @@ Two metric classes, handled differently on purpose:
     not missing (§8.4 scopes CI requirements to continuous metrics).
 
 Usage:
-    python3 scripts/rocksdb_bench_harvest.py --round r1.txt --round r2.txt ... \\
-        --out results/baseline_rocksdb.json --host-desc "..." --commit ... --run-id ...
+    python3 scripts/rocksdb_bench_harvest.py --round r1.txt --round r2.txt ... \
+        --out docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json --host-desc "..." --commit ... --run-id ...
     python3 scripts/rocksdb_bench_harvest.py --self-test
 """
 
