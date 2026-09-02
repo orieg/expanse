@@ -6,11 +6,16 @@ firmware for both cores of an STM32H747I-DISCO that links `libexpanse.a`
 `benches/embedded_memtable.rs` fixtures — for Expanse and three alternatives
 — plus the `sync32` interrupt-handler contract on each core and the
 cross-core reader cells, reporting DWT cycle counts over the ST-LINK V3
-virtual COM port. Tracking issue: #598. Measured results and their reading
-live in `docs/BENCHMARKING.md` ("Cortex-M7 on-target"); the committed
-artifacts are `docs/benchmarks/stm32h747/{transcript.txt,results.json}` and
-the derived charts `docs/assets/bench_stm32h747*.svg`
-(`scripts/generate_stm32_svg.py`).
+virtual COM port. Tracking issue: #598. Results, charts and their reading live in
+`docs/benchmarks/stm32h747/` (the suite directory, same shape as the other
+`docs/benchmarks/` suites); the full tables are in `docs/BENCHMARKING.md`
+("Cortex-M7 on-target").
+
+## Results
+
+The measured results, the three charts and how to read each live in the suite directory, [`docs/benchmarks/stm32h747/`](../../docs/benchmarks/stm32h747/README.md) (results README, `METHODOLOGY.md` pre-registration record, `results.json`, `transcript.txt`, `run.sh`); the full tables are in [`docs/BENCHMARKING.md`](../../docs/BENCHMARKING.md) "Cortex-M7 on-target".
+
+**In one paragraph.** Expanse runs correctly on both cores; the cache-line node layout measurably pays off on the M7; and its interrupt-safe reads bound interrupt latency in a way that masking interrupts cannot. Against the structures firmware usually reaches for it loses raw point lookups and unordered inserts, and wins steady-state ordered expiry, memory density on dense keys, and the interrupt contract. Across two cores it is correct only with an uncached shared heap, and even then the second core's slow reads limit it to modest write rates.
 
 ## What runs
 
