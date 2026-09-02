@@ -40,6 +40,11 @@ mod compat;
 #[cfg(target_pointer_width = "64")]
 pub use compat::*;
 pub mod modern;
+// The 32-bit-only concurrent surface: `sync32` needs no `std`, so this is
+// present in every 32-bit build (see the `!EXPANSE_WIDE_SURFACE` block of
+// `include/expanse.h`).
+#[cfg(target_pointer_width = "32")]
+pub mod modern_sync32;
 
 #[cfg(target_pointer_width = "64")]
 use expanse_trie::ExpanseMap;

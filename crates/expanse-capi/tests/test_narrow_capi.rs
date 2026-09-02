@@ -63,3 +63,279 @@ fn remove_range_reports_ascending_and_counts() {
         expanse_map_free(m);
     }
 }
+
+// ---- expanse_sync32_*: the 32-bit concurrent surface ----
+
+mod sync32_surface {
+    use core::ffi::CStr;
+    use expanse::modern_sync32::{
+        ExpanseSync32Stats, ExpanseSync32Status, expanse_sync32_map_free, expanse_sync32_map_new,
+        expanse_sync32_map_reader, expanse_sync32_map_reader_try_get,
+        expanse_sync32_map_reader_try_len, expanse_sync32_map_writer,
+        expanse_sync32_map_writer_get, expanse_sync32_map_writer_stats,
+        expanse_sync32_map_writer_try_insert, expanse_sync32_map_writer_try_reclaim,
+        expanse_sync32_map_writer_try_remove, expanse_sync32_mutation_headroom,
+        expanse_sync32_set_free, expanse_sync32_set_new, expanse_sync32_set_reader,
+        expanse_sync32_set_reader_try_contains, expanse_sync32_set_writer,
+        expanse_sync32_set_writer_contains, expanse_sync32_set_writer_try_insert,
+        expanse_sync32_set_writer_try_remove, expanse_sync32_status_str,
+    };
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn map_flow_status_codes_and_handles() {
+        let headroom = expanse_sync32_mutation_headroom();
+        assert!(headroom >= 1);
+        // Below the headroom: refused at construction.
+        assert!(expanse_sync32_map_new(headroom - 1, 1).is_null());
+        // SAFETY: every handle comes from this container and is used from
+        // one thread; the container is freed once, last.
+        unsafe {
+            let m = expanse_sync32_map_new(4096, 2);
+            assert!(!m.is_null());
+            let w = expanse_sync32_map_writer(m);
+            assert!(!w.is_null());
+            assert_eq!(
+                expanse_sync32_map_writer(m),
+                w,
+                "writer accessor is idempotent"
+            );
+            let r0 = expanse_sync32_map_reader(m, 0);
+            let r1 = expanse_sync32_map_reader(m, 1);
+            assert!(!r0.is_null() && !r1.is_null() && r0 != r1);
+            assert_eq!(
+                expanse_sync32_map_reader(m, 0),
+                r0,
+                "reader accessor is idempotent"
+            );
+            assert!(
+                expanse_sync32_map_reader(m, 2).is_null(),
+                "out of range index"
+            );
+
+            let mut replaced = true;
+            let mut old = 0u32;
+            assert_eq!(
+                expanse_sync32_map_writer_try_insert(w, 7, 70, &raw mut replaced, &raw mut old),
+                ExpanseSync32Status::Ok
+            );
+            assert!(!replaced);
+            assert_eq!(
+                expanse_sync32_map_writer_try_insert(w, 7, 71, &raw mut replaced, &raw mut old),
+                ExpanseSync32Status::Ok
+            );
+            assert!(replaced);
+            assert_eq!(old, 70);
+
+            let mut v = 0u32;
+            assert!(expanse_sync32_map_writer_get(w, 7, &raw mut v));
+            assert_eq!(v, 71);
+            assert!(!expanse_sync32_map_writer_get(w, 8, &raw mut v));
+
+            assert_eq!(
+                expanse_sync32_map_reader_try_get(r0, 7, &raw mut v),
+                ExpanseSync32Status::Ok
+            );
+            assert_eq!(v, 71);
+            assert_eq!(
+                expanse_sync32_map_reader_try_get(r1, 8, &raw mut v),
+                ExpanseSync32Status::NotFound
+            );
+            let mut n = 0u64;
+            assert_eq!(
+                expanse_sync32_map_reader_try_len(r0, &raw mut n),
+                ExpanseSync32Status::Ok
+            );
+            assert_eq!(n, 1);
+
+            let mut st = ExpanseSync32Stats::default();
+            assert_eq!(
+                expanse_sync32_map_writer_stats(
+                    w,
+                    &raw mut st,
+                    core::mem::size_of::<ExpanseSync32Stats>()
+                ),
+                ExpanseSync32Status::Ok
+            );
+            assert_eq!(st.len, 1);
+            assert!(st.free_slots > headroom && st.mem_used > 0);
+            // A caller compiled against a shorter prefix gets only that prefix.
+            let mut short = ExpanseSync32Stats {
+                len: 99,
+                ..Default::default()
+            };
+            assert_eq!(
+                expanse_sync32_map_writer_stats(w, &raw mut short, core::mem::size_of::<u64>()),
+                ExpanseSync32Status::Ok
+            );
+            assert_eq!(short.len, 1);
+            assert_eq!(short.free_slots, 0, "beyond the prefix is untouched");
+
+            assert_eq!(
+                expanse_sync32_map_writer_try_remove(w, 8, &raw mut old),
+                ExpanseSync32Status::NotFound
+            );
+            assert_eq!(
+                expanse_sync32_map_writer_try_remove(w, 7, &raw mut old),
+                ExpanseSync32Status::Ok
+            );
+            assert_eq!(old, 71);
+            assert_eq!(
+                expanse_sync32_map_writer_try_reclaim(w),
+                ExpanseSync32Status::Ok
+            );
+
+            // Null handles are a status, never a crash, in release builds.
+            if cfg!(not(debug_assertions)) {
+                assert_eq!(
+                    expanse_sync32_map_reader_try_get(core::ptr::null_mut(), 1, &raw mut v),
+                    ExpanseSync32Status::NullHandle
+                );
+            }
+            expanse_sync32_map_free(m);
+            expanse_sync32_map_free(core::ptr::null_mut());
+        }
+        for (code, name) in [
+            (0, "ok"),
+            (1, "not_found"),
+            (2, "busy"),
+            (16, "arena_full"),
+            (17, "reclaim_backlog"),
+            (32, "null_handle"),
+            (99, "unknown"),
+        ] {
+            // SAFETY: static NUL-terminated strings.
+            let s = unsafe { CStr::from_ptr(expanse_sync32_status_str(code)) };
+            assert_eq!(s.to_str().unwrap(), name);
+        }
+    }
+
+    #[test]
+    fn set_flow() {
+        // SAFETY: as in the map flow.
+        unsafe {
+            let s = expanse_sync32_set_new(4096, 1);
+            let w = expanse_sync32_set_writer(s);
+            let r = expanse_sync32_set_reader(s, 0);
+            let mut inserted = false;
+            assert_eq!(
+                expanse_sync32_set_writer_try_insert(w, 5, &raw mut inserted),
+                ExpanseSync32Status::Ok
+            );
+            assert!(inserted);
+            assert_eq!(
+                expanse_sync32_set_writer_try_insert(w, 5, &raw mut inserted),
+                ExpanseSync32Status::Ok
+            );
+            assert!(!inserted);
+            assert!(expanse_sync32_set_writer_contains(w, 5));
+            assert_eq!(
+                expanse_sync32_set_reader_try_contains(r, 5),
+                ExpanseSync32Status::Ok
+            );
+            assert_eq!(
+                expanse_sync32_set_reader_try_contains(r, 6),
+                ExpanseSync32Status::NotFound
+            );
+            assert_eq!(
+                expanse_sync32_set_writer_try_remove(w, 6),
+                ExpanseSync32Status::NotFound
+            );
+            assert_eq!(
+                expanse_sync32_set_writer_try_remove(w, 5),
+                ExpanseSync32Status::Ok
+            );
+            expanse_sync32_set_free(s);
+        }
+    }
+
+    /// The Rust stress shape through the C surface: a writer thread churns
+    /// a disjoint key range while readers on their own handles read stable
+    /// keys and must see exactly their values — or BUSY, never a torn one.
+    #[test]
+    fn readers_see_stable_keys_under_writer_churn() {
+        const STABLE: u32 = 256;
+        let m = expanse_sync32_map_new(16_384, 2);
+        assert!(!m.is_null());
+        // SAFETY: the writer handle is used from one thread, each reader
+        // handle from one thread, all joined before the container is freed.
+        unsafe {
+            let w = expanse_sync32_map_writer(m);
+            for k in 0..STABLE {
+                assert_eq!(
+                    expanse_sync32_map_writer_try_insert(
+                        w,
+                        k,
+                        k ^ 0xABCD,
+                        core::ptr::null_mut(),
+                        core::ptr::null_mut()
+                    ),
+                    ExpanseSync32Status::Ok
+                );
+            }
+        }
+        let stop = AtomicBool::new(false);
+        let m_addr = m as usize;
+        std::thread::scope(|s| {
+            for idx in 0..2usize {
+                let stop = &stop;
+                s.spawn(move || {
+                    // SAFETY: reader `idx` belongs to this thread alone.
+                    let r = unsafe { expanse_sync32_map_reader(m_addr as *mut _, idx) };
+                    let (mut ok, mut busy) = (0u32, 0u32);
+                    let mut k = 0u32;
+                    while !stop.load(Ordering::Relaxed) || ok < 10_000 {
+                        let mut v = 0u32;
+                        // SAFETY: handle contract above.
+                        match unsafe {
+                            expanse_sync32_map_reader_try_get(r, k % STABLE, &raw mut v)
+                        } {
+                            ExpanseSync32Status::Ok => {
+                                assert_eq!(v, (k % STABLE) ^ 0xABCD, "stable key torn");
+                                ok += 1;
+                            }
+                            ExpanseSync32Status::Busy => busy += 1,
+                            other => panic!("unexpected status {other:?}"),
+                        }
+                        k = k.wrapping_add(7);
+                        if ok >= 10_000 && stop.load(Ordering::Relaxed) {
+                            break;
+                        }
+                    }
+                    assert!(busy < 100_000_000, "reader starved");
+                });
+            }
+            // SAFETY: the writer handle is used from this thread only.
+            unsafe {
+                let w = expanse_sync32_map_writer(m_addr as *mut _);
+                let mut refused = 0u32;
+                for i in 0..40_000u32 {
+                    let k = STABLE + (i.wrapping_mul(2_654_435_761) % 4096);
+                    let st = if i % 3 == 2 {
+                        expanse_sync32_map_writer_try_remove(w, k, core::ptr::null_mut())
+                    } else {
+                        expanse_sync32_map_writer_try_insert(
+                            w,
+                            k,
+                            i,
+                            core::ptr::null_mut(),
+                            core::ptr::null_mut(),
+                        )
+                    };
+                    match st {
+                        ExpanseSync32Status::Ok | ExpanseSync32Status::NotFound => {}
+                        ExpanseSync32Status::ArenaFull | ExpanseSync32Status::ReclaimBacklog => {
+                            refused += 1;
+                            expanse_sync32_map_writer_try_reclaim(w);
+                        }
+                        other => panic!("unexpected writer status {other:?}"),
+                    }
+                }
+                assert!(refused < 40_000, "writer permanently refused");
+            }
+            stop.store(true, Ordering::Relaxed);
+        });
+        // SAFETY: every thread that held a handle has been joined.
+        unsafe { expanse_sync32_map_free(m) };
+    }
+}

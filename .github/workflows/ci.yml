@@ -862,7 +862,7 @@ jobs:
         run: |
           cargo build --release -p expanse-capi --target i686-unknown-linux-gnu
           cc -m32 crates/expanse-capi/smoke/narrow_api_smoke.c -Iinclude \
-            -Ltarget/i686-unknown-linux-gnu/release -lexpanse -o narrow_smoke
+            -Ltarget/i686-unknown-linux-gnu/release -lexpanse -lpthread -o narrow_smoke
           LD_LIBRARY_PATH="$PWD/target/i686-unknown-linux-gnu/release" ./narrow_smoke
 
   test-musl:

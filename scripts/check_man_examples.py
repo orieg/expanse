@@ -37,6 +37,13 @@ from pathlib import Path
 # failure rather than a silent skip.
 NO_EXAMPLE_PAGES = {"Judy.3"}
 
+# Pages whose symbols exist only in a 32-bit libexpanse (the
+# `!EXPANSE_WIDE_SURFACE` block of expanse.h). Their EXAMPLES program must be
+# present — it is the reference usage — but it cannot link against the
+# 64-bit host library this checker builds against; the i686 CI lane compiles
+# and runs the same shape with -m32 (crates/expanse-capi/smoke/narrow_api_smoke.c).
+NARROW_SURFACE_PAGES = {"expanse_sync32.3"}
+
 OUTPUT_HEADING = "Example Output"
 
 
@@ -161,6 +168,13 @@ def main() -> int:
         if code is None:
             if page.name not in NO_EXAMPLE_PAGES:
                 errors.append(f"{page.name}: no runnable EXAMPLES program found (add one, or list the page in NO_EXAMPLE_PAGES)")
+            continue
+
+        if page.name in NARROW_SURFACE_PAGES:
+            # Present and syntactically a program, but only linkable at 32-bit.
+            if "int main(" not in code:
+                errors.append(f"{page.name}: narrow-surface EXAMPLES block is not a program")
+            print(f"  {page.name}: 32-bit-only surface — example present, verified on the i686 lane, not built here")
             continue
 
         documented = extract_documented_output(src)

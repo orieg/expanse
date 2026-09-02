@@ -1,0 +1,230 @@
+.TH EXPANSE_SYNC32 3 "2026-09-01" "libexpanse" "Expanse C Library Manual"
+.SH NAME
+expanse_sync32_map_new, expanse_sync32_map_free, expanse_sync32_map_writer, \
+expanse_sync32_map_reader, expanse_sync32_map_writer_try_insert, \
+expanse_sync32_map_writer_try_remove, expanse_sync32_map_writer_try_reclaim, \
+expanse_sync32_map_writer_get, expanse_sync32_map_writer_stats, \
+expanse_sync32_map_reader_try_get, expanse_sync32_map_reader_try_len, \
+expanse_sync32_set_new, expanse_sync32_set_free, expanse_sync32_set_writer, \
+expanse_sync32_set_reader, expanse_sync32_set_writer_try_insert, \
+expanse_sync32_set_writer_try_remove, expanse_sync32_set_writer_try_reclaim, \
+expanse_sync32_set_writer_contains, expanse_sync32_set_writer_stats, \
+expanse_sync32_set_reader_try_contains, expanse_sync32_set_reader_try_len, \
+expanse_sync32_mutation_headroom, expanse_sync32_status_str \
+\- one-writer, single-attempt optimistic-reader map and set (32-bit only)
+.SH SYNOPSIS
+.B #include <expanse.h>
+.PP
+.BI "typedef enum { ... } expanse_sync32_status_t;"
+.br
+.BI "typedef struct { ... } expanse_sync32_stats_t;"
+.br
+.BI "typedef struct expanse_sync32_map expanse_sync32_map_t;"
+.br
+.BI "typedef struct expanse_sync32_map_writer expanse_sync32_map_writer_t;"
+.br
+.BI "typedef struct expanse_sync32_map_reader expanse_sync32_map_reader_t;"
+.PP
+.BI "size_t      expanse_sync32_mutation_headroom(void);"
+.br
+.BI "const char *expanse_sync32_status_str(int " status ");"
+.PP
+.BI "expanse_sync32_map_t *expanse_sync32_map_new(size_t " node_cap ","
+.BI "                                             size_t " max_readers ");"
+.br
+.BI "void expanse_sync32_map_free(expanse_sync32_map_t *" map ");"
+.br
+.BI "expanse_sync32_map_writer_t *expanse_sync32_map_writer("
+.BI "        expanse_sync32_map_t *" map ");"
+.br
+.BI "expanse_sync32_map_reader_t *expanse_sync32_map_reader("
+.BI "        expanse_sync32_map_t *" map ", size_t " idx ");"
+.PP
+.BI "expanse_sync32_status_t expanse_sync32_map_writer_try_insert("
+.BI "        expanse_sync32_map_writer_t *" w ", expanse_word_t " key ","
+.BI "        expanse_word_t " value ", bool *" replaced_out ","
+.BI "        expanse_word_t *" old_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_writer_try_remove("
+.BI "        expanse_sync32_map_writer_t *" w ", expanse_word_t " key ","
+.BI "        expanse_word_t *" old_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_writer_try_reclaim("
+.BI "        expanse_sync32_map_writer_t *" w ");"
+.br
+.BI "bool expanse_sync32_map_writer_get("
+.BI "        const expanse_sync32_map_writer_t *" w ","
+.BI "        expanse_word_t " key ", expanse_word_t *" value_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_writer_stats("
+.BI "        const expanse_sync32_map_writer_t *" w ","
+.BI "        expanse_sync32_stats_t *" stats ", size_t " stats_size ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_reader_try_get("
+.BI "        expanse_sync32_map_reader_t *" r ", expanse_word_t " key ","
+.BI "        expanse_word_t *" value_out ");"
+.br
+.BI "expanse_sync32_status_t expanse_sync32_map_reader_try_len("
+.BI "        expanse_sync32_map_reader_t *" r ", uint64_t *" len_out ");"
+.PP
+The
+.B expanse_sync32_set_*
+family has the same shape:
+.BR expanse_sync32_set_new ", " expanse_sync32_set_free ","
+.BR expanse_sync32_set_writer ", " expanse_sync32_set_reader ","
+.BR expanse_sync32_set_writer_try_insert " (" key ", " "bool *inserted_out" "),"
+.BR expanse_sync32_set_writer_try_remove " (" key "),"
+.BR expanse_sync32_set_writer_try_reclaim ", "
+.BR expanse_sync32_set_writer_contains " (" key ") -> bool,"
+.BR expanse_sync32_set_writer_stats ", "
+.BR expanse_sync32_set_reader_try_contains " (" key "), and"
+.BR expanse_sync32_set_reader_try_len .
+.SH DESCRIPTION
+The 32-bit engine's concurrent surface, present in every 32-bit
+.B libexpanse
+(std or not) and absent from 64-bit builds, which carry
+.BR expanse_sync (3)
+instead. Declared inside
+.B #if !EXPANSE_WIDE_SURFACE
+in
+.IR expanse.h ,
+which also defines
+.B EXPANSE_HAS_SYNC32
+for capability tests.
+.PP
+.B Protocol.
+Blocking optimistic lock coupling, single attempt, no mutex fallback \(em
+not lock-free. The writer brackets every mutation with a version bump; a
+reader samples the version, walks, and validates. A read that overlaps an
+open bracket, or observes torn content, returns
+.B EXPANSE_SYNC32_BUSY
+immediately and never spins: on a single-core part, BUSY inside an
+interrupt handler means the handler preempted the writer inside its
+bracket, and the writer cannot progress until the handler returns. Surface
+BUSY and retry on the next invocation. The wrapper is atomic load/store
+plus fences only \(em no compare-and-swap, which the riscv32imc parts lack.
+.PP
+.B Memory.
+Fixed capacity by design.
+.I node_cap
+node slots and
+.I max_readers
+reader slots (64 bytes each) are reserved by
+.B _new
+and never grow. A mutation needing more than
+.BR expanse_sync32_mutation_headroom ()
+free slots is refused with
+.BR EXPANSE_SYNC32_ARENA_FULL ;
+one that cannot reclaim because a reader is inside a walk is refused with
+.BR EXPANSE_SYNC32_RECLAIM_BACKLOG .
+A refused mutation leaves the tree untouched. Freed nodes are parked until
+every reader is observed outside a walk; that wait is not time-bounded.
+Writer calls allocate (a bracket may contain up to the headroom's worth of
+allocator calls) and free; reader
+.B try_*
+calls never allocate and never block.
+.PP
+.B Handles and execution contexts.
+The writer handle is one per container, used from one execution context at
+a time, not reentrant, and never used from an interrupt handler. A reader
+handle is one per execution context: a main loop and the interrupt handler
+that preempts it use different indices \(em sharing one is a
+use-after-free in waiting (the inner walk's exit unpins the outer walk).
+Reader
+.B try_*
+calls are the only interrupt-safe entry points. Handles are owned by the
+container and dangle after
+.BR _free ,
+which must run with reader interrupts masked, reader tasks joined, and no
+writer call in progress. The contract holds within one hart; readers on
+another core are not supported by this version.
+.PP
+.B Status codes
+come in three bands: outcomes
+.RB ( OK "=0, " NOT_FOUND "=1, " BUSY =2),
+refusals that leave the tree untouched
+.RB ( ARENA_FULL "=16, " RECLAIM_BACKLOG =17),
+and usage errors asserted in debug builds
+.RB ( NULL_HANDLE =32).
+Each function's header comment lists the values it can return;
+.BR expanse_sync32_status_str ()
+names any value. New values may be added within a band.
+.TP
+.BI "expanse_sync32_map_t *expanse_sync32_map_new(size_t " node_cap ","
+.BI "                                             size_t " max_readers ");"
+Returns NULL if
+.I node_cap
+is below the headroom (or on an allocation abort path).
+.TP
+.BI "expanse_sync32_map_writer_t *expanse_sync32_map_writer("
+.BI "        expanse_sync32_map_t *" map ");"
+.TQ
+.BI "expanse_sync32_map_reader_t *expanse_sync32_map_reader("
+.BI "        expanse_sync32_map_t *" map ", size_t " idx ");"
+Idempotent accessors: the same pointer every call, no allocation, no
+atomics. NULL for a NULL container or an out-of-range index.
+.TP
+.BI "expanse_sync32_map_writer_stats(" w ", " stats ", " stats_size ")"
+Fills the first
+.I stats_size
+bytes of an append-only struct: pass
+.BR sizeof(*stats) .
+.TP
+.BI "expanse_sync32_map_writer_try_remove(" w ", " key ", " old_out ")"
+Headroom is checked before the lookup, so an absent key can still be
+refused with a capacity status.
+.SH EXAMPLES
+The canonical shape: the main task owns the writer; one interrupt context
+reads through its own handle and treats BUSY as "try again next time".
+This page's program links only against a 32-bit
+.BR libexpanse ;
+the i686 CI lane compiles and runs the same shape with
+.BR \-m32 .
+.PP
+.nf
+#include <stdio.h>
+#include "expanse.h"
+
+static expanse_sync32_map_t *table;
+
+/* Interrupt context: reader 0, single attempt, never spins. */
+static void on_frame_isr(uint32_t id, uint32_t *value_out) {
+    expanse_sync32_map_reader_t *r = expanse_sync32_map_reader(table, 0);
+    switch (expanse_sync32_map_reader_try_get(r, id, value_out)) {
+    case EXPANSE_SYNC32_OK:        /* consistent value */            break;
+    case EXPANSE_SYNC32_NOT_FOUND: *value_out = 0;                  break;
+    case EXPANSE_SYNC32_BUSY:      /* preempted the writer: retry
+                                      on the next interrupt */       break;
+    default:                       /* NULL_HANDLE: a bug */          break;
+    }
+}
+
+int main(void) {
+    table = expanse_sync32_map_new(4096, 1);       /* 4096 nodes, 1 reader */
+    if (!table) return 1;                          /* below the headroom */
+    expanse_sync32_map_writer_t *w = expanse_sync32_map_writer(table);
+
+    /* Main task: the only writer. A refusal leaves the table untouched. */
+    expanse_sync32_status_t st = expanse_sync32_map_writer_try_insert(
+        w, 0x123, 42, NULL, NULL);
+    if (st != EXPANSE_SYNC32_OK)
+        printf("insert refused: %s\n", expanse_sync32_status_str((int)st));
+
+    uint32_t v = 0;
+    on_frame_isr(0x123, &v);                       /* stand-in for the ISR */
+    printf("id 0x123 -> %u\n", v);
+
+    expanse_sync32_stats_t stats;
+    expanse_sync32_map_writer_stats(w, &stats, sizeof stats);
+    printf("len %llu, free slots %zu\n",
+           (unsigned long long)stats.len, stats.free_slots);
+
+    /* Mask the reader interrupt and join reader tasks before freeing. */
+    expanse_sync32_map_free(table);
+    return 0;
+}
+.fi
+.SH SEE ALSO
+.BR expanse (3),
+.BR expanse_map (3),
+.BR expanse_sync (3)

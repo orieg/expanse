@@ -31,7 +31,7 @@ pub type CWord = u32;
 
 /// Writes `v` through `out` when `out` is non-null.
 #[inline]
-unsafe fn put<T>(out: *mut T, v: T) {
+pub(crate) unsafe fn put<T>(out: *mut T, v: T) {
     if !out.is_null() {
         // SAFETY: non-null, caller-provided writable u64 per the C contract.
         unsafe { *out = v };

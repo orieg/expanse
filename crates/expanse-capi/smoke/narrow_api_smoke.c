@@ -5,8 +5,11 @@
  * a real C link, not only through the Rust-side test.
  */
 #include <assert.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
+#include <time.h>
 #include "expanse.h"
 
 #if EXPANSE_WIDE_SURFACE
@@ -27,6 +30,99 @@ static void on_removed(expanse_word_t key, expanse_word_t value, void *ctx) {
     a->n++;
 }
 
+/*
+ * expanse_sync32_*: verifies the ABI plumbing and liveness through a real
+ * C link with real threads — one writer thread paced to ~100k mutations/s
+ * on a churn range, two reader threads on their own handles reading
+ * stable keys, which must come back exactly or BUSY, never torn. The
+ * deterministic synchronization-boundary tests live on the Rust side.
+ */
+#define S32_STABLE 256u
+#define S32_READERS 2
+
+struct s32_reader_arg {
+    expanse_sync32_map_t *map;
+    size_t idx;
+    volatile int *stop;
+    uint32_t ok, busy, max_busy_streak;
+};
+
+static void *s32_reader(void *p) {
+    struct s32_reader_arg *a = p;
+    expanse_sync32_map_reader_t *r = expanse_sync32_map_reader(a->map, a->idx);
+    assert(r);
+    uint32_t streak = 0, k = 0;
+    while (!*a->stop || a->ok < 20000u) {
+        expanse_word_t v = 0;
+        expanse_sync32_status_t st = expanse_sync32_map_reader_try_get(r, k % S32_STABLE, &v);
+        if (st == EXPANSE_SYNC32_OK) {
+            assert(v == ((k % S32_STABLE) ^ 0xABCDu)); /* stable key must never tear */
+            a->ok++;
+            streak = 0;
+        } else if (st == EXPANSE_SYNC32_BUSY) {
+            a->busy++;
+            if (++streak > a->max_busy_streak) a->max_busy_streak = streak;
+        } else {
+            fprintf(stderr, "reader %zu: unexpected status %s\n", a->idx, expanse_sync32_status_str((int)st));
+            assert(0);
+        }
+        k += 7;
+        if (a->ok >= 20000u && *a->stop) break;
+    }
+    return NULL;
+}
+
+static void sync32_smoke(void) {
+    assert(expanse_sync32_map_new(expanse_sync32_mutation_headroom() - 1, 1) == NULL);
+    expanse_sync32_map_t *m = expanse_sync32_map_new(16384, S32_READERS);
+    assert(m);
+    expanse_sync32_map_writer_t *w = expanse_sync32_map_writer(m);
+    assert(w && expanse_sync32_map_writer(m) == w);
+    assert(expanse_sync32_map_reader(m, S32_READERS) == NULL);
+    for (uint32_t k = 0; k < S32_STABLE; k++) {
+        assert(expanse_sync32_map_writer_try_insert(w, k, k ^ 0xABCDu, NULL, NULL) == EXPANSE_SYNC32_OK);
+    }
+    expanse_sync32_stats_t st;
+    memset(&st, 0, sizeof st);
+    assert(expanse_sync32_map_writer_stats(w, &st, sizeof st) == EXPANSE_SYNC32_OK);
+    assert(st.len == S32_STABLE && st.free_slots > expanse_sync32_mutation_headroom());
+
+    volatile int stop = 0;
+    pthread_t tids[S32_READERS];
+    struct s32_reader_arg args[S32_READERS];
+    for (size_t i = 0; i < S32_READERS; i++) {
+        args[i] = (struct s32_reader_arg){ .map = m, .idx = i, .stop = &stop, .ok = 0, .busy = 0, .max_busy_streak = 0 };
+        assert(pthread_create(&tids[i], NULL, s32_reader, &args[i]) == 0);
+    }
+    /* Writer paced to ~100k mutations/s (10 us period) on a disjoint range. */
+    uint32_t refused = 0;
+    struct timespec pace = { 0, 10000 };
+    for (uint32_t i = 0; i < 20000u; i++) {
+        uint32_t k = S32_STABLE + (i * 2654435761u) % 4096u;
+        expanse_sync32_status_t s = (i % 3 == 2)
+            ? expanse_sync32_map_writer_try_remove(w, k, NULL)
+            : expanse_sync32_map_writer_try_insert(w, k, i, NULL, NULL);
+        if (s == EXPANSE_SYNC32_ARENA_FULL || s == EXPANSE_SYNC32_RECLAIM_BACKLOG) {
+            refused++;
+            expanse_sync32_map_writer_try_reclaim(w);
+        } else {
+            assert(s == EXPANSE_SYNC32_OK || s == EXPANSE_SYNC32_NOT_FOUND);
+        }
+        nanosleep(&pace, NULL);
+    }
+    stop = 1;
+    for (size_t i = 0; i < S32_READERS; i++) assert(pthread_join(tids[i], NULL) == 0);
+    for (size_t i = 0; i < S32_READERS; i++) {
+        printf("sync32 reader %zu: ok=%u busy=%u max_busy_streak=%u\n", i, args[i].ok, args[i].busy, args[i].max_busy_streak);
+        assert(args[i].ok >= 20000u);
+    }
+    printf("sync32 writer: refused=%u\n", refused);
+    assert(refused < 20000u);
+    /* Every handle owner is joined: free is now allowed. */
+    expanse_sync32_map_free(m);
+    expanse_sync32_map_free(NULL);
+}
+
 int main(void) {
     expanse_map_t *m = expanse_map_new();
     assert(m);
@@ -43,6 +139,8 @@ int main(void) {
     assert(expanse_map_remove_range(m, 0, UINT32_MAX, NULL, NULL) == 1000 - 91);
     assert(expanse_map_len(m) == 0);
     expanse_map_free(m);
+
+    sync32_smoke();
     puts("narrow_api_smoke: OK");
     return 0;
 }
