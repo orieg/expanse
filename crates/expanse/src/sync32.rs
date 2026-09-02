@@ -23,11 +23,18 @@
 //!   dereferencing it, and again before trusting any result. The protocol
 //!   is **blocking**, not lock-free — a reader concurrent with an open
 //!   bracket reports [`Busy`] instead of spinning (see below).
-//! - **Reclamation is degenerate quiescent-state-based**: freed nodes park
-//!   in a fixed pending list; the writer drains it only after observing
-//!   every reader outside a walk. Readers pin with one padded per-reader
-//!   flag (a store), never a shared counter — registration and pinning are
-//!   CAS-free.
+//! - **Reclamation is quiescent-state-based with a per-reader walk
+//!   counter**: freed nodes park in a fixed pending list. Each reader owns
+//!   a padded counter it alone writes (odd while inside a walk, even
+//!   outside — two plain stores per walk, never a shared counter, no
+//!   read-modify-write). The writer frees a parked node once every reader
+//!   has either been observed outside a walk since the node was retired or
+//!   has *passed through* a quiescent state since — its counter changed —
+//!   so the grace period is bounded by the longest single walk rather than
+//!   by catching every reader idle at one sampled instant (#594). When
+//!   every reader is outside at the moment of the check, everything
+//!   pending is freed at once, which is the common case at low reader
+//!   density.
 //!
 //! # Interrupt-handler contract
 //!
@@ -79,12 +86,21 @@
 //! races; this is the same industry-standard trade the 64-bit `sync`
 //! module documents, pending tearable-atomics support, and it is why the
 //! concurrent stress tests are excluded under Miri. The reclamation-fence
-//! construction (reader: store-pin then `SeqCst` fence then sample;
-//! writer: mutate/unlink, close bracket, `SeqCst` fence, then read pins)
-//! mirrors the store-buffer pairing the 64-bit `occ` module model-checked
-//! with loom: if the writer misses a reader's pin store, that reader's
-//! subsequent sample is fence-ordered after the writer's bracket close, so
-//! it walks the post-unlink tree and cannot reach a pending allocation.
+//! construction (reader: store the odd counter then `SeqCst` fence then
+//! sample; writer: mutate/unlink, close bracket, `SeqCst` fence, then
+//! load the counters) mirrors the store-buffer pairing the 64-bit `occ`
+//! module model-checked with loom: if the writer's snapshot misses a
+//! reader's pin store, that reader's subsequent sample is fence-ordered
+//! after the writer's bracket close, so it walks the post-unlink tree and
+//! cannot reach a pending allocation. The grace-period step rests on the
+//! same total order of `SeqCst` fences: the writer frees a node parked
+//! before snapshot fence `F1` once a later check fence `F2` observes every
+//! reader either even at `F1` or with a counter different from its `F1`
+//! value. A reader whose counter changed left the walk it was in at `F1`;
+//! any walk it started afterwards began with a pin store and fence that
+//! cannot precede `F1` in the fence order (or the snapshot would have read
+//! the later counter), so that walk sampled the version after the unlink
+//! and the bracket close, and cannot reach the node either.
 //!
 //! In-place mutation extends beyond the bitmap/branch subarray stores:
 //! linear-leaf inserts, removes, and value overwrites shift or store
@@ -133,13 +149,14 @@ pub enum WriteError {
     ReclaimBacklog,
 }
 
-/// One reader's pin flag, padded to its own cache line so concurrent
+/// One reader's walk counter, padded to its own cache line so concurrent
 /// readers never false-share (§2.1 invariant 4; 64 B covers both the
 /// 64-byte server lines and the 32-byte embedded lines).
 #[repr(align(64))]
 struct ReaderSlot {
-    /// Nonzero while the owning [`Reader32`] is inside a walk.
-    in_walk: AtomicU32,
+    /// Odd while the owning [`Reader32`] is inside a walk, even outside;
+    /// written only by that reader, with plain stores.
+    walk: AtomicU32,
 }
 
 /// The tree-level seqlock, padded so the word every reader polls does not
@@ -230,7 +247,7 @@ impl<T: Container32> Sync32<T> {
         let pending_cap = node_cap + 2 * MUTATION_HEADROOM;
         let mut slots = Vec::with_capacity(max_readers);
         slots.resize_with(max_readers, || ReaderSlot {
-            in_walk: AtomicU32::new(0),
+            walk: AtomicU32::new(0),
         });
         Self {
             inner: UnsafeCell::new(T::with_fixed_arena(node_cap, pending_cap)),
@@ -247,7 +264,7 @@ impl<T: Container32> Sync32<T> {
         fence(Ordering::SeqCst);
         self.readers
             .iter()
-            .any(|slot| slot.in_walk.load(Ordering::Acquire) != 0)
+            .any(|slot| slot.walk.load(Ordering::Acquire) & 1 == 1)
     }
 
     /// Splits into the unique writer handle and the reader-handle pool.
@@ -257,8 +274,14 @@ impl<T: Container32> Sync32<T> {
     /// compile-time property — no lock, no atomic RMW.
     pub fn split(&mut self) -> (Writer32<'_, T>, ReaderPool32<'_, T>) {
         let this: &Self = self;
+        let n = this.readers.len();
         (
-            Writer32 { owner: this },
+            Writer32 {
+                owner: this,
+                snapshot: core_alloc::vec![0u32; n].into_boxed_slice(),
+                snapshot_version: 0,
+                sealed: 0,
+            },
             ReaderPool32 {
                 owner: this,
                 next: 0,
@@ -310,19 +333,22 @@ impl<T: Container32> Reader32<'_, T> {
         // dereferences. On one hart the preemptor sees the outer store, so
         // this is exact proof of that misuse; it is the one part of the
         // one-handle-per-context contract that can be checked at all.
+        let v = slot.walk.load(Ordering::Relaxed);
         debug_assert!(
-            slot.in_walk.load(Ordering::Relaxed) == 0,
+            v & 1 == 0,
             "sync32 reader handle re-entered while inside a walk"
         );
-        slot.in_walk.store(1, Ordering::Relaxed);
-        // Pairs with the writer's pre-drain fence: if the writer misses
+        // Only this reader writes its counter, so load-then-store is the
+        // increment: no read-modify-write (the primary target has none).
+        slot.walk.store(v.wrapping_add(1), Ordering::Relaxed);
+        // Pairs with the writer's snapshot/check fence: if the writer misses
         // this pin, our sample below is fence-ordered after its bracket
         // close and we walk the post-unlink tree (see module docs).
         fence(Ordering::SeqCst);
         let out = walk(self.owner);
         // Release: our loads from tree memory complete before the unpin
-        // becomes visible to the draining writer.
-        slot.in_walk.store(0, Ordering::Release);
+        // becomes visible to the reclaiming writer.
+        slot.walk.store(v.wrapping_add(2), Ordering::Release);
         out
     }
 }
@@ -331,6 +357,14 @@ impl<T: Container32> Reader32<'_, T> {
 /// [`Sync32::split`].
 pub struct Writer32<'a, T: Container32> {
     owner: &'a Sync32<T>,
+    /// Every reader's walk counter as loaded when the current sealed
+    /// prefix of the pending list was sealed (writer-private).
+    snapshot: Box<[u32]>,
+    /// The tree version at that snapshot, for the wrap assertion.
+    snapshot_version: u32,
+    /// How many of the oldest pending entries the snapshot covers: they
+    /// were all retired before the snapshot fence. Zero when unsealed.
+    sealed: usize,
 }
 
 impl<T: Container32> Writer32<'_, T> {
@@ -372,17 +406,61 @@ impl<T: Container32> Writer32<'_, T> {
     /// automatically after mutations; exposed for proactive draining.
     pub fn try_reclaim(&mut self) -> bool {
         if self.inner().arena().pending_len() == 0 {
+            self.sealed = 0;
             return true;
         }
-        // Pairs with the readers' post-pin fence (module docs).
+        // Pairs with the readers' post-pin fence (module docs). One fence
+        // serves both the grace-period check on the sealed prefix and the
+        // fresh snapshot taken below.
         fence(Ordering::SeqCst);
-        for slot in self.owner.readers.iter() {
-            if slot.in_walk.load(Ordering::Acquire) != 0 {
-                return false;
+        let readers = &self.owner.readers;
+        let all_outside = readers
+            .iter()
+            .all(|slot| slot.walk.load(Ordering::Acquire) & 1 == 0);
+        if all_outside {
+            // Every reader is outside a walk right now: nothing parked can
+            // still be referenced. The common case at low reader density.
+            self.inner_mut().arena_mut().drain_pending();
+            self.sealed = 0;
+            return true;
+        }
+        if self.sealed > 0 {
+            // A reader still inside the very walk it was in at the snapshot
+            // (odd then, same value now) may hold a sealed node. Any other
+            // reader has passed through a quiescent state since.
+            let mut elapsed = true;
+            for (slot, &snap) in readers.iter().zip(self.snapshot.iter()) {
+                if snap & 1 == 1 && slot.walk.load(Ordering::Acquire) == snap {
+                    elapsed = false;
+                    break;
+                }
+            }
+            if elapsed {
+                let n = self.sealed;
+                self.inner_mut().arena_mut().drain_pending_prefix(n);
+                self.sealed = 0;
+            } else {
+                // A reader pinned across a full version wrap would validate a
+                // torn walk as consistent; treat 2^30 brackets under one pin
+                // as the fault it is, in debug builds.
+                let now = self.owner.version.0.try_sample().unwrap_or(0);
+                debug_assert!(
+                    now.wrapping_sub(self.snapshot_version) < (1 << 30),
+                    "sync32 reader pinned across a version wrap"
+                );
             }
         }
-        self.inner_mut().arena_mut().drain_pending();
-        true
+        let remaining = self.inner().arena().pending_len();
+        if remaining > 0 && self.sealed == 0 {
+            // Seal everything retired so far under a fresh snapshot; the
+            // next check frees it once the grace period has elapsed.
+            for (slot, snap) in readers.iter().zip(self.snapshot.iter_mut()) {
+                *snap = slot.walk.load(Ordering::Acquire);
+            }
+            self.snapshot_version = self.owner.version.0.try_sample().unwrap_or(0);
+            self.sealed = remaining;
+        }
+        self.inner().arena().pending_len() == 0
     }
 
     /// Runs one mutation inside the version bracket.
@@ -645,8 +723,10 @@ mod tests {
 
     /// Test-only access to a reader slot's pin flag through the writer's
     /// shared borrow (the `&mut` from `split` outlives the test body).
-    fn pin_flag<'a, T: Container32>(w: &Writer32<'a, T>, idx: usize) -> &'a AtomicU32 {
-        &w.owner.readers[idx].in_walk
+    /// A reader's walk counter, poked directly to model a reader parked
+    /// inside a walk (odd) or having left it (even) without a real thread.
+    fn walk_counter<'a, T: Container32>(w: &Writer32<'a, T>, idx: usize) -> &'a AtomicU32 {
+        &w.owner.readers[idx].walk
     }
 
     #[test]
@@ -681,7 +761,7 @@ mod tests {
         let (mut w, _) = m.split();
 
         // Simulate a reader parked inside a walk (e.g. a wedged task).
-        pin_flag(&w, 0).store(1, Ordering::Relaxed);
+        walk_counter(&w, 0).store(1, Ordering::Relaxed);
         let mut state = 1u32;
         let mut backlog = false;
         for i in 0..100_000u32 {
@@ -706,11 +786,77 @@ mod tests {
         );
         assert!(w.pending_len() > 0);
 
-        pin_flag(&w, 0).store(0, Ordering::Release);
+        walk_counter(&w, 0).store(2, Ordering::Release);
         assert!(w.try_reclaim(), "quiescent readers allow draining");
         assert_eq!(w.pending_len(), 0);
         assert_eq!(w.pending_bytes(), 0);
         w.try_insert(1, 1).expect("writes proceed after reclaim");
+    }
+
+    /// The #594 case the flag scheme could not handle: a reader that is
+    /// never observed idle but keeps passing through quiescent states.
+    /// Nodes sealed under a snapshot must drain once its counter has
+    /// changed, even though it is inside a (new) walk at check time.
+    #[test]
+    fn reader_that_passes_through_quiescence_lets_sealed_nodes_drain() {
+        let mut m = SyncExpanseMap32::with_capacity(4096, 2);
+        let (mut w, _) = m.split();
+        for k in 0..2000u32 {
+            w.try_insert(k, k).unwrap();
+        }
+        // Reader 0 is inside walk #1 (odd) while the writer retires nodes.
+        walk_counter(&w, 0).store(1, Ordering::Relaxed);
+        for k in 0..1500u32 {
+            w.try_remove(k).unwrap();
+        }
+        assert!(w.pending_len() > 0);
+        // The reclaim attempts inside those removes sealed a prefix; with
+        // the reader still in walk #1 nothing may drain.
+        assert!(!w.try_reclaim());
+        let parked = w.pending_len();
+        assert!(parked > 0);
+        // The reader exits walk #1 and is already inside walk #3 when the
+        // writer checks: never idle at a sampled instant, yet it passed
+        // through a quiescent state, so the sealed prefix is safe to free.
+        walk_counter(&w, 0).store(3, Ordering::Release);
+        w.try_reclaim();
+        assert!(w.pending_len() < parked, "sealed prefix must drain");
+        // One more pass-through frees whatever was sealed after that.
+        walk_counter(&w, 0).store(5, Ordering::Release);
+        w.try_reclaim();
+        walk_counter(&w, 0).store(6, Ordering::Release);
+        assert!(w.try_reclaim());
+        assert_eq!(w.pending_len(), 0);
+        assert_eq!(w.pending_bytes(), 0);
+    }
+
+    /// A reader parked in the same walk across the whole grace period
+    /// blocks exactly the prefix sealed before it, and nothing else frees
+    /// behind its back.
+    #[test]
+    fn reader_stuck_in_one_walk_blocks_the_sealed_prefix_only() {
+        let mut m = SyncExpanseMap32::with_capacity(4096, 2);
+        let (mut w, _) = m.split();
+        for k in 0..1000u32 {
+            w.try_insert(k, k).unwrap();
+        }
+        walk_counter(&w, 0).store(7, Ordering::Relaxed);
+        for k in 0..500u32 {
+            w.try_remove(k).unwrap();
+        }
+        assert!(!w.try_reclaim());
+        let before = w.pending_len();
+        assert!(!w.try_reclaim(), "unchanged odd counter: still blocked");
+        assert_eq!(
+            w.pending_len(),
+            before,
+            "nothing frees under a stuck reader"
+        );
+        // Reader 1 idle throughout must not unblock reader 0's walk.
+        assert_eq!(walk_counter(&w, 1).load(Ordering::Relaxed), 0);
+        walk_counter(&w, 0).store(8, Ordering::Release);
+        assert!(w.try_reclaim());
+        assert_eq!(w.pending_len(), 0);
     }
 
     #[test]

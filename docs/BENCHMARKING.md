@@ -1117,40 +1117,48 @@ throughput number.
 `docs/assets/data/bench_assets.json`, which is harvested from the run's
 `suite-tables-concurrency` artifact — no value in the chart is typed by hand.)*
 
-First quiet-host reading *(measured: reference host — Intel i9-12900F, 24
-threads, 30 MiB L3, Linux 6.8, run
-[33556060582](https://github.com/orieg/expanse/actions/runs/33556060582), ref
-`feat/sync32-bench-arm-573` @ `db63f409`; `EXPANSE_BENCH_THREADS="1,4,16"`, 500 ms
-windows; artifact `suite-tables-concurrency-33556060582`)* (workload:
-`core_concurrency`):
+Quiet-host reading after the per-reader walk-counter reclamation
+([#594](https://github.com/orieg/expanse/issues/594)) *(measured: reference
+host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8, run
+[33577621860](https://github.com/orieg/expanse/actions/runs/33577621860), ref
+`077aac51`; `EXPANSE_BENCH_THREADS="1,4,16"`, 500 ms windows; artifact
+`suite-tables-concurrency-33577621860`)* (workload: `core_concurrency`):
 
 | writer duty | readers | validated reads/s | writes/s | Busy rate | refused writes |
 |---|---:|---:|---:|---:|---:|
-| full | 1 | 1.3 M | 6.27 M | 94.2% | 0 |
-| full | 4 | 10.5 M | 3.70 M | 90.1% | 0 |
-| full | 16 | 636.9 M | 72 k | 1.7% | **1,727,926** |
-| 1M/s | 1 | 36.0 M | 1.00 M | 19.8% | 0 |
-| 1M/s | 4 | 138.4 M | 0.95 M | 18.1% | 26,893 |
-| 1M/s | 16 | 630.9 M | 117 k | 1.7% | **441,315** |
-| 100k/s | 1 | 49.6 M | 100 k | 1.93% | 0 |
-| 100k/s | 4 | 193.3 M | 100 k | 0.96% | 0 |
-| 100k/s | 16 | 648.7 M | **72 k** | 0.93% | **13,817** |
-| 10k/s | 1 | 52.2 M | 10 k | 0.145% | 0 |
-| 10k/s | 4 | 204.5 M | 10 k | 0.099% | 0 |
-| 10k/s | 16 | 681.9 M | 10 k | 0.136% | 0 |
+| full | 1 | 0.8 M | 7.13 M | 97.1% | 0 |
+| full | 4 | 9.4 M | 3.76 M | 86% | 0 |
+| full | 16 | 80.7 M | 1.34 M | 63.3% | 0 |
+| 1M/s | 1 | 37.6 M | 1.00 M | 15.3% | 0 |
+| 1M/s | 4 | 132.3 M | 1.00 M | 11.8% | 0 |
+| 1M/s | 16 | 306.4 M | 1.00 M | 13.1% | 0 |
+| 100k/s | 1 | 49.7 M | 100 k | 1.27% | 0 |
+| 100k/s | 4 | 194.6 M | 100 k | 0.56% | 0 |
+| 100k/s | 16 | 620.9 M | 100 k | 1.73% | 0 |
+| 10k/s | 1 | 53.8 M | 10 k | 0.175% | 0 |
+| 10k/s | 4 | 205.8 M | 10 k | 0.063% | 0 |
+| 10k/s | 16 | 671.3 M | 10 k | 0.078% | 0 |
 
 Two readings. The Busy rate behaves as the seqlock model predicts — it tracks
 the fraction of wall time the writer holds a bracket open (≈ write rate ×
 bracket length), so at embedded ingestion rates (10k/s) optimistic reads
-validate 99.9% of the time. The refusal column is the finding: with sixteen
-readers in continuous walks, the pending list can only drain at a fence that
-observes *every* reader flag clear, which under dense reads almost never
-happens — the writer is refused with `ReclaimBacklog` and its sustained rate
-collapses (the 100k/s row holds only 72 k writes/s; full duty, 72 k with 1.7 M
-refusals). The wrapper's stated target is one or two readers (a main loop and
-an interrupt handler), where refusals are zero at every rate measured; the
-reader-density sensitivity of all-flags-clear quiescence is a design property
-to carry into any wider-fan-out use, not a regression.
+validate 99.9% of the time. The refusal column is now zero at every duty and
+reader count. Before #594 (run
+[33556060582](https://github.com/orieg/expanse/actions/runs/33556060582), ref
+`db63f409`) the same sixteen-reader rows read 72 k writes/s with 1,727,926
+refusals at full duty, 117 k with 441,315 at 1M/s and 72 k with 13,817 against
+the 100k/s pace: reclamation could only drain at a fence that observed *every*
+reader idle at one instant, which dense readers almost never allow. With a
+per-reader walk counter the writer frees a parked node once every reader has
+*passed through* a quiescent state since it was retired, so the grace period is
+bounded by the longest single walk — and the writer holds 1.34 M writes/s at
+full duty against sixteen readers where it held 72 k. The higher sixteen-reader
+Busy rates at full duty and 1M/s (63% and 13%, from 1.7%) are the honest
+consequence: the writer is actually writing now, so brackets are open far more
+often. Single-reader rows are within run-to-run noise of the earlier run. The
+read path pays one extra load per walk: +0.23% instructions on the reference
+Callgrind harness (500 validated `try_get`s, 652,135 → 653,658 Ir; ranking
+instrument, aarch64 container).
 
 **100% read:**
 
