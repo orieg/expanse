@@ -14,18 +14,18 @@
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | None |
-//! | `value_dereference` | Live bytes tracked |
+//! | `value_dereference` | Live layout bytes tracked via TrackingAlloc |
 //! | `measured_region` | Clean GlobalAlloc hook |
-//! | `arm_symmetry` | Symmetric keys and PRNG |
-//! | `statistics` | Exact byte count |
+//! | `arm_symmetry` | Symmetric keys and cold insertion |
+//! | `statistics` | Exact deterministic byte count |
 //! | `verdict` | **PASS** `[verified: CODE READ]`: ART comparison memory footprint benchmark. |
 
 #[path = "art_common/mod.rs"]
 mod art_common;
 
 use art_common::{
-    ArtMap, BTreeMap, ExpanseMap, HashMap, XorShift64, art_key, gen_clustered, gen_sequential,
-    gen_sparse_stride, gen_uniform_random, gen_zipfian,
+    ArtMap, BTreeMap, ExpanseMap, HashMap, XorShift64, art_key, dedupe_preserve_order,
+    gen_clustered, gen_sequential, gen_sparse_stride, gen_uniform_random, gen_zipfian,
 };
 use serde_json::json;
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -55,13 +55,18 @@ unsafe impl GlobalAlloc for TrackingAlloc {
 #[global_allocator]
 static GLOBAL: TrackingAlloc = TrackingAlloc;
 
-fn measure_dist(dist_name: &str, keys: &[u64]) -> serde_json::Value {
+fn measure_dist(dist_name: &str, raw_keys: &[u64]) -> serde_json::Value {
+    let keys = if dist_name == "zipfian" {
+        dedupe_preserve_order(raw_keys)
+    } else {
+        raw_keys.to_vec()
+    };
     let n = keys.len();
 
     // 1. ExpanseMap
     let base = LIVE_BYTES.load(Ordering::SeqCst);
     let mut expanse = ExpanseMap::new();
-    for &k in keys {
+    for &k in &keys {
         expanse.insert(k, k.wrapping_mul(3));
     }
     let expanse_bytes = LIVE_BYTES.load(Ordering::SeqCst).saturating_sub(base);
@@ -71,7 +76,7 @@ fn measure_dist(dist_name: &str, keys: &[u64]) -> serde_json::Value {
     // 2. blart (ART)
     let base = LIVE_BYTES.load(Ordering::SeqCst);
     let mut blart = ArtMap::new();
-    for &k in keys {
+    for &k in &keys {
         let _ = blart.try_insert(art_key(k), k.wrapping_mul(3));
     }
     let blart_bytes = LIVE_BYTES.load(Ordering::SeqCst).saturating_sub(base);
@@ -81,7 +86,7 @@ fn measure_dist(dist_name: &str, keys: &[u64]) -> serde_json::Value {
     // 3. BTreeMap
     let base = LIVE_BYTES.load(Ordering::SeqCst);
     let mut btree = BTreeMap::new();
-    for &k in keys {
+    for &k in &keys {
         btree.insert(k, k.wrapping_mul(3));
     }
     let btree_bytes = LIVE_BYTES.load(Ordering::SeqCst).saturating_sub(base);
@@ -90,8 +95,8 @@ fn measure_dist(dist_name: &str, keys: &[u64]) -> serde_json::Value {
 
     // 4. HashMap
     let base = LIVE_BYTES.load(Ordering::SeqCst);
-    let mut hash = HashMap::with_capacity(n);
-    for &k in keys {
+    let mut hash = HashMap::new();
+    for &k in &keys {
         hash.insert(k, k.wrapping_mul(3));
     }
     let hash_bytes = LIVE_BYTES.load(Ordering::SeqCst).saturating_sub(base);
@@ -106,6 +111,7 @@ fn measure_dist(dist_name: &str, keys: &[u64]) -> serde_json::Value {
     json!({
         "distribution": dist_name,
         "population": n,
+        "raw_draws": raw_keys.len(),
         "expanse_bytes": expanse_bytes,
         "expanse_bpk": exp_bpk,
         "blart_art_bytes": blart_bytes,
@@ -159,17 +165,15 @@ fn main() {
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     } else {
-        println!("=== ART Benchmark: Memory Footprint Census ===");
-        for res in results {
+        println!("=== art_memory (quick={quick}) ===");
+        for r in results {
+            let d = r["distribution"].as_str().unwrap();
+            let pop = r["population"].as_u64().unwrap();
+            let exp = r["expanse_bpk"].as_f64().unwrap();
+            let art = r["blart_art_bpk"].as_f64().unwrap();
+            let rat = r["ratio_vs_art"].as_f64().unwrap();
             println!(
-                "pop: {:>7} | dist: {:<14} | Expanse: {:>6.2} B/k | blart: {:>6.2} B/k | BTree: {:>6.2} B/k | Hash: {:>6.2} B/k | ratio: {:>4.2}x",
-                res["population"],
-                res["distribution"].as_str().unwrap(),
-                res["expanse_bpk"].as_f64().unwrap(),
-                res["blart_art_bpk"].as_f64().unwrap(),
-                res["btree_bpk"].as_f64().unwrap(),
-                res["hashmap_bpk"].as_f64().unwrap(),
-                res["ratio_vs_art"].as_f64().unwrap(),
+                "  pop={pop:7} | dist={d:15} | Expanse: {exp:6.2} B/k | ART: {art:6.2} B/k | Ratio: {rat:5.2}x",
             );
         }
     }

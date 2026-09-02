@@ -11,21 +11,22 @@
 //! | `workload_id` | `art_lookup_hit` |
 //! | `group` | 4 |
 //! | `population` | 10k to 1M |
-//! | `probes_and_reuse` | Batch stream |
+//! | `probes_and_reuse` | Interleaved shuffled probe stream |
 //! | `hit_rate` | 100% Hit |
 //! | `miss_gen_method` | None |
 //! | `value_dereference` | `black_box(*val)` |
 //! | `measured_region` | Clean lookup loop |
-//! | `arm_symmetry` | Symmetric keys and PRNG |
-//! | `statistics` | Median of interleaved rounds |
+//! | `arm_symmetry` | Symmetric keys, cold insertion, identical PRNG |
+//! | `statistics` | Median + BCa 95% Bootstrap CI over paired rounds |
 //! | `verdict` | **PASS** `[verified: CODE READ]`: ART comparison point lookup hit benchmark. |
 
 #[path = "art_common/mod.rs"]
 mod art_common;
 
 use art_common::{
-    ArtMap, BTreeMap, ExpanseMap, HashMap, XorShift64, art_key, gen_clustered, gen_sequential,
-    gen_sparse_stride, gen_uniform_random, gen_zipfian, median,
+    ArtMap, BTreeMap, ExpanseMap, HashMap, Mapped, ToUBE, XorShift64, art_key, bca_ci,
+    gen_clustered, gen_sequential, gen_sparse_stride, gen_uniform_random, gen_zipfian, median,
+    shuffle,
 };
 use serde_json::json;
 use std::hint::black_box;
@@ -34,11 +35,11 @@ use std::time::Instant;
 fn bench_dist(dist_name: &str, keys: &[u64], rounds: usize) -> serde_json::Value {
     let n = keys.len();
 
-    // 1. Build structures
+    // 1. Build structures (symmetric cold insertion)
     let mut expanse = ExpanseMap::new();
     let mut blart = ArtMap::new();
     let mut btree = BTreeMap::new();
-    let mut hash = HashMap::with_capacity(n);
+    let mut hash = HashMap::new();
 
     for &k in keys {
         expanse.insert(k, k.wrapping_mul(3));
@@ -47,60 +48,132 @@ fn bench_dist(dist_name: &str, keys: &[u64], rounds: usize) -> serde_json::Value
         hash.insert(k, k.wrapping_mul(3));
     }
 
+    // Prepare probe stream: 100% hit rate, shuffled to prevent insertion-order cache artifacts
+    let mut probe_keys = keys.to_vec();
+    let mut shuffle_rng = XorShift64::new(art_common::PROBE_SHUFFLE_SEED);
+    shuffle(&mut probe_keys, &mut shuffle_rng);
+
     let mut expanse_times = Vec::with_capacity(rounds);
     let mut blart_times = Vec::with_capacity(rounds);
     let mut btree_times = Vec::with_capacity(rounds);
     let mut hash_times = Vec::with_capacity(rounds);
+    let mut paired_ratios = Vec::with_capacity(rounds);
 
-    for _ in 0..rounds {
-        // Expanse
-        let start = Instant::now();
-        for &k in keys {
-            let v = expanse.get(k).unwrap_or(0);
-            black_box(v);
-        }
-        expanse_times.push(start.elapsed().as_nanos() as f64 / n as f64);
+    for round in 0..rounds {
+        // Rotate arm order every round to eliminate machine drift bias
+        let (e_ns, b_ns, bt_ns, h_ns) = match round % 4 {
+            0 => {
+                let e = time_expanse(&expanse, &probe_keys);
+                let b = time_blart(&blart, &probe_keys);
+                let bt = time_btree(&btree, &probe_keys);
+                let h = time_hash(&hash, &probe_keys);
+                (e, b, bt, h)
+            }
+            1 => {
+                let b = time_blart(&blart, &probe_keys);
+                let bt = time_btree(&btree, &probe_keys);
+                let h = time_hash(&hash, &probe_keys);
+                let e = time_expanse(&expanse, &probe_keys);
+                (e, b, bt, h)
+            }
+            2 => {
+                let bt = time_btree(&btree, &probe_keys);
+                let h = time_hash(&hash, &probe_keys);
+                let e = time_expanse(&expanse, &probe_keys);
+                let b = time_blart(&blart, &probe_keys);
+                (e, b, bt, h)
+            }
+            _ => {
+                let h = time_hash(&hash, &probe_keys);
+                let e = time_expanse(&expanse, &probe_keys);
+                let b = time_blart(&blart, &probe_keys);
+                let bt = time_btree(&btree, &probe_keys);
+                (e, b, bt, h)
+            }
+        };
 
-        // blart (ART)
-        let start = Instant::now();
-        for &k in keys {
-            let ak = art_key(k);
-            let v = blart.get(&ak).copied().unwrap_or(0);
-            black_box(v);
+        expanse_times.push(e_ns);
+        blart_times.push(b_ns);
+        btree_times.push(bt_ns);
+        hash_times.push(h_ns);
+        if b_ns > 0.0 {
+            paired_ratios.push(e_ns / b_ns);
         }
-        blart_times.push(start.elapsed().as_nanos() as f64 / n as f64);
-
-        // BTreeMap
-        let start = Instant::now();
-        for &k in keys {
-            let v = btree.get(&k).copied().unwrap_or(0);
-            black_box(v);
-        }
-        btree_times.push(start.elapsed().as_nanos() as f64 / n as f64);
-
-        // HashMap
-        let start = Instant::now();
-        for &k in keys {
-            let v = hash.get(&k).copied().unwrap_or(0);
-            black_box(v);
-        }
-        hash_times.push(start.elapsed().as_nanos() as f64 / n as f64);
     }
 
-    let exp_med = median(expanse_times);
-    let blart_med = median(blart_times);
-    let btree_med = median(btree_times);
-    let hash_med = median(hash_times);
+    let exp_med = median(expanse_times.clone());
+    let blart_med = median(blart_times.clone());
+    let btree_med = median(btree_times.clone());
+    let hash_med = median(hash_times.clone());
+    let (ratio_mean, ci_lo, ci_hi) = bca_ci(&paired_ratios);
+    let unique_count = if dist_name == "zipfian" {
+        keys.iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    } else {
+        n
+    };
 
     json!({
         "distribution": dist_name,
         "population": n,
+        "unique_keys": unique_count,
         "expanse_ns_op": exp_med,
         "blart_art_ns_op": blart_med,
         "btree_ns_op": btree_med,
         "hashmap_ns_op": hash_med,
-        "ratio_vs_art": if blart_med > 0.0 { exp_med / blart_med } else { 1.0 },
+        "ratio_vs_art": ratio_mean,
+        "ratio_bca_ci_95": [ci_lo, ci_hi],
+        "samples": {
+            "expanse": expanse_times,
+            "blart_art": blart_times,
+            "btree": btree_times,
+            "hashmap": hash_times,
+            "ratios": paired_ratios,
+        }
     })
+}
+
+#[inline(never)]
+fn time_expanse(map: &ExpanseMap, keys: &[u64]) -> f64 {
+    let start = Instant::now();
+    for &k in keys {
+        let v = map.get(k).unwrap_or(0);
+        black_box(v);
+    }
+    start.elapsed().as_nanos() as f64 / keys.len() as f64
+}
+
+#[inline(never)]
+fn time_blart(map: &ArtMap<Mapped<ToUBE, u64>, u64>, keys: &[u64]) -> f64 {
+    let start = Instant::now();
+    for &k in keys {
+        let ak = art_key(k);
+        let v = map.get(&ak).copied().unwrap_or(0);
+        black_box(v);
+    }
+    start.elapsed().as_nanos() as f64 / keys.len() as f64
+}
+
+#[inline(never)]
+fn time_btree(map: &BTreeMap<u64, u64>, keys: &[u64]) -> f64 {
+    let start = Instant::now();
+    for &k in keys {
+        let v = map.get(&k).copied().unwrap_or(0);
+        black_box(v);
+    }
+    start.elapsed().as_nanos() as f64 / keys.len() as f64
+}
+
+#[inline(never)]
+fn time_hash(map: &HashMap<u64, u64>, keys: &[u64]) -> f64 {
+    let start = Instant::now();
+    for &k in keys {
+        let v = map.get(&k).copied().unwrap_or(0);
+        black_box(v);
+    }
+    start.elapsed().as_nanos() as f64 / keys.len() as f64
 }
 
 fn main() {
@@ -113,7 +186,7 @@ fn main() {
     } else {
         &[10_000, 100_000, 1_000_000]
     };
-    let rounds = if quick { 3 } else { 7 };
+    let rounds = if quick { 3 } else { 15 };
 
     let mut results = Vec::new();
     let mut rng = XorShift64::new(0);
@@ -139,23 +212,25 @@ fn main() {
         "benchmark": "art_lookup_hit",
         "workload_id": "art_lookup_hit",
         "quick": quick,
+        "rounds": rounds,
         "results": results,
     });
 
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
     } else {
-        println!("=== ART Benchmark: Point Lookup (100% Hit Rate) ===");
-        for res in results {
+        println!("=== art_lookup_hit (quick={quick}, rounds={rounds}) ===");
+        for r in results {
+            let d = r["distribution"].as_str().unwrap();
+            let pop = r["population"].as_u64().unwrap();
+            let exp = r["expanse_ns_op"].as_f64().unwrap();
+            let art = r["blart_art_ns_op"].as_f64().unwrap();
+            let rat = r["ratio_vs_art"].as_f64().unwrap();
+            let ci = &r["ratio_bca_ci_95"];
             println!(
-                "pop: {:>7} | dist: {:<14} | Expanse: {:>5.1} ns | blart: {:>5.1} ns | BTree: {:>5.1} ns | Hash: {:>5.1} ns | ratio: {:>4.2}x",
-                res["population"],
-                res["distribution"].as_str().unwrap(),
-                res["expanse_ns_op"].as_f64().unwrap(),
-                res["blart_art_ns_op"].as_f64().unwrap(),
-                res["btree_ns_op"].as_f64().unwrap(),
-                res["hashmap_ns_op"].as_f64().unwrap(),
-                res["ratio_vs_art"].as_f64().unwrap(),
+                "  pop={pop:7} | dist={d:15} | Expanse: {exp:6.2} ns | ART: {art:6.2} ns | Ratio (Exp/ART): {rat:5.2}x CI [{:.2}, {:.2}]",
+                ci[0].as_f64().unwrap(),
+                ci[1].as_f64().unwrap()
             );
         }
     }

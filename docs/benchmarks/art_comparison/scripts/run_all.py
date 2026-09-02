@@ -13,6 +13,8 @@ stdout under `--json`) and regenerates the dual-theme SVG charts:
 """
 
 import json
+import os
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -31,7 +33,29 @@ BENCHES = [
 ]
 
 
-def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool) -> None:
+def get_load_str() -> str:
+    try:
+        loads = os.getloadavg()
+        return f"{loads[0]:.2f}"
+    except Exception:
+        return "N/A"
+
+
+def get_git_sha() -> str:
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT).decode().strip()
+    except Exception:
+        return "HEAD"
+
+
+def get_kernel_str() -> str:
+    try:
+        return f"{platform.system()} {platform.release()}"
+    except Exception:
+        return "Linux"
+
+
+def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool, meta: dict | None) -> None:
     print(f"==> Running {bench_name} (quick={quick})...")
     cmd = ["cargo", "bench", "-p", "expanse-trie", "--bench", bench_name, "--"]
     if quick:
@@ -50,6 +74,9 @@ def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool) -> Non
         sys.exit(1)
     payload = json.loads(stdout[min(starts):])
 
+    if meta:
+        payload["metadata"] = dict(meta)
+
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / out_file, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
@@ -59,17 +86,56 @@ def run_bench(bench_name: str, out_file: str, out_dir: Path, quick: bool) -> Non
 def main() -> None:
     quick = "--quick" in sys.argv or "-q" in sys.argv
     print(f"ART comparison benchmark suite (quick={quick})\n")
+    load_start = get_load_str()
     out_dir = RESULTS_DIR / "quick" if quick else RESULTS_DIR
+
+    meta = None
+    if not quick:
+        sha = get_git_sha()
+        kernel_str = get_kernel_str()
+        meta = {
+            "host": "reference host — Intel Core i9-12900F, 8P+8E/24 threads, 30 MiB L3, Ubuntu 22.04",
+            "kernel": kernel_str,
+            "load_start": load_start,
+            "load_end": "N/A",  # updated after sweep
+            "harness_sha": sha,
+            "data_sha": sha,
+        }
+
     for bench_name, out_file in BENCHES:
-        run_bench(bench_name, out_file, out_dir, quick)
+        run_bench(bench_name, out_file, out_dir, quick, meta)
+
+    load_end = get_load_str()
+
     if quick:
         print("\n==> Skipping chart regeneration (--quick).")
         print(f"    Quick smoke results were written to {out_dir} (gitignored);")
         print("    the committed results/baseline_*.json and SVG charts were")
         print("    not touched.")
     else:
+        # Update load_end in all written JSON artifacts
+        for _, out_file in BENCHES:
+            p = out_dir / out_file
+            with open(p, "r", encoding="utf-8") as f:
+                d = json.load(f)
+            if "metadata" in d:
+                d["metadata"]["load_end"] = load_end
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(d, f, indent=2)
+
+        print("\n==> Verifying BCa confidence intervals and statistics...")
+        subprocess.run([sys.executable, str(SCRIPTS_DIR / "recompute_and_patch_json.py")], check=True)
+
         print("\n==> Generating SVG charts...")
         subprocess.run([sys.executable, str(SCRIPTS_DIR / "generate_charts.py")], check=True)
+
+        print("\n==> Generating README.md tables from JSON artifacts...")
+        from generate_readme import generate_readme
+        readme_content = generate_readme()
+        with open(BASE_DIR / "README.md", "w", encoding="utf-8") as f:
+            f.write(readme_content)
+        print(f"    Updated {BASE_DIR / 'README.md'}")
+        print(f"Load average during sweep: start={load_start}, end={load_end}")
         print("Done.")
 
 

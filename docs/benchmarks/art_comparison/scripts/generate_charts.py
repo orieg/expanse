@@ -100,6 +100,66 @@ def render_four_arm_chart(out_name: str, title: str, sub: str, unit: str, rows: 
     save_svg(RESULTS_DIR / out_name, svg)
 
 
+def render_three_arm_chart(out_name: str, title: str, sub: str, unit: str, rows: list, lower_is_better: bool = True) -> None:
+    """rows: list of (dist_label, sublabel, expanse, blart, btree)."""
+    if not rows:
+        return
+    max_val = max([max(r[2], r[3], r[4]) for r in rows] + [1e-9]) * 1.25
+    bar_max = 280.0
+    row_h = 60
+    top = 96
+    height = top + len(rows) * row_h + 24
+
+    svg = svg_header(width=960, height=height, title=esc(title))
+    better_text = "lower is better" if lower_is_better else "higher is better"
+    svg += f"""
+  <text x="30" y="34" class="t-title">{esc(title)}</text>
+  <text x="30" y="50" class="t-sub">{esc(sub)} &#183; {esc(unit)} &#183; {better_text}</text>
+  <g transform="translate(630, 20)">
+    <rect x="0" y="0" width="10" height="10" rx="2" class="b-expanse"/>
+    <text x="14" y="9" class="t-legend">ExpanseMap</text>
+    <rect x="110" y="0" width="10" height="10" rx="2" class="b-art"/>
+    <text x="124" y="9" class="t-legend">blart (ART)</text>
+    <rect x="210" y="0" width="10" height="10" rx="2" class="b-btree"/>
+    <text x="224" y="9" class="t-legend">BTreeMap</text>
+  </g>
+  <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
+"""
+    for i, (label, sublabel, exp, art, bt) in enumerate(rows):
+        y = top + i * row_h
+        w_exp = max(2.0, (exp / max_val) * bar_max)
+        w_art = max(2.0, (art / max_val) * bar_max)
+        w_bt = max(2.0, (bt / max_val) * bar_max)
+
+        svg += f"""  <text x="30" y="{y + 10}" class="t-bar-label">{esc(label)}</text>
+  <text x="30" y="{y + 24}" class="t-sub">{esc(sublabel)}</text>
+  <rect x="260" y="{y - 8}" width="{w_exp:.1f}" height="10" rx="2" class="b-expanse"/>
+  <text x="{268 + w_exp:.1f}" y="{y}" class="t-val-accent">{exp:.2f}</text>
+  <rect x="260" y="{y + 6}" width="{w_art:.1f}" height="10" rx="2" class="b-art"/>
+  <text x="{268 + w_art:.1f}" y="{y + 14}" class="t-val-blue">{art:.2f}</text>
+  <rect x="260" y="{y + 20}" width="{w_bt:.1f}" height="10" rx="2" class="b-btree"/>
+  <text x="{268 + w_bt:.1f}" y="{y + 28}" class="t-axis-label">{bt:.2f}</text>
+"""
+        # Win / Loss badge vs ART
+        if lower_is_better:
+            winner = "expanse" if exp <= art else "art"
+            ratio = art / exp if exp > 0 and winner == "expanse" else exp / art if art > 0 else 1.0
+        else:
+            winner = "expanse" if exp >= art else "art"
+            ratio = exp / art if art > 0 and winner == "expanse" else art / exp if exp > 0 else 1.0
+
+        if winner == "expanse":
+            svg += f"""  <rect x="800" y="{y + 6}" width="130" height="20" rx="3" class="badge-win"/>
+  <text x="865" y="{y + 20}" class="badge-win-text">Expanse {ratio:.2f}x</text>
+"""
+        else:
+            svg += f"""  <rect x="800" y="{y + 6}" width="130" height="20" rx="3" class="badge-loss"/>
+  <text x="865" y="{y + 20}" class="badge-loss-text">ART {ratio:.2f}x</text>
+"""
+    svg += "</svg>\n"
+    save_svg(RESULTS_DIR / out_name, svg)
+
+
 def generate_all() -> None:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -108,7 +168,6 @@ def generate_all() -> None:
     if hit_path.exists():
         with open(hit_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        # Filter for 1M (or max available)
         max_pop = max(r["population"] for r in data["results"])
         rows = [
             (
@@ -164,7 +223,35 @@ def generate_all() -> None:
         ]
         render_four_arm_chart("chart_insert.svg", "Dynamic Insertion Latency", f"Population N = {max_pop:,}", "ns / insert", rows)
 
-    # 4. Memory Census
+    # 4. Range Scan & Iteration
+    scan_path = RESULTS_DIR / "baseline_scan.json"
+    if scan_path.exists():
+        with open(scan_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        max_pop = max(r["population"] for r in data["results"])
+        # Full scan (k=0) and range scan (k=100)
+        rows = []
+        for r in data["results"]:
+            if r["population"] == max_pop:
+                if r["range_k"] == 0:
+                    rows.append((
+                        f"{r['distribution'].replace('_', ' ').title()} (Full Iter)",
+                        f"Scan all N = {max_pop:,} keys in order",
+                        r["expanse_ns_elem"],
+                        r["blart_art_ns_elem"],
+                        r["btree_ns_elem"],
+                    ))
+                elif r["range_k"] == 100:
+                    rows.append((
+                        f"{r['distribution'].replace('_', ' ').title()} (Range k=100)",
+                        f"Bounded range query (100 items)",
+                        r["expanse_ns_elem"],
+                        r["blart_art_ns_elem"],
+                        r["btree_ns_elem"],
+                    ))
+        render_three_arm_chart("chart_scan.svg", "Ordered Scan & In-Order Iteration Latency", f"Population N = {max_pop:,}", "ns / element", rows)
+
+    # 5. Memory Census
     mem_path = RESULTS_DIR / "baseline_memory.json"
     if mem_path.exists():
         with open(mem_path, "r", encoding="utf-8") as f:
