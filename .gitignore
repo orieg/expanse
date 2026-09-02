@@ -48,3 +48,4 @@ integrations/qemu-cortex-m3/*.elf
 integrations/qemu-cortex-m3/*.map
 integrations/qemu-cortex-m3/*.attrs
 integrations/qemu-cortex-m3/qemu.out
+integrations/stm32h747/demo/Makefile/CM7/build/
