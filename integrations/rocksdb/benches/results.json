@@ -5,7 +5,7 @@
     "keys": 100000,
     "key_bytes": 16,
     "value_bytes": 64,
-    "method": "benches/bench_memtable.cc built -O3 against release libexpanse.so; 5 rounds, mean with BCa 95% bootstrap intervals (2,000 resamples, seed 42) harvested by scripts/rocksdb_bench_harvest.py into results/baseline_rocksdb.json",
+    "method": "benches/bench_memtable.cc built -O3 against release libexpanse.so; 5 rounds, mean with BCa 95% bootstrap intervals (2,000 resamples, seed 42) harvested by scripts/rocksdb_bench_harvest.py into docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json",
     "run_id": "https://github.com/orieg/expanse/actions/runs/33398474866",
     "retraction_372_discharged": "The commit-7d87dff7 run measured its skiplist arm against a strawman Node embedding all 16 tower pointers statically (~146.7 B/entry); that density figure and the derived 11.1x headline were retracted (#372). Density was re-measured first with the fair variable-height node (8 B key ptr + height*8 B tower, E[height]=4/3). The wall-clock cells are now re-measured against that same fair baseline too (run 33398474866, #382 item 5), and every ratio fell: sequential scan from a published ~10x to 3.331x [3.198, 3.486], point lookup to 1.457x [1.444, 1.470]. Nothing here is pending."
   },

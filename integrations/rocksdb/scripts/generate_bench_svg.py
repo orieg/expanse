@@ -2,8 +2,8 @@
 """integrations/rocksdb/scripts/generate_bench_svg.py
 
 Regenerates ``docs/assets/bench_rocksdb.svg`` (the three-panel MemTable
-benchmark chart embedded by ``integrations/rocksdb/README.md`` and
-``docs/DATABASE.md``) from the measured numbers in
+benchmark chart embedded by ``docs/benchmarks/rocksdb_memtable/README.md``,
+``integrations/rocksdb/README.md`` and ``docs/DATABASE.md``) from the measured numbers in
 ``integrations/rocksdb/benches/results.json``.
 
 Previously the SVG was hand-authored, so re-running the benchmark left it
