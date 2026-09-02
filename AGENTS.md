@@ -446,7 +446,8 @@ When modifying or correcting any existing benchmark or example harness:
    - In referential integrity checkers, evaluate all issue citations within the relevant sentence/span. If at least one cited issue is `OPEN`, the statement is satisfied (e.g. "updating from closed #384 to open #382"). Only flag violations if all cited issues in the span are closed.
 8. **Cargo Test Target Filter Isolation**:
    - Never combine module-scoped filters with integration test targets in a single invocation (e.g. `cargo test --lib sync:: --test linearizability --test test_blobmap`). Cargo passes the single positional filter to every selected binary, causing integration test binaries to match 0 tests silently.
-   - Split into distinct commands: one for the filtered library suite (`cargo test --lib sync::`) and one for the selected integration test binaries (`cargo test --test linearizability --test test_blobmap`).
+   - Similarly, multiple module-scoped library filters cannot be passed via repeated `--lib` flags (`--lib sync:: --lib sync32::` is rejected by Cargo); split them into distinct invocations.
+   - Split into distinct commands: one for each filtered library suite (`cargo test --lib sync::`, `cargo test --lib sync32::`) and one for the selected integration test binaries (`cargo test --test linearizability --test test_blobmap`).
 9. **Intermittent Race Triage Policy (Comment vs Auto-Close)**:
    - Automated issue triage on scheduled/nightly jobs must distinguish between deterministic checkers (Miri, linters, unit tests) and non-deterministic / race-detection checkers (ThreadSanitizer, stress loops).
    - Non-deterministic checkers must **comment on green runs rather than auto-closing** (`🟢 Nightly run passed on commit ... (not auto-closing: race findings require manual inspection/triage)`). A single green night does not prove an intermittent race was fixed.
