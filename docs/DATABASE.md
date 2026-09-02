@@ -496,7 +496,40 @@ On resource-constrained 32-bit microcontrollers (ESP32-C3 / ESP32-C6 / ESP32-P4)
 
 #### On-device measurements (ESP32, Xtensa)
 
-![On-device ESP32: telemetry memtable cycles/op, BLE tracker cycles/op, fragmentation across insert/delete churn](./assets/bench_esp32_ondevice.svg)
+![On-device ESP32: telemetry memtable cycles/op, BLE tracker cycles/op, and the derived per-core headroom](./assets/bench_esp32_ondevice.svg)
+
+**How to read this chart — and what it cannot tell you.**
+
+It answers *"can this part do my job, and what will it cost me?"* It does **not**
+answer *"is Expanse better than the alternative?"* — no `unordered_map`, `std::map`
+or ring-buffer arm ran on the device, so there is nothing here to be better than.
+Anyone reaching for a "faster than X" claim wants the host-side panels above, which
+do carry competitor arms; those are wall-clock nanoseconds on a desktop and are a
+different experiment.
+
+Sizing is what panel 3 is for. One 160 MHz core sustains roughly **30k memtable
+inserts/s**, **71k point lookups/s**, or **14k BLE sighting records/s** — so a 1 kHz
+sensor spends 3.3% of a core on ingest, and a 10 Hz BLE beacon field costs 0.07%.
+If your event rate is inside those numbers with margin, this fits; if it is within
+2-3× of them, budget carefully, because the figures include the component's
+FreeRTOS mutex and leave nothing for your application. Panel 3 is a restatement of
+panels 1-2 in the unit the decision is actually made in, not a separate measurement.
+
+Two things in the chart *are* comparisons, both internal to this run and both at a
+shared workload identity:
+
+- **Aggregation over a 2000-key table costs 1.63× what it costs over a 500-key
+  table** (1556 vs 957 cycles per key walked, both walking the same 500 keys). That
+  is the price of the deeper descent, and it is the shape to plan around: range
+  scans get more expensive as the table grows, point operations do not.
+- **Insert is flat in population** — 5448 cycles at N=500 against 5316 at N=2000,
+  intervals that do not separate. Ingest cost does not degrade as the window fills,
+  which is the property that makes a fixed per-sample time budget safe.
+
+For an always-on node the fragmentation result matters more than any cycle count:
+eight flush cycles moved free-pool fragmentation by -0.0009 and left 476 B resident,
+so the memtable gives its memory back and does not walk the heap toward an
+allocation failure days into a deployment.
 
 *(measured: ESP32-D0WD-V3 rev v3.1, 2 cores, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
 Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-85-gd2aedda2)`, commit `d2aedda2`;
