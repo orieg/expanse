@@ -38,6 +38,7 @@ rand = "0.8"
 rand_distr = "0.4"
 hdrhistogram = "7.5"
 serde_json = "1.0"
+blart = "0.5.0"
 
 [target.'cfg(loom)'.dependencies]
 loom = "0.7"
@@ -165,6 +166,31 @@ test = false
 
 [[bench]]
 name = "bench_grammar_masks"
+harness = false
+test = false
+
+[[bench]]
+name = "art_lookup_hit"
+harness = false
+test = false
+
+[[bench]]
+name = "art_lookup_miss"
+harness = false
+test = false
+
+[[bench]]
+name = "art_insert"
+harness = false
+test = false
+
+[[bench]]
+name = "art_scan"
+harness = false
+test = false
+
+[[bench]]
+name = "art_memory"
 harness = false
 test = false
 

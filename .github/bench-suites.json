@@ -364,6 +364,51 @@
       "package": "expanse-trie",
       "target": "bench_grammar_masks",
       "summary": "Grammar-constrained decoding mask cache and set algebra against roaring and dense bitmaps."
+    },
+    {
+      "name": "art_lookup_hit",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "art_lookup_hit",
+      "summary": "Adaptive Radix Tree (ART) vs Expanse point lookup on 100% hit rate across key distributions."
+    },
+    {
+      "name": "art_lookup_miss",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "art_lookup_miss",
+      "summary": "Adaptive Radix Tree (ART) vs Expanse point lookup on 50% hit / 50% rejection-sampled miss rate."
+    },
+    {
+      "name": "art_insert",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "art_insert",
+      "summary": "Adaptive Radix Tree (ART) vs Expanse dynamic insertion throughput into cold structures."
+    },
+    {
+      "name": "art_scan",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "art_scan",
+      "summary": "Adaptive Radix Tree (ART) vs Expanse ordered range scan and full container iteration."
+    },
+    {
+      "name": "art_memory",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "art_memory",
+      "summary": "Adaptive Radix Tree (ART) vs Expanse live heap memory allocation census across population scales."
     }
   ]
 }

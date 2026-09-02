@@ -56,6 +56,11 @@ on:
           - batch_lookup
           - compare
           - bench_grammar_masks
+          - art_lookup_hit
+          - art_lookup_miss
+          - art_insert
+          - art_scan
+          - art_memory
           # END GENERATED: bench-suites
   issue_comment:
     types: [created]
