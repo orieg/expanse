@@ -77,6 +77,9 @@ AXIS_TOP_Y = 45.0
 PLOT_H = BASELINE_Y - AXIS_TOP_Y
 BAR_X = [45, 115, 185]
 BAR_X2 = [60, 170]
+# Four-arm layout for the on-device comparison panels.
+BAR_X4 = [32, 90, 148, 206]
+BAR_W4 = 46
 BAR_W = 50
 
 STYLE = """
@@ -168,6 +171,21 @@ def bar(x: int, value: float, axis_max: float, css: str, val_text: str, val_css:
     )
 
 
+def bar_w(x: int, width: int, value: float, axis_max: float, css: str, val_text: str,
+          val_css: str, label: str, caption: str, caption_win: bool) -> str:
+    """`bar` with an explicit width, for the four-arm comparison panels."""
+    height = round(value / axis_max * PLOT_H, 1)
+    y = round(BASELINE_Y - height, 1)
+    cx = x + width // 2
+    caption_cls = "t-chart-sub t-win" if caption_win else "t-chart-sub"
+    return (
+        f'    <rect x="{x}" y="{y}" width="{width}" height="{height}" class="{css}" rx="2"/>\n'
+        f'    <text x="{cx}" y="{y - 8.5:.1f}" class="{val_css}">{val_text}</text>\n'
+        f'    <text x="{cx}" y="214" class="t-bar-label" text-anchor="middle">{label}</text>\n'
+        f'    <text x="{cx}" y="228" class="{caption_cls}" text-anchor="middle">{caption}</text>\n'
+    )
+
+
 def panel(tx: int, title: str, sub: str, unit: str, axis_max: float,
           top_label: str, mid_label: str, bars: str) -> str:
     return (
@@ -245,28 +263,31 @@ def loss_caption(ours: float, best_other: float, win_text: str) -> tuple[str, bo
     return (f"{ours / best_other:.1f}&#215; slower", False)
 
 
-def _cyc(results: dict, bench: str, pop: int) -> float:
-    """Mean cycles/op for one on-device arm, or a loud failure (§8.1)."""
+def _arm(results: dict, bench: str, pop: int, arm: str) -> dict:
+    """One arm of one on-device benchmark, or a loud failure (§8.1)."""
     for entry in results["benchmarks"].values():
         if entry["benchmark"] == bench and entry["pop"] == pop:
-            arm = next(iter(entry["arms"].values()))
-            return float(arm["cycles_per_op"]["mean"])
-    raise SystemExit(
-        f"{ESP32_RESULTS}: no arm '{bench}' at population {pop}. Refusing to "
-        f"render a panel with a missing arm (§8.1)."
-    )
+            if arm in entry["arms"]:
+                return entry["arms"][arm]
+            raise SystemExit(
+                f"{ESP32_RESULTS}: benchmark '{bench}' at population {pop} has no "
+                f"arm '{arm}' (has {sorted(entry['arms'])}). Refusing to render a "
+                f"comparison with a missing arm (§8.1)."
+            )
+    raise SystemExit(f"{ESP32_RESULTS}: no benchmark '{bench}' at population {pop} (§8.1).")
+
+
+def _cyc(results: dict, bench: str, pop: int, arm: str = "expanse_memtable") -> float:
+    return float(_arm(results, bench, pop, arm)["cycles_per_op"]["mean"])
 
 
 def render_on_device() -> int:
-    """Renders the on-device chart from the ESP32 harvest artifact.
+    """Renders the on-device comparison chart from the ESP32 harvest.
 
-    Panels 1-2 are what was measured. Panel 3 is the same data in the unit a
-    reader decides with: a cycles-per-op bar cannot answer "can this part
-    keep up with my sensor?", and a rate can. It is labelled derived.
-
-    Text is laid out to fit: bar captions stay short enough not to collide at
-    70px bar spacing, and footer lines stay inside the canvas. An earlier
-    revision overflowed both.
+    Four panels, chosen to state the trade rather than to flatter it: two
+    where Expanse loses and two where it wins. The arms it loses to are real
+    containers under the same lock, holding the same payload, retiring the
+    same set -- see components/expanse/test/twin_containers.h.
     """
     if not ESP32_RESULTS.exists():
         raise SystemExit(
@@ -281,104 +302,123 @@ def render_on_device() -> int:
                          f"unidentified target (§8.7).")
     hz = float(prov.get("cpu_hz", 0))
     if not hz:
-        raise SystemExit(f"{ESP32_RESULTS}: no cpu_hz; every derived cell needs it (§8.1).")
+        raise SystemExit(f"{ESP32_RESULTS}: no cpu_hz (§8.1).")
     mhz = hz / 1e6
+    POP = 2000
 
-    ingest = _cyc(results, "esp32_tsdb_ingest", 2000)
-    ingest_500 = _cyc(results, "esp32_tsdb_ingest", 500)
-    agg_500 = _cyc(results, "esp32_tsdb_aggregate_500", 500)
-    agg_2k = _cyc(results, "esp32_tsdb_aggregate_500", 2000)
-    record = _cyc(results, "esp32_ble_sighting_record", 2000)
-    lookup = _cyc(results, "esp32_ble_point_lookup", 2000)
-    evict = _cyc(results, "esp32_ble_ttl_eviction", 2000)
+    seq = {a: _cyc(results, "esp32_tsdb_ingest", POP, a)
+           for a in ("expanse_memtable", "hash_open_addressing", "sorted_array", "ring_buffer")}
+    shuf = {a: _cyc(results, "esp32_tsdb_ingest_shuffled", POP, a)
+            for a in ("expanse_memtable", "hash_open_addressing", "sorted_array")}
+    agg = {a: _cyc(results, "esp32_tsdb_aggregate_500", POP, a)
+           for a in ("expanse_memtable", "hash_open_addressing", "sorted_array", "ring_buffer")}
+    mem = {a: float(_arm(results, "esp32_tsdb_ingest", POP, a)["heap_used_bytes"]) / POP
+           for a in ("expanse_memtable", "sorted_array", "hash_open_addressing")}
+    lookup = {a: _cyc(results, "esp32_ble_point_lookup", POP, a)
+              for a in ("expanse_slab", "hash_open_addressing", "linear_scan")}
 
-    churn = next((v for v in results.get("metrics", {}).values()
-                  if v["metric"] == "churn_fragmentation"), None)
-    if churn is None:
-        raise SystemExit(f"{ESP32_RESULTS}: no churn_fragmentation metric (§8.1).")
-    frag_delta = churn["fields"]["frag_after"]["mean"] - churn["fields"]["frag_before"]["mean"]
-    retained = churn["fields"]["heap_retained_bytes"]["mean"]
+    def ratio(ours: float, theirs: float) -> tuple[str, bool]:
+        """Ours against one named peer, and whether we won it."""
+        won = theirs > ours
+        return (f"{theirs / ours:.1f}&#215; faster" if won
+                else f"{ours / theirs:.1f}&#215; slower"), won
 
-    def us(c: float) -> str:
-        return f"{c / mhz:.1f} &#181;s"
+    seq_max = nice_axis_max(seq.values())
+    shuf_max = nice_axis_max(shuf.values())
+    agg_max = nice_axis_max(agg.values())
+    mem_max = nice_axis_max(mem.values())
 
-    def rate(c: float) -> float:
-        return hz / c
+    # The ingest and scan captions compare Expanse against the SORTED ARRAY,
+    # not against whichever twin happens to be fastest. The hash is unordered:
+    # it cannot answer a range query at all, so beating or losing to it says
+    # nothing about the ordered-structure choice these panels are about. Its
+    # bar stays for absolute context, captioned "no order".
+    seq_peer = seq["sorted_array"]
+    shuf_peer = shuf["sorted_array"]
+    agg_peer = agg["sorted_array"]
+    best_mem = min(v for k, v in mem.items() if k != "expanse_memtable")
 
-    # Offered loads a reader would actually run these at.
-    duty_ingest = 1000.0 * ingest / hz          # 1 kHz sensor
-    duty_lookup = 1000.0 * lookup / hz          # 1 kHz dispatch
-    duty_record = 10.0 * record / hz            # 10 BLE sightings/s
-
-    mem_max = nice_axis_max([ingest, agg_500, agg_2k])
-    ble_max = nice_axis_max([record, lookup, evict])
-    rates = [rate(ingest), rate(lookup), rate(record)]
-    rate_max = nice_axis_max(rates)
-
-    def krate(v: float) -> str:
-        return f"{v / 1000:.1f}k"
+    seq_cap, seq_win = ratio(seq["expanse_memtable"], seq_peer)
+    shuf_cap, shuf_win = ratio(shuf["expanse_memtable"], shuf_peer)
+    agg_cap, agg_win = ratio(agg["expanse_memtable"], agg_peer)
 
     p1 = panel(
-        30, "Telemetry MemTable", "cycles/op &#183; lower is better",
-        "&#9660; CPU cycles / op", mem_max, f"{mem_max:,.0f}", f"{mem_max / 2:,.0f}",
-        bar(BAR_X[0], ingest, mem_max, "b-expanse", f"{ingest:,.0f}",
-            "t-val-muted", "insert", us(ingest), False)
-        + bar(BAR_X[1], agg_500, mem_max, "b-hashmap", f"{agg_500:,.0f}",
-              "t-val-blue", "agg N=500", us(agg_500), False)
-        + bar(BAR_X[2], agg_2k, mem_max, "b-hashmap", f"{agg_2k:,.0f}",
-              "t-val-blue", "agg N=2k", us(agg_2k), False),
+        30, "Ingest: Keys In Order", f"N={POP:,} &#183; ratio vs sorted array",
+        "&#9660; CPU cycles / op", seq_max, f"{seq_max:,.0f}", f"{seq_max / 2:,.0f}",
+        bar_w(BAR_X4[0], BAR_W4, seq["expanse_memtable"], seq_max, "b-expanse",
+              f'{seq["expanse_memtable"]:,.0f}',
+              "t-val-accent" if seq_win else "t-val-muted", "Expanse",
+              seq_cap, seq_win)
+        + bar_w(BAR_X4[1], BAR_W4, seq["hash_open_addressing"], seq_max, "b-hashmap",
+                f'{seq["hash_open_addressing"]:,.0f}', "t-val-blue", "hash", "no order", False)
+        + bar_w(BAR_X4[2], BAR_W4, seq["sorted_array"], seq_max, "b-stdmap",
+                f'{seq["sorted_array"]:,.0f}', "t-val-muted", "sorted", "appends", False)
+        + bar_w(BAR_X4[3], BAR_W4, seq["ring_buffer"], seq_max, "b-stdmap",
+                f'{seq["ring_buffer"]:,.0f}', "t-val-muted", "ring", "no index", False),
     )
     p2 = panel(
-        350, "BLE Asset Tracker", "cycles/op &#183; N=2k &#183; lower is better",
-        "&#9660; CPU cycles / op", ble_max, f"{ble_max:,.0f}", f"{ble_max / 2:,.0f}",
-        bar(BAR_X[0], record, ble_max, "b-expanse", f"{record:,.0f}",
-            "t-val-muted", "record", us(record), False)
-        + bar(BAR_X[1], lookup, ble_max, "b-hashmap", f"{lookup:,.0f}",
-              "t-val-blue", "lookup", us(lookup), False)
-        + bar(BAR_X[2], evict, ble_max, "b-stdmap", f"{evict:,.0f}",
-              "t-val-muted", "TTL evict", us(evict), False),
+        350, "Ingest: Keys Shuffled", f"N={POP:,} &#183; ratio vs sorted array",
+        "&#9660; CPU cycles / op", shuf_max, f"{shuf_max:,.0f}", f"{shuf_max / 2:,.0f}",
+        bar_w(BAR_X4[0], BAR_W4, shuf["expanse_memtable"], shuf_max, "b-expanse",
+              f'{shuf["expanse_memtable"]:,.0f}',
+              "t-val-accent" if shuf_win else "t-val-muted", "Expanse",
+              shuf_cap, shuf_win)
+        + bar_w(BAR_X4[1], BAR_W4, shuf["hash_open_addressing"], shuf_max, "b-hashmap",
+                f'{shuf["hash_open_addressing"]:,.0f}', "t-val-blue", "hash", "no order", False)
+        + bar_w(BAR_X4[2], BAR_W4, shuf["sorted_array"], shuf_max, "b-stdmap",
+                f'{shuf["sorted_array"]:,.0f}', "t-val-muted", "sorted", "memmove", False),
     )
     p3 = panel(
-        670, "Headroom On One Core", "derived ops/s &#183; higher is better",
-        "&#9650; operations / second", rate_max, f"{rate_max / 1000:,.0f}k",
-        f"{rate_max / 2000:,.0f}k",
-        bar(BAR_X[0], rates[0], rate_max, "b-expanse", krate(rates[0]),
-            "t-val-muted", "insert", f"1kHz={duty_ingest * 100:.1f}%", False)
-        + bar(BAR_X[1], rates[1], rate_max, "b-hashmap", krate(rates[1]),
-              "t-val-blue", "lookup", f"1kHz={duty_lookup * 100:.1f}%", False)
-        + bar(BAR_X[2], rates[2], rate_max, "b-stdmap", krate(rates[2]),
-              "t-val-muted", "BLE rec", f"10/s={duty_record * 100:.2f}%", False),
+        670, "Range Scan", f"per key walked &#183; ratio vs sorted array",
+        "&#9660; CPU cycles / key", agg_max, f"{agg_max:,.0f}", f"{agg_max / 2:,.0f}",
+        bar_w(BAR_X4[0], BAR_W4, agg["expanse_memtable"], agg_max, "b-expanse",
+              f'{agg["expanse_memtable"]:,.0f}',
+              "t-val-accent" if agg_win else "t-val-muted", "Expanse",
+              agg_cap, agg_win)
+        + bar_w(BAR_X4[1], BAR_W4, agg["hash_open_addressing"], agg_max, "b-hashmap",
+                f'{agg["hash_open_addressing"]:,.0f}', "t-val-blue", "hash", "scan all", False)
+        + bar_w(BAR_X4[2], BAR_W4, agg["sorted_array"], agg_max, "b-stdmap",
+                f'{agg["sorted_array"]:,.0f}', "t-val-muted", "sorted", "contig.", False)
+        + bar_w(BAR_X4[3], BAR_W4, agg["ring_buffer"], agg_max, "b-stdmap",
+                f'{agg["ring_buffer"]:,.0f}', "t-val-muted", "ring", "scan all", False),
+    )
+    p4 = panel(
+        990, "Memory Per Key", f"live heap delta &#183; N={POP:,}",
+        "&#9660; bytes / key", mem_max, f"{mem_max:.0f} B", f"{mem_max / 2:.0f} B",
+        bar_w(BAR_X4[0], BAR_W4, mem["expanse_memtable"], mem_max, "b-expanse",
+              f'{mem["expanse_memtable"]:.2f}', "t-val-accent", "Expanse",
+              f"{best_mem / mem['expanse_memtable']:.1f}&#215; denser", True)
+        + bar_w(BAR_X4[1], BAR_W4, mem["sorted_array"], mem_max, "b-stdmap",
+                f'{mem["sorted_array"]:.2f}', "t-val-muted", "sorted", "flat 8B", False)
+        + bar_w(BAR_X4[2], BAR_W4, mem["hash_open_addressing"], mem_max, "b-hashmap",
+                f'{mem["hash_open_addressing"]:.2f}', "t-val-blue", "hash", "0.7 load", False),
     )
 
+    ble_ratio, _ = ratio(lookup["expanse_slab"], lookup["hash_open_addressing"])
     footer = (
         f'  <text x="30" y="262" class="t-chart-sub">Measured on {prov["target"]} rev '
         f'v{prov.get("revision", "?")} &#183; {mhz:.0f} MHz &#183; ESP-IDF '
         f'{prov.get("idf", "?")} &#183; engine {prov.get("expanse", "?")} &#183; '
         f'10 reps/arm, BCa 95% CIs.</text>\n'
-        f'  <text x="30" y="275" class="t-chart-sub">Single-arm: no unordered_map, std::map or '
-        f'ring-buffer arm ran on the device. These size the part for a workload; they do not '
-        f'rank Expanse against anything.</text>\n'
-        f'  <text x="30" y="288" class="t-chart-sub">Panel 3 is derived from panels 1-2. Insert '
-        f'is flat in population ({ingest_500:,.0f} cycles at N=500). Churn left {retained:,.0f} B '
-        f'resident, fragmentation {frag_delta:+.4f}. FreeRTOS mutex inside every timed '
-        f'window.</text>\n'
+        f'  <text x="30" y="275" class="t-chart-sub">Every arm runs under the same FreeRTOS '
+        f'recursive mutex, stores the same payload and retires the same set. The sorted array '
+        f'is the same container in both ingest panels: order of arrival is the only difference.</text>\n'
+        f'  <text x="30" y="288" class="t-chart-sub">Not shown: BLE point lookup, where Expanse is '
+        f'{ble_ratio.replace("&#215;", "x")} than the hash twin, and TTL eviction, where it loses at '
+        f'both expiry regimes measured. Full table in docs/DATABASE.md &#167;5.4.</text>\n'
     )
 
     svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" width="100%" height="100%">\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 300" width="100%" height="100%">\n'
         "  <defs>\n    <style>" + STYLE + "    </style>\n  </defs>\n\n"
         '  <rect width="100%" height="100%" class="bg" rx="8"/>\n'
         '  <rect width="100%" height="100%" class="border" rx="8"/>\n\n'
-        + p1
-        + '\n  <line x1="330" y1="20" x2="330" y2="245" class="divider"/>\n\n'
-        + p2
-        + '\n  <line x1="650" y1="20" x2="650" y2="245" class="divider"/>\n\n'
-        + p3
-        + "\n"
-        + footer
-        + "</svg>\n"
+        + p1 + '\n  <line x1="330" y1="20" x2="330" y2="245" class="divider"/>\n\n'
+        + p2 + '\n  <line x1="650" y1="20" x2="650" y2="245" class="divider"/>\n\n'
+        + p3 + '\n  <line x1="970" y1="20" x2="970" y2="245" class="divider"/>\n\n'
+        + p4 + "\n" + footer + "</svg>\n"
     )
-    ET.fromstring(svg)  # refuse to write malformed XML
+    ET.fromstring(svg)
     ESP32_OUTPUT.write_text(svg, encoding="utf-8")
     print(f"wrote {ESP32_OUTPUT}")
     return 0
@@ -456,7 +496,7 @@ def main() -> int:
         bar(BAR_X[0], ingest["expanse"], ing_max, "b-expanse",
             f'{ingest["expanse"]:.0f}', "t-val-accent", "Expanse", ing_cap, ing_win)
         + bar(BAR_X[1], ingest["hashmap"], ing_max, "b-hashmap",
-              f'{ingest["hashmap"]:.1f}', "t-val-blue", "HashMap", "unordered", False)
+              f'{ingest["hashmap"]:.1f}', "t-val-blue", "HashMap", "no order", False)
         + bar(BAR_X[2], ingest["btreemap"], ing_max, "b-stdmap",
               f'{ingest["btreemap"]:.0f}', "t-val-muted", "BTreeMap", "ordered", False),
     )
@@ -466,7 +506,7 @@ def main() -> int:
         bar(BAR_X[0], lookup["expanse"], lk_max, "b-expanse",
             f'{lookup["expanse"]:.1f}', "t-val-accent", "Expanse", lk_cap, lk_win)
         + bar(BAR_X[1], lookup["hashmap"], lk_max, "b-hashmap",
-              f'{lookup["hashmap"]:.1f}', "t-val-blue", "HashMap", "unordered", False)
+              f'{lookup["hashmap"]:.1f}', "t-val-blue", "HashMap", "no order", False)
         + bar(BAR_X[2], lookup["btreemap"], lk_max, "b-stdmap",
               f'{lookup["btreemap"]:.1f}', "t-val-muted", "BTreeMap", "ordered", False),
     )

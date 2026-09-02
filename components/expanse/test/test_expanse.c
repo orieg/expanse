@@ -11,6 +11,7 @@
 #include "unity.h"
 #include "expanse_esp_idf.h"
 #include "expanse.h"
+#include "twin_containers.h"
 
 TEST_CASE("Expanse internal SRAM allocation helper", "[expanse]") {
     void *ptr = expanse_esp_alloc_internal(128);
@@ -282,3 +283,140 @@ TEST_CASE("Expanse BLE tracker 49.7-day ms timestamp wrap handling", "[expanse]"
 
 
 
+
+/*
+ * The comparison baselines have to be correct before any number measured
+ * against them means anything: a twin that silently drops entries would make
+ * Expanse look slow, and one that skips work would make it look fast. These
+ * two cases assert the twins return exactly what Expanse returns on the same
+ * input, so a broken baseline fails the gate instead of publishing a
+ * comparison (#579, AGENTS.md §8.3).
+ */
+TEST_CASE("Telemetry twins agree with Expanse on range aggregation", "[expanse]") {
+    const size_t N = 500;
+    const uint32_t LO = 1700000000u + 100u, HI = 1700000000u + 600u;
+
+    expanse_memtable_t *mt = expanse_memtable_create();
+    twin_hash_t   *h = twin_hash_create(N);
+    twin_sorted_t *s = twin_sorted_create(N);
+    twin_ring_t   *r = twin_ring_create(N);
+    TEST_ASSERT_NOT_NULL(mt);
+    TEST_ASSERT_NOT_NULL(h);
+    TEST_ASSERT_NOT_NULL(s);
+    TEST_ASSERT_NOT_NULL(r);
+
+    for (size_t i = 0; i < N; ++i) {
+        uint32_t k = (uint32_t)(1700000000u + i), v = (uint32_t)(i % 1000);
+        expanse_memtable_insert(mt, k, v, NULL);
+        twin_hash_insert(h, k, v);
+        twin_sorted_insert(s, k, v);
+        twin_ring_insert(r, k, v);
+    }
+
+    TEST_ASSERT_EQUAL_UINT(N, expanse_memtable_len(mt));
+    TEST_ASSERT_EQUAL_UINT(N, twin_hash_len(h));
+    TEST_ASSERT_EQUAL_UINT(N, twin_sorted_len(s));
+    TEST_ASSERT_EQUAL_UINT(N, twin_ring_len(r));
+
+    expanse_memtable_agg_t want, got;
+    TEST_ASSERT_TRUE(expanse_memtable_aggregate_range(mt, LO, HI, &want));
+    TEST_ASSERT_TRUE(want.count > 0);
+
+    TEST_ASSERT_TRUE(twin_hash_aggregate(h, LO, HI, &got));
+    TEST_ASSERT_EQUAL_UINT(want.count, got.count);
+    TEST_ASSERT_EQUAL_UINT32(want.min_val, got.min_val);
+    TEST_ASSERT_EQUAL_UINT32(want.max_val, got.max_val);
+    TEST_ASSERT_EQUAL_UINT64(want.sum_val, got.sum_val);
+
+    TEST_ASSERT_TRUE(twin_sorted_aggregate(s, LO, HI, &got));
+    TEST_ASSERT_EQUAL_UINT(want.count, got.count);
+    TEST_ASSERT_EQUAL_UINT32(want.min_val, got.min_val);
+    TEST_ASSERT_EQUAL_UINT32(want.max_val, got.max_val);
+    TEST_ASSERT_EQUAL_UINT64(want.sum_val, got.sum_val);
+
+    TEST_ASSERT_TRUE(twin_ring_aggregate(r, LO, HI, &got));
+    TEST_ASSERT_EQUAL_UINT(want.count, got.count);
+    TEST_ASSERT_EQUAL_UINT32(want.min_val, got.min_val);
+    TEST_ASSERT_EQUAL_UINT32(want.max_val, got.max_val);
+    TEST_ASSERT_EQUAL_UINT64(want.sum_val, got.sum_val);
+
+    /* Point lookups must agree too, including on an absent key. */
+    uint32_t ev = 0, hv = 0, sv = 0;
+    TEST_ASSERT_TRUE(expanse_memtable_get(mt, 1700000000u + 250u, &ev));
+    TEST_ASSERT_TRUE(twin_hash_get(h, 1700000000u + 250u, &hv));
+    TEST_ASSERT_TRUE(twin_sorted_get(s, 1700000000u + 250u, &sv));
+    TEST_ASSERT_EQUAL_UINT32(ev, hv);
+    TEST_ASSERT_EQUAL_UINT32(ev, sv);
+    TEST_ASSERT_FALSE(expanse_memtable_get(mt, 1u, &ev));
+    TEST_ASSERT_FALSE(twin_hash_get(h, 1u, &hv));
+    TEST_ASSERT_FALSE(twin_sorted_get(s, 1u, &sv));
+
+    twin_ring_destroy(r);
+    twin_sorted_destroy(s);
+    twin_hash_destroy(h);
+    expanse_memtable_destroy(mt);
+}
+
+TEST_CASE("BLE twins agree with Expanse on lookup and TTL eviction", "[expanse]") {
+    const size_t N = 500;
+    expanse_ble_tracker_t *tr = expanse_ble_tracker_create(N);
+    twin_ble_hash_t *h = twin_ble_hash_create(N);
+    twin_ble_scan_t *sc = twin_ble_scan_create(N);
+    TEST_ASSERT_NOT_NULL(tr);
+    TEST_ASSERT_NOT_NULL(h);
+    TEST_ASSERT_NOT_NULL(sc);
+
+    expanse_ble_record_t rec;
+    memset(&rec, 0, sizeof(rec));
+    strcpy(rec.name, "Beacon_Node");
+    rec.rssi = -68;
+    rec.distance_cm = 120;
+
+    for (size_t i = 0; i < N; ++i) {
+        rec.mac[0] = 0x00; rec.mac[1] = 0x1A; rec.mac[2] = 0x2B;
+        rec.mac[3] = (uint8_t)((i >> 16) & 0xFF);
+        rec.mac[4] = (uint8_t)((i >> 8) & 0xFF);
+        rec.mac[5] = (uint8_t)(i & 0xFF);
+        rec.last_seen_ms = (uint32_t)(1000 + i * 10);
+        expanse_ble_tracker_record(tr, &rec);
+        twin_ble_hash_record(h, &rec);
+        twin_ble_scan_record(sc, &rec);
+    }
+
+    /* Every arm must resolve the same MAC to the same sighting time. */
+    for (size_t i = 0; i < N; i += 37) {
+        uint8_t mac[6] = {0x00, 0x1A, 0x2B, (uint8_t)((i >> 16) & 0xFF),
+                          (uint8_t)((i >> 8) & 0xFF), (uint8_t)(i & 0xFF)};
+        expanse_ble_record_t a, b, c;
+        TEST_ASSERT_TRUE(expanse_ble_tracker_get(tr, mac, &a));
+        TEST_ASSERT_TRUE(twin_ble_hash_get(h, mac, &b));
+        TEST_ASSERT_TRUE(twin_ble_scan_get(sc, mac, &c));
+        TEST_ASSERT_EQUAL_UINT32(a.last_seen_ms, b.last_seen_ms);
+        TEST_ASSERT_EQUAL_UINT32(a.last_seen_ms, c.last_seen_ms);
+    }
+
+    /* And retire the same set: per-entry eviction costs are only comparable
+     * if the arms do equal logical work. The expected count is derived from
+     * the tracker's own predicate (second granularity, inclusive) rather than
+     * assumed to be half the population -- assuming that is what first caught
+     * the twins retiring 250 where Expanse retired 300. */
+    uint32_t cutoff = (uint32_t)(1000 + (N / 2) * 10);
+    size_t want_expired = 0;
+    for (size_t i = 0; i < N; ++i) {
+        uint32_t seen = (uint32_t)(1000 + i * 10);
+        if ((seen / 1000u) <= (cutoff / 1000u)) want_expired++;
+    }
+    TEST_ASSERT_TRUE(want_expired > 0);
+    TEST_ASSERT_TRUE(want_expired < N);
+
+    size_t e_expanse = expanse_ble_tracker_expire_stale(tr, cutoff);
+    size_t e_hash = twin_ble_hash_expire_stale(h, cutoff);
+    size_t e_scan = twin_ble_scan_expire_stale(sc, cutoff);
+    TEST_ASSERT_EQUAL_UINT(want_expired, e_expanse);
+    TEST_ASSERT_EQUAL_UINT(e_expanse, e_hash);
+    TEST_ASSERT_EQUAL_UINT(e_expanse, e_scan);
+
+    twin_ble_scan_destroy(sc);
+    twin_ble_hash_destroy(h);
+    expanse_ble_tracker_destroy(tr);
+}
