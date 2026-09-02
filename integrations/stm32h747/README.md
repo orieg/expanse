@@ -14,16 +14,24 @@ chart `docs/assets/bench_stm32h747.svg` (`scripts/generate_stm32_svg.py`).
 
 | stage | what | output line |
 |---|---|---|
-| calibration | 320M cycles of spin between `TICK`/`TOCK`; `capture.py` times it on the host, which pins the core clock independently of the firmware's belief | `CALIB` |
-| fixtures | ingest (2,000 sequential inserts), CAN dispatch (500 gets), BLE TTL eviction in the bulk (600/2,000) and steady (25/2,000) shapes, each via the per-key `first`/`remove` loop and via `expanse_map_remove_range`; 5 passes; at 64 MHz HSI and 160 MHz PLL1, D-cache off and on | `RESULT name=… sysclk=… dcache=… pass=… cycles=… ops=…` |
+| calibration | 320M cycles of spin between `TICK`/`TOCK` at each clock; `capture.py` times it on the host, which pins the core clock independently of the firmware's belief and lets `harvest.py` derive nanoseconds | `CALIB` |
+| fixtures | ingest (2,000 sequential inserts), CAN dispatch (500 gets), BLE TTL eviction in the bulk (600/2,000) and steady (25/2,000) shapes, each via the per-key `first`/`remove` loop and via `remove_range` (or a full scan for the hash table); 5 passes; at 64 MHz HSI, 160 MHz PLL1 (VOS3) and 400 MHz PLL1 (VOS1), D-cache off and on; for **four implementations** behind one vtable (`alts.c`): Expanse's C ABI, a sorted array with `bsearch`+`memmove`, an open-addressing hash table (same FNV-1a, ≤ 50% load), and newlib's `tsearch` | `RESULT name=… impl=… sysclk=… dcache=… pass=… cycles=… ops=…` |
+| bytes/key | newlib heap in use (`mallinfo`) and requested bytes around building each structure with 2,000 keys, sequential-key map and the BLE dual index | `RESULT name=bytes impl=… shape=…` |
 | ISR arm | SysTick every 20,000 cycles calls `expanse_sync32_map_reader_try_get` while the main loop mutates a `sync32` map at full duty and at three paced rates (jittered gaps, so the writer cannot alias with the timer); counts OK / NOT_FOUND / BUSY, value-corruption checks, reclaim refusals, ISR entry latency (from the SysTick counter at entry) and ISR body cycles | `RESULT name=isr_sync32 …` |
 | twin | the same, with `cpsid i`/`cpsie i` around a plain `expanse_map_t` and a plain `expanse_map_get` in the ISR | `RESULT name=isr_critical_section …` |
 
 Every `CHECK` line is a failed in-firmware assertion; a clean run prints none
-and ends with `DONE`. Core clock is 64 MHz HSI after reset and 160 MHz from
-PLL1 (HCLK 80 MHz) afterwards, chosen because it stays inside the reset VOS3
-envelope on every silicon revision, so no PWR supply reconfiguration is needed.
-All numbers are core cycles per operation, not nanoseconds.
+and ends with `DONE`. Core clock is 64 MHz HSI after reset, then 160 MHz from
+PLL1 inside the reset VOS3 envelope, then 400 MHz at VOS1 after selecting the
+direct-SMPS supply the DISCO is wired for (`PWR_CR3` already reads SDEN=1,
+LDOEN=0 on this board). VOS0 / 480 MHz needs the LDO path and a board
+modification, so it is not attempted. All numbers are core cycles per
+operation; `harvest.py` converts to ns with the host-measured clocks.
+
+The alternatives are deliberately plain: the sorted array and the hash table
+are pre-sized to capacity (like the host suite's `HashMap::with_capacity`),
+Expanse and `tsearch` grow through `malloc`; `tsearch` degenerates on
+sequential keys (unbalanced), which the docs section says out loud.
 
 ## Files
 
