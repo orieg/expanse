@@ -139,3 +139,25 @@ Per `~/.claude/RESEARCH_DISCIPLINES.md` Rules 2 (Pre-registration), 3 (Fair twin
 | `arm_symmetry` | Symmetric keys and PRNG |
 | `statistics` | Exact byte count |
 | `verdict` | **PASS** `[verified: CODE READ]`: ART comparison memory footprint benchmark. |
+
+---
+
+## 5. Amendments after Pre-Registration (2026-09-02)
+
+Per `AGENTS.md §8.12` and Research Disciplines amendment rules, methodological and harness adjustments made after initial pre-registration are explicitly recorded below without modifying §1–§4 in place:
+
+1. **Probe Stream Shuffling in Point Lookups (`art_lookup_hit`, `art_lookup_miss`)**:
+   - *Adjustment*: Point lookup probe access was modified from sequential insertion order to a deterministic shuffled probe stream using `PROBE_SHUFFLE_SEED = 0x5EED_511F_F1E0_0001`.
+   - *Rationale*: Sequential probe streams introduce CPU hardware branch predictor and prefetch cache-line artifacts (the #454 defect class), distorting true random vs structured access memory latency.
+   - *Status*: All point lookup timing verdicts in `README.md` are **measured under amended shape**.
+
+2. **Distribution-Aware Miss Rejection Sampling (`art_lookup_miss`)**:
+   - *Adjustment*: Miss generation was updated from uniform random key drawing to same-generator rejection sampling (`gen_distribution_misses`).
+   - *Rationale*: Uniform miss keys on structured key distributions (sequential/stride/clustered) terminate prematurely in top-level shallow branches, artificially depressing miss latency.
+
+3. **Statistical Metric Alignment & BCa 95% Confidence Intervals**:
+   - *Adjustment*: The benchmark protocol raised sampling to 15 interleaved rounds per cell, recording paired per-round sample series and computing BCa 95% bootstrap confidence intervals (2,000 resamples via `scripts/recompute_and_patch_json.py` / `scripts/bca_bootstrap.py`). Ratios and confidence intervals both evaluate the paired per-round mean ratio, ensuring that every point estimate strictly lies within its interval.
+
+4. **Offline Statistical Verification & Metadata Transcription (`recompute_and_patch_json.py`)**:
+   - *Adjustment*: The raw timing samples from the reference-host execution were processed via `scripts/recompute_and_patch_json.py` to derive BCa bootstrap confidence intervals and verify that all point estimates strictly lie within their confidence intervals.
+   - *Status*: Host model, kernel version, and load averages (`0.00` start, `0.96` end) were transcribed from the reference-host execution run log into artifact metadata. Zipfian deduplicated unique key counts for lookup pillars (2,911 unique at 10k; 25,144 unique at 100k; 225,853 unique at 1M) were transcribed from the memory census pillar of the same run.
