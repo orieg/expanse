@@ -53,5 +53,6 @@ SECTIONS
     _ebss = .;
   } > DTCM
 
-  /DISCARD/ : { *(.ARM.attributes) }
+  /* Kept (not loaded) so readelf -A can assert the hard-float ABI tag. */
+  .ARM.attributes 0 : { *(.ARM.attributes) }
 }

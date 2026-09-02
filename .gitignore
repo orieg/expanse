@@ -40,3 +40,6 @@ docs/benchmarks/*/results/quick/
 /.claude/
 /scratch/
 
+integrations/stm32h747/*.elf
+integrations/stm32h747/*.map
+integrations/stm32h747/*.attrs

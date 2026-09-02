@@ -14,4 +14,12 @@ $CC $M7 $COMMON -I"$REPO/include" -T "$HERE/m7.ld" \
     -Wl,-Map="$HERE/m7.map" -o "$HERE/m7.elf"
 $CC $M4 $COMMON -T "$HERE/m4.ld" "$HERE/m4_idle.c" -o "$HERE/m4.elf"
 arm-none-eabi-size "$HERE/m7.elf" "$HERE/m4.elf"
-arm-none-eabi-readelf -A "$HERE/m7.elf" | grep -E "Tag_ABI_VFP_args|Tag_CPU_name|Tag_FP_arch"
+# Float-ABI assertion (§8.1: loud): the link above already refuses a
+# soft/hard mismatch; this makes the resolved ABI visible and fails if the
+# image is not hard-float.
+arm-none-eabi-readelf -A "$HERE/m7.elf" > "$HERE/m7.attrs"
+grep -E "Tag_CPU_name|Tag_FP_arch|Tag_ABI_VFP_args" "$HERE/m7.attrs" || true
+grep -q "Tag_ABI_VFP_args: VFP registers" "$HERE/m7.attrs" || {
+    echo "FAIL: m7.elf is not hard-float (Tag_ABI_VFP_args missing)" >&2
+    exit 1
+}
