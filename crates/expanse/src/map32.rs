@@ -312,6 +312,7 @@ impl ExpanseMap32 {
             lo: 0,
             hi: Key32::MAX,
             done: self.is_empty(),
+            fwd: None,
         }
     }
 
@@ -325,6 +326,7 @@ impl ExpanseMap32 {
             lo: start,
             hi: end,
             done: start > end || self.is_empty(),
+            fwd: None,
         }
     }
 
@@ -360,9 +362,15 @@ pub struct MapIter32<'a> {
     lo: Key32,
     hi: Key32,
     done: bool,
+    /// The forward walk's descent path, built on the first `next` so an
+    /// iterator only ever driven from the back never pays for it (#614).
+    /// The back end stays descent-based: `next_back` lowers `hi`, and the
+    /// forward walk stops at the first key above it, so the two ends still
+    /// cannot cross.
+    fwd: Option<trie32::RawIter32<'a>>,
 }
 
-impl Iterator for MapIter32<'_> {
+impl<'a> Iterator for MapIter32<'a> {
     type Item = (Key32, Value32);
 
     #[inline]
@@ -370,7 +378,14 @@ impl Iterator for MapIter32<'_> {
         if self.done {
             return None;
         }
-        let (k, v) = self.map.first_ge(self.lo)?;
+        if self.fwd.is_none() {
+            let map = self.map;
+            self.fwd = Some(trie32::RawIter32::new(&map.alloc, map.root, 4, self.lo));
+        }
+        let Some((k, v)) = self.fwd.as_mut().and_then(trie32::RawIter32::next) else {
+            self.done = true;
+            return None;
+        };
         if k > self.hi {
             self.done = true;
             return None;

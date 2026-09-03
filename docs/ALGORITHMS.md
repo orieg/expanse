@@ -201,12 +201,42 @@ every `advance_to`, which is exactly the stateless `next_at_or_after` it exists 
 so the cursor is a single-threaded (`&self`) reader only.
 
 **32-bit twins.** `ExpanseSet32`/`ExpanseMap32` expose the same
-`cursor`/`cursor_from`/`advance_to` surface (`crate::cursor32`) for source parity, but the
-32-bit trie has no stack iterator to reuse, so each forward advance re-descends from the
-root via the stateless `first`/`next` primitives (the monotone no-op short-circuit still
-applies). They gain the API, not the path-reuse speedup, until `trie32` grows a stack
-iterator — at which point they can adopt this engine unchanged. On 32-bit
-targets the unsuffixed `expanse::SetCursor` / `MapCursor` re-export the `*32`
+`cursor`/`cursor_from`/`advance_to` surface (`crate::cursor32`) for source parity, and
+since [#614](https://github.com/orieg/expanse/issues/614) sequential stepping reuses a
+held path: `trie32::RawIter32` is the 32-bit stack walk — a `[Frame32; 4]` path (a 32-bit
+key is four digits, so at most three branch levels) plus a `LeafCur32` streaming the
+current leaf, holding `Edge32` by value and leaves by arena handle rather than raw
+pointers. `iter`/`range` on both containers and `next` on both cursors run on it, so a
+step is a leaf index bump or one child lookup at a branch already in hand.
+
+A **skip** is the remaining gap: `advance_to` keeps its monotone no-op short-circuit but
+otherwise abandons the held path and re-seeks from the root through the stateless
+`first`/`next` primitives, where the 64-bit cursor repositions the path it already holds
+(`RawIter::seek_forward`). Teaching `RawIter32` the same tightest-re-descent
+repositioning is what closes the last of the parity.
+
+Ordered iteration over a 2,000-entry `ExpanseMap32`, retired instructions for the whole
+walk:
+
+| Arm | Key shape | Before (`first_ge` per key) | After (`RawIter32`) | Ratio |
+|---|---|---|---|---|
+| `map32_iterate` | sequential | 1,183,874 | 223,402 | 5.30× |
+| `map32_iterate` | clustered (stride 4096, runs of 8) | 2,460,865 | 335,562 | 7.33× |
+| `map32_iterate` | uniform random | 5,292,815 | 333,065 | 15.89× |
+| `map32_range` | sequential | 1,189,880 | 223,411 | 5.33× |
+| `map32_range` | clustered | 2,466,871 | 335,571 | 7.35× |
+| `map32_range` | uniform random | 1,502,823 | 167,632 | 8.97× |
+
+*(measured: x86-64 workspace host, `crates/expanse/benches/instructions.rs` arms
+`map32_iterate` / `map32_range` under iai-callgrind 0.16.1; the before column is the same
+harness with the stack walk reverted. Exact instruction counts carry no interval —
+AGENTS.md §8.4 — and the `instruction-counts` CI job reruns these arms on every change,
+so the after column is the one a regression is measured against. The `map32_range` random
+arm walks roughly half the population, which is why its absolute counts are lower than
+its `map32_iterate` twin's. The sparse shape gains most: it builds the deepest tries,
+which is exactly what a per-key root re-descent pays for.)*
+
+On 32-bit targets the unsuffixed `expanse::SetCursor` / `MapCursor` re-export the `*32`
 cursor types, mirroring the `ExpanseSet` / `ExpanseMap` re-point, so downstream
 code names the same types on either width.
 

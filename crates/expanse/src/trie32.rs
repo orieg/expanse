@@ -3523,6 +3523,385 @@ pub(crate) fn map_for_each_range(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Stack-based in-order iteration (#614)
+// ---------------------------------------------------------------------------
+
+/// The child of `e` with the smallest digit `>= from`, if any — the
+/// generalisation of [`branch_first_child`] the stack iterator advances on.
+fn branch_child_at_or_after(a: &Arena, e: &Edge32, from: u8) -> Option<(u8, Edge32)> {
+    match kind(e) {
+        Kind::BranchL2 => {
+            let b = a.l2(edge_handle(e));
+            let n = b.header.num_edges as usize;
+            (0..n)
+                .find(|&i| b.digits[i] >= from)
+                .map(|i| (b.digits[i], b.edges[i]))
+        }
+        Kind::BranchL6 => {
+            let b = a.l6(edge_handle(e));
+            let n = b.header.num_edges as usize;
+            (0..n)
+                .find(|&i| b.digits[i] >= from)
+                .map(|i| (b.digits[i], b.edges[i]))
+        }
+        Kind::BranchB => {
+            let b = a.b(edge_handle(e));
+            let digit = bitmap_first_ge_raw(&b.header.bitmap, u16::from(from))?;
+            let w = (digit >> 6) as usize;
+            let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
+            let sub = (digit >> 5) as usize;
+            Some((digit, b.subarrays[sub].as_ref()?[rank]))
+        }
+        Kind::BranchU => {
+            let b = a.u(edge_handle(e));
+            (from as usize..256).find_map(|d| {
+                let c = b.edges[d];
+                (!c.is_null()).then_some((d as u8, c))
+            })
+        }
+        _ => unreachable!("branch op on a leaf edge"),
+    }
+}
+
+/// One branch level on an iterator's descent path: the branch itself, the
+/// key bytes and decoded prefix at that level, and the next digit to try
+/// when the subtree below it runs out (`256` once exhausted).
+#[derive(Clone, Copy)]
+struct Frame32 {
+    edge: Edge32,
+    kb: u8,
+    prefix: u32,
+    next_digit: u16,
+}
+
+/// The leaf an iterator is streaming, and how far through it is. Every
+/// variant yields ascending keys and is positioned past everything below
+/// the iterator's start bound when it is built.
+#[derive(Clone, Copy)]
+enum LeafCur32 {
+    Done,
+    /// Immediate keys live in the edge itself: at most seven of them, copied
+    /// out and sorted once so the walk never re-reads the edge.
+    Immed {
+        keys: [u32; 7],
+        n: u8,
+        idx: u8,
+        val: u32,
+        prefix: u32,
+    },
+    /// A linear leaf, streamed by index through the arena buffer.
+    Linear {
+        handle: u32,
+        pop: u16,
+        idx: u16,
+        kb: u8,
+        prefix: u32,
+        is_map: bool,
+    },
+    /// A set bitmap leaf: the four mask words, low bits already cleared to
+    /// the start bound.
+    Bitmap {
+        words: [u64; 4],
+        w: u8,
+        prefix: u32,
+    },
+    /// A map bitmap leaf: the same walk, with the value read through the
+    /// leaf's rank-indexed subarrays.
+    MapBitmap {
+        handle: u32,
+        words: [u64; 4],
+        w: u8,
+        prefix: u32,
+    },
+}
+
+impl LeafCur32 {
+    /// Positions a cursor on the first entry of `e` whose remainder is
+    /// `>= from`, or `None` when the leaf holds nothing at or after it.
+    fn new(a: &Arena, e: &Edge32, kb: u8, prefix: u32, from: u32) -> Option<Self> {
+        match kind(e) {
+            Kind::Null => None,
+            Kind::SetImmed { kb: _, count } => {
+                let (mut keys, n) = set_immed_keys(e, kb, count);
+                keys[..n].sort_unstable();
+                let idx = keys[..n].partition_point(|&k| k < from);
+                (idx < n).then_some(LeafCur32::Immed {
+                    keys,
+                    n: n as u8,
+                    idx: idx as u8,
+                    val: 0,
+                    prefix,
+                })
+            }
+            Kind::MapImmed { kb: _ } => {
+                let r = map_immed_rem(e, kb);
+                (r >= from).then(|| LeafCur32::Immed {
+                    keys: [r, 0, 0, 0, 0, 0, 0],
+                    n: 1,
+                    idx: 0,
+                    val: map_immed_val(e),
+                    prefix,
+                })
+            }
+            Kind::SetLeaf(_) | Kind::MapLeaf(_) => {
+                let is_map = matches!(kind(e), Kind::MapLeaf(_));
+                let pop = edge_pop(e);
+                let handle = edge_handle(e);
+                let buf = a.leaf(handle);
+                let keys = if is_map {
+                    &buf[4 * cap_class(pop)..]
+                } else {
+                    buf
+                };
+                let idx = leaf_lower_bound(keys, pop, kb, from)?;
+                (idx < pop).then_some(LeafCur32::Linear {
+                    handle,
+                    pop: pop as u16,
+                    idx: idx as u16,
+                    kb,
+                    prefix,
+                    is_map,
+                })
+            }
+            Kind::Bitmap | Kind::MapBitmap => {
+                if from > 255 {
+                    return None;
+                }
+                let is_map = matches!(kind(e), Kind::MapBitmap);
+                let handle = edge_handle(e);
+                let mut words = if is_map {
+                    a.map_bitmap(handle).header.bitmap
+                } else {
+                    a.bitmap(handle).bitmap
+                };
+                // Clear everything below the start bound so the walk can run
+                // on trailing_zeros alone from here on.
+                let from = from as usize;
+                for (w, word) in words.iter_mut().enumerate() {
+                    if w < from / 64 {
+                        *word = 0;
+                    } else if w == from / 64 {
+                        *word &= !0u64 << (from % 64);
+                    }
+                }
+                if words.iter().all(|&w| w == 0) {
+                    return None;
+                }
+                Some(if is_map {
+                    LeafCur32::MapBitmap {
+                        handle,
+                        words,
+                        w: 0,
+                        prefix,
+                    }
+                } else {
+                    LeafCur32::Bitmap {
+                        words,
+                        w: 0,
+                        prefix,
+                    }
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// The next `(key, value)` in this leaf; `None` once it is spent. Set
+    /// leaves report a zero value.
+    fn next(&mut self, a: &Arena) -> Option<(u32, u32)> {
+        match self {
+            LeafCur32::Done => None,
+            LeafCur32::Immed {
+                keys,
+                n,
+                idx,
+                val,
+                prefix,
+            } => {
+                if *idx >= *n {
+                    return None;
+                }
+                let k = keys[*idx as usize];
+                *idx += 1;
+                Some((*prefix | k, *val))
+            }
+            LeafCur32::Linear {
+                handle,
+                pop,
+                idx,
+                kb,
+                prefix,
+                is_map,
+            } => {
+                if *idx >= *pop {
+                    return None;
+                }
+                let i = *idx as usize;
+                *idx += 1;
+                let buf = a.leaf(*handle);
+                if *is_map {
+                    let keys = &buf[4 * cap_class(*pop as usize)..];
+                    Some((
+                        *prefix | read_rem(keys, i, *kb as usize),
+                        map_leaf_value(buf, i),
+                    ))
+                } else {
+                    Some((*prefix | read_rem(buf, i, *kb as usize), 0))
+                }
+            }
+            LeafCur32::Bitmap { words, w, prefix } => loop {
+                if *w >= 4 {
+                    return None;
+                }
+                let word = &mut words[*w as usize];
+                if *word == 0 {
+                    *w += 1;
+                    continue;
+                }
+                let bit = word.trailing_zeros() as usize;
+                *word &= *word - 1;
+                return Some((*prefix | (*w as u32 * 64 + bit as u32), 0));
+            },
+            LeafCur32::MapBitmap {
+                handle,
+                words,
+                w,
+                prefix,
+            } => loop {
+                if *w >= 4 {
+                    return None;
+                }
+                let word = &mut words[*w as usize];
+                if *word == 0 {
+                    *w += 1;
+                    continue;
+                }
+                let bit = word.trailing_zeros() as usize;
+                *word &= *word - 1;
+                let digit = (*w as usize * 64 + bit) as u8;
+                let b = a.map_bitmap(*handle);
+                let (cr, v) = map_bitmap_entry(b, digit)?;
+                return Some((*prefix | cr, v));
+            },
+        }
+    }
+}
+
+/// A stack-based in-order iterator over a 32-bit trie subtree.
+///
+/// Holds the descent path — at most three branch frames, since a 32-bit key
+/// is four digits — so each step is a leaf index bump, or a pop and one
+/// child lookup at a branch that is already in hand. The `first`/`next`
+/// primitives it replaces re-descend from the root for every key (#614).
+///
+/// Frames hold `Edge32` by value and leaves by arena handle, so the walk
+/// borrows the arena immutably and needs no raw pointers.
+pub(crate) struct RawIter32<'a> {
+    a: &'a Arena,
+    stack: [Frame32; 4],
+    depth: u8,
+    leaf: LeafCur32,
+}
+
+impl<'a> RawIter32<'a> {
+    /// An iterator over `root` positioned at the first key `>= from`.
+    pub(crate) fn new(a: &'a Arena, root: Edge32, kb: u8, from: u32) -> Self {
+        let mut it = RawIter32 {
+            a,
+            stack: [Frame32 {
+                edge: Edge32::null(),
+                kb: 0,
+                prefix: 0,
+                next_digit: 256,
+            }; 4],
+            depth: 0,
+            leaf: LeafCur32::Done,
+        };
+        if !it.descend(root, kb, 0, from) {
+            it.unwind();
+        }
+        it
+    }
+
+    /// Walks down from `e`, pushing a frame per branch, until a leaf holding
+    /// something `>= from` is positioned. Returns `false` when this subtree
+    /// has nothing at or after `from`; frames pushed on the way stay on the
+    /// stack for [`Self::unwind`] to resume from.
+    fn descend(&mut self, mut e: Edge32, mut kb: u8, mut prefix: u32, mut from: u32) -> bool {
+        loop {
+            match kind(&e) {
+                Kind::Null => return false,
+                Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+                    let d_from = digit_at(from, kb);
+                    let Some((d, c)) = branch_child_at_or_after(self.a, &e, d_from) else {
+                        return false;
+                    };
+                    self.stack[self.depth as usize] = Frame32 {
+                        edge: e,
+                        kb,
+                        prefix,
+                        next_digit: u16::from(d) + 1,
+                    };
+                    self.depth += 1;
+                    let child_from = if d > d_from { 0 } else { child_rem(from, kb) };
+                    prefix |= u32::from(d) << ((kb - 1) as u32 * 8);
+                    e = c;
+                    kb -= 1;
+                    from = child_from;
+                }
+                _ => {
+                    if let Some(cur) = LeafCur32::new(self.a, &e, kb, prefix, from) {
+                        self.leaf = cur;
+                        return true;
+                    }
+                    return false;
+                }
+            }
+        }
+    }
+
+    /// Backtracks after a leaf or subtree is spent: takes the next digit at
+    /// the deepest unfinished branch and descends into it, or empties the
+    /// stack when every branch is finished.
+    fn unwind(&mut self) {
+        while self.depth > 0 {
+            let f = self.stack[self.depth as usize - 1];
+            if f.next_digit <= 255
+                && let Some((d, c)) = branch_child_at_or_after(self.a, &f.edge, f.next_digit as u8)
+            {
+                self.stack[self.depth as usize - 1].next_digit = u16::from(d) + 1;
+                let prefix = f.prefix | (u32::from(d) << ((f.kb - 1) as u32 * 8));
+                let found = self.descend(c, f.kb - 1, prefix, 0);
+                // A live child edge always covers at least one entry, so
+                // an unbounded descent into one cannot come back empty.
+                // The retry below is the defensive path if it ever does.
+                debug_assert!(found, "empty subtree under a live child edge");
+                if found {
+                    return;
+                }
+                continue;
+            }
+            self.depth -= 1;
+        }
+        self.leaf = LeafCur32::Done;
+    }
+
+    /// The next `(key, value)` in ascending key order. Set walks report a
+    /// zero value.
+    pub(crate) fn next(&mut self) -> Option<(u32, u32)> {
+        loop {
+            if let Some(kv) = self.leaf.next(self.a) {
+                return Some(kv);
+            }
+            if self.depth == 0 {
+                return None;
+            }
+            self.unwind();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

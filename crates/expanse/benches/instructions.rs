@@ -444,6 +444,61 @@ fn map32_get(map: ExpanseMap32) -> u64 {
     black_box(sum)
 }
 
+/// Prebuilt 2,000-entry 32-bit map in three key shapes. Ordered iteration
+/// is the cell these exist for, and the shapes decide how deep the trie is:
+/// sequential packs into few leaves, clustered spreads runs across
+/// expanses, and uniform random builds the deepest paths.
+fn built_map32_dist(dist: &str) -> ExpanseMap32 {
+    let mut map = ExpanseMap32::new();
+    let mut x: u64 = 0x2545_F491_4F6C_DD1D;
+    for i in 0..2_000u32 {
+        let k = match dist {
+            "random" => {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                (x >> 16) as Key32
+            }
+            "clustered" => (i / 8) * 4096 + (i % 8),
+            _ => 1_000 + i,
+        };
+        map.insert(k, i * 3);
+    }
+    map
+}
+
+// Full ordered iteration over a 32-bit map: the stack walk's own cell
+// (#614). Before it, each key cost a fresh root descent through `first_ge`.
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = built_map32_dist)]
+#[bench::clustered(args = ("clustered",), setup = built_map32_dist)]
+#[bench::random(args = ("random",), setup = built_map32_dist)]
+fn map32_iterate(map: ExpanseMap32) -> u64 {
+    let mut sink = 0u64;
+    for (k, v) in map.iter() {
+        sink = sink.wrapping_add(u64::from(k) ^ u64::from(v));
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// A bounded range walk over the same maps — the shape the 32-bit C ABI's
+// `expanse_map_for_each_range` serves (#614).
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = built_map32_dist)]
+#[bench::clustered(args = ("clustered",), setup = built_map32_dist)]
+#[bench::random(args = ("random",), setup = built_map32_dist)]
+fn map32_range(map: ExpanseMap32) -> u64 {
+    let mut sink = 0u64;
+    for (k, v) in map.range(black_box(0)..=black_box(Key32::MAX / 2)) {
+        sink = sink.wrapping_add(u64::from(k) ^ u64::from(v));
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
 #[library_benchmark]
 #[bench::ipv4_routes(args = ("ipv4_routes",), setup = built_blobmap32)]
 fn blobmap32_scan(blobmap: ExpanseBlobMap32) -> usize {
@@ -648,6 +703,8 @@ library_benchmark_group!(
         map_nav,
         set32_insert,
         map32_get,
+        map32_iterate,
+        map32_range,
         blobmap32_scan,
         strmap_insert,
         strmap_get,
