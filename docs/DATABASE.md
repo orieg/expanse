@@ -480,7 +480,10 @@ On resource-constrained 32-bit microcontrollers (ESP32-C3 / ESP32-C6 / ESP32-P4)
 
 *(Density constants sourced from `bytes_per_key_32.rs` at commit `f48dcc6e`; note that 10 Hz stride-100 sensor timestamps amortize to ~8.50 B/key and CAN-bus 29-bit IDs are measured at $N=500$. BLE tracker evaluates 28-byte symmetric tracking payloads across all arms, modeling Expanse's 28B record + 4B monotonic sec + 2B freelist + 0.125B bitmap and dual-index tries).*
 
-*Re-measured at `f48dcc6e`: cap-classing the 32-bit bitmap subarrays ([#615](https://github.com/orieg/expanse/issues/615)) trades up to three spare slots per subarray for ~59% fewer sequential-ingest allocations. The two TSDB rows are unmoved — dense and sequential keys fill their subarrays. The CAN row moved from 8.70 to 9.86 B/key, the cost falling on sparse keys where subarrays are small and rounding to multiples of four is proportionally largest. The **Sparse Events** and **BLE Tracker** rows are marked pending re-measurement ([#615](https://github.com/orieg/expanse/issues/615)) rather than restated: both rest on a 10.96 B/key sparse-random constant that has no committed measurement harness (it was introduced directly in `embedded_envelope.py`, and `bytes_per_key_32.rs` publishes no sparse-random arm), so it cannot be refreshed without changing key generator at the same time — which would conflate the two effects (§8.10.2). The engine change raises sparse-random density by roughly a tenth, so both rows read low.*
+*The **Sparse Events** and **BLE Tracker** rows rest on a 10.96 B/key
+sparse-random constant with no committed measurement harness, so they are
+pending re-measurement ([#615](https://github.com/orieg/expanse/issues/615))
+and read low; the other three rows are sourced from `bytes_per_key_32.rs`.*
 
 #### C Component Storage Engines (`components/expanse/`)
 
@@ -505,49 +508,29 @@ Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-87-ge9957cdf)`, commit `e
 10 repetitions per arm, artifact
 [`docs/benchmarks/embedded/esp32.json`](benchmarks/embedded/esp32.json))*
 
-**Correction — this table replaces the figures published at `c3a8589b`.** Two
-things changed and both are stated rather than folded in silently (§8.7, §8.10):
+> **These figures are stale for every Expanse arm.** They were harvested at
+> `e9957cd`; `089e94b8` since changed the 32-bit insert and remove paths, which
+> the ingest, churn, sighting-record and TTL-eviction arms all run on. A paired
+> re-harvest against `151b2c88` on the same board is pending
+>. Host-side `mem_used()`
+> at this fixture's exact fill is byte-identical across that change (2,288 B at
+> N=500, 8,992 B at N=2,000), so the density rows are expected to hold; the
+> cycle rows are expected to fall, since the change removes 58% of the
+> allocator calls per sequential insert. Both are predictions on a different
+> instrument, not measurements on this one.
 
-1. **The ordered-walk path was rewritten** ([#618](https://github.com/orieg/expanse/pull/618),
-   merged as `e9957cd`), which is what the range-scan row measures.
-2. **The statistic changed from the mean to the median**, and every number in
-   the previous publication was a mean. That was wrong, not merely different.
-   One repetition in ten whose timed window catches a FreeRTOS tick or a
-   flash-cache miss storm moves the mean further than any code change this
-   suite measures: the ingest arm's `hash_open_addressing` twin recorded
-   1355, 1351, 1356, **16121**, 1356, 1351, 1352, 1351, 1355, 1355 — a mean of
-   2,830 against a median of 1,355, on C source that had not changed at all.
-   Across all 36 twin arms the run-to-run spread is **9.0% at worst and 0.1%
-   typically on the median, against 109% on the mean**. The harvester now
-   records min, median, mean and the BCa interval, flags any arm whose slowest
-   repetition exceeds its median by 2× with ⚠, and the report and chart lead
-   with the median. This follows the convention the STM32 suite already used.
+Each arm is 10 repetitions and the median leads. The mean does not survive this
+part: one repetition in ten whose timed window catches a FreeRTOS tick or a
+flash-cache miss storm moves it further than any code change this suite
+measures. Across the 36 twin arms the run-to-run spread is 9.0% at worst and
+0.1% typically on the median, against 109% on the mean. The harvester records
+min, median, mean and the BCa interval, and flags any arm whose slowest
+repetition exceeds its median by 2x with a warning marker.
 
-**What #618 did, measured on this silicon.** Against its merge base `db8c13ba`
-on the same board in the same sitting, medians:
-
-| Arm | `db8c13ba` | `e9957cd` | Change |
-|---|---|---|---|
-| `esp32_tsdb_aggregate_500`, N=2000 | 1,582.8 | **426.4** | **3.71× faster** |
-| `esp32_tsdb_aggregate_500`, N=500 | 974.4 | **348.8** | 2.79× faster |
-| `esp32_tsdb_aggregate_500_shuffled`, N=2000 | 1,574.6 | **418.2** | 3.77× faster |
-
-That is the on-device confirmation [#614](https://github.com/orieg/expanse/issues/614)
-was held open for, and it corroborates the 3.55× measured on an i686 host proxy
-in instructions rather than cycles. **The gap to the sorted-array twin narrowed
-from 30.7× to 8.9× — it did not close**, so #614 narrows rather than closes.
-
-**Attribution is bounded by the control drift.** The twin containers' C source
-is byte-identical across the two builds — #618 touched neither
-`components/expanse/test/` nor `integrations/esp32/` — yet those arms moved by
-up to 9.0%. Anything smaller than that is not attributable to #618. Two
-non-scan movements clear it and are published as unexplained rather than
-claimed: `esp32_ble_ttl_eviction` at N=2000 rose **+30.8%** (2,300.5 → 3,009.4)
-and `esp32_churn_insert_delete` rose **+15.7%**. `esp32_ble_sighting_record` at
-N=2000 fell 18.1% and ingest fell 8–11%; #618 changed no insert path, so the
-likely mechanism is binary layout shifting what the ESP32's flash cache holds —
-**unmeasured**, and stated as a hypothesis. On this part an "untouched path" is
-not a reliable control across two flashes.
+**Nothing below 9% is attributable to a code change.** That is the spread the
+twins show across two flashes with byte-identical C source, so the binary
+layout the ESP32's flash cache happens to hold is a large enough term to swamp
+anything smaller. On this part an "untouched path" is not a reliable control.
 
 **The twins and why they are not strawmen.** Three comparison containers run
 alongside Expanse ([`components/expanse/test/twin_containers.h`](../components/expanse/test/twin_containers.h)):
@@ -575,11 +558,10 @@ records where Expanse retired 300.
   arrival is the sorted array's best case — every insert appends and it never
   memmoves — but the loss is real and it is the common telemetry shape.
 - **Range scan: 8.9× slower than the sorted array** (426 vs 48 cycles per key
-  walked), down from 30.7× before #618. It remains slower than every twin,
-  including the hash (146) and the ring (73), which have no order to exploit
-  and must scan the whole container to answer at all. The ordered structure
-  losing to a full scan is the part that is still wrong; #618 took the margin
-  from one and a half orders of magnitude to one.
+  walked). It is slower than every twin, including the hash (146) and the ring
+  (73), which have no order to exploit and must scan the whole container to
+  answer at all. An ordered structure losing to a full scan is the part that is
+  still wrong.
 - **BLE TTL eviction: 37× slower per entry at dense expiry** (3,009 vs 82
   cycles) and 2.7× slower at sparse expiry (2,754 vs 1,023). The by-time index
   behaves as designed — Expanse's pass cost tracks the *expired* count while
@@ -672,7 +654,7 @@ toward an allocation failure over a long deployment.
 
 **Measured host-side wall-clock outcomes, reported per §8.7** *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8, run [33567182415](https://github.com/orieg/expanse/actions/runs/33567182415), commit `13ee3d92`; BCa 95% CIs, artifact `docs/benchmarks/embedded/results.json`)*:
 
-- **Ingest** (`ExpanseMap32`, per event incl. flush share, $N=2\text{k}$): **40.5 ns** vs `BTreeMap` 28.0 ns and reserved `HashMap` 2.8 ns — 1.45× and 14.4× slower. The hash-map concession was pre-registered (#556 §3.2); the `BTreeMap` gap was not pre-registered and remains an open finding, though the #577 write-path work cut it from the 3.5× first measured at commit `a191bae0`: in-place leaf mutation ([#584](https://github.com/orieg/expanse/pull/584)) was a 2.63× ingest improvement (conservative cross-run CI bound [2.61, 2.65]); the descent fusion ([#586](https://github.com/orieg/expanse/pull/586)) added a further 1.7% [1.011, 1.023]. The competitor arms drift between runs (this run's `BTreeMap` ingest is 7% slower than the previous one's), so the ratio moves more than the Expanse arm did.
+- **Ingest** (`ExpanseMap32`, per event incl. flush share, $N=2\text{k}$): **40.5 ns** vs `BTreeMap` 28.0 ns and reserved `HashMap` 2.8 ns — 1.45× and 14.4× slower. The hash-map concession was pre-registered (#556 §3.2); the `BTreeMap` gap was not pre-registered and remains an open finding, though the #577 write-path work cut it from the 3.5× first measured at commit `a191bae0`: in-place leaf mutation was a 2.63× ingest improvement (conservative cross-run CI bound [2.61, 2.65]); the descent fusion added a further 1.7% [1.011, 1.023]. The competitor arms drift between runs (this run's `BTreeMap` ingest is 7% slower than the previous one's), so the ratio moves more than the Expanse arm did.
 - **CAN dispatch lookup** ($N=500$, per op): **11.5 ns** vs `HashMap` 1.4 ns and `BTreeMap` 7.0 ns — the pre-registered lookup concession, plus an unregistered 1.64× gap to the ordered competitor. Unchanged by #584 (read path untouched); #586's `branch_child` inlining, which the read walk shares, took it from 12.8 ns (an 11.0% improvement; conservative cross-run CI bound on the ratio [1.107, 1.114]).
 - **TTL eviction — the pre-registered $O(\text{expired})$ regime wins on this host, through the batched path.** Steady state (25 of 2k expired — the regime the claim is about): `remove_range` ([#589](https://github.com/orieg/expanse/pull/589), #578) evicts in **1.04 µs** vs the full sweep's **3.2 µs** — **3.1× faster**, conservative CI-bounded ratio [3.07, 3.09]; the per-key `first`/`remove` loop, kept as its own arm, is at 3.0 µs (0.92× of the sweep, from 1.16× slower before its `first()` stopped paying a second descent). Bulk (600 of 2k expired, symmetric cutoffs) is still a loss: `remove_range` **24.4 µs**, per-key loop 68 µs, vs sweep **7.0 µs** (3.50× slower batched; 11.3× before #578). *Correction:* the bulk batched figure first published from run 33559804575 (23.6 µs) was measured on a path that skipped freeing the emptied level-1 bitmap nodes — the `pop0` underflow fixed in [#590](https://github.com/orieg/expanse/pull/590), silent in a release build — so it was slightly optimistic; the 24.4 µs here is the corrected path (CIs of the two runs are disjoint). The steady-state figure was on a linear-leaf path and is unaffected. The sweep walks a ~68 KiB flat table that is L2-resident on this host at ~1.6 ns/entry; its cost scales with $N$ while the dual-trie's scales with the expired count — and with batching that constant is now small enough to win the steady regime even here, while the bulk regime's per-record hash-keyed `by_mac` removal (inherently random access) keeps it behind the sweep. Whether the bulk story flips on cache-light silicon is what the pending hardware harvest measures.
 
@@ -680,7 +662,7 @@ toward an allocation failure over a long deployment.
 
 ![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](./assets/bench_rocksdb.svg)
 
-1. **1.42× Higher In-Memory Key Density**: leaf blocks store entry pointers in contiguous 64-byte aligned spans at **13.2 B/entry vs 18.7 B/entry** for a fair variable-height skiplist (1.26 MB vs 1.8 MB for 100k entries). *The earlier "11.1×" headline is retracted ([#372](https://github.com/orieg/expanse/issues/372))*: its 146.7 B/entry baseline came from a strawman node embedding all 16 tower pointers statically, where a real `InlineSkipList`-style node costs 8 B (key ptr) + height×8 B. **Honest framing:** `VectorRep` (unordered append vector) measures *denser than Expanse* in the same table — **10.5 vs 13.2 B/entry**; the Expanse edge is specifically over the ordered skiplist.
+1. **1.42× Higher In-Memory Key Density**: leaf blocks store entry pointers in contiguous 64-byte aligned spans at **13.2 B/entry vs 18.7 B/entry** for a fair variable-height skiplist (1.26 MB vs 1.8 MB for 100k entries). *The earlier "11.1×" headline is retracted*: its 146.7 B/entry baseline came from a strawman node embedding all 16 tower pointers statically, where a real `InlineSkipList`-style node costs 8 B (key ptr) + height×8 B. **Honest framing:** `VectorRep` (unordered append vector) measures *denser than Expanse* in the same table — **10.5 vs 13.2 B/entry**; the Expanse edge is specifically over the ordered skiplist.
 2. **Fewer L0 SSTable Flushes** *(inferred (target) — not measured; no `db_bench` artifact)*: higher density should fit more user data per memtable budget and reduce flush frequency, but the effect scales with the 1.42× density edge and has not been measured.
 3. **Faster Sequential Scans** against the fair variable-height baseline, five rounds with BCa 95% bootstrap intervals: `prefixscan` **3.331x** [3.198, 3.486], point lookup **1.457x** [1.444, 1.470], range seek **1.512x** [1.492, 1.546], insert **1.406x** [1.385, 1.442]. Every lower bound clears 1.0. `VectorRep` scans faster still but cannot serve ordered seeks. *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8, run [33398474866](https://github.com/orieg/expanse/actions/runs/33398474866), commit `6cb64b45`; artifact [`docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json`](benchmarks/rocksdb_memtable/results/baseline_rocksdb.json))*
    - **An earlier fair-baseline run disagrees on one arm.** A single-round run at commit `7644c2b6` reported `prefixscan` at 188.2 Mops/s against 49.3, a 3.82x ratio; the five-round interval above is [3.198, 3.486] and does not contain it. The other three arms agree within their intervals (1.47/1.51/1.43 then, 1.457/1.512/1.406 now). The single-round figure had no interval to compare against, which is why it is superseded rather than reconciled — but the gap is larger than the other arms' run-to-run spread and is worth a look if `prefixscan` is ever load-bearing.
@@ -720,7 +702,7 @@ The intended design: by utilizing base-relative offset pointers (a planned `RelO
 
 > **Provenance.** The §7.2 YCSB throughput table and the §5.3 RocksDB figures are measured on the dedicated quiet host (Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d) and tagged inline. The §7.1 matrix below keeps **approximate latency ranges** for cross-engine orientation (not host-tagged point measurements); memory-overhead (B/key) columns for Expanse structures with committed harnesses (`ExpanseSet`, `ExpanseMap`, `ExpanseBlobMap`) derive from deterministic allocator accounting (`JudyLMemUsed` / `TrackingAlloc`). External un-baselined entries carry `(unsourced pending re-measurement in #387)` or definitional baselines. Where §7.1's qualitative ordering conflicts with a §7.2/§5.3 measurement, the measured section governs.
 >
-> ✅ **Re-measured (#382).** The YCSB throughput figures were originally taken on a harness whose `Read` path never dereferenced the payload, so every arm was billed for index traversal only. The omission was symmetric across `ExpanseBlobMap`, `BTreeMap` and `SkipMap`, so AGENTS.md §8.10 retained the **ratios** and retracted the **absolutes**.
+> ✅ **Re-measured.** The YCSB throughput figures were originally taken on a harness whose `Read` path never dereferenced the payload, so every arm was billed for index traversal only. The omission was symmetric across `ExpanseBlobMap`, `BTreeMap` and `SkipMap`, so AGENTS.md §8.10 retained the **ratios** and retracted the **absolutes**.
 >
 > Both halves are now confirmed on the corrected harness: A 4.76×, B 4.80×, C 4.83×, D 5.07×, F 3.37× against `BTreeMap` (published range was ~5.0×), and 8.29×–11.38× against `SkipMap` (published ~8.1–11.1×). Workload E remains a loss at 0.69 vs 1.26 Melem/s. Absolute throughput is now 20–21 Mops/s rather than the previously published ~21–23, the difference being the payload cache-line fetch that is now paid *(measured: reference host, commit `9244de91`, [run 33219093994](https://github.com/orieg/expanse/actions/runs/33219093994)).*
 
@@ -745,7 +727,7 @@ The `ExpanseMap` point-lookup range's 38.6 ns upper bound is the out-of-cache un
 
 The Yahoo! Cloud Serving Benchmark evaluates engine behaviour under real-world access distributions. Throughput derived from criterion median time over 20,000 operations per iteration *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, run [33037221608](https://github.com/orieg/expanse/actions/runs/33037221608), ref `main` post-[#385](https://github.com/orieg/expanse/pull/385), load average 0.07; `benches/ycsb.rs`, seed `0x1234_5678_9ABC`)*:
 
-> ⚠️ **Harness methodology disclosure (#454):** The historical YCSB figures below were measured on a harness where `ExpanseBlobMap`, `BTreeMap`, and `SkipMap` `Read` and `Scan` operations black-boxed slice handles rather than dereferencing payload buffer bytes. Because this omission was symmetric across all competitor arms, the **comparative throughput ratios (e.g. Workload D ~5.0× advantage) are sound and preserved**. Absolute Mops/s and sub-microsecond latency percentiles understate cold DRAM payload line fetches; updated absolute figures with explicit payload dereference (`view[0]` / `vec[0]`) will be re-measured on the reference host.
+> ⚠️ **Harness methodology disclosure:** The historical YCSB figures below were measured on a harness where `ExpanseBlobMap`, `BTreeMap`, and `SkipMap` `Read` and `Scan` operations black-boxed slice handles rather than dereferencing payload buffer bytes. Because this omission was symmetric across all competitor arms, the **comparative throughput ratios (e.g. Workload D ~5.0× advantage) are sound and preserved**. Absolute Mops/s and sub-microsecond latency percentiles understate cold DRAM payload line fetches; updated absolute figures with explicit payload dereference (`view[0]` / `vec[0]`) will be re-measured on the reference host.
 
 ```
 Workload Comparison (Throughput in Mops/sec):

@@ -7,7 +7,9 @@
     "idf": "v6.0-dev-2980-gab149384e1",
     "expanse": "0.5.0-dev (v0.5.0-87-ge9957cdf)",
     "free_internal": 291596,
-    "largest_internal": 155648
+    "largest_internal": 155648,
+    "stale_since": "089e94b8",
+    "stale_reason": "The 32-bit insert and remove paths changed at 089e94b8; the ingest, churn, sighting-record and TTL-eviction arms run on them. Paired re-harvest against 151b2c88 pending (#615). Twin arms must be re-run in the same sitting."
   },
   "stack": {
     "stack_min_free_bytes": 3288,
