@@ -1,0 +1,75 @@
+name: Install Rust Toolchain (with Retry)
+description: Install Rust toolchain via rustup with backoff retry for transient CDN network resets
+inputs:
+  toolchain:
+    description: Rust toolchain specification (e.g. nightly, stable, 1.88.0)
+    required: true
+    default: stable
+  targets:
+    description: Comma-separated or space-separated list of target triples to install
+    required: false
+    default: ''
+  target:
+    description: Alias for targets
+    required: false
+    default: ''
+  components:
+    description: Comma-separated or space-separated list of components to install
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Ensure rustup is available
+      shell: bash
+      run: |
+        if ! command -v rustup >/dev/null 2>&1; then
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "PATH=$HOME/.cargo/bin:$PATH" >> "$GITHUB_ENV"
+        fi
+
+    - name: Install toolchain with backoff retry
+      shell: bash
+      run: |
+        RAW_TARGETS="${{ inputs.targets || inputs.target }}"
+        RAW_COMPONENTS="${{ inputs.components }}"
+        TOOLCHAIN="${{ inputs.toolchain }}"
+
+        ARGS="$TOOLCHAIN"
+        if [ -n "$RAW_TARGETS" ]; then
+          for t in $(echo "$RAW_TARGETS" | tr ',' ' '); do
+            ARGS="$ARGS --target $t"
+          done
+        fi
+        if [ -n "$RAW_COMPONENTS" ]; then
+          for c in $(echo "$RAW_COMPONENTS" | tr ',' ' '); do
+            ARGS="$ARGS --component $c"
+          done
+        fi
+        if [ "$TOOLCHAIN" = "nightly" ] && [ -n "$RAW_COMPONENTS" ]; then
+          ARGS="$ARGS --allow-downgrade"
+        fi
+
+        # Retry loop for transient network resets (e.g. os error 104 Connection reset by peer)
+        MAX_ATTEMPTS=4
+        for attempt in 1 2 3 4; do
+          if rustup toolchain install $ARGS --profile minimal --no-self-update; then
+            break
+          fi
+          if [ "$attempt" -eq "$MAX_ATTEMPTS" ]; then
+            echo "::error::rustup toolchain install failed after $MAX_ATTEMPTS attempts"
+            exit 1
+          fi
+          sleep_sec=$((attempt * 10))
+          echo "::warning::rustup toolchain install attempt $attempt failed; retrying in ${sleep_sec}s..."
+          sleep "$sleep_sec"
+        done
+
+        rustup default "$TOOLCHAIN" || true
+
+        if [ -z "${CARGO_INCREMENTAL+set}" ]; then
+          echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+        fi
+        rustc "+$TOOLCHAIN" --version --verbose
