@@ -32,6 +32,27 @@ public class ExpanseBenchmark {
                 if (i % 256 == 0) base = rng.next() & ~0xFFL;
                 keys[i] = base + (i % 256);
             }
+        } else if ("zipfian".equals(dist)) {
+            // Zipfian power-law distribution (theta = 0.99, YCSB skewed workload)
+            double theta = 0.99;
+            double[] cdf = new double[pop];
+            double sum = 0.0;
+            for (int i = 1; i <= pop; i++) {
+                sum += 1.0 / Math.pow(i, theta);
+                cdf[i - 1] = sum;
+            }
+            for (int i = 0; i < pop; i++) {
+                cdf[i] /= sum;
+            }
+            for (int i = 0; i < pop; i++) {
+                double p = (rng.next() & 0x7FFF_FFFF_FFFF_FFFFL) / (double) Long.MAX_VALUE;
+                int idx = Arrays.binarySearch(cdf, p);
+                if (idx < 0) {
+                    idx = -idx - 1;
+                    if (idx >= pop) idx = pop - 1;
+                }
+                keys[i] = idx;
+            }
         } else {
             for (int i = 0; i < pop; i++) keys[i] = rng.next();
         }
@@ -68,7 +89,7 @@ public class ExpanseBenchmark {
     }
 
     public static void runBenchmark(int pop, boolean json) {
-        String[] dists = {"random", "sequential", "clustered"};
+        String[] dists = {"random", "sequential", "clustered", "zipfian"};
 
         if (!json) {
             System.out.println("\n================================================================================");
