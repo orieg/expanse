@@ -106,12 +106,15 @@ one that does not link, and a link error names the gap at build time.
 |---|---|---|
 | 64-bit, `std` (default) | `cargo build -p expanse-capi` | 145 |
 | 64-bit, `no_std` | `--no-default-features` | 127 |
-| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 55 |
+| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 56 |
 
 (Counts measured from `llvm-nm --defined-only` on the built artifacts — the
-64-bit rows at commit `5e8147ae`, the 32-bit row re-measured when the
-`expanse_sync32_*` surface landed for #573 (31 before it: the ordered core
-plus `expanse_map_remove_range`); reproduce with the invocations above.)
+64-bit rows at commit `5e8147ae`, the 32-bit row re-measured each time the
+narrow surface grew: 31 for the ordered core plus `expanse_map_remove_range`,
+55 when the `expanse_sync32_*` surface landed for #573, 56 when
+`expanse_map_for_each_range` landed for #614. Reproduce with the invocations
+above; the 32-bit row needs `--features embedded-panic-handler`, as the CI
+job does.)
 
 **64-bit `no_std` drops only the concurrent containers** — the 18
 `expanse_sync_*` entry points. `expanse_trie::sync` needs `std::sync`, so a
@@ -127,7 +130,7 @@ bidirectional range navigation:
 |---|---|
 | identity | `expanse_version` |
 | `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
-| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_remove_range` (32-bit-only, see below), `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
+| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_remove_range` and `_for_each_range` (both 32-bit-only, see below), `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
 | `expanse_sync32_map_t` / `expanse_sync32_set_t` (32-bit-only, provisional) | `_new`, `_free`, `_writer`, `_reader`, `_writer_try_insert`, `_writer_try_remove`, `_writer_try_reclaim`, `_writer_get` / `_writer_contains`, `_writer_stats`, `_reader_try_get` / `_reader_try_contains`, `_reader_try_len`; plus `expanse_sync32_mutation_headroom`, `expanse_sync32_status_str` |
 
 The cause is engine surface, not a deliberate reduction: `ExpanseMap32` /
@@ -137,15 +140,29 @@ pair rather than a range — so the corresponding C contracts have nothing to
 translate to. `ExpanseStrMap`/`ExpanseBytesMap`/`ExpanseBlobMap` and the
 `sync` module exist only at 64-bit width.
 
-The reverse gap also exists. `expanse_map_remove_range` — batched removal of
-every key in `[lo, hi]` with a per-entry callback, the eviction primitive of
-[#578](https://github.com/orieg/expanse/issues/578) — is declared in a
+The reverse gap also exists. Two batched range entry points are declared in a
 `#if !EXPANSE_WIDE_SURFACE` block and shipped **only at 32-bit width**, because
-only the 32-bit engine has `remove_range`. The language bindings target
-64-bit hosts, so `scripts/check_abi_parity.py` tags declarations in that
-block `narrow_only`, lists them, and excludes them from binding coverage;
-the 32-bit-only surface is verified instead by the i686 CI job (a Rust-side
-test plus a C smoke linked with `-m32` against the i686 cdylib).
+only the 32-bit engine carries the corresponding Rust methods:
+
+- **`expanse_map_remove_range`** — batched removal of every key in `[lo, hi]`
+  with a per-entry callback, the eviction primitive of
+  [#578](https://github.com/orieg/expanse/issues/578).
+- **`expanse_map_for_each_range`** — the read-only twin: an ordered walk of
+  `[lo, hi]` whose callback returns `false` to stop it, added for
+  [#614](https://github.com/orieg/expanse/issues/614). It is one descent to
+  `lo` and then contiguous streaming through the leaves the range spans,
+  where the stateless `expanse_map_next_after` loop it replaces pays a fresh
+  `O(depth)` root descent per key. **No cursor object and no borrowed
+  pointer**: keys and values reach the callback by value and nothing outlives
+  the call, so the "valid until the next mutation" contract §2.3 audits
+  never arises — the reason the callback form was taken over an opaque
+  cursor handle. The callback must not mutate the map during the walk.
+
+The language bindings target 64-bit hosts, so `scripts/check_abi_parity.py`
+tags declarations in that block `narrow_only`, lists them, and excludes them
+from binding coverage; the 32-bit-only surface is verified instead by the
+i686 CI job (a Rust-side test plus a C smoke linked with `-m32` against the
+i686 cdylib).
 
 #### The 32-bit concurrent story
 

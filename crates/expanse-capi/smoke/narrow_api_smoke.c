@@ -47,6 +47,15 @@ struct s32_reader_arg {
     uint32_t ok, busy, max_busy_streak;
 };
 
+static bool on_visited(expanse_word_t key, expanse_word_t value, void *ctx) {
+    struct acc *a = ctx;
+    assert(a->n == 0 || key > a->last); /* ascending key order */
+    a->last = key;
+    a->sum += value;
+    a->n++;
+    return a->n < 5u; /* stop after five, to prove the stop is honoured */
+}
+
 static void *s32_reader(void *p) {
     struct s32_reader_arg *a = p;
     expanse_sync32_map_reader_t *r = expanse_sync32_map_reader(a->map, a->idx);
@@ -129,6 +138,20 @@ int main(void) {
     for (uint32_t i = 0; i < 1000; i++) {
         assert(expanse_map_insert(m, i * 3, i, NULL));
     }
+    /*
+     * Read-only ordered walk: one descent, then streaming. Stops when the
+     * callback asks, leaves the map untouched, and reports whether it ran
+     * the range out.
+     */
+    struct acc w = {0, 0, 0};
+    assert(!expanse_map_for_each_range(m, 30, 300, on_visited, &w)); /* stopped */
+    assert(w.n == 5 && w.last == 42 && w.sum == (10u + 14u) * 5u / 2u);
+    assert(expanse_map_len(m) == 1000); /* the walk removed nothing */
+    assert(expanse_map_for_each_range(m, 300, 30, on_visited, &w));  /* inverted */
+    assert(expanse_map_for_each_range(m, 0, UINT32_MAX, NULL, NULL)); /* null callback */
+    assert(expanse_map_for_each_range(NULL, 0, UINT32_MAX, on_visited, &w)); /* null map */
+    assert(w.n == 5); /* no no-op form visited an entry */
+
     struct acc a = {0, 0, 0};
     /* Multiples of 3 in [30, 300]: 30, 33, ..., 300 -> 91 entries, values 10..=100. */
     size_t n = expanse_map_remove_range(m, 30, 300, on_removed, &a);

@@ -4,15 +4,18 @@
 //! / `next` skip-scan surface as the 64-bit [`crate::cursor`] cursors, so
 //! callers can be written once against either width.
 //!
-//! Unlike the 64-bit cursors, these are **not** path-reusing: the 32-bit trie
-//! (`trie32`) has no zero-allocation stack iterator to hold a descent path
-//! across calls, so each real advance re-descends from the root via the
-//! stateless `first`/`next` primitives. The cursor still caches its current
-//! position and short-circuits a `target` at or below it (the monotone no-op),
-//! but a forward `advance_to` costs the same O(depth) root descent as the
-//! stateless [`ExpanseSet32::next`](crate::set32::ExpanseSet32::next). When the
-//! 32-bit trie grows a stack iterator, this can adopt the 64-bit engine
-//! unchanged.
+//! Sequential stepping is path-reusing: `next` runs on the 32-bit trie's
+//! stack iterator (`trie32::RawIter32`, #614), which holds the descent path
+//! across calls, so a step is a leaf index bump or one child lookup at a
+//! branch already in hand rather than an O(depth) root descent.
+//!
+//! A **skip** still re-descends. `advance_to` short-circuits a `target` at or
+//! below the current position (the monotone no-op), and otherwise abandons the
+//! held path and re-seeks from the root through the stateless
+//! [`ExpanseSet32::next`](crate::set32::ExpanseSet32::next) — where the 64-bit
+//! [`crate::cursor`] cursors reuse the path they already hold. Teaching
+//! `RawIter32` to advance an existing path to a target is the remaining half
+//! of the 64-bit parity.
 //!
 //! On 32-bit targets these types are also re-exported at the crate root as the
 //! unsuffixed `SetCursor` / `MapCursor` (mirroring the `ExpanseSet32` →
@@ -25,17 +28,24 @@ use crate::types32::{Key32, Value32};
 
 /// A stateful, forward-only ordered cursor over an [`ExpanseSet32`].
 ///
-/// See the [module docs](self): correct `advance_to` skip-scan semantics, but
-/// each forward advance re-descends from the root (no path reuse on 32-bit).
+/// See the [module docs](self): `next` reuses the held descent path, a
+/// forward `advance_to` re-descends from the root.
 pub struct SetCursor32<'a> {
     set: &'a ExpanseSet32,
     front: Option<Key32>,
+    /// The held descent path, positioned to yield the key after `front`.
+    /// Built on the first step and dropped by a skip, which re-seeks.
+    walk: Option<crate::trie32::RawIter32<'a>>,
 }
 
 impl<'a> SetCursor32<'a> {
     #[inline]
     pub(crate) fn new(set: &'a ExpanseSet32, front: Option<Key32>) -> Self {
-        Self { set, front }
+        Self {
+            set,
+            front,
+            walk: None,
+        }
     }
 
     /// Smallest key `>= bound`, via the stateless primitives.
@@ -63,6 +73,9 @@ impl<'a> SetCursor32<'a> {
         match self.front {
             Some(k) if k >= target => self.front,
             Some(_) => {
+                // A skip abandons the held path: it may land anywhere at or
+                // after the target, so the path is re-seeked from the root.
+                self.walk = None;
                 self.front = Self::seek(self.set, target);
                 self.front
             }
@@ -74,11 +87,18 @@ impl<'a> SetCursor32<'a> {
     #[inline]
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<Key32> {
-        let cur = self.front;
-        if let Some(k) = cur {
-            self.front = self.set.next(k);
-        }
-        cur
+        let cur = self.front?;
+        let Some(from) = cur.checked_add(1) else {
+            self.front = None;
+            self.walk = None;
+            return Some(cur);
+        };
+        let set = self.set;
+        let walk = self.walk.get_or_insert_with(|| {
+            crate::trie32::RawIter32::new(set.arena(), set.root_edge(), 4, from)
+        });
+        self.front = walk.next().map(|(k, _)| k);
+        Some(cur)
     }
 }
 
@@ -87,12 +107,19 @@ impl<'a> SetCursor32<'a> {
 pub struct MapCursor32<'a> {
     map: &'a ExpanseMap32,
     front: Option<(Key32, Value32)>,
+    /// The held descent path, positioned to yield the entry after `front`.
+    /// Built on the first step and dropped by a skip, which re-seeks.
+    walk: Option<crate::trie32::RawIter32<'a>>,
 }
 
 impl<'a> MapCursor32<'a> {
     #[inline]
     pub(crate) fn new(map: &'a ExpanseMap32, front: Option<(Key32, Value32)>) -> Self {
-        Self { map, front }
+        Self {
+            map,
+            front,
+            walk: None,
+        }
     }
 
     #[inline]
@@ -117,6 +144,9 @@ impl<'a> MapCursor32<'a> {
         match self.front {
             Some((k, _)) if k >= target => self.front,
             Some(_) => {
+                // A skip abandons the held path: it may land anywhere at or
+                // after the target, so the path is re-seeked from the root.
+                self.walk = None;
                 self.front = Self::seek(self.map, target);
                 self.front
             }
@@ -128,11 +158,18 @@ impl<'a> MapCursor32<'a> {
     #[inline]
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<(Key32, Value32)> {
-        let cur = self.front;
-        if let Some((k, _)) = cur {
-            self.front = self.map.next(k);
-        }
-        cur
+        let cur = self.front?;
+        let Some(from) = cur.0.checked_add(1) else {
+            self.front = None;
+            self.walk = None;
+            return Some(cur);
+        };
+        let map = self.map;
+        let walk = self.walk.get_or_insert_with(|| {
+            crate::trie32::RawIter32::new(map.arena(), map.root_edge(), 4, from)
+        });
+        self.front = walk.next();
+        Some(cur)
     }
 }
 

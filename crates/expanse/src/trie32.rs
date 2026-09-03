@@ -2643,24 +2643,192 @@ pub(crate) fn first_entry(a: &Arena, e: &Edge32, kb: u8) -> Option<(u32, u32)> {
             }
             let cap = cap_class(pop);
             let buf = a.leaf(edge_handle(e));
-            let mut vb = [0u8; 4];
-            vb.copy_from_slice(&buf[..4]);
             Some((
                 read_rem(&buf[4 * cap..], 0, kb as usize),
-                u32::from_le_bytes(vb),
+                map_leaf_value(buf, 0),
             ))
         }
         Kind::MapBitmap => {
             let b = a.map_bitmap(edge_handle(e));
             let digit = bitmap_first_ge_raw(&b.header.bitmap, 0)?;
-            let w = (digit >> 6) as usize;
-            let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
-            let sub = (digit >> 5) as usize;
-            Some((u32::from(digit), b.subarrays[sub].as_ref()?[rank]))
+            map_bitmap_entry(b, digit)
         }
         Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
             let (d, c) = branch_first_child(a, e)?;
             first_entry(a, &c, kb - 1).map(|(cr, v)| (combine(d, cr, kb), v))
+        }
+        Kind::SetImmed { .. } | Kind::SetLeaf(_) | Kind::Bitmap => {
+            unreachable!("map op on a set edge")
+        }
+    }
+}
+
+/// Value beside key index `i` in a map linear leaf buffer.
+#[inline]
+fn map_leaf_value(buf: &[u8], i: usize) -> u32 {
+    let mut vb = [0u8; 4];
+    vb.copy_from_slice(&buf[i * 4..i * 4 + 4]);
+    u32::from_le_bytes(vb)
+}
+
+/// The `(remainder, value)` a map bitmap leaf holds at `digit`.
+#[inline]
+fn map_bitmap_entry(b: &LeafBitmapL32Data, digit: u8) -> Option<(u32, u32)> {
+    let w = (digit >> 6) as usize;
+    let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
+    let sub = (digit >> 5) as usize;
+    Some((u32::from(digit), b.subarrays[sub].as_ref()?[rank]))
+}
+
+/// Index of the first key strictly greater than `after` in a linear leaf's
+/// key area, or `None` when no key can exceed it — `after` already at the
+/// level's largest representable remainder, or every key `<= after`.
+#[inline]
+fn leaf_index_after(keys: &[u8], pop: usize, kb: u8, after: u32) -> Option<usize> {
+    if after >= rem_mask(kb) {
+        return None;
+    }
+    let i = leaf_lower_bound(keys, pop, kb, after + 1)?;
+    (i < pop).then_some(i)
+}
+
+/// Smallest `(key, value)` under `e` with key strictly greater than `after`,
+/// in a single descent — [`next`] plus the value it sits next to, so a
+/// forward walk stops paying a second full `get` descent per step (#614).
+pub(crate) fn next_entry(a: &Arena, e: &Edge32, kb: u8, after: u32) -> Option<(u32, u32)> {
+    match kind(e) {
+        Kind::Null => None,
+        Kind::MapImmed { kb: _ } => {
+            let r = map_immed_rem(e, kb);
+            (r > after).then(|| (r, map_immed_val(e)))
+        }
+        Kind::MapLeaf(_) => {
+            let pop = edge_pop(e);
+            let cap = cap_class(pop);
+            let buf = a.leaf(edge_handle(e));
+            let keys = &buf[4 * cap..];
+            let i = leaf_index_after(keys, pop, kb, after)?;
+            Some((read_rem(keys, i, kb as usize), map_leaf_value(buf, i)))
+        }
+        Kind::MapBitmap => {
+            if after >= 255 {
+                return None;
+            }
+            let b = a.map_bitmap(edge_handle(e));
+            let digit = bitmap_first_ge_raw(&b.header.bitmap, after as u16 + 1)?;
+            map_bitmap_entry(b, digit)
+        }
+        Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+            let da = digit_at(after, kb);
+            let ca = child_rem(after, kb);
+            let mut result = None;
+            branch_for_each_child(a, e, |d, c| {
+                if d < da {
+                    return true;
+                }
+                let hit = if d == da {
+                    next_entry(a, &c, kb - 1, ca)
+                } else {
+                    first_entry(a, &c, kb - 1)
+                };
+                if let Some((cr, v)) = hit {
+                    result = Some((combine(d, cr, kb), v));
+                    return false;
+                }
+                true
+            });
+            result
+        }
+        Kind::SetImmed { .. } | Kind::SetLeaf(_) | Kind::Bitmap => {
+            unreachable!("map op on a set edge")
+        }
+    }
+}
+
+/// Largest `(key, value)` under `e` in a single descent — [`last`] plus its
+/// value, the descending twin of [`first_entry`] (#614).
+pub(crate) fn last_entry(a: &Arena, e: &Edge32, kb: u8) -> Option<(u32, u32)> {
+    match kind(e) {
+        Kind::Null => None,
+        Kind::MapImmed { kb: _ } => Some((map_immed_rem(e, kb), map_immed_val(e))),
+        Kind::MapLeaf(_) => {
+            let pop = edge_pop(e);
+            if pop == 0 {
+                return None;
+            }
+            let cap = cap_class(pop);
+            let buf = a.leaf(edge_handle(e));
+            Some((
+                read_rem(&buf[4 * cap..], pop - 1, kb as usize),
+                map_leaf_value(buf, pop - 1),
+            ))
+        }
+        Kind::MapBitmap => {
+            let b = a.map_bitmap(edge_handle(e));
+            let digit = bitmap_last_le_raw(&b.header.bitmap, 255)?;
+            map_bitmap_entry(b, digit)
+        }
+        Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+            let (d, c) = branch_last_child(a, e)?;
+            last_entry(a, &c, kb - 1).map(|(cr, v)| (combine(d, cr, kb), v))
+        }
+        Kind::SetImmed { .. } | Kind::SetLeaf(_) | Kind::Bitmap => {
+            unreachable!("map op on a set edge")
+        }
+    }
+}
+
+/// Largest `(key, value)` under `e` with key strictly less than `before`,
+/// in a single descent — the descending twin of [`next_entry`] (#614).
+pub(crate) fn prev_entry(a: &Arena, e: &Edge32, kb: u8, before: u32) -> Option<(u32, u32)> {
+    match kind(e) {
+        Kind::Null => None,
+        Kind::MapImmed { kb: _ } => {
+            let r = map_immed_rem(e, kb);
+            (r < before).then(|| (r, map_immed_val(e)))
+        }
+        Kind::MapLeaf(_) => {
+            let pop = edge_pop(e);
+            let cap = cap_class(pop);
+            let buf = a.leaf(edge_handle(e));
+            let keys = &buf[4 * cap..];
+            let i = leaf_lower_bound(keys, pop, kb, before)?;
+            if i == 0 {
+                return None;
+            }
+            Some((
+                read_rem(keys, i - 1, kb as usize),
+                map_leaf_value(buf, i - 1),
+            ))
+        }
+        Kind::MapBitmap => {
+            if before == 0 {
+                return None;
+            }
+            let b = a.map_bitmap(edge_handle(e));
+            let digit = bitmap_last_le_raw(&b.header.bitmap, before as i32 - 1)?;
+            map_bitmap_entry(b, digit)
+        }
+        Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+            let db = digit_at(before, kb);
+            let cbr = child_rem(before, kb);
+            let mut result = None;
+            branch_for_each_child_rev(a, e, |d, c| {
+                if d > db {
+                    return true;
+                }
+                let hit = if d == db {
+                    prev_entry(a, &c, kb - 1, cbr)
+                } else {
+                    last_entry(a, &c, kb - 1)
+                };
+                if let Some((cr, v)) = hit {
+                    result = Some((combine(d, cr, kb), v));
+                    return false;
+                }
+                true
+            });
+            result
         }
         Kind::SetImmed { .. } | Kind::SetLeaf(_) | Kind::Bitmap => {
             unreachable!("map op on a set edge")
@@ -3053,17 +3221,16 @@ pub(crate) fn next(a: &Arena, e: &Edge32, kb: u8, after: u32) -> Option<u32> {
         Kind::SetLeaf(_) => {
             let pop = edge_pop(e);
             let buf = a.leaf(edge_handle(e));
-            (0..pop)
-                .map(|i| read_rem(buf, i, kb as usize))
-                .find(|&k| k > after)
+            let i = leaf_index_after(buf, pop, kb, after)?;
+            Some(read_rem(buf, i, kb as usize))
         }
         Kind::MapLeaf(_) => {
             let pop = edge_pop(e);
             let cap = cap_class(pop);
             let buf = a.leaf(edge_handle(e));
-            (0..pop)
-                .map(|i| read_rem(&buf[4 * cap..], i, kb as usize))
-                .find(|&k| k > after)
+            let keys = &buf[4 * cap..];
+            let i = leaf_index_after(keys, pop, kb, after)?;
+            Some(read_rem(keys, i, kb as usize))
         }
         Kind::Bitmap => {
             if after >= 255 {
@@ -3124,19 +3291,16 @@ pub(crate) fn prev(a: &Arena, e: &Edge32, kb: u8, before: u32) -> Option<u32> {
         Kind::SetLeaf(_) => {
             let pop = edge_pop(e);
             let buf = a.leaf(edge_handle(e));
-            (0..pop)
-                .rev()
-                .map(|i| read_rem(buf, i, kb as usize))
-                .find(|&k| k < before)
+            let i = leaf_lower_bound(buf, pop, kb, before)?;
+            (i > 0).then(|| read_rem(buf, i - 1, kb as usize))
         }
         Kind::MapLeaf(_) => {
             let pop = edge_pop(e);
             let cap = cap_class(pop);
             let buf = a.leaf(edge_handle(e));
-            (0..pop)
-                .rev()
-                .map(|i| read_rem(&buf[4 * cap..], i, kb as usize))
-                .find(|&k| k < before)
+            let keys = &buf[4 * cap..];
+            let i = leaf_lower_bound(keys, pop, kb, before)?;
+            (i > 0).then(|| read_rem(keys, i - 1, kb as usize))
         }
         Kind::Bitmap => {
             if before == 0 {
@@ -3248,63 +3412,83 @@ pub(crate) fn count_range(a: &Arena, e: &Edge32, kb: u8, lo: u32, hi: u32) -> us
     }
 }
 
-/// Visit every `(remainder, value)` of a map subtree whose remainder lies
-/// in `[lo, hi]`, in ascending order.
+/// Walk every map entry whose remainder lies in `lo..=hi` under `e` in
+/// ascending key order, calling `f(key, value)` with the already-decoded
+/// high bytes folded in. `f` returns `false` to stop the walk; this returns
+/// `false` when it did.
+///
+/// One descent to the range, then contiguous streaming through the leaves it
+/// spans — the read-only twin of [`map_remove_range`], and what a C consumer
+/// walking a range needs instead of a root re-descent per key (#614).
 pub(crate) fn map_for_each_range(
     a: &Arena,
     e: &Edge32,
     kb: u8,
     lo: u32,
     hi: u32,
-    f: &mut dyn FnMut(u32, u32),
-) {
+    f: &mut dyn FnMut(u32, u32) -> bool,
+) -> bool {
     if lo > hi {
-        return;
+        return true;
     }
     match kind(e) {
-        Kind::Null => {}
+        Kind::Null => true,
         Kind::MapImmed { kb: _ } => {
             let r = map_immed_rem(e, kb);
             if r >= lo && r <= hi {
-                f(r, map_immed_val(e));
+                return f(r, map_immed_val(e));
             }
+            true
         }
         Kind::MapLeaf(_) => {
             let pop = edge_pop(e);
-            let cap = cap_class(pop);
+            let keys_off = 4 * cap_class(pop);
             let buf = a.leaf(edge_handle(e));
-            let keys_off = 4 * cap;
-            for i in 0..pop {
-                let k = read_rem(&buf[keys_off..], i, kb as usize);
-                if k >= lo && k <= hi {
-                    let mut vb = [0u8; 4];
-                    vb.copy_from_slice(&buf[i * 4..i * 4 + 4]);
-                    f(k, u32::from_le_bytes(vb));
+            let keys = &buf[keys_off..];
+            // Binary-search both ends: the span, not the whole leaf.
+            let i0 = leaf_lower_bound(keys, pop, kb, lo).unwrap();
+            let i1 = if hi >= rem_mask(kb) {
+                pop
+            } else {
+                leaf_lower_bound(keys, pop, kb, hi + 1).unwrap()
+            };
+            for i in i0..i1 {
+                if !f(read_rem(keys, i, kb as usize), map_leaf_value(buf, i)) {
+                    return false;
                 }
             }
+            true
         }
         Kind::MapBitmap => {
+            if lo > 255 {
+                return true;
+            }
             let b = a.map_bitmap(edge_handle(e));
-            if lo <= 255 {
-                let lo_u8 = lo as u8;
-                let hi_u8 = hi.min(255) as u8;
-                let w_lo = (lo_u8 >> 6) as usize;
-                let w_hi = (hi_u8 >> 6) as usize;
-                for w in w_lo..=w_hi {
-                    let mut word = b.header.bitmap[w];
-                    while word != 0 {
-                        let bit = word.trailing_zeros() as usize;
-                        let digit = (w * 64 + bit) as u8;
-                        if digit >= lo_u8 && digit <= hi_u8 {
-                            let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
-                            let sub = (digit >> 5) as usize;
-                            let val = b.subarrays[sub].as_ref().unwrap()[rank];
-                            f(digit as u32, val);
-                        }
-                        word &= word - 1;
+            let lo_u8 = lo as u8;
+            let hi_u8 = hi.min(255) as u8;
+            let (w_lo, w_hi) = ((lo_u8 >> 6) as usize, (hi_u8 >> 6) as usize);
+            for w in w_lo..=w_hi {
+                // Mask the partial words at each end so the loop visits only
+                // digits inside [lo, hi].
+                let mut word = b.header.bitmap[w];
+                if w == w_lo {
+                    word &= !0u64 << (lo_u8 & 63);
+                }
+                if w == w_hi && (hi_u8 & 63) != 63 {
+                    word &= (1u64 << ((hi_u8 & 63) + 1)) - 1;
+                }
+                while word != 0 {
+                    let digit = (w * 64 + word.trailing_zeros() as usize) as u8;
+                    let Some((cr, v)) = map_bitmap_entry(b, digit) else {
+                        return true;
+                    };
+                    if !f(cr, v) {
+                        return false;
                     }
+                    word &= word - 1;
                 }
             }
+            true
         }
         Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
             let d_lo = digit_at(lo, kb);
@@ -3312,6 +3496,7 @@ pub(crate) fn map_for_each_range(
             let r_lo = child_rem(lo, kb);
             let r_hi = child_rem(hi, kb);
             let full = rem_mask(kb - 1);
+            let mut go = true;
             branch_for_each_child(a, e, |d, c| {
                 if d < d_lo {
                     return true;
@@ -3329,11 +3514,391 @@ pub(crate) fn map_for_each_range(
                     (0, full)
                 };
                 let mut g = |cr: u32, v: u32| f(combine(d, cr, kb), v);
-                map_for_each_range(a, &c, kb - 1, clo, chi, &mut g);
-                true
+                go = map_for_each_range(a, &c, kb - 1, clo, chi, &mut g);
+                go
             });
+            go
         }
-        _ => {}
+        _ => true,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stack-based in-order iteration (#614)
+// ---------------------------------------------------------------------------
+
+/// The child of `e` with the smallest digit `>= from`, if any — the
+/// generalisation of [`branch_first_child`] the stack iterator advances on.
+fn branch_child_at_or_after(a: &Arena, e: &Edge32, from: u8) -> Option<(u8, Edge32)> {
+    match kind(e) {
+        Kind::BranchL2 => {
+            let b = a.l2(edge_handle(e));
+            let n = b.header.num_edges as usize;
+            (0..n)
+                .find(|&i| b.digits[i] >= from)
+                .map(|i| (b.digits[i], b.edges[i]))
+        }
+        Kind::BranchL6 => {
+            let b = a.l6(edge_handle(e));
+            let n = b.header.num_edges as usize;
+            (0..n)
+                .find(|&i| b.digits[i] >= from)
+                .map(|i| (b.digits[i], b.edges[i]))
+        }
+        Kind::BranchB => {
+            let b = a.b(edge_handle(e));
+            let digit = bitmap_first_ge_raw(&b.header.bitmap, u16::from(from))?;
+            let w = (digit >> 6) as usize;
+            let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
+            let sub = (digit >> 5) as usize;
+            Some((digit, b.subarrays[sub].as_ref()?[rank]))
+        }
+        Kind::BranchU => {
+            let b = a.u(edge_handle(e));
+            (from as usize..256).find_map(|d| {
+                let c = b.edges[d];
+                (!c.is_null()).then_some((d as u8, c))
+            })
+        }
+        _ => unreachable!("branch op on a leaf edge"),
+    }
+}
+
+/// One branch level on an iterator's descent path: the branch itself, the
+/// key bytes and decoded prefix at that level, and the next digit to try
+/// when the subtree below it runs out (`256` once exhausted).
+#[derive(Clone, Copy)]
+struct Frame32 {
+    edge: Edge32,
+    kb: u8,
+    prefix: u32,
+    next_digit: u16,
+}
+
+/// The leaf an iterator is streaming, and how far through it is. Every
+/// variant yields ascending keys and is positioned past everything below
+/// the iterator's start bound when it is built.
+#[derive(Clone, Copy)]
+enum LeafCur32 {
+    Done,
+    /// Immediate keys live in the edge itself: at most seven of them, copied
+    /// out and sorted once so the walk never re-reads the edge.
+    Immed {
+        keys: [u32; 7],
+        n: u8,
+        idx: u8,
+        val: u32,
+        prefix: u32,
+    },
+    /// A linear leaf, streamed by index through the arena buffer.
+    Linear {
+        handle: u32,
+        pop: u16,
+        idx: u16,
+        kb: u8,
+        prefix: u32,
+        is_map: bool,
+    },
+    /// A set bitmap leaf: the four mask words, low bits already cleared to
+    /// the start bound.
+    Bitmap {
+        words: [u64; 4],
+        w: u8,
+        prefix: u32,
+    },
+    /// A map bitmap leaf: the same walk, with the value read through the
+    /// leaf's rank-indexed subarrays.
+    MapBitmap {
+        handle: u32,
+        words: [u64; 4],
+        w: u8,
+        prefix: u32,
+    },
+}
+
+impl LeafCur32 {
+    /// Positions a cursor on the first entry of `e` whose remainder is
+    /// `>= from`, or `None` when the leaf holds nothing at or after it.
+    fn new(a: &Arena, e: &Edge32, kb: u8, prefix: u32, from: u32) -> Option<Self> {
+        match kind(e) {
+            Kind::Null => None,
+            Kind::SetImmed { kb: _, count } => {
+                let (mut keys, n) = set_immed_keys(e, kb, count);
+                keys[..n].sort_unstable();
+                let idx = keys[..n].partition_point(|&k| k < from);
+                (idx < n).then_some(LeafCur32::Immed {
+                    keys,
+                    n: n as u8,
+                    idx: idx as u8,
+                    val: 0,
+                    prefix,
+                })
+            }
+            Kind::MapImmed { kb: _ } => {
+                let r = map_immed_rem(e, kb);
+                (r >= from).then(|| LeafCur32::Immed {
+                    keys: [r, 0, 0, 0, 0, 0, 0],
+                    n: 1,
+                    idx: 0,
+                    val: map_immed_val(e),
+                    prefix,
+                })
+            }
+            Kind::SetLeaf(_) | Kind::MapLeaf(_) => {
+                let is_map = matches!(kind(e), Kind::MapLeaf(_));
+                let pop = edge_pop(e);
+                let handle = edge_handle(e);
+                let buf = a.leaf(handle);
+                let keys = if is_map {
+                    &buf[4 * cap_class(pop)..]
+                } else {
+                    buf
+                };
+                let idx = leaf_lower_bound(keys, pop, kb, from)?;
+                (idx < pop).then_some(LeafCur32::Linear {
+                    handle,
+                    pop: pop as u16,
+                    idx: idx as u16,
+                    kb,
+                    prefix,
+                    is_map,
+                })
+            }
+            Kind::Bitmap | Kind::MapBitmap => {
+                if from > 255 {
+                    return None;
+                }
+                let is_map = matches!(kind(e), Kind::MapBitmap);
+                let handle = edge_handle(e);
+                let mut words = if is_map {
+                    a.map_bitmap(handle).header.bitmap
+                } else {
+                    a.bitmap(handle).bitmap
+                };
+                // Clear everything below the start bound so the walk can run
+                // on trailing_zeros alone from here on.
+                let from = from as usize;
+                for (w, word) in words.iter_mut().enumerate() {
+                    if w < from / 64 {
+                        *word = 0;
+                    } else if w == from / 64 {
+                        *word &= !0u64 << (from % 64);
+                    }
+                }
+                if words.iter().all(|&w| w == 0) {
+                    return None;
+                }
+                Some(if is_map {
+                    LeafCur32::MapBitmap {
+                        handle,
+                        words,
+                        w: 0,
+                        prefix,
+                    }
+                } else {
+                    LeafCur32::Bitmap {
+                        words,
+                        w: 0,
+                        prefix,
+                    }
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// The next `(key, value)` in this leaf; `None` once it is spent. Set
+    /// leaves report a zero value.
+    fn next(&mut self, a: &Arena) -> Option<(u32, u32)> {
+        match self {
+            LeafCur32::Done => None,
+            LeafCur32::Immed {
+                keys,
+                n,
+                idx,
+                val,
+                prefix,
+            } => {
+                if *idx >= *n {
+                    return None;
+                }
+                let k = keys[*idx as usize];
+                *idx += 1;
+                Some((*prefix | k, *val))
+            }
+            LeafCur32::Linear {
+                handle,
+                pop,
+                idx,
+                kb,
+                prefix,
+                is_map,
+            } => {
+                if *idx >= *pop {
+                    return None;
+                }
+                let i = *idx as usize;
+                *idx += 1;
+                let buf = a.leaf(*handle);
+                if *is_map {
+                    let keys = &buf[4 * cap_class(*pop as usize)..];
+                    Some((
+                        *prefix | read_rem(keys, i, *kb as usize),
+                        map_leaf_value(buf, i),
+                    ))
+                } else {
+                    Some((*prefix | read_rem(buf, i, *kb as usize), 0))
+                }
+            }
+            LeafCur32::Bitmap { words, w, prefix } => loop {
+                if *w >= 4 {
+                    return None;
+                }
+                let word = &mut words[*w as usize];
+                if *word == 0 {
+                    *w += 1;
+                    continue;
+                }
+                let bit = word.trailing_zeros() as usize;
+                *word &= *word - 1;
+                return Some((*prefix | (*w as u32 * 64 + bit as u32), 0));
+            },
+            LeafCur32::MapBitmap {
+                handle,
+                words,
+                w,
+                prefix,
+            } => loop {
+                if *w >= 4 {
+                    return None;
+                }
+                let word = &mut words[*w as usize];
+                if *word == 0 {
+                    *w += 1;
+                    continue;
+                }
+                let bit = word.trailing_zeros() as usize;
+                *word &= *word - 1;
+                let digit = (*w as usize * 64 + bit) as u8;
+                let b = a.map_bitmap(*handle);
+                let (cr, v) = map_bitmap_entry(b, digit)?;
+                return Some((*prefix | cr, v));
+            },
+        }
+    }
+}
+
+/// A stack-based in-order iterator over a 32-bit trie subtree.
+///
+/// Holds the descent path — at most three branch frames, since a 32-bit key
+/// is four digits — so each step is a leaf index bump, or a pop and one
+/// child lookup at a branch that is already in hand. The `first`/`next`
+/// primitives it replaces re-descend from the root for every key (#614).
+///
+/// Frames hold `Edge32` by value and leaves by arena handle, so the walk
+/// borrows the arena immutably and needs no raw pointers.
+pub(crate) struct RawIter32<'a> {
+    a: &'a Arena,
+    stack: [Frame32; 4],
+    depth: u8,
+    leaf: LeafCur32,
+}
+
+impl<'a> RawIter32<'a> {
+    /// An iterator over `root` positioned at the first key `>= from`.
+    pub(crate) fn new(a: &'a Arena, root: Edge32, kb: u8, from: u32) -> Self {
+        let mut it = RawIter32 {
+            a,
+            stack: [Frame32 {
+                edge: Edge32::null(),
+                kb: 0,
+                prefix: 0,
+                next_digit: 256,
+            }; 4],
+            depth: 0,
+            leaf: LeafCur32::Done,
+        };
+        if !it.descend(root, kb, 0, from) {
+            it.unwind();
+        }
+        it
+    }
+
+    /// Walks down from `e`, pushing a frame per branch, until a leaf holding
+    /// something `>= from` is positioned. Returns `false` when this subtree
+    /// has nothing at or after `from`; frames pushed on the way stay on the
+    /// stack for [`Self::unwind`] to resume from.
+    fn descend(&mut self, mut e: Edge32, mut kb: u8, mut prefix: u32, mut from: u32) -> bool {
+        loop {
+            match kind(&e) {
+                Kind::Null => return false,
+                Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
+                    let d_from = digit_at(from, kb);
+                    let Some((d, c)) = branch_child_at_or_after(self.a, &e, d_from) else {
+                        return false;
+                    };
+                    self.stack[self.depth as usize] = Frame32 {
+                        edge: e,
+                        kb,
+                        prefix,
+                        next_digit: u16::from(d) + 1,
+                    };
+                    self.depth += 1;
+                    let child_from = if d > d_from { 0 } else { child_rem(from, kb) };
+                    prefix |= u32::from(d) << ((kb - 1) as u32 * 8);
+                    e = c;
+                    kb -= 1;
+                    from = child_from;
+                }
+                _ => {
+                    if let Some(cur) = LeafCur32::new(self.a, &e, kb, prefix, from) {
+                        self.leaf = cur;
+                        return true;
+                    }
+                    return false;
+                }
+            }
+        }
+    }
+
+    /// Backtracks after a leaf or subtree is spent: takes the next digit at
+    /// the deepest unfinished branch and descends into it, or empties the
+    /// stack when every branch is finished.
+    fn unwind(&mut self) {
+        while self.depth > 0 {
+            let f = self.stack[self.depth as usize - 1];
+            if f.next_digit <= 255
+                && let Some((d, c)) = branch_child_at_or_after(self.a, &f.edge, f.next_digit as u8)
+            {
+                self.stack[self.depth as usize - 1].next_digit = u16::from(d) + 1;
+                let prefix = f.prefix | (u32::from(d) << ((f.kb - 1) as u32 * 8));
+                let found = self.descend(c, f.kb - 1, prefix, 0);
+                // A live child edge always covers at least one entry, so
+                // an unbounded descent into one cannot come back empty.
+                // The retry below is the defensive path if it ever does.
+                debug_assert!(found, "empty subtree under a live child edge");
+                if found {
+                    return;
+                }
+                continue;
+            }
+            self.depth -= 1;
+        }
+        self.leaf = LeafCur32::Done;
+    }
+
+    /// The next `(key, value)` in ascending key order. Set walks report a
+    /// zero value.
+    pub(crate) fn next(&mut self) -> Option<(u32, u32)> {
+        loop {
+            if let Some(kv) = self.leaf.next(self.a) {
+                return Some(kv);
+            }
+            if self.depth == 0 {
+                return None;
+            }
+            self.unwind();
+        }
     }
 }
 
