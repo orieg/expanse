@@ -9,7 +9,11 @@ Two instruments, with different standing.
 
 **What the pairing is.** On a 32-bit target the public aliases point at the 32-bit engine (`ExpanseMap` is `ExpanseMap32`, 8-byte `Edge32`); on wasm64 they point at the 64-bit engine (16-byte `Edge`). The fuel module's source is byte-identical across the two builds, so each row below is one fixture on the two engines under one runtime. That comparison exists nowhere else in the repository.
 
-**Superseded when** `results/baseline_wasm_fuel.json` changes: the artifact is authoritative and these tables are its rendering. Regenerate them with `scripts/wasm_fuel.py --build wasm32 --markdown` and `--build wasm64 --markdown`, and replace the tables and the provenance line together.
+**Superseded when** `results/baseline_wasm_fuel.json` changes: the artifact is authoritative and these tables are its rendering. Regenerate them with `scripts/wasm_fuel.py --build wasm32 --markdown` and `--build wasm64 --markdown`, re-render the chart with `scripts/generate_wasm_svg.py`, and replace the tables, the chart and the provenance line together.
+
+![Expanse on WebAssembly: exact fuel per operation for every map and set arm on wasm32 (32-bit engine) and wasm64 (64-bit engine), and the engines' own bytes per key](../../assets/bench_wasm_fuel.svg)
+
+**Left and middle panels.** One row per arm and key distribution, two bars: the 32-bit engine on wasm32 (blue) and the 64-bit engine on wasm64 (amber), scaled to the panel's largest value; the label is the two fuel counts and their ratio. Shorter is better. **Right panel.** The same pair for bytes per key by the engine's own accounting after the build. The footer carries the runtime, both compilers and the commit; everything drawn is read from the artifact by `scripts/generate_wasm_svg.py`.
 
 ## Fuel per operation, N = 10,000
 
@@ -63,7 +67,7 @@ Deterministic byte accounting, no allocator overhead included on either side. (w
 
 ## Reading
 
-**The 64-bit engine does less work per operation on wasm, and the 32-bit engine stores fewer bytes per key.** Across the 30 arms the 64-bit engine consumes less fuel in 29; the one exception is `map_insert/random` at 1.07×. The ordered walks show the widest gap, 0.18× to 0.41× on `iterate`, and the point operations sit at 0.52× to 0.67×. Against that, the 32-bit engine's map holds a key in 46% to 54% of the bytes across the three distributions, and its random-key set in 56%; the sequential set is the one cell where the 64-bit engine is denser, at 0.30×.
+**The 64-bit engine does less work per operation on wasm, and the 32-bit engine stores fewer bytes per key.** Across the 30 arms the 64-bit engine consumes less fuel in 29; the one exception is `map_insert/random` at 1.07×. The ordered walks show the widest gap, 0.18× to 0.41× on `iterate`, and the point operations sit at 0.52× to 0.67×. Against that, the 32-bit engine's map holds a key in 52% to 54% of the bytes across the three distributions, and its random-key set in 56%; the sequential set is the one cell where the 64-bit engine is denser, at 0.30×.
 
 **What the number is, and is not.** Fuel counts executed WebAssembly instructions. It is not a cycle count, not a wall-clock figure, and not native instruction retirement: the same source lowers differently on the two targets (i32 versus i64 address arithmetic, memory64 bounds checks, and the two engines' different node forms and handle arena), and fuel adds all of that up without separating it. Why one engine spends fewer instructions than the other on a given arm is not measured here and is not claimed; §8.9 of `AGENTS.md` applies. What the table does establish, exactly, is the cost of each arm on each engine under this runtime, which is what a regression gate needs.
 
