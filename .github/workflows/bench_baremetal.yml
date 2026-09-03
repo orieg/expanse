@@ -239,7 +239,7 @@ jobs:
               // Reduce it to the character class a suite name can use and cap
               // its length, so it cannot break out of the code span.
               const shown = raw.replace(/[^A-Za-z0-9_.\/-]/g, '').slice(0, 40) || '(empty)';
-              const rows = available.map(s => `| \`${s.name}\` | ${s.kind === 'callgrind' ? 'Callgrind' : 'wall-clock'} | ${s.summary} |`);
+              const rows = available.map(s => `| \`${s.name}\` | ${({callgrind: 'Callgrind', wallclock: 'wall-clock', counters: 'counters', fuel: 'wasmtime fuel'})[s.kind] || s.kind} | ${s.summary} |`);
               const gaps = unavailable.map(s => `| \`${s.name}\` | ${s.reason} |`);
 
               // A declared-but-unavailable target is a different answer from a

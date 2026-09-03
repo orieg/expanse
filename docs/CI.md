@@ -41,7 +41,7 @@ graph TD
 
 ## 2. Job Catalog (rolled up by the CI Gate)
 
-`ci.yml` defines **35 jobs** — 34 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while `main` pushes and non-PR events run everything.
+`ci.yml` defines **36 jobs** — 35 verification jobs plus the `ci-gate` rollup. They are grouped below by role. Each job gates on `detect-changes` so an unaffected subsystem's job cleanly skips (counting as passing) on a scoped PR, while `main` pushes and non-PR events run everything.
 
 > `bench-baremetal` appears in the Performance table below for completeness but lives in `bench_baremetal.yml`; it is `/bench`-triggered and is **not** one of `ci-gate`'s dependencies.
 
@@ -109,6 +109,7 @@ graph TD
 | `test-ruby` | Bindings / Ruby (matrix) | magnus / C ABI extension tests. |
 | `test-wasm` | Bindings / WebAssembly (wasm32) | `wasm32` binding build/test. |
 | `test-wasm64` | Bindings / WebAssembly (wasm64 Memory64 Experimental) | `wasm64-unknown-unknown` build-std check and Node.js Memory64 runtime smoke test. |
+| `wasm-fuel` | Perf / WebAssembly Fuel (wasm32 + wasm64, deterministic) | Exact wasmtime fuel per arm for both wasm builds of `crates/expanse-wasm-fuel` via `scripts/wasm_fuel.py`, gated against `results/baseline_wasm_fuel.json` (single-worst > 5% or two arms over the 0.5% floor fails). The Callgrind analogue for the wasm targets (#629). |
 | `test-go` | Bindings / Go (matrix) | Go binding tests across CGO, purego (`CGO_ENABLED=0`), and explicit `-tags expanse_purego` on Linux, macOS, and Windows. |
 
 ### Integrations

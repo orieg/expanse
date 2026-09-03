@@ -1,0 +1,536 @@
+[
+ {
+  "instrument": "wasmtime-fuel",
+  "target": "wasm32-unknown-unknown",
+  "wasmtime": "48.0.0",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "host": "Darwin arm64",
+  "commit": "55d4de06",
+  "pop": 10000,
+  "arms": [
+   {
+    "name": "map_insert/sequential",
+    "fuel": 7837036,
+    "fuel_setup": 749927,
+    "fuel_total": 8586963,
+    "per_op": 783.7036,
+    "checksum": "0x00000000009cd8d0"
+   },
+   {
+    "name": "map_insert/clustered",
+    "fuel": 14273171,
+    "fuel_setup": 817431,
+    "fuel_total": 15090602,
+    "per_op": 1427.3171,
+    "checksum": "0x0000000001e267d0"
+   },
+   {
+    "name": "map_insert/random",
+    "fuel": 15137075,
+    "fuel_setup": 10399129,
+    "fuel_total": 25536204,
+    "per_op": 1513.7075,
+    "checksum": "0x00000017d296c450"
+   },
+   {
+    "name": "map_get/sequential",
+    "fuel": 2724109,
+    "fuel_setup": 14342014,
+    "fuel_total": 17066123,
+    "per_op": 272.4109,
+    "checksum": "0x-5dc31995afe77fc7"
+   },
+   {
+    "name": "map_get/clustered",
+    "fuel": 4114775,
+    "fuel_setup": 20842162,
+    "fuel_total": 24956937,
+    "per_op": 411.4775,
+    "checksum": "0x-1f9340e090522f6"
+   },
+   {
+    "name": "map_get/random",
+    "fuel": 3171818,
+    "fuel_setup": 31831244,
+    "fuel_total": 35003062,
+    "per_op": 317.1818,
+    "checksum": "0x-476fbfa8c9a5e128"
+   },
+   {
+    "name": "map_iterate/sequential",
+    "fuel": 2102776,
+    "fuel_setup": 7862251,
+    "fuel_total": 9965027,
+    "per_op": 210.2776,
+    "checksum": "0x-71fe53d36b5dc3b"
+   },
+   {
+    "name": "map_iterate/clustered",
+    "fuel": 3000717,
+    "fuel_setup": 14360030,
+    "fuel_total": 17360747,
+    "per_op": 300.0717,
+    "checksum": "0x165a49a022722253"
+   },
+   {
+    "name": "map_iterate/random",
+    "fuel": 5589529,
+    "fuel_setup": 24800455,
+    "fuel_total": 30389984,
+    "per_op": 558.9529,
+    "checksum": "0x5a80d1f6f49e1129"
+   },
+   {
+    "name": "map_range/sequential",
+    "fuel": 2225595,
+    "fuel_setup": 8098934,
+    "fuel_total": 10324529,
+    "per_op": 222.5595,
+    "checksum": "0x-71fe539f3c1dc3b"
+   },
+   {
+    "name": "map_range/clustered",
+    "fuel": 3109767,
+    "fuel_setup": 14596713,
+    "fuel_total": 17706480,
+    "per_op": 310.9767,
+    "checksum": "0x165a49a4e7062253"
+   },
+   {
+    "name": "map_range/random",
+    "fuel": 5651558,
+    "fuel_setup": 28202903,
+    "fuel_total": 33854461,
+    "per_op": 565.1558,
+    "checksum": "0x5a80d1f231ea1129"
+   },
+   {
+    "name": "map_remove/sequential",
+    "fuel": 10831211,
+    "fuel_setup": 8532632,
+    "fuel_total": 19363843,
+    "per_op": 1083.1211,
+    "checksum": "0x-34d33dd176a99d94"
+   },
+   {
+    "name": "map_remove/clustered",
+    "fuel": 13341191,
+    "fuel_setup": 15030411,
+    "fuel_total": 28371602,
+    "per_op": 1334.1191,
+    "checksum": "0x14bf7d6336a0d35d"
+   },
+   {
+    "name": "map_remove/random",
+    "fuel": 10283530,
+    "fuel_setup": 25470836,
+    "fuel_total": 35754366,
+    "per_op": 1028.353,
+    "checksum": "0x-136f1b8187485874"
+   },
+   {
+    "name": "set_insert/sequential",
+    "fuel": 7560493,
+    "fuel_setup": 749927,
+    "fuel_total": 8310420,
+    "per_op": 756.0493,
+    "checksum": "0x0000000000a1c6d0"
+   },
+   {
+    "name": "set_insert/clustered",
+    "fuel": 14359760,
+    "fuel_setup": 817431,
+    "fuel_total": 15177191,
+    "per_op": 1435.976,
+    "checksum": "0x0000000001e705d0"
+   },
+   {
+    "name": "set_insert/random",
+    "fuel": 14380253,
+    "fuel_setup": 10399129,
+    "fuel_total": 24779382,
+    "per_op": 1438.0253,
+    "checksum": "0x00000017d29be250"
+   },
+   {
+    "name": "set_contains/sequential",
+    "fuel": 2374065,
+    "fuel_setup": 14026250,
+    "fuel_total": 16400315,
+    "per_op": 237.4065,
+    "checksum": "0x31794b980399e753"
+   },
+   {
+    "name": "set_contains/clustered",
+    "fuel": 3754742,
+    "fuel_setup": 20902088,
+    "fuel_total": 24656830,
+    "per_op": 375.4742,
+    "checksum": "0x31794b980399e753"
+   },
+   {
+    "name": "set_contains/random",
+    "fuel": 3516612,
+    "fuel_setup": 31115523,
+    "fuel_total": 34632135,
+    "per_op": 351.6612,
+    "checksum": "0x317966bfc2c0e753"
+   },
+   {
+    "name": "set_iterate/sequential",
+    "fuel": 1412935,
+    "fuel_setup": 7589772,
+    "fuel_total": 9002707,
+    "per_op": 141.2935,
+    "checksum": "0x2ad2f6ce118f7ee8"
+   },
+   {
+    "name": "set_iterate/clustered",
+    "fuel": 2590741,
+    "fuel_setup": 14467307,
+    "fuel_total": 17058048,
+    "per_op": 259.0741,
+    "checksum": "0x-4188a41ac6093d4e"
+   },
+   {
+    "name": "set_iterate/random",
+    "fuel": 6232158,
+    "fuel_setup": 24064785,
+    "fuel_total": 30296943,
+    "per_op": 623.2158,
+    "checksum": "0x740a2ce7561447fa"
+   },
+   {
+    "name": "set_range/sequential",
+    "fuel": 1535563,
+    "fuel_setup": 7826576,
+    "fuel_total": 9362139,
+    "per_op": 153.5563,
+    "checksum": "0x2ad2f6cad4fb7ee8"
+   },
+   {
+    "name": "set_range/clustered",
+    "fuel": 2698391,
+    "fuel_setup": 14703989,
+    "fuel_total": 17402380,
+    "per_op": 269.8391,
+    "checksum": "0x-4188a41e037d3d4e"
+   },
+   {
+    "name": "set_range/random",
+    "fuel": 6295104,
+    "fuel_setup": 27467041,
+    "fuel_total": 33762145,
+    "per_op": 629.5104,
+    "checksum": "0x740a2ce3936047fa"
+   },
+   {
+    "name": "set_remove/sequential",
+    "fuel": 7644161,
+    "fuel_setup": 8240213,
+    "fuel_total": 15884374,
+    "per_op": 764.4161,
+    "checksum": "0x0000000000a1e1c0"
+   },
+   {
+    "name": "set_remove/clustered",
+    "fuel": 13153680,
+    "fuel_setup": 15117687,
+    "fuel_total": 28271367,
+    "per_op": 1315.368,
+    "checksum": "0x0000000001e722c0"
+   },
+   {
+    "name": "set_remove/random",
+    "fuel": 11055204,
+    "fuel_setup": 24714974,
+    "fuel_total": 35770178,
+    "per_op": 1105.5204,
+    "checksum": "0x00000017d29bc540"
+   }
+  ],
+  "mem_used_bytes": {
+   "map/sequential": 44240,
+   "map/clustered": 68256,
+   "map/random": 128928,
+   "set/sequential": 2992,
+   "set/clustered": 28256,
+   "set/random": 119292
+  },
+  "mem_used_bytes_per_key": {
+   "map/sequential": 4.424,
+   "map/clustered": 6.8256,
+   "map/random": 12.8928,
+   "set/sequential": 0.2992,
+   "set/clustered": 2.8256,
+   "set/random": 11.9292
+  }
+ },
+ {
+  "instrument": "wasmtime-fuel",
+  "target": "wasm64-unknown-unknown",
+  "wasmtime": "48.0.0",
+  "rustc": "rustc 1.100.0-nightly (2e2b193f8 2026-09-02)",
+  "host": "Darwin arm64",
+  "commit": "55d4de06",
+  "pop": 10000,
+  "arms": [
+   {
+    "name": "map_insert/sequential",
+    "fuel": 3954747,
+    "fuel_setup": 729966,
+    "fuel_total": 4684713,
+    "per_op": 395.4747,
+    "checksum": "0x00000000009cd8d0"
+   },
+   {
+    "name": "map_insert/clustered",
+    "fuel": 11329373,
+    "fuel_setup": 827467,
+    "fuel_total": 12156840,
+    "per_op": 1132.9373,
+    "checksum": "0x0000000001e267d0"
+   },
+   {
+    "name": "map_insert/random",
+    "fuel": 16238552,
+    "fuel_setup": 9942877,
+    "fuel_total": 26181429,
+    "per_op": 1623.8552,
+    "checksum": "0x4e514a77d296c44c"
+   },
+   {
+    "name": "map_get/sequential",
+    "fuel": 1537729,
+    "fuel_setup": 10008034,
+    "fuel_total": 11545763,
+    "per_op": 153.7729,
+    "checksum": "0x23da6cf36655a027"
+   },
+   {
+    "name": "map_get/clustered",
+    "fuel": 2313112,
+    "fuel_setup": 17486728,
+    "fuel_total": 19799840,
+    "per_op": 231.3112,
+    "checksum": "0x-578e3dcf6dbcc28d"
+   },
+   {
+    "name": "map_get/random",
+    "fuel": 1709114,
+    "fuel_setup": 31954346,
+    "fuel_total": 33663460,
+    "per_op": 170.9114,
+    "checksum": "0x431ce1ffb7f7ace6"
+   },
+   {
+    "name": "map_iterate/sequential",
+    "fuel": 801273,
+    "fuel_setup": 3945308,
+    "fuel_total": 4746581,
+    "per_op": 80.1273,
+    "checksum": "0x-3de476c1fba4ffef"
+   },
+   {
+    "name": "map_iterate/clustered",
+    "fuel": 892147,
+    "fuel_setup": 11417441,
+    "fuel_total": 12309588,
+    "per_op": 89.2147,
+    "checksum": "0x63b610ff9c1676bf"
+   },
+   {
+    "name": "map_iterate/random",
+    "fuel": 2317881,
+    "fuel_setup": 25441837,
+    "fuel_total": 27759718,
+    "per_op": 231.7881,
+    "checksum": "0x-61fc8138b95acd08"
+   },
+   {
+    "name": "map_range/sequential",
+    "fuel": 1123580,
+    "fuel_setup": 4222142,
+    "fuel_total": 5345722,
+    "per_op": 112.358,
+    "checksum": "0x-3de476c53ed0ffef"
+   },
+   {
+    "name": "map_range/clustered",
+    "fuel": 1238515,
+    "fuel_setup": 11694405,
+    "fuel_total": 12932920,
+    "per_op": 123.8515,
+    "checksum": "0x63b610fb596276bf"
+   },
+   {
+    "name": "map_range/random",
+    "fuel": 2617220,
+    "fuel_setup": 29010593,
+    "fuel_total": 31627813,
+    "per_op": 261.722,
+    "checksum": "0x-61fc813c7c2ecd08"
+   },
+   {
+    "name": "map_remove/sequential",
+    "fuel": 8077435,
+    "fuel_setup": 4575721,
+    "fuel_total": 12653156,
+    "per_op": 807.7435,
+    "checksum": "0x44efa402e01b2cbc"
+   },
+   {
+    "name": "map_remove/clustered",
+    "fuel": 11326870,
+    "fuel_setup": 12047919,
+    "fuel_total": 23374789,
+    "per_op": 1132.687,
+    "checksum": "0x700b7be8584b15b4"
+   },
+   {
+    "name": "map_remove/random",
+    "fuel": 6876495,
+    "fuel_setup": 26072315,
+    "fuel_total": 32948810,
+    "per_op": 687.6495,
+    "checksum": "0x-198666bee6b48d68"
+   },
+   {
+    "name": "set_insert/sequential",
+    "fuel": 1594904,
+    "fuel_setup": 729966,
+    "fuel_total": 2324870,
+    "per_op": 159.4904,
+    "checksum": "0x0000000000a1c6d0"
+   },
+   {
+    "name": "set_insert/clustered",
+    "fuel": 9099062,
+    "fuel_setup": 827467,
+    "fuel_total": 9926529,
+    "per_op": 909.9062,
+    "checksum": "0x0000000001e705d0"
+   },
+   {
+    "name": "set_insert/random",
+    "fuel": 13095498,
+    "fuel_setup": 9942877,
+    "fuel_total": 23038375,
+    "per_op": 1309.5498,
+    "checksum": "0x4e514a77d29be24c"
+   },
+   {
+    "name": "set_contains/sequential",
+    "fuel": 1460461,
+    "fuel_setup": 7556868,
+    "fuel_total": 9017329,
+    "per_op": 146.0461,
+    "checksum": "0x64604b980399e777"
+   },
+   {
+    "name": "set_contains/clustered",
+    "fuel": 2526548,
+    "fuel_setup": 15185316,
+    "fuel_total": 17711864,
+    "per_op": 252.6548,
+    "checksum": "0x64604b980399e777"
+   },
+   {
+    "name": "set_contains/random",
+    "fuel": 1839216,
+    "fuel_setup": 28711494,
+    "fuel_total": 30550710,
+    "per_op": 183.9216,
+    "checksum": "0x652b66bfc2c0a338"
+   },
+   {
+    "name": "set_iterate/sequential",
+    "fuel": 257377,
+    "fuel_setup": 1618935,
+    "fuel_total": 1876312,
+    "per_op": 25.7377,
+    "checksum": "0x2ad2f6ce118f7ee8"
+   },
+   {
+    "name": "set_iterate/clustered",
+    "fuel": 1803013,
+    "fuel_setup": 9247042,
+    "fuel_total": 11050055,
+    "per_op": 180.3013,
+    "checksum": "0x-4188a41ac6093d4e"
+   },
+   {
+    "name": "set_iterate/random",
+    "fuel": 2530748,
+    "fuel_setup": 22358661,
+    "fuel_total": 24889409,
+    "per_op": 253.0748,
+    "checksum": "0x-32b371b47fc49f78"
+   },
+   {
+    "name": "set_range/sequential",
+    "fuel": 566651,
+    "fuel_setup": 1895776,
+    "fuel_total": 2462427,
+    "per_op": 56.6651,
+    "checksum": "0x2ad2f6cad4fb7ee8"
+   },
+   {
+    "name": "set_range/clustered",
+    "fuel": 2234456,
+    "fuel_setup": 9523883,
+    "fuel_total": 11758339,
+    "per_op": 223.4456,
+    "checksum": "0x-4188a41e037d3d4e"
+   },
+   {
+    "name": "set_range/random",
+    "fuel": 2833528,
+    "fuel_setup": 25927511,
+    "fuel_total": 28761039,
+    "per_op": 283.3528,
+    "checksum": "0x-32b371b0bab09f78"
+   },
+   {
+    "name": "set_remove/sequential",
+    "fuel": 6469322,
+    "fuel_setup": 2249349,
+    "fuel_total": 8718671,
+    "per_op": 646.9322,
+    "checksum": "0x0000000000a1e1c0"
+   },
+   {
+    "name": "set_remove/clustered",
+    "fuel": 10005597,
+    "fuel_setup": 9877456,
+    "fuel_total": 19883053,
+    "per_op": 1000.5597,
+    "checksum": "0x0000000001e722c0"
+   },
+   {
+    "name": "set_remove/random",
+    "fuel": 7291922,
+    "fuel_setup": 22989140,
+    "fuel_total": 30281062,
+    "per_op": 729.1922,
+    "checksum": "0x4e514a77d29bc55c"
+   }
+  ],
+  "mem_used_bytes": {
+   "map/sequential": 85840,
+   "map/clustered": 131424,
+   "map/random": 238880,
+   "set/sequential": 912,
+   "set/clustered": 31456,
+   "set/random": 211872
+  },
+  "mem_used_bytes_per_key": {
+   "map/sequential": 8.584,
+   "map/clustered": 13.1424,
+   "map/random": 23.888,
+   "set/sequential": 0.0912,
+   "set/clustered": 3.1456,
+   "set/random": 21.1872
+  }
+ }
+]

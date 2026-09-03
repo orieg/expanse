@@ -126,7 +126,7 @@
       "available": true,
       "kind": "counters",
       "runner": "builtin",
-      "summary": "Hardware performance counters (`perf stat`) over the random point-lookup path \u2014 `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be."
+      "summary": "Hardware performance counters (`perf stat`) over the random point-lookup path — `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be."
     },
     {
       "name": "search_instructions",
@@ -139,14 +139,38 @@
         "subject_label": "Expanse",
         "baseline_label": "Roaring",
         "twins": [
-          { "subject": "expanse_composed_and", "baseline": "roaring_and" },
-          { "subject": "expanse_native_and", "baseline": "roaring_and" },
-          { "subject": "expanse_composed_or", "baseline": "roaring_or" },
-          { "subject": "expanse_native_or", "baseline": "roaring_or" },
-          { "subject": "expanse_composed_andnot", "baseline": "roaring_andnot" },
-          { "subject": "expanse_native_andnot", "baseline": "roaring_andnot" },
-          { "subject": "expanse_materialize", "baseline": "roaring_materialize" },
-          { "subject": "expanse_wand", "baseline": "roaring_wand" }
+          {
+            "subject": "expanse_composed_and",
+            "baseline": "roaring_and"
+          },
+          {
+            "subject": "expanse_native_and",
+            "baseline": "roaring_and"
+          },
+          {
+            "subject": "expanse_composed_or",
+            "baseline": "roaring_or"
+          },
+          {
+            "subject": "expanse_native_or",
+            "baseline": "roaring_or"
+          },
+          {
+            "subject": "expanse_composed_andnot",
+            "baseline": "roaring_andnot"
+          },
+          {
+            "subject": "expanse_native_andnot",
+            "baseline": "roaring_andnot"
+          },
+          {
+            "subject": "expanse_materialize",
+            "baseline": "roaring_materialize"
+          },
+          {
+            "subject": "expanse_wand",
+            "baseline": "roaring_wand"
+          }
         ],
         "unpaired": []
       },
@@ -409,6 +433,14 @@
       "package": "expanse-trie",
       "target": "art_memory",
       "summary": "Adaptive Radix Tree (ART) vs Expanse live heap memory allocation census across population scales."
+    },
+    {
+      "name": "wasm_fuel",
+      "available": false,
+      "kind": "fuel",
+      "runner": "builtin",
+      "summary": "Exact wasmtime fuel per arm for the wasm32 (32-bit engine) and wasm64 (64-bit engine) builds of `crates/expanse-wasm-fuel`; the Callgrind analogue for the wasm targets.",
+      "reason": "runs on every PR in `ci.yml`'s `wasm-fuel` job against `results/baseline_wasm_fuel.json`; it needs no bare-metal host, so `/benchmark wasm_fuel` is refused by name and points here."
     }
   ]
 }

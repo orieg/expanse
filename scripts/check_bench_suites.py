@@ -41,7 +41,7 @@ BEGIN = "BEGIN GENERATED: bench-suites"
 END = "END GENERATED: bench-suites"
 
 REQUIRED_FIELDS = ("name", "available", "kind", "runner", "summary")
-KINDS = ("callgrind", "wallclock", "counters")
+KINDS = ("callgrind", "wallclock", "counters", "fuel")
 RUNNERS = ("builtin", "generic")
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
