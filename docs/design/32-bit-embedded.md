@@ -618,6 +618,36 @@ Narrowing this arm needs a different mechanism — one that attacks the descent
 itself rather than the number of descents, or an index whose keys are ordered
 rather than hashed.
 
+### 8.1.3 Binary layout moves some on-device arms by more than half
+
+The comparison methodology in `docs/benchmarks/embedded/README.md` treats
+twin-container drift as the attribution floor. Two builds of the 32-bit engine
+with **byte-identical engine source** — `trie32.rs`, `map32.rs`, the C ABI and
+the component C all unchanged, differing only in unrelated set-algebra code the
+measured path never executes — put that floor in perspective:
+
+| Arm | link A | link B | |
+|---|---|---|---|
+| `esp32_ble_ttl_eviction` N=300, pop 500 | 2,626.2 | 4,137.2 | **+57.5%** |
+| `esp32_ble_ttl_eviction_sparse` N=100, pop 500 | 3,274.9 | 5,154.0 | **+57.4%** |
+| `esp32_tsdb_ingest` N=2000 | 3,022.9 | 3,016.9 | −0.2% |
+| `esp32_ble_sighting_record` N=2000 | 6,935.4 | 7,372.4 | +6.3% |
+
+*(measured: ESP32-D0WD-V3 rev v3.1, 160 MHz, medians of 10; two boots of
+either binary agree to 0.00% on every arm, so the difference is the binary and
+not the sitting.)*
+
+The two pop=500 eviction arms are therefore **not usable as a regression
+signal** on this part without controlling code layout — a change can appear to
+halve or double their cost while touching nothing they run. The ingest arm, by
+contrast, has reproduced its result across four different links this session,
+which is the evidence that a movement there is the code and not the linker.
+
+Attributing the mechanism — flash-cache line placement of the eviction path is
+the plausible reading — needs a layout-controlled build (a linker script that
+pins the hot functions, or per-arm instruction-cache counters). Neither exists
+here, so it is recorded as observed and unattributed.
+
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 
 ```rust

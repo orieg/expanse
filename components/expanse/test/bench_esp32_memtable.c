@@ -52,6 +52,17 @@ static inline uint32_t get_dummy_cycles(void) {
  * arm. Both fields are emitted on every line and both are part of the
  * harvester's grouping key (#579).
  */
+/* A twin or subject that could not be constructed used to fall out of the
+ * suite silently -- the arm simply never printed, and the published table
+ * acquired a hole with nothing to say why. That is a fail-quiet path
+ * (AGENTS.md 8.1): the harvester now sees a record naming the arm, the
+ * population it was asked for, and the heap state that refused it. */
+static void report_skipped(const char *arm, size_t n) {
+    printf("{\"skipped\": true, \"arm\": \"%s\", \"n\": %zu, \"reason\": \"create returned NULL\", "
+           "\"free_heap\": %zu, \"largest_block\": %zu}\n",
+           arm, n, GET_FREE_HEAP(), GET_LARGEST_BLOCK());
+}
+
 static void report_json(const char *benchmark, const char *arm, size_t n, size_t pop, double cycles_per_op, size_t heap_used, double fragmentation) {
     printf("{\"benchmark\": \"%s\", \"arm\": \"%s\", \"n\": %zu, \"pop\": %zu, \"cycles_per_op\": %.2f, \"heap_used_bytes\": %zu, \"frag_ratio\": %.4f}\n",
            benchmark, arm, n, pop, cycles_per_op, heap_used, fragmentation);
@@ -118,14 +129,14 @@ static void tsdb_fill_keys(size_t n, bool shuffled) {
 static void fn_name(size_t n, const char *ingest_bench, const char *agg_bench) { \
     size_t heap_before = GET_FREE_HEAP();                                       \
     ctype *c = (create_expr);                                                   \
-    if (!c) return;                                                             \
+    if (!c) { report_skipped(arm_str, n); return; }                              \
                                                                                 \
     /* Warmup on keys the timed loop does not use, then discard the             \
      * container so no arm enters its measurement warm and another cold. */     \
     for (size_t i = 0; i < 100; ++i) { size_t idx = i; (void)idx; insert_stmt; }\
     destroy_stmt;                                                               \
     c = (create_expr);                                                          \
-    if (!c) return;                                                             \
+    if (!c) { report_skipped(arm_str, n); return; }                              \
                                                                                 \
     uint32_t start = GET_CYCLES();                                              \
     for (size_t idx = 0; idx < n; ++idx) { insert_stmt; }                       \
@@ -223,7 +234,7 @@ static void fn_name(size_t n, size_t stale_frac, const char *evict_bench,       
                     bool report_rw) {                                            \
     size_t heap_before = GET_FREE_HEAP();                                       \
     ctype *c = (create_expr);                                                   \
-    if (!c) return;                                                             \
+    if (!c) { report_skipped(arm_str, n); return; }                              \
                                                                                 \
     expanse_ble_record_t rec;                                                   \
     memset(&rec, 0, sizeof(rec));                                               \
