@@ -108,7 +108,7 @@
     <rect x="115" y="186.6" width="50" height="8.4" class="b-hashmap" rx="2"/>
     <text x="140" y="178.1" class="t-val-blue">2.8</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">HashMap</text>
-    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">unordered</text>
+    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">no order</text>
     <rect x="185" y="111.1" width="50" height="83.9" class="b-stdmap" rx="2"/>
     <text x="210" y="102.6" class="t-val-muted">28</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
@@ -135,7 +135,7 @@
     <rect x="115" y="181.1" width="50" height="13.9" class="b-hashmap" rx="2"/>
     <text x="140" y="172.6" class="t-val-blue">1.4</text>
     <text x="140" y="214" class="t-bar-label" text-anchor="middle">HashMap</text>
-    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">unordered</text>
+    <text x="140" y="228" class="t-chart-sub" text-anchor="middle">no order</text>
     <rect x="185" y="124.8" width="50" height="70.2" class="b-stdmap" rx="2"/>
     <text x="210" y="116.3" class="t-val-muted">7.0</text>
     <text x="210" y="214" class="t-bar-label" text-anchor="middle">BTreeMap</text>
