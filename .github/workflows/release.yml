@@ -146,11 +146,14 @@ jobs:
             deb_arch: amd64
             rpm_arch: x86_64
             dotnet_rid: linux-x64
+            java_classifier: linux-x86_64
             nativefile: libexpanse.so
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             deb_arch: arm64
             rpm_arch: aarch64
+            java_classifier: linux-aarch64
+            nativefile: libexpanse.so
             cross_pkg: gcc-aarch64-linux-gnu libc6-dev-arm64-cross
           - target: riscv64gc-unknown-linux-gnu
             os: ubuntu-latest
@@ -163,14 +166,17 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             dotnet_rid: osx-arm64
+            java_classifier: darwin-aarch64
             nativefile: libexpanse.dylib
           - target: x86_64-apple-darwin
             os: macos-latest
             dotnet_rid: osx-x64
+            java_classifier: darwin-x86_64
             nativefile: libexpanse.dylib
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             dotnet_rid: win-x64
+            java_classifier: windows-x86_64
             nativefile: expanse.dll
     runs-on: ${{ matrix.os }}
     steps:
@@ -264,6 +270,22 @@ jobs:
         with:
           name: native-${{ matrix.dotnet_rid }}
           path: native/${{ matrix.dotnet_rid }}/*
+          if-no-files-found: error
+
+      - name: Stage native library for Java
+        if: matrix.java_classifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "native-java/${{ matrix.java_classifier }}"
+          cp "target/${{ matrix.target }}/release/${{ matrix.nativefile }}" "native-java/${{ matrix.java_classifier }}/"
+
+      - name: Upload native library artifact (Java)
+        if: matrix.java_classifier
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-java-${{ matrix.java_classifier }}
+          path: native-java/${{ matrix.java_classifier }}/*
           if-no-files-found: error
 
       - name: Upload release artifacts
@@ -402,6 +424,85 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${GITHUB_REF_NAME}" dist/nuget/*.nupkg dist/nuget/*.snupkg --clobber
+
+  package-maven:
+    name: Package & Publish Java (Maven Central)
+    needs: [release-gate, build-release-artifacts, github-release] # anchor-first (#313)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # attach jar to GitHub Release
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK 22
+        uses: actions/setup-java@v6
+        with:
+          java-version: '22'
+          distribution: 'temurin'
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_TOKEN
+
+      - name: Download native libraries (Java)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: native-java-*
+          path: native-java-staging
+
+      - name: Stage native libraries into resources/native/{classifier}
+        run: |
+          set -euo pipefail
+          base="bindings/java/src/main/resources/native"
+          found=0
+          for d in native-java-staging/native-java-*; do
+            [ -d "$d" ] || continue
+            classifier="${d#native-java-staging/native-java-}"
+            mkdir -p "${base}/${classifier}"
+            cp "$d"/* "${base}/${classifier}/"
+            found=$((found + 1))
+            echo "Staged ${classifier}: $(ls "${base}/${classifier}")"
+          done
+          if [ "${found}" -lt 5 ]; then
+            echo "::error::Expected 5 native classifiers for Java, found ${found}"; exit 1
+          fi
+
+      - name: Package JAR with all native binaries
+        run: mvn clean package -f bindings/java/pom.xml -DskipTests
+
+      - name: Upload Java release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-artifacts-java
+          path: |
+            bindings/java/target/*.jar
+            bindings/java/pom.xml
+          if-no-files-found: error
+
+      - name: Publish to Maven Central
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+          GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MAVEN_CENTRAL_TOKEN:-}" ]; then
+            echo "::warning::MAVEN_CENTRAL_TOKEN is unset; skipping Maven Central publish."
+            exit 0
+          fi
+          if [ -n "${GPG_PRIVATE_KEY:-}" ]; then
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          fi
+          mkdir -p ~/.m2
+          echo "<settings><servers><server><id>central</id><username>${MAVEN_CENTRAL_USERNAME}</username><password>${MAVEN_CENTRAL_TOKEN}</password></server></servers></settings>" > ~/.m2/settings.xml
+          mvn deploy -f bindings/java/pom.xml -P release -DskipTests
+
+      - name: Attach JAR to the GitHub Release
+        if: github.event_name == 'push' # the release exists only on tag pushes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" bindings/java/target/*.jar --clobber
 
   publish-npm:
     name: Publish Node.js (npm)
@@ -635,6 +736,7 @@ jobs:
       - publish-wasm
       - publish-gem
       - package-nuget
+      - package-maven
       - github-release
     if: github.event_name == 'push'
     runs-on: ubuntu-latest

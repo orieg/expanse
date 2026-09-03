@@ -57,7 +57,7 @@ def fetch(url: str, token: str | None = None) -> tuple[int, object]:
 
 
 def norm(v: str) -> str:
-    return v.lstrip("vV").strip()
+    return v.strip().lstrip("vV").strip()
 
 
 # Each probe returns the list of versions the registry currently serves.
@@ -103,6 +103,17 @@ def _packagist(pkg: str):
     return probe
 
 
+def _maven(_v: str) -> list[str]:
+    """Maven Central search API for io.github.orieg:expanse-java."""
+    _, d = fetch(
+        "https://search.maven.org/solrsearch/select?q=g:io.github.orieg+AND+a:expanse-java&core=gav&rows=20&wt=json"
+    )
+    if not isinstance(d, dict):
+        return []
+    docs = d.get("response", {}).get("docs", [])
+    return [doc["v"] for doc in docs if isinstance(doc, dict) and "v" in doc]
+
+
 def _go_tag(version: str) -> list[str]:
     """Go resolves bindings/go by a nested tag, not a registry."""
     token = os.environ.get("GITHUB_TOKEN")
@@ -119,20 +130,41 @@ PROBES = [
     ("npm (wasm)", "@orieg/expanse-wasm", _npm("@orieg/expanse-wasm")),
     ("RubyGems", "expanse", _rubygems),
     ("NuGet", "Orieg.Expanse", _nuget),
+    ("Maven Central", "io.github.orieg:expanse-java", _maven),
     ("Packagist", "orieg/expanse", _packagist("orieg/expanse")),
     ("Packagist", "orieg/expanse-extension", _packagist("orieg/expanse-extension")),
     ("Go module tag", "bindings/go", _go_tag),
 ]
 
 
+def run_self_test() -> int:
+    assert norm("v0.5.0") == "0.5.0"
+    assert norm("0.5.0") == "0.5.0"
+    assert norm(" V1.2.3 ") == "1.2.3"
+    assert len(PROBES) == 10
+    names = [p[0] for p in PROBES]
+    assert "Maven Central" in names
+    assert "crates.io" in names
+    assert "NuGet" in names
+    print("verify_release_registries.py --self-test: all checks passed")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--version", required=True, help="release version, with or without leading v")
+    ap.add_argument("--version", default=None, help="release version, with or without leading v")
     ap.add_argument("--attempts", type=int, default=6)
     ap.add_argument("--delay", type=int, default=30, help="seconds; doubles up to --max-delay")
     ap.add_argument("--max-delay", type=int, default=240)
     ap.add_argument("--only", default=None, help="comma-separated registry names to check")
+    ap.add_argument("--self-test", action="store_true", help="Run internal unit self-tests and exit")
     args = ap.parse_args()
+
+    if args.self_test:
+        return run_self_test()
+
+    if not args.version:
+        ap.error("--version is required when not running --self-test")
 
     want = norm(args.version)
     probes = list(PROBES)
