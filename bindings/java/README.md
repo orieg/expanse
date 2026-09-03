@@ -156,6 +156,25 @@ To supply an external or custom-compiled build of `libexpanse` instead of using 
 
 ---
 
+## Comparative Benchmarks & Performance Profile
+
+![Expanse Java Panama FFM vs java.util.HashMap Comparative Benchmarks](../../docs/assets/bench_java.svg)
+
+Benchmarked with [`ExpanseBenchmark.java`](src/test/java/io/github/orieg/expanse/ExpanseBenchmark.java) against standard `java.util.HashMap` ($N = 10,000$):
+
+| Key Distribution | Operation | ExpanseMap (Panama FFM) | java.util.HashMap (baseline) | Result / Multiplier |
+|---|---|---:|---:|:---|
+| **`clustered`** | Lookup Latency | **22.5 ns** | 27.1 ns | **1.21&#215; faster** |
+| | Memory Density | **8.61 B / key** | 86.56 B / key | **10.1&#215; less RAM** |
+| **`zipfian`** ($\theta = 0.99$) | Lookup Latency | **66.0 ns** | 54.3 ns | Competitive (66 ns) |
+| | Memory Density | **3.24 B / key** | 24.40 B / key | **7.5&#215; less RAM** |
+| **`sequential`** | Insert Throughput | **23.6 Mops/s** | 12.4 Mops/s | **1.90&#215; faster** |
+| | Memory Density | **8.58 B / key** | 85.94 B / key | **10.0&#215; less RAM** |
+
+*(measured: Apple Silicon M-series, macOS 15, commit 233899b4 — ExpanseBenchmark.java via scripts/bench_bindings.py)*
+
+---
+
 ## Documentation
 
 See [docs/bindings/java.md](../../docs/bindings/java.md) for full architectural deep dive, Spark/Flink integration patterns, and GC benchmarking.

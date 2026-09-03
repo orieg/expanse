@@ -51,9 +51,36 @@ To eliminate even out-parameter heap allocations in Java, `ExpanseMap` and `Expa
 
 ---
 
-## 3. GC Elimination & Off-Heap Memory Layout
+## 3. Comparative Benchmarks & Off-Heap Performance
 
-### Heap Churn Comparison on 50,000,000 Key-Value Entries
+![Expanse Java Panama FFM vs java.util.HashMap Comparative Benchmarks](../assets/bench_java.svg)
+
+### Measured Comparative Performance Matrix
+
+The Java bindings include an automated benchmark harness ([`ExpanseBenchmark.java`](../../bindings/java/src/test/java/io/github/orieg/expanse/ExpanseBenchmark.java)) integrated with the unified orchestrator (`python3 scripts/bench_bindings.py --runtimes java`).
+
+The suite compares `ExpanseMap` (Panama FFM downcalls to `libexpanse`) directly against standard `java.util.HashMap` across multiple key distribution shapes ($N = 10,000$):
+
+| Key Distribution | Collection Target | Lookup Latency | Lookup Throughput | Insert Throughput | Memory Density | Provenance |
+|:---|:---|---:|---:|---:|---:|:---|
+| **`clustered`** | **`ExpanseMap` (Panama FFM)** | **22.5 ns** | **44.5 Mops/s** | **28.6 Mops/s** | **8.61 B / key** | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| | `java.util.HashMap` (baseline) | 27.1 ns | 36.9 Mops/s | 52.5 Mops/s | 86.56 B / key (approx.) | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| **`zipfian`** ($\theta = 0.99$) | **`ExpanseMap` (Panama FFM)** | **66.0 ns** | **15.2 Mops/s** | **3.4 Mops/s** | **3.24 B / key** | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| | `java.util.HashMap` (baseline) | 54.3 ns | 18.4 Mops/s | 9.9 Mops/s | 24.40 B / key (approx.) | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| **`sequential`** | **`ExpanseMap` (Panama FFM)** | **60.9 ns** | **16.4 Mops/s** | **23.6 Mops/s** | **8.58 B / key** | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| | `java.util.HashMap` (baseline) | 52.6 ns | 19.0 Mops/s | 12.4 Mops/s | 85.94 B / key (approx.) | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| **`random`** | **`ExpanseMap` (Panama FFM)** | **99.5 ns** | **10.1 Mops/s** | **4.2 Mops/s** | **23.89 B / key** | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| | `java.util.HashMap` (baseline) | 69.8 ns | 14.3 Mops/s | 11.1 Mops/s | 68.30 B / key (approx.) | *(measured: Apple Silicon M-series, commit 233899b4)* |
+
+#### Performance & Architectural Takeaways:
+1. **$10\times$ Memory Density Win on Structured Data**: On sequential and clustered integer spans, `ExpanseMap` achieves $8.6\text{ Bytes/key}$ versus $86.5\text{ Bytes/key}$ in `java.util.HashMap` (which pays for boxed `java.lang.Long` objects, node references, and open hash table array padding).
+2. **$7.5\times$ Memory Reduction under Zipfian Skew**: Under power-law skew ($\theta = 0.99$), hot clustered keys compress directly into Judy bitmap leaves and immediate machine words with zero heap node allocation.
+3. **Faster Clustered Queries**: Clustered point lookups are $1.21\times$ faster than `HashMap` ($22.5\text{ ns}$ vs $27.1\text{ ns}$) due to spatial cache-line locality in Expanse's 256-ary digital tree leaves.
+4. **Faster Sequential Ingestion**: Sequential ordered inserts are $1.90\times$ faster than `HashMap` ($23.6\text{ Mops/s}$ vs $12.4\text{ Mops/s}$), avoiding hash collisions and dynamic bucket array resizing.
+
+### Heap Churn & Garbage Collection Immunity *(projected: 50M keys)*
+
+When scaling to large dataset populations, the architectural advantage transitions from cache density to complete garbage collection immunity:
 
 | Metric | `java.util.HashMap<Long, Long>` | `java.util.TreeMap<Long, Long>` | `io.github.orieg.expanse.ExpanseMap` |
 |---|---:|---:|---:|

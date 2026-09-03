@@ -494,6 +494,18 @@ jobs:
           if [ -n "${GPG_PRIVATE_KEY:-}" ]; then
             echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           fi
+          mkdir -p ~/.m2
+          cat <<EOF > ~/.m2/settings.xml
+<settings>
+  <servers>
+    <server>
+      <id>central</id>
+      <username>${MAVEN_CENTRAL_USERNAME}</username>
+      <password>${MAVEN_CENTRAL_TOKEN}</password>
+    </server>
+  </servers>
+</settings>
+EOF
           mvn deploy -f bindings/java/pom.xml -P release -DskipTests
 
       - name: Attach JAR to the GitHub Release

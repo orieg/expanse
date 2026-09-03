@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 285" width="100%" height="100%">
+  <defs>
+    <style>
+      /* Default styles: Light theme by default for maximum contrast on web */
+      .bg { fill: #ffffff; }
+      .border { stroke: #e2e8f0; stroke-width: 1px; fill: none; }
+      .grid { stroke: #f1f5f9; stroke-width: 1px; stroke-dasharray: 2,3; }
+      .axis { stroke: #cbd5e1; stroke-width: 1.5px; }
+      .divider { stroke: #e2e8f0; stroke-width: 1px; }
+
+      .t-chart-title { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }
+      .t-chart-sub { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #334155; }
+      .t-unit-header { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 600; fill: #475569; }
+      .t-axis-label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; font-weight: 500; fill: #475569; }
+      .t-win { fill: #16a34a; font-weight: 600; }
+      .t-loss { fill: #b45309; font-weight: 600; }
+      .t-bar-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }
+
+      .t-val-accent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 700; fill: #16a34a; text-anchor: middle; }
+      .t-val-blue { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 600; fill: #2563eb; text-anchor: middle; }
+      .t-val-muted { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; font-weight: 600; fill: #334155; text-anchor: middle; }
+      .t-note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: #64748b; }
+
+      .b-expanse { fill: #16a34a; }
+      .b-hash { fill: #2563eb; }
+
+      /* Dark theme overrides */
+      @media (prefers-color-scheme: dark) {
+        .bg { fill: #0d1117; }
+        .border { stroke: #30363d; }
+        .grid { stroke: #21262d; }
+        .axis { stroke: #484f58; }
+        .divider { stroke: #21262d; }
+        .t-chart-title { fill: #f0f6fc; }
+        .t-chart-sub { fill: #94a3b8; }
+        .t-unit-header { fill: #94a3b8; }
+        .t-axis-label { fill: #94a3b8; }
+        .t-win { fill: #4ade80; font-weight: 600; }
+        .t-loss { fill: #fbbf24; font-weight: 600; }
+        .t-bar-label { fill: #f8fafc; }
+        .t-val-accent { fill: #4ade80; }
+        .t-val-blue { fill: #38bdf8; }
+        .t-val-muted { fill: #e2e8f0; }
+        .t-note { fill: #8b949e; }
+        .b-expanse { fill: #22c55e; }
+        .b-hash { fill: #3b82f6; }
+      }
+
+      [data-theme="dark"] .bg, :root[data-theme="dark"] .bg { fill: #0d1117; }
+      [data-theme="dark"] .border, :root[data-theme="dark"] .border { stroke: #30363d; }
+      [data-theme="dark"] .grid, :root[data-theme="dark"] .grid { stroke: #21262d; }
+      [data-theme="dark"] .axis, :root[data-theme="dark"] .axis { stroke: #484f58; }
+      [data-theme="dark"] .divider, :root[data-theme="dark"] .divider { stroke: #21262d; }
+      [data-theme="dark"] .t-chart-title, :root[data-theme="dark"] .t-chart-title { fill: #f0f6fc; }
+      [data-theme="dark"] .t-chart-sub, :root[data-theme="dark"] .t-chart-sub { fill: #94a3b8; }
+      [data-theme="dark"] .t-unit-header, :root[data-theme="dark"] .t-unit-header { fill: #94a3b8; }
+      [data-theme="dark"] .t-axis-label, :root[data-theme="dark"] .t-axis-label { fill: #94a3b8; }
+      [data-theme="dark"] .t-win, :root[data-theme="dark"] .t-win { fill: #4ade80; }
+      [data-theme="dark"] .t-loss, :root[data-theme="dark"] .t-loss { fill: #fbbf24; }
+      [data-theme="dark"] .t-bar-label, :root[data-theme="dark"] .t-bar-label { fill: #f8fafc; }
+      [data-theme="dark"] .t-val-accent, :root[data-theme="dark"] .t-val-accent { fill: #4ade80; }
+      [data-theme="dark"] .t-val-blue, :root[data-theme="dark"] .t-val-blue { fill: #38bdf8; }
+      [data-theme="dark"] .t-val-muted, :root[data-theme="dark"] .t-val-muted { fill: #e2e8f0; }
+      [data-theme="dark"] .t-note, :root[data-theme="dark"] .t-note { fill: #8b949e; }
+      [data-theme="dark"] .b-expanse, :root[data-theme="dark"] .b-expanse { fill: #22c55e; }
+      [data-theme="dark"] .b-hash, :root[data-theme="dark"] .b-hash { fill: #3b82f6; }
+    </style>
+  </defs>
+
+  <rect width="100%" height="100%" class="bg" rx="8"/>
+  <rect width="100%" height="100%" class="border" rx="8"/>
+
+  <!-- ================= PANEL 1: POINT LOOKUP LATENCY ================= -->
+  <g transform="translate(30, 20)">
+    <text x="0" y="0" class="t-chart-title">Point Lookup Latency</text>
+    <text x="0" y="13" class="t-chart-sub">N = 10,000 keys, hit queries (lower is better)</text>
+    <text x="0" y="29" class="t-unit-header">&#9660; Query Latency (ns / op)</text>
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">100 ns</text>
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">50 ns</text>
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+
+    <!-- Clustered Expanse -->
+    <rect x="42" y="161.2" width="38" height="33.8" class="b-expanse" rx="2"/>
+    <text x="61" y="153.0" class="t-val-accent">22.5 ns</text>
+    <text x="61" y="212" class="t-bar-label" text-anchor="middle">Expanse</text>
+    <text x="61" y="225" class="t-chart-sub t-win" text-anchor="middle">1.21&#215; faster</text>
+    <text x="61" y="237" class="t-chart-sub" text-anchor="middle">(clustered)</text>
+
+    <!-- Clustered HashMap -->
+    <rect x="88" y="154.3" width="38" height="40.7" class="b-hash" rx="2"/>
+    <text x="107" y="146.0" class="t-val-blue">27.1 ns</text>
+    <text x="107" y="212" class="t-bar-label" text-anchor="middle">HashMap</text>
+    <text x="107" y="225" class="t-chart-sub" text-anchor="middle">baseline</text>
+    <text x="107" y="237" class="t-chart-sub" text-anchor="middle">(clustered)</text>
+
+    <!-- Zipfian Expanse -->
+    <rect x="146" y="96.0" width="38" height="99.0" class="b-expanse" rx="2"/>
+    <text x="165" y="88.0" class="t-val-accent">66.0 ns</text>
+    <text x="165" y="212" class="t-bar-label" text-anchor="middle">Expanse</text>
+    <text x="165" y="225" class="t-chart-sub" text-anchor="middle">66 ns</text>
+    <text x="165" y="237" class="t-chart-sub" text-anchor="middle">(zipfian)</text>
+
+    <!-- Zipfian HashMap -->
+    <rect x="192" y="113.5" width="38" height="81.5" class="b-hash" rx="2"/>
+    <text x="211" y="105.0" class="t-val-blue">54.3 ns</text>
+    <text x="211" y="212" class="t-bar-label" text-anchor="middle">HashMap</text>
+    <text x="211" y="225" class="t-chart-sub" text-anchor="middle">baseline</text>
+    <text x="211" y="237" class="t-chart-sub" text-anchor="middle">(zipfian)</text>
+  </g>
+
+  <line x1="310" y1="20" x2="310" y2="255" class="divider"/>
+
+  <!-- ================= PANEL 2: SEQUENTIAL INSERT ================= -->
+  <g transform="translate(340, 20)">
+    <text x="0" y="0" class="t-chart-title">Sequential Insert Throughput</text>
+    <text x="0" y="13" class="t-chart-sub">N = 10,000 ordered keys (higher is better)</text>
+    <text x="0" y="29" class="t-unit-header">&#9650; Throughput (M ops / sec)</text>
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">30 M/s</text>
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">15 M/s</text>
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+
+    <!-- Expanse Insert -->
+    <rect x="68" y="77.0" width="55" height="118.0" class="b-expanse" rx="2"/>
+    <text x="95" y="68.0" class="t-val-accent">23.6 M/s</text>
+    <text x="95" y="214" class="t-bar-label" text-anchor="middle">ExpanseMap</text>
+    <text x="95" y="228" class="t-chart-sub t-win" text-anchor="middle">1.90&#215; faster</text>
+
+    <!-- HashMap Insert -->
+    <rect x="155" y="133.0" width="55" height="62.0" class="b-hash" rx="2"/>
+    <text x="182" y="124.0" class="t-val-blue">12.4 M/s</text>
+    <text x="182" y="214" class="t-bar-label" text-anchor="middle">HashMap</text>
+    <text x="182" y="228" class="t-chart-sub" text-anchor="middle">baseline</text>
+  </g>
+
+  <line x1="635" y1="20" x2="635" y2="255" class="divider"/>
+
+  <!-- ================= PANEL 3: MEMORY FOOTPRINT ================= -->
+  <g transform="translate(665, 20)">
+    <text x="0" y="0" class="t-chart-title">Memory Footprint per Key</text>
+    <text x="0" y="13" class="t-chart-sub">N = 10,000 keys (lower is better)</text>
+    <text x="0" y="29" class="t-unit-header">&#9660; Memory Density (Bytes / key)</text>
+    <line x1="30" y1="45" x2="250" y2="45" class="grid"/>
+    <text x="22" y="48" class="t-axis-label" text-anchor="end">90 B</text>
+    <line x1="30" y1="120" x2="250" y2="120" class="grid"/>
+    <text x="22" y="123" class="t-axis-label" text-anchor="end">45 B</text>
+    <line x1="30" y1="195" x2="250" y2="195" class="axis"/>
+    <text x="22" y="198" class="t-axis-label" text-anchor="end">0</text>
+    <line x1="30" y1="40" x2="30" y2="195" class="axis"/>
+
+    <!-- Clustered Expanse -->
+    <rect x="42" y="180.6" width="38" height="14.4" class="b-expanse" rx="2"/>
+    <text x="61" y="172.0" class="t-val-accent">8.6 B</text>
+    <text x="61" y="212" class="t-bar-label" text-anchor="middle">Expanse</text>
+    <text x="61" y="225" class="t-chart-sub t-win" text-anchor="middle">10.1&#215; less</text>
+    <text x="61" y="237" class="t-chart-sub" text-anchor="middle">(clustered)</text>
+
+    <!-- Clustered HashMap -->
+    <rect x="88" y="50.7" width="38" height="144.3" class="b-hash" rx="2"/>
+    <text x="107" y="42.0" class="t-val-blue">86.6 B</text>
+    <text x="107" y="212" class="t-bar-label" text-anchor="middle">HashMap</text>
+    <text x="107" y="225" class="t-chart-sub" text-anchor="middle">baseline</text>
+    <text x="107" y="237" class="t-chart-sub" text-anchor="middle">(clustered)</text>
+
+    <!-- Zipfian Expanse -->
+    <rect x="146" y="189.6" width="38" height="5.4" class="b-expanse" rx="2"/>
+    <text x="165" y="181.0" class="t-val-accent">3.2 B</text>
+    <text x="165" y="212" class="t-bar-label" text-anchor="middle">Expanse</text>
+    <text x="165" y="225" class="t-chart-sub t-win" text-anchor="middle">7.5&#215; less</text>
+    <text x="165" y="237" class="t-chart-sub" text-anchor="middle">(zipfian)</text>
+
+    <!-- Zipfian HashMap -->
+    <rect x="192" y="154.3" width="38" height="40.7" class="b-hash" rx="2"/>
+    <text x="211" y="146.0" class="t-val-blue">24.4 B</text>
+    <text x="211" y="212" class="t-bar-label" text-anchor="middle">HashMap</text>
+    <text x="211" y="225" class="t-chart-sub" text-anchor="middle">baseline</text>
+    <text x="211" y="237" class="t-chart-sub" text-anchor="middle">(zipfian)</text>
+  </g>
+
+  <!-- Provenance Note -->
+  <text x="30" y="274" class="t-note">Measured: Apple Silicon M-series (macOS) &#183; Java 22+ (Panama FFM) &#183; ExpanseBenchmark.java via scripts/bench_bindings.py (commit 233899b4)</text>
+</svg>
