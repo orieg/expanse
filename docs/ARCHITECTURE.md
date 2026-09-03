@@ -108,9 +108,9 @@ Readers are optimistic and validated; writers serialize on a mutex.
 
 **`SyncExpanseBlobMap`** (issue #219) extends the protocol to variable-length payloads. The validated index walk yields the 64-bit `ValueSlot`, from which inline payloads of ≤ 7 B decode by value. Arena payloads resolve through an RCU-published immutable chunk table, so readers never touch the arena's chunk vector. Dead chunks and superseded tables retire through the same epoch collector. An epoch-pinned read guard (`BlobReadGuard`) hands out zero-copy payload borrows that stay byte-stable across concurrent compaction; holding the guard defers reclamation tree-wide until dropped, with pending uncollected memory observable via `occ_stats` (`retained_bytes`, `retained_hwm`) and `Collector::retained_bytes()` (#525).
 
-**`SyncExpanseStrMap`** (issue #219) extends it to string keys. A lookup cascades across the meta-trie's sub-maps: one validated hand-over-hand walk per 8-byte chunk, each entered against the one shared tree version. The path prefix is therefore snapshot-consistent, and the terminal value carries the same per-node-cover linearizability as a `SyncExpanseMap` read. Suffix leaves are write-once after publication — a split publishes a replacement child and retires the old suffix, while a value update mutates one word in place under the bracket. Unlinked nodes and suffixes retire through the same collector.
+**`SyncExpanseStrMap`** extends it to string keys. A lookup cascades across the meta-trie's sub-maps: one validated hand-over-hand walk per 8-byte chunk, each entered against the one shared tree version. The path prefix is therefore snapshot-consistent, and the terminal value carries the same per-node-cover linearizability as a `SyncExpanseMap` read. Suffix leaves are write-once after publication — a split publishes a replacement child and retires the old suffix, while a value update mutates one word in place under the bracket. Unlinked nodes and suffixes retire through the same collector.
 
-**`SyncExpanseBytesMap`** (issue #362) completes the family for unordered byte keys: one validated walk over the hash trie, then a byte-exact comparison against a collision bucket that is write-once after publication. Structural changes publish a replacement bucket and retire the old shell, entries and key buffers through the same collector. Only value words mutate in place, covered by the reader's final tree-version validation.
+**`SyncExpanseBytesMap`** completes the family for unordered byte keys: one validated walk over the hash trie, then a byte-exact comparison against a collision bucket that is write-once after publication. Structural changes publish a replacement bucket and retire the old shell, entries and key buffers through the same collector. Only value words mutate in place, covered by the reader's final tree-version validation.
 
 **Deferred mode must be entered before an allocator ever slab-carves** (`NodeAlloc::defer_to` asserts this). The sync wrappers therefore share a populated structure by rebuilding it through pre-deferred allocators.
 
@@ -187,7 +187,7 @@ For detailed architecture, integration mechanics, algorithms, and code blueprint
  
 ## 8. 32-Bit Architecture & Embedded Microprocessor Support (RV32 / ESP32 / Cortex-M)
 
-For 32-bit microcontrollers (RISC-V `RV32I`/`RV32EMAC`, Espressif `ESP32`/`ESP32-S3`/`ESP32-C3`, ARM `Cortex-M0+`/`M3`/`M4`/`M7`/`M33`), Expanse ships a real 32-bit trie engine (`ExpanseSet32`, `ExpanseMap32`, `ExpanseBlobMap32`) designed for severely constrained SRAM (64 KiB – 512 KiB). This shipped in v0.3.0 (#230): `trie32`/`set32`/`map32`/`blobmap32` compile unconditionally, and on 32-bit targets the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, etc.).
+For 32-bit microcontrollers (RISC-V `RV32I`/`RV32EMAC`, Espressif `ESP32`/`ESP32-S3`/`ESP32-C3`, ARM `Cortex-M0+`/`M3`/`M4`/`M7`/`M33`), Expanse ships a real 32-bit trie engine (`ExpanseSet32`, `ExpanseMap32`, `ExpanseBlobMap32`) designed for severely constrained SRAM (64 KiB – 512 KiB). This shipped in v0.3.0: `trie32`/`set32`/`map32`/`blobmap32` compile unconditionally, and on 32-bit targets the public aliases re-point (`ExpanseMap` → `ExpanseMap32`, etc.).
 
 - **4-Level Digital Tree Hierarchy**: 32-bit keys (`Key = u32`, Levels 4 $\rightarrow$ 1) halve maximum trie descent depth from 8 to 4 hops.
 - **Compact 8-Byte `Edge32`**: 4-byte pointer/immediate + 3-byte level-split `pop0`/decode field + 1-byte tag discriminant, delivering an immediate **50% reduction in structural memory** (byte offsets in §8.1).
@@ -267,7 +267,7 @@ Expanse functions transparently on 48-bit legacy systems, 52-bit ARM64, and 57-b
 
 ## 10. Bit-level encoding reference
 
-§2–3 give node *geometry* and [ALGORITHMS.md](ALGORITHMS.md) gives descent *flow*. This section is the layer between them: the exact bit and byte encoding of every tagged word the engine reads or writes. It exists because that layer previously lived only in scattered doc comments, and external writing repeatedly restated it wrongly (see §10.9).
+§2–3 give node *geometry* and [ALGORITHMS.md](ALGORITHMS.md) gives descent *flow*. This section is the layer between them: the exact bit and byte encoding of every tagged word the engine reads or writes. It is the single source for that layer; the constants below are gated against the code by `crates/expanse/tests/test_encoding_reference_sync.rs`.
 
 **Every number below is derived from the compiled source, not from prose.** The pinned-constant table in §10.8, the tag tables in §10.3, the capacity tables in §10.4 and the behavioural claims flagged *(gated)* are asserted against the compiled crate by `crates/expanse/tests/test_encoding_reference_sync.rs`. A layout change fails that test instead of silently invalidating this text. Do not hand-edit a gated value; change the source and re-run the test, which prints the expected value.
 
@@ -644,13 +644,3 @@ Values are decimal unless prefixed `0x`. The gate asserts each against the compi
 | `ValueSlot32::ARENA_META_SHIFT` | 20 | `crates/expanse/src/slot32.rs:66` |
 
 <!-- /ENCODING-CONSTANTS -->
-
-### 10.9 Corrections this section supersedes
-
-Three claims that circulated in draft external writing, and what the source says:
-
-| Claim | What the source says |
-|---|---|
-| "`Edge` supports 48-bit virtual addressing" | The opposite. Word 0 is the raw untruncated 64-bit pointer with zero upper-bit stealing (§10.1), which is what keeps it correct under 52-bit ARM64 LVA and 57-bit LA57. The compact 48-bit-style packing in §3.4 is a design note, not shipped. |
-| "Immediates hold between 1 and 15 keys" | The budget is 15 **bytes**. 15 keys only at 1-byte remainders, 2 at 7-byte, and the map flavor is tighter still at `7 / key_bytes` because word 0 carries the value or the value-array pointer (§10.4). |
-| "`ExpanseBlobMap` inlines payloads inside the edge pointers" | Inline payloads live in the leaf's 64-bit **value slot**, bits 63:8, with the low byte carrying the length tag (§10.5). |

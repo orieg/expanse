@@ -47,11 +47,11 @@ Three cases in this repo:
   cargo bench -p expanse-trie --bench batch_lookup
   ```
 
-  The `scalar` arm in each group is the twin; `batch/1` is the driver at one lane, which separates its bookkeeping from the interleaving. A width wins only if its BCa 95% CI lower bound (`scripts/bca_bootstrap.py`) clears the `scalar` arm on `cold_dram` **and** it does not regress the cache-resident `warm` control — a gain on one bought with a loss on the other is a trade to state, not a win. The `cold_dram` population also sits far past STLB reach, so a result there mixes DRAM latency with page-walk cost ([#431](https://github.com/orieg/expanse/issues/431)); it does not attribute cleanly to DRAM alone.
+  The `scalar` arm in each group is the twin; `batch/1` is the driver at one lane, which separates its bookkeeping from the interleaving. A width wins only if its BCa 95% CI lower bound (`scripts/bca_bootstrap.py`) clears the `scalar` arm on `cold_dram` **and** it does not regress the cache-resident `warm` control — a gain on one bought with a loss on the other is a trade to state, not a win. The `cold_dram` population also sits far past STLB reach, so a result there mixes DRAM latency with page-walk cost; it does not attribute cleanly to DRAM alone.
 
 Also available: `bca_bootstrap.py` for any continuous metric reaching a published claim; the Callgrind L1/LL/RAM columns, which do exist; and `perf stat` counters via the `point_lookup_counters` suite.
 
-**Correction.** A previous revision of this paragraph said the cache columns "are not produced" because neither harness passes `--cache-sim=yes`. That was wrong. `iai-callgrind-runner` sets `CACHE_SIM = true` as a default, so cache simulation has been on in every run this repository has ever made — which is why `Estimated Cycles` (`L1 + 5·LL + 35·RAM`) has always differed from `Instructions`. The harnesses now state the flag rather than inherit it, so a dependency bump cannot silently turn the instrument off.
+**Cache simulation is on.** `iai-callgrind-runner` defaults `CACHE_SIM = true`, which is why `Estimated Cycles` (`L1 + 5·LL + 35·RAM`) differs from `Instructions`. The harnesses state the flag rather than inherit it, so a dependency bump cannot silently turn the instrument off.
 
 What the simulated columns can and cannot answer is a narrower point, and the one that matters. The runner fixes the modelled hierarchy at I1/D1 32 KiB 8-way and **LL 8 MiB** 16-way, deliberately, so counts stay comparable across machines. That is not the reference host, whose L3 is 30 MiB. The columns answer "how does this behave on a standard modelled hierarchy"; they cannot locate the host's L3 cliff or attribute a wall-clock stall to it. That gap is what `point_lookup_counters` exists for. See [#455](https://github.com/orieg/expanse/issues/455).
 
@@ -124,11 +124,11 @@ Making this path win is a redesign — branchless retirement, or fixed-depth ste
 ## Comparison targets
 
 1. **C libjudy** — the headline comparison ("faster than the original, or explain why").
-2. `std::collections::BTreeMap` / `HashMap` — the "why not just use std" baseline ([#122](https://github.com/orieg/expanse/issues/122)).
+2. `std::collections::BTreeMap` / `HashMap` — the "why not just use std" baseline.
 3. **Adaptive Radix Tree (ART)** (`blart` 0.5.0) — modern trie baseline ([#387](https://github.com/orieg/expanse/issues/387), `docs/benchmarks/art_comparison/`).
-4. **Roaring Bitmaps** (`roaring` / `croaring`) — integer set and posting list baseline ([#122](https://github.com/orieg/expanse/issues/122)).
-5. **Swiss Tables** (`hashbrown::HashMap`) — flat SIMD hash map baseline ([#122](https://github.com/orieg/expanse/issues/122)).
-6. **Concurrent Maps** (`crossbeam-skiplist`, `dashmap`, `parking_lot::RwLock<BTreeMap>`) — multithreaded scalability baseline ([#123](https://github.com/orieg/expanse/issues/123)).
+4. **Roaring Bitmaps** (`roaring` / `croaring`) — integer set and posting list baseline.
+5. **Swiss Tables** (`hashbrown::HashMap`) — flat SIMD hash map baseline.
+6. **Concurrent Maps** (`crossbeam-skiplist`, `dashmap`, `parking_lot::RwLock<BTreeMap>`) — multithreaded scalability baseline.
 
 ## Methodology rules (binding)
 
@@ -150,8 +150,10 @@ Making this path win is a redesign — branchless retirement, or fixed-depth ste
    toward 1.00 — which is why it survives review.
 
    The same discipline applies to **provenance**: a mislabelled commit misleads
-   exactly as much as a mismeasured region. Both failure modes, and the figures
-   they cost, are listed in [Corrections record](#corrections-record).
+   exactly as much as a mismeasured region. Figures withdrawn for either reason
+   are registered in [`.github/superseded-figures.json`](../.github/superseded-figures.json),
+   which `scripts/check_docs_hygiene.py` enforces against every tracked document
+   so a withdrawn number cannot be republished.
 
 0b. **Both arms must be the same shape.** A comparison is only valid between
    binaries built and reached the same way. An LTO'd rlib called directly
@@ -267,14 +269,14 @@ Making this path win is a redesign — branchless retirement, or fixed-depth ste
 | Instruction/cache counts | landed (`benches/instructions.rs`, iai-callgrind) | deterministic via callgrind — load-immune and resolves ~1% changes; **posted as a PR comment with head-vs-base deltas** by the `instruction-counts` job |
 | Lookup attribution | landed (`examples/lookup_profile.rs`) | sampling profile of a `get`-only loop — *where* time goes, not how long; sample distribution inside one process is far less load-sensitive than a cross-binary ratio |
 | Concurrent read scaling (1..N threads) | landed (`benches/concurrency.rs`) | Read-only and write-churn mixes; the per-node-OCC go/no-go instrument |
-| JudySL/JudyHS instruction cells | landed (`benches/instructions.rs`, `benches/smoke_instructions.rs`) | Route-shaped string keys through `ExpanseStrMap`/`ExpanseBytesMap` insert/get/churn (#364); the smoke cells gate every PR automatically |
+| JudySL/JudyHS instruction cells | landed (`benches/instructions.rs`, `benches/smoke_instructions.rs`) | Route-shaped string keys through `ExpanseStrMap`/`ExpanseBytesMap` insert/get/churn; the smoke cells gate every PR automatically |
 | Comparative benchmarks vs 3rd-party | landed (`benches/comparative.rs`) | `RoaringBitmap`, `hashbrown::HashMap` across lookups, insertions, ranges, and sparse/clustered/dense distributions |
 | Automated Comparative Report Tool | landed (`scripts/bench_report.py`, `examples/bench_lookup_compare.rs`) | Standalone fast head-to-head comparison generator vs `hashbrown`, `BTreeMap`, and `libjudy` with GFM output |
 | Standardized YCSB Suite (Workloads A-F) | landed (`benches/ycsb.rs`) | vs `BTreeMap`, `crossbeam_skiplist::SkipMap` (RocksDB MemTable); Zipfian $\theta=0.99, N=100\text{k}$, 128B blobs |
-| Adaptive Radix Tree (ART) comparison | landed (`docs/benchmarks/art_comparison/`) | Pure-Rust ART (`blart` 0.5.0) comparison across point lookups, dynamic growth, range scans, and memory census (#387) |
+| Adaptive Radix Tree (ART) comparison | landed (`docs/benchmarks/art_comparison/`) | Pure-Rust ART (`blart` 0.5.0) comparison across point lookups, dynamic growth, range scans, and memory census |
 | Domain comparative suites (search, sorted-set, hash-map) | landed (`docs/benchmarks/*`) | self-contained reproducible suites with pre-registered hypotheses — see "Comparative benchmark suites" below |
 
-## Harness audit: workload shape and claim provenance (#454)
+## Harness audit: workload shape and claim provenance
 
 A per-harness inventory of what each benchmark actually measures, and a map from
 every published number to the harness that produced it.
@@ -282,7 +284,7 @@ every published number to the harness that produced it.
 **Why this exists.** The vs-libjudy harness published a figure for months while
 probing 4,096 distinct keys eight times against a 1M-key structure — roughly
 2 MiB against a 30 MiB L3 — and describing the result as memory-latency-bound.
-Repairing it (#457) and re-measuring (#463) moved the deficit from a published
+Repairing it and re-measuring moved the deficit from a published
 `1.11x` to a measured `1.031x [1.024, 1.038]`. Fixing it cost one PR. Finding
 out *which published figures depended on it* cost far more, because nothing
 recorded that mapping. This section is that record.
@@ -400,7 +402,7 @@ Every published performance claim in the documentation has been traced verbatim 
 | Published Claim / Verbatim Document Citation | Originating File | Status / Verification Finding | Action Required |
 |---|---|---|---|
 | **docs/DATABASE.md (L184, L502)**: `"• Latency: ~4.2–9.8 ns"` and `"~4.2–9.8 ns (clustered/sequential) / up to 38.6 ns (1M uniform-random DRAM)"` | `compare.rs` / `bench_lookup_compare.rs` | ✅ **RESOLVED in #470 — was COMPROMISED**: 4096-probe working set in `compare.rs` fit in L1/L2 cache; `bench_lookup_compare.rs` used XOR misses; `bench_cold_dram_lookup` used XOR misses. | Update citation to reflect measured `bench_vs_libjudy.rs` / `vs_stock.rs` numbers (5.39–9.96 ns baseline, ~4.2–7.5 ns on `x86-64-v3`). |
-| **README.md (L37) & docs/BENCHMARKING.md**: JudyL random 1M `get` at `"1.031x, BCa 95% CI [1.024, 1.038]"` | `bench_vs_libjudy.rs` (`results/baseline_vs_libjudy.json`) | ✅ **VERIFIED**: Measured paired BCa CI on quiet host (#463). | None — already accurate. |
+| **README.md (L37) & docs/BENCHMARKING.md**: JudyL random 1M `get` at `"1.031x, BCa 95% CI [1.024, 1.038]"` | `bench_vs_libjudy.rs` (`results/baseline_vs_libjudy.json`) | ✅ **VERIFIED**: Measured paired BCa CI on quiet host. | None — already accurate. |
 | **docs/BENCHMARKING.md (L1089–L1100)**: `"5.39 ns / 185.4 Mops (clustered), 9.96 ns / 100.4 Mops (random), 5.34 ns / 187.3 Mops (sequential)"` (workload: `capi_vs_stock`) | `vs_stock.rs` / `bench_vs_libjudy.rs` | ✅ **VERIFIED**: Reference host quiet baseline. Teardown excluded from timed loop. | None — exact quiet-host baseline. |
 | **docs/BENCHMARKING.md**: 22 Callgrind Instruction Arms | `crates/expanse/benches/instructions.rs` | ✅ **VERIFIED**: Deterministic instruction counts; iai Callgrind runner. | None — exact instruction baseline. |
 | **docs/DATABASE.md (L516–L526)**: YCSB Workloads A–F Throughput Table | `crates/expanse/benches/ycsb.rs` | ✅ **RESOLVED in #470 — was IMPACTED (values understated cold cost; ratio sound)**: Symmetrical omission preserves relative ratio. Do not retract ratio. | Update `ycsb.rs` runner to touch `view[0]` / `vec[0]` and re-measure absolute figures. |
@@ -427,7 +429,7 @@ refuted says so in its README.
 | Search inverted index | [`search_inverted_index/`](benchmarks/search_inverted_index/README.md) | `search_boolean`, `search_wand`, `search_memory`, `search_instructions` | `roaring` 0.10 (`RoaringTreemap`) | Boolean pillar mixed (native kernels #339/#347, materialization #348, re-measured at commit `9c0026c8`): native cardinality within 3.84× of Roaring and **faster on 15 of 48 symmetric cells**; materialization v2 is 7×–225× faster than the v1 insert path but still loses the dense/clustered/sparse symmetric cells to Roaring; WAND: the #340 stateful cursor (re-measured at commit `5bd7bdda`) **beats or ties Roaring on all 6 dense cells** and clustered shallow/medium (down to 0.53× — 1.9× faster), within 1.2× in 14/18 cells, only sparse deep-skip trails (1.40×–1.64×); memory: Expanse wins shard-clustered 1e5, ties dense 1e6 |
 | Redis ZSET engine | [`redis_zset_engine/`](benchmarks/redis_zset_engine/README.md) | `zset_zadd`, `zset_range`, `zset_rank`, `zset_memory` | `crossbeam_skiplist` + hash dict (Redis/Valkey ZSET design) | Expanse dual-trie wins 9 of 13 cells at the pre-#341 baseline (forward range ~5.5×); the #341 `range_rev` reverse iterator (re-measured at commit `ad540acc`) **flipped both pre-registered reverse-range losses into wins** (2.70× / 1.63× over the skip list; reverse now within 1.2× of forward); remaining loss: a rank-select dead heat |
 | RocksDB MemTable | [`rocksdb_memtable/`](benchmarks/rocksdb_memtable/README.md) | `benches/bench_memtable.cc` (`integrations/rocksdb`) | `ReferenceSkipListRep` (fair variable-height `InlineSkipList` equivalent), `VectorRep` | 1.42× higher RAM key density (13.2 vs 18.7 B/entry; #372 strawman retracted); sequential scan 3.331× [3.198, 3.486], point lookup 1.457× [1.444, 1.470], range seek 1.512× [1.492, 1.546], insert 1.406× [1.385, 1.442]; VectorRep ceiling 10.5 B/entry |
-| Embedded memtable shapes (host) | [`embedded/`](benchmarks/embedded/README.md) | `embedded_memtable` (`embedded_tsdb_ingest_and_flush`, `embedded_can_dispatch_lookup`, `embedded_ble_point_lookup`, `embedded_ble_ttl_eviction`) | `std::BTreeMap`, `hashbrown::HashMap` | see `docs/DATABASE.md` §5.4: ingest and point lookup lost to both twins as pre-registered (#556); steady-state ordered eviction won 3.08× over the hash scan; bulk eviction lost 3.5× |
+| Embedded memtable shapes (host) | [`embedded/`](benchmarks/embedded/README.md) | `embedded_memtable` (`embedded_tsdb_ingest_and_flush`, `embedded_can_dispatch_lookup`, `embedded_ble_point_lookup`, `embedded_ble_ttl_eviction`) | `std::BTreeMap`, `hashbrown::HashMap` | see `docs/DATABASE.md` §5.4: ingest and point lookup lost to both twins as pre-registered; steady-state ordered eviction won 3.08× over the hash scan; bulk eviction lost 3.5× |
 | STM32H747I-DISCO on-target (hardware) | [`stm32h747/`](benchmarks/stm32h747/README.md) | `integrations/stm32h747` firmware, both cores | sorted array + `bsearch`/`memmove`, open-addressing hash, newlib `tsearch`; `cpsid`/`cpsie` critical section (ISR); HSEM lock (cross-core) | see suite README: cache-line geometry confirmed (1.6–1.9× cache-on/off at 2:1 core:bus); ISR entry latency bounded 18–35× (M7) / 50× (M4) tighter than masking; loses point lookup and unordered ingest to the hash table (4.8× / 17×) and sorted array, wins steady-state expiry (3.0×) and bytes/key on dense keys; cross-core correct only with an uncached heap, unsupported cacheable case fails safe |
 | LLM inference & speculative decoding | [`llm_inference/`](benchmarks/llm_inference/README.md) | `bench_draft_quality`, `bench_llm_datastore`, `bench_grammar_masks`, `bench_prefix_lru` | HuggingFace PromptLookup (adaptive/fixed), Static Sorted Window Index, Dense Bitmask (`[u64]`), `roaring::Bitmap`, `collections.OrderedDict` | Draft quality: Expanse LSM yields modest +2.6% tok/s gain on Code (below 5% gate; lookup drafting accepts ~1 tok/step), dead heat on Summary, +8.8% on small-N JSON; Dynamic datastore: Expanse wins streaming updates whenever batch B < 73k; Grammar masks: Roaring wins 2.66x lower RAM; Prefix LRU: 9.5x lower RAM (cross-accounting; see suite caveat) + 1.98M-2.16M/s rank-eviction (baseline twin pending) |
 | Adaptive Radix Tree (ART) | [`art_comparison/`](benchmarks/art_comparison/README.md) | `art_lookup_hit`, `art_lookup_miss`, `art_insert`, `art_scan`, `art_memory` | `blart` 0.5.0 (`blart::TreeMap`), `std::collections::BTreeMap`, `hashbrown::HashMap` | see suite README (Expanse wins dense/clustered/stride memory 4.6× lower RAM, insertion throughput 4.0×–4.8×, full iteration up to 11.0×, and structured point lookups; unpredicted loss on short range scans k=10; random 1M lookup refuted in Expanse's favour 1.54×) |
@@ -457,7 +459,7 @@ rejects any argument it does not recognise (exit `2`) rather than ignoring it.
 
 ### Reading the generated tables
 
-Each distribution renders two tables rather than one nine-column row (#450):
+Each distribution renders two tables rather than one nine-column row:
 
 - **Measurements** — absolute values, one row per container, every header
   carrying its unit *and* its direction (`ns` and `B/key` are lower-better,
@@ -697,7 +699,7 @@ Fixed sizes are deliberate — they are what makes a count comparable between a
 CI runner and the reference host. They are also the boundary of what this
 instrument can be asked. A question about a *real* last-level cache — where the
 L3 cliff sits on a 30 MiB part, whether a population straddles it
-([#455](https://github.com/orieg/expanse/issues/455)) — is not answerable from a
+— is not answerable from a
 model of an 8 MiB one. That needs hardware counters.
 
 ### Branch simulation (`EXPANSE_BRANCH_SIM=1`)
@@ -985,7 +987,7 @@ Bench targets deliberately **not** reachable from a slash command:
 
 The word after `/bench` / `/benchmark` is taken as a **whole token** and looked up in the table above. Nothing else about the comment is inspected:
 
-- **Exact match, never substring.** `/benchmark search_instructions` runs `search_instructions`. It previously ran `instructions`, because the resolver was an `includes()` ladder and `"search_instructions".includes("instructions")` is true — the report, the marker and the run all said `instructions`, and nothing said the request had not been honoured ([#410](https://github.com/orieg/expanse/issues/410)).
+- **Exact match, never substring.** `/benchmark search_instructions` runs `search_instructions`. It previously ran `instructions`, because the resolver was an `includes()` ladder and `"search_instructions".includes("instructions")` is true — the report, the marker and the run all said `instructions`, and nothing said the request had not been honoured.
 - **No argument means the default**, currently `all`. Only a *bare* command defaults; an argument that is present but unrecognised never does.
 - **An unrecognised argument is refused by name.** The workflow posts a comment naming the argument and listing every accepted suite, adds a `confused` reaction, fails the run, and **starts no benchmark** — the shared host is never touched. Falling through to `all` was the second §8.1 violation in #410: a long dual-pass Callgrind sweep with no indication the argument was not understood.
 - **The resolved suite is echoed before the run starts.** The `⏳` acknowledgment names the suite that will execute, so a mismatch is visible up front rather than only in the finished, provenance-tagged report.
@@ -1113,7 +1115,7 @@ builds a compact, cache-resident trie, so these arms measure descent through a
 populated tree rather than a miss walk.
 
 **`SyncExpanseMap32` arm — the 32-bit protocol-health instrument
-([#573](https://github.com/orieg/expanse/issues/573)).** The single-writer /
+.** The single-writer /
 many-reader `sync32` wrapper has no lock to contend on, so throughput alone
 cannot say whether the optimistic path is healthy: a read path that degrades
 to permanent `Busy` still "scales". The arm therefore fixes the roles by
@@ -1138,7 +1140,7 @@ throughput number.
 `suite-tables-concurrency` artifact — no value in the chart is typed by hand.)*
 
 Quiet-host reading after the per-reader walk-counter reclamation
-([#594](https://github.com/orieg/expanse/issues/594)) *(measured: reference
+ *(measured: reference
 host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux 6.8, run
 [33577621860](https://github.com/orieg/expanse/actions/runs/33577621860), ref
 `077aac51`; `EXPANSE_BENCH_THREADS="1,4,16"`, 500 ms windows; artifact
@@ -1253,7 +1255,7 @@ The first execution of the engine on ARM, the first on a part with a data cache,
 | BLE evict 25 of 2,000, per-key loop (per evicted) | 3,749 | 2,646 | 4,770 | 2,841 | 4,769 | 2,824 (7,051 ns) |
 | BLE evict 25 of 2,000, `remove_range` (per evicted) | 1,479 | 1,091 | 1,876 | 1,217 | 1,883 | 1,202 (3,001 ns) |
 
-Reading. The cache-on cycle counts are the same at 160 and 400 MHz (the working set fits the 16 KB D-cache, so nothing is bus-bound once cached), and the cache-off counts are the same at those two clocks too — both run the AXI SRAM at core/2, so the miss cost in cycles is identical; only 64 MHz (bus at core/1) is cheaper. The cache-on/cache-off ratio therefore reads 1.9× (ingest), 1.9× (CAN) and 1.6–1.7× (evictions) at the 2:1 ratio, versus 1.4–1.5× at 1:1 — that ratio is the measurement of the 32-byte-line node geometry in `docs/design/32-bit-embedded.md` §2.1.4, and it is the number a design that straddled lines would lose. `remove_range` is 2.3–2.9× the per-key loop in both eviction shapes, consistent with the host result (#578). At 400 MHz a point lookup is 659 ns and a sequential insert 3.0 µs.
+Reading. The cache-on cycle counts are the same at 160 and 400 MHz (the working set fits the 16 KB D-cache, so nothing is bus-bound once cached), and the cache-off counts are the same at those two clocks too — both run the AXI SRAM at core/2, so the miss cost in cycles is identical; only 64 MHz (bus at core/1) is cheaper. The cache-on/cache-off ratio therefore reads 1.9× (ingest), 1.9× (CAN) and 1.6–1.7× (evictions) at the 2:1 ratio, versus 1.4–1.5× at 1:1 — that ratio is the measurement of the 32-byte-line node geometry in `docs/design/32-bit-embedded.md` §2.1.4, and it is the number a design that straddled lines would lose. `remove_range` is 2.3–2.9× the per-key loop in both eviction shapes, consistent with the host result. At 400 MHz a point lookup is 659 ns and a sequential insert 3.0 µs.
 
 **Against what firmware usually reaches for** (400 MHz, D-cache on; every implementation behind the same vtable and fixture code; the sorted array and the hash table pre-sized to capacity like the host suite's `HashMap::with_capacity`, Expanse and `tsearch` growing through newlib `malloc` as keys arrive):
 
@@ -1378,7 +1380,7 @@ Expanse wins membership on sparse/clustered; Roaring's specialized rank index wi
 
 *(post-#245 measured: reference host — Intel i9-12900F, 24 threads, commit 46529f19; post-#270 measured: same host, commit 1feefadf; `benches/compare.rs`, criterion mean of the 1M-key `map_iter` grid; ratios are Expanse's `map.iter()` time over `BTreeMap::iter()`'s, so < 1 means Expanse is faster)*. Across the four distributions #245 delivered a **2.2×–9.4× speedup**. Dense (sequential/clustered/random) iteration beats `BTreeMap::iter()` and is unchanged by #270.
 
-**Sparse-key iteration ([#270](https://github.com/orieg/expanse/issues/270)):** the `sparse` distribution `keys(i) = i << 40` puts all variation in bytes 5–7 with bytes 0–4 always zero, so at 1M keys the trie is a three-level dense `BranchU` spine over **1,000,000 single-key immediate leaves** (one 16-byte edge per isolated key — the structural floor; immediates absorb the zero remainders, so there is no separate leaf allocation or pointer chain to remove). [#270](https://github.com/orieg/expanse/issues/270) added a single-key-immediate fast path to the stack iterator: the post-#245 iterator decoded every immediate through the general multi-key path, zeroing two `[u64; 15]` staging arrays and copying a 240-byte cursor to carry one 16-byte key/value. Decoding single-key immediates directly cut the Expanse arm from **14.34 ms → 7.09 ms** (~2.0× faster; criterion CIs [14.18, 14.42] vs [7.09, 7.10] separate cleanly), narrowing the gap from ~4.7× to ~2.4× slower than `BTreeMap`. The residual ~2.4× is the remaining structural floor: the trie still visits ≈3,900 branch nodes (~16 MB of `BranchU` pages) and re-descends per key, where a B-tree walks contiguous 11-wide leaf arrays. Point lookups and prefix seeks, where the trie skips empty expanses, remain the engine's other advantage.
+**Sparse-key iteration:** the `sparse` distribution `keys(i) = i << 40` puts all variation in bytes 5–7 with bytes 0–4 always zero, so at 1M keys the trie is a three-level dense `BranchU` spine over **1,000,000 single-key immediate leaves** (one 16-byte edge per isolated key — the structural floor; immediates absorb the zero remainders, so there is no separate leaf allocation or pointer chain to remove). [#270](https://github.com/orieg/expanse/issues/270) added a single-key-immediate fast path to the stack iterator: the post-#245 iterator decoded every immediate through the general multi-key path, zeroing two `[u64; 15]` staging arrays and copying a 240-byte cursor to carry one 16-byte key/value. Decoding single-key immediates directly cut the Expanse arm from **14.34 ms → 7.09 ms** (~2.0× faster; criterion CIs [14.18, 14.42] vs [7.09, 7.10] separate cleanly), narrowing the gap from ~4.7× to ~2.4× slower than `BTreeMap`. The residual ~2.4× is the remaining structural floor: the trie still visits ≈3,900 branch nodes (~16 MB of `BranchU` pages) and re-descends per key, where a B-tree walks contiguous 11-wide leaf arrays. Point lookups and prefix seeks, where the trie skips empty expanses, remain the engine's other advantage.
 
 ### Standing measurement caveats
 
@@ -1457,7 +1459,7 @@ instruction-benchmark routine (v1→v3 deltas span −1.9% to −42.6%, the larg
 on `map_remove/random`). No AVX-512 kernel is implemented and no CI job
 compiles `x86-64-v4`.
 
-**Wall-clock sweep ([#382](https://github.com/orieg/expanse/issues/382))**
+**Wall-clock sweep**
 *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 /
 kernel 6.8, run
 [33030463060](https://github.com/orieg/expanse/actions/runs/33030463060), ref
@@ -1624,25 +1626,3 @@ that. Multi-writer support is the standing follow-up
 2. **`ExpanseBlobMap` vs `BTreeMap` on Read-Latest (Workload D)**: **~5.7× higher throughput** (21.04 vs 3.67 Mops/s; workload: `workload_ycsb`) — digital-trie appends avoid B-tree page splits.
 3. **Pure Word Trie (`ExpanseMap`)**: sustained **>23 Mops/s** on read-heavy workloads (B & C) with a compact ~24.6 B/key footprint.
 4. **Range-heavy workloads (E) are a measured loss on sparse keys** — `BTreeMap` leads 1.55×, for the same structural reason as the full-`iter()` gap (`docs/DATABASE.md` §7.1): ~1.43 records per leaf on uniform-random keys means a scan pays a leaf transition roughly every 1.4 records. Dense and clustered key distributions do not share this behaviour (~322 records/leaf).
-
-
-
-
----
-
-## Corrections record
-
-Published figures that were withdrawn, what replaced them, and the rule each one
-now falls under. Required by `AGENTS.md` §8.7 — a retracted number stays visible
-so the same failure mode is not re-published. This is the **only** history this
-document keeps; superseded measurements live in git history, not here.
-
-| Withdrawn figure | Why it was wrong | Current reading | Rule |
-|---|---|---|---|
-| YCSB Workload E, `4.33×` then `3.08×` in Expanse's favour | a key-width scan bound made every arm traverse 1 record instead of ~55; the #375 note blaming predicate asymmetry was also wrong (both predicates traversed one record) | `BTreeMap` leads **1.55×** — E is a loss ([#385](https://github.com/orieg/expanse/pull/385)) | 11, 14 |
-| vs-stock lookup ratios (`judyl_get/random 2.09×`, `judy1_test/random 2.11×`, clustered/sequential rows) | the arms built their 30k-key array inside the measured region, so "lookup" was dominated by insert | fixed with `setup =`; the CI and quiet-host tables above | 0 |
-| Checkpoint B0's commit label `af21e02` | actually measured on the issue #1 items-1-3 branch | superseded baseline, removed | 0, 4 |
-| "2.1×–3.4× faster range scans" | — | the post-#245 / post-#270 iteration table ([#245](https://github.com/orieg/expanse/pull/245), [#270](https://github.com/orieg/expanse/issues/270)) | 4 |
-| Laptop random-insert `1.35×` (2026-08-18) | distorted by a co-resident VM at ~226% CPU; interleaving cancels drift, not cache-pressure asymmetry | a quieter host puts it in a **1.8–2.3 band** at every commit re-measured | 2 |
-| Microarchitectural Capability Matrix, the v1–v4 instruction-scaling table, the derived tier percentages | cited benchmark arms and populations the harness does not produce, plus an `x86-64-v4` column for an unimplemented AVX-512 kernel | [`docs/visualizer_data.json`](visualizer_data.json) and the #382 wall-clock sweep ([#372](https://github.com/orieg/expanse/issues/372)) | 10, 15 |
-| Concurrency word-key arms (incl. the 95/5 "peak at ~4 threads" table, 19.63 → 35.62 → 28.84 Mops/s) | probed unbounded random `u64` keys, i.e. near-100%-miss descent walks | bounded keyspace on every arm since [#375](https://github.com/orieg/expanse/issues/375); tables above | 14 |

@@ -35,8 +35,8 @@ present" back to the exact manual section that justifies it.
 | Count-zeros (`leading/trailing_zeros`) | BSF/BSR ✅ (always correct) | `CLZ` ✅ / `RBIT`+`CLZ` for CTZ | ⚠️ software (needs Zbb) | ⚠️ software |
 | 64-byte cache-line packing | ✅ fixed 64 B | ⚠️ **not architectural (Apple = 128 B)** | n/a | 32 B (M7/ESP32); M0–M4 cacheless |
 | Wide address space | LA57 / 57-bit ✅ | — | Sv32 (RV32) | — |
-| Software prefetch (#242) | hint, no-op on OoO ✅ removed | `PRFM` hint (impl-defined) | — | — |
-| TLB reach (4 KiB vs 2 MiB vs 16 KiB) | ⚠️ 4 KiB STLB deficit @ 1M keys (#431) | ⚠️ 4 KiB deficit on Neoverse; ✅ 16 KiB default on Apple | ❌ (no MMU / Sv32) | ❌ (no MMU) |
+| Software prefetch | hint, no-op on OoO ✅ removed | `PRFM` hint (impl-defined) | — | — |
+| TLB reach (4 KiB vs 2 MiB vs 16 KiB) | ⚠️ 4 KiB STLB deficit @ 1M keys | ⚠️ 4 KiB deficit on Neoverse; ✅ 16 KiB default on Apple | ❌ (no MMU / Sv32) | ❌ (no MMU) |
 
 Legend: ✅ assumption validated · ⚠️ assumption is a risk or lowers to software.
 
@@ -110,7 +110,7 @@ page p.327 — `CPUID.01H:EBX[15:8] × 8` = CLFLUSH line size; per-level via lea
 *Verdict:* **Confirmed** — 64 B is correct for all mainstream x86-64; the compile-time
 constant is safe for the x86 tier. (Contrast AArch64 §2.4, where 64 B is *not* safe.)
 
-### 1.5 Software prefetch (#242) — **finding EXPLAINS the measured no-op**
+### 1.5 Software prefetch — **finding EXPLAINS the measured no-op**
 
 *Context:* PR #242 added SW prefetch to the hot descent loops, then removed it after it
 measured as a no-op on the i9-12900F reference host.
@@ -332,7 +332,7 @@ RFC; (b) see §4.2.
 - **ESP-IDF component / ESP32 packaging** (`components/expanse/`, linked in #558): `CMakeLists.txt` builds `libexpanse.a` with cargo for the bare-metal RISC-V target matching `IDF_TARGET` and links it; `src/expanse_esp_idf.c` defines the `expanse_host_malloc`/`expanse_host_free` pair the `no_std` global allocator imports, routed to `MALLOC_CAP_INTERNAL` under `CONFIG_EXPANSE_SRAM_INTERNAL_ONLY`. Both ISAs: the RISC-V parts build on stable rustc against the mainline bare-metal targets, and the Xtensa ESP32/S2/S3 build against the esp-rs rustc fork (`espup`'s `esp` toolchain) with a from-source sysroot, since `xtensa-*-none-elf` is tier 3 and publishes no precompiled `core`/`alloc`. The configure step fails loudly, naming the install commands, when the fork toolchain is absent. Bare-metal ESP32-C3 (`riscv32imc-unknown-none-elf`) is checked in CI — engine, C ABI staticlib, and an assertion that the archive resolves against nothing but that host pair — alongside `riscv32imac` and `thumbv7em`. The ESP-IDF application link is verified locally for `esp32c3`, `esp32c6` and `esp32` through `integrations/esp32/` (the first attempt failed on link order — the host-allocator pair preceded the archive — and the component's CMake was corrected to register the archive as an imported library linking back to the component; the same ordering holds on Xtensa). No CI lane exercises it. The first on-device run happened on an ESP32-D0WD-V3 rev v3.1 at 160 MHz and is harvested to `docs/benchmarks/embedded/esp32.json`; it found that ESP-IDF's 3584-byte default main-task stack is too small for the trie descent under Xtensa's windowed-register ABI (peak 4388 B measured), which overflowed into the adjacent heap and surfaced as TLSF free-list corruption at a later allocation. The RISC-V parts and the S2/S3 have still not been run on hardware; #579 tracks the rest.
 - **CI cross-compilation matrix**: Bare-metal RV32 (`riscv32imac-unknown-none-elf`, with and without `+zbb`), ESP32-C3 (`riscv32imc-unknown-none-elf`), and Arm Cortex-M (`thumbv7em-none-eabihf`: engine check, C ABI staticlib, and a hard-float link of the STM32H747 harness; `thumbv7m-none-eabi`: the C ABI smoke executed under QEMU `mps2-an385` on an emulated Cortex-M3, `integrations/qemu-cortex-m3/`) are verified on every PR. The Cortex-M7 half of the 32-byte-line claim above is now measured on hardware (STM32H747I-DISCO, `docs/BENCHMARKING.md` "Cortex-M7 on-target", #598): the D-cache geometry read from CCSIDR is 4-way × 128 sets × 32 B, and the cache-on/off deltas are in that section.
 
-### 4.3 Espressif RISC-V per-part core inventory & CAS soundness — **VALIDATED** ([#567](https://github.com/orieg/expanse/issues/567))
+### 4.3 Espressif RISC-V per-part core inventory & CAS soundness — **VALIDATED**
 
 *Usage:* the ESP-IDF component (`components/expanse/`), the README platform
 table, and `docs/PACKAGING.md` name five Espressif RISC-V parts. The 32-bit
@@ -534,13 +534,13 @@ RV32 pointer width (§3.2).
 |---|---|---|---|
 | **RV32 `+zbb`** build profile | 37 popcount/clz/ctz sites → single `cpop`/`clz`/`ctz` | **High** (concrete, spec-cited) — **shipped**: `test-rv32-zbb` CI lane builds with `-C target-feature=+zbb`; codegen verified (see docs/design/32-bit-embedded.md §2.3) | embedded parts may predate Zbb — keep SW fallback |
 | **AVX-512 VPOPCNTDQ** for `Bitmap256` rank | 4×u64 bitmap → one `_mm256_popcnt_epi64` | Moderate, benchmark-gated | AVX-512 license **downclock** (Opt. Manual p.76,81) |
-| **Huge-page slab backing / `MADV_HUGEPAGE`** | 1M+ random keys (reduces 4,077 pages → 8 pages, eliminating STLB misses) | Moderate (opt-in / progressive) | $28,500\times$ memory bloat on sparse/clustered 1k keys if default-on; must be opt-in or adaptive ([#431](https://github.com/orieg/expanse/issues/431)) |
+| **Huge-page slab backing / `MADV_HUGEPAGE`** | 1M+ random keys (reduces 4,077 pages → 8 pages, eliminating STLB misses) | Moderate (opt-in / progressive) | $28,500\times$ memory bloat on sparse/clustered 1k keys if default-on; must be opt-in or adaptive |
 | **AVX2** 32-byte leaf scan | KB≥2 / wider sorted leaves | Low–moderate | leaves rarely > 16 lanes before bitmap switch |
 | **FEAT_CSSC** scalar bit-manip (AArch64) | `count_ones`/`ctz` → single scalar op | Moderate (future) | Armv8.9+ (Neoverse-class); nightly/asm only today |
 | **SVE / SVE2** VL-agnostic scan (AArch64) | additive fast leaf scan on Neoverse/Graviton | **Tried and reverted — measured negative** | implemented in #434, reverted after the AArch64 lane measured `map_get/sequential` **+9.19%**, `map_get/random` **+9.86%**, `set_contains/random` **+7.73%** *(measured: GitHub AArch64 runner Neoverse-N2, jobs 98711354227 → 98737273484; x86 byte-identical across the same commits, so the change is arch-local)*. Mechanism: the adaptive ladder promotes to bitmap before linear leaves grow, so `whilelt`/`brkb`/`cntp` setup is paid per scan over ≤16 elements and never amortises. **The same argument applies to any wide-vector leaf scan**, including the AVX2 row below. Needs runtime detection (none exists yet: no `is_aarch64_feature_detected!` in `crates/`); hardware **exposed** on the GitHub AArch64 runner (§2.6) so it is now testable, absent on Apple M-series |
 | **RVV** vector leaf scan (RISC-V) | `vcpop.m`/`viota.m`/`vfirst.m` on RV64 | Low (availability) | absent on embedded RV32 targets |
 | **ARMv7E-M DSP SIMD** (`SADD8`, `SEL`) on M4/M7 | 8-byte digit scan | Low | Rust stable exposes no ARM DSP intrinsics |
-| **FEAT_RPRFM** range prefetch (AArch64) | contiguous node/leaf arrays (#242) | Low | hint, impl-defined; measure per-µarch |
+| **FEAT_RPRFM** range prefetch (AArch64) | contiguous node/leaf arrays | Low | hint, impl-defined; measure per-µarch |
 
 ### 6.1 Anti-finding — **do NOT adopt BMI2 PEXT/PDEP for rank/select naively**
 
@@ -560,7 +560,7 @@ feature-flag query can express that, so raw leaves are required on any target wh
 
 Two knock-on effects, both intended. Raw CPUID is `asm!`, which Miri cannot execute, so the detect modules
 are `#[cfg(all(target_arch = "x86_64", not(miri)))]` with `available() -> false` stubs under Miri — the
-portable path is what Miri verifies (#468). And `is_x86_feature_detected!` is `std`-only, so raw CPUID also
+portable path is what Miri verifies. And `is_x86_feature_detected!` is `std`-only, so raw CPUID also
 keeps the x86-64 dispatch usable in a `no_std` build; that is a smaller reason than the family check, and
 not the one to cite.
 
