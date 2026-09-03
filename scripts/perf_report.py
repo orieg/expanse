@@ -69,6 +69,8 @@ BENCH_N_MAP: Dict[str, int] = {
     "map_remove": 50_000,
     "map_churn": 50_000,
     "set32_insert": 10_000,
+    "map32_remove": 2_000,
+    "set32_remove": 2_000,
     # C ABI vs Stock Judy
     "judyl_insert": 50_000,
     "judyl_get": 50_000,
@@ -116,6 +118,8 @@ CATEGORIES: List[Tuple[str, str, set[str]]] = [
             "map_remove",
             "map_churn",
             "set32_insert",
+            "map32_remove",
+            "set32_remove",
             "judyl_insert",
             "judy1_set",
             "judyl_churn",

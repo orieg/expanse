@@ -458,11 +458,10 @@ fn map32_get(map: ExpanseMap32) -> u64 {
 /// is the cell these exist for, and the shapes decide how deep the trie is:
 /// sequential packs into few leaves, clustered spreads runs across
 /// expanses, and uniform random builds the deepest paths.
-fn built_map32_dist(dist: &str) -> ExpanseMap32 {
-    let mut map = ExpanseMap32::new();
+fn keys32(dist: &str) -> Vec<Key32> {
     let mut x: u64 = 0x2545_F491_4F6C_DD1D;
-    for i in 0..2_000u32 {
-        let k = match dist {
+    (0..2_000u32)
+        .map(|i| match dist {
             "random" => {
                 x ^= x << 13;
                 x ^= x >> 7;
@@ -471,10 +470,44 @@ fn built_map32_dist(dist: &str) -> ExpanseMap32 {
             }
             "clustered" => (i / 8) * 4096 + (i % 8),
             _ => 1_000 + i,
-        };
-        map.insert(k, i * 3);
+        })
+        .collect()
+}
+
+fn built_map32_dist(dist: &str) -> ExpanseMap32 {
+    let mut map = ExpanseMap32::new();
+    for (i, k) in keys32(dist).into_iter().enumerate() {
+        map.insert(k, (i * 3) as Value32);
     }
     map
+}
+
+fn built_map32_remove(dist: &str) -> (ExpanseMap32, Vec<Key32>) {
+    let ks = keys32(dist);
+    let mut map = ExpanseMap32::new();
+    for (i, &k) in ks.iter().enumerate() {
+        map.insert(k, (i * 3) as Value32);
+    }
+    let mut probes = ks;
+    let mut rng = XorShift(0x9E37_79B9);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+    (map, probes)
+}
+
+fn built_set32_remove(dist: &str) -> (ExpanseSet32, Vec<Key32>) {
+    let ks = keys32(dist);
+    let mut set = ExpanseSet32::new();
+    for &k in &ks {
+        set.insert(k);
+    }
+    let mut probes = ks;
+    let mut rng = XorShift(0x9E37_79B9);
+    for i in (1..probes.len()).rev() {
+        probes.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+    }
+    (set, probes)
 }
 
 // Full ordered iteration over a 32-bit map: the stack walk's own cell
@@ -507,6 +540,34 @@ fn map32_range(map: ExpanseMap32) -> u64 {
     // Leaked — see `map_get`.
     core::mem::forget(map);
     black_box(sink)
+}
+
+// Scattered and sequential removals on ExpanseMap32 and ExpanseSet32:
+// guards 32-bit removal descent and demotion unrolls (#617).
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = built_map32_remove)]
+#[bench::clustered(args = ("clustered",), setup = built_map32_remove)]
+#[bench::random(args = ("random",), setup = built_map32_remove)]
+fn map32_remove(built: (ExpanseMap32, Vec<Key32>)) -> u64 {
+    let (mut map, probes) = built;
+    let mut removed = 0u64;
+    for &k in &probes {
+        removed += u64::from(map.remove(black_box(k)).is_some());
+    }
+    black_box(removed)
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = built_set32_remove)]
+#[bench::clustered(args = ("clustered",), setup = built_set32_remove)]
+#[bench::random(args = ("random",), setup = built_set32_remove)]
+fn set32_remove(built: (ExpanseSet32, Vec<Key32>)) -> u64 {
+    let (mut set, probes) = built;
+    let mut removed = 0u64;
+    for &k in &probes {
+        removed += u64::from(set.remove(black_box(k)));
+    }
+    black_box(removed)
 }
 
 #[library_benchmark]
@@ -716,6 +777,8 @@ library_benchmark_group!(
         map32_get,
         map32_iterate,
         map32_range,
+        map32_remove,
+        set32_remove,
         blobmap32_scan,
         strmap_insert,
         strmap_get,
