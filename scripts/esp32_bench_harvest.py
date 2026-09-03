@@ -37,8 +37,40 @@ DEFAULT_RESAMPLES = 2000
 DUTY_CYCLE_RATES_HZ = (1, 10, 100, 1000)
 
 
+# An arm whose slowest repetition exceeds its median by this factor has had
+# something land inside a timed window -- a FreeRTOS tick, a flash-cache miss
+# storm, a radio housekeeping pass. One such repetition in ten moves the mean
+# by more than any code change this suite measures: an ESP32 ingest arm whose
+# ten samples were 1355, 1351, 1356, *16121*, 1356, 1351, 1352, 1351, 1355,
+# 1355 reported a mean of 2830 against a median of 1355, and the arm's C
+# source had not changed at all between the two builds being compared.
+#
+# So every arm carries min and median next to the mean, and the report leads
+# with the median. This follows the on-target convention the STM32 suite
+# already uses (docs/benchmarks/stm32h747/results.json records min / median /
+# max per fixture). The BCa interval on the mean is kept because §8.4 asks
+# for it, but it is not the headline: a bootstrap over a contaminated sample
+# faithfully describes a contaminated sample.
+CONTAMINATION_RATIO = 2.0
+
+
 class HarvestError(RuntimeError):
     """Raised when the log cannot support the report being asked for."""
+
+
+def robust_stats(values):
+    """min / median / mean / spread for one arm's repetitions."""
+    v = sorted(float(x) for x in values)
+    lo, hi = v[0], v[-1]
+    med = statistics.median(v)
+    return {
+        "min": lo,
+        "median": med,
+        "mean": statistics.fmean(v),
+        "max": hi,
+        "spread_ratio": (hi / lo) if lo > 0 else 0.0,
+        "contaminated": bool(med > 0 and hi > med * CONTAMINATION_RATIO),
+    }
 
 
 def bootstrap_ci_bca(data, num_resamples=DEFAULT_RESAMPLES, alpha=0.05, seed=BOOTSTRAP_SEED):
@@ -209,15 +241,23 @@ def generate_structured_results(records, provenance=None, stack=None, metrics=No
             else:
                 mean_c, ci_l, ci_h, method = 0.0, 0.0, 0.0, "none"
 
+            rs = robust_stats(cycles_list) if cycles_list else {}
             entry["arms"][arm] = {
                 "cycles_per_op": {
+                    # `median` is the figure to quote and compare; `mean` and
+                    # its interval are kept for continuity and for §8.4.
+                    "median": rs.get("median", 0.0),
+                    "min": rs.get("min", 0.0),
+                    "max": rs.get("max", 0.0),
+                    "spread_ratio": rs.get("spread_ratio", 0.0),
+                    "contaminated": rs.get("contaminated", False),
                     "mean": mean_c,
                     "ci_95_low": ci_l,
                     "ci_95_high": ci_h,
                     "ci_method": method,
                     "sample_count": len(cycles_list),
                 },
-                "duty_cycle_projected": duty_cycle_table(mean_c, cpu_hz),
+                "duty_cycle_projected": duty_cycle_table(rs.get("median", mean_c), cpu_hz),
                 "heap_used_bytes": float(np.mean(heaps)) if heaps else 0.0,
                 "frag_ratio": float(np.mean(frags)) if frags else 0.0,
             }
@@ -257,13 +297,18 @@ def generate_markdown_report(records, provenance=None, stack=None, metrics=None)
         )
     md += [
         "",
-        "Cycles/op intervals are BCa 95% bootstrap over the per-repetition "
-        f"samples in this run ({DEFAULT_RESAMPLES} resamples, AGENTS.md §8.4); the "
-        "`method` column says so per row, and names the fallback where a "
-        "sample could not support BCa. Single-arm measurements: no competitor "
-        "arm ran, so nothing here is a comparative claim.",
+        "The figure to compare is the **median** of the repetitions. A single "
+        "repetition in which a FreeRTOS tick or a flash-cache miss storm lands "
+        "inside the timed window moves the mean by more than any code change "
+        "this suite measures, so the mean and its BCa 95% bootstrap interval "
+        f"({DEFAULT_RESAMPLES} resamples, AGENTS.md §8.4) are reported beside it "
+        "rather than as the headline — a bootstrap over a contaminated sample "
+        "faithfully describes a contaminated sample. An arm whose slowest "
+        f"repetition exceeds its median by more than {CONTAMINATION_RATIO:g}x is "
+        "marked ⚠ and its mean should not be compared against anything. This "
+        "matches the on-target convention the STM32 suite already uses.",
         "",
-        "| Benchmark | N ops | Population | Arm | Cycles/op (BCa 95% CI) | Method | Samples | Heap used (B) | Frag ratio |",
+        "| Benchmark | N ops | Population | Arm | Cycles/op (median) | Mean [BCa 95% CI] | Samples | Heap used (B) | Frag ratio |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
 
@@ -275,15 +320,18 @@ def generate_markdown_report(records, provenance=None, stack=None, metrics=None)
 
             if cycles_list:
                 mean_c, ci_l, ci_h, method = bootstrap_ci_bca(cycles_list)
-                cycle_str = f"{mean_c:.1f} [{ci_l:.1f}, {ci_h:.1f}]"
+                rs = robust_stats(cycles_list)
+                flag = " ⚠" if rs["contaminated"] else ""
+                med_str = f"**{rs['median']:.1f}**{flag}"
+                mean_str = f"{mean_c:.1f} [{ci_l:.1f}, {ci_h:.1f}] ({method})"
             else:
-                cycle_str, method = "N/A", "none"
+                med_str, mean_str = "N/A", "N/A"
 
             heap_str = f"{int(np.mean(heaps))}" if heaps else "N/A"
             frag_str = f"{np.mean(frags):.4f}" if frags else "N/A"
             pop_str = str(pop) if pop is not None else "—"
             md.append(
-                f"| `{bench}` | {n} | {pop_str} | `{arm}` | {cycle_str} | {method} | "
+                f"| `{bench}` | {n} | {pop_str} | `{arm}` | {med_str} | {mean_str} | "
                 f"{len(cycles_list)} | {heap_str} | {frag_str} |"
             )
 
@@ -322,7 +370,7 @@ def generate_markdown_report(records, provenance=None, stack=None, metrics=None)
                 cycles_list = [s["cycles"] for s in samples if s["cycles"] is not None]
                 if not cycles_list:
                     continue
-                duty = duty_cycle_table(float(np.mean(cycles_list)), cpu_hz)
+                duty = duty_cycle_table(robust_stats(cycles_list)["median"], cpu_hz)
                 cells = " | ".join(f"{duty[str(r)]:.2e}" for r in DUTY_CYCLE_RATES_HZ)
                 pop_str = str(pop) if pop is not None else "—"
                 md.append(f"| `{bench}` | {pop_str} | `{arm}` | {cells} |")
@@ -370,6 +418,18 @@ def run_self_tests():
     # 5. A torn line (reset mid-print) is dropped, not parsed into a number.
     torn, _, _, _ = parse_and_process(['{"benchmark": "agg", "arm": "exp'])
     assert not torn
+
+    # 5b. The contamination detector, against the sample that motivated it:
+    #     one ESP32 repetition in ten spiked 12x and doubled the arm's mean
+    #     while its C source had not changed.
+    spiky = [1355.60, 1350.85, 1355.60, 16120.60, 1355.68, 1350.85, 1352.10,
+             1350.85, 1354.56, 1355.04]
+    rs = robust_stats(spiky)
+    assert rs["contaminated"], "a 12x outlier in ten samples must be flagged"
+    assert abs(rs["median"] - 1354.8) < 1.0, rs["median"]
+    assert rs["mean"] > 2800, "the mean is what the median protects against"
+    clean = robust_stats([1350.85, 1354.29, 1350.85, 1354.41, 1350.85])
+    assert not clean["contaminated"], "a clean sample must not be flagged"
 
     # 6. Duty cycle is a pure derivation of cycles/op and the clock.
     duty = duty_cycle_table(160.0, 160_000_000)

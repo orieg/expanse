@@ -278,7 +278,14 @@ def _arm(results: dict, bench: str, pop: int, arm: str) -> dict:
 
 
 def _cyc(results: dict, bench: str, pop: int, arm: str = "expanse_memtable") -> float:
-    return float(_arm(results, bench, pop, arm)["cycles_per_op"]["mean"])
+    """The arm's median cycles/op — the robust figure, not the mean.
+
+    One repetition with a FreeRTOS tick or a flash-cache miss storm inside
+    its timed window moves the mean by more than any code change this chart
+    shows; the harvester records both and flags the contaminated arms.
+    """
+    c = _arm(results, bench, pop, arm)["cycles_per_op"]
+    return float(c.get("median", c["mean"]))
 
 
 def render_on_device() -> int:
