@@ -12,6 +12,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTUP_MAX_RETRIES: "10"
+  RUSTUP_DOWNLOAD_TIMEOUT: "300"
   
 jobs:
   detect-changes:
@@ -55,6 +57,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain*'
+              - '.github/actions/**'
               # Kept here deliberately, not by reflex (#412). An edit to this
               # file rewrites the build commands, flags, toolchains and `if:`
               # gates of the jobs above, and can silently remove one. `main` is
@@ -970,8 +973,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: ./.github/actions/rust-toolchain
         with:
+          toolchain: nightly
           components: miri
 
       - uses: Swatinem/rust-cache@v2
@@ -988,8 +992,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: ./.github/actions/rust-toolchain
         with:
+          toolchain: nightly
           components: rust-src
       - uses: Swatinem/rust-cache@v2
       - name: Run expanse-trie unit tests under AddressSanitizer
@@ -1487,7 +1492,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          toolchain: nightly
 
       - uses: Swatinem/rust-cache@v2
 
@@ -1878,8 +1885,9 @@ jobs:
         with:
           node-version: 24
 
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: ./.github/actions/rust-toolchain
         with:
+          toolchain: nightly
           components: rust-src
 
       - uses: Swatinem/rust-cache@v2

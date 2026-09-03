@@ -153,7 +153,7 @@ static void check_sync32(void) {
     /* QEMU's SysTick runs on virtual time while the churn runs at host
      * speed, so churn until the reader has fired enough times to mean
      * something, with a hard cap so a broken timer still terminates. */
-    for (i = 0; i < MUTATIONS_CAP && (i < MUTATIONS || isr_n < MIN_ISR); i++) {
+    for (i = 0; i < MUTATIONS_CAP && (i < MUTATIONS || isr_n < MIN_ISR || (i & 1u)); i++) {
         uint32_t k = KEYS_FIXED + ((i >> 1) & (KEYS_FIXED - 1u));
         expanse_sync32_status_t st;
         for (;;) {
@@ -164,6 +164,14 @@ static void check_sync32(void) {
         }
         if (st == EXPANSE_SYNC32_ARENA_FULL) arena_full++;
         if ((i & 31u) == 31u) expanse_sync32_map_writer_try_reclaim(w);
+    }
+    if (i & 1u) {
+        uint32_t k = KEYS_FIXED + (((i - 1u) >> 1) & (KEYS_FIXED - 1u));
+        for (;;) {
+            expanse_sync32_status_t st = expanse_sync32_map_writer_try_remove(w, k, &old);
+            if (st == EXPANSE_SYNC32_RECLAIM_BACKLOG) { expanse_sync32_map_writer_try_reclaim(w); continue; }
+            break;
+        }
     }
     SYST_CSR = 0; g_reader = 0;
     for (uint32_t k = 0; k < KEYS_FIXED; k++)
