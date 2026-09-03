@@ -674,6 +674,27 @@ With the D-cache off the M7 cells lose more: `evict_bulk_range` +6.6% to +8.7% a
 
 Following AGENTS.md §6 zero-tolerance for regressions and §8.10 (retract, don't re-estimate), the engine changes from #628 were reverted rather than shipping a known on-target performance loss. The BLE tracker component batching in `expanse_ble_tracker.c` is retained pending dedicated evaluation on ESP32 (#630).
 
+### 8.1.5 Zero-spill AAPCS descent and branch unroll for 32-bit removals (#617)
+
+Following the §8.1.4 analysis of the ARM AAPCS register spill that regressed Cortex-M cycles in #628, this spike re-architects the 32-bit trie removal descent under the strict AAPCS Zero-Spill invariant (AGENTS.md §2.1.7):
+
+1. **Eliminate `Option<Edge32>` (12 bytes $\rightarrow$ 8 bytes)**:
+   Because `Edge32::null()` can never legitimately appear as an active child pointer in a live branch node (child removal is handled by collapsing the digit entirely), `Edge32::null()` serves as a zero-overhead sentinel for "child edge unchanged". `branch_commit` accepts a bare `child: Edge32`, eliminating the 4-byte enum discriminant and 3-word register bloat.
+2. **Narrow key count delta to `delta: i32` (64-bit $\rightarrow$ 32-bit)**:
+   Per-key mutations on 32-bit targets pass single-word `delta: i32` (-1 for single removal, +1 for insert) rather than 64-bit `i64`, freeing an entire register and avoiding AAPCS 64-bit even-register alignment padding.
+3. **Preserve branchless linear updates on `BranchL2`**:
+   Avoid conditional branch checks on `BranchL2` (max 2 edges); linear updates unconditionally execute in fewer cycles on shallow in-order Thumb-2 pipelines than branch prediction logic.
+4. **Fused `branch_remove_digit`**:
+   Applies `delta: i32` directly inside the mut-borrowed branch upon child collapse, eliminating the duplicate arena resolution and tag match of `branch_add_keys`.
+5. **Corrected `MapBitmap` drain check**:
+   Evaluates post-decrement population `count_after == 0` to immediately free and null the node, preventing demotion into an empty `MapLeaf`.
+
+#### Pre-Registered Hypothesis & Gate Criteria
+- **H1 (Instructions)**: `map32_remove` and `set32_remove` instruction counts in `crates/expanse/benches/instructions.rs` decrease deterministically vs baseline main (`dddd8f67`).
+- **H2 (Zero Spills)**: Emitted Thumb-2 assembly for `thumbv7em-none-eabihf` eliminates stack spill words for `Option<Edge32>` and reduces frame size.
+- **H3 (Invariance)**: 100% equivalence with `BTreeMap`/`BTreeSet` models across dense, sparse, and clustered populations; 0 bytes leaked on full drains.
+- **Verdict Ceiling**: `Engineering` (measured instruction-count win on 32-bit removal without hardware regression).
+
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 
 ```rust
