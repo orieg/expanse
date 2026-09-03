@@ -896,17 +896,117 @@ To ensure consistent performance measurements unaffected by shared cloud runner 
 For dedicated benchmark rigs residing on private LANs (without inbound WAN access), a self-hosted GitHub Actions runner daemon (`runs-on: [self-hosted, linux]`) connects to GitHub via outbound-only HTTPS polling.
 
 #### Setting Up the Runner on the Benchmark Machine
+
+**Install under a neutral path, not a home directory.** Every path a build tool
+echoes reaches the public job log, and AGENTS.md §7 forbids OS usernames and
+home-directory paths there. `/opt/actions-runner` owned by the benchmark user is
+the arrangement in use; see [What relocation does and does not fix](#what-relocation-does-and-does-not-fix) for the residue it leaves.
+
 ```bash
-# Create directory and download the runner package
-mkdir -p ~/actions-runner && cd ~/actions-runner
-curl -o actions-runner-linux-x64-2.322.0.tar.gz -L https://github.com/actions/runner/releases/download/v2.322.0/actions-runner-linux-x64-2.322.0.tar.gz
-tar xzf ./actions-runner-linux-x64-2.322.0.tar.gz
+# Pin an explicit runner version and verify it against the release manifest
+# (`gh api repos/actions/runner/releases/tags/v<version> --jq .body`).
+V=2.337.0
+sudo mkdir -p /opt/actions-runner && sudo chown "$USER" /opt/actions-runner
+cd /opt/actions-runner
+curl -sSfL -o "actions-runner-linux-x64-${V}.tar.gz" \
+  "https://github.com/actions/runner/releases/download/v${V}/actions-runner-linux-x64-${V}.tar.gz"
+sha256sum "actions-runner-linux-x64-${V}.tar.gz"   # compare against the release body
+tar xzf "./actions-runner-linux-x64-${V}.tar.gz"
 
-# Configure runner with repository registration token
-./config.sh --url https://github.com/orieg/expanse --token <RUNNER_REGISTRATION_TOKEN> --labels baremetal,reference-host --unattended
+# Configure. `--name` is published in the API and the job log: use a role name,
+# never the machine's hostname.
+./config.sh --url https://github.com/orieg/expanse \
+  --token <RUNNER_REGISTRATION_TOKEN> \
+  --name bench-ref-01 --labels baremetal,reference-host \
+  --work _work --unattended
+```
 
-# Run the worker (or install as systemd service: sudo ./svc.sh install && sudo ./svc.sh start)
-./run.sh
+**Labels decide which host a suite lands on, and that is load-bearing.** The
+reference host keeps the default `self-hosted,Linux,X64` because
+`bench_baremetal.yml` selects `runs-on: [self-hosted, linux]`. A *second*
+self-hosted host must therefore be registered with `--no-default-labels` plus its
+own role labels, or bench jobs will land on whichever host is free and publish
+figures from two different CPUs under one provenance tag. That is how the
+AVX-512 lane is registered (`--no-default-labels --labels avx512,zen5`,
+`bench_avx512.yml`), and why its selector cannot collide with this one. Verify
+after any change:
+
+```bash
+gh api repos/orieg/expanse/actions/runners \
+  --jq '.runners[] | "\(.name)\t\([.labels[].name]|join(","))"'
+```
+
+#### Supervision
+
+Run it under `systemd --user` with lingering enabled, so it survives reboot and
+logout without a root-owned service. `svc.sh install` also works but writes a
+system unit; the user unit keeps `$HOME` pointing at the benchmark user, which
+`bench_baremetal.yml` depends on for `$HOME/.cargo/bin` and `$HOME/.local/bin`.
+
+```ini
+# ~/.config/systemd/user/gh-runner.service
+[Service]
+Type=simple
+WorkingDirectory=/opt/actions-runner
+ExecStart=/opt/actions-runner/run.sh
+Restart=always
+RestartSec=10
+# A bench suite must finish rather than be cut mid-measurement.
+TimeoutStopSec=30min
+KillMode=process
+```
+
+```bash
+loginctl enable-linger "$USER"
+systemctl --user daemon-reload && systemctl --user enable --now gh-runner.service
+```
+
+Do **not** widen the unit's `PATH` to include `$HOME/.cargo/bin` or
+`$HOME/.local/bin`: the workflow exports those itself, and changing the
+inherited environment of the host every published figure resolves to is a
+behavioural change, not a convenience.
+
+#### Moving an existing runner
+
+A runner that has ever self-updated stores **absolute** symlinks:
+
+```
+bin       -> /home/<user>/actions-runner/bin.2.337.0
+externals -> /home/<user>/actions-runner/externals.2.337.0
+```
+
+Moving the installation dangles both, and `config.sh` then fails with
+`./bin/Runner.Listener: No such file or directory`. Repoint them relatively
+after any move, so the next one cannot repeat it:
+
+```bash
+cd /opt/actions-runner
+ln -sfn bin.<version> bin && ln -sfn externals.<version> externals
+```
+
+Move the directory itself rather than its contents — `mv <dir>/*` skips
+`.runner`, `.credentials`, `.credentials_rsaparams`, `.env` and `.path`, which
+between them are the entire registration. Stop the runner first, and rename it
+through `./config.sh remove` followed by a fresh `./config.sh`: `--replace`
+matches on `--name`, so re-registering under a new name leaves the old entry
+behind.
+
+#### What relocation does and does not fix
+
+Relocating removes the home-directory prefix from the paths build tools echo,
+which is the bulk of the exposure. Two lines survive it, both from sources
+outside the runner's installation path:
+
+| Log line | Source | Closed by |
+|---|---|---|
+| `Machine name: '<hostname>'` | the runner emits the OS hostname at job setup, independent of `--name` | renaming the host (`hostnamectl set-hostname`) |
+| `Copying '/home/<user>/.gitconfig' to '/opt/actions-runner/_work/_temp/…'` | `actions/checkout` copying the invoking user's global gitconfig | a dedicated service account with its own toolchain install |
+
+Neither is addressed by the install path, so a claim that relocation alone
+sanitises the log is wrong. Verify what a given host actually publishes:
+
+```bash
+gh run view <run-id> --log | grep -nE "/home/|Machine name:"
 ```
 
 ### 2. Dual-Pass Baseline Drift Reporting Pipeline
