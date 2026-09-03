@@ -70,6 +70,11 @@ Expanse is fundamentally defined by the **Judy digital tree architecture**. Ever
    - Never define paired demotion or exit thresholds as independent integer literals (e.g. writing `pub const BRANCH_B_DOWN_32: usize = 5;` when `BRANCH_L6_CAP_32 = 6`).
    - Demotion and exit thresholds MUST be expressed as derived arithmetic expressions from the primary capacity/entry constants (e.g. `pub const BRANCH_B_DOWN_32: usize = BRANCH_L6_CAP_32 - 1;`, `pub const MAP_BITMAP_LEAVE_32: usize = MAP_BITMAP_ENTER_32 - 16;`).
    - This makes the hysteresis relationship structural and prevents silent band decay when primary capacity constants are modified.
+7. **Embedded AAPCS Zero-Spill & Thumb-2 Register Invariant (`trie32.rs`)**:
+   - In 32-bit engine recursive descent functions (`trie32.rs`), never introduce wrapped argument types such as `Option<Edge32>` (12 bytes) or 64-bit integers (`i64`).
+   - Under ARM AAPCS, `r0–r3` provide only 16 bytes for arguments; Thumb-2 low registers (`r0–r7`) are strictly bounded. Types exceeding these limits force stack spills and frame allocation across every recursive descent level.
+   - Use compact machine-word sentinels (`Edge32::null()`) and 32-bit machine integers (`i32`, `Key32`).
+   - For small nodes like `BranchL2_32` (max 2 edges), unconditional linear writes cost fewer cycles on in-order/short pipelines than branch instructions and discriminant checks.
 
 ### 2.2 Strictly Forbidden Architectural Anti-Patterns (Impedance Mismatches)
 Never propose or graft foreign data structures or complected models onto Expanse:
@@ -244,6 +249,12 @@ See `docs/BENCHMARKING.md` §2–3 and `docs/CI.md` for details.
 - **Rank before changing.** A performance change starts from a per-function Callgrind ranking of the exact benchmark-arm body (a `callgrind_annotate` profile, not intuition about which idiom is expensive). The #577 write-path work found 58% of instructions in one leaf-rebuild pattern that no candidate list had ranked first.
 - **One increment, one measurement.** Each change is measured in isolation against the previous increment on the same instrument before the next is attempted; a batch of plausible changes measured once cannot attribute anything.
 - **A flat or negative result is reverted and written down.** The textbook fix can lose: the iterative rewrite of the 32-bit descent measured +1.2% and was reverted (#586). §8.7 applies to negatives — the PR records what was tried, the number, and why it was reverted, so the next agent does not retry it.
+- **Benchmark arm prerequisite for engine paths.** Never modify or optimize an engine path (e.g. `map_remove`, `set_remove`, `scan`) unless that path is already covered by a deterministic Callgrind benchmark arm in `crates/expanse/benches/instructions.rs` and registered in `scripts/perf_report.py`. If missing, land the benchmark arm in CI first before touching engine code.
+- **Pre-Push Benchmark Verification for `perf(...)` Changes**:
+  Never push a `perf(...)` branch or open a performance PR based solely on unit tests, local compilation, or code-size speculation.
+  1. **Measure before pushing**: Execute the exact benchmark arm on the designated measurement instrument before pushing. On non-Linux hosts where Callgrind cannot run natively, execute the run remotely on `$BENCH_HOST` (`AGENTS.md` §6 fast remote cycle) or within a Linux container.
+  2. **Selectivity Audit for Conditional Bypasses**: Before adding an `if modified` or `if changed` guard to bypass a store or write, prove that the condition is selective on the workload. If data invariants cause the condition to evaluate to `true` on every operation (e.g. population tag changes on every leaf removal), the guard is pure instruction and branch overhead and must be rejected.
+  3. **No Blind `perf(...)` PRs**: If on-instrument verification cannot be performed prior to pushing, do not mark the branch `perf(...)` or claim an optimization in the commit log; treat it as an unmeasured candidate spike.
 
 ### Zero-Regression Policy
 - **Fewer instructions is always better** — for a change that removes work. A change that overlaps or hides stalls (memory-level parallelism, batching, prefetch, TLB/page-size work) may retire *more* instructions while lowering latency; wall clock with BCa CIs on the reference host is primary for those. See [Which instrument fits the change](docs/BENCHMARKING.md#which-instrument-fits-the-change).

@@ -674,6 +674,31 @@ With the D-cache off the M7 cells lose more: `evict_bulk_range` +6.6% to +8.7% a
 
 Following AGENTS.md §6 zero-tolerance for regressions and §8.10 (retract, don't re-estimate), the engine changes from #628 were reverted rather than shipping a known on-target performance loss. The BLE tracker component batching in `expanse_ble_tracker.c` is retained pending dedicated evaluation on ESP32 (#630).
 
+### 8.1.5 Attempted conditional bypass for 32-bit removal descent (#617, #632)
+
+Following the revert of #628, a dedicated spike (#632) evaluated whether child edge updates could be conditionally bypassed during removal descent by comparing `child != old_child` (or using `Edge32::null()` as a sentinel) and narrowing key-count deltas to `delta: i32`.
+
+Deterministic Callgrind profiling in CI permanently rejected this approach across all removal arms:
+
+| Benchmark Arm | Baseline (`dddd8f67`) | Spike (`4393cfb1`) | Instruction Delta | Verdict |
+|---|---|---|---|---|
+| `set32_remove/sequential` | 1,142,505 | 1,282,189 | **+12.23%** | REJECTED |
+| `map32_remove/sequential` | 1,568,385 | 1,701,863 | **+8.51%** | REJECTED |
+| `set32_remove/clustered` | 2,020,597 | 2,146,930 | **+6.25%** | REJECTED |
+| `map32_remove/clustered` | 2,097,901 | 2,210,971 | **+5.39%** | REJECTED |
+| `set32_remove/random` | 1,186,954 | 1,250,821 | **+5.38%** | REJECTED |
+| `map32_remove/random` | 1,415,014 | 1,472,631 | **+4.07%** | REJECTED |
+| `set32_insert/sensor_timestamps` | 5,262,488 | 5,352,359 | **+1.71%** | REJECTED |
+| `map32_insert/sensor_timestamps` | 5,353,035 | 5,409,206 | **+1.05%** | REJECTED |
+
+*(measured: GitHub Actions CI x86_64, treatment `4393cfb1` against base `dddd8f67`, valgrind-3.22.0 / iai-callgrind; PR #632)*
+
+#### Causal Microarchitectural Mechanism
+1. **100% False Selectivity**: In Judy32 digital tries, leaf node discriminants embed population directly within `Edge32.tag` (`Kind::SetLeaf(pop)`, `Kind::MapLeaf(pop)`). When any key is removed from a leaf, the population decrements (`new_pop = pop - 1`), causing the tag to change on 100% of leaf removals.
+2. **Comparison Overhead vs Single Store**: An unconditional store (`b.edges[pos] = child`) in L1d cache executes in a single machine instruction (1 cycle). Adding an equality guard (`if child != old_child`) requires copying 8 bytes, performing multi-word comparison instructions, and evaluating a conditional branch. Because `child != old_child` is always true on leaf removals, the descent executes 5–10 extra instructions per level only to execute the store anyway.
+
+Per AGENTS.md §6 (*"A flat or negative result is reverted and written down"*), PR #632 was closed with zero changes to `main`'s descent paths. The engine retains unconditional stores on removal ascent.
+
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 
 ```rust
