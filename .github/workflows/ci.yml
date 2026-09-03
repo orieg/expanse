@@ -771,7 +771,12 @@ jobs:
           # bare-metal triple adds no system include path (which is also why
           # the riscv32 line above needs none). What this lane is for is
           # EXPANSE_WIDE_SURFACE == 1, and any 64-bit target gives that.
-          cc -fsyntax-only -std=c11 \
+          #
+          # gnu11, not c11: on this platform pair the __unix__ branch of the
+          # lock macros is selected, and glibc hides PTHREAD_MUTEX_RECURSIVE
+          # under __STRICT_ANSI__. A host building this component uses a gnu
+          # dialect by default, so gnu11 is also the representative setting.
+          cc -fsyntax-only -std=gnu11 \
             -Iinclude -Icomponents/expanse/include \
             components/expanse/src/expanse_memtable.c \
             components/expanse/src/expanse_ble_tracker.c
