@@ -49,10 +49,17 @@ impl XorShift {
     }
 }
 
-fn report(label: &str, mem: usize, n: usize) -> f64 {
+/// Measures, prints and enforces one arm. The guard is printed beside the
+/// figure so `scripts/perf_report.py` reads the ceiling this harness actually
+/// enforces rather than keeping its own copy of it -- a mirrored table drifts,
+/// and matching arms to ceilings by name drifts silently.
+fn report(label: &str, mem: usize, n: usize, guard: f64) {
     let bpk = mem as f64 / n as f64;
-    println!("{label} (N = {n}): {mem} bytes ({bpk:.4} B/key)");
-    bpk
+    println!("{label} (N = {n}): {mem} bytes ({bpk:.4} B/key, guard {guard:.2})");
+    assert!(
+        bpk <= guard,
+        "regression: {label} B/key {bpk:.4} exceeded guard {guard:.2}"
+    );
 }
 
 fn main() {
@@ -66,14 +73,11 @@ fn main() {
     for i in 0..n_sensor {
         sensor_set.insert(1_700_000_000 + i as Key32);
     }
-    let bpk_sensor = report(
+    report(
         "1. Clustered sensor timestamps",
         sensor_set.mem_used(),
         n_sensor,
-    );
-    assert!(
-        bpk_sensor <= 1.00,
-        "regression: clustered set B/key {bpk_sensor:.4} exceeded guard 1.00"
+        1.00,
     );
 
     // 2. Sparse CAN-bus / Modbus identifiers (sparse 29-bit IDs).
@@ -82,14 +86,11 @@ fn main() {
     for i in 0..n_can {
         can_set.insert((i * 100_007) & 0x1FFF_FFFF);
     }
-    let bpk_can = report(
+    report(
         "2. Sparse 29-bit CAN IDs",
         can_set.mem_used(),
         n_can as usize,
-    );
-    assert!(
-        bpk_can <= 20.0,
-        "regression: sparse set B/key {bpk_can:.4} exceeded guard 20.0"
+        20.0,
     );
 
     // 3. IPv4 /24 subnet routing table (map: prefix -> next-hop).
@@ -99,14 +100,11 @@ fn main() {
         let ip = (10 << 24) | ((i as Key32 / 256) << 16) | ((i as Key32 % 256) << 8);
         route_map.insert(ip, (i % 16) as u32);
     }
-    let bpk_routes = report(
+    report(
         "3. IPv4 subnet routing map",
         route_map.mem_used(),
         n_routes as usize,
-    );
-    assert!(
-        bpk_routes <= 24.0,
-        "regression: map B/key {bpk_routes:.4} exceeded guard 24.0"
+        24.0,
     );
 
     // 4. Dense map (consecutive keys) — the map density best case.
@@ -115,10 +113,11 @@ fn main() {
     for i in 0..n_dense {
         dense_map.insert(i as Key32, (i & 0xFF) as u32);
     }
-    let bpk_dense = report("4. Dense consecutive map", dense_map.mem_used(), n_dense);
-    assert!(
-        bpk_dense <= 12.0,
-        "regression: dense map B/key {bpk_dense:.4} exceeded guard 12.0"
+    report(
+        "4. Dense consecutive map",
+        dense_map.mem_used(),
+        n_dense,
+        12.0,
     );
 
     // 5. Uniform-random 32-bit keys — the sparse worst case, and the arm
@@ -132,14 +131,11 @@ fn main() {
         let k = rng.next_u32();
         uniform_map.insert(k, k);
     }
-    let bpk_uniform = report(
+    report(
         "5. Uniform-random 32-bit keys",
         uniform_map.mem_used(),
         n_uniform,
-    );
-    assert!(
-        bpk_uniform <= 20.0,
-        "regression: uniform-random map B/key {bpk_uniform:.4} exceeded guard 20.0"
+        20.0,
     );
 
     // 6. OTA firmware chunk checksums (blob map, inline <=3 byte payloads).

@@ -766,8 +766,12 @@ jobs:
       - name: Syntax-check component sources at 64-bit width
         run: |
           set -euo pipefail
-          clang --target=x86_64-unknown-none \
-            -ffreestanding -fsyntax-only -DEXPANSE_SINGLE_THREADED_BAREMETAL \
+          # The native runner target, not a bare-metal 64-bit triple: these
+          # sources include <stdlib.h> / <string.h> / <pthread.h>, and a
+          # bare-metal triple adds no system include path (which is also why
+          # the riscv32 line above needs none). What this lane is for is
+          # EXPANSE_WIDE_SURFACE == 1, and any 64-bit target gives that.
+          cc -fsyntax-only -std=c11 \
             -Iinclude -Icomponents/expanse/include \
             components/expanse/src/expanse_memtable.c \
             components/expanse/src/expanse_ble_tracker.c
