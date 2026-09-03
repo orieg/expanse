@@ -723,6 +723,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "expanse-wasm-fuel"
+version = "0.5.0"
+dependencies = [
+ "expanse-trie",
+]
+
+[[package]]
 name = "ext-php-rs"
 version = "0.15.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,18 @@
+[package]
+name = "expanse-wasm-fuel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Fuel-metered WebAssembly benchmark module for the Expanse engines: the deterministic instrument behind scripts/wasm_fuel.py (#629)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+expanse-trie = { path = "../expanse" }
+
+[lints]
+workspace = true
