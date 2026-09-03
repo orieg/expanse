@@ -539,6 +539,45 @@ The 64-bit engine provisions 4 KiB `SlabPage` blocks. In embedded targets where 
 - **`SlabPage32`**: Scaled down to **512 Bytes** or **1 KiB** blocks.
 - **Embedded Freelist Classes**: Reduced from 62 classes to **24 fine-grained classes** ($\le 128\text{ bytes}$), eliminating slab over-allocation.
 
+### 8.1.1 Host allocator alignment — frozen negative result
+
+Every 32-bit node is `#[repr(C, align(32))]` while `heap_caps_malloc` promises
+only pointer alignment, so `crates/expanse-capi/src/alloc_bridge.rs`
+over-allocates `size + align + sizeof(uintptr_t)` and aligns by hand. That is
+36 bytes of slack per node on a 32-bit target, and removing it is one of the
+mechanisms [#615](https://github.com/orieg/expanse/issues/615) names.
+
+**It does not pay off on ESP-IDF.** Both halves of the idea were implemented
+and measured on device — a `expanse_host_aligned_malloc` hook over
+`heap_caps_aligned_alloc`, and a pass-through that forwards any request at or
+below pointer alignment straight to `malloc` (most allocations: only the six
+node types are over-aligned). All four cells of the design space were measured
+against the hand-aligning baseline on one board, and every one of them
+regresses an arm far outside the run-to-run drift:
+
+| Pass-through | Aligned hook | `ble_sighting_record` | `ble_ttl_eviction` (pop 2k) | Heap |
+|---|---|---|---|---|
+| no | no | baseline | baseline | baseline |
+| no | yes | **+27%** | +1.1% | −4 to −11% |
+| yes | yes | **+14 to +17%** | +1.9% | −3 to −11% |
+| yes | no | 0% | **+68 to +78%** | −3 to −6.6% |
+
+*(measured: ESP32-D0WD-V3 rev v3.1, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
+one board, medians of 10; twin-container drift across these builds reached 6.7%,
+and two boots of an identical binary agree to within 0.13%, so each figure above
+is an effect of its binary and not of the sitting.)*
+
+The heap saving is real and consistent, and the cycle cost is larger than it in
+every configuration. **Why** each variant regresses the arm it does was not
+measured — it is an interaction with TLSF's block classes and free lists, and
+attributing it would need allocator-level instrumentation this project does not
+have. Stated as unattributed rather than guessed.
+
+The bridge therefore keeps hand-aligning every allocation. A host with a
+cheaper aligned allocator than ESP-IDF's could revisit this, but the measurement
+above is the one to beat, and beating it means beating the `ttl_eviction` and
+`sighting_record` arms specifically.
+
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 
 ```rust
