@@ -1,0 +1,319 @@
+name: AVX-512 Kernel Benchmarks
+
+# Opt-in lane for the one instrument this repository's primary gate structurally
+# cannot be.
+#
+# Callgrind counts instructions deterministically and is what `instruction-counts`
+# and every `/bench` Callgrind suite rest on. It cannot measure AVX-512 at all:
+# Valgrind implements none of it (KDE bug 383010, enabling branch on hold since
+# 2019), so under it `is_x86_feature_detected!` reports every `avx512*` feature
+# false and a dispatched kernel silently measures its scalar fallback, while an
+# unconditional one dies with SIGILL on the EVEX prefix. Both halves are
+# reproduced by `crates/expanse/examples/avx512_probe.rs`.
+#
+# So this lane is wall-clock, it gates nothing, and it is deliberately separate
+# from `bench_baremetal.yml`:
+#
+#   * that workflow's `runs-on: [self-hosted, linux]` is the bare-metal
+#     *reference host*, whose CPU fuses AVX-512 off entirely. Every published
+#     figure in docs/ resolves to it, so its job pool must stay single-host;
+#   * this one targets `runs-on: [avx512]`, a label carried only by a host with
+#     `avx512vpopcntdq`. That host is registered with `--no-default-labels`
+#     precisely so it cannot match the selector above and cannot silently take
+#     over a reference-host run.
+#
+# Nothing here feeds the regression gate, `perf_report.py`, or any committed
+# figure that a Callgrind suite also reports.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to checkout (branch, tag, sha)'
+        required: true
+        default: 'main'
+      pr_number:
+        description: 'PR number to post results to'
+        required: false
+  issue_comment:
+    types: [created]
+
+# Same reason as bench_baremetal.yml: the default token is read-only, so without
+# this the benchmarks succeed and the report post 403s.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  # Authorize and resolve on a GitHub-hosted runner, before the AVX-512 host is
+  # touched at all. A public repository plus a self-hosted runner means an
+  # unauthenticated comment must never reach the host.
+  resolve:
+    name: Resolve Request
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request != null &&
+       contains(github.event.comment.body, '/bench avx512'))
+    outputs:
+      ref: ${{ steps.resolve.outputs.ref }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+    steps:
+      - name: Check permissions
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: permission } =
+              await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.actor,
+              });
+            if (!['admin', 'write'].includes(permission.permission)) {
+              core.setFailed('User does not have permission to trigger benchmarks.');
+            }
+
+      - name: Resolve ref
+        id: resolve
+        uses: actions/github-script@v8
+        with:
+          script: |
+            if (context.eventName === 'workflow_dispatch') {
+              core.setOutput('ref', context.payload.inputs.ref);
+              core.setOutput('pr_number', context.payload.inputs.pr_number || '');
+              return;
+            }
+            const issue_number = context.payload.issue.number;
+            await github.rest.reactions.createForIssueComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: context.payload.comment.id,
+              content: 'rocket',
+            });
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: issue_number,
+            });
+            // The head SHA, never the ref name: a branch that moves between
+            // resolution and checkout would benchmark something nobody asked for.
+            core.setOutput('ref', pr.head.sha);
+            core.setOutput('pr_number', String(issue_number));
+
+  bench-avx512:
+    name: AVX-512 Kernel Sweep
+    needs: [resolve]
+    if: needs.resolve.result == 'success'
+    runs-on: [avx512]
+    # Re-triggering supersedes this PR's own pending run rather than queueing
+    # behind the single host.
+    concurrency:
+      group: bench-avx512-${{ needs.resolve.outputs.pr_number || github.run_id }}
+      cancel-in-progress: true
+    # The DRAM regimes stream ~256 MiB per iteration across up to 13 arms.
+    # Generous, but far below GitHub's 6-hour default, so a wedged run cannot
+    # hold the host indefinitely.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+          fetch-depth: 0
+
+      - name: Probe host capability
+        id: probe
+        shell: bash
+        # Fail closed and by name. A sweep that quietly reports only its scalar
+        # arm is exactly the degradation-that-reads-as-success AGENTS.md §8.1
+        # forbids, and this lane exists only to measure the vector arms.
+        run: |
+          echo "=== CPU AVX-512 feature census ==="
+          MISSING=""
+          for f in avx512f avx512vl avx512bw avx512dq avx512_vpopcntdq; do
+            if grep -qw "$f" /proc/cpuinfo; then
+              echo "  present: $f"
+            else
+              echo "  MISSING: $f"
+              MISSING="$MISSING $f"
+            fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::this runner lacks:${MISSING}. The AVX-512 lane measures nothing without them; it did NOT fall back to a scalar-only report."
+            exit 1
+          fi
+
+      - name: Capture host description and load snapshot
+        id: host
+        shell: bash
+        # Anonymized exactly as bench_baremetal.yml does it: CPU model, thread
+        # count, L3 and kernel out of lscpu/nproc/uname, never a hostname
+        # (AGENTS.md §7). This covers what is written into the comment; the job
+        # log itself is a separate matter, noted in bench_baremetal.yml.
+        run: |
+          uname -srm
+          uptime
+          ps -A -o %cpu= -o %mem= -o comm= | sort -rn | head -n 8 || true
+
+          MODEL=$(lscpu 2>/dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -n 1)
+          [ -n "$MODEL" ] || MODEL="$(uname -m)"
+          THREADS=$(nproc 2>/dev/null || echo "?")
+          L3=$(lscpu 2>/dev/null | sed -n 's/^L3 cache:[[:space:]]*//p' | head -n 1 | sed 's/ (.*)//')
+          KERNEL=$(uname -sr)
+          DESC="$MODEL ($THREADS threads${L3:+, $L3 L3}, $KERNEL)"
+          echo "host_desc=$DESC" >> "$GITHUB_OUTPUT"
+          echo "Host description: $DESC"
+
+          {
+            echo "<details><summary>System load at run start</summary>"
+            echo
+            echo '```'
+            uptime
+            ps -A -o %cpu= -o %mem= -o comm= | sort -rn | head -n 8 || true
+            echo '```'
+            echo
+            echo "</details>"
+          } > system-load.md
+
+      - name: Record CPUID visibility under Valgrind
+        continue-on-error: true
+        shell: bash
+        # The claim that Callgrind cannot see this kernel is load-bearing for
+        # why the lane exists, so the run demonstrates it rather than asserting
+        # it. Never `--force` here: that path is expected to SIGILL.
+        run: |
+          cargo run --quiet --release --example avx512_probe -p expanse-trie | tee probe-native.txt
+          if command -v valgrind >/dev/null 2>&1; then
+            valgrind --tool=callgrind --callgrind-out-file=/dev/null \
+              ./target/release/examples/avx512_probe 2>&1 | tee probe-valgrind.txt
+          else
+            echo "valgrind absent on this host — CPUID-masking demonstration skipped (not a failure)" \
+              | tee probe-valgrind.txt
+          fi
+
+      - name: Take the host-wide benchmark lock
+        id: lock
+        shell: bash
+        # Same lock file bench_baremetal.yml uses, so the two lanes cannot
+        # measure on one host simultaneously if they ever share one.
+        run: |
+          BENCH_LOCK="${EXPANSE_BENCH_LOCK:-${TMPDIR:-/tmp}/expanse-bench.lock}"
+          if ! mkdir "${BENCH_LOCK}" 2>/dev/null; then
+            OWNER="$( { cat "${BENCH_LOCK}/owner" 2>/dev/null || true; } | head -n 1 | tr -d '\r' )"
+            [ -n "$OWNER" ] || OWNER="unknown (lock directory present, no owner record)"
+            echo "::error::refusing to start: benchmark lock ${BENCH_LOCK} is held by: ${OWNER}"
+            echo "lock_owner=${OWNER}" >> "$GITHUB_OUTPUT"
+            exit 75
+          fi
+          printf 'suite=ci-avx512_bitmap pid=%s start=%s\n' \
+            "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${BENCH_LOCK}/owner"
+          echo "lock_dir=${BENCH_LOCK}" >> "$GITHUB_OUTPUT"
+
+      - name: Run the AVX-512 kernel sweep
+        id: bench
+        shell: bash
+        env:
+          HOST_DESC: ${{ steps.host.outputs.host_desc }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # `--features avx512` is required: the vector arms are behind an
+        # off-by-default feature so that the declared MSRV 1.88 floor survives
+        # (core::arch's AVX-512 intrinsics are stable only since 1.89).
+        run: |
+          STARTED=$(date +%s)
+          rm -rf target/criterion
+          cargo bench -p expanse-trie --bench avx512_bitmap --features avx512 \
+            2>&1 | tee bench.log
+
+          mkdir -p results/quick
+          python3 scripts/bench_baseline.py --harvest \
+            --criterion-dir target/criterion \
+            --newer-than "$STARTED" \
+            --suite avx512_bitmap \
+            --host-desc "$HOST_DESC" \
+            --run-id "$RUN_URL" \
+            --out results/quick/avx512_bitmap.json \
+            | tee intervals.md
+
+      - name: Release the benchmark lock
+        if: always() && steps.lock.outputs.lock_dir != ''
+        shell: bash
+        run: rm -rf "${{ steps.lock.outputs.lock_dir }}"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: avx512-bitmap-${{ github.run_id }}
+          path: |
+            bench.log
+            intervals.md
+            probe-native.txt
+            probe-valgrind.txt
+            results/quick/avx512_bitmap.json
+          if-no-files-found: warn
+
+      - name: Post results
+        if: always() && needs.resolve.outputs.pr_number != ''
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          HOST_DESC: ${{ steps.host.outputs.host_desc }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BENCH_OUTCOME: ${{ steps.bench.outcome }}
+          LOCK_OWNER: ${{ steps.lock.outputs.lock_owner }}
+          JOB_STATUS: ${{ job.status }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- expanse-avx512 -->';
+            const issue_number = Number(process.env.PR_NUMBER);
+            const outcome = process.env.BENCH_OUTCOME || 'skipped';
+
+            const read = (p) => { try { return fs.readFileSync(p, 'utf8').trim(); } catch { return ''; } };
+
+            const lines = [marker, '## AVX-512 Kernel Sweep', ''];
+            lines.push(`**Host**: \`${process.env.HOST_DESC || 'unknown'}\``);
+            lines.push(`**Run**: ${process.env.RUN_URL}`);
+            lines.push('');
+
+            const intervals = read('intervals.md');
+            if (outcome === 'success' && intervals) {
+              lines.push(intervals);
+            } else {
+              // §8.1: a run with no numbers says why, and never renders as a
+              // result. There is no previous body to preserve here because this
+              // lane publishes nothing that a doc figure resolves to.
+              let cause;
+              if (process.env.LOCK_OWNER) {
+                cause = `The host-wide benchmark lock was held by: \`${process.env.LOCK_OWNER}\`. Nothing was measured.`;
+              } else if (process.env.JOB_STATUS === 'cancelled') {
+                cause = 'The run was **cancelled** (superseded by a newer trigger, or timed out). Nothing was measured.';
+              } else if (outcome === 'failure') {
+                cause = 'The benchmark step **failed** — capability probe, build error, or benchmark crash. See the job log.';
+              } else {
+                cause = 'The job **failed before the sweep started**. See the job log.';
+              }
+              lines.push(`### ⚠️ No results`, '', cause);
+            }
+
+            const load = read('system-load.md');
+            if (load) { lines.push('', load); }
+
+            lines.push('', '<sub>Wall-clock, BCa 95% intervals. Report-only: this lane gates nothing, and no committed figure resolves to it. Callgrind cannot measure AVX-512 — see `crates/expanse/examples/avx512_probe.rs`.</sub>');
+
+            const body = lines.join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner, repo: context.repo.repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number, body,
+              });
+            }

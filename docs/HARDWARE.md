@@ -533,7 +533,8 @@ RV32 pointer width (§3.2).
 | Opportunity | Where it helps | Priority | Key caveat |
 |---|---|---|---|
 | **RV32 `+zbb`** build profile | 37 popcount/clz/ctz sites → single `cpop`/`clz`/`ctz` | **High** (concrete, spec-cited) — **shipped**: `test-rv32-zbb` CI lane builds with `-C target-feature=+zbb`; codegen verified (see docs/design/32-bit-embedded.md §2.3) | embedded parts may predate Zbb — keep SW fallback |
-| **AVX-512 VPOPCNTDQ** for `Bitmap256` rank | 4×u64 bitmap → one `_mm256_popcnt_epi64` | Moderate, benchmark-gated | AVX-512 license **downclock** (Opt. Manual p.76,81) |
+| **`popcnt` dispatch for `algebra.rs`** | `Bitmap256::count_and` at bitmap leaves — the intersection-cardinality inner kernel | **High** — measured, portable, no new ISA requirement | `get.rs` already has the `#[target_feature(enable = "popcnt")]` entry clones; `algebra.rs` has none, so on the default portable target its `count_ones` lowers to the SWAR sequence. See §6.2 |
+| **AVX-512 VPOPCNTDQ** for `Bitmap256` rank | 4×u64 bitmap → one `_mm256_popcnt_epi64` | **Measured — no engine-level win** | 4.96× in L1 decaying to no measurable difference on a pointer-chased DRAM walk, which is the engine's access pattern; and Callgrind cannot see the kernel at all. See §6.2 |
 | **Huge-page slab backing / `MADV_HUGEPAGE`** | 1M+ random keys (reduces 4,077 pages → 8 pages, eliminating STLB misses) | Moderate (opt-in / progressive) | $28,500\times$ memory bloat on sparse/clustered 1k keys if default-on; must be opt-in or adaptive |
 | **AVX2** 32-byte leaf scan | KB≥2 / wider sorted leaves | Low–moderate | leaves rarely > 16 lanes before bitmap switch |
 | **FEAT_CSSC** scalar bit-manip (AArch64) | `count_ones`/`ctz` → single scalar op | Moderate (future) | Armv8.9+ (Neoverse-class); nightly/asm only today |
@@ -541,6 +542,94 @@ RV32 pointer width (§3.2).
 | **RVV** vector leaf scan (RISC-V) | `vcpop.m`/`viota.m`/`vfirst.m` on RV64 | Low (availability) | absent on embedded RV32 targets |
 | **ARMv7E-M DSP SIMD** (`SADD8`, `SEL`) on M4/M7 | 8-byte digit scan | Low | Rust stable exposes no ARM DSP intrinsics |
 | **FEAT_RPRFM** range prefetch (AArch64) | contiguous node/leaf arrays | Low | hint, impl-defined; measure per-µarch |
+
+### 6.2 Measured — AVX-512 `vpopcntq` for bitmap cardinality, and the `popcnt` gap it uncovered
+
+![AVX-512 bitmap cardinality kernel across cache residency](assets/bench_avx512.svg)
+
+`Bitmap256::count_and` is the inner kernel of the `algebra.rs` intersection walk
+behind the `search_boolean` suite. A 256-bit bitmap is one `ymm` and two are one
+`zmm`, so `avx512_vpopcntdq` can retire a whole pair-cardinality in one
+`vpopcntq`. `crates/expanse/benches/avx512_bitmap.rs` measures that against the
+scalar kernel across cache residency
+*(measured: AMD Ryzen 9 9955HX, 32 threads, 64 MiB L3, Linux 6.8.0-41-generic;
+`results/baseline_avx512_bitmap.json`; workload: `avx512_bitmap_count_and`;
+commit `b22c8739`; BCa 95% over criterion per-iteration samples, n = 20 per arm)*.
+Every cell is `scalar_popcnt` ÷ that arm, so **above 1.000× is faster than the
+production scalar kernel and below it is slower**:
+
+| Regime | Working set | `scalar_popcnt` ns/pair | `scalar_swar` | `v256` | `v512` |
+|---|---|---:|---:|---:|---:|
+| L1 | 16 KiB | 0.821 | 0.409× | **2.715×** | **4.990×** |
+| L2 | 512 KiB | 0.795 | 0.421× | **2.011×** | **3.703×** |
+| L3 | 16 MiB | 0.844 | 0.437× | **1.817×** | **1.946×** |
+| DRAM, sequential | 256 MiB | 1.360 | 0.677× | **1.063×** | 1.041× |
+| DRAM, pointer-chased | 256 MiB | 66.763 | 0.977× | 1.004× | — |
+
+**The vector win is a cache-residency artifact.** The kernel is ~0.82 ns of work
+per bitmap pair. On the pointer-chased walk a pair costs 66.76 ns, so the
+arithmetic is well under 2% of the time — and that is roughly what the vector arm
+returns there: `v256` is **1.004×**, intervals [278.53, 279.27] ms against
+[279.69, 280.44] ms. They are disjoint, so the 0.4% is real rather than noise,
+but it is 0.4% against 4.990× in L1. The sequential-DRAM cells (1.063× and
+1.041×) sit between the two and are the smallest wins worth reporting; an earlier
+run of the same sweep put `v512` there at 0.997×, i.e. a loss, which is the size
+of effect this arm can resolve.
+
+The pointer-chased arm is the one to read. The engine reaches its bitmap leaves
+by chasing `Edge` pointers through a slab arena; the contiguous regimes above it
+are a *kernel ceiling*, not an engine measurement, and nothing here licenses a
+claim about `intersection_len` throughput. `v512` is absent from that row
+because a serially dependent walk has no second independent pair with which to
+fill the upper half of a `zmm`.
+
+**Two further costs, independent of the measurement.** `core::arch`'s AVX-512
+intrinsics are stable only since Rust **1.89**, so shipping any of them raises
+the declared MSRV floor of 1.88 (which is why the bench keeps them behind an
+off-by-default `avx512` feature). And **Callgrind, the primary regression
+instrument, cannot see the kernel**: Valgrind implements no AVX-512
+([KDE bug 383010](https://bugs.kde.org/show_bug.cgi?id=383010), enabling branch
+on hold since 2019), so under it a runtime-dispatched kernel silently measures
+its scalar fallback while an unconditional one dies with SIGILL on the EVEX
+prefix. `crates/expanse/examples/avx512_probe.rs` reproduces both halves. An
+AVX-512 path would therefore be ungated by every existing instruction lane — the
+degradation §8.1 exists to forbid — and gateable only by wall-clock on a host
+carrying the feature.
+
+**Note on the downclock caveat.** The prior entry in the §6 table cited AVX-512
+license downclock from the Intel Optimization Manual. That is an Intel-specific
+concern and does not describe the host measured here: Zen 5's Fire Range parts
+are Granite Ridge chiplets with full-width 512-bit datapaths. The caveat was not
+wrong, it was scoped to a different microarchitecture; the `v512` arm's L1 and L2
+gains over `v256` show no throttle on this part.
+
+#### The finding that came out of the control arm
+
+`scalar_popcnt` exists in that table because rating the vector arms against a
+strawman would have inflated them (§8.3). Building it surfaced a live gap.
+
+`Bitmap256::count_and` is `#[inline(always)]` and calls `u64::count_ones`
+directly; the hardware instruction is obtained by *inlining into a
+`#[target_feature(enable = "popcnt")]` caller*, which is why `popcnt_rt` and the
+entry clones in `get.rs` exist — the baseline `x86-64` target has no `popcnt` and
+`count_ones` otherwise lowers to a ~12-instruction SWAR sequence. **`algebra.rs`
+has no such clone**: its `count_and` call site sits in a feature-less function,
+so on the portable default build the intersection walk pays SWAR on every
+bitmap leaf. That is what the `scalar_swar` column measures, and it costs
+**2.29×–2.44× while cache-resident and 1.48× at sequential DRAM**
+*(`results/baseline_avx512_bitmap.json`, workload: `avx512_bitmap_count_and`)*.
+Even on the chased arm it is 1.024×, with disjoint intervals —
+[286.44, 286.97] ms against [279.69, 280.44] ms. Those cache-resident figures
+exceed every vector cell outside L1: on this kernel, reaching the `popcnt` the
+CPU already has is worth more than reaching for a wider one.
+
+Unlike the AVX-512 option this is portable, needs no ISA feature the baseline
+target lacks, does not move the MSRV floor, and — because `popcnt` dispatch is
+exactly what `popcnt_probe.rs` already verifies survives Valgrind — **is
+measurable by the existing Callgrind gate**. It is tracked as the `High` row in
+the §6 table above. No engine change has been made here: this section reports a
+kernel measurement, and the size of the gap *in the intersection walk itself*
+(as opposed to in this harness) is unmeasured.
 
 ### 6.1 Anti-finding — **do NOT adopt BMI2 PEXT/PDEP for rank/select naively**
 

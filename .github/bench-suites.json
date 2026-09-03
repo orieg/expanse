@@ -126,7 +126,7 @@
       "available": true,
       "kind": "counters",
       "runner": "builtin",
-      "summary": "Hardware performance counters (`perf stat`) over the random point-lookup path — `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be."
+      "summary": "Hardware performance counters (`perf stat`) over the random point-lookup path \u2014 `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be."
     },
     {
       "name": "search_instructions",
@@ -441,6 +441,16 @@
       "runner": "builtin",
       "summary": "Exact wasmtime fuel per arm for the wasm32 (32-bit engine) and wasm64 (64-bit engine) builds of `crates/expanse-wasm-fuel`; the Callgrind analogue for the wasm targets.",
       "reason": "runs on every PR in `ci.yml`'s `wasm-fuel` job against `results/baseline_wasm_fuel.json`; it needs no bare-metal host, so `/benchmark wasm_fuel` is refused by name and points here."
+    },
+    {
+      "name": "avx512_bitmap",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "avx512_bitmap",
+      "reason": "needs `avx512vpopcntdq`, which the bare-metal reference host does not have (Alder Lake fuses AVX-512 off); on that host the sweep would report only its scalar arm. Run it on the AVX-512 lane instead \u2014 `.github/workflows/bench_avx512.yml`, `runs-on: [avx512]`.",
+      "summary": "AVX-512 `vpopcntq` vs the shipped scalar `Bitmap256::count_and`, swept across cache residency including a dependent DRAM chase."
     }
   ]
 }
