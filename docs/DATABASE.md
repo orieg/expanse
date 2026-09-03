@@ -348,6 +348,42 @@ impl ColumnarStringDictionary {
 **Prefix Compression Efficiency on URL / Metric Datasets**:
 - Across 1,000,000 HTTP endpoint access logs with common domain prefixes, `ExpanseStrMap` reduces memory consumption from **38.4 MB** (hash table storing raw strings) to **11.2 MB** (**70.8% memory reduction**), while maintaining sorted iteration at **12.4M items/s**.
 
+### 4.3 Interned Set Domain: Shared Dictionary & Posting-List Sets
+
+When managing inverted indexes, tag filters, or multi-attribute query engines, elements in posting lists are identified by strings or byte slices (term IDs, entity UUIDs, tag names). Operating directly on raw strings within set algebra would duplicate string lookups and thrash memory.
+
+`ExpanseDomainDict` (issue #611) owns a single shared prefix-compressed dictionary (`ExpanseStrMap`) paired with a stable reverse slab arena (`BlobArena`), vending first-class `DomainSet` values:
+
+```rust
+use expanse_trie::domain::{DomainError, DomainMismatch, DomainSet, ExpanseDomainDict};
+
+let mut dict = ExpanseDomainDict::new();
+let mut set_a = dict.new_set();
+let mut set_b = dict.new_set();
+
+// Intern identities and insert into sets
+dict.insert(&mut set_a, b"user:8f3c1e")?;
+dict.insert(&mut set_b, b"user:8f3c1e")?;
+dict.insert(&mut set_b, b"user:999999")?;
+
+// Pure set algebra without touching &mut dict or locking workers:
+let set_c = set_a.intersection(&set_b)?;
+assert_eq!(set_c.len(), 1);
+assert_eq!(set_a.intersection_len(&set_b)?, 1);
+
+// Zero-copy resolution back to borrowed identity slices:
+for id in dict.resolve(&set_c)? {
+    assert_eq!(id, b"user:8f3c1e");
+}
+```
+
+**Key Invariants & Design Principles**:
+1. **First-Class Value Semantics**: `DomainSet` values are standalone containers managed by standard Rust RAII. Sets are never locked inside an internal table, eliminating manual cleanup leaks in multi-predicate query pipelines.
+2. **Pure `&self` Algebra**: Set algebra operations (`intersection`, `union`, `difference`, `intersection_many`) take immutable references and execute pure calculations requiring zero locks on the dictionary.
+3. **Prefix Compression & Order Preservation**: Keys are stored in an 8-byte-chunked digital trie, compressing common prefixes. Arbitrary binary slices (including NUL-carrying UUIDs) are escaped via order-preserving byte-stuffing (`0x00 -> [0x01, 0x01]`, `0x01 -> [0x01, 0x02]`), strictly preventing silent NUL truncation while preserving lexicographical order.
+4. **Stable Slab Reverse Storage**: Payloads are stored in `BlobArena` using 64-bit global offsets. Memory addresses never move on chunk allocation, and reverse resolution yields uniform borrowed `&[u8]` slices directly from stable chunks.
+5. **Memory Accounting Honesty (AGENTS.md §8)**: Introspection accurately distinguishes between dictionary storage (`dict.dictionary_mem_used()`) and individual posting list sets (`set.mem_used()`).
+
 ---
 
 ## 5. Secondary Indexes & Ordered Key Range Scans
