@@ -83,6 +83,15 @@ twins in `components/expanse/test/twin_containers.h`.
   silently measure the previous engine. The app prints `expanse_version()` in
   its provenance line for exactly this reason -- check it names the commit you
   meant to measure before harvesting.
+- **The measurement is deterministic to the cycle, so a moved number is the
+  binary.** Two builds with identical engine and component source and
+  equal-length version strings reproduce all 17 arms bit-identically — same
+  median, min, max and mean. A build of the same source with a longer version
+  string moves arms by up to 0.9%, and the two pop=500 eviction arms sit on one
+  of two discrete values depending on layout
+  (`docs/design/32-bit-embedded.md` §8.1.3). Read a delta against the largest
+  movement on arms the change cannot reach, not only against twin drift; on
+  this part those two eviction arms carry no verdict at all.
 - **Regenerate**: capture a monitor log to a gitignored scratch path (§8.5),
   then
   `python3 scripts/esp32_bench_harvest.py --input <log> --out <report.md> --emit-json docs/benchmarks/embedded/esp32.json`

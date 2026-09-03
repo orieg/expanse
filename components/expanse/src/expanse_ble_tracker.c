@@ -349,28 +349,9 @@ static void expire_slot(expanse_ble_tracker_t *tracker, uint16_t idx) {
 }
 
 #if !EXPANSE_WIDE_SURFACE
-#define EXPIRE_BATCH_SIZE 64
-
-typedef struct {
-    expanse_ble_tracker_t *tracker;
-    uint16_t batch[EXPIRE_BATCH_SIZE];
-    size_t count;
-} expire_batch_ctx_t;
-
-static void flush_expire_batch(expire_batch_ctx_t *bctx) {
-    for (size_t i = 0; i < bctx->count; i++) {
-        expire_slot(bctx->tracker, bctx->batch[i]);
-    }
-    bctx->count = 0;
-}
-
 static void expire_one(expanse_word_t time_key, expanse_word_t idx_word, void *ctx) {
     (void)time_key;
-    expire_batch_ctx_t *bctx = (expire_batch_ctx_t *)ctx;
-    bctx->batch[bctx->count++] = (uint16_t)idx_word;
-    if (bctx->count == EXPIRE_BATCH_SIZE) {
-        flush_expire_batch(bctx);
-    }
+    expire_slot((expanse_ble_tracker_t *)ctx, (uint16_t)idx_word);
 }
 #endif
 
@@ -413,18 +394,10 @@ size_t expanse_ble_tracker_expire_stale(expanse_ble_tracker_t *tracker, uint32_t
 #else
     /* One descent to the range and one structural fix-up per touched node
      * on by_time, instead of a first()/remove() descent pair per stale
-     * record (#578). Buffering the slab indices across a small fixed
-     * stack batch (64 entries, 128 bytes) decouples the by_time range walk
-     * from the by_mac removals, avoiding L1 D-cache thrashing between the
-     * two tries without dynamic allocations or key sorting (#617). */
-    expire_batch_ctx_t bctx;
-    bctx.tracker = tracker;
-    bctx.count = 0;
+     * record (#578). The callback handles the per-record by_mac removal
+     * and slab recycling; it must not touch by_time, which the call holds. */
     expired_count = expanse_map_remove_range(tracker->by_time, 0, max_time_key,
-                                             expire_one, &bctx);
-    if (bctx.count > 0) {
-        flush_expire_batch(&bctx);
-    }
+                                             expire_one, tracker);
 #endif
 
     EXPANSE_LOCK_GIVE(tracker->lock);

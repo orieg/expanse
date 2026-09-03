@@ -177,7 +177,7 @@
     <text x="171" y="228" class="t-chart-sub" text-anchor="middle">0.7 load</text>
   </g>
 
-  <text x="30" y="262" class="t-chart-sub">Measured on esp32 rev v301 &#183; 160 MHz &#183; ESP-IDF v6.0-dev-2980-gab149384e1 &#183; engine 0.5.0-dev (v0.5.0-103-g8bb79a3d) &#183; 10 reps/arm, BCa 95% CIs.</text>
+  <text x="30" y="262" class="t-chart-sub">Measured on esp32 rev v301 &#183; 160 MHz &#183; ESP-IDF v6.0-dev-2980-gab149384e1 &#183; engine 0.5.0-dev (v0.5.0-104-g41080e96) &#183; 10 reps/arm, BCa 95% CIs.</text>
   <text x="30" y="275" class="t-chart-sub">Every arm runs under the same FreeRTOS recursive mutex, stores the same payload and retires the same set. The sorted array is the same container in both ingest panels: order of arrival is the only difference.</text>
   <text x="30" y="288" class="t-chart-sub">Not shown: BLE point lookup, where Expanse is 1.6x faster than the hash twin, and TTL eviction, where it loses at both expiry regimes measured. Full table in docs/DATABASE.md &#167;5.4.</text>
 </svg>
