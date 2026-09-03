@@ -29,6 +29,11 @@ pub struct ExpanseMap32 {
     root: Edge32,
     /// Number of entries currently present.
     len: usize,
+    /// Cached descent to the expanse the last insert terminated in. A plain
+    /// field, not a `Cell`: `insert` already takes `&mut self`, and an
+    /// interior-mutability wrapper would make the container non-`Sync` and
+    /// break the `sync32` bound.
+    finger: trie32::Finger32,
 }
 
 impl ExpanseMap32 {
@@ -40,6 +45,7 @@ impl ExpanseMap32 {
             alloc: Arena::new(),
             root: Edge32::null(),
             len: 0,
+            finger: trie32::Finger32::new(),
         }
     }
 
@@ -53,6 +59,7 @@ impl ExpanseMap32 {
             alloc: Arena::with_capacity(node_cap, pending_cap),
             root: Edge32::null(),
             len: 0,
+            finger: trie32::Finger32::new(),
         }
     }
 
@@ -81,7 +88,26 @@ impl ExpanseMap32 {
     /// newly inserted.
     #[inline]
     pub fn insert(&mut self, key: Key32, value: Value32) -> Option<Value32> {
-        let old = trie32::map_insert(&mut self.alloc, &mut self.root, 4, key, value);
+        // The cached path answers a key in the same expanse as the last
+        // insert -- the shape a monotonic stream produces -- without the
+        // descent. It reports a miss rather than guessing, so a stale or
+        // inapplicable finger costs one compare.
+        if let Some(old) = trie32::map_insert_via_finger(&mut self.alloc, key, value, &self.finger)
+        {
+            if old.is_none() {
+                self.len += 1;
+            }
+            return old;
+        }
+        let old = trie32::map_insert_f(
+            &mut self.alloc,
+            &mut self.root,
+            4,
+            key,
+            value,
+            &mut self.finger,
+        );
+        self.finger.set_prefix(key >> 8);
         if old.is_none() {
             self.len += 1;
         }
@@ -118,6 +144,7 @@ impl ExpanseMap32 {
     /// Remove a key from the map, returning its value if present.
     #[inline]
     pub fn remove(&mut self, key: Key32) -> Option<Value32> {
+        self.finger.clear();
         let old = trie32::map_remove(&mut self.alloc, &mut self.root, 4, key);
         if old.is_some() {
             self.len -= 1;
@@ -143,6 +170,7 @@ impl ExpanseMap32 {
         if lo > hi {
             return 0;
         }
+        self.finger.clear();
         let n = trie32::map_remove_range(&mut self.alloc, &mut self.root, 4, 0, lo, hi, &mut f);
         self.len -= n;
         n
@@ -166,6 +194,7 @@ impl ExpanseMap32 {
     #[inline]
     pub fn clear(&mut self) {
         self.alloc = Arena::new();
+        self.finger.clear();
         self.root = Edge32::null();
         self.len = 0;
     }

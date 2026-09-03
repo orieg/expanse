@@ -2186,9 +2186,151 @@ pub(crate) fn map_get(a: &Arena, e: &Edge32, mut kb: u8, mut rem: u32) -> Option
     }
 }
 
+/// Cached descent to the level-1 bitmap leaf the last insert terminated in.
+///
+/// Consecutive keys of a monotonic stream share their top three digits, so
+/// every insert into the same expanse re-walks an identical path: four tag
+/// dispatches, three `branch_child` arena resolutions on the way down and
+/// three `branch_commit` resolutions on the way up. The finger answers the
+/// repeat directly -- one resolution for the leaf, one per ancestor for its
+/// subtree count.
+///
+/// It is only armed for a `MapBitmap`/`Bitmap` terminal at `kb == 1`, which is
+/// the one form an insert cannot restructure: the bit is set in place, the
+/// handle and tag do not change, and no ancestor gains a digit. Every other
+/// terminal, and every removal, disarms it.
+///
+/// Ancestors are held as `Edge32` **by value** rather than as references: the
+/// arena's `slots` vector reallocates on growth, so a borrow into a node does
+/// not survive the next allocation, while a handle does.
+#[derive(Clone, Copy)]
+pub(crate) struct Finger32 {
+    /// `key >> 8` of the expanse this path descends to.
+    prefix: u32,
+    /// Arena handle of the terminal level-1 bitmap leaf.
+    leaf: u32,
+    /// Branch edges from the terminal upward, `depth` of them valid.
+    ancestors: [Edge32; 3],
+    depth: u8,
+    /// False until a descent arms it, and again the moment anything could
+    /// have moved the path.
+    valid: bool,
+}
+
+impl Finger32 {
+    #[inline]
+    pub(crate) const fn new() -> Self {
+        Self {
+            prefix: 0,
+            leaf: 0,
+            ancestors: [Edge32::null(); 3],
+            depth: 0,
+            valid: false,
+        }
+    }
+
+    /// Records which expanse the armed path belongs to. Set by the container
+    /// after a descent, since the recursion only ever sees a remainder.
+    #[inline]
+    pub(crate) fn set_prefix(&mut self, prefix: u32) {
+        self.prefix = prefix;
+    }
+
+    /// Disarms the path. Cheap enough to call unconditionally from any
+    /// operation that is not an insert.
+    #[inline]
+    pub(crate) fn clear(&mut self) {
+        self.valid = false;
+    }
+
+    /// Records the terminal a descent reached. Called by the leaf arm.
+    #[inline]
+    fn arm(&mut self, leaf: u32) {
+        self.leaf = leaf;
+        self.depth = 0;
+        self.valid = true;
+    }
+
+    /// Records one branch on the way back up, nearest-first.
+    #[inline]
+    fn record(&mut self, e: &Edge32) {
+        if self.valid && (self.depth as usize) < self.ancestors.len() {
+            self.ancestors[self.depth as usize] = *e;
+            self.depth += 1;
+        }
+    }
+}
+
+/// Inserts through a cached path, or reports that the path does not apply.
+///
+/// Returns `None` when the finger is not armed for this key, in which case the
+/// caller must take the full descent. A `Some` return is the ordinary
+/// `map_insert` result: the previous value, or `None` for a new key.
+///
+/// The work skipped is four tag dispatches, three digit decodes, three
+/// `branch_child` arena resolutions and three `branch_commit` ones. What
+/// remains is the leaf store plus one count bump per ancestor.
+pub(crate) fn map_insert_via_finger(
+    a: &mut Arena,
+    key: u32,
+    val: u32,
+    f: &Finger32,
+) -> Option<Option<u32>> {
+    if !f.valid || f.prefix != key >> 8 {
+        return None;
+    }
+    let digit = key as u8;
+    let w = (digit >> 6) as usize;
+    let bit_mask = 1u64 << (digit & 63);
+    let sub = (digit >> 5) as usize;
+
+    let (old, bytes_delta, retired) = {
+        let b = a.map_bitmap_mut(f.leaf);
+        let word = b.header.bitmap[w];
+        let rank = bitmap_sub_rank(word, digit);
+        if (word & bit_mask) != 0 {
+            // Overwrite: a single in-place store, and no count anywhere moves.
+            let prev = b.subarrays[sub].as_ref().unwrap()[rank];
+            b.subarrays[sub].as_mut().unwrap()[rank] = val;
+            return Some(Some(prev));
+        }
+        let pop = bitmap_sub_pop(word, digit);
+        b.header.bitmap[w] |= bit_mask;
+        b.header.pop0 += 1;
+        let retired = subarray_insert(&mut b.subarrays[sub], pop, rank, val, 0u32);
+        (None, subarray_bytes_delta::<u32>(pop, pop + 1), retired)
+    };
+    a.retire_vals(retired);
+    a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
+
+    // Subtree counts, the only thing the skipped descent still owed. The
+    // digit is unused for a count-only commit.
+    for i in 0..f.depth as usize {
+        branch_commit(a, &f.ancestors[i], 0, None, 1);
+    }
+    Some(old)
+}
+
+/// Insert without a finger, for callers that hold no cached path (bulk
+/// rebuilds, promotions, the blob map's index).
 pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u32) -> Option<u32> {
+    let mut scratch = Finger32::new();
+    map_insert_f(a, e, kb, rem, val, &mut scratch)
+}
+
+/// Insert, recording the descent in `f` when it terminates somewhere the
+/// finger can be reused. Any other outcome disarms it.
+pub(crate) fn map_insert_f(
+    a: &mut Arena,
+    e: &mut Edge32,
+    kb: u8,
+    rem: u32,
+    val: u32,
+    f: &mut Finger32,
+) -> Option<u32> {
     match kind(e) {
         Kind::Null => {
+            f.clear();
             *e = if kb <= 3 {
                 map_immed_edge(kb, rem, val)
             } else {
@@ -2197,6 +2339,7 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
             None
         }
         Kind::MapImmed { kb: _ } => {
+            f.clear();
             let r0 = map_immed_rem(e, kb);
             if r0 == rem {
                 let old = map_immed_val(e);
@@ -2215,6 +2358,7 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
             }
         }
         Kind::MapLeaf(_) => {
+            f.clear();
             let pop = edge_pop(e);
             let cap = cap_class(pop);
             let keys_off = 4 * cap;
@@ -2251,6 +2395,10 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
             None
         }
         Kind::MapBitmap => {
+            // The one terminal an insert cannot restructure: the bit is set in
+            // place and the handle and tag are unchanged, so the path stays
+            // valid for every other key of this expanse.
+            f.arm(edge_handle(e));
             let (old, bytes_delta, retired_sub) = {
                 let b = a.map_bitmap_mut(edge_handle(e));
                 let digit = rem as u8;
@@ -2284,16 +2432,25 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
             match branch_child(a, e, d) {
                 Some(mut child) => {
                     let old_child = child;
-                    let old = map_insert(a, &mut child, kb - 1, cr, val);
+                    let old = map_insert_f(a, &mut child, kb - 1, cr, val, f);
                     let changed = child != old_child;
                     if changed || old.is_none() {
                         branch_commit(a, e, d, changed.then_some(child), i64::from(old.is_none()));
                     }
+                    if changed {
+                        // The child edge moved, so a cached path through it
+                        // would resolve to the wrong node.
+                        f.clear();
+                    }
+                    f.record(e);
                     old
                 }
                 None => {
                     let mut child = Edge32::null();
-                    map_insert(a, &mut child, kb - 1, cr, val);
+                    map_insert_f(a, &mut child, kb - 1, cr, val, f);
+                    // A new digit can upgrade this branch, replacing the node
+                    // the finger would cache.
+                    f.clear();
                     branch_insert_new(a, e, d, child, 1);
                     None
                 }
