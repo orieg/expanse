@@ -106,7 +106,7 @@
 
   <rect width="100%" height="100%" class="bg" rx="8"/>
   <rect width="100%" height="100%" class="border" rx="8"/>
-  <text x="20" y="26" class="t-title">Expanse vs what firmware usually reaches for, same Cortex-M7, same fixtures</text>
+  <text x="20" y="26" class="t-title">Expanse vs a sorted array, a hash table and tsearch, same Cortex-M7, same fixtures</text>
   <g transform="translate(20, 52)">
     <text x="0" y="0" class="t-chart-title">cycles per operation at 400 MHz, D-cache on (log scale, lower is better)</text>
     <text x="0" y="13" class="t-sub">min of 5 passes, one fixture code path behind a vtable; batched eviction = remove_range, or a full scan for the hash table</text>
