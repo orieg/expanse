@@ -504,33 +504,55 @@ and read low; the other three rows are sourced from `bytes_per_key_32.rs`.*
 ![On-device ESP32: ingest in key order and shuffled, range scan, and memory per key, each against the twin baselines](./assets/bench_esp32_ondevice.svg)
 
 *(measured: ESP32-D0WD-V3 rev v3.1, 2 cores, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
-Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-87-ge9957cdf)`, commit `e9957cd`;
+Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-91-ge310a9e7)`, commit `e310a9e7`;
 10 repetitions per arm, artifact
 [`docs/benchmarks/embedded/esp32.json`](benchmarks/embedded/esp32.json))*
 
-> **These figures are stale for every Expanse arm.** They were harvested at
-> `e9957cd`; `089e94b8` since changed the 32-bit insert and remove paths, which
-> the ingest, churn, sighting-record and TTL-eviction arms all run on. A paired
-> re-harvest against `151b2c88` on the same board is pending
->. Host-side `mem_used()`
-> at this fixture's exact fill is byte-identical across that change (2,288 B at
-> N=500, 8,992 B at N=2,000), so the density rows are expected to hold; the
-> cycle rows are expected to fall, since the change removes 58% of the
-> allocator calls per sequential insert. Both are predictions on a different
-> instrument, not measurements on this one.
+**Measured against `151b2c88` on the same board in the same sitting.** The
+32-bit bitmap subarrays became capacity-classed in
+[#622](https://github.com/orieg/expanse/pull/622), so an insert into an
+already-populated subexpanse grows it in place instead of reallocating and
+copying. On this part it removes about 24% of the ingest cost:
+
+| Arm (N=2000 unless noted) | `151b2c88` | `e310a9e7` | Change | vs co-located twin drift |
+|---|---|---|---|---|
+| `esp32_churn_insert_delete` (N=8000) | 5,789.1 | **3,783.2** | **−34.7%** | no twin on this arm |
+| `esp32_tsdb_ingest` | 4,628.9 | **3,520.5** | **−24.0%** | 357× |
+| `esp32_tsdb_ingest` (N=500) | 4,697.6 | **3,553.4** | **−24.4%** | 292× |
+| `esp32_tsdb_ingest_shuffled` | 5,166.2 | **3,980.9** | **−22.9%** | 412× |
+| `esp32_ble_sighting_record` (N=500) | 9,846.5 | **7,735.2** | **−21.4%** | 297× |
+| `esp32_ble_ttl_eviction` | 2,992.0 | **2,375.2** | **−20.6%** | 15× |
+| `esp32_ble_sighting_record` | 8,097.5 | **7,305.4** | **−9.8%** | 330× |
+| `esp32_ble_ttl_eviction_sparse` | 2,742.1 | **2,500.2** | **−8.8%** | 4.8× |
+
+Memory did not move: the memtable holds 11,265 → 11,274 B at N=2000 (+0.08%),
+and every arm is inside +0.6%. Sequential keys land each subarray on a
+capacity-class boundary and leave no spare slots to pay for, so the spare
+capacity the change buys costs nothing at this shape — the penalty falls on
+sparse fills, which this fixture is not.
+
+The four `esp32_tsdb_aggregate_500` arms read +1.7% to +3.9%, and the two
+`esp32_ble_ttl_eviction*` arms at pop=500 read −2.6% and +1.0%. None of those
+is attributable: the byte-identical twins co-located on those same arms moved
+further in the same sitting (up to +19.9% on the `sorted_array` aggregate arm,
+whose 38–56 cycle counts make relative drift large). They are published as
+measured and unattributed.
 
 Each arm is 10 repetitions and the median leads. The mean does not survive this
 part: one repetition in ten whose timed window catches a FreeRTOS tick or a
 flash-cache miss storm moves it further than any code change this suite
-measures. Across the 36 twin arms the run-to-run spread is 9.0% at worst and
-0.1% typically on the median, against 109% on the mean. The harvester records
+measures. Across the twin arms in this sweep the run-to-run spread is 0.07% at the
+median and 19.9% at worst, against far larger swings on the mean. The harvester records
 min, median, mean and the BCa interval, and flags any arm whose slowest
 repetition exceeds its median by 2x with a warning marker.
 
-**Nothing below 9% is attributable to a code change.** That is the spread the
-twins show across two flashes with byte-identical C source, so the binary
-layout the ESP32's flash cache happens to hold is a large enough term to swamp
-anything smaller. On this part an "untouched path" is not a reliable control.
+**Attribution is per arm, against the twins beside it.** The twin containers
+are byte-identical C across the two builds, and in this sitting their drift was
+0.07% at the median but ranged to 19.9% on the smallest-count arms. A single
+global floor would therefore either hide the real ingest result or wave through
+the aggregate noise, so each Expanse delta above is compared against the largest
+twin drift on its own arm. On this part an "untouched path" is not a reliable
+control in the absolute; it is only a control for the arm it sits in.
 
 **The twins and why they are not strawmen.** Three comparison containers run
 alongside Expanse ([`components/expanse/test/twin_containers.h`](../components/expanse/test/twin_containers.h)):
@@ -553,31 +575,31 @@ records where Expanse retired 300.
 
 **Where Expanse loses, at N=2000:**
 
-- **Ingest with keys already in order: 3.1× slower than the sorted array**
-  (4,699 vs 1,512 cycles/op) and 3.5× slower than the hash and ring. Monotonic
+- **Ingest with keys already in order: 2.33× slower than the sorted array**
+  (3,521 vs 1,513 cycles/op) and 2.63× slower than the hash and ring. Monotonic
   arrival is the sorted array's best case — every insert appends and it never
   memmoves — but the loss is real and it is the common telemetry shape.
-- **Range scan: 8.9× slower than the sorted array** (426 vs 48 cycles per key
+- **Range scan: 8.1× slower than the sorted array** (430 vs 53 cycles per key
   walked). It is slower than every twin, including the hash (146) and the ring
-  (73), which have no order to exploit and must scan the whole container to
+  (72), which have no order to exploit and must scan the whole container to
   answer at all. An ordered structure losing to a full scan is the part that is
   still wrong.
-- **BLE TTL eviction: 37× slower per entry at dense expiry** (3,009 vs 82
-  cycles) and 2.7× slower at sparse expiry (2,754 vs 1,023). The by-time index
+- **BLE TTL eviction: 29× slower per entry at dense expiry** (2,375 vs 83
+  cycles) and 2.4× slower at sparse expiry (2,500 vs 1,032). The by-time index
   behaves as designed — Expanse's pass cost tracks the *expired* count while
   the sweeps track the *tracked* count — but on this part the crossover is not
   reached at either regime measured.
-- **BLE sighting record: 2.4× slower than the hash** (8,093 vs 3,410).
+- **BLE sighting record: 2.1× slower than the hash** (7,305 vs 3,411).
 
 **Where Expanse wins:**
 
-- **Ingest with keys shuffled: 7.1× faster than the sorted array** (5,176 vs
-  36,685 cycles/op). Same container in both ingest rows — only arrival order
+- **Ingest with keys shuffled: 9.2× faster than the sorted array** (3,981 vs
+  36,687 cycles/op). Same container in both ingest rows — only arrival order
   differs — which is why the in-order result must not be read as a general
-  verdict. Expanse's own cost moves 10% between the two orders; the sorted
+  verdict. Expanse's own cost moves 13% between the two orders; the sorted
   array's moves 24×.
-- **Memory: 1.5× denser than the sorted array and 3.3× denser than the hash**
-  (5.64 vs 8.26 vs 18.50 B/key, all three from the same fill
+- **Memory: 1.46× denser than the sorted array and 3.3× denser than the hash**
+  (5.64 vs 8.25 vs 18.50 B/key, all three from the same fill
   *(workload: esp32_tsdb_ingest)*). The sorted array stores two bare 4-byte
   arrays with no per-entry overhead, so beating it on density is compression
   working, not accounting.
@@ -586,39 +608,40 @@ records where Expanse retired 300.
 
 | Benchmark | Arm | N ops | Cycles/op (median of 10) | Mean [BCa 95% CI] | Heap delta (B) |
 |---|---|---|---|---|---|
-| `esp32_tsdb_ingest` | `expanse_memtable` | 2000 | **4,698.6** | 4,688.9 [4,649.3, 4,699.0] | 11,282 |
-| `esp32_tsdb_ingest` | `hash_open_addressing` | 2000 | **1,337.0** | 1,336.9 [1,336.6, 1,337.1] | 36,996 |
-| `esp32_tsdb_ingest` | `sorted_array` | 2000 | **1,511.6** | 1,511.6 [1,511.5, 1,511.7] | 16,512 |
-| `esp32_tsdb_ingest` | `ring_buffer` | 2000 | **1,338.2** | 1,338.3 [1,338.0, 1,338.5] | 16,512 |
-| `esp32_tsdb_ingest_shuffled` | `expanse_memtable` | 2000 | **5,176.3** | 5,176.1 [5,175.6, 5,176.6] | 11,300 |
-| `esp32_tsdb_ingest_shuffled` | `hash_open_addressing` | 2000 | **1,336.9** | 1,336.7 [1,336.4, 1,336.9] | 36,996 |
-| `esp32_tsdb_ingest_shuffled` | `sorted_array` | 2000 | **36,685.4** | 36,685.3 [36,685.0, 36,685.6] | 16,512 |
-| `esp32_tsdb_aggregate_500` | `expanse_memtable` | 500 | **426.4** | 424.7 [422.9, 426.4] | 11,282 |
-| `esp32_tsdb_aggregate_500` | `hash_open_addressing` | 500 | **146.2** | 146.1 [145.3, 146.2] | 36,996 |
-| `esp32_tsdb_aggregate_500` | `sorted_array` | 500 | **47.7** | 47.7 [47.7, 47.7] | 16,512 |
-| `esp32_tsdb_aggregate_500` | `ring_buffer` | 500 | **73.2** | 73.2 [73.2, 73.2] | 16,512 |
-| `esp32_tsdb_aggregate_500_shuffled` | `expanse_memtable` | 500 | **418.2** | 417.5 [416.5, 418.5] | 11,300 |
-| `esp32_tsdb_aggregate_500_shuffled` | `hash_open_addressing` | 500 | **146.2** | 146.3 [145.8, 147.0] | 36,996 |
-| `esp32_tsdb_aggregate_500_shuffled` | `sorted_array` | 500 | **49.6** | 49.6 [49.6, 49.6] | 16,512 |
-| `esp32_ble_sighting_record` | `expanse_slab` | 2000 | **8,092.9** | 8,092.7 [8,092.5, 8,092.9] | 111,868 |
-| `esp32_ble_sighting_record` | `hash_open_addressing` | 2000 | **3,409.9** | 3,410.0 [3,409.9, 3,410.3] | 118,912 |
-| `esp32_ble_sighting_record` | `linear_scan` | 2000 | **112,429.8** | 112,996.7 [112,429.5, 113,847.8] | 57,468 |
-| `esp32_ble_point_lookup` | `expanse_slab` | 2000 | **2,264.1** | 2,263.9 [2,263.7, 2,264.1] | 111,868 |
-| `esp32_ble_point_lookup` | `hash_open_addressing` | 2000 | **3,563.6** | 3,900.1 [3,563.3, 5,247.0] | 118,912 |
-| `esp32_ble_point_lookup` | `linear_scan` | 2000 | **111,554.4** | 112,385.4 [111,818.2, 113,255.5] | 57,468 |
-| `esp32_ble_ttl_eviction` (55% expired) | `expanse_slab` | 1100 | **3,009.4** | 3,009.2 [3,008.4, 3,009.8] | 111,868 |
-| `esp32_ble_ttl_eviction` (55% expired) | `hash_open_addressing` | 1100 | **94.5** | 94.5 [94.5, 94.5] | 118,912 |
-| `esp32_ble_ttl_eviction` (55% expired) | `linear_scan` | 1100 | **81.6** | 81.9 [81.7, 82.1] | 57,468 |
-| `esp32_ble_ttl_eviction_sparse` (5% expired) | `expanse_slab` | 100 | **2,754.3** | 2,724.8 [2,681.0, 2,760.8] | 111,868 |
-| `esp32_ble_ttl_eviction_sparse` (5% expired) | `hash_open_addressing` | 100 | **1,022.9** | 1,024.1 [1,021.6, 1,028.4] | 118,912 |
-| `esp32_ble_ttl_eviction_sparse` (5% expired) | `linear_scan` | 100 | **1,371.6** | 1,372.8 [1,371.6, 1,375.2] | 57,468 |
+| `esp32_tsdb_ingest` | `expanse_memtable` | 2000 | **3,520.5** | 3,517.7 [3,510.7, 3,524.6] | 11,274 |
+| `esp32_tsdb_ingest` | `hash_open_addressing` | 2000 | **1,337.5** | 1,337.4 [1,337.1, 1,337.6] | 36,996 |
+| `esp32_tsdb_ingest` | `ring_buffer` | 2000 | **1,339.0** | 1,338.7 [1,338.3, 1,339.0] | 16,512 |
+| `esp32_tsdb_ingest` | `sorted_array` | 2000 | **1,512.8** | 1,512.8 [1,512.7, 1,513.0] | 16,508 |
+| `esp32_tsdb_ingest_shuffled` | `expanse_memtable` | 2000 | **3,980.9** | 3,980.8 [3,979.9, 3,981.7] | 11,318 |
+| `esp32_tsdb_ingest_shuffled` | `hash_open_addressing` | 2000 | **1,337.6** | 1,337.4 [1,337.0, 1,337.6] | 36,996 |
+| `esp32_tsdb_ingest_shuffled` | `sorted_array` | 2000 | **36,686.7** | 37,253.9 [36,686.6, 38,229.7] | 16,508 |
+| `esp32_tsdb_aggregate_500` | `expanse_memtable` | 500 | **429.7** | 430.9 [429.6, 433.6] | 11,274 |
+| `esp32_tsdb_aggregate_500` | `hash_open_addressing` | 500 | **146.2** | 146.2 [146.2, 146.2] | 36,996 |
+| `esp32_tsdb_aggregate_500` | `ring_buffer` | 500 | **72.0** | 72.0 [72.0, 72.0] | 16,512 |
+| `esp32_tsdb_aggregate_500` | `sorted_array` | 500 | **52.8** | 53.3 [52.9, 53.5] | 16,508 |
+| `esp32_tsdb_aggregate_500_shuffled` | `expanse_memtable` | 500 | **428.4** | 428.0 [427.5, 428.5] | 11,318 |
+| `esp32_tsdb_aggregate_500_shuffled` | `hash_open_addressing` | 500 | **146.2** | 146.4 [146.2, 147.2] | 36,996 |
+| `esp32_tsdb_aggregate_500_shuffled` | `sorted_array` | 500 | **56.0** | 56.0 [56.0, 56.0] | 16,508 |
+| `esp32_churn_insert_delete` | `expanse_memtable` | 8000 | **3,783.2** | 3,865.2 [3,782.1, 4,194.5] | 462 |
+| `esp32_ble_sighting_record` | `expanse_slab` | 2000 | **7,305.4** | 7,304.8 [7,301.5, 7,307.8] | 111,988 |
+| `esp32_ble_sighting_record` | `hash_open_addressing` | 2000 | **3,410.9** | 3,411.0 [3,410.7, 3,411.3] | 118,908 |
+| `esp32_ble_sighting_record` | `linear_scan` | 2000 | **112,430.2** | 112,997.3 [112,430.2, 114,131.6] | 57,460 |
+| `esp32_ble_point_lookup` | `expanse_slab` | 2000 | **2,264.4** ⚠ | 2,610.6 [2,264.2, 3,833.4] | 111,988 |
+| `esp32_ble_point_lookup` | `hash_open_addressing` | 2000 | **3,563.9** | 3,564.2 [3,563.8, 3,564.5] | 118,908 |
+| `esp32_ble_point_lookup` | `linear_scan` | 2000 | **111,553.6** | 112,652.6 [111,821.4, 113,495.1] | 57,460 |
+| `esp32_ble_ttl_eviction` (55% expired) | `expanse_slab` | 1100 | **2,375.2** | 2,375.5 [2,373.3, 2,378.0] | 111,988 |
+| `esp32_ble_ttl_eviction` (55% expired) | `hash_open_addressing` | 1100 | **95.7** | 95.8 [95.7, 96.1] | 118,908 |
+| `esp32_ble_ttl_eviction` (55% expired) | `linear_scan` | 1100 | **82.8** | 83.1 [82.8, 83.5] | 57,460 |
+| `esp32_ble_ttl_eviction_sparse` (5% expired) | `expanse_slab` | 100 | **2,500.2** | 2,512.4 [2,493.9, 2,539.7] | 111,994 |
+| `esp32_ble_ttl_eviction_sparse` (5% expired) | `hash_open_addressing` | 100 | **1,032.4** | 1,033.6 [1,032.4, 1,036.0] | 118,908 |
+| `esp32_ble_ttl_eviction_sparse` (5% expired) | `linear_scan` | 100 | **1,396.9** | 1,398.1 [1,396.9, 1,401.7] | 57,460 |
 
 **How to read this chart — and what it cannot tell you.**
 
 It answers *"can this part do my job, and what will it cost me?"* Sizing is
-what it is for: one 160 MHz core sustains roughly **34k memtable inserts/s**,
-**71k point lookups/s**, or **20k BLE sighting records/s**, so a 1 kHz sensor
-spends about 2.9% of a core on ingest. If your event rate is inside those with
+what it is for: one 160 MHz core sustains roughly **45k memtable inserts/s**,
+**71k point lookups/s**, or **22k BLE sighting records/s**, so a 1 kHz sensor
+spends about 2.2% of a core on ingest. If your event rate is inside those with
 margin, this fits; within 2–3×, budget carefully, because the figures include
 the component's FreeRTOS mutex and leave nothing for your application.
 
