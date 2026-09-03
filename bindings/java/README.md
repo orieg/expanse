@@ -56,11 +56,34 @@ libraryDependencies += "io.github.orieg" % "expanse-java" % "0.5.0"
 | **JDK 21 LTS** | **Source Build (Preview)** | `--enable-preview --enable-native-access=ALL-UNNAMED` | FFM preview ([JEP 442](https://openjdk.org/jeps/442)). Requires compiling from source with `--release 21 --enable-preview`. |
 | **JDK 17 LTS** | **Unsupported** | — | JDK 17 provided only an early incubator module (`jdk.incubator.foreign` - [JEP 412](https://openjdk.org/jeps/412)), which is fundamentally source-incompatible with finalized FFM. |
 
-### JVM Launch Flags
-Because Project Panama downcalls perform direct off-heap address access, pass `--enable-native-access` to your JVM process:
+### JVM Launch Flags & Build Tool Configuration
+Because Project Panama downcalls perform direct off-heap address access, pass `--enable-native-access` to your JVM process and test runners:
+
+#### Runtime Launch
 ```bash
 java --enable-native-access=ALL-UNNAMED -jar your-app.jar
 ```
+
+#### Maven (`pom.xml`)
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-surefire-plugin</artifactId>
+    <version>3.2.5</version>
+    <configuration>
+        <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+    </configuration>
+</plugin>
+```
+
+#### Gradle (`build.gradle.kts` / `build.gradle`)
+```kotlin
+tasks.withType<Test> {
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+```
+
+See [docs/bindings/java.md §10](../../docs/bindings/java.md#10-build-tool--settings-configuration-guide) for sbt (Scala), Exec plugin, and `~/.m2/settings.xml` publishing configurations.
 
 ---
 

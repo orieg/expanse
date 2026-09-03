@@ -306,8 +306,151 @@ On first use, `NativeLoader` performs resolution in deterministic priority order
 | **JDK 21 LTS** | **Source Build (Preview)** | `--enable-preview --enable-native-access=ALL-UNNAMED` | Preview FFM implementation ([JEP 442](https://openjdk.org/jeps/442)). Requires source compilation targeting `--release 21 --enable-preview`. |
 | **JDK 17 LTS** | **Unsupported** | — | Contains only early incubator module (`jdk.incubator.foreign` - [JEP 412](https://openjdk.org/jeps/412)), which uses fundamentally distinct package structures and incompatible segment abstractions. |
 
-### JVM Launch Configuration
-Because Panama downcalls perform raw off-heap dereferences and native linker bindings, the JVM requires native access authorization:
+---
+
+## 10. Build Tool & Settings Configuration Guide
+
+Because Project Panama FFM performs raw off-heap dereferences and native linker bindings, the JVM requires native access authorization via `--enable-native-access=ALL-UNNAMED`.
+
+### 10.1 Maven Configuration (`pom.xml`)
+
+#### Dependency Declaration
+```xml
+<dependency>
+    <groupId>io.github.orieg</groupId>
+    <artifactId>expanse-java</artifactId>
+    <version>0.5.0</version>
+</dependency>
+```
+
+#### Test Execution Configuration (`maven-surefire-plugin` / `maven-failsafe-plugin`)
+Add the native access flag to your test runner:
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-surefire-plugin</artifactId>
+    <version>3.2.5</version>
+    <configuration>
+        <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+    </configuration>
+</plugin>
+```
+
+#### Application Execution (`exec-maven-plugin`)
+```xml
+<plugin>
+    <groupId>org.codehaus.mojo</groupId>
+    <artifactId>exec-maven-plugin</artifactId>
+    <version>3.2.0</version>
+    <configuration>
+        <mainClass>com.example.MyApp</mainClass>
+        <arguments>
+            <argument>--enable-native-access=ALL-UNNAMED</argument>
+        </arguments>
+    </configuration>
+</plugin>
+```
+
+---
+
+### 10.2 Gradle Configuration
+
+#### Kotlin DSL (`build.gradle.kts`)
+```kotlin
+dependencies {
+    implementation("io.github.orieg:expanse-java:0.5.0")
+}
+
+tasks.withType<Test> {
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
+tasks.withType<JavaExec> {
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
+// If using the application plugin:
+application {
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
+}
+```
+
+#### Groovy DSL (`build.gradle`)
+```groovy
+dependencies {
+    implementation 'io.github.orieg:expanse-java:0.5.0'
+}
+
+test {
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
+}
+
+tasks.withType(JavaExec) {
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
+}
+
+application {
+    applicationDefaultJvmArgs = ['--enable-native-access=ALL-UNNAMED']
+}
+```
+
+---
+
+### 10.3 sbt Configuration (Scala) (`build.sbt`)
+
+```scala
+libraryDependencies += "io.github.orieg" % "expanse-java" % "0.5.0"
+
+// Panama requires forking the JVM to pass native access authorization
+fork := true
+
+javaOptions ++= Seq(
+  "--enable-native-access=ALL-UNNAMED"
+)
+```
+
+---
+
+### 10.4 Publishing & Building From Source (`~/.m2/settings.xml`)
+
+If you are publishing custom builds or contributing to `expanse-java` releases, authenticate with the Sonatype Central Publisher Portal (`central.sonatype.com`) by placing your Publisher User Token into `~/.m2/settings.xml`:
+
+```xml
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                              https://maven.apache.org/xsd/settings-1.0.0.xsd">
+  <servers>
+    <server>
+      <id>central</id>
+      <username>YOUR_SONATYPE_PORTAL_TOKEN_USERNAME</username>
+      <password>YOUR_SONATYPE_PORTAL_TOKEN_PASSWORD</password>
+    </server>
+  </servers>
+</settings>
+```
+
+Once configured, deploy to Maven Central with:
 ```bash
+mvn deploy -f bindings/java/pom.xml -P release -DskipTests
+```
+
+---
+
+### 10.5 Runtime Launch & Native Overrides
+
+#### Standard Production Launch
+```bash
+java --enable-native-access=ALL-UNNAMED -jar my-application.jar
+```
+
+#### Custom Native Binary Override
+By default, `NativeLoader` automatically extracts and loads the bundled native binary for the host OS and architecture. To override this with an external custom build:
+```bash
+# Via JVM System Property:
+java -Dexpanse.library.path=/opt/expanse/libexpanse.so --enable-native-access=ALL-UNNAMED -jar app.jar
+
+# Or via Environment Variable:
+export EXPANSE_LIBRARY_PATH=/opt/expanse/libexpanse.so
 java --enable-native-access=ALL-UNNAMED -jar app.jar
 ```
