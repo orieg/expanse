@@ -2,36 +2,45 @@
 
 *(measured: STM32H747I-DISCO, silicon rev V; Cortex-M7 at 64 MHz HSI, 160 MHz PLL1/VOS3 and 400 MHz PLL1/VOS1, D-cache 4-way × 128 sets × 32-byte lines, off and on; Cortex-M4 at 200 MHz HCLK, no cache; clocks host-verified over 320M cycles at 64.1 / 160.2 / 400.5 / 200.3 MHz; libexpanse staticlib commit `22908c15`; DWT cycles per operation, min of 5 passes, one board; source `docs/benchmarks/stm32h747/results.json`, transcript alongside; every chart value is derived from that file by `scripts/generate_stm32_svg.py`. The full tables and the verdict against the #598 pre-registration are in [`docs/BENCHMARKING.md`](../../BENCHMARKING.md), "Cortex-M7 on-target"; the pre-registration record is [`METHODOLOGY.md`](METHODOLOGY.md); the firmware and the flash/capture flow are [`integrations/stm32h747/`](../../../integrations/stm32h747/README.md); `run.sh` here reproduces the run with the board attached.)*
 
-> **Paired on the same board.** `28dd572e` and
+> **Paired on the same board.** `28dd572e` (`main` immediately before #625) and
 > `22908c15` were flashed back to back with identical harness firmware, so the
-> engine is the only difference; `28dd572e` is `main` immediately before #625. `ingest` is the arm the #625 insert-path change
-> reaches; the twin containers in the same row share no engine code, so their
-> movement is the floor below which nothing is attributable.
+> engine is the only difference. `ingest` is the arm the #625 insert-path change
+> reaches.
 >
-> | core | MHz | D-cache | `28dd572e` | `22908c15` | Δ | twin drift | reading |
+> **How to read the verdict.** The three alternatives in a row — sorted array,
+> open-addressing hash, `tsearch` — are byte-identical C in both arms and run
+> the same board, so any movement *they* show between the two runs is noise:
+> layout, thermal, timing. The **noise floor** column is the largest such
+> movement in that row. An Expanse movement smaller than it is not claimed; one
+> larger than it is attributed to the engine change. The floor is often tiny
+> here (the twins are very stable on this part), which is why a 0.3% move can
+> sit outside it — that is a statement about the noise, not about the size of
+> the effect.
+>
+> | core | MHz | D-cache | `28dd572e` | `22908c15` | Δ | noise floor | verdict |
 > |---|---:|---|---:|---:|---:|---:|---|
-> | `m7` | 64 | off | 1,397 | **1,097** | **-21.5%** | 0.1% | 424.6× twin drift |
-> | `m7` | 64 | on | 965 | **718** | **-25.5%** | 0.5% | 47.5× twin drift |
-> | `m7` | 160 | off | 1,762 | **1,438** | **-18.4%** | 0.0% | 414.0× twin drift |
-> | `m7` | 160 | on | 1,006 | **745** | **-26.0%** | 0.7% | 39.9× twin drift |
-> | `m7` | 400 | off | 1,762 | **1,438** | **-18.4%** | 0.0% | 415.2× twin drift |
-> | `m7` | 400 | on | 1,008 | **745** | **-26.1%** | 0.6% | 45.8× twin drift |
-> | `m4` | 200 | off | 4,145 | **3,037** | **-26.7%** | 1.0% | 25.6× twin drift |
+> | `m7` | 64 | off | 1,397 | **1,097** | **-21.5%** | 0.1% | outside noise — attributed |
+> | `m7` | 64 | on | 965 | **718** | **-25.5%** | 0.5% | outside noise — attributed |
+> | `m7` | 160 | off | 1,762 | **1,438** | **-18.4%** | 0.0% | outside noise — attributed |
+> | `m7` | 160 | on | 1,006 | **745** | **-26.0%** | 0.7% | outside noise — attributed |
+> | `m7` | 400 | off | 1,762 | **1,438** | **-18.4%** | 0.0% | outside noise — attributed |
+> | `m7` | 400 | on | 1,008 | **745** | **-26.1%** | 0.6% | outside noise — attributed |
+> | `m4` | 200 | off | 4,145 | **3,037** | **-26.7%** | 1.0% | outside noise — attributed |
 >
 > The previously published artifact (`05575498`) predates #622 as well. Paired
 > against the same control on the same board, that step — cap-classing the
 > 32-bit bitmap subarrays — had never been measured on this part; it had been on
 > the ESP32 only (#624):
 >
-> | core | MHz | D-cache | `05575498` | `28dd572e` | Δ | twin drift | reading |
+> | core | MHz | D-cache | `05575498` | `28dd572e` | Δ | noise floor | verdict |
 > |---|---:|---|---:|---:|---:|---:|---|
-> | `m7` | 64 | off | 1,762 | **1,397** | **-20.7%** | 2.3% | 8.9× twin drift |
-> | `m7` | 64 | on | 1,176 | **965** | **-17.9%** | 3.5% | 5.1× twin drift |
-> | `m7` | 160 | off | 2,249 | **1,762** | **-21.7%** | 0.0% | 1534.2× twin drift |
-> | `m7` | 160 | on | 1,199 | **1,006** | **-16.1%** | 6.9% | 2.3× twin drift |
-> | `m7` | 400 | off | 2,249 | **1,762** | **-21.6%** | 0.0% | 767.5× twin drift |
-> | `m7` | 400 | on | 1,199 | **1,008** | **-15.9%** | 6.8% | 2.3× twin drift |
-> | `m4` | 200 | off | 5,074 | **4,145** | **-18.3%** | 6.8% | 2.7× twin drift |
+> | `m7` | 64 | off | 1,762 | **1,397** | **-20.7%** | 2.3% | outside noise — attributed |
+> | `m7` | 64 | on | 1,176 | **965** | **-17.9%** | 3.5% | outside noise — attributed |
+> | `m7` | 160 | off | 2,249 | **1,762** | **-21.7%** | 0.0% | outside noise — attributed |
+> | `m7` | 160 | on | 1,199 | **1,006** | **-16.1%** | 6.9% | outside noise — attributed |
+> | `m7` | 400 | off | 2,249 | **1,762** | **-21.6%** | 0.0% | outside noise — attributed |
+> | `m7` | 400 | on | 1,199 | **1,008** | **-15.9%** | 6.8% | outside noise — attributed |
+> | `m4` | 200 | off | 5,074 | **4,145** | **-18.3%** | 6.8% | outside noise — attributed |
 
 ### 1. Expanse on the M7: does it run, and does the cache-line node layout pay off?
 
