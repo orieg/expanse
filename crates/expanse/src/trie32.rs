@@ -1230,33 +1230,9 @@ fn branch_total_keys(a: &Arena, e: &Edge32) -> u32 {
     }
 }
 
-fn branch_add_keys(a: &mut Arena, e: &Edge32, delta: i64) {
-    match kind(e) {
-        Kind::BranchL2 => {
-            let b = a.l2_mut(edge_handle(e));
-            b.header.pop0 = (b.header.pop0 as i64 + delta) as u32;
-        }
-        Kind::BranchL6 => {
-            let b = a.l6_mut(edge_handle(e));
-            b.header.pop0 = (b.header.pop0 as i64 + delta) as u32;
-        }
-        Kind::BranchB => {
-            let b = a.b_mut(edge_handle(e));
-            b.count = (b.count as i64 + delta) as u32;
-        }
-        Kind::BranchU => {
-            let b = a.u_mut(edge_handle(e));
-            b.count = (b.count as i64 + delta) as u32;
-        }
-        _ => unreachable!(),
-    }
-}
-
-/// One-visit successor to the `branch_set_child` + `branch_add_keys`
-/// pair on the descent's way back up: a single arena fetch and tag
-/// dispatch stores the child edge (when it changed) and applies the
-/// subtree key-count delta. The separate helpers remain for the cold
-/// paths that need only one of the two (#577).
+/// One-visit successor to the child set + key delta pair on the descent's
+/// way back up: a single arena fetch and tag dispatch stores the child edge
+/// (when it changed) and applies the subtree key-count delta (#577).
 #[inline(always)]
 fn branch_commit(a: &mut Arena, e: &Edge32, digit: u8, child: Option<Edge32>, delta: i64) {
     match kind(e) {
@@ -1748,11 +1724,12 @@ fn insert_pair_sorted(pairs: &mut Vec<(u8, Edge32)>, digit: u8, child: Edge32) {
 /// Remove `(digit, child)` from a branch. Returns `true` if the branch
 /// was modified. The caller is responsible for freeing the child node
 /// if applicable.
-fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
+fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8, delta: i64) {
     let level = branch_level(a, e);
     match kind(e) {
         Kind::BranchL2 => {
             let b = a.l2_mut(edge_handle(e));
+            b.header.pop0 = (b.header.pop0 as i64 + delta) as u32;
             let n = b.header.num_edges as usize;
             let mut pos = None;
             for i in 0..n {
@@ -1777,6 +1754,7 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
         }
         Kind::BranchL6 => {
             let b = a.l6_mut(edge_handle(e));
+            b.header.pop0 = (b.header.pop0 as i64 + delta) as u32;
             let n = b.header.num_edges as usize;
             let mut pos = None;
             for i in 0..n {
@@ -1810,6 +1788,7 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
         Kind::BranchB => {
             let (new_n, total, retired_sub, bytes_delta) = {
                 let b = a.b_mut(edge_handle(e));
+                b.count = (b.count as i64 + delta) as u32;
                 let w = (digit >> 6) as usize;
                 let bit64 = digit & 63;
                 let bit_mask = 1u64 << bit64;
@@ -1848,6 +1827,7 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
         }
         Kind::BranchU => {
             let b = a.u_mut(edge_handle(e));
+            b.count = (b.count as i64 + delta) as u32;
             debug_assert!(!b.edges[digit as usize].is_null());
             b.edges[digit as usize] = Edge32::null();
             b.num_children -= 1;
@@ -2059,7 +2039,16 @@ pub(crate) fn set_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
         Kind::SetLeaf(_) => {
             let pop = edge_pop(e);
             let buf = a.leaf(edge_handle(e));
-            let pos = leaf_lower_bound(buf, pop, kb, rem).unwrap();
+            let pos = if pop > 0 && rem == read_rem(buf, pop - 1, kb as usize) {
+                pop - 1
+            } else if pop > 0 && rem > read_rem(buf, pop - 1, kb as usize) {
+                return false;
+            } else {
+                let Some(p) = leaf_lower_bound(buf, pop, kb, rem) else {
+                    return false;
+                };
+                p
+            };
             if pos >= pop || read_rem(buf, pos, kb as usize) != rem {
                 return false;
             }
@@ -2114,13 +2103,14 @@ pub(crate) fn set_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
             match branch_child(a, e, d) {
                 None => false,
                 Some(mut child) => {
+                    let old_child = child;
                     let removed = set_remove(a, &mut child, kb - 1, cr);
                     if removed {
                         if child.is_null() {
-                            branch_add_keys(a, e, -1);
-                            branch_remove_digit(a, e, d);
+                            branch_remove_digit(a, e, d, -1);
                         } else {
-                            branch_commit(a, e, d, Some(child), -1);
+                            let changed = child != old_child;
+                            branch_commit(a, e, d, changed.then_some(child), -1);
                         }
                     }
                     removed
@@ -2478,7 +2468,13 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
             let cap = cap_class(pop);
             let keys_off = 4 * cap;
             let buf = a.leaf(edge_handle(e));
-            let pos = leaf_lower_bound(&buf[keys_off..], pop, kb, rem).unwrap();
+            let pos = if pop > 0 && rem == read_rem(&buf[keys_off..], pop - 1, kb as usize) {
+                pop - 1
+            } else if pop > 0 && rem > read_rem(&buf[keys_off..], pop - 1, kb as usize) {
+                return None;
+            } else {
+                leaf_lower_bound(&buf[keys_off..], pop, kb, rem)?
+            };
             if pos >= pop || read_rem(&buf[keys_off..], pos, kb as usize) != rem {
                 return None;
             }
@@ -2505,7 +2501,7 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
             Some(old)
         }
         Kind::MapBitmap => {
-            let (old_val, pop, retired_sub, bytes_delta) = {
+            let (old_val, count_after, retired_sub, bytes_delta) = {
                 let b = a.map_bitmap_mut(edge_handle(e));
                 let digit = rem as u8;
                 let w = (digit >> 6) as usize;
@@ -2526,20 +2522,21 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
                 if pop > 0 {
                     b.header.pop0 -= 1;
                 }
+                let count_after = b.header.pop0 as usize;
                 (
                     old_val,
-                    pop,
+                    count_after,
                     retired,
                     subarray_bytes_delta::<u32>(sub_pop, sub_pop - 1),
                 )
             };
             a.retire_vals(retired_sub);
             a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
-            if pop == 0 {
+            if count_after == 0 {
                 let old = edge_handle(e);
                 a.free(old);
                 *e = Edge32::null();
-            } else if pop <= MAP_BITMAP_LEAVE {
+            } else if count_after <= MAP_BITMAP_LEAVE {
                 let entries = read_map_bitmap(a, e);
                 let old = edge_handle(e);
                 *e = if entries.len() == 1 {
@@ -2557,13 +2554,14 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
             match branch_child(a, e, d) {
                 None => None,
                 Some(mut child) => {
+                    let old_child = child;
                     let old = map_remove(a, &mut child, kb - 1, cr);
                     if old.is_some() {
                         if child.is_null() {
-                            branch_add_keys(a, e, -1);
-                            branch_remove_digit(a, e, d);
+                            branch_remove_digit(a, e, d, -1);
                         } else {
-                            branch_commit(a, e, d, Some(child), -1);
+                            let changed = child != old_child;
+                            branch_commit(a, e, d, changed.then_some(child), -1);
                         }
                     }
                     old
@@ -3276,10 +3274,9 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
                 }
                 total += n;
                 if child.is_null() {
-                    branch_add_keys(a, e, -(n as i64));
                     // May demote or empty the branch, so the next iteration
                     // re-dispatches on the rewritten edge.
-                    branch_remove_digit(a, e, d);
+                    branch_remove_digit(a, e, d, -(n as i64));
                     if e.is_null() {
                         break;
                     }
@@ -3429,8 +3426,7 @@ pub(crate) fn set_remove_range<F: FnMut(u32)>(
                 }
                 total += n;
                 if child.is_null() {
-                    branch_add_keys(a, e, -(n as i64));
-                    branch_remove_digit(a, e, d);
+                    branch_remove_digit(a, e, d, -(n as i64));
                     if e.is_null() {
                         break;
                     }

@@ -648,6 +648,21 @@ the plausible reading — needs a layout-controlled build (a linker script that
 pins the hot functions, or per-arm instruction-cache counters). Neither exists
 here, so it is recorded as observed and unattributed.
 
+### 8.1.4 Trie descent optimization for scattered removals (#617)
+
+Following §8.1.2's conclusion, optimizing scattered removals across a hash-keyed index (`by_mac`) cannot rely on key batching or sorting (which added overhead over distinct branches). Instead, the mechanism attacks the per-key descent and unroll paths directly:
+
+1. **Conditional child rewrite in `branch_commit`**: On deletion descent, when a child node does not change handle (`child == old_child`), `branch_commit` receives `None` (matching `map_insert_f`). This bypasses linear digit searches on `BranchL2`/`BranchL6`, bitmap rank calculations (POPCNT) on `BranchB`, and array writes on `BranchU` across all unchanged ancestor branch levels (up to 3 levels per 32-bit key).
+2. **Fused `delta` in `branch_remove_digit`**: When a child node becomes empty (`child.is_null()`), `branch_remove_digit(a, e, d, delta)` applies the key count delta directly, eliminating the redundant preceding call to `branch_add_keys(a, e, delta)` and saving an entire arena fetch and tag dispatch.
+3. **Corrected `MapBitmap` zero-population nulling**: Off-by-one pre-decrement check in `map_remove` is corrected so `count_after == 0` frees the node and nulls the edge directly, avoiding an invalid demotion to an empty `MapLeaf`.
+4. **Linear leaf boundary short-circuit**: In `MapLeaf` / `Leaf`, checking the last element before linear/binary search allows short-circuiting tail deletions.
+5. **Decoupled eviction batching in BLE tracker**: In `expanse_ble_tracker.c`, buffering expired slab indices across a small fixed stack batch (64 entries, 128 bytes) decouples the `by_time` range walk from the `by_mac` removals, preventing L1 D-cache thrashing between the two tries without sorting or dynamic allocations.
+
+#### Gate Criteria & Verification
+- **Functional Invariance**: 100% agreement with `BTreeMap` and `BTreeSet` models on insertions, deletions, capacity shrinks, and full drains across dense, sparse, and clustered populations.
+- **Memory Invariance**: Fully drained trees leave `alloc.bytes_in_use() == 0` with zero memory leaks.
+- **Discrimination**: `test_branch_b_digit_removal_count_invariant` in `test_boundary_invariants.rs` demonstrates failure when the `BranchB` delta update is omitted and passes when restored (§2.3 fail-then-pass).
+
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 
 ```rust
