@@ -372,7 +372,9 @@ fn monotonic_fill_allocates_less_than_scattered() {
             }
         });
         assert_eq!(map.len(), keys.len(), "fill lost keys");
-        core::mem::forget(map);
+        // Dropped, not leaked: `dealloc` does not bump the counter, so the
+        // teardown cannot reach the number, and a leaked 10k-key map fails
+        // LeakSanitizer in the ASan job (AGENTS.md §5, RAII fixture hygiene).
         n
     };
 
