@@ -485,14 +485,28 @@ jobs:
         #
         # Scope of that guarantee: it covers what this step WRITES into
         # the PR comment. It does NOT sanitize the job log, which on a
-        # public repository is public too. The log additionally exposes
-        # the runner's registered name and, when the runner is installed
-        # under a user home directory, a /home/<user> prefix on every
-        # path a build tool echoes. AGENTS.md section 7 forbids OS
-        # usernames and home-directory paths alongside hostnames, so that
-        # is fixed by relocating the runner on the host (a neutral path
-        # such as /opt/actions-runner under a service account) - it
-        # cannot be fixed from this workflow.
+        # public repository is public too. None of the residue below can
+        # be fixed from this workflow; see docs/BENCHMARKING.md,
+        # "What relocation does and does not fix".
+        #
+        # The runner is now installed at a neutral path (/opt/actions-runner)
+        # and registered under a role name rather than a hostname, which
+        # removed the /home/<user> prefix from the paths build tools echo -
+        # the bulk of the exposure AGENTS.md section 7 is about. Two lines
+        # survive that and are NOT closed by the install path:
+        #
+        #   Machine name: '<hostname>'
+        #       the runner emits the OS hostname at job setup, independent
+        #       of --name; only renaming the host removes it.
+        #   Copying '/home/<user>/.gitconfig' to '/opt/.../_work/_temp/...'
+        #       actions/checkout copies the invoking user's global gitconfig
+        #       and logs the source. $HOME must stay the benchmark user's
+        #       because the bench step below exports $HOME/.cargo/bin and
+        #       $HOME/.local/bin, so closing this needs a service account
+        #       with its own toolchain install.
+        #
+        # Relocation alone therefore does not sanitise the log, and this
+        # comment previously said it did.
         run: |
           echo "=== System Load & Host Snapshot ==="
           uname -srm
