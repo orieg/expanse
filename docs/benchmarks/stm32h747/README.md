@@ -57,7 +57,7 @@
 | BUSY 71% flat-out, 15 / 4 / 0.4% at 40k / 10k / 1k mutations/s | single-attempt reads are practical at realistic write rates |
 | ISR entry latency ceiling 49–83 cycles vs 1,551–1,728 for the critical section | interrupt latency bounded 18–35× tighter than masking interrupts |
 
-### 2. Against what firmware usually reaches for
+### 2. Expanse against a sorted array, an open-addressing hash table and `tsearch`
 
 ![Expanse vs a sorted array, an open-addressing hash table and newlib tsearch on the same Cortex-M7 fixtures, plus bytes per key](../../assets/bench_stm32h747_alternatives.svg)
 
