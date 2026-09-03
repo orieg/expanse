@@ -674,11 +674,9 @@ With the D-cache off the M7 cells lose more: `evict_bulk_range` +6.6% to +8.7% a
 
 Following AGENTS.md §6 zero-tolerance for regressions and §8.10 (retract, don't re-estimate), the engine changes from #628 were reverted rather than shipping a known on-target performance loss. The BLE tracker component batching in `expanse_ble_tracker.c` is retained pending dedicated evaluation on ESP32 (#630).
 
-### 8.1.5 Attempted conditional bypass for 32-bit removal descent (#617, #632)
+### 8.1.5 Removal-descent rewrite, second attempt: rejected on Callgrind before it reached a board (#617, #632)
 
-Following the revert of #628, a dedicated spike (#632) evaluated whether child edge updates could be conditionally bypassed during removal descent by comparing `child != old_child` (or using `Edge32::null()` as a sentinel) and narrowing key-count deltas to `delta: i32`.
-
-Deterministic Callgrind profiling in CI permanently rejected this approach across all removal arms:
+#632 re-landed three of #628's four engine edits in one change: the `child != old_child` guard on the ascent store (with `Edge32::null()` as the unchanged sentinel instead of `Option<Edge32>`), the key-count delta fused into `branch_remove_digit`, and the delta narrowed from `i64` to `i32`; the `MapBitmap` demotion test moved to the post-decrement count as well. It was the first change on this path measured by the `map32_remove`/`set32_remove` arms #631 added, and every one of them lost, as did both insert arms:
 
 | Benchmark Arm | Baseline (`dddd8f67`) | Spike (`4393cfb1`) | Instruction Delta | Verdict |
 |---|---|---|---|---|
@@ -693,11 +691,9 @@ Deterministic Callgrind profiling in CI permanently rejected this approach acros
 
 *(measured: GitHub Actions CI x86_64, treatment `4393cfb1` against base `dddd8f67`, valgrind-3.22.0 / iai-callgrind; PR #632)*
 
-#### Causal Microarchitectural Mechanism
-1. **100% False Selectivity**: In Judy32 digital tries, leaf node discriminants embed population directly within `Edge32.tag` (`Kind::SetLeaf(pop)`, `Kind::MapLeaf(pop)`). When any key is removed from a leaf, the population decrements (`new_pop = pop - 1`), causing the tag to change on 100% of leaf removals.
-2. **Comparison Overhead vs Single Store**: An unconditional store (`b.edges[pos] = child`) in L1d cache executes in a single machine instruction (1 cycle). Adding an equality guard (`if child != old_child`) requires copying 8 bytes, performing multi-word comparison instructions, and evaluating a conditional branch. Because `child != old_child` is always true on leaf removals, the descent executes 5–10 extra instructions per level only to execute the store anyway.
+The eight cells are exact counts, so the verdict is not in doubt. What the measurement does **not** say is which of the four edits cost what: they were landed together, so the batch is attributed, not the increments (§6, one increment one measurement). Two facts bound the reading without settling it. On the 32-bit engine a leaf child's edge carries its population (`Kind::SetLeaf(pop)`, `Kind::MapLeaf(pop)`), so removing a key changes the edge every time and the guard on the ascent store can never skip for a leaf child; it can skip for a bitmap terminal, whose edge is unchanged by an in-place removal. So the guard is dead weight on the leaf-terminated descents the sequential and clustered shapes are made of, which is consistent with those arms losing most (+8.5% to +12.2%) and the random shape least (+4.1% to +5.4%). The per-level cost of the compare, and the share of the loss owed to the fused delta or the `i32` narrowing, were not measured, and no assembly or cycle-level evidence was taken; #632's own codegen figure was the byte size of an assembly listing, which measures nothing about spills.
 
-Per AGENTS.md §6 (*"A flat or negative result is reverted and written down"*), PR #632 was closed with zero changes to `main`'s descent paths. The engine retains unconditional stores on removal ascent.
+Recorded so it is not retried: on this engine, guarding the ascent store is not selective for leaf children, and the ascent rewrite has now lost twice on two instruments (#628 on the STM32H747, §8.1.4; #632 on Callgrind). A third attempt needs a per-function ranking first (§6) and one edit per measurement.
 
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 
