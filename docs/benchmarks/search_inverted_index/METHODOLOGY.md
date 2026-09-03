@@ -154,6 +154,29 @@ table is the pre-registration, not the conclusion.
 * **Sizes:** 10^4, 10^5, 10^6, 10^7 docIDs per list (quick mode: 10^4, 10^5).
 * **Skewed arm:** \|A\| ∈ {10^6, 10^7}, \|B\| = \|A\|/1000, AND only.
 
+> **Update (#610 Pre-Registration) — k-Way Aggregate Set Algebra.**
+> The pairwise set-algebra kernels (#339 cardinality, #348 direct-emission materialization)
+> require folding multi-predicate queries two operands at a time, allocating intermediate tries
+> and re-walking them. Issue #610 adds $k$-way aggregate set algebra:
+> `intersection_len_many`, `union_len_many`, `intersection_many`, `union_many` over `&[&ExpanseSet]`.
+>
+> - **Novelty tier claimed:** `Engineering` (per Rule 18 / `GEMINI.md §1.7`).
+> - **Primary hypothesis:** Direct $k$-way structural lockstep trie descent eliminates intermediate
+>   allocations and achieves higher prune selectivity than pairwise cascades for $k \ge 3$,
+>   beating both the pairwise-composed Expanse baseline and matching/beating `roaring::MultiOps`
+>   on structured posting-list intersections.
+> - **Expected losses matrix:**
+>   - $k = 2$: the general $k$-way walker carries slice indexing and loop setup overhead compared
+>     to the specialized pairwise kernel (`intersection_len(a, b)`). Entry points fast-path to pairwise.
+>   - Extreme size asymmetry ($|A| = 10^7, |B| = 10^1$): an unsorted $k$-way walk loses to a sorted
+>     pairwise cascade unless driven by the minimum-cardinality operand.
+> - **Go/no-go gate (ships when):**
+>   - Paired BCa 95% bootstrap CI lower bound of speedup over the pairwise-composed baseline clears
+>     **1.0** on dense and clustered cells at $k \in \{3, 5, 8\}$.
+>   - Cells where the lower bound does not clear 1.0 are documented as `BOUNDARY_RESULT` or losses,
+>     never withheld.
+> - **Competitor twin:** `roaring::MultiOps` over `RoaringTreemap` at identical PRNG seed and key streams.
+
 ### Pillar 2 — WAND dynamic skip-scan (`search_wand`, `search_instructions`)
 
 > **Update (#340, resolving the P2 pre-registration).** The Step-0 hypothesis

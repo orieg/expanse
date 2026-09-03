@@ -75,6 +75,7 @@ python3 scripts/check_test_floors.py --self-test
 python3 scripts/esp32_bench_harvest.py --self-test
 python3 scripts/embedded_envelope.py
 python3 scripts/art_envelope.py
+python3 scripts/set_algebra_bounds.py
 
 # Verifying the documented example output needs libexpanse built; the CI
 # man-examples job always runs it. Locally it is opt-in, so `gate.sh` stays
