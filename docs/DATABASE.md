@@ -384,6 +384,20 @@ for id in dict.resolve(&set_c)? {
 4. **Stable Slab Reverse Storage**: Payloads are stored in `BlobArena` using 64-bit global offsets. Memory addresses never move on chunk allocation, and reverse resolution yields uniform borrowed `&[u8]` slices directly from stable chunks.
 5. **Memory Accounting Honesty (AGENTS.md §8)**: Introspection accurately distinguishes between dictionary storage (`dict.dictionary_mem_used()`) and individual posting list sets (`set.mem_used()`).
 
+#### Benchmark Suite: Set Algebra & Interned Set Domain
+
+Performance of set materialization evolution (#348 direct emission vs v1 merge-insert), $k$-way aggregate algebra (#610 multi-way walk vs pairwise cascade vs Roaring MultiOps), and interned set domain zero-overhead parity (#611) `(measured: Apple Silicon aarch64 / reference x86-64 Linux, commit 343ce333)`:
+
+<p align="center">
+  <img src="assets/bench_domain_algebra.svg" alt="Set Algebra and Interned Set Domain Benchmark Suite" width="100%">
+</p>
+
+1. **Direct Emission Materialization (#348)**: Lockstep trie traversal emits the result tree directly without visiting intermediate keys or performing per-element insertions, delivering **30.3× to 37.6× speedups** over the pre-#348 ordered-merge path (`v1`) across dense and clustered key distributions.
+2. **$k$-Way Aggregate Walk (#610)**: For $k$-way intersections ($k=5, N=100\text{k}$), simultaneous multi-set traversal prunes subtrees as soon as any operand has an empty expanse and builds zero intermediate trees, achieving a **1,029× speedup** over chained pairwise folds (550 ns vs 566 µs) and outperforming `roaring::MultiOps` (620 ns).
+3. **DomainSet Provenance Zero-Overhead (#611)**: Domain brand validation (`self.domain_id == other.domain_id`) is resolved via a single predictable branch check, resulting in **+0.00 ns overhead** (1.00× ratio) relative to raw `ExpanseSet` operations.
+4. **Batched Ingestion (#611)**: Chunk amortisation (`dict.insert_batch(&mut set, chunk)`) delivers **4.62 M keys/s** for text keys and **3.98 M keys/s** for binary UUID keys with order-preserving byte-stuffing (**>3× speedup** over scalar ingestion).
+5. **Zero-Copy Slab Resolution (#611)**: Direct slice projection from stable `BlobArena` chunk slabs achieves **16.4 M keys/s** (61 ns / key) with zero heap allocations during traversal.
+
 ---
 
 ## 5. Secondary Indexes & Ordered Key Range Scans
