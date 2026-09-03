@@ -25,6 +25,13 @@ unrelated arm is reported but does not fail a PR on its own.
 
 Requires the `wasmtime` Python package (`pip install wasmtime`); the script
 exits non-zero with that hint if it is missing. Never falls back to a mock.
+
+Fuel is deterministic for a given module and runtime, so the runtime version
+and the compilers are part of a number's provenance and are recorded in the
+result. CI pins both (`wasmtime==<version>` and a dated nightly, see
+`WASM_FUEL_NIGHTLY`); a baseline check reports when either differs from what
+the baseline was measured with, so a drift is read as drift, not as an engine
+regression.
 """
 from __future__ import annotations
 
@@ -62,6 +69,10 @@ DEFAULT_POP = 10_000
 NOISE_FLOOR_PCT = 0.5
 MAX_REGRESSION_PCT = 5.0
 FUEL_BUDGET = 1 << 62
+# The nightly toolchain used for the wasm64 build-std build. CI pins a dated
+# channel so the wasm64 fuel counts are reproducible; locally the default
+# floating `nightly` is fine and the drift notice says when it matters.
+NIGHTLY = os.environ.get("WASM_FUEL_NIGHTLY", "nightly")
 
 
 def fail(msg: str) -> None:
@@ -87,7 +98,7 @@ def wasmtime_version() -> str:
 
 
 def rustc_version(nightly: bool) -> str:
-    cmd = ["rustc", "+nightly", "--version"] if nightly else ["rustc", "--version"]
+    cmd = ["rustc", f"+{NIGHTLY}", "--version"] if nightly else ["rustc", "--version"]
     try:
         return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout.strip()
     except Exception as e:  # pragma: no cover - environment
@@ -109,7 +120,7 @@ def build_module(target: str) -> Path:
     triple = TARGETS[target]
     if target == "wasm64":
         cmd = [
-            "cargo", "+nightly", "build", "--release", "-p", CRATE,
+            "cargo", f"+{NIGHTLY}", "build", "--release", "-p", CRATE,
             "--target", triple, "-Z", "build-std=std,panic_abort",
         ]
     else:
@@ -233,9 +244,14 @@ def compare(current: Dict[str, Any], baseline: Dict[str, Any], max_regression_pc
             f"{len(regressed)} arm(s) regressed > {NOISE_FLOOR_PCT}% (worst: {worst:+.2f}%, single-worst threshold {max_regression_pct}%, two-arm rule):"
         )
         msgs += [f"  - {n}: {d:+.2f}%" for n, d in sorted(regressed, key=lambda x: -x[1])]
-    if base.get("__target__") is None and baseline.get("target") != current.get("target"):
+    if baseline.get("target") != current.get("target"):
         msgs.append(f"baseline target {baseline.get('target')} differs from this run's {current.get('target')}")
         failed = True
+    for field in ("wasmtime", "rustc"):
+        if baseline.get(field) and current.get(field) and baseline[field] != current[field]:
+            msgs.append(
+                f"{field} differs from the baseline's ({baseline[field]} -> {current[field]}): fuel depends on it, so any movement above may be toolchain drift rather than an engine change; re-baseline with the pinned versions before reading it as either"
+            )
     return failed, msgs, rows
 
 
@@ -312,6 +328,10 @@ def self_test() -> None:
     # target mismatch: fail
     f, _, _ = compare({"target": "wasm64-unknown-unknown", "arms": base["arms"]}, base, MAX_REGRESSION_PCT)
     assert f, "comparing across targets must fail"
+    # runtime / compiler drift: reported, not fatal on its own
+    b2 = dict(base, wasmtime="48.0.0", rustc="rustc 1.98.0"); c2 = cur({"a/x": 1000, "b/x": 1000, "c/x": 1000}); c2.update(wasmtime="49.0.0", rustc="rustc 1.98.0")
+    f, msgs, _ = compare(c2, b2, MAX_REGRESSION_PCT)
+    assert not f and any("wasmtime differs" in m for m in msgs), "toolchain drift must be reported"
     # improvements pass and render green
     r = {"target": "wasm32-unknown-unknown", "wasmtime": "x", "rustc": "y", "commit": "z", "pop": 10, "arms": [{"name": "a/x", "fuel": 900, "per_op": 90.0}], "mem_used_bytes_per_key": {"map/x": 1.0}}
     _, _, rows = compare(r, base, MAX_REGRESSION_PCT)

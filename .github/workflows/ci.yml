@@ -1954,9 +1954,12 @@ jobs:
           targets: wasm32-unknown-unknown
 
       # wasm64 has no shipped rust-std; the fuel module is built with
-      # -Z build-std on nightly, the same way test-wasm64 builds the binding.
-      - name: Install nightly with rust-src for wasm64
-        run: rustup toolchain install nightly --profile minimal --component rust-src
+      # -Z build-std on nightly. The channel is dated: fuel counts follow the
+      # compiler's codegen, and the committed baseline was measured with this
+      # one. Move the pin and the baseline together (scripts/wasm_fuel.py
+      # --save-baseline), never one without the other.
+      - name: Install the pinned nightly with rust-src for wasm64
+        run: rustup toolchain install nightly-2026-09-03 --profile minimal --component rust-src
 
       - uses: Swatinem/rust-cache@v2
 
@@ -1967,8 +1970,11 @@ jobs:
 
       # The exact-fuel readout needs the wasmtime Python bindings; the script
       # exits 1 with this hint if they are absent — it never mocks a runtime.
-      - name: Install wasmtime
-        run: python3 -m pip install --quiet wasmtime
+      # Pinned for the same reason as the nightly: fuel accounting is a property
+      # of the runtime version, and results/baseline_wasm_fuel.json records
+      # the version it was measured with.
+      - name: Install wasmtime (pinned to the baseline's version)
+        run: python3 -m pip install --quiet wasmtime==48.0.0
 
       - name: Driver self-test (fail-then-pass pins of the gate policy)
         run: python3 scripts/wasm_fuel.py --self-test
@@ -1981,6 +1987,8 @@ jobs:
         run: python3 scripts/wasm_fuel.py --build wasm32 --check-baseline results/baseline_wasm_fuel.json --json wasm_fuel_wasm32.json --markdown wasm_fuel_wasm32.md
 
       - name: Fuel counts, wasm64 (64-bit engine) vs committed baseline
+        env:
+          WASM_FUEL_NIGHTLY: nightly-2026-09-03
         run: python3 scripts/wasm_fuel.py --build wasm64 --check-baseline results/baseline_wasm_fuel.json --json wasm_fuel_wasm64.json --markdown wasm_fuel_wasm64.md
 
       - name: Publish tables to the job summary
