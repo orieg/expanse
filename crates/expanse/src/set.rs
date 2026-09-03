@@ -1227,6 +1227,291 @@ impl ExpanseSet {
         self.materialize_op(other, crate::algebra_build::Op::Xor)
     }
 
+    /// Number of keys in the intersection of `sets` (`|⋂ S_i|`), without
+    /// materializing the result (#610).
+    #[must_use]
+    pub fn intersection_len_many(sets: &[&ExpanseSet]) -> u64 {
+        if sets.is_empty() {
+            return 0;
+        }
+        if sets.len() == 1 {
+            return sets[0].len();
+        }
+        if sets.len() == 2 {
+            return sets[0].intersection_len(sets[1]);
+        }
+        for s in sets {
+            if s.is_empty() {
+                return 0;
+            }
+        }
+
+        // Check if any set is a Root::Leaf
+        if let Some(min_idx) = sets
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| matches!(s.root, Root::Leaf { .. }))
+            .min_by_key(|(_, s)| s.len())
+            .map(|(i, _)| i)
+        {
+            let driver = sets[min_idx];
+            let keys = driver.root_leaf_keys();
+            let mut count = 0u64;
+            'key_loop: for &k in keys {
+                for (i, s) in sets.iter().enumerate() {
+                    if i == min_idx {
+                        continue;
+                    }
+                    if !s.contains(k) {
+                        continue 'key_loop;
+                    }
+                }
+                count += 1;
+            }
+            return count;
+        }
+
+        // All sets are Root::Tree!
+        for s in sets {
+            s.flush_path();
+        }
+        let mut edges_buf: [crate::node::Edge; 16] = [crate::node::Edge::NULL; 16];
+        let edges_vec: Vec<crate::node::Edge>;
+        let edges: &[crate::node::Edge] = if sets.len() <= 16 {
+            for (i, s) in sets.iter().enumerate() {
+                match &s.root {
+                    Root::Tree { top, .. } => edges_buf[i] = *top,
+                    _ => unreachable!(),
+                }
+            }
+            &edges_buf[..sets.len()]
+        } else {
+            edges_vec = sets
+                .iter()
+                .map(|s| match &s.root {
+                    Root::Tree { top, .. } => *top,
+                    _ => unreachable!(),
+                })
+                .collect();
+            &edges_vec
+        };
+
+        // SAFETY: All trees are live and flushed, rooted at level 8.
+        unsafe { crate::algebra::intersection_len_many(edges, 8) }
+    }
+
+    /// Number of keys in the union of `sets` (`|⋃ S_i|`), without
+    /// materializing the result (#610).
+    #[must_use]
+    pub fn union_len_many(sets: &[&ExpanseSet]) -> u64 {
+        if sets.is_empty() {
+            return 0;
+        }
+        let active: Vec<&ExpanseSet> = sets.iter().copied().filter(|s| !s.is_empty()).collect();
+        if active.is_empty() {
+            return 0;
+        }
+        if active.len() == 1 {
+            return active[0].len();
+        }
+        if active.len() == 2 {
+            return active[0].union_len(active[1]);
+        }
+
+        // If any set is Root::Leaf, extract its keys and probe against remaining sets.
+        for (i, s) in active.iter().enumerate() {
+            if matches!(s.root, Root::Leaf { .. }) {
+                let keys = s.root_leaf_keys();
+                let remaining: Vec<&ExpanseSet> = active
+                    .iter()
+                    .enumerate()
+                    .filter(|&(idx, _)| idx != i)
+                    .map(|(_, &set)| set)
+                    .collect();
+                let mut solo_count = 0u64;
+                for &k in keys {
+                    let mut in_other = false;
+                    for other in &remaining {
+                        if other.contains(k) {
+                            in_other = true;
+                            break;
+                        }
+                    }
+                    if !in_other {
+                        solo_count += 1;
+                    }
+                }
+                return solo_count + Self::union_len_many(&remaining);
+            }
+        }
+
+        // All active sets are Root::Tree.
+        for s in &active {
+            s.flush_path();
+        }
+        let mut edges_buf: [crate::node::Edge; 16] = [crate::node::Edge::NULL; 16];
+        let edges_vec: Vec<crate::node::Edge>;
+        let edges: &[crate::node::Edge] = if active.len() <= 16 {
+            for (i, s) in active.iter().enumerate() {
+                match &s.root {
+                    Root::Tree { top, .. } => edges_buf[i] = *top,
+                    _ => unreachable!(),
+                }
+            }
+            &edges_buf[..active.len()]
+        } else {
+            edges_vec = active
+                .iter()
+                .map(|s| match &s.root {
+                    Root::Tree { top, .. } => *top,
+                    _ => unreachable!(),
+                })
+                .collect();
+            &edges_vec
+        };
+
+        // SAFETY: All trees are live and flushed, rooted at level 8.
+        unsafe { crate::algebra::union_len_many(edges, 8) }
+    }
+
+    /// The set of keys present in **all** `sets` (`⋂ S_i`), built in a single
+    /// pass with zero intermediate trie allocations (#610).
+    #[must_use]
+    pub fn intersection_many(sets: &[&ExpanseSet]) -> ExpanseSet {
+        if sets.is_empty() {
+            return ExpanseSet::new();
+        }
+        if sets.len() == 1 {
+            return Self::from_sorted_iter(sets[0].iter());
+        }
+        if sets.len() == 2 {
+            return sets[0].intersection(sets[1]);
+        }
+        for s in sets {
+            if s.is_empty() {
+                return ExpanseSet::new();
+            }
+        }
+        if Self::intersection_len_many(sets) == 0 {
+            return ExpanseSet::new();
+        }
+
+        let mut sorted: Vec<&ExpanseSet> = sets.to_vec();
+        sorted.sort_by_key(|s| s.len());
+
+        let driver = sorted[0];
+        let others = &sorted[1..];
+
+        let mut out_keys = Vec::new();
+        let mut cur = driver.first();
+
+        while let Some(candidate) = cur {
+            let mut match_count = 1usize;
+            let mut next_cand = candidate;
+            for &other in others {
+                match other.next_at_or_after(next_cand) {
+                    Some(found) if found == next_cand => {
+                        match_count += 1;
+                    }
+                    Some(found) => {
+                        next_cand = found;
+                        break;
+                    }
+                    None => {
+                        return Self::from_sorted_iter(out_keys);
+                    }
+                }
+            }
+            if match_count == sorted.len() {
+                out_keys.push(candidate);
+                cur = candidate
+                    .checked_add(1)
+                    .and_then(|k| driver.next_at_or_after(k));
+            } else {
+                cur = driver.next_at_or_after(next_cand);
+            }
+        }
+
+        Self::from_sorted_iter(out_keys)
+    }
+
+    /// The set of keys present in **any** of `sets` (`⋃ S_i`), built in a single
+    /// pass with zero intermediate trie allocations (#610).
+    #[must_use]
+    pub fn union_many(sets: &[&ExpanseSet]) -> ExpanseSet {
+        if sets.is_empty() {
+            return ExpanseSet::new();
+        }
+        let active: Vec<&ExpanseSet> = sets.iter().copied().filter(|s| !s.is_empty()).collect();
+        if active.is_empty() {
+            return ExpanseSet::new();
+        }
+        if active.len() == 1 {
+            return Self::from_sorted_iter(active[0].iter());
+        }
+        if active.len() == 2 {
+            return active[0].union(active[1]);
+        }
+
+        let k = active.len();
+        let mut out_keys = Vec::new();
+
+        if k <= 8 {
+            let mut cursors: [Option<u64>; 8] = [None; 8];
+            for i in 0..k {
+                cursors[i] = active[i].first();
+            }
+
+            loop {
+                let mut min_val: Option<u64> = None;
+                for &c in &cursors[..k] {
+                    if let Some(v) = c {
+                        min_val = Some(match min_val {
+                            Some(mv) => mv.min(v),
+                            None => v,
+                        });
+                    }
+                }
+                let Some(mv) = min_val else {
+                    break;
+                };
+                out_keys.push(mv);
+                let next_search = mv.checked_add(1);
+                for i in 0..k {
+                    if cursors[i] == Some(mv) {
+                        cursors[i] = next_search.and_then(|ns| active[i].next_at_or_after(ns));
+                    }
+                }
+            }
+        } else {
+            use core::cmp::Reverse;
+            #[cfg(not(feature = "std"))]
+            use core_alloc::collections::BinaryHeap;
+            #[cfg(feature = "std")]
+            use std::collections::BinaryHeap;
+
+            let mut heap = BinaryHeap::with_capacity(k);
+            for (idx, &s) in active.iter().enumerate() {
+                if let Some(first) = s.first() {
+                    heap.push((Reverse(first), idx));
+                }
+            }
+
+            while let Some((Reverse(min_val), idx)) = heap.pop() {
+                if out_keys.last().copied() != Some(min_val) {
+                    out_keys.push(min_val);
+                }
+                if let Some(ns) = min_val.checked_add(1)
+                    && let Some(next_val) = active[idx].next_at_or_after(ns)
+                {
+                    heap.push((Reverse(next_val), idx));
+                }
+            }
+        }
+
+        Self::from_sorted_iter(out_keys)
+    }
+
     /// Direct-emission set algebra (issue #348): when both operands are level-8
     /// tries the result is emitted structurally by the lockstep walk
     /// ([`crate::algebra_build::materialize`]) — bitmap leaves combined word-parallel,
@@ -2575,5 +2860,129 @@ mod tests {
         let b: Vec<u64> = (0..500u64).map(|k| (1u64 << 56) | k).collect();
         check_algebra(&a, &b);
         assert_eq!(set_of(&a).intersection_len(&set_of(&b)), 0);
+    }
+
+    #[test]
+    fn kway_algebra_matches_btreeset() {
+        use std::collections::BTreeSet;
+
+        // k = 0
+        assert_eq!(ExpanseSet::intersection_len_many(&[]), 0);
+        assert_eq!(ExpanseSet::union_len_many(&[]), 0);
+        assert!(ExpanseSet::intersection_many(&[]).is_empty());
+        assert!(ExpanseSet::union_many(&[]).is_empty());
+
+        let mut rng = XorShift(0xCAFE_BABE_0001);
+        let k_values = [1, 2, 3, 5, 8];
+        let n_values = if cfg!(miri) {
+            vec![0, 5, 20]
+        } else {
+            vec![0, 10, 100, 1_000]
+        };
+
+        for &k in &k_values {
+            for &n in &n_values {
+                let mut btree_sets: Vec<BTreeSet<u64>> = Vec::with_capacity(k);
+                let mut expanse_sets: Vec<ExpanseSet> = Vec::with_capacity(k);
+
+                for i in 0..k {
+                    let mut bset = BTreeSet::new();
+                    let mut eset = ExpanseSet::new();
+                    let count = if n == 0 {
+                        0
+                    } else {
+                        (rng.next() as usize % n) + 1
+                    };
+                    for _ in 0..count {
+                        // Mix of shared low range and random high range
+                        let val = if rng.next().is_multiple_of(2) {
+                            rng.next() % (n as u64 * 3).max(10)
+                        } else {
+                            rng.next() & 0x0000_FFFF_FFFF_FFFF
+                        };
+                        bset.insert(val);
+                        eset.insert(val);
+                    }
+                    // Include empty set case occasionally
+                    if i == k - 1 && n == 0 {
+                        bset.clear();
+                        eset = ExpanseSet::new();
+                    }
+                    btree_sets.push(bset);
+                    expanse_sets.push(eset);
+                }
+
+                let eset_refs: Vec<&ExpanseSet> = expanse_sets.iter().collect();
+
+                // Compute BTreeSet intersection
+                let mut ref_and: BTreeSet<u64> = if btree_sets.is_empty() {
+                    BTreeSet::new()
+                } else {
+                    btree_sets[0].clone()
+                };
+                for bs in &btree_sets[1..] {
+                    ref_and = ref_and.intersection(bs).copied().collect();
+                }
+
+                // Compute BTreeSet union
+                let mut ref_or: BTreeSet<u64> = BTreeSet::new();
+                for bs in &btree_sets {
+                    ref_or = ref_or.union(bs).copied().collect();
+                }
+
+                // Verify cardinality
+                let obs_and_len = ExpanseSet::intersection_len_many(&eset_refs);
+                let obs_or_len = ExpanseSet::union_len_many(&eset_refs);
+                assert_eq!(
+                    obs_and_len,
+                    ref_and.len() as u64,
+                    "k={} n={} intersection_len_many mismatch",
+                    k,
+                    n
+                );
+                assert_eq!(
+                    obs_or_len,
+                    ref_or.len() as u64,
+                    "k={} n={} union_len_many mismatch",
+                    k,
+                    n
+                );
+
+                // Verify materialization
+                let obs_and = ExpanseSet::intersection_many(&eset_refs);
+                let obs_or = ExpanseSet::union_many(&eset_refs);
+
+                assert_eq!(
+                    obs_and.len(),
+                    ref_and.len() as u64,
+                    "k={} n={} intersection_many len mismatch",
+                    k,
+                    n
+                );
+                assert_eq!(
+                    obs_or.len(),
+                    ref_or.len() as u64,
+                    "k={} n={} union_many len mismatch",
+                    k,
+                    n
+                );
+
+                let obs_and_keys: Vec<u64> = obs_and.iter().collect();
+                let ref_and_keys: Vec<u64> = ref_and.into_iter().collect();
+                assert_eq!(
+                    obs_and_keys, ref_and_keys,
+                    "k={} n={} intersection_many keys mismatch",
+                    k, n
+                );
+
+                let obs_or_keys: Vec<u64> = obs_or.iter().collect();
+                let ref_or_keys: Vec<u64> = ref_or.into_iter().collect();
+                assert_eq!(
+                    obs_or_keys, ref_or_keys,
+                    "k={} n={} union_many keys mismatch",
+                    k, n
+                );
+            }
+        }
     }
 }

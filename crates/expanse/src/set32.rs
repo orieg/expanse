@@ -12,11 +12,16 @@
 //! [`crate::sync32`] — an opt-in, fixed-capacity surface layered on top;
 //! this type's expanse-proportional memory behaviour is unchanged.
 
+use core::cmp::Reverse;
 use core::default::Default;
 use core::fmt;
 use core::option::Option;
 
+#[cfg(not(feature = "std"))]
+use core_alloc::collections::BinaryHeap;
 use core_alloc::vec::Vec;
+#[cfg(feature = "std")]
+use std::collections::BinaryHeap;
 
 use crate::trie32::{self, Arena};
 use crate::types32::{Edge32, Key32};
@@ -627,6 +632,267 @@ impl ExpanseSet32 {
         }
         out
     }
+
+    /// Number of keys in the intersection of `sets` (`|⋂ S_i|`), without
+    /// materializing the result (#610).
+    #[must_use]
+    pub fn intersection_len_many(sets: &[&ExpanseSet32]) -> usize {
+        if sets.is_empty() {
+            return 0;
+        }
+        if sets.len() == 1 {
+            return sets[0].len();
+        }
+        if sets.len() == 2 {
+            return sets[0].intersection_len(sets[1]);
+        }
+        for s in sets {
+            if s.is_empty() {
+                return 0;
+            }
+        }
+
+        // Sort sets by length: shortest drives leapfrog search.
+        let mut sorted: Vec<&ExpanseSet32> = sets.to_vec();
+        sorted.sort_by_key(|s| s.len());
+
+        let driver = sorted[0];
+        let others = &sorted[1..];
+
+        let mut count = 0usize;
+        let mut cur = driver.first();
+
+        while let Some(candidate) = cur {
+            let mut match_count = 1usize;
+            let mut next_cand = candidate;
+            for &other in others {
+                match other.next_at_or_after(next_cand) {
+                    Some(found) if found == next_cand => {
+                        match_count += 1;
+                    }
+                    Some(found) => {
+                        next_cand = found;
+                        break;
+                    }
+                    None => {
+                        return count;
+                    }
+                }
+            }
+            if match_count == sorted.len() {
+                count += 1;
+                cur = candidate
+                    .checked_add(1)
+                    .and_then(|k| driver.next_at_or_after(k));
+            } else {
+                cur = driver.next_at_or_after(next_cand);
+            }
+        }
+
+        count
+    }
+
+    /// Number of keys in the union of `sets` (`|⋃ S_i|`), without
+    /// materializing the result (#610).
+    #[must_use]
+    pub fn union_len_many(sets: &[&ExpanseSet32]) -> usize {
+        if sets.is_empty() {
+            return 0;
+        }
+        let active: Vec<&ExpanseSet32> = sets.iter().copied().filter(|s| !s.is_empty()).collect();
+        if active.is_empty() {
+            return 0;
+        }
+        if active.len() == 1 {
+            return active[0].len();
+        }
+        if active.len() == 2 {
+            return active[0].union_len(active[1]);
+        }
+
+        let k = active.len();
+        let mut count = 0usize;
+
+        if k <= 8 {
+            let mut cursors: [Option<Key32>; 8] = [None; 8];
+            for i in 0..k {
+                cursors[i] = active[i].first();
+            }
+
+            loop {
+                let mut min_val: Option<Key32> = None;
+                for &c in &cursors[..k] {
+                    if let Some(v) = c {
+                        min_val = Some(match min_val {
+                            Some(mv) => mv.min(v),
+                            None => v,
+                        });
+                    }
+                }
+                let Some(mv) = min_val else {
+                    break;
+                };
+                count += 1;
+                let next_search = mv.checked_add(1);
+                for i in 0..k {
+                    if cursors[i] == Some(mv) {
+                        cursors[i] = next_search.and_then(|ns| active[i].next_at_or_after(ns));
+                    }
+                }
+            }
+        } else {
+            let mut heap = BinaryHeap::with_capacity(k);
+            for (idx, &s) in active.iter().enumerate() {
+                if let Some(first) = s.first() {
+                    heap.push((Reverse(first), idx));
+                }
+            }
+
+            let mut last_seen: Option<Key32> = None;
+            while let Some((Reverse(min_val), idx)) = heap.pop() {
+                if last_seen != Some(min_val) {
+                    count += 1;
+                    last_seen = Some(min_val);
+                }
+                if let Some(ns) = min_val.checked_add(1)
+                    && let Some(next_val) = active[idx].next_at_or_after(ns)
+                {
+                    heap.push((Reverse(next_val), idx));
+                }
+            }
+        }
+
+        count
+    }
+
+    /// The set of keys present in **all** `sets` (`⋂ S_i`), built in a single
+    /// pass with zero intermediate trie allocations (#610).
+    #[must_use]
+    pub fn intersection_many(sets: &[&ExpanseSet32]) -> ExpanseSet32 {
+        if sets.is_empty() {
+            return ExpanseSet32::new();
+        }
+        if sets.len() == 1 {
+            return Self::from_sorted_iter(sets[0].iter());
+        }
+        if sets.len() == 2 {
+            return sets[0].intersection(sets[1]);
+        }
+        for s in sets {
+            if s.is_empty() {
+                return ExpanseSet32::new();
+            }
+        }
+
+        let mut sorted: Vec<&ExpanseSet32> = sets.to_vec();
+        sorted.sort_by_key(|s| s.len());
+
+        let driver = sorted[0];
+        let others = &sorted[1..];
+
+        let mut out_keys = Vec::new();
+        let mut cur = driver.first();
+
+        while let Some(candidate) = cur {
+            let mut match_count = 1usize;
+            let mut next_cand = candidate;
+            for &other in others {
+                match other.next_at_or_after(next_cand) {
+                    Some(found) if found == next_cand => {
+                        match_count += 1;
+                    }
+                    Some(found) => {
+                        next_cand = found;
+                        break;
+                    }
+                    None => {
+                        return Self::from_sorted_iter(out_keys);
+                    }
+                }
+            }
+            if match_count == sorted.len() {
+                out_keys.push(candidate);
+                cur = candidate
+                    .checked_add(1)
+                    .and_then(|k| driver.next_at_or_after(k));
+            } else {
+                cur = driver.next_at_or_after(next_cand);
+            }
+        }
+
+        Self::from_sorted_iter(out_keys)
+    }
+
+    /// The set of keys present in **any** of `sets` (`⋃ S_i`), built in a single
+    /// pass with zero intermediate trie allocations (#610).
+    #[must_use]
+    pub fn union_many(sets: &[&ExpanseSet32]) -> ExpanseSet32 {
+        if sets.is_empty() {
+            return ExpanseSet32::new();
+        }
+        let active: Vec<&ExpanseSet32> = sets.iter().copied().filter(|s| !s.is_empty()).collect();
+        if active.is_empty() {
+            return ExpanseSet32::new();
+        }
+        if active.len() == 1 {
+            return Self::from_sorted_iter(active[0].iter());
+        }
+        if active.len() == 2 {
+            return active[0].union(active[1]);
+        }
+
+        let k = active.len();
+        let mut out_keys = Vec::new();
+
+        if k <= 8 {
+            let mut cursors: [Option<Key32>; 8] = [None; 8];
+            for i in 0..k {
+                cursors[i] = active[i].first();
+            }
+
+            loop {
+                let mut min_val: Option<Key32> = None;
+                for &c in &cursors[..k] {
+                    if let Some(v) = c {
+                        min_val = Some(match min_val {
+                            Some(mv) => mv.min(v),
+                            None => v,
+                        });
+                    }
+                }
+                let Some(mv) = min_val else {
+                    break;
+                };
+                out_keys.push(mv);
+                let next_search = mv.checked_add(1);
+                for i in 0..k {
+                    if cursors[i] == Some(mv) {
+                        cursors[i] = next_search.and_then(|ns| active[i].next_at_or_after(ns));
+                    }
+                }
+            }
+        } else {
+            let mut heap = BinaryHeap::with_capacity(k);
+            for (idx, &s) in active.iter().enumerate() {
+                if let Some(first) = s.first() {
+                    heap.push((Reverse(first), idx));
+                }
+            }
+
+            while let Some((Reverse(min_val), idx)) = heap.pop() {
+                if out_keys.last().copied() != Some(min_val) {
+                    out_keys.push(min_val);
+                }
+                if let Some(ns) = min_val.checked_add(1)
+                    && let Some(next_val) = active[idx].next_at_or_after(ns)
+                {
+                    heap.push((Reverse(next_val), idx));
+                }
+            }
+        }
+
+        Self::from_sorted_iter(out_keys)
+    }
 }
 
 impl core::ops::BitAnd for &ExpanseSet32 {
@@ -1178,6 +1444,124 @@ mod tests {
                 ExpanseSet32::new().mem_used(),
                 "byte leak after drain"
             );
+        }
+    }
+
+    #[test]
+    fn kway_algebra32_matches_btreeset() {
+        use std::collections::BTreeSet;
+
+        // k = 0
+        assert_eq!(ExpanseSet32::intersection_len_many(&[]), 0);
+        assert_eq!(ExpanseSet32::union_len_many(&[]), 0);
+        assert!(ExpanseSet32::intersection_many(&[]).is_empty());
+        assert!(ExpanseSet32::union_many(&[]).is_empty());
+
+        let mut rng = XorShift(0xFEED_FACE_0001);
+        let k_values = [1, 2, 3, 5, 8];
+        let n_values = if cfg!(miri) {
+            vec![0, 5, 20]
+        } else {
+            vec![0, 10, 100, 1_000]
+        };
+
+        for &k in &k_values {
+            for &n in &n_values {
+                let mut btree_sets: Vec<BTreeSet<u32>> = Vec::with_capacity(k);
+                let mut expanse_sets: Vec<ExpanseSet32> = Vec::with_capacity(k);
+
+                for i in 0..k {
+                    let mut bset = BTreeSet::new();
+                    let mut eset = ExpanseSet32::new();
+                    let count = if n == 0 {
+                        0
+                    } else {
+                        (rng.next() as usize % n) + 1
+                    };
+                    for _ in 0..count {
+                        let val = if rng.next().is_multiple_of(2) {
+                            rng.next() % (n as u32 * 3).max(10)
+                        } else {
+                            rng.next() & 0x00FF_FFFF
+                        };
+                        bset.insert(val);
+                        eset.insert(val);
+                    }
+                    if i == k - 1 && n == 0 {
+                        bset.clear();
+                        eset = ExpanseSet32::new();
+                    }
+                    btree_sets.push(bset);
+                    expanse_sets.push(eset);
+                }
+
+                let eset_refs: Vec<&ExpanseSet32> = expanse_sets.iter().collect();
+
+                let mut ref_and: BTreeSet<u32> = if btree_sets.is_empty() {
+                    BTreeSet::new()
+                } else {
+                    btree_sets[0].clone()
+                };
+                for bs in &btree_sets[1..] {
+                    ref_and = ref_and.intersection(bs).copied().collect();
+                }
+
+                let mut ref_or: BTreeSet<u32> = BTreeSet::new();
+                for bs in &btree_sets {
+                    ref_or = ref_or.union(bs).copied().collect();
+                }
+
+                let obs_and_len = ExpanseSet32::intersection_len_many(&eset_refs);
+                let obs_or_len = ExpanseSet32::union_len_many(&eset_refs);
+                assert_eq!(
+                    obs_and_len,
+                    ref_and.len(),
+                    "k={} n={} intersection_len_many mismatch",
+                    k,
+                    n
+                );
+                assert_eq!(
+                    obs_or_len,
+                    ref_or.len(),
+                    "k={} n={} union_len_many mismatch",
+                    k,
+                    n
+                );
+
+                let obs_and = ExpanseSet32::intersection_many(&eset_refs);
+                let obs_or = ExpanseSet32::union_many(&eset_refs);
+
+                assert_eq!(
+                    obs_and.len(),
+                    ref_and.len(),
+                    "k={} n={} intersection_many len mismatch",
+                    k,
+                    n
+                );
+                assert_eq!(
+                    obs_or.len(),
+                    ref_or.len(),
+                    "k={} n={} union_many len mismatch",
+                    k,
+                    n
+                );
+
+                let obs_and_keys: Vec<u32> = obs_and.iter().collect();
+                let ref_and_keys: Vec<u32> = ref_and.into_iter().collect();
+                assert_eq!(
+                    obs_and_keys, ref_and_keys,
+                    "k={} n={} intersection_many keys mismatch",
+                    k, n
+                );
+
+                let obs_or_keys: Vec<u32> = obs_or.iter().collect();
+                let ref_or_keys: Vec<u32> = ref_or.into_iter().collect();
+                assert_eq!(
+                    obs_or_keys, ref_or_keys,
+                    "k={} n={} union_many keys mismatch",
+                    k, n
+                );
+            }
         }
     }
 }

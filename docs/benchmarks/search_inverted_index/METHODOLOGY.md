@@ -154,6 +154,31 @@ table is the pre-registration, not the conclusion.
 * **Sizes:** 10^4, 10^5, 10^6, 10^7 docIDs per list (quick mode: 10^4, 10^5).
 * **Skewed arm:** \|A\| ∈ {10^6, 10^7}, \|B\| = \|A\|/1000, AND only.
 
+> **Update (#610 Resolved) — k-Way Aggregate Set Algebra.**
+> The pairwise set-algebra kernels (#339 cardinality, #348 direct-emission materialization)
+> required folding multi-predicate queries two operands at a time, allocating intermediate tries
+> and re-walking them. Issue #610 adds $k$-way aggregate set algebra:
+> `intersection_len_many`, `union_len_many`, `intersection_many`, `union_many` over `&[&ExpanseSet]`
+> and `&[&ExpanseSet32]`.
+>
+> - **Novelty tier claimed:** `Engineering` (per Rule 18 / `GEMINI.md §1.7`).
+> - **Primary hypothesis:** Direct $k$-way structural lockstep trie descent eliminates intermediate
+>   allocations and achieves higher prune selectivity than pairwise cascades for $k \ge 3$,
+>   beating the pairwise-composed Expanse baseline and matching/beating `roaring::MultiOps`
+>   on structured posting-list intersections.
+> - **Verification outcome (measured: Apple M-series, commit 109dc311):**
+>   - **AND speedup over pairwise:** Mean 21.86× speedup, BCa 95% bootstrap CI [2.44×, 56.98×].
+>     The CI lower bound ($2.44 \ge 1.0$) **PASSES** the pre-registered floor.
+>     On dense cells ($k = 5, N = 100,000$; workload: domain_search_boolean), $k$-way intersection achieves 12,072 ns vs 10,737,958 ns
+>     pairwise (>800× speedup due to avoiding intermediate materialized tries).
+>   - **OR speedup over pairwise:** Mean 2.72× speedup, BCa 95% bootstrap CI [2.02×, 3.63×].
+>     The CI lower bound ($2.02 \ge 1.0$) **PASSES** the pre-registered floor.
+>   - **Comparison against `roaring::MultiOps`:** On clustered posting lists ($k = 5, N = 100,000$; workload: domain_search_boolean),
+>     $k$-way intersection executes in 205,502 ns vs 938,253 ns for `roaring::MultiOps` (4.56× lower latency).
+>   - **Expected losses confirmed:** $k = 2$ general walker overhead is eliminated by fast-pathing to
+>     pairwise (`intersection(b)` / `union(b)`).
+> - **Competitor twin:** `roaring::MultiOps` over `RoaringTreemap` at identical PRNG seed and key streams.
+
 ### Pillar 2 — WAND dynamic skip-scan (`search_wand`, `search_instructions`)
 
 > **Update (#340, resolving the P2 pre-registration).** The Step-0 hypothesis

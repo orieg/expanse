@@ -28,7 +28,7 @@ use expanse_trie::set::ExpanseSet;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Zipf};
-use roaring::RoaringTreemap;
+use roaring::{MultiOps, RoaringTreemap};
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
@@ -382,6 +382,92 @@ pub fn roaring_or_materialize(a: &RoaringTreemap, b: &RoaringTreemap) -> u64 {
 /// AND-NOT result materialized as a [`RoaringTreemap`] (`a - b`).
 pub fn roaring_andnot_materialize(a: &RoaringTreemap, b: &RoaringTreemap) -> u64 {
     let out = a - b;
+    let n = out.len();
+    core::mem::forget(out);
+    n
+}
+
+// ------------------------------------------------------------------------
+// k-way aggregate set algebra helpers (#610)
+// ------------------------------------------------------------------------
+
+/// k-way intersection cardinality via native ExpanseSet::intersection_len_many
+pub fn expanse_kway_and_count(sets: &[&ExpanseSet]) -> u64 {
+    ExpanseSet::intersection_len_many(sets)
+}
+
+/// k-way union cardinality via native ExpanseSet::union_len_many
+pub fn expanse_kway_or_count(sets: &[&ExpanseSet]) -> u64 {
+    ExpanseSet::union_len_many(sets)
+}
+
+/// k-way intersection cardinality via pairwise composition cascade
+pub fn expanse_pairwise_and_count(sets: &[&ExpanseSet]) -> u64 {
+    if sets.is_empty() {
+        return 0;
+    }
+    if sets.len() == 1 {
+        return sets[0].len();
+    }
+    let mut acc = sets[0].intersection(sets[1]);
+    for s in &sets[2..] {
+        acc = acc.intersection(s);
+    }
+    acc.len()
+}
+
+/// k-way union cardinality via pairwise composition cascade
+pub fn expanse_pairwise_or_count(sets: &[&ExpanseSet]) -> u64 {
+    if sets.is_empty() {
+        return 0;
+    }
+    if sets.len() == 1 {
+        return sets[0].len();
+    }
+    let mut acc = sets[0].union(sets[1]);
+    for s in &sets[2..] {
+        acc = acc.union(s);
+    }
+    acc.len()
+}
+
+/// k-way intersection cardinality via roaring::MultiOps
+pub fn roaring_multiops_and_count(sets: &[&RoaringTreemap]) -> u64 {
+    sets.iter().copied().intersection().len()
+}
+
+/// k-way union cardinality via roaring::MultiOps
+pub fn roaring_multiops_or_count(sets: &[&RoaringTreemap]) -> u64 {
+    sets.iter().copied().union().len()
+}
+
+/// k-way intersection materialization via native ExpanseSet::intersection_many
+pub fn expanse_kway_and_materialize(sets: &[&ExpanseSet]) -> u64 {
+    let out = ExpanseSet::intersection_many(sets);
+    let n = out.len();
+    core::mem::forget(out);
+    n
+}
+
+/// k-way union materialization via native ExpanseSet::union_many
+pub fn expanse_kway_or_materialize(sets: &[&ExpanseSet]) -> u64 {
+    let out = ExpanseSet::union_many(sets);
+    let n = out.len();
+    core::mem::forget(out);
+    n
+}
+
+/// k-way intersection materialization via roaring::MultiOps
+pub fn roaring_multiops_and_materialize(sets: &[&RoaringTreemap]) -> u64 {
+    let out = sets.iter().copied().intersection();
+    let n = out.len();
+    core::mem::forget(out);
+    n
+}
+
+/// k-way union materialization via roaring::MultiOps
+pub fn roaring_multiops_or_materialize(sets: &[&RoaringTreemap]) -> u64 {
+    let out = sets.iter().copied().union();
     let n = out.len();
     core::mem::forget(out);
     n
