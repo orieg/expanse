@@ -35,6 +35,7 @@ jobs:
       wasm: ${{ steps.filter.outputs.wasm }}
       go: ${{ steps.filter.outputs.go }}
       integrations: ${{ steps.filter.outputs.integrations }}
+      esp-component: ${{ steps.filter.outputs.esp-component }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -133,6 +134,7 @@ jobs:
               - 'docs/**'
               - 'man/**'
               - '*.md'
+              - 'components/**/*.md'
               - 'scripts/**'
               - 'website/**'
               # The citation record is machine-checked by
@@ -174,6 +176,16 @@ jobs:
               - 'include/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+            # `components/expanse/**` is C outside the cargo workspace, built
+            # by exactly one job (test-esp32c3) -- the same shape as
+            # `integrations`, and for the same reason it gets its own filter
+            # rather than widening `rust-src`. Until #620 nothing matched it
+            # at all, so a PR touching only that directory ran no job and its
+            # compile was never attempted.
+            esp-component:
+              - 'components/**'
+              - 'crates/expanse-capi/**'
+              - 'include/**'
 
   lint:
     name: Core / Linter & Formatting
@@ -660,7 +672,7 @@ jobs:
   test-esp32c3:
     name: Cross / ESP32-C3 Cross-Compile (Bare-Metal RV32IMC)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.esp-component == 'true' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -740,6 +752,21 @@ jobs:
         run: |
           set -euo pipefail
           clang --target=riscv32-unknown-none-elf -march=rv32imc -mabi=ilp32 \
+            -ffreestanding -fsyntax-only -DEXPANSE_SINGLE_THREADED_BAREMETAL \
+            -Iinclude -Icomponents/expanse/include \
+            components/expanse/src/expanse_memtable.c \
+            components/expanse/src/expanse_ble_tracker.c
+
+      # The same sources at 64-bit width. EXPANSE_WIDE_SURFACE is 0 for every
+      # target the component's CMake ladder accepts, so the 32-bit line above
+      # can never exercise the wide branches -- which is why #620 (unguarded
+      # narrow-only calls in expanse_memtable.c) was invisible for two
+      # releases. x86_64-unknown-none is the width probe this job already uses
+      # for the staticlib below.
+      - name: Syntax-check component sources at 64-bit width
+        run: |
+          set -euo pipefail
+          clang --target=x86_64-unknown-none \
             -ffreestanding -fsyntax-only -DEXPANSE_SINGLE_THREADED_BAREMETAL \
             -Iinclude -Icomponents/expanse/include \
             components/expanse/src/expanse_memtable.c \
