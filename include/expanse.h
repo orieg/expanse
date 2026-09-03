@@ -176,6 +176,24 @@ typedef void (*expanse_map_remove_range_fn)(expanse_word_t key, expanse_word_t v
                                             void *user_ctx);
 size_t expanse_map_remove_range(expanse_map_t *map, expanse_word_t lo, expanse_word_t hi,
                                 expanse_map_remove_range_fn callback, void *user_ctx);
+
+/*
+ * for_each_range: walks every entry whose key lies in [lo, hi] in ascending
+ * key order, calling `callback` on each until it returns false. Returns true
+ * when the range was walked to the end, false when the callback stopped it.
+ * A NULL map or callback, or an inverted range, walks nothing and returns
+ * true.
+ *
+ * One descent to `lo` and then contiguous streaming through the leaves the
+ * range spans, where an expanse_map_next_after loop pays a fresh O(depth)
+ * root descent per key. Nothing is borrowed across the call boundary: the
+ * callback receives keys and values by value, so no pointer outlives the
+ * walk. The callback must not mutate `map` during the walk.
+ */
+typedef bool (*expanse_map_for_each_range_fn)(expanse_word_t key, expanse_word_t value,
+                                              void *user_ctx);
+bool expanse_map_for_each_range(const expanse_map_t *map, expanse_word_t lo, expanse_word_t hi,
+                                expanse_map_for_each_range_fn callback, void *user_ctx);
 #endif /* !EXPANSE_WIDE_SURFACE */
 
 #if !EXPANSE_WIDE_SURFACE

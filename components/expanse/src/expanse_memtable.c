@@ -139,6 +139,25 @@ bool expanse_memtable_remove(expanse_memtable_t *mt, uint32_t key, uint32_t *old
     return removed;
 }
 
+/*
+ * Folds one entry into the running aggregate. Never stops the walk: the
+ * aggregate is over the whole range.
+ */
+static bool aggregate_visit(expanse_word_t key, expanse_word_t value, void *ctx) {
+    expanse_memtable_agg_t *agg = (expanse_memtable_agg_t *)ctx;
+    uint32_t v = (uint32_t)value;
+    (void)key;
+    if (v < agg->min_val) {
+        agg->min_val = v;
+    }
+    if (v > agg->max_val) {
+        agg->max_val = v;
+    }
+    agg->sum_val += v;
+    agg->count++;
+    return true;
+}
+
 bool expanse_memtable_aggregate_range(const expanse_memtable_t *mt, uint32_t start_key, uint32_t end_key, expanse_memtable_agg_t *out_agg) {
     if (!mt || !out_agg || start_key > end_key) {
         return false;
@@ -155,34 +174,39 @@ bool expanse_memtable_aggregate_range(const expanse_memtable_t *mt, uint32_t sta
     out_agg->sum_val = 0;
     out_agg->count = 0;
 
-    expanse_word_t curr_key = 0;
-    expanse_word_t curr_val = 0;
-    if (!expanse_map_next_at_or_after(non_const_mt->map, (expanse_word_t)start_key, &curr_key, &curr_val)) {
-        EXPANSE_LOCK_GIVE(non_const_mt->lock);
-        return false;
-    }
-
-    while (curr_key <= (expanse_word_t)end_key) {
-        uint32_t v = (uint32_t)curr_val;
-        if (v < out_agg->min_val) {
-            out_agg->min_val = v;
-        }
-        if (v > out_agg->max_val) {
-            out_agg->max_val = v;
-        }
-        out_agg->sum_val += v;
-        out_agg->count++;
-
-        if (curr_key == UINT32_MAX) {
-            break;
-        }
-        if (!expanse_map_next_after(non_const_mt->map, curr_key, &curr_key, &curr_val)) {
-            break;
-        }
-    }
+    /*
+     * One descent to start_key, then contiguous streaming through the
+     * leaves the range spans. The next_at_or_after / next_after loop this
+     * replaced paid a fresh O(depth) root descent per key walked (#614).
+     */
+    expanse_map_for_each_range(non_const_mt->map, (expanse_word_t)start_key,
+                               (expanse_word_t)end_key, aggregate_visit, out_agg);
 
     EXPANSE_LOCK_GIVE(non_const_mt->lock);
     return out_agg->count > 0;
+}
+
+/*
+ * State for the flush walk: the caller's callback, the highest key it has
+ * accepted so far, and how many it accepted. The walk stops at the first
+ * entry the callback rejects, which is neither flushed nor removed --
+ * exactly what the per-entry loop this replaced did.
+ */
+struct flush_walk {
+    expanse_memtable_flush_cb cb;
+    void *user_data;
+    expanse_word_t last_key;
+    size_t count;
+};
+
+static bool flush_visit(expanse_word_t key, expanse_word_t value, void *ctx) {
+    struct flush_walk *w = (struct flush_walk *)ctx;
+    if (w->cb && !w->cb((uint32_t)key, (uint32_t)value, w->user_data)) {
+        return false;
+    }
+    w->last_key = key;
+    w->count++;
+    return true;
 }
 
 size_t expanse_memtable_flush_range(expanse_memtable_t *mt, uint32_t start_key, uint32_t end_key, expanse_memtable_flush_cb cb, void *user_data) {
@@ -195,27 +219,27 @@ size_t expanse_memtable_flush_range(expanse_memtable_t *mt, uint32_t start_key, 
         return 0;
     }
 
-    size_t flushed = 0;
-    while (true) {
-        expanse_word_t curr_key = 0;
-        expanse_word_t curr_val = 0;
-        if (!expanse_map_next_at_or_after(mt->map, (expanse_word_t)start_key, &curr_key, &curr_val)) {
-            break;
-        }
-        if (curr_key > (expanse_word_t)end_key) {
-            break;
-        }
-
-        if (cb && !cb((uint32_t)curr_key, (uint32_t)curr_val, user_data)) {
-            break;
-        }
-
-        expanse_map_remove(mt->map, curr_key, NULL);
-        flushed++;
+    /*
+     * Two passes over the range, each one descent plus contiguous
+     * streaming: the walk hands every entry to the callback in ascending
+     * key order and records the last one it accepted, then a single
+     * remove_range retires exactly that prefix. The loop this replaced
+     * re-seeked from start_key and removed one key at a time, so it paid
+     * two full root descents per entry flushed (#614).
+     */
+    struct flush_walk w;
+    w.cb = cb;
+    w.user_data = user_data;
+    w.last_key = 0;
+    w.count = 0;
+    expanse_map_for_each_range(mt->map, (expanse_word_t)start_key, (expanse_word_t)end_key,
+                               flush_visit, &w);
+    if (w.count > 0) {
+        expanse_map_remove_range(mt->map, (expanse_word_t)start_key, w.last_key, NULL, NULL);
     }
 
     EXPANSE_LOCK_GIVE(mt->lock);
-    return flushed;
+    return w.count;
 }
 
 size_t expanse_memtable_len(const expanse_memtable_t *mt) {

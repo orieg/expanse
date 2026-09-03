@@ -28,7 +28,15 @@ typedef struct {
     size_t   count;
 } expanse_memtable_agg_t;
 
-/** Callback invoked for each key-value pair during a range flush. */
+/**
+ * Callback invoked for each key-value pair during a range flush, in
+ * ascending key order. Return false to stop the flush before this entry.
+ *
+ * The callback must not mutate the memtable: the flush walks the range
+ * first and retires the flushed prefix in one batched removal afterwards,
+ * so a callback that inserts or removes would mutate the map the walk is
+ * reading.
+ */
 typedef bool (*expanse_memtable_flush_cb)(uint32_t key, uint32_t value, void *user_data);
 
 /**
@@ -68,8 +76,15 @@ bool expanse_memtable_aggregate_range(const expanse_memtable_t *mt, uint32_t sta
 
 /**
  * Flushes and removes entries in the range [start_key, end_key] by invoking cb
- * for each entry in ascending key order. Stops if cb returns false.
+ * for each entry in ascending key order. Stops if cb returns false; the entry
+ * it rejected is neither flushed nor removed.
  * Returns the count of entries successfully flushed and removed.
+ *
+ * One ordered walk of the range followed by one batched removal of the
+ * flushed prefix, so the cost is a descent plus the entries touched rather
+ * than two full root descents per entry. Entries are removed after the last
+ * callback returns, so cb must not mutate the memtable and must not assume
+ * an entry it already saw is gone.
  */
 size_t expanse_memtable_flush_range(expanse_memtable_t *mt, uint32_t start_key, uint32_t end_key, expanse_memtable_flush_cb cb, void *user_data);
 

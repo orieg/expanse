@@ -181,24 +181,21 @@ impl ExpanseMap32 {
     #[inline]
     #[must_use]
     pub fn last(&self) -> Option<(Key32, Value32)> {
-        let k = trie32::last(&self.alloc, &self.root, 4)?;
-        Some((k, self.get(k).expect("last key present")))
+        trie32::last_entry(&self.alloc, &self.root, 4)
     }
 
     /// Returns the entry with the smallest key strictly greater than `key`.
     #[inline]
     #[must_use]
     pub fn next(&self, key: Key32) -> Option<(Key32, Value32)> {
-        let k = trie32::next(&self.alloc, &self.root, 4, key)?;
-        Some((k, self.get(k).expect("next key present")))
+        trie32::next_entry(&self.alloc, &self.root, 4, key)
     }
 
     /// Returns the entry with the largest key strictly smaller than `key`.
     #[inline]
     #[must_use]
     pub fn prev(&self, key: Key32) -> Option<(Key32, Value32)> {
-        let k = trie32::prev(&self.alloc, &self.root, 4, key)?;
-        Some((k, self.get(k).expect("prev key present")))
+        trie32::prev_entry(&self.alloc, &self.root, 4, key)
     }
 
     /// Returns the number of keys present in the inclusive range
@@ -220,14 +217,30 @@ impl ExpanseMap32 {
         P: FnMut(Key32, Value32) -> bool,
         F: FnMut(Key32, Value32),
     {
-        if start > end {
-            return;
-        }
-        trie32::map_for_each_range(&self.alloc, &self.root, 4, start, end, &mut |k, v| {
+        self.try_for_each_range(start, end, |k, v| {
             if pred(k, v) {
                 cb(k, v);
             }
+            true
         });
+    }
+
+    /// Walks entries in the inclusive range `[start, end]` in ascending key
+    /// order, calling `f` on each until it returns `false`. Returns `false`
+    /// when `f` stopped the walk, `true` when the range was exhausted.
+    ///
+    /// One descent to `start` and then contiguous streaming through the
+    /// leaves the range spans, where a `next_after` loop pays a fresh
+    /// `O(depth)` descent per key (#614).
+    #[inline]
+    pub fn try_for_each_range<F>(&self, start: Key32, end: Key32, mut f: F) -> bool
+    where
+        F: FnMut(Key32, Value32) -> bool,
+    {
+        if start > end {
+            return true;
+        }
+        trie32::map_for_each_range(&self.alloc, &self.root, 4, start, end, &mut f)
     }
 
     /// Real bytes of node/leaf storage held by this map. Zero when empty;
@@ -479,6 +492,7 @@ mod tests {
     use alloc_crate::collections::BTreeMap;
     #[cfg(not(feature = "std"))]
     use alloc_crate::vec::Vec;
+    use core::ops::Bound;
     #[cfg(feature = "std")]
     use std::collections::BTreeMap;
 
@@ -852,5 +866,121 @@ mod tests {
         assert_eq!(map.first(), Some((0x0101_0000, 0)));
         assert_eq!(map.remove(0x0101_0000), Some(0));
         assert_eq!(map.mem_used(), empty);
+    }
+
+    /// The fused single-descent walk (`next_entry` / `prev_entry` /
+    /// `last_entry`, #614) must return exactly what the two-descent
+    /// composition it replaced returned: the key the key-only primitive
+    /// finds, paired with that key's `get` value. Asserted across the node
+    /// forms a 32-bit map takes — immediates, linear leaves, bitmap leaves
+    /// and every branch class — plus the two saturating bounds where the
+    /// fused path returns early.
+    #[test]
+    fn fused_entry_walk_matches_key_then_get() {
+        for &key_mask in &[0x0000_03FFu32, 0x000F_FFFF, 0xFFFF_FFFF] {
+            let mut rng = XorShift::new(0xC0FFEE ^ u64::from(key_mask));
+            let mut map = ExpanseMap32::new();
+            let mut model: BTreeMap<u32, u32> = BTreeMap::new();
+            for _ in 0..4_000 {
+                let k = rng.next() & key_mask;
+                let v = rng.next();
+                map.insert(k, v);
+                model.insert(k, v);
+            }
+            // Saturating bounds: nothing is above u32::MAX or below 0.
+            assert_eq!(map.next(u32::MAX), None, "next past the top of the space");
+            assert_eq!(map.prev(0), None, "prev below the bottom of the space");
+
+            // Forward: every step's value is the one `get` reports.
+            let mut cur = map.first();
+            while let Some((k, v)) = cur {
+                assert_eq!(map.get(k), Some(v), "forward value at {k:#x}");
+                assert_eq!(model.get(&k).copied(), Some(v), "forward model at {k:#x}");
+                cur = map.next(k);
+            }
+            // Backward from `last_entry`, the same invariant.
+            let mut cur = map.last();
+            while let Some((k, v)) = cur {
+                assert_eq!(map.get(k), Some(v), "backward value at {k:#x}");
+                assert_eq!(model.get(&k).copied(), Some(v), "backward model at {k:#x}");
+                cur = map.prev(k);
+            }
+            // Probe keys that are mostly absent: the fused path must agree
+            // with the model's own successor and predecessor.
+            for _ in 0..2_000 {
+                let probe = rng.next() & key_mask;
+                assert_eq!(
+                    map.next(probe),
+                    model
+                        .range((Bound::Excluded(probe), Bound::Unbounded))
+                        .next()
+                        .map(|(&k, &v)| (k, v)),
+                    "next({probe:#x})"
+                );
+                assert_eq!(
+                    map.prev(probe),
+                    model.range(..probe).next_back().map(|(&k, &v)| (k, v)),
+                    "prev({probe:#x})"
+                );
+            }
+        }
+    }
+
+    /// The streaming range walk (#614) must reproduce the model's range
+    /// exactly, and must stop where the callback says — calling it neither
+    /// again nor for entries past the stop.
+    #[test]
+    fn range_walk_matches_model_and_stops_on_request() {
+        for &key_mask in &[0x0000_03FFu32, 0x000F_FFFF, 0xFFFF_FFFF] {
+            let mut rng = XorShift::new(0xBEEF ^ u64::from(key_mask));
+            let mut map = ExpanseMap32::new();
+            let mut model: BTreeMap<u32, u32> = BTreeMap::new();
+            for _ in 0..4_000 {
+                let k = rng.next() & key_mask;
+                let v = rng.next();
+                map.insert(k, v);
+                model.insert(k, v);
+            }
+            for &(lo, hi) in &[
+                (0u32, u32::MAX),
+                (0, key_mask / 2),
+                (key_mask / 4, key_mask / 2),
+                (key_mask / 2, key_mask),
+                (key_mask, key_mask),
+                // An inverted range walks nothing and reports completion.
+                (key_mask, 0),
+            ] {
+                let expected: Vec<(u32, u32)> = if lo > hi {
+                    Vec::new()
+                } else {
+                    model.range(lo..=hi).map(|(&k, &v)| (k, v)).collect()
+                };
+                let mut got = Vec::new();
+                assert!(
+                    map.try_for_each_range(lo, hi, |k, v| {
+                        got.push((k, v));
+                        true
+                    }),
+                    "exhausted walk reports completion ({lo:#x},{hi:#x})"
+                );
+                assert_eq!(got, expected, "range walk ({lo:#x},{hi:#x})");
+
+                // Stopping after n entries yields exactly the first n.
+                for n in [1usize, 3, 17] {
+                    if expected.len() <= n {
+                        continue;
+                    }
+                    let mut seen = Vec::new();
+                    assert!(
+                        !map.try_for_each_range(lo, hi, |k, v| {
+                            seen.push((k, v));
+                            seen.len() < n
+                        }),
+                        "stopped walk reports the stop ({lo:#x},{hi:#x}) n={n}"
+                    );
+                    assert_eq!(seen, expected[..n], "stop after {n} ({lo:#x},{hi:#x})");
+                }
+            }
+        }
     }
 }

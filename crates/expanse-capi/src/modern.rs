@@ -551,6 +551,53 @@ pub unsafe extern "C" fn expanse_map_remove_range(
     })
 }
 
+/// Callback for [`expanse_map_for_each_range`]: one call per entry, in
+/// ascending key order, with the caller's context pointer. Return `true`
+/// to continue the walk, `false` to stop it.
+#[cfg(target_pointer_width = "32")]
+pub type ExpanseMapForEachRangeFn =
+    unsafe extern "C" fn(key: CWord, value: CWord, user_ctx: *mut c_void) -> bool;
+
+/// Walks every entry whose key lies in `lo..=hi` in ascending key order,
+/// calling `callback` on each until it returns `false`. Returns `true` when
+/// the range was walked to the end, `false` when the callback stopped it. A
+/// null `map` or `callback`, or an inverted range, walks nothing and
+/// returns `true`.
+///
+/// Present only in the 32-bit surface (`EXPANSE_WIDE_SURFACE == 0`): one
+/// descent to `lo` and then contiguous streaming through the leaves the
+/// range spans, where a `expanse_map_next_after` loop pays a fresh
+/// `O(depth)` root descent per key (#614). No cursor object and no borrowed
+/// pointer, so nothing outlives the call and §2.3's pointer-lifetime
+/// contract does not arise.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle. `callback`, when non-null, must be
+/// safe to call with `user_ctx` for every visited entry and must not mutate
+/// `map` during the walk (the walk borrows it).
+#[cfg(target_pointer_width = "32")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_map_for_each_range(
+    map: *const ExpanseMap,
+    lo: CWord,
+    hi: CWord,
+    callback: Option<ExpanseMapForEachRangeFn>,
+    user_ctx: *mut c_void,
+) -> bool {
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_ref() }) else {
+        return true;
+    };
+    let Some(cb) = callback else {
+        return true;
+    };
+    m.try_for_each_range(lo, hi, |k, v| {
+        // SAFETY: callback contract above.
+        unsafe { cb(k, v, user_ctx) }
+    })
+}
+
 /// Writable pointer to `key`'s value slot, or null if absent. Valid
 /// until the next structural mutation.
 ///

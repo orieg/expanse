@@ -5,8 +5,8 @@
 
 use core::ffi::c_void;
 use expanse::modern::{
-    expanse_map_free, expanse_map_insert, expanse_map_len, expanse_map_new,
-    expanse_map_remove_range,
+    expanse_map_for_each_range, expanse_map_free, expanse_map_insert, expanse_map_len,
+    expanse_map_new, expanse_map_remove_range,
 };
 
 unsafe extern "C" fn collect(key: u32, value: u32, ctx: *mut c_void) {
@@ -337,5 +337,99 @@ mod sync32_surface {
         });
         // SAFETY: every thread that held a handle has been joined.
         unsafe { expanse_sync32_map_free(m) };
+    }
+}
+
+/// Context for [`visit`]: the entries seen so far, and how many the walk is
+/// allowed to take before it asks to stop (`usize::MAX` = never stop).
+struct Walk {
+    seen: Vec<(u32, u32)>,
+    stop_after: usize,
+}
+
+unsafe extern "C" fn visit(key: u32, value: u32, ctx: *mut c_void) -> bool {
+    // SAFETY: the test passes a live `Walk` as the context and does not
+    // touch it while the call is in progress.
+    let w = unsafe { &mut *ctx.cast::<Walk>() };
+    w.seen.push((key, value));
+    w.seen.len() < w.stop_after
+}
+
+#[test]
+fn for_each_range_walks_ascending_and_honours_the_stop() {
+    let mut w = Walk {
+        seen: Vec::new(),
+        stop_after: usize::MAX,
+    };
+    // SAFETY: `m` is a live handle from `expanse_map_new` until the final
+    // `expanse_map_free`; the callback's context is `w`, live for the whole
+    // block; null map / null callback / inverted range are documented
+    // no-ops that report an exhausted walk.
+    unsafe {
+        let m = expanse_map_new();
+        for k in 0..1000u32 {
+            assert!(expanse_map_insert(m, k * 3, !k, core::ptr::null_mut()));
+        }
+
+        // A walk that never stops reports completion and visits the range.
+        assert!(expanse_map_for_each_range(
+            m,
+            30,
+            300,
+            Some(visit),
+            (&raw mut w).cast()
+        ));
+        // Multiples of 3 in [30, 300]: 30, 33, ..., 300.
+        assert_eq!(w.seen.len(), 91);
+        assert!(
+            w.seen.windows(2).all(|a| a[0].0 < a[1].0),
+            "ascending key order"
+        );
+        assert_eq!(w.seen[0], (30, !10));
+        assert_eq!(w.seen[90], (300, !100));
+
+        // Stopping mid-range reports the stop and visits exactly the prefix.
+        w.seen.clear();
+        w.stop_after = 5;
+        assert!(!expanse_map_for_each_range(
+            m,
+            30,
+            300,
+            Some(visit),
+            (&raw mut w).cast()
+        ));
+        assert_eq!(w.seen.len(), 5);
+        assert_eq!(w.seen[4], (42, !14));
+
+        // The walk is read-only: nothing was removed by any of it.
+        assert_eq!(expanse_map_len(m), 1000);
+
+        // Documented no-ops, each reporting an exhausted walk.
+        w.seen.clear();
+        w.stop_after = usize::MAX;
+        assert!(expanse_map_for_each_range(
+            m,
+            300,
+            30,
+            Some(visit),
+            (&raw mut w).cast()
+        ));
+        assert!(expanse_map_for_each_range(
+            m,
+            0,
+            u32::MAX,
+            None,
+            (&raw mut w).cast()
+        ));
+        assert!(expanse_map_for_each_range(
+            core::ptr::null(),
+            0,
+            u32::MAX,
+            Some(visit),
+            (&raw mut w).cast()
+        ));
+        assert!(w.seen.is_empty(), "no entry visited by any no-op form");
+
+        expanse_map_free(m);
     }
 }
