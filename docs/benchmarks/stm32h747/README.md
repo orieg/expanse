@@ -1,20 +1,37 @@
 # STM32H747I-DISCO on-target suite: results and how to read them
 
-*(measured: STM32H747I-DISCO, silicon rev V; Cortex-M7 at 64 MHz HSI, 160 MHz PLL1/VOS3 and 400 MHz PLL1/VOS1, D-cache 4-way × 128 sets × 32-byte lines, off and on; Cortex-M4 at 200 MHz HCLK, no cache; clocks host-verified over 320M cycles at 64.1 / 160.2 / 400.5 / 200.3 MHz; libexpanse staticlib commit `05575498`; DWT cycles per operation, min of 5 passes, one board; source `docs/benchmarks/stm32h747/results.json`, transcript alongside; every chart value is derived from that file by `scripts/generate_stm32_svg.py`. The full tables and the verdict against the #598 pre-registration are in [`docs/BENCHMARKING.md`](../../BENCHMARKING.md), "Cortex-M7 on-target"; the pre-registration record is [`METHODOLOGY.md`](METHODOLOGY.md); the firmware and the flash/capture flow are [`integrations/stm32h747/`](../../../integrations/stm32h747/README.md); `run.sh` here reproduces the run with the board attached.)*
+*(measured: STM32H747I-DISCO, silicon rev V; Cortex-M7 at 64 MHz HSI, 160 MHz PLL1/VOS3 and 400 MHz PLL1/VOS1, D-cache 4-way × 128 sets × 32-byte lines, off and on; Cortex-M4 at 200 MHz HCLK, no cache; clocks host-verified over 320M cycles at 64.1 / 160.2 / 400.5 / 200.3 MHz; libexpanse staticlib commit `22908c15`; DWT cycles per operation, min of 5 passes, one board; source `docs/benchmarks/stm32h747/results.json`, transcript alongside; every chart value is derived from that file by `scripts/generate_stm32_svg.py`. The full tables and the verdict against the #598 pre-registration are in [`docs/BENCHMARKING.md`](../../BENCHMARKING.md), "Cortex-M7 on-target"; the pre-registration record is [`METHODOLOGY.md`](METHODOLOGY.md); the firmware and the flash/capture flow are [`integrations/stm32h747/`](../../../integrations/stm32h747/README.md); `run.sh` here reproduces the run with the board attached.)*
 
-> **These figures predate #618 and are stale for the eviction-loop arms.**
-> They were taken against libexpanse staticlib commit `05575498`. PR
-> [#618](https://github.com/orieg/expanse/pull/618) (merged as `e9957cd`)
-> rewrote `trie32::first_entry`, `next`, `prev`, `count_range` and
-> `map_for_each_range`. The `evict_bulk_loop` and `evict_steady_loop`
-> fixtures step through `expanse_map_first` in a loop and therefore run
-> modified code; `can_dispatch`, `ingest` and the `evict_*_range` arms are
-> less exposed but are not immune to codegen movement.
+> **Paired on the same board.** `28dd572e` and
+> `22908c15` were flashed back to back with identical harness firmware, so the
+> engine is the only difference; `28dd572e` is `main` immediately before #625. `ingest` is the arm the #625 insert-path change
+> reaches; the twin containers in the same row share no engine code, so their
+> movement is the floor below which nothing is attributable.
 >
-> On the ESP32 the same change moved the ordered range scan by 3.7×, so the
-> direction here is likely favourable — but no number has been taken on this
-> board since, and none is substituted from another part (§8.1). Re-running
-> needs the board attached; #579 tracks the wider on-target harvest.
+> | core | MHz | D-cache | `28dd572e` | `22908c15` | Δ | twin drift | reading |
+> |---|---:|---|---:|---:|---:|---:|---|
+> | `m7` | 64 | off | 1,397 | **1,097** | **-21.5%** | 0.1% | 424.6× twin drift |
+> | `m7` | 64 | on | 965 | **718** | **-25.5%** | 0.5% | 47.5× twin drift |
+> | `m7` | 160 | off | 1,762 | **1,438** | **-18.4%** | 0.0% | 414.0× twin drift |
+> | `m7` | 160 | on | 1,006 | **745** | **-26.0%** | 0.7% | 39.9× twin drift |
+> | `m7` | 400 | off | 1,762 | **1,438** | **-18.4%** | 0.0% | 415.2× twin drift |
+> | `m7` | 400 | on | 1,008 | **745** | **-26.1%** | 0.6% | 45.8× twin drift |
+> | `m4` | 200 | off | 4,145 | **3,037** | **-26.7%** | 1.0% | 25.6× twin drift |
+>
+> The previously published artifact (`05575498`) predates #622 as well. Paired
+> against the same control on the same board, that step — cap-classing the
+> 32-bit bitmap subarrays — had never been measured on this part; it had been on
+> the ESP32 only (#624):
+>
+> | core | MHz | D-cache | `05575498` | `28dd572e` | Δ | twin drift | reading |
+> |---|---:|---|---:|---:|---:|---:|---|
+> | `m7` | 64 | off | 1,762 | **1,397** | **-20.7%** | 2.3% | 8.9× twin drift |
+> | `m7` | 64 | on | 1,176 | **965** | **-17.9%** | 3.5% | 5.1× twin drift |
+> | `m7` | 160 | off | 2,249 | **1,762** | **-21.7%** | 0.0% | 1534.2× twin drift |
+> | `m7` | 160 | on | 1,199 | **1,006** | **-16.1%** | 6.9% | 2.3× twin drift |
+> | `m7` | 400 | off | 2,249 | **1,762** | **-21.6%** | 0.0% | 767.5× twin drift |
+> | `m7` | 400 | on | 1,199 | **1,008** | **-15.9%** | 6.8% | 2.3× twin drift |
+> | `m4` | 200 | off | 5,074 | **4,145** | **-18.3%** | 6.8% | 2.7× twin drift |
 
 ### 1. Expanse on the M7: does it run, and does the cache-line node layout pay off?
 
