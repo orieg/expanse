@@ -556,7 +556,7 @@ four.*
 ![On-device ESP32: ingest in key order and shuffled, range scan, and memory per key, each against the twin baselines](./assets/bench_esp32_ondevice.svg)
 
 *(measured: ESP32-D0WD-V3 rev v3.1, 2 cores, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
-Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-103-g8bb79a3d)`, commit `8bb79a3d`;
+Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-104-g41080e96)`, commit `41080e96`;
 10 repetitions per arm, artifact
 [`docs/benchmarks/embedded/esp32.json`](benchmarks/embedded/esp32.json))*
 

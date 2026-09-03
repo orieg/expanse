@@ -258,7 +258,7 @@ jobs:
 
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors)
+      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors)
         run: |
           python3 scripts/perf_report.py --self-test
           python3 scripts/bench_report.py --self-test
@@ -267,6 +267,10 @@ jobs:
           # parser, its "unsupported counter is None, never 0" rule and its
           # derived rendering are all checkable without one.
           python3 scripts/perf_counters.py --self-test
+          # pin_exposure.py cannot run its measurement off the reference host —
+          # it refuses a non-hybrid one rather than compare a pin against
+          # itself — but its reading of the intervals is checkable anywhere.
+          python3 scripts/pin_exposure.py --self-test
           python3 scripts/check_docs_hygiene.py --self-test
           python3 scripts/check_ecosystem_theme.py --self-test
           python3 scripts/check_bench_suites.py --self-test

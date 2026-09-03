@@ -5,7 +5,7 @@
     "cores": 2,
     "cpu_hz": 160000000,
     "idf": "v6.0-dev-2980-gab149384e1",
-    "expanse": "0.5.0-dev (v0.5.0-103-g8bb79a3d)",
+    "expanse": "0.5.0-dev (v0.5.0-104-g41080e96)",
     "free_internal": 291596,
     "largest_internal": 155648
   },

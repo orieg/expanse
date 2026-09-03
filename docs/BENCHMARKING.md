@@ -180,6 +180,26 @@ Making this path win is a redesign — branchless retirement, or fixed-depth ste
 
 1. **Interleaved A/B arms.** Any A-vs-B comparison (regression check, libjudy comparison, before/after a change) alternates arms per benchmark group over several rounds — never suite-A-then-suite-B. Runner/thermal drift then hits both arms and cancels in the paired ratio. (Learned the hard way in php-judy — back-to-back suites reported false regressions; see php-judy issue #87 and its `bench-compare` harness.)
 2. **System-load hygiene.** Before the first run and between comparison runs, snapshot load (`ps -A -o %cpu,%mem,command | sort -rn | head`; load average vs core count). A non-target process above ~100% CPU, or a load-average shift > 2 between arms, contaminates the run: discard it, don't reinterpret it. Laptops running concurrent sessions are shared infrastructure.
+
+   **The reference host is a hybrid part, and the wall-clock arms do not pin
+   to a core class.** It is a 12th Gen Intel Core i9-12900F: 8 performance
+   cores at 5.0–5.1 GHz exposed as CPUs 0–15 with SMT, and 8 efficiency cores
+   at 3.8 GHz as CPUs 16–23 without it, so a thread the scheduler places on an
+   E-core runs at roughly 74% of the P-core clock. `scripts/perf_counters.py`
+   refuses to collect unpinned counters here and prefixes its workload with
+   `taskset -c 0-15`; nothing else in the repository pins, so every criterion
+   arm runs wherever it lands. Instruction counts are immune — they are exact
+   integers — but a wall-clock BCa interval assumes its width is measurement
+   noise rather than core placement. **How much that is worth is not yet
+   measured**, and until it is, no published wall-clock figure is withdrawn
+   and none is defended on this point. `scripts/pin_exposure.py` runs the same
+   arms pinned and unpinned, interleaved with the order flipped between
+   rounds, and compares the intervals; it must run on the reference host
+   itself and refuses anywhere else. If the intervals overlap the exposure is
+   below what the instrument can see and this stays a note; if they separate,
+   the pin belongs at the workflow and `run.sh` level where a new bench cannot
+   forget it. Recorded here so a rotation onto a homogeneous part is a visible
+   change rather than a silent one ([#639](https://github.com/orieg/expanse/issues/639)).
 3. **CI benches detect changes, not truths.** CI runners produce paired ratios good for regression alarms. Publishable absolute numbers (README/claims) come from a dedicated quiet host with the hardware named.
 4. **Tag every number.** Performance figures in docs are tagged `(measured: <machine, commit>)` or `(target)`. Untagged numbers are lint errors in review. The two architecture KPIs (<15 ns random point lookup; <9.5 B/key dense) are `(target)` until measured.
 5. **Report distributions, not just means.** Criterion medians + CIs; a claim that A beats B requires the CI bounds to separate, not the point estimates.
