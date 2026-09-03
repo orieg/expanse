@@ -1074,16 +1074,16 @@
         "structure": "ExpanseSet32",
         "keys": 10000,
         "keygen": "1_700_000_000 + i",
-        "bytes_per_key": 0.3088,
-        "mem_used_bytes": 3088
+        "bytes_per_key": 0.312,
+        "mem_used_bytes": 3120
       },
       {
         "workload": "Sparse CAN-Bus 29-bit Identifiers",
         "structure": "ExpanseSet32",
         "keys": 500,
         "keygen": "(i * 100_007) & 0x1FFF_FFFF",
-        "bytes_per_key": 8.704,
-        "mem_used_bytes": 4352
+        "bytes_per_key": 9.856,
+        "mem_used_bytes": 4928
       },
       {
         "workload": "IPv4 Subnet /24 Routing Table",
