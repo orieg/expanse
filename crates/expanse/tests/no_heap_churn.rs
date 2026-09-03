@@ -344,3 +344,60 @@ fn set32_sequential_ingest_allocation_rate() {
          (0.0782 before #615, 0.0763 after)"
     );
 }
+
+/// A monotonic 32-bit fill must allocate *less* per key than a scattered one.
+///
+/// [#615](https://github.com/orieg/expanse/issues/615) listed "node promotion
+/// churn during a monotonic fill, where a leaf crosses capacity classes
+/// repeatedly as the population grows" as a candidate for the 32-bit
+/// per-insert constant. It is the opposite way round, and this pins that:
+/// ascending keys share prefixes, so they fill few leaves deeply and cross
+/// far fewer capacity classes in total than keys scattered over the space.
+///
+/// Measured at the time of writing over 10,000 keys — allocations per key:
+/// monotonic 0.352, clustered 0.575, stride-64 0.580, uniform random 0.983.
+/// The assertion is the ordering, not those values, so capacity-class tuning
+/// is free to move them; what may not happen silently is a monotonic fill
+/// becoming the allocation-heavy shape.
+#[test]
+fn monotonic_fill_allocates_less_than_scattered() {
+    use expanse_trie::map32::ExpanseMap32;
+    const N: u32 = 10_000;
+
+    let fill = |keys: Vec<u32>| -> usize {
+        let mut map = ExpanseMap32::new();
+        let n = allocations_during(|| {
+            for &k in &keys {
+                map.insert(k, k ^ 0x55);
+            }
+        });
+        assert_eq!(map.len(), keys.len(), "fill lost keys");
+        core::mem::forget(map);
+        n
+    };
+
+    let monotonic = fill((0..N).collect());
+    let clustered = fill((0..N).map(|i| (i / 8) * 4096 + (i % 8)).collect());
+    let random = fill({
+        let mut x: u64 = 0x0DDB_1A5E_5EED_0001;
+        (0..N)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x as u32
+            })
+            .collect()
+    });
+
+    assert!(
+        monotonic < clustered && clustered < random,
+        "allocation count should rise with key scatter, got monotonic {monotonic}, \
+         clustered {clustered}, random {random}"
+    );
+    assert!(
+        monotonic * 2 < random,
+        "a monotonic fill should allocate far less than a scattered one, got \
+         {monotonic} vs {random} over {N} keys"
+    );
+}

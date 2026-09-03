@@ -758,6 +758,58 @@ slab batching (here). The arm remains the one Expanse already wins on
 Cortex-M4 against every twin, so the standing verdict is that its constant is
 not reachable by the batching ideas proposed for it.
 
+### 8.1.7 The 32-bit ingest constant: where each candidate mechanism landed (#615)
+
+#615 opened on a 12.5x gap to a flat hash on Cortex-M4 and 3.8x on Xtensa, and
+named three candidate mechanisms as hypotheses to rule out. All three are now
+measured, and the gap they were opened against has roughly halved:
+
+| | when #615 was filed | current published artifact |
+|---|---:|---:|
+| Cortex-M4 `ingest`, Expanse vs `open_hash` | 12.5x (5,074 vs 406) | **7.5x** (3,037 vs 406) |
+| Cortex-M4 `ingest`, Expanse vs `sorted_array` | 5.2x (5,074 vs 971) | **3.1x** (3,037 vs 967) |
+| Xtensa `esp32_tsdb_ingest` N=2000 vs hash | 3.8x (5,116 vs 1,337) | **2.28x** (3,050 vs 1,338) |
+
+*(measured: `docs/benchmarks/stm32h747/results.json` and
+`docs/benchmarks/embedded/esp32.json`; the ESP32 twins take a FreeRTOS mutex
+inside the timed window, so that ratio remains a lower bound on the engine
+gap and the Cortex-M4 one the closer estimate.)*
+
+**1. Allocation through the `HostAlloc` bridge — measured, negative.** An
+optional aligned-allocation hook removing the bridge's padding and header was
+implemented and measured in all four cells of {pass-through} x {aligned hook};
+every variant saved 3-11% heap and cost more cycles than it saved, +14% to
++78% depending on the arm. §8.1.1.
+
+**2. Node promotion churn during a monotonic fill — refuted.** The hypothesis
+was that a leaf crossing capacity classes repeatedly as the population grows
+is what a monotonic fill pays for. It is the other way round: a monotonic fill
+is the *cheapest* shape by allocation count, because ascending keys share
+prefixes and fill few leaves deeply. Over 10,000 keys into `ExpanseMap32`,
+allocations per key are 0.352 monotonic, 0.575 clustered, 0.580 stride-64 and
+0.983 uniform random. At 0.352 allocations per key an allocation would have to
+cost thousands of cycles to account for a 3,050-cycle per-insert constant, and
+mechanism 1 already measured that it does not. The ordering is now pinned by
+`monotonic_fill_allocates_less_than_scattered` in
+`crates/expanse/tests/no_heap_churn.rs`.
+
+**3. Descent not amortized across consecutive inserts — implemented, wins.**
+This one was real. The insert finger caches the descent to the last-inserted
+expanse and a hit skips four tag dispatches and six arena resolutions; it
+landed in #625 at **-31.41%** on the Callgrind `map32_insert` arm, **-14%** on
+the ESP32 ingest arms and **-26%** on both STM32 cores. The monotone-append
+short circuit landed alongside it at -5.44% on `set32_insert`.
+
+**What remains is unattributed.** With the amortization win taken and the two
+allocation hypotheses closed, the residual constant has no named mechanism
+behind it, and §6's profile-first step is still unavailable: there is no
+per-function Callgrind ranking anywhere in this repository, locally or in CI.
+What did become available since #615 was filed is deterministic coverage of
+the paths themselves — `map32_insert`, `set32_insert`, `map32_remove` and
+`set32_remove` in `crates/expanse/benches/instructions.rs` (#631), and the
+same arms as exact wasm fuel on both engine widths (#635) — so the next
+attempt on this constant can be measured per increment instead of argued.
+
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 
 ```rust
