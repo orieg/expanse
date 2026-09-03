@@ -308,6 +308,59 @@ proptest! {
         mutd.validate();
     }
 
+    /// k-way aggregate set algebra (#610) matches `BTreeSet` for both
+    /// cardinality and materialization on k in 1..=6 key streams.
+    #[test]
+    fn kway_set_algebra_matches_btreeset(
+        sets_keys in prop::collection::vec(prop::collection::vec(key_strategy(), 0..200), 1..6),
+    ) {
+        let mut expanse_sets = Vec::with_capacity(sets_keys.len());
+        let mut btree_sets = Vec::with_capacity(sets_keys.len());
+
+        for keys in &sets_keys {
+            let mut s = ExpanseSet::new();
+            let mut m = BTreeSet::new();
+            for &k in keys {
+                s.insert(k);
+                m.insert(k);
+            }
+            s.validate();
+            expanse_sets.push(s);
+            btree_sets.push(m);
+        }
+
+        let s_refs: Vec<&ExpanseSet> = expanse_sets.iter().collect();
+
+        let mut model_and = btree_sets[0].clone();
+        for bs in &btree_sets[1..] {
+            model_and = model_and.intersection(bs).copied().collect();
+        }
+
+        let mut model_or = BTreeSet::new();
+        for bs in &btree_sets {
+            model_or = model_or.union(bs).copied().collect();
+        }
+
+        prop_assert_eq!(
+            ExpanseSet::intersection_len_many(&s_refs),
+            model_and.len() as u64,
+            "intersection_len_many"
+        );
+        prop_assert_eq!(
+            ExpanseSet::union_len_many(&s_refs),
+            model_or.len() as u64,
+            "union_len_many"
+        );
+
+        let res_and = ExpanseSet::intersection_many(&s_refs);
+        res_and.validate();
+        prop_assert!(res_and.iter().eq(model_and.iter().copied()), "intersection_many");
+
+        let res_or = ExpanseSet::union_many(&s_refs);
+        res_or.validate();
+        prop_assert!(res_or.iter().eq(model_or.iter().copied()), "union_many");
+    }
+
     /// `from_sorted_iter` bulk-build equals key-by-key insertion in content and
     /// passes the invariants validator, on the interesting-region strategy.
     #[test]

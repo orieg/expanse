@@ -806,6 +806,18 @@ impl Bitmap256 {
             + (self.words[3] & o.words[3]).count_ones()
     }
 
+    /// Population of `self | other` without materializing the result — four
+    /// `OR`s and a `popcnt` per word. The cardinality kernel behind
+    /// `ExpanseSet::union_len_many` at aligned bitmap leaves.
+    #[inline(always)]
+    #[must_use]
+    pub const fn count_or(&self, o: &Self) -> u32 {
+        (self.words[0] | o.words[0]).count_ones()
+            + (self.words[1] | o.words[1]).count_ones()
+            + (self.words[2] | o.words[2]).count_ones()
+            + (self.words[3] | o.words[3]).count_ones()
+    }
+
     /// Number of members strictly below `idx` — the packed-array slot of
     /// `idx` in a bitmap branch/leaf.
     #[inline(always)]
@@ -1250,6 +1262,7 @@ mod tests {
             let mut ex_andnot = Bitmap256::new();
             let mut ex_xor = Bitmap256::new();
             let mut n_and = 0u32;
+            let mut n_or = 0u32;
             for i in 0..=255u8 {
                 let (ta, tb) = (a.test(i), b.test(i));
                 if ta && tb {
@@ -1258,6 +1271,7 @@ mod tests {
                 }
                 if ta || tb {
                     ex_or.set(i);
+                    n_or += 1;
                 }
                 if ta && !tb {
                     ex_andnot.set(i);
@@ -1272,6 +1286,8 @@ mod tests {
             assert_eq!(a.xor(&b), ex_xor, "xor");
             assert_eq!(a.count_and(&b), n_and, "count_and");
             assert_eq!(a.and(&b).count(), n_and, "count_and vs and.count");
+            assert_eq!(a.count_or(&b), n_or, "count_or");
+            assert_eq!(a.or(&b).count(), n_or, "count_or vs or.count");
         }
     }
 

@@ -36,6 +36,11 @@ use crate::mutate;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1};
 use crate::types::{EdgeTag, EdgeType};
 
+#[cfg(not(feature = "std"))]
+use core_alloc::{vec, vec::Vec};
+#[cfg(feature = "std")]
+use std::vec::Vec;
+
 /// True when `tag` names one of the four branch flavors.
 #[inline(always)]
 pub(crate) fn is_branch(tag: u8) -> bool {
@@ -195,6 +200,163 @@ pub(crate) unsafe fn child_by_digit(edge: &Edge, level: u8, d: u8) -> Edge {
             }
         }
         _ => Edge::NULL,
+    }
+}
+
+/// Read accessor over a live branch node, caching the form and skipping status
+/// to avoid repeated dispatch and tag decoding during digit-by-digit operations.
+#[derive(Copy, Clone)]
+pub(crate) enum BranchAccessor<'e> {
+    U(&'e BranchU),
+    B {
+        b: &'e BranchB,
+        skipping_pd: Option<u8>,
+    },
+    L3 {
+        b: &'e BranchL3,
+        skipping_pd: Option<u8>,
+    },
+    L7 {
+        b: &'e BranchL7,
+        skipping_pd: Option<u8>,
+    },
+}
+
+impl<'e> BranchAccessor<'e> {
+    /// Extracts the 256-bit set of populated digits for this branch edge.
+    #[inline(always)]
+    pub(crate) fn populated_bitmap(&self) -> Bitmap256 {
+        match self {
+            BranchAccessor::U(u) => {
+                let mut bm = Bitmap256::new();
+                for d in 0..256 {
+                    if !u.edges[d].is_null() {
+                        bm.set(d as u8);
+                    }
+                }
+                bm
+            }
+            BranchAccessor::B { b, skipping_pd } => {
+                if let Some(pd) = skipping_pd {
+                    let mut bm = Bitmap256::new();
+                    bm.set(*pd);
+                    bm
+                } else {
+                    b.bitmap
+                }
+            }
+            BranchAccessor::L3 { b, skipping_pd } => {
+                let mut bm = Bitmap256::new();
+                if let Some(pd) = skipping_pd {
+                    bm.set(*pd);
+                } else {
+                    for &d in &b.hdr.digits[..b.hdr.num as usize] {
+                        bm.set(d);
+                    }
+                }
+                bm
+            }
+            BranchAccessor::L7 { b, skipping_pd } => {
+                let mut bm = Bitmap256::new();
+                if let Some(pd) = skipping_pd {
+                    bm.set(*pd);
+                } else {
+                    for &d in &b.hdr.digits[..b.hdr.num as usize] {
+                        bm.set(d);
+                    }
+                }
+                bm
+            }
+        }
+    }
+
+    /// The child edge for decode digit `d` at `level`.
+    ///
+    /// # Safety
+    ///
+    /// `edge` is the parent edge whose node this accessor views.
+    #[inline(always)]
+    pub(crate) unsafe fn child(&self, edge: &Edge, d: u8) -> Edge {
+        match self {
+            BranchAccessor::U(u) => u.edges[d as usize],
+            BranchAccessor::B { b, skipping_pd } => {
+                if let Some(pd) = skipping_pd {
+                    if d == *pd { *edge } else { Edge::NULL }
+                } else {
+                    match b.bitmap.test_and_subexpanse_rank_with_sub(d) {
+                        // SAFETY: d is set in b.bitmap -> subarrays[sub] is non-null.
+                        Some((sub, slot)) => unsafe { *b.subarrays[sub].add(slot) },
+                        None => Edge::NULL,
+                    }
+                }
+            }
+            BranchAccessor::L3 { b, skipping_pd } => {
+                if let Some(pd) = skipping_pd {
+                    if d == *pd { *edge } else { Edge::NULL }
+                } else {
+                    match b.hdr.find(d) {
+                        Some(slot) => b.edges[slot],
+                        None => Edge::NULL,
+                    }
+                }
+            }
+            BranchAccessor::L7 { b, skipping_pd } => {
+                if let Some(pd) = skipping_pd {
+                    if d == *pd { *edge } else { Edge::NULL }
+                } else {
+                    match b.hdr.find(d) {
+                        Some(slot) => b.edges[slot],
+                        None => Edge::NULL,
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Creates a [`BranchAccessor`] for `edge` covering `level`.
+///
+/// # Safety
+///
+/// `edge` references a live branch node.
+#[inline(always)]
+pub(crate) unsafe fn branch_accessor<'e>(edge: &'e Edge, level: u8) -> BranchAccessor<'e> {
+    match edge.tag() {
+        Some(EdgeTag::Structural(EdgeType::BranchU)) => {
+            // SAFETY: live BranchU pointer (BranchU never skips).
+            BranchAccessor::U(unsafe { &*edge.node_ptr().cast::<BranchU>() })
+        }
+        Some(EdgeTag::Structural(EdgeType::BranchB)) => {
+            // SAFETY: live BranchB pointer.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchB>() };
+            let skipping_pd = if b.level < level {
+                Some(edge.decode_bytes(b.level)[(level - b.level - 1) as usize])
+            } else {
+                None
+            };
+            BranchAccessor::B { b, skipping_pd }
+        }
+        Some(EdgeTag::Structural(EdgeType::BranchL3)) => {
+            // SAFETY: live BranchL3 pointer.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchL3>() };
+            let skipping_pd = if b.hdr.level < level {
+                Some(edge.decode_bytes(b.hdr.level)[(level - b.hdr.level - 1) as usize])
+            } else {
+                None
+            };
+            BranchAccessor::L3 { b, skipping_pd }
+        }
+        Some(EdgeTag::Structural(EdgeType::BranchL7)) => {
+            // SAFETY: live BranchL7 pointer.
+            let b = unsafe { &*edge.node_ptr().cast::<BranchL7>() };
+            let skipping_pd = if b.hdr.level < level {
+                Some(edge.decode_bytes(b.hdr.level)[(level - b.hdr.level - 1) as usize])
+            } else {
+                None
+            };
+            BranchAccessor::L7 { b, skipping_pd }
+        }
+        _ => unreachable!("branch_accessor called on non-branch edge"),
     }
 }
 
@@ -478,4 +640,552 @@ pub(crate) unsafe fn intersection_len(ea: &Edge, eb: &Edge, level: u8) -> u64 {
 
     // SAFETY: at least one terminal; both live at `level`.
     unsafe { intersection_terminal(ea, eb, level) }
+}
+
+/// Intersection cardinality of k non-null subtrees covering the same
+/// expanse of `level` undecoded bytes (#610).
+///
+/// # Safety
+///
+/// All edges in `edges` must reference live, well-formed subtrees at `level`.
+pub(crate) unsafe fn intersection_len_many(edges: &[Edge], level: u8) -> u64 {
+    // SAFETY: caller guarantees all edges in `edges` reference live, well-formed
+    // subtrees covering `level` undecoded bytes.
+    unsafe {
+        if edges.is_empty() {
+            return 0;
+        }
+        if edges.len() == 1 {
+            return subtree_count(&edges[0], level);
+        }
+        if edges.len() == 2 {
+            return intersection_len(&edges[0], &edges[1], level);
+        }
+
+        // 1. Any null edge immediately means empty intersection.
+        for e in edges {
+            if e.is_null() {
+                return 0;
+            }
+        }
+
+        // 2. FullExpanse edges cover the entire expanse, so they impose no constraint.
+        let mut non_full_buf: [Edge; 16] = [Edge::NULL; 16];
+        let non_full_vec: Vec<Edge>;
+        let active_edges: &[Edge] = if edges
+            .iter()
+            .any(|e| e.tag_byte() == EdgeType::FullExpanse as u8)
+        {
+            let count_non_full = edges
+                .iter()
+                .filter(|e| e.tag_byte() != EdgeType::FullExpanse as u8)
+                .count();
+            if count_non_full == 0 {
+                return full_count(level);
+            }
+            if count_non_full == 1 {
+                let single = edges
+                    .iter()
+                    .find(|e| e.tag_byte() != EdgeType::FullExpanse as u8)
+                    .unwrap();
+                return subtree_count(single, level);
+            }
+            if count_non_full <= 16 {
+                let mut idx = 0;
+                for e in edges {
+                    if e.tag_byte() != EdgeType::FullExpanse as u8 {
+                        non_full_buf[idx] = *e;
+                        idx += 1;
+                    }
+                }
+                &non_full_buf[..idx]
+            } else {
+                non_full_vec = edges
+                    .iter()
+                    .filter(|e| e.tag_byte() != EdgeType::FullExpanse as u8)
+                    .copied()
+                    .collect();
+                &non_full_vec
+            }
+        } else {
+            edges
+        };
+
+        if active_edges.len() == 2 {
+            return intersection_len(&active_edges[0], &active_edges[1], level);
+        }
+
+        // 3. Check if all active edges reduce to a final-byte bitmap (real level 1):
+        let mut all_bms = true;
+        let mut bms_buf: [Bitmap256; 16] = [Bitmap256::new(); 16];
+
+        if let Some((dv, bm)) = as_level1_bitmap(&active_edges[0], level) {
+            let first_dv = dv;
+            bms_buf[0] = bm;
+            for (i, e) in active_edges[1..].iter().enumerate() {
+                if let Some((dv_i, bm_i)) = as_level1_bitmap(e, level) {
+                    if dv_i != first_dv {
+                        return 0;
+                    }
+                    if i + 1 < 16 {
+                        bms_buf[i + 1] = bm_i;
+                    }
+                } else {
+                    all_bms = false;
+                    break;
+                }
+            }
+        } else {
+            all_bms = false;
+        }
+
+        if all_bms {
+            let mut acc = bms_buf[0];
+            for (i, e) in active_edges.iter().enumerate().skip(1) {
+                let bm_i = if i < 16 {
+                    &bms_buf[i]
+                } else {
+                    let (_, bm) = as_level1_bitmap(e, level).unwrap();
+                    bms_buf[0] = bm;
+                    &bms_buf[0]
+                };
+                acc = acc.and(bm_i);
+                if acc.is_empty() {
+                    return 0;
+                }
+            }
+            return u64::from(acc.count());
+        }
+
+        // 4. Check if at least one active edge is a terminal.
+        let mut smallest_term_idx = None;
+        let mut smallest_term_count = usize::MAX;
+        let mut term_keys_buf = [0u64; 256];
+        let mut best_keys_buf = [0u64; 256];
+
+        for (i, e) in active_edges.iter().enumerate() {
+            if !is_branch(e.tag_byte())
+                && let Some(n) = terminal_remainders_buf(e, level, &mut term_keys_buf)
+                && n < smallest_term_count
+            {
+                smallest_term_count = n;
+                smallest_term_idx = Some(i);
+                best_keys_buf[..n].copy_from_slice(&term_keys_buf[..n]);
+            }
+        }
+
+        if let Some(t_idx) = smallest_term_idx {
+            let keys = &best_keys_buf[..smallest_term_count];
+            let mut acc = 0u64;
+            'key_loop: for &k in keys {
+                for (i, e) in active_edges.iter().enumerate() {
+                    if i == t_idx {
+                        continue;
+                    }
+                    if !get::test_set(e, k, level) {
+                        continue 'key_loop;
+                    }
+                }
+                acc += 1;
+            }
+            return acc;
+        }
+
+        // 5. All active edges are branches.
+        intersection_branches_many(active_edges, level)
+    }
+}
+
+/// Intersection cardinality when all edges are branches covering `level`.
+#[inline]
+unsafe fn intersection_branches_many(edges: &[Edge], level: u8) -> u64 {
+    // SAFETY: caller guarantees all edges in `edges` reference live branch nodes at `level`.
+    unsafe {
+        let mut skipping_pd: Option<u8> = None;
+        for e in edges {
+            let t = match e.tag() {
+                Some(EdgeTag::Structural(t)) if t.is_branch() => t,
+                _ => return 0,
+            };
+            let bl = mutate::branch_form_level(e, t, level);
+            if bl < level {
+                let pd = e.decode_bytes(bl)[(level - bl - 1) as usize];
+                if let Some(prev) = skipping_pd {
+                    if prev != pd {
+                        return 0;
+                    }
+                } else {
+                    skipping_pd = Some(pd);
+                }
+            }
+        }
+
+        if let Some(pd) = skipping_pd {
+            let mut child_buf: [Edge; 16] = [Edge::NULL; 16];
+            let mut child_vec: Vec<Edge>;
+            let children: &[Edge] = if edges.len() <= 16 {
+                for (i, e) in edges.iter().enumerate() {
+                    let c = child_by_digit(e, level, pd);
+                    if c.is_null() {
+                        return 0;
+                    }
+                    child_buf[i] = c;
+                }
+                &child_buf[..edges.len()]
+            } else {
+                child_vec = Vec::with_capacity(edges.len());
+                for e in edges {
+                    let c = child_by_digit(e, level, pd);
+                    if c.is_null() {
+                        return 0;
+                    }
+                    child_vec.push(c);
+                }
+                &child_vec
+            };
+            return intersection_len_many(children, level - 1);
+        }
+
+        // No branch skips this level. Pick branch with fewest active children.
+        let mut best_driver_idx = 0;
+        let mut min_children = 257usize;
+
+        for (i, e) in edges.iter().enumerate() {
+            let t = e.tag_byte();
+            let num = if t == EdgeType::BranchL3 as u8 {
+                let b = &*e.node_ptr().cast::<BranchL3>();
+                b.hdr.num as usize
+            } else if t == EdgeType::BranchL7 as u8 {
+                let b = &*e.node_ptr().cast::<BranchL7>();
+                b.hdr.num as usize
+            } else if t == EdgeType::BranchB as u8 {
+                let b = &*e.node_ptr().cast::<BranchB>();
+                b.bitmap.count() as usize
+            } else {
+                256
+            };
+            if num < min_children {
+                min_children = num;
+                best_driver_idx = i;
+            }
+        }
+
+        let driver = &edges[best_driver_idx];
+        let driver_t = driver.tag_byte();
+        let mut acc = 0u64;
+
+        let probe_digit = |d: u8, driver_child: Edge| -> u64 {
+            let mut child_buf: [Edge; 16] = [Edge::NULL; 16];
+            let mut child_vec: Vec<Edge>;
+            let children: &[Edge] = if edges.len() <= 16 {
+                for (i, e) in edges.iter().enumerate() {
+                    if i == best_driver_idx {
+                        child_buf[i] = driver_child;
+                    } else {
+                        let c = child_by_digit(e, level, d);
+                        if c.is_null() {
+                            return 0;
+                        }
+                        child_buf[i] = c;
+                    }
+                }
+                &child_buf[..edges.len()]
+            } else {
+                child_vec = Vec::with_capacity(edges.len());
+                for (i, e) in edges.iter().enumerate() {
+                    if i == best_driver_idx {
+                        child_vec.push(driver_child);
+                    } else {
+                        let c = child_by_digit(e, level, d);
+                        if c.is_null() {
+                            return 0;
+                        }
+                        child_vec.push(c);
+                    }
+                }
+                &child_vec
+            };
+            intersection_len_many(children, level - 1)
+        };
+
+        if driver_t == EdgeType::BranchL3 as u8 {
+            let b = &*driver.node_ptr().cast::<BranchL3>();
+            for i in 0..b.hdr.num as usize {
+                let d = b.hdr.digits[i];
+                let c = b.edges[i];
+                acc += probe_digit(d, c);
+            }
+        } else if driver_t == EdgeType::BranchL7 as u8 {
+            let b = &*driver.node_ptr().cast::<BranchL7>();
+            for i in 0..b.hdr.num as usize {
+                let d = b.hdr.digits[i];
+                let c = b.edges[i];
+                acc += probe_digit(d, c);
+            }
+        } else if driver_t == EdgeType::BranchB as u8 {
+            let b = &*driver.node_ptr().cast::<BranchB>();
+            let mut from = b.bitmap.next_set(0);
+            while let Some(d) = from {
+                let sub = (d >> 5) as usize;
+                let slot = b.bitmap.subexpanse_rank(d) as usize;
+                let c = *b.subarrays[sub].add(slot);
+                acc += probe_digit(d, c);
+                from = if d == 255 {
+                    None
+                } else {
+                    b.bitmap.next_set(d + 1)
+                };
+            }
+        } else if driver_t == EdgeType::BranchU as u8 {
+            let b = &*driver.node_ptr().cast::<BranchU>();
+            for (d, &c) in b.edges.iter().enumerate() {
+                if !c.is_null() {
+                    acc += probe_digit(d as u8, c);
+                }
+            }
+        }
+
+        acc
+    }
+}
+
+/// Union cardinality of k subtrees covering the same expanse of `level`
+/// undecoded bytes (#610).
+///
+/// # Safety
+///
+/// All non-null edges in `edges` must reference live subtrees at `level`.
+pub(crate) unsafe fn union_len_many(edges: &[Edge], level: u8) -> u64 {
+    // SAFETY: caller guarantees all non-null edges in `edges` reference live
+    // subtrees covering `level` undecoded bytes.
+    unsafe {
+        if edges.is_empty() {
+            return 0;
+        }
+        let mut non_null_buf: [Edge; 16] = [Edge::NULL; 16];
+        let non_null_vec: Vec<Edge>;
+        let active: &[Edge] = if edges.iter().any(|e| e.is_null()) {
+            let count = edges.iter().filter(|e| !e.is_null()).count();
+            if count == 0 {
+                return 0;
+            }
+            if count <= 16 {
+                let mut idx = 0;
+                for e in edges {
+                    if !e.is_null() {
+                        non_null_buf[idx] = *e;
+                        idx += 1;
+                    }
+                }
+                &non_null_buf[..idx]
+            } else {
+                non_null_vec = edges.iter().filter(|e| !e.is_null()).copied().collect();
+                &non_null_vec
+            }
+        } else {
+            edges
+        };
+
+        if active.len() == 1 {
+            return subtree_count(&active[0], level);
+        }
+        if active.len() == 2 {
+            if let (Some((da, ba)), Some((db, bb))) = (
+                as_level1_bitmap(&active[0], level),
+                as_level1_bitmap(&active[1], level),
+            ) {
+                return if da == db {
+                    u64::from(ba.count_or(&bb))
+                } else {
+                    u64::from(ba.count() + bb.count())
+                };
+            }
+            let ca = subtree_count(&active[0], level);
+            let cb = subtree_count(&active[1], level);
+            let ci = intersection_len(&active[0], &active[1], level);
+            return ca + cb - ci;
+        }
+
+        // 1. If any edge is FullExpanse, the union covers the whole expanse.
+        if active
+            .iter()
+            .any(|e| e.tag_byte() == EdgeType::FullExpanse as u8)
+        {
+            return full_count(level);
+        }
+
+        // 2. Check if all active edges reduce to a final-byte bitmap (real level 1):
+        let mut all_bms = true;
+        let mut bm_pairs: [(u64, Bitmap256); 16] = [(0, Bitmap256::new()); 16];
+        let bm_pairs_vec: Vec<(u64, Bitmap256)>;
+        for (i, e) in active.iter().enumerate() {
+            if let Some((dv, bm)) = as_level1_bitmap(e, level) {
+                if i < 16 {
+                    bm_pairs[i] = (dv, bm);
+                }
+            } else {
+                all_bms = false;
+                break;
+            }
+        }
+
+        if all_bms {
+            let pairs: &[(u64, Bitmap256)] = if active.len() <= 16 {
+                &bm_pairs[..active.len()]
+            } else {
+                bm_pairs_vec = active
+                    .iter()
+                    .map(|e| as_level1_bitmap(e, level).unwrap())
+                    .collect();
+                &bm_pairs_vec
+            };
+
+            let mut total = 0u64;
+            let mut handled = [false; 32];
+            let mut handled_vec: Vec<bool>;
+            let is_handled: &mut [bool] = if pairs.len() <= 32 {
+                &mut handled[..pairs.len()]
+            } else {
+                handled_vec = vec![false; pairs.len()];
+                &mut handled_vec
+            };
+
+            for i in 0..pairs.len() {
+                if is_handled[i] {
+                    continue;
+                }
+                let (target_dv, mut acc_bm) = pairs[i];
+                is_handled[i] = true;
+                let mut match_j = None;
+                let mut matches_count = 1;
+                for j in (i + 1)..pairs.len() {
+                    if !is_handled[j] && pairs[j].0 == target_dv {
+                        match_j = Some(j);
+                        matches_count += 1;
+                        acc_bm = acc_bm.or(&pairs[j].1);
+                        is_handled[j] = true;
+                    }
+                }
+                if matches_count == 1 {
+                    total += u64::from(pairs[i].1.count());
+                } else if matches_count == 2 {
+                    total += u64::from(pairs[i].1.count_or(&pairs[match_j.unwrap()].1));
+                } else {
+                    total += u64::from(acc_bm.count());
+                }
+            }
+            return total;
+        }
+
+        // 3. If any active edge is a terminal, extract its keys and probe against the rest.
+        for (i, e) in active.iter().enumerate() {
+            let mut kbuf = [0u64; 256];
+            if !is_branch(e.tag_byte())
+                && let Some(n) = terminal_remainders_buf(e, level, &mut kbuf)
+            {
+                let remaining: Vec<Edge> = active
+                    .iter()
+                    .enumerate()
+                    .filter(|&(idx, _)| idx != i)
+                    .map(|(_, &edge)| edge)
+                    .collect();
+                let mut solo_keys = 0u64;
+                for &k in &kbuf[..n] {
+                    let mut in_other = false;
+                    for other in &remaining {
+                        if get::test_set(other, k, level) {
+                            in_other = true;
+                            break;
+                        }
+                    }
+                    if !in_other {
+                        solo_keys += 1;
+                    }
+                }
+                return solo_keys + union_len_many(&remaining, level);
+            }
+        }
+
+        // 4. All active edges are branches.
+        union_branches_many(active, level)
+    }
+}
+
+/// Union cardinality when all edges are branches covering `level`.
+#[inline]
+unsafe fn union_branches_many(edges: &[Edge], level: u8) -> u64 {
+    // SAFETY: caller guarantees all edges in `edges` reference live branch nodes at `level`.
+    unsafe {
+        let mut digit_maps: [Bitmap256; 16] = [Bitmap256::new(); 16];
+        let mut digit_maps_vec: Vec<Bitmap256>;
+        let mut active_digits = Bitmap256::new();
+
+        let maps: &[Bitmap256] = if edges.len() <= 16 {
+            for (i, e) in edges.iter().enumerate() {
+                let acc = branch_accessor(e, level);
+                let bm = acc.populated_bitmap();
+                digit_maps[i] = bm;
+                active_digits = active_digits.or(&bm);
+            }
+            &digit_maps[..edges.len()]
+        } else {
+            digit_maps_vec = Vec::with_capacity(edges.len());
+            for e in edges {
+                let acc = branch_accessor(e, level);
+                let bm = acc.populated_bitmap();
+                active_digits = active_digits.or(&bm);
+                digit_maps_vec.push(bm);
+            }
+            &digit_maps_vec
+        };
+
+        let mut total = 0u64;
+        let mut from = active_digits.next_set(0);
+
+        while let Some(d) = from {
+            let mut child_buf: [Edge; 16] = [Edge::NULL; 16];
+            let mut child_vec: Vec<Edge>;
+            let mut count_present = 0usize;
+
+            if edges.len() <= 16 {
+                for (i, e) in edges.iter().enumerate() {
+                    if maps[i].test(d) {
+                        let c = child_by_digit(e, level, d);
+                        if !c.is_null() {
+                            child_buf[count_present] = c;
+                            count_present += 1;
+                        }
+                    }
+                }
+                if count_present == 1 {
+                    total += subtree_count(&child_buf[0], level - 1);
+                } else if count_present > 1 {
+                    total += union_len_many(&child_buf[..count_present], level - 1);
+                }
+            } else {
+                child_vec = Vec::new();
+                for (i, e) in edges.iter().enumerate() {
+                    if maps[i].test(d) {
+                        let c = child_by_digit(e, level, d);
+                        if !c.is_null() {
+                            child_vec.push(c);
+                        }
+                    }
+                }
+                if child_vec.len() == 1 {
+                    total += subtree_count(&child_vec[0], level - 1);
+                } else if child_vec.len() > 1 {
+                    total += union_len_many(&child_vec, level - 1);
+                }
+            }
+
+            from = if d == 255 {
+                None
+            } else {
+                active_digits.next_set(d + 1)
+            };
+        }
+
+        total
+    }
 }

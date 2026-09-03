@@ -51,10 +51,13 @@ mod common;
 use common::{
     build_list, expanse_and_count, expanse_and_materialize, expanse_and_materialize_v1,
     expanse_andnot_count, expanse_andnot_materialize, expanse_andnot_materialize_v1,
-    expanse_native_and_count, expanse_native_andnot_count, expanse_native_or_count,
-    expanse_or_count, expanse_or_materialize, expanse_or_materialize_v1, median_ns_per_op,
-    roaring_and_materialize, roaring_andnot_materialize, roaring_or_materialize, to_expanse,
-    to_roaring,
+    expanse_kway_and_count, expanse_kway_and_materialize, expanse_kway_or_count,
+    expanse_kway_or_materialize, expanse_native_and_count, expanse_native_andnot_count,
+    expanse_native_or_count, expanse_or_count, expanse_or_materialize, expanse_or_materialize_v1,
+    expanse_pairwise_and_count, expanse_pairwise_or_count, median_ns_per_op,
+    roaring_and_materialize, roaring_andnot_materialize, roaring_multiops_and_count,
+    roaring_multiops_and_materialize, roaring_multiops_or_count, roaring_multiops_or_materialize,
+    roaring_or_materialize, to_expanse, to_roaring,
 };
 
 fn universe_for(dist: &str, n: usize) -> u64 {
@@ -241,6 +244,104 @@ fn main() {
                 eprintln!(
                     "  skewed {dist:<8} |A|={n_a:>9} |B|={n_b:>7}  AND composed={e_and:>12.0}ns native={n_and:>12.0}ns roar={r_and:>12.0}ns"
                 );
+            }
+        }
+    }
+
+    // --- k-way aggregate set algebra (#610): k in [2, 3, 5, 8, 16] ---
+    let k_values = if quick {
+        vec![2usize, 3, 5]
+    } else {
+        vec![2usize, 3, 5, 8, 16]
+    };
+    let k_sizes = if quick {
+        vec![10_000usize, 100_000]
+    } else {
+        vec![10_000usize, 100_000, 1_000_000]
+    };
+
+    for &dist in &dists {
+        for &n in &k_sizes {
+            let universe = universe_for(dist, n);
+            for &k in &k_values {
+                let lists: Vec<Vec<u64>> = (0..k)
+                    .map(|seed| build_list(dist, n, universe, seed as u64))
+                    .collect();
+                let expanse_sets: Vec<_> = lists.iter().map(|l| to_expanse(l)).collect();
+                let roaring_sets: Vec<_> = lists.iter().map(|l| to_roaring(l)).collect();
+                let e_refs: Vec<&expanse_trie::set::ExpanseSet> = expanse_sets.iter().collect();
+                let r_refs: Vec<&roaring::RoaringTreemap> = roaring_sets.iter().collect();
+
+                let k_and_card = expanse_kway_and_count(&e_refs);
+                let r_and_card = roaring_multiops_and_count(&r_refs);
+                assert_eq!(k_and_card, r_and_card);
+                let k_or_card = expanse_kway_or_count(&e_refs);
+                let r_or_card = roaring_multiops_or_count(&r_refs);
+                assert_eq!(k_or_card, r_or_card);
+
+                let k_and_ns =
+                    median_ns_per_op(|| expanse_kway_and_count(&e_refs), batches, min_batch);
+                let pair_and_ns =
+                    median_ns_per_op(|| expanse_pairwise_and_count(&e_refs), batches, min_batch);
+                let r_and_ns =
+                    median_ns_per_op(|| roaring_multiops_and_count(&r_refs), batches, min_batch);
+
+                let k_or_ns =
+                    median_ns_per_op(|| expanse_kway_or_count(&e_refs), batches, min_batch);
+                let pair_or_ns =
+                    median_ns_per_op(|| expanse_pairwise_or_count(&e_refs), batches, min_batch);
+                let r_or_ns =
+                    median_ns_per_op(|| roaring_multiops_or_count(&r_refs), batches, min_batch);
+
+                let k_mat_and_ns =
+                    median_ns_per_op(|| expanse_kway_and_materialize(&e_refs), batches, min_batch);
+                let r_mat_and_ns = median_ns_per_op(
+                    || roaring_multiops_and_materialize(&r_refs),
+                    batches,
+                    min_batch,
+                );
+
+                let k_mat_or_ns =
+                    median_ns_per_op(|| expanse_kway_or_materialize(&e_refs), batches, min_batch);
+                let r_mat_or_ns = median_ns_per_op(
+                    || roaring_multiops_or_materialize(&r_refs),
+                    batches,
+                    min_batch,
+                );
+
+                results.push(json!({
+                    "cell": "kway",
+                    "distribution": dist,
+                    "size": n,
+                    "k": k,
+                    "op": "and",
+                    "card": k_and_card,
+                    "expanse_kway_ns": k_and_ns,
+                    "expanse_pairwise_ns": pair_and_ns,
+                    "roaring_ns": r_and_ns,
+                    "expanse_materialize_ns": k_mat_and_ns,
+                    "roaring_materialize_ns": r_mat_and_ns,
+                }));
+
+                results.push(json!({
+                    "cell": "kway",
+                    "distribution": dist,
+                    "size": n,
+                    "k": k,
+                    "op": "or",
+                    "card": k_or_card,
+                    "expanse_kway_ns": k_or_ns,
+                    "expanse_pairwise_ns": pair_or_ns,
+                    "roaring_ns": r_or_ns,
+                    "expanse_materialize_ns": k_mat_or_ns,
+                    "roaring_materialize_ns": r_mat_or_ns,
+                }));
+
+                if !json_mode {
+                    eprintln!(
+                        "  kway {dist:<10} k={k:>2} n={n:>8}  AND: kway={k_and_ns:>10.0}ns pair={pair_and_ns:>10.0}ns roar={r_and_ns:>10.0}ns  |  OR: kway={k_or_ns:>10.0}ns pair={pair_or_ns:>10.0}ns roar={r_or_ns:>10.0}ns"
+                    );
+                }
             }
         }
     }

@@ -101,6 +101,30 @@ fuzz_target!(|lists: (Vec<Key>, Vec<Key>)| {
         "symmetric_difference"
     );
 
+    // k-way aggregate set algebra (#610)
+    let kway_and_len = ExpanseSet::intersection_len_many(&[&a, &b]);
+    assert_eq!(kway_and_len, inter, "k-way intersection_len_many");
+    let kway_or_len = ExpanseSet::union_len_many(&[&a, &b]);
+    assert_eq!(kway_or_len, ma.union(&mb).count() as u64, "k-way union_len_many");
+
+    let kway_and = ExpanseSet::intersection_many(&[&a, &b]);
+    kway_and.validate();
+    assert!(kway_and.iter().eq(ma.intersection(&mb).copied()), "k-way intersection_many");
+
+    let kway_or = ExpanseSet::union_many(&[&a, &b]);
+    kway_or.validate();
+    assert!(kway_or.iter().eq(ma.union(&mb).copied()), "k-way union_many");
+
+    // 3-way with self-repetition: A ∩ B ∩ A = A ∩ B, A ∪ B ∪ A = A ∪ B
+    assert_eq!(ExpanseSet::intersection_len_many(&[&a, &b, &a]), inter, "3-way intersection_len_many");
+    assert_eq!(ExpanseSet::union_len_many(&[&a, &b, &a]), ma.union(&mb).count() as u64, "3-way union_len_many");
+    let kway_3_and = ExpanseSet::intersection_many(&[&a, &b, &a]);
+    kway_3_and.validate();
+    assert!(kway_3_and.iter().eq(ma.intersection(&mb).copied()), "3-way intersection_many");
+    let kway_3_or = ExpanseSet::union_many(&[&a, &b, &a]);
+    kway_3_or.validate();
+    assert!(kway_3_or.iter().eq(ma.union(&mb).copied()), "3-way union_many");
+
     // Bulk builder (#348): from_sorted_iter equals key-by-key insertion and
     // passes the validator; unsorted input is corrected.
     let sorted: Vec<u64> = ma.iter().copied().collect();
