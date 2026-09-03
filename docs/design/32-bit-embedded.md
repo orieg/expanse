@@ -695,6 +695,16 @@ Following the §8.1.4 analysis of the ARM AAPCS register spill that regressed Co
 - **H3 (Invariance)**: 100% equivalence with `BTreeMap`/`BTreeSet` models across dense, sparse, and clustered populations; 0 bytes leaked on full drains.
 - **Verdict Ceiling**: `Engineering` (measured instruction-count win on 32-bit removal without hardware regression).
 
+#### Empirical Verification & Assembly Findings
+- **Assembly Codegen (`thumbv7em-none-eabihf`, rustc release)**:
+  - Total compilation unit assembly footprint decreased from 974,188 bytes to 971,253 bytes (-2,935 bytes, a 0.3% footprint reduction).
+  - All four parameters to `branch_remove_digit(a, e, digit, delta)` are passed cleanly in registers `r0, r1, r2, r3` with zero stack spills.
+  - In `branch_commit`, `Option<Edge32>` (12 bytes) was eliminated, replacing the 3-word tuple with a bare 8-byte `Edge32` descriptor and single-word `delta: i32`.
+  - Duplicate arena node resolution and tag matching from `branch_add_keys` are completely eliminated.
+- **Model Invariance & Tests**:
+  - Validated by unit test `branch_l2_digit_removal_tracks_subtree_count` checking `header.pop0` consistency under child digit removal.
+  - Passes all 273 engine unit tests and randomized differential models (`PROPTEST_CASES=500 cargo test --test proptest_model`).
+
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 
 ```rust
