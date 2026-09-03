@@ -509,6 +509,55 @@ pub unsafe extern "C" fn expanse_map_remove(
     true
 }
 
+/// Callback for [`expanse_map_remove_many`]: one call per removed entry, in
+/// ascending key order, with the caller's context pointer.
+#[cfg(target_pointer_width = "32")]
+pub type ExpanseMapRemoveManyFn =
+    unsafe extern "C" fn(key: CWord, value: CWord, user_ctx: *mut c_void);
+
+/// Removes a sorted, distinct set of scattered keys in one pass. 32-bit only.
+///
+/// `expanse_map_remove_range` covers a contiguous interval; this covers a set
+/// that shares none — the retired half of a hash-keyed index, say. Removing
+/// such a set one key at a time pays a fresh root descent per key, where this
+/// visits each node on the path once however many keys pass through it.
+///
+/// `keys` must be **sorted ascending and distinct**. An unsorted array removes
+/// only what it finds in the runs it happens to form. Keys absent from the map
+/// are skipped; the return counts removals, not requests.
+///
+/// # Safety
+///
+/// `map` must be null or a live handle. `keys` must point to `len` readable
+/// `expanse_word_t` values, or be null when `len` is zero. `callback`, when
+/// non-null, must be safe to call with `user_ctx` for every removed entry and
+/// must not touch `map` (the call holds it mutably).
+#[cfg(target_pointer_width = "32")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn expanse_map_remove_many(
+    map: *mut ExpanseMap,
+    keys: *const CWord,
+    len: usize,
+    callback: Option<ExpanseMapRemoveManyFn>,
+    user_ctx: *mut c_void,
+) -> usize {
+    if len == 0 || keys.is_null() {
+        return 0;
+    }
+    // SAFETY: null or live handle per contract.
+    let Some(m) = (unsafe { map.as_mut() }) else {
+        return 0;
+    };
+    // SAFETY: `len` readable words per contract.
+    let ks = unsafe { core::slice::from_raw_parts(keys, len) };
+    m.remove_many(ks, |k, v| {
+        if let Some(cb) = callback {
+            // SAFETY: callback contract above.
+            unsafe { cb(k, v, user_ctx) };
+        }
+    })
+}
+
 /// Callback for [`expanse_map_remove_range`]: one call per removed entry,
 /// in ascending key order, with the caller's context pointer.
 #[cfg(target_pointer_width = "32")]

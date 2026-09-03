@@ -58,6 +58,14 @@ typedef int expanse_lock_t;
 #error "Unsupported platform for threading in expanse_ble_tracker — define EXPANSE_SINGLE_THREADED_BAREMETAL for single-threaded bare-metal."
 #endif
 
+#if !EXPANSE_WIDE_SURFACE
+/* Buffered by_mac keys per flush. A fixed chunk rather than one buffer sized
+ * to the population: EXPANSE_BLE_MAX_CAPACITY keys would be 32 KB of SRAM
+ * standing idle between eviction passes, where 64 is 256 bytes and still
+ * collapses a 1,100-record pass from 1,100 descents into 18. */
+#define EXPIRE_BATCH 64
+#endif
+
 #define TIME_KEY_SHIFT 13
 #define SLAB_IDX_MASK  0x1FFF
 
@@ -68,6 +76,10 @@ struct expanse_ble_tracker {
     uint32_t              *mono_last_seen_sec;  /* monotonic seconds per slot: 4B */
     uint16_t              *free_indices;        /* freelist stack: 2B */
     uint32_t              *active_bitmap;       /* 1 bit per slot liveness: 0.125B */
+#if !EXPANSE_WIDE_SURFACE
+    uint32_t              *expire_batch;        /* by_mac keys pending batched removal */
+    size_t                 expire_n;            /* entries currently buffered */
+#endif
     size_t                 free_count;
     size_t                 max_capacity;
     size_t                 count;
@@ -161,15 +173,26 @@ expanse_ble_tracker_t *expanse_ble_tracker_create(size_t max_capacity) {
     tracker->mono_last_seen_sec = (uint32_t *)calloc(max_capacity, sizeof(uint32_t));
     tracker->active_bitmap = (uint32_t *)calloc(bitmap_words, sizeof(uint32_t));
     tracker->free_indices = (uint16_t *)malloc(max_capacity * sizeof(uint16_t));
+#if !EXPANSE_WIDE_SURFACE
+    tracker->expire_batch = (uint32_t *)malloc(EXPIRE_BATCH * sizeof(uint32_t));
+    tracker->expire_n = 0;
+#endif
 
     if (!tracker->by_mac || !tracker->by_time || !tracker->entries ||
-        !tracker->mono_last_seen_sec || !tracker->active_bitmap || !tracker->free_indices) {
+        !tracker->mono_last_seen_sec || !tracker->active_bitmap || !tracker->free_indices
+#if !EXPANSE_WIDE_SURFACE
+        || !tracker->expire_batch
+#endif
+    ) {
         if (tracker->by_mac) expanse_map_free(tracker->by_mac);
         if (tracker->by_time) expanse_map_free(tracker->by_time);
         if (tracker->entries) free(tracker->entries);
         if (tracker->mono_last_seen_sec) free(tracker->mono_last_seen_sec);
         if (tracker->active_bitmap) free(tracker->active_bitmap);
         if (tracker->free_indices) free(tracker->free_indices);
+#if !EXPANSE_WIDE_SURFACE
+        if (tracker->expire_batch) free(tracker->expire_batch);
+#endif
         free(tracker);
         return NULL;
     }
@@ -217,6 +240,12 @@ void expanse_ble_tracker_destroy(expanse_ble_tracker_t *tracker) {
         free(tracker->free_indices);
         tracker->free_indices = NULL;
     }
+#if !EXPANSE_WIDE_SURFACE
+    if (tracker->expire_batch) {
+        free(tracker->expire_batch);
+        tracker->expire_batch = NULL;
+    }
+#endif
     EXPANSE_LOCK_GIVE(tracker->lock);
     EXPANSE_LOCK_FREE(tracker->lock);
     free(tracker);
@@ -349,9 +378,49 @@ static void expire_slot(expanse_ble_tracker_t *tracker, uint16_t idx) {
 }
 
 #if !EXPANSE_WIDE_SURFACE
+/* Retires the buffered by_mac keys in one pass. expanse_map_remove_many wants
+ * them sorted and distinct: insertion sort suits a buffer this small, and the
+ * dedupe is belt-and-braces -- two live slots cannot share a by_mac key, since
+ * that index maps one hash to one slot. */
+static void flush_expire_batch(expanse_ble_tracker_t *tracker) {
+    size_t n = tracker->expire_n;
+    if (n == 0) {
+        return;
+    }
+    uint32_t *k = tracker->expire_batch;
+    for (size_t i = 1; i < n; ++i) {
+        uint32_t v = k[i];
+        size_t j = i;
+        while (j > 0 && k[j - 1] > v) {
+            k[j] = k[j - 1];
+            j--;
+        }
+        k[j] = v;
+    }
+    size_t w = 0;
+    for (size_t i = 0; i < n; ++i) {
+        if (i == 0 || k[i] != k[i - 1]) {
+            k[w++] = k[i];
+        }
+    }
+    expanse_map_remove_many(tracker->by_mac, k, w, NULL, NULL);
+    tracker->expire_n = 0;
+}
+
+/* Recycles the slab slot and buffers its by_mac key. Called once per expired
+ * record from inside the by_time range walk; flushing touches by_mac, which is
+ * a different map from the one that call holds, so it is safe to do here. */
 static void expire_one(expanse_word_t time_key, expanse_word_t idx_word, void *ctx) {
     (void)time_key;
-    expire_slot((expanse_ble_tracker_t *)ctx, (uint16_t)idx_word);
+    expanse_ble_tracker_t *tracker = (expanse_ble_tracker_t *)ctx;
+    uint16_t idx = (uint16_t)idx_word;
+    if (tracker->expire_n == EXPIRE_BATCH) {
+        flush_expire_batch(tracker);
+    }
+    tracker->expire_batch[tracker->expire_n++] = fnv1a_32(tracker->entries[idx].mac, 6);
+    clear_slot_active(tracker, idx);
+    tracker->free_indices[tracker->free_count++] = idx;
+    tracker->count--;
 }
 #endif
 
@@ -398,6 +467,7 @@ size_t expanse_ble_tracker_expire_stale(expanse_ble_tracker_t *tracker, uint32_t
      * and slab recycling; it must not touch by_time, which the call holds. */
     expired_count = expanse_map_remove_range(tracker->by_time, 0, max_time_key,
                                              expire_one, tracker);
+    flush_expire_batch(tracker);
 #endif
 
     EXPANSE_LOCK_GIVE(tracker->lock);
@@ -426,6 +496,10 @@ size_t expanse_ble_tracker_mem_used(const expanse_ble_tracker_t *tracker) {
                       tracker->max_capacity * sizeof(uint32_t) +
                       tracker->max_capacity * sizeof(uint16_t) +
                       ((tracker->max_capacity + 31) / 32) * sizeof(uint32_t);
+#if !EXPANSE_WIDE_SURFACE
+    /* The batched-eviction buffer: fixed, not proportional to capacity. */
+    slab_mem += EXPIRE_BATCH * sizeof(uint32_t);
+#endif
     EXPANSE_LOCK_GIVE(non_const->lock);
     return trie_mem + slab_mem;
 }

@@ -109,14 +109,14 @@ and the run found two defects that no build-time check could have caught:
 
 ## What the 32-bit library exports
 
-A 32-bit `libexpanse` carries **56 symbols** — the width-parametric ordered
+A 32-bit `libexpanse` carries **57 symbols** — the width-parametric ordered
 core with full bidirectional range navigation:
 
 | Container | Entry points |
 |---|---|
 | identity | `expanse_version` |
 | `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
-| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_remove_range` (32-bit-only: batched eviction), `_for_each_range` (32-bit-only: streaming range walk), `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
+| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_remove_range` (32-bit-only: batched eviction), `_for_each_range` (32-bit-only: streaming range walk), `_remove_many` (32-bit-only: batched scattered removal), `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
 | `expanse_sync32_map_t` / `expanse_sync32_set_t` | one writer, single-attempt optimistic readers (#573, provisional): `_new`, `_free`, `_writer`, `_reader`, `_writer_try_insert`, `_writer_try_remove`, `_writer_try_reclaim`, `_writer_get` / `_writer_contains`, `_writer_stats`, `_reader_try_get` / `_reader_try_contains`, `_reader_try_len`; `expanse_sync32_mutation_headroom`, `expanse_sync32_status_str` |
 
 **There are no `Judy*` symbols in a 32-bit build.** The legacy drop-in ABI is a

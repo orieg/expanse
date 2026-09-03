@@ -190,6 +190,29 @@ size_t expanse_map_remove_range(expanse_map_t *map, expanse_word_t lo, expanse_w
  * callback receives keys and values by value, so no pointer outlives the
  * walk. The callback must not mutate `map` during the walk.
  */
+/**
+ * Callback for expanse_map_remove_many(): one call per removed entry, in
+ * ascending key order, with the caller's context pointer.
+ */
+typedef void (*expanse_map_remove_many_fn)(expanse_word_t key, expanse_word_t value,
+                                           void *user_ctx);
+
+/**
+ * Removes a sorted, distinct set of scattered keys in one pass.
+ *
+ * expanse_map_remove_range() covers a contiguous interval; this covers a set
+ * that shares none -- the retired half of a hash-keyed index, say. Removing
+ * such a set one key at a time pays a fresh root descent per key, where this
+ * visits each node on the path once however many keys pass through it.
+ *
+ * `keys` must be sorted ascending and distinct; an unsorted array removes only
+ * what it finds in the runs it happens to form. Keys absent from the map are
+ * skipped, so the return counts removals and not requests. `callback` may be
+ * NULL, and must not mutate `map` (the call holds it).
+ */
+size_t expanse_map_remove_many(expanse_map_t *map, const expanse_word_t *keys, size_t len,
+                               expanse_map_remove_many_fn callback, void *user_ctx);
+
 typedef bool (*expanse_map_for_each_range_fn)(expanse_word_t key, expanse_word_t value,
                                               void *user_ctx);
 bool expanse_map_for_each_range(const expanse_map_t *map, expanse_word_t lo, expanse_word_t hi,

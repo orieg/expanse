@@ -159,7 +159,28 @@ int main(void) {
     assert(expanse_map_len(m) == 1000 - 91);
     assert(expanse_map_remove_range(m, 300, 30, NULL, NULL) == 0);          /* inverted */
     assert(expanse_map_remove_range(NULL, 0, UINT32_MAX, NULL, NULL) == 0); /* null map */
-    assert(expanse_map_remove_range(m, 0, UINT32_MAX, NULL, NULL) == 1000 - 91);
+    /* Scattered removal: a sorted set sharing no interval, half of it absent
+     * from the map, so the return must count removals and not requests. */
+    struct acc b = {0, 0, 0};
+    expanse_word_t victims[60];
+    size_t present = 0;
+    for (size_t i = 0; i < 60; ++i) {
+        victims[i] = (expanse_word_t)(i * 7); /* only multiples of 3 are in the map */
+        if (victims[i] % 3 == 0 && victims[i] >= 30 && victims[i] <= 300) {
+            continue; /* already retired by the remove_range above */
+        }
+        if (victims[i] % 3 == 0) {
+            present++;
+        }
+    }
+    size_t rm = expanse_map_remove_many(m, victims, 60, on_removed, &b);
+    assert(rm == present && b.n == present);
+    assert(expanse_map_len(m) == 1000 - 91 - present);
+    assert(expanse_map_remove_many(m, victims, 0, NULL, NULL) == 0);    /* zero len */
+    assert(expanse_map_remove_many(m, NULL, 60, NULL, NULL) == 0);      /* null keys */
+    assert(expanse_map_remove_many(NULL, victims, 60, NULL, NULL) == 0); /* null map */
+
+    assert(expanse_map_remove_range(m, 0, UINT32_MAX, NULL, NULL) == 1000 - 91 - present);
     assert(expanse_map_len(m) == 0);
     expanse_map_free(m);
 

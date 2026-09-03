@@ -6,7 +6,7 @@
 use core::ffi::c_void;
 use expanse::modern::{
     expanse_map_for_each_range, expanse_map_free, expanse_map_insert, expanse_map_len,
-    expanse_map_new, expanse_map_remove_range,
+    expanse_map_new, expanse_map_remove_many, expanse_map_remove_range,
 };
 
 unsafe extern "C" fn collect(key: u32, value: u32, ctx: *mut c_void) {
@@ -14,6 +14,62 @@ unsafe extern "C" fn collect(key: u32, value: u32, ctx: *mut c_void) {
     // does not touch it while the call is in progress.
     let seen = unsafe { &mut *ctx.cast::<Vec<(u32, u32)>>() };
     seen.push((key, value));
+}
+
+#[test]
+fn remove_many_reports_ascending_and_skips_absent() {
+    let mut seen: Vec<(u32, u32)> = Vec::new();
+    // SAFETY: `m` is live from `expanse_map_new` until `expanse_map_free`;
+    // `victims` outlives the call; the callback's context is `seen`, live for
+    // the whole block; null map / null keys / zero len are documented no-ops.
+    unsafe {
+        let m = expanse_map_new();
+        for k in 0..1000u32 {
+            assert!(expanse_map_insert(m, k * 3, !k, core::ptr::null_mut()));
+        }
+        // Scattered, sorted, and deliberately half absent: only multiples of
+        // three are present, so the evens that are not divide out.
+        let victims: Vec<u32> = (0..60u32).map(|i| i * 7).collect();
+        let present = victims.iter().filter(|k| *k % 3 == 0).count();
+        let n = expanse_map_remove_many(
+            m,
+            victims.as_ptr(),
+            victims.len(),
+            Some(collect),
+            (&raw mut seen).cast(),
+        );
+        assert_eq!(n, present, "absent keys must be skipped, not counted");
+        assert_eq!(seen.len(), present);
+        assert!(
+            seen.windows(2).all(|w| w[0].0 < w[1].0),
+            "ascending key order"
+        );
+        assert_eq!(expanse_map_len(m), 1000 - present as u64);
+        for (k, v) in &seen {
+            assert_eq!(*v, !(k / 3), "value handed back with its key");
+        }
+
+        // Zero len, null keys, null map: no-ops returning 0.
+        assert_eq!(
+            expanse_map_remove_many(m, victims.as_ptr(), 0, None, core::ptr::null_mut()),
+            0
+        );
+        assert_eq!(
+            expanse_map_remove_many(m, core::ptr::null(), 4, None, core::ptr::null_mut()),
+            0
+        );
+        assert_eq!(
+            expanse_map_remove_many(
+                core::ptr::null_mut(),
+                victims.as_ptr(),
+                victims.len(),
+                None,
+                core::ptr::null_mut()
+            ),
+            0
+        );
+        expanse_map_free(m);
+    }
 }
 
 #[test]
