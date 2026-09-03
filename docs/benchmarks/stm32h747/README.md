@@ -2,6 +2,20 @@
 
 *(measured: STM32H747I-DISCO, silicon rev V; Cortex-M7 at 64 MHz HSI, 160 MHz PLL1/VOS3 and 400 MHz PLL1/VOS1, D-cache 4-way × 128 sets × 32-byte lines, off and on; Cortex-M4 at 200 MHz HCLK, no cache; clocks host-verified over 320M cycles at 64.1 / 160.2 / 400.5 / 200.3 MHz; libexpanse staticlib commit `05575498`; DWT cycles per operation, min of 5 passes, one board; source `docs/benchmarks/stm32h747/results.json`, transcript alongside; every chart value is derived from that file by `scripts/generate_stm32_svg.py`. The full tables and the verdict against the #598 pre-registration are in [`docs/BENCHMARKING.md`](../../BENCHMARKING.md), "Cortex-M7 on-target"; the pre-registration record is [`METHODOLOGY.md`](METHODOLOGY.md); the firmware and the flash/capture flow are [`integrations/stm32h747/`](../../../integrations/stm32h747/README.md); `run.sh` here reproduces the run with the board attached.)*
 
+> **These figures predate #618 and are stale for the eviction-loop arms.**
+> They were taken against libexpanse staticlib commit `05575498`. PR
+> [#618](https://github.com/orieg/expanse/pull/618) (merged as `e9957cd`)
+> rewrote `trie32::first_entry`, `next`, `prev`, `count_range` and
+> `map_for_each_range`. The `evict_bulk_loop` and `evict_steady_loop`
+> fixtures step through `expanse_map_first` in a loop and therefore run
+> modified code; `can_dispatch`, `ingest` and the `evict_*_range` arms are
+> less exposed but are not immune to codegen movement.
+>
+> On the ESP32 the same change moved the ordered range scan by 3.7×, so the
+> direction here is likely favourable — but no number has been taken on this
+> board since, and none is substituted from another part (§8.1). Re-running
+> needs the board attached; #579 tracks the wider on-target harvest.
+
 ### 1. Expanse on the M7: does it run, and does the cache-line node layout pay off?
 
 ![Expanse on the STM32H747I-DISCO Cortex-M7: cycles per operation across clocks and cache states, and the ISR-reader contract](../../assets/bench_stm32h747.svg)
