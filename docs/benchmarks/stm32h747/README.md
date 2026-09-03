@@ -1,20 +1,46 @@
 # STM32H747I-DISCO on-target suite: results and how to read them
 
-*(measured: STM32H747I-DISCO, silicon rev V; Cortex-M7 at 64 MHz HSI, 160 MHz PLL1/VOS3 and 400 MHz PLL1/VOS1, D-cache 4-way × 128 sets × 32-byte lines, off and on; Cortex-M4 at 200 MHz HCLK, no cache; clocks host-verified over 320M cycles at 64.1 / 160.2 / 400.5 / 200.3 MHz; libexpanse staticlib commit `05575498`; DWT cycles per operation, min of 5 passes, one board; source `docs/benchmarks/stm32h747/results.json`, transcript alongside; every chart value is derived from that file by `scripts/generate_stm32_svg.py`. The full tables and the verdict against the #598 pre-registration are in [`docs/BENCHMARKING.md`](../../BENCHMARKING.md), "Cortex-M7 on-target"; the pre-registration record is [`METHODOLOGY.md`](METHODOLOGY.md); the firmware and the flash/capture flow are [`integrations/stm32h747/`](../../../integrations/stm32h747/README.md); `run.sh` here reproduces the run with the board attached.)*
+*(measured: STM32H747I-DISCO, silicon rev V; Cortex-M7 at 64 MHz HSI, 160 MHz PLL1/VOS3 and 400 MHz PLL1/VOS1, D-cache 4-way × 128 sets × 32-byte lines, off and on; Cortex-M4 at 200 MHz HCLK, no cache; clocks host-verified over 320M cycles at 64.1 / 160.2 / 400.5 / 200.3 MHz; libexpanse staticlib commit `22908c15`; DWT cycles per operation, min of 5 passes, one board; source `docs/benchmarks/stm32h747/results.json`, transcript alongside; every chart value is derived from that file by `scripts/generate_stm32_svg.py`. The full tables and the verdict against the #598 pre-registration are in [`docs/BENCHMARKING.md`](../../BENCHMARKING.md), "Cortex-M7 on-target"; the pre-registration record is [`METHODOLOGY.md`](METHODOLOGY.md); the firmware and the flash/capture flow are [`integrations/stm32h747/`](../../../integrations/stm32h747/README.md); `run.sh` here reproduces the run with the board attached.)*
 
-> **These figures predate #618 and are stale for the eviction-loop arms.**
-> They were taken against libexpanse staticlib commit `05575498`. PR
-> [#618](https://github.com/orieg/expanse/pull/618) (merged as `e9957cd`)
-> rewrote `trie32::first_entry`, `next`, `prev`, `count_range` and
-> `map_for_each_range`. The `evict_bulk_loop` and `evict_steady_loop`
-> fixtures step through `expanse_map_first` in a loop and therefore run
-> modified code; `can_dispatch`, `ingest` and the `evict_*_range` arms are
-> less exposed but are not immune to codegen movement.
+> **Paired on the same board.** `28dd572e` (`main` immediately before #625) and
+> `22908c15` were flashed back to back with identical harness firmware, so the
+> engine is the only difference. `ingest` is the arm the #625 insert-path change
+> reaches.
 >
-> On the ESP32 the same change moved the ordered range scan by 3.7×, so the
-> direction here is likely favourable — but no number has been taken on this
-> board since, and none is substituted from another part (§8.1). Re-running
-> needs the board attached; #579 tracks the wider on-target harvest.
+> **How to read the verdict.** The three alternatives in a row — sorted array,
+> open-addressing hash, `tsearch` — are byte-identical C in both arms and run
+> the same board, so any movement *they* show between the two runs is noise:
+> layout, thermal, timing. The **noise floor** column is the largest such
+> movement in that row. An Expanse movement smaller than it is not claimed; one
+> larger than it is attributed to the engine change. The floor is often tiny
+> here (the twins are very stable on this part), which is why a 0.3% move can
+> sit outside it — that is a statement about the noise, not about the size of
+> the effect.
+>
+> | core | MHz | D-cache | `28dd572e` | `22908c15` | Δ | noise floor | verdict |
+> |---|---:|---|---:|---:|---:|---:|---|
+> | `m7` | 64 | off | 1,397 | **1,097** | **-21.5%** | 0.1% | outside noise — attributed |
+> | `m7` | 64 | on | 965 | **718** | **-25.5%** | 0.5% | outside noise — attributed |
+> | `m7` | 160 | off | 1,762 | **1,438** | **-18.4%** | 0.0% | outside noise — attributed |
+> | `m7` | 160 | on | 1,006 | **745** | **-26.0%** | 0.7% | outside noise — attributed |
+> | `m7` | 400 | off | 1,762 | **1,438** | **-18.4%** | 0.0% | outside noise — attributed |
+> | `m7` | 400 | on | 1,008 | **745** | **-26.1%** | 0.6% | outside noise — attributed |
+> | `m4` | 200 | off | 4,145 | **3,037** | **-26.7%** | 1.0% | outside noise — attributed |
+>
+> The previously published artifact (`05575498`) predates #622 as well. Paired
+> against the same control on the same board, that step — cap-classing the
+> 32-bit bitmap subarrays — had never been measured on this part; it had been on
+> the ESP32 only (#624):
+>
+> | core | MHz | D-cache | `05575498` | `28dd572e` | Δ | noise floor | verdict |
+> |---|---:|---|---:|---:|---:|---:|---|
+> | `m7` | 64 | off | 1,762 | **1,397** | **-20.7%** | 2.3% | outside noise — attributed |
+> | `m7` | 64 | on | 1,176 | **965** | **-17.9%** | 3.5% | outside noise — attributed |
+> | `m7` | 160 | off | 2,249 | **1,762** | **-21.7%** | 0.0% | outside noise — attributed |
+> | `m7` | 160 | on | 1,199 | **1,006** | **-16.1%** | 6.9% | outside noise — attributed |
+> | `m7` | 400 | off | 2,249 | **1,762** | **-21.6%** | 0.0% | outside noise — attributed |
+> | `m7` | 400 | on | 1,199 | **1,008** | **-15.9%** | 6.8% | outside noise — attributed |
+> | `m4` | 200 | off | 5,074 | **4,145** | **-18.3%** | 6.8% | outside noise — attributed |
 
 ### 1. Expanse on the M7: does it run, and does the cache-line node layout pay off?
 
@@ -31,7 +57,7 @@
 | BUSY 71% flat-out, 15 / 4 / 0.4% at 40k / 10k / 1k mutations/s | single-attempt reads are practical at realistic write rates |
 | ISR entry latency ceiling 49–83 cycles vs 1,551–1,728 for the critical section | interrupt latency bounded 18–35× tighter than masking interrupts |
 
-### 2. Against what firmware usually reaches for
+### 2. Expanse against a sorted array, an open-addressing hash table and `tsearch`
 
 ![Expanse vs a sorted array, an open-addressing hash table and newlib tsearch on the same Cortex-M7 fixtures, plus bytes per key](../../assets/bench_stm32h747_alternatives.svg)
 
@@ -62,4 +88,4 @@
 | HSEM twin: 0 BUSY, lock wait up to 28.8k cycles (144 µs) flat-out, ≈1.5k (7.6 µs) at ≤ 10k/s | the lock trades BUSY for a bounded-but-long wait |
 | cacheable heap: 100% BUSY at every duty, 0 corrupted | the unsupported configuration fails safe; the header's restriction stands, now with numbers |
 
-**In one paragraph.** Expanse runs correctly on both cores; the cache-line node layout measurably pays off on the M7; and its interrupt-safe reads bound interrupt latency in a way that masking interrupts cannot. Against the structures firmware usually reaches for it loses raw point lookups and unordered inserts, and wins steady-state ordered expiry, memory density on dense keys, and the interrupt contract. Across two cores it is correct only with an uncached shared heap, and even then the second core's slow reads limit it to modest write rates.
+**In one paragraph.** Expanse runs correctly on both cores; the cache-line node layout measurably pays off on the M7; and its interrupt-safe reads bound interrupt latency in a way that masking interrupts cannot. Against a sorted array, an open-addressing hash table and `tsearch` it loses raw point lookups and unordered inserts, and wins steady-state ordered expiry, memory density on dense keys, and the interrupt contract. Across two cores it is correct only with an uncached shared heap, and even then the second core's slow reads limit it to modest write rates.
