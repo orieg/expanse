@@ -196,3 +196,109 @@ fn test_bytesmap_and_strmap_edge_cases() {
     assert_eq!(str_map.first().unwrap().0.as_slice(), b"");
     assert_eq!(str_map.last().unwrap().0.as_slice(), b"aab");
 }
+
+#[test]
+fn test_expanse_map32_removal_invariants() {
+    use std::collections::BTreeMap;
+    let mut map = ExpanseMap32::new();
+    let mut model = BTreeMap::new();
+
+    // 1. Single element insert and remove (null -> immed -> null)
+    map.insert(0x1234_5678, 42);
+    assert_eq!(map.len(), 1);
+    assert_eq!(map.remove(0x1234_5678), Some(42));
+    assert_eq!(map.len(), 0);
+    assert_eq!(map.mem_used(), 0);
+
+    // 2. Multi-element linear leaf transitions (immed -> leaf -> demote -> immed -> null)
+    let keys = [10u32, 20, 30, 40, 50];
+    for &k in &keys {
+        map.insert(k, k * 2);
+    }
+    assert_eq!(map.len(), 5);
+    // Remove in reverse order
+    for &k in keys.iter().rev() {
+        assert_eq!(map.remove(k), Some(k * 2));
+    }
+    assert_eq!(map.len(), 0);
+    assert_eq!(map.mem_used(), 0);
+
+    // 3. Demotions across BranchL2, BranchL6, BranchB, and MapBitmap
+    let mut rng_state = 0x1234_5678_9ABC_DEF0u64;
+    let mut next_u32 = || {
+        rng_state ^= rng_state << 13;
+        rng_state ^= rng_state >> 7;
+        rng_state ^= rng_state << 17;
+        (rng_state >> 16) as u32
+    };
+
+    let count = 1000;
+    let mut inserted_keys = Vec::with_capacity(count);
+    for _ in 0..count {
+        let k = next_u32();
+        let v = next_u32();
+        if model.insert(k, v).is_none() {
+            map.insert(k, v);
+            inserted_keys.push(k);
+        }
+    }
+    assert_eq!(map.len(), model.len());
+
+    // Remove half the keys in insertion order (scattered across key space)
+    let half = inserted_keys.len() / 2;
+    for &k in &inserted_keys[..half] {
+        let expected = model.remove(&k);
+        let actual = map.remove(k);
+        assert_eq!(actual, expected, "removal mismatch for key {k:#x}");
+    }
+    assert_eq!(map.len(), model.len());
+
+    // Verify all remaining keys in model are in map
+    for (&k, &v) in &model {
+        assert_eq!(map.get(k), Some(v));
+    }
+
+    // Drain the remaining half
+    for &k in &inserted_keys[half..] {
+        let expected = model.remove(&k);
+        let actual = map.remove(k);
+        assert_eq!(actual, expected, "removal mismatch on second half for key {k:#x}");
+    }
+    assert_eq!(map.len(), 0);
+    assert_eq!(map.mem_used(), 0, "drained map must leave 0 memory in use");
+}
+
+#[test]
+fn test_expanse_set32_removal_invariants() {
+    use std::collections::BTreeSet;
+    let mut set = ExpanseSet32::new();
+    let mut model = BTreeSet::new();
+
+    let mut rng_state = 0xFEDC_BA98_7654_3210u64;
+    let mut next_u32 = || {
+        rng_state ^= rng_state << 13;
+        rng_state ^= rng_state >> 7;
+        rng_state ^= rng_state << 17;
+        (rng_state >> 16) as u32
+    };
+
+    let count = 1000;
+    let mut inserted_keys = Vec::with_capacity(count);
+    for _ in 0..count {
+        let k = next_u32();
+        if model.insert(k) {
+            set.insert(k);
+            inserted_keys.push(k);
+        }
+    }
+    assert_eq!(set.len(), model.len());
+
+    // Remove every key
+    for &k in &inserted_keys {
+        assert!(model.remove(&k));
+        assert!(set.remove(k), "set removal failed for {k:#x}");
+        assert!(!set.contains(k));
+    }
+    assert_eq!(set.len(), 0);
+    assert_eq!(set.mem_used(), 0, "drained set must leave 0 memory in use");
+}
