@@ -38,21 +38,10 @@ twins in `components/expanse/test/twin_containers.h`.
 
 - **Provenance**: ESP32-D0WD-V3 rev v3.1, 2 cores, 160 MHz; ESP-IDF
   `v6.0-dev-2980-gab149384e1`; Xtensa Rust 1.97.0.0; `-O2`; engine
-  `0.5.0-dev (v0.5.0-87-ge9957cdf)`, commit `e9957cd`; 10 repetitions per arm
+  `0.5.0-dev (v0.5.0-91-ge310a9e7)`, commit `e310a9e7`; 10 repetitions per arm
   in a single boot. The `provenance` and `stack` objects in the file carry the
   same facts as the board reported them, and every published number derives
   from them (§8.2).
-- **Stale for every Expanse arm.** Harvested at `e9957cd`; `089e94b8` since
-  changed the 32-bit insert and remove paths, which the ingest, churn,
-  sighting-record and TTL-eviction arms run on. A paired re-harvest against
-  `151b2c88` on the same board is pending
-  ([#615](https://github.com/orieg/expanse/issues/615)); the twin arms have to
-  be re-run in the same sitting, so it is the whole sweep or none of it (§8.3).
-  Host-side `mem_used()` at this fixture's fill is byte-identical across that
-  change (2,288 B at N=500, 8,992 B at N=2,000) and the change removes 58% of
-  the allocator calls per sequential insert, so the density rows are expected
-  to hold and the cycle rows to fall — predictions on a different instrument,
-  recorded here so the re-run has something falsifiable to land against.
 - **The figure to quote is the `median`.** Each arm records `min`, `median`,
   `mean`, `max`, a `spread_ratio` and a `contaminated` flag alongside the BCa
   95% interval on the mean. A single repetition whose timed window catches a
@@ -62,11 +51,21 @@ twins in `components/expanse/test/twin_containers.h`.
   the mean is reported for §8.4 continuity but is not the headline. An arm
   flagged `contaminated` (slowest repetition more than 2× its median) should
   not have its mean compared against anything.
-- **Run-to-run drift**: the twin containers are byte-identical C across builds
-  and still move up to **9.0%** between two flashes (0.1% typically), most
-  likely because binary layout changes what this part's flash cache holds.
-  Treat 9% as the floor below which a cross-build difference is not
-  attributable.
+- **Run-to-run drift is per arm, not global**: the twin containers are
+  byte-identical C across builds and still move between two flashes, most
+  likely because binary layout changes what this part's flash cache holds. In
+  the #622 sweep that drift was 0.07% at the median but reached 19.9% on the
+  `sorted_array` aggregate arm, whose 38-56 cycle counts make relative drift
+  large. Compare an Expanse delta against the largest twin drift **on its own
+  arm**; a single global floor either hides a real result or waves through
+  noise.
+- **The engine must be rebuilt before it is measured.** The component's
+  `libexpanse.a` custom command lists its Rust sources as dependencies so a
+  code change re-invokes cargo; before that was fixed, CMake saw the archive
+  file and skipped the rebuild, so a harvest taken after a Rust change could
+  silently measure the previous engine. The app prints `expanse_version()` in
+  its provenance line for exactly this reason -- check it names the commit you
+  meant to measure before harvesting.
 - **Regenerate**: capture a monitor log to a gitignored scratch path (§8.5),
   then
   `python3 scripts/esp32_bench_harvest.py --input <log> --out <report.md> --emit-json docs/benchmarks/embedded/esp32.json`

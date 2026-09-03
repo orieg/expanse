@@ -101,6 +101,23 @@ endif()
 set(EXPANSE_STATICLIB
     "${EXPANSE_REPO_ROOT}/target/${EXPANSE_RUST_TARGET}/release/libexpanse.a")
 
+# Every Rust source and manifest the archive is built from. Without these,
+# CMake sees the archive file already exists, treats it as up to date, and
+# never re-invokes cargo -- so a build after an engine change relinks the
+# *previous* libexpanse.a and reports success. That is silent, and on the
+# benchmark application it means measuring an engine that is not the one
+# checked out (AGENTS.md 8.1: fail loud, never a green step that did nothing).
+# Cargo still does the real staleness decision; this list only guarantees it
+# is asked. CONFIGURE_DEPENDS re-globs when a source is added or removed.
+file(GLOB_RECURSE EXPANSE_RUST_SOURCES CONFIGURE_DEPENDS
+    "${EXPANSE_REPO_ROOT}/crates/expanse/src/*.rs"
+    "${EXPANSE_REPO_ROOT}/crates/expanse-capi/src/*.rs")
+list(APPEND EXPANSE_RUST_SOURCES
+    "${EXPANSE_REPO_ROOT}/Cargo.toml"
+    "${EXPANSE_REPO_ROOT}/Cargo.lock"
+    "${EXPANSE_REPO_ROOT}/crates/expanse/Cargo.toml"
+    "${EXPANSE_REPO_ROOT}/crates/expanse-capi/Cargo.toml")
+
 add_custom_command(
     OUTPUT "${EXPANSE_STATICLIB}"
     COMMAND cargo ${EXPANSE_CARGO_TOOLCHAIN} build --release
@@ -109,6 +126,7 @@ add_custom_command(
             --features embedded-panic-handler
             --target "${EXPANSE_RUST_TARGET}"
             ${EXPANSE_CARGO_EXTRA_ARGS}
+    DEPENDS ${EXPANSE_RUST_SOURCES}
     WORKING_DIRECTORY "${EXPANSE_REPO_ROOT}"
     COMMENT "Building libexpanse.a for ${EXPANSE_RUST_TARGET}"
     VERBATIM
