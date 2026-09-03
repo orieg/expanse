@@ -23,6 +23,12 @@ std = []
 # writer-lock fallbacks, epoch advances). Off by default and compiled
 # out entirely — never enable it for a published benchmark.
 occ-stats = []
+# Diagnostic-only: arms the AVX-512 arms of the `avx512_bitmap` bench and
+# the `--force` path of the `avx512_probe` example. Off by default, and it
+# must stay off: `core::arch`'s AVX-512 intrinsics are stable only since
+# Rust 1.89, so enabling it raises the effective MSRV above the declared
+# 1.88 floor. No library code is behind this feature.
+avx512 = []
 
 [dependencies]
 
@@ -191,6 +197,11 @@ test = false
 
 [[bench]]
 name = "art_memory"
+harness = false
+test = false
+
+[[bench]]
+name = "avx512_bitmap"
 harness = false
 test = false
 
