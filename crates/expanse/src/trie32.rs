@@ -2270,6 +2270,7 @@ impl Finger32 {
 /// The work skipped is four tag dispatches, three digit decodes, three
 /// `branch_child` arena resolutions and three `branch_commit` ones. What
 /// remains is the leaf store plus one count bump per ancestor.
+#[inline(always)]
 pub(crate) fn map_insert_via_finger(
     a: &mut Arena,
     key: u32,
