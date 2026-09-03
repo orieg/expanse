@@ -230,11 +230,9 @@ Using.resource(new ExpanseMap()) { map =>
 
 ---
 
-## 8. Artifact Coordinates & Native Packaging
+## 8. Artifact Coordinates, Packaging & Deployment
 
-> **Not yet published to Maven Central.** No `io.github.orieg` artifact exists on Maven Central (returns 404 / `numFound:0`), and **no release-workflow job currently builds or deploys the Java bindings** — `release.yml` has no Maven/Gradle/Sonatype step. The coordinates and packaging layout below are the *planned* shape; build from `bindings/java` locally until first publish.
-
-### Maven Central Dependency *(planned)*
+### Maven Central Dependency
 ```xml
 <dependency>
     <groupId>io.github.orieg</groupId>
@@ -243,10 +241,46 @@ Using.resource(new ExpanseMap()) { map =>
 </dependency>
 ```
 
-### Precompiled Multi-Arch Native Artifacts *(planned)*
-Once published, the JAR is intended to bundle precompiled native binaries for:
-- `linux-x86_64` (`libexpanse.so`, optimized with hardware vectorization)
-- `linux-aarch64` (`libexpanse.so`, ARM64 NEON)
-- `darwin-aarch64` (`libexpanse.dylib`, Apple Silicon M1/M2/M3/M4)
-- `darwin-x86_64` (`libexpanse.dylib`, Intel macOS)
-- `windows-x86_64` (`expanse.dll`, Windows MSVC)
+### Self-Contained Multi-Arch Native JAR Packaging
+The Java binding is distributed as a **self-contained multi-arch JAR** (`io.github.orieg:expanse-java`). Built during the release DAG (`.github/workflows/release.yml` job `package-maven`), the package bundles precompiled, hardware-optimized shared libraries directly inside the JAR under classpath resources:
+```
+/native/linux-x86_64/libexpanse.so
+/native/linux-aarch64/libexpanse.so
+/native/darwin-aarch64/libexpanse.dylib
+/native/darwin-x86_64/libexpanse.dylib
+/native/windows-x86_64/expanse.dll
+```
+
+### Dynamic Extraction & Resolution Protocol
+On first use, `NativeLoader` performs resolution in deterministic priority order:
+1. **JVM System Property**: `-Dexpanse.library.path=/path/to/libexpanse.so` (explicit user override).
+2. **Environment Variable**: `EXPANSE_LIBRARY_PATH=/path/to/libexpanse.so`.
+3. **Local Dev Tree**: In-repo build artifacts under `crates/expanse-capi/target/release/`.
+4. **Bundled Resource Extraction**: Extracts `/native/{classifier}/{libName}` from the classpath to an OS temporary directory and binds it to `Arena.global()`.
+5. **System Library Path**: `System.loadLibrary` fallback via `java.library.path` / `LD_LIBRARY_PATH`.
+
+### Supported Platform & CI Matrix
+
+| OS / Architecture | Classifier | Native Binary | Validation Channel |
+|---|---|---|---|
+| Linux x86_64 | `linux-x86_64` | `libexpanse.so` | **Active CI** (`ubuntu-latest`) |
+| Linux aarch64 | `linux-aarch64` | `libexpanse.so` | Release build (cross-compiled `aarch64-unknown-linux-gnu`) |
+| macOS ARM64 | `darwin-aarch64` | `libexpanse.dylib` | **Active CI** (`macos-latest` Apple Silicon) |
+| macOS x86_64 | `darwin-x86_64` | `libexpanse.dylib` | Release build (`x86_64-apple-darwin`) |
+| Windows x86_64 | `windows-x86_64` | `expanse.dll` | **Active CI** (`windows-latest`) |
+
+---
+
+## 9. JDK Compatibility & Baseline Discipline
+
+| JDK Baseline | Support Status | Required JVM Flags | Architectural Details |
+|---|---|---|---|
+| **JDK 22+** | **Primary Baseline** | `--enable-native-access=ALL-UNNAMED` | Finalized Project Panama Foreign Function & Memory (FFM) API ([JEP 454](https://openjdk.org/jeps/454)). Stable downcall handles and scoped memory segments. |
+| **JDK 21 LTS** | **Source Build (Preview)** | `--enable-preview --enable-native-access=ALL-UNNAMED` | Preview FFM implementation ([JEP 442](https://openjdk.org/jeps/442)). Requires source compilation targeting `--release 21 --enable-preview`. |
+| **JDK 17 LTS** | **Unsupported** | — | Contains only early incubator module (`jdk.incubator.foreign` - [JEP 412](https://openjdk.org/jeps/412)), which uses fundamentally distinct package structures and incompatible segment abstractions. |
+
+### JVM Launch Configuration
+Because Panama downcalls perform raw off-heap dereferences and native linker bindings, the JVM requires native access authorization:
+```bash
+java --enable-native-access=ALL-UNNAMED -jar app.jar
+```

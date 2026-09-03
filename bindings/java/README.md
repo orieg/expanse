@@ -32,18 +32,34 @@ High-performance, **zero-GC**, off-heap associative trie collections for Java an
 <dependency>
     <groupId>io.github.orieg</groupId>
     <artifactId>expanse-java</artifactId>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
 </dependency>
 ```
 
 ### Gradle (Kotlin / Groovy)
 ```groovy
-implementation 'io.github.orieg:expanse-java:0.4.0'
+implementation 'io.github.orieg:expanse-java:0.5.0'
 ```
 
 ### sbt (Scala)
 ```scala
-libraryDependencies += "io.github.orieg" % "expanse-java" % "0.4.0"
+libraryDependencies += "io.github.orieg" % "expanse-java" % "0.5.0"
+```
+
+---
+
+## JDK Baseline & Compatibility Matrix
+
+| JDK Version | Support Level | Required Flags | Notes |
+|---|---|---|---|
+| **JDK 22+** | **First-Class Baseline** | `--enable-native-access=ALL-UNNAMED` | Finalized Project Panama FFM ([JEP 454](https://openjdk.org/jeps/454)). Precompiled jar works out of the box. |
+| **JDK 21 LTS** | **Source Build (Preview)** | `--enable-preview --enable-native-access=ALL-UNNAMED` | FFM preview ([JEP 442](https://openjdk.org/jeps/442)). Requires compiling from source with `--release 21 --enable-preview`. |
+| **JDK 17 LTS** | **Unsupported** | — | JDK 17 provided only an early incubator module (`jdk.incubator.foreign` - [JEP 412](https://openjdk.org/jeps/412)), which is fundamentally source-incompatible with finalized FFM. |
+
+### JVM Launch Flags
+Because Project Panama downcalls perform direct off-heap address access, pass `--enable-native-access` to your JVM process:
+```bash
+java --enable-native-access=ALL-UNNAMED -jar your-app.jar
 ```
 
 ---
@@ -121,14 +137,22 @@ try (SyncExpanseMap map = new SyncExpanseMap()) {
 
 ---
 
-## Native Library Resolution
+## Native Library Resolution & Bundled Platforms
 
-`NativeLoader` automatically extracts and loads the precompiled native library bundled inside the JAR for:
-- Linux (`x86_64`, `aarch64`)
-- macOS (`aarch64` Apple Silicon, `x86_64` Intel)
-- Windows (`x86_64`)
+The published `expanse-java` JAR is a **self-contained multi-arch package** bundling precompiled native libraries under `resources/native/{classifier}/`. On first invocation, `NativeLoader` detects the operating environment and extracts the matching shared library to a temporary directory:
 
-To supply an external custom build of `libexpanse`, specify `-Dexpanse.library.path=/path/to/libexpanse.so` or the `EXPANSE_LIBRARY_PATH` environment variable.
+| OS / Architecture | Classifier | Bundled Library | CI Validation |
+|---|---|---|---|
+| Linux x86_64 | `linux-x86_64` | `libexpanse.so` | **Active CI** (`ubuntu-latest`) |
+| Linux aarch64 | `linux-aarch64` | `libexpanse.so` | Release build (cross-compiled `aarch64-unknown-linux-gnu`) |
+| macOS ARM64 | `darwin-aarch64` | `libexpanse.dylib` | **Active CI** (`macos-latest` Apple Silicon) |
+| macOS x86_64 | `darwin-x86_64` | `libexpanse.dylib` | Release build (`x86_64-apple-darwin`) |
+| Windows x86_64 | `windows-x86_64` | `expanse.dll` | **Active CI** (`windows-latest`) |
+
+### Custom Library Path Override
+To supply an external or custom-compiled build of `libexpanse` instead of using the bundled binary:
+- **JVM System Property**: `-Dexpanse.library.path=/path/to/libexpanse.so`
+- **Environment Variable**: `EXPANSE_LIBRARY_PATH=/path/to/libexpanse.so`
 
 ---
 

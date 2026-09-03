@@ -420,7 +420,7 @@ See [docs/bindings/python.md](docs/bindings/python.md) for full Python documenta
 
 ### 9. Java & Scala Quickstart (`io.github.orieg:expanse-java`)
 
-> **Not yet on Maven Central.** No `io.github.orieg` artifact is published (Maven Central returns 404 / `numFound:0`), and no release-workflow job currently builds or deploys the Java bindings. Build from `bindings/java` locally until first publish. The coordinates below are the planned ones.
+> **Not yet on Maven Central.** No `io.github.orieg` artifact is published yet (Maven Central returns 404 / `numFound:0`); publication is wired into `.github/workflows/release.yml` (`package-maven`) to deploy on release tags. Build from `bindings/java` locally until first publish. The coordinates below are the planned ones.
 
 ```xml
 <dependency>
@@ -434,7 +434,7 @@ See [docs/bindings/python.md](docs/bindings/python.md) for full Python documenta
 import io.github.orieg.expanse.ExpanseMap;
 import io.github.orieg.expanse.ExpanseSet;
 
-// Zero-allocation, off-heap ordered map & set (Project Panama FFM)
+// Zero-allocation, off-heap ordered map & set (Project Panama FFM, Java 22+)
 try (ExpanseMap map = new ExpanseMap();
      ExpanseSet set = new ExpanseSet()) {
     // Inserts & lookups with zero JVM heap allocations
@@ -446,7 +446,7 @@ try (ExpanseMap map = new ExpanseMap();
     long count = set.countRange(50L, 250L); // O(depth) rank
 }
 ```
-See [docs/bindings/java.md](docs/bindings/java.md) for Panama FFM architecture, GC elimination benchmarks, and Spark/Flink off-heap integration patterns.
+**JDK Baseline**: Java 22+ (finalized Project Panama FFM - [JEP 454](https://openjdk.org/jeps/454)). Requires `--enable-native-access=ALL-UNNAMED`. Java 21 LTS supported for source builds with `--enable-preview`. See [docs/bindings/java.md](docs/bindings/java.md) for Panama FFM architecture, bundled multi-arch native platform matrix, GC elimination benchmarks, and Spark/Flink off-heap integration patterns.
 
 ### 10. .NET & C# Quickstart (`Orieg.Expanse`)
 

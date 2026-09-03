@@ -3,7 +3,7 @@
 > Canonical documentation for Expanse packaging, distribution channels, and automated release workflows.
 > Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · CI Pipeline: [CI.md](CI.md) · C ABI Parity: [COMPAT.md](COMPAT.md)
 
-Expanse targets multiple ecosystems: native Rust crates on [crates.io](https://crates.io), multi-arch dynamic libraries and `.deb`/`.rpm` packages on Linux, drop-in DLLs and vcpkg/NuGet packaging on Windows, and universal dynamic libraries on macOS. **Publication status varies by registry** — see the per-ecosystem sections below. As of this writing crates.io/npm/PyPI publishing is wired in the release workflow; the **.NET `Orieg.Expanse` NuGet package is wired but not yet landed** (nuget.org returns 404), and **Java/Maven Central is not yet built or published** (no release-workflow job exists for it).
+Expanse targets multiple ecosystems: native Rust crates on [crates.io](https://crates.io), multi-arch dynamic libraries and `.deb`/`.rpm` packages on Linux, drop-in DLLs and vcpkg/NuGet packaging on Windows, and universal dynamic libraries on macOS. **Publication status varies by registry** — see the per-ecosystem sections below. As of this writing crates.io/npm/PyPI publishing is wired in the release workflow; the **.NET `Orieg.Expanse` NuGet package is wired but not yet landed** (nuget.org returns 404), and **Java/Maven Central (`io.github.orieg:expanse-java`) is wired in `release.yml` (`package-maven`) with bundled multi-arch native libraries**.
 
 ---
 
@@ -50,7 +50,7 @@ graph TD
    git push origin main --tags
    ```
 4. **Automated Pipeline Execution**:
-   - GitHub Actions executes `.github/workflows/release.yml`: the gate polls the tagged commit's CI rollup, core artifacts build, the **GitHub Release is created first** (the anchor), and only then do crates.io, npm, NuGet.org, and the Pages repos publish — each independently re-runnable. PyPI publishes from `python.yml` when the GitHub Release is **published**. (Java/Maven is not published by CI.)
+   - GitHub Actions executes `.github/workflows/release.yml`: the gate polls the tagged commit's CI rollup, core artifacts build, the **GitHub Release is created first** (the anchor), and only then do crates.io, npm, NuGet.org, Maven Central, and the Pages repos publish — each independently re-runnable. PyPI publishes from `python.yml` when the GitHub Release is **published**.
 
 ---
 
@@ -160,12 +160,13 @@ Expanse is distributed on PyPI as `expanse-trie` with binary `abi3` wheels acros
 - **Full Guide**: See [docs/bindings/python.md](bindings/python.md).
 
 ### 2.8 Java & Scala Distribution (`io.github.orieg:expanse-java`) & Maven Central
-> **Not yet published, and no CI publish path exists.** Maven Central has zero `io.github.orieg` artifacts, and `release.yml` contains no Maven/Gradle/Sonatype build or deploy job. The following describes the *planned* distribution.
+Expanse is distributed on Maven Central as `io.github.orieg:expanse-java` with bundled multi-arch native libraries loaded via Project Panama Foreign Function & Memory (FFM) API.
 
-Expanse is *intended* to be distributed on Maven Central as `io.github.orieg:expanse-java` with bundled multi-arch native libraries loaded via Project Panama Foreign Function & Memory (FFM) API. Until then, build from `bindings/java` locally.
-
+- **Automated Pipeline**: The `package-maven` job in `.github/workflows/release.yml` downloads precompiled native libraries for all 5 target classifiers, stages them into `bindings/java/src/main/resources/native/{classifier}/`, packages a self-contained multi-arch JAR (with sources and javadoc), publishes to Maven Central via Sonatype Central Publishing (`central-publishing-maven-plugin`), and attaches the JAR to the GitHub Release.
 - **Package Configuration**: `bindings/java/pom.xml` and `bindings/java/build.gradle`.
-- **Native Loader**: `io.github.orieg.expanse.internal.NativeLoader` extracts and loads precompiled native libraries across Linux, macOS, and Windows.
+- **JDK Baseline**: Java 22+ baseline (finalized Project Panama FFM - JEP 454). Java 21 LTS supported for source builds with `--enable-preview`.
+- **Native Loader**: `io.github.orieg.expanse.internal.NativeLoader` extracts and loads precompiled native libraries across Linux (`x86_64`, `aarch64`), macOS (`aarch64`, `x86_64`), and Windows (`x86_64`).
+- **Registry Verification**: Verified by `scripts/verify_release_registries.py` via Maven Central Search API.
 - **Full Guide**: See [docs/bindings/java.md](bindings/java.md).
 
 ---
@@ -386,7 +387,7 @@ See `bindings/go/README.md` for details.
 ---
 
 ### 2.14 Multi-Ecosystem Version Synchronization (`scripts/bump_version.py`)
-Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, Java/Maven/Gradle, PHP/Composer/PIE, and Ruby/Gems) spanning 16 canonical manifests. Publication status differs per registry (see the per-ecosystem sections: crates.io / npm (+wasm) / PyPI / NuGet / RubyGems wired into the anchor-first release DAG; PHP/Packagist published out-of-band by the `subsplit.yml` mirror workflow, whose success confirms the mirrors were pushed but not that Packagist ingested the version ([#498](https://github.com/orieg/expanse/issues/498)); Go pinned via nested-module tags; Java/Maven not yet built or published). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
+Expanse maintains packaging manifests across several ecosystems (Cargo/Rust, C/C++ headers/CMake, Python/PyPI, Node.js/npm, .NET/NuGet, Java/Maven/Gradle, PHP/Composer/PIE, and Ruby/Gems) spanning 16 canonical manifests. Publication status differs per registry (see the per-ecosystem sections: crates.io / npm (+wasm) / PyPI / NuGet / RubyGems / Maven Central wired into the anchor-first release DAG; PHP/Packagist published out-of-band by the `subsplit.yml` mirror workflow, whose success confirms the mirrors were pushed but not that Packagist ingested the version ([#498](https://github.com/orieg/expanse/issues/498)); Go pinned via nested-module tags). To guarantee version lockstep without manual error, the repository includes `scripts/bump_version.py`.
 
 #### Synchronized Manifests:
 | Manifest File | Section / Key | Description |
