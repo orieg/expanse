@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -56,7 +57,7 @@ SPEEDUP_ARMS = [
     ("v512", "b-v512", "AVX-512 · 512-bit"),
 ]
 
-W, H = 940, 560
+W, H = 940, 700
 PANEL_W = 860
 
 STYLE = """
@@ -98,6 +99,64 @@ STYLE = """
         .errbar { stroke: #e2e8f0; }
       }
 """
+
+
+# Approximate advance width per character, by text class. Deliberately generous
+# for the proportional faces: this feeds a layout assertion, and over-estimating
+# width can only make that assertion stricter.
+_CHAR_W = {
+    "t-title": 7.0, "t-chart-title": 6.6, "t-sub": 5.1, "t-axis": 5.7,
+    "t-group": 5.9, "t-groupsub": 5.4, "t-val": 5.7, "t-foot": 5.1, "t-legend": 5.3,
+}
+_FONT_PX = {
+    "t-title": 13, "t-chart-title": 11.5, "t-sub": 10, "t-axis": 9.5,
+    "t-group": 10.5, "t-groupsub": 9, "t-val": 9.5, "t-foot": 8.5, "t-legend": 9.5,
+}
+
+
+def assert_layout_sound(root) -> None:
+    """Fails the build on text that overlaps other text or leaves the canvas.
+
+    Geometry here is hand-computed, so a longer host description, an extra
+    regime or a wider ratio silently collided with its neighbour or ran off the
+    edge — which is what happened to the footer and to panel 2 on the first
+    render. Estimating each label's box from its class metrics catches that at
+    generation time instead of in review.
+    """
+    boxes: list[tuple[float, float, float, float, str]] = []
+
+    def walk(node, dx=0.0, dy=0.0):
+        for child in node:
+            ndx, ndy = dx, dy
+            tr = child.get("transform")
+            if tr:
+                m = re.match(r"translate\(([-\d.]+),\s*([-\d.]+)\)", tr)
+                if m:
+                    ndx += float(m.group(1))
+                    ndy += float(m.group(2))
+            if child.tag.split("}")[-1] == "text" and child.text:
+                cls = child.get("class", "")
+                cw, fs = _CHAR_W.get(cls, 5.5), _FONT_PX.get(cls, 10)
+                x, y = float(child.get("x")) + ndx, float(child.get("y")) + ndy
+                w = len(child.text) * cw
+                anchor = child.get("text-anchor")
+                x0 = x - w / 2 if anchor == "middle" else (x - w if anchor == "end" else x)
+                boxes.append((x0, y - fs * 0.8, x0 + w, y + fs * 0.25, child.text))
+            walk(child, ndx, ndy)
+
+    walk(root)
+
+    off = [b for b in boxes if b[0] < 0 or b[2] > W or b[1] < 0 or b[3] > H]
+    if off:
+        raise SystemExit(
+            "layout: %d label(s) leave the %dx%d canvas, e.g. %r at x[%.0f, %.0f] y[%.0f, %.0f]"
+            % (len(off), W, H, off[0][4], off[0][0], off[0][2], off[0][1], off[0][3])
+        )
+
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1:]:
+            if a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]:
+                raise SystemExit(f"layout: {a[4]!r} overlaps {b[4]!r}")
 
 
 def load() -> dict:
@@ -218,7 +277,7 @@ def panel_cost(root, arms, top: int) -> None:
     text(g, 0, 0, "COST PER BITMAP PAIR — WHY THE WIN DECAYS", "t-chart-title")
     text(
         g, 0, 15,
-        "Log axis, nanoseconds per pair. As the working set leaves cache the kernel stops being the cost.",
+        "Log axis, nanoseconds per bitmap pair. As the working set leaves cache the kernel stops being the cost.",
         "t-sub",
     )
 
@@ -252,20 +311,28 @@ def panel_cost(root, arms, top: int) -> None:
     while e <= hi_e:
         y = y_of(10.0**e)
         el(g, "line", x1=0, y1=f"{y:.1f}", x2=PANEL_W, y2=f"{y:.1f}", **{"class": "grid"})
-        lab = f"{10.0 ** e:g} ns" if e >= 0 else f"{10.0 ** e:.2f} ns"
+        # Bare magnitudes: the unit is in the panel subtitle, and "0.10 ns"
+        # overran the 40 px left margin and was clipped.
+        lab = f"{10.0 ** e:g}" if e >= 0 else f"{10.0 ** e:.1f}"
         text(g, -6, y + 3, lab, "t-axis", anchor="end")
         e += 1
     el(g, "line", x1=0, y1=f"{base_y:.1f}", x2=PANEL_W, y2=f"{base_y:.1f}", **{"class": "axis"})
 
+    lx = 0
+    for css, label in (("b-base", f"{BASELINE_ARM} (baseline)"), ("b-v256", "AVX-512 · 256-bit")):
+        el(g, "rect", x=lx, y=base_y + 30, width=11, height=11, rx=2, **{"class": css})
+        text(g, lx + 16, base_y + 39, label, "t-legend")
+        lx += 20 + len(label) * 6.1
+
     group_w = PANEL_W / len(REGIMES)
     for gi, b, v in norm:
         cx = gi * group_w + group_w / 2
-        for val, css, dx in ((b, "b-base", -20), (v, "b-v256", 20)):
+        for val, css, dx in ((b, "b-base", -34), (v, "b-v256", 34)):
             y = y_of(val)
-            el(g, "rect", x=f"{cx + dx - 16:.1f}", y=f"{y:.1f}", width=32,
+            el(g, "rect", x=f"{cx + dx - 15:.1f}", y=f"{y:.1f}", width=30,
                height=f"{max(base_y - y, 0.5):.1f}", rx=2, **{"class": css})
             text(g, cx + dx, y - 4, f"{val:.2f}", "t-val")
-        text(g, cx, base_y + 16, REGIMES[gi][1], "t-group")
+        text(g, cx, base_y + 18, REGIMES[gi][1], "t-group")
 
 
 def main() -> int:
@@ -301,20 +368,26 @@ def main() -> int:
     )
 
     panel_speedup(svg, arms, 88)
-    el(svg, "line", x1=40, y1=390, x2=W - 40, y2=390, **{"class": "border"})
-    panel_cost(svg, arms, 418)
+    el(svg, "line", x1=40, y1=396, x2=W - 40, y2=396, **{"class": "border"})
+    panel_cost(svg, arms, 440)
 
     prov = doc.get("provenance", {})
     stats = doc.get("statistics", {})
-    foot = (
-        f"measured: {prov.get('host_description', 'unknown host')}, commit "
-        f"{str(prov.get('commit', '?'))[:12]} · workload: avx512_bitmap_count_and · "
-        f"{stats.get('method', 'BCa bootstrap')} "
-        f"{int(float(stats.get('confidence', 0.95)) * 100)}% over criterion per-iteration samples · "
-        f"source: results/baseline_avx512_bitmap.json"
+    text(
+        svg, 40, H - 30,
+        f"measured: {prov.get('host_description', 'unknown host')}, "
+        f"commit {str(prov.get('commit', '?'))[:8]}",
+        "t-foot",
     )
-    text(svg, 40, H - 16, foot, "t-foot")
+    text(
+        svg, 40, H - 16,
+        f"workload: avx512_bitmap_count_and · {stats.get('method', 'BCa bootstrap')} "
+        f"{int(float(stats.get('confidence', 0.95)) * 100)}% over criterion per-iteration "
+        f"samples · source: results/baseline_avx512_bitmap.json",
+        "t-foot",
+    )
 
+    assert_layout_sound(svg)
     out = ET.tostring(svg, encoding="unicode")
     ET.fromstring(out)  # validate before writing
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
