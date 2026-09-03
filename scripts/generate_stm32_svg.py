@@ -269,7 +269,7 @@ def render_alternatives(data: dict) -> str:
     W, H = 1000, 540
     clk, dc = 400000000, 1
     s = head(W, H, "Expanse against a sorted array, an open-addressing hash table and newlib tsearch on the STM32H747I-DISCO")
-    s += '  <text x="20" y="26" class="t-title">Expanse vs what firmware usually reaches for, same Cortex-M7, same fixtures</text>\n'
+    s += '  <text x="20" y="26" class="t-title">Expanse vs a sorted array, a hash table and tsearch, same Cortex-M7, same fixtures</text>\n'
 
     px, py = 20, 52
     s += f'  <g transform="translate({px}, {py})">\n'
