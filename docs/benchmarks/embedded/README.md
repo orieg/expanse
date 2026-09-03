@@ -42,6 +42,13 @@ twins in `components/expanse/test/twin_containers.h`.
   in a single boot. The `provenance` and `stack` objects in the file carry the
   same facts as the board reported them, and every published number derives
   from them (§8.2).
+- **Serial capture can drop a line.** The harvester reports each arm's
+  `sample_count`; check it reads 10 before quoting an arm. In the #622 control
+  capture one line was lost, leaving
+  `esp32_tsdb_aggregate_500/hash_open_addressing` at n=500, pop=500 with 9
+  repetitions (median 62.15, unaffected at the 0.03% level, and on an arm
+  published as unattributed). Nothing in the committed treatment artifact is
+  short.
 - **The figure to quote is the `median`.** Each arm records `min`, `median`,
   `mean`, `max`, a `spread_ratio` and a `contaminated` flag alongside the BCa
   95% interval on the mean. A single repetition whose timed window catches a
