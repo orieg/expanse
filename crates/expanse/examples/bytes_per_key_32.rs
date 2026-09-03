@@ -27,7 +27,7 @@
 //! | `measured_region` | Clean |
 //! | `arm_symmetry` | Pure 32-bit census |
 //! | `statistics` | Exact byte count |
-//! | `verdict` | **PASS** `[verified: RUN (27019b23)]`: Deterministic 32-bit memory census. |
+//! | `verdict` | **PASS** `[verified: RUN (f48dcc6e)]`: Deterministic 32-bit memory census; re-measured after the #615 subarray cap-classing. |
 
 use expanse_trie::{ExpanseBlobMap32, ExpanseMap32, ExpanseSet32, Key32};
 

@@ -1070,6 +1070,9 @@ fn make_map_bitmap(a: &mut Arena, entries: &[(u32, u32)]) -> Edge32 {
             }
         }
         if !sub_vals.is_empty() {
+            // Class-sized like every other subarray, so the first insert
+            // into this subexpanse can grow in place (#615).
+            sub_vals.resize(cap_class(sub_vals.len()), 0u32);
             data.subarrays[sub] = Some(sub_vals.into_boxed_slice());
         }
     }
@@ -1083,6 +1086,106 @@ fn bitmap_sub_rank(word: u64, digit: u8) -> usize {
     let sub_base = (digit & 32) as u32;
     let bit_mask = 1u64 << bit64;
     (word & ((bit_mask - 1) & (!0u64 << sub_base))).count_ones() as usize
+}
+
+/// Population of the 32-digit subexpanse `digit` falls in, read out of the
+/// bitmap word that covers it.
+///
+/// This is the *population* of a bitmap node's rank-ordered subarray. It is
+/// deliberately not `subarrays[sub].len()`: since #615 a subarray is
+/// allocated at its [`cap_class`] and its trailing spare slots hold filler,
+/// so `len()` is the allocation length and only the bitmap (for a value
+/// leaf) or `pop_counts` (for a branch) knows how many entries are live.
+#[inline(always)]
+fn bitmap_sub_pop(word: u64, digit: u8) -> usize {
+    let sub_base = (digit & 32) as u32;
+    ((word >> sub_base) & 0xFFFF_FFFF).count_ones() as usize
+}
+
+/// Inserts `val` at rank `rank` into a bitmap node's rank-ordered subarray
+/// that currently holds `pop` live entries, mirroring the 64-bit engine's
+/// cap-classed leaf growth (`mutate_map::map_insert_with_path`, #577).
+///
+/// The subarray is allocated at `cap_class(pop)` slots with the live
+/// entries in `[0, pop)` and `filler` in the tail, so a growth that stays
+/// inside the class shifts in place and allocates nothing. Only a growth
+/// that crosses a class boundary allocates; the replaced box is returned
+/// for the caller to retire (§2.3: it must outlive stalled OCC readers).
+///
+/// The spare slots are always initialised — nothing may read them, since
+/// every access is by a rank that is `< pop` by construction, but an
+/// optimistic reader racing a shift must never observe uninitialised
+/// memory.
+fn subarray_insert<T: Copy>(
+    slot: &mut Option<Box<[T]>>,
+    pop: usize,
+    rank: usize,
+    val: T,
+    filler: T,
+) -> Option<Box<[T]>> {
+    debug_assert!(rank <= pop);
+    let new_cap = cap_class(pop + 1);
+    if let Some(existing) = slot.as_mut() {
+        debug_assert_eq!(existing.len(), cap_class(pop));
+        if existing.len() == new_cap {
+            // Spare class capacity: shift the tail right and store in
+            // place. No allocation, no retirement.
+            existing.copy_within(rank..pop, rank + 1);
+            existing[rank] = val;
+            return None;
+        }
+    }
+    let mut new_sub: Vec<T> = Vec::with_capacity(new_cap);
+    match slot.as_ref() {
+        Some(existing) => {
+            new_sub.extend_from_slice(&existing[..rank]);
+            new_sub.push(val);
+            new_sub.extend_from_slice(&existing[rank..pop]);
+        }
+        None => new_sub.push(val),
+    }
+    new_sub.resize(new_cap, filler);
+    debug_assert_eq!(new_sub.len(), new_cap);
+    slot.replace(new_sub.into_boxed_slice())
+}
+
+/// Removes rank `rank` from a bitmap node's rank-ordered subarray holding
+/// `pop` live entries. The inverse of [`subarray_insert`]: a shrink that
+/// stays inside the capacity class compacts in place (the vacated tail slot
+/// is reset to `filler`), and only a class crossing reallocates. Returns
+/// the replaced box for the caller to retire.
+fn subarray_remove<T: Copy>(
+    slot: &mut Option<Box<[T]>>,
+    pop: usize,
+    rank: usize,
+    filler: T,
+) -> Option<Box<[T]>> {
+    debug_assert!(pop > 0 && rank < pop);
+    let new_pop = pop - 1;
+    if new_pop == 0 {
+        return slot.take();
+    }
+    let new_cap = cap_class(new_pop);
+    let existing = slot.as_mut().expect("live subarray");
+    debug_assert_eq!(existing.len(), cap_class(pop));
+    if existing.len() == new_cap {
+        existing.copy_within(rank + 1..pop, rank);
+        existing[new_pop] = filler;
+        return None;
+    }
+    let mut new_sub: Vec<T> = Vec::with_capacity(new_cap);
+    new_sub.extend_from_slice(&existing[..rank]);
+    new_sub.extend_from_slice(&existing[rank + 1..pop]);
+    new_sub.resize(new_cap, filler);
+    slot.replace(new_sub.into_boxed_slice())
+}
+
+/// Byte delta a subarray of `T` undergoes when its population moves from
+/// `old_pop` to `new_pop`, for the arena's exact `bytes_in_use` accounting.
+#[inline]
+fn subarray_bytes_delta<T>(old_pop: usize, new_pop: usize) -> isize {
+    let t = core::mem::size_of::<T>() as isize;
+    (cap_class(new_pop) as isize - cap_class(old_pop) as isize) * t
 }
 
 fn read_map_bitmap(a: &Arena, e: &Edge32) -> Vec<(u32, u32)> {
@@ -1496,7 +1599,7 @@ fn make_b(a: &mut Arena, level: u8, pairs: &[(u8, Edge32)], total: u32) -> Edge3
     for sub in 0..8usize {
         let pop = data.header.pop_counts[sub] as usize;
         if pop > 0 {
-            let mut sub_edges = Vec::with_capacity(pop);
+            let mut sub_edges = Vec::with_capacity(cap_class(pop));
             let lo = (sub * 32) as u8;
             let hi = lo + 31;
             for &(digit, edge) in pairs {
@@ -1504,6 +1607,8 @@ fn make_b(a: &mut Arena, level: u8, pairs: &[(u8, Edge32)], total: u32) -> Edge3
                     sub_edges.push(edge);
                 }
             }
+            // Class-sized like every other subarray (#615).
+            sub_edges.resize(cap_class(pop), Edge32::null());
             data.subarrays[sub] = Some(sub_edges.into_boxed_slice());
         }
     }
@@ -1585,7 +1690,7 @@ fn branch_insert_new(a: &mut Arena, e: &mut Edge32, digit: u8, child: Edge32, ke
             }
         }
         Kind::BranchB => {
-            let (promoted, retired_sub) = {
+            let (promoted, retired_sub, bytes_delta) = {
                 let b = a.b_mut(edge_handle(e));
                 let n = b.num_children as usize;
                 if n < BRANCH_B_TO_UNCOMPRESSED {
@@ -1597,22 +1702,18 @@ fn branch_insert_new(a: &mut Arena, e: &mut Edge32, digit: u8, child: Edge32, ke
                     b.header.bitmap[w] |= bit_mask;
                     let sub = (digit >> 5) as usize;
 
-                    let old_sub_len = b.subarrays[sub].as_ref().map_or(0, |s| s.len());
-                    let mut new_sub = Vec::with_capacity(old_sub_len + 1);
-                    if let Some(existing) = &b.subarrays[sub] {
-                        new_sub.extend_from_slice(&existing[..rank]);
-                        new_sub.push(child);
-                        new_sub.extend_from_slice(&existing[rank..]);
-                    } else {
-                        new_sub.push(child);
-                    }
-                    let retired = b.subarrays[sub].replace(new_sub.into_boxed_slice());
+                    // Population before the insert: `pop_counts`, never
+                    // `subarrays[sub].len()` — that is the cap-classed
+                    // allocation length (#615).
+                    let pop = b.header.pop_counts[sub] as usize;
+                    let retired =
+                        subarray_insert(&mut b.subarrays[sub], pop, rank, child, Edge32::null());
                     b.header.pop_counts[sub] += 1;
                     b.num_children += 1;
                     b.count += keys_added;
-                    (None, retired)
+                    (None, retired, subarray_bytes_delta::<Edge32>(pop, pop + 1))
                 } else {
-                    (Some(b.count + keys_added), None)
+                    (Some(b.count + keys_added), None, 0)
                 }
             };
             // Replaced subarrays must outlive concurrent readers exactly
@@ -1625,7 +1726,7 @@ fn branch_insert_new(a: &mut Arena, e: &mut Edge32, digit: u8, child: Edge32, ke
                 *e = make_u(a, level, &pairs, total);
                 a.free(old);
             } else {
-                a.bytes += core::mem::size_of::<Edge32>();
+                a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
             }
         }
         Kind::BranchU => {
@@ -1707,7 +1808,7 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
             }
         }
         Kind::BranchB => {
-            let (new_n, total, retired_sub) = {
+            let (new_n, total, retired_sub, bytes_delta) = {
                 let b = a.b_mut(edge_handle(e));
                 let w = (digit >> 6) as usize;
                 let bit64 = digit & 63;
@@ -1716,22 +1817,22 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
                 let rank = bitmap_sub_rank(b.header.bitmap[w], digit);
                 let sub = (digit >> 5) as usize;
                 b.header.bitmap[w] &= !bit_mask;
+                // Population before the removal: `pop_counts`, never
+                // `subarrays[sub].len()` (#615).
+                let pop = b.header.pop_counts[sub] as usize;
                 b.header.pop_counts[sub] -= 1;
                 b.num_children -= 1;
 
-                let existing = b.subarrays[sub].take().expect("live subarray");
-                if existing.len() > 1 {
-                    let mut new_sub = Vec::with_capacity(existing.len() - 1);
-                    new_sub.extend_from_slice(&existing[..rank]);
-                    new_sub.extend_from_slice(&existing[rank + 1..]);
-                    b.subarrays[sub] = Some(new_sub.into_boxed_slice());
-                } else {
-                    b.subarrays[sub] = None;
-                }
-                (b.num_children as usize, b.count, existing)
+                let retired = subarray_remove(&mut b.subarrays[sub], pop, rank, Edge32::null());
+                (
+                    b.num_children as usize,
+                    b.count,
+                    retired,
+                    subarray_bytes_delta::<Edge32>(pop, pop - 1),
+                )
             };
-            a.retire_edges(Some(retired_sub));
-            a.bytes -= core::mem::size_of::<Edge32>();
+            a.retire_edges(retired_sub);
+            a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
 
             // Demote BranchB32 -> BranchL6_32 when new_n <= 5 (Band 1, 64B vs 96B).
             if new_n <= BRANCH_B_DOWN {
@@ -2131,7 +2232,7 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
             None
         }
         Kind::MapBitmap => {
-            let (old, is_new, retired_sub) = {
+            let (old, bytes_delta, retired_sub) = {
                 let b = a.map_bitmap_mut(edge_handle(e));
                 let digit = rem as u8;
                 let w = (digit >> 6) as usize;
@@ -2142,27 +2243,20 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
                 if (word & bit_mask) != 0 {
                     let old = b.subarrays[sub].as_ref().unwrap()[rank];
                     b.subarrays[sub].as_mut().unwrap()[rank] = val;
-                    (Some(old), false, None)
+                    (Some(old), 0, None)
                 } else {
+                    // Population before the insert, read off the *pre-set*
+                    // bitmap word: `subarrays[sub].len()` is the cap-classed
+                    // allocation length, not the population (#615).
+                    let pop = bitmap_sub_pop(word, digit);
                     b.header.bitmap[w] |= bit_mask;
                     b.header.pop0 += 1;
-                    let old_sub_len = b.subarrays[sub].as_ref().map_or(0, |s| s.len());
-                    let mut new_sub = Vec::with_capacity(old_sub_len + 1);
-                    if let Some(existing) = &b.subarrays[sub] {
-                        new_sub.extend_from_slice(&existing[..rank]);
-                        new_sub.push(val);
-                        new_sub.extend_from_slice(&existing[rank..]);
-                    } else {
-                        new_sub.push(val);
-                    }
-                    let retired = b.subarrays[sub].replace(new_sub.into_boxed_slice());
-                    (None, true, retired)
+                    let retired = subarray_insert(&mut b.subarrays[sub], pop, rank, val, 0u32);
+                    (None, subarray_bytes_delta::<u32>(pop, pop + 1), retired)
                 }
             };
             a.retire_vals(retired_sub);
-            if is_new {
-                a.bytes += core::mem::size_of::<u32>();
-            }
+            a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
             old
         }
         Kind::BranchL2 | Kind::BranchL6 | Kind::BranchB | Kind::BranchU => {
@@ -2234,7 +2328,7 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
             Some(old)
         }
         Kind::MapBitmap => {
-            let (old_val, pop, retired_sub) = {
+            let (old_val, pop, retired_sub, bytes_delta) = {
                 let b = a.map_bitmap_mut(edge_handle(e));
                 let digit = rem as u8;
                 let w = (digit >> 6) as usize;
@@ -2245,25 +2339,25 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
                 }
                 let rank = bitmap_sub_rank(word, digit);
                 let sub = (digit >> 5) as usize;
+                // Subexpanse population before the removal, off the
+                // *pre-clear* word (#615).
+                let sub_pop = bitmap_sub_pop(word, digit);
                 b.header.bitmap[w] &= !bit_mask;
-                let existing = b.subarrays[sub].take().expect("live subarray");
-                let old_val = existing[rank];
-                if existing.len() > 1 {
-                    let mut new_sub = Vec::with_capacity(existing.len() - 1);
-                    new_sub.extend_from_slice(&existing[..rank]);
-                    new_sub.extend_from_slice(&existing[rank + 1..]);
-                    b.subarrays[sub] = Some(new_sub.into_boxed_slice());
-                } else {
-                    b.subarrays[sub] = None;
-                }
+                let old_val = b.subarrays[sub].as_ref().expect("live subarray")[rank];
+                let retired = subarray_remove(&mut b.subarrays[sub], sub_pop, rank, 0u32);
                 let pop = b.header.pop0 as usize;
                 if pop > 0 {
                     b.header.pop0 -= 1;
                 }
-                (old_val, pop, existing)
+                (
+                    old_val,
+                    pop,
+                    retired,
+                    subarray_bytes_delta::<u32>(sub_pop, sub_pop - 1),
+                )
             };
-            a.retire_vals(Some(retired_sub));
-            a.bytes -= core::mem::size_of::<u32>();
+            a.retire_vals(retired_sub);
+            a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
             if pop == 0 {
                 let old = edge_handle(e);
                 a.free(old);
@@ -2903,9 +2997,10 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
             removed
         }
         Kind::MapBitmap => {
-            let (removed, count_after, retired) = {
+            let (removed, count_after, retired, bytes_delta) = {
                 let b = a.map_bitmap_mut(edge_handle(e));
                 let mut removed = 0usize;
+                let mut bytes_delta = 0isize;
                 let mut retired: [Option<Box<[u32]>>; 8] = core::array::from_fn(|_| None);
                 for (sub, slot) in retired.iter_mut().enumerate() {
                     let sub_lo = (sub * 32) as u32;
@@ -2927,7 +3022,8 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
                     let Some(existing) = b.subarrays[sub].take() else {
                         continue;
                     };
-                    let mut keep: Vec<u32> = Vec::with_capacity(existing.len());
+                    let sub_pop = ((word >> base) & 0xFFFF_FFFF).count_ones() as usize;
+                    let mut keep: Vec<u32> = Vec::with_capacity(sub_pop);
                     let mut bits = (word >> base) & 0xFFFF_FFFF;
                     let mut rank = 0usize;
                     while bits != 0 {
@@ -2943,9 +3039,12 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
                         bits &= bits - 1;
                     }
                     b.header.bitmap[w] &= !hit;
+                    bytes_delta += subarray_bytes_delta::<u32>(sub_pop, keep.len());
                     b.subarrays[sub] = if keep.is_empty() {
                         None
                     } else {
+                        // Class-sized like every other subarray (#615).
+                        keep.resize(cap_class(keep.len()), 0u32);
                         Some(keep.into_boxed_slice())
                     };
                     *slot = Some(existing);
@@ -2956,12 +3055,12 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
                 if count_after > 0 {
                     b.header.pop0 = (count_after - 1) as u16;
                 }
-                (removed, count_after, retired)
+                (removed, count_after, retired, bytes_delta)
             };
             for r in retired {
                 a.retire_vals(r);
             }
-            a.bytes -= core::mem::size_of::<u32>() * removed;
+            a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
             if removed == 0 {
                 return 0;
             }
@@ -3938,6 +4037,153 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Every live bitmap subarray is allocated at exactly `cap_class` of
+    /// its **population**, and that population is read off the bitmap (for
+    /// a value leaf) or `pop_counts` (for a branch) — never off `len()`,
+    /// which since #615 is the allocation length and over-reports by up to
+    /// three slots.
+    ///
+    /// This walks the whole arena after a mix of inserts and removes, so it
+    /// covers growth, in-place shifts, class crossings and shrinks.
+    fn assert_subarray_invariants(a: &Arena) {
+        for slot in a.slots.iter().flatten() {
+            match slot {
+                NodeBox::B(b) => {
+                    for sub in 0..8usize {
+                        let pop = b.header.pop_counts[sub] as usize;
+                        // `pop_counts` is the source of truth and must agree
+                        // with the bitmap half that covers this subexpanse.
+                        let word = b.header.bitmap[sub / 2];
+                        let base = ((sub & 1) * 32) as u32;
+                        assert_eq!(
+                            pop,
+                            ((word >> base) & 0xFFFF_FFFF).count_ones() as usize,
+                            "BranchB32 pop_counts[{sub}] disagrees with the bitmap"
+                        );
+                        match &b.subarrays[sub] {
+                            Some(arr) => {
+                                assert!(pop > 0, "empty subexpanse {sub} holds an allocation");
+                                assert_eq!(
+                                    arr.len(),
+                                    cap_class(pop),
+                                    "BranchB32 subarray {sub}: pop={pop}"
+                                );
+                                // Live entries are `[0, pop)`; nothing is
+                                // indexed beyond, so the spare tail is free
+                                // to hold filler — but it must be filler,
+                                // not a stale duplicate child.
+                                for e in &arr[pop..] {
+                                    assert!(e.is_null(), "spare edge slot is not null");
+                                }
+                            }
+                            None => assert_eq!(pop, 0, "populated subexpanse {sub} has no array"),
+                        }
+                    }
+                }
+                NodeBox::MapBitmap(b) => {
+                    for sub in 0..8usize {
+                        let word = b.header.bitmap[sub / 2];
+                        let base = ((sub & 1) * 32) as u32;
+                        let pop = ((word >> base) & 0xFFFF_FFFF).count_ones() as usize;
+                        match &b.subarrays[sub] {
+                            Some(arr) => {
+                                assert!(pop > 0, "empty subexpanse {sub} holds an allocation");
+                                assert_eq!(
+                                    arr.len(),
+                                    cap_class(pop),
+                                    "LeafBitmapL_32 subarray {sub}: pop={pop}"
+                                );
+                            }
+                            None => assert_eq!(pop, 0, "populated subexpanse {sub} has no array"),
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn bitmap_subarrays_are_cap_classed() {
+        use crate::map32::ExpanseMap32;
+        use crate::set32::ExpanseSet32;
+
+        // Sequential: drives every kb=1 subexpanse through MAP_BITMAP and
+        // through every capacity class up to 32.
+        let mut map = ExpanseMap32::new();
+        for i in 0..4_000u32 {
+            map.insert(1_700_000_000 + i, i);
+            if i % 512 == 0 {
+                assert_subarray_invariants(map.arena());
+            }
+        }
+        assert_subarray_invariants(map.arena());
+
+        // Sparse: shallow, wide branches — the BranchB32 child-subarray path.
+        let mut set = ExpanseSet32::new();
+        for i in 0..3_000u32 {
+            set.insert(i.wrapping_mul(2_654_435_761));
+        }
+        assert_subarray_invariants(set.arena());
+
+        // Removals in a scattered order, back down through every class
+        // boundary and out the other side.
+        for i in (0..4_000u32).step_by(3) {
+            map.remove(1_700_000_000 + i);
+        }
+        assert_subarray_invariants(map.arena());
+        for i in (0..3_000u32).rev().step_by(2) {
+            set.remove(i.wrapping_mul(2_654_435_761));
+        }
+        assert_subarray_invariants(set.arena());
+
+        // Re-insert: growth back into arrays that were shrunk in place.
+        for i in (0..4_000u32).step_by(3) {
+            map.insert(1_700_000_000 + i, i);
+        }
+        assert_subarray_invariants(map.arena());
+        assert_eq!(map.len(), 4_000);
+    }
+
+    /// The population a subexpanse reports must be the bitmap's, not the
+    /// subarray's length — the two diverge exactly when a growth reused
+    /// spare class capacity.
+    #[test]
+    fn subexpanse_pop_is_read_from_the_bitmap_not_the_length() {
+        use crate::map32::ExpanseMap32;
+
+        let mut map = ExpanseMap32::new();
+        // 33 keys sharing a kb=1 expanse: past MAP_BITMAP_ENTER (a bitmap
+        // leaf), and spanning both 32-digit subexpanses of the low word.
+        for d in 0..70u32 {
+            map.insert(0x0011_2200 | d, d);
+        }
+        let mut diverged = false;
+        for slot in map.arena().slots.iter().flatten() {
+            if let NodeBox::MapBitmap(b) = slot {
+                for sub in 0..8usize {
+                    let word = b.header.bitmap[sub / 2];
+                    let base = ((sub & 1) * 32) as u32;
+                    let pop = ((word >> base) & 0xFFFF_FFFF).count_ones() as usize;
+                    if let Some(arr) = &b.subarrays[sub] {
+                        assert_eq!(arr.len(), cap_class(pop));
+                        diverged |= arr.len() != pop;
+                    }
+                }
+            }
+        }
+        assert!(
+            diverged,
+            "no subarray carried spare capacity — the fixture no longer \
+             exercises the len() != popcount case this test exists for"
+        );
+        // Every key still reads back, so nothing indexed into the spare tail.
+        for d in 0..70u32 {
+            assert_eq!(map.get(0x0011_2200 | d), Some(d), "digit {d}");
+        }
+        assert_eq!(map.len(), 70);
     }
 
     #[test]

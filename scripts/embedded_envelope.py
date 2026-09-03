@@ -6,11 +6,20 @@ Derives the exact memory footprint envelopes for Expanse 32-bit digital trie
 vs competitive baselines on 32-bit microcontrollers (ESP32-C3 / ESP32-C6).
 Per Rule 12 / GEMINI.md §1.3 (math-first derivation in Python with tests).
 
-Base density constants sourced from `bytes_per_key_32.rs` (measured, commit 7e579ac2):
+Base density constants sourced from `bytes_per_key_32.rs` (measured, commit f48dcc6e):
 - Clustered sensor timestamps (10k consecutive, ~1 kHz): 4.424 B/key
-- Sparse 29-bit CAN IDs (500 IDs): 8.704 B/key (varies slightly across populations)
-- Sparse random 32-bit keys: 10.960 B/key
+- Sparse 29-bit CAN IDs (500 IDs): 9.856 B/key (varies slightly across populations)
 - Stride-100 sensor timestamps (~10 Hz): modeled at ~8.50 B/key
+
+Modelled, not sourced from that harness:
+- Sparse random 32-bit keys: 10.960 B/key (pending re-measurement). This
+  constant has no committed measurement harness -- it was introduced
+  directly here in #574 and `bytes_per_key_32.rs` publishes no sparse-random
+  arm. Cap-classing the 32-bit bitmap subarrays (#615) raises sparse density
+  by roughly a tenth, so the constant is stale; it is left in place rather
+  than backfilled from an independently generated key stream, which would
+  conflate the effect of #615 with a change of generator (AGENTS.md §8.10.2).
+  Establishing a committed sparse-random arm is tracked separately.
 """
 
 # Symmetric payload size across all BLE arms (bytes)
@@ -26,11 +35,14 @@ def mem_expanse_tsdb(n: int, rate_1khz: bool = True) -> int:
 
 def mem_expanse_can(n: int) -> int:
     """ExpanseMap32 with 29-bit CAN IDs (measured at 500 IDs)."""
-    return int(n * 8.704)
+    return int(n * 9.856)
 
 
 def mem_expanse_sparse(n: int) -> int:
-    """ExpanseMap32 with uniform random 32-bit keys."""
+    """ExpanseMap32 with uniform random 32-bit keys.
+
+    Modelled constant, pending re-measurement -- see the module docstring.
+    """
     return int(n * 10.960)
 
 
@@ -81,7 +93,7 @@ def test_bounds() -> None:
     """Unit tests pinning known reference values (GEMINI.md Rule 12)."""
     assert BLE_RECORD_SIZE == 28, "BLE payload must be exactly 28 bytes"
     assert mem_expanse_tsdb(5000, True) == 22120, "TSDB 5k 1kHz must equal 22,120 bytes"
-    assert mem_expanse_can(500) == 4352, "CAN 500 must equal 4,352 bytes"
+    assert mem_expanse_can(500) == 4928, "CAN 500 must equal 4,928 bytes"
     assert mem_expanse_sparse(5000) == 54800, "Sparse 5k must equal 54,800 bytes"
     assert mem_std_map(5000, 4) == 160000, "std::map 5k u32 must equal 160,000 bytes"
     # At N=2000: dual_trie (43,840) + slab (56,000) + mono_sec (8,000) + free_idx (4,000) + bitmap (252) = 112,092 B
@@ -108,7 +120,7 @@ if __name__ == "__main__":
 
         print(f"TSDB 1kHz (ExpanseMap32):            {tsdb_1k:6d} B ({tsdb_1k/1024:5.2f} KiB) [4.42 B/key]")
         print(f"TSDB 10Hz (ExpanseMap32 stride-100):  {tsdb_10h:6d} B ({tsdb_10h/1024:5.2f} KiB) [~8.50 B/key]")
-        print(f"CAN Dispatch (ExpanseMap32):         {can_exp:6d} B ({can_exp/1024:5.2f} KiB) [8.70 B/key]")
+        print(f"CAN Dispatch (ExpanseMap32):         {can_exp:6d} B ({can_exp/1024:5.2f} KiB) [9.86 B/key]")
         print(f"Sparse Events (ExpanseMap32):        {sparse_exp:6d} B ({sparse_exp/1024:5.2f} KiB) [10.96 B/key]")
         print(f"std::unordered_map<u32, u32>:        {unord_map_u32:6d} B ({unord_map_u32/1024:5.2f} KiB) [~28-32 B/key]")
         print(f"std::map<u32, u32>:                  {std_map_u32:6d} B ({std_map_u32/1024:5.2f} KiB) [32.00 B/key]")

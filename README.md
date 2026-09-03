@@ -231,11 +231,13 @@ Expanse provides first-class support for 32-bit embedded microprocessors (`Expan
 - **Compact 8-Byte `Edge32`**: 50% structural SRAM reduction vs 64-bit descriptors (`[ptr (4B) | aux (3B) | tag (1B)]`), packing up to 7 immediate keys with zero heap allocations.
 - **32-Byte Cache Alignment**: Nodes are sized for embedded microarchitectures (`BranchL2_32` = 32B = 1 cache line on Cortex-M7/ESP32; `BranchL6_32` = 64B = 2 cache lines).
 - **Polymorphic `ValueSlot32`**: Payloads $\le 3\text{ bytes}$ (CAN-bus flags, status codes, checksums) fit inline with zero heap allocations.
-- **Microcontroller SRAM Footprint** — real `mem_used()` byte accounting from `cargo run --release --example bytes_per_key_32` *(measured, commit `27019b23`; deterministic — host-independent for the fixed 8-byte `Edge32` layout)*:
-  - Clustered sensor timestamps (10k consecutive): **$0.31\text{ B/key}$** (0.3088 B/key).
-  - Sparse 29-bit CAN IDs (500 IDs): **$8.70\text{ B/key}$** (8.7040 B/key — genuinely sparse, keys spread across 29-bit space).
+- **Microcontroller SRAM Footprint** — real `mem_used()` byte accounting from `cargo run --release --example bytes_per_key_32` *(measured, commit `f48dcc6e`; deterministic — host-independent for the fixed 8-byte `Edge32` layout)*:
+  - Clustered sensor timestamps (10k consecutive): **$0.31\text{ B/key}$** (0.3120 B/key).
+  - Sparse 29-bit CAN IDs (500 IDs): **$9.86\text{ B/key}$** (9.8560 B/key — genuinely sparse, keys spread across 29-bit space).
   - IPv4 subnet /24 routing map (2k routes): **$8.42\text{ B/key}$** (8.4160 B/key).
   - Dense consecutive map (10k, `u32→u32`): **$4.42\text{ B/key}$** (4.4240 B/key).
+
+  Re-measured at commit `f48dcc6e`: cap-classing the 32-bit bitmap subarrays (#615) buys back ~59% of sequential-ingest allocations at the price of up to three spare slots per subarray. Dense and sequential workloads are unmoved (routing map and dense map identical); the cost falls on sparse ones, where subarrays are small and the rounding to multiples of four is proportionally largest — the CAN row moved from 8.7040 to 9.8560 B/key and the sensor row from 0.3088 to 0.3120.
 
 ---
 

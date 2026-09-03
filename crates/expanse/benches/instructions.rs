@@ -45,7 +45,7 @@ use expanse_trie::bytesmap::ExpanseBytesMap;
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
 use expanse_trie::strmap::ExpanseStrMap;
-use expanse_trie::{ExpanseBlobMap32, ExpanseMap32, ExpanseSet32, Key32};
+use expanse_trie::{ExpanseBlobMap32, ExpanseMap32, ExpanseSet32, Key32, Value32};
 #[cfg(target_os = "linux")]
 use iai_callgrind::main;
 use iai_callgrind::{
@@ -400,6 +400,16 @@ fn set32_insert() -> ExpanseSet32 {
     black_box(set)
 }
 
+#[library_benchmark]
+#[bench::sensor_timestamps()]
+fn map32_insert() -> ExpanseMap32 {
+    let mut map = ExpanseMap32::new();
+    for i in 0..10_000 {
+        map.insert(black_box(1_700_000_000 + i as Key32), i as Value32);
+    }
+    black_box(map)
+}
+
 // Build in `setup` — the same isolation rule as the 64-bit cells (#375).
 // Until #375 the builds ran inside the measured region of `map32_get` and
 // `blobmap32_scan`, so those cells counted insert work under a get/scan
@@ -702,6 +712,7 @@ library_benchmark_group!(
         map_iterate,
         map_nav,
         set32_insert,
+        map32_insert,
         map32_get,
         map32_iterate,
         map32_range,

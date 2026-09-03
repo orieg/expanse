@@ -468,17 +468,19 @@ On resource-constrained 32-bit microcontrollers (ESP32-C3 / ESP32-C6 / ESP32-P4)
  └────────────────────────────────────────────────────────┘
 ```
 
-#### Memory Envelope Sizing Matrix (Derived from `scripts/embedded_envelope.py`, base commit `7e579ac2`)
+#### Memory Envelope Sizing Matrix (Derived from `scripts/embedded_envelope.py`, base commit `f48dcc6e`)
 
 | Workload ($N$) | Expanse (32-bit Trie) | `std::unordered_map` (reserve) | `std::map` (Red-Black Tree) | Flat RingBuffer | Expanse Advantage vs `std::map` |
 |---|---|---|---|---|---|
 | **Sensor TSDB 1kHz ($N=2\text{k}$)** | **8.64 KiB** (4.42 B/key) | 56.25 KiB (~28 B/key) | 62.50 KiB (32.0 B/key) | 15.62 KiB (8 B/entry) | **7.23× lower RAM** (ordered) |
 | **Sensor TSDB 10Hz ($N=2\text{k}$)** | **16.60 KiB** (~8.50 B/key) | 56.25 KiB (~28 B/key) | 62.50 KiB (32.0 B/key) | 15.62 KiB (8 B/entry) | **3.77× lower RAM** (ordered) |
-| **CAN Dispatch ($N=500$)** | **4.25 KiB** (8.70 B/key) | 14.06 KiB (~28 B/key) | 15.62 KiB (32.0 B/key) | 3.91 KiB (8 B/entry) | **3.68× lower RAM** (ordered) |
-| **Sparse Events ($N=5\text{k}$)** | **53.52 KiB** (10.96 B/key) | 140.62 KiB (~28 B/key) | 156.25 KiB (32.0 B/key) | 39.06 KiB (8 B/entry) | **2.92× lower RAM** (ordered) |
-| **BLE Tracker ($N=2\text{k}$)** | **109.46 KiB** (Slab + Dual Trie) | 103.12 KiB (~52 B/entry) | 109.38 KiB (56.0 B/entry) | 54.68 KiB (28 B/entry) | **Parity footprint + $O(\text{expired})$ TTL** |
+| **CAN Dispatch ($N=500$)** | **4.81 KiB** (9.86 B/key) | 14.06 KiB (~28 B/key) | 15.62 KiB (32.0 B/key) | 3.91 KiB (8 B/entry) | **3.25× lower RAM** (ordered) |
+| **Sparse Events ($N=5\text{k}$)** | **53.52 KiB** (10.96 B/key, pending re-measurement — [#615](https://github.com/orieg/expanse/issues/615)) | 140.62 KiB (~28 B/key) | 156.25 KiB (32.0 B/key) | 39.06 KiB (8 B/entry) | **2.92× lower RAM** (ordered, pending [#615](https://github.com/orieg/expanse/issues/615)) |
+| **BLE Tracker ($N=2\text{k}$)** | **109.46 KiB** (Slab + Dual Trie, pending re-measurement — [#615](https://github.com/orieg/expanse/issues/615)) | 103.12 KiB (~52 B/entry) | 109.38 KiB (56.0 B/entry) | 54.68 KiB (28 B/entry) | **Parity footprint + $O(\text{expired})$ TTL** |
 
-*(Density constants sourced from `bytes_per_key_32.rs` at commit `7e579ac2`; note that 10 Hz stride-100 sensor timestamps amortize to ~8.50 B/key and CAN-bus 29-bit IDs are measured at $N=500$. BLE tracker evaluates 28-byte symmetric tracking payloads across all arms, modeling Expanse's 28B record + 4B monotonic sec + 2B freelist + 0.125B bitmap and dual-index tries).*
+*(Density constants sourced from `bytes_per_key_32.rs` at commit `f48dcc6e`; note that 10 Hz stride-100 sensor timestamps amortize to ~8.50 B/key and CAN-bus 29-bit IDs are measured at $N=500$. BLE tracker evaluates 28-byte symmetric tracking payloads across all arms, modeling Expanse's 28B record + 4B monotonic sec + 2B freelist + 0.125B bitmap and dual-index tries).*
+
+*Re-measured at `f48dcc6e`: cap-classing the 32-bit bitmap subarrays ([#615](https://github.com/orieg/expanse/issues/615)) trades up to three spare slots per subarray for ~59% fewer sequential-ingest allocations. The two TSDB rows are unmoved — dense and sequential keys fill their subarrays. The CAN row moved from 8.70 to 9.86 B/key, the cost falling on sparse keys where subarrays are small and rounding to multiples of four is proportionally largest. The **Sparse Events** and **BLE Tracker** rows are marked pending re-measurement ([#615](https://github.com/orieg/expanse/issues/615)) rather than restated: both rest on a 10.96 B/key sparse-random constant that has no committed measurement harness (it was introduced directly in `embedded_envelope.py`, and `bytes_per_key_32.rs` publishes no sparse-random arm), so it cannot be refreshed without changing key generator at the same time — which would conflate the two effects (§8.10.2). The engine change raises sparse-random density by roughly a tenth, so both rows read low.*
 
 #### C Component Storage Engines (`components/expanse/`)
 
