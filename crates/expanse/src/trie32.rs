@@ -1230,77 +1230,60 @@ fn branch_total_keys(a: &Arena, e: &Edge32) -> u32 {
     }
 }
 
-fn branch_add_keys(a: &mut Arena, e: &Edge32, delta: i64) {
+/// One-visit successor to the `branch_set_child` + `branch_add_keys`
+/// pair on the descent's way back up: a single arena fetch and tag
+/// dispatch stores the child edge (when not null) and applies the
+/// subtree key-count delta. Under the AAPCS zero-spill invariant
+/// (AGENTS.md §2.1.7), `child` is passed as a bare `Edge32` using
+/// `Edge32::null()` as the sentinel for unchanged child edges, and
+/// `delta` is passed as a 32-bit `i32` word to avoid register spills.
+#[inline(always)]
+fn branch_commit(a: &mut Arena, e: &Edge32, digit: u8, child: Edge32, delta: i32) {
     match kind(e) {
         Kind::BranchL2 => {
             let b = a.l2_mut(edge_handle(e));
-            b.header.pop0 = (b.header.pop0 as i64 + delta) as u32;
+            b.header.pop0 = (b.header.pop0 as i32 + delta) as u32;
+            if !child.is_null() {
+                let n = b.header.num_edges as usize;
+                if n > 0 && b.digits[0] == digit {
+                    b.edges[0] = child;
+                } else if n > 1 && b.digits[1] == digit {
+                    b.edges[1] = child;
+                } else {
+                    unreachable!("branch_commit: digit not present");
+                }
+            }
         }
         Kind::BranchL6 => {
             let b = a.l6_mut(edge_handle(e));
-            b.header.pop0 = (b.header.pop0 as i64 + delta) as u32;
-        }
-        Kind::BranchB => {
-            let b = a.b_mut(edge_handle(e));
-            b.count = (b.count as i64 + delta) as u32;
-        }
-        Kind::BranchU => {
-            let b = a.u_mut(edge_handle(e));
-            b.count = (b.count as i64 + delta) as u32;
-        }
-        _ => unreachable!(),
-    }
-}
-
-/// One-visit successor to the `branch_set_child` + `branch_add_keys`
-/// pair on the descent's way back up: a single arena fetch and tag
-/// dispatch stores the child edge (when it changed) and applies the
-/// subtree key-count delta. The separate helpers remain for the cold
-/// paths that need only one of the two (#577).
-#[inline(always)]
-fn branch_commit(a: &mut Arena, e: &Edge32, digit: u8, child: Option<Edge32>, delta: i64) {
-    match kind(e) {
-        Kind::BranchL2 => {
-            let b = a.l2_mut(edge_handle(e));
-            b.header.pop0 = (b.header.pop0 as i64 + delta) as u32;
-            let Some(c) = child else { return };
-            let n = b.header.num_edges as usize;
-            if n > 0 && b.digits[0] == digit {
-                b.edges[0] = c;
-            } else if n > 1 && b.digits[1] == digit {
-                b.edges[1] = c;
-            } else {
+            b.header.pop0 = (b.header.pop0 as i32 + delta) as u32;
+            if !child.is_null() {
+                let n = b.header.num_edges as usize;
+                for i in 0..n {
+                    if b.digits[i] == digit {
+                        b.edges[i] = child;
+                        return;
+                    }
+                }
                 unreachable!("branch_commit: digit not present");
             }
         }
-        Kind::BranchL6 => {
-            let b = a.l6_mut(edge_handle(e));
-            b.header.pop0 = (b.header.pop0 as i64 + delta) as u32;
-            let Some(c) = child else { return };
-            let n = b.header.num_edges as usize;
-            for i in 0..n {
-                if b.digits[i] == digit {
-                    b.edges[i] = c;
-                    return;
-                }
-            }
-            unreachable!("branch_commit: digit not present");
-        }
         Kind::BranchB => {
             let b = a.b_mut(edge_handle(e));
-            b.count = (b.count as i64 + delta) as u32;
-            let Some(c) = child else { return };
-            let w = (digit >> 6) as usize;
-            let word = b.header.bitmap[w];
-            let rank = bitmap_sub_rank(word, digit);
-            let sub = (digit >> 5) as usize;
-            b.subarrays[sub].as_mut().expect("live subarray")[rank] = c;
+            b.count = (b.count as i32 + delta) as u32;
+            if !child.is_null() {
+                let w = (digit >> 6) as usize;
+                let word = b.header.bitmap[w];
+                let rank = bitmap_sub_rank(word, digit);
+                let sub = (digit >> 5) as usize;
+                b.subarrays[sub].as_mut().expect("live subarray")[rank] = child;
+            }
         }
         Kind::BranchU => {
             let b = a.u_mut(edge_handle(e));
-            b.count = (b.count as i64 + delta) as u32;
-            if let Some(c) = child {
-                b.edges[digit as usize] = c;
+            b.count = (b.count as i32 + delta) as u32;
+            if !child.is_null() {
+                b.edges[digit as usize] = child;
             }
         }
         _ => unreachable!(),
@@ -1748,11 +1731,12 @@ fn insert_pair_sorted(pairs: &mut Vec<(u8, Edge32)>, digit: u8, child: Edge32) {
 /// Remove `(digit, child)` from a branch. Returns `true` if the branch
 /// was modified. The caller is responsible for freeing the child node
 /// if applicable.
-fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
+fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8, delta: i32) {
     let level = branch_level(a, e);
     match kind(e) {
         Kind::BranchL2 => {
             let b = a.l2_mut(edge_handle(e));
+            b.header.pop0 = (b.header.pop0 as i32 + delta) as u32;
             let n = b.header.num_edges as usize;
             let mut pos = None;
             for i in 0..n {
@@ -1777,6 +1761,7 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
         }
         Kind::BranchL6 => {
             let b = a.l6_mut(edge_handle(e));
+            b.header.pop0 = (b.header.pop0 as i32 + delta) as u32;
             let n = b.header.num_edges as usize;
             let mut pos = None;
             for i in 0..n {
@@ -1810,6 +1795,7 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
         Kind::BranchB => {
             let (new_n, total, retired_sub, bytes_delta) = {
                 let b = a.b_mut(edge_handle(e));
+                b.count = (b.count as i32 + delta) as u32;
                 let w = (digit >> 6) as usize;
                 let bit64 = digit & 63;
                 let bit_mask = 1u64 << bit64;
@@ -1848,6 +1834,7 @@ fn branch_remove_digit(a: &mut Arena, e: &mut Edge32, digit: u8) {
         }
         Kind::BranchU => {
             let b = a.u_mut(edge_handle(e));
+            b.count = (b.count as i32 + delta) as u32;
             debug_assert!(!b.edges[digit as usize].is_null());
             b.edges[digit as usize] = Edge32::null();
             b.num_children -= 1;
@@ -2018,7 +2005,17 @@ pub(crate) fn set_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
                     let old_child = child;
                     let inserted = set_insert(a, &mut child, kb - 1, cr);
                     if inserted {
-                        branch_commit(a, e, d, (child != old_child).then_some(child), 1);
+                        branch_commit(
+                            a,
+                            e,
+                            d,
+                            if child != old_child {
+                                child
+                            } else {
+                                Edge32::null()
+                            },
+                            1,
+                        );
                     }
                     inserted
                 }
@@ -2114,13 +2111,23 @@ pub(crate) fn set_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
             match branch_child(a, e, d) {
                 None => false,
                 Some(mut child) => {
+                    let old_child = child;
                     let removed = set_remove(a, &mut child, kb - 1, cr);
                     if removed {
                         if child.is_null() {
-                            branch_add_keys(a, e, -1);
-                            branch_remove_digit(a, e, d);
+                            branch_remove_digit(a, e, d, -1);
                         } else {
-                            branch_commit(a, e, d, Some(child), -1);
+                            branch_commit(
+                                a,
+                                e,
+                                d,
+                                if child != old_child {
+                                    child
+                                } else {
+                                    Edge32::null()
+                                },
+                                -1,
+                            );
                         }
                     }
                     removed
@@ -2307,7 +2314,7 @@ pub(crate) fn map_insert_via_finger(
     // Subtree counts, the only thing the skipped descent still owed. The
     // digit is unused for a count-only commit.
     for i in 0..f.depth as usize {
-        branch_commit(a, &f.ancestors[i], 0, None, 1);
+        branch_commit(a, &f.ancestors[i], 0, Edge32::null(), 1);
     }
     Some(old)
 }
@@ -2436,7 +2443,13 @@ pub(crate) fn map_insert_f(
                     let old = map_insert_f(a, &mut child, kb - 1, cr, val, f);
                     let changed = child != old_child;
                     if changed || old.is_none() {
-                        branch_commit(a, e, d, changed.then_some(child), i64::from(old.is_none()));
+                        branch_commit(
+                            a,
+                            e,
+                            d,
+                            if changed { child } else { Edge32::null() },
+                            i32::from(old.is_none()),
+                        );
                     }
                     if changed {
                         // The child edge moved, so a cached path through it
@@ -2505,7 +2518,7 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
             Some(old)
         }
         Kind::MapBitmap => {
-            let (old_val, pop, retired_sub, bytes_delta) = {
+            let (old_val, count_after, retired_sub, bytes_delta) = {
                 let b = a.map_bitmap_mut(edge_handle(e));
                 let digit = rem as u8;
                 let w = (digit >> 6) as usize;
@@ -2522,24 +2535,22 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
                 b.header.bitmap[w] &= !bit_mask;
                 let old_val = b.subarrays[sub].as_ref().expect("live subarray")[rank];
                 let retired = subarray_remove(&mut b.subarrays[sub], sub_pop, rank, 0u32);
-                let pop = b.header.pop0 as usize;
-                if pop > 0 {
-                    b.header.pop0 -= 1;
-                }
+                let count_after = b.header.pop0.saturating_sub(1) as usize;
+                b.header.pop0 = count_after as u16;
                 (
                     old_val,
-                    pop,
+                    count_after,
                     retired,
                     subarray_bytes_delta::<u32>(sub_pop, sub_pop - 1),
                 )
             };
             a.retire_vals(retired_sub);
             a.bytes = a.bytes.wrapping_add_signed(bytes_delta);
-            if pop == 0 {
+            if count_after == 0 {
                 let old = edge_handle(e);
                 a.free(old);
                 *e = Edge32::null();
-            } else if pop <= MAP_BITMAP_LEAVE {
+            } else if count_after <= MAP_BITMAP_LEAVE {
                 let entries = read_map_bitmap(a, e);
                 let old = edge_handle(e);
                 *e = if entries.len() == 1 {
@@ -2557,13 +2568,23 @@ pub(crate) fn map_remove(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> Opt
             match branch_child(a, e, d) {
                 None => None,
                 Some(mut child) => {
+                    let old_child = child;
                     let old = map_remove(a, &mut child, kb - 1, cr);
                     if old.is_some() {
                         if child.is_null() {
-                            branch_add_keys(a, e, -1);
-                            branch_remove_digit(a, e, d);
+                            branch_remove_digit(a, e, d, -1);
                         } else {
-                            branch_commit(a, e, d, Some(child), -1);
+                            branch_commit(
+                                a,
+                                e,
+                                d,
+                                if child != old_child {
+                                    child
+                                } else {
+                                    Edge32::null()
+                                },
+                                -1,
+                            );
                         }
                     }
                     old
@@ -3276,15 +3297,22 @@ pub(crate) fn map_remove_range<F: FnMut(u32, u32)>(
                 }
                 total += n;
                 if child.is_null() {
-                    branch_add_keys(a, e, -(n as i64));
-                    // May demote or empty the branch, so the next iteration
-                    // re-dispatches on the rewritten edge.
-                    branch_remove_digit(a, e, d);
+                    branch_remove_digit(a, e, d, -(n as i32));
                     if e.is_null() {
                         break;
                     }
                 } else {
-                    branch_commit(a, e, d, (child != before).then_some(child), -(n as i64));
+                    branch_commit(
+                        a,
+                        e,
+                        d,
+                        if child != before {
+                            child
+                        } else {
+                            Edge32::null()
+                        },
+                        -(n as i32),
+                    );
                 }
             }
             total
@@ -3429,13 +3457,22 @@ pub(crate) fn set_remove_range<F: FnMut(u32)>(
                 }
                 total += n;
                 if child.is_null() {
-                    branch_add_keys(a, e, -(n as i64));
-                    branch_remove_digit(a, e, d);
+                    branch_remove_digit(a, e, d, -(n as i32));
                     if e.is_null() {
                         break;
                     }
                 } else {
-                    branch_commit(a, e, d, (child != before).then_some(child), -(n as i64));
+                    branch_commit(
+                        a,
+                        e,
+                        d,
+                        if child != before {
+                            child
+                        } else {
+                            Edge32::null()
+                        },
+                        -(n as i32),
+                    );
                 }
             }
             total
@@ -4551,5 +4588,36 @@ mod tests {
         assert_eq!(edge_handle(&e), h, "overwrite moved the node");
         assert_eq!(a.bytes_in_use(), bytes, "overwrite changed bytes");
         assert_eq!(map_get(&a, &e, kb, 15), Some(999));
+    }
+
+    /// Removing a digit from a BranchL2 must accurately update header.pop0
+    /// and match subtree_count.
+    #[test]
+    fn branch_l2_digit_removal_tracks_subtree_count() {
+        let mut a = Arena::new();
+        // Construct two leaf children
+        let mut c1 = Edge32::null();
+        map_insert(&mut a, &mut c1, 3, 0x01_0001, 1);
+        map_insert(&mut a, &mut c1, 3, 0x01_0002, 2);
+        let mut c2 = Edge32::null();
+        map_insert(&mut a, &mut c2, 3, 0x02_0001, 3);
+        map_insert(&mut a, &mut c2, 3, 0x02_0002, 4);
+
+        let pairs = [(0x10u8, c1), (0x20u8, c2)];
+        let mut e = make_l2(&mut a, 4, &pairs, 4);
+        assert!(matches!(kind(&e), Kind::BranchL2));
+        assert_eq!(branch_total_keys(&a, &e), 4);
+        assert_eq!(subtree_count(&a, &e), 4);
+
+        // Remove 1 key from digit 0x10 (in-place commit)
+        assert_eq!(map_remove(&mut a, &mut e, 4, 0x1001_0001), Some(1));
+        assert_eq!(branch_total_keys(&a, &e), 3);
+        assert_eq!(subtree_count(&a, &e), 3);
+
+        // Remove the other key from digit 0x10 (digit removal)
+        assert_eq!(map_remove(&mut a, &mut e, 4, 0x1001_0002), Some(2));
+        assert!(matches!(kind(&e), Kind::BranchL2));
+        assert_eq!(branch_total_keys(&a, &e), 2);
+        assert_eq!(subtree_count(&a, &e), 2);
     }
 }
