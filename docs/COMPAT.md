@@ -170,7 +170,7 @@ The 32-bit engine's concurrent wrapper — the Rust `sync32` module
 (`SyncExpanseMap32`/`SyncExpanseSet32`: single writer enforced by
 `split(&mut)`, validated single-attempt optimistic reads returning `Busy`,
 deferred reclamation drained at reader quiescence) — reaches C as the
-**`expanse_sync32_*` family** ([#573](https://github.com/orieg/expanse/issues/573)),
+**`expanse_sync32_*` family**,
 24 symbols declared in the `!EXPANSE_WIDE_SURFACE` block and present in every
 32-bit build, std or not (`EXPANSE_HAS_SYNC32` announces it). It is a
 different protocol from the 64-bit `expanse_sync_*` family and says so in the
@@ -216,7 +216,7 @@ single-hart; ESP32-C6 pairs its HP core with an LP RISC-V core that reads and
 writes HP SRAM; ESP32-P4 is dual-core HP plus an LP core reaching L2 SRAM.
 `AtomicU64` is native on none of them — which is why the 32-bit concurrent
 surface is built on `AtomicU32` seqlocks
-([#564](https://github.com/orieg/expanse/issues/564)) — and
+— and
 `portable-atomic`'s `unsafe-assume-single-core` — the cheap CAS path — is sound
 on C2/C3/H2 and **unsound on C6 and P4**, so it must never be switched on for
 the Espressif family as a whole.

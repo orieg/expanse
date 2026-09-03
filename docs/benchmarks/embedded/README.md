@@ -42,6 +42,17 @@ twins in `components/expanse/test/twin_containers.h`.
   in a single boot. The `provenance` and `stack` objects in the file carry the
   same facts as the board reported them, and every published number derives
   from them (§8.2).
+- **Stale for every Expanse arm.** Harvested at `e9957cd`; `089e94b8` since
+  changed the 32-bit insert and remove paths, which the ingest, churn,
+  sighting-record and TTL-eviction arms run on. A paired re-harvest against
+  `151b2c88` on the same board is pending
+  ([#615](https://github.com/orieg/expanse/issues/615)); the twin arms have to
+  be re-run in the same sitting, so it is the whole sweep or none of it (§8.3).
+  Host-side `mem_used()` at this fixture's fill is byte-identical across that
+  change (2,288 B at N=500, 8,992 B at N=2,000) and the change removes 58% of
+  the allocator calls per sequential insert, so the density rows are expected
+  to hold and the cycle rows to fall — predictions on a different instrument,
+  recorded here so the re-run has something falsifiable to land against.
 - **The figure to quote is the `median`.** Each arm records `min`, `median`,
   `mean`, `max`, a `spread_ratio` and a `contaminated` flag alongside the BCa
   95% interval on the mean. A single repetition whose timed window catches a
