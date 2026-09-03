@@ -126,6 +126,11 @@ harness = false
 test = false
 
 [[bench]]
+name = "domain"
+harness = false
+test = false
+
+[[bench]]
 name = "search_boolean"
 harness = false
 test = false
