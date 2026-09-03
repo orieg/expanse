@@ -22,6 +22,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTUP_MAX_RETRIES: "10"
+  RUSTUP_DOWNLOAD_TIMEOUT: "300"
   
 jobs:
   miri-full:
@@ -33,8 +35,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: ./.github/actions/rust-toolchain
         with:
+          toolchain: nightly
           components: miri
 
       - uses: Swatinem/rust-cache@v2
@@ -120,8 +123,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: ./.github/actions/rust-toolchain
         with:
+          toolchain: nightly
           components: rust-src
       - uses: Swatinem/rust-cache@v2
       - name: Verify ThreadSanitizer canary catches unsuppressed races (negative control)
@@ -446,7 +450,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: ./.github/actions/rust-toolchain
+        with:
+          toolchain: nightly
 
       - uses: Swatinem/rust-cache@v2
 
