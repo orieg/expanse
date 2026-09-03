@@ -6,6 +6,7 @@ members = [
     "crates/expanse-py",
     "crates/expanse-node",
     "crates/expanse-wasm",
+    "crates/expanse-wasm-fuel",
     "crates/expanse-php",
 ]
 default-members = [
