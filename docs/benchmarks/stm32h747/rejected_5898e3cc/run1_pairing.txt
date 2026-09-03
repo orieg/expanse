@@ -1,0 +1,43 @@
+core fixture                 clk dc       main         PR    delta    noise  verdict
+m4   can_dispatch            200  0     1230.9     1230.5   -0.03%   15.24%  inside noise -- not claimed
+m4   evict_bulk_loop         200  0    10764.0    12028.1  +11.74%   10.25%  outside noise -- slower
+m4   evict_bulk_range        200  0     3836.8     4540.5  +18.34%   10.07%  outside noise -- slower
+m4   evict_steady_loop       200  0    10506.2    11925.1  +13.50%   10.19%  outside noise -- slower
+m4   evict_steady_range      200  0     4011.7     4696.8  +17.08%    9.16%  outside noise -- slower
+m4   ingest                  200  0     3037.4     3051.4   +0.46%    0.41%  outside noise -- slower
+m7   can_dispatch             64  0      360.1      351.1   -2.50%    0.05%  outside noise -- faster
+m7   can_dispatch             64  1      252.1      250.1   -0.78%    0.04%  outside noise -- faster
+m7   can_dispatch            160  0      434.1      418.2   -3.67%    0.06%  outside noise -- faster
+m7   can_dispatch            160  1      252.1      252.1   +0.01%    0.04%  inside noise -- not claimed
+m7   can_dispatch            400  0      434.2      418.2   -3.68%    0.06%  outside noise -- faster
+m7   can_dispatch            400  1      252.1      252.1   +0.01%    0.04%  inside noise -- not claimed
+m7   evict_bulk_loop          64  0     3875.3     4070.0   +5.02%    0.39%  outside noise -- slower
+m7   evict_bulk_loop          64  1     2758.0     2910.2   +5.52%    0.46%  outside noise -- slower
+m7   evict_bulk_loop         160  0     4884.0     5040.4   +3.20%    0.56%  outside noise -- slower
+m7   evict_bulk_loop         160  1     2934.6     2995.4   +2.07%    0.68%  outside noise -- slower
+m7   evict_bulk_loop         400  0     4888.0     5038.8   +3.09%    0.55%  outside noise -- slower
+m7   evict_bulk_loop         400  1     2936.2     2992.8   +1.93%    0.67%  outside noise -- slower
+m7   evict_bulk_range         64  0     1375.0     1494.3   +8.68%    0.24%  outside noise -- slower
+m7   evict_bulk_range         64  1     1004.7     1100.4   +9.52%    0.35%  outside noise -- slower
+m7   evict_bulk_range        160  0     1716.5     1829.5   +6.58%    0.60%  outside noise -- slower
+m7   evict_bulk_range        160  1     1071.1     1137.5   +6.20%    0.18%  outside noise -- slower
+m7   evict_bulk_range        400  0     1713.8     1832.2   +6.90%    0.66%  outside noise -- slower
+m7   evict_bulk_range        400  1     1073.0     1138.8   +6.14%    0.18%  outside noise -- slower
+m7   evict_steady_loop        64  0     3864.7     4094.4   +5.94%    0.03%  outside noise -- slower
+m7   evict_steady_loop        64  1     2791.0     2956.0   +5.91%    1.43%  outside noise -- slower
+m7   evict_steady_loop       160  0     4903.3     5102.6   +4.06%    1.03%  outside noise -- slower
+m7   evict_steady_loop       160  1     2995.4     3112.5   +3.91%    1.01%  outside noise -- slower
+m7   evict_steady_loop       400  0     4899.6     5093.0   +3.95%    1.79%  outside noise -- slower
+m7   evict_steady_loop       400  1     3009.5     3110.9   +3.37%    1.35%  outside noise -- slower
+m7   evict_steady_range       64  0     1523.2     1627.4   +6.84%    0.52%  outside noise -- slower
+m7   evict_steady_range       64  1     1143.4     1217.0   +6.44%    1.20%  outside noise -- slower
+m7   evict_steady_range      160  0     1971.0     2048.8   +3.95%    0.95%  outside noise -- slower
+m7   evict_steady_range      160  1     1282.1     1332.4   +3.93%    0.91%  outside noise -- slower
+m7   evict_steady_range      400  0     1969.1     2051.7   +4.19%    0.57%  outside noise -- slower
+m7   evict_steady_range      400  1     1287.3     1326.6   +3.05%    1.22%  outside noise -- slower
+m7   ingest                   64  0     1096.6     1116.1   +1.78%    0.04%  outside noise -- slower
+m7   ingest                   64  1      718.4      749.5   +4.32%    4.42%  inside noise -- not claimed
+m7   ingest                  160  0     1437.2     1468.1   +2.15%    0.01%  outside noise -- slower
+m7   ingest                  160  1      745.6      798.9   +7.15%    0.37%  outside noise -- slower
+m7   ingest                  400  0     1437.7     1469.1   +2.18%    0.01%  outside noise -- slower
+m7   ingest                  400  1      744.9      798.6   +7.21%    0.20%  outside noise -- slower

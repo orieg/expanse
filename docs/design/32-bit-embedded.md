@@ -653,7 +653,7 @@ here, so it is recorded as observed and unattributed.
 Following §8.1.2's negative result on key batching, #628 attempted to optimize scattered removals by attacking per-key descent and unroll paths directly:
 1. Conditional child rewrite in `branch_commit` (passing `(child != old_child).then_some(child)` to bypass linear digit scans and bitmap rank calculations on unchanged ancestors).
 2. Fused key count delta in `branch_remove_digit`.
-3. Corrected `MapBitmap` zero-population check off `count_after == 0`.
+3. `MapBitmap` demotion tested on the post-decrement count (`count_after <= MAP_BITMAP_LEAVE`), which moves the bitmap-to-leaf demotion one key earlier; the pre-decrement form was not reachable at zero, so this was a threshold shift, not a bug fix.
 4. Monotonic boundary check in `SetLeaf` and `MapLeaf` lower-bound lookups.
 
 #### On-Target Evaluation (STM32H747)
@@ -668,9 +668,9 @@ Measured on STM32H747 (Cortex-M7 @ 400 MHz, Cortex-M4 @ 200 MHz) with paired exe
 | `ingest` | **+7.2%** | 0.2% | **+0.5%** | 0.4% |
 | `can_dispatch` | 0.0% | 0.0% | 0.0% | 15.2% |
 
-*(measured: STM32H747I-DISCO, commit 5898e3cc, min-of-5 DWT cycle counts; control reproduced published artifact to within 0.26% on every cell.)*
+*(measured: STM32H747I-DISCO, treatment `5898e3cc` against control `f77aa87c`, identical harness firmware, `min` of 5 DWT cycle counts; run twice in opposite flash order with identical verdicts; the control reproduced the published `22908c15` artifact to within 0.26% on every cell. Both runs, both arms: `docs/benchmarks/stm32h747/rejected_5898e3cc/`.)*
 
-Cache-off M7 cells regressed even further (+6.6% to +9.5% on `evict_bulk_range`, +5% to +6% on loops at 64 MHz). The movement on unedited paths (`ingest` +7.2% cache-on) indicates code-layout and branch prediction/instruction cache line displacement dominated any branch-commit shortcut savings.
+With the D-cache off the M7 cells lose more: `evict_bulk_range` +6.6% to +8.7% across the three clocks (the largest single cell is +9.5%, 64 MHz cache on), the two loops +5% to +6% at 64 MHz. The unedited `ingest` path moved +7.2% cache-on against a 0.2% floor, so part of the cost is the code-layout shift the edits caused rather than the edits themselves; how much is not separable without a layout-controlled build (§8.1.3), and the mechanism is recorded as unmeasured.
 
 Following AGENTS.md §6 zero-tolerance for regressions and §8.10 (retract, don't re-estimate), the engine changes from #628 were reverted rather than shipping a known on-target performance loss. The BLE tracker component batching in `expanse_ble_tracker.c` is retained pending dedicated evaluation on ESP32 (#630).
 
