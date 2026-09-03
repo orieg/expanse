@@ -252,6 +252,7 @@ fn test_expanse_map32_removal_invariants() {
         assert_eq!(actual, expected, "removal mismatch for key {k:#x}");
     }
     assert_eq!(map.len(), model.len());
+    assert_eq!(map.count_range(0, u32::MAX), model.len());
 
     // Verify all remaining keys in model are in map
     for (&k, &v) in &model {
@@ -262,9 +263,13 @@ fn test_expanse_map32_removal_invariants() {
     for &k in &inserted_keys[half..] {
         let expected = model.remove(&k);
         let actual = map.remove(k);
-        assert_eq!(actual, expected, "removal mismatch on second half for key {k:#x}");
+        assert_eq!(
+            actual, expected,
+            "removal mismatch on second half for key {k:#x}"
+        );
     }
     assert_eq!(map.len(), 0);
+    assert_eq!(map.count_range(0, u32::MAX), 0);
     assert_eq!(map.mem_used(), 0, "drained map must leave 0 memory in use");
 }
 
@@ -301,4 +306,43 @@ fn test_expanse_set32_removal_invariants() {
     }
     assert_eq!(set.len(), 0);
     assert_eq!(set.mem_used(), 0, "drained set must leave 0 memory in use");
+}
+
+#[test]
+fn test_map_bitmap_full_drain_invariant() {
+    let mut map = ExpanseMap32::new();
+    // 100 keys in the same level-1 expanse forces promotion to MapBitmap (MAP_BITMAP_ENTER_32 = 64)
+    for i in 0..100u32 {
+        map.insert(0x5555_0000 | i, i * 10);
+    }
+    assert_eq!(map.len(), 100);
+
+    // Drain down through demotion threshold (MAP_BITMAP_LEAVE_32 = 48) to 0
+    for i in 0..100u32 {
+        assert_eq!(map.remove(0x5555_0000 | i), Some(i * 10));
+    }
+    assert_eq!(map.len(), 0);
+    assert_eq!(
+        map.mem_used(),
+        0,
+        "fully drained MapBitmap must leave 0 memory in use"
+    );
+}
+
+#[test]
+fn test_branch_b_digit_removal_count_invariant() {
+    let mut map = ExpanseMap32::new();
+    // 25 distinct second-byte digits under prefix 0x1200_0000 exceeds MAP_LEAF_MAX_32 (16)
+    // and BRANCH_L6_CAP_32 (6), forcing a BranchB at level 3.
+    for d in 0..25u32 {
+        map.insert(0x1200_0000 | (d << 16) | 1, d * 100);
+    }
+    assert_eq!(map.len(), 25);
+    assert_eq!(map.count_range(0, u32::MAX), 25);
+
+    // Remove one digit: triggers branch_remove_digit on BranchB
+    assert_eq!(map.remove(0x1200_0001), Some(0));
+    assert_eq!(map.len(), 24);
+    // count_range reads subtree_count on the BranchB child of root
+    assert_eq!(map.count_range(0, u32::MAX), 24);
 }
