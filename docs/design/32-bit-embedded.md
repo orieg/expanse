@@ -637,6 +637,17 @@ measured path never executes — put that floor in perspective:
 either binary agree to 0.00% on every arm, so the difference is the binary and
 not the sitting.)*
 
+Three further links taken for #630 sharpen what "the binary" means. Two builds
+whose **engine and component source are identical** and whose embedded version
+strings are the *same length* (`v0.5.0-103-g8bb79a3d` and
+`v0.5.0-104-g41080e96`, 20 characters each) reproduce every one of the 17 arms
+**bit-identically** — same median, same min, same max, same mean to four
+decimals. A third build of that same source whose version string is six
+characters longer (a `-dirty` suffix) shifts arms by up to 0.9%. So the device
+measurement is deterministic to the cycle, and the spread this section
+documents is binary layout rather than run-to-run variation. It also means the
+lever is small: a few bytes of unrelated `.rodata` are enough to move an arm.
+
 The two pop=500 eviction arms are therefore **not usable as a regression
 signal** on this part without controlling code layout — a change can appear to
 halve or double their cost while touching nothing they run. The ingest arm, by
@@ -694,6 +705,58 @@ Following AGENTS.md §6 zero-tolerance for regressions and §8.10 (retract, don'
 The eight cells are exact counts, so the verdict is not in doubt. What the measurement does **not** say is which of the four edits cost what: they were landed together, so the batch is attributed, not the increments (§6, one increment one measurement). Two facts bound the reading without settling it. On the 32-bit engine a leaf child's edge carries its population (`Kind::SetLeaf(pop)`, `Kind::MapLeaf(pop)`), so removing a key changes the edge every time and the guard on the ascent store can never skip for a leaf child; it can skip for a bitmap terminal, whose edge is unchanged by an in-place removal. So the guard is dead weight on the leaf-terminated descents the sequential and clustered shapes are made of, which is consistent with those arms losing most (+8.5% to +12.2%) and the random shape least (+4.1% to +5.4%). The per-level cost of the compare, and the share of the loss owed to the fused delta or the `i32` narrowing, were not measured, and no assembly or cycle-level evidence was taken; #632's own codegen figure was the byte size of an assembly listing, which measures nothing about spills.
 
 Recorded so it is not retried: on this engine, guarding the ascent store is not selective for leaf children, and the ascent rewrite has now lost twice on two instruments (#628 on the STM32H747, §8.1.4; #632 on Callgrind). A third attempt needs a per-function ranking first (§6) and one edit per measurement.
+
+### 8.1.6 Component-level batching of the BLE eviction slab: measured, reverted (#617, #630)
+
+#617's last untested avenue was the one that stayed on `main` after the engine
+revert in #631: `expanse_ble_tracker_expire_stale` buffering expired slab
+indices across a fixed 64-entry stack batch (#628 item 5), so the `by_time`
+range walk and the `by_mac` removals would not interleave. Paired on the board
+it does not win.
+
+Control and treatment differ in `components/expanse/src/expanse_ble_tracker.c`
+and nothing else; the engine is byte-identical between them and to the
+published artifact. Medians of 10, one sitting, one board:
+
+| arm | no batching | batching | Δ | twin floor | reading |
+|---|---:|---:|---:|---:|---|
+| `esp32_ble_ttl_eviction` N=1100, pop 2000 | 2,317.9 | 2,327.6 | +0.42% | 1.37% | inside the floor — no effect |
+| `esp32_ble_ttl_eviction_sparse` N=100, pop 2000 | 2,308.9 | 2,411.2 | **+4.43%** | 1.22% | outside — slower |
+| `esp32_ble_ttl_eviction` N=300, pop 500 | 4,174.8 | 2,607.9 | −37.53% | 4.91% | layout mode flip, not a win — below |
+| `esp32_ble_ttl_eviction_sparse` N=100, pop 500 | 5,107.7 | 3,267.1 | −36.04% | 6.56% | layout mode flip, not a win — below |
+
+*(measured: ESP32-D0WD-V3 rev v3.1, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
+control and treatment flashed back to back; artifact
+`docs/benchmarks/embedded/esp32.json` is the reverted configuration.)*
+
+**The two pop=500 arms are not the win they look like.** They land within 1% of
+the two discrete values §8.1.3 recorded for *byte-identical engine source*
+(2,626.2 / 3,274.9 and 4,137.2 / 5,154.0): the control on the upper mode, the
+treatment on the lower. The batching adds 31 lines to the translation unit and
+flips the mode by its size, not by its mechanism, and any unrelated edit can
+flip it back — which is exactly why §8.1.3 rules those two arms out as a
+regression signal. The mechanism claim also fails its own consistency check:
+the same code path at pop 2000, where layout does not dominate, shows nothing.
+
+**The floor here is wider than twin drift.** Arms the batching cannot reach —
+it is reachable only from `expire_stale`, so `tsdb_ingest`, `tsdb_aggregate`,
+`point_lookup`, `sighting_record` and `churn` are all untouched — moved by up
+to +2.16% between the two links. Against a ±2.2% floor the sparse pop=2000
+regression is the only eviction cell that clears it, and it clears it in the
+wrong direction.
+
+Per §6 a change that wins nothing and costs 4.4% on a verdict-capable arm is
+reverted rather than shipped. With that revert `main`'s ESP32 path returns to
+the configuration the published artifact was measured on, and a fresh harvest
+of it reproduces all 17 arms bit-identically (§8.1.3).
+
+**#617 is closed by exhaustion, not by a fix.** All three of its proposals have
+now been measured and all three lose: sorting and key-batching the scattered
+removals (§8.1.2, +22% to +34%), bypassing the ancestor store during the
+removal descent (§8.1.5, +4.07% to +12.23% on Callgrind), and component-level
+slab batching (here). The arm remains the one Expanse already wins on
+Cortex-M4 against every twin, so the standing verdict is that its constant is
+not reachable by the batching ideas proposed for it.
 
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 
