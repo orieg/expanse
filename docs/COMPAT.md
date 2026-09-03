@@ -106,14 +106,13 @@ one that does not link, and a link error names the gap at build time.
 |---|---|---|
 | 64-bit, `std` (default) | `cargo build -p expanse-capi` | 145 |
 | 64-bit, `no_std` | `--no-default-features` | 127 |
-| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 57 |
+| 32-bit (any) | `--no-default-features --target riscv32imc-unknown-none-elf` | 56 |
 
 (Counts measured from `llvm-nm --defined-only` on the built artifacts — the
 64-bit rows at commit `5e8147ae`, the 32-bit row re-measured each time the
 narrow surface grew: 31 for the ordered core plus `expanse_map_remove_range`,
 55 when the `expanse_sync32_*` surface landed for #573, 56 when
-`expanse_map_for_each_range` landed for #614, 57 with
-`expanse_map_remove_many` for #617. Reproduce with the invocations
+`expanse_map_for_each_range` landed for #614. Reproduce with the invocations
 above; the 32-bit row needs `--features embedded-panic-handler`, as the CI
 job does.)
 
@@ -131,7 +130,7 @@ bidirectional range navigation:
 |---|---|
 | identity | `expanse_version` |
 | `expanse_set_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_remove`, `_contains`, `_contains_batch`, `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
-| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_remove_range`, `_for_each_range` and `_remove_many` (all 32-bit-only, see below), `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
+| `expanse_map_t` | `_new`, `_free`, `_len`, `_mem_used`, `_clear`, `_insert`, `_get`, `_remove`, `_remove_range` and `_for_each_range` (both 32-bit-only, see below), `_first`, `_last`, `_next_at_or_after`, `_next_after`, `_prev_at_or_before`, `_prev_before` |
 | `expanse_sync32_map_t` / `expanse_sync32_set_t` (32-bit-only, provisional) | `_new`, `_free`, `_writer`, `_reader`, `_writer_try_insert`, `_writer_try_remove`, `_writer_try_reclaim`, `_writer_get` / `_writer_contains`, `_writer_stats`, `_reader_try_get` / `_reader_try_contains`, `_reader_try_len`; plus `expanse_sync32_mutation_headroom`, `expanse_sync32_status_str` |
 
 The cause is engine surface, not a deliberate reduction: `ExpanseMap32` /

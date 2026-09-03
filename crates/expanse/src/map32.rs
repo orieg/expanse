@@ -176,29 +176,6 @@ impl ExpanseMap32 {
         n
     }
 
-    /// Removes a **sorted, distinct** set of scattered keys in one pass,
-    /// calling `f(key, value)` for each key actually present, in ascending
-    /// order, and returning how many were removed.
-    ///
-    /// [`remove_range`](Self::remove_range) covers a contiguous interval; this
-    /// covers a set that shares none — the retired half of a hash-keyed index,
-    /// for instance. Removing such a set one key at a time pays a fresh root
-    /// descent each time, where this visits every node on the path once
-    /// however many of the keys pass through it.
-    ///
-    /// Keys absent from the map are skipped; the return counts removals, not
-    /// requests. An unsorted slice removes only what it finds in the runs it
-    /// happens to form — sort before calling. Debug builds assert it.
-    pub fn remove_many<F: FnMut(Key32, Value32)>(&mut self, keys: &[Key32], mut f: F) -> usize {
-        if keys.is_empty() {
-            return 0;
-        }
-        self.finger.clear();
-        let n = trie32::map_remove_many(&mut self.alloc, &mut self.root, 4, 0, keys, &mut f);
-        self.len -= n;
-        n
-    }
-
     /// Returns the number of entries in the map.
     #[inline]
     #[must_use]
@@ -807,82 +784,6 @@ mod tests {
     /// node kind (dense runs for level-1 bitmaps, sparse keys for immediates
     /// and linear leaves, wide spreads for the branch flavours), with random
     /// inclusive ranges; also pins `first()` to the model after every step.
-    /// `remove_many` must agree with the per-key `remove` loop it replaces --
-    /// same survivors, same removed set, same values, same count -- across
-    /// dense, midrange and sparse key masks, and with keys that are not in the
-    /// map mixed into the request.
-    #[test]
-    fn remove_many_matches_per_key_removal() {
-        for &mask in &[0x3FFu32, 0x000F_FFFF, 0xFFFF_FFFF] {
-            let mut rng = XorShift::new(0xB47C_4EE5 ^ u64::from(mask));
-            for round in 0..12 {
-                let n = 200 + round * 97;
-                let mut batch = ExpanseMap32::new();
-                let mut per_key = ExpanseMap32::new();
-                let mut model: BTreeMap<u32, u32> = BTreeMap::new();
-                for _ in 0..n {
-                    let k = rng.next() & mask;
-                    let v = rng.next();
-                    batch.insert(k, v);
-                    per_key.insert(k, v);
-                    model.insert(k, v);
-                }
-                // Victims: some present, some deliberately absent.
-                let mut victims: Vec<u32> = Vec::new();
-                for &k in model.keys() {
-                    if rng.next().is_multiple_of(3) {
-                        victims.push(k);
-                    }
-                }
-                for _ in 0..8 {
-                    victims.push(rng.next() & mask);
-                }
-                victims.sort_unstable();
-                victims.dedup();
-
-                let mut got: Vec<(u32, u32)> = Vec::new();
-                let removed = batch.remove_many(&victims, |k, v| got.push((k, v)));
-
-                let mut want: Vec<(u32, u32)> = Vec::new();
-                for &k in &victims {
-                    if let Some(v) = per_key.remove(k) {
-                        want.push((k, v));
-                    }
-                }
-
-                assert_eq!(removed, want.len(), "mask={mask:#x} round={round} count");
-                assert_eq!(got, want, "mask={mask:#x} round={round} removed set");
-                assert_eq!(batch.len(), per_key.len(), "mask={mask:#x} len");
-                let a: Vec<_> = batch.iter().collect();
-                let b: Vec<_> = per_key.iter().collect();
-                assert_eq!(a, b, "mask={mask:#x} round={round} survivors");
-                for &k in &victims {
-                    assert_eq!(batch.get(k), None, "mask={mask:#x} victim {k} survived");
-                }
-            }
-        }
-    }
-
-    /// An empty request is a no-op, and a request that empties the map leaves
-    /// it genuinely empty rather than holding a husk of a tree.
-    #[test]
-    fn remove_many_empty_and_total() {
-        let mut m = ExpanseMap32::new();
-        assert_eq!(m.remove_many(&[], |_, _| unreachable!()), 0);
-        for i in 0..500u32 {
-            m.insert(1_700_000_000 + i, i);
-        }
-        assert_eq!(
-            m.remove_many(&[7, 9, 11], |_, _| unreachable!("absent keys")),
-            0
-        );
-        let all: Vec<u32> = (0..500u32).map(|i| 1_700_000_000 + i).collect();
-        assert_eq!(m.remove_many(&all, |_, _| {}), 500);
-        assert_eq!(m.len(), 0);
-        assert_eq!(m.iter().count(), 0);
-        assert_eq!(m.mem_used(), 0, "leak after remove_many drained the map");
-    }
-
     #[test]
     fn remove_range_matches_btreemap_model() {
         let mut state = 0x2F6E_2B1Fu32;

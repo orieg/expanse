@@ -578,6 +578,46 @@ cheaper aligned allocator than ESP-IDF's could revisit this, but the measurement
 above is the one to beat, and beating it means beating the `ttl_eviction` and
 `sighting_record` arms specifically.
 
+### 8.1.2 Batched scattered removal — frozen negative result
+
+[#617](https://github.com/orieg/expanse/issues/617) proposes retiring the BLE
+tracker's `by_mac` entries in one batched call rather than one descent per key,
+on the reasoning that *"ascending removal lets consecutive removals share
+prefix descent"*. A `map_remove_many` engine method, an
+`expanse_map_remove_many` C entry point and the tracker consumer were all
+implemented and measured.
+
+**The premise does not hold for this index.** `by_mac` keys are FNV-1a hashes,
+so they are uniform over the whole 32-bit space and consecutive sorted keys
+share no prefix to descend through. For a 64-key batch, 58 of 64 have distinct
+top bytes and **all 64 have distinct top-two bytes**; at 1,100 keys, 1,091 of
+1,100 are still distinct two bytes in. Partitioning therefore yields one key
+per run below the root hop, the recursion degenerates to the per-key descent it
+replaced, and the sort, the buffer and the partitioning are added on top.
+
+Measured on device, against the same tree without the change:
+
+| Arm | before | batched | |
+|---|---|---|---|
+| `esp32_ble_ttl_eviction` N=1100 | 2,322.5 | 2,889.2 | **+24.40%** |
+| `esp32_ble_ttl_eviction` N=300 | 2,626.2 | 3,203.4 | **+21.98%** |
+| `esp32_ble_ttl_eviction_sparse` pop 500 | 3,274.9 | 4,088.8 | **+24.85%** |
+| `esp32_ble_ttl_eviction_sparse` pop 2k | 2,355.2 | 3,161.3 | **+34.23%** |
+
+*(measured: ESP32-D0WD-V3 rev v3.1, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
+medians of 10; twin-container drift for this pairing was 6.99%, so every row is
+outside it.)*
+
+Batching a scattered removal pays off only when the keys cluster. A hash index
+is the case where they never do, and it is the one #617 set out to improve, so
+both the primitive and its consumer are reverted rather than kept unused. The
+eviction path keeps `remove_range` on `by_time` and per-record removal on
+`by_mac`.
+
+Narrowing this arm needs a different mechanism — one that attacks the descent
+itself rather than the number of descents, or an index whose keys are ordered
+rather than hashed.
+
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 
 ```rust

@@ -2,7 +2,7 @@
 .SH NAME
 expanse_map_new, expanse_map_free, expanse_map_clear, expanse_map_insert, \
 expanse_map_get, expanse_map_remove, expanse_map_remove_range, \
-expanse_map_remove_many, expanse_map_for_each_range, \
+expanse_map_for_each_range, \
 expanse_map_len, expanse_map_mem_used, \
 expanse_map_slot, expanse_map_ins_slot, expanse_map_first, \
 expanse_map_last, expanse_map_next_at_or_after, expanse_map_next_after, \
@@ -31,11 +31,6 @@ expanse_map_get_batch \
 .BI "size_t   expanse_map_remove_range(expanse_map_t *" map ","
 .BI "                     expanse_word_t " lo ", expanse_word_t " hi ","
 .BI "                     expanse_map_remove_range_fn " callback ","
-.BI "                     void *" user_ctx ");"
-.br
-.BI "size_t   expanse_map_remove_many(expanse_map_t *" map ","
-.BI "                     const expanse_word_t *" keys ", size_t " len ","
-.BI "                     expanse_map_remove_many_fn " callback ","
 .BI "                     void *" user_ctx ");"
 .br
 .BI "bool     expanse_map_for_each_range(const expanse_map_t *" map ","
@@ -195,25 +190,6 @@ key order as
 and returns the count removed. One descent to the range and one structural
 fix-up per touched node: the batched form of a first/remove eviction loop.
 The callback must not touch \fImap\fR. An inverted range removes nothing.
-.TP
-.BI "size_t expanse_map_remove_many(expanse_map_t *" map ","
-.BI "                   const expanse_word_t *" keys ", size_t " len ","
-.BI "                   expanse_map_remove_many_fn " callback ","
-.BI "                   void *" user_ctx ");"
-\fB32-bit surface only\fR (\fIEXPANSE_WIDE_SURFACE\fR == 0; absent from a
-64-bit build). Removes a scattered set of keys in one pass, calling
-\fIcallback\fR (if non-NULL) once per removed entry in ascending key order as
-\fBvoid callback(expanse_word_t key, expanse_word_t value, void *user_ctx)\fR,
-and returns the count removed.
-\fIkeys\fR must be sorted ascending and distinct; an unsorted array removes
-only what it finds in the runs it happens to form. Keys absent from the map
-are skipped, so the return counts removals and not requests. Where
-\fBexpanse_map_remove_range\fR() covers a contiguous interval, this covers a
-set that shares none \(em the retired half of a hash-keyed index, say \(em
-visiting each node on the descent once however many keys pass through it,
-instead of paying a fresh root descent per key. The callback must not touch
-\fImap\fR. A NULL \fImap\fR or \fIkeys\fR, or a zero \fIlen\fR, removes
-nothing and returns 0.
 .TP
 .BI "bool expanse_map_for_each_range(const expanse_map_t *" map ","
 .BI "                   expanse_word_t " lo ", expanse_word_t " hi ","
