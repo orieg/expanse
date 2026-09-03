@@ -102,17 +102,24 @@
 //! the later counter), so that walk sampled the version after the unlink
 //! and the bracket close, and cannot reach the node either.
 //!
-//! In-place mutation extends beyond the bitmap/branch subarray stores:
-//! linear-leaf inserts, removes, and value overwrites shift or store
-//! into the leaf's byte buffer in place while the population stays
-//! inside its capacity class (#577), so a validated reader may observe
-//! mid-shift bytes from the very buffer it is scanning. That is safe
-//! under the same argument as every other racy load here: leaf buffers
-//! hold plain bytes (never pointers), every content-derived index on
-//! the validated walks is bounds-checked against the live buffer
-//! length, and the version seal rejects any read that overlapped a
-//! write bracket before its result can escape. Node replacement — with
-//! the old node retired for stalled readers — now happens only at
+//! In-place mutation covers linear leaves and the bitmap/branch subarray
+//! stores alike: linear-leaf inserts, removes, and value overwrites shift
+//! or store into the leaf's byte buffer in place while the population
+//! stays inside its capacity class (#577), and a bitmap node's rank-ordered
+//! subarray does the same (#615) — it is allocated at `cap_class` of its
+//! population, so a growth or shrink inside the class shifts the entries
+//! rather than replacing the box. A validated reader may therefore observe
+//! a mid-shift subarray, or read one of the trailing spare slots, from the
+//! very array it is scanning. That is safe under the same argument as every
+//! other racy load here: the spare slots always hold initialised filler
+//! (`0` for values, a null `Edge32` for children) so nothing uninitialised
+//! is ever observable; leaf buffers hold plain bytes (never pointers);
+//! every content-derived index on the validated walks is bounds-checked
+//! against the live allocation; and the version seal rejects any read that
+//! overlapped a write bracket before its result can escape — including one
+//! that resolved a child edge out of a spare slot, since only a concurrent
+//! mutation can put a rank there. Node and subarray replacement — with the
+//! old allocation retired for stalled readers — now happens only at
 //! capacity-class boundaries and structural conversions.
 
 use core::cell::UnsafeCell;

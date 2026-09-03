@@ -275,3 +275,72 @@ fn navigation_does_not_allocate() {
         "navigation allocated"
     );
 }
+
+/// 32-bit sequential ingest: allocations per insert.
+///
+/// Before #615 an insert into an already-populated bitmap subexpanse
+/// reallocated and copied the whole subarray — one malloc plus two
+/// memcpys plus one retirement **per key**. Applying `trie32::cap_class`
+/// to subarray growth, as the 64-bit engine already did for its leaves,
+/// makes the growths that stay inside a capacity class shift in place.
+///
+/// This pins the resulting rate so it cannot silently regress. The floor
+/// is the number of *structural* allocations the trie genuinely needs
+/// (nodes, class crossings); the ceiling is set just above the measured
+/// rate. It is a ratio, not a wall-clock figure, so it is deterministic
+/// and load-immune (AGENTS.md §8.4: hard assertions belong on
+/// deterministic counters only).
+#[test]
+fn map32_sequential_ingest_allocation_rate() {
+    use expanse_trie::map32::ExpanseMap32;
+
+    const N: u32 = 2_000;
+    let mut map = ExpanseMap32::new();
+    // Warm the container itself out of the measured window.
+    map.insert(1, 1);
+    map.remove(1);
+
+    let n = allocations_during(|| {
+        for i in 0..N {
+            map.insert(1_700_000_000 + i, i);
+        }
+    });
+    assert_eq!(map.len(), N as usize);
+
+    let per_insert = n as f64 / f64::from(N);
+    println!("map32 sequential ingest: {n} allocations over {N} inserts ({per_insert:.3}/insert)");
+    assert!(
+        per_insert < 0.45,
+        "32-bit sequential ingest cost {per_insert:.3} allocations/insert \
+         (0.875 before #615, 0.364 after); bitmap-subarray growth is \
+         reallocating per key again"
+    );
+}
+
+/// Set flavour of the same ingest: `BranchB32` child subarrays are the
+/// only cap-classed store a set exercises (a set bitmap leaf is a bare
+/// 256-bit mask with no subarray at all).
+#[test]
+fn set32_sequential_ingest_allocation_rate() {
+    use expanse_trie::set32::ExpanseSet32;
+
+    const N: u32 = 10_000;
+    let mut set = ExpanseSet32::new();
+    set.insert(1);
+    set.remove(1);
+
+    let n = allocations_during(|| {
+        for i in 0..N {
+            set.insert(1_700_000_000 + i);
+        }
+    });
+    assert_eq!(set.len(), N as usize);
+
+    let per_insert = n as f64 / f64::from(N);
+    println!("set32 sequential ingest: {n} allocations over {N} inserts ({per_insert:.4}/insert)");
+    assert!(
+        per_insert < 0.09,
+        "32-bit set ingest cost {per_insert:.4} allocations/insert \
+         (0.0782 before #615, 0.0763 after)"
+    );
+}
