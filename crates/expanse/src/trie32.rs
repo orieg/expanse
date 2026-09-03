@@ -1936,6 +1936,25 @@ fn leaf_lower_bound(buf: &[u8], pop: usize, kb: u8, needle: u32) -> Option<usize
     Some(lo)
 }
 
+/// Insert position for `needle` in a linear leaf's key area, short-circuiting
+/// the ascending-append case.
+///
+/// Monotonic key arrival is the common telemetry shape, and it always lands
+/// past the last key. One compare answers it; the binary search below needs
+/// `log2(pop)` dependent loads to reach the same place. The 64-bit engine has
+/// had this since ALGORITHMS.md §3.2 item 2 -- the 32-bit leaves never did, so
+/// every ascending insert paid the full descent of the search.
+///
+/// A key equal to the last one falls through to the search, so the caller sees
+/// the duplicate at its real index exactly as before.
+#[inline(always)]
+fn leaf_insert_pos(buf: &[u8], pop: usize, kb: u8, needle: u32) -> usize {
+    if pop > 0 && needle > read_rem(buf, pop - 1, kb as usize) {
+        return pop;
+    }
+    leaf_lower_bound(buf, pop, kb, needle).unwrap()
+}
+
 pub(crate) fn set_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> bool {
     match kind(e) {
         Kind::Null => {
@@ -1964,7 +1983,7 @@ pub(crate) fn set_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32) -> boo
         Kind::SetLeaf(_) => {
             let pop = edge_pop(e);
             let buf = a.leaf(edge_handle(e));
-            let pos = leaf_lower_bound(buf, pop, kb, rem).unwrap();
+            let pos = leaf_insert_pos(buf, pop, kb, rem);
             if pos < pop && read_rem(buf, pos, kb as usize) == rem {
                 return false;
             }
@@ -2200,7 +2219,7 @@ pub(crate) fn map_insert(a: &mut Arena, e: &mut Edge32, kb: u8, rem: u32, val: u
             let cap = cap_class(pop);
             let keys_off = 4 * cap;
             let buf = a.leaf(edge_handle(e));
-            let pos = leaf_lower_bound(&buf[keys_off..], pop, kb, rem).unwrap();
+            let pos = leaf_insert_pos(&buf[keys_off..], pop, kb, rem);
             if pos < pop && read_rem(&buf[keys_off..], pos, kb as usize) == rem {
                 // Value overwrite: a single in-place word store; the edge
                 // (handle, pop) is unchanged.
@@ -4184,6 +4203,53 @@ mod tests {
             assert_eq!(map.get(0x0011_2200 | d), Some(d), "digit {d}");
         }
         assert_eq!(map.len(), 70);
+    }
+
+    /// The ascending-append short circuit must agree with the binary search
+    /// it skips, for every position and both the equal-to-last and
+    /// past-the-end cases -- a wrong answer here silently corrupts key order.
+    #[test]
+    fn leaf_insert_pos_agrees_with_binary_search() {
+        for kb in 1..=4u8 {
+            for pop in 0..=24usize {
+                // Keys 10, 20, 30, ... so every gap, hit and end is reachable.
+                let mut buf = vec![0u8; (pop + 1) * kb as usize];
+                for i in 0..pop {
+                    write_rem(&mut buf, i, kb as usize, (i as u32 + 1) * 10);
+                }
+                for needle in 0..=(pop as u32 + 2) * 10 {
+                    if needle > rem_mask(kb) {
+                        continue;
+                    }
+                    let fast = leaf_insert_pos(&buf, pop, kb, needle);
+                    let slow = leaf_lower_bound(&buf, pop, kb, needle).unwrap();
+                    assert_eq!(
+                        fast, slow,
+                        "kb={kb} pop={pop} needle={needle}: fast {fast} vs search {slow}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// ...and it must actually fire on the shape it exists for. A change that
+    /// silently stopped taking the fast path would keep every test above green.
+    #[test]
+    fn leaf_insert_pos_short_circuits_ascending_keys() {
+        let kb = 2u8;
+        let pop = 12usize;
+        let mut buf = vec![0u8; (pop + 1) * kb as usize];
+        for i in 0..pop {
+            write_rem(&mut buf, i, kb as usize, (i as u32 + 1) * 10);
+        }
+        // Past the last key: answered without entering the search.
+        assert_eq!(leaf_insert_pos(&buf, pop, kb, 130), pop);
+        // Equal to the last key: falls through, and finds it where it is.
+        assert_eq!(leaf_insert_pos(&buf, pop, kb, 120), pop - 1);
+        // Below it: falls through to the search.
+        assert_eq!(leaf_insert_pos(&buf, pop, kb, 55), 5);
+        // Empty leaf has no last key to compare against.
+        assert_eq!(leaf_insert_pos(&buf, 0, kb, 7), 0);
     }
 
     #[test]
