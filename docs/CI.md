@@ -105,6 +105,7 @@ graph TD
 | `test-dotnet` | Bindings / .NET (matrix) | P/Invoke binding tests. |
 | `pack-dotnet` | Bindings / .NET NuGet Package | Packs the `Orieg.Expanse` `.nupkg`. |
 | `test-java` | Bindings / Java 22+ Panama (matrix) | Project Panama FFM binding tests. |
+| `pack-java` | Bindings / Java JAR Package | Packages the self-contained multi-arch JAR and verifies bundled resource extraction. |
 | `test-ruby` | Bindings / Ruby (matrix) | magnus / C ABI extension tests. |
 | `test-wasm` | Bindings / WebAssembly (wasm32) | `wasm32` binding build/test. |
 | `test-wasm64` | Bindings / WebAssembly (wasm64 Memory64 Experimental) | `wasm64-unknown-unknown` build-std check and Node.js Memory64 runtime smoke test. |
@@ -119,7 +120,7 @@ graph TD
 ### Rollup gate
 | Job | Name | Role |
 |---|---|---|
-| `ci-gate` | CI Gate / All Checks Passed | Runs `if: always()`, `needs:` all 35 other jobs, treats cleanly-skipped jobs as passing, and runs the completeness self-check. The **only** required branch-protection context. |
+| `ci-gate` | CI Gate / All Checks Passed | Runs `if: always()`, `needs:` all 36 other jobs, treats cleanly-skipped jobs as passing, and runs the completeness self-check. The **only** required branch-protection context. |
 
 ---
 

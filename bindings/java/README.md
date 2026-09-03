@@ -32,19 +32,58 @@ High-performance, **zero-GC**, off-heap associative trie collections for Java an
 <dependency>
     <groupId>io.github.orieg</groupId>
     <artifactId>expanse-java</artifactId>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
 </dependency>
 ```
 
 ### Gradle (Kotlin / Groovy)
 ```groovy
-implementation 'io.github.orieg:expanse-java:0.4.0'
+implementation 'io.github.orieg:expanse-java:0.5.0'
 ```
 
 ### sbt (Scala)
 ```scala
-libraryDependencies += "io.github.orieg" % "expanse-java" % "0.4.0"
+libraryDependencies += "io.github.orieg" % "expanse-java" % "0.5.0"
 ```
+
+---
+
+## JDK Baseline & Compatibility Matrix
+
+| JDK Version | Support Level | Required Flags | Notes |
+|---|---|---|---|
+| **JDK 22+** | **First-Class Baseline** | `--enable-native-access=ALL-UNNAMED` | Finalized Project Panama FFM ([JEP 454](https://openjdk.org/jeps/454)). Precompiled jar works out of the box. |
+| **JDK 21 LTS** | **Source Build (Preview)** | `--enable-preview --enable-native-access=ALL-UNNAMED` | FFM preview ([JEP 442](https://openjdk.org/jeps/442)). Requires compiling from source with `--release 21 --enable-preview`. |
+| **JDK 17 LTS** | **Unsupported** | — | JDK 17 provided only an early incubator module (`jdk.incubator.foreign` - [JEP 412](https://openjdk.org/jeps/412)), which is fundamentally source-incompatible with finalized FFM. |
+
+### JVM Launch Flags & Build Tool Configuration
+Because Project Panama downcalls perform direct off-heap address access, pass `--enable-native-access` to your JVM process and test runners:
+
+#### Runtime Launch
+```bash
+java --enable-native-access=ALL-UNNAMED -jar your-app.jar
+```
+
+#### Maven (`pom.xml`)
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-surefire-plugin</artifactId>
+    <version>3.2.5</version>
+    <configuration>
+        <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+    </configuration>
+</plugin>
+```
+
+#### Gradle (`build.gradle.kts` / `build.gradle`)
+```kotlin
+tasks.withType<Test> {
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+```
+
+See [docs/bindings/java.md §10](../../docs/bindings/java.md#10-build-tool--settings-configuration-guide) for sbt (Scala), Exec plugin, and `~/.m2/settings.xml` publishing configurations.
 
 ---
 
@@ -121,14 +160,41 @@ try (SyncExpanseMap map = new SyncExpanseMap()) {
 
 ---
 
-## Native Library Resolution
+## Native Library Resolution & Bundled Platforms
 
-`NativeLoader` automatically extracts and loads the precompiled native library bundled inside the JAR for:
-- Linux (`x86_64`, `aarch64`)
-- macOS (`aarch64` Apple Silicon, `x86_64` Intel)
-- Windows (`x86_64`)
+The published `expanse-java` JAR is a **self-contained multi-arch package** bundling precompiled native libraries under `resources/native/{classifier}/`. On first invocation, `NativeLoader` detects the operating environment and extracts the matching shared library to a temporary directory:
 
-To supply an external custom build of `libexpanse`, specify `-Dexpanse.library.path=/path/to/libexpanse.so` or the `EXPANSE_LIBRARY_PATH` environment variable.
+| OS / Architecture | Classifier | Bundled Library | CI Validation |
+|---|---|---|---|
+| Linux x86_64 | `linux-x86_64` | `libexpanse.so` | **Active CI** (`ubuntu-latest`) |
+| Linux aarch64 | `linux-aarch64` | `libexpanse.so` | Release build (cross-compiled `aarch64-unknown-linux-gnu`) |
+| macOS ARM64 | `darwin-aarch64` | `libexpanse.dylib` | **Active CI** (`macos-latest` Apple Silicon) |
+| macOS x86_64 | `darwin-x86_64` | `libexpanse.dylib` | Release build (`x86_64-apple-darwin`) |
+| Windows x86_64 | `windows-x86_64` | `expanse.dll` | **Active CI** (`windows-latest`) |
+
+### Custom Library Path Override
+To supply an external or custom-compiled build of `libexpanse` instead of using the bundled binary:
+- **JVM System Property**: `-Dexpanse.library.path=/path/to/libexpanse.so`
+- **Environment Variable**: `EXPANSE_LIBRARY_PATH=/path/to/libexpanse.so`
+
+---
+
+## Comparative Benchmarks & Performance Profile
+
+![Expanse Java Panama FFM vs java.util.HashMap Comparative Benchmarks](../../docs/assets/bench_java.svg)
+
+Benchmarked with [`ExpanseBenchmark.java`](src/test/java/io/github/orieg/expanse/ExpanseBenchmark.java) against standard `java.util.HashMap` ($N = 10,000$):
+
+| Key Distribution | Operation | ExpanseMap (Panama FFM) | java.util.HashMap (baseline) | Result / Multiplier |
+|---|---|---:|---:|:---|
+| **`clustered`** | Lookup Latency | **22.5 ns** | 27.1 ns | **1.21&#215; faster** |
+| | Memory Density | **8.61 B / key** | 86.56 B / key | **10.1&#215; less RAM** |
+| **`zipfian`** ($\theta = 0.99$) | Lookup Latency | **66.0 ns** | 54.3 ns | Competitive (66 ns) |
+| | Memory Density | **3.24 B / key** | 24.40 B / key | **7.5&#215; less RAM** |
+| **`sequential`** | Insert Throughput | **23.6 Mops/s** | 12.4 Mops/s | **1.90&#215; faster** |
+| | Memory Density | **8.58 B / key** | 85.94 B / key | **10.0&#215; less RAM** |
+
+*(measured: Apple Silicon M-series, macOS 15, commit 233899b4 — ExpanseBenchmark.java via scripts/bench_bindings.py)*
 
 ---
 

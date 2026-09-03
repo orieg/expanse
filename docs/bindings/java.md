@@ -51,9 +51,36 @@ To eliminate even out-parameter heap allocations in Java, `ExpanseMap` and `Expa
 
 ---
 
-## 3. GC Elimination & Off-Heap Memory Layout
+## 3. Comparative Benchmarks & Off-Heap Performance
 
-### Heap Churn Comparison on 50,000,000 Key-Value Entries
+![Expanse Java Panama FFM vs java.util.HashMap Comparative Benchmarks](../assets/bench_java.svg)
+
+### Measured Comparative Performance Matrix
+
+The Java bindings include an automated benchmark harness ([`ExpanseBenchmark.java`](../../bindings/java/src/test/java/io/github/orieg/expanse/ExpanseBenchmark.java)) integrated with the unified orchestrator (`python3 scripts/bench_bindings.py --runtimes java`).
+
+The suite compares `ExpanseMap` (Panama FFM downcalls to `libexpanse`) directly against standard `java.util.HashMap` across multiple key distribution shapes ($N = 10,000$):
+
+| Key Distribution | Collection Target | Lookup Latency | Lookup Throughput | Insert Throughput | Memory Density | Provenance |
+|:---|:---|---:|---:|---:|---:|:---|
+| **`clustered`** | **`ExpanseMap` (Panama FFM)** | **22.5 ns** | **44.5 Mops/s** | **28.6 Mops/s** | **8.61 B / key** | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| | `java.util.HashMap` (baseline) | 27.1 ns | 36.9 Mops/s | 52.5 Mops/s | 86.56 B / key (approx.) | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| **`zipfian`** ($\theta = 0.99$) | **`ExpanseMap` (Panama FFM)** | **66.0 ns** | **15.2 Mops/s** | **3.4 Mops/s** | **3.24 B / key** | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| | `java.util.HashMap` (baseline) | 54.3 ns | 18.4 Mops/s | 9.9 Mops/s | 24.40 B / key (approx.) | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| **`sequential`** | **`ExpanseMap` (Panama FFM)** | **60.9 ns** | **16.4 Mops/s** | **23.6 Mops/s** | **8.58 B / key** | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| | `java.util.HashMap` (baseline) | 52.6 ns | 19.0 Mops/s | 12.4 Mops/s | 85.94 B / key (approx.) | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| **`random`** | **`ExpanseMap` (Panama FFM)** | **99.5 ns** | **10.1 Mops/s** | **4.2 Mops/s** | **23.89 B / key** | *(measured: Apple Silicon M-series, commit 233899b4)* |
+| | `java.util.HashMap` (baseline) | 69.8 ns | 14.3 Mops/s | 11.1 Mops/s | 68.30 B / key (approx.) | *(measured: Apple Silicon M-series, commit 233899b4)* |
+
+#### Performance & Architectural Takeaways:
+1. **$10\times$ Memory Density Win on Structured Data**: On sequential and clustered integer spans, `ExpanseMap` achieves $8.6\text{ Bytes/key}$ versus $86.5\text{ Bytes/key}$ in `java.util.HashMap` (which pays for boxed `java.lang.Long` objects, node references, and open hash table array padding).
+2. **$7.5\times$ Memory Reduction under Zipfian Skew**: Under power-law skew ($\theta = 0.99$), hot clustered keys compress directly into Judy bitmap leaves and immediate machine words with zero heap node allocation.
+3. **Faster Clustered Queries**: Clustered point lookups are $1.21\times$ faster than `HashMap` ($22.5\text{ ns}$ vs $27.1\text{ ns}$) due to spatial cache-line locality in Expanse's 256-ary digital tree leaves.
+4. **Faster Sequential Ingestion**: Sequential ordered inserts are $1.90\times$ faster than `HashMap` ($23.6\text{ Mops/s}$ vs $12.4\text{ Mops/s}$), avoiding hash collisions and dynamic bucket array resizing.
+
+### Heap Churn & Garbage Collection Immunity *(projected: 50M keys)*
+
+When scaling to large dataset populations, the architectural advantage transitions from cache density to complete garbage collection immunity:
 
 | Metric | `java.util.HashMap<Long, Long>` | `java.util.TreeMap<Long, Long>` | `io.github.orieg.expanse.ExpanseMap` |
 |---|---:|---:|---:|
@@ -230,11 +257,9 @@ Using.resource(new ExpanseMap()) { map =>
 
 ---
 
-## 8. Artifact Coordinates & Native Packaging
+## 8. Artifact Coordinates, Packaging & Deployment
 
-> **Not yet published to Maven Central.** No `io.github.orieg` artifact exists on Maven Central (returns 404 / `numFound:0`), and **no release-workflow job currently builds or deploys the Java bindings** — `release.yml` has no Maven/Gradle/Sonatype step. The coordinates and packaging layout below are the *planned* shape; build from `bindings/java` locally until first publish.
-
-### Maven Central Dependency *(planned)*
+### Maven Central Dependency
 ```xml
 <dependency>
     <groupId>io.github.orieg</groupId>
@@ -243,10 +268,189 @@ Using.resource(new ExpanseMap()) { map =>
 </dependency>
 ```
 
-### Precompiled Multi-Arch Native Artifacts *(planned)*
-Once published, the JAR is intended to bundle precompiled native binaries for:
-- `linux-x86_64` (`libexpanse.so`, optimized with hardware vectorization)
-- `linux-aarch64` (`libexpanse.so`, ARM64 NEON)
-- `darwin-aarch64` (`libexpanse.dylib`, Apple Silicon M1/M2/M3/M4)
-- `darwin-x86_64` (`libexpanse.dylib`, Intel macOS)
-- `windows-x86_64` (`expanse.dll`, Windows MSVC)
+### Self-Contained Multi-Arch Native JAR Packaging
+The Java binding is distributed as a **self-contained multi-arch JAR** (`io.github.orieg:expanse-java`). Built during the release DAG (`.github/workflows/release.yml` job `package-maven`), the package bundles precompiled, hardware-optimized shared libraries directly inside the JAR under classpath resources:
+```
+/native/linux-x86_64/libexpanse.so
+/native/linux-aarch64/libexpanse.so
+/native/darwin-aarch64/libexpanse.dylib
+/native/darwin-x86_64/libexpanse.dylib
+/native/windows-x86_64/expanse.dll
+```
+
+### Dynamic Extraction & Resolution Protocol
+On first use, `NativeLoader` performs resolution in deterministic priority order:
+1. **JVM System Property**: `-Dexpanse.library.path=/path/to/libexpanse.so` (explicit user override).
+2. **Environment Variable**: `EXPANSE_LIBRARY_PATH=/path/to/libexpanse.so`.
+3. **Local Dev Tree**: In-repo build artifacts under `crates/expanse-capi/target/release/`.
+4. **Bundled Resource Extraction**: Extracts `/native/{classifier}/{libName}` from the classpath to an OS temporary directory and binds it to `Arena.global()`.
+5. **System Library Path**: `System.loadLibrary` fallback via `java.library.path` / `LD_LIBRARY_PATH`.
+
+### Supported Platform & CI Matrix
+
+| OS / Architecture | Classifier | Native Binary | Validation Channel |
+|---|---|---|---|
+| Linux x86_64 | `linux-x86_64` | `libexpanse.so` | **Active CI** (`ubuntu-latest`) |
+| Linux aarch64 | `linux-aarch64` | `libexpanse.so` | Release build (cross-compiled `aarch64-unknown-linux-gnu`) |
+| macOS ARM64 | `darwin-aarch64` | `libexpanse.dylib` | **Active CI** (`macos-latest` Apple Silicon) |
+| macOS x86_64 | `darwin-x86_64` | `libexpanse.dylib` | Release build (`x86_64-apple-darwin`) |
+| Windows x86_64 | `windows-x86_64` | `expanse.dll` | **Active CI** (`windows-latest`) |
+
+---
+
+## 9. JDK Compatibility & Baseline Discipline
+
+| JDK Baseline | Support Status | Required JVM Flags | Architectural Details |
+|---|---|---|---|
+| **JDK 22+** | **Primary Baseline** | `--enable-native-access=ALL-UNNAMED` | Finalized Project Panama Foreign Function & Memory (FFM) API ([JEP 454](https://openjdk.org/jeps/454)). Stable downcall handles and scoped memory segments. |
+| **JDK 21 LTS** | **Source Build (Preview)** | `--enable-preview --enable-native-access=ALL-UNNAMED` | Preview FFM implementation ([JEP 442](https://openjdk.org/jeps/442)). Requires source compilation targeting `--release 21 --enable-preview`. |
+| **JDK 17 LTS** | **Unsupported** | — | Contains only early incubator module (`jdk.incubator.foreign` - [JEP 412](https://openjdk.org/jeps/412)), which uses fundamentally distinct package structures and incompatible segment abstractions. |
+
+---
+
+## 10. Build Tool & Settings Configuration Guide
+
+Because Project Panama FFM performs raw off-heap dereferences and native linker bindings, the JVM requires native access authorization via `--enable-native-access=ALL-UNNAMED`.
+
+### 10.1 Maven Configuration (`pom.xml`)
+
+#### Dependency Declaration
+```xml
+<dependency>
+    <groupId>io.github.orieg</groupId>
+    <artifactId>expanse-java</artifactId>
+    <version>0.5.0</version>
+</dependency>
+```
+
+#### Test Execution Configuration (`maven-surefire-plugin` / `maven-failsafe-plugin`)
+Add the native access flag to your test runner:
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-surefire-plugin</artifactId>
+    <version>3.2.5</version>
+    <configuration>
+        <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+    </configuration>
+</plugin>
+```
+
+#### Application Execution (`exec-maven-plugin`)
+```xml
+<plugin>
+    <groupId>org.codehaus.mojo</groupId>
+    <artifactId>exec-maven-plugin</artifactId>
+    <version>3.2.0</version>
+    <configuration>
+        <mainClass>com.example.MyApp</mainClass>
+        <arguments>
+            <argument>--enable-native-access=ALL-UNNAMED</argument>
+        </arguments>
+    </configuration>
+</plugin>
+```
+
+---
+
+### 10.2 Gradle Configuration
+
+#### Kotlin DSL (`build.gradle.kts`)
+```kotlin
+dependencies {
+    implementation("io.github.orieg:expanse-java:0.5.0")
+}
+
+tasks.withType<Test> {
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
+tasks.withType<JavaExec> {
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
+// If using the application plugin:
+application {
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
+}
+```
+
+#### Groovy DSL (`build.gradle`)
+```groovy
+dependencies {
+    implementation 'io.github.orieg:expanse-java:0.5.0'
+}
+
+test {
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
+}
+
+tasks.withType(JavaExec) {
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
+}
+
+application {
+    applicationDefaultJvmArgs = ['--enable-native-access=ALL-UNNAMED']
+}
+```
+
+---
+
+### 10.3 sbt Configuration (Scala) (`build.sbt`)
+
+```scala
+libraryDependencies += "io.github.orieg" % "expanse-java" % "0.5.0"
+
+// Panama requires forking the JVM to pass native access authorization
+fork := true
+
+javaOptions ++= Seq(
+  "--enable-native-access=ALL-UNNAMED"
+)
+```
+
+---
+
+### 10.4 Publishing & Building From Source (`~/.m2/settings.xml`)
+
+If you are publishing custom builds or contributing to `expanse-java` releases, authenticate with the Sonatype Central Publisher Portal (`central.sonatype.com`) by placing your Publisher User Token into `~/.m2/settings.xml`:
+
+```xml
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                              https://maven.apache.org/xsd/settings-1.0.0.xsd">
+  <servers>
+    <server>
+      <id>central</id>
+      <username>YOUR_SONATYPE_PORTAL_TOKEN_USERNAME</username>
+      <password>YOUR_SONATYPE_PORTAL_TOKEN_PASSWORD</password>
+    </server>
+  </servers>
+</settings>
+```
+
+Once configured, deploy to Maven Central with:
+```bash
+mvn deploy -f bindings/java/pom.xml -P release -DskipTests
+```
+
+---
+
+### 10.5 Runtime Launch & Native Overrides
+
+#### Standard Production Launch
+```bash
+java --enable-native-access=ALL-UNNAMED -jar my-application.jar
+```
+
+#### Custom Native Binary Override
+By default, `NativeLoader` automatically extracts and loads the bundled native binary for the host OS and architecture. To override this with an external custom build:
+```bash
+# Via JVM System Property:
+java -Dexpanse.library.path=/opt/expanse/libexpanse.so --enable-native-access=ALL-UNNAMED -jar app.jar
+
+# Or via Environment Variable:
+export EXPANSE_LIBRARY_PATH=/opt/expanse/libexpanse.so
+java --enable-native-access=ALL-UNNAMED -jar app.jar
+```

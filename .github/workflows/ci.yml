@@ -1799,6 +1799,45 @@ jobs:
           EXPANSE_LIBRARY_PATH: ${{ github.workspace }}\target\release
         run: mvn test -f bindings/java/pom.xml "-Dexpanse.library.path=${{ github.workspace }}\target\release\expanse.dll"
 
+  pack-java:
+    name: Bindings / Java JAR Package
+    needs: [detect-changes, test-java]
+    if: needs.detect-changes.outputs.rust-src == 'true' || needs.detect-changes.outputs.java == 'true' || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK 22
+        uses: actions/setup-java@v6
+        with:
+          java-version: '22'
+          distribution: 'temurin'
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build native libexpanse
+        run: cargo build --release -p expanse-capi
+
+      - name: Stage native library into resources
+        run: |
+          mkdir -p bindings/java/src/main/resources/native/linux-x86_64
+          cp target/release/libexpanse.so bindings/java/src/main/resources/native/linux-x86_64/
+
+      - name: Package JAR with sources and javadoc
+        run: mvn package -f bindings/java/pom.xml -DskipTests
+
+      - name: Run verification test from bundled resource (zero library path args)
+        run: mvn test -f bindings/java/pom.xml -Dtest=NativeLoaderTest
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: java-jar-package
+          path: bindings/java/target/*.jar
+          if-no-files-found: error
+
   test-rocksdb-memtable:
     name: Integrations / RocksDB MemTable (${{ matrix.os }}, ${{ matrix.sanitizer }})
     needs: [detect-changes]
@@ -2137,6 +2176,7 @@ jobs:
       - test-dotnet
       - pack-dotnet
       - test-java
+      - pack-java
       - test-rocksdb-memtable
       - test-ruby
       - test-wasm
