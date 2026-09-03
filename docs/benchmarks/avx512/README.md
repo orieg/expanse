@@ -67,27 +67,29 @@ compiles them.
 
 *(measured: AMD Ryzen 9 9955HX, 32 threads, 64 MiB L3, Linux 6.8.0-41-generic;
 `results/baseline_avx512_bitmap.json`; workload: `avx512_bitmap_count_and`;
-commit `6eee91e3`; BCa 95% bootstrap over criterion per-iteration samples,
-2,000 resamples, seed 42, n = 20 per arm; load average 1.12 at harvest)*
+commit `b22c8739`; BCa 95% bootstrap over criterion per-iteration samples,
+2,000 resamples, seed 42, n = 20 per arm; load average 2.83 at harvest on a 32-thread host)*
 
 Every cell is `scalar_popcnt` ÷ that arm, so **above 1.000× is faster than the
 production scalar kernel and below it is slower**:
 
 | Regime | Working set | `scalar_popcnt` ns/pair | `scalar_swar` | `v256` | `v512` |
 |---|---|---:|---:|---:|---:|
-| L1 | 16 KiB | 0.821 | 0.433× | **2.711×** | **4.974×** |
-| L2 | 512 KiB | 0.795 | 0.421× | **1.892×** | **3.487×** |
-| L3 | 16 MiB | 0.900 | 0.436× | **1.788×** | **1.886×** |
-| DRAM, sequential | 256 MiB | 1.335 | 0.629× | 1.045× | 0.997× |
-| DRAM, pointer-chased | 256 MiB | 69.666 | 0.968× | 1.011× | — |
+| L1 | 16 KiB | 0.821 | 0.409× | **2.715×** | **4.990×** |
+| L2 | 512 KiB | 0.795 | 0.421× | **2.011×** | **3.703×** |
+| L3 | 16 MiB | 0.844 | 0.437× | **1.817×** | **1.946×** |
+| DRAM, sequential | 256 MiB | 1.360 | 0.677× | **1.063×** | 1.041× |
+| DRAM, pointer-chased | 256 MiB | 66.763 | 0.977× | 1.004× | — |
 
 **The vector win is a cache-residency artifact.** The kernel is ~0.82 ns of work
-per bitmap pair. On the pointer-chased walk a pair costs 69.67 ns, so the
-arithmetic is barely 1% of the time — and that is exactly what the vector arm
-returns there: `v256` is **1.011×**, intervals [288.57, 289.47] ms against
-[291.65, 292.99] ms. The intervals are disjoint, so the 1.1% is real rather than
-noise, but it is 1.1% against 4.974× in L1. `v512` is a *losing* cell at
-sequential DRAM (0.997×) and is published as one.
+per bitmap pair. On the pointer-chased walk a pair costs 66.76 ns, so the
+arithmetic is well under 2% of the time — and that is roughly what the vector arm
+returns there: `v256` is **1.004×**, intervals [278.53, 279.27] ms against
+[279.69, 280.44] ms. They are disjoint, so the 0.4% is real rather than noise,
+but it is 0.4% against 4.990× in L1. The sequential-DRAM cells (1.063× and
+1.041×) sit between the two and are the smallest wins worth reporting; an earlier
+run of the same sweep put `v512` there at 0.997×, i.e. a loss, which is the size
+of effect this arm can resolve.
 
 The pointer-chased arm is the one to read. The engine reaches its bitmap leaves
 by chasing `Edge` pointers through a slab arena; the contiguous regimes above it
@@ -98,7 +100,11 @@ fill the upper half of a `zmm`.
 
 This is the same shape as the SVE result already recorded in `docs/HARDWARE.md`
 §6 — wide vectors lose where the adaptive ladder keeps the vectorizable work
-small or the access pattern latency-bound — reached by a different route.
+small, or where the per-element cost is dominated by something other than the
+arithmetic — reached by a different route. *Which* stall dominates the chased
+arm is **unmeasured**: this harness reports wall clock, and attributing it to
+load latency rather than, say, TLB pressure would need `perf stat` counters this
+suite does not collect.
 
 ## 5. The finding from the control arm
 
@@ -112,12 +118,10 @@ carries entry clones with a cached CPUID dispatch.
 **`algebra.rs` has no such clone.** Its `count_and` call site sits in a
 feature-less function, so on the portable default build the intersection walk
 pays SWAR at every bitmap leaf. The `scalar_swar` column is what that costs:
-**2.29×–2.38× while cache-resident, 1.59× at sequential DRAM**, and 1.033× even
-on the fully latency-bound chased arm, where the intervals [301.60, 302.39] ms
-and [291.65, 292.99] ms are disjoint *(same artifact and workload as §4)*. Note
-that the cache-resident figures exceed every vector cell outside L1: on this
-kernel, reaching the `popcnt` the CPU already has is worth more than reaching
-for a wider one.
+**2.29×–2.44× while cache-resident, 1.48× at sequential DRAM**, and 1.024× even
+on the chased arm, where the intervals [286.44, 286.97] ms and
+[279.69, 280.44] ms are disjoint
+*(`results/baseline_avx512_bitmap.json`, workload: `avx512_bitmap_count_and`)*.
 
 Against the AVX-512 option this is the better trade on every axis: it is
 portable, it needs no ISA feature the baseline target lacks, it does not move
