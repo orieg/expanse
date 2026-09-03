@@ -11,15 +11,12 @@ Base density constants sourced from `bytes_per_key_32.rs` (measured, commit f48d
 - Sparse 29-bit CAN IDs (500 IDs): 9.856 B/key (varies slightly across populations)
 - Stride-100 sensor timestamps (~10 Hz): modeled at ~8.50 B/key
 
-Modelled, not sourced from that harness:
-- Sparse random 32-bit keys: 10.960 B/key (pending re-measurement). This
-  constant has no committed measurement harness -- it was introduced
-  directly here in #574 and `bytes_per_key_32.rs` publishes no sparse-random
-  arm. Cap-classing the 32-bit bitmap subarrays (#615) raises sparse density
-  by roughly a tenth, so the constant is stale; it is left in place rather
-  than backfilled from an independently generated key stream, which would
-  conflate the effect of #615 with a change of generator (AGENTS.md §8.10.2).
-  Establishing a committed sparse-random arm is tracked separately.
+- Uniform-random 32-bit keys: 13.420 B/key, measured at N=5,000
+
+Every constant above is measured by `bytes_per_key_32.rs`, and that harness's
+PRNG *defines* the uniform-random one: a different key stream is a different
+number, so the generator cannot be swapped without re-measuring the constant
+(AGENTS.md §8.10.2).
 """
 
 # Symmetric payload size across all BLE arms (bytes)
@@ -39,11 +36,8 @@ def mem_expanse_can(n: int) -> int:
 
 
 def mem_expanse_sparse(n: int) -> int:
-    """ExpanseMap32 with uniform random 32-bit keys.
-
-    Modelled constant, pending re-measurement -- see the module docstring.
-    """
-    return int(n * 10.960)
+    """ExpanseMap32 with uniform random 32-bit keys (measured at N=5,000)."""
+    return int(n * 13.420)
 
 
 def mem_std_map(n: int, val_size: int = 4) -> int:
@@ -74,7 +68,7 @@ def mem_ble_tracker_expanse_slab(n: int) -> int:
       - free_indices: 2B
       - active_bitmap: ((n + 31) // 32) * 4 B
     """
-    dual_trie = int(n * (10.960 * 2))
+    dual_trie = int(n * (13.420 * 2))
     slab_payload = n * BLE_RECORD_SIZE
     slab_mono_sec = n * 4
     slab_freelist = n * 2
@@ -84,7 +78,7 @@ def mem_ble_tracker_expanse_slab(n: int) -> int:
 
 def mem_ble_tracker_blobmap(n: int) -> int:
     """ExpanseBlobMap32 BLE tracker: Dual Map (by_mac + by_time) with blob arena storage."""
-    dual_trie = int(n * (10.960 * 2))
+    dual_trie = int(n * (13.420 * 2))
     arena = n * (BLE_RECORD_SIZE + 4)
     return dual_trie + arena
 
@@ -94,15 +88,15 @@ def test_bounds() -> None:
     assert BLE_RECORD_SIZE == 28, "BLE payload must be exactly 28 bytes"
     assert mem_expanse_tsdb(5000, True) == 22120, "TSDB 5k 1kHz must equal 22,120 bytes"
     assert mem_expanse_can(500) == 4928, "CAN 500 must equal 4,928 bytes"
-    assert mem_expanse_sparse(5000) == 54800, "Sparse 5k must equal 54,800 bytes"
+    assert mem_expanse_sparse(5000) == 67100, "Sparse 5k must equal 67,100 bytes"
     assert mem_std_map(5000, 4) == 160000, "std::map 5k u32 must equal 160,000 bytes"
-    # At N=2000: dual_trie (43,840) + slab (56,000) + mono_sec (8,000) + free_idx (4,000) + bitmap (252) = 112,092 B
-    assert mem_ble_tracker_expanse_slab(2000) == 112092, "BLE slab 2k must match exact auxiliary derivation"
+    # At N=2000: dual_trie (53,680) + slab (56,000) + mono_sec (8,000) + free_idx (4,000) + bitmap (252) = 121,932 B
+    assert mem_ble_tracker_expanse_slab(2000) == 121932, "BLE slab 2k must match exact auxiliary derivation"
 
 
 if __name__ == "__main__":
     test_bounds()
-    print("=== 32-Bit Microcontroller Memory Envelopes (commit 7e579ac2 base) ===")
+    print("=== 32-Bit Microcontroller Memory Envelopes ===")
     for n in [500, 2000, 5000]:
         print(f"\n--- Population N = {n} ---")
         tsdb_1k = mem_expanse_tsdb(n, True)
@@ -121,7 +115,7 @@ if __name__ == "__main__":
         print(f"TSDB 1kHz (ExpanseMap32):            {tsdb_1k:6d} B ({tsdb_1k/1024:5.2f} KiB) [4.42 B/key]")
         print(f"TSDB 10Hz (ExpanseMap32 stride-100):  {tsdb_10h:6d} B ({tsdb_10h/1024:5.2f} KiB) [~8.50 B/key]")
         print(f"CAN Dispatch (ExpanseMap32):         {can_exp:6d} B ({can_exp/1024:5.2f} KiB) [9.86 B/key]")
-        print(f"Sparse Events (ExpanseMap32):        {sparse_exp:6d} B ({sparse_exp/1024:5.2f} KiB) [10.96 B/key]")
+        print(f"Sparse Events (ExpanseMap32):        {sparse_exp:6d} B ({sparse_exp/1024:5.2f} KiB) [13.42 B/key]")
         print(f"std::unordered_map<u32, u32>:        {unord_map_u32:6d} B ({unord_map_u32/1024:5.2f} KiB) [~28-32 B/key]")
         print(f"std::map<u32, u32>:                  {std_map_u32:6d} B ({std_map_u32/1024:5.2f} KiB) [32.00 B/key]")
         print(f"BLE Tracker (ExpanseMap32 + Slab):   {ble_slab:6d} B ({ble_slab/1024:5.2f} KiB) [~56.05 B/entry total]")

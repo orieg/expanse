@@ -539,6 +539,115 @@ The 64-bit engine provisions 4 KiB `SlabPage` blocks. In embedded targets where 
 - **`SlabPage32`**: Scaled down to **512 Bytes** or **1 KiB** blocks.
 - **Embedded Freelist Classes**: Reduced from 62 classes to **24 fine-grained classes** ($\le 128\text{ bytes}$), eliminating slab over-allocation.
 
+### 8.1.1 Host allocator alignment — frozen negative result
+
+Every 32-bit node is `#[repr(C, align(32))]` while `heap_caps_malloc` promises
+only pointer alignment, so `crates/expanse-capi/src/alloc_bridge.rs`
+over-allocates `size + align + sizeof(uintptr_t)` and aligns by hand. That is
+36 bytes of slack per node on a 32-bit target, and removing it is one of the
+mechanisms [#615](https://github.com/orieg/expanse/issues/615) names.
+
+**It does not pay off on ESP-IDF.** Both halves of the idea were implemented
+and measured on device — a `expanse_host_aligned_malloc` hook over
+`heap_caps_aligned_alloc`, and a pass-through that forwards any request at or
+below pointer alignment straight to `malloc` (most allocations: only the six
+node types are over-aligned). All four cells of the design space were measured
+against the hand-aligning baseline on one board, and every one of them
+regresses an arm far outside the run-to-run drift:
+
+| Pass-through | Aligned hook | `ble_sighting_record` | `ble_ttl_eviction` (pop 2k) | Heap |
+|---|---|---|---|---|
+| no | no | baseline | baseline | baseline |
+| no | yes | **+27%** | +1.1% | −4 to −11% |
+| yes | yes | **+14 to +17%** | +1.9% | −3 to −11% |
+| yes | no | 0% | **+68 to +78%** | −3 to −6.6% |
+
+*(measured: ESP32-D0WD-V3 rev v3.1, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
+one board, medians of 10; twin-container drift across these builds reached 6.7%,
+and two boots of an identical binary agree to within 0.13%, so each figure above
+is an effect of its binary and not of the sitting.)*
+
+The heap saving is real and consistent, and the cycle cost is larger than it in
+every configuration. **Why** each variant regresses the arm it does was not
+measured — it is an interaction with TLSF's block classes and free lists, and
+attributing it would need allocator-level instrumentation this project does not
+have. Stated as unattributed rather than guessed.
+
+The bridge therefore keeps hand-aligning every allocation. A host with a
+cheaper aligned allocator than ESP-IDF's could revisit this, but the measurement
+above is the one to beat, and beating it means beating the `ttl_eviction` and
+`sighting_record` arms specifically.
+
+### 8.1.2 Batched scattered removal — frozen negative result
+
+[#617](https://github.com/orieg/expanse/issues/617) proposes retiring the BLE
+tracker's `by_mac` entries in one batched call rather than one descent per key,
+on the reasoning that *"ascending removal lets consecutive removals share
+prefix descent"*. A `map_remove_many` engine method, an
+`expanse_map_remove_many` C entry point and the tracker consumer were all
+implemented and measured.
+
+**The premise does not hold for this index.** `by_mac` keys are FNV-1a hashes,
+so they are uniform over the whole 32-bit space and consecutive sorted keys
+share no prefix to descend through. For a 64-key batch, 58 of 64 have distinct
+top bytes and **all 64 have distinct top-two bytes**; at 1,100 keys, 1,091 of
+1,100 are still distinct two bytes in. Partitioning therefore yields one key
+per run below the root hop, the recursion degenerates to the per-key descent it
+replaced, and the sort, the buffer and the partitioning are added on top.
+
+Measured on device, against the same tree without the change:
+
+| Arm | before | batched | |
+|---|---|---|---|
+| `esp32_ble_ttl_eviction` N=1100 | 2,322.5 | 2,889.2 | **+24.40%** |
+| `esp32_ble_ttl_eviction` N=300 | 2,626.2 | 3,203.4 | **+21.98%** |
+| `esp32_ble_ttl_eviction_sparse` pop 500 | 3,274.9 | 4,088.8 | **+24.85%** |
+| `esp32_ble_ttl_eviction_sparse` pop 2k | 2,355.2 | 3,161.3 | **+34.23%** |
+
+*(measured: ESP32-D0WD-V3 rev v3.1, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
+medians of 10; twin-container drift for this pairing was 6.99%, so every row is
+outside it.)*
+
+Batching a scattered removal pays off only when the keys cluster. A hash index
+is the case where they never do, and it is the one #617 set out to improve, so
+both the primitive and its consumer are reverted rather than kept unused. The
+eviction path keeps `remove_range` on `by_time` and per-record removal on
+`by_mac`.
+
+Narrowing this arm needs a different mechanism — one that attacks the descent
+itself rather than the number of descents, or an index whose keys are ordered
+rather than hashed.
+
+### 8.1.3 Binary layout moves some on-device arms by more than half
+
+The comparison methodology in `docs/benchmarks/embedded/README.md` treats
+twin-container drift as the attribution floor. Two builds of the 32-bit engine
+with **byte-identical engine source** — `trie32.rs`, `map32.rs`, the C ABI and
+the component C all unchanged, differing only in unrelated set-algebra code the
+measured path never executes — put that floor in perspective:
+
+| Arm | link A | link B | |
+|---|---|---|---|
+| `esp32_ble_ttl_eviction` N=300, pop 500 | 2,626.2 | 4,137.2 | **+57.5%** |
+| `esp32_ble_ttl_eviction_sparse` N=100, pop 500 | 3,274.9 | 5,154.0 | **+57.4%** |
+| `esp32_tsdb_ingest` N=2000 | 3,022.9 | 3,016.9 | −0.2% |
+| `esp32_ble_sighting_record` N=2000 | 6,935.4 | 7,372.4 | +6.3% |
+
+*(measured: ESP32-D0WD-V3 rev v3.1, 160 MHz, medians of 10; two boots of
+either binary agree to 0.00% on every arm, so the difference is the binary and
+not the sitting.)*
+
+The two pop=500 eviction arms are therefore **not usable as a regression
+signal** on this part without controlling code layout — a change can appear to
+halve or double their cost while touching nothing they run. The ingest arm, by
+contrast, has reproduced its result across four different links this session,
+which is the evidence that a movement there is the code and not the linker.
+
+Attributing the mechanism — flash-cache line placement of the eviction path is
+the plausible reading — needs a layout-controlled build (a linker script that
+pins the hot functions, or per-arm instruction-cache counters). Neither exists
+here, so it is recorded as observed and unattributed.
+
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 
 ```rust

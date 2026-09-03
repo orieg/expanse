@@ -1010,7 +1010,15 @@ def render_bytes_64_table(rows: list[dict[str, Any]], raw_fallback: str | None) 
 
 def parse_bytes_32(text: str | None) -> tuple[bool, list[dict[str, Any]]]:
     """Parses bytes_per_key_32 output for 32-bit embedded architecture.
-    
+
+    The harness prints the guard it enforces beside each figure, so this reads
+    the ceiling rather than keeping a second copy of it. It used to map arm
+    titles onto a hardcoded ceilings table by substring, which had two silent
+    failure modes: a new arm whose title contained an existing arm's keyword
+    was reported under the wrong ceiling, and one that matched no keyword was
+    dropped from the table entirely. Both are gone -- there is nothing left to
+    match, and an unparseable row is now reported instead of skipped.
+
     Returns (all_compliant, rows).
     """
     if not text:
@@ -1020,55 +1028,55 @@ def parse_bytes_32(text: str | None) -> tuple[bool, list[dict[str, Any]]]:
     all_compliant = "exceeded guard" not in text.lower()
 
     # Match lines like:
-    # 1. Clustered sensor timestamps (N = 10000): 6736 bytes (0.6736 B/key)
-    # 2. Sparse 29-bit CAN IDs (N = 500): 6304 bytes (12.6080 B/key)
+    # 1. Clustered sensor timestamps (N = 10000): 3120 bytes (0.3120 B/key, guard 1.00)
     pattern = re.compile(
-        r"^\d+\.\s+([^(]+)\s*\(N\s*=\s*(\d+)\):\s*(\d+)\s*bytes\s*\(([0-9.]+)\s*B/key\)"
+        r"^\d+\.\s+([^(]+)\s*\(N\s*=\s*(\d+)\):\s*(\d+)\s*bytes\s*"
+        r"\(([0-9.]+)\s*B/key,\s*guard\s*([0-9.]+)\)"
     )
+    # A density line the pattern cannot read is a format drift between the
+    # harness and this parser. Silently dropping it would under-report the
+    # census, so it is surfaced (AGENTS.md 8.1).
+    density_line = re.compile(r"^\d+\.\s+.*B/key")
 
-    # Guards mirror the enforced assertions in examples/bytes_per_key_32.rs;
-    # the displayed ceiling is the value this table actually enforces.
-    ceilings = {
-        "clustered": ("**Clustered Sensor Timestamps**", 1.00),
-        "sparse": ("**Sparse 29-bit CAN IDs**", 20.00),
-        "ipv4": ("**IPv4 Subnet Routing Map**", 24.00),
-        "dense": ("**Dense Consecutive Array**", 12.00),
-    }
-
+    unparsed: list[str] = []
     for line in text.splitlines():
-        m = pattern.match(line.strip())
-        if m:
-            raw_title, n_str, total_bytes_str, bpk_str = m.groups()
-            title_lower = raw_title.lower()
-            key = None
-            if "sensor" in title_lower or "clustered" in title_lower:
-                key = "clustered"
-            elif "can" in title_lower or "sparse" in title_lower:
-                key = "sparse"
-            elif "ipv4" in title_lower or "routing" in title_lower:
-                key = "ipv4"
-            elif "dense" in title_lower:
-                key = "dense"
+        stripped = line.strip()
+        m = pattern.match(stripped)
+        if not m:
+            if density_line.match(stripped):
+                unparsed.append(stripped)
+            continue
+        raw_title, n_str, total_bytes_str, bpk_str, guard_str = m.groups()
+        bpk = float(bpk_str)
+        guard_val = float(guard_str)
+        passed = bpk <= guard_val
+        if not passed:
+            all_compliant = False
+        rows.append(
+            {
+                "workload": f"**{raw_title.strip()}**",
+                "pop": f"{int(n_str):,}",
+                "total_bytes": f"{int(total_bytes_str):,} B",
+                "bpk": f"**{bpk:.2f} B**",
+                "ceiling": f"\u2264 {guard_val:.2f} B",
+                "status": "\U0001F7E2 Pass" if passed else "\U0001F534 Over",
+            }
+        )
 
-            if key and key in ceilings:
-                label, guard_val = ceilings[key]
-                bpk = float(bpk_str)
-                total_bytes = int(total_bytes_str)
-                n = int(n_str)
-                passed = bpk <= guard_val
-                if not passed:
-                    all_compliant = False
-                rows.append({
-                    "workload": label,
-                    "pop": f"{n:,}",
-                    "total_bytes": f"{total_bytes:,} B",
-                    "bpk": f"**{bpk:.2f} B**",
-                    "ceiling": f"≤ {guard_val:.2f} B",
-                    "status": "🟢 Pass" if passed else "🔴 Fail",
-                })
+    if unparsed:
+        all_compliant = False
+        rows.append(
+            {
+                "workload": "**\u26a0 unreadable density line(s)**",
+                "pop": "\u2014",
+                "total_bytes": "\u2014",
+                "bpk": "\u2014",
+                "ceiling": "\u2014",
+                "status": f"\U0001F534 {len(unparsed)} line(s) the parser could not read",
+            }
+        )
 
     return all_compliant, rows
-
 
 def render_bytes_32_table(rows: list[dict[str, Any]], raw_fallback: str | None) -> list[str]:
     if not rows:
@@ -2116,6 +2124,35 @@ def self_test() -> int:
     # Every parsed arm reaches the artifact -- a silently dropped arm would make
     # a published figure resolve to a run that never measured it.
     assert len(art["arms"]) == len(twin_head), (len(art["arms"]), len(twin_head))
+
+    # --- parse_bytes_32: the guard comes from the harness, not a mirror ---
+    b32 = (
+        "1. Clustered sensor timestamps (N = 10000): 3120 bytes (0.3120 B/key, guard 1.00)\n"
+        "2. Sparse 29-bit CAN IDs (N = 500): 4928 bytes (9.8560 B/key, guard 20.00)\n"
+        "5. Uniform-random 32-bit keys (N = 5000): 67100 bytes (13.4200 B/key, guard 20.00)\n"
+    )
+    ok32, rows32 = parse_bytes_32(b32)
+    assert ok32, "clean 32-bit census should be compliant"
+    assert len(rows32) == 3, f"expected 3 rows, got {len(rows32)}"
+    # The motivating defect: an arm whose title contains another arm's keyword
+    # used to be reported under that arm's ceiling. Titles no longer select
+    # anything, so the uniform arm keeps its own 20.00 and not the 1.00 the
+    # word "sensor" would once have pulled in.
+    collide = "9. Uniform-random sensor-shaped sparse keys (N = 5000): 67100 bytes (13.4200 B/key, guard 20.00)\n"
+    okc, rowsc = parse_bytes_32(collide)
+    assert okc and len(rowsc) == 1, "colliding title must still parse"
+    assert rowsc[0]["ceiling"] == "\u2264 20.00 B", f"guard came from the title, not the harness: {rowsc[0]}"
+    # An arm over its guard fails even when the harness did not print the
+    # panic text (e.g. output captured before the abort flushed).
+    over = "3. IPv4 subnet routing map (N = 2000): 99999 bytes (49.9995 B/key, guard 24.00)\n"
+    oko, _ = parse_bytes_32(over)
+    assert not oko, "a row above its guard must be non-compliant"
+    # A density line this parser cannot read is surfaced, never dropped: that
+    # is the other half of the old silent-skip behaviour.
+    drift = "4. Some new arm (N = 10): 100 bytes (10.0000 B/key)\n"
+    okd, rowsd = parse_bytes_32(drift)
+    assert not okd, "unreadable density line must fail the census"
+    assert any("unreadable" in r["workload"] for r in rowsd), rowsd
 
     print("perf_report.py --self-test: all checks passed")
     return 0

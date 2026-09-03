@@ -148,6 +148,7 @@ def parse_and_process(lines):
     metrics = defaultdict(list)
     provenance = None
     stack = None
+    skipped: list = []
 
     for line in lines:
         line = line.strip()
@@ -164,6 +165,13 @@ def parse_and_process(lines):
             continue
         if "stack_min_free_bytes" in obj:
             stack = obj
+            continue
+        if obj.get("skipped"):
+            # An arm the harness could not construct. It is surfaced rather
+            # than stepped over: a table with a hole where a twin should be,
+            # and nothing to say why, is exactly the fail-quiet outcome 8.1
+            # forbids. The heap state the device reported is kept with it.
+            skipped.append(obj)
             continue
         if "metric" in obj:
             # A non-timing observation (a ratio, a byte count). Kept apart
@@ -183,7 +191,7 @@ def parse_and_process(lines):
             "frag": obj.get("frag_ratio"),
         })
 
-    return records, provenance, stack, metrics
+    return records, provenance, stack, metrics, skipped
 
 
 def duty_cycle_table(cycles_per_op, cpu_hz):
@@ -217,7 +225,7 @@ def summarise_metrics(metrics):
     return out
 
 
-def generate_structured_results(records, provenance=None, stack=None, metrics=None):
+def generate_structured_results(records, provenance=None, stack=None, metrics=None, skipped=None):
     """Structured dict with BCa CIs, provenance and derived duty cycle."""
     cpu_hz = (provenance or {}).get("cpu_hz")
     results = {
@@ -226,6 +234,10 @@ def generate_structured_results(records, provenance=None, stack=None, metrics=No
         "duty_cycle_reference_rates_hz": list(DUTY_CYCLE_RATES_HZ),
         "benchmarks": {},
         "metrics": summarise_metrics(metrics or {}),
+        # Arms the harness could not construct, with the heap state the device
+        # reported. Present in the artifact so a hole in a published table is
+        # traceable to its cause instead of looking like a missing row.
+        "skipped": list(skipped or []),
     }
 
     for (bench, n, pop), arm_data in sorted(records.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or 0)):
@@ -406,7 +418,7 @@ def run_self_tests():
         '{"metric": "churn_fragmentation", "arm": "expanse_memtable", "pop": 500, "cycles": 8, "frag_before": 0.44, "frag_after": 0.45, "frag_delta": 0.01, "heap_retained_bytes": 476}',
         '{"metric": "churn_fragmentation", "arm": "expanse_memtable", "pop": 500, "cycles": 8, "frag_before": 0.44, "frag_after": 0.46, "frag_delta": 0.02, "heap_retained_bytes": 480}',
     ]
-    recs, prov, stack, mets = parse_and_process(lines)
+    recs, prov, stack, mets, skips = parse_and_process(lines)
     assert len(recs) == 2, f"populations were pooled: {list(recs)}"
     assert prov["target"] == "esp32"
     assert stack["stack_min_free_bytes"] == 4052
@@ -416,7 +428,7 @@ def run_self_tests():
     assert all("churn" not in b for b in recs)
 
     # 5. A torn line (reset mid-print) is dropped, not parsed into a number.
-    torn, _, _, _ = parse_and_process(['{"benchmark": "agg", "arm": "exp'])
+    torn, _, _, _, _ = parse_and_process(['{"benchmark": "agg", "arm": "exp'])
     assert not torn
 
     # 5b. The contamination detector, against the sample that motivated it:
@@ -449,8 +461,15 @@ def run_self_tests():
     assert "frag_delta" in report
     assert "160 MHz" in report
 
-    structured = generate_structured_results(recs, prov, stack, mets)
+    structured = generate_structured_results(recs, prov, stack, mets, skips)
     assert structured["provenance"]["target"] == "esp32"
+    # 9. An arm the device could not construct reaches the artifact as a
+    #    skip record with its heap state, not as a silently absent row.
+    skip_line = ('{"skipped": true, "arm": "hash_open_addressing", "n": 2000, '
+                 '"reason": "create returned NULL", "free_heap": 140000, "largest_block": 90000}')
+    _, _, _, _, sk = parse_and_process([skip_line])
+    assert len(sk) == 1 and sk[0]["arm"] == "hash_open_addressing" and sk[0]["largest_block"] == 90000
+    assert generate_structured_results({}, prov, None, None, sk)["skipped"] == sk
     assert "agg_n500_pop500" in structured["benchmarks"]
     assert "agg_n500_pop2000" in structured["benchmarks"]
 
@@ -475,7 +494,7 @@ def main():
     else:
         lines = sys.stdin.readlines()
 
-    records, provenance, stack, metrics = parse_and_process(lines)
+    records, provenance, stack, metrics, skipped = parse_and_process(lines)
     if not records:
         raise HarvestError("no benchmark samples in the log")
     report = generate_markdown_report(records, provenance, stack, metrics)
@@ -488,7 +507,11 @@ def main():
         print(report)
 
     if args.emit_json:
-        structured = generate_structured_results(records, provenance, stack, metrics)
+        for sk in skipped:
+            print(f"::warning::arm skipped on device: {sk.get('arm')} at n={sk.get('n')} "
+                  f"({sk.get('reason')}; free_heap={sk.get('free_heap')} largest_block={sk.get('largest_block')}) "
+                  f"-- the published table has a hole here and this is why", file=sys.stderr)
+        structured = generate_structured_results(records, provenance, stack, metrics, skipped)
         with open(args.emit_json, "w", encoding="utf-8") as f:
             json.dump(structured, f, indent=2)
             f.write("\n")
