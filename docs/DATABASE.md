@@ -475,15 +475,17 @@ On resource-constrained 32-bit microcontrollers (ESP32-C3 / ESP32-C6 / ESP32-P4)
 | **Sensor TSDB 1kHz ($N=2\text{k}$)** | **8.64 KiB** (4.42 B/key) | 56.25 KiB (~28 B/key) | 62.50 KiB (32.0 B/key) | 15.62 KiB (8 B/entry) | **7.23× lower RAM** (ordered) |
 | **Sensor TSDB 10Hz ($N=2\text{k}$)** | **16.60 KiB** (~8.50 B/key) | 56.25 KiB (~28 B/key) | 62.50 KiB (32.0 B/key) | 15.62 KiB (8 B/entry) | **3.77× lower RAM** (ordered) |
 | **CAN Dispatch ($N=500$)** | **4.81 KiB** (9.86 B/key) | 14.06 KiB (~28 B/key) | 15.62 KiB (32.0 B/key) | 3.91 KiB (8 B/entry) | **3.25× lower RAM** (ordered) |
-| **Sparse Events ($N=5\text{k}$)** | **53.52 KiB** (10.96 B/key, pending re-measurement — [#615](https://github.com/orieg/expanse/issues/615)) | 140.62 KiB (~28 B/key) | 156.25 KiB (32.0 B/key) | 39.06 KiB (8 B/entry) | **2.92× lower RAM** (ordered, pending [#615](https://github.com/orieg/expanse/issues/615)) |
-| **BLE Tracker ($N=2\text{k}$)** | **109.46 KiB** (Slab + Dual Trie, pending re-measurement — [#615](https://github.com/orieg/expanse/issues/615)) | 103.12 KiB (~52 B/entry) | 109.38 KiB (56.0 B/entry) | 54.68 KiB (28 B/entry) | **Parity footprint + $O(\text{expired})$ TTL** |
+| **Sparse Events ($N=5\text{k}$)** | **65.53 KiB** (13.42 B/key) | 140.62 KiB (~28 B/key) | 156.25 KiB (32.0 B/key) | 39.06 KiB (8 B/entry) | **2.38× lower RAM** (ordered) |
+| **BLE Tracker ($N=2\text{k}$)** | **119.07 KiB** (Slab + Dual Trie) | 103.12 KiB (~52 B/entry) | 109.38 KiB (56.0 B/entry) | 54.68 KiB (28 B/entry) | **Parity footprint + $O(\text{expired})$ TTL** |
 
 *(Density constants sourced from `bytes_per_key_32.rs` at commit `f48dcc6e`; note that 10 Hz stride-100 sensor timestamps amortize to ~8.50 B/key and CAN-bus 29-bit IDs are measured at $N=500$. BLE tracker evaluates 28-byte symmetric tracking payloads across all arms, modeling Expanse's 28B record + 4B monotonic sec + 2B freelist + 0.125B bitmap and dual-index tries).*
 
-*The **Sparse Events** and **BLE Tracker** rows rest on a 10.96 B/key
-sparse-random constant with no committed measurement harness, so they are
-pending re-measurement ([#615](https://github.com/orieg/expanse/issues/615))
-and read low; the other three rows are sourced from `bytes_per_key_32.rs`.*
+*All five density constants are measured by `bytes_per_key_32.rs`; the
+uniform-random one is read at $N=5{,}000$ and its PRNG defines it, so a
+different key stream is a different number (§8.10.2). The sparse CAN row is
+denser than the dense and sequential rows relative to its key count because
+small subexpanses pay most for the bitmap subarrays' rounding to multiples of
+four.*
 
 #### C Component Storage Engines (`components/expanse/`)
 

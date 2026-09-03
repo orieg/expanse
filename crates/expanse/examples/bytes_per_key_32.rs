@@ -19,17 +19,35 @@
 //! |---|---|
 //! | `workload_id` | `example_bytes_per_key_32` |
 //! | `group` | 5 |
-//! | `population` | 10k |
+//! | `population` | 10k; 5k on the uniform-random arm |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
-//! | `miss_gen_method` | N/A |
+//! | `miss_gen_method` | N/A (no probes; the uniform-random arm rejects duplicates on insert) |
 //! | `value_dereference` | `mem_used()` accounting |
 //! | `measured_region` | Clean |
 //! | `arm_symmetry` | Pure 32-bit census |
 //! | `statistics` | Exact byte count |
-//! | `verdict` | **PASS** `[verified: RUN (f48dcc6e)]`: Deterministic 32-bit memory census; re-measured after the #615 subarray cap-classing. |
+//! | `verdict` | **PASS** `[verified: RUN (4733dca5)]`: Deterministic 32-bit memory census. The uniform-random arm is the measured source of the sparse constant in `scripts/embedded_envelope.py`. |
 
 use expanse_trie::{ExpanseBlobMap32, ExpanseMap32, ExpanseSet32, Key32};
+
+/// The house PRNG: same kernel and seed as `bytes_per_key.rs`, so the 32-bit
+/// and 64-bit censuses agree on what "uniform random" means. This generator
+/// *defines* the sparse-random density constant in
+/// `scripts/embedded_envelope.py` -- swapping it silently would change the
+/// constant without changing the code it claims to measure (AGENTS.md
+/// §8.10.2), so it must not be replaced without re-measuring.
+struct XorShift(u64);
+impl XorShift {
+    fn next_u32(&mut self) -> u32 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x as u32
+    }
+}
 
 fn report(label: &str, mem: usize, n: usize) -> f64 {
     let bpk = mem as f64 / n as f64;
@@ -103,7 +121,28 @@ fn main() {
         "regression: dense map B/key {bpk_dense:.4} exceeded guard 12.0"
     );
 
-    // 5. OTA firmware chunk checksums (blob map, inline <=3 byte payloads).
+    // 5. Uniform-random 32-bit keys — the sparse worst case, and the arm
+    // `scripts/embedded_envelope.py` reads its sparse constant from. Measured
+    // at N = 5,000 because that is the population the Sparse Events envelope
+    // row uses; the BLE rows extrapolate from it, as they always have.
+    let n_uniform = 5_000usize;
+    let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
+    let mut uniform_map = ExpanseMap32::new();
+    while uniform_map.len() < n_uniform {
+        let k = rng.next_u32();
+        uniform_map.insert(k, k);
+    }
+    let bpk_uniform = report(
+        "5. Uniform-random 32-bit keys",
+        uniform_map.mem_used(),
+        n_uniform,
+    );
+    assert!(
+        bpk_uniform <= 20.0,
+        "regression: uniform-random map B/key {bpk_uniform:.4} exceeded guard 20.0"
+    );
+
+    // 6. OTA firmware chunk checksums (blob map, inline <=3 byte payloads).
     let n_blocks = 1_000;
     let mut ota_map = ExpanseBlobMap32::new();
     for i in 0..n_blocks {
@@ -113,7 +152,7 @@ fn main() {
             .unwrap();
     }
     println!(
-        "5. OTA firmware inline checksums (N = {}): {} live records",
+        "6. OTA firmware inline checksums (N = {}): {} live records",
         n_blocks,
         ota_map.len()
     );

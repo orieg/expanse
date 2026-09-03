@@ -1033,6 +1033,7 @@ def parse_bytes_32(text: str | None) -> tuple[bool, list[dict[str, Any]]]:
         "sparse": ("**Sparse 29-bit CAN IDs**", 20.00),
         "ipv4": ("**IPv4 Subnet Routing Map**", 24.00),
         "dense": ("**Dense Consecutive Array**", 12.00),
+        "uniform": ("**Uniform-Random 32-bit Keys**", 20.00),
     }
 
     for line in text.splitlines():
@@ -1041,7 +1042,12 @@ def parse_bytes_32(text: str | None) -> tuple[bool, list[dict[str, Any]]]:
             raw_title, n_str, total_bytes_str, bpk_str = m.groups()
             title_lower = raw_title.lower()
             key = None
-            if "sensor" in title_lower or "clustered" in title_lower:
+            # Most specific first: the CAN arm's branch matches bare
+            # "sparse", so a uniform-random arm must be classified ahead of it
+            # or it would be reported under the CAN row's ceiling.
+            if "uniform" in title_lower:
+                key = "uniform"
+            elif "sensor" in title_lower or "clustered" in title_lower:
                 key = "clustered"
             elif "can" in title_lower or "sparse" in title_lower:
                 key = "sparse"
