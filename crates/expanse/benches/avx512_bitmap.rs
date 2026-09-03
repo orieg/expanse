@@ -76,11 +76,31 @@ struct Regime {
 }
 
 const REGIMES: &[Regime] = &[
-    Regime { name: "l1", pairs: 256, chased: false },
-    Regime { name: "l2", pairs: 8_192, chased: false },
-    Regime { name: "l3", pairs: 262_144, chased: false },
-    Regime { name: "dram", pairs: 4_194_304, chased: false },
-    Regime { name: "dram_chased", pairs: 4_194_304, chased: true },
+    Regime {
+        name: "l1",
+        pairs: 256,
+        chased: false,
+    },
+    Regime {
+        name: "l2",
+        pairs: 8_192,
+        chased: false,
+    },
+    Regime {
+        name: "l3",
+        pairs: 262_144,
+        chased: false,
+    },
+    Regime {
+        name: "dram",
+        pairs: 4_194_304,
+        chased: false,
+    },
+    Regime {
+        name: "dram_chased",
+        pairs: 4_194_304,
+        chased: true,
+    },
 ];
 
 fn xorshift(s: &mut u64) -> u64 {
@@ -255,11 +275,7 @@ mod vector {
     /// Caller must have verified `avx2`, `avx512vl` and `avx512vpopcntdq`.
     /// `next` must be a permutation of `0..a.len()`.
     #[target_feature(enable = "avx2,avx512vl,avx512vpopcntdq")]
-    pub unsafe fn v256_and_count_chased(
-        a: &[Bitmap256],
-        b: &[Bitmap256],
-        next: &[u32],
-    ) -> u64 {
+    pub unsafe fn v256_and_count_chased(a: &[Bitmap256], b: &[Bitmap256], next: &[u32]) -> u64 {
         use core::arch::x86_64::*;
         // SAFETY: `i` is always an in-bounds index because `next` is a
         // permutation of `0..a.len()`; each step reads 32 B from each slice.
@@ -374,7 +390,10 @@ fn bench(c: &mut Criterion) {
                 // SAFETY: `have` verified avx2 + avx512vl + avx512vpopcntdq above,
                 // and `next` is a permutation of `0..a.len()` by construction.
                 let got = unsafe { vector::v256_and_count_chased(&a, &b, &next) };
-                assert_eq!(expect, got, "v256 chased disagrees with Bitmap256::count_and");
+                assert_eq!(
+                    expect, got,
+                    "v256 chased disagrees with Bitmap256::count_and"
+                );
             } else {
                 // SAFETY: features verified above; `a` and `b` have equal length.
                 let got = unsafe { vector::v256_and_count(&a, &b) };
@@ -401,22 +420,26 @@ fn bench(c: &mut Criterion) {
 
         #[cfg(target_arch = "x86_64")]
         if have_popcnt {
-            group.bench_with_input(BenchmarkId::new("scalar_popcnt", r.name), r, |bencher, r| {
-                bencher.iter(|| {
-                    // SAFETY: `have_popcnt` verified the feature for this process.
-                    unsafe {
-                        if r.chased {
-                            black_box(scalar_popcnt_and_count_chased(
-                                black_box(&a),
-                                black_box(&b),
-                                black_box(&next),
-                            ))
-                        } else {
-                            black_box(scalar_popcnt_and_count(black_box(&a), black_box(&b)))
+            group.bench_with_input(
+                BenchmarkId::new("scalar_popcnt", r.name),
+                r,
+                |bencher, r| {
+                    bencher.iter(|| {
+                        // SAFETY: `have_popcnt` verified the feature for this process.
+                        unsafe {
+                            if r.chased {
+                                black_box(scalar_popcnt_and_count_chased(
+                                    black_box(&a),
+                                    black_box(&b),
+                                    black_box(&next),
+                                ))
+                            } else {
+                                black_box(scalar_popcnt_and_count(black_box(&a), black_box(&b)))
+                            }
                         }
-                    }
-                });
-            });
+                    });
+                },
+            );
         }
 
         #[cfg(all(target_arch = "x86_64", feature = "avx512"))]

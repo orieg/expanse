@@ -56,7 +56,11 @@ fn main() {
         for (name, present) in feats {
             println!("detect {name:<18} {present}");
         }
-        let dispatched = if feats[5].1 { "AVX512" } else { "scalar-fallback" };
+        let dispatched = if feats[5].1 {
+            "AVX512"
+        } else {
+            "scalar-fallback"
+        };
         println!("dispatch_taken     {dispatched}");
 
         let forced = std::env::args().any(|a| a == "--force");

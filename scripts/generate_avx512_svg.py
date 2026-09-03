@@ -230,7 +230,6 @@ def panel_cost(root, arms, top: int) -> None:
         base = arms.get((BASELINE_ARM, regime))
         v256 = arms.get(("v256", regime))
         if base and base.get("point_ns") and v256 and v256.get("point_ns"):
-            pairs = float(base.get("_pairs") or 0)
             pts.append((gi, base["point_ns"], v256["point_ns"]))
     if not pts:
         return
