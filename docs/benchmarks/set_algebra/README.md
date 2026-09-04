@@ -85,6 +85,23 @@ remove; measured 1.007×–1.010× against 1.029×–1.031×, so H3 holds in dir
 604.4 M keys/s (1.655 ns/key) at N=10k; 609.5 M keys/s (1.641 ns/key) at N=100k; zero heap
 allocations during traversal.
 
+### Cardinality walk `popcnt` dispatch (#638)
+
+`(measured: Linux x86_64, CI job 100925987629, commit fed9c7cb; Callgrind instruction simulation, N=50,000)`
+
+Set cardinality walks (`intersection_len`, `intersection_len_many`, `union_len_many`) execute with runtime CPUID dispatch for hardware `popcnt` on `x86_64` (#638). Because `Bitmap256` counting intrinsics lower to ~12-instruction SWAR sequences when compiled without `-C target-feature=+popcnt`, specialized inlined descent emits single-cycle `popcntq`/`popcntl` instructions across the trie walk.
+
+Measured via `search_instructions::boolean::expanse_native_and` against the pre-dispatch merge base:
+
+| Workload Distribution | Baseline SWAR (Retired Ir) | With Runtime `popcnt` Dispatch (Retired Ir) | Delta | Reduction Ratio |
+|---|:---:|:---:|:---:|:---:|
+| `sparse` | 85,391 | 73,367 | −12,024 | **−14.08%** (−1.16×) |
+| `clustered` | 43,257 | 38,421 | −4,836 | **−11.18%** (−1.13×) |
+| `zipfian` | 163,259 | 151,327 | −11,932 | **−7.31%** (−1.08×) |
+| `dense` | 17,282 | 17,068 | −214 | **−1.24%** (−1.01×) |
+
+Sparse and clustered distributions exhibit double-digit retired instruction reductions because they spend significant time intersecting bitmap leaves word-parallel; dense lists benefit primarily from earlier full-branch and full-expanse shortcuts.
+
 ### Measurement notes
 
 - **Criterion's within-run interval is not the uncertainty.** It reads 0.2%–0.5% on these arms,
