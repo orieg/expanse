@@ -180,7 +180,7 @@ Bench targets deliberately **not** reachable from a slash command:
 |---|---|
 | `bench_llm_datastore` | needs the generated corpus under `docs/benchmarks/llm_inference/data/`, which is materialized by that suite's Python driver; run `docs/benchmarks/llm_inference/run.sh` instead. |
 | `wasm_fuel` | runs on every PR in `ci.yml`'s `wasm-fuel` job against `results/baseline_wasm_fuel.json`; it needs no bare-metal host, so `/benchmark wasm_fuel` is refused by name and points here. |
-| `domain_aarch64` | aarch64 arm; the /bench host is self-hosted x86-64. Run it from the `Bench / Domain on aarch64 (indicative)` job in `ci.yml` via workflow_dispatch. Report-only: a shared hosted runner cannot resolve the provenance-check overhead, so no parity ratio may be quoted from it. |
+| `domain_aarch64` | aarch64 arm; the /bench host is self-hosted x86-64. Run `.github/workflows/bench_aarch64.yml` via workflow_dispatch. Report-only: a shared hosted runner cannot resolve the provenance-check overhead, so no parity ratio may be quoted from it. |
 | `avx512_bitmap` | needs `avx512vpopcntdq`, which the bare-metal reference host does not have (Alder Lake fuses AVX-512 off); on that host the sweep would report only its scalar arm. Run it on the AVX-512 lane instead — `.github/workflows/bench_avx512.yml`, `runs-on: [avx512]`. |
 <!-- END GENERATED: bench-suites -->
 
