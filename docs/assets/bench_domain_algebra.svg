@@ -192,16 +192,16 @@
       <text x="14" y="34" class="t-unit">Raw ExpanseSet vs DomainSet (N=100k)</text>
       <line x1="14" y1="43" x2="271" y2="43" class="divider"/>
       <text x="14" y="60" class="t-bar-label">intersection() <tspan class="t-sub">(direct emission)</tspan></text>
-      <text x="14" y="76" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">9.70 µs</tspan></text>
-      <text x="14" y="90" class="t-sub">DomainSet brand: <tspan class="t-val-green">9.70 µs</tspan></text>
+      <text x="14" y="76" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">9.7 µs</tspan></text>
+      <text x="14" y="90" class="t-sub">DomainSet brand: <tspan class="t-val-green">9.7 µs</tspan></text>
   <rect x="170" y="68" width="102" height="17" class="badge-win"/>
-  <text x="221.0" y="80.0" class="badge-win-text">+0.00 ns parity</text>
+  <text x="221.0" y="80.0" class="badge-win-text">&lt;100 ns difference</text>
       <line x1="14" y1="103" x2="271" y2="103" class="grid"/>
       <text x="14" y="121" class="t-bar-label">intersection_len() <tspan class="t-sub">(count only)</tspan></text>
       <text x="14" y="137" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">1.09 µs</tspan></text>
       <text x="14" y="151" class="t-sub">DomainSet brand: <tspan class="t-val-green">1.09 µs</tspan></text>
   <rect x="170" y="129" width="102" height="17" class="badge-win"/>
-  <text x="221.0" y="141.0" class="badge-win-text">+0.00 ns parity</text>
+  <text x="221.0" y="141.0" class="badge-win-text">&lt;10 ns difference</text>
     </g>
     <!-- 2B: Ingestion Card -->
     <g transform="translate(300, 36)">
@@ -243,7 +243,9 @@
   </g>
 
   <line x1="30" y1="585" x2="930" y2="585" class="divider"/>
-  <text x="30" y="605" class="t-note">Measured: Apple Silicon (aarch64-apple-darwin, 8 cores) / reference Linux x86_64 &#183; commit 343ce333 &#183; benches/domain.rs + benches/search_boolean.rs</text>
-  <text x="30" y="619" class="t-note">Source: docs/DATABASE.md §4.3, benches/domain.rs, benches/search_boolean.rs &#183; Direct emission (#348), k-way walk (#610), and interned domain (#611).</text>
-  <text x="30" y="633" class="t-note">All measurements satisfy AGENTS.md §8 provenance requirements; zero-overhead brand check confirmed identical instruction count.</text>
+  <text x="30" y="601" class="t-note">Panels 1-2: search_boolean.rs (#348, #610) &#183; host and commit unresolved in the source dataset — not re-measured</text>
+  <text x="30" y="615" class="t-note">Panel 3: domain.rs (#611) &#183; host and commit unresolved in the source dataset — not re-measured</text>
+  <text x="30" y="629" class="t-note">Two harnesses, separate runs: the panels are NOT a paired comparison and no ratio across them is valid.</text>
+  <text x="30" y="643" class="t-note">Source: docs/DATABASE.md §4.3; suite: docs/benchmarks/set_algebra/</text>
+  <text x="30" y="657" class="t-note">Parity badges state the resolution bound the recorded values support, not an exact zero; no instruction-count measurement of these arms exists.</text>
 </svg>

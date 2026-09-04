@@ -389,7 +389,9 @@ for id in dict.resolve(&set_c)? {
 Suite, methodology and reproduction: [`docs/benchmarks/set_algebra/`](benchmarks/set_algebra/README.md),
 which also routes to the four algebra harnesses owned by other suites.
 
-Performance of set materialization evolution (#348 direct emission vs v1 merge-insert), $k$-way aggregate algebra (#610 multi-way walk vs pairwise cascade vs Roaring MultiOps), and interned set domain zero-overhead parity (#611) `(measured: Apple Silicon aarch64 / reference x86-64 Linux, commit 343ce333)`:
+Set materialization evolution (#348 direct emission vs v1 merge-insert), $k$-way aggregate algebra (#610 multi-way walk vs pairwise cascade vs Roaring MultiOps), and the interned set domain (#611). Panels 1-2 come from `benches/search_boolean.rs` and panel 3 from `benches/domain.rs` — two harnesses, separate runs, **not a paired comparison**, so no ratio across them is valid *(workloads differ: search_boolean vs domain_interned_set)*.
+
+> **Host and commit are unresolved for every panel, and the figure is not re-measured.** The dataset recorded a single host field and a single commit covering all five sections across both harnesses, and these cells appear in no committed benchmark artifact, so no section's host can be recovered. The earlier tag on this figure — naming Apple Silicon and the reference x86-64 host together at one commit — asserted an attribution the data does not support and has been withdrawn rather than reassigned (§8.10). Re-measuring the `domain` arms on the reference host is what resolves it.
 
 <p align="center">
   <img src="assets/bench_domain_algebra.svg" alt="Set Algebra and Interned Set Domain Benchmark Suite" width="100%">
@@ -397,7 +399,7 @@ Performance of set materialization evolution (#348 direct emission vs v1 merge-i
 
 1. **Direct Emission Materialization (#348)**: Lockstep trie traversal emits the result tree directly without visiting intermediate keys or performing per-element insertions, delivering **30.3× to 37.6× speedups** over the pre-#348 ordered-merge path (`v1`) across dense and clustered key distributions.
 2. **$k$-Way Aggregate Walk (#610)**: For $k$-way intersections ($k=5, N=100\text{k}$), simultaneous multi-set traversal prunes subtrees as soon as any operand has an empty expanse and builds zero intermediate trees, achieving a **1,029× speedup** over chained pairwise folds (550 ns vs 566 µs) and outperforming `roaring::MultiOps` (620 ns).
-3. **DomainSet Provenance Zero-Overhead (#611)**: Domain brand validation (`self.domain_id == other.domain_id`) is resolved via a single predictable branch check, resulting in **+0.00 ns overhead** (1.00× ratio) relative to raw `ExpanseSet` operations.
+3. **DomainSet Provenance Check (#611)**: Domain brand validation (`self.domain_id == other.domain_id`) is a single predictable branch outside the descent loop. The two arms are **indistinguishable at the recorded resolution** — `intersection()` 9.7 µs vs 9.7 µs (recorded to 0.1 µs, so any difference is **< 100 ns**), `intersection_len()` 1.09 µs vs 1.09 µs (recorded to 0.01 µs, **< 10 ns**). Equal values at a finite resolution bound the overhead below that resolution; they do not establish zero, and the earlier "+0.00 ns (1.00× ratio)" claimed a precision 100× finer than the source carries (§8.4). No instruction-count measurement of these arms exists — `domain` is a wall-clock target with no arm in any Callgrind harness.
 4. **Batched Ingestion (#611)**: Chunk amortisation (`dict.insert_batch(&mut set, chunk)`) delivers **4.62 M keys/s** for text keys and **3.98 M keys/s** for binary UUID keys with order-preserving byte-stuffing (**>3× speedup** over scalar ingestion).
 5. **Zero-Copy Slab Resolution (#611)**: Direct slice projection from stable `BlobArena` chunk slabs achieves **16.4 M keys/s** (61 ns / key) with zero heap allocations during traversal.
 

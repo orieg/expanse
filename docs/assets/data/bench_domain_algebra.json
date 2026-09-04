@@ -1,11 +1,9 @@
 {
-  "_readme": "Source data for docs/assets/bench_domain_algebra.svg rendered by scripts/generate_domain_algebra_svg.py. Every value here must resolve to a committed benchmark or cited reference run (AGENTS.md §8.7).",
+  "_readme": "Source data for docs/assets/bench_domain_algebra.svg rendered by scripts/generate_domain_algebra_svg.py. Provenance is per-section: each block below states its own harness and issue, and records host/commit as \"unresolved\" where the source did not distinguish them. A section whose host is unresolved must not be paired with another in prose or in a ratio (AGENTS.md 8.12).",
   "meta": {
-    "source": "docs/DATABASE.md §4.3, benches/domain.rs, benches/search_boolean.rs",
-    "host": "Apple Silicon (aarch64-apple-darwin, 8 cores) / reference Linux x86_64",
-    "commit": "343ce333",
-    "harness": "benches/domain.rs + benches/search_boolean.rs",
-    "note": "Presents set algebra evolution (#348 materialization, #610 k-way aggregate) and interned set domain (#611 zero-overhead parity, batched ingestion, zero-copy resolution)."
+    "source": "docs/DATABASE.md §4.3; suite: docs/benchmarks/set_algebra/",
+    "attribution": "The source dataset recorded a single host field (\"Apple Silicon (aarch64-apple-darwin, 8 cores) / reference Linux x86_64\") and a single commit for every section below, across two harnesses. No section's host or commit can be resolved from that, and these cells appear in no committed benchmark artifact, so cross-referencing does not recover it either. Assigning one per section would be backfilling (AGENTS.md 8.10), so none is assigned.",
+    "note": "Set algebra evolution (#348 materialization, #610 k-way aggregate) from benches/search_boolean.rs, and the interned set domain (#611) from benches/domain.rs. Two harnesses: the panels are not a paired comparison and must not be read as one."
   },
   "materialization_348": [
     {
@@ -66,7 +64,7 @@
       "kway_us": 28.4,
       "pairwise_us": 142.1,
       "roaring_us": 31.8,
-      "speedup_vs_pairwise": 5.00,
+      "speedup_vs_pairwise": 5.0,
       "speedup_vs_roaring": 1.12
     },
     {
@@ -81,16 +79,18 @@
   ],
   "domain_parity_611": {
     "intersection_100k_us": {
-      "raw_expanse": 9.70,
-      "domain_set": 9.70,
-      "overhead_ns": 0.0,
-      "ratio": 1.00
+      "raw_expanse": 9.7,
+      "domain_set": 9.7,
+      "recorded_resolution_us": 0.1,
+      "indistinguishable": true,
+      "overhead_bound_us": 0.1
     },
     "intersection_len_100k_us": {
       "raw_expanse": 1.09,
       "domain_set": 1.09,
-      "overhead_ns": 0.0,
-      "ratio": 1.00
+      "recorded_resolution_us": 0.01,
+      "indistinguishable": true,
+      "overhead_bound_us": 0.01
     }
   },
   "domain_ingestion_611": [
@@ -111,5 +111,37 @@
     "scan_mops": 16.4,
     "latency_ns": 61.0,
     "allocation": "0 heap allocs (borrowed &[u8] from BlobArena chunk)"
+  },
+  "provenance": {
+    "materialization_348": {
+      "issue": "#348",
+      "harness": "crates/expanse/benches/search_boolean.rs",
+      "host": "unresolved",
+      "commit": "unresolved"
+    },
+    "kway_610": {
+      "issue": "#610",
+      "harness": "crates/expanse/benches/search_boolean.rs",
+      "host": "unresolved",
+      "commit": "unresolved"
+    },
+    "domain_parity_611": {
+      "issue": "#611",
+      "harness": "crates/expanse/benches/domain.rs",
+      "host": "unresolved",
+      "commit": "unresolved"
+    },
+    "domain_ingestion_611": {
+      "issue": "#611",
+      "harness": "crates/expanse/benches/domain.rs",
+      "host": "unresolved",
+      "commit": "unresolved"
+    },
+    "domain_resolution_611": {
+      "issue": "#611",
+      "harness": "crates/expanse/benches/domain.rs",
+      "host": "unresolved",
+      "commit": "unresolved"
+    }
   }
 }
