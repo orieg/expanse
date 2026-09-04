@@ -122,6 +122,67 @@ Three other explanations were tested and refuted: codegen (emitted `get_batch_wi
 
 Making this path win is a redesign — branchless retirement, or fixed-depth stepping that retires lanes predictably — not a width choice. `BATCH_WIDTH` stays at `8` rather than moving to the best-measured `2`: no width wins on cold DRAM, and the ordering reflects predictor behaviour rather than the mechanism this was built for.
 
+## Benchmark suite vocabulary
+
+
+The suites below are declared once, in [`.github/bench-suites.json`](../.github/bench-suites.json). The workflow's resolver, this table, and the `workflow_dispatch` dropdown all derive from that file, and `scripts/check_bench_suites.py` (run by the `lint` CI job) fails when any of them disagree.
+
+<!-- BEGIN GENERATED: bench-suites -->
+<!-- Generated from `.github/bench-suites.json` by
+     `python3 scripts/check_bench_suites.py --write`. Do not hand-edit:
+     the `lint` CI job fails when this block and the manifest disagree. -->
+
+`/bench` with no argument runs `all`. The argument is matched as a whole token against this table — never as a substring — and an unrecognised argument is refused by name with no benchmark run.
+
+| Suite | Instrument | What it runs |
+|---|---|---|
+| `all` | Callgrind | Default for a bare `/bench`: dual-pass Callgrind over `instructions` and `vs_stock`, the two B/key examples, the paired `bench_vs_libjudy` wall-clock comparison, and the fast comparative sweep. |
+| `extended` (alias `full`) | Callgrind | Everything in `all`, plus the multi-population scaling sweep and the microarchitecture target-CPU matrix (`bench_report.py --extended --arch-sweep`). |
+| `vs_stock` | Callgrind | C ABI drop-in parity against the stock oracle (`expanse-capi`), dual-pass against the base ref. |
+| `instructions` | Callgrind | Core deterministic Callgrind instruction counters plus the 64-bit and 32-bit B/key examples, dual-pass against the base ref. |
+| `vs_libjudy` | wall-clock | Paired wall-clock comparison of `libexpanse` against a dlopen'd stock libjudy through the identical C surface, arms interleaved per round (`bench_vs_libjudy`). |
+| `comparative` | wall-clock | Wall-clock head-to-head against hashbrown / BTreeMap, with the `bench_report.py --quick` markdown table. |
+| `ycsb` | wall-clock | YCSB core workloads on the 64-bit map. |
+| `concurrency` | wall-clock | `Sync*` wall-clock scaling instrument on a reduced thread/workload sweep; report-only, never gating. |
+| `point_lookup_counters` | `perf stat` | Hardware performance counters (`perf stat`) over the random point-lookup path — `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be. |
+| `search_instructions` | Callgrind | Callgrind instruction counters for the inverted-index search kernels, dual-pass against the base ref. |
+| `smoke_instructions` | Callgrind | Scaled-down Callgrind smoke counters, dual-pass against the base ref. The same instrument as the `callgrind-smoke` CI job, on the reference host. |
+| `domain` | wall-clock | Interned set domain: posting-list algebra zero-overhead, ingestion, and zero-copy resolution. |
+| `search_boolean` | wall-clock | Boolean posting-list intersection and union against the search baselines. |
+| `search_wand` | wall-clock | WAND / top-k scoring over the inverted index. |
+| `search_memory` | wall-clock | Live-heap footprint of the inverted index against the search baselines. |
+| `zset_zadd` | wall-clock | Sorted-set insert/update throughput against the skiplist baseline. |
+| `zset_range` | wall-clock | Sorted-set range scans, forward and reverse. |
+| `zset_rank` | wall-clock | Sorted-set rank and select queries. |
+| `zset_memory` | wall-clock | Live-heap footprint of the sorted-set representation against the skiplist baseline. |
+| `hashbrown_native_suite` | wall-clock | Core point-operation comparison against hashbrown. |
+| `hashbrown_ycsb` | wall-clock | YCSB workloads run on the hashbrown comparison arms. |
+| `hashbrown_tail_latency` | wall-clock | Tail-latency percentiles against hashbrown, including rehash spikes. |
+| `hashbrown_container_dists` | wall-clock | Key-distribution sensitivity sweep against hashbrown. |
+| `hashbrown_memory_alloc` | wall-clock | Live-heap and allocation-count comparison against hashbrown. |
+| `large_values` | wall-clock | Blob-arena storage paths for values above the immediate capacity. |
+| `python_concurrency` | wall-clock | Python multi-core read scaling across the pyo3 `py.detach` GIL-releasing path, against a GIL-serialised `dict` twin (`bindings/python/bench_concurrency.py`). |
+| `rocksdb` | wall-clock | RocksDB pluggable MemTable: fillrandom / readrandom / seek / scan and RAM bytes-per-key against a fair variable-height skiplist baseline (`integrations/rocksdb`, C++ built against release libexpanse). |
+| `embedded` | wall-clock | 32-bit embedded trie surface (`trie32` / `set32` / `map32` / `blobmap32`). |
+| `embedded_memtable` | wall-clock | 32-bit embedded telemetry memtable & BLE tracker registry vs competitor baselines. |
+| `batch_lookup` | wall-clock | Interleave-width sweep for the batched descent, on a cold-DRAM population and a cache-resident control. |
+| `compare` | wall-clock | Standing container comparison harness across the core map and set types. |
+| `bench_grammar_masks` | wall-clock | Grammar-constrained decoding mask cache and set algebra against roaring and dense bitmaps. |
+| `art_lookup_hit` | wall-clock | Adaptive Radix Tree (ART) vs Expanse point lookup on 100% hit rate across key distributions. |
+| `art_lookup_miss` | wall-clock | Adaptive Radix Tree (ART) vs Expanse point lookup on 50% hit / 50% rejection-sampled miss rate. |
+| `art_insert` | wall-clock | Adaptive Radix Tree (ART) vs Expanse dynamic insertion throughput into cold structures. |
+| `art_scan` | wall-clock | Adaptive Radix Tree (ART) vs Expanse ordered range scan and full container iteration. |
+| `art_memory` | wall-clock | Adaptive Radix Tree (ART) vs Expanse live heap memory allocation census across population scales. |
+
+Bench targets deliberately **not** reachable from a slash command:
+
+| Target | Why |
+|---|---|
+| `bench_llm_datastore` | needs the generated corpus under `docs/benchmarks/llm_inference/data/`, which is materialized by that suite's Python driver; run `docs/benchmarks/llm_inference/run.sh` instead. |
+| `wasm_fuel` | runs on every PR in `ci.yml`'s `wasm-fuel` job against `results/baseline_wasm_fuel.json`; it needs no bare-metal host, so `/benchmark wasm_fuel` is refused by name and points here. |
+| `avx512_bitmap` | needs `avx512vpopcntdq`, which the bare-metal reference host does not have (Alder Lake fuses AVX-512 off); on that host the sweep would report only its scalar arm. Run it on the AVX-512 lane instead — `.github/workflows/bench_avx512.yml`, `runs-on: [avx512]`. |
+<!-- END GENERATED: bench-suites -->
+
 ## Comparison targets
 
 1. **C libjudy** — the headline comparison ("faster than the original, or explain why").
@@ -916,281 +977,11 @@ The deterministic Callgrind matrix evaluates instructions retired and cache line
 
 ## Bare-Metal Hardware Benchmarks
 
-To ensure consistent performance measurements unaffected by shared cloud runner noise, Expanse supports automated bare-metal benchmarking on a dedicated bare-metal **reference host**.
-
-### 1. Automated Execution via Self-Hosted GitHub Actions Runner
-For dedicated benchmark rigs residing on private LANs (without inbound WAN access), a self-hosted GitHub Actions runner daemon (`runs-on: [self-hosted, linux]`) connects to GitHub via outbound-only HTTPS polling.
-
-#### Setting Up the Runner on the Benchmark Machine
-
-**Install under a neutral path, not a home directory.** Every path a build tool
-echoes reaches the public job log, and AGENTS.md §7 forbids OS usernames and
-home-directory paths there. `/opt/actions-runner` owned by the benchmark user is
-the arrangement in use; see [What relocation does and does not fix](#what-relocation-does-and-does-not-fix) for the residue it leaves.
-
-```bash
-# Pin an explicit runner version and verify it against the release manifest
-# (`gh api repos/actions/runner/releases/tags/v<version> --jq .body`).
-V=2.337.0
-sudo mkdir -p /opt/actions-runner && sudo chown "$USER" /opt/actions-runner
-cd /opt/actions-runner
-curl -sSfL -o "actions-runner-linux-x64-${V}.tar.gz" \
-  "https://github.com/actions/runner/releases/download/v${V}/actions-runner-linux-x64-${V}.tar.gz"
-sha256sum "actions-runner-linux-x64-${V}.tar.gz"   # compare against the release body
-tar xzf "./actions-runner-linux-x64-${V}.tar.gz"
-
-# Configure. `--name` is published in the API and the job log: use a role name,
-# never the machine's hostname.
-./config.sh --url https://github.com/orieg/expanse \
-  --token <RUNNER_REGISTRATION_TOKEN> \
-  --name bench-ref-01 --labels baremetal,reference-host \
-  --work _work --unattended
-```
-
-**Labels decide which host a suite lands on, and that is load-bearing.** The
-reference host keeps the default `self-hosted,Linux,X64` because
-`bench_baremetal.yml` selects `runs-on: [self-hosted, linux]`. A *second*
-self-hosted host must therefore be registered with `--no-default-labels` plus its
-own role labels, or bench jobs will land on whichever host is free and publish
-figures from two different CPUs under one provenance tag. That is how the
-AVX-512 lane is registered (`--no-default-labels --labels avx512,zen5`,
-`bench_avx512.yml`), and why its selector cannot collide with this one. Verify
-after any change:
-
-```bash
-gh api repos/orieg/expanse/actions/runners \
-  --jq '.runners[] | "\(.name)\t\([.labels[].name]|join(","))"'
-```
-
-#### Supervision
-
-Run it under `systemd --user` with lingering enabled, so it survives reboot and
-logout without a root-owned service. `svc.sh install` also works but writes a
-system unit; the user unit keeps `$HOME` pointing at the benchmark user, which
-`bench_baremetal.yml` depends on for `$HOME/.cargo/bin` and `$HOME/.local/bin`.
-
-```ini
-# ~/.config/systemd/user/gh-runner.service
-[Service]
-Type=simple
-WorkingDirectory=/opt/actions-runner
-ExecStart=/opt/actions-runner/run.sh
-Restart=always
-RestartSec=10
-# A bench suite must finish rather than be cut mid-measurement.
-TimeoutStopSec=30min
-KillMode=process
-```
-
-```bash
-loginctl enable-linger "$USER"
-systemctl --user daemon-reload && systemctl --user enable --now gh-runner.service
-```
-
-Do **not** widen the unit's `PATH` to include `$HOME/.cargo/bin` or
-`$HOME/.local/bin`: the workflow exports those itself, and changing the
-inherited environment of the host every published figure resolves to is a
-behavioural change, not a convenience.
-
-#### Moving an existing runner
-
-A runner that has ever self-updated stores **absolute** symlinks:
-
-```
-bin       -> /home/<user>/actions-runner/bin.2.337.0
-externals -> /home/<user>/actions-runner/externals.2.337.0
-```
-
-Moving the installation dangles both, and `config.sh` then fails with
-`./bin/Runner.Listener: No such file or directory`. Repoint them relatively
-after any move, so the next one cannot repeat it:
-
-```bash
-cd /opt/actions-runner
-ln -sfn bin.<version> bin && ln -sfn externals.<version> externals
-```
-
-Move the directory itself rather than its contents — `mv <dir>/*` skips
-`.runner`, `.credentials`, `.credentials_rsaparams`, `.env` and `.path`, which
-between them are the entire registration. Stop the runner first, and rename it
-through `./config.sh remove` followed by a fresh `./config.sh`: `--replace`
-matches on `--name`, so re-registering under a new name leaves the old entry
-behind.
-
-#### What relocation does and does not fix
-
-Relocating removes the home-directory prefix from the paths build tools echo,
-which is the bulk of the exposure. Two lines survive it, both from sources
-outside the runner's installation path:
-
-| Log line | Source | Closed by |
-|---|---|---|
-| `Machine name: '<hostname>'` | the runner emits the OS hostname at job setup, independent of `--name` | renaming the host (`hostnamectl set-hostname`) |
-| `Copying '/home/<user>/.gitconfig' to '/opt/actions-runner/_work/_temp/…'` | `actions/checkout` copying the invoking user's global gitconfig | a dedicated service account with its own toolchain install |
-
-Neither is addressed by the install path, so a claim that relocation alone
-sanitises the log is wrong. Verify what a given host actually publishes:
-
-```bash
-gh run view <run-id> --log | grep -nE "/home/|Machine name:"
-```
-
-### 2. Dual-Pass Baseline Drift Reporting Pipeline
-To eliminate `N/A` comparison columns and guarantee accurate, side-by-side regression detection on bare metal, the runner executes a **two-pass evaluation workflow**:
-
-1. **Pass 1 (Base Branch / Merge Base Baseline)**:
-   - Identifies the target base commit (via explicit `base_ref` or by calculating `git merge-base origin/main "$REF"`).
-   - Checks out the base ref and builds optimized release artifacts (`cargo build --release -p expanse-capi`).
-   - Executes instruction and vs-stock benchmark suites under Callgrind, saving baselines:
-     - `cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_base`
-     - `cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_base_vs_stock`
-2. **Pass 2 (Head Branch / Candidate Evaluation)**:
-   - Returns to the candidate commit (`git checkout "$REF"`).
-   - Re-compiles release artifacts and runs candidate benchmarks directly against the saved base baselines:
-     - `cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base`
-     - `cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock`
-   - Executes deterministic allocator accounting (`bytes_per_key` and `bytes_per_key_32`).
-   - Runs comparative baseline benchmarks against `hashbrown::HashMap` and `BTreeMap` (`scripts/bench_report.py`).
-3. **Drift Aggregation & Sticky PR Reporting**:
-   - `scripts/perf_report.py` synthesizes the dual-pass measurements into a structured GitHub Flavored Markdown report.
-   - Posts or updates **that suite's** sticky comment on the PR thread — addressed by the stable marker `<!-- expanse-bench:<suite> -->`, so requesting several suites on one PR leaves several comments rather than one that overwrites itself — tagged with an anonymized host hardware description captured from the runner itself (`lscpu` / `nproc` / `uname` — no hostname), plus the system-load snapshot (uptime + top processes) recorded at run start, and a `Run` link so the published numbers keep resolving to a cited run (§8.7).
-   - Prints a `Base Ref` line only when the base pass actually produced comparable benchmark output; a comparison that never ran is reported as such, and an empty base parse renders the report's prominent `⚠️ NO BASELINE` section instead of a quiet chip.
-   - Emits the formatted report directly to `$GITHUB_STEP_SUMMARY`.
-4. **Symmetric-twin arms and third-party baselines**:
-   - A suite whose bench source pairs an Expanse arm with a competitor arm over identical inputs declares that pairing in its `arms` block in [`.github/bench-suites.json`](../.github/bench-suites.json). Baseline arms are **declared, never inferred from an arm's name**; `scripts/check_bench_suites.py` asserts the block is a complete partition of the functions the suite's `library_benchmark_group!` declarations name, so an arm added without saying what it is fails `lint` rather than entering the report as if it were our code.
-   - For each declared twin, `perf_report.py` publishes the Expanse:competitor ratio per case with its direction in words, computed from that run's parsed artifact (§8.2). The ratio is **reported, not graded** — instructions are not wall-clock, and no gate in this repo is written against it.
-   - A baseline arm carries no `vs main` column and is excluded from the regression gate: diffing a dependency against its own previous build measures the dependency, not the change under review.
-   - The regression chip states how many arms were actually comparable. A run whose arms are all new says so instead of reporting `0 Regressions`, which would invite the reader to conclude something was validated.
-
-### 3. Triggering via PR Comment
-Maintainers and collaborators trigger benchmarks on any pull request by commenting `/bench` or `/benchmark <suite>`.
-
-#### Suite vocabulary
-
-The suites below are declared once, in [`.github/bench-suites.json`](../.github/bench-suites.json). The workflow's resolver, this table, and the `workflow_dispatch` dropdown all derive from that file, and `scripts/check_bench_suites.py` (run by the `lint` CI job) fails when any of them disagree.
-
-<!-- BEGIN GENERATED: bench-suites -->
-<!-- Generated from `.github/bench-suites.json` by
-     `python3 scripts/check_bench_suites.py --write`. Do not hand-edit:
-     the `lint` CI job fails when this block and the manifest disagree. -->
-
-`/bench` with no argument runs `all`. The argument is matched as a whole token against this table — never as a substring — and an unrecognised argument is refused by name with no benchmark run.
-
-| Suite | Instrument | What it runs |
-|---|---|---|
-| `all` | Callgrind | Default for a bare `/bench`: dual-pass Callgrind over `instructions` and `vs_stock`, the two B/key examples, the paired `bench_vs_libjudy` wall-clock comparison, and the fast comparative sweep. |
-| `extended` (alias `full`) | Callgrind | Everything in `all`, plus the multi-population scaling sweep and the microarchitecture target-CPU matrix (`bench_report.py --extended --arch-sweep`). |
-| `vs_stock` | Callgrind | C ABI drop-in parity against the stock oracle (`expanse-capi`), dual-pass against the base ref. |
-| `instructions` | Callgrind | Core deterministic Callgrind instruction counters plus the 64-bit and 32-bit B/key examples, dual-pass against the base ref. |
-| `vs_libjudy` | wall-clock | Paired wall-clock comparison of `libexpanse` against a dlopen'd stock libjudy through the identical C surface, arms interleaved per round (`bench_vs_libjudy`). |
-| `comparative` | wall-clock | Wall-clock head-to-head against hashbrown / BTreeMap, with the `bench_report.py --quick` markdown table. |
-| `ycsb` | wall-clock | YCSB core workloads on the 64-bit map. |
-| `concurrency` | wall-clock | `Sync*` wall-clock scaling instrument on a reduced thread/workload sweep; report-only, never gating. |
-| `point_lookup_counters` | `perf stat` | Hardware performance counters (`perf stat`) over the random point-lookup path — `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be. |
-| `search_instructions` | Callgrind | Callgrind instruction counters for the inverted-index search kernels, dual-pass against the base ref. |
-| `smoke_instructions` | Callgrind | Scaled-down Callgrind smoke counters, dual-pass against the base ref. The same instrument as the `callgrind-smoke` CI job, on the reference host. |
-| `domain` | wall-clock | Interned set domain: posting-list algebra zero-overhead, ingestion, and zero-copy resolution. |
-| `search_boolean` | wall-clock | Boolean posting-list intersection and union against the search baselines. |
-| `search_wand` | wall-clock | WAND / top-k scoring over the inverted index. |
-| `search_memory` | wall-clock | Live-heap footprint of the inverted index against the search baselines. |
-| `zset_zadd` | wall-clock | Sorted-set insert/update throughput against the skiplist baseline. |
-| `zset_range` | wall-clock | Sorted-set range scans, forward and reverse. |
-| `zset_rank` | wall-clock | Sorted-set rank and select queries. |
-| `zset_memory` | wall-clock | Live-heap footprint of the sorted-set representation against the skiplist baseline. |
-| `hashbrown_native_suite` | wall-clock | Core point-operation comparison against hashbrown. |
-| `hashbrown_ycsb` | wall-clock | YCSB workloads run on the hashbrown comparison arms. |
-| `hashbrown_tail_latency` | wall-clock | Tail-latency percentiles against hashbrown, including rehash spikes. |
-| `hashbrown_container_dists` | wall-clock | Key-distribution sensitivity sweep against hashbrown. |
-| `hashbrown_memory_alloc` | wall-clock | Live-heap and allocation-count comparison against hashbrown. |
-| `large_values` | wall-clock | Blob-arena storage paths for values above the immediate capacity. |
-| `python_concurrency` | wall-clock | Python multi-core read scaling across the pyo3 `py.detach` GIL-releasing path, against a GIL-serialised `dict` twin (`bindings/python/bench_concurrency.py`). |
-| `rocksdb` | wall-clock | RocksDB pluggable MemTable: fillrandom / readrandom / seek / scan and RAM bytes-per-key against a fair variable-height skiplist baseline (`integrations/rocksdb`, C++ built against release libexpanse). |
-| `embedded` | wall-clock | 32-bit embedded trie surface (`trie32` / `set32` / `map32` / `blobmap32`). |
-| `embedded_memtable` | wall-clock | 32-bit embedded telemetry memtable & BLE tracker registry vs competitor baselines. |
-| `batch_lookup` | wall-clock | Interleave-width sweep for the batched descent, on a cold-DRAM population and a cache-resident control. |
-| `compare` | wall-clock | Standing container comparison harness across the core map and set types. |
-| `bench_grammar_masks` | wall-clock | Grammar-constrained decoding mask cache and set algebra against roaring and dense bitmaps. |
-| `art_lookup_hit` | wall-clock | Adaptive Radix Tree (ART) vs Expanse point lookup on 100% hit rate across key distributions. |
-| `art_lookup_miss` | wall-clock | Adaptive Radix Tree (ART) vs Expanse point lookup on 50% hit / 50% rejection-sampled miss rate. |
-| `art_insert` | wall-clock | Adaptive Radix Tree (ART) vs Expanse dynamic insertion throughput into cold structures. |
-| `art_scan` | wall-clock | Adaptive Radix Tree (ART) vs Expanse ordered range scan and full container iteration. |
-| `art_memory` | wall-clock | Adaptive Radix Tree (ART) vs Expanse live heap memory allocation census across population scales. |
-
-Bench targets deliberately **not** reachable from a slash command:
-
-| Target | Why |
-|---|---|
-| `bench_llm_datastore` | needs the generated corpus under `docs/benchmarks/llm_inference/data/`, which is materialized by that suite's Python driver; run `docs/benchmarks/llm_inference/run.sh` instead. |
-| `wasm_fuel` | runs on every PR in `ci.yml`'s `wasm-fuel` job against `results/baseline_wasm_fuel.json`; it needs no bare-metal host, so `/benchmark wasm_fuel` is refused by name and points here. |
-| `avx512_bitmap` | needs `avx512vpopcntdq`, which the bare-metal reference host does not have (Alder Lake fuses AVX-512 off); on that host the sweep would report only its scalar arm. Run it on the AVX-512 lane instead — `.github/workflows/bench_avx512.yml`, `runs-on: [avx512]`. |
-<!-- END GENERATED: bench-suites -->
-
-#### How a request is resolved
-
-The word after `/bench` / `/benchmark` is taken as a **whole token** and looked up in the table above. Nothing else about the comment is inspected:
-
-- **Exact match, never substring.** `/benchmark search_instructions` runs `search_instructions`. It previously ran `instructions`, because the resolver was an `includes()` ladder and `"search_instructions".includes("instructions")` is true — the report, the marker and the run all said `instructions`, and nothing said the request had not been honoured.
-- **No argument means the default**, currently `all`. Only a *bare* command defaults; an argument that is present but unrecognised never does.
-- **An unrecognised argument is refused by name.** The workflow posts a comment naming the argument and listing every accepted suite, adds a `confused` reaction, fails the run, and **starts no benchmark** — the shared host is never touched. Falling through to `all` was the second §8.1 violation in #410: a long dual-pass Callgrind sweep with no indication the argument was not understood.
-- **The resolved suite is echoed before the run starts.** The `⏳` acknowledgment names the suite that will execute, so a mismatch is visible up front rather than only in the finished, provenance-tagged report.
-- **Resolution happens on a GitHub-hosted runner**, in a separate `resolve` job whose output feeds both the bench job and its `concurrency` group. There is exactly one resolver in the workflow; the duplicate ladder that used to live in the `concurrency:` expression is gone.
-
-The self-hosted runner executes the resolved suite natively on bare metal and posts/updates **that suite's own** sticky comment on the PR thread. Before benchmarking it takes the host-wide benchmark lock (methodology rule 8 above — refuses to start with exit 75 while another suite holds the host, releasing on exit, on interrupt, and on termination), records the system-load hygiene snapshot (uptime + top processes, non-gating) into the report, and fails fast with a clear error if a Callgrind suite is requested on a host missing `valgrind` or `iai-callgrind-runner` (the manifest's `kind` field drives that check, so a newly declared Callgrind suite arms it automatically). Benchmark steps run under `pipefail`, so a crashed `cargo bench … | tee` fails the step instead of silently producing an empty report.
-
-#### Adding a suite
-
-Add an entry to `.github/bench-suites.json`, run `python3 scripts/check_bench_suites.py --write`, and commit the regenerated blocks. A `generic` entry needs nothing else — the workflow runs it straight from its `package` + `target` (a `callgrind` one dual-passes against the base ref and goes through `perf_report.py`; a `wallclock` one is teed into the comment). A `builtin` entry additionally needs a branch in the workflow's suite `case`; without one the run is refused with `unwired_suite` rather than falling through to `all`.
-
-**Every trigger reaches a terminal comment.** Comments are addressed by the marker `<!-- expanse-bench:<suite> -->`, never by the heading text, so each suite owns one comment and suites never clobber one another. The reporting step is `if: always()`: a run that produces no numbers replaces its own `⏳` with the reason — the bench lock holder (`suite`/`pid`/`start`, read straight out of the lock's `owner` file), the missing `valgrind` / `iai-callgrind-runner`, a build or benchmark failure, or cancellation — plus the run link. A pending marker is never the final state, and a run with no numbers keeps whatever that suite last published in a collapsed block rather than erasing it (§8.1 forbids a degradation that renders as still-working; §8.7 wants a published figure to keep resolving to a cited run). A `concurrency:` group keyed on PR + suite means re-triggering the same suite supersedes its own in-flight run instead of queueing behind the single runner, while a *different* suite proceeds and is arbitrated by the host lock; the superseded run stands down rather than overwriting the newer run's comment. `timeout-minutes: 180` bounds a wedged run: comfortably above the longest observed run (~15 min for `all`) with headroom for `extended`'s population and microarchitecture sweeps, and half of GitHub's 6-hour default.
-
-**Concurrency suite specifics.** Unlike the Callgrind suites, the `concurrency` suite is wall-clock and single-pass (report-only, no dual-pass baseline arm — thread-scheduling noise makes a tight per-PR threshold dishonest). `benches/concurrency.rs` accepts two env knobs, parsed in its `main()`:
-
-- `EXPANSE_BENCH_THREADS` — comma-separated thread counts (default: `1,2,4,8,16`, clamped to available parallelism).
-- `EXPANSE_BENCH_WORKLOADS` — comma-separated read percentages defining the read/write mixes (default: `100,95,50`, i.e. 100%/0%, 95%/5%, 50%/50%).
-
-With the variables unset, local behavior is the unchanged full sweep. CI runs a reduced sweep to bound runtime: `/benchmark concurrency` uses `EXPANSE_BENCH_THREADS=1,4,16` + `EXPANSE_BENCH_WORKLOADS=100,50`; the nightly `bench-report` job uses `1,4` + `95,50` (the hosted runner has ~4 vCPUs).
-
-**Nightly scaling-ratio gate (warn-only).** The nightly job tees the reduced-sweep tables into the `bench-report` artifact and runs `scripts/bench_concurrency_check.py`, which parses the tables into per-(engine, workload, threads) ops/s and gates on **scaling ratios** (total ops/s at max threads ÷ 1 thread, per engine/workload) against the previous nightly's `concurrency-baseline` artifact — the same artifact round-trip as the bindings baseline. Ratios are robust to host-load drift and catch exactly the collapse class the deterministic instruction gates cannot (a change that serializes readers or drops the optimistic path into the mutex fallback), with a generous default threshold of a 30% relative ratio drop (`--max-ratio-drop-pct`). The check is currently **warn-only** (`--fail-on-regression` unset); it will be promoted to failing once the baseline proves stable across several consecutive unmodified nightlies (issue #360). The script's parser and ratio math are covered by `python3 scripts/bench_concurrency_check.py --self-test`, which nightly runs before the real check.
-
-### 4. Triggering via `workflow_dispatch`
-The `Bare-Metal Benchmarks` workflow can also be triggered manually via GitHub Actions UI (*Actions* tab $\rightarrow$ *Bare-Metal Benchmarks* $\rightarrow$ *Run workflow*). It accepts `ref`, `base_ref`, `pr_number`, and `benchmark_suite`.
-
-### 4a. Reading a dispatched run honestly
-
-Three things about a dispatched run are easy to misread, and each one has
-already produced a wrong number in a PR body once:
-
-- **The benchmarked commit is not the run's `headSha`.** On a
-  `workflow_dispatch` run, `gh run view --json headSha` reports the ref the
-  *workflow file* came from (`main`), not `inputs.ref`. Take the benchmarked
-  commit from the `Run Bare-Metal Benchmarks` job log (`HEAD is now at …`
-  after "Checking out the ref") or from the harvest's `provenance.commit`.
-- **The PR Callgrind job log holds three passes per arm.** Pass 1 saves the
-  `main_base` baseline (`Baselines: main_base|main_base (old)`, delta `N/A`);
-  pass 2 is PR-vs-main (`Baselines: |main_base`, the second occurrence of each
-  arm name); pass 3 is a further internal pass whose deltas are not the PR's.
-  Extract by baseline label and arm occurrence — never `tail` — or the report
-  quotes the wrong pass (a "−10.6% `map32_get`" was published that way; the
-  real PR-vs-main delta was zero).
-- **A local cross-ISA Callgrind harness ranks; it does not measure.** An
-  aarch64 container profile is the right tool for *which function dominates*
-  and for measuring increments against each other, but its magnitudes differ
-  from the x86 gate (`#[inline(always)]` on `branch_child` was −10% there and
-  −12.9% canonical; the same change reads differently per ISA). Publish only
-  the CI job's pass-2 numbers, labelled with the run id.
-
-### 5. Running Locally over LAN
-Developers can also execute the exact same sync, build, and benchmark suite from their local development machine across their LAN using `scripts/run_remote_bench.sh`:
-
-```bash
-export BENCH_HOST="user@bare-metal-host"
-export BENCH_REPO="/path/to/remote/dir"
-./scripts/run_remote_bench.sh all
-```
-
-**Privacy Reminder:** Per `AGENTS.md`, never commit private hostnames, LAN IPs, or personal paths. Always use environment variables like `$BENCH_HOST` and `$BENCH_REPO`.
-
----
+The self-hosted runner provisioning, the dual-pass baseline pipeline, the `/bench`
+and `/benchmark` PR-comment triggers, `workflow_dispatch`, and how to read a
+dispatched run honestly now live in **[`docs/CI.md`](CI.md#bare-metal-benchmark-runner)**,
+which owns CI infrastructure. What decides *which* instrument a change needs stays
+here; how the runner is stood up and triggered is an operations concern.
 
 ## Measured results
 
@@ -1382,94 +1173,10 @@ entirely (`NodeAlloc::occ_enabled`), so the classic engine pays nothing.
 
 ### Cortex-M7 on-target
 
-*(measured: STM32H747I-DISCO, silicon rev V (`DBGMCU_IDCODE` `0x20036450`); Cortex-M7 CPUID `0x411fc271` with D-cache 4-way × 128 sets × 32-byte lines read from CCSIDR, at 64 MHz HSI, 160 MHz PLL1/VOS3 and 400 MHz PLL1/VOS1 over the direct-SMPS supply the board is wired for; Cortex-M4 CPUID `0x410fc241`, no cache, at the 200 MHz HCLK; host-timed calibration over 320M cycles gives 64.1 / 160.2 / 400.5 MHz for the M7 and 200.3 MHz for the M4, and every nanosecond figure below uses those measured clocks; libexpanse staticlib commit `22908c15`, `thumbv7em-none-eabihf`, narrow C ABI; harness [`integrations/stm32h747/`](../integrations/stm32h747/README.md); artifacts [`docs/benchmarks/stm32h747/transcript.txt`](benchmarks/stm32h747/transcript.txt) and [`results.json`](benchmarks/stm32h747/results.json); charts [`bench_stm32h747.svg`](benchmarks/stm32h747/results/bench_stm32h747.svg), [`bench_stm32h747_alternatives.svg`](benchmarks/stm32h747/results/bench_stm32h747_alternatives.svg) and [`bench_stm32h747_dualcore.svg`](benchmarks/stm32h747/results/bench_stm32h747_dualcore.svg) from `docs/benchmarks/stm32h747/scripts/generate_charts.py`; #598.)*
-
-The first execution of the engine on ARM, the first on a part with a data cache, and the first across two cores. Numbers are DWT core cycles per operation, min of 5 passes (pass-to-pass spread ≤ 0.5% for every Expanse cell), one board. Every in-firmware check passed on both cores (no `CHECK` line, no corrupted read, every dual-core cell acknowledged). VOS0 / 480 MHz is not reachable on this board: it needs the LDO supply path.
-
-**Provenance.** Every table below is derived from the committed artifact, taken at `22908c15` on one board in one sitting. The `ingest` cells moved in two steps since the previous artifact (`05575498`), both paired on this board with identical harness firmware: `05575498` → `28dd572e` (cap-classed bitmap subarrays, #622) is -15.9% on the M7 (400 MHz, cache on) and -18.3% on the M4; `28dd572e` → `22908c15` (the insert path in #625) is -26.1% and -26.7%. Twin containers in each row bound what is attributable; the suite README carries both paired tables.
-
-| fixture (`embedded_memtable.rs` shape, via the C ABI) | 64 MHz off | 64 MHz on | 160 MHz off | 160 MHz on | 400 MHz off | 400 MHz on (ns) |
-|---|---:|---:|---:|---:|---:|---:|
-| ingest, 2,000 sequential inserts (per insert) | 1,097 | 718 | 1,438 | 745 | 1,438 | 745 (1,863 ns) |
-| CAN dispatch, 500 gets (per get) | 374 | 260 | 483 | 264 | 491 | 264 (659 ns) |
-| BLE evict 600 of 2,000, per-key `first`/`remove` loop (per evicted) | 3,905 | 2,720 | 4,930 | 2,846 | 4,929 | 2,847 (7,109 ns) |
-| BLE evict 600 of 2,000, `remove_range` (per evicted) | 1,329 | 955 | 1,652 | 995 | 1,649 | 994 (2,483 ns) |
-| BLE evict 25 of 2,000, per-key loop (per evicted) | 3,749 | 2,646 | 4,770 | 2,841 | 4,769 | 2,824 (7,051 ns) |
-| BLE evict 25 of 2,000, `remove_range` (per evicted) | 1,479 | 1,091 | 1,876 | 1,217 | 1,883 | 1,202 (3,001 ns) |
-
-Reading. The cache-on cycle counts are the same at 160 and 400 MHz (the working set fits the 16 KB D-cache, so nothing is bus-bound once cached), and the cache-off counts are the same at those two clocks too — both run the AXI SRAM at core/2, so the miss cost in cycles is identical; only 64 MHz (bus at core/1) is cheaper. The cache-on/cache-off ratio therefore reads 1.9× (ingest), 1.9× (CAN) and 1.6–1.7× (evictions) at the 2:1 ratio, versus 1.4–1.5× at 1:1 — that ratio is the measurement of the 32-byte-line node geometry in `docs/design/32-bit-embedded.md` §2.1.4, and it is the number a design that straddled lines would lose. `remove_range` is 2.3–2.9× the per-key loop in both eviction shapes, consistent with the host result. At 400 MHz a point lookup is 659 ns and a sequential insert 3.0 µs.
-
-**Expanse against a sorted array, an open-addressing hash table and newlib `tsearch`** (400 MHz, D-cache on; every implementation behind the same vtable and fixture code; the sorted array and the hash table pre-sized to capacity like the host suite's `HashMap::with_capacity`, Expanse and `tsearch` growing through newlib `malloc` as keys arrive):
-
-| fixture | Expanse (C ABI) | sorted array, `bsearch` + `memmove` | open-addressing hash, FNV-1a, ≤ 50% load | newlib `tsearch` (unbalanced BST) |
-|---|---:|---:|---:|---:|
-| ingest, 2,000 sequential inserts | 745 / 1,863 ns | 185 / 462 ns (4.0× faster) | 71 / 178 ns (10.5× faster) | 29,511 / 73,779 ns (39.6× slower) |
-| CAN dispatch, 500 gets | 264 / 659 ns | 100 / 249 ns (2.6× faster) | 55 / 138 ns (4.8× faster) | 5,821 / 14,534 ns (22.1× slower) |
-| evict 600 of 2,000, batched (`remove_range`; scan for the hash) | 994 / 2,483 ns | 4,365 / 10,900 ns (4.4× slower) | 157 / 392 ns (6.3× faster) | 2,120 / 5,294 ns (2.1× slower) |
-| evict 25 of 2,000, batched | 1,202 / 3,001 ns | 1,932 / 4,825 ns (1.6× slower) | 3,583 / 8,945 ns (3.0× slower) | 885 / 2,209 ns (1.4× faster) |
-| evict 600 of 2,000, per-key loop | 2,847 / 7,109 ns | 15,386 / 38,417 ns (5.4× slower) | n/a | 2,178 / 5,438 ns (1.3× faster) |
-| evict 25 of 2,000, per-key loop | 2,824 / 7,051 ns | 11,972 / 29,894 ns (4.2× slower) | n/a | 942 / 2,353 ns (3.0× faster) |
-
-| bytes per key, 2,000 keys (newlib heap in use via `mallinfo`, allocator overhead included; requested bytes in parentheses) | sequential keys, one map | BLE index: hash keys, dual index (ordered) or one table (hash) |
-|---|---:|---:|
-| Expanse (C ABI) | 5.7 (2.6) | 21.2 (16.4) |
-| sorted array, `bsearch` + `memmove` | 8.0 (8.0) | 16.0 (16.0) |
-| open-addressing hash, FNV-1a, ≤ 50% load | 16.4 (16.4) | 16.4 (16.4) |
-| newlib `tsearch` (unbalanced BST) | 36.0 (12.0) | 72.0 (24.0) |
-
-Verdict, stated as plainly as the wins. The hash table is the right structure for point lookups and unordered ingest on this core, by 4.8× and 10×; the sorted array beats Expanse on lookup (2.6×) and on sequential-append ingest (6.4×) and is denser on random keys. Expanse's case on an MCU is the same as on the host: the ordered operations at steady state — the 25-of-2,000 eviction where the hash table must scan 4,096 slots to find 25 expired records (3.0× slower) and the sorted array must `memmove` the survivors (1.6× slower) — plus the densest footprint on dense keys (5.7 heap bytes/key, 2.6 requested) and the interrupt contract below, which none of the three twins offers. Two losses are new relative to the host suite: the sorted array's lookup win (the `bsearch` over 500 keys is 9 probes of contiguous memory) and the 17× ingest gap to the hash table, larger than the host's 14×, because Expanse's inserts allocate through newlib `malloc` while the pre-sized twins never allocate. `tsearch` degenerates on sequential keys (an unbalanced tree over ascending timestamps is a linked list: 28k cycles per insert, 5.8k per lookup) and its eviction wins are an artefact of the same degeneracy — the smallest key is the root, so `first` and its removal are O(1); it should not be read as an ordered-index result.
-
-**The interrupt-handler contract, on real interrupts** (400 MHz, D-cache on): a SysTick ISR every 20,000 cycles calls `expanse_sync32_map_reader_try_get` while the main loop mutates the map, at full duty and paced to three mutation rates with jittered gaps (commensurate periods made the ISR alias into the pacing spin and report 0 BUSY — measured, and discarded). The twin is what bare-metal firmware actually does: `cpsid i`/`cpsie i` around a plain `expanse_map_t`, plain `expanse_map_get` in the ISR. 10,000 interrupts per cell.
-
-| writer duty (mutations/s) | `sync32` single-attempt BUSY | `sync32` ISR entry latency max / mean (max in ns) | critical-section ISR entry latency max / mean (max in ns) | writer cycles per mutation `sync32` / critical section |
-|---|---:|---:|---:|---:|
-| full duty (~211k/s) | 70.7% | 83 / 25 (207 ns) | 1,551 / 734 (3,873 ns) | 1,893 / 1,479 |
-| 40k/s | 14.5% | 54 / 22 (135 ns) | 1,683 / 151 (4,202 ns) | 10,017 / 10,014 |
-| 10k/s | 3.7% | 54 / 18 (135 ns) | 1,728 / 54 (4,315 ns) | 40,188 / 40,050 |
-| 1k/s | 0.4% | 49 / 15 (122 ns) | 1,671 / 18 (4,172 ns) | 396,227 / 401,085 |
-
-Against the expected-loss matrix pre-registered in #598: the critical section is 22% cheaper per mutation at full duty and never returns BUSY; the optimistic surface holds the ISR entry-latency ceiling at 49–83 cycles (122–207 ns) at every duty, versus 1,551–1,728 cycles (3.9–4.3 µs) for the critical section — an 18–35× bound, and the number an interrupt budget is written against. The price is the BUSY rate, which is the writer's bracket occupancy and falls linearly with duty. Zero corrupted values, zero reclaim refusals, zero arena-full over every cell.
-
-**The other core: Cortex-M4, no cache, 200 MHz** (same fixtures, same four implementations, same ISR arms, run by the M4 into a shared-memory text buffer while the M7 relays its calibration to the host):
-
-| fixture (Expanse, C ABI) | M7 400 MHz, cache on (ns) | M7 400 MHz, cache off | M4 200 MHz (ns) | M4 / M7 cache-on, cycles | M4 / M7 cache-on, time |
-|---|---:|---:|---:|---:|---:|
-| ingest, 2,000 sequential inserts (per insert) | 745 (1,863 ns) | 1,438 | 3,037 (15,159 ns) | 4.1× | 8.1× |
-| CAN dispatch, 500 gets (per get) | 264 (659 ns) | 491 | 1,234 (6,160 ns) | 4.7× | 9.3× |
-| BLE evict 600 of 2,000, `remove_range` (per evicted) | 994 (2,483 ns) | 1,649 | 3,844 (19,195 ns) | 3.9× | 7.7× |
-| BLE evict 25 of 2,000, `remove_range` (per evicted) | 1,202 (3,001 ns) | 1,883 | 3,994 (19,947 ns) | 3.3× | 6.7× |
-
-The alternatives pay more for the move than Expanse does (5.2–7.2× in cycles for the sorted array and the hash table against Expanse's 3.3–4.7×), so the relative picture on the M4 is the M7's with the gaps narrowed: the hash table's ingest lead is 7.5× (406 vs 3,037) and its lookup lead 4.3× (287 vs 1,234); the sorted array's lookup lead is 2.2× (567) and its batched bulk eviction 8.1× slower (31,252); `tsearch` sits at parity with Expanse on the steady eviction (4,133 vs 3,994) for the degenerate-tree reason above. The like-for-like cacheless comparison is the M7's cache-off column: the M4 needs 2.3–2.5× the cycles of the M7 with its D-cache off, which is the simpler in-order pipeline, not memory (its heap is D2 SRAM at core speed).
-
-| M4 ISR arm, writer duty | `sync32` BUSY | `sync32` ISR entry latency max / mean (max in ns) | critical-section max / mean (max in ns) | writer cycles per mutation `sync32` / critical section |
-|---|---:|---:|---:|---:|
-| full duty (~35k/s) | 60.7% | 96 / 74 (479 ns) | 4,897 / 2,415 (24,454 ns) | 5,690 / 5,238 |
-| 40k/s (not reachable: also full duty, jittered) | 76.6% | 98 / 73 (489 ns) | 4,897 / 2,358 (24,454 ns) | 5,726 / 5,359 |
-| 10k/s | 20.2% | 92 / 72 (459 ns) | 4,896 / 617 (24,449 ns) | 19,984 / 20,005 |
-| 1k/s | 1.8% | 91 / 72 (454 ns) | 4,879 / 132 (24,365 ns) | 201,216 / 200,516 |
-
-The contract holds on the smaller core with a wider margin: a 91–98-cycle ceiling (454–489 ns) against 4,879–4,897 cycles (24.4 µs) for masking interrupts around a 5,700-cycle mutation — a 50× bound; and the same BUSY-vs-duty curve.
-
-**Two cores on one map** — the M7 mutates a `sync32` map in its own AXI SRAM heap while the M4 reads it across the D2/D1 bridge, per writer duty; three series: the M7 heap **non-cacheable** (MPU), the same with a **hardware-semaphore twin** (HSEM 0 around every mutation and every read, which is what firmware does across cores), and the heap **cacheable** — the configuration the `sync32` header marks unsupported, measured rather than assumed. The first version of this cell put the map in an SRAM4 arena and read zero hits: the `sync32` arena only holds node *handles*, every node body is a heap `Box`, so the M4 was reading the M7's cached heap; that cell was discarded and the design corrected.
-
-| M7 heap | reads | writer duty | M4 reads | OK / not found | BUSY | corrupted (M4 / writer) | M4 read cycles mean / max (max in ns) | lock wait mean / max | writer cycles per mutation |
-|---|---|---|---:|---:|---:|---:|---:|---:|---:|
-| non-cacheable | `sync32` single-attempt | full duty | 194,688 | 15 / 7 | 100.0% | 0 / 0 | 373 / 2,218 (11,076 ns) | — | 2,848 |
-| non-cacheable | `sync32` single-attempt | 40k/s | 84,160 | 13,702 / 18,045 | 62.3% | 0 / 0 | 1,039 / 2,236 (11,166 ns) | — | 10,018 |
-| non-cacheable | `sync32` single-attempt | 10k/s | 58,432 | 22,169 / 22,955 | 22.8% | 0 / 0 | 1,552 / 2,234 (11,156 ns) | — | 39,705 |
-| non-cacheable | `sync32` single-attempt | 1k/s | 50,688 | 24,774 / 24,564 | 2.7% | 0 / 0 | 1,811 / 2,232 (11,146 ns) | — | 387,586 |
-| non-cacheable | HSEM-locked twin | full duty | 17,664 | 8,934 / 8,730 | 0.0% | 0 / 0 | 5,501 / 30,334 (151,480 ns) | 3,590 / 28,847 | 4,162 |
-| non-cacheable | HSEM-locked twin | 40k/s | 35,904 | 18,039 / 17,865 | 0.0% | 0 / 0 | 2,619 / 6,224 (31,081 ns) | 718 / 3,953 | 10,022 |
-| non-cacheable | HSEM-locked twin | 10k/s | 44,288 | 22,070 / 22,218 | 0.0% | 0 / 0 | 2,095 / 3,852 (19,236 ns) | 198 / 1,577 | 39,829 |
-| non-cacheable | HSEM-locked twin | 1k/s | 46,720 | 23,436 / 23,284 | 0.0% | 0 / 0 | 1,978 / 3,794 (18,946 ns) | 78 / 1,523 | 394,836 |
-| cacheable | `sync32` single-attempt | full duty | 213,696 | 0 / 0 | 100.0% | 0 / 0 | 327 / 330 (1,648 ns) | — | 1,834 |
-| cacheable | `sync32` single-attempt | 40k/s | 78,272 | 0 / 0 | 100.0% | 0 / 0 | 1,137 / 1,142 (5,703 ns) | — | 10,017 |
-| cacheable | `sync32` single-attempt | 10k/s | 78,272 | 0 / 0 | 100.0% | 0 / 0 | 1,137 / 1,137 (5,678 ns) | — | 40,089 |
-| cacheable | `sync32` single-attempt | 1k/s | 78,336 | 0 / 0 | 100.0% | 0 / 0 | 1,137 / 1,137 (5,678 ns) | — | 401,758 |
-
-Evaluation, not a claim (this is #598 step 3, and the header keeps saying unsupported). With the M7 heap non-cacheable the protocol is correct across cores — every successful read returned the right value, found and not-found split evenly as the key set dictates, no reclamation refusal — but a single-attempt read from the M4 costs 1,800 cycles (9 µs) at low duty against 264 for the M7 reading its own heap and 1,234 for the M4 reading its own D2 SRAM: that is the D2→D1 bridge, and the 7× longer read window is why BUSY at a given duty is ~4× the same-core ISR arm's (62% vs 14.5% at 40k mutations/s), reaching 100% at full duty. The optimistic reader's worst case is a BUSY answer in 2.2k cycles; the semaphore twin's worst case is a 28.8k-cycle (144 µs) wait at full duty and 1.5k (7.6 µs) at ≤ 10k/s, with reads costing 2.0–2.6k cycles on average including the lock. With the heap cacheable the M4 never sees a consistent version and every read is BUSY, at every duty — the unsupported configuration fails safe rather than silently wrong, and it says nothing about correctness under other cache states. Lifting the restriction would need either a non-cacheable heap for the map (what this cell does, at the M7's cost of running that heap uncached) or explicit clean/invalidate around the version bracket; neither is in the library today.
-
-Not covered: VOS0 / 480 MHz (board wiring), a balanced-tree twin (the toolchain ships none), M4 as writer, external-reviewer replication.
+Moved to the suite that owns it:
+**[`docs/benchmarks/stm32h747/README.md`](benchmarks/stm32h747/README.md)**.
+Every figure, its provenance tag and the surrounding caveats moved verbatim;
+nothing was re-measured or re-worded.
 
 ### vs stdlib & 3rd-party collections (measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Ubuntu 22.04 / kernel 6.8, commit 695b98d; `benches/compare.rs` + `benches/comparative.rs`, criterion medians)
 
