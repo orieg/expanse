@@ -825,6 +825,22 @@ jobs:
             components/expanse/src/expanse_memtable.c \
             components/expanse/src/expanse_ble_tracker.c
 
+      # The two steps above cover components/expanse/src only, so the bench and
+      # twin harnesses were outside every compile lane on every target. A
+      # divisor defect in bench_esp32_memtable.c -- dividing by a literal 500
+      # where the range holds 400 keys at pop=500 -- survived because nothing
+      # built the file. These TUs take the non-ESP_PLATFORM fallback path
+      # (<time.h>, printf), so they build on the native target like the 64-bit
+      # width probe above. test_expanse.c is excluded: it needs ESP-IDF's
+      # unity.h, which only exists inside an IDF build.
+      - name: Syntax-check ESP32 bench and twin harnesses
+        run: |
+          set -euo pipefail
+          cc -fsyntax-only -std=gnu11 -Wall -Wextra -Werror \
+            -Iinclude -Icomponents/expanse/include -Icomponents/expanse/test \
+            components/expanse/test/bench_esp32_memtable.c \
+            components/expanse/test/twin_containers.c
+
       # 64-bit bare metal drops only expanse_sync_* (no std::sync); it keeps
 
       # the whole legacy Judy surface. Guards the pointer-width gates against

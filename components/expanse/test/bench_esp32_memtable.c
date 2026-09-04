@@ -34,8 +34,10 @@ static inline uint32_t get_dummy_cycles(void) {
     return (uint32_t)(ts.tv_nsec);
 }
 #define GET_CYCLES() get_dummy_cycles()
-#define GET_FREE_HEAP() (1024 * 1024)
-#define GET_LARGEST_BLOCK() (1024 * 1024)
+/* size_t, not int: both feed `%zu` in report_json / report_skipped, and the
+ * ESP_PLATFORM branch above yields size_t. */
+#define GET_FREE_HEAP() ((size_t)(1024 * 1024))
+#define GET_LARGEST_BLOCK() ((size_t)(1024 * 1024))
 #endif
 
 #define WARMUP_RUNS 3

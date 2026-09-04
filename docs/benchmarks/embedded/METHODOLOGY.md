@@ -50,7 +50,7 @@ Per `AGENTS.md` §8.8 commit 2 (pre-registration locked before any main data) an
      **cross-population** reading — a fixed-width range walk appeared to cost 20.6% more per key
      at `pop=2000` than at `pop=500` when, corrected, it is flat to slightly cheaper.
    - The committed `pop=500` aggregation cells in `results/esp32.json` predate the derived
-     divisor and are understated by ~25%. They are **pending re-measurement** (#614) on the next
+     divisor and are understated by ~25%. They are **pending re-measurement** (#676) on the next
      device harvest. No published table or chart consumes them — `docs/DATABASE.md` and
      `scripts/generate_charts.py` both read `pop=2000` only, where the correction is 0.2%.
 
