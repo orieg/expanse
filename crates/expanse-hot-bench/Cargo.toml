@@ -38,3 +38,7 @@ path = "src/bin/instrument_bridge.rs"
 opt-level = 3
 lto = "thin"
 codegen-units = 1
+
+[[bin]]
+name = "keyspace_density_probe"
+path = "src/bin/keyspace_density_probe.rs"

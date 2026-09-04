@@ -199,8 +199,11 @@ What this suite will be permitted to claim when it lands, stated before the numb
 
 1. **Single-threaded only.** The ROWEX concurrent arm is separate and conditional; no
    concurrency claim follows from this suite.
-2. **63-bit integer keys only.** No claim about full 64-bit keyspaces, and no string-key
-   claim — the string arms are separate scope in #660.
+2. **Integer keys, full 64-bit domain.** *(Amended by §9.4 — the 63-bit exclusion
+   originally recorded here was inherited from the superseded §3.1, not derived from the
+   question.)* Arm A additionally reports the portion of that domain HOT's inline payload
+   cannot represent, as a finding about HOT. No string-key claim — the string arms are
+   separate scope in #660.
 3. **x86-64 with AVX2 and BMI2 only.** No aarch64 claim of any kind; HOT does not build there.
 4. **One HOT implementation at one commit.** Claims attach to `speedskater/hot` `96bf6fb`
    built as documented, not to "HOT" as a design in the abstract, and not to the figures in
@@ -328,8 +331,100 @@ HOT's encoding imposes. The suite's random-distribution memory cells are
 therefore not comparable to the repo's published random cells in either
 direction, and the README says so next to them rather than in a footnote.
 
-The direction of that gap is unexplained. Clearing bit 63 halves the keyspace
-and should make a digital tree's top level *denser*, which predicts less memory
-per key, not more; the 100k cells move the other way (12.60 at 63 bits against
-14.78 at 64). Cause unknown and unmeasured — recorded here as an open question
-rather than narrated (§8.9), and tracked before the memory pillar publishes.
+*(Reason 2 is withdrawn by §9.4: the 63-bit restriction it describes is no
+longer in force, and the "unexplained" direction it recorded is now measured.
+The instrument gap of Reason 1 stands unchanged.)*
+
+
+### 9.4 The 63-bit lock is withdrawn; §3.1 was locked on a false premise
+
+§3.1 locked a 63-bit keyspace **for both arms and both systems**, on the reading
+that §8.3 symmetry means identical key bytes. That was wrong in two independent
+ways, and the constraint is withdrawn in full.
+
+**It was factually over-broad.** HOT's 63 bits are the width of its *inline
+value payload* (`getTid() { return mPointer >> 1; }`), not of its keys. That
+binds the keyspace only where the stored value *is* the key — Arm A's
+`IdentityKeyExtractor`. Arm B stores a heap pointer and takes the whole domain.
+Measured on keys spanning bit 63 (`1`, `42`, `2^62+7`, `2^63`, `2^63+99`,
+`u64::MAX`) *(measured: x86_64 build host — Intel Xeon E5-2697 v4; HOT
+`96bf6fb`; workload: `hot_arm_capability`)*:
+
+| Arm | Found | Correct value | Population by walk |
+|---|---:|---:|---:|
+| A — `IdentityKeyExtractor` | 3/6 | — | — |
+| B — `PairPointerKeyExtractor` | **6/6** | **6/6** | **6/6** |
+
+Arm B never needed the restriction, and the shim was rejecting keys it handles.
+
+**It was not symmetric in effect, which is what §8.3 actually asks.** Identical
+key bytes are a *mechanism* for symmetry, not its definition; the definition is
+that both systems are asked the same question. HOT selects discriminative bits
+dynamically to hold fanout roughly constant, so removing one top bit is close to
+a no-op for it. Expanse partitions by key *expanse* at a fixed 8-bit span, and
+for such a structure the only parameter that matters is occupancy per expanse,
+`d = N / 2^w`. **Halving the keyspace is therefore arithmetically identical to
+doubling the population.** The lock silently doubled Expanse's effective load
+factor and left HOT's workload materially unchanged.
+
+That equivalence is measured, not argued — `ExpanseSet`, `mem_used()`, same PRNG
+and seed *(measured: x86_64 build host — Intel Xeon E5-2697 v4; workload:
+`hot_keyspace_density_probe`)*:
+
+| N | 64-bit | 63-bit | 62-bit |
+|---:|---:|---:|---:|
+| 100k | 14.78 | 12.60 | 10.42 |
+| 200k | 12.59 | 10.41 | 8.42 |
+| 400k | 10.41 | 8.42 | 8.47 |
+| 600k | 9.17 | 7.64 | 19.25 |
+| 800k | 8.41 | 8.49 | 21.02 |
+| 1M | 7.92 | 13.60 | 19.66 |
+| 1.2M | 7.64 | 19.30 | 18.50 |
+| 2M | 13.60 | 19.67 | 15.58 |
+
+63-bit at N reproduces 64-bit at 2N, and 62-bit at 4N, to two decimals:
+`12.60 ≈ 12.59`, `8.42 ≈ 8.41`, `8.42 ≈ 8.41`. One curve in one variable.
+
+**And the effect has no stable sign.** The restriction *helps* Expanse below
+600k (−15% to −19%), is at parity near 800k (+1%), and costs +72% at 1M and
++153% at 1.2M. A workload parameter chosen for a reason internal to the other
+system, whose sign and magnitude depend on N, is a free variable, and the
+pre-registered headline population is where it happens to be worst.
+
+**Each curve also crosses a density cliff**, positioned by keyspace width and
+halving per bit removed: 64-bit in (1.2M, 2M], 63-bit in (800k, 1M], 62-bit in
+(400k, 600k]. At the headline N=1M the 64-bit arm is pre-cliff and the 63-bit
+arm is post-cliff, so the lock did not shift Expanse along a smooth curve — it
+carried it across a discontinuity. The post-cliff shape is non-monotone and
+re-amortizing (62-bit: 19.25 → 21.02 → 19.66 → 18.50 → 15.58), consistent with a
+node-class ladder transition paying upfront; naming that mechanism needs a
+node-class histogram, so it is a hypothesis, unmeasured (§8.9.1).
+
+**Retraction (§8.10).** The `13.60 B/key` figure published for `ExpanseSet`
+uniform random at 1M in the first revision of §9.3 is **formally retracted as an
+artifact of a withdrawn constraint**. It is dead, not withheld for a later run —
+no measurement is outstanding against it. It is
+not a property of `ExpanseSet`; it is a measurement of the harness. The
+corresponding un-restricted figure is `7.92 B/key`, which is the value the
+repo's committed `bytes/key` table already carries. The retracted number is not
+silently replaced — the correction is the point.
+
+Two consequences are logged for follow-up outside this suite, because they
+concern the engine and its gates rather than the comparison:
+
+1. The committed `memory-budget` ceiling in
+   `crates/expanse/examples/bytes_per_key.rs` — `("random", 1_000_000, 9.00,
+   18.00)` — is calibrated at a single population that sits just before the
+   64-bit cliff. Its headroom is ~1.5–2× *in N*, not the 12% *in bytes* the
+   numbers suggest, and nothing records that. The 63-bit figures would have
+   breached it in both flavours (set 13.60 > 9.00, map 19.38 > 18.00).
+2. The cliff itself is undocumented, and the ladder's hysteresis around it is
+   worth a node-class histogram.
+
+**Standing rule this episode earns.** *A twin's limitation is recorded as a
+predicate on the twin and evaluated against the workload; the workload is never
+edited to accommodate it. If the remedy touches a path the incumbent also reads,
+it is in the wrong place.* §3.2 already did this correctly for HOT's
+process-global `MemoryPool` — instrumenting on HOT's side rather than changing
+what both arms measure — so the precedent was in this file before §3.1 was
+written.

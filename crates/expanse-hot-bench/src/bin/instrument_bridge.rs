@@ -20,7 +20,7 @@
 //! Deterministic accounting only — no wall-clock, so no CI or statistics
 //! apply (§8.4).
 
-use expanse_hot_bench::{Census, Key63};
+use expanse_hot_bench::Census;
 use expanse_trie::ExpanseSet;
 use expanse_trie::map::ExpanseMap;
 
@@ -58,8 +58,11 @@ fn keys(dist: &str, n: usize, truncate63: bool) -> Vec<u64> {
         _ => unreachable!(),
     }
     if truncate63 {
+        // Reported as a contrast, never as the suite's domain: clearing the top
+        // bit halves the keyspace, which for a structure partitioning by key
+        // expanse is arithmetically the same as doubling the population.
         for k in &mut out {
-            *k = Key63::truncate(*k).get();
+            *k &= (1u64 << 63) - 1;
         }
     }
     out
