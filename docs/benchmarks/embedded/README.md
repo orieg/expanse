@@ -11,24 +11,24 @@ eviction in the bulk and steady shapes — against `std::BTreeMap` and
   losses on ingest and point lookup, the steady-state eviction win, the bulk
   eviction loss, and the `remove_range` correction record), with the derived
   chart `results/bench_embedded.svg`.
-- **Artifact**: [`results.json`](results.json) — `meta` (population, lookups
+- **Artifact**: [`results.json`](results/results.json) — `meta` (population, lookups
   per iteration, the memory model used for panel 1) and `wallclock_ns` with
   BCa 95% bootstrap intervals per arm, harvested from the dispatched run
   ([run 33567182415](https://github.com/orieg/expanse/actions/runs/33567182415),
   commit `13ee3d92`; read it per `docs/BENCHMARKING.md` §4a, "Reading a
   dispatched run honestly").
-- **Regenerate the chart**: `python3 scripts/generate_embedded_svg.py
+- **Regenerate the chart**: `python3 docs/benchmarks/embedded/scripts/generate_charts.py
   --from-baseline <baseline-embedded_memtable.json>` rewrites this file and
   `results/bench_embedded.svg`; every rendered number is derived from the
   JSON (AGENTS.md §8.2).
-- **Pre-registration**: the hypothesis and expected-loss matrix are in #556
-  (§3.2) and are quoted, not reconciled, in `docs/DATABASE.md` §5.4.
+- **Pre-registration**: the hypothesis and expected-loss matrix are in
+  [`METHODOLOGY.md`](METHODOLOGY.md) and #556 (§3.2), quoted in `docs/DATABASE.md` §5.4.
 - **On-target counterpart**: the same fixtures on real Cortex-M cores are the
   [`stm32h747/`](../stm32h747/README.md) suite.
 
 ## On-device ESP32 harvest (`esp32.json`)
 
-[`esp32.json`](esp32.json) is a different experiment from `results.json` above
+[`esp32.json`](results/esp32.json) is a different experiment from `results.json` above
 and the two must not be read against each other: it records **CPU cycles on a
 microcontroller**, where the host suite records **wall-clock nanoseconds on a
 desktop**. It is produced by `integrations/esp32/`, which runs the component's
@@ -94,13 +94,12 @@ twins in `components/expanse/test/twin_containers.h`.
   this part those two eviction arms carry no verdict at all.
 - **Regenerate**: capture a monitor log to a gitignored scratch path (§8.5),
   then
-  `python3 scripts/esp32_bench_harvest.py --input <log> --out <report.md> --emit-json docs/benchmarks/embedded/esp32.json`
-  followed by `python3 scripts/generate_embedded_svg.py --on-device`, which
+  `python3 scripts/esp32_bench_harvest.py --input <log> --out <report.md> --emit-json docs/benchmarks/embedded/results/esp32.json`
+  followed by `python3 docs/benchmarks/embedded/scripts/generate_charts.py --on-device`, which
   writes `results/bench_esp32_ondevice.svg`. Replace the file wholesale;
   never splice new arms into a previous run's twin numbers (§8.3).
 - **Coverage**: `esp32` only. The RISC-V parts (C3, C6, H2, P4) have not been
   run on hardware; #579 tracks that.
-
-This directory has no `run.sh`: the suite runs on the benchmark host via the
-`/benchmark embedded_memtable` PR comment or `workflow_dispatch`
-(`docs/BENCHMARKING.md` §3–4).
+- **Reproduction**: run [`run.sh`](run.sh) locally under host benchmark lock, or
+  dispatch on the reference benchmark host via the `/benchmark embedded_memtable` PR
+  comment or `workflow_dispatch` (`docs/BENCHMARKING.md` §3–4).

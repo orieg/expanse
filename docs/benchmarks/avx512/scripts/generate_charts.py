@@ -41,7 +41,7 @@ from pathlib import Path
 # shared docs/assets/ (an SVG moved without its renderer is silently
 # re-created as an orphan at the old path).
 SUITE_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 RESULTS = REPO_ROOT / "results" / "baseline_avx512_bitmap.json"
 OUTPUT = SUITE_DIR / "results" / "bench_avx512.svg"
 

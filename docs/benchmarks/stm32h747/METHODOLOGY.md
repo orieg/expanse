@@ -21,6 +21,8 @@ reading live in [`README.md`](README.md); the harness in
 
 ## 2. Pre-registered hypotheses and their outcomes
 
+*(measured: STM32H747I-DISCO, commit `22908c15`)*
+
 | # | pre-registered (source, before the run) | outcome | verdict |
 |---|---|---|---|
 | H1 | The Cortex-M7 D-cache line is 32 bytes and `BranchL2_32` fits one line; the cache-on/off ratio measures the geometry claim (#598 "Finding"; design doc §2.1.4) | CCSIDR reads 4-way × 128 sets × 32 B; cache-on cycle counts flat from 160 to 400 MHz while cache-off grows; ratio 1.6–1.9× at 2:1 core:bus | confirmed |
