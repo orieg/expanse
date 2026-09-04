@@ -1,0 +1,400 @@
+{
+  "benchmark": "art_small_payload",
+  "quick": false,
+  "results": [
+    {
+      "insert": {
+        "blart_art_ns_op": 214.875,
+        "btree_ns_op": 58.625,
+        "expanse_ns_op": 618.125,
+        "hashmap_ns_op": 121.541,
+        "ratio_bca_ci_95": [
+          3.2417571908665246,
+          8.057976988307958
+        ],
+        "ratio_mean": 4.6454228837002,
+        "ratio_vs_art": 2.876672484002327
+      },
+      "lookup_hit": {
+        "blart_art_ns_op": 3.0833,
+        "btree_ns_op": 1.025,
+        "expanse_ns_op": 1.1583,
+        "hashmap_ns_op": 1.4917,
+        "ratio_bca_ci_95": [
+          0.32204494780998744,
+          1.26811762727955
+        ],
+        "ratio_mean": 0.6093706576288868,
+        "ratio_vs_art": 0.37566892615055303
+      },
+      "lookup_miss": {
+        "blart_art_ns_op": 11.9291,
+        "btree_ns_op": 8.475,
+        "expanse_ns_op": 8.6167,
+        "hashmap_ns_op": 11.6417,
+        "ratio_bca_ci_95": [
+          0.5631792673002665,
+          1.83711114552368
+        ],
+        "ratio_mean": 0.8668377588078453,
+        "ratio_vs_art": 0.7223260765690622
+      },
+      "memory": {
+        "blart_alloc_count": 1,
+        "blart_bpk": 32.0,
+        "blart_bytes": 32,
+        "btree_alloc_count": 1,
+        "btree_bpk": 192.0,
+        "btree_bytes": 192,
+        "expanse_alloc_count": 1,
+        "expanse_logical_bpk": 16.0,
+        "expanse_logical_bytes": 16,
+        "expanse_tracking_bpk": 4096.0,
+        "expanse_tracking_bytes": 4096,
+        "hashmap_alloc_count": 1,
+        "hashmap_bpk": 76.0,
+        "hashmap_bytes": 76,
+        "logical_ratio_vs_art": 0.5
+      },
+      "population": 1
+    },
+    {
+      "insert": {
+        "blart_art_ns_op": 162.854,
+        "btree_ns_op": 17.167,
+        "expanse_ns_op": 795.6875,
+        "hashmap_ns_op": 54.1665,
+        "ratio_bca_ci_95": [
+          3.679666256046812,
+          8.745423299365534
+        ],
+        "ratio_mean": 5.404100601265166,
+        "ratio_vs_art": 4.8858947277929925
+      },
+      "lookup_hit": {
+        "blart_art_ns_op": 28.7875,
+        "btree_ns_op": 9.1042,
+        "expanse_ns_op": 9.1709,
+        "hashmap_ns_op": 5.1083,
+        "ratio_bca_ci_95": [
+          0.3104864558493636,
+          0.6592768799386594
+        ],
+        "ratio_mean": 0.43555295162092117,
+        "ratio_vs_art": 0.31857229700390793
+      },
+      "lookup_miss": {
+        "blart_art_ns_op": 32.3541,
+        "btree_ns_op": 12.5625,
+        "expanse_ns_op": 9.1334,
+        "hashmap_ns_op": 13.0083,
+        "ratio_bca_ci_95": [
+          0.26202164419830737,
+          0.5088624339361995
+        ],
+        "ratio_mean": 0.362879932334032,
+        "ratio_vs_art": 0.28229497961618466
+      },
+      "memory": {
+        "blart_alloc_count": 3,
+        "blart_bpk": 64.0,
+        "blart_bytes": 128,
+        "btree_alloc_count": 1,
+        "btree_bpk": 96.0,
+        "btree_bytes": 192,
+        "expanse_alloc_count": 2,
+        "expanse_logical_bpk": 16.0,
+        "expanse_logical_bytes": 32,
+        "expanse_tracking_bpk": 4096.0,
+        "expanse_tracking_bytes": 8192,
+        "hashmap_alloc_count": 1,
+        "hashmap_bpk": 38.0,
+        "hashmap_bytes": 76,
+        "logical_ratio_vs_art": 0.25
+      },
+      "population": 2
+    },
+    {
+      "insert": {
+        "blart_art_ns_op": 86.861,
+        "btree_ns_op": 10.805666666666667,
+        "expanse_ns_op": 341.875,
+        "hashmap_ns_op": 22.555666666666667,
+        "ratio_bca_ci_95": [
+          3.280810381762983,
+          7.053902258282161
+        ],
+        "ratio_mean": 4.4256878562526705,
+        "ratio_vs_art": 3.9358860708488272
+      },
+      "lookup_hit": {
+        "blart_art_ns_op": 30.125,
+        "btree_ns_op": 11.9541,
+        "expanse_ns_op": 12.5708,
+        "hashmap_ns_op": 17.5,
+        "ratio_bca_ci_95": [
+          0.35273989546233514,
+          1.0937228757606479
+        ],
+        "ratio_mean": 0.5684990543174137,
+        "ratio_vs_art": 0.41728796680497926
+      },
+      "lookup_miss": {
+        "blart_art_ns_op": 23.6,
+        "btree_ns_op": 12.325,
+        "expanse_ns_op": 9.9667,
+        "hashmap_ns_op": 36.1417,
+        "ratio_bca_ci_95": [
+          0.4046935271602903,
+          1.216982076714907
+        ],
+        "ratio_mean": 0.6526729872726952,
+        "ratio_vs_art": 0.42231779661016944
+      },
+      "memory": {
+        "blart_alloc_count": 4,
+        "blart_bpk": 53.333333333333336,
+        "blart_bytes": 160,
+        "btree_alloc_count": 1,
+        "btree_bpk": 64.0,
+        "btree_bytes": 192,
+        "expanse_alloc_count": 3,
+        "expanse_logical_bpk": 21.333333333333332,
+        "expanse_logical_bytes": 64,
+        "expanse_tracking_bpk": 4096.0,
+        "expanse_tracking_bytes": 12288,
+        "hashmap_alloc_count": 1,
+        "hashmap_bpk": 25.333333333333332,
+        "hashmap_bytes": 76,
+        "logical_ratio_vs_art": 0.4
+      },
+      "population": 3
+    },
+    {
+      "insert": {
+        "blart_art_ns_op": 88.14575,
+        "btree_ns_op": 10.3125,
+        "expanse_ns_op": 189.8855,
+        "hashmap_ns_op": 44.698,
+        "ratio_bca_ci_95": [
+          2.2657009908669568,
+          3.3142973032263217
+        ],
+        "ratio_mean": 2.719520024493086,
+        "ratio_vs_art": 2.1542218428001347
+      },
+      "lookup_hit": {
+        "blart_art_ns_op": 13.5916,
+        "btree_ns_op": 12.425,
+        "expanse_ns_op": 8.125,
+        "hashmap_ns_op": 14.475,
+        "ratio_bca_ci_95": [
+          0.4276585491178046,
+          0.6243444356476993
+        ],
+        "ratio_mean": 0.5213399399655247,
+        "ratio_vs_art": 0.5977956973424763
+      },
+      "lookup_miss": {
+        "blart_art_ns_op": 10.9834,
+        "btree_ns_op": 7.6083,
+        "expanse_ns_op": 5.6833,
+        "hashmap_ns_op": 12.05,
+        "ratio_bca_ci_95": [
+          0.43147321699930696,
+          0.9947356296662907
+        ],
+        "ratio_mean": 0.570924942187881,
+        "ratio_vs_art": 0.5174445071653586
+      },
+      "memory": {
+        "blart_alloc_count": 5,
+        "blart_bpk": 48.0,
+        "blart_bytes": 192,
+        "btree_alloc_count": 1,
+        "btree_bpk": 48.0,
+        "btree_bytes": 192,
+        "expanse_alloc_count": 3,
+        "expanse_logical_bpk": 16.0,
+        "expanse_logical_bytes": 64,
+        "expanse_tracking_bpk": 3072.0,
+        "expanse_tracking_bytes": 12288,
+        "hashmap_alloc_count": 2,
+        "hashmap_bpk": 36.0,
+        "hashmap_bytes": 144,
+        "logical_ratio_vs_art": 0.3333333333333333
+      },
+      "population": 4
+    },
+    {
+      "insert": {
+        "blart_art_ns_op": 106.125,
+        "btree_ns_op": 9.0584,
+        "expanse_ns_op": 235.6916,
+        "hashmap_ns_op": 27.7334,
+        "ratio_bca_ci_95": [
+          1.993125784447163,
+          3.1024727324186983
+        ],
+        "ratio_mean": 2.4547866367528286,
+        "ratio_vs_art": 2.2208866902237925
+      },
+      "lookup_hit": {
+        "blart_art_ns_op": 24.4833,
+        "btree_ns_op": 14.9708,
+        "expanse_ns_op": 11.3291,
+        "hashmap_ns_op": 6.375,
+        "ratio_bca_ci_95": [
+          0.38315619974863124,
+          0.594885766453822
+        ],
+        "ratio_mean": 0.492384655057298,
+        "ratio_vs_art": 0.46272765517720243
+      },
+      "lookup_miss": {
+        "blart_art_ns_op": 11.175,
+        "btree_ns_op": 7.0875,
+        "expanse_ns_op": 5.4167,
+        "hashmap_ns_op": 7.7166,
+        "ratio_bca_ci_95": [
+          0.4326538448036416,
+          1.0274047073377865
+        ],
+        "ratio_mean": 0.6194634797470682,
+        "ratio_vs_art": 0.4847158836689037
+      },
+      "memory": {
+        "blart_alloc_count": 7,
+        "blart_bpk": 65.6,
+        "blart_bytes": 328,
+        "btree_alloc_count": 1,
+        "btree_bpk": 38.4,
+        "btree_bytes": 192,
+        "expanse_alloc_count": 4,
+        "expanse_logical_bpk": 25.6,
+        "expanse_logical_bytes": 128,
+        "expanse_tracking_bpk": 3276.8,
+        "expanse_tracking_bytes": 16384,
+        "hashmap_alloc_count": 2,
+        "hashmap_bpk": 28.8,
+        "hashmap_bytes": 144,
+        "logical_ratio_vs_art": 0.3902439024390244
+      },
+      "population": 5
+    },
+    {
+      "insert": {
+        "blart_art_ns_op": 126.08333333333333,
+        "btree_ns_op": 18.965333333333334,
+        "expanse_ns_op": 178.79866666666666,
+        "hashmap_ns_op": 30.048666666666666,
+        "ratio_bca_ci_95": [
+          1.529685381492024,
+          2.121199153558667
+        ],
+        "ratio_mean": 1.792185133432979,
+        "ratio_vs_art": 1.4180991407799075
+      },
+      "lookup_hit": {
+        "blart_art_ns_op": 29.5417,
+        "btree_ns_op": 18.5125,
+        "expanse_ns_op": 15.9042,
+        "hashmap_ns_op": 7.4292,
+        "ratio_bca_ci_95": [
+          0.5383011150067069,
+          0.9770657689497237
+        ],
+        "ratio_mean": 0.7251131512182064,
+        "ratio_vs_art": 0.5383644136931862
+      },
+      "lookup_miss": {
+        "blart_art_ns_op": 24.8333,
+        "btree_ns_op": 15.3208,
+        "expanse_ns_op": 10.4959,
+        "hashmap_ns_op": 14.7584,
+        "ratio_bca_ci_95": [
+          0.43736869159242836,
+          0.5919486119613494
+        ],
+        "ratio_mean": 0.5051140146649519,
+        "ratio_vs_art": 0.4226542585963203
+      },
+      "memory": {
+        "blart_alloc_count": 8,
+        "blart_bpk": 60.0,
+        "blart_bytes": 360,
+        "btree_alloc_count": 1,
+        "btree_bpk": 32.0,
+        "btree_bytes": 192,
+        "expanse_alloc_count": 4,
+        "expanse_logical_bpk": 21.333333333333332,
+        "expanse_logical_bytes": 128,
+        "expanse_tracking_bpk": 2730.6666666666665,
+        "expanse_tracking_bytes": 16384,
+        "hashmap_alloc_count": 2,
+        "hashmap_bpk": 24.0,
+        "hashmap_bytes": 144,
+        "logical_ratio_vs_art": 0.35555555555555557
+      },
+      "population": 6
+    },
+    {
+      "insert": {
+        "blart_art_ns_op": 58.006,
+        "btree_ns_op": 10.238,
+        "expanse_ns_op": 110.85128571428571,
+        "hashmap_ns_op": 21.75,
+        "ratio_bca_ci_95": [
+          1.869933497062049,
+          2.8530534459721704
+        ],
+        "ratio_mean": 2.182904822783988,
+        "ratio_vs_art": 1.9110313711389462
+      },
+      "lookup_hit": {
+        "blart_art_ns_op": 15.475,
+        "btree_ns_op": 10.0334,
+        "expanse_ns_op": 9.3208,
+        "hashmap_ns_op": 1.475,
+        "ratio_bca_ci_95": [
+          0.5753646114031956,
+          1.0435212181231501
+        ],
+        "ratio_mean": 0.7443751045531996,
+        "ratio_vs_art": 0.6023134087237481
+      },
+      "lookup_miss": {
+        "blart_art_ns_op": 11.6208,
+        "btree_ns_op": 7.7417,
+        "expanse_ns_op": 5.875,
+        "hashmap_ns_op": 7.1125,
+        "ratio_bca_ci_95": [
+          0.48326156148601146,
+          0.666253329618247
+        ],
+        "ratio_mean": 0.537673698397587,
+        "ratio_vs_art": 0.5055589976593694
+      },
+      "memory": {
+        "blart_alloc_count": 9,
+        "blart_bpk": 56.0,
+        "blart_bytes": 392,
+        "btree_alloc_count": 1,
+        "btree_bpk": 27.428571428571427,
+        "btree_bytes": 192,
+        "expanse_alloc_count": 4,
+        "expanse_logical_bpk": 18.285714285714285,
+        "expanse_logical_bytes": 128,
+        "expanse_tracking_bpk": 2340.5714285714284,
+        "expanse_tracking_bytes": 16384,
+        "hashmap_alloc_count": 2,
+        "hashmap_bpk": 20.571428571428573,
+        "hashmap_bytes": 144,
+        "logical_ratio_vs_art": 0.32653061224489793
+      },
+      "population": 7
+    }
+  ],
+  "rounds": 15,
+  "workload_id": "art_small_payload"
+}

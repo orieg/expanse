@@ -30,6 +30,7 @@ BENCHES = [
     ("art_insert", "baseline_insert.json"),
     ("art_scan", "baseline_scan.json"),
     ("art_memory", "baseline_memory.json"),
+    ("art_small_payload", "baseline_small_payload.json"),
 ]
 
 
