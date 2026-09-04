@@ -26,7 +26,7 @@ from pathlib import Path
 # shared docs/assets/ (an SVG moved without its renderer is silently
 # re-created as an orphan at the old path).
 SUITE_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from generate_asset_svgs import esc, head, write  # noqa: E402
 

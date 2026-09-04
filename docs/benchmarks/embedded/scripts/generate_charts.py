@@ -39,14 +39,14 @@ import xml.etree.ElementTree as ET
 # shared docs/assets/ (an SVG moved without its renderer is silently
 # re-created as an orphan at the old path).
 SUITE_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = Path(__file__).resolve().parents[3]
-RESULTS = REPO_ROOT / "docs" / "benchmarks" / "embedded" / "results.json"
+REPO_ROOT = Path(__file__).resolve().parents[4]
+RESULTS = SUITE_DIR / "results" / "results.json"
 # The on-device harvest is a separate artifact and a separate chart: its arms
 # are CPU cycles on a microcontroller, and the panels above are host
 # wall-clock nanoseconds. Rendering them on one canvas would juxtapose two
 # metric domains with no shared workload, which is the complection §8.12
 # exists to stop.
-ESP32_RESULTS = REPO_ROOT / "docs" / "benchmarks" / "embedded" / "esp32.json"
+ESP32_RESULTS = SUITE_DIR / "results" / "esp32.json"
 ESP32_OUTPUT = SUITE_DIR / "results" / "bench_esp32_ondevice.svg"
 OUTPUT = SUITE_DIR / "results" / "bench_embedded.svg"
 
@@ -555,7 +555,7 @@ def main() -> int:
         f'  <text x="30" y="288" class="t-chart-sub">{bulk_line}.</text>\n'
         f'  <text x="30" y="301" class="t-chart-sub">Host caveat: a 30 MiB L3 flatters flat scans; '
         f'the on-device chart is rendered separately (--on-device, ESP32 only; C3/C6 unharvested) &#183; '
-        f'BCa 95% CIs in docs/benchmarks/embedded/results.json.</text>\n'
+        f'BCa 95% CIs in docs/benchmarks/embedded/results/results.json.</text>\n'
     )
 
     svg = (

@@ -1,0 +1,41 @@
+# Embedded Storage Engines & MemTable Shapes: Empirical Comparative Methodology
+
+## 1. Executive Summary & Problem Statement
+
+Embedded edge computing environments (microcontrollers, automotive ECUs, IoT telemetry nodes) operate under strict constraints:
+- Narrow machine words (32-bit addresses and pointers).
+- Limited SRAM budgets ($32\text{ KiB}$ to $512\text{ KiB}$).
+- Strict latency floors for interrupt service routines (ISRs) and real-time query paths.
+- Deterministic memory overhead per key without unpredictable dynamic reallocation spikes.
+
+This benchmark evaluates Expanse's 32-bit embedded engine (`trie32`, `ExpanseMap32`, `sync32`) across two distinct evaluation lanes:
+1. **Host-Side MemTable Benchmarks (`embedded_memtable.rs`)**: Evaluated via Criterion with BCa 95% bootstrap intervals on quiet reference hardware against `std::collections::BTreeMap` and `hashbrown::HashMap`.
+2. **On-Target Hardware Harvesting (`esp32.json`)**: On-device cycle counting on microcontroller hardware (ESP32 Xtensa dual-core @ 160 MHz) against twin C container baselines (`twin_containers.h`).
+
+---
+
+## 2. Pre-Registration & Expected Losses Matrix
+
+Per `AGENTS.md` §8.8 commit 2 (pre-registration locked before any main data) and §8.3 (each baseline is a production-grade twin with a regime it can win):
+
+| Workload / Regime | Expected Winner | Primary Mechanism & Structural Rationale |
+|---|---|---|
+| **Unordered Random Ingest** | **`hashbrown::HashMap`** | Flat open-addressing hash table writes directly to pre-allocated buckets with 0 tree descent or node allocation overhead. Expanse pays digital tree expanse traversal. |
+| **Unordered Random Point Lookup** | **`hashbrown::HashMap`** | $O(1)$ SIMD group-probe hash lookup executes in ~1-2 cache accesses; digital trie requires $O(k)$ byte-by-byte descent. |
+| **Steady-State TTL Eviction ($25\text{ of }2,000$ expired)** | **`ExpanseMap32` (`remove_range`)** | Expanse uses an ordered composite time-key index; `remove_range` prunes expired nodes by entire expanse subtrees without visiting unexpired live keys ($O(\text{expired})$). Hash tables must perform full scans ($O(N)$). |
+| **Bulk TTL Eviction ($600\text{ of }2,000$ expired)** | **`hashbrown::HashMap`** | When 30% of the population expires in a burst, flat table memory sweep is cache-line linear; dual-index de-referencing and node freeing incurs higher random pointer overhead. |
+| **Ordered Range Queries & CAN-ID Route Scans** | **`ExpanseMap32`** | Contiguous 32-byte-aligned leaf array traversals provide zero-allocation iterator scans; hash tables require sorting or auxiliary indexes. |
+| **Memory Density on Sequential/Clustered Keys** | **`ExpanseMap32`** | Leaf bitmap packing achieves sub-byte to single-digit bytes per key, eliminating pointer indirection and hash bucket power-of-two over-provisioning. |
+
+---
+
+## 3. Two Separate Metrics Domains (AGENTS.md §8.12)
+
+1. **Host Wall-Clock vs On-Device Cycles**:
+   - Host benchmarks measure wall-clock nanoseconds on server microarchitectures.
+   - On-device microcontroller benchmarks measure CPU clock cycles via hardware cycle counters (`DWT_CYCCNT` / `CCOUNT`).
+   - The two metric domains must never be juxtaposed or averaged together on a single canvas or table.
+
+2. **Run-to-Run Drift & Flash Cache Sensitivity**:
+   - Microcontroller execution is sensitive to binary link layout and instruction-cache / flash-cache alignment.
+   - Results are reported using median cycles across clean repetitions alongside BCa 95% intervals, with contamination sampling to identify ISR or flash-miss outliers.
