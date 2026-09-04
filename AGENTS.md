@@ -283,6 +283,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | Black-box parity vs stock `libjudy` | **CI** | `differential-oracle`, `php-judy-*` |
 | Doc↔code constant sync (visualizer) | **CI** | `tests/test_visualizer_sync.rs` |
 | No time estimates · no PII/home paths/LAN IPs in docs and PR body | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |
+| No references to a maintainer's personal agent config (home-directory agent paths, personal methodology docs, personal playbooks) — cite the `AGENTS.md` section that states the rule instead | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py`; sweeps **every** tracked text file, not just Markdown; patterns and pinned cases live in the script and its `--self-test` |
 | Provenance tags on published numbers (§8.7) | **CI (advisory warning)** + review | `docs-lint` heuristic; reviewer confirms the artifact |
 | §6 review threshold (>0.1 % instructions) | **review** | `perf_report.py` renders it; a human decides |
 | §8.4 BCa 95 % CI lower bound ≥ floor | **tooling** + review | `scripts/bench_baseline.py` harvests criterion `sample.json`, emits `results/baseline_*.json`, renders the interval and gates on it (`--floors` / `--against`, `--fail-on-gate`); a reviewer still decides which arms a claim rests on |
