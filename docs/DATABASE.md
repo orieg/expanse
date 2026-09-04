@@ -399,9 +399,29 @@ Set materialization evolution (#348 direct emission vs v1 merge-insert), $k$-way
 
 1. **Direct Emission Materialization (#348)**: Lockstep trie traversal emits the result tree directly without visiting intermediate keys or performing per-element insertions, delivering **30.3× to 37.6× speedups** over the pre-#348 ordered-merge path (`v1`) across dense and clustered key distributions.
 2. **$k$-Way Aggregate Walk (#610)**: For $k$-way intersections ($k=5, N=100\text{k}$), simultaneous multi-set traversal prunes subtrees as soon as any operand has an empty expanse and builds zero intermediate trees, achieving a **1,029× speedup** over chained pairwise folds (550 ns vs 566 µs) and outperforming `roaring::MultiOps` (620 ns).
-3. **DomainSet Provenance Check (#611)**: Domain brand validation (`self.domain_id == other.domain_id`) is a single predictable branch outside the descent loop. The two arms are **indistinguishable at the recorded resolution** — `intersection()` 9.7 µs vs 9.7 µs (recorded to 0.1 µs, so any difference is **< 100 ns**), `intersection_len()` 1.09 µs vs 1.09 µs (recorded to 0.01 µs, **< 10 ns**). Equal values at a finite resolution bound the overhead below that resolution; they do not establish zero, and the earlier "+0.00 ns (1.00× ratio)" claimed a precision 100× finer than the source carries (§8.4). No instruction-count measurement of these arms exists — `domain` is a wall-clock target with no arm in any Callgrind harness.
-4. **Batched Ingestion (#611)**: Chunk amortisation (`dict.insert_batch(&mut set, chunk)`) delivers **4.62 M keys/s** for text keys and **3.98 M keys/s** for binary UUID keys with order-preserving byte-stuffing (**>3× speedup** over scalar ingestion).
-5. **Zero-Copy Slab Resolution (#611)**: Direct slice projection from stable `BlobArena` chunk slabs achieves **16.4 M keys/s** (61 ns / key) with zero heap allocations during traversal.
+3. **DomainSet Provenance Check (#611)**: Domain brand validation (`self.domain_id == other.domain_id`) is a single predictable branch outside the descent loop. Its cost is **population-dependent, and is not zero** *(measured: reference host — Intel i9-12900F, 24 threads, 62 GiB, kernel 6.8, rustc 1.98.0, commit `c4b1817f`; 6 clean repetitions, paired ratio per run, 95% percentile bootstrap; continuous 2 s contamination sampling, every repetition CLEAN)*:
+
+   | Arm | Raw `ExpanseSet` | `DomainSet` | Ratio (95% CI) | Verdict |
+   |---|---|---|---|---|
+   | `intersection()` N=10k | 1817.1 ns | 1862.0 ns | 1.0247 [1.0226, 1.0267] | **+2.5% overhead** |
+   | `intersection_len()` N=10k | 325.8 ns | 341.8 ns | 1.0492 [1.0468, 1.0517] | **+4.9% overhead** |
+   | `intersection()` N=100k | 10868.0 ns | 10871.5 ns | 1.0003 [0.9964, 1.0045] | not resolved |
+   | `intersection_len()` N=100k | 1545.8 ns | 1545.6 ns | 0.9999 [0.9992, 1.0005] | not resolved |
+
+   At N=100k the check is genuinely unresolvable — the base algebra cost dominates it — which is the regime the withdrawn `+0.00 ns` figure was taken in. **It does not generalise**: at N=10k the same check costs a reproducible 2.5%–4.9%, separated on two independent clean series. The claim was therefore not merely over-precise; it was stated at the one population where the effect hides. No instruction-count measurement of these arms exists — `domain` is a wall-clock target with no arm in any Callgrind harness.
+
+4. **Batched Ingestion (#611)**: Chunk amortisation (`dict.insert_batch(&mut set, chunk)`) is **a marginal gain, not a multiple** *(measured: reference host — Intel i9-12900F, 24 threads, 62 GiB, kernel 6.8, rustc 1.98.0, commit `c4b1817f`; 6 clean repetitions, paired ratio per run, 95% percentile bootstrap; continuous 2 s contamination sampling, every repetition CLEAN)* — 4 clean repetitions:
+
+   | Keys | Scalar | Batch-128 | Speedup (95% CI) |
+   |---|---|---|---|
+   | Text, N=10k | 11.36 M keys/s | 11.69 M keys/s | 1.029× [1.027, 1.031] |
+   | Text, N=50k | 10.84 M keys/s | 11.18 M keys/s | 1.031× [1.029, 1.033] |
+   | Binary UUID, N=10k | 5.69 M keys/s | 5.75 M keys/s | 1.010× [1.010, 1.011] |
+   | Binary UUID, N=50k | 5.88 M keys/s | 5.92 M keys/s | 1.007× [1.006, 1.008] |
+
+   The previously published **>3× speedup** (4.62 M keys/s text, 3.98 M keys/s UUID) is **refuted**: measured throughput is ~2.5× *higher* than published while the speedup is ~3× *lower*, so the published pair cannot have come from this harness on a comparable host. The pre-registered H2/H3 hypotheses in the suite methodology predicted batching would win, and it does — by ~1–3%, not by a multiple. The direction was right and the magnitude was wrong.
+
+5. **Zero-Copy Slab Resolution (#611)**: Direct slice projection from stable `BlobArena` chunk slabs measures **604.4 M keys/s (1.655 ns/key)** at N=10k and **609.5 M keys/s (1.641 ns/key)** at N=100k, with zero heap allocations during traversal *(measured: reference host — Intel i9-12900F, 24 threads, 62 GiB, kernel 6.8, rustc 1.98.0, commit `c4b1817f`; 6 clean repetitions, paired ratio per run, 95% percentile bootstrap; continuous 2 s contamination sampling, every repetition CLEAN)*. The previously published **16.4 M keys/s (61 ns/key)** is **refuted** — it is ~37× too slow. Note that the measured *total* scan time at N=10k is 16.55 µs, and `1 / 16.4 M = 61 ns`: the published pair is consistent with a criterion total-time reading transcribed as a per-key throughput, from which the second figure was then derived. That reconstruction is inference from the coincidence of values, not an established fact.
 
 ---
 

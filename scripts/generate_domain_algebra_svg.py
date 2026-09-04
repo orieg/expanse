@@ -7,7 +7,7 @@ Renders docs/assets/bench_domain_algebra.svg from committed benchmark data:
 Covers all set algebra features (previous and new):
   1. Materialization evolution (#348 v2 direct emission vs v1 merge-insert)
   2. k-way aggregate algebra (#610 multi-way walk vs pairwise cascade vs Roaring)
-  3. Interned set domain (#611 zero-overhead provenance check)
+  3. Interned set domain (#611 provenance-check cost, measured)
   4. Ingestion & resolution throughput (#611 scalar vs batched 128, zero-copy resolution)
 
 Adheres to AGENTS.md §8:
@@ -130,7 +130,7 @@ def render_svg(data: dict) -> str:
 
     # --- Header ---
     out.append('  <text x="30" y="28" class="t-title">SET ALGEBRA &amp; INTERNED SET DOMAIN BENCHMARK SUITE</text>\n')
-    out.append('  <text x="30" y="44" class="t-sub">Direct emission (#348), k-way aggregate walk (#610), and interned domain zero-overhead (#611)</text>\n')
+    out.append('  <text x="30" y="44" class="t-sub">Direct emission (#348), k-way aggregate walk (#610), and the interned domain provenance check (#611)</text>\n')
 
     # Legend at top right (starts at x=610)
     out.append('  <g transform="translate(610, 18)">\n')
@@ -249,48 +249,44 @@ def render_svg(data: dict) -> str:
     out.append('  <!-- Panel 2: Interned Set Domain (#611) -->\n')
     out.append('  <g transform="translate(30, 354)">\n')
     out.append('    <text x="0" y="10" class="t-chart-title">3. INTERNED SET DOMAIN: PARITY, INGESTION &amp; RESOLUTION (#611)</text>\n')
-    out.append('    <text x="0" y="24" class="t-sub">Branded DomainSet zero-overhead verification, batched prefix-trie ingestion, and zero-copy slab resolution</text>\n')
+    out.append('    <text x="0" y="24" class="t-sub">Branded DomainSet provenance-check cost, batched prefix-trie ingestion, and zero-copy slab resolution</text>\n')
 
     # Card 2A: Algebra Zero-Overhead Parity (width: 285px)
     out.append('    <!-- 2A: Parity Card -->\n')
     out.append('    <g transform="translate(0, 36)">\n')
     out.append('      <rect x="0" y="0" width="285" height="172" class="b-card"/>\n')
     out.append('      <text x="14" y="20" class="t-bar-label">Algebra Provenance Overhead</text>\n')
-    out.append('      <text x="14" y="34" class="t-unit">Raw ExpanseSet vs DomainSet (N=100k)</text>\n')
+    out.append('      <text x="14" y="34" class="t-unit">Raw ExpanseSet vs DomainSet (N=10k)</text>\n')
     out.append('      <line x1="14" y1="43" x2="271" y2="43" class="divider"/>\n')
 
-    # Both rows are DERIVED from the dataset, never stamped (AGENTS.md 8.2):
-    # these values were hardcoded here as "9.70 µs" against a source recording
-    # "9.7", inventing a significant figure the measurement does not have.
+    # Both rows are DERIVED from the dataset, never stamped (AGENTS.md 8.2).
     #
-    # The badge states a BOUND, not an equality. Equal values recorded to a
-    # finite resolution bound the difference below that resolution; they cannot
-    # establish zero. The previous "+0.00 ns parity" asserted a precision 100x
-    # finer than the source carries (AGENTS.md 8.4: a null result is an
-    # overlap, not a zero).
+    # These arms were re-measured on the quiet reference host after the
+    # per-iteration leak fix (#647), over repeated independent runs with a
+    # paired ratio per run. The badge therefore states a MEASURED ratio with
+    # its interval, not a resolution bound: the earlier bound was the honest
+    # reading of a single rounded pair, but repetition resolves the effect
+    # directly. N=10k separates; N=100k does not, and says so.
     parity = data["domain_parity_611"]
 
-    def fmt_us(v: float, res: float) -> str:
-        dp = max(0, len(str(res).split(".")[1])) if "." in str(res) else 0
-        return f"{v:.{dp}f} µs"
-
-    def bound_label(res: float) -> str:
-        # Raw "<" here: badge() runs esc() on its text, so pre-escaping would
-        # render the entity literally.
-        return f"<{res*1000:.0f} ns" if res < 1.0 else f"<{res:.0f} µs"
+    def fmt(v: float) -> str:
+        return f"{v/1000:.2f} \u00b5s" if v >= 1000 else f"{v:.0f} ns"
 
     for idx, (key, label, sub, y0) in enumerate((
-        ("intersection_100k_us", "intersection()", "(direct emission)", 60),
-        ("intersection_len_100k_us", "intersection_len()", "(count only)", 121),
+        ("intersection_10k", "intersection()", "(N=10k, direct emission)", 60),
+        ("intersection_len_10k", "intersection_len()", "(N=10k, count only)", 121),
     )):
         row = parity[key]
-        res = row["recorded_resolution_us"]
         out.append(f'      <text x="14" y="{y0}" class="t-bar-label">{label} <tspan class="t-sub">{sub}</tspan></text>\n')
-        out.append(f'      <text x="14" y="{y0 + 16}" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">{fmt_us(row["raw_expanse"], res)}</tspan></text>\n')
-        out.append(f'      <text x="14" y="{y0 + 30}" class="t-sub">DomainSet brand: <tspan class="t-val-green">{fmt_us(row["domain_set"], res)}</tspan></text>\n')
-        out.append(badge(170, y0 + 8, 102, f"{bound_label(res)} difference"))
+        out.append(f'      <text x="14" y="{y0 + 16}" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">{fmt(row["raw_ns"])}</tspan></text>\n')
+        out.append(f'      <text x="14" y="{y0 + 30}" class="t-sub">DomainSet brand: <tspan class="t-val-green">{fmt(row["domain_ns"])}</tspan></text>\n')
+        pct = (row["ratio"] - 1.0) * 100.0
+        out.append(badge(170, y0 + 8, 102, f"+{pct:.1f}% overhead"))
         if idx == 0:
             out.append('      <line x1="14" y1="103" x2="271" y2="103" class="grid"/>\n')
+    n100 = parity["intersection_100k"]
+    out.append(f'      <text x="14" y="168" class="t-note">N=100k: ratio {n100["ratio"]:.4f} '
+               f'[{n100["ci"][0]:.4f}, {n100["ci"][1]:.4f}] &#8212; not resolved; base cost dominates.</text>\n')
     out.append('    </g>\n')
 
     # Card 2B: Ingestion Throughput (width: 315px)
