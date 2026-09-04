@@ -185,13 +185,42 @@ def preflight(
     return p_cpus, e_cpus
 
 
-def run_bench(bench: str, package: str, pin: Optional[str], filter_: Optional[str]) -> None:
+def bench_argv(
+    bench: str,
+    package: str,
+    pin: Optional[str],
+    filter_: Optional[str],
+    criterion_args: Optional[Sequence[str]] = None,
+) -> List[str]:
+    """The exact command one condition runs.
+
+    Split out from `run_bench` so the assembled command — which decides what
+    is being measured — is checkable in `--self-test` without invoking cargo.
+
+    Criterion's own flags (`--measurement-time`, `--warm-up-time`,
+    `--sample-size`) go after the `--`, alongside the filter. They are part of
+    the comparison's definition, not a detail: a run at a different warm-up
+    is a different measurement, and a claim paired against an earlier one has
+    to hold them equal (AGENTS.md §8.3).
+    """
     argv: List[str] = []
     if pin:
         argv += ["taskset", "-c", pin]
     argv += ["cargo", "bench", "--bench", bench, "-p", package]
-    if filter_:
-        argv += ["--", filter_]
+    tail = ([filter_] if filter_ else []) + list(criterion_args or [])
+    if tail:
+        argv += ["--"] + tail
+    return argv
+
+
+def run_bench(
+    bench: str,
+    package: str,
+    pin: Optional[str],
+    filter_: Optional[str],
+    criterion_args: Optional[Sequence[str]] = None,
+) -> None:
+    argv = bench_argv(bench, package, pin, filter_, criterion_args)
     proc = subprocess.run(argv, cwd=REPO_ROOT, capture_output=True, text=True)
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr[-4000:])
@@ -340,6 +369,14 @@ def render(rows: Sequence[Dict[str, Any]], meta: Dict[str, Any]) -> str:
         f"per-iteration times, pooled across rounds; intervals are BCa 95% over {RESAMPLES} resamples. "
         "`E ÷ P` is the exposure ceiling; `unpinned ÷ P` is whether it fired.",
         "",
+    ]
+    if meta.get("invocation"):
+        out += [
+            f"Invocation (the pin aside): `{meta['invocation']}`. Criterion settings are part of "
+            "what was measured, so a figure here pairs only with one taken at the same ones.",
+            "",
+        ]
+    out += [
         "| arm | P-cores ns | unpinned ns | E-cores ns | E ÷ P | unpinned ÷ P | CI width P / unpinned / E | E vs P | unpinned vs P |",
         "|---|---:|---:|---:|---:|---:|---:|---|---|",
     ]
@@ -442,7 +479,30 @@ def self_test() -> None:
         ["b", "a"],
     ], "the two-condition case must still flip on odd rounds"
 
-    # 9. an inherited affinity mask is a refusal, not a narrower measurement
+    # 9. the assembled command: criterion's own flags reach criterion, the pin
+    #    stays outside cargo, and the three conditions differ ONLY in the pin.
+    base = ("domain", "expanse-trie")
+    assert bench_argv(*base, None, None, None) == ["cargo", "bench", "--bench", "domain", "-p", "expanse-trie"]
+    assert bench_argv(*base, "0-15", None, None)[:3] == ["taskset", "-c", "0-15"]
+    assert bench_argv(*base, None, "arm/100000", None)[-2:] == ["--", "arm/100000"]
+    # criterion flags land after the `--`, after the filter, in the given order
+    assert bench_argv(*base, None, "arm/100000", ["--measurement-time", "5"])[-4:] == [
+        "--",
+        "arm/100000",
+        "--measurement-time",
+        "5",
+    ]
+    # ... and a `--` is still emitted when there are flags but no filter, or
+    # criterion would never see them
+    assert bench_argv(*base, None, None, ["--warm-up-time", "2"])[-3:] == ["--", "--warm-up-time", "2"]
+    # the three conditions must be the same command but for the pin: anything
+    # else and the comparison is not measuring core placement (AGENTS.md §8.3)
+    args = ("arm/100000", ["--measurement-time", "5"])
+    per_condition = [bench_argv(*base, pin, *args) for pin in ("0-15", None, "16-23")]
+    stripped = [a[3:] if a[0] == "taskset" else a for a in per_condition]
+    assert stripped[0] == stripped[1] == stripped[2], per_condition
+
+    # 10. an inherited affinity mask is a refusal, not a narrower measurement
     assert affinity_gap("0-3", "4-5", set(range(6))) == []
     assert affinity_gap("0-3", "4-5", {0, 1, 2, 3}) == [4, 5]
     assert affinity_gap("0,2", "4-5", {0, 2, 4, 5}) == []
@@ -453,7 +513,7 @@ def self_test() -> None:
         except Preflight:
             pass
 
-    # 10. every preflight refusal, on a synthetic host so they are all reachable
+    # 11. every preflight refusal, on a synthetic host so they are all reachable
     #     from any machine rather than only from the reference one.
     global pmu_cpus
     real = pmu_cpus
@@ -489,6 +549,15 @@ def main() -> None:
     ap.add_argument("--bench", help="criterion bench target, e.g. `compare`")
     ap.add_argument("-p", "--package", default="expanse-trie")
     ap.add_argument("--filter", help="criterion filter passed after `--`")
+    ap.add_argument(
+        "--criterion-arg",
+        action="append",
+        metavar="ARG",
+        help="extra argument passed to criterion after `--`, repeatable "
+        "(e.g. --criterion-arg=--measurement-time --criterion-arg=5). Recorded in "
+        "the --json meta, because a run at different criterion settings is not "
+        "paired with one at the defaults.",
+    )
     ap.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS, help=f"interleaved rounds per condition (default {DEFAULT_ROUNDS})")
     ap.add_argument("--json", type=Path)
     ap.add_argument("--markdown", type=Path)
@@ -513,7 +582,7 @@ def main() -> None:
         # session does not load onto whichever one always goes first.
         for name in round_order(rnd):
             print(f"round {rnd + 1}/{args.rounds}: {name}", file=sys.stderr)
-            run_bench(args.bench, args.package, pins[name], args.filter)
+            run_bench(args.bench, args.package, pins[name], args.filter, args.criterion_arg)
             for arm, samples in collect_samples().items():
                 collected[name].setdefault(arm, []).extend(samples)
 
@@ -524,6 +593,9 @@ def main() -> None:
         "rounds": args.rounds,
         "p_cpus": p_cpus,
         "e_cpus": e_cpus,
+        "filter": args.filter,
+        "criterion_args": list(args.criterion_arg or []),
+        "invocation": " ".join(bench_argv(args.bench, args.package, None, args.filter, args.criterion_arg)),
         "conditions": [
             {"condition": name, "pin": (f"taskset -c {pins[name]}" if pins[name] else None)}
             for name in CONDITIONS
