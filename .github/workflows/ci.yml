@@ -244,6 +244,9 @@ jobs:
       - name: Chart theme drift (shared chrome identical across suite themes)
         run: python3 scripts/check_chart_themes.py
 
+      - name: Chart layout (overflow, collision, clamped bars)
+        run: python3 scripts/check_chart_layout.py
+
       - name: Verify Benchmark Workload Shape Declarations & Docs Sync
         run: python3 scripts/check_bench_shapes.py
 
@@ -278,6 +281,7 @@ jobs:
           python3 scripts/check_ecosystem_theme.py --self-test
           python3 scripts/check_bench_suites.py --self-test
           python3 scripts/check_chart_themes.py --self-test
+          python3 scripts/check_chart_layout.py --self-test
           python3 scripts/check_bench_shapes.py --self-test
           python3 scripts/check_man_pages.py --self-test
           python3 scripts/check_abi_parity.py --self-test
