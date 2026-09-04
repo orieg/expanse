@@ -278,6 +278,14 @@ Bench targets deliberately **not** reachable from a slash command:
    interval over pooled per-iteration samples, because only the per-round
    summaries were retained — [`results/pin_exposure_639.json`](../results/pin_exposure_639.json).)*
 
+   `scripts/pin_exposure.py` runs these same three conditions, interleaved
+   within each round with a rotating order so none of them systematically goes
+   first, and reports both ratios and both interval readings. It emits the
+   pooled per-iteration form — BCa intervals over criterion samples — that this
+   session did not retain, so the committed artifact above and the script's own
+   `--json` output are deliberately two different schemas rather than one
+   backfilled into the other.
+
    Two readings, and they point in different directions
    (workload: `domain_interned_set`; both ratios are within that one arm).
    **E versus P is 1.576×, intervals separated** — that is the exposure
