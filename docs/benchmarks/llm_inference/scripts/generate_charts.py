@@ -92,7 +92,7 @@ def render_draft_quality_chart():
         svg += f"""  <text x="30" y="{y + 8}" class="t-bar-label">{esc(label)}</text>
   <text x="30" y="{y + 22}" class="t-sub">{esc(sub)}</text>
   <rect x="250" y="{y - 4}" width="{w_exp:.1f}" height="13" rx="2" class="b-expanse"/>
-  <text x="{258 + w_exp:.1f}" y="{y + 6}" class="t-val-blue">&#945; = {exp_val:.3f}</text>
+  <text x="{258 + w_exp:.1f}" y="{y + 6}" class="t-val-accent">&#945; = {exp_val:.3f}</text>
   <rect x="250" y="{y + 12}" width="{w_base:.1f}" height="13" rx="2" class="b-baseline"/>
   <text x="{258 + w_base:.1f}" y="{y + 22}" class="t-val-gray">&#945; = {base_val:.3f}</text>
 {badge}
@@ -174,7 +174,7 @@ def render_datastore_chart():
         svg += f"""  <text x="30" y="{y + 8}" class="t-bar-label">{esc(label)}</text>
   <text x="30" y="{y + 22}" class="t-sub">{esc(sub)}</text>
   <rect x="250" y="{y - 4}" width="{w_exp:.1f}" height="13" rx="2" class="b-expanse"/>
-  <text x="{258 + w_exp:.1f}" y="{y + 6}" class="t-val-blue">{exp_tps:.1f}k tok/s</text>
+  <text x="{258 + w_exp:.1f}" y="{y + 6}" class="t-val-accent">{exp_tps:.1f}k tok/s</text>
   <rect x="250" y="{y + 12}" width="{w_static:.1f}" height="13" rx="2" class="b-baseline"/>
   <text x="{258 + w_static:.1f}" y="{y + 22}" class="t-val-gray">{static_single_tok_tps:.2f}k tok/s</text>
   <rect x="760" y="{y + 2}" width="170" height="18" rx="3" class="badge-win"/>
@@ -226,7 +226,7 @@ def render_grammar_masks_chart():
   <text x="860" y="{y + 15}" class="badge-loss-text">Dense Baseline</text>"""
         elif kind == "expanse":
             bar_cls = "b-expanse"
-            val_cls = "t-val-blue"
+            val_cls = "t-val-accent"
             if ratio >= 1.0:
                 badge = f"""  <rect x="790" y="{y + 2}" width="140" height="18" rx="3" class="badge-win"/>
   <text x="860" y="{y + 15}" class="badge-win-text">Expanse {ratio:.1f}x lower</text>"""
@@ -235,7 +235,10 @@ def render_grammar_masks_chart():
   <text x="860" y="{y + 15}" class="badge-loss-text">Expanse {1.0 / max(0.01, ratio):.1f}x higher</text>"""
         else:
             bar_cls = "b-highlight"
-            val_cls = "t-val-accent"
+            # Roaring: the competitor colour. This block and the Expanse
+            # block above had each other's value colour, matching the bar
+            # palette inversion corrected in theme.py.
+            val_cls = "t-val-blue"
             badge = f"""  <rect x="790" y="{y + 2}" width="140" height="18" rx="3" class="badge-win"/>
   <text x="860" y="{y + 15}" class="badge-win-text">Roaring {ratio:.1f}x lower</text>"""
 
@@ -296,7 +299,7 @@ def render_prefix_lru_chart():
         svg += f"""  <text x="30" y="{y + 8}" class="t-bar-label">{esc(label)}</text>
   <text x="30" y="{y + 22}" class="t-sub">{esc(sub)}</text>
   <rect x="250" y="{y - 4}" width="{w_exp:.1f}" height="13" rx="2" class="b-expanse"/>
-  <text x="{258 + w_exp:.1f}" y="{y + 6}" class="t-val-blue">{exp_mem:.2f} MB</text>
+  <text x="{258 + w_exp:.1f}" y="{y + 6}" class="t-val-accent">{exp_mem:.2f} MB</text>
   <rect x="250" y="{y + 12}" width="{w_od:.1f}" height="13" rx="2" class="b-baseline"/>
   <text x="{258 + w_od:.1f}" y="{y + 22}" class="t-val-gray">{od_mem:.2f} MB</text>
   <rect x="790" y="{y + 2}" width="140" height="18" rx="3" class="badge-win"/>

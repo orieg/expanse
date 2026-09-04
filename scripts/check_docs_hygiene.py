@@ -578,10 +578,16 @@ def check_json_datasets(root: Path, registry: list[dict[str, Any]]) -> list[tupl
     """Assert JSON visualizer and asset data contain no superseded figures."""
     if not registry:
         return []
-    json_targets = [
-        root / "docs" / "visualizer_data.json",
-        root / "docs" / "assets" / "data" / "bench_assets.json",
-    ]
+    # Every tracked JSON dataset under docs/, not a hand-maintained pair.
+    #
+    # This was two hardcoded paths, so a retracted figure living in any other
+    # dataset went unswept -- bench_domain_algebra.json among them, the dataset
+    # behind the chart whose retracted "3.12x" reached main. A list that must be
+    # extended by hand is a list that will be out of date (AGENTS.md 8.1), and
+    # the same shape of gap already had to be closed for SVGs.
+    tracked = subprocess.run(["git", "ls-files", "--", "docs/**/*.json", "docs/*.json"],
+                             cwd=root, capture_output=True, text=True, check=True).stdout.split()
+    json_targets = sorted({root / f for f in tracked if f.endswith(".json")})
     skip_keys = {
         "provenance", "removed_for_lack_of_provenance", "retraction",
         "retraction_372", "meta", "description", "_comment"
@@ -839,6 +845,24 @@ def self_test() -> int:
             f"a retracted figure rendered into a chart must be flagged; got {hits!r}"
         )
         assert "clean.svg" not in names, f"corrected chart must pass; got {hits!r}"
+
+    # A retracted figure in ANY tracked docs/ dataset must be fatal. The sweep
+    # was two hardcoded paths and missed bench_domain_algebra.json.
+    with tempfile.TemporaryDirectory() as td:
+        fake = Path(td)
+        d = fake / "docs" / "benchmarks" / "s" / "results"
+        d.mkdir(parents=True)
+        (d / "data.json").write_text(json.dumps({
+            "note": "domain ingestion batch scalar chunk amortisation delivers >3x speedup"}))
+        (fake / "docs").mkdir(exist_ok=True)
+        (fake / "docs" / "clean.json").write_text(json.dumps({"note": "domain ingestion 1.029x"}))
+        subprocess.run(["git", "init", "-q"], cwd=fake, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=fake, check=True)
+        hits = check_json_datasets(fake, reg)
+        names = {h[0] for h in hits}
+        assert any("data.json" in n for n in names), (
+            f"a retracted figure in a suite dataset must be flagged; got {hits!r}")
+        assert not any("clean.json" in n for n in names), f"corrected dataset must pass; got {hits!r}"
 
     print("check_docs_hygiene.py --self-test: all checks passed")
     return 0

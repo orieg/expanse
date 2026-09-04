@@ -2160,6 +2160,57 @@ jobs:
           cd bindings/go
           go test -v -bench=. -benchtime=100ms .
 
+  bench-domain-aarch64:
+    name: Bench / Domain on aarch64 (indicative)
+    # Opt-in only: `workflow_dispatch`, or the nightly schedule. It ran on every
+    # rust-src PR in the first draft, which is wrong for a report-only wall-clock
+    # arm -- it gates nothing, its numbers move run to run, and it would spend
+    # ~20 minutes of macOS runner time per PR to produce a figure no one may
+    # read. The aarch64 lane that DOES gate is `test-aarch64` (Neoverse N2,
+    # Callgrind `smoke_instructions`, deterministic, with a regression guard).
+    if: github.event_name == 'workflow_dispatch'
+    # macos-latest is Apple Silicon, i.e. aarch64-apple-darwin -- the platform
+    # the provenance withdrawn in #646 had claimed. #649 re-measured these arms
+    # on one x86-64 host and took no aarch64 WALL-CLOCK arm; this closes that.
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Run the domain benchmark
+        run: |
+          cargo bench -p expanse-trie --bench domain -- --quick 2>&1 | tee /tmp/domain.txt
+
+      - name: Publish as an INDICATIVE result
+        if: always()
+        run: |
+          {
+            echo "## Domain benchmark on aarch64 — indicative only"
+            echo
+            echo "Runner: \`macos-latest\` (aarch64-apple-darwin), \`$(uname -m)\`, $(sysctl -n hw.ncpu) cores."
+            echo "Toolchain: \`$(rustc --version)\`. Commit \`${GITHUB_SHA:0:8}\`."
+            echo
+            echo "### What this can and cannot support"
+            echo
+            echo "A shared hosted runner cannot resolve the provenance-check overhead."
+            echo "That effect is 2.5%-4.9% (AGENTS.md §8.4 gating on the quiet reference"
+            echo "host, run-to-run CV 0.08%-0.38%); a 32-thread workstation measured clean"
+            echo "at CV 2.3%-3.6% could **not** resolve it, and this runner is noisier still."
+            echo "**Do not quote a parity ratio from this job.**"
+            echo
+            echo "What it does support are the large results, where runner noise is"
+            echo "irrelevant: batched ingestion (measured 1.007x-1.031x against a published"
+            echo "\`>3x\`) and zero-copy resolution (604 M vs a published 16.4 M keys/s)."
+            echo "Those refutations should reproduce here on a different architecture."
+            echo
+            echo "Report-only. This job gates nothing and writes no committed artifact."
+            echo
+            echo '```'
+            grep -E "^domain_|time:" /tmp/domain.txt || tail -40 /tmp/domain.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   ci-gate:
     name: CI Gate / All Checks Passed
     if: always()
@@ -2190,6 +2241,7 @@ jobs:
       - memory-budget
       - loom
       - wasm-fuel
+      - bench-domain-aarch64
       - fuzz-smoke
       - test-python
       - test-node

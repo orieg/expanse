@@ -483,6 +483,14 @@
       "suite": "wasm"
     },
     {
+      "name": "domain_aarch64",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "builtin",
+      "reason": "aarch64 arm; the /bench host is self-hosted x86-64. Run it from the `Bench / Domain on aarch64 (indicative)` job in `ci.yml` via workflow_dispatch. Report-only: a shared hosted runner cannot resolve the provenance-check overhead, so no parity ratio may be quoted from it.",
+      "summary": "Interned set domain on aarch64-apple-darwin, wall clock. Indicative cross-architecture check on the ingestion and resolution results; gates nothing."
+    },
+    {
       "name": "avx512_bitmap",
       "available": false,
       "kind": "wallclock",

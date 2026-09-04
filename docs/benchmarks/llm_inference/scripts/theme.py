@@ -17,21 +17,21 @@ def svg_header(width: int = 960, height: int = 340, title: str = "Benchmark Char
       .axis {{ stroke: #cbd5e1; stroke-width: 1.5px; }}
       .divider {{ stroke: #e2e8f0; stroke-width: 1px; }}
 
-      .t-title {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }}
-      .t-sub {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 500; fill: #475569; }}
+      .t-title {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; fill: #0f172a; text-transform: uppercase; }}
+      .t-sub {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10px; font-weight: 500; fill: #475569; }}
       .t-unit {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; font-weight: 600; fill: #475569; }}
-      .t-axis-label {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; font-weight: 500; fill: #64748b; }}
-      .t-bar-label {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; font-weight: 700; fill: #0f172a; }}
-      .t-legend {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 600; fill: #0f172a; }}
+      .t-axis-label {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 9.5px; font-weight: 500; fill: #64748b; }}
+      .t-bar-label {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 11px; font-weight: 700; fill: #0f172a; }}
+      .t-legend {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 10.5px; font-weight: 600; fill: #0f172a; }}
 
       .t-val-accent {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 700; fill: #15803d; }}
       .t-val-blue {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #2563eb; }}
       .t-val-gray {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px; font-weight: 600; fill: #475569; }}
       .t-note {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 9.5px; font-weight: 500; fill: #64748b; }}
 
-      .b-expanse {{ fill: #2563eb; }}
+      .b-expanse {{ fill: #16a34a; }}
       .b-baseline {{ fill: #94a3b8; }}
-      .b-highlight {{ fill: #10b981; }}
+      .b-highlight {{ fill: #2563eb; }}
 
       .badge-win {{ fill: #dcfce7; stroke: #86efac; stroke-width: 1px; }}
       .badge-win-text {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 10px; font-weight: 700; fill: #15803d; text-anchor: middle; }}
@@ -54,9 +54,9 @@ def svg_header(width: int = 960, height: int = 340, title: str = "Benchmark Char
         .t-val-blue {{ fill: #38bdf8; }}
         .t-val-gray {{ fill: #cbd5e1; }}
         .t-note {{ fill: #94a3b8; }}
-        .b-expanse {{ fill: #3b82f6; }}
+        .b-expanse {{ fill: #22c55e; }}
         .b-baseline {{ fill: #64748b; }}
-        .b-highlight {{ fill: #34d399; }}
+        .b-highlight {{ fill: #3b82f6; }}
         .badge-win {{ fill: #064e3b; stroke: #059669; }}
         .badge-win-text {{ fill: #6ee7b7; }}
         .badge-loss {{ fill: #451a03; stroke: #d97706; }}
@@ -78,9 +78,9 @@ def svg_header(width: int = 960, height: int = 340, title: str = "Benchmark Char
       :root[data-theme="dark"] .t-val-blue, [data-theme="dark"] .t-val-blue {{ fill: #38bdf8; }}
       :root[data-theme="dark"] .t-val-gray, [data-theme="dark"] .t-val-gray {{ fill: #cbd5e1; }}
       :root[data-theme="dark"] .t-note, [data-theme="dark"] .t-note {{ fill: #94a3b8; }}
-      :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse {{ fill: #3b82f6; }}
+      :root[data-theme="dark"] .b-expanse, [data-theme="dark"] .b-expanse {{ fill: #22c55e; }}
       :root[data-theme="dark"] .b-baseline, [data-theme="dark"] .b-baseline {{ fill: #64748b; }}
-      :root[data-theme="dark"] .b-highlight, [data-theme="dark"] .b-highlight {{ fill: #34d399; }}
+      :root[data-theme="dark"] .b-highlight, [data-theme="dark"] .b-highlight {{ fill: #3b82f6; }}
       :root[data-theme="dark"] .badge-win, [data-theme="dark"] .badge-win {{ fill: #064e3b; stroke: #059669; }}
       :root[data-theme="dark"] .badge-win-text, [data-theme="dark"] .badge-win-text {{ fill: #6ee7b7; }}
       :root[data-theme="dark"] .badge-loss, [data-theme="dark"] .badge-loss {{ fill: #451a03; stroke: #d97706; }}
