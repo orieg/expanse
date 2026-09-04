@@ -2,7 +2,7 @@
   "_readme": "Source data for docs/assets/bench_domain_algebra.svg rendered by scripts/generate_domain_algebra_svg.py. Provenance is per-section: each block below states its own harness and issue, and records host/commit as \"unresolved\" where the source did not distinguish them. A section whose host is unresolved must not be paired with another in prose or in a ratio (AGENTS.md 8.12).",
   "meta": {
     "source": "docs/DATABASE.md §4.3; suite: docs/benchmarks/set_algebra/",
-    "attribution": "The source dataset recorded a single host field (\"Apple Silicon (aarch64-apple-darwin, 8 cores) / reference Linux x86_64\") and a single commit for every section below, across two harnesses. No section's host or commit can be resolved from that, and these cells appear in no committed benchmark artifact, so cross-referencing does not recover it either. Assigning one per section would be backfilling (AGENTS.md 8.10), so none is assigned.",
+    "attribution": "Panels 1-2 (#348, #610, benches/search_boolean.rs) retain unresolved host and commit: they were NOT re-measured by this work and keep the position recorded in #646. Panel 3 (#611, benches/domain.rs) was re-measured on the reference host after the per-iteration leak fix (#647); its provenance is stated per section above. The two panel groups therefore carry different provenance and must not be compared.",
     "note": "Set algebra evolution (#348 materialization, #610 k-way aggregate) from benches/search_boolean.rs, and the interned set domain (#611) from benches/domain.rs. Two harnesses: the panels are not a paired comparison and must not be read as one."
   },
   "materialization_348": [
@@ -78,39 +78,78 @@
     }
   ],
   "domain_parity_611": {
-    "intersection_100k_us": {
-      "raw_expanse": 9.7,
-      "domain_set": 9.7,
-      "recorded_resolution_us": 0.1,
-      "indistinguishable": true,
-      "overhead_bound_us": 0.1
+    "_note": "Paired ratio domain/raw per repetition; interval is a percentile bootstrap over independent runs, so it carries between-run variance. Criterion's own within-run interval is 0.2-0.5% here and cannot see that, which is why single-run figures appeared separated when they were not (AGENTS.md 8.4).",
+    "intersection_10k": {
+      "raw_ns": 1817.1,
+      "domain_ns": 1862.0,
+      "ratio": 1.0247,
+      "ci": [
+        1.0226,
+        1.0267
+      ],
+      "verdict": "overhead resolved"
     },
-    "intersection_len_100k_us": {
-      "raw_expanse": 1.09,
-      "domain_set": 1.09,
-      "recorded_resolution_us": 0.01,
-      "indistinguishable": true,
-      "overhead_bound_us": 0.01
+    "intersection_100k": {
+      "raw_ns": 10868.0,
+      "domain_ns": 10871.5,
+      "ratio": 1.0003,
+      "ci": [
+        0.9964,
+        1.0045
+      ],
+      "verdict": "not resolved"
+    },
+    "intersection_len_10k": {
+      "raw_ns": 325.8,
+      "domain_ns": 341.8,
+      "ratio": 1.0492,
+      "ci": [
+        1.0468,
+        1.0517
+      ],
+      "verdict": "overhead resolved"
+    },
+    "intersection_len_100k": {
+      "raw_ns": 1545.8,
+      "domain_ns": 1545.6,
+      "ratio": 0.9999,
+      "ci": [
+        0.9992,
+        1.0005
+      ],
+      "verdict": "not resolved"
     }
   },
   "domain_ingestion_611": [
     {
-      "key_type": "Text Keys (user:...)",
-      "scalar_mops": 1.48,
-      "batch128_mops": 4.62,
-      "speedup": 3.12
+      "key_type": "Text Keys (entity:...)",
+      "scalar_mops": 11.36,
+      "batch128_mops": 11.69,
+      "speedup": 1.029,
+      "ci": [
+        1.027,
+        1.031
+      ],
+      "population": 10000
     },
     {
       "key_type": "Binary UUID (escaped)",
-      "scalar_mops": 1.29,
-      "batch128_mops": 3.98,
-      "speedup": 3.08
+      "scalar_mops": 5.69,
+      "batch128_mops": 5.75,
+      "speedup": 1.01,
+      "ci": [
+        1.01,
+        1.011
+      ],
+      "population": 10000
     }
   ],
   "domain_resolution_611": {
-    "scan_mops": 16.4,
-    "latency_ns": 61.0,
-    "allocation": "0 heap allocs (borrowed &[u8] from BlobArena chunk)"
+    "scan_mops": 604.4,
+    "latency_ns": 1.655,
+    "allocation": "0 heap allocs (borrowed &[u8] from BlobArena chunk)",
+    "population": 10000,
+    "_note": "N=100k agrees: 164.06 us total, 1.641 ns/key, 609.5 M keys/s."
   },
   "provenance": {
     "materialization_348": {
@@ -128,20 +167,26 @@
     "domain_parity_611": {
       "issue": "#611",
       "harness": "crates/expanse/benches/domain.rs",
-      "host": "unresolved",
-      "commit": "unresolved"
+      "host": "reference host - Intel i9-12900F, 24 threads, 62 GiB, Ubuntu 24.04 / kernel 6.8, rustc 1.98.0; quiet, continuous 2s contamination sampling, all reps CLEAN",
+      "commit": "c4b1817f",
+      "reps": "6 clean (parity) / 4 clean (ingestion, resolution)",
+      "statistic": "paired ratio per repetition; 95% percentile bootstrap"
     },
     "domain_ingestion_611": {
       "issue": "#611",
       "harness": "crates/expanse/benches/domain.rs",
-      "host": "unresolved",
-      "commit": "unresolved"
+      "host": "reference host - Intel i9-12900F, 24 threads, 62 GiB, Ubuntu 24.04 / kernel 6.8, rustc 1.98.0; quiet, continuous 2s contamination sampling, all reps CLEAN",
+      "commit": "c4b1817f",
+      "reps": "6 clean (parity) / 4 clean (ingestion, resolution)",
+      "statistic": "paired ratio per repetition; 95% percentile bootstrap"
     },
     "domain_resolution_611": {
       "issue": "#611",
       "harness": "crates/expanse/benches/domain.rs",
-      "host": "unresolved",
-      "commit": "unresolved"
+      "host": "reference host - Intel i9-12900F, 24 threads, 62 GiB, Ubuntu 24.04 / kernel 6.8, rustc 1.98.0; quiet, continuous 2s contamination sampling, all reps CLEAN",
+      "commit": "c4b1817f",
+      "reps": "6 clean (parity) / 4 clean (ingestion, resolution)",
+      "statistic": "paired ratio per repetition; 95% percentile bootstrap"
     }
   }
 }

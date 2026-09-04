@@ -47,26 +47,57 @@ the provenance check under test.
 
 ## 3. Results
 
-Numbers for the `domain` arms are published in
-[`docs/DATABASE.md` §4.3](../../DATABASE.md), which carries the narrative for
-the interned set domain. This suite does not duplicate them.
+`(measured: reference host — Intel i9-12900F, 24 threads, 62 GiB, kernel 6.8, rustc 1.98.0,
+commit c4b1817f; paired ratio per repetition, 95% percentile bootstrap over independent runs;
+continuous 2 s contamination sampling, every repetition CLEAN)`
 
-> **Provenance is unresolved for the §4.3 figure, and this suite restates no
-> numbers from it.** `docs/assets/data/bench_domain_algebra.json` recorded one
-> host field and one commit for five sections drawn from two harnesses, and its
-> distinctive cells appear in no committed benchmark artifact, so no section's
-> host is recoverable. Provenance is now stated **per section** in that dataset,
-> with host and commit recorded as `unresolved` rather than asserted; the figure
-> carries the same statement per panel. Assigning a host per section would be
-> backfilling (§8.10). Re-measuring the `domain` arms on the reference host is
-> what resolves it.
->
-> Two claims that rode on that figure were withdrawn in the same pass: the
-> parity badges asserted `+0.00 ns`, a precision 100× finer than the recorded
-> values support, and are now stated as the resolution bound (`< 100 ns`,
-> `< 10 ns`); and a footer line claiming an "identical instruction count" was
-> removed, because `domain` is a wall-clock target with no arm in any Callgrind
-> harness.
+### Provenance-check cost (H1)
+
+| Arm | Raw `ExpanseSet` | `DomainSet` | Ratio (95% CI) | Verdict |
+|---|---|---|---|---|
+| `intersection()` N=10k | 1817.1 ns | 1862.0 ns | 1.0247 [1.0226, 1.0267] | **+2.5%** |
+| `intersection_len()` N=10k | 325.8 ns | 341.8 ns | 1.0492 [1.0468, 1.0517] | **+4.9%** |
+| `intersection()` N=100k | 10868.0 ns | 10871.5 ns | 1.0003 [0.9964, 1.0045] | not resolved |
+| `intersection_len()` N=100k | 1545.8 ns | 1545.6 ns | 0.9999 [0.9992, 1.0005] | not resolved |
+
+**H1 is refuted at N=10k and holds at N=100k.** The methodology pre-registered H1 as a null —
+the pass condition being overlapping intervals. That holds at N=100k, where the base algebra
+cost dominates. It fails at N=10k, where the check is a reproducible 2.5%–4.9%, separated on
+two independent clean series (1.0247/1.0492 here; 1.0283/1.0473 in an earlier clean series).
+Reporting the refutation rather than the population where the null survives is the point of
+pre-registering it (§8.7).
+
+### Ingestion (H2, H3)
+
+| Keys | Scalar | Batch-128 | Speedup (95% CI) |
+|---|---|---|---|
+| Text, N=10k | 11.36 M keys/s | 11.69 M keys/s | 1.029× [1.027, 1.031] |
+| Text, N=50k | 10.84 M keys/s | 11.18 M keys/s | 1.031× [1.029, 1.033] |
+| Binary UUID, N=10k | 5.69 M keys/s | 5.75 M keys/s | 1.010× [1.010, 1.011] |
+| Binary UUID, N=50k | 5.88 M keys/s | 5.92 M keys/s | 1.007× [1.006, 1.008] |
+
+H2 and H3 predicted batching would win, and it does — by 1%–3%. H3 further predicted the UUID
+margin would be *narrower* than text because byte-stuffing is per-key work amortisation cannot
+remove; measured 1.007×–1.010× against 1.029×–1.031×, so H3 holds in direction and magnitude.
+
+### Resolution (H4)
+
+604.4 M keys/s (1.655 ns/key) at N=10k; 609.5 M keys/s (1.641 ns/key) at N=100k; zero heap
+allocations during traversal.
+
+### Measurement notes
+
+- **Criterion's within-run interval is not the uncertainty.** It reads 0.2%–0.5% on these arms,
+  while between-run spread on a *clean* second host reaches 2.3%–3.6%. Single-run figures
+  therefore appear separated when they are not; every interval above is a bootstrap over
+  independent runs (§8.4).
+- **One host gates.** The reference host holds absolute CV 0.08%–0.38%. A 32-thread Ryzen 9
+  9955HX measures 2.3%–3.6% when clean, and a 72-thread Xeon that also runs a git server and a
+  database measures 2.6%–9.3%; both corroborate the *direction* at N=10k and can resolve nothing
+  finer. No aarch64 arm was taken.
+- **The harness could not run at all before [#647](https://github.com/orieg/expanse/pull/647)**,
+  which fixed a per-iteration leak that reached 94.9 GB RSS at N=100k. Every figure here
+  post-dates that fix.
 
 ## 4. Reproduction
 
