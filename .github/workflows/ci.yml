@@ -52,6 +52,15 @@ jobs:
             # that builds it.
             rust-src:
               - 'crates/**'
+              # Excluded for the same reason `integrations/**` is: C++ outside
+              # the cargo workspace that no job here builds. `expanse-hot-bench`
+              # is detached from the root workspace by its own `[workspace]`
+              # table, so `cargo check --workspace --all-targets` cannot reach
+              # it and every lane this filter gates -- miri, ASan, fuzz,
+              # Callgrind, the cross-compile matrix, every binding -- would run
+              # over a crate none of them compile. When the HOT suite gains a
+              # job, that job gates on its own filter (#660).
+              - '!crates/expanse-hot-bench/**'
               - 'include/**'
               - 'tests/cpp/**'
               - 'fuzz/**'

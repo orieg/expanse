@@ -224,3 +224,58 @@ Recorded so the harness cannot quietly fail into a flattering result:
 - Any latency cell whose paired arms did not consume identical key streams from the same
   seed is void.
 - Any cell where the two arms were built for different ISA targets is void (§3.3).
+
+---
+
+## 9. Amendments after Pre-Registration
+
+Recorded as amendments rather than edited into §3, so the locked text stays
+readable as what was locked (§8.7 forbids reconciling a pre-registration in
+place). Both entries below are measurement constraints found while building the
+harness; neither is a result.
+
+### 9.1 One instrument for both arms, not two (supersedes the §3.2 method)
+
+§3.2 locked allocator-symbol interposition for the HOT side and implied the
+Expanse side would be accounted separately. Building it showed the stronger
+option: Rust's allocator bottoms out in the same C symbols HOT uses, so a single
+link-time interposition (`-Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,`
+`--wrap=free,--wrap=posix_memalign,--wrap=aligned_alloc`) measures **both** arms
+under one definition. The symmetry §8.3 requires then holds by construction
+rather than by arguing two counters into agreement. Validated by a control
+allocation on every run: `+1,052,656 B` observed on a `1,048,576 B` request,
+residual `0 B` after free.
+
+The counters are `std::atomic` and the shim is compiled `-fno-builtin-malloc`
+`-fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free`. Both are
+load-bearing rather than stylistic: the compiler knows the allocator family as
+builtins and may assume the calls do not touch globals, which lets it cache a
+plain counter across them. That is the defect the Step 0 gate program hit, where
+`free` was observed running while the byte total did not move.
+
+### 9.2 Every census cell runs in its own process (new constraint)
+
+HOT's node pool is a function-local `static` inside
+`HOTSingleThreadedNodeBase::getMemoryPool()`, so it is **process-global and
+outlives every trie instance**. A trie that is built and dropped leaves its nodes
+on the pool's free lists, and the next trie reuses them without calling
+`posix_memalign` — invisible to any allocator-level census.
+
+Measured on the identical 100k uniform-random build *(measured: x86_64 build host
+— Intel Xeon E5-2697 v4; `-C target-cpu=haswell`, `-march=haswell`; foundation
+validation binary; workload: `hot_validate_census`)*:
+
+| Pool state at census entry | HOT | `ExpanseSet` |
+|---|---:|---:|
+| Cold (0 prior allocations) | **11.76 B/key** | 13.38 B/key |
+| Warm (31,093 prior allocations) | 3.61 B/key | 13.39 B/key |
+
+A **3.3× understatement** of HOT, from measurement order alone. The Expanse arm
+is unchanged to two decimals because it has no equivalent process-global pool,
+which makes the error **asymmetric and in HOT's favour** — the shape of mistake
+that reads as a competitor win.
+
+**Locked:** one arm, one population, one process. The shim exposes HOT's own pool
+counter and the harness asserts it is zero before a census, so a violation fails
+loudly instead of depending on the runner's ordering. A census cell taken on a
+warm pool is void.
