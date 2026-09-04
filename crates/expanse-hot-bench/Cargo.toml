@@ -1,0 +1,36 @@
+# Detached from the root workspace on purpose.
+#
+# This crate compiles C++ (HOT) and is the only place in the repository that
+# does. The root workspace's `cargo check --workspace --all-targets` — which the
+# `Core / MSRV 1.88 Build` job runs — must never reach it, or every contributor
+# and every CI lane would need a C++ toolchain and an initialised submodule for
+# a benchmark they are not running. The empty `[workspace]` table below detaches
+# it; the suite runner builds it explicitly with `--manifest-path`.
+#
+# Same reasoning as the `avx512` suite's off-by-default feature
+# (docs/benchmarks/avx512/README.md §3), one level coarser.
+[package]
+name = "expanse-hot-bench"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "HOT (Height Optimized Trie) FFI comparison arms for Expanse — bench-only, not published"
+
+[workspace]
+
+[dependencies]
+expanse-trie = { path = "../expanse" }
+
+[build-dependencies]
+cc = "1"
+
+[[bin]]
+name = "hot_validate"
+path = "src/bin/hot_validate.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
