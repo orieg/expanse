@@ -309,9 +309,13 @@ Bench targets deliberately **not** reachable from a slash command:
    converts a load-dependent tail risk into a guarantee, and it costs nothing
    measurable: P-only is what the idle host already does, and the P-versus-
    unpinned intervals overlap. `scripts/bench_pin.sh` is sourced by every
-   `docs/benchmarks/*/run.sh` and by the bare-metal and AVX-512 workflow bench
-   steps, so it confines the *runner's* shell and every benchmark process
-   spawned under it. Nothing is added to a harness, and a benchmark landing
+   wall-clock `docs/benchmarks/*/run.sh` and by the bare-metal and AVX-512
+   workflow bench steps, so it confines the *runner's* shell and every
+   benchmark process spawned under it. Two suites are exempt, each carrying its
+   reason in `EXEMPT_SUITES`: `stm32h747` times its region on the MCU rather
+   than on a host core, and `wasm` publishes exact wasmtime fuel integers,
+   which do not vary with the core that executes them. An exemption is for a
+   suite the pin cannot help, never for a host-side wall-clock arm. Nothing is added to a harness, and a benchmark landing
    later inherits the pin without knowing about it;
    `scripts/check_bench_pin.py` fails the `lint` job for a runner that drops
    it. On a host with one core class it applies nothing and says so. Its
