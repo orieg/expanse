@@ -452,11 +452,31 @@ pub(crate) unsafe fn terminal_remainders_buf(
 #[inline]
 unsafe fn probe_count(keys: &[u64], probe: &Edge, level: u8) -> u64 {
     let mut acc = 0u64;
-    for &k in keys {
-        // SAFETY: probe is a live subtree at `level`; k's high bits are zero
-        // above `level`, which test_set ignores.
-        if unsafe { get::test_set(probe, k, level) } {
-            acc += 1;
+    #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+    // SAFETY: caller contract forwarded; available() gates popcnt.
+    unsafe {
+        if crate::bits::popcnt_rt::available() {
+            for &k in keys {
+                if get::test_set_popcnt(probe, k, level) {
+                    acc += 1;
+                }
+            }
+        } else {
+            for &k in keys {
+                if get::test_set_swar(probe, k, level) {
+                    acc += 1;
+                }
+            }
+        }
+    }
+    #[cfg(any(not(target_arch = "x86_64"), target_feature = "popcnt"))]
+    {
+        for &k in keys {
+            // SAFETY: probe is a live subtree at `level`; k's high bits are zero
+            // above `level`, which test_set ignores.
+            if unsafe { get::test_set(probe, k, level) } {
+                acc += 1;
+            }
         }
     }
     acc
@@ -473,8 +493,104 @@ unsafe fn probe_count(keys: &[u64], probe: &Edge, level: u8) -> u64 {
 /// # Safety
 ///
 /// Both edges must reference live branch subtrees covering the same `level`.
-#[inline]
-unsafe fn intersection_branch(ea: &Edge, eb: &Edge, level: u8) -> u64 {
+/// Internal trait parameterizing the set-algebra cardinality walks over their
+/// instruction-set flavor: portable SWAR vs hardware `popcnt`.
+///
+/// On baseline `x86-64`, `Bitmap256::count_and`, `Bitmap256::count_or`, and
+/// `Bitmap256::subexpanse_rank` lower to ~12-instruction SWAR sequences unless
+/// inlined into a `#[target_feature(enable = "popcnt")]` caller. Cloning the
+/// walks at entry and recurring within the cloned flavor keeps the entire
+/// descent inside hardware `popcnt` without per-node CPUID checks or
+/// feature-boundary crossing (#638).
+///
+/// # Safety
+///
+/// Implementors must uphold the invariants of their respective instruction
+/// flavor: `PopcntFlavor` requires hardware CPUID `popcnt` support; all methods
+/// require caller-supplied edge and level validity invariants to hold.
+trait AlgebraFlavor: Copy {
+    unsafe fn intersection_len(ea: &Edge, eb: &Edge, level: u8) -> u64;
+    unsafe fn intersection_len_many(edges: &[Edge], level: u8) -> u64;
+    unsafe fn union_len_many(edges: &[Edge], level: u8) -> u64;
+}
+
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+#[derive(Copy, Clone)]
+struct SwarFlavor;
+
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+impl AlgebraFlavor for SwarFlavor {
+    #[inline(always)]
+    unsafe fn intersection_len(ea: &Edge, eb: &Edge, level: u8) -> u64 {
+        // SAFETY: forwarded caller contract.
+        unsafe { intersection_len_swar(ea, eb, level) }
+    }
+
+    #[inline(always)]
+    unsafe fn intersection_len_many(edges: &[Edge], level: u8) -> u64 {
+        // SAFETY: forwarded caller contract.
+        unsafe { intersection_len_many_swar(edges, level) }
+    }
+
+    #[inline(always)]
+    unsafe fn union_len_many(edges: &[Edge], level: u8) -> u64 {
+        // SAFETY: forwarded caller contract.
+        unsafe { union_len_many_swar(edges, level) }
+    }
+}
+
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+#[derive(Copy, Clone)]
+struct PopcntFlavor;
+
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+impl AlgebraFlavor for PopcntFlavor {
+    #[inline(always)]
+    unsafe fn intersection_len(ea: &Edge, eb: &Edge, level: u8) -> u64 {
+        // SAFETY: forwarded caller contract; caller verified popcnt CPUID support.
+        unsafe { intersection_len_popcnt(ea, eb, level) }
+    }
+
+    #[inline(always)]
+    unsafe fn intersection_len_many(edges: &[Edge], level: u8) -> u64 {
+        // SAFETY: forwarded caller contract; caller verified popcnt CPUID support.
+        unsafe { intersection_len_many_popcnt(edges, level) }
+    }
+
+    #[inline(always)]
+    unsafe fn union_len_many(edges: &[Edge], level: u8) -> u64 {
+        // SAFETY: forwarded caller contract; caller verified popcnt CPUID support.
+        unsafe { union_len_many_popcnt(edges, level) }
+    }
+}
+
+#[cfg(any(not(target_arch = "x86_64"), target_feature = "popcnt"))]
+#[derive(Copy, Clone)]
+struct NativeFlavor;
+
+#[cfg(any(not(target_arch = "x86_64"), target_feature = "popcnt"))]
+impl AlgebraFlavor for NativeFlavor {
+    #[inline(always)]
+    unsafe fn intersection_len(ea: &Edge, eb: &Edge, level: u8) -> u64 {
+        // SAFETY: forwarded caller contract.
+        unsafe { intersection_len_impl::<NativeFlavor>(ea, eb, level) }
+    }
+
+    #[inline(always)]
+    unsafe fn intersection_len_many(edges: &[Edge], level: u8) -> u64 {
+        // SAFETY: forwarded caller contract.
+        unsafe { intersection_len_many_impl::<NativeFlavor>(edges, level) }
+    }
+
+    #[inline(always)]
+    unsafe fn union_len_many(edges: &[Edge], level: u8) -> u64 {
+        // SAFETY: forwarded caller contract.
+        unsafe { union_len_many_impl::<NativeFlavor>(edges, level) }
+    }
+}
+
+#[inline(always)]
+unsafe fn intersection_branch_impl<F: AlgebraFlavor>(ea: &Edge, eb: &Edge, level: u8) -> u64 {
     let t = match eb.tag() {
         Some(EdgeTag::Structural(t)) if t.is_branch() => t,
         _ => return 0,
@@ -491,7 +607,7 @@ unsafe fn intersection_branch(ea: &Edge, eb: &Edge, level: u8) -> u64 {
         }
         // eb re-viewed one level shallower (still skipping, or now real).
         // SAFETY: ca and eb are live subtrees at level - 1.
-        return unsafe { intersection_len(&ca, eb, level - 1) };
+        return unsafe { F::intersection_len(&ca, eb, level - 1) };
     }
     let mut acc = 0u64;
     match t {
@@ -506,7 +622,7 @@ unsafe fn intersection_branch(ea: &Edge, eb: &Edge, level: u8) -> u64 {
                 let ca = unsafe { child_by_digit(ea, level, d as u8) };
                 if !ca.is_null() {
                     // SAFETY: ca, cb are live subtrees at level - 1.
-                    acc += unsafe { intersection_len(&ca, cb, level - 1) };
+                    acc += unsafe { F::intersection_len(&ca, cb, level - 1) };
                 }
             }
         }
@@ -523,7 +639,7 @@ unsafe fn intersection_branch(ea: &Edge, eb: &Edge, level: u8) -> u64 {
                 let ca = unsafe { child_by_digit(ea, level, d) };
                 if !ca.is_null() {
                     // SAFETY: ca, cb are live subtrees at level - 1.
-                    acc += unsafe { intersection_len(&ca, &cb, level - 1) };
+                    acc += unsafe { F::intersection_len(&ca, &cb, level - 1) };
                 }
                 from = if d == 255 {
                     None
@@ -542,7 +658,7 @@ unsafe fn intersection_branch(ea: &Edge, eb: &Edge, level: u8) -> u64 {
                 let ca = unsafe { child_by_digit(ea, level, d) };
                 if !ca.is_null() {
                     // SAFETY: ca, cb are live subtrees at level - 1.
-                    acc += unsafe { intersection_len(&ca, &cb, level - 1) };
+                    acc += unsafe { F::intersection_len(&ca, &cb, level - 1) };
                 }
             }
         }
@@ -556,7 +672,7 @@ unsafe fn intersection_branch(ea: &Edge, eb: &Edge, level: u8) -> u64 {
                 let ca = unsafe { child_by_digit(ea, level, d) };
                 if !ca.is_null() {
                     // SAFETY: ca, cb are live subtrees at level - 1.
-                    acc += unsafe { intersection_len(&ca, &cb, level - 1) };
+                    acc += unsafe { F::intersection_len(&ca, &cb, level - 1) };
                 }
             }
         }
@@ -572,8 +688,8 @@ unsafe fn intersection_branch(ea: &Edge, eb: &Edge, level: u8) -> u64 {
 /// # Safety
 ///
 /// Both edges must reference live subtrees covering the same `level`; not both
-/// are branches (that case is handled by [`intersection_branch`]).
-#[inline]
+/// are branches (that case is handled by [`intersection_branch_impl`]).
+#[inline(always)]
 unsafe fn intersection_terminal(ea: &Edge, eb: &Edge, level: u8) -> u64 {
     let mut ka_buf = [0u64; 256];
     let mut kb_buf = [0u64; 256];
@@ -602,14 +718,14 @@ unsafe fn intersection_terminal(ea: &Edge, eb: &Edge, level: u8) -> u64 {
     }
 }
 
-/// Intersection cardinality of two non-null subtrees covering the same
-/// expanse of `level` undecoded bytes. `eb` should be the smaller side.
+/// Inner generic implementation of intersection cardinality of two non-null
+/// subtrees covering the same expanse of `level` undecoded bytes.
 ///
 /// # Safety
 ///
-/// Both edges must reference live, well-formed subtrees at `level`, each
-/// pointer-tagged edge referencing a live node of its tagged type.
-pub(crate) unsafe fn intersection_len(ea: &Edge, eb: &Edge, level: u8) -> u64 {
+/// Same contract as [`intersection_len`].
+#[inline(always)]
+unsafe fn intersection_len_impl<F: AlgebraFlavor>(ea: &Edge, eb: &Edge, level: u8) -> u64 {
     debug_assert!(!ea.is_null() && !eb.is_null());
     let ta = ea.tag_byte();
     let tb = eb.tag_byte();
@@ -641,20 +757,21 @@ pub(crate) unsafe fn intersection_len(ea: &Edge, eb: &Edge, level: u8) -> u64 {
 
     if is_branch(ta) && is_branch(tb) {
         // SAFETY: both are live branches at `level`.
-        return unsafe { intersection_branch(ea, eb, level) };
+        return unsafe { intersection_branch_impl::<F>(ea, eb, level) };
     }
 
     // SAFETY: at least one terminal; both live at `level`.
     unsafe { intersection_terminal(ea, eb, level) }
 }
 
-/// Intersection cardinality of k non-null subtrees covering the same
-/// expanse of `level` undecoded bytes (#610).
+/// Inner generic implementation of intersection cardinality of k non-null
+/// subtrees covering the same expanse of `level` undecoded bytes (#610).
 ///
 /// # Safety
 ///
-/// All edges in `edges` must reference live, well-formed subtrees at `level`.
-pub(crate) unsafe fn intersection_len_many(edges: &[Edge], level: u8) -> u64 {
+/// Same contract as [`intersection_len_many`].
+#[inline(always)]
+unsafe fn intersection_len_many_impl<F: AlgebraFlavor>(edges: &[Edge], level: u8) -> u64 {
     // SAFETY: caller guarantees all edges in `edges` reference live, well-formed
     // subtrees covering `level` undecoded bytes.
     unsafe {
@@ -665,7 +782,8 @@ pub(crate) unsafe fn intersection_len_many(edges: &[Edge], level: u8) -> u64 {
             return subtree_count(&edges[0], level);
         }
         if edges.len() == 2 {
-            return intersection_len(&edges[0], &edges[1], level);
+            // SAFETY: caller guarantees both edges live at `level`.
+            return F::intersection_len(&edges[0], &edges[1], level);
         }
 
         // 1. Any null edge immediately means empty intersection.
@@ -718,7 +836,8 @@ pub(crate) unsafe fn intersection_len_many(edges: &[Edge], level: u8) -> u64 {
         };
 
         if active_edges.len() == 2 {
-            return intersection_len(&active_edges[0], &active_edges[1], level);
+            // SAFETY: both active edges live at `level`.
+            return F::intersection_len(&active_edges[0], &active_edges[1], level);
         }
 
         // 3. Check if all active edges reduce to a final-byte bitmap (real level 1):
@@ -798,13 +917,14 @@ pub(crate) unsafe fn intersection_len_many(edges: &[Edge], level: u8) -> u64 {
         }
 
         // 5. All active edges are branches.
-        intersection_branches_many(active_edges, level)
+        // SAFETY: active_edges contains only branches live at `level`.
+        intersection_branches_many_impl::<F>(active_edges, level)
     }
 }
 
 /// Intersection cardinality when all edges are branches covering `level`.
-#[inline]
-unsafe fn intersection_branches_many(edges: &[Edge], level: u8) -> u64 {
+#[inline(always)]
+unsafe fn intersection_branches_many_impl<F: AlgebraFlavor>(edges: &[Edge], level: u8) -> u64 {
     // SAFETY: caller guarantees all edges in `edges` reference live branch nodes at `level`.
     unsafe {
         let mut skipping_pd: Option<u8> = None;
@@ -849,7 +969,8 @@ unsafe fn intersection_branches_many(edges: &[Edge], level: u8) -> u64 {
                 }
                 &child_vec
             };
-            return intersection_len_many(children, level - 1);
+            // SAFETY: children are live subtrees at level - 1.
+            return F::intersection_len_many(children, level - 1);
         }
 
         // No branch skips this level. Pick branch with fewest active children.
@@ -911,7 +1032,8 @@ unsafe fn intersection_branches_many(edges: &[Edge], level: u8) -> u64 {
                 }
                 &child_vec
             };
-            intersection_len_many(children, level - 1)
+            // SAFETY: children are live subtrees at level - 1.
+            F::intersection_len_many(children, level - 1)
         };
 
         if driver_t == EdgeType::BranchL3 as u8 {
@@ -955,13 +1077,14 @@ unsafe fn intersection_branches_many(edges: &[Edge], level: u8) -> u64 {
     }
 }
 
-/// Union cardinality of k subtrees covering the same expanse of `level`
-/// undecoded bytes (#610).
+/// Inner generic implementation of union cardinality of k subtrees covering
+/// the same expanse of `level` undecoded bytes (#610).
 ///
 /// # Safety
 ///
-/// All non-null edges in `edges` must reference live subtrees at `level`.
-pub(crate) unsafe fn union_len_many(edges: &[Edge], level: u8) -> u64 {
+/// Same contract as [`union_len_many`].
+#[inline(always)]
+unsafe fn union_len_many_impl<F: AlgebraFlavor>(edges: &[Edge], level: u8) -> u64 {
     // SAFETY: caller guarantees all non-null edges in `edges` reference live
     // subtrees covering `level` undecoded bytes.
     unsafe {
@@ -1008,7 +1131,8 @@ pub(crate) unsafe fn union_len_many(edges: &[Edge], level: u8) -> u64 {
             }
             let ca = subtree_count(&active[0], level);
             let cb = subtree_count(&active[1], level);
-            let ci = intersection_len(&active[0], &active[1], level);
+            // SAFETY: active[0] and active[1] are live subtrees at `level`.
+            let ci = F::intersection_len(&active[0], &active[1], level);
             return ca + cb - ci;
         }
 
@@ -1089,17 +1213,18 @@ pub(crate) unsafe fn union_len_many(edges: &[Edge], level: u8) -> u64 {
             if !is_branch(e.tag_byte())
                 && let Some(n) = terminal_remainders_buf(e, level, &mut kbuf)
             {
-                let remaining: Vec<Edge> = active
-                    .iter()
-                    .enumerate()
-                    .filter(|&(idx, _)| idx != i)
-                    .map(|(_, &edge)| edge)
-                    .collect();
+                let keys = &kbuf[..n];
+                let mut remaining: Vec<Edge> = Vec::with_capacity(active.len() - 1);
+                for (j, other_e) in active.iter().enumerate() {
+                    if j != i {
+                        remaining.push(*other_e);
+                    }
+                }
                 let mut solo_keys = 0u64;
-                for &k in &kbuf[..n] {
+                for &k in keys {
                     let mut in_other = false;
-                    for other in &remaining {
-                        if get::test_set(other, k, level) {
+                    for rem_e in &remaining {
+                        if get::test_set(rem_e, k, level) {
                             in_other = true;
                             break;
                         }
@@ -1108,18 +1233,20 @@ pub(crate) unsafe fn union_len_many(edges: &[Edge], level: u8) -> u64 {
                         solo_keys += 1;
                     }
                 }
-                return solo_keys + union_len_many(&remaining, level);
+                // SAFETY: remaining edges live at `level`.
+                return solo_keys + F::union_len_many(&remaining, level);
             }
         }
 
         // 4. All active edges are branches.
-        union_branches_many(active, level)
+        // SAFETY: active contains only branches live at `level`.
+        union_branches_many_impl::<F>(active, level)
     }
 }
 
 /// Union cardinality when all edges are branches covering `level`.
-#[inline]
-unsafe fn union_branches_many(edges: &[Edge], level: u8) -> u64 {
+#[inline(always)]
+unsafe fn union_branches_many_impl<F: AlgebraFlavor>(edges: &[Edge], level: u8) -> u64 {
     // SAFETY: caller guarantees all edges in `edges` reference live branch nodes at `level`.
     unsafe {
         let mut digit_maps: [Bitmap256; 16] = [Bitmap256::new(); 16];
@@ -1166,7 +1293,8 @@ unsafe fn union_branches_many(edges: &[Edge], level: u8) -> u64 {
                 if count_present == 1 {
                     total += subtree_count(&child_buf[0], level - 1);
                 } else if count_present > 1 {
-                    total += union_len_many(&child_buf[..count_present], level - 1);
+                    // SAFETY: child_buf contains live subtrees at level - 1.
+                    total += F::union_len_many(&child_buf[..count_present], level - 1);
                 }
             } else {
                 child_vec = Vec::new();
@@ -1181,7 +1309,8 @@ unsafe fn union_branches_many(edges: &[Edge], level: u8) -> u64 {
                 if child_vec.len() == 1 {
                     total += subtree_count(&child_vec[0], level - 1);
                 } else if child_vec.len() > 1 {
-                    total += union_len_many(&child_vec, level - 1);
+                    // SAFETY: child_vec contains live subtrees at level - 1.
+                    total += F::union_len_many(&child_vec, level - 1);
                 }
             }
 
@@ -1193,5 +1322,223 @@ unsafe fn union_branches_many(edges: &[Edge], level: u8) -> u64 {
         }
 
         total
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Runtime feature dispatch & entry clones (x86-64 without compile-time popcnt)
+// ---------------------------------------------------------------------------
+
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+#[inline(never)]
+unsafe fn intersection_len_swar(ea: &Edge, eb: &Edge, level: u8) -> u64 {
+    // SAFETY: forwarded contract.
+    unsafe { intersection_len_impl::<SwarFlavor>(ea, eb, level) }
+}
+
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+#[target_feature(enable = "popcnt")]
+unsafe fn intersection_len_popcnt(ea: &Edge, eb: &Edge, level: u8) -> u64 {
+    // SAFETY: forwarded contract; caller verified popcnt CPUID support.
+    unsafe { intersection_len_impl::<PopcntFlavor>(ea, eb, level) }
+}
+
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+#[inline(never)]
+unsafe fn intersection_len_many_swar(edges: &[Edge], level: u8) -> u64 {
+    // SAFETY: forwarded contract.
+    unsafe { intersection_len_many_impl::<SwarFlavor>(edges, level) }
+}
+
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+#[target_feature(enable = "popcnt")]
+unsafe fn intersection_len_many_popcnt(edges: &[Edge], level: u8) -> u64 {
+    // SAFETY: forwarded contract; caller verified popcnt CPUID support.
+    unsafe { intersection_len_many_impl::<PopcntFlavor>(edges, level) }
+}
+
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+#[inline(never)]
+unsafe fn union_len_many_swar(edges: &[Edge], level: u8) -> u64 {
+    // SAFETY: forwarded contract.
+    unsafe { union_len_many_impl::<SwarFlavor>(edges, level) }
+}
+
+#[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+#[target_feature(enable = "popcnt")]
+unsafe fn union_len_many_popcnt(edges: &[Edge], level: u8) -> u64 {
+    // SAFETY: forwarded contract; caller verified popcnt CPUID support.
+    unsafe { union_len_many_impl::<PopcntFlavor>(edges, level) }
+}
+
+// ---------------------------------------------------------------------------
+// Crate-public cardinality entry points
+// ---------------------------------------------------------------------------
+
+/// Intersection cardinality of two non-null subtrees covering the same
+/// expanse of `level` undecoded bytes. `eb` should be the smaller side.
+///
+/// # Safety
+///
+/// Both edges must reference live, well-formed subtrees at `level`, each
+/// pointer-tagged edge referencing a live node of its tagged type.
+#[inline(always)]
+pub(crate) unsafe fn intersection_len(ea: &Edge, eb: &Edge, level: u8) -> u64 {
+    #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+    // SAFETY: contracts forwarded; `available()` gates the popcnt clone.
+    unsafe {
+        if crate::bits::popcnt_rt::available() {
+            intersection_len_popcnt(ea, eb, level)
+        } else {
+            intersection_len_swar(ea, eb, level)
+        }
+    }
+    #[cfg(any(not(target_arch = "x86_64"), target_feature = "popcnt"))]
+    {
+        // SAFETY: forwarded caller contract.
+        unsafe { intersection_len_impl::<NativeFlavor>(ea, eb, level) }
+    }
+}
+
+/// Intersection cardinality of k non-null subtrees covering the same
+/// expanse of `level` undecoded bytes (#610).
+///
+/// # Safety
+///
+/// All edges in `edges` must reference live, well-formed subtrees at `level`.
+#[inline(always)]
+pub(crate) unsafe fn intersection_len_many(edges: &[Edge], level: u8) -> u64 {
+    #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+    // SAFETY: contracts forwarded; `available()` gates the popcnt clone.
+    unsafe {
+        if crate::bits::popcnt_rt::available() {
+            intersection_len_many_popcnt(edges, level)
+        } else {
+            intersection_len_many_swar(edges, level)
+        }
+    }
+    #[cfg(any(not(target_arch = "x86_64"), target_feature = "popcnt"))]
+    {
+        // SAFETY: forwarded caller contract.
+        unsafe { intersection_len_many_impl::<NativeFlavor>(edges, level) }
+    }
+}
+
+/// Union cardinality of k subtrees covering the same expanse of `level`
+/// undecoded bytes (#610).
+///
+/// # Safety
+///
+/// All non-null edges in `edges` must reference live subtrees at `level`.
+#[inline(always)]
+pub(crate) unsafe fn union_len_many(edges: &[Edge], level: u8) -> u64 {
+    #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+    // SAFETY: contracts forwarded; `available()` gates the popcnt clone.
+    unsafe {
+        if crate::bits::popcnt_rt::available() {
+            union_len_many_popcnt(edges, level)
+        } else {
+            union_len_many_swar(edges, level)
+        }
+    }
+    #[cfg(any(not(target_arch = "x86_64"), target_feature = "popcnt"))]
+    {
+        // SAFETY: forwarded caller contract.
+        unsafe { union_len_many_impl::<NativeFlavor>(edges, level) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[allow(unused_imports)]
+    use super::*;
+    use crate::set::ExpanseSet;
+
+    #[test]
+    fn test_algebra_flavor_sanity() {
+        let mut sa = ExpanseSet::new();
+        let mut sb = ExpanseSet::new();
+        for i in 0..200u64 {
+            sa.insert(i);
+        }
+        for i in 100..250u64 {
+            sb.insert(i);
+        }
+
+        assert_eq!(sa.intersection_len(&sb), 100);
+        assert_eq!(sb.intersection_len(&sa), 100);
+        assert_eq!(sa.union_len(&sb), 250);
+        assert_eq!(ExpanseSet::intersection_len_many(&[&sa, &sb]), 100);
+        assert_eq!(ExpanseSet::union_len_many(&[&sa, &sb]), 250);
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
+    fn test_popcnt_swar_arm_parity() {
+        if !crate::bits::popcnt_rt::available() {
+            return;
+        }
+
+        let test_cases: Vec<(Vec<u64>, Vec<u64>)> = vec![
+            // Aligned level-1 bitmaps
+            ((0..200).collect(), (100..250).collect()),
+            // Disjoint bitmaps
+            ((0..100).collect(), (200..300).collect()),
+            // Multi-level branches
+            (
+                (0..5000).step_by(3).collect(),
+                (0..5000).step_by(5).collect(),
+            ),
+            // Wide sparse
+            (
+                vec![1, 1 << 16, 1 << 32, 1 << 48],
+                vec![1, 1 << 16, 1 << 40, 1 << 48],
+            ),
+        ];
+
+        for (ka, kb) in test_cases {
+            let mut sa = ExpanseSet::new();
+            for &k in &ka {
+                sa.insert(k);
+            }
+            let mut sb = ExpanseSet::new();
+            for &k in &kb {
+                sb.insert(k);
+            }
+
+            let ea = match sa.root_tree_edge() {
+                Some(top) => top,
+                None => continue,
+            };
+            let eb = match sb.root_tree_edge() {
+                Some(top) => top,
+                None => continue,
+            };
+
+            // SAFETY: top edges are live at level 8.
+            let swar_and = unsafe { intersection_len_swar(&ea, &eb, 8) };
+            // SAFETY: top edges are live at level 8; popcnt CPUID verified above.
+            let popcnt_and = unsafe { intersection_len_popcnt(&ea, &eb, 8) };
+            assert_eq!(swar_and, popcnt_and, "intersection_len parity mismatch");
+
+            let edges = [ea, eb];
+            // SAFETY: edges are live at level 8.
+            let swar_and_many = unsafe { intersection_len_many_swar(&edges, 8) };
+            // SAFETY: edges are live at level 8; popcnt CPUID verified above.
+            let popcnt_and_many = unsafe { intersection_len_many_popcnt(&edges, 8) };
+            assert_eq!(
+                swar_and_many, popcnt_and_many,
+                "intersection_len_many parity mismatch"
+            );
+
+            // SAFETY: edges are live at level 8.
+            let swar_or_many = unsafe { union_len_many_swar(&edges, 8) };
+            // SAFETY: edges are live at level 8; popcnt CPUID verified above.
+            let popcnt_or_many = unsafe { union_len_many_popcnt(&edges, 8) };
+            assert_eq!(
+                swar_or_many, popcnt_or_many,
+                "union_len_many parity mismatch"
+            );
+        }
     }
 }
