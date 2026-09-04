@@ -192,6 +192,7 @@ Bench targets deliberately **not** reachable from a slash command:
 4. **Roaring Bitmaps** (`roaring` / `croaring`) — integer set and posting list baseline.
 5. **Swiss Tables** (`hashbrown::HashMap`) — flat SIMD hash map baseline.
 6. **Concurrent Maps** (`crossbeam-skiplist`, `dashmap`, `parking_lot::RwLock<BTreeMap>`) — multithreaded scalability baseline.
+7. **HOT (Height Optimized Trie)** ([`speedskater/hot`](https://github.com/speedskater/hot), C++ through FFI) — height-optimized trie baseline. **Pre-registered, not yet measured**: hypothesis, expected losses and claims ceiling are locked in [`docs/benchmarks/hot_comparison/METHODOLOGY.md`](benchmarks/hot_comparison/METHODOLOGY.md); no suite figure exists yet ([#660](https://github.com/orieg/expanse/issues/660)).
 
 ## Methodology rules (binding)
 

@@ -67,7 +67,7 @@ This benchmark suite delivers a reproducible, empirical head-to-head evaluation 
    - For short range scans ($k=10$), ART outperforms Expanse (3.20 ns vs 7.20 ns, 2.09× faster) — classified as **UNPREDICTED LOSS (mechanism unmeasured)** *(workload: art_scan)*.
 
 5. **Unmeasured Regimes**:
-   - Small payloads ($\le 7$ keys, Immediates): **Not measured in this suite** (tracked in [#387](https://github.com/orieg/expanse/issues/387)).
+   - Small payloads ($\le 7$ keys, Immediates): **Not measured in this suite** (tracked in [#663](https://github.com/orieg/expanse/issues/663)).
 
 ---
 
