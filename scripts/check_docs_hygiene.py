@@ -562,14 +562,14 @@ def check_pending_cells(lines: list[tuple[int, str]], path_label: str = "") -> l
             span_after = text[m_pend.end(): m_pend.end() + 150]
             issues = [int(m.group(1)) for m in re.finditer(r"(?:#|issues/)(\d+)", span_after)]
             if not issues:
-                hits.append((n, "pending measurement statement carries no tracking issue citation (cite an open issue e.g. #382)"))
+                hits.append((n, "pending measurement statement carries no tracking issue citation — cite an OPEN tracking issue"))
                 break
             statuses = [get_issue_status(iss) for iss in issues]
             if "OPEN" in statuses:
                 continue
             if any(st == "CLOSED" for st in statuses):
                 closed_iss = [iss for iss, st in zip(issues, statuses) if st == "CLOSED"][0]
-                hits.append((n, f"pending cell cites CLOSED issue #{closed_iss} — update to an OPEN tracking issue (e.g. #382)"))
+                hits.append((n, f"pending cell cites CLOSED issue #{closed_iss} — update to an OPEN tracking issue"))
                 break
     return hits
 
