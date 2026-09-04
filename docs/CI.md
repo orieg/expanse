@@ -53,7 +53,7 @@ graph TD
 ### Core
 | Job | Name | Role |
 |---|---|---|
-| `lint` | Core / Linter & Formatting | `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, plus repo-consistency scripts: `bump_version.py --check` (multi-ecosystem version lockstep), `check_abi_parity.py` (C ABI symbol parity across bindings and pinned symbol floor ≥100), `check_deletion_rationale.py` (fail unrationalized file deletions vs base ref), `check_test_floors.py` (workspace test count floor ≥300), `check_ci_gate.py` (gate completeness), `check_bench_suites.py` (the `/bench` suite manifest against the workflow, the docs table, the crate `[[bench]]` targets, and each callgrind suite's `arms` declarations against the `library_benchmark_group!`s its bench source declares), and the `--self-test` suites of `perf_report.py`, `bench_report.py`, `check_docs_hygiene.py`, `check_bench_suites.py`, `check_man_pages.py`, `check_man_examples.py`, `check_abi_parity.py`, `check_deletion_rationale.py`, `check_test_floors.py` (so the §8.1 fail-loud and §8.2 no-hardcoded-prose assertions cannot rot). |
+| `lint` | Core / Linter & Formatting | `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, plus repo-consistency scripts: `bump_version.py --check` (multi-ecosystem version lockstep), `check_abi_parity.py` (C ABI symbol parity across bindings and pinned symbol floor ≥100), `check_deletion_rationale.py` (fail unrationalized file deletions vs base ref), `check_test_floors.py` (workspace test count floor ≥300), `check_ci_gate.py` (gate completeness), `check_bench_suites.py` (the `/bench` suite manifest against the workflow, the docs table, the crate `[[bench]]` targets, and each callgrind suite's `arms` declarations against the `library_benchmark_group!`s its bench source declares), `check_bench_shapes.py` (every timed harness declares its 11-field workload shape, and the generated audit table matches), `check_chart_themes.py` (shared chart CSS identical across the five suite `theme.py` copies; per-suite accents declared in `DIVERGENT`), `check_chart_layout.py` (generated charts: no text or bar overflowing its card, no text collision, no bar population pinned at a scale floor or ceiling), and the `--self-test` suites of `perf_report.py`, `bench_report.py`, `check_docs_hygiene.py`, `check_bench_suites.py`, `check_man_pages.py`, `check_man_examples.py`, `check_abi_parity.py`, `check_deletion_rationale.py`, `check_test_floors.py`, `check_chart_themes.py`, `check_chart_layout.py` (so the §8.1 fail-loud and §8.2 no-hardcoded-prose assertions cannot rot). |
 | `test` | Core / Workspace Tests (ubuntu / macOS / windows) | `cargo test --workspace --exclude expanse-php` across the three host OSes (glibc, Mach-O, PE/COFF ABI), with `PROPTEST_CASES=500` (AGENTS.md §5 gate 4). `expanse-php` needs PHP headers and is covered by `test-php` / `php-judy-*`. |
 | `test-aarch64` | Core / AArch64 Linux Tests & Callgrind (Neoverse N2) | `ubuntu-24.04-arm` native execution — hardware capability census (`lscpu`, `/proc/cpuinfo`, sysfs cache-line size), asserted rather than printed so a fleet rotation fails instead of silently invalidating `docs/HARDWARE.md` §2.6; full workspace tests (`PROPTEST_CASES=500`), C ABI drop-in verification, C++20 header tests, and a Callgrind instruction **regression gate** on AArch64: on pull requests the job benches the merge base (`--save-baseline=aarch64_smoke_base`, non-fatal), compares HEAD against it, and runs the same `perf_report.py --fail-on-regression --max-regression-pct 5.0` guard as `callgrind-smoke`, with the same `allow-regression: <reason>` override. NEON kernels already execute under the `test` job's `macos-latest` runner, which is arm64; what this lane adds is AArch64 **Linux/glibc** execution and Callgrind, which cannot run on macOS. |
 | `man-examples` | Docs / Man Page Examples Compile and Match | Builds the C ABI, compiles each man page's `EXAMPLES` program against it, runs it, and diffs stdout against the `Example Output` block the page documents. `check_man_pages.py` validates form (troff hygiene, symbol coverage) and cannot tell whether the prose is true — it passed a page whose example printed the 3rd key while claiming the 2nd. Compiling alone would not have caught it either: the wrong program compiled and exited 0. Pinning the output is what makes it a gate. |
@@ -123,6 +123,28 @@ graph TD
 | `ci-gate` | CI Gate / All Checks Passed | Runs `if: always()`, `needs:` all 36 other jobs, treats cleanly-skipped jobs as passing, and runs the completeness self-check. The **only** required branch-protection context. |
 
 ---
+
+### Workflows outside `ci.yml`
+
+`ci.yml` carries every job the `CI Gate` rolls up. These are separate workflows and are
+**not** part of that rollup, so none of them gates a PR:
+
+| Workflow | Triggers | What it is |
+|---|---|---|
+| [`bench_baremetal.yml`](../.github/workflows/bench_baremetal.yml) | `workflow_dispatch`, `issue_comment` | the `/bench` and `/benchmark <suite>` lane on the self-hosted x86-64 host |
+| [`bench_avx512.yml`](../.github/workflows/bench_avx512.yml) | `workflow_dispatch`, `issue_comment` | the AVX-512 kernel sweep; the reference host fuses AVX-512 off, so it needs the `avx512` runner |
+| [`bench_aarch64.yml`](../.github/workflows/bench_aarch64.yml) | `workflow_dispatch` | the `domain` suite on `macos-latest` (aarch64-apple-darwin). Report-only: a shared hosted runner cannot resolve the provenance-check overhead, so no parity ratio may be quoted from it |
+| [`nightly.yml`](../.github/workflows/nightly.yml) | `schedule`, `workflow_dispatch` | full Miri, ThreadSanitizer, the nightly bench report |
+| [`pages.yml`](../.github/workflows/pages.yml) | `push`, `workflow_dispatch` | builds and publishes the documentation site |
+| [`python.yml`](../.github/workflows/python.yml) | `push`, `release`, `workflow_dispatch` | the Python wheel matrix and its publish path |
+| [`release.yml`](../.github/workflows/release.yml) | `push`, `workflow_dispatch` | tagged release artifacts |
+| [`subsplit.yml`](../.github/workflows/subsplit.yml) | `push`, `workflow_dispatch` | pushes the read-only per-ecosystem subtree mirrors |
+
+A benchmark whose host the `/bench` runner cannot be gets its own workflow rather than a
+job inside `ci.yml`: a job there guarded by `if: github.event_name == 'workflow_dispatch'`
+is unreachable, because `ci.yml` has no such trigger. That is not hypothetical — it
+shipped that way and could never have run.
+
 
 ## 3. Scope-Based Fast Paths & Path Filtering
 
