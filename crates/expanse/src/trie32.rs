@@ -235,9 +235,22 @@ fn combine(digit: u8, child: u32, kb: u8) -> u32 {
 
 #[inline]
 fn read_rem(buf: &[u8], i: usize, kb: usize) -> u32 {
-    let mut b = [0u8; 4];
-    b[..kb].copy_from_slice(&buf[i * kb..i * kb + kb]);
-    u32::from_le_bytes(b)
+    // `kb` is a runtime 1..=4, so a slice copy of that length cannot be
+    // const-folded and lowers to a libc `memcpy` CALL -- for a 1-4 byte read,
+    // once per key, on every 32-bit target. The match gives each width a
+    // constant length so it inlines. Do not "simplify" this back.
+    //
+    // `write_rem` deliberately keeps the slice copy: the same rewrite there
+    // regressed the wasm insert arms (set_insert/random +5.53%,
+    // map_insert/random +3.31%), where a bulk-memory instruction has no call
+    // overhead to remove and the branch ladder is pure addition.
+    let o = i * kb;
+    match kb {
+        1 => u32::from(buf[o]),
+        2 => u32::from(u16::from_le_bytes([buf[o], buf[o + 1]])),
+        3 => u32::from_le_bytes([buf[o], buf[o + 1], buf[o + 2], 0]),
+        _ => u32::from_le_bytes([buf[o], buf[o + 1], buf[o + 2], buf[o + 3]]),
+    }
 }
 
 #[inline]
