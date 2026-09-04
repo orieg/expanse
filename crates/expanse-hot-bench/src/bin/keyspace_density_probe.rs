@@ -37,6 +37,44 @@ fn build(n: usize, mask: u64) -> (usize, usize) {
     (s.len() as usize, s.mem_used())
 }
 
+/// Sweeps the non-random distributions across the same N range.
+///
+/// §9.5 of the suite methodology derives, from the generators, that these three
+/// have construction-fixed expanse occupancy and so do not move with density —
+/// `sparse` in particular puts the top two key bytes at `i >> 8`, giving exactly
+/// 256 keys per 2-byte expanse at any N. This is the measurement that checks the
+/// derivation rather than trusting it.
+fn sweep_shapes() {
+    println!("\nDistribution anchors across N (set flavor, mem_used B/key)");
+    println!(
+        "{:>10} {:>12} {:>12} {:>12}",
+        "N", "sequential", "clustered", "sparse i<<40"
+    );
+    for n in [100_000usize, 400_000, 1_000_000, 2_000_000] {
+        let mut row = Vec::new();
+        for dist in ["sequential", "clustered", "sparse"] {
+            let mut s = ExpanseSet::new();
+            let mut rng = XorShift(0x0DDB_1A5E_5EED_0001);
+            let mut base = 0u64;
+            for i in 0..n as u64 {
+                let k = match dist {
+                    "sequential" => i,
+                    "sparse" => i << 40,
+                    _ => {
+                        if i % 256 == 0 {
+                            base = rng.next() & !0xFF;
+                        }
+                        base + (i % 256)
+                    }
+                };
+                s.insert(k);
+            }
+            row.push(s.mem_used() as f64 / s.len() as f64);
+        }
+        println!("{n:>10} {:>12.2} {:>12.2} {:>12.2}", row[0], row[1], row[2]);
+    }
+}
+
 fn main() {
     // Forces the shim object to be linked. build.rs emits `-Wl,--wrap=...` for
     // every binary in this crate, but the wrappers live in the shim, so a

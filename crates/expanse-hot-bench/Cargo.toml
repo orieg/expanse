@@ -42,3 +42,7 @@ codegen-units = 1
 [[bin]]
 name = "keyspace_density_probe"
 path = "src/bin/keyspace_density_probe.rs"
+
+[[bin]]
+name = "hot_memory_curve"
+path = "src/bin/hot_memory_curve.rs"
