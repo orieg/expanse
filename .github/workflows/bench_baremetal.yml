@@ -703,6 +703,18 @@ jobs:
           # refuse every later run.
           trap 'rm -rf "${BENCH_LOCK}"' EXIT INT TERM
 
+          # Core pin (#639). The reference host is a hybrid part, and every
+          # benchmark below is a child of this shell, so setting the affinity
+          # once here covers all of them — including one added later, which is
+          # the point: the pin is a property of the runner, not of each
+          # invocation. `scripts/perf_counters.py` has always pinned its
+          # workload; the wall-clock arms did not, and on this host an arm that
+          # lands on an efficiency core measures 1.576x the P-core time with no
+          # widening of the interval to say so. A uniform runner gets no pin.
+          # This must stay inside this step: CPU affinity is per-process and
+          # does not survive into the next one.
+          . "$GITHUB_WORKSPACE/scripts/bench_pin.sh"
+
           # Detect / resolve base_ref if not explicitly provided
           if [ -z "$BASE_REF" ]; then
             BASE_REF=$(git merge-base origin/main "$REF" 2>/dev/null || echo "")

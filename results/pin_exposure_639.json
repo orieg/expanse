@@ -1,0 +1,71 @@
+{
+ "schema": "expanse.pin_exposure.v1",
+ "kind": "wall_clock_core_placement",
+ "issue": "https://github.com/orieg/expanse/issues/639",
+ "question": "What does core placement cost a wall-clock arm on the hybrid reference host, measured before the wall-clock lane was pinned?",
+ "provenance": {
+  "host_description": "12th Gen Intel Core i9-12900F (8 P-cores / 16 threads at 5.0-5.1 GHz on CPUs 0-15, 8 E-cores at 3.8 GHz on CPUs 16-23, 24 logical CPUs, 30 MiB L3, Linux 6.8)",
+  "commit": "c4b1817",
+  "toolchain": "rustc 1.98.1",
+  "run_id": "local: bare-metal reference host, interactive session",
+  "os": "linux",
+  "arch": "x86_64",
+  "load_average_during_session": "0.00-1.21 (host idle throughout)"
+ },
+ "workload": {
+  "workload_id": "domain_interned_set",
+  "harness": "crates/expanse/benches/domain.rs",
+  "invocation": "cargo bench -p expanse-trie --bench domain -- --measurement-time 5 --warm-up-time 2",
+  "arm": "domain_set_algebra_overhead/raw_expanse_set_intersection/100000",
+  "design": "three conditions interleaved P / unpinned / E within each round, 6 rounds"
+ },
+ "statistics": {
+  "estimator": "mean of the 6 per-round criterion means (ns)",
+  "method": "percentile bootstrap over the 6 round means",
+  "confidence": 0.95,
+  "not_bca_over_pooled_samples": true,
+  "limitation": "Only the per-round summaries were retained from the session; the per-iteration criterion samples were not. This file therefore records summary statistics, not raw data, and cannot be re-bootstrapped at a different confidence or re-analysed per iteration. It is published as the resolvable source for the figures quoted in docs/BENCHMARKING.md rule 2 rather than as a re-analysable baseline; scripts/pin_exposure.py is what produces the re-analysable form."
+ },
+ "arms": [
+  {
+   "condition": "p_cores",
+   "pin": "taskset -c 0-15",
+   "n_rounds": 6,
+   "mean_ns": 16575.3,
+   "cv_pct": 0.27,
+   "ci95": [16549.0, 16611.7]
+  },
+  {
+   "condition": "unpinned",
+   "pin": null,
+   "n_rounds": 6,
+   "mean_ns": 16603.5,
+   "cv_pct": 0.52,
+   "ci95": [16547.2, 16670.5]
+  },
+  {
+   "condition": "e_cores",
+   "pin": "taskset -c 16-23",
+   "n_rounds": 6,
+   "mean_ns": 26117.3,
+   "cv_pct": 0.24,
+   "ci95": [26072.3, 26164.0]
+  }
+ ],
+ "derived": [
+  {
+   "ratio": "e_cores / p_cores",
+   "value": 1.576,
+   "intervals": "separated",
+   "reading": "The exposure ceiling. Larger than the 5.1/3.8 GHz clock ratio of 1.34 alone predicts; the residual is unmeasured, since no counter run separates frequency from per-cycle throughput on the E-cores."
+  },
+  {
+   "ratio": "unpinned / p_cores",
+   "value": 1.0017,
+   "intervals": "overlapping",
+   "reading": "Indistinguishable. On an idle host the scheduler kept the work on the P-cores, so the hazard did not fire in these 6 rounds. This is not evidence that it cannot fire: placement depends on what else the host is doing."
+  }
+ ],
+ "verdict": "OVERLAP_BUT_PINNED",
+ "reading": "The unpinned and P-core intervals overlap, so the defect was not firing on an idle host and no published figure is withdrawn on this evidence. The wall-clock arms are pinned regardless: the interval is blind to this failure mode, staying narrow when no migration happens and narrow and wrong when one does, and the pin costs nothing measurable because P-only is what the idle host already does."
+}
