@@ -52,24 +52,11 @@ DIVERGENT: dict[str, str] = {
     ".badge-loss": "per-suite badge weight",
     ".badge-loss-text": "per-suite badge weight",
 
-    # UNREVIEWED. Recorded so the gate is green and the divergence is stated
-    # rather than hidden (AGENTS.md 8.1). These are NOT endorsed: each needs a
-    # decision, and resolving one re-renders that suite's committed charts,
-    # which is why this gate does not do it silently.
-    #
-    # `.b-expanse` is the project's own brand colour and has two variants across
-    # five suites -- the charts do not agree on what Expanse looks like.
-    #
-    # The five text classes all diverge in exactly ONE suite, llm_inference,
-    # which runs ~0.5px larger on every one of them while the other four agree
-    # exactly. Either a deliberate choice for that suite's denser charts, or a
-    # bump that landed in one copy of five.
-    ".b-expanse": "UNREVIEWED, BRAND: 2 variants across 5 suites",
-    ".t-title": "UNREVIEWED: llm_inference 12px, the other four 11.5px",
-    ".t-sub": "UNREVIEWED: llm_inference 10.5px, the other four 10px",
-    ".t-bar-label": "UNREVIEWED: llm_inference 12px, the other four 11px",
-    ".t-legend": "UNREVIEWED: llm_inference 11px, the other four 10.5px",
-    ".t-axis-label": "UNREVIEWED: llm_inference 10px, the other four 9.5px",
+    # The six entries that stood here -- .b-expanse plus five text classes --
+    # were llm_inference diverging from the other four. Both were introduced
+    # together when that suite's theme was created (#342) and are resolved in
+    # #656: the brand colour was the competitor blue, and the competitor's own
+    # bar held the brand green. Enforced now rather than tolerated.
 }
 
 RULE_RE = re.compile(r"^\s*((?:\.|:root|\[data-theme)[^\{]*?)\s*\{\{(.*?)\}\}\s*$", re.M)
