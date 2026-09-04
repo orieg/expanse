@@ -152,14 +152,29 @@ def self_test() -> int:
         errs, _ = check(root)
         assert any(".bg" in e for e in errs), f"drifted shared rule must fail, got {errs!r}"
 
-        # A selector listed in DIVERGENT warns instead of failing.
+        # A selector listed in DIVERGENT warns instead of failing. `.badge-win`
+        # is a legitimate per-suite accent and is still listed; `.b-expanse` was
+        # used here until #656 resolved it, at which point this fixture asserted
+        # the opposite of what the gate now enforces and failed -- which is the
+        # gate working, and the reason a DIVERGENT example must be one that is
+        # still declared.
+        for suite, fill in (("alpha", "#111"), ("beta", "#222")):
+            p = root / "docs" / "benchmarks" / suite / "scripts" / "theme.py"
+            p.write_text(f'x = f"""\n  .bg {{{{ fill: #fff; }}}}\n  .badge-win {{{{ fill: {fill}; }}}}\n"""\n')
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        errs, warns = check(root)
+        assert not errs, f"DIVERGENT selector must not be fatal, got {errs!r}"
+        assert any(".badge-win" in w for w in warns), f"...but must warn, got {warns!r}"
+
+        # ...and a selector NO LONGER in DIVERGENT is fatal. .b-expanse was
+        # tolerated before #656; it is enforced now.
         for suite, fill in (("alpha", "#111"), ("beta", "#222")):
             p = root / "docs" / "benchmarks" / suite / "scripts" / "theme.py"
             p.write_text(f'x = f"""\n  .bg {{{{ fill: #fff; }}}}\n  .b-expanse {{{{ fill: {fill}; }}}}\n"""\n')
         subprocess.run(["git", "add", "-A"], cwd=root, check=True)
-        errs, warns = check(root)
-        assert not errs, f"DIVERGENT selector must not be fatal, got {errs!r}"
-        assert any(".b-expanse" in w for w in warns), f"...but must warn, got {warns!r}"
+        errs, _ = check(root)
+        assert any(".b-expanse" in e for e in errs), (
+            f"the brand colour must be enforced, not tolerated; got {errs!r}")
 
     print("check_chart_themes.py --self-test: all checks passed")
     return 0
