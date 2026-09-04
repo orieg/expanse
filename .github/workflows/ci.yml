@@ -2162,11 +2162,16 @@ jobs:
 
   bench-domain-aarch64:
     name: Bench / Domain on aarch64 (indicative)
-    needs: [detect-changes]
-    if: needs.detect-changes.outputs.rust-src == 'true' || github.event_name != 'pull_request'
+    # Opt-in only: `workflow_dispatch`, or the nightly schedule. It ran on every
+    # rust-src PR in the first draft, which is wrong for a report-only wall-clock
+    # arm -- it gates nothing, its numbers move run to run, and it would spend
+    # ~20 minutes of macOS runner time per PR to produce a figure no one may
+    # read. The aarch64 lane that DOES gate is `test-aarch64` (Neoverse N2,
+    # Callgrind `smoke_instructions`, deterministic, with a regression guard).
+    if: github.event_name == 'workflow_dispatch'
     # macos-latest is Apple Silicon, i.e. aarch64-apple-darwin -- the platform
     # the provenance withdrawn in #646 had claimed. #649 re-measured these arms
-    # on one x86-64 host and took no aarch64 arm at all; this closes that.
+    # on one x86-64 host and took no aarch64 WALL-CLOCK arm; this closes that.
     runs-on: macos-latest
     timeout-minutes: 25
     steps:

@@ -57,6 +57,7 @@ suite is visible rather than silently absent from this index.
 | `comparative` | wall-clock | Wall-clock head-to-head against hashbrown / BTreeMap, with the `bench_report.py --quick` markdown table. |
 | `compare` | wall-clock | Standing container comparison harness across the core map and set types. |
 | `concurrency` | wall-clock | `Sync*` wall-clock scaling instrument on a reduced thread/workload sweep; report-only, never gating. |
+| `domain_aarch64` | wall-clock | Interned set domain on aarch64-apple-darwin, wall clock. Indicative cross-architecture check on the ingestion and resolution results; gates nothing. |
 | `extended` | Callgrind | Everything in `all`, plus the multi-population scaling sweep and the microarchitecture target-CPU matrix (`bench_report.py --extended --arch-sweep`). |
 | `instructions` | Callgrind | Core deterministic Callgrind instruction counters plus the 64-bit and 32-bit B/key examples, dual-pass against the base ref. |
 | `large_values` | wall-clock | Blob-arena storage paths for values above the immediate capacity. |
