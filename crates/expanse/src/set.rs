@@ -719,14 +719,21 @@ impl ExpanseSet {
         }
     }
 
+    /// The trie root edge when the root is a level-8 trie, or `None` if flat leaf/empty.
+    #[inline]
+    pub(crate) fn root_tree_edge(&self) -> Option<Edge> {
+        self.flush_path();
+        match &self.root {
+            Root::Tree { top, .. } => Some(*top),
+            _ => None,
+        }
+    }
+
     /// The trie root edge for cursor seeks, or `Edge::NULL` when the root is a
     /// flat leaf / empty (cursor seeks then stay leaf-local).
     #[inline]
     fn cursor_top(&self) -> Edge {
-        match &self.root {
-            Root::Tree { top, .. } => *top,
-            _ => Edge::NULL,
-        }
+        self.root_tree_edge().unwrap_or(Edge::NULL)
     }
 
     /// Creates a stateful forward [`SetCursor`](crate::cursor::SetCursor) for

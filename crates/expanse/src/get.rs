@@ -447,7 +447,7 @@ pub unsafe fn test_set(edge: &Edge, key: Key, level: u8) -> bool {
 /// Same contract as [`test_set`].
 #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
 #[inline(never)]
-unsafe fn test_set_swar(edge: &Edge, key: Key, level: u8) -> bool {
+pub(crate) unsafe fn test_set_swar(edge: &Edge, key: Key, level: u8) -> bool {
     // SAFETY: forwarded caller contract.
     unsafe { walk_set_impl(edge, key, level) }
 }
@@ -460,7 +460,7 @@ unsafe fn test_set_swar(edge: &Edge, key: Key, level: u8) -> bool {
 /// Same contract as [`test_set`]; the CPU must support `popcnt`.
 #[cfg(all(target_arch = "x86_64", not(target_feature = "popcnt")))]
 #[target_feature(enable = "popcnt")]
-unsafe fn test_set_popcnt(edge: &Edge, key: Key, level: u8) -> bool {
+pub(crate) unsafe fn test_set_popcnt(edge: &Edge, key: Key, level: u8) -> bool {
     // SAFETY: contract forwarded; the `inline(always)` body adopts the
     // feature, bitmap ranks included.
     unsafe { walk_set_impl(edge, key, level) }
