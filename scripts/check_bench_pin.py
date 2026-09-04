@@ -45,11 +45,14 @@ WORKFLOWS = [
     ".github/workflows/bench_avx512.yml",
 ]
 
-# Suites whose timed region is not on this host's CPUs at all. The exemption is
-# per-suite and carries its reason here; it is not a way to opt out of the pin
-# for a host-side wall-clock arm.
+# Suites the pin cannot help, for one of two reasons: the timed region is not on
+# this host's CPUs at all, or the suite's published metric is not wall clock in
+# the first place. The exemption is per-suite and carries its reason here; it is
+# not a way to opt out of the pin for a host-side wall-clock arm.
 EXEMPT_SUITES = {
     "stm32h747": "on-device timing — the measured region runs on the MCU, not on a host core",
+    "wasm": "deterministic fuel counts — wasm_fuel.py publishes exact wasmtime fuel integers, "
+            "which do not vary with the core that executes them; the suite times nothing",
 }
 
 # `. "$REPO_ROOT/scripts/bench_pin.sh"` and `source .../bench_pin.sh` both count.
