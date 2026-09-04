@@ -141,6 +141,12 @@ Distributions: sequential, clustered, sparse stride, uniform random, Zipfian —
 
 ## 5. Expected-Losses Matrix
 
+> **Amended by §9.5.** Every memory prediction below is stated at a population.
+> Population alone does not identify a memory cell for this engine — expanse
+> occupancy does — so the memory rows are re-expressed in §9.5 and the
+> sparse-stride row's confidence is downgraded there. The latency rows stand.
+
+
 Registered before measurement. A suite that predicts only wins is not pre-registered.
 Confidence is the pre-registration's own, not a measured quantity.
 
@@ -456,3 +462,57 @@ it is in the wrong place.* §3.2 already did this correctly for HOT's
 process-global `MemoryPool` — instrumenting on HOT's side rather than changing
 what both arms measure — so the precedent was in this file before §3.1 was
 written.
+
+
+### 9.5 Memory predictions are re-expressed at a density, not a population
+
+§9.4 established that per-key cost for this engine is governed by expanse
+occupancy, `λ = N / (populated 2-byte-prefix expanses)`, and that `LEAF_CAP`
+sets a cascade the curve crosses. A memory prediction stated at a population is
+therefore under-specified: two cells with the same declared `population` can sit
+on opposite sides of the cascade, and two with different populations can be the
+same measurement. §5's memory rows are re-expressed accordingly.
+
+**Density is a required workload-shape field for this suite.** Every memory cell
+declares `λ` alongside `population` and `keyspace_width`, and no two memory cells
+are compared unless their `λ` is stated. This is a §8.12 field for the suite's
+harnesses, not a repo-wide change.
+
+**Which anchors move and which do not.** The distinction is derivable from the
+generators, not a matter of measurement luck:
+
+| Distribution | Generator | λ | Density-dependent? |
+|---|---|---|---|
+| `sequential` | `i` | dense, contiguous | No — fully packed regardless of N |
+| `clustered` | `base + (i % 256)`, `base` random | 256 per cluster | No — cluster size fixes it |
+| `sparse` | `i << 40` | **256 exactly** (top two bytes are `i >> 8`, so each expanse holds 256 consecutive keys) | No — 8× above `LEAF_CAP`, permanently cascaded |
+| `random` | full-width draw | `N / 2^w` | **Yes** — this is the only one that moves |
+
+That also explains the `sparse` anchor's stability at `16.83 / 16.32 / 16.31`
+across three decades of N: at λ=256 every expanse is past the cascade, so the
+cost is one 16-byte edge per key at any population. It is the **saturated**
+regime, not a lower bound on the structure — `random` measures 7.92 B/key below
+it when λ sits under `LEAF_CAP`. Whether the flatness continues past 1M is
+**not measured** (the build host became unreachable before that sweep completed);
+the derivation above predicts it does, and the three committed cells are
+consistent with it.
+
+**§5.1's sparse-stride row is downgraded from High to Low confidence**, for a
+reason unrelated to density. It compares `ExpanseSet` on *sparse stride*
+(16.31 B/key) against HOT's Step-0 figure of 10.54 B/key, which was measured on
+*sequential* keys — the paragraph carries the `(workloads differ: …)` tag, but
+the prediction's confidence was set as though the two were comparable. It rests
+on an untested assumption that HOT's footprint is roughly distribution-invariant.
+No HOT figure on sparse keys exists yet. The row stands as a registered
+prediction; its confidence does not.
+
+**§5.1's and §5.2's uniform-random memory rows** are re-expressed at λ rather
+than N. The registered direction is unchanged; what changes is that a cell is
+only evaluable against a prediction at the same λ. The pre-registered headline
+N=10^6 at 64 bits is λ=15.26, 48% of `LEAF_CAP` — deliberately recorded, because
+it is a trough, and a suite that published only that point would be sampling the
+curve at its most flattering position for Expanse.
+
+The latency, insert and scan predictions are untouched: nothing measured here
+shows those to be density-governed, and asserting it without measurement is the
+error §8.9 forbids.
