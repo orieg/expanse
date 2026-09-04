@@ -82,7 +82,7 @@
   <rect width="100%" height="100%" class="border" rx="8"/>
 
   <text x="30" y="28" class="t-title">SET ALGEBRA &amp; INTERNED SET DOMAIN BENCHMARK SUITE</text>
-  <text x="30" y="44" class="t-sub">Direct emission (#348), k-way aggregate walk (#610), and interned domain zero-overhead (#611)</text>
+  <text x="30" y="44" class="t-sub">Direct emission (#348), k-way aggregate walk (#610), and the interned domain provenance check (#611)</text>
   <g transform="translate(610, 18)">
     <rect x="0" y="0" width="12" height="12" rx="2" class="b-expanse"/>
     <text x="16" y="10" class="t-legend">Expanse (v2 / k-Way)</text>
@@ -184,24 +184,25 @@
   <!-- Panel 2: Interned Set Domain (#611) -->
   <g transform="translate(30, 354)">
     <text x="0" y="10" class="t-chart-title">3. INTERNED SET DOMAIN: PARITY, INGESTION &amp; RESOLUTION (#611)</text>
-    <text x="0" y="24" class="t-sub">Branded DomainSet zero-overhead verification, batched prefix-trie ingestion, and zero-copy slab resolution</text>
+    <text x="0" y="24" class="t-sub">Branded DomainSet provenance-check cost, batched prefix-trie ingestion, and zero-copy slab resolution</text>
     <!-- 2A: Parity Card -->
     <g transform="translate(0, 36)">
       <rect x="0" y="0" width="285" height="172" class="b-card"/>
       <text x="14" y="20" class="t-bar-label">Algebra Provenance Overhead</text>
-      <text x="14" y="34" class="t-unit">Raw ExpanseSet vs DomainSet (N=100k)</text>
+      <text x="14" y="34" class="t-unit">Raw ExpanseSet vs DomainSet (N=10k)</text>
       <line x1="14" y1="43" x2="271" y2="43" class="divider"/>
-      <text x="14" y="60" class="t-bar-label">intersection() <tspan class="t-sub">(direct emission)</tspan></text>
-      <text x="14" y="76" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">9.7 µs</tspan></text>
-      <text x="14" y="90" class="t-sub">DomainSet brand: <tspan class="t-val-green">9.7 µs</tspan></text>
+      <text x="14" y="60" class="t-bar-label">intersection() <tspan class="t-sub">(N=10k, direct emission)</tspan></text>
+      <text x="14" y="76" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">1.82 µs</tspan></text>
+      <text x="14" y="90" class="t-sub">DomainSet brand: <tspan class="t-val-green">1.86 µs</tspan></text>
   <rect x="170" y="68" width="102" height="17" class="badge-win"/>
-  <text x="221.0" y="80.0" class="badge-win-text">&lt;100 ns difference</text>
+  <text x="221.0" y="80.0" class="badge-win-text">+2.5% overhead</text>
       <line x1="14" y1="103" x2="271" y2="103" class="grid"/>
-      <text x="14" y="121" class="t-bar-label">intersection_len() <tspan class="t-sub">(count only)</tspan></text>
-      <text x="14" y="137" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">1.09 µs</tspan></text>
-      <text x="14" y="151" class="t-sub">DomainSet brand: <tspan class="t-val-green">1.09 µs</tspan></text>
+      <text x="14" y="121" class="t-bar-label">intersection_len() <tspan class="t-sub">(N=10k, count only)</tspan></text>
+      <text x="14" y="137" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">326 ns</tspan></text>
+      <text x="14" y="151" class="t-sub">DomainSet brand: <tspan class="t-val-green">342 ns</tspan></text>
   <rect x="170" y="129" width="102" height="17" class="badge-win"/>
-  <text x="221.0" y="141.0" class="badge-win-text">&lt;10 ns difference</text>
+  <text x="221.0" y="141.0" class="badge-win-text">+4.9% overhead</text>
+      <text x="14" y="168" class="t-note">N=100k: ratio 1.0003 [0.9964, 1.0045] &#8212; not resolved; base cost dominates.</text>
     </g>
     <!-- 2B: Ingestion Card -->
     <g transform="translate(300, 36)">
@@ -212,18 +213,18 @@
       <text x="14" y="60" class="t-bar-label">Text Keys (user:...)</text>
   <rect x="212" y="50" width="89" height="17" class="badge-win"/>
   <text x="256.5" y="62.0" class="badge-win-text">3.12x faster</text>
-      <rect x="14" y="68" width="71.4" height="8" rx="1.5" class="b-expanse"/>
-      <text x="90.4" y="75.5" class="t-val-green">Batch 128: 4.62 M/s</text>
-      <rect x="14" y="79" width="22.9" height="8" rx="1.5" class="b-v1"/>
-      <text x="41.9" y="86.5" class="t-val-muted">Scalar: 1.48 M/s</text>
+      <rect x="14" y="68" width="180.7" height="8" rx="1.5" class="b-expanse"/>
+      <text x="199.7" y="75.5" class="t-val-green">Batch 128: 11.69 M/s</text>
+      <rect x="14" y="79" width="175.6" height="8" rx="1.5" class="b-v1"/>
+      <text x="194.6" y="86.5" class="t-val-muted">Scalar: 11.36 M/s</text>
       <line x1="14" y1="103" x2="301" y2="103" class="grid"/>
       <text x="14" y="121" class="t-bar-label">Binary UUID (NUL-escaped)</text>
   <rect x="212" y="111" width="89" height="17" class="badge-win"/>
   <text x="256.5" y="123.0" class="badge-win-text">3.08x faster</text>
-      <rect x="14" y="129" width="61.5" height="8" rx="1.5" class="b-expanse"/>
-      <text x="80.5" y="136.5" class="t-val-green">Batch 128: 3.98 M/s</text>
-      <rect x="14" y="140" width="19.9" height="8" rx="1.5" class="b-v1"/>
-      <text x="38.9" y="147.5" class="t-val-muted">Scalar: 1.29 M/s</text>
+      <rect x="14" y="129" width="88.9" height="8" rx="1.5" class="b-expanse"/>
+      <text x="107.9" y="136.5" class="t-val-green">Batch 128: 5.75 M/s</text>
+      <rect x="14" y="140" width="87.9" height="8" rx="1.5" class="b-v1"/>
+      <text x="106.9" y="147.5" class="t-val-muted">Scalar: 5.69 M/s</text>
     </g>
     <!-- 2C: Resolution Card -->
     <g transform="translate(630, 36)">
@@ -231,10 +232,10 @@
       <text x="14" y="20" class="t-bar-label">Zero-Copy Slab Resolution</text>
       <text x="14" y="34" class="t-unit">resolve() direct slice iteration</text>
       <line x1="14" y1="43" x2="256" y2="43" class="divider"/>
-      <text x="14" y="78" class="t-chart-title" style="font-size: 26px; font-weight: 800; fill: #15803d;">16.4 M</text>
+      <text x="14" y="78" class="t-chart-title" style="font-size: 26px; font-weight: 800; fill: #15803d;">604.4 M</text>
       <text x="115" y="72" class="t-bar-label" style="font-size: 13px; font-weight: 700;">keys / sec</text>
       <text x="115" y="86" class="t-sub">throughput</text>
-      <text x="14" y="106" class="t-sub">Latency: <tspan class="t-val-green">61.0 ns / key</tspan> amortized scan</text>
+      <text x="14" y="106" class="t-sub">Latency: <tspan class="t-val-green">1.7 ns / key</tspan> amortized scan</text>
       <line x1="14" y1="118" x2="256" y2="118" class="grid"/>
       <text x="14" y="136" class="t-bar-label">Zero Heap Allocation</text>
       <text x="14" y="150" class="t-sub">Borrows &amp;[u8] directly from stable chunk</text>
@@ -244,7 +245,7 @@
 
   <line x1="30" y1="585" x2="930" y2="585" class="divider"/>
   <text x="30" y="601" class="t-note">Panels 1-2: search_boolean.rs (#348, #610) &#183; host and commit unresolved in the source dataset — not re-measured</text>
-  <text x="30" y="615" class="t-note">Panel 3: domain.rs (#611) &#183; host and commit unresolved in the source dataset — not re-measured</text>
+  <text x="30" y="615" class="t-note">Panel 3: domain.rs (#611) &#183; reference host - Intel i9-12900F, 24 threads, 62 GiB, Ubuntu 24.04 / kernel 6.8, rustc 1.98.0; quiet, continuous 2s contamination sampling, all reps CLEAN</text>
   <text x="30" y="629" class="t-note">Two harnesses, separate runs: the panels are NOT a paired comparison and no ratio across them is valid.</text>
   <text x="30" y="643" class="t-note">Source: docs/DATABASE.md §4.3; suite: docs/benchmarks/set_algebra/</text>
   <text x="30" y="657" class="t-note">Parity badges state the resolution bound the recorded values support, not an exact zero; no instruction-count measurement of these arms exists.</text>
