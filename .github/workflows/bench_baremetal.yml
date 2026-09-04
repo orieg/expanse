@@ -36,6 +36,7 @@ on:
           - point_lookup_counters
           - search_instructions
           - smoke_instructions
+          - domain
           - search_boolean
           - search_wand
           - search_memory

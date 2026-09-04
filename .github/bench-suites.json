@@ -204,6 +204,15 @@
       "summary": "Scaled-down Callgrind smoke counters, dual-pass against the base ref. The same instrument as the `callgrind-smoke` CI job, on the reference host."
     },
     {
+      "name": "domain",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "domain",
+      "summary": "Interned set domain: posting-list algebra zero-overhead, ingestion, and zero-copy resolution."
+    },
+    {
       "name": "search_boolean",
       "available": true,
       "kind": "wallclock",

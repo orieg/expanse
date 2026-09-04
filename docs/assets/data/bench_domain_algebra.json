@@ -1,0 +1,115 @@
+{
+  "_readme": "Source data for docs/assets/bench_domain_algebra.svg rendered by scripts/generate_domain_algebra_svg.py. Every value here must resolve to a committed benchmark or cited reference run (AGENTS.md §8.7).",
+  "meta": {
+    "source": "docs/DATABASE.md §4.3, benches/domain.rs, benches/search_boolean.rs",
+    "host": "Apple Silicon (aarch64-apple-darwin, 8 cores) / reference Linux x86_64",
+    "commit": "343ce333",
+    "harness": "benches/domain.rs + benches/search_boolean.rs",
+    "note": "Presents set algebra evolution (#348 materialization, #610 k-way aggregate) and interned set domain (#611 zero-overhead parity, batched ingestion, zero-copy resolution)."
+  },
+  "materialization_348": [
+    {
+      "distribution": "Dense",
+      "subtitle": "N=100k, symmetric |A|=|B|",
+      "v2_us": 9.7,
+      "v1_us": 293.5,
+      "roaring_us": 1.3,
+      "speedup_vs_v1": 30.3
+    },
+    {
+      "distribution": "Clustered",
+      "subtitle": "N=100k, symmetric |A|=|B|",
+      "v2_us": 24.3,
+      "v1_us": 788.4,
+      "roaring_us": 107.6,
+      "speedup_vs_v1": 32.4
+    },
+    {
+      "distribution": "Sparse",
+      "subtitle": "N=100k, symmetric |A|=|B|",
+      "v2_us": 29.8,
+      "v1_us": 1120.0,
+      "roaring_us": 28.5,
+      "speedup_vs_v1": 37.6
+    },
+    {
+      "distribution": "Zipfian",
+      "subtitle": "N=100k, symmetric |A|=|B|",
+      "v2_us": 48.9,
+      "v1_us": 1410.0,
+      "roaring_us": 34.2,
+      "speedup_vs_v1": 28.8
+    }
+  ],
+  "kway_610": [
+    {
+      "distribution": "Dense",
+      "subtitle": "k=5, N=100k",
+      "kway_us": 0.55,
+      "pairwise_us": 565.8,
+      "roaring_us": 0.62,
+      "speedup_vs_pairwise": 1028.7,
+      "speedup_vs_roaring": 1.13
+    },
+    {
+      "distribution": "Clustered",
+      "subtitle": "k=5, N=100k",
+      "kway_us": 16.9,
+      "pairwise_us": 108.6,
+      "roaring_us": 26.4,
+      "speedup_vs_pairwise": 6.43,
+      "speedup_vs_roaring": 1.56
+    },
+    {
+      "distribution": "Zipfian",
+      "subtitle": "k=5, N=100k",
+      "kway_us": 28.4,
+      "pairwise_us": 142.1,
+      "roaring_us": 31.8,
+      "speedup_vs_pairwise": 5.00,
+      "speedup_vs_roaring": 1.12
+    },
+    {
+      "distribution": "Sparse",
+      "subtitle": "k=5, N=100k",
+      "kway_us": 617.1,
+      "pairwise_us": 3248.7,
+      "roaring_us": 1093.0,
+      "speedup_vs_pairwise": 5.26,
+      "speedup_vs_roaring": 1.77
+    }
+  ],
+  "domain_parity_611": {
+    "intersection_100k_us": {
+      "raw_expanse": 9.70,
+      "domain_set": 9.70,
+      "overhead_ns": 0.0,
+      "ratio": 1.00
+    },
+    "intersection_len_100k_us": {
+      "raw_expanse": 1.09,
+      "domain_set": 1.09,
+      "overhead_ns": 0.0,
+      "ratio": 1.00
+    }
+  },
+  "domain_ingestion_611": [
+    {
+      "key_type": "Text Keys (user:...)",
+      "scalar_mops": 1.48,
+      "batch128_mops": 4.62,
+      "speedup": 3.12
+    },
+    {
+      "key_type": "Binary UUID (escaped)",
+      "scalar_mops": 1.29,
+      "batch128_mops": 3.98,
+      "speedup": 3.08
+    }
+  ],
+  "domain_resolution_611": {
+    "scan_mops": 16.4,
+    "latency_ns": 61.0,
+    "allocation": "0 heap allocs (borrowed &[u8] from BlobArena chunk)"
+  }
+}

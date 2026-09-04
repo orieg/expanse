@@ -53,6 +53,8 @@ pub mod codec;
 #[cfg(target_pointer_width = "64")]
 pub mod cursor;
 #[cfg(target_pointer_width = "64")]
+pub mod domain;
+#[cfg(target_pointer_width = "64")]
 pub mod get;
 #[cfg(target_pointer_width = "64")]
 pub mod iter;
@@ -100,6 +102,10 @@ pub mod types32;
 pub use blobmap::{BlobArena, BlobView, ExpanseBlobMap};
 #[cfg(target_pointer_width = "64")]
 pub use cursor::{MapCursor, SetCursor};
+#[cfg(target_pointer_width = "64")]
+pub use domain::{
+    DomainError, DomainMismatch, DomainOrdinal, DomainSet, ExpanseDomainDict, ResolveIter,
+};
 #[cfg(target_pointer_width = "64")]
 pub use map::ExpanseMap;
 #[cfg(target_pointer_width = "64")]

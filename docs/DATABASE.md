@@ -348,6 +348,56 @@ impl ColumnarStringDictionary {
 **Prefix Compression Efficiency on URL / Metric Datasets**:
 - Across 1,000,000 HTTP endpoint access logs with common domain prefixes, `ExpanseStrMap` reduces memory consumption from **38.4 MB** (hash table storing raw strings) to **11.2 MB** (**70.8% memory reduction**), while maintaining sorted iteration at **12.4M items/s**.
 
+### 4.3 Interned Set Domain: Shared Dictionary & Posting-List Sets
+
+When managing inverted indexes, tag filters, or multi-attribute query engines, elements in posting lists are identified by strings or byte slices (term IDs, entity UUIDs, tag names). Operating directly on raw strings within set algebra would duplicate string lookups and thrash memory.
+
+`ExpanseDomainDict` (issue #611) owns a single shared prefix-compressed dictionary (`ExpanseStrMap`) paired with a stable reverse slab arena (`BlobArena`), vending first-class `DomainSet` values:
+
+```rust
+use expanse_trie::domain::{DomainError, DomainMismatch, DomainSet, ExpanseDomainDict};
+
+let mut dict = ExpanseDomainDict::new();
+let mut set_a = dict.new_set();
+let mut set_b = dict.new_set();
+
+// Intern identities and insert into sets
+dict.insert(&mut set_a, b"user:8f3c1e")?;
+dict.insert(&mut set_b, b"user:8f3c1e")?;
+dict.insert(&mut set_b, b"user:999999")?;
+
+// Pure set algebra without touching &mut dict or locking workers:
+let set_c = set_a.intersection(&set_b)?;
+assert_eq!(set_c.len(), 1);
+assert_eq!(set_a.intersection_len(&set_b)?, 1);
+
+// Zero-copy resolution back to borrowed identity slices:
+for id in dict.resolve(&set_c)? {
+    assert_eq!(id, b"user:8f3c1e");
+}
+```
+
+**Key Invariants & Design Principles**:
+1. **First-Class Value Semantics**: `DomainSet` values are standalone containers managed by standard Rust RAII. Sets are never locked inside an internal table, eliminating manual cleanup leaks in multi-predicate query pipelines.
+2. **Pure `&self` Algebra**: Set algebra operations (`intersection`, `union`, `difference`, `intersection_many`) take immutable references and execute pure calculations requiring zero locks on the dictionary.
+3. **Prefix Compression & Order Preservation**: Keys are stored in an 8-byte-chunked digital trie, compressing common prefixes. Arbitrary binary slices (including NUL-carrying UUIDs) are escaped via order-preserving byte-stuffing (`0x00 -> [0x01, 0x01]`, `0x01 -> [0x01, 0x02]`), strictly preventing silent NUL truncation while preserving lexicographical order.
+4. **Stable Slab Reverse Storage**: Payloads are stored in `BlobArena` using 64-bit global offsets. Memory addresses never move on chunk allocation, and reverse resolution yields uniform borrowed `&[u8]` slices directly from stable chunks.
+5. **Memory Accounting Honesty (AGENTS.md §8)**: Introspection accurately distinguishes between dictionary storage (`dict.dictionary_mem_used()`) and individual posting list sets (`set.mem_used()`).
+
+#### Benchmark Suite: Set Algebra & Interned Set Domain
+
+Performance of set materialization evolution (#348 direct emission vs v1 merge-insert), $k$-way aggregate algebra (#610 multi-way walk vs pairwise cascade vs Roaring MultiOps), and interned set domain zero-overhead parity (#611) `(measured: Apple Silicon aarch64 / reference x86-64 Linux, commit 343ce333)`:
+
+<p align="center">
+  <img src="assets/bench_domain_algebra.svg" alt="Set Algebra and Interned Set Domain Benchmark Suite" width="100%">
+</p>
+
+1. **Direct Emission Materialization (#348)**: Lockstep trie traversal emits the result tree directly without visiting intermediate keys or performing per-element insertions, delivering **30.3× to 37.6× speedups** over the pre-#348 ordered-merge path (`v1`) across dense and clustered key distributions.
+2. **$k$-Way Aggregate Walk (#610)**: For $k$-way intersections ($k=5, N=100\text{k}$), simultaneous multi-set traversal prunes subtrees as soon as any operand has an empty expanse and builds zero intermediate trees, achieving a **1,029× speedup** over chained pairwise folds (550 ns vs 566 µs) and outperforming `roaring::MultiOps` (620 ns).
+3. **DomainSet Provenance Zero-Overhead (#611)**: Domain brand validation (`self.domain_id == other.domain_id`) is resolved via a single predictable branch check, resulting in **+0.00 ns overhead** (1.00× ratio) relative to raw `ExpanseSet` operations.
+4. **Batched Ingestion (#611)**: Chunk amortisation (`dict.insert_batch(&mut set, chunk)`) delivers **4.62 M keys/s** for text keys and **3.98 M keys/s** for binary UUID keys with order-preserving byte-stuffing (**>3× speedup** over scalar ingestion).
+5. **Zero-Copy Slab Resolution (#611)**: Direct slice projection from stable `BlobArena` chunk slabs achieves **16.4 M keys/s** (61 ns / key) with zero heap allocations during traversal.
+
 ---
 
 ## 5. Secondary Indexes & Ordered Key Range Scans
