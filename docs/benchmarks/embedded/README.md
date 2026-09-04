@@ -10,7 +10,7 @@ eviction in the bulk and steady shapes — against `std::BTreeMap` and
 - **Results and their reading**: `docs/DATABASE.md` §5.4 (the pre-registered
   losses on ingest and point lookup, the steady-state eviction win, the bulk
   eviction loss, and the `remove_range` correction record), with the derived
-  chart `docs/assets/bench_embedded.svg`.
+  chart `results/bench_embedded.svg`.
 - **Artifact**: [`results.json`](results.json) — `meta` (population, lookups
   per iteration, the memory model used for panel 1) and `wallclock_ns` with
   BCa 95% bootstrap intervals per arm, harvested from the dispatched run
@@ -19,7 +19,7 @@ eviction in the bulk and steady shapes — against `std::BTreeMap` and
   dispatched run honestly").
 - **Regenerate the chart**: `python3 scripts/generate_embedded_svg.py
   --from-baseline <baseline-embedded_memtable.json>` rewrites this file and
-  `docs/assets/bench_embedded.svg`; every rendered number is derived from the
+  `results/bench_embedded.svg`; every rendered number is derived from the
   JSON (AGENTS.md §8.2).
 - **Pre-registration**: the hypothesis and expected-loss matrix are in #556
   (§3.2) and are quoted, not reconciled, in `docs/DATABASE.md` §5.4.
@@ -96,7 +96,7 @@ twins in `components/expanse/test/twin_containers.h`.
   then
   `python3 scripts/esp32_bench_harvest.py --input <log> --out <report.md> --emit-json docs/benchmarks/embedded/esp32.json`
   followed by `python3 scripts/generate_embedded_svg.py --on-device`, which
-  writes `docs/assets/bench_esp32_ondevice.svg`. Replace the file wholesale;
+  writes `results/bench_esp32_ondevice.svg`. Replace the file wholesale;
   never splice new arms into a previous run's twin numbers (§8.3).
 - **Coverage**: `esp32` only. The RISC-V parts (C3, C6, H2, P4) have not been
   run on hardware; #579 tracks that.

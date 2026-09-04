@@ -394,7 +394,7 @@ Set materialization evolution (#348 direct emission vs v1 merge-insert), $k$-way
 > **Host and commit are unresolved for every panel, and the figure is not re-measured.** The dataset recorded a single host field and a single commit covering all five sections across both harnesses, and these cells appear in no committed benchmark artifact, so no section's host can be recovered. The earlier tag on this figure — naming Apple Silicon and the reference x86-64 host together at one commit — asserted an attribution the data does not support and has been withdrawn rather than reassigned (§8.10). Re-measuring the `domain` arms on the reference host is what resolves it.
 
 <p align="center">
-  <img src="assets/bench_domain_algebra.svg" alt="Set Algebra and Interned Set Domain Benchmark Suite" width="100%">
+  <img src="benchmarks/set_algebra/results/bench_domain_algebra.svg" alt="Set Algebra and Interned Set Domain Benchmark Suite" width="100%">
 </p>
 
 1. **Direct Emission Materialization (#348)**: Lockstep trie traversal emits the result tree directly without visiting intermediate keys or performing per-element insertions, delivering **30.3× to 37.6× speedups** over the pre-#348 ordered-merge path (`v1`) across dense and clustered key distributions.
@@ -572,13 +572,13 @@ four.*
    - Composite 32-bit time key: `rel_sec: 19 bits | slab_idx: 13 bits`, providing ~6.06 days active window with automatic epoch rebasing during stale eviction.
    - $O(\text{expired})$ TTL range pruning via `expanse_ble_tracker_expire_stale(tracker, cutoff_ms)` without scanning live entries.
 
-![Embedded Storage Engines: sensor TSDB density, BLE tracker footprint, ingest+flush wall clock](./assets/bench_embedded.svg)
+![Embedded Storage Engines: sensor TSDB density, BLE tracker footprint, ingest+flush wall clock](./benchmarks/embedded/results/bench_embedded.svg)
 
 *(Panel 1 derived by `scripts/embedded_envelope.py`; panels 2-4 measured on the reference bench host with BCa 95% CIs recorded in `docs/benchmarks/embedded/results.json` — panel 4 shows both the batched `remove_range` eviction and the per-key loop it replaces. Regenerate with `python3 scripts/generate_embedded_svg.py`. The on-device chart is rendered separately by `python3 scripts/generate_embedded_svg.py --on-device` from `docs/benchmarks/embedded/esp32.json`, because those arms are CPU cycles on a microcontroller and these are host wall-clock nanoseconds — the two do not belong on one canvas (§8.12). **ESP32-C3/C6 remain unharvested**: the on-device run below is on the Xtensa ESP32 and says nothing about the RISC-V parts.)*
 
 #### On-device measurements (ESP32, Xtensa) — Expanse against comparison twins
 
-![On-device ESP32: ingest in key order and shuffled, range scan, and memory per key, each against the twin baselines](./assets/bench_esp32_ondevice.svg)
+![On-device ESP32: ingest in key order and shuffled, range scan, and memory per key, each against the twin baselines](./benchmarks/embedded/results/bench_esp32_ondevice.svg)
 
 *(measured: ESP32-D0WD-V3 rev v3.1, 2 cores, 160 MHz, ESP-IDF `v6.0-dev-2980-gab149384e1`,
 Xtensa Rust 1.97.0.0, `-O2`; engine `0.5.0-dev (v0.5.0-104-g41080e96)`, commit `41080e96`;
@@ -761,7 +761,7 @@ toward an allocation failure over a long deployment.
 
 **Architectural Benefits in RocksDB LSM Storage** *(memory density: deterministic seeded byte accounting against the fair variable-height skiplist baseline, at the [#372](https://github.com/orieg/expanse/issues/372) fix commit — Apple M1, 8 cores, Apple clang 21, `-O3`, load-immune, reproduced twice. Throughput cells: **re-measured** against the fair variable-height skiplist baseline over five rounds with BCa 95% intervals — reference host, run [33398474866](https://github.com/orieg/expanse/actions/runs/33398474866), commit `6cb64b45`, artifact [`docs/benchmarks/rocksdb_memtable/results/baseline_rocksdb.json`](benchmarks/rocksdb_memtable/results/baseline_rocksdb.json). The baseline reports 18.7 B/entry, not the retracted 146.7 B/entry fat-node strawman, so these cells now stand on the same footing as the density figure)*:
 
-![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](./assets/bench_rocksdb.svg)
+![RocksDB MemTable Benchmark: ExpanseMemTable vs SkipList vs VectorRep](./benchmarks/rocksdb_memtable/results/bench_rocksdb.svg)
 
 1. **1.42× Higher In-Memory Key Density**: leaf blocks store entry pointers in contiguous 64-byte aligned spans at **13.2 B/entry vs 18.7 B/entry** for a fair variable-height skiplist (1.26 MB vs 1.8 MB for 100k entries). *The earlier "11.1×" headline is retracted*: its 146.7 B/entry baseline came from a strawman node embedding all 16 tower pointers statically, where a real `InlineSkipList`-style node costs 8 B (key ptr) + height×8 B. **Honest framing:** `VectorRep` (unordered append vector) measures *denser than Expanse* in the same table — **10.5 vs 13.2 B/entry**; the Expanse edge is specifically over the ordered skiplist.
 2. **Fewer L0 SSTable Flushes** *(inferred (target) — not measured; no `db_bench` artifact)*: higher density should fit more user data per memtable budget and reduce flush frequency, but the effect scales with the 1.42× density edge and has not been measured.

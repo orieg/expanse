@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """scripts/generate_embedded_svg.py
 
-Regenerates ``docs/assets/bench_embedded.svg`` (the three-panel embedded
+Regenerates ``docs/benchmarks/embedded/results/bench_embedded.svg`` (the three-panel embedded
 storage-engine chart embedded by ``docs/DATABASE.md`` §5.4) from
 ``docs/benchmarks/embedded/results.json``.
 
@@ -34,7 +34,12 @@ from pathlib import Path
 from typing import Iterable
 import xml.etree.ElementTree as ET
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+# This renderer lives in its suite's scripts/ dir, so the repo root is
+# three levels up; its outputs go to the suite's results/, never to the
+# shared docs/assets/ (an SVG moved without its renderer is silently
+# re-created as an orphan at the old path).
+SUITE_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 RESULTS = REPO_ROOT / "docs" / "benchmarks" / "embedded" / "results.json"
 # The on-device harvest is a separate artifact and a separate chart: its arms
 # are CPU cycles on a microcontroller, and the panels above are host
@@ -42,8 +47,8 @@ RESULTS = REPO_ROOT / "docs" / "benchmarks" / "embedded" / "results.json"
 # metric domains with no shared workload, which is the complection §8.12
 # exists to stop.
 ESP32_RESULTS = REPO_ROOT / "docs" / "benchmarks" / "embedded" / "esp32.json"
-ESP32_OUTPUT = REPO_ROOT / "docs" / "assets" / "bench_esp32_ondevice.svg"
-OUTPUT = REPO_ROOT / "docs" / "assets" / "bench_embedded.svg"
+ESP32_OUTPUT = SUITE_DIR / "results" / "bench_esp32_ondevice.svg"
+OUTPUT = SUITE_DIR / "results" / "bench_embedded.svg"
 
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import embedded_envelope as env  # noqa: E402  (single source of the memory model)

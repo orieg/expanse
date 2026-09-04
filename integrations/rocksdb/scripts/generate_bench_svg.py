@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """integrations/rocksdb/scripts/generate_bench_svg.py
 
-Regenerates ``docs/assets/bench_rocksdb.svg`` (the three-panel MemTable
+Regenerates ``docs/benchmarks/rocksdb_memtable/results/bench_rocksdb.svg`` (the three-panel MemTable
 benchmark chart embedded by ``docs/benchmarks/rocksdb_memtable/README.md``,
 ``integrations/rocksdb/README.md`` and ``docs/DATABASE.md``) from the measured numbers in
 ``integrations/rocksdb/benches/results.json``.
@@ -27,7 +27,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RESULTS = REPO_ROOT / "integrations" / "rocksdb" / "benches" / "results.json"
-OUTPUT = REPO_ROOT / "docs" / "assets" / "bench_rocksdb.svg"
+OUTPUT = REPO_ROOT / "docs" / "benchmarks" / "rocksdb_memtable" / "results" / "bench_rocksdb.svg"
 
 # Plot geometry shared by all three panels: the y axis spans axis_max at
 # y=45 down to 0 at the baseline y=195 (150 px tall); bars are 50 px wide

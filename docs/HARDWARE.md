@@ -545,7 +545,7 @@ RV32 pointer width (§3.2).
 
 ### 6.2 Measured — AVX-512 `vpopcntq` for bitmap cardinality, and the `popcnt` gap it uncovered
 
-![AVX-512 bitmap cardinality kernel across cache residency](assets/bench_avx512.svg)
+![AVX-512 bitmap cardinality kernel across cache residency](benchmarks/avx512/results/bench_avx512.svg)
 
 `Bitmap256::count_and` is the inner kernel of the `algebra.rs` intersection walk
 behind the `search_boolean` suite. A 256-bit bitmap is one `ymm` and two are one

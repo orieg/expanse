@@ -131,7 +131,7 @@ After a fresh benchmark run, update `benches/results.json` with the measured
 figures and regenerate the chart embedded above and in `docs/DATABASE.md`:
 
 ```bash
-python3 integrations/rocksdb/scripts/generate_bench_svg.py  # rewrites docs/assets/bench_rocksdb.svg
+python3 integrations/rocksdb/scripts/generate_bench_svg.py  # rewrites docs/benchmarks/rocksdb_memtable/results/bench_rocksdb.svg
 ```
 
 ### CMake Integration

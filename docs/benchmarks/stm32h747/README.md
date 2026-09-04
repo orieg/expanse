@@ -44,7 +44,7 @@
 
 ### 1. Expanse on the M7: does it run, and does the cache-line node layout pay off?
 
-![Expanse on the STM32H747I-DISCO Cortex-M7: cycles per operation across clocks and cache states, and the ISR-reader contract](../../assets/bench_stm32h747.svg)
+![Expanse on the STM32H747I-DISCO Cortex-M7: cycles per operation across clocks and cache states, and the ISR-reader contract](results/bench_stm32h747.svg)
 
 **Left panel.** Six fixtures (rows), six bars each: the same code at three clocks, with the data cache off and on. A bar is the number of core cycles one operation costs; shorter is better. Two patterns matter more than any absolute value. Within a row, the cache-on bars stay the same length as the clock rises while the cache-off bars grow — once the core outruns the SRAM every miss costs more cycles, and the ratio between the two is the payoff of the 32-byte node geometry the design doc sized for this core (`docs/design/32-bit-embedded.md` §2.1.4). Across rows, `remove_range` is about a third of the per-key eviction loop: the batched eviction from #578, on hardware.
 
@@ -59,7 +59,7 @@
 
 ### 2. Expanse against a sorted array, an open-addressing hash table and `tsearch`
 
-![Expanse vs a sorted array, an open-addressing hash table and newlib tsearch on the same Cortex-M7 fixtures, plus bytes per key](../../assets/bench_stm32h747_alternatives.svg)
+![Expanse vs a sorted array, an open-addressing hash table and newlib tsearch on the same Cortex-M7 fixtures, plus bytes per key](results/bench_stm32h747_alternatives.svg)
 
 **Left panel, log scale** — each gridline is 10× the previous, so a bar twice as long is far more than twice as slow. Four fixtures, four bars each: Expanse (blue), a sorted array with `bsearch` + `memmove` (orange), an open-addressing hash table at ≤ 50% load (green), newlib's `tsearch` (grey); every non-Expanse bar is labelled with its ratio to Expanse. Read it as an honest scorecard: the hash table wins point lookups and unordered inserts outright and the sorted array wins them too — Expanse is an ordered structure that allocates as it grows, and loses those on purpose. Bulk expiry (600 of 2,000) goes to the hash table's full scan because most records are expiring anyway. Steady-state expiry (25 of 2,000), the shape a real TTL index lives in, goes to Expanse, because the hash table must scan everything and the sorted array must shuffle memory. Disregard `tsearch`'s win in that row: an unbalanced tree over ascending keys degenerates into a list whose head is the minimum, and the same degeneracy makes its inserts 23× slower.
 
@@ -75,7 +75,7 @@
 
 ### 3. The other core, and two cores on one map
 
-![Expanse on the STM32H747's cacheless Cortex-M4, and the M7-writer / M4-reader cells](../../assets/bench_stm32h747_dualcore.svg)
+![Expanse on the STM32H747's cacheless Cortex-M4, and the M7-writer / M4-reader cells](results/bench_stm32h747_dualcore.svg)
 
 **Left panel.** The Expanse fixtures with a third bar (orange) for the Cortex-M4, which has no cache and runs at half the clock: every operation costs 3.3–4.7× the M7's cache-on cycles. The alternatives pay more for the move (5.2–7.2×), so the scorecard above holds on the small core with narrower gaps, and the interrupt contract holds there with a wider margin (a 91–98-cycle ceiling against 24 µs of masked interrupts).
 

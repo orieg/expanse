@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """scripts/generate_avx512_svg.py
 
-Regenerates ``docs/assets/bench_avx512.svg`` — the two-panel AVX-512 kernel
+Regenerates ``docs/benchmarks/avx512/results/bench_avx512.svg`` — the two-panel AVX-512 kernel
 chart embedded by ``docs/HARDWARE.md`` §6 and
 ``docs/benchmarks/avx512/README.md`` — from the measured BCa artifact at
 ``results/baseline_avx512_bitmap.json``.
@@ -36,9 +36,14 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+# This renderer lives in its suite's scripts/ dir, so the repo root is
+# three levels up; its outputs go to the suite's results/, never to the
+# shared docs/assets/ (an SVG moved without its renderer is silently
+# re-created as an orphan at the old path).
+SUITE_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 RESULTS = REPO_ROOT / "results" / "baseline_avx512_bitmap.json"
-OUTPUT = REPO_ROOT / "docs" / "assets" / "bench_avx512.svg"
+OUTPUT = SUITE_DIR / "results" / "bench_avx512.svg"
 
 # Regimes in hierarchy order, with the working set each one walks. Labels are
 # rendered verbatim; the byte figures are derived from the harness constants

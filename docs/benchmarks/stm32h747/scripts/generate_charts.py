@@ -5,12 +5,12 @@ Renders the three STM32H747I-DISCO charts from the committed on-target
 transcript summary ``docs/benchmarks/stm32h747/results.json`` (produced by
 ``integrations/stm32h747/harvest.py`` from one VCP transcript):
 
-  * ``docs/assets/bench_stm32h747.svg`` — Expanse across clocks and cache
+  * ``docs/benchmarks/stm32h747/results/bench_stm32h747.svg`` — Expanse across clocks and cache
     states on the M7, plus the ISR-reader arm against the critical-section twin;
-  * ``docs/assets/bench_stm32h747_alternatives.svg`` — Expanse against a
+  * ``docs/benchmarks/stm32h747/results/bench_stm32h747_alternatives.svg`` — Expanse against a
     sorted array, an open-addressing hash table and newlib's tsearch on the
     same fixtures, plus bytes per key;
-  * ``docs/assets/bench_stm32h747_dualcore.svg`` — the cacheless Cortex-M4
+  * ``docs/benchmarks/stm32h747/results/bench_stm32h747_dualcore.svg`` — the cacheless Cortex-M4
     point and the M7-writer / M4-reader cells (optimistic, HSEM twin, and
     the unsupported cacheable-heap configuration).
 
@@ -27,13 +27,18 @@ import math
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+# This renderer lives in its suite's scripts/ dir, so the repo root is
+# three levels up; its outputs go to the suite's results/, never to the
+# shared docs/assets/ (an SVG moved without its renderer is silently
+# re-created as an orphan at the old path).
+SUITE_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from generate_asset_svgs import esc, head, write  # noqa: E402
 
-DATA = REPO_ROOT / "docs" / "benchmarks" / "stm32h747" / "results.json"
-OUT_MAIN = REPO_ROOT / "docs" / "assets" / "bench_stm32h747.svg"
-OUT_ALT = REPO_ROOT / "docs" / "assets" / "bench_stm32h747_alternatives.svg"
+DATA = SUITE_DIR / "results.json"
+OUT_MAIN = SUITE_DIR / "results" / "bench_stm32h747.svg"
+OUT_ALT = SUITE_DIR / "results" / "bench_stm32h747_alternatives.svg"
 
 FIXTURES = [
     ("ingest", "ingest 2,000 keys / insert"),
@@ -79,7 +84,7 @@ def fixture(data: dict, impl: str, name: str, clk: int, dc: int, core: str = "m7
     return None
 
 
-OUT_DUAL = REPO_ROOT / "docs" / "assets" / "bench_stm32h747_dualcore.svg"
+OUT_DUAL = SUITE_DIR / "results" / "bench_stm32h747_dualcore.svg"
 M4_CLK = 200000000
 
 
