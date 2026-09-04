@@ -29,7 +29,7 @@ from pathlib import Path
 # shared docs/assets/ (an SVG moved without its renderer is silently
 # re-created as an orphan at the old path).
 SUITE_DIR = Path(__file__).resolve().parents[1]
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 DATA_PATH = SUITE_DIR / "results" / "bench_domain_algebra.json"
 OUTPUT_PATH = SUITE_DIR / "results" / "bench_domain_algebra.svg"
 

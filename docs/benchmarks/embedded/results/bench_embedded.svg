@@ -172,5 +172,5 @@
   <text x="30" y="262" class="t-chart-sub">Panel 1 derived by scripts/embedded_envelope.py; panels 2-4 measured: 12th Gen Intel(R) Core(TM) i9-12900F (24 threads, 30 MiB L3, Linux 6.8.0-136-generic) &#183; commit 13ee3d923, run 33567182415.</text>
   <text x="30" y="275" class="t-chart-sub">Expiry scaling: Expanse&#8217;s pass cost follows the stale count; the HashMap sweep follows the tracked count (~68 KiB flat table, L2-resident on this host).</text>
   <text x="30" y="288" class="t-chart-sub">bulk shape (600 of 2,000 expired): remove_range 24.4 &#181;s, per-key loop 68 &#181;s vs sweep 7.0 &#181;s — the linear sweep still wins bulk expiry.</text>
-  <text x="30" y="301" class="t-chart-sub">Host caveat: a 30 MiB L3 flatters flat scans; the on-device chart is rendered separately (--on-device, ESP32 only; C3/C6 unharvested) &#183; BCa 95% CIs in docs/benchmarks/embedded/results.json.</text>
+  <text x="30" y="301" class="t-chart-sub">Host caveat: a 30 MiB L3 flatters flat scans; the on-device chart is rendered separately (--on-device, ESP32 only; C3/C6 unharvested) &#183; BCa 95% CIs in docs/benchmarks/embedded/results/results.json.</text>
 </svg>
