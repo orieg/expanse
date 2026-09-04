@@ -82,7 +82,7 @@ python3 scripts/generate_avx512_svg.py
 echo ""
 echo " Results written to:"
 echo "   results/baseline_avx512_bitmap.json   (BCa 95% intervals)"
-echo "   docs/assets/bench_avx512.svg          (regenerated chart)"
+echo "   docs/benchmarks/avx512/results/bench_avx512.svg   (regenerated chart)"
 echo ""
 echo "System load at end:"
 uptime

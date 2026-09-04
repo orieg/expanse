@@ -1,5 +1,5 @@
 {
-  "_readme": "Source data for docs/assets/bench_domain_algebra.svg rendered by scripts/generate_domain_algebra_svg.py. Provenance is per-section: each block below states its own harness and issue, and records host/commit as \"unresolved\" where the source did not distinguish them. A section whose host is unresolved must not be paired with another in prose or in a ratio (AGENTS.md 8.12).",
+  "_readme": "Source data for docs/benchmarks/set_algebra/results/bench_domain_algebra.svg rendered by docs/benchmarks/set_algebra/scripts/generate_charts.py. Provenance is per-section: each block below states its own harness and issue, and records host/commit as \"unresolved\" where the source did not distinguish them. A section whose host is unresolved must not be paired with another in prose or in a ratio (AGENTS.md 8.12).",
   "meta": {
     "source": "docs/DATABASE.md §4.3; suite: docs/benchmarks/set_algebra/",
     "attribution": "Panels 1-2 (#348, #610, benches/search_boolean.rs) retain unresolved host and commit: they were NOT re-measured by this work and keep the position recorded in #646. Panel 3 (#611, benches/domain.rs) was re-measured on the reference host after the per-iteration leak fix (#647); its provenance is stated per section above. The two panel groups therefore carry different provenance and must not be compared.",

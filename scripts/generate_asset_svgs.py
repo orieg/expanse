@@ -13,7 +13,7 @@ tables and kept publishing figures that had since been retracted (the
 unbounded-keyspace concurrency curve, the pre-#385 Workload E win, and a
 "point lookup" panel whose 15.8 ns / 32.3 ns pair is the *sequential 30k
 insert* row from ``docs/visualizer_data.json``). They are now generated the
-same way ``docs/assets/bench_rocksdb.svg`` is: edit
+same way ``docs/benchmarks/rocksdb_memtable/results/bench_rocksdb.svg`` is: edit
 ``docs/assets/data/bench_assets.json``, then run
 
     python3 scripts/generate_asset_svgs.py

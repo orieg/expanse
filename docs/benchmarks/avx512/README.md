@@ -3,7 +3,7 @@
 A measured answer to the one open AVX-512 row in [`docs/HARDWARE.md`](../../HARDWARE.md) §6,
 and the portable finding that came out of building its control arm.
 
-![AVX-512 bitmap cardinality kernel across cache residency](../../assets/bench_avx512.svg)
+![AVX-512 bitmap cardinality kernel across cache residency](results/bench_avx512.svg)
 
 > **Report-only.** This suite gates nothing and no regression threshold is
 > written against it. It is wall-clock by necessity, not by preference — see
@@ -146,7 +146,7 @@ docs/benchmarks/avx512/run.sh
 That takes the host-wide benchmark lock, records a load snapshot, demonstrates
 the CPUID masking natively and under Callgrind, runs the sweep, harvests BCa
 intervals into `results/baseline_avx512_bitmap.json`, and regenerates
-`docs/assets/bench_avx512.svg` from it. Nothing in the chart is retyped (§8.2).
+`results/bench_avx512.svg` from it. Nothing in the chart is retyped (§8.2).
 
 In CI the same sweep is the `AVX-512 Kernel Benchmarks` workflow
 ([`.github/workflows/bench_avx512.yml`](../../../.github/workflows/bench_avx512.yml)),

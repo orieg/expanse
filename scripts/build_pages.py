@@ -788,7 +788,13 @@ def build_pages(artifacts_dir: str, output_dir: str, allow_empty: bool = False):
     comp_svg_path = os.path.join(repo_assets, "bench_comparative.svg")
     conc_svg_path = os.path.join(repo_assets, "bench_concurrency.svg")
     ycsb_svg_path = os.path.join(repo_assets, "bench_ycsb.svg")
-    rocksdb_svg_path = os.path.join(repo_assets, "bench_rocksdb.svg")
+    # bench_rocksdb.svg is suite-owned and lives with the suite that produces
+    # it, not in the shared docs/assets/. The landing page still inlines it, so
+    # this path must track the move -- reading it from repo_assets resolved to a
+    # missing file, and _read_chart below fails loud on that by design.
+    rocksdb_svg_path = os.path.join(
+        os.path.dirname(__file__), "..", "docs", "benchmarks",
+        "rocksdb_memtable", "results", "bench_rocksdb.svg")
 
     # AGENTS.md section 8.1: fail loud. These four charts are the landing
     # page's entire evidence base. Resolving a missing one to "" rendered an

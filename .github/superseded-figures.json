@@ -87,7 +87,7 @@
         "zero-overhead\\s+parity"
       ],
       "context": ["domain", "domainset", "parity", "brand", "provenance", "overhead", "intersection"],
-      "replacement": "indistinguishable at the recorded resolution: intersection() < 100 ns, intersection_len() < 10 ns (docs/assets/data/bench_domain_algebra.json)",
+      "replacement": "indistinguishable at the recorded resolution: intersection() < 100 ns, intersection_len() < 10 ns (docs/benchmarks/set_algebra/results/bench_domain_algebra.json)",
       "provenance": "#643",
       "rationale": "Both arms recorded to 0.1 us / 0.01 us; equal values at a finite resolution bound the difference below it and cannot establish zero. The claim asserted a precision 100x finer than the source carries (\u00a78.4)."
     },

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """scripts/generate_domain_algebra_svg.py
 
-Renders docs/assets/bench_domain_algebra.svg from committed benchmark data:
-  docs/assets/data/bench_domain_algebra.json
+Renders docs/benchmarks/set_algebra/results/bench_domain_algebra.svg from committed benchmark data:
+  docs/benchmarks/set_algebra/results/bench_domain_algebra.json
 
 Covers all set algebra features (previous and new):
   1. Materialization evolution (#348 v2 direct emission vs v1 merge-insert)
@@ -24,9 +24,14 @@ import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DATA_PATH = REPO_ROOT / "docs" / "assets" / "data" / "bench_domain_algebra.json"
-OUTPUT_PATH = REPO_ROOT / "docs" / "assets" / "bench_domain_algebra.svg"
+# This renderer lives in its suite's scripts/ dir, so the repo root is
+# three levels up; its outputs go to the suite's results/, never to the
+# shared docs/assets/ (an SVG moved without its renderer is silently
+# re-created as an orphan at the old path).
+SUITE_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DATA_PATH = SUITE_DIR / "results" / "bench_domain_algebra.json"
+OUTPUT_PATH = SUITE_DIR / "results" / "bench_domain_algebra.svg"
 
 STYLE = """
       /* Light theme (default) */

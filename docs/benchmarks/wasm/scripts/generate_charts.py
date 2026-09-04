@@ -5,7 +5,7 @@ Renders the WebAssembly suite chart from the committed fuel baseline
 ``results/baseline_wasm_fuel.json`` (written by ``scripts/wasm_fuel.py
 --save-baseline``, one entry per target):
 
-  * ``docs/assets/bench_wasm_fuel.svg`` — fuel per operation for every arm on
+  * ``docs/benchmarks/wasm/results/bench_wasm_fuel.svg`` — fuel per operation for every arm on
     wasm32 (32-bit engine) and wasm64 (64-bit engine), map arms and set arms
     side by side, and the engines' own ``mem_used`` bytes per key.
 
@@ -21,12 +21,17 @@ import json
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+# This renderer lives in its suite's scripts/ dir, so the repo root is
+# three levels up; its outputs go to the suite's results/, never to the
+# shared docs/assets/ (an SVG moved without its renderer is silently
+# re-created as an orphan at the old path).
+SUITE_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from generate_asset_svgs import esc, head, write  # noqa: E402
 
 DATA = REPO_ROOT / "results" / "baseline_wasm_fuel.json"
-OUT = REPO_ROOT / "docs" / "assets" / "bench_wasm_fuel.svg"
+OUT = SUITE_DIR / "results" / "bench_wasm_fuel.svg"
 
 TARGETS = [  # (target triple, legend label, fill)
     ("wasm32-unknown-unknown", "wasm32 · 32-bit engine (Edge32, 8 B)", "#1d4ed8"),

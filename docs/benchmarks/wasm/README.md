@@ -11,7 +11,7 @@ Two instruments, with different standing.
 
 **Superseded when** `results/baseline_wasm_fuel.json` changes: the artifact is authoritative and these tables are its rendering. Regenerate them with `scripts/wasm_fuel.py --build wasm32 --markdown` and `--build wasm64 --markdown`, re-render the chart with `scripts/generate_wasm_svg.py`, and replace the tables, the chart and the provenance line together.
 
-![Expanse on WebAssembly: exact fuel per operation for every map and set arm on wasm32 (32-bit engine) and wasm64 (64-bit engine), and the engines' own bytes per key](../../assets/bench_wasm_fuel.svg)
+![Expanse on WebAssembly: exact fuel per operation for every map and set arm on wasm32 (32-bit engine) and wasm64 (64-bit engine), and the engines' own bytes per key](results/bench_wasm_fuel.svg)
 
 **Left and middle panels.** One row per arm and key distribution, two bars: the 32-bit engine on wasm32 (blue) and the 64-bit engine on wasm64 (amber), scaled to the panel's largest value; the label is the two fuel counts and their ratio. Shorter is better. **Right panel.** The same pair for bytes per key by the engine's own accounting after the build. The footer carries the runtime, both compilers and the commit; everything drawn is read from the artifact by `scripts/generate_wasm_svg.py`.
 
