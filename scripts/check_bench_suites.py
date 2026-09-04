@@ -36,6 +36,8 @@ from pathlib import Path
 MANIFEST = ".github/bench-suites.json"
 WORKFLOW = ".github/workflows/bench_baremetal.yml"
 DOCS = "docs/BENCHMARKING.md"
+INDEX = "docs/benchmarks/README.md"
+SUITE_ROOT = "docs/benchmarks"
 
 BEGIN = "BEGIN GENERATED: bench-suites"
 END = "END GENERATED: bench-suites"
@@ -44,6 +46,12 @@ REQUIRED_FIELDS = ("name", "available", "kind", "runner", "summary")
 KINDS = ("callgrind", "wallclock", "counters", "fuel")
 RUNNERS = ("builtin", "generic")
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+SUITE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+# Tokens with no `suite`: core engine instruments that no comparative suite
+# directory owns. Listed under their own heading in the index rather than
+# dropped, so a token missing a suite is visible rather than silent.
+CORE_HEADING = "Core engine instruments (no comparative suite directory)"
 
 
 # --------------------------------------------------------------------------
@@ -67,6 +75,9 @@ def check_manifest(manifest: dict) -> tuple[list[str], list[str]]:
             errs.append(f"{where}: name {name!r} must match {NAME_RE.pattern}")
         else:
             names.append(name)
+        suite = s.get("suite")
+        if suite is not None and not SUITE_RE.match(str(suite)):
+            errs.append(f"{where}: suite {suite!r} must match {SUITE_RE.pattern}")
         if s.get("kind") not in KINDS:
             errs.append(f"{where} ({name}): kind must be one of {KINDS}")
         if s.get("runner") not in RUNNERS:
@@ -161,6 +172,88 @@ def render_docs_table(manifest: dict) -> list[str]:
             "|---|---|",
         ]
         out += [f"| `{s['name']}` | {s['reason']} |" for s in gaps]
+    return out
+
+
+def check_suite_dirs(manifest: dict, root: Path) -> list[str]:
+    """Every declared `suite` must be a real docs/benchmarks/<dir> with a README.
+
+    A token pointing at a directory that does not exist would render an index
+    row whose link 404s, which is the class of silent breakage AGENTS.md 8.1
+    forbids -- so it is fatal here rather than discovered by a reader.
+    """
+    errs: list[str] = []
+    for s in manifest["suites"]:
+        suite = s.get("suite")
+        if suite is None:
+            continue
+        d = root / SUITE_ROOT / suite
+        if not d.is_dir():
+            errs.append(f"{MANIFEST}: `{s['name']}` names suite {suite!r}, but {SUITE_ROOT}/{suite}/ does not exist")
+        elif not (d / "README.md").is_file():
+            errs.append(f"{MANIFEST}: {SUITE_ROOT}/{suite}/ has no README.md for `{s['name']}` to link to")
+    return errs
+
+
+def suite_title(root: Path, suite: str) -> str:
+    """The suite's own `# ` heading, used as its one-line description.
+
+    Taken from the suite rather than from a member token's `summary`: a suite
+    with several tokens has no single representative arm, and picking one
+    described `art_comparison` as insertion-only and `redis_zset_engine` as
+    memory-only. Sourcing it from the README keeps the index honest and lets a
+    suite reword its own description without touching the manifest.
+    """
+    readme = root / SUITE_ROOT / suite / "README.md"
+    try:
+        for line in readme.read_text(encoding="utf-8").split("\n"):
+            if line.startswith("# "):
+                return line[2:].strip()
+    except OSError:
+        pass
+    return suite.replace("_", " ")
+
+
+def render_index(manifest: dict, root: Path) -> list[str]:
+    """The docs/benchmarks/README.md body: one section per suite directory."""
+    by_suite: dict[str, list[dict]] = {}
+    core: list[dict] = []
+    for s in manifest["suites"]:
+        (by_suite.setdefault(s["suite"], []) if s.get("suite") else core).append(s)
+
+    out = [
+        "<!-- Generated from `.github/bench-suites.json` by",
+        "     `python3 scripts/check_bench_suites.py --write`. Do not hand-edit:",
+        "     the `lint` CI job fails when this block and the manifest disagree. -->",
+        "",
+        "| Suite | `/benchmark` tokens | Instrument | What it covers |",
+        "|---|---|---|---|",
+    ]
+
+    def instrument(entries: list[dict]) -> str:
+        kinds = sorted({e["kind"] for e in entries})
+        label = {"callgrind": "Callgrind", "counters": "`perf stat`", "fuel": "wasm fuel"}
+        return " + ".join(label.get(k, "wall-clock") for k in kinds)
+
+    for suite in sorted(by_suite):
+        entries = by_suite[suite]
+        toks = ", ".join(f"`{e['name']}`" for e in sorted(entries, key=lambda e: e["name"]))
+        readme = f"[`{suite}/`]({suite}/README.md)"
+        out.append(f"| {readme} | {toks} | {instrument(entries)} | {suite_title(root, suite)} |")
+
+    out += [
+        "",
+        f"### {CORE_HEADING}",
+        "",
+        "These run from the engine crates and publish into `docs/BENCHMARKING.md`",
+        "rather than a suite directory. They are listed so that a token without a",
+        "suite is visible rather than silently absent from this index.",
+        "",
+        "| Token | Instrument | What it runs |",
+        "|---|---|---|",
+    ]
+    for e in sorted(core, key=lambda e: e["name"]):
+        out.append(f"| `{e['name']}` | {instrument([e])} | {e['summary']} |")
     return out
 
 
@@ -353,6 +446,11 @@ def run(root: Path, write: bool) -> int:
     errs += check_arms(manifest, root)
     errs += splice(root / WORKFLOW, render_choice_options(manifest, " " * 10), write)
     errs += splice(root / DOCS, render_docs_table(manifest), write)
+    errs += check_suite_dirs(manifest, root)
+    if not (root / INDEX).is_file():
+        errs.append(f"{INDEX}: missing -- the suite index is generated into it; create it with the BEGIN/END block")
+    else:
+        errs += splice(root / INDEX, render_index(manifest, root), write)
 
     for e in errs:
         print(f"::error::{e}")
@@ -571,6 +669,59 @@ def self_test() -> int:
         del unlabelled["baseline_label"]
         e = check_arms(suite(unlabelled), root)
         assert any("baseline_label" in x for x in e), e
+
+    # --- the `suite` field and the generated index -------------------------
+    with tempfile.TemporaryDirectory() as td:
+        fake = Path(td)
+        bench = fake / SUITE_ROOT
+        (bench / "alpha_suite").mkdir(parents=True)
+        (bench / "alpha_suite" / "README.md").write_text("# Alpha suite title\n")
+
+        def mf(entries):
+            return {"default": "all", "suites": entries}
+
+        tok = {"name": "t_one", "available": True, "kind": "wallclock",
+               "runner": "builtin", "summary": "one."}
+
+        # A suite naming a directory that exists, with a README, is accepted.
+        ok = dict(tok, suite="alpha_suite")
+        assert check_suite_dirs(mf([ok]), fake) == []
+
+        # A suite naming a directory that does not exist is fatal: the index
+        # would otherwise render a row whose link 404s (AGENTS.md 8.1).
+        e = check_suite_dirs(mf([dict(tok, suite="nope")]), fake)
+        assert any("does not exist" in x for x in e), e
+
+        # ...and one that exists but has no README is fatal for the same reason.
+        (bench / "empty_suite").mkdir()
+        e = check_suite_dirs(mf([dict(tok, suite="empty_suite")]), fake)
+        assert any("no README.md" in x for x in e), e
+
+        # A token with no `suite` is legal and is NOT dropped: it must appear
+        # under the core heading, so that an unowned token stays visible.
+        core = dict(tok, name="t_core")
+        body = "\n".join(render_index(mf([ok, core]), fake))
+        assert CORE_HEADING in body, "core heading missing"
+        assert "`t_core`" in body, "token without a suite was dropped from the index"
+
+        # The suite's description comes from its own README title, never from a
+        # member token's summary -- picking one arm described a whole suite by
+        # its alphabetically-first token.
+        suite_row = next(l for l in body.split("\n") if "alpha_suite/README.md" in l)
+        assert "Alpha suite title" in suite_row, suite_row
+        assert "one." not in suite_row, (
+            f"suite row used a token summary as its description: {suite_row!r}"
+        )
+        # The core table, by contrast, DOES use each token's own summary.
+        core_row = next(l for l in body.split("\n") if "`t_core`" in l)
+        assert "one." in core_row, core_row
+
+        # A missing README degrades to the directory name rather than raising.
+        assert suite_title(fake, "ghost") == "ghost"
+
+        # Structural validation of the field itself.
+        errs, _ = check_manifest(mf([dict(tok, suite="Bad-Name")]))
+        assert any("must match" in x for x in errs), errs
 
     print("check_bench_suites.py --self-test: all checks passed")
     return 0

@@ -447,6 +447,10 @@ Every published performance claim in the documentation has been traced verbatim 
 
 ## Comparative benchmark suites (`docs/benchmarks/`)
 
+**Index: [`docs/benchmarks/README.md`](benchmarks/README.md)** — generated from
+`.github/bench-suites.json`, one row per suite with its `/benchmark` tokens, so the
+token vocabulary and the suite that owns each result cannot drift apart.
+
 Each domain suite is a self-contained directory with the same shape: `README.md`
 (results), `METHODOLOGY.md` (Step-0 pre-registered hypotheses, claims ceiling,
 expected losses), `run.sh` (one-command reproduction on the reference host),
@@ -466,6 +470,7 @@ refuted says so in its README.
 | STM32H747I-DISCO on-target (hardware) | [`stm32h747/`](benchmarks/stm32h747/README.md) | `integrations/stm32h747` firmware, both cores | sorted array + `bsearch`/`memmove`, open-addressing hash, newlib `tsearch`; `cpsid`/`cpsie` critical section (ISR); HSEM lock (cross-core) | see suite README: cache-line geometry confirmed (1.6–1.9× cache-on/off at 2:1 core:bus); ISR entry latency bounded 18–35× (M7) / 50× (M4) tighter than masking; loses point lookup and unordered ingest to the hash table (4.8× / 17×) and sorted array, wins steady-state expiry (3.0×) and bytes/key on dense keys; cross-core correct only with an uncached heap, unsupported cacheable case fails safe |
 | WebAssembly (wasm32 + wasm64) | [`wasm/`](benchmarks/wasm/README.md) | `crates/expanse-wasm-fuel` under wasmtime fuel (`scripts/wasm_fuel.py`, deterministic, gated in CI); `crates/expanse-wasm/tests/bench.js` (Node wall clock, indicative, unpublished) | the two engines against each other: wasm32 runs the 32-bit engine, wasm64 the 64-bit engine, same source; Node harness adds JS `Map`/`Set`, a JS sorted array and the in-wasm `std::BTreeMap` | see suite README: the 64-bit engine consumes less fuel on 29 of 30 arms (0.18×–0.91×; `map_insert/random` 1.07×), the 32-bit engine stores a map key in 52–54% of the bytes; both exact, artifact `results/baseline_wasm_fuel.json` |
 | LLM inference & speculative decoding | [`llm_inference/`](benchmarks/llm_inference/README.md) | `bench_draft_quality`, `bench_llm_datastore`, `bench_grammar_masks`, `bench_prefix_lru` | HuggingFace PromptLookup (adaptive/fixed), Static Sorted Window Index, Dense Bitmask (`[u64]`), `roaring::Bitmap`, `collections.OrderedDict` | Draft quality: Expanse LSM yields modest +2.6% tok/s gain on Code (below 5% gate; lookup drafting accepts ~1 tok/step), dead heat on Summary, +8.8% on small-N JSON; Dynamic datastore: Expanse wins streaming updates whenever batch B < 73k; Grammar masks: Roaring wins 2.66x lower RAM; Prefix LRU: 9.5x lower RAM (cross-accounting; see suite caveat) + 1.98M-2.16M/s rank-eviction (baseline twin pending) |
+| Set algebra & interned set domain | [`set_algebra/`](benchmarks/set_algebra/README.md) | `domain` (owned); routes to `search_boolean`, `search_instructions`, `bench_grammar_masks`, `avx512_bitmap` | raw `ExpanseSet` twin arms (scalar vs batched ingestion) | entry point for `algebra.rs`; owns the interned-domain arms and routes to the four algebra harnesses other suites own |
 | Adaptive Radix Tree (ART) | [`art_comparison/`](benchmarks/art_comparison/README.md) | `art_lookup_hit`, `art_lookup_miss`, `art_insert`, `art_scan`, `art_memory` | `blart` 0.5.0 (`blart::TreeMap`), `std::collections::BTreeMap`, `hashbrown::HashMap` | see suite README (Expanse wins dense/clustered/stride memory 4.6× lower RAM, insertion throughput 4.0×–4.8×, full iteration up to 11.0×, and structured point lookups; unpredicted loss on short range scans k=10; random 1M lookup refuted in Expanse's favour 1.54×) |
 
 Feature work that a suite gates (#339, #340, #341) re-runs the suite's `run.sh`
