@@ -220,6 +220,14 @@ jobs:
         # off-by-default feature so that the declared MSRV 1.88 floor survives
         # (core::arch's AVX-512 intrinsics are stable only since 1.89).
         run: |
+          # Core pin (#639). This lane's host is homogeneous, so the helper
+          # reports "not needed" and applies nothing; it is sourced anyway so
+          # that a rotation onto a hybrid part is covered without a second
+          # edit, and so the two wall-clock lanes carry the same rule. The pin
+          # must be set inside the step that runs the benchmark — affinity is
+          # per-process and the lock step's shell is already gone.
+          . "$GITHUB_WORKSPACE/scripts/bench_pin.sh"
+
           STARTED=$(date +%s)
           rm -rf target/criterion
           cargo bench -p expanse-trie --bench avx512_bitmap --features avx512 \

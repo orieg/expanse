@@ -243,25 +243,99 @@ Bench targets deliberately **not** reachable from a slash command:
 1. **Interleaved A/B arms.** Any A-vs-B comparison (regression check, libjudy comparison, before/after a change) alternates arms per benchmark group over several rounds — never suite-A-then-suite-B. Runner/thermal drift then hits both arms and cancels in the paired ratio. (Learned the hard way in php-judy — back-to-back suites reported false regressions; see php-judy issue #87 and its `bench-compare` harness.)
 2. **System-load hygiene.** Before the first run and between comparison runs, snapshot load (`ps -A -o %cpu,%mem,command | sort -rn | head`; load average vs core count). A non-target process above ~100% CPU, or a load-average shift > 2 between arms, contaminates the run: discard it, don't reinterpret it. Laptops running concurrent sessions are shared infrastructure.
 
-   **The reference host is a hybrid part, and the wall-clock arms do not pin
-   to a core class.** It is a 12th Gen Intel Core i9-12900F: 8 performance
-   cores at 5.0–5.1 GHz exposed as CPUs 0–15 with SMT, and 8 efficiency cores
-   at 3.8 GHz as CPUs 16–23 without it, so a thread the scheduler places on an
-   E-core runs at roughly 74% of the P-core clock. `scripts/perf_counters.py`
-   refuses to collect unpinned counters here and prefixes its workload with
-   `taskset -c 0-15`; nothing else in the repository pins, so every criterion
-   arm runs wherever it lands. Instruction counts are immune — they are exact
-   integers — but a wall-clock BCa interval assumes its width is measurement
-   noise rather than core placement. **How much that is worth is not yet
-   measured**, and until it is, no published wall-clock figure is withdrawn
-   and none is defended on this point. `scripts/pin_exposure.py` runs the same
-   arms pinned and unpinned, interleaved with the order flipped between
-   rounds, and compares the intervals; it must run on the reference host
-   itself and refuses anywhere else. If the intervals overlap the exposure is
-   below what the instrument can see and this stays a note; if they separate,
-   the pin belongs at the workflow and `run.sh` level where a new bench cannot
-   forget it. Recorded here so a rotation onto a homogeneous part is a visible
-   change rather than a silent one ([#639](https://github.com/orieg/expanse/issues/639)).
+   **The reference host is a hybrid part, and the wall-clock arms pin to its
+   performance cores.** It is a 12th Gen Intel Core i9-12900F. Its core
+   topology is recorded here, not only its part number, so that a rotation
+   onto a homogeneous machine is a visible change rather than a silent one
+   ([#639](https://github.com/orieg/expanse/issues/639)):
+
+   | Core class | Kernel PMU | Logical CPUs | Physical cores | SMT | Clock |
+   |---|---|---:|---:|---|---|
+   | Performance (P) | `cpu_core` | 0–15 | 8 | 2 siblings per core | 5.0–5.1 GHz |
+   | Efficiency (E) | `cpu_atom` | 16–23 | 8 | none | 3.8 GHz |
+
+   *(measured: reference host, `/sys/devices/cpu_core/cpus`,
+   `/sys/devices/cpu_atom/cpus` and `cpufreq` at commit `c4b1817`; 24 logical
+   CPUs total.)* `scripts/bench_pin.sh` reads the same two `sysfs` files at run
+   time, so the pin and this table cannot drift apart, and neither can the pin
+   and the one `scripts/perf_counters.py` has always applied.
+
+   **What core placement costs, measured before anything was pinned.** One
+   criterion arm — `raw_expanse_set_intersection/100000` from the `domain`
+   harness — run under three conditions interleaved P/unpinned/E per round, 6
+   rounds, host idle throughout (load average 0.00–1.21):
+
+   | Condition | n | mean ns | CV | 95% bootstrap interval |
+   |---|---:|---:|---:|---|
+   | P-cores (`taskset -c 0-15`) | 6 | 16,575.3 | 0.27% | [16549.0, 16611.7] |
+   | Unpinned (the behaviour this replaces) | 6 | 16,603.5 | 0.52% | [16547.2, 16670.5] |
+   | E-cores (`taskset -c 16-23`) | 6 | 26,117.3 | 0.24% | [26072.3, 26164.0] |
+
+   *(measured: reference host — Intel i9-12900F, 24 threads, 30 MiB L3, Linux
+   6.8, `rustc 1.98.1`, commit `c4b1817`; `cargo bench -p expanse-trie --bench
+   domain`, `--measurement-time 5 --warm-up-time 2`; n is round means, and the
+   interval is a percentile bootstrap over those 6 means rather than a BCa
+   interval over pooled per-iteration samples, because only the per-round
+   summaries were retained — [`results/pin_exposure_639.json`](../results/pin_exposure_639.json).)*
+
+   Two readings, and they point in different directions
+   (workload: `domain_interned_set`; both ratios are within that one arm).
+   **E versus P is 1.576×, intervals separated** — that is the exposure
+   ceiling, and it is larger than the 5.1/3.8 GHz clock ratio of 1.34× alone
+   predicts. Why the residual exists is **unmeasured**: no counter run
+   separates frequency from per-cycle throughput on the E-cores, so the
+   earlier reading of "roughly 74% of the P-core clock" understates the effect
+   for a reason this measurement does not identify. **Unpinned versus P is
+   1.0017×, intervals overlapping** — indistinguishable. On an idle host the
+   scheduler kept the work on the P-cores, and in these 6 rounds the hazard
+   did not fire. That is not a proof that it cannot: placement depends on what
+   else the host is doing, and the pre-existing figures in this document were
+   harvested under conditions no longer observable.
+
+   **The wall-clock arms are pinned anyway, and #639 closes as a change rather
+   than a note.** The overlap says the defect was not firing, not that the
+   instrument would catch it if it did — a BCa interval is blind to this
+   failure exactly where it matters, staying narrow and clean when no
+   migration happens and narrow and wrong when one does, because a migrated
+   round is not noise around the truth but a different machine. Pinning
+   converts a load-dependent tail risk into a guarantee, and it costs nothing
+   measurable: P-only is what the idle host already does, and the P-versus-
+   unpinned intervals overlap. `scripts/bench_pin.sh` is sourced by every
+   `docs/benchmarks/*/run.sh` and by the bare-metal and AVX-512 workflow bench
+   steps, so it confines the *runner's* shell and every benchmark process
+   spawned under it. Nothing is added to a harness, and a benchmark landing
+   later inherits the pin without knowing about it;
+   `scripts/check_bench_pin.py` fails the `lint` job for a runner that drops
+   it. On a host with one core class it applies nothing and says so. Its
+   refusals are loud (AGENTS.md §8.1): a hybrid host with no `taskset`, an
+   affinity call that does not take, or a requested CPU list that includes an
+   efficiency core all stop the run rather than produce numbers whose core
+   class is unknown. `EXPANSE_BENCH_PIN=off` opts out deliberately and prints
+   that it did — `scripts/pin_exposure.py`, which must measure unpinned, is
+   the caller that needs it.
+
+   **SMT is left as it is, and that is a decision, not an omission.** The mask
+   is `0-15`: 8 physical P-cores with both hyperthread siblings, matching
+   `perf_counters.py` exactly so the wall-clock and counter lanes stay
+   comparable. One sibling per core (`0,2,4,6,8,10,12,14`) would remove a
+   second variance source — a single-threaded arm sharing a physical core with
+   another runnable thread — but it would also halve the machine every
+   published figure was measured on, and the multi-threaded `concurrency`
+   suite sweeps to 16 reader threads and would no longer have 16 logical CPUs
+   to sweep onto. The host-wide lock (rule 8) already guarantees no second
+   suite is running, which is the co-tenant that would matter most. Whether
+   sibling contention moves any arm on this host is **unmeasured**;
+   `EXPANSE_BENCH_PIN=0,2,4,6,8,10,12,14` is how that would be measured, and
+   the pin has to be in place before that question is even askable.
+
+   **One consequence to disclose.** `available_parallelism()` honours the
+   affinity mask, so under the pin the `concurrency` suite sees 16 logical
+   CPUs where it previously saw 24, and its reader threads no longer land on
+   efficiency cores. Its published figures are **not withdrawn** — nothing
+   shows they are wrong — but they were harvested on a 24-CPU machine and a
+   post-pin harvest is not a like-for-like comparator for them (§8.3). Compare
+   post-pin against post-pin. Every single-threaded wall-clock suite is
+   unaffected in shape: it used one core before and uses one core now.
 3. **CI benches detect changes, not truths.** CI runners produce paired ratios good for regression alarms. Publishable absolute numbers (README/claims) come from a dedicated quiet host with the hardware named.
 4. **Tag every number.** Performance figures in docs are tagged `(measured: <machine, commit>)` or `(target)`. Untagged numbers are lint errors in review. The two architecture KPIs (<15 ns random point lookup; <9.5 B/key dense) are `(target)` until measured.
 5. **Report distributions, not just means.** Criterion medians + CIs; a claim that A beats B requires the CI bounds to separate, not the point estimates.
