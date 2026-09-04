@@ -23,7 +23,10 @@ This benchmark suite delivers a reproducible, empirical head-to-head evaluation 
 
 ## 2. Pre-Registration & Expected Losses Matrix
 
-Per `~/.claude/RESEARCH_DISCIPLINES.md` Rules 2 (Pre-registration), 3 (Fair twin with winning regime), and 22 (Engineering plumbing lighter track, novelty tier `Engineering`):
+Per `AGENTS.md` §8.8 commit 2 (pre-registration locked before any main data) and §8.3
+(each baseline is a production-grade twin with a regime it can win). This suite is
+engineering work, not a novelty claim: it asserts no new mechanism, so it carries the
+pre-registration and fair-twin obligations without a novelty-tier declaration.
 
 | Workload / Regime | Expected Winner | Primary Mechanism & Structural Rationale |
 |---|---|---|

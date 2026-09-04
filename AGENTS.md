@@ -481,7 +481,7 @@ When proposing in-register compression or inlining of multi-byte values into mac
 4. **Workload-Shape Qualification (#487 / §8.12)**: Empirical promotion figures MUST be qualified by their exact workload ID (e.g. `(workload: value_compression_alnum_slug)`); never assert broad general promotion from domain-specific datasets.
 
 ### 8.14 Embedded Sizing Envelopes & Math-First Derivation
-- Every embedded memory footprint table MUST be mathematically derived from a committed Python verification script (`scripts/embedded_envelope.py`) with unit tests pinning reference constants (Rule 12 / GEMINI.md §1.3).
+- Every embedded memory footprint table MUST be mathematically derived from a committed Python verification script (`scripts/embedded_envelope.py`) with unit tests pinning reference constants (§8.8 commit 1). A derivation that lives only in prose is not a derivation: if the bound cannot be written as an executable, unit-tested function, it is not usable as a gate.
 - The derivation MUST calculate exact struct padding/alignment across all arms and verify total memory fits within the target's physical available heap budget.
 - Every published or pre-registered sizing cell MUST carry a `(projected)` or `(measured: target, commit)` provenance tag.
 
