@@ -66,6 +66,39 @@ PII_PATTERNS = [
     ("private LAN IPv4", re.compile(r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b")),
 ]
 
+# --- fatal: personal agent-config references ---------------------------------
+#
+# This repository is public and is read by several agent toolchains and by
+# outside contributors. A rule that resolves only against one maintainer's home
+# directory is unresolvable for all of them, and it publishes the local setup
+# into a shipped artifact. Every such rule has an internal home: the AGENTS.md
+# section that states it.
+#
+# Three of these accumulated because nothing looked for them, and one was in a
+# C header -- which is why this check scans every tracked text file rather than
+# only Markdown, unlike every other check in this script:
+#
+#   AGENTS.md                                      -> now (S)8.8 commit 1
+#   components/expanse/test/twin_containers.h      -> now (S)8.3
+#   docs/benchmarks/art_comparison/METHODOLOGY.md  -> now (S)8.8 commit 2 + (S)8.3
+#
+# All three are pinned verbatim in self_test() per AGENTS.md (S)8.12.3.
+AGENT_CONFIG_PATTERNS = [
+    ("home agent-config path", re.compile(r"(?:~|\$HOME)/\.(?:claude|gemini|codex|cursor|aider|copilot|continue)\b")),
+    ("personal methodology doc", re.compile(r"\bRESEARCH_DISCIPLINES\.md\b")),
+    ("personal playbook", re.compile(r"\b[A-Z0-9_]*_PLAYBOOK\.md\b")),
+]
+
+# The checker necessarily contains the strings it forbids -- in these patterns,
+# in the comment above, and in the pinned self-test cases. It is the one file
+# exempt, stated here rather than silently skipped (AGENTS.md (S)8.1).
+AGENT_CONFIG_SELF_EXEMPT = "scripts/check_docs_hygiene.py"
+
+# Tracked extensions that are not text and cannot carry a prose reference.
+_BINARY_EXT = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".woff", ".woff2",
+               ".ttf", ".otf", ".zip", ".gz", ".bin", ".elf", ".a", ".so", ".dylib"}
+
+
 # --- advisory: provenance ----------------------------------------------------
 UNIT_TOKEN = re.compile(
     r"\d+(?:[.,]\d+)?\s*(?:ns|µs|us|ms|ops/s|Mops/s|M ops/s|M/s|B/key|B/k|bytes/key|GB|MB|KiB|MiB)\b|\d+(?:\.\d+)?\s*×",
@@ -746,8 +779,101 @@ def self_test() -> int:
             f"and nested worktrees/target must still be skipped"
         )
 
+    # Personal agent-config references (fatal). The three cases below are the
+    # verbatim strings that shipped before this check existed -- AGENTS.md
+    # (S)8.12.3: a gate that passes while ignoring its own motivating defect is
+    # measuring the wrong invariant.
+    _CFG_MUST_FAIL = [
+        "with unit tests pinning reference constants (the math-first Python-validation "
+        "requirement in ~/.claude/CLAUDE.md, expanding RESEARCH_DISCIPLINES.md Rule 1).",
+        " * rather than measured (~/.claude/CLAUDE.md, twin-baseline rule), so:",
+        "Per `~/.claude/RESEARCH_DISCIPLINES.md` Rules 2 (Pre-registration), 3 (Fair twin "
+        "with winning regime), and 22 (Engineering plumbing lighter track).",
+        "see ~/.claude/skills/paper-publishing/PAPER_PUBLISHING_PLAYBOOK.md",
+        "follow $HOME/.gemini/GEMINI.md for the house style",
+    ]
+    _CFG_MUST_PASS = [
+        "with unit tests pinning reference constants (\u00a78.8 commit 1).",
+        " * rather than measured (\u00a78.3), so:",
+        "Per `AGENTS.md` \u00a78.8 commit 2 (pre-registration locked before any main data).",
+        "export PATH=$HOME/.cargo/bin:$PATH   # not an agent-config dir",
+        "The canonical agent guide for this repo is AGENTS.md; CLAUDE.md is a symlink.",
+        "cite ~/.claude/CLAUDE.md here docs-lint: allow",
+    ]
+    for case in _CFG_MUST_FAIL:
+        assert any(pat.search(case) for _, pat in AGENT_CONFIG_PATTERNS), (
+            f"agent-config check must flag the historical leak: {case!r}"
+        )
+    for case in _CFG_MUST_PASS:
+        flagged = ALLOW_MARKER not in case and any(pat.search(case) for _, pat in AGENT_CONFIG_PATTERNS)
+        assert not flagged, f"agent-config check must not flag: {case!r}"
+
+    # ...and it must actually sweep non-Markdown files: the C-header leak is why.
+    with tempfile.TemporaryDirectory() as td:
+        fake = Path(td)
+        (fake / "docs").mkdir()
+        (fake / "note.h").write_text("/* see ~/.claude/CLAUDE.md, twin-baseline rule */\n")
+        (fake / "docs" / "ok.md").write_text("Per AGENTS.md \u00a78.3.\n")
+        subprocess.run(["git", "init", "-q"], cwd=fake, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=fake, check=True)
+        found = check_agent_config_refs(fake)
+        assert [h[0] for h in found] == ["note.h"], (
+            f"expected the C header to be flagged, got {found!r}; a Markdown-only sweep "
+            f"is exactly how this class of reference reached a public repo"
+        )
+
     print("check_docs_hygiene.py --self-test: all checks passed")
     return 0
+
+
+def tracked_text_files(root: Path) -> list[Path]:
+    """Every tracked file that can carry prose, deduplicated by realpath.
+
+    Deliberately wider than tracked_markdown(): the reference this feeds shipped
+    in a C header, so a Markdown-only sweep would have reported clean.
+    """
+    out = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True, text=True, check=True).stdout.split("\n")
+    seen: set[Path] = set()
+    files: list[Path] = []
+    for f in out:
+        if not f.strip():
+            continue
+        p = root / f
+        if not p.is_file() or p.suffix.lower() in _BINARY_EXT:
+            continue
+        rp = p.resolve()
+        if rp in seen:
+            continue
+        try:
+            rel = rp.relative_to(root.resolve())
+        except ValueError:
+            continue
+        if "worktrees" in rel.parts or "target" in rel.parts:
+            continue
+        seen.add(rp)
+        files.append(p)
+    return sorted(files)
+
+
+def check_agent_config_refs(root: Path) -> list[tuple[str, int, str]]:
+    """Flag references to a maintainer's personal agent config in tracked files."""
+    hits: list[tuple[str, int, str]] = []
+    for path in tracked_text_files(root):
+        rel = path.relative_to(root).as_posix()
+        if rel == AGENT_CONFIG_SELF_EXEMPT:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue  # genuinely binary despite its extension
+        for n, line in enumerate(text.split("\n"), 1):
+            if ALLOW_MARKER in line:
+                continue
+            for label, pat in AGENT_CONFIG_PATTERNS:
+                if pat.search(line):
+                    hits.append((rel, n, label))
+                    break
+    return hits
 
 
 # docs/architecture_visualizer.html is published to the SITE ROOT as
@@ -823,6 +949,15 @@ def main() -> int:
         )
         fatal += f
     fatal += check_published_html_links(root)
+
+    # Personal agent-config references, across every tracked text file
+    for rel, lineno, label in check_agent_config_refs(root):
+        print(
+            f"::error file={rel},line={lineno}::{label} — this repository is public and "
+            f"read by several agent toolchains; cite the AGENTS.md section that states the "
+            f"rule instead of a path under a maintainer's home directory"
+        )
+        fatal += 1
 
     # Scan JSON datasets
     json_errors = check_json_datasets(root, registry)

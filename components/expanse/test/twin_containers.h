@@ -7,7 +7,7 @@
  *
  * Every twin here is meant to WIN somewhere. A baseline that cannot beat the
  * primary under any parameter regime makes the comparison definitional
- * rather than measured (~/.claude/CLAUDE.md, twin-baseline rule), so:
+ * rather than measured (§8.3), so:
  *
  *   - twin_ring is the right answer for monotonic append-only telemetry and
  *     should beat Expanse on ingest outright;

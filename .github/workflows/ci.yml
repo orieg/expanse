@@ -334,7 +334,16 @@ jobs:
   docs-lint:
     name: Docs / Hygiene (time estimates, PII, provenance)
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.docs == 'true' || github.event_name != 'pull_request'
+    # Runs on every PR, not behind the `docs` filter. check_docs_hygiene.py's
+    # agent-config sweep reads the WHOLE TREE (`git ls-files`), not the diff, so
+    # a diff-based path filter cannot bound it: a reference introduced in any
+    # tracked text file has to be caught, and the one that motivated the check
+    # arrived in `components/expanse/test/twin_containers.h` -- a `.h`, which
+    # the `docs` filter (`components/**/*.md`) does not match. Gating a
+    # whole-tree sweep on a partial filter is a check that silently verifies
+    # nothing on the PRs that need it most (AGENTS.md 8.1). The job is a
+    # 5-minute Python scan; the other filters are untouched, so no compile,
+    # Miri, ASan or Callgrind lane is widened by this.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
