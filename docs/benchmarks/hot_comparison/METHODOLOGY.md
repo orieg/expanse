@@ -279,3 +279,57 @@ that reads as a competitor win.
 counter and the harness asserts it is zero before a census, so a violation fails
 loudly instead of depending on the runner's ordering. A census cell taken on a
 warm pool is void.
+
+### 9.3 The Expanse cells here will not equal the repo's `bytes/key` table
+
+Two independent reasons, both measured rather than argued. Reconciled by
+`crates/expanse-hot-bench/src/bin/instrument_bridge.rs`, which reads both
+instruments on the same build of the same key stream *(measured: x86_64 build
+host — Intel Xeon E5-2697 v4; `-C target-cpu=haswell`; workload:
+`hot_instrument_bridge`)*. That probe reproduces the committed
+`example_bytes_per_key` figures exactly — sequential 1M `0.07`, clustered 1M
+`0.36`, sparse 1M `16.31`, random 100k `14.78`, random 1M `7.92` B/key — so the
+generator and the engine accounting are confirmed identical before anything is
+compared.
+
+**Reason 1 — different instrument.** The repo's table publishes `mem_used()`,
+the engine's byte-exact node accounting. This suite must publish bytes held from
+the C allocator, the only definition HOT can also be measured under (§3.2). The
+gap is allocator chunk headers, size-class rounding, and arena capacity the
+engine does not count as used, and it is **not a constant factor**:
+
+| Distribution | N | `mem_used` B/key | allocator B/key | ratio |
+|---|---:|---:|---:|---:|
+| sequential (set) | 10k | 0.09 | 6.62 | 72.6× |
+| sequential (set) | 100k | 0.07 | 0.81 | 11.9× |
+| sequential (set) | 1M | 0.07 | 0.14 | 2.1× |
+| sparse (set) | 1M | 16.31 | 16.42 | 1.007× |
+| random 64-bit (set) | 1M | 7.92 | 12.62 | 1.59× |
+
+The ratio collapses toward 1.0 as either the population or the per-key footprint
+grows, because fixed arena capacity amortizes. It is largest exactly where
+Expanse is most compact, so **the allocator instrument understates Expanse's
+dense-distribution advantage** relative to the repo's own table. Any cell
+published here states which instrument produced it, and no cell from this suite
+is set beside a `mem_used` cell as though the two were the same quantity
+(§8.12).
+
+**Reason 2 — different keyspace.** The repo's `random` row draws full 64-bit
+keys. This suite is locked to 63 bits (§3.1), and that is not cosmetic on this
+distribution:
+
+| Keyspace | N | `ExpanseSet` `mem_used` B/key |
+|---|---:|---:|
+| 64-bit random | 1M | 7.92 |
+| 63-bit random | 1M | 13.60 |
+
+**+72% against Expanse**, on the engine's own instrument, from the constraint
+HOT's encoding imposes. The suite's random-distribution memory cells are
+therefore not comparable to the repo's published random cells in either
+direction, and the README says so next to them rather than in a footnote.
+
+The direction of that gap is unexplained. Clearing bit 63 halves the keyspace
+and should make a digital tree's top level *denser*, which predicts less memory
+per key, not more; the 100k cells move the other way (12.60 at 63 bits against
+14.78 at 64). Cause unknown and unmeasured — recorded here as an open question
+rather than narrated (§8.9), and tracked before the memory pillar publishes.
