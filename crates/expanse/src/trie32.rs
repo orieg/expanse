@@ -235,9 +235,32 @@ fn combine(digit: u8, child: u32, kb: u8) -> u32 {
 
 #[inline]
 fn read_rem(buf: &[u8], i: usize, kb: usize) -> u32 {
-    let mut b = [0u8; 4];
-    b[..kb].copy_from_slice(&buf[i * kb..i * kb + kb]);
-    u32::from_le_bytes(b)
+    let o = i * kb;
+    // The two targets lower the same slice copy differently, so each gets the
+    // form its own instrument prefers. Native: `kb` is a runtime 1..=4, so the
+    // copy cannot be const-folded and lowers to a libc `memcpy` CALL for a 1-4
+    // byte read, once per key; giving each width a constant length inlines it
+    // away (map32_range/iterate clustered -14.62% on x86 Callgrind). wasm: the
+    // same copy is a single `memory.copy` bulk-memory instruction with no call
+    // to remove, so the branch ladder is pure addition on the insert scan
+    // (set_insert/random +5.07%, map_insert/random +2.95% on wasmtime fuel,
+    // measured against main on one toolchain). Do not collapse these to one
+    // form without re-running both instruments.
+    #[cfg(not(target_family = "wasm"))]
+    {
+        match kb {
+            1 => u32::from(buf[o]),
+            2 => u32::from(u16::from_le_bytes([buf[o], buf[o + 1]])),
+            3 => u32::from_le_bytes([buf[o], buf[o + 1], buf[o + 2], 0]),
+            _ => u32::from_le_bytes([buf[o], buf[o + 1], buf[o + 2], buf[o + 3]]),
+        }
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        let mut b = [0u8; 4];
+        b[..kb].copy_from_slice(&buf[o..o + kb]);
+        u32::from_le_bytes(b)
+    }
 }
 
 #[inline]

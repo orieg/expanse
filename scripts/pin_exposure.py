@@ -57,6 +57,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from bca_bootstrap import bca_bootstrap_ci  # noqa: E402
+from bench_baseline import validate_host_description  # noqa: E402
 
 SYS_PMU_ROOT = Path("/sys/devices")
 P_CORE_PMU = "cpu_core"
@@ -89,6 +90,89 @@ def pmu_cpus(pmu: str) -> Optional[str]:
         return path.read_text(encoding="utf-8").strip() or None
     except OSError:
         return None
+
+
+def detect_commit() -> Optional[str]:
+    """The commit of the tree being measured, or None if this is not a checkout.
+
+    Exit-status discrimination per AGENTS.md §8.1: 0 is an answer, 128 is
+    "not a git repository / no HEAD" and is a legitimate None (the reference
+    rig is an rsync'd tree, not a checkout), and anything else is a tool
+    failure that must not be read as "no commit".
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if proc.returncode == 0:
+        return proc.stdout.strip() or None
+    if proc.returncode == 128:
+        return None
+    raise RuntimeError(f"`git rev-parse` exited {proc.returncode}: {proc.stderr.strip()[:200]}")
+
+
+def resolve_commit(declared: Optional[str], detected: Optional[str]) -> Tuple[str, str]:
+    """(commit, how_it_is_known). Refuses rather than mislabelling an artifact.
+
+    A declared commit that contradicts the checkout is the dangerous case: it
+    publishes numbers under a commit they were not taken at. Neither source is
+    also a refusal — an artifact that cannot say what it measured is not
+    provenance (AGENTS.md §8.7).
+    """
+    if declared and detected and not (declared.startswith(detected) or detected.startswith(declared)):
+        raise Preflight(
+            f"--commit {declared!r} contradicts the checkout at {REPO_ROOT}, which is at "
+            f"{detected!r}. One of them is wrong, and publishing either would label the "
+            "numbers with a commit they were not taken at."
+        )
+    if declared:
+        return declared, "declared" if not detected else "declared (agrees with the checkout)"
+    if detected:
+        return detected, "git"
+    raise Preflight(
+        "no commit: this tree is not a git checkout, so what is being measured cannot be "
+        "detected. Pass --commit <sha>. An artifact that cannot say which commit it measured "
+        "is not provenance (AGENTS.md §8.7)."
+    )
+
+
+def describe_host() -> str:
+    """An anonymised hardware description (AGENTS.md §7): never the hostname."""
+    model = None
+    try:
+        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("model name"):
+                model = line.split(":", 1)[1].strip()
+                break
+    except OSError:
+        pass
+    parts = [model or platform.machine(), f"{os.cpu_count()} logical CPUs", f"{platform.system()} {platform.release()}"]
+    return ", ".join(parts)
+
+
+def toolchain() -> Optional[str]:
+    try:
+        proc = subprocess.run(["rustc", "--version"], capture_output=True, text=True)
+    except OSError:
+        return None
+    return proc.stdout.strip() or None if proc.returncode == 0 else None
+
+
+def resolve_provenance(
+    declared_commit: Optional[str], declared_host_desc: Optional[str]
+) -> Tuple[str, str, str]:
+    """(commit, commit_source, host_description) for the artifact's provenance.
+
+    The whole assembly, not its pieces, so `--self-test` exercises what `main`
+    actually calls: a privacy validator that a call site forgot to apply is
+    the failure this exists to catch.
+    """
+    commit, commit_source = resolve_commit(declared_commit, detect_commit())
+    return commit, commit_source, validate_host_description(declared_host_desc or describe_host())
 
 
 def parse_cpu_list(spec: str) -> Set[int]:
@@ -185,13 +269,42 @@ def preflight(
     return p_cpus, e_cpus
 
 
-def run_bench(bench: str, package: str, pin: Optional[str], filter_: Optional[str]) -> None:
+def bench_argv(
+    bench: str,
+    package: str,
+    pin: Optional[str],
+    filter_: Optional[str],
+    criterion_args: Optional[Sequence[str]] = None,
+) -> List[str]:
+    """The exact command one condition runs.
+
+    Split out from `run_bench` so the assembled command — which decides what
+    is being measured — is checkable in `--self-test` without invoking cargo.
+
+    Criterion's own flags (`--measurement-time`, `--warm-up-time`,
+    `--sample-size`) go after the `--`, alongside the filter. They are part of
+    the comparison's definition, not a detail: a run at a different warm-up
+    is a different measurement, and a claim paired against an earlier one has
+    to hold them equal (AGENTS.md §8.3).
+    """
     argv: List[str] = []
     if pin:
         argv += ["taskset", "-c", pin]
     argv += ["cargo", "bench", "--bench", bench, "-p", package]
-    if filter_:
-        argv += ["--", filter_]
+    tail = ([filter_] if filter_ else []) + list(criterion_args or [])
+    if tail:
+        argv += ["--"] + tail
+    return argv
+
+
+def run_bench(
+    bench: str,
+    package: str,
+    pin: Optional[str],
+    filter_: Optional[str],
+    criterion_args: Optional[Sequence[str]] = None,
+) -> None:
+    argv = bench_argv(bench, package, pin, filter_, criterion_args)
     proc = subprocess.run(argv, cwd=REPO_ROOT, capture_output=True, text=True)
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr[-4000:])
@@ -340,6 +453,14 @@ def render(rows: Sequence[Dict[str, Any]], meta: Dict[str, Any]) -> str:
         f"per-iteration times, pooled across rounds; intervals are BCa 95% over {RESAMPLES} resamples. "
         "`E ÷ P` is the exposure ceiling; `unpinned ÷ P` is whether it fired.",
         "",
+    ]
+    if meta.get("invocation"):
+        out += [
+            f"Invocation (the pin aside): `{meta['invocation']}`. Criterion settings are part of "
+            "what was measured, so a figure here pairs only with one taken at the same ones.",
+            "",
+        ]
+    out += [
         "| arm | P-cores ns | unpinned ns | E-cores ns | E ÷ P | unpinned ÷ P | CI width P / unpinned / E | E vs P | unpinned vs P |",
         "|---|---:|---:|---:|---:|---:|---:|---|---|",
     ]
@@ -442,7 +563,67 @@ def self_test() -> None:
         ["b", "a"],
     ], "the two-condition case must still flip on odd rounds"
 
-    # 9. an inherited affinity mask is a refusal, not a narrower measurement
+    # 9. the assembled command: criterion's own flags reach criterion, the pin
+    #    stays outside cargo, and the three conditions differ ONLY in the pin.
+    base = ("domain", "expanse-trie")
+    assert bench_argv(*base, None, None, None) == ["cargo", "bench", "--bench", "domain", "-p", "expanse-trie"]
+    assert bench_argv(*base, "0-15", None, None)[:3] == ["taskset", "-c", "0-15"]
+    assert bench_argv(*base, None, "arm/100000", None)[-2:] == ["--", "arm/100000"]
+    # criterion flags land after the `--`, after the filter, in the given order
+    assert bench_argv(*base, None, "arm/100000", ["--measurement-time", "5"])[-4:] == [
+        "--",
+        "arm/100000",
+        "--measurement-time",
+        "5",
+    ]
+    # ... and a `--` is still emitted when there are flags but no filter, or
+    # criterion would never see them
+    assert bench_argv(*base, None, None, ["--warm-up-time", "2"])[-3:] == ["--", "--warm-up-time", "2"]
+    # the three conditions must be the same command but for the pin: anything
+    # else and the comparison is not measuring core placement (AGENTS.md §8.3)
+    args = ("arm/100000", ["--measurement-time", "5"])
+    per_condition = [bench_argv(*base, pin, *args) for pin in ("0-15", None, "16-23")]
+    stripped = [a[3:] if a[0] == "taskset" else a for a in per_condition]
+    assert stripped[0] == stripped[1] == stripped[2], per_condition
+
+    # 10. provenance: an artifact must be able to say what it measured, and
+    #     must never say something the checkout contradicts (AGENTS.md §8.7).
+    assert resolve_commit("c4b1817", None) == ("c4b1817", "declared")
+    assert resolve_commit(None, "638f66e") == ("638f66e", "git")
+    # a declared value that the checkout agrees with is recorded as agreeing,
+    # and prefix-matching means a short sha and a long one do not collide
+    assert resolve_commit("c4b1817f", "c4b1817")[0] == "c4b1817f"
+    assert "agrees" in resolve_commit("c4b1817f", "c4b1817")[1]
+    for declared, detected, why in (
+        ("c4b1817", "638f66e", "a declared commit contradicting the checkout"),
+        (None, None, "neither a declared nor a detectable commit"),
+    ):
+        try:
+            resolve_commit(declared, detected)
+            raise AssertionError(f"{why} must refuse")
+        except Preflight:
+            pass
+    # the host description is anonymised: a hostname or a home path is refused
+    assert describe_host()
+    validate_host_description(describe_host())
+    # ... and the refusal must survive the assembly `main` actually calls, not
+    #     just the validator in isolation
+    # A commit this tree can vouch for, so the host check is what is exercised
+    # here rather than the commit refusal that correctly precedes it.
+    ok_commit = detect_commit() or "c4b1817"
+    for leaky in ("/home/someone/expanse rig", "bench box 192.168.1.9"):
+        for call, what in (
+            (lambda: validate_host_description(leaky), "the validator"),
+            (lambda: resolve_provenance(ok_commit, leaky), "resolve_provenance"),
+        ):
+            try:
+                call()
+                raise AssertionError(f"{what} must refuse {leaky!r} as private infrastructure")
+            except ValueError:
+                pass
+    assert resolve_provenance(ok_commit, None)[0] == ok_commit
+
+    # 11. an inherited affinity mask is a refusal, not a narrower measurement
     assert affinity_gap("0-3", "4-5", set(range(6))) == []
     assert affinity_gap("0-3", "4-5", {0, 1, 2, 3}) == [4, 5]
     assert affinity_gap("0,2", "4-5", {0, 2, 4, 5}) == []
@@ -453,7 +634,7 @@ def self_test() -> None:
         except Preflight:
             pass
 
-    # 10. every preflight refusal, on a synthetic host so they are all reachable
+    # 12. every preflight refusal, on a synthetic host so they are all reachable
     #     from any machine rather than only from the reference one.
     global pmu_cpus
     real = pmu_cpus
@@ -489,7 +670,26 @@ def main() -> None:
     ap.add_argument("--bench", help="criterion bench target, e.g. `compare`")
     ap.add_argument("-p", "--package", default="expanse-trie")
     ap.add_argument("--filter", help="criterion filter passed after `--`")
+    ap.add_argument(
+        "--criterion-arg",
+        action="append",
+        metavar="ARG",
+        help="extra argument passed to criterion after `--`, repeatable "
+        "(e.g. --criterion-arg=--measurement-time --criterion-arg=5). Recorded in "
+        "the --json meta, because a run at different criterion settings is not "
+        "paired with one at the defaults.",
+    )
     ap.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS, help=f"interleaved rounds per condition (default {DEFAULT_ROUNDS})")
+    ap.add_argument(
+        "--commit",
+        help="commit being measured; auto-detected in a git checkout and REQUIRED otherwise "
+        "(the reference rig is an rsync'd tree). A value contradicting the checkout is refused.",
+    )
+    ap.add_argument(
+        "--host-desc",
+        help="anonymised hardware description (CPU model, cores, cache, OS). Derived from "
+        "/proc/cpuinfo when omitted; a hostname or home path in it is refused (AGENTS.md §7).",
+    )
     ap.add_argument("--json", type=Path)
     ap.add_argument("--markdown", type=Path)
     ap.add_argument("--self-test", action="store_true")
@@ -502,10 +702,12 @@ def main() -> None:
         ap.error("--bench is required")
     try:
         p_cpus, e_cpus = preflight()
-    except Preflight as e:
+        commit, commit_source, host_desc = resolve_provenance(args.commit, args.host_desc)
+    except (Preflight, ValueError, RuntimeError) as e:
         fail(str(e))
         return
 
+    start_load = os.getloadavg() if hasattr(os, "getloadavg") else None
     pins: Dict[str, Optional[str]] = {"p_cores": p_cpus, "unpinned": None, "e_cores": e_cpus}
     collected: Dict[str, Dict[str, List[float]]] = {name: {} for name in CONDITIONS}
     for rnd in range(args.rounds):
@@ -513,17 +715,30 @@ def main() -> None:
         # session does not load onto whichever one always goes first.
         for name in round_order(rnd):
             print(f"round {rnd + 1}/{args.rounds}: {name}", file=sys.stderr)
-            run_bench(args.bench, args.package, pins[name], args.filter)
+            run_bench(args.bench, args.package, pins[name], args.filter, args.criterion_arg)
             for arm, samples in collect_samples().items():
                 collected[name].setdefault(arm, []).extend(samples)
 
     rows = analyse(collected["p_cores"], collected["unpinned"], collected["e_cores"])
     meta = {
-        "host": platform.node() and f"{platform.machine()} Linux hybrid host",
+        "host": host_desc,
+        "provenance": {
+            "host_description": host_desc,
+            "commit": commit,
+            "commit_source": commit_source,
+            "toolchain": toolchain(),
+            "os": platform.system().lower(),
+            "arch": platform.machine(),
+            "load_average_at_start": start_load,
+            "load_average_at_end": os.getloadavg() if hasattr(os, "getloadavg") else None,
+        },
         "bench": args.bench,
         "rounds": args.rounds,
         "p_cpus": p_cpus,
         "e_cpus": e_cpus,
+        "filter": args.filter,
+        "criterion_args": list(args.criterion_arg or []),
+        "invocation": " ".join(bench_argv(args.bench, args.package, None, args.filter, args.criterion_arg)),
         "conditions": [
             {"condition": name, "pin": (f"taskset -c {pins[name]}" if pins[name] else None)}
             for name in CONDITIONS
