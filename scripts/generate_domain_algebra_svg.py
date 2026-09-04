@@ -116,6 +116,33 @@ def badge(x: float, y: float, w: float, text: str) -> str:
     )
 
 
+
+def decade_grid(bx: float, y_top: float, y_bot: float, min_log: float, max_log: float,
+                width: float, unit: str = "\u00b5s") -> str:
+    """Decade tick lines behind a log-scaled bar group.
+
+    A log axis compresses hard: on this chart a 1028x difference rendered as a
+    20x bar and a 5.26x difference as 1.23x, so bar length alone understated
+    every result the panel exists to show. Linear rescaling is not available --
+    one row spans three orders of magnitude, and small bars would vanish. The
+    honest fix is to make the log encoding decodable, so the reader can see
+    that two similar-looking bars sit in different decades.
+    """
+    out = []
+    d = math.floor(min_log)
+    while d <= max_log:
+        if d >= min_log:
+            x = bx + (d - min_log) / (max_log - min_log) * width
+            out.append(f'    <line x1="{x:.1f}" y1="{y_top:.1f}" x2="{x:.1f}" y2="{y_bot:.1f}" class="grid"/>\n')
+            # Labels are deliberately omitted: at this width the decades sit
+            # ~33px apart and "10us"/"100us"/"1ms" overlap into an unreadable
+            # run. The lines alone carry what matters -- that two similar bars
+            # can sit in different decades -- and the numeric value is already
+            # printed at the end of every bar.
+        d += 1
+    return "".join(out)
+
+
 def render_svg(data: dict) -> str:
     width = 960
     height = 670
@@ -150,7 +177,7 @@ def render_svg(data: dict) -> str:
     out.append('  <!-- Panel 1A: Materialization Evolution (#348) -->\n')
     out.append('  <g transform="translate(30, 70)">\n')
     out.append('    <text x="0" y="10" class="t-chart-title">1. MATERIALIZATION: DIRECT EMISSION (#348)</text>\n')
-    out.append('    <text x="0" y="24" class="t-sub">A ∩ B result set built • N=100k symmetric • latency (log scale, lower is better)</text>\n')
+    out.append('    <text x="0" y="24" class="t-sub">A ∩ B result set built • N=100k symmetric • latency, LOG axis</text>\n')
 
     mat_rows = data["materialization_348"]
     min_log = math.log10(1.0)
@@ -163,6 +190,8 @@ def render_svg(data: dict) -> str:
 
     y_row_start = 42
     row_step = 54
+
+    out.append(decade_grid(78, y_row_start - 4, y_row_start + 3 * row_step + 30, min_log, max_log, 130.0))
 
     for i, r in enumerate(mat_rows):
         y = y_row_start + i * row_step
@@ -199,7 +228,7 @@ def render_svg(data: dict) -> str:
     out.append('  <!-- Panel 1B: k-Way Aggregate Algebra (#610) -->\n')
     out.append('  <g transform="translate(498, 70)">\n')
     out.append('    <text x="0" y="10" class="t-chart-title">2. K-WAY AGGREGATE WALK (#610, K=5)</text>\n')
-    out.append('    <text x="0" y="24" class="t-sub">k=5 multi-set intersection • N=100k • latency (log scale, lower is better)</text>\n')
+    out.append('    <text x="0" y="24" class="t-sub">k=5 multi-set intersection • N=100k • latency, LOG axis</text>\n')
 
     kway_rows = data["kway_610"]
     min_log_k = math.log10(0.5)
@@ -209,6 +238,8 @@ def render_svg(data: dict) -> str:
         lv = math.log10(max(0.5, val_us))
         ratio = (lv - min_log_k) / (max_log_k - min_log_k)
         return max(5.0, min(130.0, ratio * 130.0))
+
+    out.append(decade_grid(78, y_row_start - 4, y_row_start + 3 * row_step + 30, min_log_k, max_log_k, 130.0))
 
     for i, r in enumerate(kway_rows):
         y = y_row_start + i * row_step
@@ -284,9 +315,6 @@ def render_svg(data: dict) -> str:
         out.append(badge(170, y0 + 8, 102, f"+{pct:.1f}% overhead"))
         if idx == 0:
             out.append('      <line x1="14" y1="103" x2="271" y2="103" class="grid"/>\n')
-    n100 = parity["intersection_100k"]
-    out.append(f'      <text x="14" y="168" class="t-note">N=100k: ratio {n100["ratio"]:.4f} '
-               f'[{n100["ci"][0]:.4f}, {n100["ci"][1]:.4f}] &#8212; not resolved; base cost dominates.</text>\n')
     out.append('    </g>\n')
 
     # Card 2B: Ingestion Throughput (width: 315px)
@@ -298,12 +326,15 @@ def render_svg(data: dict) -> str:
     out.append('      <line x1="14" y1="43" x2="301" y2="43" class="divider"/>\n')
 
     ingest_data = data["domain_ingestion_611"]
-    max_ingest = 5.5
+    # Scale from the data, never a fixed literal: the arms were re-measured at
+    # ~11 M keys/s against a hardcoded 5.5 ceiling, so every bar overflowed its
+    # card until this was derived (AGENTS.md 8.2).
+    max_ingest = max(max(r["batch128_mops"], r["scalar_mops"]) for r in ingest_data) * 1.05
     bar_w_max = 85.0
 
     # Item 1: Text Keys
     out.append('      <text x="14" y="60" class="t-bar-label">Text Keys (user:...)</text>\n')
-    out.append(badge(212, 50, 89, "3.12x faster"))
+    out.append(badge(212, 50, 89, f'{ingest_data[0]["speedup"]:.3f}x faster'))
     w_b1 = (ingest_data[0]["batch128_mops"] / max_ingest) * bar_w_max
     out.append(f'      <rect x="14" y="68" width="{w_b1:.1f}" height="8" rx="1.5" class="b-expanse"/>\n')
     out.append(f'      <text x="{14 + w_b1 + 5:.1f}" y="{68 + 7.5}" class="t-val-green">Batch 128: {ingest_data[0]["batch128_mops"]:.2f} M/s</text>\n')
@@ -315,7 +346,7 @@ def render_svg(data: dict) -> str:
 
     # Item 2: Binary UUID
     out.append('      <text x="14" y="121" class="t-bar-label">Binary UUID (NUL-escaped)</text>\n')
-    out.append(badge(212, 111, 89, "3.08x faster"))
+    out.append(badge(212, 111, 89, f'{ingest_data[1]["speedup"]:.3f}x faster'))
     w_b2 = (ingest_data[1]["batch128_mops"] / max_ingest) * bar_w_max
     out.append(f'      <rect x="14" y="129" width="{w_b2:.1f}" height="8" rx="1.5" class="b-expanse"/>\n')
     out.append(f'      <text x="{14 + w_b2 + 5:.1f}" y="{129 + 7.5}" class="t-val-green">Batch 128: {ingest_data[1]["batch128_mops"]:.2f} M/s</text>\n')
@@ -333,9 +364,14 @@ def render_svg(data: dict) -> str:
     out.append('      <line x1="14" y1="43" x2="256" y2="43" class="divider"/>\n')
 
     res = data["domain_resolution_611"]
-    out.append(f'      <text x="14" y="78" class="t-chart-title" style="font-size: 26px; font-weight: 800; fill: #15803d;">{res["scan_mops"]:.1f} M</text>\n')
-    out.append('      <text x="115" y="72" class="t-bar-label" style="font-size: 13px; font-weight: 700;">keys / sec</text>\n')
-    out.append('      <text x="115" y="86" class="t-sub">throughput</text>\n')
+    big = f'{res["scan_mops"]:.1f} M'
+    # The label x is derived from the figure's width. It was pinned at 115,
+    # which fitted "16.4 M" and collided the moment the re-measured "604.4 M"
+    # was rendered.
+    label_x = 14 + len(big) * 15.6 + 10
+    out.append(f'      <text x="14" y="78" class="t-chart-title" style="font-size: 26px; font-weight: 800; fill: #15803d;">{big}</text>\n')
+    out.append(f'      <text x="{label_x:.0f}" y="72" class="t-bar-label" style="font-size: 13px; font-weight: 700;">keys / sec</text>\n')
+    out.append(f'      <text x="{label_x:.0f}" y="86" class="t-sub">throughput</text>\n')
     out.append(f'      <text x="14" y="106" class="t-sub">Latency: <tspan class="t-val-green">{res["latency_ns"]:.1f} ns / key</tspan> amortized scan</text>\n')
 
     out.append('      <line x1="14" y1="118" x2="256" y2="118" class="grid"/>\n')
@@ -345,6 +381,10 @@ def render_svg(data: dict) -> str:
     out.append('      <text x="14" y="163" class="t-sub">slabs in BlobArena (no string clones)</text>\n')
     out.append('    </g>\n')
 
+    n100 = parity["intersection_100k"]
+    out.append(f'    <text x="0" y="222" class="t-note">Provenance check at N=100k: ratio {n100["ratio"]:.4f} '
+               f'[{n100["ci"][0]:.4f}, {n100["ci"][1]:.4f}] &#8212; not resolved; the base algebra cost dominates it. '
+               f'The N=10k badges above are where it separates.</text>\n')
     out.append('  </g>\n\n')
 
     # =========================================================================
@@ -379,7 +419,7 @@ def render_svg(data: dict) -> str:
     # exists: `domain` is declared wallclock in .github/bench-suites.json and
     # has no arm in any Callgrind harness. Both claims are removed rather than
     # reworded (AGENTS.md 8.1, 8.9).
-    out.append('  <text x="30" y="657" class="t-note">Parity badges state the resolution bound the recorded values support, not an exact zero; no instruction-count measurement of these arms exists.</text>\n')
+    out.append('  <text x="30" y="657" class="t-note">Panels 1-2 use a LOG latency axis (faint decade lines): bar length understates the ratios badly &#8212; Dense pairwise is 1029x but ~20x of bar. Read the badges and the printed values, not the bars.</text>\n')
 
     out.append('</svg>\n')
     return "".join(out)
