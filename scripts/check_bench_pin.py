@@ -166,11 +166,12 @@ def _run_pin(tmp: Path, *, hybrid: bool, taskset: bool, env: dict[str, str]) -> 
     elif stub.exists():
         stub.unlink()
 
-    # A PATH with only the stub dir would lose sed/awk/tr, so keep the real
-    # PATH and shadow `taskset` from the front — or, when the case needs it
-    # absent, point PATH at a directory that has no `taskset` in it and rely on
-    # the coreutils the system PATH still provides.
-    path = f"{bindir}:{os.environ.get('PATH', '')}" if taskset else _path_without_taskset()
+    # PATH is *only* this directory. Filtering `taskset` out of the real PATH
+    # instead would remove /usr/bin along with it on any host where the two
+    # live together, taking sh/sed/awk/tr with it — which is how this self-test
+    # first passed on a host without `taskset` and failed on one with it.
+    _link_tools(bindir)
+    path = str(bindir)
 
     full = {
         **os.environ,
@@ -187,16 +188,22 @@ def _run_pin(tmp: Path, *, hybrid: bool, taskset: bool, env: dict[str, str]) -> 
     )
 
 
-def _path_without_taskset() -> str:
-    """The current PATH with every directory containing `taskset` removed."""
-    keep = []
-    for part in os.environ.get("PATH", "").split(os.pathsep):
-        if not part:
-            continue
-        if (Path(part) / "taskset").exists():
-            continue
-        keep.append(part)
-    return os.pathsep.join(keep)
+# Everything `bench_pin.sh` reaches for outside the shell's own builtins. The
+# self-test builds a PATH containing exactly these (plus, in the cases that
+# want one, the stub `taskset`), so "no taskset on PATH" is a real condition
+# rather than a side effect of editing the host's PATH.
+REQUIRED_TOOLS = ("sh", "tr", "sort", "uniq", "sed", "awk", "cat")
+
+
+def _link_tools(bindir: Path) -> None:
+    """Symlink the tools bench_pin.sh needs into `bindir`."""
+    for tool in REQUIRED_TOOLS:
+        found = shutil.which(tool)
+        if found is None:
+            raise SystemExit(f"::error::self-test needs `{tool}` on PATH and it is absent")
+        link = bindir / tool
+        if not link.exists():
+            link.symlink_to(found)
 
 
 def self_test() -> None:
