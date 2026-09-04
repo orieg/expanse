@@ -58,6 +58,7 @@ python3 scripts/check_ecosystem_theme.py --local-only
 python3 scripts/check_ci_gate.py
 python3 scripts/check_bench_suites.py
 python3 scripts/check_bench_shapes.py
+python3 scripts/check_bench_pin.py
 python3 scripts/check_man_pages.py
 python3 scripts/check_deletion_rationale.py
 python3 scripts/check_test_floors.py
@@ -67,6 +68,7 @@ python3 scripts/check_docs_hygiene.py --self-test
 python3 scripts/check_ecosystem_theme.py --self-test
 python3 scripts/check_bench_suites.py --self-test
 python3 scripts/check_bench_shapes.py --self-test
+python3 scripts/check_bench_pin.py --self-test
 python3 scripts/check_man_pages.py --self-test
 python3 scripts/check_man_examples.py --self-test
 python3 scripts/check_abi_parity.py --self-test
