@@ -822,8 +822,64 @@ def self_test() -> int:
             f"is exactly how this class of reference reached a public repo"
         )
 
+    # A superseded figure rendered into a chart must be fatal. Pinned verbatim:
+    # "3.12x faster" shipped inside bench_domain_algebra.svg in the same PR that
+    # retracted it, because SVGs were never swept (AGENTS.md 8.12.3).
+    with tempfile.TemporaryDirectory() as td:
+        fake = Path(td)
+        (fake / "docs" / "assets").mkdir(parents=True)
+        chart = fake / "docs" / "assets" / "c.svg"
+        chart.write_text('<svg><text>3.12x faster</text><text>domain ingestion batch scalar</text></svg>')
+        (fake / "clean.svg").write_text('<svg><text>1.029x faster</text><text>domain ingestion batch</text></svg>')
+        subprocess.run(["git", "init", "-q"], cwd=fake, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=fake, check=True)
+        hits = check_svg_assets(fake, reg)
+        names = {h[0] for h in hits}
+        assert "docs/assets/c.svg" in names, (
+            f"a retracted figure rendered into a chart must be flagged; got {hits!r}"
+        )
+        assert "clean.svg" not in names, f"corrected chart must pass; got {hits!r}"
+
     print("check_docs_hygiene.py --self-test: all checks passed")
     return 0
+
+
+def check_svg_assets(root: Path, registry: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """Scan tracked SVGs for superseded figures.
+
+    Charts are a published surface and were not scanned. A generated chart
+    stamped "3.12x faster" -- a figure retracted in the very PR that shipped the
+    chart -- reached main sitting beside prose stating the corrected 1.029x,
+    because the registry only ever swept Markdown, the visualizer HTML and two
+    named JSON files. An SVG carries no prose context, so only the superseded
+    check applies here; a figure's `context` terms are matched against the whole
+    file rather than a sentence window.
+    """
+    errs: list[tuple[str, str]] = []
+    out = subprocess.run(["git", "ls-files", "--", "*.svg"], cwd=root,
+                         capture_output=True, text=True, check=True).stdout.split()
+    for rel in out:
+        path = root / rel
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if ALLOW_MARKER in text:
+            continue
+        low = text.lower()
+        for fig in registry:
+            req = min(2, len(fig["context"]))
+            if sum(1 for c in fig["context"] if c in low) < req:
+                continue
+            for pat in fig["patterns"]:
+                m = pat.search(text)
+                if m:
+                    errs.append((rel, f"superseded figure ({m.group(0).strip()!r}) rendered into a "
+                                      f"published chart \u2014 replacement: {fig['replacement']}"))
+                    break
+    return errs
 
 
 def tracked_text_files(root: Path) -> list[Path]:
@@ -949,6 +1005,11 @@ def main() -> int:
         )
         fatal += f
     fatal += check_published_html_links(root)
+
+    # Superseded figures rendered into published charts
+    for rel, err in check_svg_assets(root, registry):
+        print(f"::error file={rel}::{err}")
+        fatal += 1
 
     # Personal agent-config references, across every tracked text file
     for rel, lineno, label in check_agent_config_refs(root):
