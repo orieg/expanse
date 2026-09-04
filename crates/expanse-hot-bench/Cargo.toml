@@ -30,7 +30,15 @@ cc = "1"
 name = "hot_validate"
 path = "src/bin/hot_validate.rs"
 
+[[bin]]
+name = "instrument_bridge"
+path = "src/bin/instrument_bridge.rs"
+
 [profile.release]
 opt-level = 3
 lto = "thin"
 codegen-units = 1
+
+[[bin]]
+name = "keyspace_density_probe"
+path = "src/bin/keyspace_density_probe.rs"
