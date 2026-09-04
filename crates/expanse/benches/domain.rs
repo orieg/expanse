@@ -24,7 +24,7 @@
 #![cfg(target_pointer_width = "64")]
 #![allow(missing_docs)]
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use expanse_trie::domain::ExpanseDomainDict;
 use expanse_trie::set::ExpanseSet;
 use std::hint::black_box;
@@ -78,23 +78,31 @@ fn bench_domain_set_algebra_overhead(c: &mut Criterion) {
         }
 
         // 1. Raw ExpanseSet intersection
+        //
+        // `iter_batched` returns the result set so criterion drops it AFTER the
+        // timer stops: teardown stays outside the measured region (AGENTS.md
+        // §8.6) without leaking. `mem::forget` inside `b.iter` did keep Drop out
+        // of the window, but `b.iter` runs millions of times, so the leak grew
+        // without bound -- at n=100_000 the process reached 94.9 GB RSS and was
+        // OOM-killed on a 91 GiB host and aborted on allocation failure on a
+        // 62 GiB one. That idiom is correct in the iai-callgrind harnesses,
+        // where each function body runs once per measurement; it is not correct
+        // in a criterion iteration loop.
         group.bench_function(BenchmarkId::new("raw_expanse_set_intersection", n), |b| {
-            b.iter(|| {
-                let out = black_box(&raw_a).intersection(black_box(&raw_b));
-                let len = out.len();
-                core::mem::forget(out);
-                len
-            });
+            b.iter_batched(
+                || (),
+                |()| black_box(&raw_a).intersection(black_box(&raw_b)),
+                BatchSize::SmallInput,
+            );
         });
 
         // 2. DomainSet intersection (measures domain verification overhead)
         group.bench_function(BenchmarkId::new("domain_set_intersection", n), |b| {
-            b.iter(|| {
-                let out = black_box(&dom_a).intersection(black_box(&dom_b)).unwrap();
-                let len = out.len();
-                core::mem::forget(out);
-                len
-            });
+            b.iter_batched(
+                || (),
+                |()| black_box(&dom_a).intersection(black_box(&dom_b)).unwrap(),
+                BatchSize::SmallInput,
+            );
         });
 
         // 3. Raw ExpanseSet intersection_len (cardinality only)
