@@ -319,3 +319,235 @@ Merges to `main` use a unique key (`github.run_id` / `github.sha`) with `cancel-
 - [ ] Add automated nightly issue triage / self-healing to `nightly.yml`.
 
 **Architecture choice — native Actions vs `yaml-workflows`:** use native GitHub Actions for core PR CI (`ci.yml`) for zero setup overhead and direct diagnostic streaming; prefer the `orieg/yaml-workflow` action for DAG-based multi-artifact release packaging (`release.yml`), cross-repo nightly sweeps (`nightly.yml`), and multi-step docs portals (`pages.yml`).
+
+## Bare-Metal Benchmark Runner
+
+To ensure consistent performance measurements unaffected by shared cloud runner noise, Expanse supports automated bare-metal benchmarking on a dedicated bare-metal **reference host**.
+
+### 1. Automated Execution via Self-Hosted GitHub Actions Runner
+For dedicated benchmark rigs residing on private LANs (without inbound WAN access), a self-hosted GitHub Actions runner daemon (`runs-on: [self-hosted, linux]`) connects to GitHub via outbound-only HTTPS polling.
+
+#### Setting Up the Runner on the Benchmark Machine
+
+**Install under a neutral path, not a home directory.** Every path a build tool
+echoes reaches the public job log, and AGENTS.md §7 forbids OS usernames and
+home-directory paths there. `/opt/actions-runner` owned by the benchmark user is
+the arrangement in use; see [What relocation does and does not fix](#what-relocation-does-and-does-not-fix) for the residue it leaves.
+
+```bash
+# Pin an explicit runner version and verify it against the release manifest
+# (`gh api repos/actions/runner/releases/tags/v<version> --jq .body`).
+V=2.337.0
+sudo mkdir -p /opt/actions-runner && sudo chown "$USER" /opt/actions-runner
+cd /opt/actions-runner
+curl -sSfL -o "actions-runner-linux-x64-${V}.tar.gz" \
+  "https://github.com/actions/runner/releases/download/v${V}/actions-runner-linux-x64-${V}.tar.gz"
+sha256sum "actions-runner-linux-x64-${V}.tar.gz"   # compare against the release body
+tar xzf "./actions-runner-linux-x64-${V}.tar.gz"
+
+# Configure. `--name` is published in the API and the job log: use a role name,
+# never the machine's hostname.
+./config.sh --url https://github.com/orieg/expanse \
+  --token <RUNNER_REGISTRATION_TOKEN> \
+  --name bench-ref-01 --labels baremetal,reference-host \
+  --work _work --unattended
+```
+
+**Labels decide which host a suite lands on, and that is load-bearing.** The
+reference host keeps the default `self-hosted,Linux,X64` because
+`bench_baremetal.yml` selects `runs-on: [self-hosted, linux]`. A *second*
+self-hosted host must therefore be registered with `--no-default-labels` plus its
+own role labels, or bench jobs will land on whichever host is free and publish
+figures from two different CPUs under one provenance tag. That is how the
+AVX-512 lane is registered (`--no-default-labels --labels avx512,zen5`,
+`bench_avx512.yml`), and why its selector cannot collide with this one. Verify
+after any change:
+
+```bash
+gh api repos/orieg/expanse/actions/runners \
+  --jq '.runners[] | "\(.name)\t\([.labels[].name]|join(","))"'
+```
+
+#### Supervision
+
+Run it under `systemd --user` with lingering enabled, so it survives reboot and
+logout without a root-owned service. `svc.sh install` also works but writes a
+system unit; the user unit keeps `$HOME` pointing at the benchmark user, which
+`bench_baremetal.yml` depends on for `$HOME/.cargo/bin` and `$HOME/.local/bin`.
+
+```ini
+# ~/.config/systemd/user/gh-runner.service
+[Service]
+Type=simple
+WorkingDirectory=/opt/actions-runner
+ExecStart=/opt/actions-runner/run.sh
+Restart=always
+RestartSec=10
+# A bench suite must finish rather than be cut mid-measurement.
+TimeoutStopSec=30min
+KillMode=process
+```
+
+```bash
+loginctl enable-linger "$USER"
+systemctl --user daemon-reload && systemctl --user enable --now gh-runner.service
+```
+
+Do **not** widen the unit's `PATH` to include `$HOME/.cargo/bin` or
+`$HOME/.local/bin`: the workflow exports those itself, and changing the
+inherited environment of the host every published figure resolves to is a
+behavioural change, not a convenience.
+
+#### Moving an existing runner
+
+A runner that has ever self-updated stores **absolute** symlinks:
+
+```
+bin       -> /home/<user>/actions-runner/bin.2.337.0
+externals -> /home/<user>/actions-runner/externals.2.337.0
+```
+
+Moving the installation dangles both, and `config.sh` then fails with
+`./bin/Runner.Listener: No such file or directory`. Repoint them relatively
+after any move, so the next one cannot repeat it:
+
+```bash
+cd /opt/actions-runner
+ln -sfn bin.<version> bin && ln -sfn externals.<version> externals
+```
+
+Move the directory itself rather than its contents — `mv <dir>/*` skips
+`.runner`, `.credentials`, `.credentials_rsaparams`, `.env` and `.path`, which
+between them are the entire registration. Stop the runner first, and rename it
+through `./config.sh remove` followed by a fresh `./config.sh`: `--replace`
+matches on `--name`, so re-registering under a new name leaves the old entry
+behind.
+
+#### What relocation does and does not fix
+
+Relocating removes the home-directory prefix from the paths build tools echo,
+which is the bulk of the exposure. Two lines survive it, both from sources
+outside the runner's installation path:
+
+| Log line | Source | Closed by |
+|---|---|---|
+| `Machine name: '<hostname>'` | the runner emits the OS hostname at job setup, independent of `--name` | renaming the host (`hostnamectl set-hostname`) |
+| `Copying '/home/<user>/.gitconfig' to '/opt/actions-runner/_work/_temp/…'` | `actions/checkout` copying the invoking user's global gitconfig | a dedicated service account with its own toolchain install |
+
+Neither is addressed by the install path, so a claim that relocation alone
+sanitises the log is wrong. Verify what a given host actually publishes:
+
+```bash
+gh run view <run-id> --log | grep -nE "/home/|Machine name:"
+```
+
+### 2. Dual-Pass Baseline Drift Reporting Pipeline
+To eliminate `N/A` comparison columns and guarantee accurate, side-by-side regression detection on bare metal, the runner executes a **two-pass evaluation workflow**:
+
+1. **Pass 1 (Base Branch / Merge Base Baseline)**:
+   - Identifies the target base commit (via explicit `base_ref` or by calculating `git merge-base origin/main "$REF"`).
+   - Checks out the base ref and builds optimized release artifacts (`cargo build --release -p expanse-capi`).
+   - Executes instruction and vs-stock benchmark suites under Callgrind, saving baselines:
+     - `cargo bench --bench instructions -p expanse-trie -- --save-baseline=baremetal_base`
+     - `cargo bench --bench vs_stock -p expanse-capi -- --save-baseline=baremetal_base_vs_stock`
+2. **Pass 2 (Head Branch / Candidate Evaluation)**:
+   - Returns to the candidate commit (`git checkout "$REF"`).
+   - Re-compiles release artifacts and runs candidate benchmarks directly against the saved base baselines:
+     - `cargo bench --bench instructions -p expanse-trie -- --baseline=baremetal_base`
+     - `cargo bench --bench vs_stock -p expanse-capi -- --baseline=baremetal_base_vs_stock`
+   - Executes deterministic allocator accounting (`bytes_per_key` and `bytes_per_key_32`).
+   - Runs comparative baseline benchmarks against `hashbrown::HashMap` and `BTreeMap` (`scripts/bench_report.py`).
+3. **Drift Aggregation & Sticky PR Reporting**:
+   - `scripts/perf_report.py` synthesizes the dual-pass measurements into a structured GitHub Flavored Markdown report.
+   - Posts or updates **that suite's** sticky comment on the PR thread — addressed by the stable marker `<!-- expanse-bench:<suite> -->`, so requesting several suites on one PR leaves several comments rather than one that overwrites itself — tagged with an anonymized host hardware description captured from the runner itself (`lscpu` / `nproc` / `uname` — no hostname), plus the system-load snapshot (uptime + top processes) recorded at run start, and a `Run` link so the published numbers keep resolving to a cited run (§8.7).
+   - Prints a `Base Ref` line only when the base pass actually produced comparable benchmark output; a comparison that never ran is reported as such, and an empty base parse renders the report's prominent `⚠️ NO BASELINE` section instead of a quiet chip.
+   - Emits the formatted report directly to `$GITHUB_STEP_SUMMARY`.
+4. **Symmetric-twin arms and third-party baselines**:
+   - A suite whose bench source pairs an Expanse arm with a competitor arm over identical inputs declares that pairing in its `arms` block in [`.github/bench-suites.json`](../.github/bench-suites.json). Baseline arms are **declared, never inferred from an arm's name**; `scripts/check_bench_suites.py` asserts the block is a complete partition of the functions the suite's `library_benchmark_group!` declarations name, so an arm added without saying what it is fails `lint` rather than entering the report as if it were our code.
+   - For each declared twin, `perf_report.py` publishes the Expanse:competitor ratio per case with its direction in words, computed from that run's parsed artifact (§8.2). The ratio is **reported, not graded** — instructions are not wall-clock, and no gate in this repo is written against it.
+   - A baseline arm carries no `vs main` column and is excluded from the regression gate: diffing a dependency against its own previous build measures the dependency, not the change under review.
+   - The regression chip states how many arms were actually comparable. A run whose arms are all new says so instead of reporting `0 Regressions`, which would invite the reader to conclude something was validated.
+
+### 3. Triggering via PR Comment
+Maintainers and collaborators trigger benchmarks on any pull request by commenting `/bench` or `/benchmark <suite>`.
+
+#### Suite vocabulary
+
+The accepted `/bench` / `/benchmark` tokens and what each runs are the benchmark
+suite vocabulary, not a CI concern, and live in
+**[`docs/BENCHMARKING.md`](BENCHMARKING.md#benchmark-suite-vocabulary)** — generated
+from [`.github/bench-suites.json`](../.github/bench-suites.json), which the workflow's
+resolver and the `workflow_dispatch` dropdown also derive from.
+
+
+#### How a request is resolved
+
+The word after `/bench` / `/benchmark` is taken as a **whole token** and looked up in the table above. Nothing else about the comment is inspected:
+
+- **Exact match, never substring.** `/benchmark search_instructions` runs `search_instructions`. It previously ran `instructions`, because the resolver was an `includes()` ladder and `"search_instructions".includes("instructions")` is true — the report, the marker and the run all said `instructions`, and nothing said the request had not been honoured.
+- **No argument means the default**, currently `all`. Only a *bare* command defaults; an argument that is present but unrecognised never does.
+- **An unrecognised argument is refused by name.** The workflow posts a comment naming the argument and listing every accepted suite, adds a `confused` reaction, fails the run, and **starts no benchmark** — the shared host is never touched. Falling through to `all` was the second §8.1 violation in #410: a long dual-pass Callgrind sweep with no indication the argument was not understood.
+- **The resolved suite is echoed before the run starts.** The `⏳` acknowledgment names the suite that will execute, so a mismatch is visible up front rather than only in the finished, provenance-tagged report.
+- **Resolution happens on a GitHub-hosted runner**, in a separate `resolve` job whose output feeds both the bench job and its `concurrency` group. There is exactly one resolver in the workflow; the duplicate ladder that used to live in the `concurrency:` expression is gone.
+
+The self-hosted runner executes the resolved suite natively on bare metal and posts/updates **that suite's own** sticky comment on the PR thread. Before benchmarking it takes the host-wide benchmark lock (methodology rule 8 above — refuses to start with exit 75 while another suite holds the host, releasing on exit, on interrupt, and on termination), records the system-load hygiene snapshot (uptime + top processes, non-gating) into the report, and fails fast with a clear error if a Callgrind suite is requested on a host missing `valgrind` or `iai-callgrind-runner` (the manifest's `kind` field drives that check, so a newly declared Callgrind suite arms it automatically). Benchmark steps run under `pipefail`, so a crashed `cargo bench … | tee` fails the step instead of silently producing an empty report.
+
+#### Adding a suite
+
+Add an entry to `.github/bench-suites.json`, run `python3 scripts/check_bench_suites.py --write`, and commit the regenerated blocks. A `generic` entry needs nothing else — the workflow runs it straight from its `package` + `target` (a `callgrind` one dual-passes against the base ref and goes through `perf_report.py`; a `wallclock` one is teed into the comment). A `builtin` entry additionally needs a branch in the workflow's suite `case`; without one the run is refused with `unwired_suite` rather than falling through to `all`.
+
+**Every trigger reaches a terminal comment.** Comments are addressed by the marker `<!-- expanse-bench:<suite> -->`, never by the heading text, so each suite owns one comment and suites never clobber one another. The reporting step is `if: always()`: a run that produces no numbers replaces its own `⏳` with the reason — the bench lock holder (`suite`/`pid`/`start`, read straight out of the lock's `owner` file), the missing `valgrind` / `iai-callgrind-runner`, a build or benchmark failure, or cancellation — plus the run link. A pending marker is never the final state, and a run with no numbers keeps whatever that suite last published in a collapsed block rather than erasing it (§8.1 forbids a degradation that renders as still-working; §8.7 wants a published figure to keep resolving to a cited run). A `concurrency:` group keyed on PR + suite means re-triggering the same suite supersedes its own in-flight run instead of queueing behind the single runner, while a *different* suite proceeds and is arbitrated by the host lock; the superseded run stands down rather than overwriting the newer run's comment. `timeout-minutes: 180` bounds a wedged run: comfortably above the longest observed run (~15 min for `all`) with headroom for `extended`'s population and microarchitecture sweeps, and half of GitHub's 6-hour default.
+
+**Concurrency suite specifics.** Unlike the Callgrind suites, the `concurrency` suite is wall-clock and single-pass (report-only, no dual-pass baseline arm — thread-scheduling noise makes a tight per-PR threshold dishonest). `benches/concurrency.rs` accepts two env knobs, parsed in its `main()`:
+
+- `EXPANSE_BENCH_THREADS` — comma-separated thread counts (default: `1,2,4,8,16`, clamped to available parallelism).
+- `EXPANSE_BENCH_WORKLOADS` — comma-separated read percentages defining the read/write mixes (default: `100,95,50`, i.e. 100%/0%, 95%/5%, 50%/50%).
+
+With the variables unset, local behavior is the unchanged full sweep. CI runs a reduced sweep to bound runtime: `/benchmark concurrency` uses `EXPANSE_BENCH_THREADS=1,4,16` + `EXPANSE_BENCH_WORKLOADS=100,50`; the nightly `bench-report` job uses `1,4` + `95,50` (the hosted runner has ~4 vCPUs).
+
+**Nightly scaling-ratio gate (warn-only).** The nightly job tees the reduced-sweep tables into the `bench-report` artifact and runs `scripts/bench_concurrency_check.py`, which parses the tables into per-(engine, workload, threads) ops/s and gates on **scaling ratios** (total ops/s at max threads ÷ 1 thread, per engine/workload) against the previous nightly's `concurrency-baseline` artifact — the same artifact round-trip as the bindings baseline. Ratios are robust to host-load drift and catch exactly the collapse class the deterministic instruction gates cannot (a change that serializes readers or drops the optimistic path into the mutex fallback), with a generous default threshold of a 30% relative ratio drop (`--max-ratio-drop-pct`). The check is currently **warn-only** (`--fail-on-regression` unset); it will be promoted to failing once the baseline proves stable across several consecutive unmodified nightlies (issue #360). The script's parser and ratio math are covered by `python3 scripts/bench_concurrency_check.py --self-test`, which nightly runs before the real check.
+
+### 4. Triggering via `workflow_dispatch`
+The `Bare-Metal Benchmarks` workflow can also be triggered manually via GitHub Actions UI (*Actions* tab $\rightarrow$ *Bare-Metal Benchmarks* $\rightarrow$ *Run workflow*). It accepts `ref`, `base_ref`, `pr_number`, and `benchmark_suite`.
+
+### 4a. Reading a dispatched run honestly
+
+Three things about a dispatched run are easy to misread, and each one has
+already produced a wrong number in a PR body once:
+
+- **The benchmarked commit is not the run's `headSha`.** On a
+  `workflow_dispatch` run, `gh run view --json headSha` reports the ref the
+  *workflow file* came from (`main`), not `inputs.ref`. Take the benchmarked
+  commit from the `Run Bare-Metal Benchmarks` job log (`HEAD is now at …`
+  after "Checking out the ref") or from the harvest's `provenance.commit`.
+- **The PR Callgrind job log holds three passes per arm.** Pass 1 saves the
+  `main_base` baseline (`Baselines: main_base|main_base (old)`, delta `N/A`);
+  pass 2 is PR-vs-main (`Baselines: |main_base`, the second occurrence of each
+  arm name); pass 3 is a further internal pass whose deltas are not the PR's.
+  Extract by baseline label and arm occurrence — never `tail` — or the report
+  quotes the wrong pass (a "−10.6% `map32_get`" was published that way; the
+  real PR-vs-main delta was zero).
+- **A local cross-ISA Callgrind harness ranks; it does not measure.** An
+  aarch64 container profile is the right tool for *which function dominates*
+  and for measuring increments against each other, but its magnitudes differ
+  from the x86 gate (`#[inline(always)]` on `branch_child` was −10% there and
+  −12.9% canonical; the same change reads differently per ISA). Publish only
+  the CI job's pass-2 numbers, labelled with the run id.
+
+### 5. Running Locally over LAN
+Developers can also execute the exact same sync, build, and benchmark suite from their local development machine across their LAN using `scripts/run_remote_bench.sh`:
+
+```bash
+export BENCH_HOST="user@bare-metal-host"
+export BENCH_REPO="/path/to/remote/dir"
+./scripts/run_remote_bench.sh all
+```
+
+**Privacy Reminder:** Per `AGENTS.md`, never commit private hostnames, LAN IPs, or personal paths. Always use environment variables like `$BENCH_HOST` and `$BENCH_REPO`.
+
+---
+
+> Moved here from `docs/BENCHMARKING.md` (#643 step 5): this is CI infrastructure —
+> how the runner is provisioned and triggered — not benchmark methodology. Nothing in
+> it was reworded; which instrument a change needs is still decided in
+> [`docs/BENCHMARKING.md`](BENCHMARKING.md).
