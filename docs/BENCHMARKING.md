@@ -290,8 +290,10 @@ Bench targets deliberately **not** reachable from a slash command:
    Two readings, and they point in different directions
    (workload: `domain_interned_set`; both ratios are within that one arm).
    **E versus P is 1.576×, intervals separated** — that is the exposure
-   ceiling, and it is larger than the 5.1/3.8 GHz clock ratio of 1.34× alone
-   predicts. Why the residual exists is **unmeasured**: no counter run
+   ceiling at this invocation's 2-second warm-up, and it is larger than the
+   5.1/3.8 GHz clock ratio of 1.34× alone predicts. The warm-up is load-bearing
+   and the decomposition below is where that is established; at criterion's
+   3-second default the same arm on the same host reads ~1.39×. Why the residual exists is **unmeasured**: no counter run
    separates frequency from per-cycle throughput on the E-cores, so the
    earlier reading of "roughly 74% of the P-core clock" understates the effect
    for a reason this measurement does not identify. **Unpinned versus P is
@@ -300,6 +302,56 @@ Bench targets deliberately **not** reachable from a slash command:
    did not fire. That is not a proof that it cannot: placement depends on what
    else the host is doing, and the pre-existing figures in this document were
    harvested under conditions no longer observable.
+
+   **The ceiling is warm-up-dependent, and 1.576× is its value at a
+   2-second warm-up.** The invocation above passes `--warm-up-time 2`, one
+   second below criterion's default. Re-running the same arm under the same
+   three conditions across a 2×2 of commit × warm-up shows that this setting,
+   not the commit, is what sets the ceiling
+   (workload: `domain_interned_set`; all four rows are that one arm):
+
+   | Commit | Warm-up | P-cores ns | Unpinned ns | E-cores ns | E ÷ P | Unpinned ÷ P |
+   |---|---|---:|---:|---:|---:|---:|
+   | `c4b1817` | 3s (criterion default) | 14,051 [13801, 14314] | 14,223 [13973, 14495] | 19,517 [19173, 19898] | 1.389× | 1.012× |
+   | `c4b1817` | 2s (the invocation above) | 14,049 [13796, 14313] | 14,133 [13881, 14397] | 22,948 [22551, 23334] | 1.633× | 1.006× |
+   | `638f66e5` | 3s (criterion default) | 14,051 [13797, 14314] | 14,227 [13975, 14495] | 19,442 [19097, 19813] | 1.384× | 1.013× |
+   | `638f66e5` | 2s | 14,052 [13798, 14313] | 14,098 [13846, 14356] | 22,959 [22574, 23350] | 1.634× | 1.003× |
+
+   *(measured: reference host — Intel i9-12900F, 8 P-cores + 8 E-cores, 24
+   logical CPUs, 30 MiB L3, Linux 6.8, `rustc 1.98.1`, commits `c4b1817` and
+   `638f66e5`; `scripts/pin_exposure.py --bench domain -p expanse-trie
+   --rounds 6`, 600 pooled criterion per-iteration samples per condition, BCa
+   95% over 2000 resamples; host idle throughout —
+   [`results/pin_exposure_639_c4b1817_warmup3.json`](../results/pin_exposure_639_c4b1817_warmup3.json),
+   [`_c4b1817_warmup2`](../results/pin_exposure_639_c4b1817_warmup2.json),
+   [`_638f66e5_warmup3`](../results/pin_exposure_639_638f66e5_warmup3.json),
+   [`_638f66e5_warmup2`](../results/pin_exposure_639_638f66e5_warmup2.json).)*
+
+   **Holding the commit and varying the warm-up moves the ceiling by +0.244
+   and +0.250; holding the warm-up and varying the commit moves it by −0.005
+   and +0.000.** The commit interval spans a ~508-line rewrite of
+   `crates/expanse/src/algebra.rs`, the module this arm exercises, and it is a
+   null here. **The whole effect sits on the E-cores**: the P-core arm reads
+   14,049–14,052 ns across all four runs, a 0.03% spread, while the E-core arm
+   is 17.8% slower at the 2s warm-up than at the 3s one. **Why a shorter
+   warm-up costs the E-cores and not the P-cores is unmeasured** — no counter
+   run here separates frequency ramp from per-cycle throughput, so no
+   mechanism is claimed; `perf stat` on both core classes at both settings is
+   what would answer it.
+
+   Two consequences. The 1.576× above is **not withdrawn**: at its own
+   settings the ceiling reproduces at 1.633×/1.634×, and the residual is the
+   estimator plus session-to-session variation. But it is a property of this
+   hardware **and** of the warm-up it was taken at, so quoting it without the
+   setting overstates the ceiling by roughly a sixth against a
+   default-configured run. The decision it supports is unchanged either way:
+   E and P separate at both warm-up settings, so the pin is warranted at
+   either. One thing this decomposition does **not** explain — at the same
+   commit and the same criterion arguments, these runs' absolute times sit
+   ~15% below the original session's (P 14,049 vs 16,575; E 22,948 vs 26,117)
+   while the ratio agrees. Something about that session differed beyond
+   commit, warm-up and estimator; the published claim rests on the ratio, but
+   the absolutes are **not reproduced** and this is unexplained.
 
    **The wall-clock arms are pinned anyway, and #639 closes as a change rather
    than a note.** The overlap says the defect was not firing, not that the
