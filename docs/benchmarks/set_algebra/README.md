@@ -51,16 +51,22 @@ Numbers for the `domain` arms are published in
 [`docs/DATABASE.md` §4.3](../../DATABASE.md), which carries the narrative for
 the interned set domain. This suite does not duplicate them.
 
-> **Provenance is unresolved for the current §4.3 figure and is not restated
-> here.** `docs/assets/data/bench_domain_algebra.json` records one host field —
-> `"Apple Silicon (aarch64-apple-darwin, 8 cores) / reference Linux x86_64"` —
-> and one commit for five sections drawn from two harnesses, so no section's
-> host can be resolved from it. The distinctive cells appear in no committed
-> artifact, so cross-referencing does not recover the attribution either.
-> Assigning a host per section from the evidence available would be backfilling
-> (§8.10), so nothing is assigned. Re-measuring the `domain` arms on the
-> reference host is what resolves it; until then this suite publishes no
-> numbers of its own.
+> **Provenance is unresolved for the §4.3 figure, and this suite restates no
+> numbers from it.** `docs/assets/data/bench_domain_algebra.json` recorded one
+> host field and one commit for five sections drawn from two harnesses, and its
+> distinctive cells appear in no committed benchmark artifact, so no section's
+> host is recoverable. Provenance is now stated **per section** in that dataset,
+> with host and commit recorded as `unresolved` rather than asserted; the figure
+> carries the same statement per panel. Assigning a host per section would be
+> backfilling (§8.10). Re-measuring the `domain` arms on the reference host is
+> what resolves it.
+>
+> Two claims that rode on that figure were withdrawn in the same pass: the
+> parity badges asserted `+0.00 ns`, a precision 100× finer than the recorded
+> values support, and are now stated as the resolution bound (`< 100 ns`,
+> `< 10 ns`); and a footer line claiming an "identical instruction count" was
+> removed, because `domain` is a wall-clock target with no arm in any Callgrind
+> harness.
 
 ## 4. Reproduction
 

@@ -78,6 +78,29 @@
       "replacement": "Unmeasured mechanism tracked in #480 (hardware counter shows 0.042 LLC misses vs 2.74 branch mispredicts)",
       "provenance": "#480, #495",
       "rationale": "LLC miss count is near zero, refuting memory latency bottleneck"
+    },
+    {
+      "id": "domain_parity_exact_zero_overhead",
+      "patterns": [
+        "(?<![\\w.])\\+?0\\.00\\s*ns(?!\\w)",
+        "(?<![\\w.])1\\.00\\s*[x\u00d7]\\s*ratio(?!\\w)",
+        "zero-overhead\\s+parity"
+      ],
+      "context": ["domain", "domainset", "parity", "brand", "provenance", "overhead", "intersection"],
+      "replacement": "indistinguishable at the recorded resolution: intersection() < 100 ns, intersection_len() < 10 ns (docs/assets/data/bench_domain_algebra.json)",
+      "provenance": "#643",
+      "rationale": "Both arms recorded to 0.1 us / 0.01 us; equal values at a finite resolution bound the difference below it and cannot establish zero. The claim asserted a precision 100x finer than the source carries (\u00a78.4)."
+    },
+    {
+      "id": "domain_algebra_dual_host_attribution",
+      "patterns": [
+        "Apple\\s+Silicon\\s+aarch64\\s*/\\s*reference\\s+x86-64\\s+Linux",
+        "(?<![\\w.])commit\\s+343ce333(?!\\w)"
+      ],
+      "context": ["algebra", "domain", "materialization", "k-way", "kway", "interned", "measured"],
+      "replacement": "host and commit unresolved per section; see docs/benchmarks/set_algebra/README.md",
+      "provenance": "#643",
+      "rationale": "One host field and one commit covered five sections across two harnesses; no section's host is recoverable, and the cells appear in no committed artifact. Withdrawn rather than reassigned (\u00a78.10)."
     }
   ]
 }

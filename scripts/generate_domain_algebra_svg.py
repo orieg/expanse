@@ -259,19 +259,38 @@ def render_svg(data: dict) -> str:
     out.append('      <text x="14" y="34" class="t-unit">Raw ExpanseSet vs DomainSet (N=100k)</text>\n')
     out.append('      <line x1="14" y1="43" x2="271" y2="43" class="divider"/>\n')
 
-    # Operation 1: intersection()
-    out.append('      <text x="14" y="60" class="t-bar-label">intersection() <tspan class="t-sub">(direct emission)</tspan></text>\n')
-    out.append('      <text x="14" y="76" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">9.70 µs</tspan></text>\n')
-    out.append('      <text x="14" y="90" class="t-sub">DomainSet brand: <tspan class="t-val-green">9.70 µs</tspan></text>\n')
-    out.append(badge(170, 68, 102, "+0.00 ns parity"))
+    # Both rows are DERIVED from the dataset, never stamped (AGENTS.md 8.2):
+    # these values were hardcoded here as "9.70 µs" against a source recording
+    # "9.7", inventing a significant figure the measurement does not have.
+    #
+    # The badge states a BOUND, not an equality. Equal values recorded to a
+    # finite resolution bound the difference below that resolution; they cannot
+    # establish zero. The previous "+0.00 ns parity" asserted a precision 100x
+    # finer than the source carries (AGENTS.md 8.4: a null result is an
+    # overlap, not a zero).
+    parity = data["domain_parity_611"]
 
-    out.append('      <line x1="14" y1="103" x2="271" y2="103" class="grid"/>\n')
+    def fmt_us(v: float, res: float) -> str:
+        dp = max(0, len(str(res).split(".")[1])) if "." in str(res) else 0
+        return f"{v:.{dp}f} µs"
 
-    # Operation 2: intersection_len()
-    out.append('      <text x="14" y="121" class="t-bar-label">intersection_len() <tspan class="t-sub">(count only)</tspan></text>\n')
-    out.append('      <text x="14" y="137" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">1.09 µs</tspan></text>\n')
-    out.append('      <text x="14" y="151" class="t-sub">DomainSet brand: <tspan class="t-val-green">1.09 µs</tspan></text>\n')
-    out.append(badge(170, 129, 102, "+0.00 ns parity"))
+    def bound_label(res: float) -> str:
+        # Raw "<" here: badge() runs esc() on its text, so pre-escaping would
+        # render the entity literally.
+        return f"<{res*1000:.0f} ns" if res < 1.0 else f"<{res:.0f} µs"
+
+    for idx, (key, label, sub, y0) in enumerate((
+        ("intersection_100k_us", "intersection()", "(direct emission)", 60),
+        ("intersection_len_100k_us", "intersection_len()", "(count only)", 121),
+    )):
+        row = parity[key]
+        res = row["recorded_resolution_us"]
+        out.append(f'      <text x="14" y="{y0}" class="t-bar-label">{label} <tspan class="t-sub">{sub}</tspan></text>\n')
+        out.append(f'      <text x="14" y="{y0 + 16}" class="t-sub">Raw ExpanseSet:  <tspan class="t-val-green">{fmt_us(row["raw_expanse"], res)}</tspan></text>\n')
+        out.append(f'      <text x="14" y="{y0 + 30}" class="t-sub">DomainSet brand: <tspan class="t-val-green">{fmt_us(row["domain_set"], res)}</tspan></text>\n')
+        out.append(badge(170, y0 + 8, 102, f"{bound_label(res)} difference"))
+        if idx == 0:
+            out.append('      <line x1="14" y1="103" x2="271" y2="103" class="grid"/>\n')
     out.append('    </g>\n')
 
     # Card 2B: Ingestion Throughput (width: 315px)
@@ -336,9 +355,35 @@ def render_svg(data: dict) -> str:
     # FOOTER
     # =========================================================================
     out.append('  <line x1="30" y1="585" x2="930" y2="585" class="divider"/>\n')
-    out.append(f'  <text x="30" y="605" class="t-note">Measured: {esc(meta["host"])} &#183; commit {esc(meta["commit"])} &#183; {esc(meta["harness"])}</text>\n')
-    out.append(f'  <text x="30" y="619" class="t-note">Source: {esc(meta["source"])} &#183; Direct emission (#348), k-way walk (#610), and interned domain (#611).</text>\n')
-    out.append('  <text x="30" y="633" class="t-note">All measurements satisfy AGENTS.md §8 provenance requirements; zero-overhead brand check confirmed identical instruction count.</text>\n')
+    # Provenance is rendered PER SOURCE GROUP, never as one line for the whole
+    # figure. A single "Measured: <hostA> / <hostB>, commit <X>" footer used to
+    # cover four panels drawn from two harnesses, which asserted an attribution
+    # the data cannot support and paired disjoint experiments under one tag
+    # (AGENTS.md 8.7, 8.12). Panels are grouped by harness below, and a group
+    # whose host the source did not record says so rather than naming one.
+    prov = data["provenance"]
+
+    def group_line(sections: list[str]) -> str:
+        hosts = {prov[k]["host"] for k in sections}
+        issues = ", ".join(sorted({prov[k]["issue"] for k in sections}))
+        harness = prov[sections[0]]["harness"].rsplit("/", 1)[-1]
+        if hosts == {"unresolved"}:
+            state = "host and commit unresolved in the source dataset \u2014 not re-measured"
+        else:
+            state = " / ".join(sorted(hosts))
+        return f"{harness} ({issues}) &#183; {esc(state)}"
+
+    out.append(f'  <text x="30" y="601" class="t-note">Panels 1-2: {group_line(["materialization_348", "kway_610"])}</text>\n')
+    out.append(f'  <text x="30" y="615" class="t-note">Panel 3: {group_line(["domain_parity_611", "domain_ingestion_611", "domain_resolution_611"])}</text>\n')
+    out.append('  <text x="30" y="629" class="t-note">Two harnesses, separate runs: the panels are NOT a paired comparison and no ratio across them is valid.</text>\n')
+    out.append(f'  <text x="30" y="643" class="t-note">Source: {esc(meta["source"])}</text>\n')
+    # The line that stood here claimed "All measurements satisfy AGENTS.md §8
+    # provenance requirements" -- which the unresolved host above contradicts --
+    # and "confirmed identical instruction count", for which no measurement
+    # exists: `domain` is declared wallclock in .github/bench-suites.json and
+    # has no arm in any Callgrind harness. Both claims are removed rather than
+    # reworded (AGENTS.md 8.1, 8.9).
+    out.append('  <text x="30" y="657" class="t-note">Parity badges state the resolution bound the recorded values support, not an exact zero; no instruction-count measurement of these arms exists.</text>\n')
 
     out.append('</svg>\n')
     return "".join(out)
