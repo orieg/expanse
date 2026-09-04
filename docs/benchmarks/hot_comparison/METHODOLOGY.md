@@ -395,10 +395,34 @@ pre-registered headline population is where it happens to be worst.
 halving per bit removed: 64-bit in (1.2M, 2M], 63-bit in (800k, 1M], 62-bit in
 (400k, 600k]. At the headline N=1M the 64-bit arm is pre-cliff and the 63-bit
 arm is post-cliff, so the lock did not shift Expanse along a smooth curve — it
-carried it across a discontinuity. The post-cliff shape is non-monotone and
-re-amortizing (62-bit: 19.25 → 21.02 → 19.66 → 18.50 → 15.58), consistent with a
-node-class ladder transition paying upfront; naming that mechanism needs a
-node-class histogram, so it is a hypothesis, unmeasured (§8.9.1).
+carried it across a discontinuity.
+
+**The cliff is `LEAF_CAP`, and that is measured rather than inferred.**
+`LEAF_CAP = 32` (`crates/expanse/src/types.rs:99`) is the linear-leaf population
+cap at levels 2..=7; overflow cascades into a branch whose children are
+single-key immediates, at one 16-byte edge per key. For uniform random keys the
+top two bytes saturate, so the controlling parameter is the occupancy of a
+2-byte-prefix expanse, `λ = N / 2^16` at 64 bits and `N / 2^15` at 63 bits — the
+top byte taking 128 values rather than 256. At N=1M that is λ=15.26 (48% of
+`LEAF_CAP`, a packed `Leaf6` at ~6 B/key) against λ=30.52 (**95% of
+`LEAF_CAP`**, Poisson σ=5.5, so ~39% of expanses overflow and pay ~17 B/key).
+The mixture is the observed 13.60.
+
+Single-variable causal test — `LEAF_CAP` changed alone, everything else
+identical *(measured: x86_64 build host — Intel Xeon E5-2697 v4; workload:
+`hot_keyspace_density_probe`)*:
+
+| `LEAF_CAP` | 64-bit @1M | 63-bit @1M | 64-bit @2M |
+|---|---:|---:|---:|
+| 32 (shipped) | 7.92 | **13.60** | 13.60 |
+| 48 | 7.92 | **6.99** | 7.00 |
+
+Raising the cap abolishes the inversion — 63-bit becomes *cheaper* than 64-bit,
+the intuitive direction — and leaves the 64-bit 1M cell unchanged to the
+decimal. No other explanation survives that. This is **not** a recommendation to
+change `LEAF_CAP`: a larger linear leaf trades memory against scan cost on the
+read path, which this suite has not measured and which belongs to the engine's
+own instruments, not to a comparison harness.
 
 **Retraction (§8.10).** The `13.60 B/key` figure published for `ExpanseSet`
 uniform random at 1M in the first revision of §9.3 is **formally retracted as an
@@ -414,12 +438,16 @@ concern the engine and its gates rather than the comparison:
 
 1. The committed `memory-budget` ceiling in
    `crates/expanse/examples/bytes_per_key.rs` — `("random", 1_000_000, 9.00,
-   18.00)` — is calibrated at a single population that sits just before the
-   64-bit cliff. Its headroom is ~1.5–2× *in N*, not the 12% *in bytes* the
-   numbers suggest, and nothing records that. The 63-bit figures would have
-   breached it in both flavours (set 13.60 > 9.00, map 19.38 > 18.00).
-2. The cliff itself is undocumented, and the ladder's hysteresis around it is
-   worth a node-class histogram.
+   18.00)` — is calibrated at λ=15.26, **48% of `LEAF_CAP`, near a trough**. Its
+   headroom is ~2× *in N*, not the 12% *in bytes* the numbers suggest, and
+   nothing records that. The same workload at 2M measures 13.60 B/key and would
+   breach the ceiling by 51%, so a legitimate population change reads as a
+   regression. The withdrawn 63-bit figures would have breached it in both
+   flavours (set 13.60 > 9.00, map 19.38 > 18.00).
+2. The density behaviour itself — bytes/key as a function of λ, and the
+   `LEAF_CAP` overflow cascade that shapes it — is undocumented. It is a
+   property of the node ladder, not of this comparison, and belongs in
+   `docs/ARCHITECTURE.md` whether or not this suite ever ships.
 
 **Standing rule this episode earns.** *A twin's limitation is recorded as a
 predicate on the twin and evaluated against the workload; the workload is never
