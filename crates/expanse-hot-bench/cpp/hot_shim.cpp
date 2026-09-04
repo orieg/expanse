@@ -127,11 +127,17 @@ using MapPair = std::pair<uint64_t, uint64_t>;
 using MapTrie = hot::singlethreaded::HOTSingleThreaded<MapPair *, idx::contenthelpers::PairPointerKeyExtractor>;
 
 // HOT tags leaves in bit 0 and recovers the payload with an arithmetic shift,
-// so its inline value is 63 bits. A key with bit 63 set is accepted by
-// `insert()` and then never found by `lookup()` (measured 0/1000 at the Step 0
-// gate). The suite draws from a 63-bit keyspace on BOTH arms; this guard makes
-// a violation fail loudly here rather than silently shrink the population.
-#define EXP_KEY_GUARD(k) \
+// so its INLINE VALUE is 63 bits wide. That is a payload width, not a key
+// width, and it binds only where the stored value is the key itself -- the set
+// arm's IdentityKeyExtractor. The map arm stores a heap pointer and takes the
+// full 64-bit domain: measured 6/6 found with correct values on keys spanning
+// bit 63, including ~0ull, against 3/6 for the set arm.
+//
+// So this guard belongs on the set arm alone. It returns -2 so the caller can
+// report "this arm cannot represent this key" as an outcome; it must never be
+// used to quietly narrow the workload, and it is deliberately absent from the
+// map arm, which an earlier revision wrongly guarded.
+#define EXP_INLINE_PAYLOAD_GUARD(k) \
     do { if (((k) >> 63) != 0u) return -2; } while (0)
 
 extern "C" {
@@ -158,12 +164,12 @@ void *exp_hot_set_new(void) { return new SetTrie(); }
 void exp_hot_set_delete(void *t) { delete static_cast<SetTrie *>(t); }
 
 int exp_hot_set_insert(void *t, uint64_t k) {
-    EXP_KEY_GUARD(k);
+    EXP_INLINE_PAYLOAD_GUARD(k);
     return static_cast<SetTrie *>(t)->insert(k) ? 1 : 0;
 }
 
 int exp_hot_set_contains(void *t, uint64_t k) {
-    EXP_KEY_GUARD(k);
+    EXP_INLINE_PAYLOAD_GUARD(k);
     return static_cast<SetTrie *>(t)->lookup(k).mIsValid ? 1 : 0;
 }
 
@@ -203,7 +209,6 @@ void exp_hot_map_delete(void *t) {
 }
 
 int exp_hot_map_insert(void *t, uint64_t k, uint64_t v) {
-    EXP_KEY_GUARD(k);
     MapPair *entry = new MapPair(k, v);
     if (static_cast<MapTrie *>(t)->insert(entry)) return 1;
     delete entry;
@@ -211,7 +216,6 @@ int exp_hot_map_insert(void *t, uint64_t k, uint64_t v) {
 }
 
 int exp_hot_map_get(void *t, uint64_t k, uint64_t *out) {
-    EXP_KEY_GUARD(k);
     auto r = static_cast<MapTrie *>(t)->lookup(k);
     if (!r.mIsValid) return 0;
     *out = r.mValue->second;

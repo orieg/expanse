@@ -12,7 +12,9 @@
 //!
 //! Both are checked directly below.
 
-use expanse_hot_bench::{Census, HotMap, HotSet, Key63, pool_allocations, validate_census};
+use expanse_hot_bench::{
+    Census, HotMap, HotSet, InlineInsert, hot_can_inline, pool_allocations, validate_census,
+};
 use expanse_trie::{ExpanseMap, ExpanseSet};
 
 /// XorShift64, matching the generator the rest of the repo's comparative suites
@@ -33,12 +35,14 @@ impl XorShift64 {
     }
 }
 
-fn keys(n: usize, seed: u64, sequential: bool) -> Vec<Key63> {
+/// Full 64-bit key stream. The suite's domain is `u64`; no key is folded to fit
+/// a competitor's payload encoding.
+fn keys(n: usize, seed: u64, sequential: bool) -> Vec<u64> {
     if sequential {
-        return (0..n as u64).map(Key63::truncate).collect();
+        return (0..n as u64).collect();
     }
     let mut rng = XorShift64::new(seed);
-    let mut v: Vec<Key63> = (0..n).map(|_| Key63::truncate(rng.next())).collect();
+    let mut v: Vec<u64> = (0..n).map(|_| rng.next()).collect();
     v.sort_unstable();
     v.dedup();
     v
@@ -62,18 +66,64 @@ fn main() {
         println!("(census ran first; remaining checks follow)");
     }
 
-    // 1. The keyspace guard is real, not documentation.
-    if Key63::new(1u64 << 63).is_some() {
-        fail("Key63 accepted a key with bit 63 set");
+    // 1. Per-arm capability, measured every run rather than assumed.
+    //
+    //    This probe is the suite's own falsifier and must stay reachable. An
+    //    earlier revision folded every key into a 63-bit space, which made the
+    //    most transferable finding about HOT -- that `insert` reports success on
+    //    keys `lookup` will never find -- unobservable by construction.
+    let spanning: [u64; 6] = [
+        1,
+        42,
+        (1u64 << 62) + 7,
+        1u64 << 63,
+        (1u64 << 63) + 99,
+        u64::MAX,
+    ];
+    let representable = spanning.iter().filter(|k| hot_can_inline(**k)).count();
+
+    let mut hs = HotSet::new();
+    let mut refused = 0usize;
+    for k in &spanning {
+        if hs.insert(*k) == InlineInsert::NotRepresentable {
+            refused += 1;
+        }
     }
-    if Key63::new((1u64 << 63) - 1).is_none() {
-        fail("Key63 rejected the largest representable key");
+    let set_found = spanning.iter().filter(|k| hs.contains(**k)).count();
+    if set_found != representable || refused != spanning.len() - representable {
+        fail(&format!(
+            "Arm A capability drifted: {set_found} found and {refused} refused of {}, expected {representable} found and {} refused",
+            spanning.len(),
+            spanning.len() - representable
+        ));
     }
-    if Key63::truncate(u64::MAX).get() != (1u64 << 63) - 1 {
-        fail("Key63::truncate did not fold onto the 63-bit space");
+
+    let mut hm = HotMap::new();
+    for (i, k) in spanning.iter().enumerate() {
+        hm.insert(*k, 7000 + i as u64);
     }
-    checks += 3;
-    println!("ok  keyspace guard rejects bit 63, truncate folds onto 2^63");
+    let map_ok = spanning
+        .iter()
+        .enumerate()
+        .filter(|(i, k)| hm.get(**k) == Some(7000 + *i as u64))
+        .count();
+    if map_ok != spanning.len() || hm.len() != spanning.len() {
+        fail(&format!(
+            "Arm B lost keys it should hold: {map_ok}/{} round-trip, walk sees {}",
+            spanning.len(),
+            hm.len()
+        ));
+    }
+    checks += 2;
+    println!(
+        "ok  arm capability on keys spanning bit 63: Arm A holds {}/{} and refuses {} at the call; \
+         Arm B holds {}/{} over the full 64-bit domain",
+        set_found,
+        spanning.len(),
+        refused,
+        map_ok,
+        spanning.len()
+    );
 
     // 2. The census instrument itself. This is the check the Step 0 gate program
     //    failed: it saw the free happen and did not subtract the bytes.
@@ -98,20 +148,24 @@ fn main() {
         let ks = keys(200_000, 0x1234_5678_9ABC, sequential);
         let want = ks.len();
 
+        // Arm A can only hold the representable part of the stream, and says
+        // so; that is the arm's declared scope, not a silent truncation.
+        let inlinable: Vec<u64> = ks.iter().copied().filter(|k| hot_can_inline(*k)).collect();
+        let want_set = inlinable.len();
         let mut hs = HotSet::new();
-        for k in &ks {
+        for k in &inlinable {
             hs.insert(*k);
         }
-        if hs.len() != want {
+        if hs.len() != want_set {
             fail(&format!(
-                "HotSet/{label}: built {want} keys, trie walks {} — insert() reported success on keys it cannot find",
+                "HotSet/{label}: built {want_set} representable keys of {want}, trie walks {} — insert() reported success on keys it cannot find",
                 hs.len()
             ));
         }
-        let misses = ks.iter().filter(|k| !hs.contains(**k)).count();
+        let misses = inlinable.iter().filter(|k| !hs.contains(**k)).count();
         if misses != 0 {
             fail(&format!(
-                "HotSet/{label}: {misses} of {want} inserted keys not found"
+                "HotSet/{label}: {misses} of {want_set} inserted keys not found"
             ));
         }
 
@@ -138,7 +192,7 @@ fn main() {
 
         checks += 4;
         println!(
-            "ok  population fidelity {label}: HotSet {want}/{want}, HotMap {want}/{want} round-trip"
+            "ok  population fidelity {label}: HotSet {want_set}/{want_set} representable of {want}, HotMap {want}/{want} over the full 64-bit domain"
         );
     }
 
@@ -148,8 +202,8 @@ fn main() {
     let mut es = ExpanseSet::new();
     let mut em = ExpanseMap::new();
     for (i, k) in ks.iter().enumerate() {
-        es.insert(k.get());
-        em.insert(k.get(), i as u64);
+        es.insert(*k);
+        em.insert(*k, i as u64);
     }
     if es.len() as usize != ks.len() || em.len() as usize != ks.len() {
         fail(&format!(
@@ -182,11 +236,12 @@ fn main() {
 fn census_pass() {
     let pool_before = pool_allocations();
     let ks = keys(100_000, 0xABCD_EF01_2345, false);
-    let n = ks.len();
 
+    let inlinable: Vec<u64> = ks.iter().copied().filter(|k| hot_can_inline(*k)).collect();
+    let n = inlinable.len();
     let (hot_len, hot_census) = Census::measure(|| {
         let mut t = HotSet::new();
-        for k in &ks {
+        for k in &inlinable {
             t.insert(*k);
         }
         let len = t.len();
@@ -195,8 +250,8 @@ fn census_pass() {
     });
     let (exp_len, exp_census) = Census::measure(|| {
         let mut t = ExpanseSet::new();
-        for k in &ks {
-            t.insert(k.get());
+        for k in &inlinable {
+            t.insert(*k);
         }
         let len = t.len() as usize;
         std::mem::forget(t);

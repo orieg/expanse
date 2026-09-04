@@ -141,6 +141,12 @@ Distributions: sequential, clustered, sparse stride, uniform random, Zipfian —
 
 ## 5. Expected-Losses Matrix
 
+> **Amended by §9.5.** Every memory prediction below is stated at a population.
+> Population alone does not identify a memory cell for this engine — expanse
+> occupancy does — so the memory rows are re-expressed in §9.5 and the
+> sparse-stride row's confidence is downgraded there. The latency rows stand.
+
+
 Registered before measurement. A suite that predicts only wins is not pre-registered.
 Confidence is the pre-registration's own, not a measured quantity.
 
@@ -199,8 +205,11 @@ What this suite will be permitted to claim when it lands, stated before the numb
 
 1. **Single-threaded only.** The ROWEX concurrent arm is separate and conditional; no
    concurrency claim follows from this suite.
-2. **63-bit integer keys only.** No claim about full 64-bit keyspaces, and no string-key
-   claim — the string arms are separate scope in #660.
+2. **Integer keys, full 64-bit domain.** *(Amended by §9.4 — the 63-bit exclusion
+   originally recorded here was inherited from the superseded §3.1, not derived from the
+   question.)* Arm A additionally reports the portion of that domain HOT's inline payload
+   cannot represent, as a finding about HOT. No string-key claim — the string arms are
+   separate scope in #660.
 3. **x86-64 with AVX2 and BMI2 only.** No aarch64 claim of any kind; HOT does not build there.
 4. **One HOT implementation at one commit.** Claims attach to `speedskater/hot` `96bf6fb`
    built as documented, not to "HOT" as a design in the abstract, and not to the figures in
@@ -279,3 +288,231 @@ that reads as a competitor win.
 counter and the harness asserts it is zero before a census, so a violation fails
 loudly instead of depending on the runner's ordering. A census cell taken on a
 warm pool is void.
+
+### 9.3 The Expanse cells here will not equal the repo's `bytes/key` table
+
+Two independent reasons, both measured rather than argued. Reconciled by
+`crates/expanse-hot-bench/src/bin/instrument_bridge.rs`, which reads both
+instruments on the same build of the same key stream *(measured: x86_64 build
+host — Intel Xeon E5-2697 v4; `-C target-cpu=haswell`; workload:
+`hot_instrument_bridge`)*. That probe reproduces the committed
+`example_bytes_per_key` figures exactly — sequential 1M `0.07`, clustered 1M
+`0.36`, sparse 1M `16.31`, random 100k `14.78`, random 1M `7.92` B/key — so the
+generator and the engine accounting are confirmed identical before anything is
+compared.
+
+**Reason 1 — different instrument.** The repo's table publishes `mem_used()`,
+the engine's byte-exact node accounting. This suite must publish bytes held from
+the C allocator, the only definition HOT can also be measured under (§3.2). The
+gap is allocator chunk headers, size-class rounding, and arena capacity the
+engine does not count as used, and it is **not a constant factor**:
+
+| Distribution | N | `mem_used` B/key | allocator B/key | ratio |
+|---|---:|---:|---:|---:|
+| sequential (set) | 10k | 0.09 | 6.62 | 72.6× |
+| sequential (set) | 100k | 0.07 | 0.81 | 11.9× |
+| sequential (set) | 1M | 0.07 | 0.14 | 2.1× |
+| sparse (set) | 1M | 16.31 | 16.42 | 1.007× |
+| random 64-bit (set) | 1M | 7.92 | 12.62 | 1.59× |
+
+The ratio collapses toward 1.0 as either the population or the per-key footprint
+grows, because fixed arena capacity amortizes. It is largest exactly where
+Expanse is most compact, so **the allocator instrument understates Expanse's
+dense-distribution advantage** relative to the repo's own table. Any cell
+published here states which instrument produced it, and no cell from this suite
+is set beside a `mem_used` cell as though the two were the same quantity
+(§8.12).
+
+**Reason 2 — different keyspace.** The repo's `random` row draws full 64-bit
+keys. This suite is locked to 63 bits (§3.1), and that is not cosmetic on this
+distribution:
+
+| Keyspace | N | `ExpanseSet` `mem_used` B/key |
+|---|---:|---:|
+| 64-bit random | 1M | 7.92 |
+| 63-bit random | 1M | 13.60 |
+
+**+72% against Expanse**, on the engine's own instrument, from the constraint
+HOT's encoding imposes. The suite's random-distribution memory cells are
+therefore not comparable to the repo's published random cells in either
+direction, and the README says so next to them rather than in a footnote.
+
+*(Reason 2 is withdrawn by §9.4: the 63-bit restriction it describes is no
+longer in force, and the "unexplained" direction it recorded is now measured.
+The instrument gap of Reason 1 stands unchanged.)*
+
+
+### 9.4 The 63-bit lock is withdrawn; §3.1 was locked on a false premise
+
+§3.1 locked a 63-bit keyspace **for both arms and both systems**, on the reading
+that §8.3 symmetry means identical key bytes. That was wrong in two independent
+ways, and the constraint is withdrawn in full.
+
+**It was factually over-broad.** HOT's 63 bits are the width of its *inline
+value payload* (`getTid() { return mPointer >> 1; }`), not of its keys. That
+binds the keyspace only where the stored value *is* the key — Arm A's
+`IdentityKeyExtractor`. Arm B stores a heap pointer and takes the whole domain.
+Measured on keys spanning bit 63 (`1`, `42`, `2^62+7`, `2^63`, `2^63+99`,
+`u64::MAX`) *(measured: x86_64 build host — Intel Xeon E5-2697 v4; HOT
+`96bf6fb`; workload: `hot_arm_capability`)*:
+
+| Arm | Found | Correct value | Population by walk |
+|---|---:|---:|---:|
+| A — `IdentityKeyExtractor` | 3/6 | — | — |
+| B — `PairPointerKeyExtractor` | **6/6** | **6/6** | **6/6** |
+
+Arm B never needed the restriction, and the shim was rejecting keys it handles.
+
+**It was not symmetric in effect, which is what §8.3 actually asks.** Identical
+key bytes are a *mechanism* for symmetry, not its definition; the definition is
+that both systems are asked the same question. HOT selects discriminative bits
+dynamically to hold fanout roughly constant, so removing one top bit is close to
+a no-op for it. Expanse partitions by key *expanse* at a fixed 8-bit span, and
+for such a structure the only parameter that matters is occupancy per expanse,
+`d = N / 2^w`. **Halving the keyspace is therefore arithmetically identical to
+doubling the population.** The lock silently doubled Expanse's effective load
+factor and left HOT's workload materially unchanged.
+
+That equivalence is measured, not argued — `ExpanseSet`, `mem_used()`, same PRNG
+and seed *(measured: x86_64 build host — Intel Xeon E5-2697 v4; workload:
+`hot_keyspace_density_probe`)*:
+
+| N | 64-bit | 63-bit | 62-bit |
+|---:|---:|---:|---:|
+| 100k | 14.78 | 12.60 | 10.42 |
+| 200k | 12.59 | 10.41 | 8.42 |
+| 400k | 10.41 | 8.42 | 8.47 |
+| 600k | 9.17 | 7.64 | 19.25 |
+| 800k | 8.41 | 8.49 | 21.02 |
+| 1M | 7.92 | 13.60 | 19.66 |
+| 1.2M | 7.64 | 19.30 | 18.50 |
+| 2M | 13.60 | 19.67 | 15.58 |
+
+63-bit at N reproduces 64-bit at 2N, and 62-bit at 4N, to two decimals:
+`12.60 ≈ 12.59`, `8.42 ≈ 8.41`, `8.42 ≈ 8.41`. One curve in one variable.
+
+**And the effect has no stable sign.** The restriction *helps* Expanse below
+600k (−15% to −19%), is at parity near 800k (+1%), and costs +72% at 1M and
++153% at 1.2M. A workload parameter chosen for a reason internal to the other
+system, whose sign and magnitude depend on N, is a free variable, and the
+pre-registered headline population is where it happens to be worst.
+
+**Each curve also crosses a density cliff**, positioned by keyspace width and
+halving per bit removed: 64-bit in (1.2M, 2M], 63-bit in (800k, 1M], 62-bit in
+(400k, 600k]. At the headline N=1M the 64-bit arm is pre-cliff and the 63-bit
+arm is post-cliff, so the lock did not shift Expanse along a smooth curve — it
+carried it across a discontinuity.
+
+**The cliff is `LEAF_CAP`, and that is measured rather than inferred.**
+`LEAF_CAP = 32` (`crates/expanse/src/types.rs:99`) is the linear-leaf population
+cap at levels 2..=7; overflow cascades into a branch whose children are
+single-key immediates, at one 16-byte edge per key. For uniform random keys the
+top two bytes saturate, so the controlling parameter is the occupancy of a
+2-byte-prefix expanse, `λ = N / 2^16` at 64 bits and `N / 2^15` at 63 bits — the
+top byte taking 128 values rather than 256. At N=1M that is λ=15.26 (48% of
+`LEAF_CAP`, a packed `Leaf6` at ~6 B/key) against λ=30.52 (**95% of
+`LEAF_CAP`**, Poisson σ=5.5, so ~39% of expanses overflow and pay ~17 B/key).
+The mixture is the observed 13.60.
+
+Single-variable causal test — `LEAF_CAP` changed alone, everything else
+identical *(measured: x86_64 build host — Intel Xeon E5-2697 v4; workload:
+`hot_keyspace_density_probe`)*:
+
+| `LEAF_CAP` | 64-bit @1M | 63-bit @1M | 64-bit @2M |
+|---|---:|---:|---:|
+| 32 (shipped) | 7.92 | **13.60** | 13.60 |
+| 48 | 7.92 | **6.99** | 7.00 |
+
+Raising the cap abolishes the inversion — 63-bit becomes *cheaper* than 64-bit,
+the intuitive direction — and leaves the 64-bit 1M cell unchanged to the
+decimal. No other explanation survives that. This is **not** a recommendation to
+change `LEAF_CAP`: a larger linear leaf trades memory against scan cost on the
+read path, which this suite has not measured and which belongs to the engine's
+own instruments, not to a comparison harness.
+
+**Retraction (§8.10).** The `13.60 B/key` figure published for `ExpanseSet`
+uniform random at 1M in the first revision of §9.3 is **formally retracted as an
+artifact of a withdrawn constraint**. It is dead, not withheld for a later run —
+no measurement is outstanding against it. It is
+not a property of `ExpanseSet`; it is a measurement of the harness. The
+corresponding un-restricted figure is `7.92 B/key`, which is the value the
+repo's committed `bytes/key` table already carries. The retracted number is not
+silently replaced — the correction is the point.
+
+Two consequences are logged for follow-up outside this suite, because they
+concern the engine and its gates rather than the comparison:
+
+1. The committed `memory-budget` ceiling in
+   `crates/expanse/examples/bytes_per_key.rs` — `("random", 1_000_000, 9.00,
+   18.00)` — is calibrated at λ=15.26, **48% of `LEAF_CAP`, near a trough**. Its
+   headroom is ~2× *in N*, not the 12% *in bytes* the numbers suggest, and
+   nothing records that. The same workload at 2M measures 13.60 B/key and would
+   breach the ceiling by 51%, so a legitimate population change reads as a
+   regression. The withdrawn 63-bit figures would have breached it in both
+   flavours (set 13.60 > 9.00, map 19.38 > 18.00).
+2. The density behaviour itself — bytes/key as a function of λ, and the
+   `LEAF_CAP` overflow cascade that shapes it — is undocumented. It is a
+   property of the node ladder, not of this comparison, and belongs in
+   `docs/ARCHITECTURE.md` whether or not this suite ever ships.
+
+**Standing rule this episode earns.** *A twin's limitation is recorded as a
+predicate on the twin and evaluated against the workload; the workload is never
+edited to accommodate it. If the remedy touches a path the incumbent also reads,
+it is in the wrong place.* §3.2 already did this correctly for HOT's
+process-global `MemoryPool` — instrumenting on HOT's side rather than changing
+what both arms measure — so the precedent was in this file before §3.1 was
+written.
+
+
+### 9.5 Memory predictions are re-expressed at a density, not a population
+
+§9.4 established that per-key cost for this engine is governed by expanse
+occupancy, `λ = N / (populated 2-byte-prefix expanses)`, and that `LEAF_CAP`
+sets a cascade the curve crosses. A memory prediction stated at a population is
+therefore under-specified: two cells with the same declared `population` can sit
+on opposite sides of the cascade, and two with different populations can be the
+same measurement. §5's memory rows are re-expressed accordingly.
+
+**Density is a required workload-shape field for this suite.** Every memory cell
+declares `λ` alongside `population` and `keyspace_width`, and no two memory cells
+are compared unless their `λ` is stated. This is a §8.12 field for the suite's
+harnesses, not a repo-wide change.
+
+**Which anchors move and which do not.** The distinction is derivable from the
+generators, not a matter of measurement luck:
+
+| Distribution | Generator | λ | Density-dependent? |
+|---|---|---|---|
+| `sequential` | `i` | dense, contiguous | No — fully packed regardless of N |
+| `clustered` | `base + (i % 256)`, `base` random | 256 per cluster | No — cluster size fixes it |
+| `sparse` | `i << 40` | **256 exactly** (top two bytes are `i >> 8`, so each expanse holds 256 consecutive keys) | No — 8× above `LEAF_CAP`, permanently cascaded |
+| `random` | full-width draw | `N / 2^w` | **Yes** — this is the only one that moves |
+
+That also explains the `sparse` anchor's stability at `16.83 / 16.32 / 16.31`
+across three decades of N: at λ=256 every expanse is past the cascade, so the
+cost is one 16-byte edge per key at any population. It is the **saturated**
+regime, not a lower bound on the structure — `random` measures 7.92 B/key below
+it when λ sits under `LEAF_CAP`. Whether the flatness continues past 1M is
+**not measured** (the build host became unreachable before that sweep completed);
+the derivation above predicts it does, and the three committed cells are
+consistent with it.
+
+**§5.1's sparse-stride row is downgraded from High to Low confidence**, for a
+reason unrelated to density. It compares `ExpanseSet` on *sparse stride*
+(16.31 B/key) against HOT's Step-0 figure of 10.54 B/key, which was measured on
+*sequential* keys — the paragraph carries the `(workloads differ: …)` tag, but
+the prediction's confidence was set as though the two were comparable. It rests
+on an untested assumption that HOT's footprint is roughly distribution-invariant.
+No HOT figure on sparse keys exists yet. The row stands as a registered
+prediction; its confidence does not.
+
+**§5.1's and §5.2's uniform-random memory rows** are re-expressed at λ rather
+than N. The registered direction is unchanged; what changes is that a cell is
+only evaluable against a prediction at the same λ. The pre-registered headline
+N=10^6 at 64 bits is λ=15.26, 48% of `LEAF_CAP` — deliberately recorded, because
+it is a trough, and a suite that published only that point would be sampling the
+curve at its most flattering position for Expanse.
+
+The latency, insert and scan predictions are untouched: nothing measured here
+shows those to be density-governed, and asserting it without measurement is the
+error §8.9 forbids.
