@@ -443,6 +443,51 @@ pub(crate) unsafe fn terminal_remainders_buf(
     }
 }
 
+/// Population of the subtree rooted at `edge` covering `level` undecoded bytes.
+/// At `level <= 7`, delegates to [`subtree_count`], which reads `pop0` in `O(1)`.
+/// At `level >= 8` (a container root edge), recursively counts keys across children
+/// at `level - 1` without attempting to read out-of-range `pop0(8)`.
+///
+/// # Safety
+///
+/// `edge` must reference a live, well-formed node/leaf of its tagged type at `level`.
+#[inline]
+pub(crate) unsafe fn edge_count(edge: &Edge, level: u8) -> u64 {
+    if level <= 7 {
+        // SAFETY: caller guarantees edge is live at level <= 7.
+        unsafe { subtree_count(edge, level) }
+    } else {
+        if edge.is_null() {
+            return 0;
+        }
+        if edge.tag_byte() == EdgeType::FullExpanse as u8 {
+            return full_count(level);
+        }
+        let mut kbuf = [0u64; 256];
+        if !is_branch(edge.tag_byte()) {
+            // SAFETY: caller guarantees edge is live at level.
+            if let Some(n) = unsafe { terminal_remainders_buf(edge, level, &mut kbuf) } {
+                return n as u64;
+            }
+        }
+        // SAFETY: edge is a live branch at level >= 8 per contract.
+        let acc = unsafe { branch_accessor(edge, level) };
+        let bm = acc.populated_bitmap();
+        let mut total = 0u64;
+        let mut from = bm.next_set(0);
+        while let Some(d) = from {
+            // SAFETY: live branch at level >= 8.
+            let c = unsafe { child_by_digit(edge, level, d) };
+            if !c.is_null() {
+                // SAFETY: child is live at level - 1.
+                total += unsafe { edge_count(&c, level - 1) };
+            }
+            from = if d == 255 { None } else { bm.next_set(d + 1) };
+        }
+        total
+    }
+}
+
 /// Counts how many of `keys` (remainders relative to `level`) are present in
 /// the subtree rooted at `probe`.
 ///
@@ -734,11 +779,11 @@ unsafe fn intersection_len_impl<F: AlgebraFlavor>(ea: &Edge, eb: &Edge, level: u
     // with the other side is exactly the other side's population.
     if ta == EdgeType::FullExpanse as u8 {
         // SAFETY: eb is a live subtree at `level`.
-        return unsafe { subtree_count(eb, level) };
+        return unsafe { edge_count(eb, level) };
     }
     if tb == EdgeType::FullExpanse as u8 {
         // SAFETY: ea is a live subtree at `level`.
-        return unsafe { subtree_count(ea, level) };
+        return unsafe { edge_count(ea, level) };
     }
 
     // Both reduce to a final-byte bitmap (real level 1, incl. level == 1):
@@ -779,7 +824,7 @@ unsafe fn intersection_len_many_impl<F: AlgebraFlavor>(edges: &[Edge], level: u8
             return 0;
         }
         if edges.len() == 1 {
-            return subtree_count(&edges[0], level);
+            return edge_count(&edges[0], level);
         }
         if edges.len() == 2 {
             // SAFETY: caller guarantees both edges live at `level`.
@@ -812,7 +857,7 @@ unsafe fn intersection_len_many_impl<F: AlgebraFlavor>(edges: &[Edge], level: u8
                     .iter()
                     .find(|e| e.tag_byte() != EdgeType::FullExpanse as u8)
                     .unwrap();
-                return subtree_count(single, level);
+                return edge_count(single, level);
             }
             if count_non_full <= 16 {
                 let mut idx = 0;
@@ -1116,7 +1161,7 @@ unsafe fn union_len_many_impl<F: AlgebraFlavor>(edges: &[Edge], level: u8) -> u6
         };
 
         if active.len() == 1 {
-            return subtree_count(&active[0], level);
+            return edge_count(&active[0], level);
         }
         if active.len() == 2 {
             if let (Some((da, ba)), Some((db, bb))) = (
@@ -1129,8 +1174,8 @@ unsafe fn union_len_many_impl<F: AlgebraFlavor>(edges: &[Edge], level: u8) -> u6
                     u64::from(ba.count() + bb.count())
                 };
             }
-            let ca = subtree_count(&active[0], level);
-            let cb = subtree_count(&active[1], level);
+            let ca = edge_count(&active[0], level);
+            let cb = edge_count(&active[1], level);
             // SAFETY: active[0] and active[1] are live subtrees at `level`.
             let ci = F::intersection_len(&active[0], &active[1], level);
             return ca + cb - ci;
