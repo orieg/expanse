@@ -298,6 +298,7 @@ Know which rules a machine will catch and which only a reviewer will. **CI-enfor
 | Retracted/superseded figures absent across all published surfaces (Markdown, HTML, JSON, assets) | **CI** | `lint` & `docs-lint` jobs → `scripts/check_docs_hygiene.py`, `crates/expanse/tests/test_visualizer_sync.rs` (driven by `.github/superseded-figures.json`) |
 | Benchmark workload shape declarations (11 required fields) & docs sync | **CI** | `lint` job → `scripts/check_bench_shapes.py` |
 | Shared chart-theme CSS identical across the five suite `theme.py` copies; known divergences declared, not silent | **CI** | `lint` job → `scripts/check_chart_themes.py` (+ `--self-test`); per-suite accents and unreviewed drift are warnings naming each case |
+| Chart legibility: no text or bar overflowing its card, no text collision, no bar population pinned at a scale floor/ceiling | **CI** | `lint` job → `scripts/check_chart_layout.py` (+ `--self-test`); widths are estimated, so it is a gross-breakage tripwire, not a layout engine |
 | Paired performance figures carry a shared workload ID (§8.12) | **CI** | `docs-lint` job → `scripts/check_docs_hygiene.py` |
 | §6 profile-first: per-function ranking before a perf change, one increment per measurement, negatives recorded | **review** | the PR body carries the ranking and each increment's number |
 | §8.7 a fix on a measured path re-measures that number and states the correction | **review** | `docs/benchmarks/**/results.json` provenance must post-date the fix commit |
@@ -489,6 +490,11 @@ When proposing in-register compression or inlining of multi-byte values into mac
 - Every embedded memory footprint table MUST be mathematically derived from a committed Python verification script (`scripts/embedded_envelope.py`) with unit tests pinning reference constants (§8.8 commit 1). A derivation that lives only in prose is not a derivation: if the bound cannot be written as an executable, unit-tested function, it is not usable as a gate.
 - The derivation MUST calculate exact struct padding/alignment across all arms and verify total memory fits within the target's physical available heap budget.
 - Every published or pre-registered sizing cell MUST carry a `(projected)` or `(measured: target, commit)` provenance tag.
+
+### 8.15a Chart Scales Are Derived, Never Hardcoded
+- A generated chart's axis bounds, bar ceilings and label positions MUST be derived from the data it renders. Every chart defect found so far came from geometry hardcoded for the values that existed when the chart was written, which breaks silently the moment an arm is re-measured: a bar ceiling pinned at `5.5` met re-measured arms at `~11.7`, and a label pinned at `x=115` fitted `16.4 M` but not `604.4 M`.
+- **A misleading bar is a misleading figure (§8.7).** Where an axis must compress — a row spanning three orders of magnitude cannot be shown linearly — the compression MUST be made decodable (decade lines, and prose saying bar length understates the ratios), not left for the reader to infer.
+- Enforced by `scripts/check_chart_layout.py`; verify visually as well, since an estimator cannot see everything.
 
 ### 8.15 One Workload Shape Table per Benchmark File
 - `scripts/check_bench_shapes.py` parses exactly one `# Workload shape` table per harness file.
