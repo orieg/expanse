@@ -1,6 +1,12 @@
 //! Native set-algebra kernels over the trie structure (`docs/ALGORITHMS.md`,
 //! "Set-algebra kernels").
 //!
+//! Measurements of this module live in `docs/benchmarks/set_algebra/`, which
+//! routes to every harness that exercises it: the interned-domain arms it owns
+//! directly, the Boolean and WAND pillars in `search_inverted_index/`, the
+//! grammar-mask arm in `llm_inference/`, and the `Bitmap256::count_and` kernel
+//! sweep in `avx512/`.
+//!
 //! `ExpanseSet` had no set-algebra kernel: an engine using it as a
 //! posting-list backend had to compose `AND`/`OR`/`AND-NOT`/`XOR` from the
 //! navigation primitives element by element, losing every Boolean cell to a

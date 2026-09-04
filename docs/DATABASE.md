@@ -386,6 +386,9 @@ for id in dict.resolve(&set_c)? {
 
 #### Benchmark Suite: Set Algebra & Interned Set Domain
 
+Suite, methodology and reproduction: [`docs/benchmarks/set_algebra/`](benchmarks/set_algebra/README.md),
+which also routes to the four algebra harnesses owned by other suites.
+
 Performance of set materialization evolution (#348 direct emission vs v1 merge-insert), $k$-way aggregate algebra (#610 multi-way walk vs pairwise cascade vs Roaring MultiOps), and interned set domain zero-overhead parity (#611) `(measured: Apple Silicon aarch64 / reference x86-64 Linux, commit 343ce333)`:
 
 <p align="center">
