@@ -96,7 +96,11 @@
   <!-- Panel 1A: Materialization Evolution (#348) -->
   <g transform="translate(30, 70)">
     <text x="0" y="10" class="t-chart-title">1. MATERIALIZATION: DIRECT EMISSION (#348)</text>
-    <text x="0" y="24" class="t-sub">A ∩ B result set built • N=100k symmetric • latency (log scale, lower is better)</text>
+    <text x="0" y="24" class="t-sub">A ∩ B result set built • N=100k symmetric • latency, LOG axis</text>
+    <line x1="78.0" y1="38.0" x2="78.0" y2="234.0" class="grid"/>
+    <line x1="118.9" y1="38.0" x2="118.9" y2="234.0" class="grid"/>
+    <line x1="159.9" y1="38.0" x2="159.9" y2="234.0" class="grid"/>
+    <line x1="200.8" y1="38.0" x2="200.8" y2="234.0" class="grid"/>
     <text x="0" y="61" class="t-bar-label">Dense</text>
     <rect x="78" y="42" width="40.4" height="8" rx="1.5" class="b-expanse"/>
     <text x="123.4" y="49.5" class="t-val-green">9.7µs</text>
@@ -140,7 +144,11 @@
   <!-- Panel 1B: k-Way Aggregate Algebra (#610) -->
   <g transform="translate(498, 70)">
     <text x="0" y="10" class="t-chart-title">2. K-WAY AGGREGATE WALK (#610, K=5)</text>
-    <text x="0" y="24" class="t-sub">k=5 multi-set intersection • N=100k • latency (log scale, lower is better)</text>
+    <text x="0" y="24" class="t-sub">k=5 multi-set intersection • N=100k • latency, LOG axis</text>
+    <line x1="88.0" y1="38.0" x2="88.0" y2="234.0" class="grid"/>
+    <line x1="121.3" y1="38.0" x2="121.3" y2="234.0" class="grid"/>
+    <line x1="154.6" y1="38.0" x2="154.6" y2="234.0" class="grid"/>
+    <line x1="187.9" y1="38.0" x2="187.9" y2="234.0" class="grid"/>
     <text x="0" y="61" class="t-bar-label">Dense</text>
     <rect x="78" y="42" width="5.0" height="8" rx="1.5" class="b-expanse"/>
     <text x="88.0" y="49.5" class="t-val-green">550ns</text>
@@ -202,7 +210,6 @@
       <text x="14" y="151" class="t-sub">DomainSet brand: <tspan class="t-val-green">342 ns</tspan></text>
   <rect x="170" y="129" width="102" height="17" class="badge-win"/>
   <text x="221.0" y="141.0" class="badge-win-text">+4.9% overhead</text>
-      <text x="14" y="168" class="t-note">N=100k: ratio 1.0003 [0.9964, 1.0045] &#8212; not resolved; base cost dominates.</text>
     </g>
     <!-- 2B: Ingestion Card -->
     <g transform="translate(300, 36)">
@@ -212,19 +219,19 @@
       <line x1="14" y1="43" x2="301" y2="43" class="divider"/>
       <text x="14" y="60" class="t-bar-label">Text Keys (user:...)</text>
   <rect x="212" y="50" width="89" height="17" class="badge-win"/>
-  <text x="256.5" y="62.0" class="badge-win-text">3.12x faster</text>
-      <rect x="14" y="68" width="180.7" height="8" rx="1.5" class="b-expanse"/>
-      <text x="199.7" y="75.5" class="t-val-green">Batch 128: 11.69 M/s</text>
-      <rect x="14" y="79" width="175.6" height="8" rx="1.5" class="b-v1"/>
-      <text x="194.6" y="86.5" class="t-val-muted">Scalar: 11.36 M/s</text>
+  <text x="256.5" y="62.0" class="badge-win-text">1.029x faster</text>
+      <rect x="14" y="68" width="81.0" height="8" rx="1.5" class="b-expanse"/>
+      <text x="100.0" y="75.5" class="t-val-green">Batch 128: 11.69 M/s</text>
+      <rect x="14" y="79" width="78.7" height="8" rx="1.5" class="b-v1"/>
+      <text x="97.7" y="86.5" class="t-val-muted">Scalar: 11.36 M/s</text>
       <line x1="14" y1="103" x2="301" y2="103" class="grid"/>
       <text x="14" y="121" class="t-bar-label">Binary UUID (NUL-escaped)</text>
   <rect x="212" y="111" width="89" height="17" class="badge-win"/>
-  <text x="256.5" y="123.0" class="badge-win-text">3.08x faster</text>
-      <rect x="14" y="129" width="88.9" height="8" rx="1.5" class="b-expanse"/>
-      <text x="107.9" y="136.5" class="t-val-green">Batch 128: 5.75 M/s</text>
-      <rect x="14" y="140" width="87.9" height="8" rx="1.5" class="b-v1"/>
-      <text x="106.9" y="147.5" class="t-val-muted">Scalar: 5.69 M/s</text>
+  <text x="256.5" y="123.0" class="badge-win-text">1.010x faster</text>
+      <rect x="14" y="129" width="39.8" height="8" rx="1.5" class="b-expanse"/>
+      <text x="58.8" y="136.5" class="t-val-green">Batch 128: 5.75 M/s</text>
+      <rect x="14" y="140" width="39.4" height="8" rx="1.5" class="b-v1"/>
+      <text x="58.4" y="147.5" class="t-val-muted">Scalar: 5.69 M/s</text>
     </g>
     <!-- 2C: Resolution Card -->
     <g transform="translate(630, 36)">
@@ -233,14 +240,15 @@
       <text x="14" y="34" class="t-unit">resolve() direct slice iteration</text>
       <line x1="14" y1="43" x2="256" y2="43" class="divider"/>
       <text x="14" y="78" class="t-chart-title" style="font-size: 26px; font-weight: 800; fill: #15803d;">604.4 M</text>
-      <text x="115" y="72" class="t-bar-label" style="font-size: 13px; font-weight: 700;">keys / sec</text>
-      <text x="115" y="86" class="t-sub">throughput</text>
+      <text x="133" y="72" class="t-bar-label" style="font-size: 13px; font-weight: 700;">keys / sec</text>
+      <text x="133" y="86" class="t-sub">throughput</text>
       <text x="14" y="106" class="t-sub">Latency: <tspan class="t-val-green">1.7 ns / key</tspan> amortized scan</text>
       <line x1="14" y1="118" x2="256" y2="118" class="grid"/>
       <text x="14" y="136" class="t-bar-label">Zero Heap Allocation</text>
       <text x="14" y="150" class="t-sub">Borrows &amp;[u8] directly from stable chunk</text>
       <text x="14" y="163" class="t-sub">slabs in BlobArena (no string clones)</text>
     </g>
+    <text x="0" y="222" class="t-note">Provenance check at N=100k: ratio 1.0003 [0.9964, 1.0045] &#8212; not resolved; the base algebra cost dominates it. The N=10k badges above are where it separates.</text>
   </g>
 
   <line x1="30" y1="585" x2="930" y2="585" class="divider"/>
@@ -248,5 +256,5 @@
   <text x="30" y="615" class="t-note">Panel 3: domain.rs (#611) &#183; reference host - Intel i9-12900F, 24 threads, 62 GiB, Ubuntu 24.04 / kernel 6.8, rustc 1.98.0; quiet, continuous 2s contamination sampling, all reps CLEAN</text>
   <text x="30" y="629" class="t-note">Two harnesses, separate runs: the panels are NOT a paired comparison and no ratio across them is valid.</text>
   <text x="30" y="643" class="t-note">Source: docs/DATABASE.md §4.3; suite: docs/benchmarks/set_algebra/</text>
-  <text x="30" y="657" class="t-note">Parity badges state the resolution bound the recorded values support, not an exact zero; no instruction-count measurement of these arms exists.</text>
+  <text x="30" y="657" class="t-note">Panels 1-2 use a LOG latency axis (faint decade lines): bar length understates the ratios badly &#8212; Dense pairwise is 1029x but ~20x of bar. Read the badges and the printed values, not the bars.</text>
 </svg>
