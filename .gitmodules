@@ -1,0 +1,3 @@
+[submodule "third_party/hot"]
+	path = third_party/hot
+	url = https://github.com/speedskater/hot.git
