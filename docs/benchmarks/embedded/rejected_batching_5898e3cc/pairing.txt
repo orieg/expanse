@@ -1,0 +1,20 @@
+benchmark                                    arm                           ctl        trt    delta   noise  verdict
+esp32_ble_point_lookup_n2000_pop2000         expanse_slab               2267.5     2268.6   +0.05%   0.00%  outside noise -- slower
+esp32_ble_point_lookup_n500_pop500           expanse_slab               2155.6     2159.2   +0.17%   0.00%  outside noise -- slower
+esp32_ble_sighting_record_n2000_pop2000      expanse_slab               6953.8     6955.8   +0.03%   0.02%  outside noise -- slower
+esp32_ble_sighting_record_n500_pop500        expanse_slab               7214.7     7200.4   -0.20%   0.04%  outside noise -- faster
+esp32_ble_ttl_eviction_n1100_pop2000         expanse_slab               2317.9     2327.6   +0.42%   1.37%  inside noise -- not claimed
+esp32_ble_ttl_eviction_n300_pop500           expanse_slab               4174.8     2607.9  -37.53%   4.91%  outside noise -- faster
+esp32_ble_ttl_eviction_sparse_n100_pop2000   expanse_slab               2308.9     2411.2   +4.43%   1.22%  outside noise -- slower
+esp32_ble_ttl_eviction_sparse_n100_pop500    expanse_slab               5107.7     3267.1  -36.04%   6.56%  outside noise -- faster
+esp32_churn_insert_delete_n8000_pop500       expanse_memtable           3594.7     3610.5   +0.44%   0.00%  outside noise -- slower
+esp32_tsdb_aggregate_500_n500_pop2000        expanse_memtable            432.8      437.8   +1.17%   2.41%  inside noise -- not claimed
+esp32_tsdb_aggregate_500_n500_pop500         expanse_memtable            358.9      361.5   +0.73%   3.10%  inside noise -- not claimed
+esp32_tsdb_aggregate_500_shuffled_n500_pop2000 expanse_memtable            427.1      431.6   +1.04%   2.32%  inside noise -- not claimed
+esp32_tsdb_aggregate_500_shuffled_n500_pop500 expanse_memtable            342.6      344.0   +0.39%   2.78%  inside noise -- not claimed
+esp32_tsdb_ingest_n2000_pop2000              expanse_memtable           3023.6     3079.3   +1.84%   0.06%  outside noise -- slower
+esp32_tsdb_ingest_n500_pop500                expanse_memtable           3107.1     3174.1   +2.16%   0.45%  outside noise -- slower
+esp32_tsdb_ingest_shuffled_n2000_pop2000     expanse_memtable           4058.7     4069.6   +0.27%   0.04%  outside noise -- slower
+esp32_tsdb_ingest_shuffled_n500_pop500       expanse_memtable           3929.5     3940.6   +0.28%   0.09%  outside noise -- slower
+
+twins: 36 cells, max drift 6.56%, median 0.45%
