@@ -1,0 +1,38 @@
+EXPANSE stm32h747 m7 harness
+INFO core=m7 cpuid=0x411fc271 idcode=0x20036450 pwr_cr3=0x00010044 dcache_line_bytes=32 dcache_ways=4 dcache_sets=128 sync32_headroom=128 dwt_prfcnt=1
+INFO layout pre=0 gap=6144 lib_start=0x08000080 gap_start=0x0800b9bc harness_start=0x0800d1bc expanse_map_get=0x0800191f fx_can=0x0800d349 fx_can_dwt=0x0800d599
+INFO sysclk=400000000 hclk=200000000 vos=1
+TICK
+TOCK cycles=320000000
+RESULT name=dwt fixture=nop impl=none core=m7 sysclk=400000000 dcache=0 pass=0 ops=500 cycles=3013 cpi=13 exc=0 sleep=0 lsu=0 fold=3000 cpi_max=13 lsu_max=0 suspect=0
+RESULT name=dwt fixture=nop impl=none core=m7 sysclk=400000000 dcache=0 pass=1 ops=500 cycles=3000 cpi=0 exc=0 sleep=0 lsu=0 fold=3000 cpi_max=0 lsu_max=0 suspect=0
+RESULT name=dwt fixture=nop impl=none core=m7 sysclk=400000000 dcache=0 pass=2 ops=500 cycles=3000 cpi=0 exc=0 sleep=0 lsu=0 fold=3000 cpi_max=0 lsu_max=0 suspect=0
+RESULT name=dwt fixture=nop impl=none core=m7 sysclk=400000000 dcache=0 pass=3 ops=500 cycles=3000 cpi=0 exc=0 sleep=0 lsu=0 fold=3000 cpi_max=0 lsu_max=0 suspect=0
+RESULT name=dwt fixture=nop impl=none core=m7 sysclk=400000000 dcache=0 pass=4 ops=500 cycles=3000 cpi=0 exc=0 sleep=0 lsu=0 fold=3000 cpi_max=0 lsu_max=0 suspect=0
+RESULT name=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=0 pass=0 cycles=217648 ops=500
+RESULT name=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=0 pass=1 cycles=217366 ops=500
+RESULT name=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=0 pass=2 cycles=217288 ops=500
+RESULT name=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=0 pass=3 cycles=217078 ops=500
+RESULT name=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=0 pass=4 cycles=217046 ops=500
+RESULT name=dwt fixture=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=0 pass=0 ops=500 cycles=219753 cpi=39906 exc=0 sleep=0 lsu=86238 fold=44044 cpi_max=146 lsu_max=183 suspect=0
+RESULT name=dwt fixture=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=0 pass=1 ops=500 cycles=219826 cpi=40000 exc=0 sleep=0 lsu=86242 fold=44043 cpi_max=134 lsu_max=182 suspect=0
+RESULT name=dwt fixture=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=0 pass=2 ops=500 cycles=219716 cpi=39907 exc=0 sleep=0 lsu=86240 fold=44044 cpi_max=130 lsu_max=182 suspect=0
+RESULT name=dwt fixture=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=0 pass=3 ops=500 cycles=219838 cpi=40016 exc=0 sleep=0 lsu=86239 fold=44044 cpi_max=148 lsu_max=182 suspect=0
+RESULT name=dwt fixture=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=0 pass=4 ops=500 cycles=219500 cpi=39822 exc=0 sleep=0 lsu=86221 fold=44044 cpi_max=130 lsu_max=182 suspect=0
+RESULT name=dwt fixture=nop impl=none core=m7 sysclk=400000000 dcache=1 pass=0 ops=500 cycles=3013 cpi=13 exc=0 sleep=0 lsu=0 fold=3000 cpi_max=13 lsu_max=0 suspect=0
+RESULT name=dwt fixture=nop impl=none core=m7 sysclk=400000000 dcache=1 pass=1 ops=500 cycles=3000 cpi=0 exc=0 sleep=0 lsu=0 fold=3000 cpi_max=0 lsu_max=0 suspect=0
+RESULT name=dwt fixture=nop impl=none core=m7 sysclk=400000000 dcache=1 pass=2 ops=500 cycles=3000 cpi=0 exc=0 sleep=0 lsu=0 fold=3000 cpi_max=0 lsu_max=0 suspect=0
+RESULT name=dwt fixture=nop impl=none core=m7 sysclk=400000000 dcache=1 pass=3 ops=500 cycles=3000 cpi=0 exc=0 sleep=0 lsu=0 fold=3000 cpi_max=0 lsu_max=0 suspect=0
+RESULT name=dwt fixture=nop impl=none core=m7 sysclk=400000000 dcache=1 pass=4 ops=500 cycles=3000 cpi=0 exc=0 sleep=0 lsu=0 fold=3000 cpi_max=0 lsu_max=0 suspect=0
+RESULT name=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=1 pass=0 cycles=128075 ops=500
+RESULT name=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=1 pass=1 cycles=126014 ops=500
+RESULT name=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=1 pass=2 cycles=127990 ops=500
+RESULT name=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=1 pass=3 cycles=127338 ops=500
+RESULT name=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=1 pass=4 cycles=126206 ops=500
+RESULT name=dwt fixture=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=1 pass=0 ops=500 cycles=131278 cpi=38989 exc=0 sleep=0 lsu=10500 fold=44023 cpi_max=128 lsu_max=21 suspect=0
+RESULT name=dwt fixture=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=1 pass=1 ops=500 cycles=130709 cpi=38452 exc=0 sleep=0 lsu=10500 fold=44055 cpi_max=162 lsu_max=21 suspect=0
+RESULT name=dwt fixture=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=1 pass=2 ops=500 cycles=130652 cpi=38381 exc=0 sleep=0 lsu=10500 fold=44041 cpi_max=136 lsu_max=21 suspect=0
+RESULT name=dwt fixture=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=1 pass=3 ops=500 cycles=130630 cpi=38358 exc=0 sleep=0 lsu=10500 fold=44040 cpi_max=130 lsu_max=21 suspect=0
+RESULT name=dwt fixture=can_dispatch impl=expanse core=m7 sysclk=400000000 dcache=1 pass=4 ops=500 cycles=130630 cpi=38358 exc=0 sleep=0 lsu=10500 fold=44040 cpi_max=130 lsu_max=21 suspect=0
+DONE
+CALIB host_seconds=0.800 cycles=320000000

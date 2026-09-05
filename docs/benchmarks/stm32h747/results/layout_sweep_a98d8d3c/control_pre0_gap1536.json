@@ -1,0 +1,243 @@
+{
+ "info": {
+  "calibration": [
+   {
+    "host_seconds": 0.8,
+    "cycles": 320000000
+   }
+  ],
+  "commit": "22908c15",
+  "core": "m7",
+  "cpuid": "0x411fc271",
+  "idcode": "0x20036450",
+  "pwr_cr3": "0x00010044",
+  "dcache_line_bytes": 32,
+  "dcache_ways": 4,
+  "dcache_sets": 128,
+  "sync32_headroom": 128,
+  "dwt_prfcnt": 1,
+  "pre": 0,
+  "gap": 1536,
+  "lib_start": "0x08000080",
+  "gap_start": "0x0800ba14",
+  "harness_start": "0x0800c014",
+  "expanse_map_get": "0x0800187b",
+  "fx_can": "0x0800c1a1",
+  "fx_can_dwt": "0x0800c3f1",
+  "sysclk": 400000000,
+  "hclk": 200000000,
+  "vos": 1,
+  "measured_hz": {
+   "64000000": 400000000.0
+  }
+ },
+ "fixtures": [
+  {
+   "core": "m7",
+   "impl": "expanse",
+   "name": "can_dispatch",
+   "sysclk": 400000000,
+   "dcache": 0,
+   "min": 443.0,
+   "median": 443.216,
+   "max": 443.216,
+   "passes": [
+    443.028,
+    443.0,
+    443.216,
+    443.216,
+    443.216
+   ],
+   "min_ns": null
+  },
+  {
+   "core": "m7",
+   "impl": "expanse",
+   "name": "can_dispatch",
+   "sysclk": 400000000,
+   "dcache": 1,
+   "min": 277.8,
+   "median": 278.98,
+   "max": 282.734,
+   "passes": [
+    278.98,
+    277.8,
+    282.734,
+    278.326,
+    282.252
+   ],
+   "min_ns": null
+  }
+ ],
+ "bytes": [],
+ "isr": [],
+ "dual": [],
+ "dwt": [
+  {
+   "core": "m7",
+   "fixture": "can_dispatch",
+   "impl": "expanse",
+   "sysclk": 400000000,
+   "dcache": 0,
+   "ops": 500,
+   "passes": 5,
+   "raw_per_op": {
+    "cycles": 465.314,
+    "cpi": 101.842,
+    "exc": 0.0,
+    "sleep": 0.0,
+    "lsu": 167.5,
+    "fold": 87.81
+   },
+   "bracket_per_op": {
+    "cycles": 6.0,
+    "cpi": 0.024,
+    "exc": 0.0,
+    "sleep": 0.0,
+    "lsu": 0.0,
+    "fold": 6.0
+   },
+   "net_per_op": {
+    "cycles": 459.314,
+    "cpi": 101.818,
+    "exc": 0.0,
+    "sleep": 0.0,
+    "lsu": 167.5,
+    "fold": 81.81,
+    "instr": 271.80600000000004
+   },
+   "cpi_max": 151,
+   "lsu_max": 177,
+   "suspect": 0,
+   "wrap_risk": false,
+   "all_passes_cycles_per_op": [
+    465.412,
+    465.334,
+    465.314,
+    465.314,
+    465.314
+   ]
+  },
+  {
+   "core": "m7",
+   "fixture": "can_dispatch",
+   "impl": "expanse",
+   "sysclk": 400000000,
+   "dcache": 1,
+   "ops": 500,
+   "passes": 5,
+   "raw_per_op": {
+    "cycles": 280.282,
+    "cpi": 92.65,
+    "exc": 0.0,
+    "sleep": 0.0,
+    "lsu": 19.004,
+    "fold": 87.996
+   },
+   "bracket_per_op": {
+    "cycles": 6.0,
+    "cpi": 0.0,
+    "exc": 0.0,
+    "sleep": 0.0,
+    "lsu": 0.0,
+    "fold": 6.0
+   },
+   "net_per_op": {
+    "cycles": 274.282,
+    "cpi": 92.65,
+    "exc": 0.0,
+    "sleep": 0.0,
+    "lsu": 19.004,
+    "fold": 81.996,
+    "instr": 244.62399999999997
+   },
+   "cpi_max": 164,
+   "lsu_max": 21,
+   "suspect": 0,
+   "wrap_risk": false,
+   "all_passes_cycles_per_op": [
+    280.282,
+    280.462,
+    281.55,
+    281.55,
+    281.55
+   ]
+  },
+  {
+   "core": "m7",
+   "fixture": "nop",
+   "impl": "none",
+   "sysclk": 400000000,
+   "dcache": 0,
+   "ops": 500,
+   "passes": 5,
+   "raw_per_op": {
+    "cycles": 6.0,
+    "cpi": 0.024,
+    "exc": 0.0,
+    "sleep": 0.0,
+    "lsu": 0.0,
+    "fold": 6.0
+   },
+   "bracket_per_op": null,
+   "net_per_op": {
+    "cycles": 6.0,
+    "cpi": 0.024,
+    "exc": 0.0,
+    "sleep": 0.0,
+    "lsu": 0.0,
+    "fold": 6.0,
+    "instr": 11.975999999999999
+   },
+   "cpi_max": 12,
+   "lsu_max": 0,
+   "suspect": 1,
+   "wrap_risk": false,
+   "all_passes_cycles_per_op": [
+    6.0,
+    6.0,
+    6.0,
+    6.0,
+    6.0
+   ]
+  },
+  {
+   "core": "m7",
+   "fixture": "nop",
+   "impl": "none",
+   "sysclk": 400000000,
+   "dcache": 1,
+   "ops": 500,
+   "passes": 5,
+   "raw_per_op": {
+    "cycles": 6.0,
+    "cpi": 0.0,
+    "exc": 0.0,
+    "sleep": 0.0,
+    "lsu": 0.0,
+    "fold": 6.0
+   },
+   "bracket_per_op": null,
+   "net_per_op": {
+    "cycles": 6.0,
+    "cpi": 0.0,
+    "exc": 0.0,
+    "sleep": 0.0,
+    "lsu": 0.0,
+    "fold": 6.0,
+    "instr": 12.0
+   },
+   "cpi_max": 0,
+   "lsu_max": 0,
+   "suspect": 0,
+   "wrap_risk": false,
+   "all_passes_cycles_per_op": [
+    6.0,
+    6.0,
+    6.0,
+    6.0,
+    6.0
+   ]
+  }
+ ]
+}

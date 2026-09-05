@@ -72,6 +72,14 @@ passes so the dual cells can be iterated in under a minute.
   DTCM data/stack, 512 KB AXI SRAM heap via `_sbrk`), `m4.ld` (flash bank 2,
   SRAM3 data/stack, SRAM1+2 heap); `dual.h` — mailbox layout and protocol.
 - `alts.{h,c}` — the alternatives and the allocation accounting.
+- `layout_sweep.sh` — the layout-controlled build (design doc §8.1.3): relinks
+  a given engine archive with `_layout_pre` bytes before all code and
+  `_layout_gap` bytes between the library's code and the harness's (library
+  placed first by a generated variant of `m7.ld`), builds the M7 image with
+  `-DLAYOUT_SWEEP` — which runs only the Expanse `can_dispatch` cell at
+  400 MHz, timed and DWT-profiled, and prints the placed addresses — flashes
+  it, captures and harvests each point; `docs/benchmarks/stm32h747/scripts/layout_sweep_table.py`
+  summarises a sweep directory.
 - `build.sh` — builds both images against
   `target/thumbv7em-none-eabihf/release/libexpanse.a` and asserts the
   hard-float ABI tag on each; CI runs it. `run.sh` — flashes both banks over

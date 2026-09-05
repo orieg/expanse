@@ -667,6 +667,53 @@ static void dual_core_cell(bool heap_cacheable, uint32_t mode) {
     dcache_disable(); mpu_region(2, HEAP_BASE, 19, MPU_ATTR_NONCACHE, false); dcache_enable();
 }
 
+#ifdef LAYOUT_SWEEP
+/* Layout-controlled build (design doc §8.1.3): the same engine archive relinked
+ * with `_layout_pre` bytes of padding before all code (a uniform shift, which
+ * changes every instruction's alignment) and `_layout_gap` bytes between the
+ * library's code and the harness's (a relative shift, which changes which
+ * I-cache sets the two share). `layout_sweep.sh` links the variants; this
+ * mode runs only the Expanse `can_dispatch` cell at 400 MHz, D-cache off and
+ * on, timed and DWT-profiled, and prints where the linker put the hot code. */
+extern uint8_t _layout_pre, _layout_gap, _layout_pre_start, _layout_gap_start, _layout_harness_start;
+static void sweep_can(uint32_t dcache) {
+    dwt_prof prof;
+    const alt_ops *ops = &alt_expanse;
+    for (uint32_t p = 0; p < PASSES; p++) { fx_nop_dwt(&prof); result_dwt("nop", "none", dcache, p, &prof, N_CAN); }
+    void *can = ops->create(N_CAN);
+    for (uint32_t i = 0; i < N_CAN; i++) ops->insert(can, can_keys[i], i);
+    for (uint32_t p = 0; p < PASSES; p++) result("can_dispatch", ops->name, dcache, p, fx_can(ops, can), N_CAN);
+    for (uint32_t p = 0; p < PASSES; p++) { fx_can_dwt(ops, can, &prof); result_dwt("can_dispatch", ops->name, dcache, p, &prof, N_CAN); }
+    ops->destroy(can);
+}
+int main(void) {
+    RCC_AHB2ENR |= 0xE0000000u; RCC_AHB4ENR |= 0x32000000u; (void)RCC_AHB4ENR;
+    uart_init();
+    dwt_init();
+    mpu_init();
+    memset((void *)SHM, 0, sizeof *SHM); dsb_isb();   /* the M4 image idles: no phase is ever published */
+    icache_enable();
+    banner();
+    uart_puts("INFO layout pre="); uart_u32((uint32_t)(uintptr_t)&_layout_pre); uart_puts(" gap="); uart_u32((uint32_t)(uintptr_t)&_layout_gap);
+    uart_puts(" lib_start="); uart_hex((uint32_t)(uintptr_t)&_layout_pre_start);
+    uart_puts(" gap_start="); uart_hex((uint32_t)(uintptr_t)&_layout_gap_start);
+    uart_puts(" harness_start="); uart_hex((uint32_t)(uintptr_t)&_layout_harness_start);
+    uart_puts(" expanse_map_get="); uart_hex((uint32_t)(uintptr_t)&expanse_map_get);
+    uart_puts(" fx_can="); uart_hex((uint32_t)(uintptr_t)&fx_can);
+    uart_puts(" fx_can_dwt="); uart_hex((uint32_t)(uintptr_t)&fx_can_dwt);
+    uart_puts("\r\n");
+    for (uint32_t i = 0; i < N_CAN; i++) can_keys[i] = (i * 100007u) & 0x1FFFFFFFu;
+    power_vos1();
+    clock_pll(50, 0x8u, 0x4u); sysclk_hz = 400000000u;
+    uart_puts("INFO sysclk=400000000 hclk=200000000 vos=1\r\n");
+    calibrate();
+    sweep_can(0);
+    dcache_enable();
+    sweep_can(1);
+    uart_puts("DONE\r\n");
+    for (;;) { sink++; }
+}
+#else
 int main(void) {
     RCC_AHB2ENR |= 0xE0000000u; RCC_AHB4ENR |= 0x32000000u; (void)RCC_AHB4ENR; /* D2 SRAM1-3, D3 SRAM4, HSEM clocks */
     uart_init();
@@ -719,6 +766,7 @@ int main(void) {
     uart_puts("DONE\r\n");
     for (;;) { sink++; }  /* spin, not WFI: keeps SWD attachable */
 }
+#endif /* LAYOUT_SWEEP */
 
 #else
 /* ---- M4: fixtures on request, then a sync32 reader for the dual cells --- */

@@ -1,0 +1,5 @@
+control engine 22908c15: libexpanse.a sha256 a4b164c442e4a2322b3e34c22ccecc5366d4e45da02c64a0e16b4ae43e8965d1
+treatment engine a98d8d3c (engine source identical to fce563c2): libexpanse.a sha256 1e16c8c4980afb7228666a1345a2ce1490fdbeed004c669d3b2e32d9795501d0
+harness: integrations/stm32h747 at this commit, built with -DLAYOUT_SWEEP by layout_sweep.sh against m7_layout.ld (this directory; library code first, then _layout_gap, then the harness); arm-none-eabi-gcc 14.3.1; M7 image only, one board, one sitting, 46 images flashed in the order listed in sweep.txt (control then treatment at each point)
+pads: _layout_pre 0,8,...,56 bytes at _layout_gap 0; _layout_gap 512,...,7680 bytes at _layout_pre 0
+per image: 5 timed can_dispatch passes (min) and 5 DWT-profiled passes (pass with the fewest cycles), D-cache off then on, 400 MHz; INFO layout line in each .txt gives the placed addresses
