@@ -36,6 +36,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "expanse.h"
 #include "expanse_memtable.h"
 #include "expanse_ble_tracker.h"
 
@@ -64,6 +65,40 @@ bool twin_sorted_insert(twin_sorted_t *s, uint32_t key, uint32_t value);
 bool twin_sorted_get(twin_sorted_t *s, uint32_t key, uint32_t *out_value);
 bool twin_sorted_remove(twin_sorted_t *s, uint32_t key);
 bool twin_sorted_aggregate(twin_sorted_t *s, uint32_t lo, uint32_t hi, expanse_memtable_agg_t *out);
+
+/*
+ * The same walk, same fold, reached through a function pointer per key.
+ *
+ * expanse_memtable_aggregate_range crosses the C ABI into Rust and is called
+ * back once per key; twin_sorted_aggregate folds inline. That is a harness
+ * asymmetry the ratio between them silently carries (§8.3), and it was
+ * disclosed but never sized. This pair sizes it: the two functions are
+ * identical except that `agg_add(out, val)` becomes `visit(key, val, out)`,
+ * so the difference between them is the per-key dispatch and nothing else.
+ *
+ * twin_visit_fn is declared to the same parameter and return types as
+ * expanse_map_for_each_range_fn -- (expanse_word_t, expanse_word_t, void *)
+ * returning bool -- so the indirect call has the calling convention Expanse
+ * actually pays. It is declared here rather than reused from expanse.h
+ * because that typedef sits in the narrow-only block (AGENTS.md §4): reusing
+ * it would gate this pair to !EXPANSE_WIDE_SURFACE and leave it compiled by
+ * no CI lane, since the lane that can build these TUs is the 64-bit one.
+ * expanse_word_t is defined at both widths, so this compiles at both and is
+ * uint32_t on the device, which is where the arm is measured.
+ */
+typedef bool (*twin_visit_fn)(expanse_word_t key, expanse_word_t value, void *ctx);
+
+bool twin_sorted_aggregate_indirect(twin_sorted_t *s, uint32_t lo, uint32_t hi,
+                                    twin_visit_fn visit,
+                                    expanse_memtable_agg_t *out);
+
+/*
+ * The visitor for the call above. Lives beside agg_add so the fold body is
+ * literally the one the inlined arm runs, leaving the indirect call as the
+ * only difference.
+ */
+bool twin_visit_agg(expanse_word_t key, expanse_word_t value, void *ctx);
+
 size_t twin_sorted_len(const twin_sorted_t *s);
 
 /** Fixed ring buffer over monotonic keys. The append-only telemetry twin. */

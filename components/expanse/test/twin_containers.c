@@ -275,6 +275,27 @@ bool twin_sorted_aggregate(twin_sorted_t *s, uint32_t lo, uint32_t hi, expanse_m
     return out->count > 0;
 }
 
+bool twin_visit_agg(expanse_word_t key, expanse_word_t value, void *ctx) {
+    (void)key;
+    agg_add((expanse_memtable_agg_t *)ctx, (uint32_t)value);
+    return true;
+}
+
+bool twin_sorted_aggregate_indirect(twin_sorted_t *s, uint32_t lo, uint32_t hi,
+                                    twin_visit_fn visit,
+                                    expanse_memtable_agg_t *out) {
+    if (!s || !out || !visit) return false;
+    TWIN_LOCK_TAKE(s->lock);
+    agg_init(out);
+    /* Deliberately character-for-character twin_sorted_aggregate above, with
+     * the inline agg_add replaced by the indirect call. Keep them in step. */
+    for (size_t i = twin_sorted_lb(s, lo); i < s->len && s->keys[i] <= hi; ++i) {
+        if (!visit((expanse_word_t)s->keys[i], (expanse_word_t)s->vals[i], out)) break;
+    }
+    TWIN_LOCK_GIVE(s->lock);
+    return out->count > 0;
+}
+
 size_t twin_sorted_len(const twin_sorted_t *s) { return s ? s->len : 0; }
 
 /* ---- monotonic ring buffer ------------------------------------------- */
