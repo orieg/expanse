@@ -1,0 +1,19 @@
+ok  HOT discriminates 255 key bytes (MAX_STRING_KEY_LENGTH, read from the header)
+ok  one instrument sees both string arms at N=100000 (short): HOT 12.13 B/key (4566 allocs, < N), ExpanseStrMap 63.97 B/key (204791 allocs); pool was cold
+ok  census controls: +1048584 B on a 1048576 B request, residual 0 B; 10000 strings = 10000 allocations, 24.00 B/string as allocated, live 0 after free
+ok  key window: len 254 → two entries — discriminated
+ok  key window: len 255 → two entries — discriminated
+ok  key window: len 256 → ONE entry; insert(b) returned false; lookup(b) returns not found
+ok  key window: len 300 → ONE entry; insert(b) returned false; lookup(b) returns not found
+ok  capability finding (beyond, 272 B keys sharing a 256 B prefix, N=1000): insert() reported 1 new, trie walks 1; lookup() found 1 of 1000 and returned another key's pointer for 0
+ok  beyond: ExpanseStrMap holds all 1000 keys and returns each one's own word
+ok  short    N=100000 mean len 12.0: populations agree, 100000 probes agree on all three arms (50000 hits, sinks equal), 100 scans of k=100 agree
+ok  counter  N=100000 mean len 12.0: populations agree, 100000 probes agree on all three arms (50000 hits, sinks equal), 100 scans of k=100 agree
+ok  prefixed N=100000 mean len 120.0: populations agree, 100000 probes agree on all three arms (50000 hits, sinks equal), 100 scans of k=100 agree
+ok  skewed   N=99976 mean len 14.3: populations agree, 99976 probes agree on all three arms (49988 hits, sinks equal), 100 scans of k=100 agree
+ok  beyond   N=100000: HOT column withheld (100000 keys exceed the 255 B window); Expanse arms hold 100000/100000
+ok  census sees Arm D's operator new: 50018 allocations for 50000 heap pairs
+ok  Expanse arms answer all 20000 probes after the strings they were built from were freed (HOT cannot: its leaves point into them)
+
+37 deterministic checks passed. String-arm foundation is valid.
+NOTE: the B/key figures above are a validation sample, not a suite artifact. Published cells come from hot_string_memory / hot_string_latency on the reference host.

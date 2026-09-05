@@ -1011,3 +1011,23 @@ asserted by walking on every cell.
 99,976 distinct keys after deduplication (4-byte keys collide at that
 population); every cell carries its actual population, and both sides are
 asserted against it.
+
+### 10.11 Outcome pointers (recorded after measurement, not reconciled above)
+
+The string arms were measured on the reference host at harness commit
+`d0149469`; the verdicts against §10.7 are in the README's §6 scorecard and are
+not copied here, so this file stays readable as what was locked. Two amendments
+follow from the outcome:
+
+- **§10.5's conditional re-expression is not made.** The `λ_chunk` cascade
+  hypothesis is *consistent with* the sweep — the Expanse index rises between
+  N = 100k and 150k on the random-alphanumeric shapes and not on `counter` —
+  but the single-variable test (changing the alphabet width and watching the
+  step move) was not run, so the memory rows stay on a population axis.
+  Hypothesis, partially supported; the falsifier is open.
+- **§10.7's `ownership` prediction for `short` is refuted by a leaf-representation
+  cost, not by HOT.** The gate's allocation counts show two allocations per
+  `ExpanseStrMap` key not resolved in a terminal chunk (a `StrSuffix` shell and
+  its byte buffer). That is a property of the engine's string leaf and is logged
+  for the engine, as §9.4 logged the `LEAF_CAP` density behaviour, rather than
+  amended into this suite.
