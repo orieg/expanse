@@ -183,6 +183,8 @@ Bench targets deliberately **not** reachable from a slash command:
 | `wasm_fuel` | runs on every PR in `ci.yml`'s `wasm-fuel` job against `results/baseline_wasm_fuel.json`; it needs no bare-metal host, so `/benchmark wasm_fuel` is refused by name and points here. |
 | `domain_aarch64` | aarch64 arm; the /bench host is self-hosted x86-64. Run `.github/workflows/bench_aarch64.yml` via workflow_dispatch. Report-only: a shared hosted runner cannot resolve the provenance-check overhead, so no parity ratio may be quoted from it. |
 | `avx512_bitmap` | needs `avx512vpopcntdq`, which the bare-metal reference host does not have (Alder Lake fuses AVX-512 off); on that host the sweep would report only its scalar arm. Run it on the AVX-512 lane instead — `.github/workflows/bench_avx512.yml`, `runs-on: [avx512]`. |
+| `hot_memory_curve` | needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2 — HOT does not build otherwise — and each cell must run in its own process because HOT's node pool is a process-global `static` (a warm pool undercounts memory by up to 3.3x). It is driven by `docs/benchmarks/hot_comparison/run.sh`, which takes the host-wide benchmark lock and sweeps expanse occupancy, not by `cargo bench`. |
+| `hot_latency` | needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2 — HOT does not build otherwise — and each cell must run in its own process because HOT's node pool is a process-global `static` (a warm pool undercounts memory by up to 3.3x). It is driven by `docs/benchmarks/hot_comparison/run.sh`, which takes the host-wide benchmark lock and sweeps expanse occupancy, not by `cargo bench`. |
 <!-- END GENERATED: bench-suites -->
 
 ## Comparison targets
@@ -193,7 +195,7 @@ Bench targets deliberately **not** reachable from a slash command:
 4. **Roaring Bitmaps** (`roaring` / `croaring`) — integer set and posting list baseline.
 5. **Swiss Tables** (`hashbrown::HashMap`) — flat SIMD hash map baseline.
 6. **Concurrent Maps** (`crossbeam-skiplist`, `dashmap`, `parking_lot::RwLock<BTreeMap>`) — multithreaded scalability baseline.
-7. **HOT (Height Optimized Trie)** ([`speedskater/hot`](https://github.com/speedskater/hot), C++ through FFI) — height-optimized trie baseline. **Pre-registered, not yet measured**: hypothesis, expected losses and claims ceiling are locked in [`docs/benchmarks/hot_comparison/METHODOLOGY.md`](benchmarks/hot_comparison/METHODOLOGY.md); no suite figure exists yet ([#660](https://github.com/orieg/expanse/issues/660)).
+7. **HOT (Height Optimized Trie)** ([`speedskater/hot`](https://github.com/speedskater/hot) `96bf6fb`, C++ through FFI) — height-optimized trie baseline ([#660](https://github.com/orieg/expanse/issues/660), [`docs/benchmarks/hot_comparison/`](benchmarks/hot_comparison/README.md)). Memory is published as a curve across expanse occupancy rather than a cell per distribution: Arm A's winner changes three times across the swept range, so no single population identifies the comparison.
 
 ## Methodology rules (binding)
 
