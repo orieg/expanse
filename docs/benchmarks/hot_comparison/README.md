@@ -28,6 +28,13 @@ memory as a **curve across λ** and refuses to publish a single cell (§9.6).
 
 The reason is visible in the result. **Arm A's winner changes three times.**
 
+![Memory across expanse occupancy](results/chart_memory_curve.svg)
+
+HOT's two lines are flat; Expanse's dip into the shaded band and climb out of it
+past the cascade is the whole finding. The shaded region is derived by comparing
+the two arms cell by cell, not drawn by eye.
+
+
 | λ | N | HOT B/key | `ExpanseSet` B/key | winner |
 |---:|---:|---:|---:|---|
 | 1 | 32,768 | 12.06 | 16.18 | HOT 1.34× |
@@ -80,6 +87,13 @@ advantage, and §5.2 pre-registered it as such.
 Ratios are HOT ÷ Expanse, so **above 1.000 means Expanse is faster**. Every cell
 is gated on the BCa 95% interval, never the point estimate (§8.4); a cell whose
 interval spans parity is `BOUNDARY_RESULT` and claims no winner.
+
+![Latency at N=1M](results/chart_latency_1m.svg)
+
+Both exceptions sit against the parity line: `lookup_hit · set · random` is the
+`BOUNDARY_RESULT` at 0.998, and `lookup_miss · set · random` is the one non-scan
+HOT win at 0.940.
+
 
 ### Point lookup, 100% hit
 
