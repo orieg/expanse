@@ -492,10 +492,22 @@ That also explains the `sparse` anchor's stability at `16.83 / 16.32 / 16.31`
 across three decades of N: at λ=256 every expanse is past the cascade, so the
 cost is one 16-byte edge per key at any population. It is the **saturated**
 regime, not a lower bound on the structure — `random` measures 7.92 B/key below
-it when λ sits under `LEAF_CAP`. Whether the flatness continues past 1M is
-**not measured** (the build host became unreachable before that sweep completed);
-the derivation above predicts it does, and the three committed cells are
-consistent with it.
+it when λ sits under `LEAF_CAP`.
+
+The derivation was checked past the committed range rather than assumed
+*(measured: x86_64 build host — Intel Xeon E5-2697 v4; `-C target-cpu=haswell`;
+`mem_used()`; workload: `hot_keyspace_density_probe`)*:
+
+| N | `sequential` | `clustered` | `sparse` `i << 40` |
+|---:|---:|---:|---:|
+| 100k | 0.07 | 0.37 | 16.32 |
+| 400k | 0.07 | 0.37 | 16.31 |
+| 1M | 0.07 | 0.36 | 16.31 |
+| 2M | 0.06 | 0.36 | **16.31** |
+
+All three are flat to two decimals across a 20× population range, including past
+the point where the `random` curve has already crossed its cascade (13.60 at 2M).
+Construction-fixed occupancy behaves as derived; only `random` moves.
 
 **§5.1's sparse-stride row is downgraded from High to Low confidence**, for a
 reason unrelated to density. It compares `ExpanseSet` on *sparse stride*
@@ -516,3 +528,137 @@ curve at its most flattering position for Expanse.
 The latency, insert and scan predictions are untouched: nothing measured here
 shows those to be density-governed, and asserting it without measurement is the
 error §8.9 forbids.
+
+
+### 9.6 The memory pillar publishes a curve across λ, and Arm A declares its domain
+
+Two design decisions follow from §9.4 and §9.5. Both are locked here before the
+harnesses exist.
+
+#### Memory is a curve, not a cell
+
+§9.4 measured a sawtooth: the same `ExpanseSet` spans 7.64–21.02 B/key under
+density alone, with a cascade at `λ ≈ LEAF_CAP`. **A single-population memory
+cell is therefore a cherry-pick whichever side of the cascade it lands on**, and
+the pre-registered N=10^6 at 64 bits lands at λ=15.26 — 48% of `LEAF_CAP`, near a
+trough, which is the most flattering point available to Expanse.
+
+The memory pillar publishes **bytes/key as a function of λ**, swept across the
+cascade on both arms, rather than a point per distribution. This departs from
+`art_comparison/`'s one-population-per-cell shape deliberately: that suite's
+competitor has no equivalent discontinuity, so a point cell was defensible there
+and is not here.
+
+A verdict is stated over an interval of λ or not at all. "Expanse uses less
+memory than HOT" is not a claim this suite can make without saying at which
+occupancy, and the honest answer may be "below the cascade yes, above it no".
+
+#### Arm A restricts its generator and says so in its name
+
+HOT's inline payload cannot represent keys with bit 63 set (§9.4), so Arm A —
+`HOTSingleThreaded<uint64_t, IdentityKeyExtractor>` — cannot hold a full 64-bit
+uniform stream. Rather than let its population silently differ from Arm B's, Arm
+A **draws from a 63-bit domain on both of its sides**, under its own workload ID,
+titled so the restriction and its cause are visible:
+
+> `hot_set_63bit` — HOT set arm vs `ExpanseSet`, 63-bit keys, restricted because
+> HOT's inline value payload is 63 bits wide.
+
+This is not the withdrawn §3.1 lock returning. The difference is scope and
+labelling: §3.1 imposed 63 bits on **both arms and the whole suite**, and
+published the result under names — "`ExpanseSet`, uniform random, 1M" — that
+collide with the repo's own committed cells. Arm A's restriction is confined to
+one pairing, is named for the reason it exists, and its cells never appear beside
+Arm B's or the repo's (§8.12). Arm B remains at the full 64-bit domain.
+
+#### Why the two decisions compose
+
+Plotted against λ rather than N, **the restriction stops being a confound**.
+Halving the keyspace is exactly a doubling of density (§9.4), so Arm A's 63-bit
+Expanse curve and Arm B's 64-bit Expanse curve are the *same curve* — Arm A's
+points simply sit at 2× the λ of Arm B's at equal N. The two arms therefore
+share a comparable axis despite differing domains, which no choice of population
+could have given them.
+
+That is a testable prediction, not a convenience, and the harness asserts it: the
+two Expanse curves must superimpose on λ within the tolerance of exact byte
+accounting. **If they do not, the density model of §9.4 is wrong and the memory
+pillar is void** — a falsifier the suite can actually fail, which is what §8 was
+missing when `Key63` made the population check unfireable.
+
+
+### 9.7 The census also has to replace `operator new`
+
+`-Wl,--wrap=malloc` rewrites symbol resolution **only for the objects being
+linked**. libstdc++'s `operator new` lives in `libstdc++.so` and reaches malloc
+through the dynamic linker at runtime, so nothing it allocates is wrapped.
+
+Arm B allocates one heap `std::pair` per entry through `operator new`. Measured
+at N=100,000 *(measured: x86_64 build host — Intel Xeon E5-2697 v4;
+`-C target-cpu=haswell`; workload: `hot_memory_curve`)*:
+
+| Arm B, N=100k | counted allocations | HOT B/key |
+|---|---:|---:|
+| malloc interposition alone | 4,611 | 11.77 |
+| plus replaced `operator new` | **104,612** | **35.77** |
+
+A **3× understatement**, and in HOT's favour on the arm where its value model is
+most expensive — the per-entry heap pair is the whole reason Arm B exists, and it
+was the part the census could not see.
+
+The shim now defines the replaceable global allocation functions
+(`operator new`/`new[]`/`delete`/`delete[]`, sized and unsized), which the
+standard makes program-wide, routing every `new` through the counted path.
+
+This is the mirror image of the Step 0 finding, and the pair is worth stating
+together: there, an `operator new` counter missed HOT's `posix_memalign` nodes;
+here, a malloc counter missed the C++ `operator new` pairs. Neither instrument
+alone sees the arm. `hot_validate` now asserts the count directly — 50,000 heap
+pairs must produce at least 50,000 counted allocations — so a regression fails
+loudly rather than returning a flattering number.
+
+Three census defects have now been found in this integration, all of which
+would have published a plausible wrong figure: the process-global node pool
+(§9.2, 3.3×), the unwrapped `operator new` (here, 3×), and the free path that
+never subtracted (§9.1). Every one understated somebody's memory.
+
+
+### 9.8 Probe symmetry, checked before the latency pillars were written
+
+The latency pillars rest on an assumption worth testing rather than asserting:
+that both arms do the *same work* per probe and that the work is consumed. This
+repo has already retracted absolute figures from a harness whose read path never
+dereferenced the payload, billing index traversal only (`docs/DATABASE.md` §7),
+and every census defect in this integration was found by running something
+rather than by reading it.
+
+`hot_probe_symmetry` checks four properties, all deterministic (§8.4 — no
+wall-clock, so no intervals apply). Result *(measured: x86_64 build host — Intel
+Xeon E5-2697 v4; `-C target-cpu=haswell`; workload: `hot_probe_symmetry`)*:
+
+| Arm | Probes | Hit rate | Disagreements | Values | Sinks |
+|---|---:|---:|---:|---|---|
+| A — set, 63-bit | 200,000 | 50.0% | 0 | n/a | equal |
+| B — map, 64-bit | 200,000 | 50.0% | 0 | identical | fed |
+
+1. **Answer agreement** — HOT and Expanse return the same result on every probe.
+   A disagreement voids the arm and would otherwise surface as a latency
+   difference rather than as the correctness failure it is.
+2. **Value consumption** — on Arm B both sides produce the stored *value*, not a
+   presence bit, and both sinks are fed from it. HOT reaches its value through a
+   heap pointer; Expanse reads it from an inline `ValueSlot`. **That cost
+   asymmetry is the architectural difference Arm B exists to measure, and it is
+   only a fair measurement because both arms are made to fetch.** A probe that
+   stopped at `mIsValid` would hand HOT the traversal without the dereference.
+3. **Miss shape** — misses are rejection-sampled from the same generator as the
+   population, never a transform of a present key (§8.6).
+4. **Probe order** — the stream is shuffled with Fisher-Yates from the same
+   PRNG. This was a **defect found while writing the check**: the population is
+   sorted, so hits drawn by index arrived in ascending key order, handing an
+   ordered trie cache and prefetch behaviour no real point-lookup workload
+   provides. `art_comparison/` had to amend for exactly this after its first
+   reference-host run; inheriting the amendment cost nothing, rediscovering it
+   would have cost a sweep.
+
+Arm A compares membership against membership with no value on either side, so
+consumption there is the presence bit itself.
