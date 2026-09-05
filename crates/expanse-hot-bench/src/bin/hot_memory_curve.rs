@@ -6,7 +6,7 @@
 //! |---|---|
 //! | `workload_id` | `hot_memory_curve` |
 //! | `group` | 5 |
-//! | `population` | swept; reported as λ, not as N (§9.6) |
+//! | `population` | swept; reported as λ, not as N (§9.6); `rowex_set` / `rowex_map` arms (feature `rowex`) census ROWEX against `SyncExpanseSet` / `SyncExpanseMap` on the same λ targets, build-only, single writer (§10.3 decision 1) |
 //! | `probes_and_reuse` | N/A (memory census) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |
@@ -32,11 +32,15 @@
 
 use std::env;
 
+#[cfg(feature = "rowex")]
+use expanse_hot_bench::rowex::{RowexMap, RowexSet};
 use expanse_hot_bench::{
     Census, HotMap, HotSet, hot_can_inline, require_cold_pool, validate_census,
 };
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
+#[cfg(feature = "rowex")]
+use expanse_trie::sync::{SyncExpanseMap, SyncExpanseSet};
 
 struct XorShift(u64);
 impl XorShift {
@@ -57,6 +61,12 @@ enum Arm {
     SetA,
     /// HOT `PairPointerKeyExtractor` vs `ExpanseMap`, full 64-bit domain.
     MapB,
+    /// ROWEX `IdentityKeyExtractor` vs `SyncExpanseSet`, 63-bit domain (§10).
+    #[cfg(feature = "rowex")]
+    RowexSet,
+    /// ROWEX `PairPointerKeyExtractor` vs `SyncExpanseMap`, 64-bit domain (§10).
+    #[cfg(feature = "rowex")]
+    RowexMap,
 }
 
 impl Arm {
@@ -67,6 +77,10 @@ impl Arm {
             // named for it — never mixed with Arm B's or the repo's cells.
             Arm::SetA => 63,
             Arm::MapB => 64,
+            #[cfg(feature = "rowex")]
+            Arm::RowexSet => 63,
+            #[cfg(feature = "rowex")]
+            Arm::RowexMap => 64,
         }
     }
 
@@ -74,7 +88,26 @@ impl Arm {
         match self {
             Arm::SetA => "hot_set_63bit",
             Arm::MapB => "hot_map_64bit",
+            #[cfg(feature = "rowex")]
+            Arm::RowexSet => "hot_rowex_set_63bit",
+            #[cfg(feature = "rowex")]
+            Arm::RowexMap => "hot_rowex_map_64bit",
         }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Arm::SetA => "set",
+            Arm::MapB => "map",
+            #[cfg(feature = "rowex")]
+            Arm::RowexSet => "rowex_set",
+            #[cfg(feature = "rowex")]
+            Arm::RowexMap => "rowex_map",
+        }
+    }
+
+    fn is_set(self) -> bool {
+        self.width() == 63
     }
 }
 
@@ -112,8 +145,15 @@ fn main() {
     let arm = match args[1].as_str() {
         "set" => Arm::SetA,
         "map" => Arm::MapB,
+        #[cfg(feature = "rowex")]
+        "rowex_set" => Arm::RowexSet,
+        #[cfg(feature = "rowex")]
+        "rowex_map" => Arm::RowexMap,
         other => {
-            eprintln!("unknown arm {other:?}; expected `set` or `map`");
+            eprintln!(
+                "unknown arm {other:?}; expected `set` or `map` (or `rowex_set` / `rowex_map` \
+                 with the `rowex` feature)"
+            );
             std::process::exit(2);
         }
     };
@@ -139,8 +179,8 @@ fn main() {
     // generator already draws from the 63-bit domain, so this must hold — the
     // assertion is here because a silently smaller population is the failure
     // this suite was nearly published with.
-    if arm == Arm::SetA && !ks.iter().all(|k| hot_can_inline(*k)) {
-        eprintln!("Arm A generator produced a key outside HOT's inline payload");
+    if arm.is_set() && !ks.iter().all(|k| hot_can_inline(*k)) {
+        eprintln!("set arm generator produced a key outside HOT's inline payload");
         std::process::exit(1);
     }
 
@@ -163,7 +203,48 @@ fn main() {
             std::mem::forget(t);
             p
         }
+        // Single writer, build only: the census counters are process-global
+        // atomics and cannot be armed under concurrent writers without
+        // distorting them (§10.3, decision 1). What ROWEX's per-thread free
+        // lists still hold at the end of the build is inside the number, as
+        // HOT's pool retention is inside Arm A's (§3.2).
+        #[cfg(feature = "rowex")]
+        Arm::RowexSet => {
+            let t = RowexSet::new();
+            for k in &ks {
+                t.insert(*k);
+            }
+            let p = t.len();
+            std::mem::forget(t);
+            p
+        }
+        #[cfg(feature = "rowex")]
+        Arm::RowexMap => {
+            let t = RowexMap::new();
+            for (i, k) in ks.iter().enumerate() {
+                t.insert(*k, i as u64);
+            }
+            let p = t.len();
+            std::mem::forget(t);
+            p
+        }
     });
+
+    // The floor of §10.3 decision 1: a map build must count at least one pair
+    // and one node per key, a set build at least one node per key. Below it the
+    // instrument is not seeing the arm and the cell is void.
+    #[cfg(feature = "rowex")]
+    if matches!(arm, Arm::RowexSet | Arm::RowexMap) {
+        let floor = if arm.is_set() { pop } else { 2 * pop } as i64;
+        if hot.allocs < floor {
+            eprintln!(
+                "ROWEX census counted {} allocations for {pop} keys, below the floor of {floor}; \
+                 the instrument is not seeing the arm and the cell is void (§10.7)",
+                hot.allocs
+            );
+            std::process::exit(1);
+        }
+    }
 
     let (exp_pop, exp) = Census::measure(|| match arm {
         Arm::SetA => {
@@ -177,6 +258,26 @@ fn main() {
         }
         Arm::MapB => {
             let mut t = ExpanseMap::new();
+            for (i, k) in ks.iter().enumerate() {
+                t.insert(*k, i as u64);
+            }
+            let p = t.len() as usize;
+            std::mem::forget(t);
+            p
+        }
+        #[cfg(feature = "rowex")]
+        Arm::RowexSet => {
+            let t = SyncExpanseSet::new();
+            for k in &ks {
+                t.insert(*k);
+            }
+            let p = t.len() as usize;
+            std::mem::forget(t);
+            p
+        }
+        #[cfg(feature = "rowex")]
+        Arm::RowexMap => {
+            let t = SyncExpanseMap::new();
             for (i, k) in ks.iter().enumerate() {
                 t.insert(*k, i as u64);
             }
@@ -212,6 +313,22 @@ fn main() {
             }
             t.mem_used()
         }
+        #[cfg(feature = "rowex")]
+        Arm::RowexSet => {
+            let t = SyncExpanseSet::new();
+            for k in &ks {
+                t.insert(*k);
+            }
+            t.with_locked(ExpanseSet::mem_used)
+        }
+        #[cfg(feature = "rowex")]
+        Arm::RowexMap => {
+            let t = SyncExpanseMap::new();
+            for (i, k) in ks.iter().enumerate() {
+                t.insert(*k, i as u64);
+            }
+            t.with_locked(ExpanseMap::mem_used)
+        }
     };
 
     let pf = pop as f64;
@@ -220,7 +337,7 @@ fn main() {
          \"lambda\":{:.4},\"hot_alloc_bytes_per_key\":{:.4},\"expanse_alloc_bytes_per_key\":{:.4},\
          \"expanse_mem_used_bytes_per_key\":{:.4},\"hot_allocs\":{},\"expanse_allocs\":{}}}",
         arm.workload_id(),
-        if arm == Arm::SetA { "set" } else { "map" },
+        arm.label(),
         arm.width(),
         pop,
         lambda(pop, arm.width()),

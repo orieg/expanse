@@ -21,6 +21,9 @@
 
 pub mod workload;
 
+#[cfg(feature = "rowex")]
+pub mod rowex;
+
 use std::os::raw::c_void;
 
 unsafe extern "C" {

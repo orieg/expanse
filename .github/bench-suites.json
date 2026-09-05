@@ -132,7 +132,7 @@
       "available": true,
       "kind": "counters",
       "runner": "builtin",
-      "summary": "Hardware performance counters (`perf stat`) over the random point-lookup path \u2014 `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be."
+      "summary": "Hardware performance counters (`perf stat`) over the random point-lookup path — `probe` minus `build`, with a BCa 95% interval per counter. Diagnostic only: it gates nothing, and it is the instrument the Callgrind `Ir` gate structurally cannot be."
     },
     {
       "name": "search_instructions",
@@ -507,7 +507,7 @@
       "runner": "generic",
       "package": "expanse-trie",
       "target": "avx512_bitmap",
-      "reason": "needs `avx512vpopcntdq`, which the bare-metal reference host does not have (Alder Lake fuses AVX-512 off); on that host the sweep would report only its scalar arm. Run it on the AVX-512 lane instead \u2014 `.github/workflows/bench_avx512.yml`, `runs-on: [avx512]`.",
+      "reason": "needs `avx512vpopcntdq`, which the bare-metal reference host does not have (Alder Lake fuses AVX-512 off); on that host the sweep would report only its scalar arm. Run it on the AVX-512 lane instead — `.github/workflows/bench_avx512.yml`, `runs-on: [avx512]`.",
       "summary": "AVX-512 `vpopcntq` vs the shipped scalar `Bitmap256::count_and`, swept across cache residency including a dependent DRAM chase.",
       "suite": "avx512"
     },
@@ -518,7 +518,7 @@
       "runner": "generic",
       "package": "expanse-hot-bench",
       "target": "hot_memory_curve",
-      "reason": "needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2 \u2014 HOT does not build otherwise \u2014 and each cell must run in its own process because HOT's node pool is a process-global `static` (a warm pool undercounts memory by up to 3.3x). It is driven by `docs/benchmarks/hot_comparison/run.sh`, which takes the host-wide benchmark lock and sweeps expanse occupancy, not by `cargo bench`.",
+      "reason": "needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2 — HOT does not build otherwise — and each cell must run in its own process because HOT's node pool is a process-global `static` (a warm pool undercounts memory by up to 3.3x). It is driven by `docs/benchmarks/hot_comparison/run.sh`, which takes the host-wide benchmark lock and sweeps expanse occupancy, not by `cargo bench`.",
       "summary": "HOT vs Expanse live-heap census swept across expanse occupancy, both arms under one allocator instrument.",
       "suite": "hot_comparison"
     },
@@ -529,12 +529,13 @@
       "runner": "generic",
       "package": "expanse-hot-bench",
       "target": "hot_latency",
-      "reason": "needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2 \u2014 HOT does not build otherwise \u2014 and each cell must run in its own process because HOT's node pool is a process-global `static` (a warm pool undercounts memory by up to 3.3x). It is driven by `docs/benchmarks/hot_comparison/run.sh`, which takes the host-wide benchmark lock and sweeps expanse occupancy, not by `cargo bench`.",
+      "reason": "needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2 — HOT does not build otherwise — and each cell must run in its own process because HOT's node pool is a process-global `static` (a warm pool undercounts memory by up to 3.3x). It is driven by `docs/benchmarks/hot_comparison/run.sh`, which takes the host-wide benchmark lock and sweeps expanse occupancy, not by `cargo bench`.",
       "summary": "HOT vs Expanse point lookup (100% and 50% hit), cold-build insertion, and ordered range scan.",
       "suite": "hot_comparison"
     },
     {
       "name": "hot_string_memory",
+      "name": "hot_concurrent",
       "available": false,
       "kind": "wallclock",
       "runner": "generic",
@@ -553,6 +554,9 @@
       "target": "hot_string_latency",
       "reason": "needs an initialised `third_party/hot` submodule and an x86-64 host with AVX2 and BMI2, and each cell must run in its own process because HOT's node pool is a process-global `static`. It is driven by `docs/benchmarks/hot_comparison/run.sh strings`, which runs the string validation gate first and takes the host-wide benchmark lock, not by `cargo bench`.",
       "summary": "String-key point lookup (100% and 50% hit), cold-build insertion and ordered scan: HOT's C-string configuration vs ExpanseStrMap and ExpanseBytesMap; HOT's 255-byte key window reported per cell as a predicate.",
+      "target": "hot_concurrent",
+      "reason": "needs an initialised `third_party/hot` submodule plus HOT's nested `third-party/tbb` submodule (libtbb is built from it into the cargo build dir; no system package) and an x86-64 host with AVX2 and BMI2. Each cell runs in its own process because ROWEX's reclamation state is process-global, and all threads must sit inside the P-core pin. It is driven by `docs/benchmarks/hot_comparison/run.sh --only-concurrent`, which takes the host-wide benchmark lock, not by `cargo bench`.",
+      "summary": "HOT-ROWEX vs SyncExpanseSet/SyncExpanseMap: writer throughput as writer count scales, reader throughput alongside, and the Expanse protocol's restart/fallback shares.",
       "suite": "hot_comparison"
     }
   ]

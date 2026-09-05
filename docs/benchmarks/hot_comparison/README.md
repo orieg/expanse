@@ -497,6 +497,14 @@ docs/benchmarks/hot_comparison/run.sh strings            # string arms (#693) ->
 docs/benchmarks/hot_comparison/run.sh strings --quick    # reduced, -> gitignored results/quick/
 python3 docs/benchmarks/hot_comparison/scripts/generate_charts.py   # every chart, from results/
 python3 docs/benchmarks/hot_comparison/scripts/string_tables.py     # the §6 tables, from results/
+docs/benchmarks/hot_comparison/run.sh            # full sweep -> results/
+docs/benchmarks/hot_comparison/run.sh --quick    # reduced, -> gitignored results/quick/
+
+# The concurrent arm (#692, METHODOLOGY.md §10) additionally needs HOT's
+# nested TBB submodule; libtbb is built from it into the cargo build dir.
+git -C third_party/hot submodule update --init --depth 1 third-party/tbb
+docs/benchmarks/hot_comparison/run.sh --only-concurrent          # -> results/baseline_concurrent.json
+docs/benchmarks/hot_comparison/run.sh --only-concurrent --quick  # -> results/quick/
 ```
 
 The runner takes the host-wide benchmark lock, pins to performance cores, drives

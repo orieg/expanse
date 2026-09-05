@@ -19,6 +19,19 @@ if [ ! -f "${REPO_ROOT}/third_party/hot/LICENSE" ]; then
   exit 1
 fi
 
+# The concurrent arm (#692, METHODOLOGY.md §10) links ROWEX, which needs TBB.
+# libtbb is built from HOT's own pinned nested submodule into the cargo build
+# directory — never a system package — so the nested checkout must exist.
+case " $* " in
+  *" --concurrent "*|*" --only-concurrent "*)
+    if [ ! -f "${REPO_ROOT}/third_party/hot/third-party/tbb/Makefile" ]; then
+      echo "TBB sources are missing for the concurrent arm. Run:" >&2
+      echo "    git -C third_party/hot submodule update --init --depth 1 third-party/tbb" >&2
+      exit 1
+    fi
+    ;;
+esac
+
 # Host-wide benchmark lock (docs/BENCHMARKING.md, methodology rule 8): one
 # suite at a time per machine, across every checkout. `mkdir` is atomic; the
 # lock names its owner so a refused start says who holds the host.
@@ -67,6 +80,21 @@ else
   echo "========================================================================"
   python3 "${SCRIPT_DIR}/scripts/run_all.py" "$@"
 fi
+echo "========================================================================"
+echo " HOT Comparison Benchmark Suite — Expanse vs Height Optimized Trie (#660)"
+echo "========================================================================"
+echo " Arm A: HOT<uint64_t, IdentityKeyExtractor>      vs ExpanseSet  (63-bit)"
+echo " Arm B: HOT<pair*, PairPointerKeyExtractor>      vs ExpanseMap  (64-bit)"
+echo ""
+echo " Memory publishes a curve across expanse occupancy, not a cell per"
+echo " distribution: per-key cost is a sawtooth in density (METHODOLOGY §9.6)."
+echo ""
+echo " --concurrent / --only-concurrent: the HOT-ROWEX arm (#692, §10) —"
+echo " writer throughput vs writer count against SyncExpanseSet/SyncExpanseMap,"
+echo " readers alongside, protocol health, all threads inside the P-core pin."
+echo "========================================================================"
+
+python3 "${SCRIPT_DIR}/scripts/run_all.py" "$@"
 
 echo ""
 echo " Results written to:"

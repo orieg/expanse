@@ -548,6 +548,49 @@ def string_charts() -> list:
         (RESULTS / "chart_string_memory_sweep.svg").write_text(string_memory_sweep() + "\n")
         written.append("chart_string_memory_sweep.svg")
     return written
+def concurrent_charts() -> None:
+    """The HOT-ROWEX arm (#692, §10): writer and reader throughput per cell.
+
+    Two house per-pillar charts, higher is better. Rows come straight from the
+    committed cells and the badge from each cell's BCa verdict, so a cell whose
+    interval spans parity is `BOUNDARY` and claims no winner (§8.4). Nothing is
+    rendered when the arm has not been measured.
+    """
+    path = RESULTS / "baseline_concurrent.json"
+    if not path.exists():
+        return
+    cells = json.loads(path.read_text())["throughput"]
+
+    def rows_for(role: str, pillar: str) -> list:
+        out = []
+        for c in cells:
+            if c["pillar"] != pillar or f"{role}_verdict" not in c:
+                continue
+            out.append((
+                f"{c['arm']} · W={c['writers']} R={c['readers']}",
+                f"{c['workload_id']} · {c['rounds']} rounds",
+                c[f"expanse_{role}_mops_median"],
+                c[f"rowex_{role}_mops_median"],
+                c[f"{role}_verdict"],
+            ))
+        return out
+
+    svg = render_two_arm_chart(
+        "chart_concurrent_writers.svg",
+        "Writer throughput as writer count scales — SyncExpanse vs HOT-ROWEX",
+        "C1: W writers insert 2^20 fresh keys into a 2^20 prefill, fixed work, arms interleaved",
+        "M inserts/s (median of rounds)", rows_for("writer", "C1"), lower_is_better=False,
+    )
+    if svg:
+        (RESULTS / "chart_concurrent_writers.svg").write_text(svg)
+    svg = render_two_arm_chart(
+        "chart_concurrent_readers.svg",
+        "Reader throughput alongside writers — SyncExpanse vs HOT-ROWEX",
+        "C2: 8 readers probe 50/50 while W writers insert; W=0 is the reader-only reference",
+        "M lookups/s (median of rounds)", rows_for("reader", "C2"), lower_is_better=False,
+    )
+    if svg:
+        (RESULTS / "chart_concurrent_readers.svg").write_text(svg)
 
 
 def main() -> int:
@@ -559,6 +602,11 @@ def main() -> int:
         written += ["chart_memory_curve.svg", "chart_latency_1m.svg"] + standard_charts()
     written += string_charts()
     print("wrote " + ", ".join(written))
+    concurrent_charts()
+    (RESULTS / "chart_memory_curve.svg").write_text(memory_curve() + "\n")
+    (RESULTS / "chart_latency_1m.svg").write_text(latency_1m() + "\n")
+    extra = standard_charts()
+    print("wrote chart_memory_curve.svg, chart_latency_1m.svg, " + ", ".join(extra))
     return 0
 
 

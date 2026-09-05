@@ -48,6 +48,18 @@ DISTRIBUTIONS = ["sequential", "clustered", "sparse", "random"]
 SCAN_K = [10, 100, 1000]
 ARMS = ["set", "map"]
 
+# The concurrent arm (#692, METHODOLOGY.md §10.4). Every cell keeps
+# writers + readers <= 16 so no thread can leave the P-core pin (decision 3).
+CONCURRENT_WRITE_SCALING = [1, 2, 4, 8, 16]            # C1: W, R = 0
+CONCURRENT_MIXED_WRITERS = [0, 1, 2, 4, 8]             # C2: W, R = 8
+CONCURRENT_MIXED_READERS = 8
+CONCURRENT_HEALTH_WRITERS = [1, 2, 4, 8]               # H: the C2 cells with writers
+CONCURRENT_ARMS = ["set", "map"]
+CONCURRENT_MEMORY_ARMS = {"set": "rowex_set", "map": "rowex_map"}
+# A second target dir for the diagnostic build, so the two feature sets can
+# never overwrite each other's binary (decision 5).
+OCC_STATS_TARGET = CRATE.parent / "target-occ-stats"
+
 
 def keyspace_bits(arm: str) -> int:
     """Arm A is restricted to 63 bits by HOT's inline payload (§9.6)."""
@@ -75,9 +87,19 @@ def load_snapshot(label: str) -> dict:
 
 
 def git_sha() -> str:
+    """The commit under test, for provenance (§8.7).
+
+    A checkout rsynced to a benchmark host without its `.git` cannot answer
+    `rev-parse`; `EXPANSE_BENCH_COMMIT` then names the commit explicitly rather
+    than letting the artifact say `unknown`.
+    """
+    explicit = os.environ.get("EXPANSE_BENCH_COMMIT")
+    if explicit:
+        return explicit
     try:
         return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT
+            ["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT,
+            stderr=subprocess.DEVNULL,
         ).decode().strip()
     except Exception:
         return "unknown"
@@ -206,8 +228,144 @@ def sweep_latency(env: dict, quick: bool) -> dict:
     return {"cells": cells}
 
 
+def build_concurrent_binaries(env: dict) -> None:
+    """Two builds, never one (§10.3 decision 5).
+
+    The default build carries the throughput cells and the ROWEX memory arms;
+    the `occ-stats` build carries the health cells and refuses to time anything.
+    They go to separate target dirs so neither can overwrite the other.
+    """
+    print("building hot_concurrent and hot_memory_curve with --features rowex "
+          "(libtbb is built from HOT's nested submodule on first use) ...")
+    subprocess.run(
+        ["cargo", "build", "--release", "--manifest-path", str(CRATE),
+         "--features", "rowex", "--bin", "hot_concurrent", "--bin", "hot_memory_curve"],
+        check=True, env=env,
+    )
+    print("building the diagnostic hot_concurrent with --features rowex,occ-stats ...")
+    occ_env = dict(env)
+    occ_env["CARGO_TARGET_DIR"] = str(OCC_STATS_TARGET)
+    subprocess.run(
+        ["cargo", "build", "--release", "--manifest-path", str(CRATE),
+         "--features", "rowex,occ-stats", "--bin", "hot_concurrent"],
+        check=True, env=occ_env,
+    )
+
+
+def concurrent_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
+    """One throughput cell in its own process, harvested into BCa intervals.
+
+    Ratios are Expanse ÷ ROWEX throughput, so — as everywhere in this suite —
+    above 1.000 means Expanse is faster (§10.4).
+    """
+    rows = run_cell([str(binary("hot_concurrent")), arm, str(writers), str(readers)], env)
+    if not rows:
+        raise RuntimeError(f"concurrent cell {arm} W={writers} R={readers} emitted no rows")
+    head = rows[0]
+    cell = {
+        "workload_id": head["workload_id"], "arm": arm,
+        "writers": writers, "readers": readers,
+        "keyspace_bits": head["keyspace_bits"], "prefill": head["prefill"],
+        "fresh_keys": head["fresh_keys"], "rounds": len(rows),
+        "cpus_allowed": head["cpus_allowed"], "pin_applied": head["pin_applied"],
+    }
+    for role in ("writer", "reader"):
+        hot = [r[f"rowex_{role}_mops"] for r in rows if r[f"rowex_{role}_mops"] is not None]
+        exp = [r[f"expanse_{role}_mops"] for r in rows if r[f"expanse_{role}_mops"] is not None]
+        if not hot or not exp:
+            continue
+        ratio, lo, hi = bca_bootstrap_ratio_ci(exp, hot, num_resamples=2000, seed=42)
+        cell[f"rowex_{role}_mops_median"] = round(sorted(hot)[len(hot) // 2], 4)
+        cell[f"expanse_{role}_mops_median"] = round(sorted(exp)[len(exp) // 2], 4)
+        cell[f"{role}_expanse_over_rowex"] = round(ratio, 4)
+        cell[f"{role}_ci_lower"] = round(lo, 4)
+        cell[f"{role}_ci_upper"] = round(hi, 4)
+        cell[f"{role}_verdict"] = ("BOUNDARY_RESULT" if lo <= 1.0 <= hi
+                                   else ("expanse" if lo > 1.0 else "rowex"))
+        print(f"  {role:<6} {arm:>3} W={writers:<2} R={readers:<2} "
+              f"ROWEX {cell[f'rowex_{role}_mops_median']:>7.3f}  "
+              f"Expanse {cell[f'expanse_{role}_mops_median']:>7.3f} Mops/s  "
+              f"ratio {ratio:.3f} [{lo:.3f}, {hi:.3f}] {cell[f'{role}_verdict']}")
+    return cell
+
+
+def health_cell(arm: str, writers: int, readers: int, env: dict) -> dict:
+    """Event ratios from the diagnostic build; nothing here is a timing."""
+    occ_env = dict(env)
+    exe = OCC_STATS_TARGET / "release" / "hot_concurrent"
+    rows = run_cell([str(exe), arm, str(writers), str(readers), "--health"], occ_env)
+    if not rows:
+        raise RuntimeError(f"health cell {arm} W={writers} R={readers} emitted no rows")
+
+    def med_range(key: str) -> dict:
+        vals = sorted(r[key] for r in rows)
+        return {"median": vals[len(vals) // 2], "min": vals[0], "max": vals[-1]}
+
+    cell = {
+        "workload_id": rows[0]["workload_id"], "arm": arm,
+        "writers": writers, "readers": readers, "rounds": len(rows),
+        "restart_share": med_range("restart_share"),
+        "fallback_share": med_range("fallback_share"),
+        "read_ops": med_range("read_ops"),
+        "read_attempts": med_range("read_attempts"),
+        "read_fallbacks": med_range("read_fallbacks"),
+        "sample_spins": med_range("sample_spins"),
+        "write_ops": med_range("write_ops"),
+        "cpus_allowed": rows[0]["cpus_allowed"], "pin_applied": rows[0]["pin_applied"],
+    }
+    # The §10.5.3 falsifier, evaluated on the median: 1% or more is reader
+    # starvation and is reported as a protocol-health finding.
+    cell["starvation_flag"] = cell["fallback_share"]["median"] >= 0.01
+    print(f"  health {arm:>3} W={writers:<2} R={readers:<2} "
+          f"restart {cell['restart_share']['median']:.4%}  "
+          f"fallback {cell['fallback_share']['median']:.4%}"
+          f"{'  STARVATION' if cell['starvation_flag'] else ''}")
+    return cell
+
+
+def sweep_concurrent(env: dict, quick: bool) -> dict:
+    """C1, C2, H and M of METHODOLOGY.md §10.4, one process per cell."""
+    write_w = [1, 4] if quick else CONCURRENT_WRITE_SCALING
+    mixed_w = [0, 4] if quick else CONCURRENT_MIXED_WRITERS
+    health_w = [4] if quick else CONCURRENT_HEALTH_WRITERS
+    lambdas = LAMBDA_TARGETS[:2] if quick else LAMBDA_TARGETS
+
+    throughput, health, memory = [], [], []
+    for arm in CONCURRENT_ARMS:
+        print(f"\n  C1 write scaling — {arm} arm")
+        for w in write_w:
+            c = concurrent_cell(arm, w, 0, env)
+            c["pillar"] = "C1"
+            throughput.append(c)
+        print(f"\n  C2 readers alongside writers — {arm} arm")
+        for w in mixed_w:
+            c = concurrent_cell(arm, w, CONCURRENT_MIXED_READERS, env)
+            c["pillar"] = "C2"
+            throughput.append(c)
+    for arm in CONCURRENT_ARMS:
+        print(f"\n  H protocol health — {arm} arm (occ-stats build, Expanse side only)")
+        for w in health_w:
+            health.append(health_cell(arm, w, CONCURRENT_MIXED_READERS, env))
+    for arm in CONCURRENT_ARMS:
+        print(f"\n  M memory — ROWEX {arm} arm vs Sync wrapper, build-only, single writer")
+        for lam in lambdas:
+            n = population_for_lambda(arm, lam)
+            rows = run_cell([str(binary("hot_memory_curve")), CONCURRENT_MEMORY_ARMS[arm], str(n)], env)
+            if len(rows) != 1:
+                raise RuntimeError(f"memory cell emitted {len(rows)} rows, expected 1")
+            row = rows[0]
+            row["lambda_target"] = lam
+            memory.append(row)
+            print(f"  memory {arm:>3} λ≈{lam:<5} N={n:<9} "
+                  f"ROWEX {row['hot_alloc_bytes_per_key']:.2f}  "
+                  f"Sync-Expanse {row['expanse_alloc_bytes_per_key']:.2f} B/key")
+    return {"throughput": throughput, "health": health, "memory": memory}
+
+
 def main() -> int:
     quick = "--quick" in sys.argv
+    concurrent = "--concurrent" in sys.argv or "--only-concurrent" in sys.argv
+    only_concurrent = "--only-concurrent" in sys.argv
     env = dict(os.environ)
     env["RUSTFLAGS"] = env.get("RUSTFLAGS", "") + " -C target-cpu=haswell"
 
@@ -217,7 +375,12 @@ def main() -> int:
     if quick:
         print("QUICK MODE — reduced sweep, writing to gitignored results/quick/ (§8.5)")
 
-    build(env)
+    if concurrent:
+        # Build before anything is timed and before the lock matters: the
+        # first `rowex` build also compiles libtbb.
+        build_concurrent_binaries(env)
+    if not only_concurrent:
+        build(env)
 
     provenance = {
         "suite": "hot_comparison",
@@ -231,6 +394,32 @@ def main() -> int:
         "loads": [load_snapshot("start")],
         "quick": quick,
     }
+
+    if concurrent:
+        print("\n[concurrent] HOT-ROWEX arm (#692, §10) — one process per cell, "
+              "threads inside the P-core pin")
+        conc_prov = dict(provenance)
+        conc_prov["issue"] = 692
+        conc_prov["tbb_commit"] = "4c73c3b"
+        conc_prov["pin_applied"] = os.environ.get("EXPANSE_BENCH_PIN_APPLIED", "unset")
+        conc = sweep_concurrent(env, quick)
+        conc_prov["loads"].append(load_snapshot("after-concurrent"))
+        (out_dir / "baseline_concurrent.json").write_text(
+            json.dumps({"provenance": conc_prov, **conc}, indent=2) + "\n")
+        print(f"wrote {out_dir}/baseline_concurrent.json")
+        # Rule 2 applies to load the benchmark did not cause. A cell here runs
+        # up to 16 busy threads, so the 1-minute average *after* the sweep is
+        # the sweep itself and cannot flag a co-resident process; the start
+        # snapshot can, and is the one that gates.
+        start_load = conc_prov["loads"][0]["load1"]
+        print(f"\nload average at start: {start_load} (after: "
+              f"{conc_prov['loads'][-1]['load1']} — includes the sweep's own threads)")
+        if start_load > 2.0:
+            print("WARNING: load average above 2 at start — another process was "
+                  "running; the comparison is contaminated (docs/BENCHMARKING.md rule 2)")
+        if only_concurrent:
+            return 0
+        provenance["loads"].append(load_snapshot("after-concurrent"))
 
     print("\n[1/2] memory pillar — sweeping λ across the LEAF_CAP cascade")
     memory = sweep_memory(env, quick)
