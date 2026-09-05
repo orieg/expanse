@@ -96,86 +96,86 @@
   <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
   <text x="30" y="108" class="t-bar-label">N = 1 Key</text>
   <text x="30" y="122" class="t-sub">Looped stream (10k probes, 100% Hit)</text>
-  <rect x="260" y="88" width="8.6" height="10" rx="2" class="b-expanse"/>
-  <text x="276.6" y="96" class="t-val-accent">1.2</text>
-  <rect x="260" y="102" width="22.9" height="10" rx="2" class="b-art"/>
-  <text x="290.9" y="110" class="t-val-blue">3.1</text>
-  <rect x="260" y="116" width="7.6" height="10" rx="2" class="b-btree"/>
-  <text x="275.6" y="124" class="t-axis-label">1.0</text>
-  <rect x="260" y="130" width="11.1" height="10" rx="2" class="b-hashmap"/>
-  <text x="279.1" y="138" class="t-note">1.5</text>
+  <rect x="260" y="88" width="18.0" height="10" rx="2" class="b-expanse"/>
+  <text x="286.0" y="96" class="t-val-accent">1.1</text>
+  <rect x="260" y="102" width="48.0" height="10" rx="2" class="b-art"/>
+  <text x="316.0" y="110" class="t-val-blue">3.1</text>
+  <rect x="260" y="116" width="16.1" height="10" rx="2" class="b-btree"/>
+  <text x="284.1" y="124" class="t-axis-label">1.0</text>
+  <rect x="260" y="130" width="23.8" height="10" rx="2" class="b-hashmap"/>
+  <text x="291.8" y="138" class="t-note">1.5</text>
   <rect x="800" y="104" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="118" class="badge-win-text">Expanse 2.66x</text>
+  <text x="865" y="118" class="badge-win-text">Expanse 2.67x</text>
   <text x="30" y="180" class="t-bar-label">N = 2 Keys</text>
   <text x="30" y="194" class="t-sub">Looped stream (10k probes, 100% Hit)</text>
-  <rect x="260" y="160" width="68.2" height="10" rx="2" class="b-expanse"/>
-  <text x="336.2" y="168" class="t-val-accent">9.2</text>
-  <rect x="260" y="174" width="214.1" height="10" rx="2" class="b-art"/>
-  <text x="482.1" y="182" class="t-val-blue">28.8</text>
-  <rect x="260" y="188" width="67.7" height="10" rx="2" class="b-btree"/>
-  <text x="335.7" y="196" class="t-axis-label">9.1</text>
-  <rect x="260" y="202" width="38.0" height="10" rx="2" class="b-hashmap"/>
-  <text x="306.0" y="210" class="t-note">5.1</text>
+  <rect x="260" y="160" width="75.7" height="10" rx="2" class="b-expanse"/>
+  <text x="343.7" y="168" class="t-val-accent">4.8</text>
+  <rect x="260" y="174" width="175.6" height="10" rx="2" class="b-art"/>
+  <text x="443.6" y="182" class="t-val-blue">11.2</text>
+  <rect x="260" y="188" width="72.9" height="10" rx="2" class="b-btree"/>
+  <text x="340.9" y="196" class="t-axis-label">4.6</text>
+  <rect x="260" y="202" width="23.2" height="10" rx="2" class="b-hashmap"/>
+  <text x="291.2" y="210" class="t-note">1.5</text>
   <rect x="800" y="176" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="190" class="badge-win-text">Expanse 3.14x</text>
+  <text x="865" y="190" class="badge-win-text">Expanse 2.32x</text>
   <text x="30" y="252" class="t-bar-label">N = 3 Keys</text>
   <text x="30" y="266" class="t-sub">Looped stream (10k probes, 100% Hit)</text>
   <rect x="260" y="232" width="93.5" height="10" rx="2" class="b-expanse"/>
-  <text x="361.5" y="240" class="t-val-accent">12.6</text>
-  <rect x="260" y="246" width="224.0" height="10" rx="2" class="b-art"/>
-  <text x="492.0" y="254" class="t-val-blue">30.1</text>
-  <rect x="260" y="260" width="88.9" height="10" rx="2" class="b-btree"/>
-  <text x="356.9" y="268" class="t-axis-label">12.0</text>
-  <rect x="260" y="274" width="130.1" height="10" rx="2" class="b-hashmap"/>
-  <text x="398.1" y="282" class="t-note">17.5</text>
+  <text x="361.5" y="240" class="t-val-accent">6.0</text>
+  <rect x="260" y="246" width="194.6" height="10" rx="2" class="b-art"/>
+  <text x="462.6" y="254" class="t-val-blue">12.4</text>
+  <rect x="260" y="260" width="96.3" height="10" rx="2" class="b-btree"/>
+  <text x="364.3" y="268" class="t-axis-label">6.1</text>
+  <rect x="260" y="274" width="23.0" height="10" rx="2" class="b-hashmap"/>
+  <text x="291.0" y="282" class="t-note">1.5</text>
   <rect x="800" y="248" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="262" class="badge-win-text">Expanse 2.40x</text>
+  <text x="865" y="262" class="badge-win-text">Expanse 2.08x</text>
   <text x="30" y="324" class="t-bar-label">N = 4 Keys</text>
   <text x="30" y="338" class="t-sub">Looped stream (10k probes, 100% Hit)</text>
-  <rect x="260" y="304" width="60.4" height="10" rx="2" class="b-expanse"/>
-  <text x="328.4" y="312" class="t-val-accent">8.1</text>
-  <rect x="260" y="318" width="101.1" height="10" rx="2" class="b-art"/>
-  <text x="369.1" y="326" class="t-val-blue">13.6</text>
-  <rect x="260" y="332" width="92.4" height="10" rx="2" class="b-btree"/>
-  <text x="360.4" y="340" class="t-axis-label">12.4</text>
-  <rect x="260" y="346" width="107.6" height="10" rx="2" class="b-hashmap"/>
-  <text x="375.6" y="354" class="t-note">14.5</text>
+  <rect x="260" y="304" width="80.7" height="10" rx="2" class="b-expanse"/>
+  <text x="348.7" y="312" class="t-val-accent">5.1</text>
+  <rect x="260" y="318" width="199.8" height="10" rx="2" class="b-art"/>
+  <text x="467.8" y="326" class="t-val-blue">12.7</text>
+  <rect x="260" y="332" width="115.6" height="10" rx="2" class="b-btree"/>
+  <text x="383.6" y="340" class="t-axis-label">7.4</text>
+  <rect x="260" y="346" width="23.0" height="10" rx="2" class="b-hashmap"/>
+  <text x="291.0" y="354" class="t-note">1.5</text>
   <rect x="800" y="320" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="334" class="badge-win-text">Expanse 1.67x</text>
+  <text x="865" y="334" class="badge-win-text">Expanse 2.48x</text>
   <text x="30" y="396" class="t-bar-label">N = 5 Keys</text>
   <text x="30" y="410" class="t-sub">Looped stream (10k probes, 100% Hit)</text>
-  <rect x="260" y="376" width="84.2" height="10" rx="2" class="b-expanse"/>
-  <text x="352.2" y="384" class="t-val-accent">11.3</text>
-  <rect x="260" y="390" width="182.1" height="10" rx="2" class="b-art"/>
-  <text x="450.1" y="398" class="t-val-blue">24.5</text>
-  <rect x="260" y="404" width="111.3" height="10" rx="2" class="b-btree"/>
-  <text x="379.3" y="412" class="t-axis-label">15.0</text>
-  <rect x="260" y="418" width="47.4" height="10" rx="2" class="b-hashmap"/>
-  <text x="315.4" y="426" class="t-note">6.4</text>
+  <rect x="260" y="376" width="103.0" height="10" rx="2" class="b-expanse"/>
+  <text x="371.0" y="384" class="t-val-accent">6.6</text>
+  <rect x="260" y="390" width="224.0" height="10" rx="2" class="b-art"/>
+  <text x="492.0" y="398" class="t-val-blue">14.2</text>
+  <rect x="260" y="404" width="122.9" height="10" rx="2" class="b-btree"/>
+  <text x="390.9" y="412" class="t-axis-label">7.8</text>
+  <rect x="260" y="418" width="22.9" height="10" rx="2" class="b-hashmap"/>
+  <text x="290.9" y="426" class="t-note">1.5</text>
   <rect x="800" y="392" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="406" class="badge-win-text">Expanse 2.16x</text>
+  <text x="865" y="406" class="badge-win-text">Expanse 2.17x</text>
   <text x="30" y="468" class="t-bar-label">N = 6 Keys</text>
   <text x="30" y="482" class="t-sub">Looped stream (10k probes, 100% Hit)</text>
-  <rect x="260" y="448" width="118.3" height="10" rx="2" class="b-expanse"/>
-  <text x="386.3" y="456" class="t-val-accent">15.9</text>
+  <rect x="260" y="448" width="102.6" height="10" rx="2" class="b-expanse"/>
+  <text x="370.6" y="456" class="t-val-accent">6.5</text>
   <rect x="260" y="462" width="219.7" height="10" rx="2" class="b-art"/>
-  <text x="487.7" y="470" class="t-val-blue">29.5</text>
-  <rect x="260" y="476" width="137.7" height="10" rx="2" class="b-btree"/>
-  <text x="405.7" y="484" class="t-axis-label">18.5</text>
-  <rect x="260" y="490" width="55.2" height="10" rx="2" class="b-hashmap"/>
-  <text x="323.2" y="498" class="t-note">7.4</text>
+  <text x="487.7" y="470" class="t-val-blue">14.0</text>
+  <rect x="260" y="476" width="123.6" height="10" rx="2" class="b-btree"/>
+  <text x="391.6" y="484" class="t-axis-label">7.9</text>
+  <rect x="260" y="490" width="21.8" height="10" rx="2" class="b-hashmap"/>
+  <text x="289.8" y="498" class="t-note">1.4</text>
   <rect x="800" y="464" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="478" class="badge-win-text">Expanse 1.86x</text>
+  <text x="865" y="478" class="badge-win-text">Expanse 2.14x</text>
   <text x="30" y="540" class="t-bar-label">N = 7 Keys</text>
   <text x="30" y="554" class="t-sub">Looped stream (10k probes, 100% Hit)</text>
-  <rect x="260" y="520" width="69.3" height="10" rx="2" class="b-expanse"/>
-  <text x="337.3" y="528" class="t-val-accent">9.3</text>
-  <rect x="260" y="534" width="115.1" height="10" rx="2" class="b-art"/>
-  <text x="383.1" y="542" class="t-val-blue">15.5</text>
-  <rect x="260" y="548" width="74.6" height="10" rx="2" class="b-btree"/>
-  <text x="342.6" y="556" class="t-axis-label">10.0</text>
-  <rect x="260" y="562" width="11.0" height="10" rx="2" class="b-hashmap"/>
-  <text x="279.0" y="570" class="t-note">1.5</text>
+  <rect x="260" y="520" width="109.1" height="10" rx="2" class="b-expanse"/>
+  <text x="377.1" y="528" class="t-val-accent">6.9</text>
+  <rect x="260" y="534" width="223.6" height="10" rx="2" class="b-art"/>
+  <text x="491.6" y="542" class="t-val-blue">14.2</text>
+  <rect x="260" y="548" width="138.0" height="10" rx="2" class="b-btree"/>
+  <text x="406.0" y="556" class="t-axis-label">8.8</text>
+  <rect x="260" y="562" width="21.9" height="10" rx="2" class="b-hashmap"/>
+  <text x="289.9" y="570" class="t-note">1.4</text>
   <rect x="800" y="536" width="130" height="20" rx="3" class="badge-win"/>
-  <text x="865" y="550" class="badge-win-text">Expanse 1.66x</text>
+  <text x="865" y="550" class="badge-win-text">Expanse 2.05x</text>
 </svg>

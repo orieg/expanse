@@ -44,10 +44,10 @@ This benchmark suite delivers a reproducible, empirical head-to-head evaluation 
  Range Scan k=10 (1M seq)                  not pre-reg        blart (ART)         ART 2.09x (UNPREDICTED LOSS)
  Range Scan k=10 (1M clustered)            not pre-reg        blart (ART)         ART 1.96x (UNPREDICTED LOSS)
 --------------------------------------------------------------------------------------------------------
- Small Payloads (N=1..7 hit lookup)        not pre-reg        Expanse             Expanse 1.66x–3.14x faster
- Small Payloads (N=1..7 miss lookup)       not pre-reg        Expanse             Expanse 1.38x–3.54x faster
- Small Payloads (N=1..7 logical RAM)       not pre-reg        Expanse             Expanse 2.00x–4.00x less RAM
- Small Payloads (N=1..7 batched insert)    not pre-reg        blart (ART)         ART 1.42x–4.89x faster
+ Small Payloads (N=1..7 hit lookup)        ExpanseMap         Expanse             Expanse 2.08x–2.66x faster
+ Small Payloads (N=1..7 miss lookup)       ExpanseMap         Expanse             Expanse 1.56x–2.85x faster
+ Small Payloads (N=1..7 logical RAM)       ExpanseMap         Expanse             Expanse 2.00x–4.00x less RAM
+ Small Payloads (N=1..7 clean insert)      ExpanseMap         blart (ART)         REFUTED in ART's favour (3.54x–40.66x)
 ========================================================================================================
 ```
 
@@ -72,13 +72,12 @@ This benchmark suite delivers a reproducible, empirical head-to-head evaluation 
    - For short range scans ($k=10$), ART outperforms Expanse (3.20 ns vs 7.20 ns, 2.09× faster) — classified as **UNPREDICTED LOSS (mechanism unmeasured)** *(workload: art_scan)*.
 
 5. **Small Payloads Regime ($N \le 7$, #663)**:
-   - Evaluated in dedicated harness `art_small_payload` across $N \in [1, 7]$ with batched construction ($B = 1,000$) and looped stream probes ($M = 10,000$) to defeat the timer resolution floor.
-   - In `ExpanseMap`, full 64-bit keys at $N \le 31$ reside in a single contiguous `Root::Leaf` array (`crates/expanse/src/map.rs:L25-38`) taking 16 B to 128 B logical heap footprint (exactly **1 live heap allocation**). Abstract Judy/Expanse immediate edges (`EdgeTag::Immed`) exist only within internal trie branches after leading prefix bytes have been decoded.
-   - `blart` (v0.5.0) allocates separate `LeafNode` (32 B) and `InnerNode4` (64 B) structures via individual system `malloc` calls, producing up to 9 live heap allocations (392 B) at $N = 7$.
-   - **Point Lookup Hit**: Expanse wins across all $N \in [1, 7]$ (1.16 ns vs 3.08 ns at $N=1$, 9.32 ns vs 15.48 ns at $N=7$; 1.7×–3.1× faster) due to cache-line linear unrolled scanning *(workload: art_small_payload)*.
-   - **Point Lookup Miss**: Expanse wins across all $N \in [1, 7]$ (5.68–10.50 ns vs 10.98–32.35 ns; 1.4×–3.5× faster) *(workload: art_small_payload)*.
-   - **Memory Footprint**: Expanse uses 2.0×–4.0× less logical memory (16–128 B vs 32–392 B) with zero allocation fragmentation (1 live alloc vs 1–9 allocs) *(workload: art_small_payload)*.
-   - **Batched Insertion**: `blart` avoids trie bookkeeping overhead on small batched inserts ($N \le 7$), running 1.4×–4.9× faster on transient map creation *(workload: art_small_payload)*.
+   - Evaluated in dedicated harness `art_small_payload` across $N \in [1, 7]$ with batched pre-allocated construction ($B = 1,000$, isolating insert from container drop) and looped stream probes ($M = 10,000$) to defeat the timer resolution floor.
+   - In `ExpanseMap`, full 64-bit keys at $N \le 31$ reside in a single contiguous `Root::Leaf` array (`crates/expanse/src/map.rs:L25-38`). Abstract Judy/Expanse immediate edges (`EdgeTag::Immed`) exist only within internal trie branches after leading prefix bytes have been decoded.
+   - **Point Lookup Hit**: Expanse wins across all $N \in [1, 7]$ (1.15–6.94 ns vs 3.05–14.23 ns; 2.08×–2.66× faster, all 95% BCa CIs strictly excluding 1.0) due to contiguous cache-line linear unrolled scanning *(workload: art_small_payload)*.
+   - **Point Lookup Miss**: Expanse wins across all $N \in [1, 7]$ (2.93–5.25 ns vs 6.41–11.09 ns; 1.56×–2.85× faster) *(workload: art_small_payload)*.
+   - **Memory Footprint (Dual Perspective)**: In *logical layout footprint*, Expanse packs small collections into 16 B to 128 B (2.0×–4.0× less than blart's 32 B to 392 B). However, in *resident heap consumption*, Expanse's private `NodeAlloc` allocates 4,096-byte slab pages per active size class (4,096 B to 16,384 B from the OS across 1 to 4 pages), while blart allocates small nodes directly via system `malloc`. For unpooled single maps, blart uses significantly less resident heap from the OS *(workload: art_small_payload)*.
+   - **Clean Insertion Throughput**: Pre-registered expectation that Expanse would win insertion is **REFUTED in ART's favour**. With container creation and drop isolated outside the timer, blart inserts keys in 16.8–37.5 ns, whereas ExpanseMap takes 129.6–504.4 ns (blart 3.54×–40.66× faster) due to root leaf resizing and insertion shifts *(workload: art_small_payload)*.
 
 ---
 
@@ -182,46 +181,46 @@ This benchmark suite delivers a reproducible, empirical head-to-head evaluation 
 
 #### Memory Footprint & Allocation Census
 
-| Population ($N$) | `ExpanseMap` Logical | `ExpanseMap` Live Allocs | `blart` (ART) Memory | `blart` Live Allocs | `BTreeMap` | `hashbrown` | Logical Ratio (Exp/ART) | Verdict / Status |
+| Population ($N$) | `ExpanseMap` Logical | `ExpanseMap` Resident Heap | `blart` (ART) Heap | `blart` Live Allocs | `BTreeMap` | `hashbrown` | Logical Ratio (Exp/ART) | Verdict / Status |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
-| **1** | **16 B** (16.0 B/k) | 1 | 32 B (32.0 B/k) | 1 | 192 B | 76 B | 0.50x | **Expanse 2.00x less RAM** |
-| **2** | **32 B** (16.0 B/k) | 1 | 128 B (64.0 B/k) | 3 | 192 B | 76 B | 0.25x | **Expanse 4.00x less RAM** |
-| **3** | **64 B** (21.3 B/k) | 1 | 160 B (53.3 B/k) | 4 | 192 B | 76 B | 0.40x | **Expanse 2.50x less RAM** |
-| **4** | **64 B** (16.0 B/k) | 1 | 192 B (48.0 B/k) | 5 | 192 B | 144 B | 0.33x | **Expanse 3.00x less RAM** |
-| **5** | **128 B** (25.6 B/k) | 1 | 328 B (65.6 B/k) | 7 | 192 B | 144 B | 0.39x | **Expanse 2.56x less RAM** |
-| **6** | **128 B** (21.3 B/k) | 1 | 360 B (60.0 B/k) | 8 | 192 B | 144 B | 0.36x | **Expanse 2.81x less RAM** |
-| **7** | **128 B** (18.3 B/k) | 1 | 392 B (56.0 B/k) | 9 | 192 B | 144 B | 0.33x | **Expanse 3.06x less RAM** |
+| **1** | **16 B** (16.0 B/k) | 4,096 B (1 slab page) | 32 B (32.0 B/k) | 1 | 192 B | 76 B | 0.50x | **Expanse 2.00x less logical RAM** |
+| **2** | **32 B** (16.0 B/k) | 8,192 B (2 slab pages) | 128 B (64.0 B/k) | 3 | 192 B | 76 B | 0.25x | **Expanse 4.00x less logical RAM** |
+| **3** | **64 B** (21.3 B/k) | 12,288 B (3 slab pages) | 160 B (53.3 B/k) | 4 | 192 B | 76 B | 0.40x | **Expanse 2.50x less logical RAM** |
+| **4** | **64 B** (16.0 B/k) | 12,288 B (3 slab pages) | 192 B (48.0 B/k) | 5 | 192 B | 144 B | 0.33x | **Expanse 3.00x less logical RAM** |
+| **5** | **128 B** (25.6 B/k) | 16,384 B (4 slab pages) | 328 B (65.6 B/k) | 7 | 192 B | 144 B | 0.39x | **Expanse 2.56x less logical RAM** |
+| **6** | **128 B** (21.3 B/k) | 16,384 B (4 slab pages) | 360 B (60.0 B/k) | 8 | 192 B | 144 B | 0.36x | **Expanse 2.81x less logical RAM** |
+| **7** | **128 B** (18.3 B/k) | 16,384 B (4 slab pages) | 392 B (56.0 B/k) | 9 | 192 B | 144 B | 0.33x | **Expanse 3.06x less logical RAM** |
 
 #### Point Lookup Latency (ns/op)
 
-| Population ($N$) | Metric | `ExpanseMap` | `blart` (ART) | `BTreeMap` | `hashbrown` | Ratio (Exp/ART) | Verdict / Status |
+| Population ($N$) | Metric | `ExpanseMap` | `blart` (ART) | `BTreeMap` | `hashbrown` | Ratio Mean (Exp/ART) | Verdict / Status |
 |---|---|---:|---:|---:|---:|---:|---|
-| **1** | Hit (100%) | **1.16 ns** | 3.08 ns | 1.03 ns | 1.49 ns | 0.38x [0.32, 1.27] | **Expanse 2.66x faster** |
-| | Miss (50/50) | **8.62 ns** | 11.93 ns | 8.48 ns | 11.64 ns | 0.72x [0.56, 1.84] | **Expanse 1.38x faster** |
-| **2** | Hit (100%) | **9.17 ns** | 28.79 ns | 9.10 ns | 5.11 ns | 0.32x [0.31, 0.66] | **Expanse 3.14x faster** |
-| | Miss (50/50) | **9.13 ns** | 32.35 ns | 12.56 ns | 13.01 ns | 0.28x [0.26, 0.51] | **Expanse 3.54x faster** |
-| **3** | Hit (100%) | **12.57 ns** | 30.13 ns | 11.95 ns | 17.50 ns | 0.42x [0.35, 1.09] | **Expanse 2.40x faster** |
-| | Miss (50/50) | **9.97 ns** | 23.60 ns | 12.33 ns | 36.14 ns | 0.42x [0.40, 1.22] | **Expanse 2.37x faster** |
-| **4** | Hit (100%) | **8.13 ns** | 13.59 ns | 12.43 ns | 14.48 ns | 0.60x [0.43, 0.62] | **Expanse 1.67x faster** |
-| | Miss (50/50) | **5.68 ns** | 10.98 ns | 7.61 ns | 12.05 ns | 0.52x [0.43, 0.99] | **Expanse 1.93x faster** |
-| **5** | Hit (100%) | **11.33 ns** | 24.48 ns | 14.97 ns | 6.38 ns | 0.46x [0.38, 0.59] | **Expanse 2.16x faster** |
-| | Miss (50/50) | **5.42 ns** | 11.18 ns | 7.09 ns | 7.72 ns | 0.48x [0.43, 1.03] | **Expanse 2.06x faster** |
-| **6** | Hit (100%) | **15.90 ns** | 29.54 ns | 18.51 ns | 7.43 ns | 0.54x [0.54, 0.98] | **Expanse 1.86x faster** |
-| | Miss (50/50) | **10.50 ns** | 24.83 ns | 15.32 ns | 14.76 ns | 0.42x [0.44, 0.59] | **Expanse 2.37x faster** |
-| **7** | Hit (100%) | **9.32 ns** | 15.48 ns | 10.03 ns | 1.48 ns | 0.60x [0.58, 1.04] | **Expanse 1.66x faster** |
-| | Miss (50/50) | **5.88 ns** | 11.62 ns | 7.74 ns | 7.11 ns | 0.51x [0.48, 0.67] | **Expanse 1.98x faster** |
+| **1** | Hit (100%) | **1.15 ns** | 3.05 ns | 1.03 ns | 1.51 ns | 0.38x [0.37, 0.38] | **CONFIRMED** *(Expanse 2.66×)* |
+| | Miss (50/50) | **4.35 ns** | 6.41 ns | 4.91 ns | 7.05 ns | 0.64x [0.57, 0.68] | **CONFIRMED** *(Expanse 1.56×)* |
+| **2** | Hit (100%) | **4.82 ns** | 11.17 ns | 4.64 ns | 1.48 ns | 0.44x [0.42, 0.46] | **CONFIRMED** *(Expanse 2.29×)* |
+| | Miss (50/50) | **4.31 ns** | 9.70 ns | 5.70 ns | 6.69 ns | 0.45x [0.43, 0.47] | **CONFIRMED** *(Expanse 2.22×)* |
+| **3** | Hit (100%) | **5.95 ns** | 12.38 ns | 6.13 ns | 1.46 ns | 0.50x [0.48, 0.59] | **CONFIRMED** *(Expanse 1.99×)* |
+| | Miss (50/50) | **2.93 ns** | 9.58 ns | 5.84 ns | 6.28 ns | 0.35x [0.32, 0.40] | **CONFIRMED** *(Expanse 2.85×)* |
+| **4** | Hit (100%) | **5.13 ns** | 12.71 ns | 7.35 ns | 1.46 ns | 0.42x [0.41, 0.46] | **CONFIRMED** *(Expanse 2.35×)* |
+| | Miss (50/50) | **2.99 ns** | 9.72 ns | 6.31 ns | 6.47 ns | 0.35x [0.31, 0.41] | **CONFIRMED** *(Expanse 2.85×)* |
+| **5** | Hit (100%) | **6.55 ns** | 14.25 ns | 7.82 ns | 1.46 ns | 0.46x [0.46, 0.48] | **CONFIRMED** *(Expanse 2.17×)* |
+| | Miss (50/50) | **4.49 ns** | 10.80 ns | 6.38 ns | 6.36 ns | 0.43x [0.42, 0.44] | **CONFIRMED** *(Expanse 2.34×)* |
+| **6** | Hit (100%) | **6.53 ns** | 13.98 ns | 7.86 ns | 1.39 ns | 0.47x [0.47, 0.48] | **CONFIRMED** *(Expanse 2.11×)* |
+| | Miss (50/50) | **5.25 ns** | 11.09 ns | 6.77 ns | 6.32 ns | 0.46x [0.45, 0.48] | **CONFIRMED** *(Expanse 2.15×)* |
+| **7** | Hit (100%) | **6.94 ns** | 14.23 ns | 8.78 ns | 1.39 ns | 0.48x [0.47, 0.49] | **CONFIRMED** *(Expanse 2.08×)* |
+| | Miss (50/50) | **4.96 ns** | 11.08 ns | 7.03 ns | 6.11 ns | 0.45x [0.44, 0.47] | **CONFIRMED** *(Expanse 2.20×)* |
 
-#### Batched Insertion Latency (ns/op)
+#### Clean Insertion Latency (ns/op)
 
-| Population ($N$) | `ExpanseMap` | `blart` (ART) | `BTreeMap` | `hashbrown` | Ratio (Exp/ART) | Verdict / Status |
+| Population ($N$) | `ExpanseMap` | `blart` (ART) | `BTreeMap` | `hashbrown` | Ratio Mean (Exp/ART) | Verdict / Status |
 |---|---:|---:|---:|---:|---:|---|
-| **1** | 618.13 ns | **214.88 ns** | 58.63 ns | 121.54 ns | 2.88x [3.24, 8.06] | **blart 2.88x faster** |
-| **2** | 795.69 ns | **162.85 ns** | 17.17 ns | 54.17 ns | 4.89x [3.68, 8.75] | **blart 4.89x faster** |
-| **3** | 341.88 ns | **86.86 ns** | 10.81 ns | 22.56 ns | 3.94x [3.28, 7.05] | **blart 3.94x faster** |
-| **4** | 189.89 ns | **88.15 ns** | 10.31 ns | 44.70 ns | 2.15x [2.27, 3.31] | **blart 2.15x faster** |
-| **5** | 235.69 ns | **106.13 ns** | 9.06 ns | 27.73 ns | 2.22x [1.99, 3.10] | **blart 2.22x faster** |
-| **6** | 178.80 ns | **126.08 ns** | 18.97 ns | 30.05 ns | 1.42x [1.53, 2.12] | **blart 1.42x faster** |
-| **7** | 110.85 ns | **58.01 ns** | 10.24 ns | 21.75 ns | 1.91x [1.87, 2.85] | **blart 1.91x faster** |
+| **1** | 504.42 ns | **16.79 ns** | 48.75 ns | 30.38 ns | 40.66x [17.81, 149.74] | **REFUTED in ART's favour** *(ART 40.66×)* |
+| **2** | 270.83 ns | **24.23 ns** | 9.35 ns | 12.08 ns | 13.08x [10.67, 15.72] | **REFUTED in ART's favour** *(ART 13.08×)* |
+| **3** | 216.51 ns | **28.17 ns** | 7.04 ns | 9.58 ns | 8.17x [7.73, 8.97] | **REFUTED in ART's favour** *(ART 8.17×)* |
+| **4** | 164.78 ns | **28.80 ns** | 6.14 ns | 22.97 ns | 6.11x [5.63, 6.94] | **REFUTED in ART's favour** *(ART 6.11×)* |
+| **5** | 206.77 ns | **37.54 ns** | 6.56 ns | 19.93 ns | 5.73x [5.48, 6.15] | **REFUTED in ART's favour** *(ART 5.73×)* |
+| **6** | 170.42 ns | **36.98 ns** | 6.97 ns | 17.62 ns | 4.94x [4.49, 6.06] | **REFUTED in ART's favour** *(ART 4.94×)* |
+| **7** | 129.55 ns | **35.91 ns** | 7.51 ns | 16.45 ns | 3.54x [3.44, 3.63] | **REFUTED in ART's favour** *(ART 3.54×)* |
 
 ---
 

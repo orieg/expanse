@@ -164,25 +164,26 @@ def projected_expanse_small_alloc_count(n: int) -> int:
     return 1
 
 
-# Measured reference values for blart 0.5.0 layout allocation across N=1..=7 sequential keys
+# Measured reference values for blart 0.5.0 layout allocation across N=1..=7 sequential keys.
+# Incorporates ART path compression (shared 7-byte prefix 0x00 collapses into InnerNode4).
 BLART_SMALL_BYTES: dict[int, int] = {
-    1: 32,   # 1 LeafNode
+    1: 32,   # 1 LeafNode (32B)
     2: 128,  # 1 InnerNode4 (64B) + 2 LeafNode (64B)
-    3: 224,  # 2 InnerNode4 (128B) + 3 LeafNode (96B)
-    4: 320,  # 3 InnerNode4 (192B) + 4 LeafNode (128B)
-    5: 352,  # 3 InnerNode4 (192B) + 5 LeafNode (160B)
-    6: 384,  # 3 InnerNode4 (192B) + 6 LeafNode (192B)
-    7: 480,  # 4 InnerNode4 (256B) + 7 LeafNode (224B)
+    3: 160,  # 1 InnerNode4 (64B) + 3 LeafNode (96B)
+    4: 192,  # 1 InnerNode4 (64B) + 4 LeafNode (128B)
+    5: 328,  # 2 InnerNode4 (128B) + 5 LeafNode (160B) + pointer overhead (40B)
+    6: 360,  # 2 InnerNode4 (128B) + 6 LeafNode (192B) + pointer overhead (40B)
+    7: 392,  # 2 InnerNode4 (128B) + 7 LeafNode (224B) + pointer overhead (40B)
 }
 
 BLART_SMALL_ALLOCS: dict[int, int] = {
     1: 1,
     2: 3,
-    3: 5,
-    4: 7,
-    5: 8,
-    6: 9,
-    7: 11,
+    3: 4,
+    4: 5,
+    5: 7,
+    6: 8,
+    7: 9,
 }
 
 
@@ -260,11 +261,11 @@ def test_bounds() -> None:
 
     assert projected_blart_small_bytes(1) == 32
     assert projected_blart_small_bytes(2) == 128
-    assert projected_blart_small_bytes(3) == 224
-    assert projected_blart_small_bytes(4) == 320
-    assert projected_blart_small_bytes(5) == 352
-    assert projected_blart_small_bytes(6) == 384
-    assert projected_blart_small_bytes(7) == 480
+    assert projected_blart_small_bytes(3) == 160
+    assert projected_blart_small_bytes(4) == 192
+    assert projected_blart_small_bytes(5) == 328
+    assert projected_blart_small_bytes(6) == 360
+    assert projected_blart_small_bytes(7) == 392
 
     for n in range(1, 8):
         assert projected_expanse_small_alloc_count(n) == 1, f"Expanse small alloc count must be 1, got {projected_expanse_small_alloc_count(n)}"

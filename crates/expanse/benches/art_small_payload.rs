@@ -18,7 +18,7 @@
 //! | `measured_region` | Clean lookup & cold build loops |
 //! | `arm_symmetry` | Symmetric keys and PRNG |
 //! | `statistics` | Median + BCa 95% Bootstrap CI over paired rounds; exact byte and allocation census |
-//! | `verdict` | **PASS** `[verified: CODE READ]`: ART comparison small-payload regime benchmark (#663). |
+//! | `verdict` | Empirically measured in baseline_small_payload.json |
 
 #[path = "art_common/mod.rs"]
 mod art_common;
@@ -27,20 +27,23 @@ use art_common::{
     ArtMap, BTreeMap, ExpanseMap, HashMap, XorShift64, art_key, bca_ci, gen_sequential, median,
     shuffle,
 };
+
+type BenchArtMap = ArtMap<blart::Mapped<blart::ToUBE, u64>, u64>;
 use serde_json::json;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::hint::black_box;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-struct TrackingAlloc;
 static LIVE_BYTES: AtomicUsize = AtomicUsize::new(0);
 static ALLOC_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-// SAFETY: Forwards memory management directly to the system allocator while tracking live bytes and alloc counts.
-unsafe impl GlobalAlloc for TrackingAlloc {
+struct CountingAlloc;
+
+// SAFETY: CountingAlloc delegates directly to System allocator while tracking live bytes and alloc counts.
+unsafe impl GlobalAlloc for CountingAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        // SAFETY: Delegating directly to the System allocator
+        // SAFETY: Delegating directly to the System allocator with identical layout.
         let ptr = unsafe { System.alloc(layout) };
         if !ptr.is_null() {
             LIVE_BYTES.fetch_add(layout.size(), Ordering::SeqCst);
@@ -48,15 +51,16 @@ unsafe impl GlobalAlloc for TrackingAlloc {
         }
         ptr
     }
+
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        LIVE_BYTES.fetch_sub(layout.size(), Ordering::SeqCst);
-        // SAFETY: Delegating directly to the System allocator
+        // SAFETY: Delegating directly to the System allocator with original pointer and layout.
         unsafe { System.dealloc(ptr, layout) };
+        LIVE_BYTES.fetch_sub(layout.size(), Ordering::SeqCst);
     }
 }
 
 #[global_allocator]
-static GLOBAL: TrackingAlloc = TrackingAlloc;
+static A: CountingAlloc = CountingAlloc;
 
 const LOOKUP_PROBES: usize = 10_000;
 const INSERT_BATCH: usize = 1_000;
@@ -72,7 +76,7 @@ fn time_expanse_lookup(map: &ExpanseMap, probes: &[u64]) -> f64 {
 }
 
 #[inline(never)]
-fn time_blart_lookup(map: &ArtMap<blart::Mapped<blart::ToUBE, u64>, u64>, probes: &[u64]) -> f64 {
+fn time_blart_lookup(map: &BenchArtMap, probes: &[u64]) -> f64 {
     let start = Instant::now();
     for &k in probes {
         let ak = art_key(k);
@@ -104,54 +108,62 @@ fn time_hash_lookup(map: &HashMap<u64, u64>, probes: &[u64]) -> f64 {
 
 #[inline(never)]
 fn time_expanse_insert(keys: &[u64], batch_count: usize) -> f64 {
+    let mut maps: Vec<ExpanseMap> = (0..batch_count).map(|_| ExpanseMap::new()).collect();
     let start = Instant::now();
-    for _ in 0..batch_count {
-        let mut map = ExpanseMap::new();
+    for map in maps.iter_mut() {
         for &k in keys {
-            map.insert(k, k.wrapping_mul(3));
+            let old = map.insert(k, k.wrapping_mul(3));
+            black_box(old);
         }
-        black_box(&map);
     }
-    start.elapsed().as_nanos() as f64 / (batch_count * keys.len()) as f64
+    let elapsed = start.elapsed();
+    black_box(&maps);
+    elapsed.as_nanos() as f64 / (batch_count * keys.len()) as f64
 }
 
 #[inline(never)]
 fn time_blart_insert(keys: &[u64], batch_count: usize) -> f64 {
+    let mut maps: Vec<BenchArtMap> = (0..batch_count).map(|_| ArtMap::new()).collect();
     let start = Instant::now();
-    for _ in 0..batch_count {
-        let mut map = ArtMap::new();
+    for map in maps.iter_mut() {
         for &k in keys {
-            let _ = map.try_insert(art_key(k), k.wrapping_mul(3));
+            let res = map.try_insert(art_key(k), k.wrapping_mul(3));
+            let _ = black_box(res);
         }
-        black_box(&map);
     }
-    start.elapsed().as_nanos() as f64 / (batch_count * keys.len()) as f64
+    let elapsed = start.elapsed();
+    black_box(&maps);
+    elapsed.as_nanos() as f64 / (batch_count * keys.len()) as f64
 }
 
 #[inline(never)]
 fn time_btree_insert(keys: &[u64], batch_count: usize) -> f64 {
+    let mut maps: Vec<BTreeMap<u64, u64>> = (0..batch_count).map(|_| BTreeMap::new()).collect();
     let start = Instant::now();
-    for _ in 0..batch_count {
-        let mut map = BTreeMap::new();
+    for map in maps.iter_mut() {
         for &k in keys {
-            map.insert(k, k.wrapping_mul(3));
+            let old = map.insert(k, k.wrapping_mul(3));
+            black_box(old);
         }
-        black_box(&map);
     }
-    start.elapsed().as_nanos() as f64 / (batch_count * keys.len()) as f64
+    let elapsed = start.elapsed();
+    black_box(&maps);
+    elapsed.as_nanos() as f64 / (batch_count * keys.len()) as f64
 }
 
 #[inline(never)]
 fn time_hash_insert(keys: &[u64], batch_count: usize) -> f64 {
+    let mut maps: Vec<HashMap<u64, u64>> = (0..batch_count).map(|_| HashMap::new()).collect();
     let start = Instant::now();
-    for _ in 0..batch_count {
-        let mut map = HashMap::new();
+    for map in maps.iter_mut() {
         for &k in keys {
-            map.insert(k, k.wrapping_mul(3));
+            let old = map.insert(k, k.wrapping_mul(3));
+            black_box(old);
         }
-        black_box(&map);
     }
-    start.elapsed().as_nanos() as f64 / (batch_count * keys.len()) as f64
+    let elapsed = start.elapsed();
+    black_box(&maps);
+    elapsed.as_nanos() as f64 / (batch_count * keys.len()) as f64
 }
 
 fn bench_small_pop(n: usize, rounds: usize) -> serde_json::Value {
@@ -435,7 +447,8 @@ fn bench_small_pop(n: usize, rounds: usize) -> serde_json::Value {
             "blart_art_ns_op": hit_blart_med,
             "btree_ns_op": hit_btree_med,
             "hashmap_ns_op": hit_hash_med,
-            "ratio_vs_art": if hit_blart_med > 0.0 { hit_exp_med / hit_blart_med } else { 1.0 },
+            "ratio_vs_art": hit_ratio_mean,
+            "ratio_median": if hit_blart_med > 0.0 { hit_exp_med / hit_blart_med } else { 1.0 },
             "ratio_bca_ci_95": [hit_ci_lo, hit_ci_hi],
             "ratio_mean": hit_ratio_mean,
         },
@@ -444,7 +457,8 @@ fn bench_small_pop(n: usize, rounds: usize) -> serde_json::Value {
             "blart_art_ns_op": miss_blart_med,
             "btree_ns_op": miss_btree_med,
             "hashmap_ns_op": miss_hash_med,
-            "ratio_vs_art": if miss_blart_med > 0.0 { miss_exp_med / miss_blart_med } else { 1.0 },
+            "ratio_vs_art": miss_ratio_mean,
+            "ratio_median": if miss_blart_med > 0.0 { miss_exp_med / miss_blart_med } else { 1.0 },
             "ratio_bca_ci_95": [miss_ci_lo, miss_ci_hi],
             "ratio_mean": miss_ratio_mean,
         },
@@ -453,7 +467,8 @@ fn bench_small_pop(n: usize, rounds: usize) -> serde_json::Value {
             "blart_art_ns_op": ins_blart_med,
             "btree_ns_op": ins_btree_med,
             "hashmap_ns_op": ins_hash_med,
-            "ratio_vs_art": if ins_blart_med > 0.0 { ins_exp_med / ins_blart_med } else { 1.0 },
+            "ratio_vs_art": ins_ratio_mean,
+            "ratio_median": if ins_blart_med > 0.0 { ins_exp_med / ins_blart_med } else { 1.0 },
             "ratio_bca_ci_95": [ins_ci_lo, ins_ci_hi],
             "ratio_mean": ins_ratio_mean,
         }
