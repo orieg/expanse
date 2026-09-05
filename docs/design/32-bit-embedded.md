@@ -657,7 +657,13 @@ which is the evidence that a movement there is the code and not the linker.
 Attributing the mechanism — flash-cache line placement of the eviction path is
 the plausible reading — needs a layout-controlled build (a linker script that
 pins the hot functions, or per-arm instruction-cache counters). Neither exists
-here, so it is recorded as observed and unattributed.
+for the ESP32, so it is recorded as observed and unattributed. The STM32H747
+harness now has both: a DWT-profile arm and `layout_sweep.sh`, which relinks
+the same archive with a uniform shift and a library-to-harness gap; §8.1.7
+records what they measured on the M7 `can_dispatch` cell — a placement
+envelope of 423–463 cycles per get with the D-cache off and 247–307 with it on
+for one unchanged engine, 32-byte alignment period, and a paired delta whose
+sign depends on where the linker put the code.
 
 ### 8.1.4 Attempted descent optimization for scattered removals regressed on target (#617, #628)
 
@@ -878,17 +884,33 @@ stalls **21.0 → 21.0** cache on and 169.9 → 172.3 cache off, `CPICNT`
 **67.1 → 102.7 (+36)**, folded 90.6 → 92.0; on the M4, instructions +1, CPI
 −8.6, LSU +4. So the M7 movement is fewer instructions and unchanged data
 stalls under 35 more cycles of `CPICNT`, the counter that bundles
-instruction-fetch stalls with multi-cycle instructions; the same delta is
-+17.7 at 64 MHz where the bus runs at core speed and +35 to +39 at 160 and
-400 MHz where it runs at half, which is the signature of instruction-side
-memory traffic rather than a longer instruction, and the treatment's
+instruction-fetch stalls with multi-cycle instructions, and the treatment's
 `map_get` is 37 Thumb instructions shorter with two fewer `memcpy` calls and
-no new table branch or literal load. Which fetch-side event costs those cycles
-(I-cache conflict on the new code placement is the hypothesis) the DWT cannot
-say; a layout-controlled build (§8.1.3) is the instrument for that, and the
-cell stays recorded as a loss on the M7 until one is run. Still outstanding:
-the cycles inside the `HostAlloc` bridge on the M4 ingest fixture, which is
-on no committed arm.
+no new table branch or literal load.
+
+The layout-controlled build then settled whose cycles those are. The same two
+archives were relinked 23 ways each — a uniform shift of 0–56 bytes in steps
+of 8, and a gap of 512–7,680 bytes between the library's code and the
+harness's — and the M7 `can_dispatch` cell timed and profiled at every
+placement *(measured: STM32H747I-DISCO, 400 MHz, 46 images, one sitting;
+[`results/layout_sweep_a98d8d3c/sweep.txt`](../benchmarks/stm32h747/results/layout_sweep_a98d8d3c/sweep.txt))*.
+With the engine source unchanged, the control ranges **423–463 cycles per get
+with the D-cache off and 247–307 with it on**, its `CPICNT` 63–105 and
+64–122; the treatment 429–468 and 252–298, `CPICNT` 66–94 and 76–103. At a
+fixed placement the treatment is faster at 9 of 23 points cache off and 10 of
+23 cache on, with the paired difference running from −18 to +28 cycles and
+from −43 to +38; the alignment component repeats with a 32-byte period; and
+the relative shift alone (alignment held) moves the control's `CPICNT` between
+75 and 105. The −5 instructions hold at every placement. **Verdict: the
++8–9% was code placement, not the code.** The engine change is neutral on this
+cell within a placement envelope that is wider than the movement it was asked
+to explain, and a single-placement pairing of a read cell this small cannot
+attribute a movement below that envelope on the M7 — the pairing method's twin
+floor bounds what the twins' placement did, not what the engine's did. Which
+structure the placement effect lives in (I-cache sets, the branch target
+buffer, fetch alignment) the DWT cannot say and is recorded as unmeasured.
+Still outstanding: the cycles inside the `HostAlloc` bridge on the M4 ingest
+fixture, which is on no committed arm.
 
 ### 8.1.8 The 32-bit ordered range walk: what the ranking found, what it did not, and what is left (#614)
 

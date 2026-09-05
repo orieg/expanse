@@ -68,6 +68,14 @@ the README's scorecard rather than folded into the hypothesis.
   M4 was reading the M7's cached heap (#601); (c) a capture whose banner trim
   matched the M4's dumped banner and dropped the M7 half of the transcript.
   None of these is in the committed artifact.
+- **Placement envelope**: a layout-controlled build of the M7 `can_dispatch`
+  cell (`integrations/stm32h747/layout_sweep.sh`, 23 placements of one
+  unchanged engine) spans 423–463 cycles per get with the D-cache off and
+  247–307 with it on, with a 32-byte alignment period. A paired movement on a
+  cell that small is therefore attributed only when it exceeds that envelope
+  or reproduces across placements; the twin floor bounds the twins' placement,
+  not the engine's. The `22908c15` → `fce563c2` `can_dispatch` verdict in the
+  README was re-read this way and is placement, not code.
 - **Provenance**: one board, one run per PR; `results.json` is produced from
   `transcript.txt` by `harvest.py` with the staticlib commit passed on the
   command line; the charts and the README tables are rendered from that file

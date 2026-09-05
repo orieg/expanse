@@ -27,13 +27,13 @@
 > | `m7` | 400 | on | `evict_bulk_loop` | 2,923 | **2,580** | **−11.7%** | 2.0% | outside noise — attributed |
 > | `m7` | 400 | on | `evict_steady_loop` | 3,000 | **2,668** | **−11.1%** | 3.4% | outside noise — attributed |
 > | `m7` | 400 | on | `ingest` | 743 | **789** | **+6.2%** | 5.8% | outside noise — moved up (5.7% against a 5.7% floor in the reversed order) |
-> | `m7` | 400 | on | `can_dispatch` | 252 | **272** | **+8.0%** | 4.5% | outside noise — moved up |
+> | `m7` | 400 | on | `can_dispatch` | 252 | **272** | **+8.0%** | 4.5% | outside noise — moved up; placement, per the sweep below |
 > | `m7` | 400 | off | `evict_steady_range` | 1,958 | **1,641** | **−16.2%** | 0.4% | outside noise — attributed |
 > | `m7` | 400 | off | `evict_bulk_range` | 1,713 | **1,495** | **−12.7%** | 0.1% | outside noise — attributed |
 > | `m7` | 400 | off | `evict_bulk_loop` | 4,864 | **4,513** | **−7.2%** | 0.1% | outside noise — attributed |
 > | `m7` | 400 | off | `evict_steady_loop` | 4,903 | **4,584** | **−6.5%** | 0.8% | outside noise — attributed |
 > | `m7` | 400 | off | `ingest` | 1,437 | **1,456** | **+1.3%** | 0.0% | outside noise — moved up |
-> | `m7` | 400 | off | `can_dispatch` | 436 | **477** | **+9.3%** | 0.0% | outside noise — moved up |
+> | `m7` | 400 | off | `can_dispatch` | 436 | **477** | **+9.3%** | 0.0% | outside noise — moved up; placement, per the sweep below |
 > | `m4` | 200 | off | `evict_steady_range` | 4,050 | **3,260** | **−19.5%** | 0.8% | outside noise — attributed |
 > | `m4` | 200 | off | `evict_bulk_range` | 3,866 | **3,234** | **−16.3%** | 0.5% | outside noise — attributed |
 > | `m4` | 200 | off | `evict_steady_loop` | 10,594 | **9,177** | **−13.4%** | 0.5% | outside noise — attributed |
@@ -73,21 +73,53 @@
 > The reversed flash order reproduces every cell to within 3 cycles. The
 > movement is therefore not an instruction-count change (five fewer per get,
 > agreeing with the host arm) and not a data-side change (`LSUCNT` flat cache
-> on, +2 cache off): it is 35 more cycles of `CPICNT` per get on the M7. That
-> counter bundles instruction-fetch stalls with multi-cycle instructions and the
-> DWT cannot separate them, but two facts point at the fetch side: the delta
-> halves at 64 MHz, where the bus runs at core speed, against 160 and 400 MHz
-> where it runs at half; and the treatment's `trie32::map_get` is 37 Thumb
-> instructions shorter with two fewer `memcpy` calls and no new table branch or
-> literal load (`archives.txt`). An I-cache conflict on the new code placement
-> is the **hypothesis**; a layout-controlled build (`docs/design/32-bit-embedded.md`
-> §8.1.3) is the instrument that would settle it, and until one is run the cell
-> is recorded as a loss on the M7. Under the DWT-profile harness the timed
-> `can_dispatch` cell moved +10.9% to +15.0% on the M7 between the same two
-> engines (against 8–9% under the previous harness), which is the same
-> placement sensitivity seen from the other side. The `ingest` rows of the
-> profile are wrap-suspect (a promoting insert stalls for more than 255 cycles)
-> and carry no decomposition.
+> on, +2 cache off): it is 35 more cycles of `CPICNT` per get on the M7, the
+> counter that bundles instruction-fetch stalls with multi-cycle instructions.
+> The treatment's `trie32::map_get` is 37 Thumb instructions shorter with two
+> fewer `memcpy` calls and no new table branch or literal load (`archives.txt`).
+> The `ingest` rows of the profile are wrap-suspect (a promoting insert stalls
+> for more than 255 cycles) and carry no decomposition.
+>
+> **The layout-controlled build: it was placement.** To find out whether those
+> `CPICNT` cycles belong to the new code or to where the linker put it, the same
+> two archives were relinked 23 ways each with the harness unchanged — a uniform
+> shift of 0–56 bytes in steps of 8 before all code, and a gap of 512–7,680
+> bytes between the library's code and the harness's — and the M7 `can_dispatch`
+> cell was timed and profiled at every placement, control then treatment at each
+> point *(measured: STM32H747I-DISCO, 400 MHz, 46 images, one sitting;
+> [`results/layout_sweep_a98d8d3c/sweep.txt`](results/layout_sweep_a98d8d3c/sweep.txt),
+> one JSON and transcript per image, `archives.txt`; `integrations/stm32h747/layout_sweep.sh`)*:
+>
+> | `can_dispatch`, per get, 400 MHz | control `22908c15`, 23 placements | treatment `a98d8d3c`, 23 placements |
+> |---|---:|---:|
+> | timed cycles, D-cache off | **423–463** | 429–468 |
+> | timed cycles, D-cache on | **247–307** | 252–298 |
+> | `CPICNT`, D-cache off / on | 63–105 / 64–122 | 66–94 / 76–103 |
+> | `LSUCNT`, D-cache off / on | 167–183 / 19–21 | 171–187 / 20–22 |
+> | unattributed cycles (instructions when every stall is counted) | 265.6 at 18 of 23 placements | 260.6 at 19 of 23 placements |
+>
+> | paired difference at a fixed placement, treatment − control | D-cache off | D-cache on |
+> |---|---:|---:|
+> | range over the 23 placements | −18 to +28 cycles | −43 to +38 cycles |
+> | placements where the treatment is faster | 9 of 23 | 10 of 23 |
+>
+> One unchanged engine spans 10% (cache off) and 24% (cache on) of its own
+> cost across placements; the two engines' ranges overlap almost entirely; the
+> sign of the paired difference depends on the placement; the uniform shift
+> repeats with a 32-byte period to within 2%; and the relative shift alone,
+> alignment held, moves the control's `CPICNT` between 75 and 105. The five
+> fewer instructions hold at every placement. **Verdict: the +8–9% in the
+> pairing above, and the +11–15% under the DWT harness, were code placement,
+> not the code.** The engine change is neutral on this cell within a placement
+> envelope wider than the movement it was asked to explain. The consequence for
+> the method is recorded in `METHODOLOGY.md` §3: a single-placement pairing of a
+> read cell this small cannot attribute a movement below that envelope on the
+> M7 — the twin floor bounds the twins' placement, not the engine's — so such a
+> movement is attributed only when it exceeds the envelope or reproduces across
+> placements. Which structure the placement effect lives in (I-cache sets, the
+> branch target buffer, fetch alignment) the DWT cannot say and is unmeasured;
+> the four eviction cells, which moved 6–24% with `LSUCNT`-heavy bodies, are
+> outside any envelope this sweep saw and keep their verdicts.
 >
 > **Earlier pairings on this board, kept as history.** The two steps below were
 > measured the same way; their artifact (`22908c15`) is superseded, and the
@@ -289,4 +321,4 @@ Evaluation, not a claim (this is #598 step 3, and the header keeps saying unsupp
 
 **With the heap cacheable the outcome is not reproducible between captures, and it includes wrong values.** Across the eight captures taken on this board in one sitting (four for the `22908c15` → `fce563c2` pairing, four for the DWT pairing; all in `results/pairing_*/`), five returned BUSY on every read at every duty, one returned 25% BUSY and the rest not-found at 1k/s with no wrong value, and two returned **wrong values** — 55 corrupted reads at 10k/s in one, and in the published capture above 9,515 at 10k/s and 10,156 at 1k/s, about a fifth of the reads at each duty. The M7 writer's own reads were correct in every one of them. The earlier version of this page read "fails safe rather than silently wrong" from captures that had all landed in the all-BUSY mode; that statement is **retracted**. What the M4 sees in AXI SRAM while the M7's D-cache holds dirty lines of the version word and the node bodies depends on when those lines are evicted, and is exactly the condition the header's restriction exists for: the cacheable configuration can return a wrong value, so it is unsupported in the strong sense. Lifting the restriction would need either a non-cacheable heap for the map (what the first series does, at the M7's cost of running that heap uncached) or explicit clean/invalidate around the version bracket; neither is in the library today.
 
-Not covered: VOS0 / 480 MHz (board wiring), a balanced-tree twin (the toolchain ships none), M4 as writer, external-reviewer replication, a layout-controlled build to separate I-cache placement from the other `CPICNT` sources in the M7 `can_dispatch` movement.
+Not covered: VOS0 / 480 MHz (board wiring), a balanced-tree twin (the toolchain ships none), M4 as writer, external-reviewer replication, and which structure carries the placement effect the layout sweep measured (I-cache sets, branch target buffer or fetch alignment — the DWT cannot separate them).
