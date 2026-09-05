@@ -767,12 +767,12 @@ measured, and the gap they were opened against has roughly halved:
 
 | | when #615 was filed | current published artifact |
 |---|---:|---:|
-| Cortex-M4 `ingest`, Expanse vs `open_hash` | 12.5x (5,074 vs 406) | **7.5x** (3,037 vs 406) |
-| Cortex-M4 `ingest`, Expanse vs `sorted_array` | 5.2x (5,074 vs 971) | **3.1x** (3,037 vs 967) |
+| Cortex-M4 `ingest`, Expanse vs `open_hash` | 12.5x (5,074 vs 406) | **7.3x** (2,967 vs 406) |
+| Cortex-M4 `ingest`, Expanse vs `sorted_array` | 5.2x (5,074 vs 971) | **3.1x** (2,967 vs 971) |
 | Xtensa `esp32_tsdb_ingest` N=2000 vs hash | 3.8x (5,116 vs 1,337) | **2.26x** (3,025 vs 1,338) |
 
-*(measured: `docs/benchmarks/stm32h747/results.json` and
-`docs/benchmarks/embedded/esp32.json`; the ESP32 twins take a FreeRTOS mutex
+*(measured: `docs/benchmarks/stm32h747/results/results.json` at `fce563c2` and
+`docs/benchmarks/embedded/results/esp32.json` at `bec51c48`; the ESP32 twins take a FreeRTOS mutex
 inside the timed window, so that ratio remains a lower bound on the engine
 gap and the Cortex-M4 one the closer estimate.)*
 
@@ -855,11 +855,22 @@ exceeds its last needs no probe), measurable on `map32_insert` and on wasm
 fuel per §6; and promoting a dense ascending run to a bitmap leaf earlier,
 which is a `MAP_BITMAP_ENTER_32` change and therefore off the table without
 the read-path and memory measurements a ladder constant carries (§2.1.6,
-#509). The device gaps stand as published — 7.5× on the M4 at `22908c15`,
-2.26× on Xtensa at `49b3b6c1` — and a paired STM32 re-harvest across #667/#698
-(host `map32_insert` −3.34%) is the outstanding measurement, along with the
-cycles inside the `HostAlloc` bridge on the M4 ingest fixture, which is on no
-committed arm.
+#509). The paired STM32 re-harvest across #667/#698 is done *(measured:
+STM32H747I-DISCO, control `22908c15` against treatment `fce563c2`, identical
+harness firmware and toolchain, `min` of 5 DWT cycle counts, both flash orders;
+[`docs/benchmarks/stm32h747/results/pairing_fce563c2/`](../benchmarks/stm32h747/results/pairing_fce563c2/pairing.txt))*:
+the M4 `ingest` cell moved 3,050 → 2,967 (−2.7%) inside a 7.3% twin floor and
+the M7 cells +0.8% to +6.2% against floors of 0.0–5.8%, so the host
+`map32_insert` −3.34% has **no device verdict either way**; the eviction
+fixtures the same PRs shortened fell 6–24% on both cores, attributed. The
+headline gap is now 7.3× (2,967 vs 406) on the M4 and 2.26× on Xtensa at
+`bec51c48`. The one read-side movement of that pairing is recorded in the
+suite README with the host arm beside it: M7 `can_dispatch` +9.3% cache off
+and +8.0% cache on, M4 −2.4%, while Callgrind `map32_get can_dispatch` held
+106,341 instructions at every PR in the range and `trie32::map_get` shrank
+130 bytes in the image; cause unmeasured, a DWT `CPICNT`/`LSUCNT` arm being
+the candidate instrument. Still outstanding: the cycles inside the
+`HostAlloc` bridge on the M4 ingest fixture, which is on no committed arm.
 
 ### 8.1.8 The 32-bit ordered range walk: what the ranking found, what it did not, and what is left (#614)
 

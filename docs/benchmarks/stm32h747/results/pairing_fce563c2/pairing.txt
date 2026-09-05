@@ -1,0 +1,182 @@
+control 22908c15  treatment fce563c2
+core  MHz dc fixture                 ctrl     treat    delta  floor  verdict
+m4    200  0 can_dispatch          1240.9    1210.6   -2.44%  0.03%  attributed
+m4    200  0 evict_bulk_loop      10836.3    9685.8  -10.62%  0.28%  attributed
+m4    200  0 evict_bulk_range      3865.6    3234.2  -16.33%  0.50%  attributed
+m4    200  0 evict_steady_loop    10594.5    9177.5  -13.37%  0.46%  attributed
+m4    200  0 evict_steady_range    4049.7    3260.3  -19.49%  0.76%  attributed
+m4    200  0 ingest                3050.2    2967.0   -2.73%  7.32%  inside floor
+m7     64  0 can_dispatch           360.1     369.3   +2.55%  2.29%  REGRESSION?
+m7     64  0 evict_bulk_loop       3868.8    3564.2   -7.87%  0.22%  attributed
+m7     64  0 evict_bulk_range      1363.7    1195.1  -12.36%  0.45%  attributed
+m7     64  0 evict_steady_loop     3850.8    3548.9   -7.84%  2.04%  attributed
+m7     64  0 evict_steady_range    1521.4    1288.1  -15.33%  1.51%  attributed
+m7     64  0 ingest                1099.2    1107.7   +0.77%  4.04%  inside floor
+m7     64  1 can_dispatch           252.1     265.3   +5.24%  4.41%  REGRESSION?
+m7     64  1 evict_bulk_loop       2747.2    2456.2  -10.59%  2.24%  attributed
+m7     64  1 evict_bulk_range      1001.2     825.8  -17.52%  1.77%  attributed
+m7     64  1 evict_steady_loop     2770.3    2448.0  -11.63%  0.78%  attributed
+m7     64  1 evict_steady_range    1129.6     899.9  -20.33%  0.96%  attributed
+m7     64  1 ingest                 716.6     732.1   +2.16%  3.69%  inside floor
+m7    160  0 can_dispatch           436.1     476.7   +9.31%  0.01%  REGRESSION?
+m7    160  0 evict_bulk_loop       4864.0    4515.3   -7.17%  0.08%  attributed
+m7    160  0 evict_bulk_range      1711.8    1495.9  -12.61%  0.11%  attributed
+m7    160  0 evict_steady_loop     4888.8    4594.7   -6.02%  0.79%  attributed
+m7    160  0 evict_steady_range    1961.4    1639.0  -16.44%  0.46%  attributed
+m7    160  0 ingest                1436.7    1455.8   +1.33%  0.04%  REGRESSION?
+m7    160  1 can_dispatch           252.1     272.2   +7.95%  4.50%  REGRESSION?
+m7    160  1 evict_bulk_loop       2921.0    2580.9  -11.64%  2.49%  attributed
+m7    160  1 evict_bulk_range      1070.6     854.1  -20.22%  1.95%  attributed
+m7    160  1 evict_steady_loop     3000.2    2674.8  -10.85%  3.15%  attributed
+m7    160  1 evict_steady_range    1280.4     977.0  -23.70%  0.32%  attributed
+m7    160  1 ingest                 745.6     788.4   +5.75%  5.76%  inside floor
+m7    400  0 can_dispatch           436.1     476.8   +9.34%  0.01%  REGRESSION?
+m7    400  0 evict_bulk_loop       4863.7    4513.5   -7.20%  0.08%  attributed
+m7    400  0 evict_bulk_range      1713.3    1495.3  -12.73%  0.11%  attributed
+m7    400  0 evict_steady_loop     4903.2    4584.3   -6.51%  0.79%  attributed
+m7    400  0 evict_steady_range    1957.8    1641.1  -16.18%  0.40%  attributed
+m7    400  0 ingest                1437.1    1456.2   +1.33%  0.04%  REGRESSION?
+m7    400  1 can_dispatch           252.1     272.2   +7.97%  4.50%  REGRESSION?
+m7    400  1 evict_bulk_loop       2923.4    2580.3  -11.73%  2.03%  attributed
+m7    400  1 evict_bulk_range      1070.9     855.6  -20.10%  2.07%  attributed
+m7    400  1 evict_steady_loop     3000.1    2667.9  -11.07%  3.35%  attributed
+m7    400  1 evict_steady_range    1285.4     976.8  -24.00%  1.33%  attributed
+m7    400  1 ingest                 742.9     788.6   +6.15%  5.78%  REGRESSION?
+
+--- reversed order: control_b (flashed after treatment_b) vs treatment_b
+control 22908c15  treatment fce563c2
+core  MHz dc fixture                 ctrl     treat    delta  floor  verdict
+m4    200  0 can_dispatch          1240.9    1210.6   -2.44%  0.03%  attributed
+m4    200  0 evict_bulk_loop      10836.3    9685.8  -10.62%  0.28%  attributed
+m4    200  0 evict_bulk_range      3865.6    3234.2  -16.33%  0.50%  attributed
+m4    200  0 evict_steady_loop    10594.5    9177.5  -13.37%  0.46%  attributed
+m4    200  0 evict_steady_range    4049.7    3260.3  -19.49%  0.76%  attributed
+m4    200  0 ingest                3050.2    2967.0   -2.73%  7.32%  inside floor
+m7     64  0 can_dispatch           360.1     369.3   +2.55%  2.29%  REGRESSION?
+m7     64  0 evict_bulk_loop       3868.8    3564.2   -7.87%  0.22%  attributed
+m7     64  0 evict_bulk_range      1363.7    1195.1  -12.36%  0.45%  attributed
+m7     64  0 evict_steady_loop     3850.8    3548.9   -7.84%  2.04%  attributed
+m7     64  0 evict_steady_range    1521.4    1288.1  -15.33%  1.51%  attributed
+m7     64  0 ingest                1099.2    1107.7   +0.77%  4.04%  inside floor
+m7     64  1 can_dispatch           252.1     265.3   +5.24%  4.41%  REGRESSION?
+m7     64  1 evict_bulk_loop       2747.2    2456.2  -10.59%  2.24%  attributed
+m7     64  1 evict_bulk_range      1001.2     825.8  -17.52%  1.77%  attributed
+m7     64  1 evict_steady_loop     2770.3    2448.0  -11.63%  0.78%  attributed
+m7     64  1 evict_steady_range    1129.6     899.9  -20.33%  0.96%  attributed
+m7     64  1 ingest                 716.6     732.1   +2.16%  3.69%  inside floor
+m7    160  0 can_dispatch           436.1     475.9   +9.12%  0.01%  REGRESSION?
+m7    160  0 evict_bulk_loop       4864.2    4515.7   -7.16%  0.07%  attributed
+m7    160  0 evict_bulk_range      1713.1    1495.4  -12.71%  0.12%  attributed
+m7    160  0 evict_steady_loop     4898.1    4601.6   -6.05%  1.15%  attributed
+m7    160  0 evict_steady_range    1958.7    1635.2  -16.52%  0.29%  attributed
+m7    160  0 ingest                1437.4    1456.4   +1.32%  0.04%  REGRESSION?
+m7    160  1 can_dispatch           252.1     272.2   +7.95%  4.47%  REGRESSION?
+m7    160  1 evict_bulk_loop       2925.5    2580.1  -11.80%  2.61%  attributed
+m7    160  1 evict_bulk_range      1069.8     855.6  -20.03%  1.97%  attributed
+m7    160  1 evict_steady_loop     3013.3    2663.3  -11.61%  3.34%  attributed
+m7    160  1 evict_steady_range    1286.9     973.7  -24.33%  0.37%  attributed
+m7    160  1 ingest                 746.2     789.2   +5.77%  5.85%  inside floor
+m7    400  0 can_dispatch           436.1     475.9   +9.11%  0.01%  REGRESSION?
+m7    400  0 evict_bulk_loop       4865.8    4513.4   -7.24%  0.08%  attributed
+m7    400  0 evict_bulk_range      1712.1    1495.7  -12.64%  0.11%  attributed
+m7    400  0 evict_steady_loop     4907.1    4600.2   -6.25%  1.12%  attributed
+m7    400  0 evict_steady_range    1960.2    1640.6  -16.30%  0.89%  attributed
+m7    400  0 ingest                1437.3    1455.8   +1.28%  0.04%  REGRESSION?
+m7    400  1 can_dispatch           252.1     273.4   +8.45%  4.49%  REGRESSION?
+m7    400  1 evict_bulk_loop       2924.3    2580.5  -11.76%  2.44%  attributed
+m7    400  1 evict_bulk_range      1070.7     855.8  -20.07%  2.31%  attributed
+m7    400  1 evict_steady_loop     3011.4    2674.4  -11.19%  4.37%  attributed
+m7    400  1 evict_steady_range    1282.0     975.9  -23.88%  0.79%  attributed
+m7    400  1 ingest                 746.3     788.6   +5.67%  5.66%  REGRESSION?
+
+--- run-to-run, identical images: control_a vs control_b
+control 22908c15  treatment 22908c15
+core  MHz dc fixture                 ctrl     treat    delta  floor  verdict
+m4    200  0 can_dispatch          1240.9    1240.9   +0.00%  0.00%  inside floor
+m4    200  0 evict_bulk_loop      10836.3   10836.3   +0.00%  0.00%  inside floor
+m4    200  0 evict_bulk_range      3865.6    3865.6   +0.00%  0.00%  inside floor
+m4    200  0 evict_steady_loop    10594.5   10594.5   +0.00%  0.00%  inside floor
+m4    200  0 evict_steady_range    4049.7    4049.7   +0.00%  0.00%  inside floor
+m4    200  0 ingest                3050.2    3050.2   +0.00%  0.00%  inside floor
+m7     64  0 can_dispatch           360.1     360.1   +0.00%  0.00%  inside floor
+m7     64  0 evict_bulk_loop       3868.8    3868.8   +0.00%  0.00%  inside floor
+m7     64  0 evict_bulk_range      1363.7    1363.7   +0.00%  0.00%  inside floor
+m7     64  0 evict_steady_loop     3850.8    3850.8   +0.00%  0.00%  inside floor
+m7     64  0 evict_steady_range    1521.4    1521.4   +0.00%  0.00%  inside floor
+m7     64  0 ingest                1099.2    1099.2   +0.00%  0.00%  inside floor
+m7     64  1 can_dispatch           252.1     252.1   +0.00%  0.00%  inside floor
+m7     64  1 evict_bulk_loop       2747.2    2747.2   +0.00%  0.00%  inside floor
+m7     64  1 evict_bulk_range      1001.2    1001.2   +0.00%  0.00%  inside floor
+m7     64  1 evict_steady_loop     2770.3    2770.3   +0.00%  0.00%  inside floor
+m7     64  1 evict_steady_range    1129.6    1129.6   +0.00%  0.00%  inside floor
+m7     64  1 ingest                 716.6     716.6   +0.00%  0.00%  inside floor
+m7    160  0 can_dispatch           436.1     436.1   +0.00%  0.01%  inside floor
+m7    160  0 evict_bulk_loop       4864.0    4864.2   +0.01%  0.00%  REGRESSION?
+m7    160  0 evict_bulk_range      1711.8    1713.1   +0.08%  0.00%  REGRESSION?
+m7    160  0 evict_steady_loop     4888.8    4898.1   +0.19%  0.33%  inside floor
+m7    160  0 evict_steady_range    1961.4    1958.7   -0.14%  0.00%  attributed
+m7    160  0 ingest                1436.7    1437.4   +0.05%  0.00%  REGRESSION?
+m7    160  1 can_dispatch           252.1     252.1   +0.00%  0.07%  inside floor
+m7    160  1 evict_bulk_loop       2921.0    2925.5   +0.15%  0.06%  REGRESSION?
+m7    160  1 evict_bulk_range      1070.6    1069.8   -0.07%  0.08%  inside floor
+m7    160  1 evict_steady_loop     3000.2    3013.3   +0.44%  0.32%  REGRESSION?
+m7    160  1 evict_steady_range    1280.4    1286.9   +0.51%  0.12%  REGRESSION?
+m7    160  1 ingest                 745.6     746.2   +0.08%  0.20%  inside floor
+m7    400  0 can_dispatch           436.1     436.1   +0.00%  0.00%  inside floor
+m7    400  0 evict_bulk_loop       4863.7    4865.8   +0.04%  0.01%  REGRESSION?
+m7    400  0 evict_bulk_range      1713.3    1712.1   -0.07%  0.00%  attributed
+m7    400  0 evict_steady_loop     4903.2    4907.1   +0.08%  0.41%  inside floor
+m7    400  0 evict_steady_range    1957.8    1960.2   +0.12%  0.00%  REGRESSION?
+m7    400  0 ingest                1437.1    1437.3   +0.02%  0.02%  inside floor
+m7    400  1 can_dispatch           252.1     252.1   +0.00%  0.00%  inside floor
+m7    400  1 evict_bulk_loop       2923.4    2924.3   +0.03%  0.07%  inside floor
+m7    400  1 evict_bulk_range      1070.9    1070.7   -0.02%  0.11%  inside floor
+m7    400  1 evict_steady_loop     3000.1    3011.4   +0.38%  0.57%  inside floor
+m7    400  1 evict_steady_range    1285.4    1282.0   -0.26%  1.10%  inside floor
+m7    400  1 ingest                 742.9     746.3   +0.46%  0.12%  REGRESSION?
+
+--- run-to-run, identical images: treatment_a vs treatment_b
+control fce563c2  treatment fce563c2
+core  MHz dc fixture                 ctrl     treat    delta  floor  verdict
+m4    200  0 can_dispatch          1210.6    1210.6   +0.00%  0.00%  inside floor
+m4    200  0 evict_bulk_loop       9685.8    9685.8   +0.00%  0.00%  inside floor
+m4    200  0 evict_bulk_range      3234.2    3234.2   +0.00%  0.00%  inside floor
+m4    200  0 evict_steady_loop     9177.5    9177.5   +0.00%  0.00%  inside floor
+m4    200  0 evict_steady_range    3260.3    3260.3   +0.00%  0.00%  inside floor
+m4    200  0 ingest                2967.0    2967.0   +0.00%  0.00%  inside floor
+m7     64  0 can_dispatch           369.3     369.3   +0.00%  0.00%  inside floor
+m7     64  0 evict_bulk_loop       3564.2    3564.2   +0.00%  0.00%  inside floor
+m7     64  0 evict_bulk_range      1195.1    1195.1   +0.00%  0.00%  inside floor
+m7     64  0 evict_steady_loop     3548.9    3548.9   +0.00%  0.00%  inside floor
+m7     64  0 evict_steady_range    1288.1    1288.1   +0.00%  0.00%  inside floor
+m7     64  0 ingest                1107.7    1107.7   +0.00%  0.00%  inside floor
+m7     64  1 can_dispatch           265.3     265.3   +0.00%  0.00%  inside floor
+m7     64  1 evict_bulk_loop       2456.2    2456.2   +0.00%  0.00%  inside floor
+m7     64  1 evict_bulk_range       825.8     825.8   +0.00%  0.00%  inside floor
+m7     64  1 evict_steady_loop     2448.0    2448.0   +0.00%  0.00%  inside floor
+m7     64  1 evict_steady_range     899.9     899.9   +0.00%  0.00%  inside floor
+m7     64  1 ingest                 732.1     732.1   +0.00%  0.00%  inside floor
+m7    160  0 can_dispatch           476.7     475.9   -0.17%  0.01%  attributed
+m7    160  0 evict_bulk_loop       4515.3    4515.7   +0.01%  0.01%  REGRESSION?
+m7    160  0 evict_bulk_range      1495.9    1495.4   -0.03%  0.01%  attributed
+m7    160  0 evict_steady_loop     4594.7    4601.6   +0.15%  0.02%  REGRESSION?
+m7    160  0 evict_steady_range    1639.0    1635.2   -0.23%  0.17%  attributed
+m7    160  0 ingest                1455.8    1456.4   +0.04%  0.00%  REGRESSION?
+m7    160  1 can_dispatch           272.2     272.2   +0.00%  0.01%  inside floor
+m7    160  1 evict_bulk_loop       2580.9    2580.1   -0.03%  0.06%  inside floor
+m7    160  1 evict_bulk_range       854.1     855.6   +0.17%  0.06%  REGRESSION?
+m7    160  1 evict_steady_loop     2674.8    2663.3   -0.43%  0.17%  attributed
+m7    160  1 evict_steady_range     977.0     973.7   -0.34%  0.12%  attributed
+m7    160  1 ingest                 788.4     789.2   +0.10%  0.05%  REGRESSION?
+m7    400  0 can_dispatch           476.8     475.9   -0.21%  0.00%  attributed
+m7    400  0 evict_bulk_loop       4513.5    4513.4   -0.00%  0.01%  inside floor
+m7    400  0 evict_bulk_range      1495.3    1495.7   +0.03%  0.00%  REGRESSION?
+m7    400  0 evict_steady_loop     4584.3    4600.2   +0.35%  0.08%  REGRESSION?
+m7    400  0 evict_steady_range    1641.1    1640.6   -0.03%  0.50%  inside floor
+m7    400  0 ingest                1456.2    1455.8   -0.03%  0.00%  attributed
+m7    400  1 can_dispatch           272.2     273.4   +0.45%  0.01%  REGRESSION?
+m7    400  1 evict_bulk_loop       2580.3    2580.5   +0.01%  0.48%  inside floor
+m7    400  1 evict_bulk_range       855.6     855.8   +0.02%  0.13%  inside floor
+m7    400  1 evict_steady_loop     2667.9    2674.4   +0.24%  1.04%  inside floor
+m7    400  1 evict_steady_range     976.8     975.9   -0.10%  0.56%  inside floor
+m7    400  1 ingest                 788.6     788.6   -0.00%  0.27%  inside floor

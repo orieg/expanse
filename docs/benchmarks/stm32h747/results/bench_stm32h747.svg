@@ -111,83 +111,83 @@
     <text x="0" y="0" class="t-chart-title">Fixtures from benches/embedded_memtable.rs</text>
     <text x="0" y="13" class="t-sub">core cycles per operation, min of 5 passes (lower is better)</text>
     <text x="207" y="64" class="t-legend" text-anchor="end">ingest 2,000 keys / insert</text>
-    <rect x="215" y="30" width="48.2" height="9" rx="1" style="fill:#cbd5e1"/>
-    <text x="267.2" y="38" class="t-axis-label">1,097</text>
-    <rect x="215" y="40" width="31.6" height="9" rx="1" style="fill:#94a3b8"/>
-    <text x="250.6" y="48" class="t-axis-label">718</text>
-    <rect x="215" y="50" width="63.3" height="9" rx="1" style="fill:#c7d2fe"/>
-    <text x="282.3" y="58" class="t-axis-label">1,438</text>
-    <rect x="215" y="60" width="32.8" height="9" rx="1" style="fill:#6366f1"/>
-    <text x="251.8" y="68" class="t-axis-label">745</text>
-    <rect x="215" y="70" width="63.3" height="9" rx="1" style="fill:#93c5fd"/>
-    <text x="282.3" y="78" class="t-axis-label">1,438</text>
-    <rect x="215" y="80" width="32.8" height="9" rx="1" style="fill:#1d4ed8"/>
-    <text x="251.8" y="88" class="t-axis-label">745</text>
+    <rect x="215" y="30" width="48.7" height="9" rx="1" style="fill:#cbd5e1"/>
+    <text x="267.7" y="38" class="t-axis-label">1,108</text>
+    <rect x="215" y="40" width="32.2" height="9" rx="1" style="fill:#94a3b8"/>
+    <text x="251.2" y="48" class="t-axis-label">732</text>
+    <rect x="215" y="50" width="64.1" height="9" rx="1" style="fill:#c7d2fe"/>
+    <text x="283.1" y="58" class="t-axis-label">1,456</text>
+    <rect x="215" y="60" width="34.7" height="9" rx="1" style="fill:#6366f1"/>
+    <text x="253.7" y="68" class="t-axis-label">788</text>
+    <rect x="215" y="70" width="64.1" height="9" rx="1" style="fill:#93c5fd"/>
+    <text x="283.1" y="78" class="t-axis-label">1,456</text>
+    <rect x="215" y="80" width="34.7" height="9" rx="1" style="fill:#1d4ed8"/>
+    <text x="253.7" y="88" class="t-axis-label">789</text>
     <text x="207" y="132" class="t-legend" text-anchor="end">CAN dispatch / get</text>
-    <rect x="215" y="98" width="15.8" height="9" rx="1" style="fill:#cbd5e1"/>
-    <text x="234.8" y="106" class="t-axis-label">360</text>
-    <rect x="215" y="108" width="11.1" height="9" rx="1" style="fill:#94a3b8"/>
-    <text x="230.1" y="116" class="t-axis-label">252</text>
-    <rect x="215" y="118" width="19.1" height="9" rx="1" style="fill:#c7d2fe"/>
-    <text x="238.1" y="126" class="t-axis-label">434</text>
-    <rect x="215" y="128" width="11.1" height="9" rx="1" style="fill:#6366f1"/>
-    <text x="230.1" y="136" class="t-axis-label">252</text>
-    <rect x="215" y="138" width="19.1" height="9" rx="1" style="fill:#93c5fd"/>
-    <text x="238.1" y="146" class="t-axis-label">434</text>
-    <rect x="215" y="148" width="11.1" height="9" rx="1" style="fill:#1d4ed8"/>
-    <text x="230.1" y="156" class="t-axis-label">252</text>
+    <rect x="215" y="98" width="16.2" height="9" rx="1" style="fill:#cbd5e1"/>
+    <text x="235.2" y="106" class="t-axis-label">369</text>
+    <rect x="215" y="108" width="11.7" height="9" rx="1" style="fill:#94a3b8"/>
+    <text x="230.7" y="116" class="t-axis-label">265</text>
+    <rect x="215" y="118" width="21.0" height="9" rx="1" style="fill:#c7d2fe"/>
+    <text x="240.0" y="126" class="t-axis-label">477</text>
+    <rect x="215" y="128" width="12.0" height="9" rx="1" style="fill:#6366f1"/>
+    <text x="231.0" y="136" class="t-axis-label">272</text>
+    <rect x="215" y="138" width="21.0" height="9" rx="1" style="fill:#93c5fd"/>
+    <text x="240.0" y="146" class="t-axis-label">477</text>
+    <rect x="215" y="148" width="12.0" height="9" rx="1" style="fill:#1d4ed8"/>
+    <text x="231.0" y="156" class="t-axis-label">272</text>
     <text x="207" y="200" class="t-legend" text-anchor="end">evict 600 of 2,000 / per-key loop</text>
-    <rect x="215" y="166" width="170.5" height="9" rx="1" style="fill:#cbd5e1"/>
-    <text x="389.5" y="174" class="t-axis-label">3,875</text>
-    <rect x="215" y="176" width="121.4" height="9" rx="1" style="fill:#94a3b8"/>
-    <text x="340.4" y="184" class="t-axis-label">2,758</text>
-    <rect x="215" y="186" width="215.0" height="9" rx="1" style="fill:#c7d2fe"/>
-    <text x="434.0" y="194" class="t-axis-label">4,887</text>
-    <rect x="215" y="196" width="129.0" height="9" rx="1" style="fill:#6366f1"/>
-    <text x="348.0" y="204" class="t-axis-label">2,932</text>
-    <rect x="215" y="206" width="215.0" height="9" rx="1" style="fill:#93c5fd"/>
-    <text x="434.0" y="214" class="t-axis-label">4,887</text>
-    <rect x="215" y="216" width="129.1" height="9" rx="1" style="fill:#1d4ed8"/>
-    <text x="348.1" y="224" class="t-axis-label">2,933</text>
+    <rect x="215" y="166" width="156.8" height="9" rx="1" style="fill:#cbd5e1"/>
+    <text x="375.8" y="174" class="t-axis-label">3,564</text>
+    <rect x="215" y="176" width="108.1" height="9" rx="1" style="fill:#94a3b8"/>
+    <text x="327.1" y="184" class="t-axis-label">2,456</text>
+    <rect x="215" y="186" width="198.7" height="9" rx="1" style="fill:#c7d2fe"/>
+    <text x="417.7" y="194" class="t-axis-label">4,515</text>
+    <rect x="215" y="196" width="113.6" height="9" rx="1" style="fill:#6366f1"/>
+    <text x="332.6" y="204" class="t-axis-label">2,581</text>
+    <rect x="215" y="206" width="198.6" height="9" rx="1" style="fill:#93c5fd"/>
+    <text x="417.6" y="214" class="t-axis-label">4,513</text>
+    <rect x="215" y="216" width="113.5" height="9" rx="1" style="fill:#1d4ed8"/>
+    <text x="332.5" y="224" class="t-axis-label">2,580</text>
     <text x="207" y="268" class="t-legend" text-anchor="end">evict 600 of 2,000 / remove_range</text>
-    <rect x="215" y="234" width="60.5" height="9" rx="1" style="fill:#cbd5e1"/>
-    <text x="279.5" y="242" class="t-axis-label">1,375</text>
-    <rect x="215" y="244" width="44.2" height="9" rx="1" style="fill:#94a3b8"/>
-    <text x="263.2" y="252" class="t-axis-label">1,005</text>
-    <rect x="215" y="254" width="75.5" height="9" rx="1" style="fill:#c7d2fe"/>
-    <text x="294.5" y="262" class="t-axis-label">1,717</text>
-    <rect x="215" y="264" width="47.2" height="9" rx="1" style="fill:#6366f1"/>
-    <text x="266.2" y="272" class="t-axis-label">1,073</text>
-    <rect x="215" y="274" width="75.5" height="9" rx="1" style="fill:#93c5fd"/>
-    <text x="294.5" y="282" class="t-axis-label">1,716</text>
-    <rect x="215" y="284" width="47.1" height="9" rx="1" style="fill:#1d4ed8"/>
-    <text x="266.1" y="292" class="t-axis-label">1,070</text>
+    <rect x="215" y="234" width="52.6" height="9" rx="1" style="fill:#cbd5e1"/>
+    <text x="271.6" y="242" class="t-axis-label">1,195</text>
+    <rect x="215" y="244" width="36.3" height="9" rx="1" style="fill:#94a3b8"/>
+    <text x="255.3" y="252" class="t-axis-label">826</text>
+    <rect x="215" y="254" width="65.8" height="9" rx="1" style="fill:#c7d2fe"/>
+    <text x="284.8" y="262" class="t-axis-label">1,496</text>
+    <rect x="215" y="264" width="37.6" height="9" rx="1" style="fill:#6366f1"/>
+    <text x="256.6" y="272" class="t-axis-label">854</text>
+    <rect x="215" y="274" width="65.8" height="9" rx="1" style="fill:#93c5fd"/>
+    <text x="284.8" y="282" class="t-axis-label">1,495</text>
+    <rect x="215" y="284" width="37.6" height="9" rx="1" style="fill:#1d4ed8"/>
+    <text x="256.6" y="292" class="t-axis-label">856</text>
     <text x="207" y="336" class="t-legend" text-anchor="end">evict 25 of 2,000 / per-key loop</text>
-    <rect x="215" y="302" width="170.0" height="9" rx="1" style="fill:#cbd5e1"/>
-    <text x="389.0" y="310" class="t-axis-label">3,865</text>
-    <rect x="215" y="312" width="122.8" height="9" rx="1" style="fill:#94a3b8"/>
-    <text x="341.8" y="320" class="t-axis-label">2,791</text>
-    <rect x="215" y="322" width="215.4" height="9" rx="1" style="fill:#c7d2fe"/>
-    <text x="434.4" y="330" class="t-axis-label">4,896</text>
-    <rect x="215" y="332" width="133.0" height="9" rx="1" style="fill:#6366f1"/>
-    <text x="352.0" y="340" class="t-axis-label">3,023</text>
-    <rect x="215" y="342" width="215.2" height="9" rx="1" style="fill:#93c5fd"/>
-    <text x="434.2" y="350" class="t-axis-label">4,892</text>
-    <rect x="215" y="352" width="132.2" height="9" rx="1" style="fill:#1d4ed8"/>
-    <text x="351.2" y="360" class="t-axis-label">3,005</text>
+    <rect x="215" y="302" width="156.2" height="9" rx="1" style="fill:#cbd5e1"/>
+    <text x="375.2" y="310" class="t-axis-label">3,549</text>
+    <rect x="215" y="312" width="107.7" height="9" rx="1" style="fill:#94a3b8"/>
+    <text x="326.7" y="320" class="t-axis-label">2,448</text>
+    <rect x="215" y="322" width="202.2" height="9" rx="1" style="fill:#c7d2fe"/>
+    <text x="421.2" y="330" class="t-axis-label">4,595</text>
+    <rect x="215" y="332" width="117.7" height="9" rx="1" style="fill:#6366f1"/>
+    <text x="336.7" y="340" class="t-axis-label">2,675</text>
+    <rect x="215" y="342" width="201.7" height="9" rx="1" style="fill:#93c5fd"/>
+    <text x="420.7" y="350" class="t-axis-label">4,584</text>
+    <rect x="215" y="352" width="117.4" height="9" rx="1" style="fill:#1d4ed8"/>
+    <text x="336.4" y="360" class="t-axis-label">2,668</text>
     <text x="207" y="404" class="t-legend" text-anchor="end">evict 25 of 2,000 / remove_range</text>
-    <rect x="215" y="370" width="67.0" height="9" rx="1" style="fill:#cbd5e1"/>
-    <text x="286.0" y="378" class="t-axis-label">1,523</text>
-    <rect x="215" y="380" width="50.3" height="9" rx="1" style="fill:#94a3b8"/>
-    <text x="269.3" y="388" class="t-axis-label">1,143</text>
-    <rect x="215" y="390" width="86.6" height="9" rx="1" style="fill:#c7d2fe"/>
-    <text x="305.6" y="398" class="t-axis-label">1,968</text>
-    <rect x="215" y="400" width="56.5" height="9" rx="1" style="fill:#6366f1"/>
-    <text x="275.5" y="408" class="t-axis-label">1,284</text>
-    <rect x="215" y="410" width="86.6" height="9" rx="1" style="fill:#93c5fd"/>
-    <text x="305.6" y="418" class="t-axis-label">1,969</text>
-    <rect x="215" y="420" width="56.5" height="9" rx="1" style="fill:#1d4ed8"/>
-    <text x="275.5" y="428" class="t-axis-label">1,284</text>
+    <rect x="215" y="370" width="56.7" height="9" rx="1" style="fill:#cbd5e1"/>
+    <text x="275.7" y="378" class="t-axis-label">1,288</text>
+    <rect x="215" y="380" width="39.6" height="9" rx="1" style="fill:#94a3b8"/>
+    <text x="258.6" y="388" class="t-axis-label">900</text>
+    <rect x="215" y="390" width="72.1" height="9" rx="1" style="fill:#c7d2fe"/>
+    <text x="291.1" y="398" class="t-axis-label">1,639</text>
+    <rect x="215" y="400" width="43.0" height="9" rx="1" style="fill:#6366f1"/>
+    <text x="262.0" y="408" class="t-axis-label">977</text>
+    <rect x="215" y="410" width="72.2" height="9" rx="1" style="fill:#93c5fd"/>
+    <text x="291.2" y="418" class="t-axis-label">1,641</text>
+    <rect x="215" y="420" width="43.0" height="9" rx="1" style="fill:#1d4ed8"/>
+    <text x="262.0" y="428" class="t-axis-label">977</text>
     <line x1="215" y1="28" x2="215" y2="438" class="axis"/>
     <rect x="0" y="448" width="10" height="10" rx="1" style="fill:#cbd5e1"/>
     <text x="14" y="457" class="t-note">64 MHz, D-cache off</text>
@@ -211,44 +211,44 @@
     <rect x="240" y="45" width="10" height="10" rx="1" style="fill:#2563eb"/><text x="254" y="54" class="t-note">sync32 reader</text>
     <rect x="340" y="45" width="10" height="10" rx="1" style="fill:#94a3b8"/><text x="354" y="54" class="t-note">cpsid/cpsie critical section</text>
     <text x="0" y="82" class="t-bar-label">full duty</text>
-    <text x="0" y="96" class="t-note">2,079 cyc/mut</text>
-    <rect x="112" y="72" width="55.8" height="12" rx="1" style="fill:#f59e0b"/>
-    <text x="171.8" y="82" class="t-axis-label">69.7%</text>
-    <text x="112" y="100" class="t-note">6,971 of 10,000 reads</text>
-    <rect x="240" y="70" width="2.8" height="12" rx="1" style="fill:#2563eb"/>
-    <text x="246.8" y="80" class="t-axis-label">55 / 15 (138 ns)</text>
-    <rect x="240" y="86" width="90.0" height="12" rx="1" style="fill:#94a3b8"/>
-    <text x="334.0" y="96" class="t-axis-label">1,797 / 795 (4492 ns)</text>
+    <text x="0" y="96" class="t-note">1,656 cyc/mut</text>
+    <rect x="112" y="72" width="43.4" height="12" rx="1" style="fill:#f59e0b"/>
+    <text x="159.4" y="82" class="t-axis-label">54.2%</text>
+    <text x="112" y="100" class="t-note">5,422 of 10,000 reads</text>
+    <rect x="240" y="70" width="2.9" height="12" rx="1" style="fill:#2563eb"/>
+    <text x="246.9" y="80" class="t-axis-label">56 / 15 (140 ns)</text>
+    <rect x="240" y="86" width="84.6" height="12" rx="1" style="fill:#94a3b8"/>
+    <text x="328.6" y="96" class="t-axis-label">1,639 / 735 (4092 ns)</text>
     <text x="0" y="134" class="t-bar-label">40k mut/s</text>
     <text x="0" y="148" class="t-note">10,017 cyc/mut</text>
-    <rect x="112" y="124" width="12.7" height="12" rx="1" style="fill:#f59e0b"/>
-    <text x="128.7" y="134" class="t-axis-label">15.9%</text>
-    <text x="112" y="152" class="t-note">1,593 of 10,000 reads</text>
+    <rect x="112" y="124" width="10.4" height="12" rx="1" style="fill:#f59e0b"/>
+    <text x="126.4" y="134" class="t-axis-label">13.0%</text>
+    <text x="112" y="152" class="t-note">1,298 of 10,000 reads</text>
     <rect x="240" y="122" width="1.0" height="12" rx="1" style="fill:#2563eb"/>
     <text x="245.0" y="132" class="t-axis-label">18 / 15 (45 ns)</text>
-    <rect x="240" y="138" width="89.3" height="12" rx="1" style="fill:#94a3b8"/>
-    <text x="333.3" y="148" class="t-axis-label">1,783 / 153 (4458 ns)</text>
+    <rect x="240" y="138" width="90.0" height="12" rx="1" style="fill:#94a3b8"/>
+    <text x="334.0" y="148" class="t-axis-label">1,743 / 148 (4352 ns)</text>
     <text x="0" y="186" class="t-bar-label">10k mut/s</text>
     <text x="0" y="200" class="t-note">40,188 cyc/mut</text>
-    <rect x="112" y="176" width="3.2" height="12" rx="1" style="fill:#f59e0b"/>
-    <text x="119.2" y="186" class="t-axis-label">4.0%</text>
-    <text x="112" y="204" class="t-note">404 of 10,000 reads</text>
+    <rect x="112" y="176" width="2.5" height="12" rx="1" style="fill:#f59e0b"/>
+    <text x="118.5" y="186" class="t-axis-label">3.2%</text>
+    <text x="112" y="204" class="t-note">317 of 10,000 reads</text>
     <rect x="240" y="174" width="1.0" height="12" rx="1" style="fill:#2563eb"/>
     <text x="245.0" y="184" class="t-axis-label">16 / 15 (40 ns)</text>
-    <rect x="240" y="190" width="87.5" height="12" rx="1" style="fill:#94a3b8"/>
-    <text x="331.5" y="200" class="t-axis-label">1,748 / 50 (4370 ns)</text>
+    <rect x="240" y="190" width="87.4" height="12" rx="1" style="fill:#94a3b8"/>
+    <text x="331.4" y="200" class="t-axis-label">1,693 / 52 (4227 ns)</text>
     <text x="0" y="238" class="t-bar-label">1k mut/s</text>
-    <text x="0" y="252" class="t-note">396,228 cyc/mut</text>
+    <text x="0" y="252" class="t-note">396,227 cyc/mut</text>
     <rect x="112" y="228" width="1.0" height="12" rx="1" style="fill:#f59e0b"/>
     <text x="117.0" y="238" class="t-axis-label">0.4%</text>
-    <text x="112" y="256" class="t-note">43 of 10,004 reads</text>
+    <text x="112" y="256" class="t-note">36 of 10,004 reads</text>
     <rect x="240" y="226" width="1.0" height="12" rx="1" style="fill:#2563eb"/>
-    <text x="245.0" y="236" class="t-axis-label">15 / 15 (38 ns)</text>
-    <rect x="240" y="242" width="86.1" height="12" rx="1" style="fill:#94a3b8"/>
-    <text x="330.1" y="252" class="t-axis-label">1,720 / 18 (4300 ns)</text>
+    <text x="245.0" y="236" class="t-axis-label">15 / 15 (37 ns)</text>
+    <rect x="240" y="242" width="87.5" height="12" rx="1" style="fill:#94a3b8"/>
+    <text x="331.5" y="252" class="t-axis-label">1,694 / 19 (4230 ns)</text>
     <text x="0" y="288" class="t-note">corrupted reads: 0; reclaim refusals: 0; critical-section BUSY: 0 (it masks the interrupt instead)</text>
   </g>
   <text x="20" y="552" class="t-note">measured: STM32H747I-DISCO, Cortex-M7 CPUID 0x411fc271 (IDCODE 0x20036450), D-cache 4-way x 128 sets x 32 B lines; direct SMPS supply, VOS3 to 160 MHz, VOS1 at 400 MHz</text>
-  <text x="20" y="566" class="t-note">clock check from the host side over 320M cycles: 64 nominal / 64.1 measured MHz, 160 nominal / 160.2 measured MHz, 200 nominal / 200.4 measured MHz, 400 nominal / 400.0 measured MHz</text>
-  <text x="20" y="580" class="t-note">DWT CYCCNT, single board; libexpanse staticlib commit 22908c15; harness integrations/stm32h747; source docs/benchmarks/stm32h747/results.json</text>
+  <text x="20" y="566" class="t-note">clock check from the host side over 320M cycles: 64 nominal / 64.1 measured MHz, 160 nominal / 160.2 measured MHz, 200 nominal / 200.3 measured MHz, 400 nominal / 400.5 measured MHz</text>
+  <text x="20" y="580" class="t-note">DWT CYCCNT, single board; libexpanse staticlib commit fce563c2; harness integrations/stm32h747; source docs/benchmarks/stm32h747/results.json</text>
 </svg>
