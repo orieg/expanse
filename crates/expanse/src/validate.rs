@@ -1,11 +1,15 @@
 //! Defensive trie structure validation and statistics collection.
 
+use crate::alloc::accounted_size;
 use crate::mutate::{
     BRANCHB_UP, LEAF_CAP, LEAF1_CAP, LEAFB1_DOWN, branch_form_level, immed_keys, immed_map_keys,
-    leaf_keys, map_immed_max, pow256, read_packed,
+    leaf_keys, map_immed_max, pow256, read_packed, sub_edges_size, sub_vals_size,
 };
+use crate::mutate_map::map_immed_val_size;
 use crate::node::{BranchB, BranchL3, BranchL7, BranchU, Edge, LeafBitmap1, LeafBitmapL};
+use crate::types::RAW_ALIGN;
 use crate::types::{EdgeTag, EdgeType, ImmedType};
+use core::mem::size_of;
 #[cfg(not(feature = "std"))]
 use core_alloc::format;
 #[cfg(not(feature = "std"))]
@@ -25,6 +29,16 @@ pub struct ExpanseStats {
     pub depth_histogram: [usize; 9],
     /// Histogram of leaf populations (0 to 256).
     pub leaf_pop_histogram: [usize; 257],
+    /// Heap bytes attributed to each node form; sums to `mem_used()`.
+    pub node_bytes: NodeBytes,
+    /// Branch nodes (any form) by the level of the slot holding them.
+    /// `branch_depth_histogram[6]` is the number of 2-byte-prefix expanses
+    /// that have cascaded past `LEAF_CAP`; `[5]` the sub-expanses below them
+    /// that have cascaded in turn.
+    pub branch_depth_histogram: [usize; 9],
+    /// Linear and bitmap leaves (not immediates) by slot level; index 0 is
+    /// the root leaf.
+    pub leaf_depth_histogram: [usize; 9],
 }
 
 impl Default for ExpanseStats {
@@ -33,7 +47,58 @@ impl Default for ExpanseStats {
             node_counts: NodeCounts::default(),
             depth_histogram: [0; 9],
             leaf_pop_histogram: [0; 257],
+            node_bytes: NodeBytes::default(),
+            branch_depth_histogram: [0; 9],
+            leaf_depth_histogram: [0; 9],
         }
+    }
+}
+
+/// Heap bytes attributed to each node form.
+///
+/// Every allocation the engine makes is charged to the form that owns it:
+/// a bitmap branch's packed edge subarrays count under `branch_b`, a
+/// map-flavor bitmap leaf's value subarrays under `leaf_bitmap`, and the
+/// value array behind a multi-key map immediate under `immed_values`. Edges
+/// themselves live inside their parent and are charged there, so immediates
+/// of the set flavor cost nothing here. The sum is exactly the engine's
+/// `mem_used()` (asserted by `tests::node_bytes_sum_to_mem_used`), which is
+/// what makes the breakdown a decomposition of a published number rather
+/// than an estimate beside it.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct NodeBytes {
+    /// Value arrays behind map-flavor immediates holding two or more keys.
+    pub immed_values: usize,
+    /// Packed linear leaves (including a root leaf).
+    pub leaf_linear: usize,
+    /// Bitmap leaves, plus the value subarrays of the map flavor.
+    pub leaf_bitmap: usize,
+    /// Linear branches of up to 3 children.
+    pub branch_l3: usize,
+    /// Linear branches of up to 7 children.
+    pub branch_l7: usize,
+    /// Bitmap branches, plus their packed edge subarrays.
+    pub branch_b: usize,
+    /// Uncompressed branches.
+    pub branch_u: usize,
+}
+
+/// What `alloc_bytes(bytes)` charges: the request rounded to [`RAW_ALIGN`].
+const fn raw(bytes: usize) -> usize {
+    accounted_size(bytes, RAW_ALIGN)
+}
+
+impl NodeBytes {
+    /// Total bytes across every form.
+    #[must_use]
+    pub fn total(&self) -> usize {
+        self.immed_values
+            + self.leaf_linear
+            + self.leaf_bitmap
+            + self.branch_l3
+            + self.branch_l7
+            + self.branch_b
+            + self.branch_u
     }
 }
 
@@ -108,6 +173,22 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
     }
 
     stats.depth_histogram[level as usize] += 1;
+    match tag {
+        EdgeTag::Structural(
+            EdgeType::BranchL3 | EdgeType::BranchL7 | EdgeType::BranchB | EdgeType::BranchU,
+        ) => stats.branch_depth_histogram[level as usize] += 1,
+        EdgeTag::Structural(
+            EdgeType::Leaf1
+            | EdgeType::Leaf2
+            | EdgeType::Leaf3
+            | EdgeType::Leaf4
+            | EdgeType::Leaf5
+            | EdgeType::Leaf6
+            | EdgeType::Leaf7
+            | EdgeType::LeafB1,
+        ) => stats.leaf_depth_histogram[level as usize] += 1,
+        _ => {}
+    }
 
     // Branch form level: below the slot level only behind a narrow pointer
     let bl = match tag {
@@ -146,6 +227,12 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             let keys = if MAP {
                 if im.key_count() as usize > map_immed_max(im.key_bytes()) {
                     return Err("map immediate above aux capacity".into());
+                }
+                // A one-key map immediate keeps its value in the edge; two or
+                // more spill into a class-sized heap array.
+                if im.key_count() >= 2 {
+                    stats.node_bytes.immed_values +=
+                        raw(map_immed_val_size(im.key_count() as usize));
                 }
                 immed_map_keys(edge, im)
             } else {
@@ -209,6 +296,11 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                 return Err("leaf keys unsorted".into());
             }
             stats.leaf_pop_histogram[pop as usize] += 1;
+            stats.node_bytes.leaf_linear += raw(if MAP {
+                crate::leaf::size_map(kb, pop as usize)
+            } else {
+                crate::leaf::size_set(kb, pop as usize)
+            });
             pop
         }
         EdgeTag::Structural(EdgeType::LeafB1) => {
@@ -222,6 +314,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                 }
                 // SAFETY: ptr is non-null and 64-byte aligned LeafBitmapL.
                 let node = unsafe { &*ptr.cast::<LeafBitmapL>() };
+                stats.node_bytes.leaf_bitmap += size_of::<LeafBitmapL>();
                 for sub in 0..8 {
                     let n = node.bitmap.subexpanse_count(sub) as usize;
                     if (node.values[sub].is_null()) != (n == 0) {
@@ -232,6 +325,9 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                             "LeafBitmapL value subarray {sub} pointer not 16-byte aligned"
                         ));
                     }
+                    if n > 0 {
+                        stats.node_bytes.leaf_bitmap += raw(sub_vals_size(n));
+                    }
                 }
                 u64::from(node.bitmap.count())
             } else {
@@ -240,6 +336,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                 }
                 // SAFETY: ptr is non-null and 64-byte aligned LeafBitmap1.
                 let node = unsafe { &*ptr.cast::<LeafBitmap1>() };
+                stats.node_bytes.leaf_bitmap += size_of::<LeafBitmap1>();
                 u64::from(node.bitmap.count())
             };
             if edge.pop0(1) + 1 != count {
@@ -283,6 +380,11 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                 }
             };
             let cap = if is_l3 { BRANCH_L3_CAP } else { BRANCH_L7_CAP };
+            if is_l3 {
+                stats.node_bytes.branch_l3 += size_of::<BranchL3>();
+            } else {
+                stats.node_bytes.branch_l7 += size_of::<BranchL7>();
+            }
             if num < 1 || num > cap {
                 return Err(format!(
                     "linear branch count {num} out of range (1..={cap})"
@@ -310,6 +412,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             }
             // SAFETY: ptr is non-null and 64-byte aligned BranchB.
             let b = unsafe { &*ptr.cast::<BranchB>() };
+            stats.node_bytes.branch_b += size_of::<BranchB>();
             let digits = b.bitmap.count() as usize;
             if digits < BRANCH_L7_CAP {
                 return Err(format!(
@@ -341,6 +444,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
                     if sub_ptr.is_null() {
                         return Err(format!("non-empty subexpanse {sub} with null subarray"));
                     }
+                    stats.node_bytes.branch_b += raw(sub_edges_size(expected));
                     if !(sub_ptr as usize).is_multiple_of(16) {
                         return Err(format!(
                             "BranchB subarray {sub} pointer not 16-byte aligned"
@@ -370,6 +474,7 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
             }
             // SAFETY: ptr is non-null and 64-byte aligned BranchU.
             let b = unsafe { &*ptr.cast::<BranchU>() };
+            stats.node_bytes.branch_u += size_of::<BranchU>();
             let digits = b.edges.iter().filter(|e| !e.is_null()).count();
             if digits < BRANCHB_UP {
                 return Err(format!(
@@ -402,4 +507,72 @@ pub fn expanse_validate_and_stats<const MAP: bool>(
         ));
     }
     Ok(pop)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::map::ExpanseMap;
+    use crate::set::ExpanseSet;
+
+    /// The `bytes_per_key` census generators, so every node form the
+    /// committed density cells exercise (packed leaves, cascaded bitmap
+    /// branches, uncompressed branches, bitmap leaves, root leaves) is
+    /// covered by the exactness check.
+    fn keys(dist: &str, n: usize) -> impl Iterator<Item = u64> {
+        let mut rng = 0x0DDB_1A5E_5EED_0001u64;
+        let mut base = 0u64;
+        let mut next = move || {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng
+        };
+        let dist = dist.to_owned();
+        (0..n as u64).map(move |i| match dist.as_str() {
+            "sequential" => i,
+            "random" => next(),
+            "random62" => next() & ((1u64 << 62) - 1),
+            "clustered" => {
+                if i % 256 == 0 {
+                    base = next() & !0xFF;
+                }
+                base + (i % 256)
+            }
+            "sparse" => i << 40,
+            _ => unreachable!(),
+        })
+    }
+
+    /// `NodeBytes` is a decomposition of `mem_used()`, not an estimate of it:
+    /// the per-form sum must reproduce the allocator's live byte count exactly,
+    /// on both flavors, across every distribution and across the root-leaf,
+    /// packed-leaf and cascaded regimes. A drift here means an allocation the
+    /// walk does not charge to any form.
+    #[test]
+    fn node_bytes_sum_to_mem_used() {
+        for dist in ["sequential", "random", "random62", "clustered", "sparse"] {
+            for n in [0usize, 1, 2, 5, 31, 32, 33, 300, 5_000, 60_000, 200_000] {
+                let mut set = ExpanseSet::new();
+                let mut map = ExpanseMap::new();
+                for k in keys(dist, n) {
+                    set.insert(k);
+                    map.insert(k, !k);
+                }
+                let s = set.stats();
+                assert_eq!(
+                    s.node_bytes.total(),
+                    set.mem_used(),
+                    "set {dist} n={n}: {:?}",
+                    s.node_bytes
+                );
+                let m = map.stats();
+                assert_eq!(
+                    m.node_bytes.total(),
+                    map.mem_used(),
+                    "map {dist} n={n}: {:?}",
+                    m.node_bytes
+                );
+            }
+        }
+    }
 }

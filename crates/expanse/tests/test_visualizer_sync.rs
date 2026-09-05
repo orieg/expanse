@@ -969,6 +969,74 @@ fn test_density_sweep_matches_engine() {
             "{bits}-bit at N={n_narrow} ({published}) must land on 64-bit at N={n_wide} ({wide}): one curve in λ"
         );
     }
+    // The second tooth: one byte level down (58..55 bits, plus the 56-bit
+    // ladder). Recomputed in full — these are the cells that say the cascade
+    // repeats at λ ≈ 256 × LEAF_CAP, and nothing else in the suite covers it.
+    for (n, bits) in [
+        (2_000_000usize, 58u32),
+        (2_000_000, 57),
+        (1_200_000, 56),
+        (1_700_000, 56),
+        (2_000_000, 56),
+        (2_700_000, 56),
+        (2_000_000, 55),
+    ] {
+        let (set_bpk, map_bpk) = sweep_cell(n, bits);
+        let c = cell(n as u64, bits as u64);
+        let lambda = n as f64 / (1u64 << (bits - 48)) as f64;
+        assert!(
+            (f(c, "lambda") - round_to(lambda, 4)).abs() < 1e-9,
+            "{n} @{bits}: published λ {} but N / 2^(bits-48) = {lambda:.4}",
+            f(c, "lambda")
+        );
+        assert!(
+            (f(c, "set_bpk") - round_to(set_bpk, 2)).abs() < 1e-9,
+            "{n} @{bits}: published {} B/key (set) but the engine measures {set_bpk:.2}",
+            f(c, "set_bpk")
+        );
+        assert!(
+            (f(c, "map_bpk") - round_to(map_bpk, 2)).abs() < 1e-9,
+            "{n} @{bits}: published {} B/key (map) but the engine measures {map_bpk:.2}",
+            f(c, "map_bpk")
+        );
+    }
+    // The census is a decomposition, not a second measurement: at every
+    // census cell the per-form byte attribution must sum to the cell's
+    // `mem_used`, and the cascade count must be the level-6 branch count.
+    for c in block["census"].as_array().expect("density_sweep.census") {
+        let nb = &c["node_bytes"];
+        let sum: u64 = [
+            "immed_values",
+            "leaf_linear",
+            "leaf_bitmap",
+            "branch_l3",
+            "branch_l7",
+            "branch_b",
+            "branch_u",
+        ]
+        .iter()
+        .map(|k| {
+            nb[k]
+                .as_u64()
+                .unwrap_or_else(|| panic!("census node_bytes.{k}"))
+        })
+        .sum();
+        assert_eq!(
+            sum,
+            nb["total"].as_u64().unwrap(),
+            "census node_bytes total is not the sum of its forms"
+        );
+        assert_eq!(
+            sum,
+            c["mem_used"].as_u64().unwrap(),
+            "census node_bytes must equal mem_used"
+        );
+        let n = c["n"].as_u64().unwrap() as f64;
+        assert!(
+            (f(c, "bytes_per_key") - round_to(sum as f64 / n, 4)).abs() < 1e-9,
+            "census bytes_per_key must be mem_used / N"
+        );
+    }
 }
 
 /// Retracted figures must never reappear in the published artifacts (JSON, HTML, Assets).

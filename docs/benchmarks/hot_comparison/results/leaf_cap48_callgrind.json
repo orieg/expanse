@@ -1,0 +1,492 @@
+{
+  "provenance": {
+    "what": "Callgrind instruction counts of crates/expanse/benches/instructions.rs (workload core_instructions, 50k keys per distribution) at the shipped LEAF_CAP = 32 and at LEAF_CAP = 48 by build-time patch of crates/expanse/src/types.rs; deterministic exact integers, no interval (AGENTS.md §8.4)",
+    "commit": "86daaddf",
+    "patch": "pub const LEAF_CAP: usize = 48;",
+    "host": "x86_64 build host — Intel Xeon E5-2697 v4 @ 2.30GHz, 72 threads, Linux 5.15; inside a rust:1.98 container (rustc 1.98.0, valgrind 3.24.0, iai-callgrind-runner 0.16.1, --security-opt seccomp=unconfined)",
+    "read_path_note": "the harness holds 50k keys per distribution (λ = 0.76 on `random`): no linear leaf reaches either cap, so a lookup arm that does not move says the constant alone does not change the descent; the cascaded regime (λ ≥ 25) is not covered by this harness",
+    "write_path_note": "the insert and churn arms move at the same population, where no leaf ever holds 33 keys: whatever the constant sizes on the mutation path costs instructions below the cap; cause unmeasured here"
+  },
+  "arms_compared": 53,
+  "arms_identical": 35,
+  "arms_moved": [
+    {
+      "arm": "map_insert/sequential",
+      "ir_cap32": 10096741,
+      "ir_cap48": 10098044,
+      "delta_pct": 0.013
+    },
+    {
+      "arm": "map_insert/random",
+      "ir_cap32": 26644387,
+      "ir_cap48": 28714426,
+      "delta_pct": 7.769
+    },
+    {
+      "arm": "map_insert/clustered",
+      "ir_cap32": 18993138,
+      "ir_cap48": 19322024,
+      "delta_pct": 1.732
+    },
+    {
+      "arm": "map_insert/small",
+      "ir_cap32": 25520589,
+      "ir_cap48": 25602712,
+      "delta_pct": 0.322
+    },
+    {
+      "arm": "map_insert/dense_leaf",
+      "ir_cap32": 23894188,
+      "ir_cap48": 25665586,
+      "delta_pct": 7.414
+    },
+    {
+      "arm": "map_insert/linear_leaf",
+      "ir_cap32": 24770247,
+      "ir_cap48": 26543306,
+      "delta_pct": 7.158
+    },
+    {
+      "arm": "set_insert/sequential",
+      "ir_cap32": 3509806,
+      "ir_cap48": 3512436,
+      "delta_pct": 0.075
+    },
+    {
+      "arm": "set_insert/random",
+      "ir_cap32": 21440033,
+      "ir_cap48": 23069689,
+      "delta_pct": 7.601
+    },
+    {
+      "arm": "set_insert/clustered",
+      "ir_cap32": 11519588,
+      "ir_cap48": 11957789,
+      "delta_pct": 3.804
+    },
+    {
+      "arm": "set_insert/dense_leaf",
+      "ir_cap32": 18858587,
+      "ir_cap48": 20225344,
+      "delta_pct": 7.247
+    },
+    {
+      "arm": "set_insert/linear_leaf",
+      "ir_cap32": 19289260,
+      "ir_cap48": 20691362,
+      "delta_pct": 7.269
+    },
+    {
+      "arm": "map_ins_slot/random",
+      "ir_cap32": 25716424,
+      "ir_cap48": 27808124,
+      "delta_pct": 8.134
+    },
+    {
+      "arm": "map_get/linear_leaf",
+      "ir_cap32": 9750101,
+      "ir_cap48": 9748994,
+      "delta_pct": -0.011
+    },
+    {
+      "arm": "map_churn/random",
+      "ir_cap32": 63256926,
+      "ir_cap48": 63256961,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_remove/random",
+      "ir_cap32": 23562398,
+      "ir_cap48": 23612225,
+      "delta_pct": 0.211
+    },
+    {
+      "arm": "strmap_insert/routes",
+      "ir_cap32": 44691602,
+      "ir_cap48": 44667074,
+      "delta_pct": -0.055
+    },
+    {
+      "arm": "bytesmap_insert/routes",
+      "ir_cap32": 99296546,
+      "ir_cap48": 101908370,
+      "delta_pct": 2.63
+    },
+    {
+      "arm": "bytesmap_churn/routes",
+      "ir_cap32": 187582139,
+      "ir_cap48": 187594897,
+      "delta_pct": 0.007
+    }
+  ],
+  "lookup_pairs": [
+    {
+      "arm": "map_get/sequential",
+      "ir_cap32": 6950212,
+      "ir_cap48": 6950212,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_get/random",
+      "ir_cap32": 6262259,
+      "ir_cap48": 6262259,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_get/clustered",
+      "ir_cap32": 5619908,
+      "ir_cap48": 5619908,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_get/dense_leaf",
+      "ir_cap32": 10811452,
+      "ir_cap48": 10811452,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_get/linear_leaf",
+      "ir_cap32": 9750101,
+      "ir_cap48": 9748994,
+      "delta_pct": -0.011
+    },
+    {
+      "arm": "set_contains/random",
+      "ir_cap32": 6139088,
+      "ir_cap48": 6139088,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_get_batch/random",
+      "ir_cap32": 8705024,
+      "ir_cap48": 8705024,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "set_contains_batch/random",
+      "ir_cap32": 8500035,
+      "ir_cap48": 8500035,
+      "delta_pct": 0.0
+    }
+  ],
+  "all_pairs": [
+    {
+      "arm": "map_insert/sequential",
+      "ir_cap32": 10096741,
+      "ir_cap48": 10098044,
+      "delta_pct": 0.013
+    },
+    {
+      "arm": "map_insert/random",
+      "ir_cap32": 26644387,
+      "ir_cap48": 28714426,
+      "delta_pct": 7.769
+    },
+    {
+      "arm": "map_insert/clustered",
+      "ir_cap32": 18993138,
+      "ir_cap48": 19322024,
+      "delta_pct": 1.732
+    },
+    {
+      "arm": "map_insert/small",
+      "ir_cap32": 25520589,
+      "ir_cap48": 25602712,
+      "delta_pct": 0.322
+    },
+    {
+      "arm": "map_insert/dense_leaf",
+      "ir_cap32": 23894188,
+      "ir_cap48": 25665586,
+      "delta_pct": 7.414
+    },
+    {
+      "arm": "map_insert/linear_leaf",
+      "ir_cap32": 24770247,
+      "ir_cap48": 26543306,
+      "delta_pct": 7.158
+    },
+    {
+      "arm": "set_insert/sequential",
+      "ir_cap32": 3509806,
+      "ir_cap48": 3512436,
+      "delta_pct": 0.075
+    },
+    {
+      "arm": "set_insert/random",
+      "ir_cap32": 21440033,
+      "ir_cap48": 23069689,
+      "delta_pct": 7.601
+    },
+    {
+      "arm": "set_insert/clustered",
+      "ir_cap32": 11519588,
+      "ir_cap48": 11957789,
+      "delta_pct": 3.804
+    },
+    {
+      "arm": "set_insert/dense_leaf",
+      "ir_cap32": 18858587,
+      "ir_cap48": 20225344,
+      "delta_pct": 7.247
+    },
+    {
+      "arm": "set_insert/linear_leaf",
+      "ir_cap32": 19289260,
+      "ir_cap48": 20691362,
+      "delta_pct": 7.269
+    },
+    {
+      "arm": "map_ins_slot/random",
+      "ir_cap32": 25716424,
+      "ir_cap48": 27808124,
+      "delta_pct": 8.134
+    },
+    {
+      "arm": "map_get/sequential",
+      "ir_cap32": 6950212,
+      "ir_cap48": 6950212,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_get/random",
+      "ir_cap32": 6262259,
+      "ir_cap48": 6262259,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_get/clustered",
+      "ir_cap32": 5619908,
+      "ir_cap48": 5619908,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_get/dense_leaf",
+      "ir_cap32": 10811452,
+      "ir_cap48": 10811452,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_get/linear_leaf",
+      "ir_cap32": 9750101,
+      "ir_cap48": 9748994,
+      "delta_pct": -0.011
+    },
+    {
+      "arm": "set_contains/random",
+      "ir_cap32": 6139088,
+      "ir_cap48": 6139088,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_get_batch/random",
+      "ir_cap32": 8705024,
+      "ir_cap48": 8705024,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "set_contains_batch/random",
+      "ir_cap32": 8500035,
+      "ir_cap48": 8500035,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_churn/random",
+      "ir_cap32": 63256926,
+      "ir_cap48": 63256961,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_remove/random",
+      "ir_cap32": 23562398,
+      "ir_cap48": 23612225,
+      "delta_pct": 0.211
+    },
+    {
+      "arm": "map_iterate/random",
+      "ir_cap32": 5263924,
+      "ir_cap48": 5263924,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map_nav/random",
+      "ir_cap32": 15284563,
+      "ir_cap48": 15284563,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_get/can_dispatch",
+      "ir_cap32": 105841,
+      "ir_cap48": 105841,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_iterate/sequential",
+      "ir_cap32": 188740,
+      "ir_cap48": 188740,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_iterate/clustered",
+      "ir_cap32": 286008,
+      "ir_cap48": 286008,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_iterate/random",
+      "ir_cap32": 325764,
+      "ir_cap48": 325764,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_range/sequential",
+      "ir_cap32": 188749,
+      "ir_cap48": 188749,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_range/clustered",
+      "ir_cap32": 286017,
+      "ir_cap48": 286017,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_range/random",
+      "ir_cap32": 163892,
+      "ir_cap48": 163892,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_for_each_range/sequential",
+      "ir_cap32": 148217,
+      "ir_cap48": 148217,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_for_each_range/clustered",
+      "ir_cap32": 209556,
+      "ir_cap48": 209556,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_for_each_range/random",
+      "ir_cap32": 96283,
+      "ir_cap48": 96283,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "set32_iterate/sequential",
+      "ir_cap32": 133603,
+      "ir_cap48": 133603,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "set32_iterate/clustered",
+      "ir_cap32": 259758,
+      "ir_cap48": 259758,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "set32_iterate/random",
+      "ir_cap32": 292513,
+      "ir_cap48": 292513,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "set32_range/sequential",
+      "ir_cap32": 133612,
+      "ir_cap48": 133612,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "set32_range/clustered",
+      "ir_cap32": 259767,
+      "ir_cap48": 259767,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "set32_range/random",
+      "ir_cap32": 147418,
+      "ir_cap48": 147418,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_remove/sequential",
+      "ir_cap32": 1463744,
+      "ir_cap48": 1463744,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_remove/clustered",
+      "ir_cap32": 1904054,
+      "ir_cap48": 1904054,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "map32_remove/random",
+      "ir_cap32": 1312225,
+      "ir_cap48": 1312225,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "set32_remove/sequential",
+      "ir_cap32": 1079699,
+      "ir_cap48": 1079699,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "set32_remove/clustered",
+      "ir_cap32": 1807433,
+      "ir_cap48": 1807433,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "set32_remove/random",
+      "ir_cap32": 1100469,
+      "ir_cap48": 1100469,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "blobmap32_scan/ipv4_routes",
+      "ir_cap32": 343878,
+      "ir_cap48": 343878,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "strmap_insert/routes",
+      "ir_cap32": 44691602,
+      "ir_cap48": 44667074,
+      "delta_pct": -0.055
+    },
+    {
+      "arm": "strmap_get/routes",
+      "ir_cap32": 35112869,
+      "ir_cap48": 35112869,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "strmap_churn/routes",
+      "ir_cap32": 120882722,
+      "ir_cap48": 120882722,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "bytesmap_insert/routes",
+      "ir_cap32": 99296546,
+      "ir_cap48": 101908370,
+      "delta_pct": 2.63
+    },
+    {
+      "arm": "bytesmap_get/routes",
+      "ir_cap32": 29511206,
+      "ir_cap48": 29511206,
+      "delta_pct": 0.0
+    },
+    {
+      "arm": "bytesmap_churn/routes",
+      "ir_cap32": 187582139,
+      "ir_cap48": 187594897,
+      "delta_pct": 0.007
+    }
+  ]
+}

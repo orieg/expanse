@@ -66,6 +66,36 @@ against Expanse's 2.7×. Holding fanout roughly constant by varying discriminati
 bits per node is exactly the property its authors claim for it, and on this
 instrument it delivers.
 
+### The Expanse curve beyond this table — engine instrument, not the census
+
+The table above is the suite's allocator instrument. The engine's own
+deterministic accounting (`mem_used()`, host-independent, no wall clock) covers
+a wider λ range and is what locates the teeth; the two instruments are not the
+same quantity and are never mixed in one table (§9.3, §9.10.6). Set and map
+flavors, uniform random keys, same PRNG and seed *(measured: deterministic
+byte accounting; workload: `example_keyspace_density`;
+`docs/assets/data/bench_assets.json` → `density_sweep`, commit 86daaddf; full
+tables and the node census in `METHODOLOGY.md` §9.10)*:
+
+| λ | cell | `ExpanseSet` B/key | `ExpanseMap<u64,u64>` B/key | where on the curve |
+|---:|---|---:|---:|---|
+| 15.26 | 1M @64 | 7.92 | 16.70 | the `memory-budget` cell |
+| 19.84 | 1.3M @64 | **7.59** | 16.15 | first trough |
+| 27.47 | 1.8M @64 | 10.51 | 17.58 | first knee |
+| 30.52 | 2M @64 | 13.60 | 19.38 | 35.05% of expanses cascaded (census) |
+| 48.83 | 800k @62 | 21.02 | 23.90 | first peak |
+| 1,953 | 2M @58 | 8.80 | 18.51 | every level-6 expanse a `BranchU` |
+| 4,688 | 1.2M @56 | **6.71** | 15.35 | second trough |
+| 7,812 | 2M @56 | 12.98 | 18.74 | second tooth, 34.9% of sub-expanses cascaded |
+| 10,547 | 2.7M @56 | 20.98 | 23.76 | second peak |
+
+The curve repeats one byte level down at λ ≈ 256 × `LEAF_CAP`, so the memory
+verdict of §1 — Expanse wins in a band and loses outside it — is a verdict
+per tooth, not a verdict on "high λ". The census, seed sensitivity, the
+`LEAF_CAP = 48` control with its read-path measurement, and the reconciliation
+of this suite's 8.27 B/key cell with the 12.62 B/key of §9.3 are in
+`METHODOLOGY.md` §9.10.
+
 ### Arm B — the value model decides it
 
 | λ | N | HOT B/key | `ExpanseMap` B/key | Expanse advantage |
@@ -261,7 +291,13 @@ Stated before the numbers existed (§7) and unchanged by them:
    ART-vs-Expanse ratio from `art_comparison/` (§8.12).
 6. **The memory instrument is bytes held from the C allocator**, not the engine's
    `mem_used()`, because it is the only definition both arms satisfy. The two are
-   not the same quantity and the gap is not a constant factor (§9.3).
+   not the same quantity and the gap is not a constant factor (§9.3) — and on
+   the Expanse side it depends on **insertion order**: `hot_memory_curve` sorts
+   and deduplicates its keys before inserting, so its Expanse cells carry a
+   1.03× gap where a generator-order build of the same keys carries 1.59×
+   (§9.10, workload: `hot_instrument_bridge`). Every allocator-instrument cell
+   in this suite is a sorted-order cell; the repo's `bytes/key` table is
+   generator-order and `mem_used()`, and neither is a re-measurement of the other.
 
 ---
 

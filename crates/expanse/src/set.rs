@@ -578,6 +578,9 @@ impl ExpanseSet {
                 stats.depth_histogram[0] = 1;
                 stats.leaf_pop_histogram[*pop] = 1;
                 stats.node_counts.leaf_linear = 1;
+                stats.leaf_depth_histogram[0] = 1;
+                stats.node_bytes.leaf_linear =
+                    crate::alloc::accounted_size(root_leaf_size(*pop), crate::types::RAW_ALIGN);
             }
             Root::Tree { top, .. } => {
                 self.flush_path();
