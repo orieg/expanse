@@ -737,9 +737,30 @@ fn set_immed_keys(e: &Edge32, kb: u8, count: u8) -> ([u32; 7], usize) {
     let kbu = kb as usize;
     let mut out = [0u32; 7];
     for (i, slot) in out.iter_mut().enumerate().take(count as usize) {
-        let mut b = [0u8; 4];
-        b[..kbu].copy_from_slice(&p[i * kbu..i * kbu + kbu]);
-        *slot = u32::from_le_bytes(b);
+        let o = i * kbu;
+        // Same split, and the same reason, as `read_rem`: `kbu` is a runtime
+        // 1..=4, so on native the slice copy cannot be const-folded and lowers
+        // to a libc `memcpy` call, while on wasm it is already a single
+        // `memory.copy` with no call to remove. Each target keeps the form its
+        // own instrument prefers; do not collapse them without re-running both.
+        //
+        // `count <= set_immed_cap(kb)` bounds every index here: kb=4 admits one
+        // key, kb=3 two, kb=2 three, kb=1 seven, and `p` holds seven bytes.
+        #[cfg(not(target_family = "wasm"))]
+        {
+            *slot = match kbu {
+                1 => u32::from(p[o]),
+                2 => u32::from(u16::from_le_bytes([p[o], p[o + 1]])),
+                3 => u32::from_le_bytes([p[o], p[o + 1], p[o + 2], 0]),
+                _ => u32::from_le_bytes([p[o], p[o + 1], p[o + 2], p[o + 3]]),
+            };
+        }
+        #[cfg(target_family = "wasm")]
+        {
+            let mut b = [0u8; 4];
+            b[..kbu].copy_from_slice(&p[o..o + kbu]);
+            *slot = u32::from_le_bytes(b);
+        }
     }
     (out, count as usize)
 }
