@@ -19,6 +19,8 @@
 //!   by link-time interposition on the C allocator family, which captures HOT's
 //!   `posix_memalign` node allocations and Rust's allocations alike.
 
+pub mod workload;
+
 use std::os::raw::c_void;
 
 unsafe extern "C" {
