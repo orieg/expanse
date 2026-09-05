@@ -54,6 +54,28 @@ Per `AGENTS.md` §8.8 commit 2 (pre-registration locked before any main data) an
      device harvest. No published table or chart consumes them — `docs/DATABASE.md` and
      `scripts/generate_charts.py` both read `pop=2000` only, where the correction is 0.2%.
 
-3. **Run-to-Run Drift & Flash Cache Sensitivity**:
+3. **The Dispatch Control Sizes the One Remaining Arm Asymmetry**:
+   - `expanse_memtable_aggregate_range` crosses the C ABI into Rust and is called back once
+     per key through `expanse_map_for_each_range`; every twin folds inline. Lock symmetry
+     (§8.16) is satisfied — all arms take the same recursive mutex once per call — but this
+     per-key dispatch is a genuine §8.3 asymmetry that the Expanse-vs-twin ratio carries.
+   - It was disclosed and never measured, which made the disclosure unfalsifiable. The
+     `sorted_array_indirect` arm measures it: `twin_sorted_aggregate_indirect` is
+     `twin_sorted_aggregate` with `agg_add(out, val)` replaced by `visit(key, val, out)`.
+     Same container, key set, fold body, lock and measured region, so
+     **`sorted_array_indirect` − `sorted_array` is the per-key dispatch and nothing else**.
+   - The visitor is read through a `volatile` so the target cannot be devirtualised under
+     LTO. Expanse's visitor is reached from Rust across the C ABI and never can be, so a
+     control that inlined its own callback would measure ~0 and report the asymmetry as
+     free — a silent wrong answer rather than a loud failure (§8.1).
+   - **It is a floor, not an estimate.** Dispatch is measured in a contiguous array walk,
+     not inside Expanse's leaf walk where register pressure differs. It bounds what the
+     callback costs Expanse from below; it does not say what it costs there.
+   - The arm has **no measurement yet** — it needs a device run and no board is currently
+     connected. Its numbers are pending re-measurement (#676) along with the rest of the
+     aggregation cells. Nothing in this suite is corrected on its behalf until it is run:
+     the published Expanse-vs-twin ratios stand as measured, with the asymmetry disclosed.
+
+4. **Run-to-Run Drift & Flash Cache Sensitivity**:
    - Microcontroller execution is sensitive to binary link layout and instruction-cache / flash-cache alignment.
    - Results are reported using median cycles across clean repetitions alongside BCa 95% intervals, with contamination sampling to identify ISR or flash-miss outliers.

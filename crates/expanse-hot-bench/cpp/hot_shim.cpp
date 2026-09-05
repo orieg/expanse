@@ -101,6 +101,35 @@ void *__wrap_aligned_alloc(size_t a, size_t s) {
     return p;
 }
 
+}  // extern "C"
+
+// Replaceable global allocation functions.
+//
+// `-Wl,--wrap=malloc` rewrites symbol resolution only for the objects being
+// linked. libstdc++'s `operator new` lives in libstdc++.so and reaches malloc
+// through the dynamic linker at runtime, so its allocations are NOT wrapped —
+// measured: Arm B's 100,000 heap `std::pair`s produced 3 extra counted
+// allocations instead of 100,000, hiding roughly 32 B/key of the map arm's real
+// footprint and flattering HOT exactly where its value model is most expensive.
+//
+// Defining these here replaces the library's versions program-wide (C++
+// [basic.stc.dynamic.allocation]), routing every `new`/`delete` through the
+// counted path. This is the mirror image of the Step 0 finding: there, an
+// `operator new` counter missed HOT's `posix_memalign` nodes; here, a malloc
+// counter missed the C++ `operator new` pairs. The census needs both.
+void *operator new(size_t s) {
+    void *p = __wrap_malloc(s);
+    if (p == nullptr) throw std::bad_alloc();
+    return p;
+}
+void *operator new[](size_t s) { return operator new(s); }
+void operator delete(void *p) noexcept { __wrap_free(p); }
+void operator delete[](void *p) noexcept { __wrap_free(p); }
+void operator delete(void *p, size_t) noexcept { __wrap_free(p); }
+void operator delete[](void *p, size_t) noexcept { __wrap_free(p); }
+
+extern "C" {
+
 // --- census control -------------------------------------------------------
 
 void exp_census_reset(void) {
