@@ -147,6 +147,34 @@ prediction; it landed stronger than registered.
 
 ---
 
+### Per-pillar charts
+
+Badges are driven by the cell's **verdict**, not by which bar is shorter: a cell
+whose BCa interval spans parity carries a neutral `BOUNDARY` badge and claims no
+winner (§8.4).
+
+**Point lookup, 100% hit**
+
+![Point lookup 100% hit](results/chart_lookup_hit.svg)
+
+**Point lookup, 50% hit / 50% miss**
+
+![Point lookup 50/50](results/chart_lookup_miss.svg)
+
+**Insertion into a cold structure**
+
+![Insertion](results/chart_insert.svg)
+
+**Live heap memory, selected occupancies**
+
+![Memory](results/chart_memory.svg)
+
+Read that one against the curve above, not on its own — it samples five
+occupancies either side of the cascade, and which side a cell lands on decides
+its winner.
+
+---
+
 ## 3. Ordered scan is a systematic loss, wider than predicted
 
 **27 of this suite's 30 HOT wins are scan cells.** §5.1 registered HOT winning
@@ -171,6 +199,8 @@ The `map`/`random`/1M row is the exception and it reverses cleanly: Expanse wins
 every scan width there. Scan outcome therefore depends on population as well as
 on `k`, which is a second reason this suite does not publish single-population
 cells.
+
+![Ordered range scan](results/chart_scan.svg)
 
 Scan on `sequential` and `clustered` is an Expanse win throughout and does not
 appear in the loss list.

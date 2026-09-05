@@ -230,11 +230,161 @@ def latency_1m() -> str:
     return "\n".join(out)
 
 
+def render_two_arm_chart(
+    out_name: str, title: str, sub: str, unit: str, rows: list, lower_is_better: bool = True
+) -> str:
+    """The house per-pillar chart, in the shape `art_comparison/` established.
+
+    rows: list of (label, sublabel, expanse_value, hot_value, verdict). Bar
+    lengths and the axis ceiling come from the rows (§8.15a); the badge ratio is
+    computed, never written by hand.
+
+    The badge is driven by the cell's **verdict**, not by which bar is shorter. A
+    cell whose BCa interval spans parity gets a neutral `BOUNDARY` badge and
+    claims no winner (§8.4). The first version of this chart compared the two
+    point estimates and rendered a green "Expanse 1.00x" win for
+    `lookup_hit · set · random`, whose interval is [0.982, 0.997] around 0.998 —
+    a `BOUNDARY_RESULT` drawn as a victory.
+    """
+    if not rows:
+        return ""
+    max_val = max([max(r[2], r[3]) for r in rows] + [1e-9]) * 1.25
+    bar_max = 280.0
+    row_h = 56
+    top = 96
+    height = top + len(rows) * row_h + 24
+
+    svg = svg_header(width=960, height=height, title=esc(title))
+    better = "lower is better" if lower_is_better else "higher is better"
+    svg += f"""
+  <text x="30" y="34" class="t-title">{esc(title)}</text>
+  <text x="30" y="50" class="t-sub">{esc(sub)} &#183; {esc(unit)} &#183; {better}</text>
+  <g transform="translate(660, 20)">
+    <rect x="0" y="0" width="10" height="10" rx="2" class="b-expanse"/>
+    <text x="14" y="9" class="t-legend">Expanse</text>
+    <rect x="90" y="0" width="10" height="10" rx="2" class="b-hot"/>
+    <text x="104" y="9" class="t-legend">HOT</text>
+  </g>
+  <line x1="30" y1="66" x2="930" y2="66" class="divider"/>
+"""
+    for i, row in enumerate(rows):
+        label, sublabel, exp, hot = row[0], row[1], row[2], row[3]
+        verdict = row[4] if len(row) > 4 else None
+        y = top + i * row_h
+        w_exp = max(2.0, (exp / max_val) * bar_max)
+        w_hot = max(2.0, (hot / max_val) * bar_max)
+        svg += f"""  <text x="30" y="{y + 12}" class="t-bar-label">{esc(label)}</text>
+  <text x="30" y="{y + 26}" class="t-sub">{esc(sublabel)}</text>
+  <rect x="300" y="{y - 4}" width="{w_exp:.1f}" height="11" rx="2" class="b-expanse"/>
+  <text x="{308 + w_exp:.1f}" y="{y + 5}" class="t-val-accent">{exp:.2f}</text>
+  <rect x="300" y="{y + 13}" width="{w_hot:.1f}" height="11" rx="2" class="b-hot"/>
+  <text x="{308 + w_hot:.1f}" y="{y + 22}" class="t-val-blue">{hot:.2f}</text>
+"""
+        if lower_is_better:
+            expanse_wins = exp <= hot
+            ratio = (hot / exp) if expanse_wins and exp > 0 else (exp / hot if hot > 0 else 1.0)
+        else:
+            expanse_wins = exp >= hot
+            ratio = (exp / hot) if expanse_wins and hot > 0 else (hot / exp if exp > 0 else 1.0)
+
+        if verdict == "BOUNDARY_RESULT":
+            cls, tcls, txt = "badge-loss", "badge-loss-text", "BOUNDARY"
+        elif expanse_wins:
+            cls, tcls, txt = "badge-win", "badge-win-text", f"Expanse {ratio:.2f}x"
+        else:
+            cls, tcls, txt = "badge-loss", "badge-loss-text", f"HOT {ratio:.2f}x"
+        svg += f"""  <rect x="800" y="{y + 4}" width="130" height="20" rx="3" class="{cls}"/>
+  <text x="865" y="{y + 18}" class="{tcls}">{esc(txt)}</text>
+"""
+    svg += "</svg>\n"
+    return svg
+
+
+def standard_charts() -> list:
+    """The five per-pillar charts every comparative suite in this repo ships."""
+    lat = json.loads((RESULTS / "baseline_latency.json").read_text())["cells"]
+    mem = json.loads((RESULTS / "baseline_memory_curve.json").read_text())["cells"]
+    written = []
+
+    arm_name = {"set": "Arm A · set", "map": "Arm B · map"}
+    for pillar, fname, label in (
+        ("lookup_hit", "chart_lookup_hit.svg", "Point Lookup — 100% Hit"),
+        ("lookup_miss", "chart_lookup_miss.svg", "Point Lookup — 50% Hit / 50% Miss"),
+        ("insert", "chart_insert.svg", "Insertion Into A Cold Structure"),
+    ):
+        rows = []
+        for c in sorted(
+            (x for x in lat if x["pillar"] == pillar and x["population"] == 1_000_000),
+            key=lambda x: (x["arm"], x["dist"]),
+        ):
+            rows.append(
+                (
+                    f'{c["dist"]} · {arm_name[c["arm"]]}',
+                    f'N = {c["population"]:,} · {c["keyspace_bits"]}-bit keys',
+                    c["expanse_ns_per_op_median"],
+                    c["hot_ns_per_op_median"],
+                    c["verdict"],
+                )
+            )
+        svg = render_two_arm_chart(fname, label.upper(), "N = 1,000,000, reference host", "ns / op", rows)
+        if svg:
+            (RESULTS / fname).write_text(svg)
+            written.append(fname)
+
+    rows = []
+    for c in sorted(
+        (x for x in lat if x["pillar"] == "scan" and x["population"] == 1_000_000),
+        key=lambda x: (x["arm"], x["dist"], x["scan_k"]),
+    ):
+        rows.append(
+            (
+                f'{c["dist"]} · k={c["scan_k"]} · {arm_name[c["arm"]]}',
+                f'N = {c["population"]:,}',
+                c["expanse_ns_per_op_median"],
+                c["hot_ns_per_op_median"],
+                c["verdict"],
+            )
+        )
+    svg = render_two_arm_chart(
+        "chart_scan.svg", "ORDERED RANGE SCAN", "N = 1,000,000, reference host", "ns / element", rows
+    )
+    if svg:
+        (RESULTS / "chart_scan.svg").write_text(svg)
+        written.append("chart_scan.svg")
+
+    # Memory at the occupancies either side of the cascade, so the bar chart
+    # cannot be read as "the" memory answer — the curve chart carries that.
+    rows = []
+    for c in sorted(mem, key=lambda x: (x["arm"], x["lambda_target"])):
+        if c["lambda_target"] not in (8.0, 15.0, 23.0, 30.0, 46.0):
+            continue
+        rows.append(
+            (
+                f'λ ≈ {c["lambda_target"]:.0f} · {arm_name[c["arm"]]}',
+                f'N = {c["population"]:,} · {c["keyspace_bits"]}-bit keys',
+                c["expanse_alloc_bytes_per_key"],
+                c["hot_alloc_bytes_per_key"],
+            )
+        )
+    svg = render_two_arm_chart(
+        "chart_memory.svg",
+        "LIVE HEAP MEMORY",
+        "selected occupancies either side of the LEAF_CAP cascade — see chart_memory_curve.svg for the full sweep",
+        "bytes / key",
+        rows,
+    )
+    if svg:
+        (RESULTS / "chart_memory.svg").write_text(svg)
+        written.append("chart_memory.svg")
+    return written
+
+
 def main() -> int:
     RESULTS.mkdir(parents=True, exist_ok=True)
     (RESULTS / "chart_memory_curve.svg").write_text(memory_curve() + "\n")
     (RESULTS / "chart_latency_1m.svg").write_text(latency_1m() + "\n")
-    print("wrote chart_memory_curve.svg and chart_latency_1m.svg")
+    extra = standard_charts()
+    print("wrote chart_memory_curve.svg, chart_latency_1m.svg, " + ", ".join(extra))
     return 0
 
 
