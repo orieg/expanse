@@ -3790,6 +3790,24 @@ pub(crate) fn map_for_each_range(
             let lo_u8 = lo as u8;
             let hi_u8 = hi.min(255) as u8;
             let (w_lo, w_hi) = ((lo_u8 >> 6) as usize, (hi_u8 >> 6) as usize);
+            // Ranks are per 32-digit subarray and this walk consumes set bits
+            // in ascending order, so within one subarray each entry sits one
+            // rank past the last. `map_bitmap_entry` recomputed that with a
+            // popcount for every key; the popcount is only needed on the entry
+            // that opens a subarray, at most eight times per leaf.
+            //
+            // Needed there rather than assumed zero for two reasons: the words
+            // at each end are masked to the bounds, so the first entry of the
+            // opening subarray can sit above rank 0, and `lo` can land partway
+            // into a subarray whose lower digits are still set in the leaf's
+            // own bitmap.
+            //
+            // This is the same change #686 made to `LeafCur32::next`, which is
+            // a different walk over the same leaves — that one serves
+            // `map.iter()` / `map.range()`, this one serves the C ABI's
+            // `expanse_map_for_each_range` and the embedded suite behind it.
+            let mut sub = SUB_NONE;
+            let mut rank = 0u8;
             for w in w_lo..=w_hi {
                 // Mask the partial words at each end so the loop visits only
                 // digits inside [lo, hi].
@@ -3802,10 +3820,22 @@ pub(crate) fn map_for_each_range(
                 }
                 while word != 0 {
                     let digit = (w * 64 + word.trailing_zeros() as usize) as u8;
-                    let Some((cr, v)) = map_bitmap_entry(b, digit) else {
+                    let this_sub = digit >> 5;
+                    if this_sub == sub {
+                        rank += 1;
+                    } else {
+                        rank = bitmap_sub_rank(b.header.bitmap[w], digit) as u8;
+                        sub = this_sub;
+                    }
+                    debug_assert_eq!(
+                        usize::from(rank),
+                        bitmap_sub_rank(b.header.bitmap[w], digit),
+                        "running rank diverged from the popcount it replaces"
+                    );
+                    let Some(arr) = b.subarrays[this_sub as usize].as_ref() else {
                         return true;
                     };
-                    if !f(cr, v) {
+                    if !f(u32::from(digit), arr[usize::from(rank)]) {
                         return false;
                     }
                     word &= word - 1;
