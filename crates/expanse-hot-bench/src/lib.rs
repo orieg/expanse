@@ -7,11 +7,14 @@
 //! Two locked constraints from the Step 0 gate are enforced here rather than
 //! left to each harness to remember:
 //!
-//! - **63-bit keyspace.** HOT tags leaves in bit 0 and recovers the payload with
-//!   an arithmetic shift, so a key with bit 63 set is accepted by `insert` and
-//!   then never found. [`Key63`] makes that unrepresentable; the shim also
-//!   rejects such keys, so a bug in the harness fails loudly instead of quietly
-//!   halving the population.
+//! - **The suite's key domain is `u64`.** HOT tags leaves in bit 0 and recovers
+//!   the payload with an arithmetic shift, so its *inline payload* is 63 bits
+//!   wide. That binds only where the stored value is the key itself — Arm A's
+//!   `IdentityKeyExtractor`. Arm B stores a heap pointer and handles the full
+//!   64-bit domain, verified against keys spanning bit 63. The limit is
+//!   therefore a **capability predicate on Arm A** ([`hot_can_inline`]),
+//!   evaluated against the workload and reported as a finding about HOT — never
+//!   a restriction on the workload both systems are measured over.
 //! - **One allocator instrument for both arms.** [`Census`] reads counters fed
 //!   by link-time interposition on the C allocator family, which captures HOT's
 //!   `posix_memalign` node allocations and Rust's allocations alike.
@@ -45,39 +48,44 @@ unsafe extern "C" {
     fn exp_hot_map_scan(t: *mut c_void, lo: u64, k: usize, sink: *mut u64) -> usize;
 }
 
-/// A key drawn from the 63-bit space both arms are locked to.
+/// Width of HOT's inline value payload, in bits.
 ///
-/// Constructing one is the only way to reach the FFI surface, so the constraint
-/// cannot be forgotten at a call site. It is applied to the Expanse arm
-/// identically — never masked on the HOT side alone (§3.1 of the methodology).
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct Key63(u64);
+/// `HOTSingleThreadedChildPointer` tags leaves in bit 0 and recovers the stored
+/// value with `mPointer >> 1`, so whatever HOT stores inline is 63 bits wide.
+pub const HOT_INLINE_PAYLOAD_BITS: u32 = 63;
 
-impl Key63 {
-    /// The exclusive upper bound of the shared keyspace, `2^63`.
-    pub const LIMIT: u64 = 1u64 << 63;
+/// Whether `key` fits HOT's inline value payload.
+///
+/// This is a predicate on **Arm A only**, where `IdentityKeyExtractor` makes the
+/// stored value the key itself. Arm B stores a heap pointer and is unaffected —
+/// measured 6/6 on keys spanning bit 63, including `u64::MAX`.
+///
+/// It exists to be *evaluated against* a workload and reported, never to edit
+/// one. An earlier revision of this crate folded every key into a 63-bit space
+/// on both arms and on the Expanse side too; that doubled Expanse's effective
+/// load factor (halving the keyspace is arithmetically the same as doubling the
+/// population for a structure that partitions by key expanse) and moved its
+/// 1M uniform-random memory cell across a density discontinuity. See §9.4 of
+/// `docs/benchmarks/hot_comparison/METHODOLOGY.md`.
+#[inline]
+pub fn hot_can_inline(key: u64) -> bool {
+    key >> HOT_INLINE_PAYLOAD_BITS == 0
+}
 
-    /// Returns `None` if `raw` has bit 63 set and so is unrepresentable in HOT.
-    #[inline]
-    pub fn new(raw: u64) -> Option<Self> {
-        (raw < Self::LIMIT).then_some(Self(raw))
-    }
-
-    /// Folds an arbitrary 64-bit draw into the shared keyspace.
-    ///
-    /// Used by generators so both arms see the *same* stream. Clearing the top
-    /// bit is a bijection onto the 63-bit space and preserves the ordering of
-    /// the low 63 bits, which is what the distribution shapes depend on.
-    #[inline]
-    pub fn truncate(raw: u64) -> Self {
-        Self(raw & (Self::LIMIT - 1))
-    }
-
-    /// The underlying value, always `< 2^63`.
-    #[inline]
-    pub fn get(self) -> u64 {
-        self.0
-    }
+/// What an Arm A insert did.
+///
+/// `NotRepresentable` is a first-class outcome rather than a hidden
+/// precondition: HOT's `insert` returns `true` for keys its `lookup` will never
+/// find, so an arm that cannot hold a key must say so at the call, not silently
+/// shrink its population.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum InlineInsert {
+    /// The trie reports the key as newly present.
+    Inserted,
+    /// The trie reports the key as already present.
+    AlreadyPresent,
+    /// The key does not fit HOT's inline payload; nothing was stored.
+    NotRepresentable,
 }
 
 /// Reading of the shared allocator census.
@@ -237,10 +245,10 @@ macro_rules! trie_wrapper {
 
             /// Ordered scan of at most `k` entries from `lo`, returning how many
             /// were visited. The payloads are folded into a sink inside the shim.
-            pub fn scan(&self, lo: Key63, k: usize) -> usize {
+            pub fn scan(&self, lo: u64, k: usize) -> usize {
                 let mut sink = 0u64;
                 // SAFETY: as `len`; `sink` is a live local for the call.
-                let n = unsafe { $scan(self.0, lo.get(), k, &raw mut sink) };
+                let n = unsafe { $scan(self.0, lo, k, &raw mut sink) };
                 std::hint::black_box(sink);
                 n
             }
@@ -278,20 +286,31 @@ trie_wrapper!(
 );
 
 impl HotSet {
-    /// Inserts `k`, returning whether the trie reports it as newly present.
+    /// Inserts `k`.
     ///
-    /// The return value is *not* evidence the key is retrievable; check [`len`]
-    /// after a build. [`len`]: Self::len
-    pub fn insert(&mut self, k: Key63) -> bool {
-        // SAFETY: `self.0` is a live trie; `k` is within the 63-bit space the
-        // shim guards, so the guard's rejection path is unreachable here.
-        unsafe { exp_hot_set_insert(self.0, k.get()) == 1 }
+    /// A key that does not fit HOT's inline payload returns
+    /// [`InlineInsert::NotRepresentable`] and stores nothing — the arm's
+    /// limitation surfaces at the call rather than as a quietly smaller trie.
+    ///
+    /// `Inserted` is *not* evidence the key is retrievable; HOT reports success
+    /// on keys it cannot find. Check [`len`] after a build. [`len`]: Self::len
+    pub fn insert(&mut self, k: u64) -> InlineInsert {
+        // SAFETY: `self.0` is a live trie for the lifetime of `self`. The shim
+        // returns -2 for a key wider than the inline payload and stores nothing.
+        match unsafe { exp_hot_set_insert(self.0, k) } {
+            1 => InlineInsert::Inserted,
+            0 => InlineInsert::AlreadyPresent,
+            _ => InlineInsert::NotRepresentable,
+        }
     }
 
     /// Whether `k` is present.
-    pub fn contains(&self, k: Key63) -> bool {
+    ///
+    /// A key wider than the inline payload is not present by construction, and
+    /// [`hot_can_inline`] says so without a lookup.
+    pub fn contains(&self, k: u64) -> bool {
         // SAFETY: as `insert`.
-        unsafe { exp_hot_set_contains(self.0, k.get()) == 1 }
+        unsafe { exp_hot_set_contains(self.0, k) == 1 }
     }
 }
 
@@ -313,16 +332,19 @@ trie_wrapper!(
 
 impl HotMap {
     /// Inserts `k -> v`, returning whether the trie reports it as newly present.
-    pub fn insert(&mut self, k: Key63, v: u64) -> bool {
-        // SAFETY: `self.0` is a live trie and `k` is within the guarded space.
-        unsafe { exp_hot_map_insert(self.0, k.get(), v) == 1 }
+    ///
+    /// Takes the full 64-bit domain: this arm stores a heap pointer, so
+    /// [`hot_can_inline`] does not apply to it.
+    pub fn insert(&mut self, k: u64, v: u64) -> bool {
+        // SAFETY: `self.0` is a live trie for the lifetime of `self`.
+        unsafe { exp_hot_map_insert(self.0, k, v) == 1 }
     }
 
     /// Reads the value for `k`.
-    pub fn get(&self, k: Key63) -> Option<u64> {
+    pub fn get(&self, k: u64) -> Option<u64> {
         let mut out = 0u64;
         // SAFETY: as `insert`; `out` is a live local for the call.
-        let hit = unsafe { exp_hot_map_get(self.0, k.get(), &raw mut out) };
+        let hit = unsafe { exp_hot_map_get(self.0, k, &raw mut out) };
         (hit == 1).then_some(out)
     }
 }
