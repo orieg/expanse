@@ -1,0 +1,110 @@
+{
+ "schema": "expanse.pin_exposure.conditions.v1",
+ "kind": "wall_clock_affinity_masks",
+ "issue": "https://github.com/orieg/expanse/issues/680",
+ "meta": {
+  "host": "12th Gen Intel(R) Core(TM) i9-12900F, 24 logical CPUs, Linux 6.8.0-136-generic",
+  "provenance": {
+   "host_description": "12th Gen Intel(R) Core(TM) i9-12900F, 24 logical CPUs, Linux 6.8.0-136-generic",
+   "commit": "c4b1817",
+   "commit_source": "declared",
+   "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+   "os": "linux",
+   "arch": "x86_64",
+   "load_average_at_start": [
+    1.19580078125,
+    1.51171875,
+    1.609375
+   ],
+   "load_average_at_end": [
+    1.46435546875,
+    1.54345703125,
+    1.59326171875
+   ]
+  },
+  "bench": "compare",
+  "rounds": 6,
+  "p_cpus": "0-15",
+  "e_cpus": "16-23",
+  "filter": "map_get_cold_dram/random/4000000/expanse",
+  "criterion_args": [],
+  "invocation": "cargo bench --bench compare -p expanse-trie -- map_get_cold_dram/random/4000000/expanse",
+  "conditions": [
+   {
+    "condition": "p_smt",
+    "pin": "taskset -c 0-15"
+   },
+   {
+    "condition": "p_one_sibling",
+    "pin": "taskset -c 0,2,4,6,8,10,12,14"
+   }
+  ],
+  "design": "2 conditions (p_smt/p_one_sibling) interleaved within each of 6 rounds, rotating which runs first",
+  "reference": "p_smt"
+ },
+ "statistics": {
+  "estimator": "mean of pooled criterion per-iteration times (ns)",
+  "method": "BCa bootstrap over 2000 resamples",
+  "confidence": 0.95
+ },
+ "verdict": "SEPARATED",
+ "reading": "1 of 2 arm\u00d7condition pairs have a BCa 95% interval that does not overlap the reference `p_smt`; the widest is `map_get_cold_dram_random_4000000/expanse/miss` under `p_one_sibling` at 1.005\u00d7 the reference. The mask moved a measured arm.",
+ "arms": [
+  {
+   "arm": "map_get_cold_dram_random_4000000/expanse/hit",
+   "reference": "p_smt",
+   "conditions": {
+    "p_smt": {
+     "mean_ns": 50.93892021947578,
+     "ci": [
+      50.90397208101766,
+      50.98619101204091
+     ],
+     "ci_width_pct": 0.16140689804377437,
+     "n": 60,
+     "ratio_over_reference": 1.0,
+     "overlaps_reference": true
+    },
+    "p_one_sibling": {
+     "mean_ns": 50.853772116829376,
+     "ci": [
+      50.80810925642101,
+      50.92074276305613
+     ],
+     "ci_width_pct": 0.2214850579350548,
+     "n": 60,
+     "ratio_over_reference": 0.9983284274130756,
+     "overlaps_reference": true
+    }
+   }
+  },
+  {
+   "arm": "map_get_cold_dram_random_4000000/expanse/miss",
+   "reference": "p_smt",
+   "conditions": {
+    "p_smt": {
+     "mean_ns": 23.53196974228424,
+     "ci": [
+      23.490520271701907,
+      23.614907616647525
+     ],
+     "ci_width_pct": 0.5285887509965121,
+     "n": 60,
+     "ratio_over_reference": 1.0,
+     "overlaps_reference": true
+    },
+    "p_one_sibling": {
+     "mean_ns": 23.658031884713967,
+     "ci": [
+      23.642118832921618,
+      23.68259502217952
+     ],
+     "ci_width_pct": 0.17108857344999356,
+     "n": 60,
+     "ratio_over_reference": 1.0053570586657354,
+     "overlaps_reference": false
+    }
+   }
+  }
+ ]
+}

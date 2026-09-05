@@ -1,0 +1,566 @@
+{
+ "schema": "expanse.pin_exposure.samples.v1",
+ "kind": "wall_clock_core_placement",
+ "issue": "https://github.com/orieg/expanse/issues/678",
+ "meta": {
+  "host": "12th Gen Intel(R) Core(TM) i9-12900F, 24 logical CPUs, Linux 6.8.0-136-generic",
+  "provenance": {
+   "host_description": "12th Gen Intel(R) Core(TM) i9-12900F, 24 logical CPUs, Linux 6.8.0-136-generic",
+   "commit": "c4b1817",
+   "commit_source": "declared",
+   "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+   "os": "linux",
+   "arch": "x86_64",
+   "load_average_at_start": [
+    1.1455078125,
+    0.7392578125,
+    0.41015625
+   ],
+   "load_average_at_end": [
+    1.15283203125,
+    1.53271484375,
+    1.64306640625
+   ]
+  },
+  "bench": "domain",
+  "rounds": 6,
+  "p_cpus": "0-15",
+  "e_cpus": "16-23",
+  "filter": null,
+  "criterion_args": [
+   "--measurement-time",
+   "5",
+   "--warm-up-time",
+   "2"
+  ],
+  "invocation": "cargo bench --bench domain -p expanse-trie -- --measurement-time 5 --warm-up-time 2",
+  "conditions": [
+   {
+    "condition": "p_cores",
+    "pin": "taskset -c 0-15"
+   },
+   {
+    "condition": "unpinned",
+    "pin": null
+   },
+   {
+    "condition": "e_cores",
+    "pin": "taskset -c 16-23"
+   }
+  ],
+  "design": "3 conditions (p_cores/unpinned/e_cores) interleaved within each of 6 rounds, rotating which runs first"
+ },
+ "statistics": {
+  "estimator": "mean of pooled criterion per-iteration times (ns)",
+  "method": "BCa bootstrap over 2000 resamples",
+  "confidence": 0.95
+ },
+ "verdict": "SEPARATED",
+ "reading": "8 of 18 arms have non-overlapping unpinned and P-core intervals; the widest is `domain_set_algebra_overhead/domain_set_intersection_len/10000` at 1.008\u00d7 unpinned over P-core. Core placement moved a measured arm, so the wall-clock arms warrant the pin perf_counters.py already applies. 18 of 18 arms separate E-core from P-core, the widest `domain_resolution/resolve_full_scan/100000` at 2.036\u00d7 E-core over P-core; that is the exposure ceiling \u2014 the whole distance a migration could move an arm, whether or not one happened here.",
+ "arms": [
+  {
+   "arm": "domain_ingestion/batch_insert_text/10000",
+   "p_cores_ns": 861182.2496491043,
+   "unpinned_ns": 860475.5490157712,
+   "e_cores_ns": 1552739.5960271545,
+   "p_cores_ci": [
+    860028.3990853699,
+    862549.2728462522
+   ],
+   "unpinned_ci": [
+    859261.509079501,
+    862041.9643425378
+   ],
+   "e_cores_ci": [
+    1551393.7765790701,
+    1554372.1589400228
+   ],
+   "p_cores_ci_width_pct": 0.2927224477640418,
+   "unpinned_ci_width_pct": 0.32313007222774753,
+   "e_cores_ci_width_pct": 0.1918146718595426,
+   "ratio_e_over_p": 1.8030325133382983,
+   "ratio_unpinned_over_p": 0.9991793831867517,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": true,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_ingestion/batch_insert_text/50000",
+   "p_cores_ns": 4483975.926969699,
+   "unpinned_ns": 4470288.129242425,
+   "e_cores_ns": 7966670.173888893,
+   "p_cores_ci": [
+    4481362.995303032,
+    4487551.8290909035
+   ],
+   "unpinned_ci": [
+    4467721.255757576,
+    4473540.569545454
+   ],
+   "e_cores_ci": [
+    7960699.435277772,
+    7973780.242500002
+   ],
+   "p_cores_ci_width_pct": 0.13802111984249613,
+   "unpinned_ci_width_pct": 0.13017759973482254,
+   "e_cores_ci_width_pct": 0.16419416063065273,
+   "ratio_e_over_p": 1.776697802049268,
+   "ratio_unpinned_over_p": 0.9969473971425792,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": false,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_ingestion/batch_insert_uuid/10000",
+   "p_cores_ns": 1737859.368913043,
+   "unpinned_ns": 1734962.2526509673,
+   "e_cores_ns": 3086953.5299725276,
+   "p_cores_ci": [
+    1736857.3135507237,
+    1739143.8746376801
+   ],
+   "unpinned_ci": [
+    1733683.435166065,
+    1736419.2000000018
+   ],
+   "e_cores_ci": [
+    3085892.6207051286,
+    3088469.2054395634
+   ],
+   "p_cores_ci_width_pct": 0.1315734246313934,
+   "unpinned_ci_width_pct": 0.1576844009001659,
+   "e_cores_ci_width_pct": 0.08346691031846074,
+   "ratio_e_over_p": 1.7762965089075564,
+   "ratio_unpinned_over_p": 0.9983329397568643,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": false,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_ingestion/batch_insert_uuid/50000",
+   "p_cores_ns": 8434367.039,
+   "unpinned_ns": 8435102.327666668,
+   "e_cores_ns": 15165512.112777773,
+   "p_cores_ci": [
+    8429836.555666663,
+    8440069.374333331
+   ],
+   "unpinned_ci": [
+    8430444.112666657,
+    8441166.032999992
+   ],
+   "e_cores_ci": [
+    15160210.866111098,
+    15172881.073888905
+   ],
+   "p_cores_ci_width_pct": 0.12132289974283403,
+   "unpinned_ci_width_pct": 0.12711073223341787,
+   "e_cores_ci_width_pct": 0.08354619140841374,
+   "ratio_e_over_p": 1.7980616734668253,
+   "ratio_unpinned_over_p": 1.000087177693746,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": true,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_ingestion/scalar_insert_text/10000",
+   "p_cores_ns": 879444.4799790067,
+   "unpinned_ns": 882141.4184430625,
+   "e_cores_ns": 1616996.0559175853,
+   "p_cores_ci": [
+    878460.2402564014,
+    880781.5844514691
+   ],
+   "unpinned_ci": [
+    880863.5216652951,
+    883802.5201111466
+   ],
+   "e_cores_ci": [
+    1615377.0692541106,
+    1618710.3409573883
+   ],
+   "p_cores_ci_width_pct": 0.26395574114276993,
+   "unpinned_ci_width_pct": 0.33316635908998443,
+   "e_cores_ci_width_pct": 0.20613975470621707,
+   "ratio_e_over_p": 1.8386562116532754,
+   "ratio_unpinned_over_p": 1.0030666386855032,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": false,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_ingestion/scalar_insert_text/50000",
+   "p_cores_ns": 4630848.505151514,
+   "unpinned_ns": 4631611.215303023,
+   "e_cores_ns": 8229659.985277772,
+   "p_cores_ci": [
+    4627811.62272728,
+    4634629.658787883
+   ],
+   "unpinned_ci": [
+    4628125.962878785,
+    4635957.789545452
+   ],
+   "e_cores_ci": [
+    8219259.7744444385,
+    8241905.387222223
+   ],
+   "p_cores_ci_width_pct": 0.14723081640478455,
+   "unpinned_ci_width_pct": 0.16909507950042238,
+   "e_cores_ci_width_pct": 0.2751706974321627,
+   "ratio_e_over_p": 1.7771386768802342,
+   "ratio_unpinned_over_p": 1.000164702030451,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": true,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_ingestion/scalar_insert_uuid/10000",
+   "p_cores_ns": 1754883.5979710142,
+   "unpinned_ns": 1751293.6058695642,
+   "e_cores_ns": 3098083.4661538457,
+   "p_cores_ci": [
+    1753850.7705072456,
+    1756212.35789855
+   ],
+   "unpinned_ci": [
+    1750144.302971014,
+    1752774.8841304325
+   ],
+   "e_cores_ci": [
+    3097147.4474358945,
+    3099492.7351282053
+   ],
+   "p_cores_ci_width_pct": 0.13457230975518852,
+   "unpinned_ci_width_pct": 0.15020788921982586,
+   "e_cores_ci_width_pct": 0.0757012429759467,
+   "ratio_e_over_p": 1.7654068165750885,
+   "ratio_unpinned_over_p": 0.9979542847710238,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": false,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_ingestion/scalar_insert_uuid/50000",
+   "p_cores_ns": 8508962.684000006,
+   "unpinned_ns": 8510763.61333333,
+   "e_cores_ns": 15219421.154444452,
+   "p_cores_ci": [
+    8504252.421666678,
+    8514910.99633334
+   ],
+   "unpinned_ci": [
+    8505589.676666664,
+    8517158.305000002
+   ],
+   "e_cores_ci": [
+    15214821.65499999,
+    15226013.47944444
+   ],
+   "p_cores_ci_width_pct": 0.12526291467588876,
+   "unpinned_ci_width_pct": 0.1359293814154783,
+   "e_cores_ci_width_pct": 0.07353646588051835,
+   "ratio_e_over_p": 1.788634140218124,
+   "ratio_unpinned_over_p": 1.0002116508674683,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": true,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_resolution/resolve_full_scan/10000",
+   "p_cores_ns": 16568.52874666546,
+   "unpinned_ns": 16559.25826609006,
+   "e_cores_ns": 33643.34037727285,
+   "p_cores_ci": [
+    16552.715154051682,
+    16597.80671985429
+   ],
+   "unpinned_ci": [
+    16549.933454561575,
+    16574.689545787383
+   ],
+   "e_cores_ci": [
+    33626.93000700512,
+    33668.31531556521
+   ],
+   "p_cores_ci_width_pct": 0.2721519000996457,
+   "unpinned_ci_width_pct": 0.14950000071261643,
+   "e_cores_ci_width_pct": 0.12301188911684346,
+   "ratio_e_over_p": 2.0305569004757786,
+   "ratio_unpinned_over_p": 0.999440476537347,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": true,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_resolution/resolve_full_scan/100000",
+   "p_cores_ns": 163520.08375657798,
+   "unpinned_ns": 163545.03101039756,
+   "e_cores_ns": 332846.29868391244,
+   "p_cores_ci": [
+    163453.63981035986,
+    163633.02341359356
+   ],
+   "unpinned_ci": [
+    163465.20801580604,
+    163648.49756312618
+   ],
+   "e_cores_ci": [
+    332739.7446409094,
+    333026.3069224164
+   ],
+   "p_cores_ci_width_pct": 0.109701266726805,
+   "unpinned_ci_width_pct": 0.1120728316768501,
+   "e_cores_ci_width_pct": 0.08609447743298623,
+   "ratio_e_over_p": 2.035507144060663,
+   "ratio_unpinned_over_p": 1.0001525638517696,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": true,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_set_algebra_overhead/domain_set_intersection/10000",
+   "p_cores_ns": 1840.8330417654481,
+   "unpinned_ns": 1847.637089871347,
+   "e_cores_ns": 2916.0974393668516,
+   "p_cores_ci": [
+    1838.1065130454554,
+    1844.0069098915633
+   ],
+   "unpinned_ci": [
+    1844.7356217894433,
+    1851.0157844238279
+   ],
+   "e_cores_ci": [
+    2910.5760923112316,
+    2921.477368077742
+   ],
+   "p_cores_ci_width_pct": 0.3205286254775804,
+   "unpinned_ci_width_pct": 0.33990239039972503,
+   "e_cores_ci_width_pct": 0.3738309844981512,
+   "ratio_e_over_p": 1.5841183709795716,
+   "ratio_unpinned_over_p": 1.003696178823134,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": false,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_set_algebra_overhead/domain_set_intersection/100000",
+   "p_cores_ns": 10873.05311908348,
+   "unpinned_ns": 10880.721496256669,
+   "e_cores_ns": 17258.261048868637,
+   "p_cores_ci": [
+    10862.212787032577,
+    10885.15393967967
+   ],
+   "unpinned_ci": [
+    10867.577600554616,
+    10894.824106576345
+   ],
+   "e_cores_ci": [
+    17221.924100927627,
+    17292.4164415769
+   ],
+   "p_cores_ci_width_pct": 0.2109909001256471,
+   "unpinned_ci_width_pct": 0.2504108393097172,
+   "e_cores_ci_width_pct": 0.4084556401694684,
+   "ratio_e_over_p": 1.587250688454595,
+   "ratio_unpinned_over_p": 1.0007052643897902,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": true,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_set_algebra_overhead/domain_set_intersection_len/10000",
+   "p_cores_ns": 341.2135136686691,
+   "unpinned_ns": 343.7819275126853,
+   "e_cores_ns": 500.896030626047,
+   "p_cores_ci": [
+    340.44546442072976,
+    341.88966826888793
+   ],
+   "unpinned_ci": [
+    342.98793948444757,
+    344.5389921923946
+   ],
+   "e_cores_ci": [
+    500.18873104435653,
+    501.6307941007113
+   ],
+   "p_cores_ci_width_pct": 0.4232551731701174,
+   "unpinned_ci_width_pct": 0.45117342821628553,
+   "e_cores_ci_width_pct": 0.2878966827811325,
+   "ratio_e_over_p": 1.467984152328842,
+   "ratio_unpinned_over_p": 1.0075272922704643,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": false,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_set_algebra_overhead/domain_set_intersection_len/100000",
+   "p_cores_ns": 1548.0440460574423,
+   "unpinned_ns": 1546.093894375772,
+   "e_cores_ns": 2933.228278075506,
+   "p_cores_ci": [
+    1546.8316376880182,
+    1549.450874746937
+   ],
+   "unpinned_ci": [
+    1545.1372738274229,
+    1547.1317497877353
+   ],
+   "e_cores_ci": [
+    2931.026718187674,
+    2935.6649984061296
+   ],
+   "p_cores_ci_width_pct": 0.16919654615703228,
+   "unpinned_ci_width_pct": 0.12900095961621508,
+   "e_cores_ci_width_pct": 0.15812885253850506,
+   "ratio_e_over_p": 1.8947963951967968,
+   "ratio_unpinned_over_p": 0.9987402479363316,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": true,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_set_algebra_overhead/raw_expanse_set_intersection/10000",
+   "p_cores_ns": 1793.2617349801353,
+   "unpinned_ns": 1796.951853786646,
+   "e_cores_ns": 2784.328980859621,
+   "p_cores_ci": [
+    1790.4424949615589,
+    1796.3165100332303
+   ],
+   "unpinned_ci": [
+    1793.655113074431,
+    1800.4898227359502
+   ],
+   "e_cores_ci": [
+    2778.056139137697,
+    2790.064413945961
+   ],
+   "p_cores_ci_width_pct": 0.3275603865899996,
+   "unpinned_ci_width_pct": 0.3803501828452784,
+   "e_cores_ci_width_pct": 0.43128074630594565,
+   "ratio_e_over_p": 1.5526617930597086,
+   "ratio_unpinned_over_p": 1.0020577692227128,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": true,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_set_algebra_overhead/raw_expanse_set_intersection/100000",
+   "p_cores_ns": 10836.73674000239,
+   "unpinned_ns": 10887.3468375913,
+   "e_cores_ns": 17149.268894661538,
+   "p_cores_ci": [
+    10826.962235992563,
+    10849.466309151332
+   ],
+   "unpinned_ci": [
+    10871.476807862913,
+    10904.403199834846
+   ],
+   "e_cores_ci": [
+    17112.32877178712,
+    17184.279059108274
+   ],
+   "p_cores_ci_width_pct": 0.20766466602162534,
+   "unpinned_ci_width_pct": 0.302428061336723,
+   "e_cores_ci_width_pct": 0.41955308860747315,
+   "ratio_e_over_p": 1.5825122734002814,
+   "ratio_unpinned_over_p": 1.0046702341122755,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": false,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_set_algebra_overhead/raw_expanse_set_intersection_len/10000",
+   "p_cores_ns": 325.5339512278736,
+   "unpinned_ns": 326.15383195432696,
+   "e_cores_ns": 500.48422113428603,
+   "p_cores_ci": [
+    324.89777683048936,
+    326.22956579009355
+   ],
+   "unpinned_ci": [
+    325.4431123977287,
+    326.8484977945136
+   ],
+   "e_cores_ci": [
+    499.79117163667786,
+    501.28321176875846
+   ],
+   "p_cores_ci_width_pct": 0.40910908204223856,
+   "unpinned_ci_width_pct": 0.4308964847549861,
+   "e_cores_ci_width_pct": 0.29811931507032885,
+   "ratio_e_over_p": 1.537425571884351,
+   "ratio_unpinned_over_p": 1.0019041968560123,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": true,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  },
+  {
+   "arm": "domain_set_algebra_overhead/raw_expanse_set_intersection_len/100000",
+   "p_cores_ns": 1546.0061042160623,
+   "unpinned_ns": 1556.404732505089,
+   "e_cores_ns": 2936.3663140841727,
+   "p_cores_ci": [
+    1545.179416321977,
+    1547.0810642833658
+   ],
+   "unpinned_ci": [
+    1554.665661296472,
+    1558.2939428328207
+   ],
+   "e_cores_ci": [
+    2934.0003873383225,
+    2939.0044748925147
+   ],
+   "p_cores_ci_width_pct": 0.12300391028229889,
+   "unpinned_ci_width_pct": 0.23311941043180628,
+   "e_cores_ci_width_pct": 0.17041768699600895,
+   "ratio_e_over_p": 1.8993238811130855,
+   "ratio_unpinned_over_p": 1.0067261236942524,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": false,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  }
+ ]
+}

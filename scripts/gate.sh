@@ -63,6 +63,8 @@ python3 scripts/check_man_pages.py
 python3 scripts/check_deletion_rationale.py
 python3 scripts/check_test_floors.py
 python3 scripts/perf_report.py --self-test
+python3 scripts/pin_exposure.py --self-test
+python3 scripts/warmup_ramp.py --self-test
 python3 scripts/bench_report.py --self-test
 python3 scripts/check_docs_hygiene.py --self-test
 python3 scripts/check_ecosystem_theme.py --self-test

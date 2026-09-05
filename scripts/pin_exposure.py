@@ -67,6 +67,13 @@ DEFAULT_ROUNDS = 6
 RESAMPLES = 2000
 # The three conditions, in the cyclic order a round rotates through.
 CONDITIONS: Tuple[str, ...] = ("p_cores", "unpinned", "e_cores")
+# `--condition NAME=CPULIST` (repeatable) replaces the three fixed conditions
+# with caller-chosen affinity masks — the #680 question is `0-15` (both SMT
+# siblings of every P-core) against `0,2,4,6,8,10,12,14` (one sibling per
+# core). The first condition named is the reference every other one is read
+# against; `unpinned` as the CPULIST means no mask. Its artifact carries its
+# own schema so a masks comparison can never be read as a core-class one.
+CONDITIONS_SCHEMA = "expanse.pin_exposure.conditions.v1"
 # Distinct from `results/pin_exposure_639.json` (`expanse.pin_exposure.v1`),
 # which holds per-round summaries rather than the per-iteration samples this
 # script pools. Two shapes, two names, so neither can be read as the other.
@@ -476,6 +483,142 @@ def render(rows: Sequence[Dict[str, Any]], meta: Dict[str, Any]) -> str:
     return "\n".join(out) + "\n"
 
 
+def parse_conditions(
+    specs: Sequence[str], p_cpus: str, e_cpus: str
+) -> List[Tuple[str, Optional[str]]]:
+    """`NAME=CPULIST` pairs -> [(name, cpulist | None)], validated against the host.
+
+    Refusals are Preflights, never guesses: fewer than two conditions (there is
+    nothing to compare), a repeated or non-identifier name, a mask naming a CPU
+    the host does not expose, or a mask that mixes the two core classes. A
+    condition spanning both classes measures where the scheduler put the work,
+    not the mask — that is what the three fixed conditions are for.
+    """
+    if len(specs) < 2:
+        raise Preflight("--condition needs at least two NAME=CPULIST entries; one mask compares against nothing")
+    p_set, e_set = parse_cpu_list(p_cpus), parse_cpu_list(e_cpus)
+    out: List[Tuple[str, Optional[str]]] = []
+    seen: Set[str] = set()
+    for spec in specs:
+        name, sep, mask = spec.partition("=")
+        name, mask = name.strip(), mask.strip()
+        if not sep or not name or not mask:
+            raise Preflight(f"--condition {spec!r} is not NAME=CPULIST")
+        if not name.isidentifier():
+            raise Preflight(f"--condition name {name!r} must be an identifier (it names a JSON field)")
+        if name in seen:
+            raise Preflight(f"--condition name {name!r} is given twice")
+        seen.add(name)
+        if mask.lower() == "unpinned":
+            out.append((name, None))
+            continue
+        cpus = parse_cpu_list(mask)
+        unknown = sorted(cpus - p_set - e_set)
+        if unknown:
+            raise Preflight(
+                f"--condition {name}={mask} names CPU(s) {','.join(map(str, unknown))} that neither "
+                f"the `{P_CORE_PMU}` list ({p_cpus}) nor the `{E_CORE_PMU}` list ({e_cpus}) contains"
+            )
+        if cpus & p_set and cpus & e_set:
+            raise Preflight(
+                f"--condition {name}={mask} spans both core classes; a mask like that measures "
+                "scheduler placement, which the default three-condition run already does. "
+                "Give each condition CPUs from one class."
+            )
+        out.append((name, mask))
+    return out
+
+
+def analyse_conditions(
+    collected: Dict[str, Dict[str, List[float]]], names: Sequence[str]
+) -> List[Dict[str, Any]]:
+    """One row per arm present under every condition; `names[0]` is the reference.
+
+    Each condition gets its own BCa interval and its ratio over, and overlap
+    with, the reference. An arm missing from any condition is dropped rather
+    than half-reported, exactly as `analyse` does.
+    """
+    ref = names[0]
+    arms = set(collected.get(ref, {}))
+    for name in names[1:]:
+        arms &= set(collected.get(name, {}))
+    rows: List[Dict[str, Any]] = []
+    for arm in sorted(arms):
+        r_mean, r_lo, r_hi, _ = _interval(collected[ref][arm])
+        conds: Dict[str, Dict[str, Any]] = {}
+        for name in names:
+            mean, lo, hi, width = _interval(collected[name][arm])
+            conds[name] = {
+                "mean_ns": mean,
+                "ci": [lo, hi],
+                "ci_width_pct": width,
+                "n": len(collected[name][arm]),
+                "ratio_over_reference": mean / r_mean if r_mean else float("nan"),
+                "overlaps_reference": overlap((r_lo, r_hi), (lo, hi)),
+            }
+        rows.append({"arm": arm, "reference": ref, "conditions": conds})
+    return rows
+
+
+def verdict_conditions(rows: Sequence[Dict[str, Any]], names: Sequence[str]) -> Tuple[str, str]:
+    """(label, sentence) for the masks comparison. An overlap bounds, it does not prove zero."""
+    if not rows:
+        return "NO_DATA", "no arm produced samples under every condition; nothing was measured."
+    ref = names[0]
+    pairs = [(r, n) for r in rows for n in names[1:]]
+    separated = [(r, n) for r, n in pairs if not r["conditions"][n]["overlaps_reference"]]
+    if separated:
+        r, n = max(separated, key=lambda rn: abs(rn[0]["conditions"][rn[1]]["ratio_over_reference"] - 1))
+        return (
+            "SEPARATED",
+            f"{len(separated)} of {len(pairs)} arm×condition pairs have a BCa 95% interval that does not "
+            f"overlap the reference `{ref}`; the widest is `{r['arm']}` under `{n}` at "
+            f"{r['conditions'][n]['ratio_over_reference']:.3f}× the reference. The mask moved a measured arm.",
+        )
+    widest = max(
+        (r["conditions"][n]["ci_width_pct"] for r, n in pairs), default=float("nan")
+    )
+    return (
+        "OVERLAP",
+        f"every condition's BCa 95% interval overlaps the reference `{ref}` on all {len(rows)} arm(s), so "
+        f"the masks are indistinguishable to this instrument at this sample size. That bounds any effect "
+        f"below roughly the interval width (widest {widest:.2f}%); it does not show the effect is zero.",
+    )
+
+
+def render_conditions(rows: Sequence[Dict[str, Any]], meta: Dict[str, Any], names: Sequence[str]) -> str:
+    label, sentence = verdict_conditions(rows, names)
+    pins = {c["condition"]: c["pin"] for c in meta.get("conditions", [])}
+    described = ", ".join(f"`{n}` = {pins.get(n) or 'unpinned'}" for n in names)
+    out = [
+        f"### Affinity-mask comparison on {meta['host']} — `{meta['bench']}`, {meta['rounds']} interleaved rounds",
+        "",
+        f"Conditions per round, rotating which runs first: {described}. `{names[0]}` is the reference. "
+        f"Samples are criterion per-iteration times pooled across rounds; intervals are BCa 95% over "
+        f"{RESAMPLES} resamples.",
+        "",
+    ]
+    if meta.get("invocation"):
+        out += [
+            f"Invocation (the mask aside): `{meta['invocation']}`. Criterion settings are part of "
+            "what was measured, so a figure here pairs only with one taken at the same ones.",
+            "",
+        ]
+    header = "| arm | " + " | ".join(f"`{n}` ns [BCa 95%]" for n in names)
+    header += " | " + " | ".join(f"`{n}` ÷ `{names[0]}`" for n in names[1:])
+    header += " | " + " | ".join(f"`{n}` vs `{names[0]}`" for n in names[1:]) + " |"
+    align = "|---|" + "---:|" * len(names) + "---:|" * (len(names) - 1) + "---|" * (len(names) - 1)
+    out += [header, align]
+    for r in rows:
+        c = r["conditions"]
+        cells = [f"{c[n]['mean_ns']:,.2f} [{c[n]['ci'][0]:,.1f}, {c[n]['ci'][1]:,.1f}]" for n in names]
+        ratios = [f"{c[n]['ratio_over_reference']:.3f}×" for n in names[1:]]
+        reads = ["overlap" if c[n]["overlaps_reference"] else "**separated**" for n in names[1:]]
+        out.append(f"| `{r['arm']}` | " + " | ".join(cells + ratios + reads) + " |")
+    out += ["", f"**Verdict: {label}.** {sentence}"]
+    return "\n".join(out) + "\n"
+
+
 def self_test() -> None:
     """Fail-then-pass pins of the reading, on synthetic samples."""
     import random
@@ -662,6 +805,56 @@ def self_test() -> None:
         expect("no performance-core PMU")
     finally:
         pmu_cpus = real
+
+    # 13. `--condition`: the masks mode. Parsing refuses everything that would
+    #     make the comparison meaningless, and accepts the #680 pair.
+    ok = parse_conditions(["p_smt=0-15", "p_one_sibling=0,2,4,6,8,10,12,14", "free=unpinned"], "0-15", "16-23")
+    assert ok == [("p_smt", "0-15"), ("p_one_sibling", "0,2,4,6,8,10,12,14"), ("free", None)], ok
+    for bad, why in (
+        (["a=0-15"], "one condition"),
+        (["a=0-15", "a=0-7"], "duplicate name"),
+        (["a=0-15", "b"], "missing mask"),
+        (["a=0-15", "2b=0-7"], "non-identifier name"),
+        (["a=0-15", "b=0-23"], "mask spanning both classes"),
+        (["a=0-15", "b=40"], "CPU the host does not expose"),
+    ):
+        try:
+            parse_conditions(bad, "0-15", "16-23")
+            raise AssertionError(f"{why} must refuse")
+        except Preflight:
+            pass
+    # identical distributions -> every pair overlaps, verdict OVERLAP, ratio ~1
+    names = ("p_smt", "p_one_sibling")
+    rows = analyse_conditions({"p_smt": {"x": p_a}, "p_one_sibling": {"x": sample(100)}}, names)
+    assert rows[0]["reference"] == "p_smt"
+    assert rows[0]["conditions"]["p_one_sibling"]["overlaps_reference"]
+    assert abs(rows[0]["conditions"]["p_one_sibling"]["ratio_over_reference"] - 1) < 0.01
+    label, sentence = verdict_conditions(rows, names)
+    assert label == "OVERLAP" and "does not show the effect is zero" in sentence, sentence
+    # a shifted second mask separates, and the verdict names the mask and the arm
+    rows = analyse_conditions({"p_smt": {"x": p_a}, "p_one_sibling": {"x": [v * 1.1 for v in sample(100)]}}, names)
+    assert not rows[0]["conditions"]["p_one_sibling"]["overlaps_reference"]
+    label, sentence = verdict_conditions(rows, names)
+    assert label == "SEPARATED" and "`p_one_sibling`" in sentence and "`x`" in sentence, sentence
+    assert "1.10" in sentence, sentence
+    # an arm absent from any condition is dropped; no shared arm -> NO_DATA
+    rows = analyse_conditions({"p_smt": {"x": p_a, "y": p_a}, "p_one_sibling": {"x": p_a}}, names)
+    assert [r["arm"] for r in rows] == ["x"]
+    assert verdict_conditions(analyse_conditions({"p_smt": {"x": p_a}, "p_one_sibling": {"y": p_a}}, names), names)[0] == "NO_DATA"
+    # render: one column per condition, a ratio and a reading per non-reference one
+    md = render_conditions(
+        analyse_conditions({"p_smt": {"x": p_a}, "p_one_sibling": {"x": [v * 1.1 for v in sample(100)]}}, names),
+        {
+            "host": "h", "bench": "compare", "rounds": 6,
+            "conditions": [{"condition": "p_smt", "pin": "taskset -c 0-15"}, {"condition": "p_one_sibling", "pin": "taskset -c 0,2,4,6,8,10,12,14"}],
+        },
+        names,
+    )
+    header = next(ln for ln in md.splitlines() if ln.startswith("| arm |"))
+    body = [ln for ln in md.splitlines() if ln.startswith("| `x`")]
+    assert "`p_smt` ns" in header and "`p_one_sibling` ÷ `p_smt`" in header and "`p_one_sibling` vs `p_smt`" in header, header
+    assert len(body) == 1 and body[0].count("|") == header.count("|"), (header, body)
+    assert "**separated**" in md and "0,2,4,6,8,10,12,14" in md, md
     print("pin_exposure.py --self-test: all checks passed")
 
 
@@ -690,6 +883,19 @@ def main() -> None:
         help="anonymised hardware description (CPU model, cores, cache, OS). Derived from "
         "/proc/cpuinfo when omitted; a hostname or home path in it is refused (AGENTS.md §7).",
     )
+    ap.add_argument(
+        "--condition",
+        action="append",
+        metavar="NAME=CPULIST",
+        help="replace the three fixed conditions with these affinity masks (repeat; at least two). "
+        "The first is the reference. `unpinned` as the CPULIST means no mask. "
+        "The #680 pair: --condition p_smt=0-15 --condition p_one_sibling=0,2,4,6,8,10,12,14",
+    )
+    ap.add_argument(
+        "--issue-url",
+        default=ISSUE_URL,
+        help="tracking issue recorded in the --json artifact (default: #639)",
+    )
     ap.add_argument("--json", type=Path)
     ap.add_argument("--markdown", type=Path)
     ap.add_argument("--self-test", action="store_true")
@@ -708,18 +914,27 @@ def main() -> None:
         return
 
     start_load = os.getloadavg() if hasattr(os, "getloadavg") else None
-    pins: Dict[str, Optional[str]] = {"p_cores": p_cpus, "unpinned": None, "e_cores": e_cpus}
-    collected: Dict[str, Dict[str, List[float]]] = {name: {} for name in CONDITIONS}
+    if args.condition:
+        try:
+            custom = parse_conditions(args.condition, p_cpus, e_cpus)
+        except Preflight as e:
+            fail(str(e))
+            return
+        names: Tuple[str, ...] = tuple(name for name, _ in custom)
+        pins: Dict[str, Optional[str]] = dict(custom)
+    else:
+        names = CONDITIONS
+        pins = {"p_cores": p_cpus, "unpinned": None, "e_cores": e_cpus}
+    collected: Dict[str, Dict[str, List[float]]] = {name: {} for name in names}
     for rnd in range(args.rounds):
         # Rotate which condition runs first, so a monotonic drift over the
         # session does not load onto whichever one always goes first.
-        for name in round_order(rnd):
+        for name in round_order(rnd, names):
             print(f"round {rnd + 1}/{args.rounds}: {name}", file=sys.stderr)
             run_bench(args.bench, args.package, pins[name], args.filter, args.criterion_arg)
             for arm, samples in collect_samples().items():
                 collected[name].setdefault(arm, []).extend(samples)
 
-    rows = analyse(collected["p_cores"], collected["unpinned"], collected["e_cores"])
     meta = {
         "host": host_desc,
         "provenance": {
@@ -741,25 +956,34 @@ def main() -> None:
         "invocation": " ".join(bench_argv(args.bench, args.package, None, args.filter, args.criterion_arg)),
         "conditions": [
             {"condition": name, "pin": (f"taskset -c {pins[name]}" if pins[name] else None)}
-            for name in CONDITIONS
+            for name in names
         ],
         "design": (
-            f"{len(CONDITIONS)} conditions ({'/'.join(CONDITIONS)}) interleaved within each of "
+            f"{len(names)} conditions ({'/'.join(names)}) interleaved within each of "
             f"{args.rounds} rounds, rotating which runs first"
         ),
     }
-    md = render(rows, meta)
+    if args.condition:
+        meta["reference"] = names[0]
+        crows = analyse_conditions(collected, names)
+        md = render_conditions(crows, meta, names)
+        label, sentence = verdict_conditions(crows, names)
+        schema, kind, rows_out = CONDITIONS_SCHEMA, "wall_clock_affinity_masks", crows
+    else:
+        rows = analyse(collected["p_cores"], collected["unpinned"], collected["e_cores"])
+        md = render(rows, meta)
+        label, sentence = verdict(rows)
+        schema, kind, rows_out = SCHEMA, "wall_clock_core_placement", rows
     print(md)
     if args.markdown:
         args.markdown.write_text(md, encoding="utf-8")
     if args.json:
-        label, sentence = verdict(rows)
         args.json.write_text(
             json.dumps(
                 {
-                    "schema": SCHEMA,
-                    "kind": "wall_clock_core_placement",
-                    "issue": ISSUE_URL,
+                    "schema": schema,
+                    "kind": kind,
+                    "issue": args.issue_url,
                     "meta": meta,
                     "statistics": {
                         "estimator": "mean of pooled criterion per-iteration times (ns)",
@@ -768,7 +992,7 @@ def main() -> None:
                     },
                     "verdict": label,
                     "reading": sentence,
-                    "arms": rows,
+                    "arms": rows_out,
                 },
                 indent=1,
             )
