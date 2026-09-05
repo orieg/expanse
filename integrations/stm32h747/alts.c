@@ -143,6 +143,29 @@ static size_t oh_evict_scan(void *m, bool (*expired)(uint32_t, uint32_t, void *)
     }
     return n;
 }
+size_t alt_open_hash_bytes(const void *m) { const ohash *h = m; return sizeof *h + (h->mask + 1) * 8; }
+void alt_open_hash_shape(const void *m, size_t *len, size_t *slots) { const ohash *h = m; *len = h->len; *slots = h->mask + 1; }
+static inline uint32_t dwt_cyccnt(void) { return *(volatile uint32_t *)0xE0001004u; }
+void alt_open_hash_insert_grow(void *m, uint32_t k, uint32_t v, uint32_t *grow_cycles) {
+    ohash *h = m; *grow_cycles = 0;
+    if ((h->used + 1) * 2 > h->mask + 1) {                      /* would pass 50% load: double */
+        uint32_t t0 = dwt_cyccnt();
+        size_t n = (h->mask + 1) * 2;
+        uint32_t *nk = acct_malloc(n * 4), *nv = acct_malloc(n * 4);
+        for (size_t i = 0; i < n; i++) nk[i] = OH_EMPTY;
+        for (size_t i = 0; i <= h->mask; i++) {
+            uint32_t key = h->keys[i];
+            if (key == OH_EMPTY || key == OH_TOMB) continue;
+            size_t j = oh_mix(key) & (n - 1);
+            while (nk[j] != OH_EMPTY) j = (j + 1) & (n - 1);
+            nk[j] = key; nv[j] = h->vals[i];
+        }
+        acct_free(h->keys); acct_free(h->vals);
+        h->keys = nk; h->vals = nv; h->mask = n - 1; h->used = h->len;   /* tombstones dropped */
+        *grow_cycles = dwt_cyccnt() - t0;
+    }
+    oh_insert(h, k, v);
+}
 const alt_ops alt_open_hash = { "open_hash", false, oh_create, oh_destroy, oh_insert, oh_get, 0,
                                 oh_remove, 0, oh_evict_scan };
 

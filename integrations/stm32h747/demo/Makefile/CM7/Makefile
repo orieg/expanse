@@ -22,7 +22,7 @@ TARGET = expanse_demo_CM7
 # debug build?
 DEBUG = 1
 # optimization
-OPT = -Og
+OPT = -O2
 
 
 #######################################
