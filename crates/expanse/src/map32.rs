@@ -529,6 +529,62 @@ impl fmt::Debug for ExpanseMap32 {
 
 #[cfg(test)]
 mod tests {
+
+    /// `range` and `try_for_each_range` must visit the same entries in the
+    /// same order.
+    ///
+    /// They are two different walks over one structure: `range` streams a
+    /// `LeafCur32` cursor, `try_for_each_range` recurses through
+    /// `trie32::map_for_each_range`. Nothing tied them together, and nothing
+    /// measured the second — which is how the cursor lost its per-key popcount
+    /// while the C ABI path kept one. This is the equivalence any optimisation
+    /// to either walk has to preserve.
+    #[test]
+    fn range_and_for_each_range_agree() {
+        for dist in ["sequential", "clustered", "random"] {
+            let mut x: u64 = 0x2545_F491_4F6C_DD1D;
+            let mut m = ExpanseMap32::new();
+            for i in 0..2_000u32 {
+                let k = match dist {
+                    "random" => {
+                        x ^= x << 13;
+                        x ^= x >> 7;
+                        x ^= x << 17;
+                        (x >> 16) as Key32
+                    }
+                    "clustered" => (i / 8) * 4096 + (i % 8),
+                    _ => i,
+                };
+                m.insert(k, (i * 3) as Value32);
+            }
+            for (lo, hi) in [
+                (0, Key32::MAX / 2),
+                (0, Key32::MAX),
+                (37, 41),
+                (Key32::MAX / 2, Key32::MAX),
+            ] {
+                let via_cursor: Vec<(Key32, Value32)> = m.range(lo..=hi).collect();
+                let mut via_recursion = Vec::new();
+                m.try_for_each_range(lo, hi, |k, v| {
+                    via_recursion.push((k, v));
+                    true
+                });
+                assert_eq!(
+                    via_cursor, via_recursion,
+                    "{dist}: the two walks disagree over [{lo}, {hi}]"
+                );
+            }
+            // The callback's `false` must stop the walk, which the cursor has
+            // no analogue for and only this path can get wrong.
+            let mut seen = 0usize;
+            m.try_for_each_range(0, Key32::MAX, |_, _| {
+                seen += 1;
+                seen < 5
+            });
+            assert_eq!(seen, 5, "{dist}: a false return did not stop the walk");
+        }
+    }
+
     /// The `map32_iterate` / `map32_range` arms exist to measure the ordered
     /// walk, and its bitmap-leaf path is only reached when a distribution is
     /// dense enough to promote past `MAP_BITMAP_ENTER_32`. This pins which of

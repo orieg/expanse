@@ -526,8 +526,14 @@ fn map32_iterate(map: ExpanseMap32) -> u64 {
     black_box(sink)
 }
 
-// A bounded range walk over the same maps — the shape the 32-bit C ABI's
-// `expanse_map_for_each_range` serves (#614).
+// A bounded range walk over the same maps, through the `RawIter32` cursor.
+//
+// This is NOT the walk the C ABI takes: `expanse_map_for_each_range` reaches
+// `trie32::map_for_each_range`, a separate recursive descent that shares this
+// shape and none of its code. The comment here used to claim it served that
+// entry point, and the claim held long enough for the cursor to lose its
+// per-key popcount (#686) while the C ABI path kept one — a −15.29% host win
+// next to 0.00% on device. `map32_for_each_range` below covers the other side.
 #[library_benchmark]
 #[bench::sequential(args = ("sequential",), setup = built_map32_dist)]
 #[bench::clustered(args = ("clustered",), setup = built_map32_dist)]
@@ -537,6 +543,31 @@ fn map32_range(map: ExpanseMap32) -> u64 {
     for (k, v) in map.range(black_box(0)..=black_box(Key32::MAX / 2)) {
         sink = sink.wrapping_add(u64::from(k) ^ u64::from(v));
     }
+    // Leaked — see `map_get`.
+    core::mem::forget(map);
+    black_box(sink)
+}
+
+// The same bounded range, walked the way the 32-bit C ABI walks it (#614).
+//
+// `expanse_map_for_each_range` -> `ExpanseMap32::try_for_each_range` ->
+// `trie32::map_for_each_range`: a recursive descent that visits a bitmap
+// leaf's digits directly, where the arm above streams a `LeafCur32` cursor.
+// The embedded suite's range aggregation is this path, so an optimisation
+// measured only on `map32_range` says nothing about what the device runs.
+//
+// Same map, same bounds, same sink as `map32_range` so the two are readable
+// side by side — the difference between them is the walk, not the workload.
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = built_map32_dist)]
+#[bench::clustered(args = ("clustered",), setup = built_map32_dist)]
+#[bench::random(args = ("random",), setup = built_map32_dist)]
+fn map32_for_each_range(map: ExpanseMap32) -> u64 {
+    let mut sink = 0u64;
+    map.try_for_each_range(black_box(0), black_box(Key32::MAX / 2), |k, v| {
+        sink = sink.wrapping_add(u64::from(k) ^ u64::from(v));
+        true
+    });
     // Leaked — see `map_get`.
     core::mem::forget(map);
     black_box(sink)
@@ -777,6 +808,7 @@ library_benchmark_group!(
         map32_get,
         map32_iterate,
         map32_range,
+        map32_for_each_range,
         map32_remove,
         set32_remove,
         blobmap32_scan,
