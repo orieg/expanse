@@ -245,6 +245,28 @@
       "replacement": "7.17× (377.4 vs 52.7 cycles per key walked) at bec51c48 after #694; the paired capture across #694 moved the arm 461.45 -> 371.10 (docs/benchmarks/embedded/results/esp32.json, results/pairing_694/)",
       "provenance": "#614, #694, #695",
       "rationale": "The 49b3b6c1 device artifact predated #694 (running rank through the C ABI range walk); a paired capture across that change moved the aggregate arm by a fifth, four times the layout floor, and the headline was re-harvested at bec51c48. Superseded, not silently overwritten (§8.7)."
+    },
+    {
+      "id": "stm32_ingest_7_5x_3037_22908c15",
+      "patterns": [
+        "7\\.5\\s*[x×]\\**\\s*\\(3,037 vs 406\\)",
+        "3\\.1\\s*[x×]\\**\\s*\\(3,037 vs 967\\)",
+        "(?<![\\w.])3,037 \\(15,159 ns\\)",
+        "(?<![\\w.])1,234 \\(6,160 ns\\)",
+        "(?<![\\w.])994 / 2,483 ns"
+      ],
+      "context": [
+        "m4",
+        "cortex-m4",
+        "ingest",
+        "stm32",
+        "dispatch",
+        "22908c15",
+        "remove_range"
+      ],
+      "replacement": "M4 ingest 7.3x (2,967 vs 406) and 3.1x (2,967 vs 971), M4 CAN dispatch 1,211 (6,045 ns), M7 400 MHz cache-on bulk remove_range 856 / 2,136 ns at fce563c2; paired capture 22908c15 -> fce563c2 in docs/benchmarks/stm32h747/results/pairing_fce563c2/",
+      "provenance": "#615, #667, #698",
+      "rationale": "The 22908c15 STM32 artifact predated #667/#698 (constant-length read_rem and set_immed_keys), which the paired capture moved the eviction fixtures 6-24% on both cores; the whole artifact was re-harvested at fce563c2 and these were its most-quoted cells. Superseded, not silently overwritten (§8.7)."
     }
   ]
 }

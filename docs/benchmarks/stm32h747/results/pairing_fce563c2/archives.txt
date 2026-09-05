@@ -1,0 +1,8 @@
+control engine 22908c15: libexpanse.a sha256 a4b164c442e4a2322b3e34c22ccecc5366d4e45da02c64a0e16b4ae43e8965d1
+treatment engine fce563c2: libexpanse.a sha256 1e16c8c4980afb7228666a1345a2ce1490fdbeed004c669d3b2e32d9795501d0
+harness firmware: integrations/stm32h747 at fce563c2 (identical to 22908c15: git diff --stat 22908c15 fce563c2 -- integrations/stm32h747 is empty); arm-none-eabi-gcc arm-none-eabi-gcc (Arm GNU Toolchain 14.3.Rel1 (Build arm-14.174)) 14.3.1 20250623; rustc rustc 1.98.1 (48a229cea 2026-09-01)
+elf_ctrl/m4.elf sha256 1b26d1db9671a61244fdffcc409b2adf74dd313f74f6685ecb156676f00aee7e
+elf_ctrl/m7.elf sha256 f5218988093829ed82af4062f86aee0b9d01420335bfac1c21c722e16cef5cb8
+elf_treat/m4.elf sha256 5acd1c420951e61d686c803ad8fcaca74eb72ef743f9e3d83d4d0fef6ff9fe7d
+elf_treat/m7.elf sha256 a3e800c1df02a2632514c6055670bc77dd19ba7f1caf9f95df9fd74df1d20728
+flash order: control_a, treatment_a, treatment_b, control_b; one board, one sitting; each capture = harness min of 5 passes per cell
