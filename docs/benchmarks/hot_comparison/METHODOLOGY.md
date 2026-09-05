@@ -580,11 +580,11 @@ points simply sit at 2× the λ of Arm B's at equal N. The two arms therefore
 share a comparable axis despite differing domains, which no choice of population
 could have given them.
 
-That is a testable prediction, not a convenience, and the harness asserts it: the
-two Expanse curves must superimpose on λ within the tolerance of exact byte
-accounting. **If they do not, the density model of §9.4 is wrong and the memory
-pillar is void** — a falsifier the suite can actually fail, which is what §8 was
-missing when `Key63` made the population check unfireable.
+That is a testable prediction, not a convenience. **Corrected by §9.9** — the
+paragraph originally continued by claiming the harness asserts the two arms'
+Expanse curves superimpose on λ. They cannot: Arm A pairs a *set* and Arm B a
+*map*, so they hold different payloads. What the arms can check is the payload
+delta, and the density falsifier is same-flavour and cross-keyspace. See §9.9.
 
 
 ### 9.7 The census also has to replace `operator new`
@@ -662,3 +662,45 @@ Xeon E5-2697 v4; `-C target-cpu=haswell`; workload: `hot_probe_symmetry`)*:
 
 Arm A compares membership against membership with no value on either side, so
 consumption there is the presence bit itself.
+
+### 9.9 The two arms cannot superimpose — §9.6's falsifier was mis-stated
+
+§9.6 claimed the harness would assert that Arm A's and Arm B's Expanse curves
+superimpose when plotted against λ, and treat a failure as voiding the memory
+pillar. Running the sweep showed the claim is structurally impossible: **Arm A
+pairs `ExpanseSet` and Arm B pairs `ExpanseMap`**, so the two hold different
+payloads and their curves are separated by a value word at every occupancy. The
+underlying density reasoning is unaffected; the falsifier was pointed at the
+wrong pair of curves.
+
+Measured on the quick sweep *(measured: x86_64 build host — Intel Xeon E5-2697
+v4; `-C target-cpu=haswell`; `mem_used()`; workload: `hot_memory_curve`;
+development host, not the reference host — smoke, not a published cell)*:
+
+| λ | `ExpanseSet` | `ExpanseMap` | ratio | difference |
+|---:|---:|---:|---:|---:|
+| 1 | 14.06 | 22.66 | 1.61× | 8.60 |
+| 2 | 13.76 | 24.09 | 1.75× | 10.33 |
+| 4 | 11.83 | 22.28 | 1.88× | 10.45 |
+| 8 | 9.56 | 19.05 | 1.99× | 9.49 |
+
+The **ratio** drifts 1.61 → 1.99 and looks like a violation; the **difference**
+stays within about 2 B/key of one value word and is the quantity that should be
+flat. The ratio moves only because the set's base cost falls with density while
+the added word does not.
+
+**What each check is actually for:**
+
+- *Payload delta* (`payload_delta_check`) — map minus set at matched occupancy,
+  expected ≈ one value word and flat. This is what the two arms can tell you
+  about each other, and it is a check on the harness, not on the engine.
+- *Density model* — the real falsifier is same-flavour and cross-keyspace:
+  `ExpanseSet` at 63 bits and λ must equal `ExpanseSet` at 64 bits and the same
+  λ. `keyspace_density_probe` measures exactly that and it holds to two decimals
+  across three width/N pairings (§9.4). It is not re-run inside the suite
+  because it needs a keyspace the arms do not vary independently.
+
+Recorded rather than quietly fixed because §9.6 is a locked decision and this
+changes what one of its stated guarantees means (§8.7). The memory pillar's
+design — a curve across λ, Arm A labelled for its restricted domain — is
+unchanged.
