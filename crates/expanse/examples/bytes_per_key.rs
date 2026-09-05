@@ -11,7 +11,7 @@
 //! |---|---|
 //! | `workload_id` | `example_bytes_per_key` |
 //! | `group` | 5 |
-//! | `population` | 10k to 1M |
+//! | `population` | 1k to 1M census; the `random` gate also samples 2M |
 //! | `probes_and_reuse` | N/A (Memory) |
 //! | `hit_rate` | N/A |
 //! | `miss_gen_method` | N/A |
@@ -23,6 +23,7 @@
 
 use expanse_trie::map::ExpanseMap;
 use expanse_trie::set::ExpanseSet;
+use expanse_trie::types::LEAF_CAP;
 
 struct XorShift(u64);
 impl XorShift {
@@ -109,16 +110,57 @@ fn main() {
     // catch structural regressions (a compression path stopping firing),
     // not the last few percent. Raise one deliberately, with the
     // BENCHMARKING.md row updated in the same commit.
+    //
+    // The `random` ceiling is population-specific, and not in the way the
+    // numbers suggest. Per-key cost on uniform keys is a sawtooth in expanse
+    // occupancy λ = N / 2^16 — the mean population of a 2-byte-prefix
+    // expanse — with its tooth at λ ≈ LEAF_CAP, where the linear leaf
+    // cascades into a branch of single-key immediates (ARCHITECTURE.md §3.5).
+    // N = 1_000_000 is λ = 15.26, 48% of LEAF_CAP, in the trough of that
+    // curve: 7.92 B/key against a 9.00 ceiling reads as 14% of headroom in
+    // bytes, but the real headroom is about 2× in N. The same generator at
+    // N = 2_000_000 (λ = 30.5, 95% of LEAF_CAP, ~39% of expanses cascaded)
+    // measures 13.60 set / 19.38 map and breaches both ceilings with no code
+    // change. Changing this row's N therefore means re-deriving its ceiling
+    // from the curve, never raising the number until the gate is green. The
+    // other four rows have occupancy fixed by their generators and do not
+    // move with N. Keyspace width is the same knob: masking one top key bit
+    // halves 2^16 and is exactly a doubling of N.
+    //
+    // The gate therefore samples `random` at TWO densities. N = 2_000_000
+    // (λ = 30.5) sits in the cascade's mixture regime, where ~39% of the
+    // 2-byte expanses have overflowed LEAF_CAP and pay one 16-byte immediate
+    // per key while the rest are still packed Leaf6 nodes. It is the
+    // steepest part of the curve, which is the point: a regression in Leaf6
+    // packing, in cap_class rounding or in the cost of the cascaded branch's
+    // single-key children moves this cell and leaves the 1M cell alone. Its
+    // ceilings follow the same policy as the others — a little above the
+    // measured 13.60 set / 19.38 map, enough to catch a compression path
+    // stopping firing (a fully cascaded expanse costs 17–21 B/key), not the
+    // last few percent. The two cells are two points on one curve, not a
+    // before/after; compare each only against its own history.
     let budget: &[(&str, usize, f64, f64)] = &[
         // dist, pop, set ceiling, map ceiling
         ("sequential", 1_000_000, 0.10, 9.00),
         ("clustered", 1_000_000, 0.50, 9.00),
         ("clustered-wide", 1_000_000, 0.30, 9.00),
         ("random", 1_000_000, 9.00, 18.00),
+        ("random", 2_000_000, 15.00, 21.00),
         ("sparse", 1_000_000, 17.00, 17.00),
     ];
     let mut over = Vec::new();
     for &(dist, pop, set_max, map_max) in budget {
+        if dist == "random" {
+            // Print the density the ceiling was calibrated at, so a change to
+            // `pop` is visible as a move along the curve in the job log.
+            let lambda = pop as f64 / 65_536.0;
+            println!(
+                "random gate density: N = {pop}, λ = N / 2^16 = {lambda:.2} \
+                 ({:.0}% of LEAF_CAP = {LEAF_CAP}); the ceiling is valid at this \
+                 λ only — see docs/ARCHITECTURE.md §3.5",
+                100.0 * lambda / LEAF_CAP as f64
+            );
+        }
         let ks = keys(dist, pop);
         let mut set = ExpanseSet::new();
         let mut map = ExpanseMap::new();
