@@ -91,6 +91,23 @@ Per `AGENTS.md` §8.8 commit 2 (pre-registration locked before any main data) an
      published Expanse-vs-twin ratios stand as measured, with the asymmetry now sized instead
      of merely disclosed.
 
-4. **Run-to-Run Drift & Flash Cache Sensitivity**:
+4. **The Task Watchdog Is Off, Deliberately**:
+   - The harvest runs every Unity case and benchmark arm on the main task, compute-bound and
+     without yielding, so `IDLE0` never feeds the task watchdog and it fires on its 5 s period
+     for the length of the sweep — ~16 times in an 82 s run, each printing a backtrace over the
+     UART **while arms are being timed**.
+   - Measured cost, both on hardware: one firing landed mid-line in a benchmark's JSON row and
+     the harvester dropped it, so an arm reported 9 repetitions rather than 10 — deterministically,
+     in the same cell, across two captures; and a watchdog ISR plus six lines of 115200-baud UART
+     inside a timed window is the contamination `CONTAMINATION_RATIO` exists to catch.
+   - `CONFIG_ESP_TASK_WDT_INIT=n` in `integrations/esp32/sdkconfig.defaults`. The interrupt
+     watchdog stays on, and a wedged harness is visible as a missing `EXPANSE esp32 harvest done`
+     sentinel, so nothing that mattered is being switched off.
+   - **Pending device confirmation**: the committed `results/esp32.json` predates this and still
+     carries the 9-sample arm. The next harvest is expected to read 10/10 on every arm
+     ([#695](https://github.com/orieg/expanse/issues/695)); until one runs, that expectation is
+     unverified.
+
+5. **Run-to-Run Drift & Flash Cache Sensitivity**:
    - Microcontroller execution is sensitive to binary link layout and instruction-cache / flash-cache alignment.
    - Results are reported using median cycles across clean repetitions alongside BCa 95% intervals, with contamination sampling to identify ISR or flash-miss outliers.
