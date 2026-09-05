@@ -94,11 +94,15 @@ impl ExpanseMap32 {
         // inapplicable finger costs one compare.
         if let Some(old) = trie32::map_insert_via_finger(&mut self.alloc, key, value, &self.finger)
         {
+            #[cfg(test)]
+            finger_census::hit();
             if old.is_none() {
                 self.len += 1;
             }
             return old;
         }
+        #[cfg(test)]
+        finger_census::miss();
         let old = trie32::map_insert_f(
             &mut self.alloc,
             &mut self.root,
@@ -524,6 +528,39 @@ impl fmt::Debug for ExpanseMap32 {
             cur = self.next(k);
         }
         dbg.finish()
+    }
+}
+
+/// Test-only census of the insert finger: how many inserts the cached path
+/// answered and how many took the full descent. Compiled out of every
+/// non-test build, so the insert path is untouched (AGENTS.md §6). Per
+/// thread, because the test harness runs tests in parallel and a shared
+/// counter would count the neighbours' inserts.
+#[cfg(test)]
+pub(crate) mod finger_census {
+    use std::cell::Cell;
+
+    thread_local! {
+        static HITS: Cell<u64> = const { Cell::new(0) };
+        static MISSES: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(crate) fn hit() {
+        HITS.with(|c| c.set(c.get() + 1));
+    }
+
+    pub(crate) fn miss() {
+        MISSES.with(|c| c.set(c.get() + 1));
+    }
+
+    pub(crate) fn reset() {
+        HITS.with(|c| c.set(0));
+        MISSES.with(|c| c.set(0));
+    }
+
+    /// `(hits, misses)` since the last reset, on this thread.
+    pub(crate) fn snapshot() -> (u64, u64) {
+        (HITS.with(Cell::get), MISSES.with(Cell::get))
     }
 }
 
@@ -1130,5 +1167,54 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The finger's hit rate on the monotonic ingest shape the 32-bit
+    /// benchmarks and the on-device fixtures use (`1_700_000_000 + i`), so the
+    /// amortisation #625 landed is a measured share rather than an assumed one
+    /// (#615: "the hit rate is unmeasured").
+    ///
+    /// The finger arms only inside the `Kind::MapBitmap` arm of
+    /// `trie32::map_insert_f`, i.e. for an insert that lands in an *existing*
+    /// level-1 bitmap leaf. A monotonic fill therefore takes the full descent
+    /// for `MAP_BITMAP_ENTER_32 + 2` inserts of every 256-key expanse: the
+    /// `MAP_BITMAP_ENTER_32` inserts before the leaf reaches promotion size,
+    /// the promoting insert (which converts the leaf and does not arm), and
+    /// the first insert into the new bitmap (which arms). Every later insert
+    /// in the expanse hits. Measured at the shipped constants: 7,410 hits and
+    /// 2,590 misses over 10,000 keys, a 74.1% hit rate against a 74.9%
+    /// ceiling if the promoting insert armed. The two extra misses are one
+    /// descent per 128 keys and are not worth a change; the test pins the
+    /// count so a regression that disarms the finger inside an expanse is
+    /// caught.
+    #[test]
+    fn finger_hit_rate_on_monotonic_ingest() {
+        use crate::types32::MAP_BITMAP_ENTER_32;
+        const N: u32 = 10_000;
+        const BASE: u32 = 1_700_000_000;
+        let mut map = ExpanseMap32::new();
+        super::finger_census::reset();
+        for i in 0..N {
+            map.insert(BASE + i, i);
+        }
+        let (hits, misses) = super::finger_census::snapshot();
+        assert_eq!(hits + misses, u64::from(N));
+        // Per 256-key expanse: MAP_BITMAP_ENTER_32 pre-promotion inserts, the
+        // promoting insert, and the arming insert all miss. BASE is
+        // 256-aligned, so the last expanse is partial and contributes only
+        // as many misses as it has inserts, capped at that count.
+        let per_expanse = MAP_BITMAP_ENTER_32 as u64 + 2;
+        let full = u64::from(N / 256);
+        let tail = u64::from(N % 256);
+        let expected_misses = full * per_expanse + tail.min(per_expanse);
+        let rate = hits as f64 / f64::from(N);
+        println!(
+            "map32 finger census on monotonic ingest: {hits} hits / {misses} misses over {N} inserts \
+             ({rate:.4}); {per_expanse} misses per 256-key expanse with MAP_BITMAP_ENTER_32 = {MAP_BITMAP_ENTER_32}"
+        );
+        assert_eq!(
+            misses, expected_misses,
+            "the finger should miss exactly the pre-promotion, promoting and arming inserts of each expanse"
+        );
     }
 }
