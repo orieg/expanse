@@ -474,6 +474,16 @@
       "suite": "art_comparison"
     },
     {
+      "name": "art_small_payload",
+      "available": true,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-trie",
+      "target": "art_small_payload",
+      "summary": "Adaptive Radix Tree (ART) vs Expanse small-payload regime (<= 7 keys) lookups, inserts, and memory census.",
+      "suite": "art_comparison"
+    },
+    {
       "name": "wasm_fuel",
       "available": false,
       "kind": "fuel",

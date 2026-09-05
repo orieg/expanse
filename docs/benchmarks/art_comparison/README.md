@@ -43,6 +43,11 @@ This benchmark suite delivers a reproducible, empirical head-to-head evaluation 
  Range Scan k=100 (1M random)              not pre-reg        BOUNDARY_RESULT     1.00x [0.79, 1.07]
  Range Scan k=10 (1M seq)                  not pre-reg        blart (ART)         ART 2.09x (UNPREDICTED LOSS)
  Range Scan k=10 (1M clustered)            not pre-reg        blart (ART)         ART 1.96x (UNPREDICTED LOSS)
+--------------------------------------------------------------------------------------------------------
+ Small Payloads (N=1..7 hit lookup)        ExpanseMap         Expanse             Expanse 2.08x–2.66x faster
+ Small Payloads (N=1..7 miss lookup)       ExpanseMap         Expanse             Expanse 1.56x–2.85x faster
+ Small Payloads (N=1..7 logical RAM)       ExpanseMap         Expanse             Expanse 2.00x–4.00x less RAM
+ Small Payloads (N=1..7 clean insert)      ExpanseMap         blart (ART)         REFUTED in ART's favour (3.54x–40.66x)
 ========================================================================================================
 ```
 
@@ -66,8 +71,13 @@ This benchmark suite delivers a reproducible, empirical head-to-head evaluation 
    - On 1M random key iteration, `ExpanseMap`'s stack-based zero-allocation iterator scans at **5.54 ns/element** vs `blart`'s **61.08 ns/element** (10.98× faster).
    - For short range scans ($k=10$), ART outperforms Expanse (3.20 ns vs 7.20 ns, 2.09× faster) — classified as **UNPREDICTED LOSS (mechanism unmeasured)** *(workload: art_scan)*.
 
-5. **Unmeasured Regimes**:
-   - Small payloads ($\le 7$ keys, Immediates): **Not measured in this suite** (tracked in [#663](https://github.com/orieg/expanse/issues/663)).
+5. **Small Payloads Regime ($N \le 7$, #663)**:
+   - Evaluated in dedicated harness `art_small_payload` across $N \in [1, 7]$ with batched pre-allocated construction ($B = 1,000$, isolating insert from container drop) and looped stream probes ($M = 10,000$) to defeat the timer resolution floor.
+   - In `ExpanseMap`, full 64-bit keys at $N \le 31$ reside in a single contiguous `Root::Leaf` array (`crates/expanse/src/map.rs:L25-38`). Abstract Judy/Expanse immediate edges (`EdgeTag::Immed`) exist only within internal trie branches after leading prefix bytes have been decoded.
+   - **Point Lookup Hit**: Expanse wins across all $N \in [1, 7]$ (1.15–6.94 ns vs 3.05–14.23 ns; 2.08×–2.66× faster, all 95% BCa CIs strictly excluding 1.0) due to contiguous cache-line linear unrolled scanning *(workload: art_small_payload)*.
+   - **Point Lookup Miss**: Expanse wins across all $N \in [1, 7]$ (2.93–5.25 ns vs 6.41–11.09 ns; 1.56×–2.85× faster) *(workload: art_small_payload)*.
+   - **Memory Footprint (Dual Perspective)**: In *logical layout footprint*, Expanse packs small collections into 16 B to 128 B (2.0×–4.0× less than blart's 32 B to 392 B). However, in *resident heap consumption*, Expanse's private `NodeAlloc` allocates 4,096-byte slab pages per active size class (4,096 B to 16,384 B from the OS across 1 to 4 pages), while blart allocates small nodes directly via system `malloc`. For unpooled single maps, blart uses significantly less resident heap from the OS *(workload: art_small_payload)*.
+   - **Clean Insertion Throughput**: Pre-registered expectation that Expanse would win insertion is **REFUTED in ART's favour**. With container creation and drop isolated outside the timer, blart inserts keys in 16.8–37.5 ns, whereas ExpanseMap takes 129.6–504.4 ns (blart 3.54×–40.66× faster) due to root leaf resizing and insertion shifts *(workload: art_small_payload)*.
 
 ---
 
@@ -87,6 +97,9 @@ This benchmark suite delivers a reproducible, empirical head-to-head evaluation 
 
 ### Ordered Scan & In-Order Iteration Latency (ns / Element)
 ![Ordered Scan & Iteration](results/chart_scan.svg)
+
+### Small-Payload Regime ($N \le 7$ Keys, #663)
+![Small Payloads](results/chart_small_payload.svg)
 
 ---
 
@@ -164,11 +177,56 @@ This benchmark suite delivers a reproducible, empirical head-to-head evaluation 
 | 1,000,000 | **Uniform Random** | **23.54 B/k** | 55.62 B/k | 27.13 B/k | 35.65 B/k | Expanse 2.36x less RAM | **Expanse 2.36×** *(not pre-registered)* |
 | 1,000,000 | **Zipfian (225,846 unique)** | **11.96 B/k** | 52.00 B/k | 27.12 B/k | 19.73 B/k | Expanse 4.35x less RAM | **Expanse 4.35×** *(not pre-registered)* |
 
+### Pillar 6: Small-Payload Regime ($N \in [1, 7]$ Keys, #663)
+
+#### Memory Footprint & Allocation Census
+
+| Population ($N$) | `ExpanseMap` Logical | `ExpanseMap` Resident Heap | `blart` (ART) Heap | `blart` Live Allocs | `BTreeMap` | `hashbrown` | Logical Ratio (Exp/ART) | Verdict / Status |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| **1** | **16 B** (16.0 B/k) | 4,096 B (1 slab page) | 32 B (32.0 B/k) | 1 | 192 B | 76 B | 0.50x | **Expanse 2.00x less logical RAM** |
+| **2** | **32 B** (16.0 B/k) | 8,192 B (2 slab pages) | 128 B (64.0 B/k) | 3 | 192 B | 76 B | 0.25x | **Expanse 4.00x less logical RAM** |
+| **3** | **64 B** (21.3 B/k) | 12,288 B (3 slab pages) | 160 B (53.3 B/k) | 4 | 192 B | 76 B | 0.40x | **Expanse 2.50x less logical RAM** |
+| **4** | **64 B** (16.0 B/k) | 12,288 B (3 slab pages) | 192 B (48.0 B/k) | 5 | 192 B | 144 B | 0.33x | **Expanse 3.00x less logical RAM** |
+| **5** | **128 B** (25.6 B/k) | 16,384 B (4 slab pages) | 328 B (65.6 B/k) | 7 | 192 B | 144 B | 0.39x | **Expanse 2.56x less logical RAM** |
+| **6** | **128 B** (21.3 B/k) | 16,384 B (4 slab pages) | 360 B (60.0 B/k) | 8 | 192 B | 144 B | 0.36x | **Expanse 2.81x less logical RAM** |
+| **7** | **128 B** (18.3 B/k) | 16,384 B (4 slab pages) | 392 B (56.0 B/k) | 9 | 192 B | 144 B | 0.33x | **Expanse 3.06x less logical RAM** |
+
+#### Point Lookup Latency (ns/op)
+
+| Population ($N$) | Metric | `ExpanseMap` | `blart` (ART) | `BTreeMap` | `hashbrown` | Ratio Mean (Exp/ART) | Verdict / Status |
+|---|---|---:|---:|---:|---:|---:|---|
+| **1** | Hit (100%) | **1.15 ns** | 3.05 ns | 1.03 ns | 1.51 ns | 0.38x [0.37, 0.38] | **CONFIRMED** *(Expanse 2.66×)* |
+| | Miss (50/50) | **4.35 ns** | 6.41 ns | 4.91 ns | 7.05 ns | 0.64x [0.57, 0.68] | **CONFIRMED** *(Expanse 1.56×)* |
+| **2** | Hit (100%) | **4.82 ns** | 11.17 ns | 4.64 ns | 1.48 ns | 0.44x [0.42, 0.46] | **CONFIRMED** *(Expanse 2.29×)* |
+| | Miss (50/50) | **4.31 ns** | 9.70 ns | 5.70 ns | 6.69 ns | 0.45x [0.43, 0.47] | **CONFIRMED** *(Expanse 2.22×)* |
+| **3** | Hit (100%) | **5.95 ns** | 12.38 ns | 6.13 ns | 1.46 ns | 0.50x [0.48, 0.59] | **CONFIRMED** *(Expanse 1.99×)* |
+| | Miss (50/50) | **2.93 ns** | 9.58 ns | 5.84 ns | 6.28 ns | 0.35x [0.32, 0.40] | **CONFIRMED** *(Expanse 2.85×)* |
+| **4** | Hit (100%) | **5.13 ns** | 12.71 ns | 7.35 ns | 1.46 ns | 0.42x [0.41, 0.46] | **CONFIRMED** *(Expanse 2.35×)* |
+| | Miss (50/50) | **2.99 ns** | 9.72 ns | 6.31 ns | 6.47 ns | 0.35x [0.31, 0.41] | **CONFIRMED** *(Expanse 2.85×)* |
+| **5** | Hit (100%) | **6.55 ns** | 14.25 ns | 7.82 ns | 1.46 ns | 0.46x [0.46, 0.48] | **CONFIRMED** *(Expanse 2.17×)* |
+| | Miss (50/50) | **4.49 ns** | 10.80 ns | 6.38 ns | 6.36 ns | 0.43x [0.42, 0.44] | **CONFIRMED** *(Expanse 2.34×)* |
+| **6** | Hit (100%) | **6.53 ns** | 13.98 ns | 7.86 ns | 1.39 ns | 0.47x [0.47, 0.48] | **CONFIRMED** *(Expanse 2.11×)* |
+| | Miss (50/50) | **5.25 ns** | 11.09 ns | 6.77 ns | 6.32 ns | 0.46x [0.45, 0.48] | **CONFIRMED** *(Expanse 2.15×)* |
+| **7** | Hit (100%) | **6.94 ns** | 14.23 ns | 8.78 ns | 1.39 ns | 0.48x [0.47, 0.49] | **CONFIRMED** *(Expanse 2.08×)* |
+| | Miss (50/50) | **4.96 ns** | 11.08 ns | 7.03 ns | 6.11 ns | 0.45x [0.44, 0.47] | **CONFIRMED** *(Expanse 2.20×)* |
+
+#### Clean Insertion Latency (ns/op)
+
+| Population ($N$) | `ExpanseMap` | `blart` (ART) | `BTreeMap` | `hashbrown` | Ratio Mean (Exp/ART) | Verdict / Status |
+|---|---:|---:|---:|---:|---:|---|
+| **1** | 504.42 ns | **16.79 ns** | 48.75 ns | 30.38 ns | 40.66x [17.81, 149.74] | **REFUTED in ART's favour** *(ART 40.66×)* |
+| **2** | 270.83 ns | **24.23 ns** | 9.35 ns | 12.08 ns | 13.08x [10.67, 15.72] | **REFUTED in ART's favour** *(ART 13.08×)* |
+| **3** | 216.51 ns | **28.17 ns** | 7.04 ns | 9.58 ns | 8.17x [7.73, 8.97] | **REFUTED in ART's favour** *(ART 8.17×)* |
+| **4** | 164.78 ns | **28.80 ns** | 6.14 ns | 22.97 ns | 6.11x [5.63, 6.94] | **REFUTED in ART's favour** *(ART 6.11×)* |
+| **5** | 206.77 ns | **37.54 ns** | 6.56 ns | 19.93 ns | 5.73x [5.48, 6.15] | **REFUTED in ART's favour** *(ART 5.73×)* |
+| **6** | 170.42 ns | **36.98 ns** | 6.97 ns | 17.62 ns | 4.94x [4.49, 6.06] | **REFUTED in ART's favour** *(ART 4.94×)* |
+| **7** | 129.55 ns | **35.91 ns** | 7.51 ns | 16.45 ns | 3.54x [3.44, 3.63] | **REFUTED in ART's favour** *(ART 3.54×)* |
+
 ---
 
 ## 4. Reproducing These Results
 
-To execute the entire 5-pillar benchmark suite and regenerate the charts on the reference host:
+To execute the entire 6-pillar benchmark suite and regenerate the charts on the reference host:
 
 ```bash
 # 1. Run the full benchmark sweep and generate SVG charts

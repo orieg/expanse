@@ -143,6 +143,21 @@ pre-registration and fair-twin obligations without a novelty-tier declaration.
 | `statistics` | Exact byte count |
 | `verdict` | **PASS** `[verified: CODE READ]`: ART comparison memory footprint benchmark. |
 
+### `art_small_payload`
+| Property | Value |
+|---|---|
+| `workload_id` | `art_small_payload` |
+| `group` | 4 |
+| `population` | 1 to 7 keys |
+| `probes_and_reuse` | Looped probe stream (10k lookups) & batched builds (1k constructions) |
+| `hit_rate` | 100% Hit & 50/50 Rejection Miss & Dynamic Insertion |
+| `miss_gen_method` | Rejection sampling |
+| `value_dereference` | `black_box(*val)` / insertion sink |
+| `measured_region` | Clean lookup & cold build loops |
+| `arm_symmetry` | Symmetric keys and PRNG |
+| `statistics` | Median + BCa 95% Bootstrap CI over paired rounds; exact byte and allocation census |
+| `verdict` | **PASS** `[verified: CODE READ]`: ART comparison small-payload regime benchmark (#663). |
+
 ---
 
 ## 5. Amendments after Pre-Registration (2026-09-02)
@@ -164,3 +179,9 @@ Per `AGENTS.md §8.12` and Research Disciplines amendment rules, methodological 
 4. **Offline Statistical Verification & Metadata Transcription (`recompute_and_patch_json.py`)**:
    - *Adjustment*: The raw timing samples from the reference-host execution were processed via `scripts/recompute_and_patch_json.py` to derive BCa bootstrap confidence intervals and verify that all point estimates strictly lie within their confidence intervals.
    - *Status*: Host model, kernel version, and load averages (`0.00` start, `0.96` end) were transcribed from the reference-host execution run log into artifact metadata. Zipfian deduplicated unique key counts for lookup pillars (2,911 unique at 10k; 25,144 unique at 100k; 225,853 unique at 1M) were transcribed from the memory census pillar of the same run.
+
+5. **Small-Payload Implementation Mechanism Clarification & Looped Measurement Protocol (`art_small_payload`, #663)**:
+   - *Clarification*: In §2, the pre-registration table noted that for small payloads ($\le 7$ keys), `ExpanseMap` packs keys into a 16-byte `Edge` with 0 heap allocations. Architectural auditing of `types.rs` and `map.rs` clarifies that `ImmedType` requires $1 \le \text{key\_bytes} \le 7$; full 64-bit keys at root level cannot fit in a 16-byte edge. Instead, `ExpanseMap` stores populations $\le 31$ (`ROOT_LEAF_CAP`) in a class-sized `Root::Leaf` (parallel contiguous `u64` keys and values in exactly 1 heap allocation of $16 \times \text{cap\_class}(N)$ bytes). Immediate edges operate within interior trie levels when prefixes have been decoded.
+   - *Measurement Protocol*: For small collections ($N \in [1, 7]$), single-iteration executions fall below system timer resolution ($\approx 20\text{--}40\text{ ns}$). Point lookup latency is measured across a deterministic looped stream of $M = 10,000$ shuffled probes per round; dynamic insertion throughput is measured across batched constructions of $B = 1,000$ fresh containers from empty per round; memory census records exact logical descriptor bytes (`mem_used`), heap allocation counts, and resident heap (`TrackingAlloc`).
+   - *Hypothesis & Expected Winner*: `ExpanseMap` is expected to outperform `blart` on point lookup hit latency (single-line unrolled root leaf scan vs multi-level trie traversal), dynamic insertion (1 class-sized allocation and in-place shifts vs per-key `LeafNode` heap allocations and `InnerNode4` restructuring), and logical memory / allocation count across all $N \in [1, 7]$.
+

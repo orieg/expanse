@@ -62,6 +62,7 @@ on:
           - art_insert
           - art_scan
           - art_memory
+          - art_small_payload
           # END GENERATED: bench-suites
   issue_comment:
     types: [created]

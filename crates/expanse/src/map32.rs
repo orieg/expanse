@@ -529,6 +529,54 @@ impl fmt::Debug for ExpanseMap32 {
 
 #[cfg(test)]
 mod tests {
+    /// The `map32_iterate` / `map32_range` arms exist to measure the ordered
+    /// walk, and its bitmap-leaf path is only reached when a distribution is
+    /// dense enough to promote past `MAP_BITMAP_ENTER_32`. This pins which of
+    /// the three benchmark shapes actually covers it: `sequential` does,
+    /// `clustered` and `random` do not, so an optimisation to the bitmap walk
+    /// should move the sequential arms and leave the other two flat.
+    ///
+    /// Mirrors `keys32` in `benches/instructions.rs`. If that generator
+    /// changes shape, this fails rather than letting the arm silently stop
+    /// covering the path it was added for.
+    #[test]
+    fn bench_distributions_cover_the_bitmap_walk() {
+        fn keys32(dist: &str) -> Vec<Key32> {
+            let mut x: u64 = 0x2545_F491_4F6C_DD1D;
+            (0..2_000u32)
+                .map(|i| match dist {
+                    "random" => {
+                        x ^= x << 13;
+                        x ^= x >> 7;
+                        x ^= x << 17;
+                        (x >> 16) as Key32
+                    }
+                    "clustered" => (i / 8) * 4096 + (i % 8),
+                    _ => i,
+                })
+                .collect()
+        }
+        for (dist, want_bitmaps) in [
+            ("sequential", true),
+            ("clustered", false),
+            ("random", false),
+        ] {
+            let mut m = ExpanseMap32::new();
+            for (i, k) in keys32(dist).into_iter().enumerate() {
+                m.insert(k, (i * 3) as Value32);
+            }
+            let n = m.alloc.map_bitmap_count();
+            assert_eq!(
+                n > 0,
+                want_bitmaps,
+                "{dist}: {n} map bitmap leaves, expected {}",
+                if want_bitmaps { "at least one" } else { "none" }
+            );
+            // The walk must still yield every key whatever the leaf form.
+            assert_eq!(m.iter().count(), 2_000, "{dist}: walk lost keys");
+        }
+    }
+
     use super::*;
     #[cfg(not(feature = "std"))]
     extern crate alloc as alloc_crate;
