@@ -9,12 +9,20 @@
       "patterns": [
         "(?<![\\w.])~11%\\s*slower",
         "(?<![\\w.])11%\\s*slower",
-        "(?<![\\w.])~11%\\s*\\(1\\.11[x\u00d7]\\)",
-        "(?<![\\w.])1\\.11[x\u00d7]\\s*slower",
-        "(?<![\\w.])1\\.11\\s*[x\u00d7](?!\\w)"
+        "(?<![\\w.])~11%\\s*\\(1\\.11[x×]\\)",
+        "(?<![\\w.])1\\.11[x×]\\s*slower",
+        "(?<![\\w.])1\\.11\\s*[x×](?!\\w)"
       ],
-      "context": ["random", "lookup", "stock", "judy", "libjudy", "deficit", "slower"],
-      "replacement": "1.031\u00d7, BCa 95% CI [1.024, 1.038] (results/baseline_vs_libjudy.json)",
+      "context": [
+        "random",
+        "lookup",
+        "stock",
+        "judy",
+        "libjudy",
+        "deficit",
+        "slower"
+      ],
+      "replacement": "1.031×, BCa 95% CI [1.024, 1.038] (results/baseline_vs_libjudy.json)",
       "provenance": "#463, #495",
       "rationale": "Pre-repair random 1M lookup deficit measured under load; quiet host measures 1.031x"
     },
@@ -25,7 +33,13 @@
         "(?<![\\w.])48\\.6\\s*ns\\b",
         "(?<![\\w.])45%\\s*faster\\b"
       ],
-      "context": ["judy", "stock", "judyl_get", "random_big", "faster than stock"],
+      "context": [
+        "judy",
+        "stock",
+        "judyl_get",
+        "random_big",
+        "faster than stock"
+      ],
       "replacement": "Retracted as unmeasured rescaled instruction counts (~5.52 instr/ns)",
       "provenance": "#384, #495",
       "rationale": "Wall-clock ns figures were rescaled instruction counts, never actually measured"
@@ -33,12 +47,26 @@
     {
       "id": "syncexpanse_concurrency_scaling_curve",
       "patterns": [
-        "(?<![\\w.])12\\.0\\s*[x\u00d7](?!\\w)",
+        "(?<![\\w.])12\\.0\\s*[x×](?!\\w)",
         "(?<![\\w.])265\\.8\\s*(?:Mops|M\\s*ops|M/s)\\b",
         "(?<![\\w.])284\\.9\\s*(?:Mops|M\\s*ops|M/s)\\b"
       ],
-      "array_sequence": ["19.63", "27.94", "35.62", "33.97", "28.84"],
-      "context": ["syncexpanse", "thread", "concurrency", "scaling", "mops", "m ops", "curve"],
+      "array_sequence": [
+        "19.63",
+        "27.94",
+        "35.62",
+        "33.97",
+        "28.84"
+      ],
+      "context": [
+        "syncexpanse",
+        "thread",
+        "concurrency",
+        "scaling",
+        "mops",
+        "m ops",
+        "curve"
+      ],
       "replacement": "Bounded keyspace measurement (0.12x-0.55x negative scaling on 50/50 mix, 11.4x on read-only)",
       "provenance": "#375, #383",
       "rationale": "Probed unbounded random u64 keys measuring near-100%-miss descent walk"
@@ -47,11 +75,18 @@
       "id": "ycsb_workload_e_asymmetric_predicate",
       "patterns": [
         "(?<![\\w.])15\\.26\\s*(?:Mops|M\\s*ops|M/s|ops/s)\\b",
-        "(?<![\\w.])4\\.33\\s*(?:Mops|M\\s*ops|M/s|[x\u00d7])(?!\\w)",
-        "(?<![\\w.])7\\.3\\s*[x\u00d7]\\s*(?:speedup)?(?!\\w)",
+        "(?<![\\w.])4\\.33\\s*(?:Mops|M\\s*ops|M/s|[x×])(?!\\w)",
+        "(?<![\\w.])7\\.3\\s*[x×]\\s*(?:speedup)?(?!\\w)",
         "(?<![\\w.])13\\.2\\s*(?:Mops|M\\s*ops|M/s)\\b"
       ],
-      "context": ["workload e", "ycsb", "range scan", "scan", "expanseblobmap", "skipmap"],
+      "context": [
+        "workload e",
+        "ycsb",
+        "range scan",
+        "scan",
+        "expanseblobmap",
+        "skipmap"
+      ],
       "replacement": "Workload E re-measured with symmetric predicate (BTreeMap wins Workload E)",
       "provenance": "#375, #385, #470",
       "rationale": "Asymmetric scan predicate passed ~100% vs ~50% for baselines; 13.2 B/entry for RocksDB is valid and exempt"
@@ -60,10 +95,17 @@
       "id": "rocksdb_strawman_skiplist_density",
       "patterns": [
         "(?<![\\w.])146\\.7\\s*(?:B/entry|B/k|bytes/entry|B/key)\\b",
-        "(?<![\\w.])(?:~|≈)?\\s*11(?:\\.11?)?\\s*[x\u00d7](?!\\w)"
+        "(?<![\\w.])(?:~|≈)?\\s*11(?:\\.11?)?\\s*[x×](?!\\w)"
       ],
-      "context": ["rocksdb", "skiplist", "tower", "density", "b/entry", "strawman"],
-      "replacement": "13.2 B/entry vs 18.7 B/entry (1.42\u00d7 higher density)",
+      "context": [
+        "rocksdb",
+        "skiplist",
+        "tower",
+        "density",
+        "b/entry",
+        "strawman"
+      ],
+      "replacement": "13.2 B/entry vs 18.7 B/entry (1.42× higher density)",
       "provenance": "#372",
       "rationale": "Strawman static 16-pointer tower baseline vs fair variable-height skiplist"
     },
@@ -74,7 +116,14 @@
         "\\bDRAM-latency\\b",
         "\\bstall(?:ed|ing)? on DRAM\\b"
       ],
-      "context": ["random", "lookup", "stock", "judy", "probe", "expanse"],
+      "context": [
+        "random",
+        "lookup",
+        "stock",
+        "judy",
+        "probe",
+        "expanse"
+      ],
       "replacement": "Unmeasured mechanism tracked in #480 (hardware counter shows 0.042 LLC misses vs 2.74 branch mispredicts)",
       "provenance": "#480, #495",
       "rationale": "LLC miss count is near zero, refuting memory latency bottleneck"
@@ -83,13 +132,21 @@
       "id": "domain_parity_exact_zero_overhead",
       "patterns": [
         "(?<![\\w.])\\+?0\\.00\\s*ns(?!\\w)",
-        "(?<![\\w.])1\\.00\\s*[x\u00d7]\\s*ratio(?!\\w)",
+        "(?<![\\w.])1\\.00\\s*[x×]\\s*ratio(?!\\w)",
         "zero-overhead\\s+parity"
       ],
-      "context": ["domain", "domainset", "parity", "brand", "provenance", "overhead", "intersection"],
+      "context": [
+        "domain",
+        "domainset",
+        "parity",
+        "brand",
+        "provenance",
+        "overhead",
+        "intersection"
+      ],
       "replacement": "indistinguishable at the recorded resolution: intersection() < 100 ns, intersection_len() < 10 ns (docs/benchmarks/set_algebra/results/bench_domain_algebra.json)",
       "provenance": "#643",
-      "rationale": "Both arms recorded to 0.1 us / 0.01 us; equal values at a finite resolution bound the difference below it and cannot establish zero. The claim asserted a precision 100x finer than the source carries (\u00a78.4)."
+      "rationale": "Both arms recorded to 0.1 us / 0.01 us; equal values at a finite resolution bound the difference below it and cannot establish zero. The claim asserted a precision 100x finer than the source carries (§8.4)."
     },
     {
       "id": "domain_algebra_dual_host_attribution",
@@ -97,20 +154,36 @@
         "Apple\\s+Silicon\\s+aarch64\\s*/\\s*reference\\s+x86-64\\s+Linux",
         "(?<![\\w.])commit\\s+343ce333(?!\\w)"
       ],
-      "context": ["algebra", "domain", "materialization", "k-way", "kway", "interned", "measured"],
+      "context": [
+        "algebra",
+        "domain",
+        "materialization",
+        "k-way",
+        "kway",
+        "interned",
+        "measured"
+      ],
       "replacement": "host and commit unresolved per section; see docs/benchmarks/set_algebra/README.md",
       "provenance": "#643",
-      "rationale": "One host field and one commit covered five sections across two harnesses; no section's host is recoverable, and the cells appear in no committed artifact. Withdrawn rather than reassigned (\u00a78.10)."
+      "rationale": "One host field and one commit covered five sections across two harnesses; no section's host is recoverable, and the cells appear in no committed artifact. Withdrawn rather than reassigned (§8.10)."
     },
     {
       "id": "domain_batched_ingestion_3x",
       "patterns": [
-        "(?<![\\w.])>\\s*3\\s*[x\u00d7]\\s*speedup(?!\\w)",
-        "(?<![\\w.])3\\.12\\s*[x\u00d7](?!\\w)",
+        "(?<![\\w.])>\\s*3\\s*[x×]\\s*speedup(?!\\w)",
+        "(?<![\\w.])3\\.12\\s*[x×](?!\\w)",
         "(?<![\\w.])4\\.62\\s*M\\s*keys/s(?!\\w)",
         "(?<![\\w.])3\\.98\\s*M\\s*keys/s(?!\\w)"
       ],
-      "context": ["ingestion", "batch", "insert_batch", "domain", "scalar", "chunk", "amortisation"],
+      "context": [
+        "ingestion",
+        "batch",
+        "insert_batch",
+        "domain",
+        "scalar",
+        "chunk",
+        "amortisation"
+      ],
       "replacement": "1.007x-1.031x measured over 4 clean repetitions on the reference host; 11.69 M keys/s text, 5.75 M keys/s UUID (docs/benchmarks/set_algebra/README.md)",
       "provenance": "#643, #647",
       "rationale": "Measured 1.007x-1.031x across 8 cells; published throughput is ~2.5x lower and the published speedup ~3x higher than measurement, so the published pair cannot have come from this harness."
@@ -122,10 +195,37 @@
         "(?<![\\w.])61\\s*ns\\s*/?\\s*key(?!\\w)",
         "(?<![\\w.])61\\.0\\s*ns(?!\\w)"
       ],
-      "context": ["resolution", "resolve", "slab", "blobarena", "zero-copy", "scan", "domain"],
+      "context": [
+        "resolution",
+        "resolve",
+        "slab",
+        "blobarena",
+        "zero-copy",
+        "scan",
+        "domain"
+      ],
       "replacement": "604.4 M keys/s (1.655 ns/key) at N=10k, 609.5 M keys/s (1.641 ns/key) at N=100k (docs/benchmarks/set_algebra/README.md)",
       "provenance": "#643, #647",
       "rationale": "Measured ~37x faster. The published pair matches the criterion TOTAL scan time at N=10k (16.55 us) read as a per-key throughput, with 61 ns derived from it as 1/16.4M."
+    },
+    {
+      "id": "domain_parity_intersection_len_10k_c4b1817",
+      "patterns": [
+        "(?<![\\w.])341\\.8\\s*ns\\b",
+        "(?<![\\w.])1\\.0492(?!\\d)",
+        "(?<![\\w.])\\+4\\.9%\\s*overhead\\b",
+        "(?<![\\w.])325\\.8\\s*ns\\b"
+      ],
+      "context": [
+        "domain",
+        "provenance",
+        "intersection_len",
+        "brand",
+        "domainset"
+      ],
+      "replacement": "1.0013 [1.0009, 1.0015] (+0.1%), 288.9 ns raw / 289.2 ns domain at commit fcca1c0d (docs/benchmarks/set_algebra/results/bench_domain_algebra.json)",
+      "provenance": "#701, #638",
+      "rationale": "Measured at c4b1817f before #638 changed the cardinality walk (runtime popcnt dispatch) and before #701 pinned the harness allocator policy; re-measured over 5 independent runs the resolved ~5% overhead reads 0.1%. Superseded, not silently overwritten (§8.7)."
     }
   ]
 }

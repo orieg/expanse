@@ -12,7 +12,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 QUICK=0
-[[ "${1:-}" == "--quick" ]] && QUICK=1
+REPS=1
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quick) QUICK=1; shift ;;
+    # Independent repetitions of the whole harness. Each repetition's
+    # target/criterion is snapshotted so scripts/harvest_domain.py can pair the
+    # arms per repetition and bootstrap over repetitions (AGENTS.md §8.4). The
+    # committed figures need at least 3.
+    --reps) REPS="$2"; shift 2 ;;
+    *) echo "usage: run.sh [--quick] [--reps N]" >&2; exit 2 ;;
+  esac
+done
 
 # Host-wide benchmark lock (docs/BENCHMARKING.md, methodology rule 8): one
 # suite at a time per machine, across every checkout. `mkdir` is atomic; the
@@ -47,16 +58,41 @@ mkdir -p "$OUT_DIR"
 echo "==> load snapshot before the run (AGENTS.md §8.4 / BENCHMARKING.md rule 2)"
 uptime
 
-echo "==> cargo bench -p expanse-trie --bench domain"
+# Raw per-repetition snapshots are scratch (§8.5): only the harvested summary
+# JSON is committed, and it carries the per-repetition means.
+RAW_DIR="$REPO_ROOT/results/quick/set_algebra/raw"
+rm -rf "$RAW_DIR"; mkdir -p "$RAW_DIR"
+: > "$RAW_DIR/loads.txt"
+
 cd "$REPO_ROOT"
-if [[ $QUICK -eq 1 ]]; then
-    cargo bench -p expanse-trie --bench domain -- --quick
-else
-    cargo bench -p expanse-trie --bench domain
-fi
+for ((rep = 1; rep <= REPS; rep++)); do
+    echo "==> repetition $rep/$REPS: cargo bench -p expanse-trie --bench domain  (loadavg: $(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || uptime))"
+    cut -d' ' -f1-3 /proc/loadavg >> "$RAW_DIR/loads.txt" 2>/dev/null || true
+    rm -rf target/criterion
+    if [[ $QUICK -eq 1 ]]; then
+        cargo bench -p expanse-trie --bench domain -- --quick
+    else
+        cargo bench -p expanse-trie --bench domain
+    fi
+    mkdir -p "$RAW_DIR/rep_$rep"
+    cp -r target/criterion "$RAW_DIR/rep_$rep/criterion"
+done
 
 echo "==> load snapshot after the run"
 uptime
+
+if [[ $REPS -ge 3 ]]; then
+    COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo "${EXPANSE_BENCH_COMMIT:-unknown}")"
+    HOST_DESC="${EXPANSE_HOST_DESC:-$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //'), $(nproc) logical CPUs, $(uname -sr)}"
+    echo "==> harvest: $REPS repetitions -> $OUT_DIR/bench_domain_algebra.json"
+    if [[ $QUICK -eq 1 && ! -f "$OUT_DIR/bench_domain_algebra.json" ]]; then
+        cp "$REPO_ROOT/docs/benchmarks/set_algebra/results/bench_domain_algebra.json" "$OUT_DIR/"
+    fi
+    python3 "$SCRIPT_DIR/scripts/harvest_domain.py" --raw "$RAW_DIR" --out "$OUT_DIR/bench_domain_algebra.json" \
+        --commit "$COMMIT" --host-desc "$HOST_DESC" --loads "$RAW_DIR/loads.txt" --markdown "$OUT_DIR/domain_tables.md"
+else
+    echo "==> fewer than 3 repetitions: samples snapshotted under $RAW_DIR, no aggregate written (run with --reps 3 or more to publish)"
+fi
 
 echo
 echo "Criterion output: target/criterion/"

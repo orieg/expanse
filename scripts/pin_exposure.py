@@ -147,16 +147,25 @@ def resolve_commit(declared: Optional[str], detected: Optional[str]) -> Tuple[st
     )
 
 
-def describe_host() -> str:
-    """An anonymised hardware description (AGENTS.md §7): never the hostname."""
-    model = None
-    try:
-        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
-            if line.startswith("model name"):
-                model = line.split(":", 1)[1].strip()
-                break
-    except OSError:
-        pass
+def describe_host(model: Optional[str] = None) -> str:
+    """An anonymised hardware description (AGENTS.md §7): never the hostname.
+
+    `model` is injectable for the self-test; `None` reads `/proc/cpuinfo`.
+    Intel model names carry the base clock as `@ 2.80GHz`, and `@` is one of
+    the characters `validate_host_description` refuses as an infrastructure
+    identifier — a GitHub-hosted runner with such a part failed the lint
+    job's self-test on exactly that. The clock is kept and the sigil spelt out.
+    """
+    if model is None:
+        try:
+            for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+                if line.startswith("model name"):
+                    model = line.split(":", 1)[1].strip()
+                    break
+        except OSError:
+            pass
+    if model:
+        model = " ".join(model.replace("@", "at").split())
     parts = [model or platform.machine(), f"{os.cpu_count()} logical CPUs", f"{platform.system()} {platform.release()}"]
     return ", ".join(parts)
 
@@ -749,6 +758,11 @@ def self_test() -> None:
     # the host description is anonymised: a hostname or a home path is refused
     assert describe_host()
     validate_host_description(describe_host())
+    # ... including on a runner whose model name carries a base clock: the
+    # `@` in "CPU @ 2.80GHz" must not read as an infrastructure identifier
+    xeon = describe_host("Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz")
+    assert "at 2.80GHz" in xeon and "@" not in xeon, xeon
+    validate_host_description(xeon)
     # ... and the refusal must survive the assembly `main` actually calls, not
     #     just the validator in isolation
     # A commit this tree can vouch for, so the host check is what is exercised

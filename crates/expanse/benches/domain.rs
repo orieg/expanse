@@ -1,7 +1,7 @@
 //! Micro-benchmarks for the Interned Set Domain (Issue #611).
 //!
 //! Measures:
-//! 1. Set algebra parity: confirms DomainSet provenance verification adds 0 ns overhead over raw ExpanseSet.
+//! 1. Set algebra parity: what the DomainSet provenance check costs over raw ExpanseSet algebra (paired).
 //! 2. Ingestion throughput: scalar insert vs batched insert on text and binary UUID keys.
 //! 3. Zero-copy resolution: throughput of iterating and reading borrowed slices from the stable slab arena.
 //!
@@ -16,7 +16,7 @@
 //! | `hit_rate` | 100% hits on insertion & resolution; 50% overlap on intersections |
 //! | `miss_gen_method` | None |
 //! | `value_dereference` | direct byte slice reading via `resolve()` |
-//! | `measured_region` | timed inner loop over operations (allocations and setup outside) |
+//! | `measured_region` | timed inner loop over operations (allocations and setup outside); glibc heap trimming disabled for the process so a batch's freed result sets are not returned to the OS and re-faulted inside the window (#701) |
 //! | `arm_symmetry` | symmetric key sequences across DomainSet and ExpanseSet |
 //! | `statistics` | Criterion estimate |
 //! | `verdict` | **PASS** `[verified: CODE READ]`: Interned domain posting-list algebra and ingestion. |
@@ -24,7 +24,7 @@
 #![cfg(target_pointer_width = "64")]
 #![allow(missing_docs)]
 
-use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group};
 use expanse_trie::domain::ExpanseDomainDict;
 use expanse_trie::set::ExpanseSet;
 use std::hint::black_box;
@@ -238,4 +238,38 @@ criterion_group!(
     bench_domain_ingestion,
     bench_domain_resolution
 );
-criterion_main!(benches);
+
+/// Pins the process's allocator policy so the measured region does not depend
+/// on what ran before it in the same process (#701).
+///
+/// The intersection arms use `iter_batched`, which keeps every result set of a
+/// batch alive until the batch is timed; the live heap of a sample therefore
+/// grows with its iteration count. Under glibc's default policy the heap top
+/// is trimmed back to the OS once that memory is freed, and the next batch
+/// first-touches its pages again inside the window. Whether that happens
+/// depends on process history — glibc raises its trim threshold when large
+/// chunks are freed — so the same arm read 16.8 µs run alone and 10.9 µs run
+/// after its 10k twin, with 3.20 M against 105 k page faults, and criterion's
+/// slope and mean estimates disagreed by 17% in the isolated run
+/// (`results/pin_exposure_678_c4b1817_filter_diagnostic.txt`). Disabling the
+/// trim and giving the top a pad makes the process's allocator state the same
+/// whichever arms ran before, which is the §8.6 measured-region property the
+/// harness is supposed to have. Symmetric across every arm; no workload
+/// changes. A no-op off glibc.
+fn set_allocator_policy() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        // SAFETY: `mallopt` only sets process-wide malloc tunables; it takes
+        // no pointers and is called before any benchmark thread exists.
+        unsafe {
+            libc::mallopt(libc::M_TRIM_THRESHOLD, -1);
+            libc::mallopt(libc::M_TOP_PAD, 256 * 1024 * 1024);
+        }
+    }
+}
+
+fn main() {
+    set_allocator_policy();
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}

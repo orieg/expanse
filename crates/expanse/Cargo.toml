@@ -34,6 +34,8 @@ avx512 = []
 
 [dev-dependencies]
 criterion = "0.8"
+# benches/domain.rs pins glibc's heap-trim policy for the process (#701)
+libc = "0.2"
 proptest = "1"
 iai-callgrind = "0.16"
 roaring = "0.10"
