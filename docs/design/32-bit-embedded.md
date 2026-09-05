@@ -769,7 +769,7 @@ measured, and the gap they were opened against has roughly halved:
 |---|---:|---:|
 | Cortex-M4 `ingest`, Expanse vs `open_hash` | 12.5x (5,074 vs 406) | **7.5x** (3,037 vs 406) |
 | Cortex-M4 `ingest`, Expanse vs `sorted_array` | 5.2x (5,074 vs 971) | **3.1x** (3,037 vs 967) |
-| Xtensa `esp32_tsdb_ingest` N=2000 vs hash | 3.8x (5,116 vs 1,337) | **2.28x** (3,050 vs 1,338) |
+| Xtensa `esp32_tsdb_ingest` N=2000 vs hash | 3.8x (5,116 vs 1,337) | **2.26x** (3,025 vs 1,338) |
 
 *(measured: `docs/benchmarks/stm32h747/results.json` and
 `docs/benchmarks/embedded/esp32.json`; the ESP32 twins take a FreeRTOS mutex
@@ -799,17 +799,142 @@ This one was real. The insert finger caches the descent to the last-inserted
 expanse and a hit skips four tag dispatches and six arena resolutions; it
 landed in #625 at **-31.41%** on the Callgrind `map32_insert` arm, **-14%** on
 the ESP32 ingest arms and **-26%** on both STM32 cores. The monotone-append
-short circuit landed alongside it at -5.44% on `set32_insert`.
+short circuit landed alongside it at -5.44% on `set32_insert`. Its hit rate,
+recorded as unmeasured when #625 landed, is now a census
+(`map32::tests::finger_hit_rate_on_monotonic_ingest`): on the
+`1_700_000_000 + i` shape the finger answers **7,410 of 10,000 inserts
+(74.1%)**, and the 2,590 misses are exactly `MAP_BITMAP_ENTER_32 + 2` per
+256-key expanse — the 64 pre-promotion inserts, the promoting insert (the
+finger arms only in the existing-bitmap arm of `map_insert_f`, so the
+conversion does not arm it) and the arming insert. The two extra misses per
+expanse are one descent per 128 keys and are not worth a change; the test
+pins the count.
 
-**What remains is unattributed.** With the amortization win taken and the two
-allocation hypotheses closed, the residual constant has no named mechanism
-behind it, and §6's profile-first step is still unavailable: there is no
-per-function Callgrind ranking anywhere in this repository, locally or in CI.
-What did become available since #615 was filed is deterministic coverage of
-the paths themselves — `map32_insert`, `set32_insert`, `map32_remove` and
-`set32_remove` in `crates/expanse/benches/instructions.rs` (#631), and the
-same arms as exact wasm fuel on both engine widths (#635) — so the next
-attempt on this constant can be measured per increment instead of argued.
+**4. Where the residual actually is — the per-line ranking.** §6's
+profile-first step is now done for this arm. A per-function ranking of
+`map32_insert sensor_timestamps` at HEAD reads **4,936,783 Ir over 10,000
+inserts, 493.7 Ir per insert**: engine 69.75%, arena handle resolution
+(`Arena::l2_mut` + `b_mut`) 8.38%, allocator 7.82%, `memcpy` 4.39%, leaf
+reads 2.16% (#615 body, 2026-09-05). The per-line annotation of the same
+profile splits the engine mass by *which inserts* pay it, and the answer is
+not a mechanism but a regime *(measured: Callgrind, iai-callgrind 0.16.1 /
+valgrind 3.24.0, x86_64 Linux container, commit `8efbc64c`; deterministic and
+identical to the HEAD ranking's 4,936,783 Ir —
+[`results/callgrind_615_8efbc64c_map32_insert_annotate.txt`](../../results/callgrind_615_8efbc64c_map32_insert_annotate.txt))*:
+
+| | calls | Ir | share | Ir per call |
+|---|---:|---:|---:|---:|
+| full descents (`map_insert_f`, inclusive) | 2,590 | 2,463,747 | 49.9% | **951** |
+| everything else — the finger path plus per-call work over all 10,000 inserts | 10,000 | 2,473,036 | 50.1% | ≤ 334 per finger-served insert |
+
+The 2,590 full descents are the census's 2,590 misses to the insert. The
+per-insert constant on this shape is therefore two regimes, not one:
+74% of the inserts cost at most 334 Ir, and the 26% that take the full descent
+cost **951 Ir each**, half the arm.
+Inside those descents the allocator's 386 k Ir is **149 Ir per descent** and
+the `memcpy`'s 217 k Ir is **84 Ir per descent** — 25% of a full descent is
+allocating and copying the growing leaf, which is why neither
+showed as a standalone mechanism in the function ranking yet both are large
+per event. The hottest single statements are the tag dispatch (`match tag`,
+221,916 Ir, 4.5%), the capacity-class rounding on every leaf growth
+(`(pop + 3) & !3`, 113,220 Ir, 2.3%), and the sorted-insertion probe on the
+linear leaf (`needle > read_rem(...)`). Those are the pre-promotion inserts
+of every expanse: immediates, then a linear leaf growing through `cap_class`
+steps up to `MAP_LEAF_MAX_32 = 16` and beyond, sorted insertion at each step,
+and the bitmap promotion at `MAP_BITMAP_ENTER_32 = 64` — 66 of every 256 keys
+on a monotonic stream.
+
+**Disposition.** The residual constant is explained: it is the pre-promotion
+regime of each 256-key expanse, measured per line and per call, with the
+allocator and the copies as components of those descents rather than
+mechanisms of their own. Two engine increments follow from the decomposition
+and are recorded as candidates, not findings — neither has been measured:
+a map-side monotone-append short circuit for the linear leaf, the analogue
+of the one #625 landed for the set (an append to a sorted leaf whose new key
+exceeds its last needs no probe), measurable on `map32_insert` and on wasm
+fuel per §6; and promoting a dense ascending run to a bitmap leaf earlier,
+which is a `MAP_BITMAP_ENTER_32` change and therefore off the table without
+the read-path and memory measurements a ladder constant carries (§2.1.6,
+#509). The device gaps stand as published — 7.5× on the M4 at `22908c15`,
+2.26× on Xtensa at `49b3b6c1` — and a paired STM32 re-harvest across #667/#698
+(host `map32_insert` −3.34%) is the outstanding measurement, along with the
+cycles inside the `HostAlloc` bridge on the M4 ingest fixture, which is on no
+committed arm.
+
+### 8.1.8 The 32-bit ordered range walk: what the ranking found, what it did not, and what is left (#614)
+
+#614 opened on an on-device ordered range walk **30.7× slower than a sorted
+array** and was narrowed in steps that are recorded only in the issue and its
+pull requests; this entry is the design-doc record of that work, including the
+mechanism that was posted and retracted, so the next agent does not re-derive
+either.
+
+**Where the number stands.** The C ABI streaming walk (#618) took the headline
+from 30.7× to 8.9×, then 8.20× at `41080e96`; the current published artifact,
+harvested at `49b3b6c1` (#687), reads **8.36× slower than the sorted array**
+on `esp32_tsdb_aggregate_500` — 461.4 against 55.2 cycles per key walked,
+medians of 10 with BCa 95% intervals *(measured: ESP32-D0WD-V3 rev v3.1,
+160 MHz; `docs/benchmarks/embedded/results/esp32.json`; workload:
+`esp32_tsdb_aggregate_500`)*. Part of that is the harness, and it is
+measured rather than argued: Expanse is called back once per key across the
+C ABI while every twin folds inline, and the
+`sorted_array_dispatch_inlined` / `sorted_array_dispatch_indirect` control
+puts the per-key dispatch at **+26.4 cycles per key** at `pop=2000`
+(`docs/benchmarks/embedded/METHODOLOGY.md` §3.3). That floor is charged to
+Expanse alone and is not the engine.
+
+**A mechanism was posted and is retracted.** A host per-function ranking of
+the `map32_range` arm showed a `memcpy` at 14.30% of instructions and 57.78%
+of D1 read misses, and the first reading attributed it to the walk's
+48-byte `LeafCur32` cursor being copied per leaf transition, with a fix
+proposed (read the bitmap mask words through the handle instead of caching
+them). Every part of that was wrong, and the fix would have made the device
+slower: the `memcpy` is `read_rem` (`trie32.rs`), whose runtime `kb` of
+1..=4 stopped `copy_from_slice` const-folding, at exactly 24 Ir per yielded
+key; the cursor is assigned about three times across a 501-key walk (~0.08%
+of the arm); the host arm walks `Linear` leaves (8 keys per leaf) while the
+device fixture walks `MapBitmap` leaves (dense consecutive keys past
+`MAP_BITMAP_ENTER_32 = 64`), a 21× difference in leaf-transition rate; and
+reading mask words through the handle adds an arena resolution to the
+per-key path of the only variants the device runs. Retracted in the issue on
+2026-09-04 and recorded here because it is the kind of profile-shaped
+explanation §8.9 exists to catch.
+
+**What landed on the host, in order.** `read_rem` given a constant length on
+native targets (#667, `map32_range` −14.62%); a C ABI walk arm
+`map32_for_each_range` (#690), because `map32_range` was *not* the path the
+device runs; a running rank carried through the bitmap walk (#686) and the
+recursive C ABI walk (#694, −18.63% on the sequential arm) — both parity
+fixes, since the 64-bit iterator had carried the rank all along; set-walk
+arms `set32_iterate` / `set32_range` (#696), because the set walk had no
+instrument at all; `set_immed_keys` given constant lengths (#698,
+`set32_remove` clustered −7.39%). Two increments were measured and not
+landed: removing the already-sorted set immediates' `sort_unstable`
+(−0.018%, below Callgrind's resolution) and caching the map bitmap's value
+pointers in the cursor (deliberately not done — it trades a 48-byte cursor
+for a 100-byte one to save one arena resolution per key). Both are §8.7
+negatives.
+
+**Not to be retried.** Shrinking `LeafCur32` or reading mask words through
+the handle (backwards, above); a "20.6% walk-scaling defect" (#677 — it was
+a literal `500` divisor in the harness); the claim that #614 shares a cause
+with #615 (it does not: allocation strategy versus walk cost); a single-form
+`read_rem` or `set_immed_keys` without the `cfg(not(target_family = "wasm"))`
+split (wasm insert +5.07% under the ladder form).
+
+**What is left, and what closes it.** The device artifact predates #694. One
+paired ESP32 capture across it — merge parent against `main`, one sitting,
+equal-length version strings (§8.1.3), 10 of 10 samples on every arm to
+confirm the #697 watchdog change — is the measurement that closes #614; the
+prediction to file before it runs is that the `aggregate` arms move and the
+ingest arms do not. Whatever it reads, the honest disposition is *explained*,
+not *reduced to parity*: a contiguous sorted array with an $O(\log n)$ seek
+is the right structure for this shape, and the residual plus the +26.4
+cycle-per-key dispatch floor are what the record should carry. One open item
+rides along: Expanse's aggregate rose 6.8% between `41080e96` and `49b3b6c1`
+while every twin moved ≤0.1% (#687 reports it without attributing it; the
+#686 pairing was 0.00%), which is the binary-layout effect of §8.1.3 as a
+hypothesis and unmeasured as a fact.
 
 ### 8.2 Custom Allocator & `#![no_std]` Integration
 
