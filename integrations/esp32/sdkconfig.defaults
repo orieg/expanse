@@ -34,3 +34,24 @@ CONFIG_UNITY_ENABLE_64BIT=y
 # worth ~1.5x on the ingest arm here. Optimise, so the published numbers
 # describe the code a consumer would actually ship.
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# The interrupt watchdog stays on; the *task* watchdog is turned off for this
+# app, because what it watches for is this app's whole purpose.
+#
+# The harvest runs every Unity case and every benchmark arm on the main task,
+# compute-bound, without yielding. IDLE0 therefore never gets scheduled to feed
+# the task watchdog, and it fires on a 5 s period for the length of the sweep:
+# ~16 times in an 82 s run, each printing a multi-line backtrace over the UART
+# *while arms are being timed*.
+#
+# Two costs, both measured on hardware. It corrupts output: one firing landed
+# mid-line in a benchmark's JSON row, and the harvester dropped that row, so an
+# arm reported 9 repetitions instead of 10 -- deterministically, in the same
+# cell, across two captures. And it perturbs what it interrupts: a watchdog ISR
+# plus six lines of 115200-baud UART inside a timed window is exactly the
+# contamination `esp32_bench_harvest.py`'s CONTAMINATION_RATIO exists to catch.
+#
+# Nothing is lost by disabling it. A hung task in a benchmark harness that runs
+# to a printed sentinel is visible as a missing sentinel, and the interrupt
+# watchdog (CONFIG_ESP_INT_WDT) still covers a genuinely wedged core.
+CONFIG_ESP_TASK_WDT_INIT=n
