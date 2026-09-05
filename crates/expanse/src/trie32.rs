@@ -4262,13 +4262,55 @@ impl<'a> RawIter32<'a> {
 mod tests {
     use super::*;
     #[test]
-    fn leaf_cursor_width_is_pinned() {
-        // #614's own finding: every leaf transition copies a whole LeafCur32,
-        // so the enum's width is set by its largest variant and a field added
-        // to any one of them is paid by all. The running-rank counter fits in
-        // MapBitmap's existing tail padding; this fails if something later
-        // does not.
-        assert_eq!(core::mem::size_of::<LeafCur32>(), 48);
+    fn running_rank_counters_are_free() {
+        // #614's own finding: every leaf transition copies a whole
+        // LeafCur32, so the enum's width is set by its largest variant and a
+        // field added to any one variant is paid by all of them. `sub` and
+        // `rank` are meant to cost nothing, fitting in padding MapBitmap
+        // already had.
+        //
+        // Stated against a mirror of the cursor without them rather than
+        // against a literal size: the literal differs by pointer width (48
+        // on 64-bit, 44 where `u64` aligns to 4), so pinning one number
+        // passes on the host and fails on the i686 lane -- which is exactly
+        // what it did. Keep the mirror's variants in step with the real
+        // ones; that is the whole point of it.
+        #[allow(dead_code)]
+        enum LeafCurNoCounters {
+            Done,
+            Immed {
+                keys: [u32; 7],
+                n: u8,
+                idx: u8,
+                val: u32,
+                prefix: u32,
+            },
+            Linear {
+                handle: u32,
+                pop: u16,
+                idx: u16,
+                kb: u8,
+                prefix: u32,
+                is_map: bool,
+            },
+            Bitmap {
+                words: [u64; 4],
+                w: u8,
+                prefix: u32,
+            },
+            MapBitmap {
+                handle: u32,
+                words: [u64; 4],
+                w: u8,
+                prefix: u32,
+            },
+        }
+        assert_eq!(
+            core::mem::size_of::<LeafCur32>(),
+            core::mem::size_of::<LeafCurNoCounters>(),
+            "the running-rank counters widened the leaf cursor, which every \
+             leaf transition copies"
+        );
     }
 
     #[test]
