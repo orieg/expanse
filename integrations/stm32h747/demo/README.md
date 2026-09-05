@@ -56,6 +56,7 @@ The program advances on its own; the blue user button skips a step:
 | 4, 20 s | 10 | masked around each write only | the competent firmware: no gaps on either side |
 | 5, 20 s | 10 | not masked | no gaps; WRONG stays 0 (see below) |
 | 6, 20 s | 10 | masked per write, tables filled from empty at 5,000/s | each doubling of the hash table is one write; its cost is timed by DWT and listed |
+| 7, 20 s | 10 | not masked, tables filled from empty at 5,000/s | the same growth with nothing protecting the reader: a read can land in a half-moved table |
 | summary | — | — | the run's own per-step numbers, held until reset |
 
 ## Instruments
@@ -93,14 +94,19 @@ ship unseen. The committed run has no `CHECK` line.
   occur: WRONG stayed 0 in step 5. With word-sized slot updates and linear
   probing, an unmasked hash reader is correct at steady state on this core;
   the write that does hazard it is the rehash, which step 6 shows under the
-  per-write mask (44 ms for the 65,537-entry doubling).
+  per-write mask (42 ms for the 65,537-entry doubling). Step 7 runs the same
+  growth unmasked to give the WRONG column a chance to move, and in the
+  recorded run it did not: the table swap is three word stores and the old
+  arrays stay valid until freed, so the hazard window is nanoseconds per
+  doubling and the use-after-free was not reached in 20 s. Recorded as
+  measured; it is not a guarantee.
 - **BUSY costs staleness, not latency.** The Expanse reader is told BUSY in
   about 1% of milliseconds, mostly in bursts during its own `remove_range`
   sweep when the writer holds the bracket for consecutive removals; the
-  longest such run was 11 ms at 1 sweep/s. The mockup had assumed 2 ms.
+  longest such run was 9 ms at 1 sweep/s. The mockup had assumed 2 ms.
 - **The rehash projection was optimistic.** 0.35 µs per moved entry was
   projected from the scan cost; measured, the largest doubling took
-  0.67 µs per entry (44 ms for 65,537).
+  0.64 µs per entry (42 ms for 65,537).
 - **Memory.** At this population and geometry the hash table (262,144 slots
   × 8 B) is 21–24 B/record and Expanse 18–20 including its by-time index;
   the suite's 16.4 B/record figure is the hash at 128k records. The panel

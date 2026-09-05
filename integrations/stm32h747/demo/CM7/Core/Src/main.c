@@ -66,6 +66,7 @@ static const step_t PROG[] = {
     { "STEP 4",   10, HASH_MASK_PER_WRITE, 20, false, "the competent hash firmware masks only around each write: no gaps expected" },
     { "STEP 5",   10, HASH_UNMASKED,       20, false, "no mask at all: no gaps, but the hash reader can read a wrong value" },
     { "STEP 6",   10, HASH_MASK_PER_WRITE, 20, true,  "filling both tables from empty at 5,000/s; each hash-table doubling is one write" },
+    { "STEP 7",   10, HASH_UNMASKED,       20, true,  "the same growth with the hash reader unmasked: a read can land in a half-moved table" },
     { "SUMMARY",  0,  HASH_MASK_WHOLE,     0,  false, "" },
 };
 #define N_STEPS (sizeof PROG / sizeof PROG[0])
@@ -229,7 +230,7 @@ static void draw_summary(void) {
         int yy = HEAD_Y + 60 + row++ * 32;
         const char *vals[9]; char cells[9][16];
         snprintf(cells[0], 16, "%s", p->name); snprintf(cells[1], 16, "%lu", (unsigned long)p->hz);
-        snprintf(cells[2], 16, "%s", p->growth ? "growth" : p->mode == HASH_MASK_WHOLE ? "in scan" : p->mode == HASH_MASK_PER_WRITE ? "per write" : "none");
+        snprintf(cells[2], 16, "%s", p->growth ? (p->mode == HASH_UNMASKED ? "grow, none" : "grow, masked") : p->mode == HASH_MASK_WHOLE ? "in scan" : p->mode == HASH_MASK_PER_WRITE ? "per write" : "none");
         snprintf(cells[3], 16, "%lu", (unsigned long)r->a_blocked); snprintf(cells[4], 16, "%lu", (unsigned long)r->a_stale); snprintf(cells[5], 16, "%lu", (unsigned long)r->a_wrong);
         snprintf(cells[6], 16, "%lu", (unsigned long)r->b_blocked); snprintf(cells[7], 16, "%lu", (unsigned long)r->b_stale); snprintf(cells[8], 16, "%lu", (unsigned long)r->b_wrong);
         uint32_t col[9] = { C_TEXT, C_TEXT, C_TEXT, r->a_blocked ? C_RED : C_GREEN, r->a_stale > 2 ? C_RED : C_GREEN, r->a_wrong ? C_MAGENTA : C_GREEN,
