@@ -206,6 +206,11 @@ harness = false
 test = false
 
 [[bench]]
+name = "art_small_payload"
+harness = false
+test = false
+
+[[bench]]
 name = "avx512_bitmap"
 harness = false
 test = false

@@ -271,6 +271,24 @@ def generate_all() -> None:
         ]
         render_four_arm_chart("chart_memory.svg", "Memory Footprint (Live Heap Allocation)", f"Population N = {max_pop:,}", "Bytes / Key", rows)
 
+    # 6. Small Payloads (Issue #663)
+    small_path = RESULTS_DIR / "baseline_small_payload.json"
+    if small_path.exists():
+        with open(small_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        rows = [
+            (
+                f"N = {r['population']} Key{'s' if r['population'] > 1 else ''}",
+                "Looped stream (10k probes, 100% Hit)",
+                r["lookup_hit"]["expanse_ns_op"],
+                r["lookup_hit"]["blart_art_ns_op"],
+                r["lookup_hit"]["btree_ns_op"],
+                r["lookup_hit"]["hashmap_ns_op"],
+            )
+            for r in data["results"]
+        ]
+        render_four_arm_chart("chart_small_payload.svg", "Small-Payload Point Lookup Latency (100% Hit)", "Populations N = 1 to 7 keys", "ns / lookup", rows)
+
 
 if __name__ == "__main__":
     generate_all()

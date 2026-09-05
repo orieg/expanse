@@ -27,5 +27,12 @@
     "blart_projected_bpk": 58.5,
     "ratio": 3.502994011976048,
     "verdict": "CONFIRMED"
+  },
+  "small_payloads_n7": {
+    "pre_registered_winner": "ExpanseMap",
+    "expanse_logical_bytes": 128,
+    "blart_bytes": 392,
+    "ratio": 3.0625,
+    "verdict": "CONFIRMED_LOGICAL_LAYOUT"
   }
 }
