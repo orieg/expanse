@@ -1,0 +1,1350 @@
+{
+  "provenance": {
+    "target": "esp32",
+    "revision": 301,
+    "cores": 2,
+    "cpu_hz": 160000000,
+    "idf": "v6.0-dev-2980-gab149384e1",
+    "expanse": "0.5.0-dev (v0.5.0-100-g4733cbe2-dirty)",
+    "free_internal": 291596,
+    "largest_internal": 155648
+  },
+  "stack": {
+    "stack_min_free_bytes": 3064,
+    "stack_total_bytes": 8192
+  },
+  "duty_cycle_reference_rates_hz": [
+    1,
+    10,
+    100,
+    1000
+  ],
+  "benchmarks": {
+    "esp32_ble_point_lookup_n500_pop500": {
+      "benchmark": "esp32_ble_point_lookup",
+      "n": 500,
+      "pop": 500,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "median": 2159.17,
+            "min": 2155.59,
+            "max": 2160.77,
+            "spread_ratio": 1.0024030543841824,
+            "contaminated": false,
+            "mean": 2158.5069999999996,
+            "ci_95_low": 2157.223909110847,
+            "ci_95_high": 2159.479020648377,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.34948125e-05,
+            "10": 0.000134948125,
+            "100": 0.0013494812500000001,
+            "1000": 0.013494812500000002
+          },
+          "heap_used_bytes": 33880.0,
+          "frag_ratio": 0.5065
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 3163.87,
+            "min": 3162.0,
+            "max": 3165.76,
+            "spread_ratio": 1.0011891208096142,
+            "contaminated": false,
+            "mean": 3164.0890000000004,
+            "ci_95_low": 3163.477,
+            "ci_95_high": 3164.612,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.97741875e-05,
+            "10": 0.000197741875,
+            "100": 0.00197741875,
+            "1000": 0.019774187500000002
+          },
+          "heap_used_bytes": 29820.0,
+          "frag_ratio": 0.4984
+        },
+        "linear_scan": {
+          "cycles_per_op": {
+            "median": 30491.785000000003,
+            "min": 30490.8,
+            "max": 30494.49,
+            "spread_ratio": 1.0001210201109845,
+            "contaminated": false,
+            "mean": 30492.216999999997,
+            "ci_95_low": 30491.577999999998,
+            "ci_95_high": 30493.029905522933,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 0.00019057365625,
+            "10": 0.0019057365625,
+            "100": 0.019057365625000003,
+            "1000": 0.19057365625
+          },
+          "heap_used_bytes": 14456.0,
+          "frag_ratio": 0.4967
+        }
+      }
+    },
+    "esp32_ble_point_lookup_n2000_pop2000": {
+      "benchmark": "esp32_ble_point_lookup",
+      "n": 2000,
+      "pop": 2000,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "median": 2268.63,
+            "min": 2268.39,
+            "max": 2268.95,
+            "spread_ratio": 1.0002468711288623,
+            "contaminated": false,
+            "mean": 2268.675,
+            "ci_95_low": 2268.564,
+            "ci_95_high": 2268.7927629047604,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.41789375e-05,
+            "10": 0.00014178937499999999,
+            "100": 0.00141789375,
+            "1000": 0.0141789375
+          },
+          "heap_used_bytes": 111980.0,
+          "frag_ratio": 0.3828
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 3562.925,
+            "min": 3562.05,
+            "max": 6398.55,
+            "spread_ratio": 1.7963111129826925,
+            "contaminated": false,
+            "mean": 3846.386,
+            "ci_95_low": 3562.703882272014,
+            "ci_95_high": 4873.6716532476075,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.2268281250000002e-05,
+            "10": 0.0002226828125,
+            "100": 0.002226828125,
+            "1000": 0.02226828125
+          },
+          "heap_used_bytes": 118908.0,
+          "frag_ratio": 0.3579
+        },
+        "linear_scan": {
+          "cycles_per_op": {
+            "median": 111554.685,
+            "min": 111553.37,
+            "max": 114389.41,
+            "spread_ratio": 1.0254231674040866,
+            "contaminated": false,
+            "mean": 112400.68699999999,
+            "ci_95_low": 111833.50555072617,
+            "ci_95_high": 113247.40065768507,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 0.00069721678125,
+            "10": 0.0069721678125,
+            "100": 0.06972167812499999,
+            "1000": 0.69721678125
+          },
+          "heap_used_bytes": 57464.0,
+          "frag_ratio": 0.5267999999999999
+        }
+      }
+    },
+    "esp32_ble_sighting_record_n500_pop500": {
+      "benchmark": "esp32_ble_sighting_record",
+      "n": 500,
+      "pop": 500,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "median": 7200.45,
+            "min": 7196.56,
+            "max": 7272.76,
+            "spread_ratio": 1.0105883922318442,
+            "contaminated": false,
+            "mean": 7218.763000000001,
+            "ci_95_low": 7204.741287931403,
+            "ci_95_high": 7240.923532229781,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 4.50028125e-05,
+            "10": 0.000450028125,
+            "100": 0.00450028125,
+            "1000": 0.0450028125
+          },
+          "heap_used_bytes": 33880.0,
+          "frag_ratio": 0.5065
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 3017.91,
+            "min": 3016.39,
+            "max": 3018.78,
+            "spread_ratio": 1.0007923378608206,
+            "contaminated": false,
+            "mean": 3017.674,
+            "ci_95_low": 3017.10484823409,
+            "ci_95_high": 3018.125,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.88619375e-05,
+            "10": 0.000188619375,
+            "100": 0.0018861937499999998,
+            "1000": 0.0188619375
+          },
+          "heap_used_bytes": 29820.0,
+          "frag_ratio": 0.4984
+        },
+        "linear_scan": {
+          "cycles_per_op": {
+            "median": 30618.510000000002,
+            "min": 30616.81,
+            "max": 30622.28,
+            "spread_ratio": 1.0001786600236928,
+            "contaminated": false,
+            "mean": 30618.935000000005,
+            "ci_95_low": 30617.940000000002,
+            "ci_95_high": 30620.169392868433,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 0.00019136568750000003,
+            "10": 0.0019136568750000003,
+            "100": 0.019136568750000003,
+            "1000": 0.19136568750000002
+          },
+          "heap_used_bytes": 14456.0,
+          "frag_ratio": 0.4967
+        }
+      }
+    },
+    "esp32_ble_sighting_record_n2000_pop2000": {
+      "benchmark": "esp32_ble_sighting_record",
+      "n": 2000,
+      "pop": 2000,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "median": 6955.764999999999,
+            "min": 6955.23,
+            "max": 6961.85,
+            "spread_ratio": 1.0009518017376853,
+            "contaminated": false,
+            "mean": 6956.598,
+            "ci_95_low": 6955.813982990156,
+            "ci_95_high": 6958.47543681219,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 4.3473531249999993e-05,
+            "10": 0.00043473531249999995,
+            "100": 0.004347353124999999,
+            "1000": 0.043473531249999996
+          },
+          "heap_used_bytes": 111980.0,
+          "frag_ratio": 0.3828
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 3410.825,
+            "min": 3410.45,
+            "max": 3411.21,
+            "spread_ratio": 1.0002228444926624,
+            "contaminated": false,
+            "mean": 3410.8259999999996,
+            "ci_95_low": 3410.682066722445,
+            "ci_95_high": 3410.984867456571,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.131765625e-05,
+            "10": 0.0002131765625,
+            "100": 0.002131765625,
+            "1000": 0.02131765625
+          },
+          "heap_used_bytes": 118908.0,
+          "frag_ratio": 0.3579
+        },
+        "linear_scan": {
+          "cycles_per_op": {
+            "median": 112430.70499999999,
+            "min": 112430.04,
+            "max": 115113.55,
+            "spread_ratio": 1.0238682651006796,
+            "contaminated": false,
+            "mean": 112967.15799999998,
+            "ci_95_low": 112430.61048701749,
+            "ci_95_high": 113772.22574473747,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 0.0007026919062499999,
+            "10": 0.0070269190624999995,
+            "100": 0.07026919062499999,
+            "1000": 0.7026919062499999
+          },
+          "heap_used_bytes": 57464.0,
+          "frag_ratio": 0.5267999999999999
+        }
+      }
+    },
+    "esp32_ble_ttl_eviction_n300_pop500": {
+      "benchmark": "esp32_ble_ttl_eviction",
+      "n": 300,
+      "pop": 500,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "median": 2607.87,
+            "min": 2600.41,
+            "max": 2623.76,
+            "spread_ratio": 1.0089793532558329,
+            "contaminated": false,
+            "mean": 2609.742,
+            "ci_95_low": 2606.159,
+            "ci_95_high": 2615.0202483465714,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.62991875e-05,
+            "10": 0.000162991875,
+            "100": 0.00162991875,
+            "1000": 0.0162991875
+          },
+          "heap_used_bytes": 33880.0,
+          "frag_ratio": 0.5065
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 98.02,
+            "min": 95.89,
+            "max": 98.02,
+            "spread_ratio": 1.0222129523412242,
+            "contaminated": false,
+            "mean": 97.80699999999999,
+            "ci_95_low": 97.16799999999999,
+            "ci_95_high": 98.02,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 6.12625e-07,
+            "10": 6.12625e-06,
+            "100": 6.12625e-05,
+            "1000": 0.000612625
+          },
+          "heap_used_bytes": 29820.0,
+          "frag_ratio": 0.4984
+        },
+        "linear_scan": {
+          "cycles_per_op": {
+            "median": 81.53,
+            "min": 81.53,
+            "max": 83.63,
+            "spread_ratio": 1.0257573899178216,
+            "contaminated": false,
+            "mean": 81.74,
+            "ci_95_low": 81.53,
+            "ci_95_high": 82.16,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 5.095625e-07,
+            "10": 5.095625e-06,
+            "100": 5.0956249999999995e-05,
+            "1000": 0.0005095625
+          },
+          "heap_used_bytes": 14456.0,
+          "frag_ratio": 0.4967
+        }
+      }
+    },
+    "esp32_ble_ttl_eviction_n1100_pop2000": {
+      "benchmark": "esp32_ble_ttl_eviction",
+      "n": 1100,
+      "pop": 2000,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "median": 2327.5699999999997,
+            "min": 2324.83,
+            "max": 2335.8,
+            "spread_ratio": 1.0047186245876043,
+            "contaminated": false,
+            "mean": 2328.727,
+            "ci_95_low": 2327.0247949238,
+            "ci_95_high": 2331.3891027943378,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.4547312499999998e-05,
+            "10": 0.00014547312499999998,
+            "100": 0.0014547312499999998,
+            "1000": 0.014547312499999998
+          },
+          "heap_used_bytes": 111980.0,
+          "frag_ratio": 0.3828
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 96.24,
+            "min": 96.24,
+            "max": 97.34,
+            "spread_ratio": 1.0114297589359935,
+            "contaminated": false,
+            "mean": 96.46,
+            "ci_95_low": 96.241,
+            "ci_95_high": 96.789,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 6.015e-07,
+            "10": 6.015e-06,
+            "100": 6.015e-05,
+            "1000": 0.0006014999999999999
+          },
+          "heap_used_bytes": 118908.0,
+          "frag_ratio": 0.3579
+        },
+        "linear_scan": {
+          "cycles_per_op": {
+            "median": 82.78,
+            "min": 82.78,
+            "max": 83.91,
+            "spread_ratio": 1.0136506402512684,
+            "contaminated": false,
+            "mean": 83.002,
+            "ci_95_low": 82.78,
+            "ci_95_high": 83.333,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 5.17375e-07,
+            "10": 5.173749999999999e-06,
+            "100": 5.17375e-05,
+            "1000": 0.0005173749999999999
+          },
+          "heap_used_bytes": 57464.0,
+          "frag_ratio": 0.5267999999999999
+        }
+      }
+    },
+    "esp32_ble_ttl_eviction_sparse_n100_pop500": {
+      "benchmark": "esp32_ble_ttl_eviction_sparse",
+      "n": 100,
+      "pop": 500,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "median": 3267.07,
+            "min": 3247.79,
+            "max": 3267.07,
+            "spread_ratio": 1.0059363444065041,
+            "contaminated": false,
+            "mean": 3263.2239999999997,
+            "ci_95_low": 3257.4379999999996,
+            "ci_95_high": 3265.79,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.0419187500000002e-05,
+            "10": 0.00020419187500000002,
+            "100": 0.0020419187500000002,
+            "1000": 0.0204191875
+          },
+          "heap_used_bytes": 33880.0,
+          "frag_ratio": 0.5065
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 271.07,
+            "min": 271.07,
+            "max": 277.4,
+            "spread_ratio": 1.023351901722802,
+            "contaminated": false,
+            "mean": 271.7030000000001,
+            "ci_95_low": 271.07000000000005,
+            "ci_95_high": 272.96900000000005,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.6941875e-06,
+            "10": 1.6941875e-05,
+            "100": 0.00016941875,
+            "1000": 0.0016941875
+          },
+          "heap_used_bytes": 29820.0,
+          "frag_ratio": 0.4984
+        },
+        "linear_scan": {
+          "cycles_per_op": {
+            "median": 340.55,
+            "min": 340.55,
+            "max": 352.57,
+            "spread_ratio": 1.0352958449566876,
+            "contaminated": false,
+            "mean": 341.75200000000007,
+            "ci_95_low": 340.55000000000007,
+            "ci_95_high": 344.15600000000006,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.1284375e-06,
+            "10": 2.1284375e-05,
+            "100": 0.00021284374999999998,
+            "1000": 0.0021284374999999997
+          },
+          "heap_used_bytes": 14456.0,
+          "frag_ratio": 0.4967
+        }
+      }
+    },
+    "esp32_ble_ttl_eviction_sparse_n100_pop2000": {
+      "benchmark": "esp32_ble_ttl_eviction_sparse",
+      "n": 100,
+      "pop": 2000,
+      "arms": {
+        "expanse_slab": {
+          "cycles_per_op": {
+            "median": 2411.19,
+            "min": 2353.75,
+            "max": 2430.57,
+            "spread_ratio": 1.0326372809346789,
+            "contaminated": false,
+            "mean": 2399.696,
+            "ci_95_low": 2379.8927564303667,
+            "ci_95_high": 2414.078172463662,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.50699375e-05,
+            "10": 0.000150699375,
+            "100": 0.0015069937500000001,
+            "1000": 0.0150699375
+          },
+          "heap_used_bytes": 111980.0,
+          "frag_ratio": 0.3828
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 1026.07,
+            "min": 1019.75,
+            "max": 1039.75,
+            "spread_ratio": 1.0196126501593528,
+            "contaminated": false,
+            "mean": 1024.9099999999999,
+            "ci_95_low": 1022.2779999999999,
+            "ci_95_high": 1029.542,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 6.412937499999999e-06,
+            "10": 6.412937499999999e-05,
+            "100": 0.00064129375,
+            "1000": 0.006412937499999999
+          },
+          "heap_used_bytes": 118908.0,
+          "frag_ratio": 0.3579
+        },
+        "linear_scan": {
+          "cycles_per_op": {
+            "median": 1390.57,
+            "min": 1390.57,
+            "max": 1390.57,
+            "spread_ratio": 1.0,
+            "contaminated": false,
+            "mean": 1390.57,
+            "ci_95_low": 1390.57,
+            "ci_95_high": 1390.57,
+            "ci_method": "percentile",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 8.6910625e-06,
+            "10": 8.691062499999999e-05,
+            "100": 0.00086910625,
+            "1000": 0.0086910625
+          },
+          "heap_used_bytes": 57464.0,
+          "frag_ratio": 0.5267999999999999
+        }
+      }
+    },
+    "esp32_churn_insert_delete_n8000_pop500": {
+      "benchmark": "esp32_churn_insert_delete",
+      "n": 8000,
+      "pop": 500,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "median": 3610.5299999999997,
+            "min": 3608.89,
+            "max": 3612.33,
+            "spread_ratio": 1.00095320167697,
+            "contaminated": false,
+            "mean": 3610.7690000000002,
+            "ci_95_low": 3610.181672343095,
+            "ci_95_high": 3611.373978953632,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.2565812499999997e-05,
+            "10": 0.000225658125,
+            "100": 0.0022565812499999996,
+            "1000": 0.022565812499999997
+          },
+          "heap_used_bytes": 512.0,
+          "frag_ratio": 0.4645
+        }
+      }
+    },
+    "esp32_tsdb_aggregate_500_n500_pop500": {
+      "benchmark": "esp32_tsdb_aggregate_500",
+      "n": 500,
+      "pop": 500,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "median": 361.46,
+            "min": 342.44,
+            "max": 363.87,
+            "spread_ratio": 1.0625803060390142,
+            "contaminated": false,
+            "mean": 359.923,
+            "ci_95_low": 352.1917202668608,
+            "ci_95_high": 362.066,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.2591249999999997e-06,
+            "10": 2.2591249999999998e-05,
+            "100": 0.00022591249999999997,
+            "1000": 0.002259125
+          },
+          "heap_used_bytes": 3187.6,
+          "frag_ratio": 0.45958000000000004
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 62.11,
+            "min": 62.11,
+            "max": 62.11,
+            "spread_ratio": 1.0,
+            "contaminated": false,
+            "mean": 62.11,
+            "ci_95_low": 62.11,
+            "ci_95_high": 62.11,
+            "ci_method": "percentile",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 3.881875e-07,
+            "10": 3.881875e-06,
+            "100": 3.8818750000000005e-05,
+            "1000": 0.0003881875
+          },
+          "heap_used_bytes": 9348.0,
+          "frag_ratio": 0.47675
+        },
+        "ring_buffer": {
+          "cycles_per_op": {
+            "median": 41.85,
+            "min": 40.45,
+            "max": 41.85,
+            "spread_ratio": 1.034610630407911,
+            "contaminated": false,
+            "mean": 41.71,
+            "ci_95_low": 40.87129722223824,
+            "ci_95_high": 41.85000000000001,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.615625e-07,
+            "10": 2.615625e-06,
+            "100": 2.615625e-05,
+            "1000": 0.00026156249999999997
+          },
+          "heap_used_bytes": 4224.0,
+          "frag_ratio": 0.45755
+        },
+        "sorted_array": {
+          "cycles_per_op": {
+            "median": 48.01,
+            "min": 45.46,
+            "max": 48.01,
+            "spread_ratio": 1.056093268807743,
+            "contaminated": false,
+            "mean": 47.754999999999995,
+            "ci_95_low": 46.22736279764823,
+            "ci_95_high": 48.01,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 3.0006249999999996e-07,
+            "10": 3.0006249999999998e-06,
+            "100": 3.0006249999999998e-05,
+            "1000": 0.0003000625
+          },
+          "heap_used_bytes": 4220.0,
+          "frag_ratio": 0.45755
+        }
+      }
+    },
+    "esp32_tsdb_aggregate_500_n500_pop2000": {
+      "benchmark": "esp32_tsdb_aggregate_500",
+      "n": 500,
+      "pop": 2000,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "median": 437.84,
+            "min": 437.84,
+            "max": 440.29,
+            "spread_ratio": 1.0055956513794995,
+            "contaminated": false,
+            "mean": 438.236,
+            "ci_95_low": 437.84,
+            "ci_95_high": 438.87699999999995,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.7365e-06,
+            "10": 2.7365e-05,
+            "100": 0.00027365,
+            "1000": 0.0027365
+          },
+          "heap_used_bytes": 11320.0,
+          "frag_ratio": 0.47314
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 147.45,
+            "min": 147.45,
+            "max": 147.45,
+            "spread_ratio": 1.0,
+            "contaminated": false,
+            "mean": 147.45,
+            "ci_95_low": 147.45,
+            "ci_95_high": 147.45,
+            "ci_method": "percentile",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 9.215624999999999e-07,
+            "10": 9.215624999999999e-06,
+            "100": 9.215625e-05,
+            "1000": 0.0009215625
+          },
+          "heap_used_bytes": 36996.0,
+          "frag_ratio": 0.5165399999999999
+        },
+        "ring_buffer": {
+          "cycles_per_op": {
+            "median": 73.24,
+            "min": 73.24,
+            "max": 75.64,
+            "spread_ratio": 1.032768978700164,
+            "contaminated": false,
+            "mean": 73.608,
+            "ci_95_low": 73.24,
+            "ci_95_high": 74.43211654872927,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 4.5775e-07,
+            "10": 4.5775e-06,
+            "100": 4.5775e-05,
+            "1000": 0.00045775
+          },
+          "heap_used_bytes": 16512.0,
+          "frag_ratio": 0.49291999999999997
+        },
+        "sorted_array": {
+          "cycles_per_op": {
+            "median": 54.02,
+            "min": 54.02,
+            "max": 56.42,
+            "spread_ratio": 1.0444279896334692,
+            "contaminated": false,
+            "mean": 54.260000000000005,
+            "ci_95_low": 54.02,
+            "ci_95_high": 54.739999999999995,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 3.37625e-07,
+            "10": 3.37625e-06,
+            "100": 3.37625e-05,
+            "1000": 0.00033762500000000003
+          },
+          "heap_used_bytes": 16508.0,
+          "frag_ratio": 0.49291999999999997
+        }
+      }
+    },
+    "esp32_tsdb_aggregate_500_shuffled_n500_pop500": {
+      "benchmark": "esp32_tsdb_aggregate_500_shuffled",
+      "n": 500,
+      "pop": 500,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "median": 343.97,
+            "min": 343.97,
+            "max": 345.24,
+            "spread_ratio": 1.0036921824577725,
+            "contaminated": false,
+            "mean": 344.09700000000004,
+            "ci_95_low": 343.9700000000001,
+            "ci_95_high": 344.351,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.1498125e-06,
+            "10": 2.1498125000000002e-05,
+            "100": 0.00021498125000000002,
+            "1000": 0.0021498125000000002
+          },
+          "heap_used_bytes": 3306.4,
+          "frag_ratio": 0.45933999999999997
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 62.11,
+            "min": 62.11,
+            "max": 62.11,
+            "spread_ratio": 1.0,
+            "contaminated": false,
+            "mean": 62.11,
+            "ci_95_low": 62.11,
+            "ci_95_high": 62.11,
+            "ci_method": "percentile",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 3.881875e-07,
+            "10": 3.881875e-06,
+            "100": 3.8818750000000005e-05,
+            "1000": 0.0003881875
+          },
+          "heap_used_bytes": 9348.0,
+          "frag_ratio": 0.47675
+        },
+        "sorted_array": {
+          "cycles_per_op": {
+            "median": 47.02,
+            "min": 47.02,
+            "max": 47.02,
+            "spread_ratio": 1.0,
+            "contaminated": false,
+            "mean": 47.019999999999996,
+            "ci_95_low": 47.019999999999996,
+            "ci_95_high": 47.019999999999996,
+            "ci_method": "percentile",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.93875e-07,
+            "10": 2.93875e-06,
+            "100": 2.93875e-05,
+            "1000": 0.00029387500000000003
+          },
+          "heap_used_bytes": 4220.0,
+          "frag_ratio": 0.45755
+        }
+      }
+    },
+    "esp32_tsdb_aggregate_500_shuffled_n500_pop2000": {
+      "benchmark": "esp32_tsdb_aggregate_500_shuffled",
+      "n": 500,
+      "pop": 2000,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "median": 431.55,
+            "min": 430.9,
+            "max": 434.79,
+            "spread_ratio": 1.0090276166163845,
+            "contaminated": false,
+            "mean": 431.8,
+            "ci_95_low": 431.28399999999993,
+            "ci_95_high": 432.7094181140761,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.6971875e-06,
+            "10": 2.6971875000000003e-05,
+            "100": 0.00026971875,
+            "1000": 0.0026971875000000004
+          },
+          "heap_used_bytes": 11367.2,
+          "frag_ratio": 0.47300999999999993
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 147.45,
+            "min": 147.45,
+            "max": 149.85,
+            "spread_ratio": 1.0162767039674467,
+            "contaminated": false,
+            "mean": 147.69,
+            "ci_95_low": 147.45,
+            "ci_95_high": 148.17,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 9.215624999999999e-07,
+            "10": 9.215624999999999e-06,
+            "100": 9.215625e-05,
+            "1000": 0.0009215625
+          },
+          "heap_used_bytes": 36996.0,
+          "frag_ratio": 0.5165199999999999
+        },
+        "sorted_array": {
+          "cycles_per_op": {
+            "median": 55.97,
+            "min": 55.97,
+            "max": 58.52,
+            "spread_ratio": 1.0455601214936574,
+            "contaminated": false,
+            "mean": 56.46600000000001,
+            "ci_95_low": 55.970000000000006,
+            "ci_95_high": 57.217000000000006,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 3.498125e-07,
+            "10": 3.498125e-06,
+            "100": 3.498125e-05,
+            "1000": 0.00034981249999999997
+          },
+          "heap_used_bytes": 16508.0,
+          "frag_ratio": 0.49291999999999997
+        }
+      }
+    },
+    "esp32_tsdb_ingest_n500_pop500": {
+      "benchmark": "esp32_tsdb_ingest",
+      "n": 500,
+      "pop": 500,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "median": 3174.145,
+            "min": 3043.83,
+            "max": 3175.33,
+            "spread_ratio": 1.043202149922959,
+            "contaminated": false,
+            "mean": 3161.2439999999997,
+            "ci_95_low": 3108.99922981528,
+            "ci_95_high": 3174.442,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.983840625e-05,
+            "10": 0.00019838406249999998,
+            "100": 0.001983840625,
+            "1000": 0.01983840625
+          },
+          "heap_used_bytes": 3187.6,
+          "frag_ratio": 0.45958000000000004
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 1352.12,
+            "min": 1352.12,
+            "max": 1356.87,
+            "spread_ratio": 1.0035130018045735,
+            "contaminated": false,
+            "mean": 1352.86,
+            "ci_95_low": 1352.1199999999997,
+            "ci_95_high": 1353.9598536874807,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 8.450749999999999e-06,
+            "10": 8.450749999999999e-05,
+            "100": 0.0008450749999999998,
+            "1000": 0.008450749999999998
+          },
+          "heap_used_bytes": 9348.0,
+          "frag_ratio": 0.47675
+        },
+        "ring_buffer": {
+          "cycles_per_op": {
+            "median": 1343.955,
+            "min": 1339.84,
+            "max": 1344.76,
+            "spread_ratio": 1.0036720802483878,
+            "contaminated": false,
+            "mean": 1343.033,
+            "ci_95_low": 1341.6019999999999,
+            "ci_95_high": 1344.013971885204,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 8.39971875e-06,
+            "10": 8.39971875e-05,
+            "100": 0.000839971875,
+            "1000": 0.00839971875
+          },
+          "heap_used_bytes": 4224.0,
+          "frag_ratio": 0.45755
+        },
+        "sorted_array": {
+          "cycles_per_op": {
+            "median": 1479.79,
+            "min": 1479.79,
+            "max": 1484.5,
+            "spread_ratio": 1.0031828840578731,
+            "contaminated": false,
+            "mean": 1480.8700000000001,
+            "ci_95_low": 1479.991,
+            "ci_95_high": 1482.22,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 9.2486875e-06,
+            "10": 9.2486875e-05,
+            "100": 0.00092486875,
+            "1000": 0.0092486875
+          },
+          "heap_used_bytes": 4220.0,
+          "frag_ratio": 0.45755
+        }
+      }
+    },
+    "esp32_tsdb_ingest_n2000_pop2000": {
+      "benchmark": "esp32_tsdb_ingest",
+      "n": 2000,
+      "pop": 2000,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "median": 3079.3450000000003,
+            "min": 3019.88,
+            "max": 3080.72,
+            "spread_ratio": 1.0201464958872537,
+            "contaminated": false,
+            "mean": 3073.496,
+            "ci_95_low": 3049.607422837273,
+            "ci_95_high": 3079.565,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 1.924590625e-05,
+            "10": 0.0001924590625,
+            "100": 0.001924590625,
+            "1000": 0.01924590625
+          },
+          "heap_used_bytes": 11320.0,
+          "frag_ratio": 0.47314
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 1337.98,
+            "min": 1336.91,
+            "max": 1338.11,
+            "spread_ratio": 1.0008975922088994,
+            "contaminated": false,
+            "mean": 1337.864,
+            "ci_95_low": 1337.508669905687,
+            "ci_95_high": 1337.991,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 8.362375e-06,
+            "10": 8.362375e-05,
+            "100": 0.0008362374999999999,
+            "1000": 0.008362375
+          },
+          "heap_used_bytes": 36996.0,
+          "frag_ratio": 0.5165399999999999
+        },
+        "ring_buffer": {
+          "cycles_per_op": {
+            "median": 1337.92,
+            "min": 1337.54,
+            "max": 1338.82,
+            "spread_ratio": 1.00095698072581,
+            "contaminated": false,
+            "mean": 1338.078,
+            "ci_95_low": 1337.795,
+            "ci_95_high": 1338.4232544899564,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 8.362e-06,
+            "10": 8.362e-05,
+            "100": 0.0008362,
+            "1000": 0.008362000000000001
+          },
+          "heap_used_bytes": 16512.0,
+          "frag_ratio": 0.49291999999999997
+        },
+        "sorted_array": {
+          "cycles_per_op": {
+            "median": 1511.645,
+            "min": 1511.42,
+            "max": 1511.82,
+            "spread_ratio": 1.0002646517844145,
+            "contaminated": false,
+            "mean": 1511.6460000000002,
+            "ci_95_low": 1511.5777897694793,
+            "ci_95_high": 1511.713,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 9.44778125e-06,
+            "10": 9.44778125e-05,
+            "100": 0.000944778125,
+            "1000": 0.00944778125
+          },
+          "heap_used_bytes": 16508.0,
+          "frag_ratio": 0.49291999999999997
+        }
+      }
+    },
+    "esp32_tsdb_ingest_shuffled_n500_pop500": {
+      "benchmark": "esp32_tsdb_ingest_shuffled",
+      "n": 500,
+      "pop": 500,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "median": 3940.5950000000003,
+            "min": 3937.99,
+            "max": 3942.24,
+            "spread_ratio": 1.0010792307750909,
+            "contaminated": false,
+            "mean": 3940.403,
+            "ci_95_low": 3939.5485516142007,
+            "ci_95_high": 3941.087410142677,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.4628718750000003e-05,
+            "10": 0.00024628718750000005,
+            "100": 0.002462871875,
+            "1000": 0.024628718750000004
+          },
+          "heap_used_bytes": 3306.4,
+          "frag_ratio": 0.45933999999999997
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 1353.05,
+            "min": 1353.05,
+            "max": 1357.88,
+            "spread_ratio": 1.0035697128709213,
+            "contaminated": false,
+            "mean": 1354.038,
+            "ci_95_low": 1353.1789999999996,
+            "ci_95_high": 1355.509,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 8.4565625e-06,
+            "10": 8.456562500000001e-05,
+            "100": 0.00084565625,
+            "1000": 0.0084565625
+          },
+          "heap_used_bytes": 9348.0,
+          "frag_ratio": 0.47675
+        },
+        "sorted_array": {
+          "cycles_per_op": {
+            "median": 10418.735,
+            "min": 10418.21,
+            "max": 10419.46,
+            "spread_ratio": 1.0001199822234337,
+            "contaminated": false,
+            "mean": 10418.814999999999,
+            "ci_95_low": 10418.539865283012,
+            "ci_95_high": 10419.102892622266,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 6.511709375e-05,
+            "10": 0.0006511709375,
+            "100": 0.006511709375,
+            "1000": 0.06511709375
+          },
+          "heap_used_bytes": 4220.0,
+          "frag_ratio": 0.45755
+        }
+      }
+    },
+    "esp32_tsdb_ingest_shuffled_n2000_pop2000": {
+      "benchmark": "esp32_tsdb_ingest_shuffled",
+      "n": 2000,
+      "pop": 2000,
+      "arms": {
+        "expanse_memtable": {
+          "cycles_per_op": {
+            "median": 4069.5550000000003,
+            "min": 4066.47,
+            "max": 4072.85,
+            "spread_ratio": 1.0015689283334195,
+            "contaminated": false,
+            "mean": 4069.5389999999998,
+            "ci_95_low": 4068.624121566086,
+            "ci_95_high": 4070.5081259075005,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 2.5434718750000002e-05,
+            "10": 0.00025434718750000005,
+            "100": 0.0025434718750000002,
+            "1000": 0.02543471875
+          },
+          "heap_used_bytes": 11367.2,
+          "frag_ratio": 0.47300999999999993
+        },
+        "hash_open_addressing": {
+          "cycles_per_op": {
+            "median": 1337.95,
+            "min": 1337.69,
+            "max": 1338.15,
+            "spread_ratio": 1.0003438763839156,
+            "contaminated": false,
+            "mean": 1337.928,
+            "ci_95_low": 1337.843,
+            "ci_95_high": 1338.0040000000001,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 8.3621875e-06,
+            "10": 8.3621875e-05,
+            "100": 0.00083621875,
+            "1000": 0.0083621875
+          },
+          "heap_used_bytes": 36996.0,
+          "frag_ratio": 0.5165199999999999
+        },
+        "sorted_array": {
+          "cycles_per_op": {
+            "median": 36686.045,
+            "min": 36685.66,
+            "max": 39520.97,
+            "spread_ratio": 1.07728660190385,
+            "contaminated": false,
+            "mean": 37253.034,
+            "ci_95_low": 36686.17599999999,
+            "ci_95_high": 38386.759222858556,
+            "ci_method": "bca",
+            "sample_count": 10
+          },
+          "duty_cycle_projected": {
+            "1": 0.00022928778125,
+            "10": 0.0022928778125,
+            "100": 0.022928778125,
+            "1000": 0.22928778125
+          },
+          "heap_used_bytes": 16508.0,
+          "frag_ratio": 0.49291999999999997
+        }
+      }
+    }
+  },
+  "metrics": {
+    "churn_fragmentation_expanse_memtable_pop500": {
+      "metric": "churn_fragmentation",
+      "arm": "expanse_memtable",
+      "pop": 500,
+      "samples": 10,
+      "fields": {
+        "cycles": {
+          "mean": 8.0,
+          "ci_95_low": 8.0,
+          "ci_95_high": 8.0,
+          "ci_method": "percentile"
+        },
+        "frag_after": {
+          "mean": 0.4645,
+          "ci_95_low": 0.4645,
+          "ci_95_high": 0.4645,
+          "ci_method": "percentile"
+        },
+        "frag_before": {
+          "mean": 0.4654,
+          "ci_95_low": 0.4654,
+          "ci_95_high": 0.4654,
+          "ci_method": "percentile"
+        },
+        "frag_delta": {
+          "mean": -0.0009,
+          "ci_95_low": -0.0009,
+          "ci_95_high": -0.0009,
+          "ci_method": "percentile"
+        },
+        "heap_retained_bytes": {
+          "mean": 512.0,
+          "ci_95_low": 512.0,
+          "ci_95_high": 512.0,
+          "ci_method": "percentile"
+        }
+      }
+    }
+  },
+  "skipped": []
+}
