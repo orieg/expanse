@@ -496,6 +496,14 @@ fn built_map32_remove(dist: &str) -> (ExpanseMap32, Vec<Key32>) {
     (map, probes)
 }
 
+fn built_set32_dist(dist: &str) -> ExpanseSet32 {
+    let mut set = ExpanseSet32::new();
+    for k in keys32(dist) {
+        set.insert(k);
+    }
+    set
+}
+
 fn built_set32_remove(dist: &str) -> (ExpanseSet32, Vec<Key32>) {
     let ks = keys32(dist);
     let mut set = ExpanseSet32::new();
@@ -570,6 +578,41 @@ fn map32_for_each_range(map: ExpanseMap32) -> u64 {
     });
     // Leaked — see `map_get`.
     core::mem::forget(map);
+    black_box(sink)
+}
+
+// Ordered iteration and a bounded range over a 32-bit SET.
+//
+// The set walk had no arm at all: the suite measured `set32_insert` and
+// `set32_remove` and nothing that walked one in order. `LeafCur32`'s
+// `Kind::SetImmed` branch is reachable only from here, so any change to it was
+// unmeasurable — which is the same shape of gap that let the C ABI range walk
+// keep a per-key popcount (#690).
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = built_set32_dist)]
+#[bench::clustered(args = ("clustered",), setup = built_set32_dist)]
+#[bench::random(args = ("random",), setup = built_set32_dist)]
+fn set32_iterate(set: ExpanseSet32) -> u64 {
+    let mut sink = 0u64;
+    for k in set.iter() {
+        sink = sink.wrapping_add(u64::from(k));
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(set);
+    black_box(sink)
+}
+
+#[library_benchmark]
+#[bench::sequential(args = ("sequential",), setup = built_set32_dist)]
+#[bench::clustered(args = ("clustered",), setup = built_set32_dist)]
+#[bench::random(args = ("random",), setup = built_set32_dist)]
+fn set32_range(set: ExpanseSet32) -> u64 {
+    let mut sink = 0u64;
+    for k in set.range(black_box(0)..=black_box(Key32::MAX / 2)) {
+        sink = sink.wrapping_add(u64::from(k));
+    }
+    // Leaked — see `map_get`.
+    core::mem::forget(set);
     black_box(sink)
 }
 
@@ -809,6 +852,8 @@ library_benchmark_group!(
         map32_iterate,
         map32_range,
         map32_for_each_range,
+        set32_iterate,
+        set32_range,
         map32_remove,
         set32_remove,
         blobmap32_scan,
