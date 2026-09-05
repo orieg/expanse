@@ -107,4 +107,5 @@ fn main() {
             b63 / b64
         );
     }
+    sweep_shapes();
 }

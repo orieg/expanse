@@ -492,10 +492,22 @@ That also explains the `sparse` anchor's stability at `16.83 / 16.32 / 16.31`
 across three decades of N: at λ=256 every expanse is past the cascade, so the
 cost is one 16-byte edge per key at any population. It is the **saturated**
 regime, not a lower bound on the structure — `random` measures 7.92 B/key below
-it when λ sits under `LEAF_CAP`. Whether the flatness continues past 1M is
-**not measured** (the build host became unreachable before that sweep completed);
-the derivation above predicts it does, and the three committed cells are
-consistent with it.
+it when λ sits under `LEAF_CAP`.
+
+The derivation was checked past the committed range rather than assumed
+*(measured: x86_64 build host — Intel Xeon E5-2697 v4; `-C target-cpu=haswell`;
+`mem_used()`; workload: `hot_keyspace_density_probe`)*:
+
+| N | `sequential` | `clustered` | `sparse` `i << 40` |
+|---:|---:|---:|---:|
+| 100k | 0.07 | 0.37 | 16.32 |
+| 400k | 0.07 | 0.37 | 16.31 |
+| 1M | 0.07 | 0.36 | 16.31 |
+| 2M | 0.06 | 0.36 | **16.31** |
+
+All three are flat to two decimals across a 20× population range, including past
+the point where the `random` curve has already crossed its cascade (13.60 at 2M).
+Construction-fixed occupancy behaves as derived; only `random` moves.
 
 **§5.1's sparse-stride row is downgraded from High to Low confidence**, for a
 reason unrelated to density. It compares `ExpanseSet` on *sparse stride*
