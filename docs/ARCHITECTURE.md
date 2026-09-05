@@ -87,11 +87,59 @@ Geometry note: the naive "8 B header + 4 edges" one-line branch is arithmeticall
 
 The per-width immediate capacity tables, the bitmap rank/select addressing, and the `ValueSlot` encodings are in [§10.4](#104-immediate-capacity)–[§10.6](#106-bitmap-structures).
 
+How much this ladder costs per key is not a function of population alone: for the `random` distribution it is a sawtooth in expanse occupancy, with its tooth set by `LEAF_CAP` — [§3.5](#35-per-key-memory-is-a-sawtooth-in-expanse-occupancy-and-leaf_cap-sets-the-tooth).
+
 ### 3.4 Tagged pointers (read-optimized paths) — *design note, not shipped*
 
 > **Nothing in this subsection is implemented.** The shipped 64-bit `Edge` is the full 16-byte descriptor of §3.1, whose word 0 holds the raw untruncated pointer with zero bit-stealing ([§10.1](#why-word-0-is-stored-unmasked-gated)). Do not cite this subsection as a description of the current representation.
 
 x86-64/AArch64/RISC-V 64-bit user VAs fit in 48 (or 57) bits; 8-byte alignment frees the low 3 bits. A compact 8-byte edge variant would pack `[type:16][address:45][level:3]` for read-dominated structures and for caching branch metadata without extra line fills. It would have to stay behind an abstraction that also supports full 16-byte edges (LAM/TBI/Sv57 and 57-bit VA systems change the free-bit budget — feature-detected, never assumed).
+
+### 3.5 Per-key memory is a sawtooth in expanse occupancy, and `LEAF_CAP` sets the tooth
+
+For a structure that partitions by key expanse, **keyspace width and population are one parameter.** Per-key cost is not a function of $N$; it is a function of how many keys share each expanse at the level where the ladder above does its packing. For uniform random keys the top two key bytes saturate once $N \gg 2^{16}$, so the controlling quantity is the occupancy of a 2-byte-prefix expanse:
+
+$$\lambda = \frac{N}{2^{16}} \text{ at 64 bits}, \qquad \frac{N}{2^{15}} \text{ at 63 bits}, \qquad \lambda = \frac{N}{2^{\,w-48}} \text{ for a } w\text{-bit uniform keyspace.}$$
+
+Clearing one top key bit halves the number of expanses, which is arithmetically the same as doubling $N$. That follows from decoding a fixed 8-bit digit per level and does not depend on any constant below. The general form, which also covers non-uniform generators, is $\lambda = N \,/\, (\text{populated 2-byte-prefix expanses})$.
+
+**Where the tooth comes from.** Below a 2-byte prefix a linear leaf holds the remaining six key bytes (`Leaf6`). A set-flavor leaf has no header (§3.3, `leaf.rs::size_set`), so a `Leaf6` holding $p$ keys costs exactly $6 \cdot \text{cap\_class}(p)$ bytes plus the one 16-byte edge in its parent — a little over 6 B/key once $p$ is in the tens. `LEAF_CAP = 32` (`types.rs`, [§10.8](#108-pinned-constants)) caps that leaf. The 33rd key cascades it into a branch whose children are the level-5 sub-expanses, and at these densities those hold one key each: an immediate edge per key at 16 bytes, plus the branch. A cascaded expanse costs roughly 17–21 B/key where the packed leaf cost 6–8 B/key.
+
+Occupancy across expanses is Poisson-distributed with mean $\lambda$ and $\sigma = \sqrt{\lambda}$, so the cascade turns on over an interval rather than at a step: at $\lambda = 15.26$ ($N = 10^6$, 64-bit) essentially no expanse holds more than 32 keys; at $\lambda = 30.5$ ($N = 2 \times 10^6$) about 39% do, and the measured 13.60 B/key is that mixture. Past the cascade the cost falls again as the cascaded branches' own children fill — the next tooth.
+
+**Measured.** Same `ExpanseSet`, same PRNG and seed, keyspace narrowed by masking the top key bits. The three keyspace columns of the HOT-suite sweep collapse onto one curve when indexed by $\lambda$ *(measured: x86_64 build host — Intel Xeon E5-2697 v4; `mem_used()` deterministic byte accounting, so host-independent — the 1M, 1.2M and 2M @64 cells and the 1M @63 cell reproduce to the decimal on an aarch64 laptop; harness `crates/expanse-hot-bench/src/bin/keyspace_density_probe.rs`; workload: `hot_keyspace_density_probe`; source table [`docs/benchmarks/hot_comparison/METHODOLOGY.md` §9.4](benchmarks/hot_comparison/METHODOLOGY.md))*:
+
+| $\lambda$ | $\lambda / \text{LEAF\_CAP}$ | `ExpanseSet` B/key | cells ($N$ @ keyspace bits) |
+|---:|---:|---|---|
+| 1.53 | 5% | 14.78 | 100k @64 |
+| 3.05 | 10% | 12.59 · 12.60 | 200k @64 · 100k @63 |
+| 6.10 | 19% | 10.41 · 10.41 · 10.42 | 400k @64 · 200k @63 · 100k @62 |
+| 9.16 | 29% | 9.17 | 600k @64 |
+| 12.21 | 38% | 8.41 · 8.42 · 8.42 | 800k @64 · 400k @63 · 200k @62 |
+| 15.26 | 48% | **7.92** | 1M @64 — the committed `bytes/key` cell and the `memory-budget` calibration point |
+| 18.31 | 57% | 7.64 · 7.64 | 1.2M @64 · 600k @63 |
+| 24.41 | 76% | 8.49 · 8.47 | 800k @63 · 400k @62 |
+| 30.52 | 95% | 13.60 · 13.60 | 2M @64 · 1M @63 |
+| 36.62 | 114% | 19.30 · 19.25 | 1.2M @63 · 600k @62 |
+| 48.83 | 153% | 21.02 | 800k @62 |
+| 61.04 | 191% | 19.67 · 19.66 | 2M @63 · 1M @62 |
+| 73.24 | 229% | 18.50 | 1.2M @62 |
+| 122.07 | 381% | 15.58 | 2M @62 |
+
+Cells that share a $\lambda$ agree to within 0.05 B/key although they differ in $N$ by up to 4×: one curve, sampled three times. Under density alone, with no code change, the same structure spans **7.64–21.02 B/key**. The trough is at $\lambda \approx 0.5$–$0.6 \cdot$ `LEAF_CAP`; the peak sits just past it.
+
+**Causal test.** Changing `LEAF_CAP` alone from 32 to 48, everything else identical, moves the $\lambda = 30.52$ cells from 13.60 to 6.99–7.00 B/key and leaves the $\lambda = 15.26$ cell at 7.92 (same instrument and workload; METHODOLOGY §9.4). The tooth is the cascade, and the cascade is this constant. That is **not** a recommendation to raise it: a larger linear leaf is a longer linear scan on every descent through levels 2..=7, a read-path cost that has not been measured for that value on the Callgrind arms. The constant is load-bearing for memory; what it costs the read path is an open measurement, not a settled trade.
+
+**Which published anchors move.** Derivable from the generators in `crates/expanse/examples/bytes_per_key.rs`, and checked across a 20× range of $N$ (METHODOLOGY §9.5):
+
+| Distribution | Generator | Occupancy per 2-byte expanse | Moves with $N$? |
+|---|---|---|---|
+| `sequential` | `i` | contiguous, fully packed | no |
+| `clustered` (256- and 4096-key runs) | `base + (i % run)` | fixed by the run length | no |
+| `sparse` | `i << 40` | exactly 256 — the top two bytes are `i >> 8` | no — permanently past the cascade at 8× `LEAF_CAP`, which is why it sits flat near 16.3 B/key at every $N$: one 16-byte edge per key. That is the saturated regime of this curve, not a floor of the structure |
+| `random` | full-width draw | $\lambda = N / 2^{16}$ | **yes** — the only committed distribution that does |
+
+**What this obliges.** A per-key memory figure on `random` keys — or on any workload whose occupancy is not fixed by construction — is under-specified without its $\lambda$. Two cells at different $\lambda$ are two points on this curve, not a before/after: a keyspace restriction, a population change and a change to `LEAF_CAP` all move the same number. Every published `bytes/key` cell states its $\lambda$ ([`BENCHMARKING.md`](BENCHMARKING.md) rule 17), and the `memory-budget` gate records the density it was calibrated at (`examples/bytes_per_key.rs`).
 
 ## 4. Algorithms
 

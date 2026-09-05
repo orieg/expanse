@@ -483,6 +483,20 @@ Bench targets deliberately **not** reachable from a slash command:
     `Ir` number is published beside it as cost, not as verdict. Scope is exactly
     the random arms of `map_get`, `set_contains` and their C-ABI twins — an
     instruction regression anywhere else is a regression.
+17. **Per-key memory figures state their expanse occupancy.** For any workload
+    whose occupancy per 2-byte-prefix expanse is not fixed by construction —
+    `random` in the committed census, any full-width uniform draw — a
+    `bytes/key` figure carries its λ = N / 2^(w−48) beside N, and two figures
+    are compared only at the same λ. Keyspace width and population are one
+    knob ([`ARCHITECTURE.md` §3.5](ARCHITECTURE.md#35-per-key-memory-is-a-sawtooth-in-expanse-occupancy-and-leaf_cap-sets-the-tooth)):
+    halving the keyspace is doubling N, and the curve is a sawtooth whose
+    tooth sits at λ ≈ `LEAF_CAP`, so without λ a reader cannot tell a design
+    change from a move along the curve. The `memory-budget` ceiling is
+    calibrated at λ = 15.26 and is population-specific for the same reason;
+    changing its N means re-deriving the ceiling, not raising it. Suites
+    comparing memory against a competitor publish a curve across λ, not a
+    cell ([`hot_comparison`](benchmarks/hot_comparison/README.md) is the
+    reference shape).
 
 ## Bench matrix
 
@@ -1138,10 +1152,14 @@ here; how the runner is stood up and triggered is an operations concern.
 | sequential (set) | 0.32 | 0.07 | **0.07** | full-expanse + bitmap-leaf compression |
 | clustered 256-run (set) | 0.38 | 0.37 | **0.36** | was 1.34 before leaf-targeted narrow pointers — a 3.7× improvement |
 | clustered 4096-run (set) | 0.32 | 0.12 | **0.12** | was 0.64 / 0.20 / 0.19 before **branch-targeted** narrow pointers (divergence-level branch placement + `split_skip`) |
-| random (set) | 13.50 | 14.78 | 7.92 | not part of the dense/clustered target |
+| random (set) | 13.50 | 14.78 | 7.92 | not part of the dense/clustered target. **Density-dependent** — the only row that is: λ = N / 2¹⁶ = 0.02 · 1.53 · **15.26** (48% of `LEAF_CAP`); see below |
 | sparse `i << 40` (set) | 16.83 | 16.32 | **16.31** | one 16-byte edge per isolated key — the structural floor, not a chain cost (immediates absorb the remainders) |
 
-Map-flavor figures run ~8 B/key above the set figures (the stored value word). The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names. Unit-level anchor for the branch-targeted work: two 512-key clusters cost 192 structural bytes vs 960 under per-level chains (workload: `example_bytes_per_key`; `branch_skip_clusters` tests, both flavors).
+Map-flavor figures run ~8 B/key above the set figures (the stored value word). The `< 9.5 B/key dense+clustered` architecture target is **met** on the distributions it names.
+
+**Density of each cell.** Per-key cost on `random` keys is a sawtooth in expanse occupancy λ = N / 2¹⁶, not a monotone function of N ([`ARCHITECTURE.md` §3.5](ARCHITECTURE.md#35-per-key-memory-is-a-sawtooth-in-expanse-occupancy-and-leaf_cap-sets-the-tooth)): keyspace width and population are one knob, and the `LEAF_CAP = 32` overflow cascade puts the tooth at λ ≈ `LEAF_CAP`. The three `random` cells sit at λ = 0.02 (top two key bytes unsaturated — most keys alone in their expanse), 1.53 and 15.26. The 1M cell, at 48% of `LEAF_CAP`, is in the trough of that curve; the same generator at N = 2M (λ = 30.5, 95% of `LEAF_CAP`) measures **13.60 B/key set / 19.38 B/key map**, and at N = 4M (λ = 61) 19.66 / 23.16 *(measured: deterministic `mem_used()` accounting, host-independent; workload: `hot_keyspace_density_probe`, cross-checked by the same generator run at those populations on an aarch64 laptop; the 2M and 4M set cells match the λ = 30.52 and λ = 61.04 rows of `ARCHITECTURE.md` §3.5 to the decimal)*. The other four rows have occupancy fixed by construction — `sequential` and `clustered` are packed, `sparse` puts exactly 256 keys in every 2-byte expanse and so is permanently cascaded — and do not move with N. Read a change in the `random` row against its λ before reading it as a design change.
+
+**The `memory-budget` gate is calibrated in that trough.** Its `random` ceiling — `("random", 1_000_000, 9.00, 18.00)` in `examples/bytes_per_key.rs` — sits 14% above the 7.92 B/key it guards, which reads as headroom in bytes. It is not: it is headroom in N, and about 2× of it. At N = 2M the same workload breaches the set ceiling by 51% (13.60 against 9.00) and the map ceiling by 8% (19.38 against 18.00) with no code change, because the node ladder is behaving as designed. Anyone changing the gate's population re-derives its ceiling from the curve rather than raising the number until green. The gate samples this one density, below the cascade; a regression that manifests only in the cascade regime — a `Leaf6` packing change, an immediate-edge cost change on the level-5 children — is outside what it can detect (workload: `example_bytes_per_key`). Unit-level anchor for the branch-targeted work: two 512-key clusters cost 192 structural bytes vs 960 under per-level chains (workload: `example_bytes_per_key`; `branch_skip_clusters` tests, both flavors).
 
 ### Instruction counts: issue #1 items 1-3 (measured: callgrind via the `instruction-counts` CI job; deterministic, so these are exact — commit with this section)
 
@@ -1377,8 +1395,9 @@ Expanse wins membership on sparse/clustered; Roaring's specialized rank index wi
 
 ### Standing measurement caveats
 
-Three findings that govern how every table in this document is read. Each was
-measured on the Callgrind suites; the runs themselves are in git history.
+Four findings that govern how every table in this document is read. The first
+three were measured on the Callgrind suites and the runs themselves are in git
+history; the fourth on deterministic byte accounting.
 
 - **The gap is population-dependent.** The same random-key lookup measured 1.49×
   at 30k keys and 1.09× at 1.5M, with the estimated-cycles ratio *below* the
@@ -1392,6 +1411,13 @@ measured on the Callgrind suites; the runs themselves are in git history.
   `codegen-units = 1` LLVM already sees the body, so plain `#[inline]` on the
   tag-decode helpers left all 14 arms byte-identical. `#[inline(always)]` on
   `EdgeType/ImmedType/EdgeTag::from_u8` is what moved them.
+- **`bytes/key` on random keys is density-dependent, and not monotonically.** The
+  same `ExpanseSet` measures 7.64–21.02 B/key under expanse occupancy alone,
+  with a cascade at λ ≈ `LEAF_CAP`; keyspace width and population are the same
+  parameter (halving the keyspace is doubling N). No `random` memory cell is
+  comparable to another without its λ, and the committed 1M cell sits in the
+  trough ([`ARCHITECTURE.md` §3.5](ARCHITECTURE.md#35-per-key-memory-is-a-sawtooth-in-expanse-occupancy-and-leaf_cap-sets-the-tooth);
+  workload: `hot_keyspace_density_probe`).
 
 ### What the bench matrix structurally covers (measured: terminal-form census over the tree each benchmark builds, 50k keys, map flavor; commit with this section; machine-independent)
 
