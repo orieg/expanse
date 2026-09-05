@@ -1,0 +1,131 @@
+# Callgrind annotation of instructions::cost::map32_insert (sensor_timestamps) at commit 8efbc64c
+# iai-callgrind 0.16.1, valgrind 3.24.0, x86_64 Linux container (rust:1.98, --security-opt seccomp=unconfined), CARGO_PROFILE_BENCH_DEBUG=1 for line tables.
+# cargo bench -p expanse-trie --bench instructions ; callgrind_annotate --show=Ir --sort=Ir on the arm's callgrind.*.out. Deterministic: 4,936,783 Ir, identical to the #615 body's ranking.
+# The 10,000 inserts of 1_700_000_000 + i: 2,590 take the full descent (map_insert_f), 7,410 are answered by the insert finger (see map32.rs finger_census test).
+
+## Exclusive Ir by function (threshold 99.9%)
+4,936,783 (100.0%)  PROGRAM TOTALS
+933,521 (18.91%)  crates/expanse/src/trie32.rs:expanse_trie::trie32::map_insert_f'2
+657,082 (13.31%)  crates/expanse/src/trie32.rs:<expanse_trie::map32::ExpanseMap32>::insert
+287,625 ( 5.83%)  rustc:library/core/src/num/uint_macros.rs:<expanse_trie::map32::ExpanseMap32>::insert
+226,202 ( 4.58%)  crates/expanse/src/trie32.rs:expanse_trie::trie32::map_insert_f
+216,709 ( 4.39%)  ./string/../sysdeps/x86_64/multiarch/memmove-vec-unaligned-erms.S:__memcpy_avx_unaligned_erms
+213,232 ( 4.32%)  crates/expanse/src/map32.rs:<expanse_trie::map32::ExpanseMap32>::insert
+207,090 ( 4.19%)  crates/expanse/src/trie32.rs:<expanse_trie::trie32::Arena>::l2_mut
+176,722 ( 3.58%)  ./malloc/./malloc/malloc.c:free
+129,705 ( 2.63%)  rustc:library/core/src/option.rs:expanse_trie::trie32::map_insert_f'2
+105,975 ( 2.15%)  rustc:library/core/src/slice/index.rs:expanse_trie::trie32::map_insert_f'2
+100,229 ( 2.03%)  ./malloc/./malloc/malloc.c:malloc
+ 99,400 ( 2.01%)  crates/expanse/src/types32.rs:expanse_trie::trie32::map_insert_f'2
+ 92,859 ( 1.88%)  rustc:library/core/src/option.rs:<expanse_trie::map32::ExpanseMap32>::insert
+ 70,722 ( 1.43%)  ./malloc/./malloc/malloc.c:_int_malloc
+ 62,127 ( 1.26%)  rustc:library/core/src/option.rs:<expanse_trie::trie32::Arena>::l2_mut
+ 62,127 ( 1.26%)  rustc:library/core/src/slice/index.rs:<expanse_trie::trie32::Arena>::l2_mut
+ 58,539 ( 1.19%)  rustc:library/alloc/src/vec/mod.rs:<expanse_trie::map32::ExpanseMap32>::insert
+ 51,570 ( 1.04%)  crates/expanse/src/trie32.rs:<expanse_trie::trie32::Arena>::b_mut
+ 48,954 ( 0.99%)  crates/expanse/src/types32.rs:expanse_trie::trie32::map_insert_f
+ 46,990 ( 0.95%)  crates/expanse/src/trie32.rs:expanse_trie::trie32::read_rem
+ 46,495 ( 0.94%)  rustc:library/core/src/num/uint_macros.rs:expanse_trie::trie32::map_insert_f'2
+ 44,460 ( 0.90%)  crates/expanse/src/types32.rs:<expanse_trie::map32::ExpanseMap32>::insert
+ 43,245 ( 0.88%)  rustc:library/core/src/ptr/non_null.rs:expanse_trie::trie32::map_insert_f'2
+ 43,212 ( 0.88%)  rustc:library/core/src/iter/range.rs:<expanse_trie::map32::ExpanseMap32>::insert
+ 42,822 ( 0.87%)  rustc:library/core/src/slice/index.rs:<expanse_trie::map32::ExpanseMap32>::insert
+ 41,184 ( 0.83%)  rustc:library/core/src/slice/mod.rs:<expanse_trie::map32::ExpanseMap32>::insert
+ 40,018 ( 0.81%)  crates/expanse/benches/instructions.rs:instructions::map32_insert::__iai_callgrind_wrapper_mod::map32_insert
+ 38,337 ( 0.78%)  ./malloc/./malloc/malloc.c:calloc
+ 34,154 ( 0.69%)  rustc:library/core/src/ptr/mod.rs:expanse_trie::trie32::map_insert_f'2
+ 33,657 ( 0.68%)  rustc:library/core/src/ptr/mut_ptr.rs:<expanse_trie::map32::ExpanseMap32>::insert
+ 33,275 ( 0.67%)  ./string/../sysdeps/x86_64/multiarch/memset-vec-unaligned-erms.S:__memset_avx2_unaligned_erms
+ 31,512 ( 0.64%)  rustc:library/core/src/cmp.rs:<expanse_trie::map32::ExpanseMap32>::insert
+ 29,835 ( 0.60%)  rustc:library/core/src/ptr/mod.rs:<expanse_trie::map32::ExpanseMap32>::insert
+ 26,559 ( 0.54%)  rustc:library/std/src/sys/alloc/unix.rs:<expanse_trie::map32::ExpanseMap32>::insert
+ 26,399 ( 0.53%)  ./malloc/./malloc/malloc.c:_int_realloc
+ 24,609 ( 0.50%)  rustc:library/alloc/src/raw_vec/mod.rs:<expanse_trie::map32::ExpanseMap32>::insert
+ 22,695 ( 0.46%)  ./malloc/./malloc/malloc.c:realloc
+ 22,038 ( 0.45%)  rustc:library/core/src/slice/iter/macros.rs:expanse_trie::trie32::map_insert_f'2
+ 20,432 ( 0.41%)  rustc:library/core/src/slice/mod.rs:expanse_trie::trie32::map_insert_f'2
+ 20,000 ( 0.41%)  rustc:library/core/src/hint.rs:instructions::map32_insert::__iai_callgrind_wrapper_mod::map32_insert
+ 19,855 ( 0.40%)  crates/expanse/src/trie32.rs:expanse_trie::trie32::read_map_leaf
+ 16,773 ( 0.34%)  rustc:library/alloc/src/vec/mod.rs:expanse_trie::trie32::map_insert_f'2
+ 15,471 ( 0.31%)  rustc:library/core/src/option.rs:<expanse_trie::trie32::Arena>::b_mut
+ 15,471 ( 0.31%)  rustc:library/core/src/slice/index.rs:<expanse_trie::trie32::Arena>::b_mut
+
+## Inclusive Ir, engine entry points
+5,204,505 (105.4%)  crates/expanse/src/trie32.rs:expanse_trie::trie32::map_insert_f'2
+4,846,717 (98.18%)  /w/crates/expanse/src/map32.rs:<expanse_trie::map32::ExpanseMap32>::insert
+2,676,979 (54.23%)  crates/expanse/src/map32.rs:<expanse_trie::map32::ExpanseMap32>::insert
+2,463,747 (49.91%)  /w/crates/expanse/src/trie32.rs:expanse_trie::trie32::map_insert_f
+2,390,621 (48.42%)  crates/expanse/src/trie32.rs:expanse_trie::trie32::map_insert_f
+1,012,762 (20.51%)  crates/expanse/src/trie32.rs:<expanse_trie::map32::ExpanseMap32>::insert
+  331,344 ( 6.71%)  crates/expanse/src/trie32.rs:<expanse_trie::trie32::Arena>::l2_mut
+  289,171 ( 5.86%)  rustc:library/std/src/sys/alloc/unix.rs:<expanse_trie::map32::ExpanseMap32>::insert
+  287,625 ( 5.83%)  rustc:library/core/src/num/uint_macros.rs:<expanse_trie::map32::ExpanseMap32>::insert
+  152,871 ( 3.10%)  rustc:library/core/src/ptr/mod.rs:expanse_trie::trie32::map_insert_f'2
+  141,609 ( 2.87%)  rustc:library/core/src/ptr/mod.rs:<expanse_trie::map32::ExpanseMap32>::insert
+  129,705 ( 2.63%)  rustc:library/core/src/option.rs:expanse_trie::trie32::map_insert_f'2
+
+## Source lines with >= 10,000 Ir (auto-annotated; call arrows show inclusive cost and call counts)
+--- crates/expanse/benches/instructions.rs
+4,936,783 (100.0%)  => crates/expanse/benches/instructions.rs:instructions::map32_insert::__iai_callgrind_wrapper_mod::map32_insert (1x)
+   40,000 ( 0.81%)  map.insert(black_box(1_700_000_000 + i as Key32), i as Value32);
+4,846,717 (98.18%)  => /w/crates/expanse/src/map32.rs:<expanse_trie::map32::ExpanseMap32>::insert (10,000x)
+--- crates/expanse/src/map32.rs
+  100,000 ( 2.03%)  pub fn insert(&mut self, key: Key32, value: Value32) -> Option<Value32> {
+   10,360 ( 0.21%)  let old = trie32::map_insert_f(
+2,463,747 (49.91%)  => /w/crates/expanse/src/trie32.rs:expanse_trie::trie32::map_insert_f (2,590x)
+   80,000 ( 1.62%)  }
+   12,591 ( 0.26%)  <counts for unidentified lines in crates/expanse/src/map32.rs>
+--- crates/expanse/src/types32.rs
+   43,446 ( 0.88%)  #[derive(Clone, Copy, PartialEq, Eq)]
+   53,514 ( 1.08%)  self.tag
+   32,700 ( 0.66%)  self.w0
+   62,982 ( 1.28%)  <counts for unidentified lines in crates/expanse/src/types32.rs>
+--- crates/expanse/src/trie32.rs
+  113,220 ( 2.29%)  if pop <= 2 { pop } else { (pop + 3) & !3 }
+  221,916 ( 4.50%)  match tag {
+   46,620 ( 0.94%)  if kb >= 4 {
+   46,620 ( 0.94%)  (rem >> ((kb - 1) as u32 * 8)) as u8
+   10,560 ( 0.21%)  match kb {
+   10,184 ( 0.21%)  }
+   14,898 ( 0.30%)  if let Some(b) = old
+   29,957 ( 0.61%)  self.slots[h as usize].as_mut().expect("live arena slot")
+   10,892 ( 0.22%)  match self.get(h) {
+   62,127 ( 1.26%)  fn l2_mut(&mut self, h: u32) -> &mut BranchL2_32 {
+   42,034 ( 0.85%)  match self.get_mut(h) {
+   21,017 ( 0.43%)  NodeBox::L2(b) => b,
+   41,418 ( 0.84%)  }
+   15,471 ( 0.31%)  fn b_mut(&mut self, h: u32) -> &mut BranchB32Data {
+   13,800 ( 0.28%)  match self.get_mut(h) {
+   10,314 ( 0.21%)  }
+   14,898 ( 0.30%)  match self.get_mut(h) {
+   23,808 ( 0.48%)  => crates/expanse/src/trie32.rs:expanse_trie::trie32::read_rem (2,560x)
+   10,101 ( 0.20%)  data.header.bitmap[w] |= 1u64 << bit64;
+   22,815 ( 0.46%)  for &(key, val) in entries {
+   48,282 ( 0.98%)  if key >= lo && key <= hi {
+   16,283 ( 0.33%)  let sub_base = (digit & 32) as u32;
+   45,694 ( 0.93%)  (word & ((bit_mask - 1) & (!0u64 << sub_base))).count_ones() as usize
+   14,898 ( 0.30%)  ((word >> sub_base) & 0xFFFF_FFFF).count_ones() as usize
+   20,687 ( 0.42%)  existing[rank] = val;
+   67,256 ( 1.36%)  let b = a.l2_mut(edge_handle(e));
+   41,168 ( 0.83%)  => crates/expanse/src/trie32.rs:<expanse_trie::trie32::Arena>::l2_mut (2,573x)
+   10,341 ( 0.21%)  let b = a.b_mut(edge_handle(e));
+   12,201 ( 0.25%)  b.subarrays[sub].as_mut().expect("live subarray")[rank] = c;
+   25,484 ( 0.52%)  if n > 0 && b.digits[0] == digit {
+   14,160 ( 0.29%)  b.subarrays[sub].as_ref().map(|s| s[rank])
+   35,448 ( 0.72%)  if pop > 0 && needle > read_rem(buf, pop - 1, kb as usize) {
+   15,454 ( 0.31%)  if self.valid && (self.depth as usize) < self.ancestors.len() {
+   49,796 ( 1.01%)  if !f.valid || f.prefix != key >> 8 {
+   22,230 ( 0.45%)  let w = (digit >> 6) as usize;
+   14,820 ( 0.30%)  if (word & bit_mask) != 0 {
+   14,820 ( 0.30%)  b.header.bitmap[w] |= bit_mask;
+   27,226 ( 0.55%)  => crates/expanse/src/trie32.rs:expanse_trie::trie32::map_insert_f'2 (17x)
+  135,564 ( 2.75%)  pub(crate) fn map_insert_f(
+   12,070 ( 0.24%)  => crates/expanse/src/trie32.rs:expanse_trie::trie32::make_map_leaf (43x)
+   10,006 ( 0.20%)  if kb == 1 && new_pop > MAP_BITMAP_ENTER {
+   89,778 ( 1.82%)  => crates/expanse/src/trie32.rs:expanse_trie::trie32::read_map_leaf (39x)
+   10,133 ( 0.21%)  } else if kb >= 2 && new_pop > MAP_LEAF_MAX {
+   77,270 ( 1.57%)  let old = map_insert_f(a, &mut child, kb - 1, cr, val, f);
+2,092,700 (42.39%)  => crates/expanse/src/trie32.rs:expanse_trie::trie32::map_insert_f'2 (2,573x)
+   12,836 ( 0.26%)  => crates/expanse/src/trie32.rs:expanse_trie::trie32::branch_insert_new (43x)
+  104,280 ( 2.11%)  }
+  260,586 ( 5.28%)  <counts for unidentified lines in crates/expanse/src/trie32.rs>
