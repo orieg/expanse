@@ -288,7 +288,11 @@ Bench targets deliberately **not** reachable from a slash command:
    pooled per-iteration form — BCa intervals over criterion samples — that this
    session did not retain, so the committed artifact above and the script's own
    `--json` output are deliberately two different schemas rather than one
-   backfilled into the other.
+   backfilled into the other. `--condition NAME=CPULIST` (repeatable) replaces
+   the three fixed conditions with caller-chosen affinity masks, the first
+   named being the reference — the form the SMT question below was measured
+   with — and writes a third schema, `expanse.pin_exposure.conditions.v1`, so a
+   masks comparison can never be read as a core-class one.
 
    Two readings, and they point in different directions
    (workload: `domain_interned_set`; both ratios are within that one arm).
@@ -336,25 +340,114 @@ Bench targets deliberately **not** reachable from a slash command:
    `crates/expanse/src/algebra.rs`, the module this arm exercises, and it is a
    null here. **The whole effect sits on the E-cores**: the P-core arm reads
    14,049–14,052 ns across all four runs, a 0.03% spread, while the E-core arm
-   is 17.8% slower at the 2s warm-up than at the 3s one. **Why a shorter
-   warm-up costs the E-cores and not the P-cores is unmeasured** — no counter
-   run here separates frequency ramp from per-cycle throughput, so no
-   mechanism is claimed; `perf stat` on both core classes at both settings is
-   what would answer it.
+   is 17.8% slower at the 2s warm-up than at the 3s one. **It is not the
+   clock** ([#679](https://github.com/orieg/expanse/issues/679)).
+   `scripts/warmup_ramp.py` runs the arm under `perf stat -I 100` on the
+   pinned class's own PMU, reading `cycles`, `instructions` and `ref-cycles`
+   per 100 ms, and samples cpufreq's `scaling_cur_freq` alongside: on both
+   classes and at both warm-ups the effective clock is at its steady value in
+   the **first** busy interval — E-cores 1.565× the TSC-nominal rate
+   (cpufreq: 3.73–3.74 GHz), P-cores 2.09× (5.00–5.03 GHz) — and stays flat
+   through warm-up and measurement, with criterion choosing the identical
+   plan (141 k iterations) at both settings *(measured: reference host,
+   commit `c4b1817`, 3 interleaved reps per cell —
+   [`results/warmup_ramp_679_c4b1817.json`](../results/warmup_ramp_679_c4b1817.json))*.
+   What moves is **where the run crosses the allocator regime switch**
+   described under #678 above. Every filtered run of this arm has the same
+   two regimes — on the E-cores ~16.2 µs and ~26.9 µs per iteration, on the
+   P-cores ~10.7 and ~17.4 — and the warm-up only sets the sample at which
+   the switch occurs: on the E-cores sample 37 (batch of 1,064 iterations) at
+   2 s and sample 73 (2,072) at 3 s, on the P-cores sample 47 (2,016) at
+   either setting. A 2 s warm-up on the E-cores therefore leaves most of the
+   measurement in the slow regime, a 3 s one leaves most of it in the fast
+   one, and the P-cores sit at the same switch point regardless. Why the
+   warm-up length sets that point is a **hypothesis**, not a measurement: the
+   switch is an allocator regime (it vanishes with heap trimming disabled),
+   glibc adapts its trim and mmap thresholds to the largest chunks a process
+   frees, and a longer warm-up reaches larger batches — on the E-cores, which
+   complete about two thirds as many iterations per warm-up second, 3 s
+   reaches what 2 s reaches on the P-cores. A per-sample fault timeline would
+   confirm or refute that and was not recorded. The consequence for published
+   figures stands either way: on this arm the warm-up setting selects a
+   regime mixture, so the ceiling is a property of the harness defect as much
+   as of the part, and once the defect is out of the way E ÷ P is 1.52–1.54×
+   in either regime *(measured: same-run samples in
+   [`results/pin_exposure_678_c4b1817_estimators.txt`](../results/pin_exposure_678_c4b1817_estimators.txt))*.
 
    Two consequences. The 1.576× above is **not withdrawn**: at its own
-   settings the ceiling reproduces at 1.633×/1.634×, and the residual is the
-   estimator plus session-to-session variation. But it is a property of this
-   hardware **and** of the warm-up it was taken at, so quoting it without the
-   setting overstates the ceiling by roughly a sixth against a
+   settings the ceiling reproduces at 1.633×/1.634×. But it is a property of
+   this hardware **and** of the warm-up it was taken at, so quoting it without
+   the setting overstates the ceiling by roughly a sixth against a
    default-configured run. The decision it supports is unchanged either way:
    E and P separate at both warm-up settings, so the pin is warranted at
-   either. One thing this decomposition does **not** explain — at the same
-   commit and the same criterion arguments, these runs' absolute times sit
-   ~15% below the original session's (P 14,049 vs 16,575; E 22,948 vs 26,117)
-   while the ratio agrees. Something about that session differed beyond
-   commit, warm-up and estimator; the published claim rests on the ratio, but
-   the absolutes are **not reproduced** and this is unexplained.
+   either.
+
+   **The original session's absolutes are reproduced, and both offsets that
+   hid them are measured** ([#678](https://github.com/orieg/expanse/issues/678)).
+   At the same commit and criterion arguments the decomposition's P-core
+   figure sat 15% below the original's (14,049 against 16,575 ns) while the
+   ratio agreed. Two independent effects stack to produce that, and the
+   original artifact's recorded invocation is inconsistent with its own values
+   (workload: `domain_interned_set`; every figure in this block is the
+   `raw_expanse_set_intersection/100000` arm at commit `c4b1817`,
+   `--measurement-time 5 --warm-up-time 2`, host idle, lock held).
+
+   *Estimator.* Criterion's `time:` line is its **slope** estimate — a
+   regression of sample time on iteration count, weighted toward the largest
+   batches — not the mean. Read from one and the same filtered run, criterion's
+   own `estimates.json` gives `mean` = 14,242.6 ns, equal to the pooled
+   per-iteration mean `scripts/pin_exposure.py` and `scripts/bench_baseline.py`
+   report, and `slope` = 16,710.7 ns, which is what the `time:` line prints. The
+   two differ because per-iteration cost drifts with batch size inside that
+   run: the smallest quarter of the samples averages 10,647 ns and the largest
+   quarter 17,449 ns. Across five filtered runs today the slope reads
+   16,711–16,821 ns (P) and 25,796–26,415 ns (E); the original session's
+   16,575 / 26,117 are those slopes. The #672 figures are the means. On an arm
+   whose per-iteration cost drifts, a figure has to say which of the two it is
+   *(measured: reference host, commit `c4b1817`, same-run
+   `sample.json` / `estimates.json` under
+   [`results/pin_exposure_678_c4b1817_samples/`](../results/pin_exposure_678_c4b1817_samples/),
+   summarised in [`results/pin_exposure_678_c4b1817_estimators.txt`](../results/pin_exposure_678_c4b1817_estimators.txt))*.
+
+   *Filter.* The drift itself is an artefact of running the arm alone in its
+   process. Filtered to the single arm, the pooled mean reads 14,148.6 ns
+   [13,893.6, 14,415.5] and, an hour later, 14,101.3 ns; with the whole
+   `domain` harness in the same invocation the identical arm reads
+   **10,836.7 ns [10,827.0, 10,849.5]**, an interval eighteen times narrower
+   *(measured: reference host, commit `c4b1817`, `scripts/pin_exposure.py`, 6
+   interleaved rounds, 600 pooled samples per condition, BCa 95% —
+   [`results/pin_exposure_678_c4b1817_filtered_a.json`](../results/pin_exposure_678_c4b1817_filtered_a.json),
+   [`_filtered_c`](../results/pin_exposure_678_c4b1817_filtered_c.json),
+   [`_unfiltered`](../results/pin_exposure_678_c4b1817_unfiltered.json))*.
+   The mechanism is page faults inside the measured region, and it is
+   counted, not inferred: the filtered process takes 3.20 M page faults and
+   33 M dTLB store misses over the run and its `time:` reads 16.8 µs; the same
+   invocation with glibc's heap trimming disabled
+   (`MALLOC_TRIM_THRESHOLD_=4294967295 MALLOC_TOP_PAD_=268435456`) takes
+   105 k page faults and 3.3 M dTLB store misses and reads 10.86 µs; running
+   the arm's 10k twin first in the same process reads 10.93–11.01 µs with no
+   environment change; and a syscall census of a filtered run with one second each of
+   warm-up and measurement shows ~21.7 k `brk` calls — the heap top being
+   trimmed and regrown between samples. In the group context there is no drift at all
+   (10,878 → 10,982 ns across the quartiles; `mean` and `slope` agree within
+   0.3%) *(measured: reference host, commit `c4b1817`, `perf stat -e
+   page-faults,cpu_core/dTLB-store-misses/…`, `strace -c` —
+   [`results/pin_exposure_678_c4b1817_filter_diagnostic.txt`](../results/pin_exposure_678_c4b1817_filter_diagnostic.txt))*.
+   The arm's `iter_batched` keeps every result set of a batch alive until the
+   batch is timed, so the live heap of a sample grows with its iteration count
+   and, past a size the allocator then trims back to the OS, every later
+   batch first-touches its pages inside the window. That is a §8.6
+   measured-region defect of the `domain` intersection arms when they are run
+   in isolation, and it is why the original session — whose `invocation`
+   field records no filter — cannot have come from an unfiltered run: an
+   unfiltered run read through the slope gives 10.9–11.1 µs, not 16.6.
+
+   What the ceiling is once neither effect is in the way: within the same
+   runs, the E-core and P-core samples in the fast regime sit at 16,206 and
+   10,647 ns and in the slow regime at 26,917 and 17,449 ns, so **E ÷ P is
+   1.52–1.54× in either regime** — the 1.576×, 1.633× and 1.673× readings are that
+   ratio taken over different mixtures of the two regimes. None of this
+   reopens the pin: the classes separate in every configuration measured.
 
    **The wall-clock arms are pinned anyway, and #639 closes as a change rather
    than a note.** The overlap says the defect was not firing, not that the
@@ -392,9 +485,23 @@ Bench targets deliberately **not** reachable from a slash command:
    suite sweeps to 16 reader threads and would no longer have 16 logical CPUs
    to sweep onto. The host-wide lock (rule 8) already guarantees no second
    suite is running, which is the co-tenant that would matter most. Whether
-   sibling contention moves any arm on this host is **unmeasured**;
-   `EXPANSE_BENCH_PIN=0,2,4,6,8,10,12,14` is how that would be measured, and
-   the pin has to be in place before that question is even askable.
+   sibling contention moves any arm on this host was then measured
+   ([#680](https://github.com/orieg/expanse/issues/680)):
+   `scripts/pin_exposure.py --condition p_smt=0-15 --condition
+   p_one_sibling=0,2,4,6,8,10,12,14`, both masks interleaved over 6 rounds
+   with a rotating lead, on the arm built to exceed the LLC — random point
+   lookup over 4 M keys (workload: `core_compare`) — and on the algebra arm
+   above (workload: `domain_interned_set`). One sibling per core against both
+   siblings: cold-DRAM hit 50.85 against 50.94 ns (0.998×, BCa 95% intervals
+   overlap), cold-DRAM miss 23.66 against 23.53 ns (1.005×, intervals
+   separated by 0.03 ns with widths of 0.2–0.5%), set intersection 14,076
+   against 14,154 ns (0.994×, overlap). The effect of sibling contention on a
+   single-threaded arm on the idle, locked host is therefore bounded at about
+   0.5% and is in neither direction consistently, and the mask stays `0-15`
+   *(measured: reference host, commit `c4b1817`, 60 pooled samples per
+   condition on the cold-DRAM arms and 600 on the algebra arm —
+   [`results/pin_exposure_680_c4b1817_cold_dram.json`](../results/pin_exposure_680_c4b1817_cold_dram.json),
+   [`results/pin_exposure_680_c4b1817_domain.json`](../results/pin_exposure_680_c4b1817_domain.json))*.
 
    **One consequence to disclose.** `available_parallelism()` honours the
    affinity mask, so under the pin the `concurrency` suite sees 16 logical

@@ -1,0 +1,87 @@
+{
+ "schema": "expanse.pin_exposure.conditions.v1",
+ "kind": "wall_clock_affinity_masks",
+ "issue": "https://github.com/orieg/expanse/issues/680",
+ "meta": {
+  "host": "12th Gen Intel(R) Core(TM) i9-12900F, 24 logical CPUs, Linux 6.8.0-136-generic",
+  "provenance": {
+   "host_description": "12th Gen Intel(R) Core(TM) i9-12900F, 24 logical CPUs, Linux 6.8.0-136-generic",
+   "commit": "c4b1817",
+   "commit_source": "declared",
+   "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+   "os": "linux",
+   "arch": "x86_64",
+   "load_average_at_start": [
+    1.46435546875,
+    1.54345703125,
+    1.59326171875
+   ],
+   "load_average_at_end": [
+    1.0927734375,
+    1.39111328125,
+    1.53076171875
+   ]
+  },
+  "bench": "domain",
+  "rounds": 6,
+  "p_cpus": "0-15",
+  "e_cpus": "16-23",
+  "filter": "raw_expanse_set_intersection/100000",
+  "criterion_args": [
+   "--measurement-time",
+   "5",
+   "--warm-up-time",
+   "2"
+  ],
+  "invocation": "cargo bench --bench domain -p expanse-trie -- raw_expanse_set_intersection/100000 --measurement-time 5 --warm-up-time 2",
+  "conditions": [
+   {
+    "condition": "p_smt",
+    "pin": "taskset -c 0-15"
+   },
+   {
+    "condition": "p_one_sibling",
+    "pin": "taskset -c 0,2,4,6,8,10,12,14"
+   }
+  ],
+  "design": "2 conditions (p_smt/p_one_sibling) interleaved within each of 6 rounds, rotating which runs first",
+  "reference": "p_smt"
+ },
+ "statistics": {
+  "estimator": "mean of pooled criterion per-iteration times (ns)",
+  "method": "BCa bootstrap over 2000 resamples",
+  "confidence": 0.95
+ },
+ "verdict": "OVERLAP",
+ "reading": "every condition's BCa 95% interval overlaps the reference `p_smt` on all 1 arm(s), so the masks are indistinguishable to this instrument at this sample size. That bounds any effect below roughly the interval width (widest 3.70%); it does not show the effect is zero.",
+ "arms": [
+  {
+   "arm": "domain_set_algebra_overhead/raw_expanse_set_intersection/100000",
+   "reference": "p_smt",
+   "conditions": {
+    "p_smt": {
+     "mean_ns": 14154.062966719423,
+     "ci": [
+      13903.641007090651,
+      14428.517412284424
+     ],
+     "ci_width_pct": 3.7083091012659692,
+     "n": 600,
+     "ratio_over_reference": 1.0,
+     "overlaps_reference": true
+    },
+    "p_one_sibling": {
+     "mean_ns": 14076.140736720854,
+     "ci": [
+      13819.500363994204,
+      14339.64800667794
+     ],
+     "ci_width_pct": 3.6952432659813588,
+     "n": 600,
+     "ratio_over_reference": 0.9944947093861467,
+     "overlaps_reference": true
+    }
+   }
+  }
+ ]
+}

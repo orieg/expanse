@@ -1,0 +1,124 @@
+# #678 filter diagnostic — commit c4b1817, host: 12th Gen Intel(R) Core(TM) i9-12900F, Linux 6.8.0-136-generic, glibc 2.35, perf 6.8.12
+# THP: enabled=[always [madvise] never] AnonHugePages=0 kB
+# All runs: taskset -c 0-15 (P-cores), --measurement-time 5 --warm-up-time 2, perf stat over the whole cargo bench process (setup + warm-up + measurement).
+# Fault and TLB counts are process totals; the per-iteration reading divides by criterion's reported iteration count for the target arm.
+
+## D1_filtered_single_arm rep 1  [2026-09-05T07:06:07Z] loadavg=1.00 1.37 1.52
+$  perf stat -x, -e page-faults,cpu_core/cycles/,cpu_core/instructions/,cpu_core/dTLB-load-misses/,cpu_core/dTLB-store-misses/ -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 2
+rc=0
+    domain_set_algebra_overhead/raw_expanse_set_intersection/100000
+                            time:   [16.428 µs 16.789 µs 17.057 µs]
+    perf: 3201541,page-faults
+    perf: 66673867122,cpu_core/cycles/
+    perf: 105293627867,cpu_core/instructions/
+    perf: 8223304,cpu_core/dTLB-load-misses/
+    perf: 32994482,cpu_core/dTLB-store-misses/
+
+## D1_filtered_single_arm rep 2  [2026-09-05T07:06:15Z] loadavg=1.00 1.35 1.52
+$  perf stat -x, -e page-faults,cpu_core/cycles/,cpu_core/instructions/,cpu_core/dTLB-load-misses/,cpu_core/dTLB-store-misses/ -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 2
+rc=0
+    domain_set_algebra_overhead/raw_expanse_set_intersection/100000
+                            time:   [16.497 µs 16.860 µs 17.133 µs]
+    perf: 3201624,page-faults
+    perf: 66868059437,cpu_core/cycles/
+    perf: 105284401523,cpu_core/instructions/
+    perf: 7501912,cpu_core/dTLB-load-misses/
+    perf: 32740910,cpu_core/dTLB-store-misses/
+
+## D2_after_10k_twin rep 1  [2026-09-05T07:06:23Z] loadavg=1.00 1.34 1.51
+$  perf stat -x, -e page-faults,cpu_core/cycles/,cpu_core/instructions/,cpu_core/dTLB-load-misses/,cpu_core/dTLB-store-misses/ -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/1' --measurement-time 5 --warm-up-time 2
+rc=0
+    domain_set_algebra_overhead/raw_expanse_set_intersection/10000
+                            time:   [1.8186 µs 1.8275 µs 1.8352 µs]
+    domain_set_algebra_overhead/raw_expanse_set_intersection/100000
+                            time:   [10.938 µs 11.010 µs 11.087 µs]
+    perf: 2945382,page-faults
+    perf: 106101511075,cpu_core/cycles/
+    perf: 166286801463,cpu_core/instructions/
+    perf: 10405189,cpu_core/dTLB-load-misses/
+    perf: 30297089,cpu_core/dTLB-store-misses/
+
+## D2_after_10k_twin rep 2  [2026-09-05T07:06:35Z] loadavg=1.00 1.33 1.50
+$  perf stat -x, -e page-faults,cpu_core/cycles/,cpu_core/instructions/,cpu_core/dTLB-load-misses/,cpu_core/dTLB-store-misses/ -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/1' --measurement-time 5 --warm-up-time 2
+rc=0
+    domain_set_algebra_overhead/raw_expanse_set_intersection/10000
+                            time:   [1.8253 µs 1.8355 µs 1.8445 µs]
+    domain_set_algebra_overhead/raw_expanse_set_intersection/100000
+                            time:   [10.894 µs 10.926 µs 10.955 µs]
+    perf: 2946383,page-faults
+    perf: 117085582500,cpu_core/cycles/
+    perf: 180062219538,cpu_core/instructions/
+    perf: 10231969,cpu_core/dTLB-load-misses/
+    perf: 30293809,cpu_core/dTLB-store-misses/
+
+## D3_filtered_no_trim rep 1  [2026-09-05T07:06:48Z] loadavg=1.00 1.31 1.50
+$ MALLOC_TRIM_THRESHOLD_=4294967295 MALLOC_TOP_PAD_=268435456 perf stat -x, -e page-faults,cpu_core/cycles/,cpu_core/instructions/,cpu_core/dTLB-load-misses/,cpu_core/dTLB-store-misses/ -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 2
+rc=0
+    domain_set_algebra_overhead/raw_expanse_set_intersection/100000
+                            time:   [10.823 µs 10.863 µs 10.905 µs]
+    perf: 104882,page-faults
+    perf: 63955007107,cpu_core/cycles/
+    perf: 98361762900,cpu_core/instructions/
+    perf: 2659319,cpu_core/dTLB-load-misses/
+    perf: 3267422,cpu_core/dTLB-store-misses/
+
+## D3_filtered_no_trim rep 2  [2026-09-05T07:06:55Z] loadavg=1.00 1.31 1.49
+$ MALLOC_TRIM_THRESHOLD_=4294967295 MALLOC_TOP_PAD_=268435456 perf stat -x, -e page-faults,cpu_core/cycles/,cpu_core/instructions/,cpu_core/dTLB-load-misses/,cpu_core/dTLB-store-misses/ -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 2
+rc=0
+    domain_set_algebra_overhead/raw_expanse_set_intersection/100000
+                            time:   [10.892 µs 10.922 µs 10.949 µs]
+    perf: 105278,page-faults
+    perf: 63522384627,cpu_core/cycles/
+    perf: 98968989216,cpu_core/instructions/
+    perf: 2683368,cpu_core/dTLB-load-misses/
+    perf: 3278932,cpu_core/dTLB-store-misses/
+
+## D4_filtered_no_trim_no_mmap rep 1  [2026-09-05T07:07:02Z] loadavg=2.20 1.55 1.57
+$ MALLOC_TRIM_THRESHOLD_=4294967295 MALLOC_TOP_PAD_=268435456 MALLOC_MMAP_THRESHOLD_=1073741824 perf stat -x, -e page-faults,cpu_core/cycles/,cpu_core/instructions/,cpu_core/dTLB-load-misses/,cpu_core/dTLB-store-misses/ -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 2
+rc=0
+    domain_set_algebra_overhead/raw_expanse_set_intersection/100000
+                            time:   [10.826 µs 10.869 µs 10.912 µs]
+    perf: 104909,page-faults
+    perf: 64061761240,cpu_core/cycles/
+    perf: 99023251667,cpu_core/instructions/
+    perf: 2693054,cpu_core/dTLB-load-misses/
+    perf: 3206431,cpu_core/dTLB-store-misses/
+
+## D4_filtered_no_trim_no_mmap rep 2  [2026-09-05T07:07:10Z] loadavg=2.10 1.54 1.56
+$ MALLOC_TRIM_THRESHOLD_=4294967295 MALLOC_TOP_PAD_=268435456 MALLOC_MMAP_THRESHOLD_=1073741824 perf stat -x, -e page-faults,cpu_core/cycles/,cpu_core/instructions/,cpu_core/dTLB-load-misses/,cpu_core/dTLB-store-misses/ -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 2
+rc=0
+    domain_set_algebra_overhead/raw_expanse_set_intersection/100000
+                            time:   [10.870 µs 10.907 µs 10.945 µs]
+    perf: 105125,page-faults
+    perf: 63909578480,cpu_core/cycles/
+    perf: 98989799946,cpu_core/instructions/
+    perf: 2686257,cpu_core/dTLB-load-misses/
+    perf: 3308524,cpu_core/dTLB-store-misses/
+
+## D5 syscall census, filtered single arm, --measurement-time 1 --warm-up-time 1 (strace slows the run; counts only)
+    Benchmarking domain_set_algebra_overhead/raw_expanse_set_intersection/100000: Collecting 100 samples in estimated 1.0444 s (40k iterations)
+                            time:   [10.676 µs 10.725 µs 10.778 µs]
+    strace: % time     seconds  usecs/call     calls    errors syscall
+    strace: ------ ----------- ----------- --------- --------- ----------------
+    strace:  95.17    0.060391           2     21683           brk
+    strace:   3.68    0.002332          11       211           mmap
+    strace:   1.15    0.000729          16        45           munmap
+    strace:   0.00    0.000001           1         1           madvise
+    strace: ------ ----------- ----------- --------- --------- ----------------
+    strace: 100.00    0.063453           2     21940           total
+
+## D6 syscall census, after the 10k twin (same strace settings)
+    Benchmarking domain_set_algebra_overhead/raw_expanse_set_intersection/10000: Collecting 100 samples in estimated 1.0055 s (182k iterations)
+                            time:   [1.7624 µs 1.7652 µs 1.7677 µs]
+    Benchmarking domain_set_algebra_overhead/raw_expanse_set_intersection/100000: Collecting 100 samples in estimated 1.0021 s (40k iterations)
+                            time:   [10.998 µs 11.074 µs 11.141 µs]
+    strace: % time     seconds  usecs/call     calls    errors syscall
+    strace: ------ ----------- ----------- --------- --------- ----------------
+    strace:  98.90    0.125659           2     43966           brk
+    strace:   0.75    0.000954           4       212           mmap
+    strace:   0.35    0.000442           9        47           munmap
+    strace:   0.00    0.000000           0         1           madvise
+    strace: ------ ----------- ----------- --------- --------- ----------------
+    strace: 100.00    0.127055           2     44226           total
+
+# end [2026-09-05T07:07:25Z] loadavg=1.86 1.51 1.55

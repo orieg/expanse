@@ -280,7 +280,7 @@ jobs:
 
       # The report scripts carry the §8.1 (fail-loud) and §8.2 (no hardcoded
       # findings prose) assertions as self-tests; run them so they cannot rot.
-      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors)
+      - name: Report-Script Self-Tests (perf_report / bench_report / bench_baseline / perf counters / pin exposure / warmup ramp / bench pin / docs hygiene / ecosystem theme / bench suites / bench shapes / man pages / abi parity / deletions / test floors)
         run: |
           python3 scripts/perf_report.py --self-test
           python3 scripts/bench_report.py --self-test
@@ -293,6 +293,9 @@ jobs:
           # it refuses a non-hybrid one rather than compare a pin against
           # itself — but its reading of the intervals is checkable anywhere.
           python3 scripts/pin_exposure.py --self-test
+          # warmup_ramp.py likewise needs the reference host's PMUs to measure;
+          # its perf-CSV and criterion parsers and its window summary are not.
+          python3 scripts/warmup_ramp.py --self-test
           python3 scripts/check_docs_hygiene.py --self-test
           python3 scripts/check_ecosystem_theme.py --self-test
           python3 scripts/check_bench_suites.py --self-test

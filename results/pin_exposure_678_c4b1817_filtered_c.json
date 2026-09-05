@@ -1,0 +1,90 @@
+{
+ "schema": "expanse.pin_exposure.samples.v1",
+ "kind": "wall_clock_core_placement",
+ "issue": "https://github.com/orieg/expanse/issues/678",
+ "meta": {
+  "host": "12th Gen Intel(R) Core(TM) i9-12900F, 24 logical CPUs, Linux 6.8.0-136-generic",
+  "provenance": {
+   "host_description": "12th Gen Intel(R) Core(TM) i9-12900F, 24 logical CPUs, Linux 6.8.0-136-generic",
+   "commit": "c4b1817",
+   "commit_source": "declared",
+   "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+   "os": "linux",
+   "arch": "x86_64",
+   "load_average_at_start": [
+    1.1083984375,
+    1.4970703125,
+    1.62841796875
+   ],
+   "load_average_at_end": [
+    2.14404296875,
+    1.73291015625,
+    1.68798828125
+   ]
+  },
+  "bench": "domain",
+  "rounds": 6,
+  "p_cpus": "0-15",
+  "e_cpus": "16-23",
+  "filter": "raw_expanse_set_intersection/100000",
+  "criterion_args": [
+   "--measurement-time",
+   "5",
+   "--warm-up-time",
+   "2"
+  ],
+  "invocation": "cargo bench --bench domain -p expanse-trie -- raw_expanse_set_intersection/100000 --measurement-time 5 --warm-up-time 2",
+  "conditions": [
+   {
+    "condition": "p_cores",
+    "pin": "taskset -c 0-15"
+   },
+   {
+    "condition": "unpinned",
+    "pin": null
+   },
+   {
+    "condition": "e_cores",
+    "pin": "taskset -c 16-23"
+   }
+  ],
+  "design": "3 conditions (p_cores/unpinned/e_cores) interleaved within each of 6 rounds, rotating which runs first"
+ },
+ "statistics": {
+  "estimator": "mean of pooled criterion per-iteration times (ns)",
+  "method": "BCa bootstrap over 2000 resamples",
+  "confidence": 0.95
+ },
+ "verdict": "OVERLAP_BUT_PINNED",
+ "reading": "every one of the 1 arms has overlapping unpinned and P-core BCa 95% intervals, so the scheduler left this session's work where the pin would have put it and the hazard did not fire in these rounds. 1 of 1 arms separate E-core from P-core, the widest `domain_set_algebra_overhead/raw_expanse_set_intersection/100000` at 1.615\u00d7 E-core over P-core; that is the exposure ceiling \u2014 the whole distance a migration could move an arm, whether or not one happened here. An overlap here is not evidence the hazard cannot fire: placement depends on what else the host is doing, and the interval stays narrow whether or not a round migrated.",
+ "arms": [
+  {
+   "arm": "domain_set_algebra_overhead/raw_expanse_set_intersection/100000",
+   "p_cores_ns": 14101.257084526615,
+   "unpinned_ns": 14109.970151257034,
+   "e_cores_ns": 22780.201657754766,
+   "p_cores_ci": [
+    13848.029618401912,
+    14369.964181411116
+   ],
+   "unpinned_ci": [
+    13856.010057944894,
+    14382.812048840675
+   ],
+   "e_cores_ci": [
+    22415.836346563177,
+    23162.131728005654
+   ],
+   "p_cores_ci_width_pct": 3.701333575301782,
+   "unpinned_ci_width_pct": 3.733544332472237,
+   "e_cores_ci_width_pct": 3.276070127273982,
+   "ratio_e_over_p": 1.6154731114541272,
+   "ratio_unpinned_over_p": 1.0006178929068656,
+   "e_p_intervals_overlap": false,
+   "unpinned_p_intervals_overlap": true,
+   "n_p_cores": 600,
+   "n_unpinned": 600,
+   "n_e_cores": 600
+  }
+ ]
+}

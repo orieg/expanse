@@ -1,0 +1,139 @@
+
+## E1_P_filtered_w2 rep 1  [2026-09-05T07:07:28Z] loadavg=1.71 1.49 1.55
+$ perf stat -x, -e page-faults,instructions:u,instructions:k,cycles -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 2
+rc=0
+                            time:   [16.351 µs 16.711 µs 16.979 µs]
+    perf: 3200979,page-faults
+    perf: 532652465,cpu_atom/instructions:u/
+    perf: 72704942088,cpu_core/instructions:u/
+    perf: 5233377420,cpu_atom/instructions:k/
+    perf: 19020174736,cpu_core/instructions:k/
+    perf: 8964648369,cpu_atom/cycles/
+    perf: 57722456314,cpu_core/cycles/
+
+## E1_P_filtered_w2 rep 2  [2026-09-05T07:07:36Z] loadavg=1.65 1.48 1.54
+$ perf stat -x, -e page-faults,instructions:u,instructions:k,cycles -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 2
+rc=0
+                            time:   [16.435 µs 16.796 µs 17.070 µs]
+    perf: 3200704,page-faults
+    perf: 4805131005,cpu_atom/instructions:u/
+    perf: 72673776137,cpu_core/instructions:u/
+    perf: 22765562157,cpu_atom/instructions:k/
+    perf: 19021965779,cpu_core/instructions:k/
+    perf: 33071305893,cpu_atom/cycles/
+    perf: 57820951237,cpu_core/cycles/
+
+## E2_P_group_w2 rep 1  [2026-09-05T07:07:44Z] loadavg=1.55 1.46 1.54
+$ perf stat -x, -e page-faults,instructions:u,instructions:k,cycles -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'domain_set_algebra_overhead' --measurement-time 5 --warm-up-time 2
+rc=0
+                            time:   [1.8394 µs 1.8488 µs 1.8576 µs]
+                            time:   [1.8695 µs 1.8766 µs 1.8830 µs]
+                            time:   [322.87 ns 324.14 ns 325.31 ns]
+                            time:   [341.18 ns 342.16 ns 343.12 ns]
+                            time:   [10.916 µs 10.940 µs 10.963 µs]
+                            time:   [10.906 µs 10.918 µs 10.930 µs]
+                            time:   [1.5443 µs 1.5455 µs 1.5467 µs]
+                            time:   [1.5443 µs 1.5482 µs 1.5530 µs]
+    perf: 5741914,page-faults
+    perf: 33772166637,cpu_atom/instructions:u/
+    perf: 1165142842882,cpu_core/instructions:u/
+    perf: 148236989917,cpu_atom/instructions:k/
+    perf: 35198826371,cpu_core/instructions:k/
+    perf: 200609637346,cpu_atom/cycles/
+    perf: 436950808999,cpu_core/cycles/
+
+## E2_P_group_w2 rep 2  [2026-09-05T07:08:41Z] loadavg=2.08 1.61 1.58
+$ perf stat -x, -e page-faults,instructions:u,instructions:k,cycles -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'domain_set_algebra_overhead' --measurement-time 5 --warm-up-time 2
+rc=0
+                            time:   [1.8362 µs 1.8441 µs 1.8513 µs]
+                            time:   [1.8710 µs 1.8791 µs 1.8868 µs]
+                            time:   [324.10 ns 325.76 ns 327.38 ns]
+                            time:   [339.52 ns 340.61 ns 341.70 ns]
+                            time:   [10.988 µs 11.071 µs 11.164 µs]
+                            time:   [10.923 µs 10.956 µs 10.995 µs]
+                            time:   [1.5415 µs 1.5451 µs 1.5495 µs]
+                            time:   [1.5455 µs 1.5470 µs 1.5487 µs]
+    perf: 5732067,page-faults
+    perf: 11362809469,cpu_atom/instructions:u/
+    perf: 1080835838692,cpu_core/instructions:u/
+    perf: 50626018373,cpu_atom/instructions:k/
+    perf: 35106042188,cpu_core/instructions:k/
+    perf: 67818980009,cpu_atom/cycles/
+    perf: 423759914149,cpu_core/cycles/
+
+## E3_E_filtered_w2 rep 1  [2026-09-05T07:09:36Z] loadavg=2.10 1.73 1.62
+$ perf stat -x, -e page-faults,instructions:u,instructions:k,cycles -- taskset -c 16-23 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 2
+rc=0
+                            time:   [26.121 µs 26.415 µs 26.636 µs]
+    perf: 1995856,page-faults
+    perf: 55107974425,cpu_atom/instructions:u/
+    perf: 2423667762,cpu_core/instructions:u/
+    perf: 11876330453,cpu_atom/instructions:k/
+    perf: 10976023499,cpu_core/instructions:k/
+    perf: 47209278443,cpu_atom/cycles/
+    perf: 13449847203,cpu_core/cycles/
+
+## E3_E_filtered_w2 rep 2  [2026-09-05T07:09:44Z] loadavg=1.93 1.71 1.62
+$ perf stat -x, -e page-faults,instructions:u,instructions:k,cycles -- taskset -c 16-23 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 2
+rc=0
+                            time:   [25.517 µs 25.796 µs 26.007 µs]
+    perf: 1995462,page-faults
+    perf: 55110610311,cpu_atom/instructions:u/
+    perf: 11873799329,cpu_atom/instructions:k/
+    perf: 46670544474,cpu_atom/cycles/
+
+## E4_E_filtered_w3 rep 1  [2026-09-05T07:09:53Z] loadavg=2.35 1.80 1.65
+$ perf stat -x, -e page-faults,instructions:u,instructions:k,cycles -- taskset -c 16-23 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 3
+rc=0
+                            time:   [21.712 µs 22.989 µs 24.043 µs]
+    perf: 2122125,page-faults
+    perf: 63771497808,cpu_atom/instructions:u/
+    perf: 12623765499,cpu_atom/instructions:k/
+    perf: 56083903166,cpu_atom/cycles/
+
+## E4_E_filtered_w3 rep 2  [2026-09-05T07:10:03Z] loadavg=2.14 1.77 1.64
+$ perf stat -x, -e page-faults,instructions:u,instructions:k,cycles -- taskset -c 16-23 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 3
+rc=0
+                            time:   [21.881 µs 23.145 µs 24.193 µs]
+    perf: 2122193,page-faults
+    perf: 63806071927,cpu_atom/instructions:u/
+    perf: 12627058745,cpu_atom/instructions:k/
+    perf: 56289329853,cpu_atom/cycles/
+
+## E5_P_filtered_w3 rep 1  [2026-09-05T07:10:13Z] loadavg=1.96 1.75 1.63
+$ perf stat -x, -e page-faults,instructions:u,instructions:k,cycles -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 3
+rc=0
+                            time:   [16.418 µs 16.769 µs 17.029 µs]
+    perf: 3201003,page-faults
+    perf: 4054256687,cpu_atom/instructions:u/
+    perf: 72712007639,cpu_core/instructions:u/
+    perf: 17791201943,cpu_atom/instructions:k/
+    perf: 19032679794,cpu_core/instructions:k/
+    perf: 24094179927,cpu_atom/cycles/
+    perf: 58165933589,cpu_core/cycles/
+
+## E5_P_filtered_w3 rep 2  [2026-09-05T07:10:21Z] loadavg=1.89 1.73 1.63
+$ perf stat -x, -e page-faults,instructions:u,instructions:k,cycles -- taskset -c 0-15 cargo bench --bench domain -p expanse-trie -- 'raw_expanse_set_intersection/100000' --measurement-time 5 --warm-up-time 3
+rc=0
+                            time:   [16.477 µs 16.820 µs 17.075 µs]
+    perf: 3200843,page-faults
+    perf: 6783268114,cpu_atom/instructions:u/
+    perf: 72680967551,cpu_core/instructions:u/
+    perf: 29897968824,cpu_atom/instructions:k/
+    perf: 19017442275,cpu_core/instructions:k/
+    perf: 41929240008,cpu_atom/cycles/
+    perf: 58474458672,cpu_core/cycles/
+
+# end [2026-09-05T07:10:29Z] loadavg=1.82 1.73 1.63
+
+# Attribution check for the cross-class PMU rows above (same host, same binary, lock held)
+# `perf stat` on a P-pinned process reports non-zero `cpu_atom/*` rows (and, on an E-pinned one, sometimes `cpu_core/*` rows).
+# Whether the workload ran on the other class was checked directly with `perf record` on the other class's PMU:
+#   $ perf record -e cpu_atom/cycles/ -F 2000 -- taskset -c 0-15 <domain bench> --bench raw_expanse_set_intersection/100000 --measurement-time 1 --warm-up-time 1
+#   time: [10.770 µs 10.795 µs 10.818 µs]          (the P-core figure; the E-core figure for this arm is ~16.2 µs)
+#   perf report --sort comm,cpu      -> 100.00%  taskset  (cpu unknown)
+#   perf report --sort comm,dso,sym  -> every sample is the `taskset` launcher in ld-linux / the kernel, before it applied the mask; none is the bench binary
+# The bench itself produced no E-core samples, and its criterion time is the P-core value. The `cpu_atom/*` rows `perf stat`
+# prints for a P-pinned process are therefore not read as work on the E-cores; their cause is unknown (perf 6.8.12, Linux 6.8),
+# and only the pinned class's own PMU rows above are used. An E-pinned run whose `cpu_core/*` rows read `<not counted>`
+# (E3 rep 2, E4) is the clean case; the E-core rows of E3/E4 are the ones cited.
