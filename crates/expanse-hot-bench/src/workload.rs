@@ -173,3 +173,60 @@ pub fn build(dist: Dist, n: usize, keyspace_bits: u32, hit_rate: f64) -> Workloa
         keyspace_bits,
     }
 }
+
+/// A concurrent-arm workload: a prefill, a probe stream against it, and a
+/// stream of fresh keys for the writers (§11.4).
+pub struct ConcurrentWorkload {
+    /// Prefill and its probe stream, exactly as [`build`] produces them.
+    pub base: Workload,
+    /// For each probe, whether it was drawn from the prefill. Readers verify
+    /// that a prefill key is always found; a miss may turn into a hit as
+    /// writers land, identically on both arms.
+    pub probe_is_prefill: Vec<bool>,
+    /// Fresh keys absent from the prefill, rejection-sampled from the same
+    /// generator (§8.6), in insertion order. Writers take contiguous slices.
+    pub new_keys: Vec<u64>,
+}
+
+/// Builds the concurrent-arm workload.
+///
+/// The prefill and probes come from [`build`] with `hit_rate`; the `m_new`
+/// fresh keys continue the same generator so the whole workload is one
+/// reproducible stream. Only [`Dist::Random`] is supported: the concurrent arm
+/// is pre-registered on uniform random keys alone (§11.4), and a structured
+/// shape would need its own miss-offset rule.
+pub fn build_concurrent(
+    n_prefill: usize,
+    m_new: usize,
+    keyspace_bits: u32,
+    hit_rate: f64,
+) -> ConcurrentWorkload {
+    let base = build(Dist::Random, n_prefill, keyspace_bits, hit_rate);
+    let mask = if keyspace_bits >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << keyspace_bits) - 1
+    };
+    let probe_is_prefill = base
+        .probes
+        .iter()
+        .map(|p| base.population.binary_search(p).is_ok())
+        .collect();
+
+    // A distinct seed derived from the suite seed, so the fresh stream does
+    // not replay the prefill draws; every candidate is still rejected on
+    // membership rather than trusted to be absent.
+    let mut rng = XorShift::new(XorShift::SEED ^ 0x5EED_C0DE_0000_0692);
+    let mut new_keys = Vec::with_capacity(m_new);
+    while new_keys.len() < m_new {
+        let c = rng.next() & mask;
+        if base.population.binary_search(&c).is_err() {
+            new_keys.push(c);
+        }
+    }
+    ConcurrentWorkload {
+        base,
+        probe_is_prefill,
+        new_keys,
+    }
+}

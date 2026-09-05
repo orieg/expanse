@@ -534,6 +534,17 @@
       "suite": "hot_comparison"
     },
     {
+      "name": "hot_concurrent",
+      "available": false,
+      "kind": "wallclock",
+      "runner": "generic",
+      "package": "expanse-hot-bench",
+      "target": "hot_concurrent",
+      "reason": "needs an initialised `third_party/hot` submodule plus HOT's nested `third-party/tbb` submodule (libtbb is built from it into the cargo build dir; no system package) and an x86-64 host with AVX2 and BMI2. Each cell runs in its own process because ROWEX's reclamation state is process-global, and all threads must sit inside the P-core pin. It is driven by `docs/benchmarks/hot_comparison/run.sh --only-concurrent`, which takes the host-wide benchmark lock, not by `cargo bench`.",
+      "summary": "HOT-ROWEX vs SyncExpanseSet/SyncExpanseMap: writer throughput as writer count scales, reader throughput alongside, and the Expanse protocol's restart/fallback shares.",
+      "suite": "hot_comparison"
+    },
+    {
       "name": "hot_string_memory",
       "available": false,
       "kind": "wallclock",
