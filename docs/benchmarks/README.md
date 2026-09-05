@@ -33,7 +33,7 @@ not reachable as `/benchmark` tokens and so do not appear below.
 
 | Suite | `/benchmark` tokens | Instrument | What it covers |
 |---|---|---|---|
-| [`art_comparison/`](art_comparison/README.md) | `art_insert`, `art_lookup_hit`, `art_lookup_miss`, `art_memory`, `art_scan` | wall-clock | Expanse vs. Adaptive Radix Tree (ART): Empirical Benchmark Suite |
+| [`art_comparison/`](art_comparison/README.md) | `art_insert`, `art_lookup_hit`, `art_lookup_miss`, `art_memory`, `art_scan`, `art_small_payload` | wall-clock | Expanse vs. Adaptive Radix Tree (ART): Empirical Benchmark Suite |
 | [`avx512/`](avx512/README.md) | `avx512_bitmap` | wall-clock | AVX-512 `vpopcntq` for `Bitmap256` cardinality |
 | [`embedded/`](embedded/README.md) | `embedded`, `embedded_memtable` | wall-clock | Embedded memtable shapes (host suite) |
 | [`hashbrown_comparison/`](hashbrown_comparison/README.md) | `hashbrown_container_dists`, `hashbrown_memory_alloc`, `hashbrown_native_suite`, `hashbrown_tail_latency`, `hashbrown_ycsb` | wall-clock | Expanse vs. Hashbrown vs. BTreeMap: Empirical Comparative Benchmark Suite |
