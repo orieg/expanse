@@ -19,6 +19,7 @@ Two charts:
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -26,7 +27,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from theme import svg_header  # noqa: E402
 
 BASE = Path(__file__).resolve().parent.parent
-RESULTS = BASE / "results"
+# HOT_RESULTS_DIR lets the string charts be exercised against a quick-mode
+# directory without touching the committed results (§8.5).
+RESULTS = Path(os.environ["HOT_RESULTS_DIR"]) if os.environ.get("HOT_RESULTS_DIR") else BASE / "results"
 
 W, H = 960, 420
 PAD_L, PAD_R, PAD_T, PAD_B = 70, 210, 66, 54
@@ -379,12 +382,183 @@ def standard_charts() -> list:
     return written
 
 
+# ---------------------------------------------------------------------------
+# String-key arms (#693, METHODOLOGY §10).
+# ---------------------------------------------------------------------------
+
+SHAPE_COLOUR = {
+    "short": "#16a34a",
+    "counter": "#0891b2",
+    "prefixed": "#d97706",
+    "skewed": "#7c3aed",
+    "beyond": "#dc2626",
+}
+
+
+def string_latency() -> str:
+    """Ratio + BCa interval per cell at the largest measured population, Arms C/D/E.
+
+    Cells whose HOT column is withheld (§10.4, `beyond`) are not plotted as a
+    ratio — there is none — and are listed in the footer instead, so the chart
+    cannot be read as HOT having been measured on them.
+    """
+    data = json.loads((RESULTS / "baseline_string_latency.json").read_text())
+    # Populations are post-deduplication counts (`skewed` at N = 1M holds
+    # 998,150 keys), so the head population is selected by proximity, not
+    # equality: every cell within 1% of the largest count belongs to it.
+    n_head = max(c["population"] for c in data["cells"])
+    all_cells = [c for c in data["cells"]
+                 if abs(c["population"] - n_head) <= n_head * 0.01 and c["pillar"] != "scan"]
+    cells = [c for c in all_cells if c["hot_over_expanse"] is not None]
+    withheld = sorted({c["dist"] for c in all_cells if c["hot_over_expanse"] is None})
+    cells.sort(key=lambda c: (c["pillar"], c["arm"], c["dist"]))
+    if not cells:
+        raise SystemExit("no string latency cells with a HOT column")
+
+    row_h = 17
+    height = PAD_T + len(cells) * row_h + 70
+    labels = [f'{c["pillar"]} · {c["arm"]} · {c["dist"]}' for c in cells]
+    pad_l = max(PAD_L, int(max(len(s) for s in labels) * 5.6) + 20)
+    plot_w = W - pad_l - PAD_R
+    hi = nice_ceiling(max(c["ci_upper"] for c in cells) * 1.05)
+
+    def sx(v: float) -> float:
+        return pad_l + v / hi * plot_w
+
+    out = [svg_header(W, height, f"String keys, latency at N={n_head:,} — HOT / Expanse ratio with BCa 95% intervals")]
+    out.append(f'<rect class="bg" x="0" y="0" width="{W}" height="{height}"/>')
+    out.append(f'<text class="t-title" x="{pad_l}" y="26">STRING KEYS · LATENCY AT N = {n_head:,}</text>')
+    out.append(f'<text class="t-sub" x="{pad_l}" y="43">HOT ÷ Expanse, BCa 95% interval — right of the '
+               f"parity line means Expanse is faster</text>")
+    step = 1 if hi <= 6 else (2 if hi <= 12 else 5)
+    for i in range(0, int(hi) + 1, step):
+        x = sx(i)
+        out.append(f'<line class="grid" x1="{x:.1f}" y1="{PAD_T-6}" x2="{x:.1f}" y2="{PAD_T+len(cells)*row_h}"/>')
+        out.append(f'<text class="t-axis-label" x="{x:.1f}" y="{PAD_T+len(cells)*row_h+16:.1f}" '
+                   f'text-anchor="middle">{i}×</text>')
+    xp = sx(1.0)
+    out.append(f'<line class="axis" x1="{xp:.1f}" y1="{PAD_T-6}" x2="{xp:.1f}" y2="{PAD_T+len(cells)*row_h}"/>')
+    for i, c in enumerate(cells):
+        y = PAD_T + i * row_h + row_h / 2
+        colour = "#16a34a" if c["ci_lower"] > 1.0 else ("#2563eb" if c["ci_upper"] < 1.0 else "#d97706")
+        out.append(f'<line x1="{sx(c["ci_lower"]):.1f}" y1="{y:.1f}" x2="{sx(c["ci_upper"]):.1f}" '
+                   f'y2="{y:.1f}" stroke="{colour}" stroke-width="2" opacity="0.55"/>')
+        out.append(f'<circle cx="{sx(c["hot_over_expanse"]):.1f}" cy="{y:.1f}" r="3.2" fill="{colour}"/>')
+        out.append(f'<text class="t-axis-label" x="{pad_l-8}" y="{y+3:.1f}" text-anchor="end">{esc(labels[i])}</text>')
+        out.append(f'<text class="t-legend" x="{pad_l+plot_w+14}" y="{y+4:.1f}" fill="{colour}">'
+                   f'{c["hot_over_expanse"]:.3f}×</text>')
+    out.append(f'<text class="t-note" x="{pad_l}" y="{height-24}">'
+               f"Amber = interval spans parity (BOUNDARY_RESULT); blue = HOT faster; green = Expanse faster.</text>")
+    if withheld:
+        out.append(f'<text class="t-note" x="{pad_l}" y="{height-10}">HOT column withheld on '
+                   f"{', '.join(withheld)}: every key exceeds HOT's 255-byte window (§10.4); Expanse measured alone.</text>")
+    out.append("</svg>")
+    return "\n".join(out)
+
+
+def _n_label(n: int) -> str:
+    return "1M" if n >= 1_000_000 else f"{n // 1000}k"
+
+
+def string_memory_sweep() -> str:
+    """Arm C ownership bytes/key across the population sweep, per shape.
+
+    Solid = Expanse (its index, which is also its ownership); dashed = HOT
+    ownership (index plus the string table its leaves point at). Where HOT's
+    column is withheld the shape has an Expanse line only. Axis bounds derive
+    from the data (§8.15a).
+    """
+    import math
+
+    data = json.loads((RESULTS / "baseline_string_memory.json").read_text())
+    cells = [c for c in data["cells"] if c["arm"] == "ptr"]
+    if not cells:
+        raise SystemExit("no Arm C memory cells")
+    shapes = [s for s in SHAPE_COLOUR if any(c["dist"] == s for c in cells)]
+    xs = sorted({c["population"] for c in cells})
+    ys = [c["expanse_ownership_bytes_per_key"] for c in cells] + [
+        c["hot_ownership_bytes_per_key"] for c in cells if c["hot_ownership_bytes_per_key"] is not None
+    ]
+    y_hi = nice_ceiling(max(ys) * 1.08)
+    plot_w = W - PAD_L - PAD_R
+    plot_h = H - PAD_T - PAD_B
+    lo, hi = math.log10(xs[0]), math.log10(xs[-1])
+
+    def sx(n: int) -> float:
+        return PAD_L + (math.log10(n) - lo) / max(hi - lo, 1e-9) * plot_w
+
+    def sy(v: float) -> float:
+        return PAD_T + plot_h - v / y_hi * plot_h
+
+    out = [svg_header(W, H, "String keys, Arm C — ownership bytes per key across population")]
+    out.append(f'<rect class="bg" x="0" y="0" width="{W}" height="{H}"/>')
+    out.append(f'<text class="t-title" x="{PAD_L}" y="26">STRING KEYS · ARM C · OWNERSHIP BYTES PER KEY</text>')
+    out.append(f'<text class="t-sub" x="{PAD_L}" y="43">solid = ExpanseStrMap (copies its keys); '
+               f"dashed = HOT index + the harness-owned strings its leaves point at (§10.3)</text>")
+    steps = 5
+    for i in range(steps + 1):
+        v = y_hi * i / steps
+        y = sy(v)
+        out.append(f'<line class="grid" x1="{PAD_L}" y1="{y:.1f}" x2="{PAD_L+plot_w}" y2="{y:.1f}"/>')
+        out.append(f'<text class="t-axis-label" x="{PAD_L-8}" y="{y+3:.1f}" text-anchor="end">{v:.0f}</text>')
+    ticks = [n for n in xs if n in (1_000, 10_000, 100_000, 1_000_000)] or xs
+    for n in ticks:
+        x = sx(n)
+        out.append(f'<line class="axis" x1="{x:.1f}" y1="{PAD_T+plot_h}" x2="{x:.1f}" y2="{PAD_T+plot_h+4}"/>')
+        out.append(f'<text class="t-axis-label" x="{x:.1f}" y="{PAD_T+plot_h+17:.1f}" text-anchor="middle">'
+                   f"{_n_label(n)}</text>")
+    out.append(f'<text class="t-axis-label" x="{PAD_L+plot_w/2:.1f}" y="{H-16}" text-anchor="middle">'
+               f"population N (log scale)</text>")
+    out.append(f'<text class="t-axis-label" x="16" y="{PAD_T+plot_h/2:.1f}" text-anchor="middle" '
+               f'transform="rotate(-90 16 {PAD_T+plot_h/2:.1f})">B / key</text>')
+    out.append(f'<line class="axis" x1="{PAD_L}" y1="{PAD_T+plot_h}" x2="{PAD_L+plot_w}" y2="{PAD_T+plot_h}"/>')
+
+    legend_y = PAD_T + 4
+    for shape in shapes:
+        pts = sorted((c for c in cells if c["dist"] == shape), key=lambda c: c["population"])
+        colour = SHAPE_COLOUR[shape]
+        for key, dash, name in (("expanse_ownership_bytes_per_key", "4 0", f"{shape} · Expanse"),
+                                ("hot_ownership_bytes_per_key", "5 4", f"{shape} · HOT")):
+            series = [c for c in pts if c[key] is not None]
+            if not series:
+                continue
+            d = " ".join(f"{'M' if i == 0 else 'L'}{sx(c['population']):.1f},{sy(c[key]):.1f}"
+                         for i, c in enumerate(series))
+            out.append(f'<path d="{d}" fill="none" stroke="{colour}" stroke-width="2" '
+                       f'stroke-dasharray="{dash}" stroke-linejoin="round"/>')
+            for c in series:
+                out.append(f'<circle cx="{sx(c["population"]):.1f}" cy="{sy(c[key]):.1f}" r="2.2" fill="{colour}"/>')
+            lx = PAD_L + plot_w + 18
+            out.append(f'<line x1="{lx}" y1="{legend_y}" x2="{lx+18}" y2="{legend_y}" stroke="{colour}" '
+                       f'stroke-width="2" stroke-dasharray="{dash}"/>')
+            out.append(f'<text class="t-legend" x="{lx+24}" y="{legend_y+4}">{esc(name)}</text>')
+            legend_y += 17
+    out.append(f'<text class="t-note" x="{PAD_L}" y="{H-4}">HOT has no line for a shape whose keys exceed its '
+               f"255-byte window; the Expanse line stands alone there (§10.4).</text>")
+    out.append("</svg>")
+    return "\n".join(out)
+
+
+def string_charts() -> list:
+    written = []
+    if (RESULTS / "baseline_string_latency.json").exists():
+        (RESULTS / "chart_string_latency.svg").write_text(string_latency() + "\n")
+        written.append("chart_string_latency.svg")
+    if (RESULTS / "baseline_string_memory.json").exists():
+        (RESULTS / "chart_string_memory_sweep.svg").write_text(string_memory_sweep() + "\n")
+        written.append("chart_string_memory_sweep.svg")
+    return written
+
+
 def main() -> int:
     RESULTS.mkdir(parents=True, exist_ok=True)
-    (RESULTS / "chart_memory_curve.svg").write_text(memory_curve() + "\n")
-    (RESULTS / "chart_latency_1m.svg").write_text(latency_1m() + "\n")
-    extra = standard_charts()
-    print("wrote chart_memory_curve.svg, chart_latency_1m.svg, " + ", ".join(extra))
+    written = []
+    if (RESULTS / "baseline_memory_curve.json").exists():
+        (RESULTS / "chart_memory_curve.svg").write_text(memory_curve() + "\n")
+        (RESULTS / "chart_latency_1m.svg").write_text(latency_1m() + "\n")
+        written += ["chart_memory_curve.svg", "chart_latency_1m.svg"] + standard_charts()
+    written += string_charts()
+    print("wrote " + ", ".join(written))
     return 0
 
 

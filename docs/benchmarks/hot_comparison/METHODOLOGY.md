@@ -5,7 +5,10 @@
 This document is commit 2 of the three-commit cadence (AGENTS.md §8.8): hypothesis,
 claims ceiling, expected-losses matrix and gate taxonomy, committed *before* the
 harness and before any measurement. Delivers the pre-registration half of
-[#660](https://github.com/orieg/expanse/issues/660).
+[#660](https://github.com/orieg/expanse/issues/660). The status line above is
+the integer arms' locked text; their measurement is in the README. The
+string-key arms ([#693](https://github.com/orieg/expanse/issues/693)) are
+pre-registered in §10, under their own status line.
 
 ---
 
@@ -704,3 +707,327 @@ Recorded rather than quietly fixed because §9.6 is a locked decision and this
 changes what one of its stated guarantees means (§8.7). The memory pillar's
 design — a curve across λ, Arm A labelled for its restricted domain — is
 unchanged.
+
+---
+
+## 10. String-Key Arms (#693): Pre-Registration
+
+**Status: locked before any string-arm harness code exists. No string-key
+measurement has been taken.** This section is the commit-2 pre-registration
+(§8.8) for the string half of the HOT comparison, carried from #660 to
+[#693](https://github.com/orieg/expanse/issues/693). It is appended rather
+than edited into §3–§8 so the integer arms' locked text stays readable as what
+was locked (§8.7).
+
+### 10.1 Scope, and what was read before lock
+
+The repo has no string-key comparative suite: `ExpanseStrMap` and
+`ExpanseBytesMap` have never been measured against a competitor. This is also
+the regime HOT was designed for — long and skewed string keys are where varying
+the discriminative bits per node should pay most, and where a fixed 8-byte chunk
+per level descends deepest.
+
+Nothing string-keyed has been *measured*. The following was *read* from the
+sources before lock, and every design decision below traces to one of these
+facts:
+
+| Fact | Source |
+|---|---|
+| HOT's shipped C-string configuration is `HOTSingleThreaded<const char*, IdentityKeyExtractor>`: the stored value **is** the key pointer. | `apps/benchmarks/string/hot-single-threaded-string-benchmark/src/main.cpp` |
+| HOT's own string benchmark allocates every key individually (`new char[line.length() + 2]`) and hands HOT the pointer. | `libs/idx/benchmark-helpers/.../StringBenchmarkConfiguration.hpp` |
+| `MAX_STRING_KEY_LENGTH = 255`; `toFixSizedKey<char const*>` copies the key with `strncpy` into a **255-byte** `std::array` (the issue text says 256; the array is `getMaxKeyLength<char const*>()` = 255 bytes); `getKeyLength = min(strlen + 1, 255)`; the discriminative-bit search compares `getMaxKeyLength()` = 255 bytes. | `libs/idx/content-helpers/.../KeyUtilities.hpp` |
+| Every HOT lookup, insert and `lower_bound` on a C-string key builds that 255-byte fixed key on the stack (`strncpy` zero-fills the remainder) and confirms the leaf with `strcmp` through the stored pointer. | `HOTSingleThreaded.hpp`, `ContentEquals.hpp` |
+| `ExpanseStrMap` is an ordered map from NUL-free byte strings to `u64`, keyed one 8-byte big-endian chunk per level, with the unbranched remainder of a key held in a `StrSuffix` leaf (`Box<[u8]>` + value). | `crates/expanse/src/strmap.rs` |
+| `ExpanseStrMap`'s ordered navigation is JudySL-shaped: `next_at_or_after` / `next_after` re-descend from the root on every step and return a fresh `Vec<u8>` key. There is no cursor iterator. | `crates/expanse/src/strmap.rs` |
+| `ExpanseBytesMap` is **hash-indexed and unordered** (JudyHS shape): a 64-bit hash into an `ExpanseMap` whose value points at a collision bucket holding byte-exact key copies. Under `std` the hasher is `RandomState`. | `crates/expanse/src/bytesmap.rs` |
+
+### 10.2 Pairings (issue constraint 3: what counts as a comparable payload)
+
+The value model is decided by HOT's key extractor, as it was for the integer
+arms. Both available models are measured, under their own workload IDs.
+
+**Arm C — `hot_str_ptr`: HOT C-string, identity extractor, vs `ExpanseStrMap`
+storing the key's pointer.** HOT's leaf value is the harness's `const char*`.
+The Expanse side stores the *same pointer* as its `u64` value. Both structures
+are then string → 8-byte-word maps, neither allocates a per-entry payload
+object, and both lookups return the word, which both timed loops fold into a
+sink. Because the two words are the same pointer, **the two sinks must be
+equal at the end of every round**; the harness asserts it, and a cell where they
+differ is void. This is HOT's shipped string configuration and the pairing that
+can produce an Expanse loss.
+
+**Arm D — `hot_str_map`: HOT C-string through `PairPointerKeyExtractor` over a
+heap `std::pair<const char*, uint64_t>`, vs `ExpanseStrMap` string → `u64`.**
+The only way HOT carries a value distinct from its key is a heap pair per entry.
+This is Arm B's shape again; its memory cells are labelled
+`PASS_categorical_by_design` by default (§6), for the same reason.
+
+**Arm E — `hot_bytes_ptr`: HOT C-string, identity extractor, vs
+`ExpanseBytesMap` storing the key's pointer.** The Expanse side here is a
+hash-indexed, unordered structure. The arm is measured because
+`ExpanseBytesMap` is what this engine offers for byte-string keys where order is
+not needed, and it has never been measured against anything. **It is not a
+trie-against-trie comparison and no cell from it is described as one.** It has
+no ordered-scan pillar.
+
+### 10.3 Key ownership and the census (issue constraint 2)
+
+HOT stores a pointer; the bytes it points at belong to the harness. Expanse
+copies key bytes into its own nodes. A census that ignores this measures the
+harness's string table on one side and not the other.
+
+**Locked:**
+
+1. **The harness owns every string as its own NUL-terminated heap allocation**,
+   one `malloc` per key, exactly as HOT's own string benchmark does. Not a
+   contiguous arena: an arena would give HOT's per-probe `strcmp` a locality
+   no real key store provides.
+2. **The instrument counts the strings on neither side.** The census is armed
+   only around the index build; population and probe strings are allocated
+   before it is armed. The `--wrap` interposition sees both indexes under one
+   definition (§9.1) and neither string table.
+3. **Three columns are published per memory cell**, never one:
+   - `index B/key` — bytes held from the allocator by the index alone, both
+     arms, from the instrument.
+   - `external key storage B/key` — the harness's string table, reported
+     twice: exact `Σ(len_i + 1) / N`, and as the allocator holds it (a
+     separately armed census over the table's allocation, since a 13-byte
+     string costs a 24- or 32-byte allocator chunk). HOT's leaves point into
+     this storage and HOT cannot answer a lookup without it (`strcmp` through
+     the pointer), so it is part of HOT's cost of ownership. Expanse's index
+     does not reference it.
+   - `ownership B/key` — HOT: `index + external key storage (as allocated)`;
+     Expanse: `index` alone.
+4. **Expanse's independence from the string table is demonstrated, not
+   asserted**: `hot_string_validate` builds an `ExpanseStrMap` from one copy of
+   the strings, frees that copy, and probes with a second, byte-identical copy;
+   every probe must hit. The same demonstration is impossible for HOT by
+   construction — freeing the strings invalidates its leaves — which is the
+   asymmetry the ownership column records.
+
+**Registered consequence.** On long keys the `index` column favours HOT by
+construction: HOT stores an 8-byte pointer plus node bits per key while Expanse
+stores the key bytes. If that lands, the `index` column is labelled
+`PASS_categorical_by_design` **in HOT's favour** — the mirror of Arm B's memory
+label — and the contest is the `ownership` column.
+
+### 10.4 The 255-byte capability predicate (issue constraint 1)
+
+HOT discriminates C-string keys on their first 255 bytes only (§10.1). Two keys
+that agree on those bytes are one key to HOT: the second `insert` reports a
+duplicate, and a `lookup` of either returns the first's value.
+
+**Locked:** `hot_can_key(len) := len ≤ 254` (a NUL-terminated string of at
+most 254 bytes fits the 255-byte fixed key with its terminator). Following the
+rule §9.4 earned — *a twin's limitation is a predicate on the twin, evaluated
+against the workload; the workload is never edited to accommodate it* —
+
+- the predicate is **evaluated per key, per cell**, and the cell records the
+  fraction of its population HOT can represent;
+- a cell with fraction `< 1.0` publishes the Expanse figure and, in the HOT
+  column, the finding (`not representable: n keys > 254 B`) — never a HOT
+  number over a silently smaller population (§8: population is asserted by
+  walking, and a mismatch voids the arm);
+- **the Expanse side is never restricted**, and no generator parameter is set
+  for HOT's benefit;
+- what HOT does with such keys is *measured* by `hot_string_validate` —
+  population by walk, `insert` return values, and what `lookup` returns for a
+  key that differs from a stored key only past byte 255 — and reported as a
+  capability finding about HOT.
+
+One workload shape below (`beyond`) is designed to fail the predicate for its
+whole population, so the finding is exercised where it is the point rather than
+discovered inside a latency cell.
+
+### 10.5 Workload shapes
+
+All strings are NUL-free. The random alphabet is the 62 ASCII alphanumerics
+(5.95 bits per byte). Every draw comes from the suite's `XorShift64` at
+`XorShift::SEED`; the generator is shared by every pillar and both arms.
+
+| Shape | Generator | Length | HOT-representable |
+|---|---|---|---|
+| `short` | random alphanumeric bytes | uniform 8..=16 | yes |
+| `counter` | `k` + 11-digit zero-padded decimal of `i` | 12 | yes |
+| `prefixed` | one 96-byte alphanumeric prefix drawn once from the PRNG, then 24 random alphanumeric bytes | 120 | yes |
+| `skewed` | random alphanumeric bytes; length Pareto(α = 1.2, x_min = 4), truncated at 192 | 4..=192, heavy right tail | yes |
+| `beyond` | one 256-byte alphanumeric prefix drawn once, then 16 random alphanumeric bytes | 272 | **no — every key exceeds 254 B; all discriminating bytes lie past HOT's window** |
+
+`skewed`'s truncation at 192 is a design choice made here, before measurement,
+so that the skewed cell measures the two mechanisms rather than the predicate;
+the predicate is exercised by `beyond`. The truncation is a generator parameter
+(`max_len`), and a cell run with a longer tail must report its representable
+fraction per §10.4 rather than trim the tail.
+
+**Misses** (§8.6): rejection-sampled from the same generator as the population
+and rejected on membership, never a transform of a present key. `counter`
+misses draw their index from `[N, 4N)` (the §8.6 offset rule). **Probe order**:
+Fisher–Yates from the same PRNG (§9.8). **Hit rates**: 100% for `lookup_hit`,
+50% for `lookup_miss`.
+
+**Populations.** Latency cells at N ∈ {10⁴, 10⁵, 10⁶}, as the integer arms.
+The memory pillar is a **population sweep**, N ∈ {1k, 2k, 5k, 10k, 20k, 50k,
+100k, 125k, 150k, 200k, 500k, 1M}, with the reason stated as §9.6 requires:
+string keys have no single density axis equivalent to λ. The candidate is the
+occupancy of the *discriminating chunk map* — for the random-alphanumeric
+shapes the first two bytes of the first random chunk take 62² = 3,844 values,
+so `λ_chunk = N / 3,844` and the `LEAF_CAP = 32` cascade of §9.4 would sit near
+N ≈ 1.23 × 10⁵. **That is a hypothesis, unmeasured**; the sweep is dense around
+it (100k, 125k, 150k) so it can be confirmed or refuted, and if it holds the
+memory rows are re-expressed against `λ_chunk` in an amendment rather than
+edited here. `counter` has construction-fixed occupancy (dense in the digit
+expanse) and is not expected to move.
+
+### 10.6 Pillars
+
+1. Point lookup, 100% hit — both arms return the stored word and fold it.
+2. Point lookup, 50% hit / 50% same-generator miss.
+3. Insertion into a cold structure.
+4. Ordered range scan, k ∈ {10, 100, 1000}, starts drawn from the probe
+   stream — **Arms C and D only**; `ExpanseBytesMap` is unordered.
+5. Memory census per §10.3, one process per cell (§9.2).
+
+**Scan surface disclosure, stated before the number exists.** The Expanse scan
+pillar drives the shipped `ExpanseStrMap` navigation surface:
+`next_at_or_after(start)` then `next_after(key)` per element, each a fresh root
+descent returning a heap-allocated key. HOT's side is `lower_bound` plus an
+incremental iterator. The pillar therefore measures the API surface each system
+ships, and the Expanse cost includes one allocation per visited element. That
+is what a JudySL caller pays today and it is published as such; a cursor
+iterator for `ExpanseStrMap` would be an engine change outside this suite.
+
+### 10.7 Expected-losses matrix
+
+Registered before measurement; confidence is the pre-registration's own.
+Losses first, because a suite that predicts only wins is not pre-registered.
+
+#### Where Expanse is expected to LOSE
+
+| Arm | Pillar / shape | Prediction | Confidence | Reasoning (hypothesis, unmeasured) |
+|---|---|---|---|---|
+| C, D | Ordered scan, every k, every shape | **HOT wins** | High | API-surface shape (§10.6): one root re-descent and one allocation per visited element against an incremental iterator. Not a statement about the trie's descent. |
+| C, D | Point lookup (hit and miss), `prefixed` | **HOT wins** | Medium-high | This is HOT's design regime. HOT selects discriminative bits and skips the 96 shared bytes; `ExpanseStrMap` descends twelve single-entry chunk levels through the same prefix before reaching the discriminating chunk. |
+| C, D | Insert, `prefixed` | **HOT wins** | Medium | The same twelve-level descent, followed by a `StrSuffix` allocation per key on the Expanse side. |
+| C, D, E | Memory, `index` column, `prefixed`, `skewed`, `beyond` | **HOT wins** | High — but `PASS_categorical_by_design` | HOT holds 8 bytes plus node bits per key; Expanse holds the key bytes. Decided by what each side stores, not by how well (§10.3). |
+| C, D | Point lookup, `skewed` | **HOT wins** | Low | Registered because skewed lengths are the regime HOT is built for and the issue expects the loss. The mechanism reading in §10.1 does not strongly support it: a random-content key of any length is one chunk-map descent plus one suffix compare for Expanse, while HOT pays a 255-byte fixed-key fill per probe. Recorded as genuinely uncertain, with the direction the issue predicts. |
+| C, D | Point lookup, `beyond` | **no HOT cell** | — | Fails the predicate for its whole population (§10.4). Expanse figures published alone. |
+
+#### Where Expanse is expected to WIN
+
+| Arm | Pillar / shape | Prediction | Confidence | Reasoning (hypothesis, unmeasured) |
+|---|---|---|---|---|
+| C, D | Point lookup and insert, `counter` | **Expanse wins** | High | Twelve-byte keys sharing `k000…`: the first chunk is one path and the terminal chunk lands in a dense digit expanse that packs into bitmap leaves — the string analogue of `sequential`, where the integer arms measured their widest margins. HOT allocates a leaf per key regardless. Low-information as a contest; registered so a win is a confirmation and not a headline. |
+| C | Point lookup, `short` | **Expanse wins** | Medium | One chunk-map descent over a 48-bit-entropy chunk plus one suffix compare, against a descent plus a 255-byte fixed-key fill plus `strcmp`. |
+| C | Memory, `ownership` column, `counter` and `short` | **Expanse wins** | Low-medium | Expanse pays a chunk-map entry plus a `StrSuffix` (two allocations) per key not resolved in a terminal chunk; HOT pays node bits plus the externally allocated string (allocator chunk ≥ 24 B for a 13-byte key). Close enough that `BOUNDARY_RESULT` is a live outcome. |
+| D | Memory, all columns, all representable shapes | **Expanse wins** | High — `PASS_categorical_by_design` | Arm D hands HOT a heap `std::pair` per entry on top of its index and the external string. A consequence of the value model, as for Arm B. |
+
+#### Explicitly not predicted
+
+`lookup_miss` on `short` and `skewed`; every latency cell of Arm E
+(`ExpanseBytesMap` hashes the whole key, so its cost is a function of key
+length rather than of prefix structure, and no mechanism argument places it
+against HOT in advance); insert on `short` and `skewed`. Reported with their
+numbers as `not pre-registered`.
+
+### 10.8 Falsifiers and the silent-failure re-check
+
+Every class §9.1–§9.9 found on the integer arms is re-checked on the string
+path by `hot_string_validate`, which must pass before any cell is recorded:
+
+| Class | Integer finding | String-path check |
+|---|---|---|
+| Payload width (§9.4) | 63-bit inline value | Arm C stores a pointer inline; every population pointer is asserted to have bit 63 clear, and every HOT lookup must return the pointer that was inserted (sink equality with Expanse, §10.2). |
+| Process-global pool (§9.2) | 3.3× undercount on a warm pool | `require_cold_pool` before every census; one cell per process. |
+| `operator new` (§9.7) | Arm B's pairs invisible | Arm D's build must count at least N allocations; Arm C's must count **fewer than N** — a per-entry heap object appearing on the identity arm means the shim stopped storing the pointer inline. |
+| Counter cached across the call (§9.1) | `free` ran, total did not move | The `1 MiB` control, plus a **string-table control**: allocating N strings must count exactly N allocations and freeing them must return the live total to its prior value. |
+| Key truncation (new, §10.4) | — | `beyond` is built into HOT deliberately: population by walk, `insert` return values, and the pointer `lookup` returns for a key differing only past byte 255 are recorded. |
+| Probe symmetry (§9.8) | ordered probe stream | Answer agreement on every probe of every arm; identical shuffled stream; misses by rejection. |
+
+Cells are void when: populations by walk differ from the intended population on
+either side; the two arms disagree on any probe; Arm C's sinks differ; the
+census control fails; the pool is warm; the ISA targets differ (§3.3).
+
+### 10.9 Claims-ceiling amendments (§7)
+
+§7 item 2 said *"No string-key claim — the string arms are separate scope."*
+Amended: string-key claims are in scope for the arms above, under these limits:
+
+1. Claims attach to HOT's **C-string configuration at `96bf6fb`** — `const
+   char*` keys through `IdentityKeyExtractor` or `PairPointerKeyExtractor` —
+   not to HOT with a length-prefixed or fixed-width key type it does not ship.
+2. **No HOT claim on keys longer than 254 bytes.** Cells there publish Expanse
+   alone and the finding.
+3. **Arm E is not a trie comparison.** An `ExpanseBytesMap` cell is a
+   hash-indexed structure against a trie and is described as such.
+4. The scan pillar is a claim about the **shipped navigation surfaces**, not
+   about descent cost (§10.6).
+5. Memory claims name their column (`index`, `external`, `ownership`) and their
+   population; the `index` column carries its categorical label where §10.3
+   applies.
+6. Single-threaded, x86-64 with AVX2 and BMI2, one HOT commit, no cross-suite
+   ratio, no peer review — as §7.
+
+### 10.10 Amendments found while building the string harness
+
+Recorded as amendments rather than edited into §10.4 (§8.7). Both are
+measurement constraints found by running `hot_string_validate` on the build
+host; neither is a result.
+
+**The window is 255 bytes, not 254.** §10.4 locked `hot_can_key(len) := len ≤
+254`, reasoning that the terminator had to fit inside the 255-byte fixed key.
+It does not: `strncpy` copies up to 255 content bytes and appends no terminator
+when the key is that long, so a 255-byte key is fully visible. Measured with
+pairs of keys differing only in their last byte *(measured: x86_64 build host —
+Intel Xeon E5-2697 v4; HOT `96bf6fb`; `-march=haswell`; workload:
+`hot_string_validate`)*:
+
+| Key length | HOT entries after inserting both |
+|---:|---|
+| 254 | 2 — discriminated |
+| 255 | 2 — discriminated |
+| 256 | **1** |
+| 300 | **1** |
+
+The predicate is corrected to `hot_can_key(len) := len ≤ 255`
+(`HOT_STRING_KEY_WINDOW`, asserted equal to HOT's `MAX_STRING_KEY_LENGTH` at
+runtime). No workload shape changes: `beyond` is 272 bytes and still fails it
+for every key; the other four shapes were inside both bounds. The issue text's
+"256-byte fixed representation" is also off by one in the other direction — the
+array is 255 bytes.
+
+**HOT drops an over-window key; it does not return a false positive.** §10.4
+predicted that a lookup of either colliding key would return the first's value.
+Measured, it does not: `insert` of the second key returns `false` (reported as
+a duplicate) and stores nothing, and `lookup` of that key returns *not found*,
+because `contentEquals` confirms the leaf with a full `strcmp` against the
+stored string. On `beyond` at N = 1,000: `insert` reported 1 key new, the trie
+walked 1, `lookup` found 1 of 1,000 and returned a wrong pointer for 0. The
+failure mode is therefore **silent population loss under a successful-looking
+build** — the same class as the integer arms' `insert() == true` on
+unretrievable keys (§3.1) — not wrong answers. It is the reason population is
+asserted by walking on every cell.
+
+**Populations are reported, not assumed.** `skewed` at N = 100,000 holds
+99,976 distinct keys after deduplication (4-byte keys collide at that
+population); every cell carries its actual population, and both sides are
+asserted against it.
+
+### 10.11 Outcome pointers (recorded after measurement, not reconciled above)
+
+The string arms were measured on the reference host at harness commit
+`d0149469`; the verdicts against §10.7 are in the README's §6 scorecard and are
+not copied here, so this file stays readable as what was locked. Two amendments
+follow from the outcome:
+
+- **§10.5's conditional re-expression is not made.** The `λ_chunk` cascade
+  hypothesis is *consistent with* the sweep — the Expanse index rises between
+  N = 100k and 150k on the random-alphanumeric shapes and not on `counter` —
+  but the single-variable test (changing the alphabet width and watching the
+  step move) was not run, so the memory rows stay on a population axis.
+  Hypothesis, partially supported; the falsifier is open.
+- **§10.7's `ownership` prediction for `short` is refuted by a leaf-representation
+  cost, not by HOT.** The gate's allocation counts show two allocations per
+  `ExpanseStrMap` key not resolved in a terminal chunk (a `StrSuffix` shell and
+  its byte buffer). That is a property of the engine's string leaf and is logged
+  for the engine, as §9.4 logged the `LEAF_CAP` density behaviour, rather than
+  amended into this suite.

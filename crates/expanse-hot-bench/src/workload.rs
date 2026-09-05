@@ -21,6 +21,7 @@ impl XorShift {
     }
 
     /// Next raw 64-bit draw.
+    #[allow(clippy::should_implement_trait)] // a PRNG step, not an iterator
     pub fn next(&mut self) -> u64 {
         let mut x = self.0;
         x ^= x << 13;

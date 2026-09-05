@@ -74,8 +74,8 @@ fn main() {
          Same structure, same key stream, both instruments read on the same build.\n"
     );
     println!(
-        "{:<12} {:>9} {:>4} {:>12} {:>12} {:>8}  {}",
-        "dist", "N", "bits", "mem_used B/k", "alloc B/k", "ratio", "flavor"
+        "{:<12} {:>9} {:>4} {:>12} {:>12} {:>8}  flavor",
+        "dist", "N", "bits", "mem_used B/k", "alloc B/k", "ratio"
     );
 
     for dist in ["sequential", "clustered", "sparse", "random"] {

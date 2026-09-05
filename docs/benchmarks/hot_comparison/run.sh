@@ -38,17 +38,35 @@ trap 'rm -rf "${BENCH_LOCK}"' EXIT
 # shellcheck source-path=SCRIPTDIR/../../..
 . "${REPO_ROOT}/scripts/bench_pin.sh"
 
-echo "========================================================================"
-echo " HOT Comparison Benchmark Suite — Expanse vs Height Optimized Trie (#660)"
-echo "========================================================================"
-echo " Arm A: HOT<uint64_t, IdentityKeyExtractor>      vs ExpanseSet  (63-bit)"
-echo " Arm B: HOT<pair*, PairPointerKeyExtractor>      vs ExpanseMap  (64-bit)"
-echo ""
-echo " Memory publishes a curve across expanse occupancy, not a cell per"
-echo " distribution: per-key cost is a sawtooth in density (METHODOLOGY §9.6)."
-echo "========================================================================"
-
-python3 "${SCRIPT_DIR}/scripts/run_all.py" "$@"
+# `run.sh strings [--quick]` drives the string-key arms (#693, METHODOLOGY
+# §10); a bare `run.sh [--quick]` drives the integer arms (#660). Both take the
+# same lock and the same core pin above.
+if [ "${1:-}" = "strings" ]; then
+  shift
+  echo "========================================================================"
+  echo " HOT Comparison Benchmark Suite — string-key arms (#693)"
+  echo "========================================================================"
+  echo " Arm C: HOT<const char*, IdentityKeyExtractor>   vs ExpanseStrMap (ptr)"
+  echo " Arm D: HOT<pair*, PairPointerKeyExtractor>      vs ExpanseStrMap (u64)"
+  echo " Arm E: HOT<const char*, IdentityKeyExtractor>   vs ExpanseBytesMap (ptr)"
+  echo ""
+  echo " Strings are the harness's; the census counts them on neither side and"
+  echo " publishes them as their own column. HOT's 255-byte key window is a"
+  echo " predicate evaluated per cell, never a restriction (METHODOLOGY §10)."
+  echo "========================================================================"
+  python3 "${SCRIPT_DIR}/scripts/run_strings.py" "$@"
+else
+  echo "========================================================================"
+  echo " HOT Comparison Benchmark Suite — Expanse vs Height Optimized Trie (#660)"
+  echo "========================================================================"
+  echo " Arm A: HOT<uint64_t, IdentityKeyExtractor>      vs ExpanseSet  (63-bit)"
+  echo " Arm B: HOT<pair*, PairPointerKeyExtractor>      vs ExpanseMap  (64-bit)"
+  echo ""
+  echo " Memory publishes a curve across expanse occupancy, not a cell per"
+  echo " distribution: per-key cost is a sawtooth in density (METHODOLOGY §9.6)."
+  echo "========================================================================"
+  python3 "${SCRIPT_DIR}/scripts/run_all.py" "$@"
+fi
 
 echo ""
 echo " Results written to:"
